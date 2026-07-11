@@ -2,7 +2,7 @@
 
 **Status:** Decided (July 2026) — with a **hanging-questions** section (§12); nothing there blocks implementation of §1–§11.
 **Scope:** Module identity (one module per file, no module header), the `import` declaration (named, aliased, namespace forms), the `export` modifier and `export opaque`, privacy defaults, the module-alias namespace and position-based resolution, the prelude occlusion rule (retiring the Statements §10.2 interim rule), import-collision rules, the acyclic-import rule and load order, top-level effects, instance globality and the orphan rule's operational definition of "home module," the private-in-public rule, generalisation at module level (restated), ESM emission, and edit notes to existing specs.
-**Not in scope:** the `.d.ts` representation of `opaque` types (FFI spec — flagged §11.3), package/bare-specifier resolution (§12.1), re-exports (§12.2), what a *program* is and where `main` lives (Program Structure spec; this doc fixes only per-module load semantics, §8), the prelude's inventory (stdlib listing — one constraint pre-registered here, §6.4), abstraction pedagogy (owed to a future session by agreement).
+**Not in scope:** the `.d.ts` representation of `opaque` types (FFI spec — flagged §11.3), package/bare-specifier resolution (§12.1), re-exports (§12.2), CLI root-selection and project-configuration syntax (compiler architecture; §8.3 fixes the language-level absence of a special entry point), the prelude's inventory (stdlib listing — one constraint pre-registered here, §6.4), abstraction pedagogy (owed to a future session by agreement).
 **Companions:** Constraints spec (§5.1 duplicate reporting point and §5.3 orphan rule — both discharged here; §9.3 presumption — confirmed here), Statements/Blocks/Mutability spec (§5.2/§10.2 prelude-collision question — closed here; §6 `var` confinement — restated as module doctrine here), Declarations Preamble (§7 module-level declaration inventory; §10.9 owed items — discharged here), Unions §2 (constructor qualification — discharged here), Functions §8 / Type System Overview §2.2 (generalisation at module export — anchored here), Operators §14 (`.` as module-path separator — semantics fixed here), Lexer & Layout (module top level is a block — unchanged, consumed here).
 
 Written for a future implementation session against the existing `hexc` architecture: Algorithm J, union-find tyvars, level-based generalisation, constraints as dictionaries, layout pass, readable-JS emission with `.d.ts`.
@@ -215,7 +215,15 @@ An import cycle anywhere in the graph is a **hard error** naming the cycle: "imp
 
 ### 8.2 Top-level effects and load order
 
-Non-binding `Unit`-typed expressions are **legal at module top level** (`print("loaded")` — JS-style, per the existing block rules: Statements §3.2 polices non-`Unit` discards there exactly as in any block). Load order is fixed: **a module's imports are loaded depth-first in source order, each module exactly once, before the module's own top level runs** — ESM's order minus the cycle cases, well-defined because §8.1 bans those. Within a module, top-level items run in source order (declarations and `fun`s are hoisted/order-insensitive per their specs; `let`s and effects run in order; the existing `fun`-capture-of-later-`let` rules, Functions §7.2, apply unchanged at module level). What constitutes a *program* — entry point, `main`, whether an app's root module may rely on effects — is the Program Structure spec's; this section fixes only the per-module contract it will compose.
+Non-binding `Unit`-typed expressions are **legal at module top level** (`print("loaded")` — JS-style, per the existing block rules: Statements §3.2 polices non-`Unit` discards there exactly as in any block). Load order is fixed: **a module's imports are loaded depth-first in source order, each module exactly once, before the module's own top level runs** — ESM's order minus the cycle cases, well-defined because §8.1 bans those. Within a module, top-level items run in source order (declarations and `fun`s are hoisted/order-insensitive per their specs; `let`s and effects run in order; the existing `fun`-capture-of-later-`let` rules, Functions §7.2, apply unchanged at module level).
+
+### 8.3 Root modules; no special `main`
+
+Hexagon has **no language-level entry function**. `main` is an ordinary lowercase identifier: it may be declared, exported, imported, or called, but the compiler never discovers or invokes it implicitly and assigns no special type to it.
+
+A compiler host selects one or more **root modules**. Imports determine each root's acyclic graph. Building a root emits its ordinary ESM graph; running a root means asking the target host to evaluate that emitted root module. Its imports initialize and its top-level effects run exactly per §8.1–§8.2. No wrapper call or second program-order mechanism exists.
+
+Library versus application is therefore not a distinction in Hexagon module semantics. The same module may be imported by another module or selected as a run root. Command spelling, project-file defaults, process arguments, and exit-code policy belong to compiler/host architecture; they cannot add a mandatory `main` or implicit parameters to the root module.
 
 ---
 
@@ -367,7 +375,7 @@ Geo.area(2.0)
 | Prelude occlusion: module-level bindings may occlude prelude; function-local occludes nothing; explicit imports fight; Head Binder rule untouched in statement; Statements §10.2 retired | §5.4 |
 | Every prelude name must have a qualified home (stdlib invariant, pre-registered) | §6.4 |
 | Instances never exported/imported/hidden; home module = containing file; cross-module duplicates reported at whole-program check naming both sites; instances on private types legal; whole-program coherence cost acknowledged | §7 |
-| Imports acyclic, hard error, incl. type-only; deterministic depth-first load order; top-level `Unit` effects legal | §8 |
+| Imports acyclic, hard error, incl. type-only; deterministic depth-first load order; top-level `Unit` effects legal; selected root module runs through ordinary ESM evaluation; no special `main` | §8 |
 | ML calculus, headers, export lists, `(..)` sugar, default exports, single-namespace, F# priority stack, unified paths, cycles: rejected with reasons | §9 |
 | Emission: 1:1 ESM; named imports even for namespace form; `opaque` `.d.ts` deferred to FFI | §11 |
 | Five hanging questions recorded | §12 |

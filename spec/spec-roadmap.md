@@ -39,9 +39,6 @@ Lexer & Layout covers layout; remaining crumbs:
 - Complete keyword table — now including `when`, pattern-position `as`, reserved `finally`.
 - Identifier and escape minutiae.
 
-### 7. Program structure / entry point
-Never touched anywhere: what a Hexagon program *is* — main function? top-level effects? module initialization order? Small, but required before `hexc` can emit a runnable artifact.
-
 ---
 
 ## Tier 3 — Explicitly deferred (v2 / on-demand; recorded, not owed for v1)
@@ -72,6 +69,6 @@ Also noted for the record: the reviewer's proposed "module aliases must be unsha
 
 ## Recommended order and rationale
 
-~~Declarations preamble → Modules → Collections (parts 1–5) →~~ **FFI next** (the agenda, bounded proto-spec, specialization note, and exported-dictionaries note now carry the assembled decision surface), with the Stdlib listing accreting alongside, and Full Lexer + Program Structure slotted wherever convenient (both are small and nearly dependency-free).
+~~Declarations preamble → Modules → Collections (parts 1–5) →~~ **FFI next** (the agenda, bounded proto-spec, specialization note, and exported-dictionaries note now carry the assembled decision surface), with the Stdlib listing accreting alongside and the Full Lexer slotted wherever convenient. The former Program Structure item is closed by Modules §8.3 and the compiler's compilation-roots architecture: selected root modules run through ordinary ESM evaluation, with no special `main`.
 
 Rationale (original, preserved): the preamble unblocked header-grammar questions; Modules was the biggest unknown and both collections and FFI cite it (orphan rule, qualification). Collections-before-FFI was preferred because list patterns and `List` representation inform the boundary contracts, but Part 1's decisions (Hexagon-owned persistent vector; `Array(a)` as readonly foreign-door type) have de-coupled the ordering. This preserves the property that made past sessions smooth: each spec's dependencies are decided before it needs them.

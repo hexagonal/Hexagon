@@ -50,7 +50,7 @@ Emit the checked public surface as `.d.ts`: generics, records, unions, opaque ty
 
 ## 11. Project system and CLI
 
-Load source graphs, coordinate whole-program compilation, manage outputs and options, format diagnostics, and expose `hexc` through a thin CLI over the platform-neutral compiler API.
+Load source graphs from selected root modules, coordinate whole-program compilation, manage outputs and options, format diagnostics, and expose build and run operations through a thin CLI over the platform-neutral compiler API. Running evaluates the selected root's ordinary ESM top level; it never searches for or invokes a special `main`. Follow `architecture/compilation-roots.md`.
 
 ## 12. Conformance and integration
 

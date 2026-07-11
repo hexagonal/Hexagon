@@ -20,13 +20,16 @@ The Preface should remain short, inviting, and directional. It answers “why mi
 
 The first numbered chapter should let the reader meet Hexagon as a language they can use.
 
-Begin with the smallest honest program the settled execution model permits, then move quickly to a small functional example that demonstrates values flowing through functions. Avoid spending several pages on printing one string.
-
-Until the program-entry specification decides `main`, top-level effects, and module initialization, use an exported function rather than inventing executable semantics. A likely opening shape is an exported greeting function called from JavaScript:
+Begin with the smallest honest runnable program: a root module with one top-level effect. Hexagon has no special `main`; selecting and evaluating the root module runs it under the ordinary module initialization rules:
 
 ```hexagon
-export let greet(name: String): String =
-  "Hello, ${name}!"
+print("Hello, Hexagon!")
+```
+
+Move quickly to a small functional example that demonstrates values flowing through functions. Avoid spending several pages on printing one string. A likely next shape is an exported greeting function that also introduces the JavaScript boundary:
+
+```hexagon
+export let greet(name: String) = "Hello, ${name}!"
 ```
 
 The chapter can then show the three useful faces:
