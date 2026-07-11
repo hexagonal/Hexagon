@@ -1,5 +1,9 @@
 # Hexagon
 
+<p align="center">
+  <img src="Hex.svg" width="384" alt="Hexagon programming language logo: a purple hexagon containing the word HEX">
+</p>
+
 Hexagon is an ML-style functional language designed for the JavaScript and TypeScript ecosystem. It combines strong type inference, plain data, algebraic types, pattern matching, row-polymorphic records, and type constraints with readable JavaScript output and accurate `.d.ts` declarations.
 
 > [!IMPORTANT]
