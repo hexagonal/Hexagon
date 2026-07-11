@@ -25,18 +25,15 @@ The current design includes:
 For example, the intended source and boundary experience has this shape:
 
 ```hexagon
-export let greet(name: String): String =
-  "Hello, ${name}!"
+export let greet(name: String) = "Hello, ${name}!"
 ```
 
 ```js
-export function greet(name) {
-  return `Hello, ${name}!`;
-}
+export const greet = (name) => `Hello, ${name}!`;
 ```
 
 ```ts
-export declare function greet(name: string): string;
+export declare const greet: (name: string) => string;
 ```
 
 These examples express the design direction; there is not yet a compiler that produces them.
