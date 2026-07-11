@@ -71,11 +71,12 @@ Node is the pragmatic initial CLI host because it supplies filesystem access, pr
 The intended launch shapes are conceptually:
 
 ```text
-hexc <inputs/options>
-npx hexc <inputs/options>
+hexc build <roots/options>
+hexc run <root/options>
+npx hexc <command/inputs/options>
 ```
 
-The npm package name, precise commands, project-file convention, watch mode, exit codes, and minimum Node version remain to be specified before release.
+`build` accepts one or more root modules; `run` selects one root and evaluates its emitted ESM graph. Hexagon has no special `main` function. These operations and their separation are fixed by `compilation-roots.md`; their precise command spelling, project-file convention, watch mode, exit codes, and minimum Node version remain to be specified before release.
 
 An installed CLI may eventually be packaged as a standalone executable, but that is a distribution choice rather than a compiler-semantics decision.
 
@@ -144,6 +145,7 @@ The initial architecture does not promise:
 - Node is the initial CLI host.
 - The compiler core is platform-neutral and accessed through host adapters.
 - The playground uses a browser build of the same compiler core.
+- Compiler hosts select root modules; running evaluates one root's ordinary ESM top level, with no special `main`.
 - emitted programs are portable readable ESM unless their own explicit dependencies make them environment-specific.
 - The default JavaScript feature set follows the release-frozen Baseline Widely Available doctrine in `javascript-target.md`.
 - Older-environment downleveling is delegated to ordinary JavaScript tooling; `hexc` does not inject general compatibility polyfills.

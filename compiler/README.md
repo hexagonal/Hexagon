@@ -9,6 +9,7 @@ Implementation has not started. The compiler architecture, naming, and readabili
 - [Readability and commenting doctrine](architecture/readability-and-comments.md)
 - [Testing doctrine](architecture/testing.md)
 - [Implementation and environment](architecture/environment.md)
+- [Compilation roots and running modules](architecture/compilation-roots.md)
 - [JavaScript target doctrine](architecture/javascript-target.md)
 
 The implementation language is TypeScript 7 or later. The initial toolchain details remain to be settled before `src/` is created.

@@ -44,7 +44,7 @@ These examples express the design direction; there is not yet a compiler that pr
 
 ## Project status
 
-The normative language specification is being developed before compiler implementation begins. Much of the core language is decided, including functions, products, unions, constraints, exceptions, modules, pattern matching, operators, collections, statements, and iteration. The general foreign-function interface, full lexer inventory, program entry model, and standard-library listing still have open work.
+The normative language specification is being developed before compiler implementation begins. Much of the core language is decided, including functions, products, unions, constraints, exceptions, modules, pattern matching, operators, collections, statements, iteration, and root-module execution. The general foreign-function interface, full lexer inventory, and standard-library listing still have open work.
 
 Compiler implementation will proceed through thin vertical slices. A language feature should travel through lexing, layout, parsing, resolution, checking, elaboration, JavaScript and `.d.ts` emission, tests, and an interactive playground example before it is treated as delivered.
 
