@@ -1,4 +1,4 @@
-# Hexagon Language Specification — Functions
+# Hexagon Spec: Functions
 
 **Status:** Settled design. Written for Claude-as-implementer.
 **Scope:** Function definition, lambdas, `let`/`fun` binding of functions, application, arity, generalization, naming, and JS emission.
