@@ -113,7 +113,7 @@ f(x, y)      -- two arguments
 - **No partial application.** Wrap in a lambda: `y => f(1, y)`.
 - **No placeholder shorthand** (`f(_, 2)` etc.). Explicitly none, for now; may be revisited at FFI time.
 - **No splatting / no tuple application.** Given `let t = (3, 7)`, the call `plus(t)` is an arity error (one argument supplied, two expected). Parameter lists *resemble* tuples but are not tuple values; there is no implicit conversion in either direction. Someone holding a tuple destructures it: `let (x, y) = t` then `plus(x, y)` (destructuring per the tuples spec).
-- **No optional, default, or named parameters** in pure Hexagon functions. (The FFI boundary may need its own story — `Nullable(T)` etc. — but that is the FFI spec's problem and must not leak into these semantics.)
+- **No optional, default, or named parameters** in pure Hexagon functions. (The FFI boundary may need its own story — `Nullable(a)` etc. — but that is the FFI spec's problem and must not leak into these semantics.)
 
 ### 5.1 The SML reading (pedagogy only)
 
@@ -278,6 +278,6 @@ Notes:
 - **Tuples** (C#-value-tuple-flavored syntax, destructuring): own spec. This spec depends only on: no 1-tuples, `()` is the nullary case, no tuple↔argument-list conversion.
 - **Operators**, including `|>` first-argument insertion: own spec. This spec contributes only the subject-first parameter-order convention (§5.3). Note for reading the examples: Hexagon prefers English logical operators (`not`, `and`, `or`, `implies`, `iff`) and uses `if ... then ... else ...` as its conditional expression — there is no C-style `? :` ternary.
 - **Constraints** (`Num`, `implement`, superconstraints): own spec. This spec fixes only the `<a: C>` / `<a: (C1, C2)>` syntax.
-- **FFI**: `Nullable(T)`, extern functions, possible revisiting of placeholders/optional parameters. Nothing here leaks into pure Hexagon function semantics.
+- **FFI**: `Nullable(a)`, extern functions, possible revisiting of placeholders/optional parameters. Nothing here leaks into pure Hexagon function semantics.
 - **LSP display format** (arrow notation, canonicalized constraint display): own spec; display-only, no round-tripping requirement.
 - **Type-system internals** (Algorithm J, levels, union-find, bidirectional checking for rank-2): own spec. §8 states only the observable rules.

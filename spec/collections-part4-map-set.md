@@ -350,7 +350,7 @@ Cyclic JS object keys (structural Hexagon values cannot represent arbitrary cycl
 
 - `Map.empty`/`Set.empty` emit shared runtime constants (as `Vector.empty`, Part 3 §2).
 - `m[k]` emits a runtime keyed read with the presence check that produces `KeyError` (a check exists either way — JS `.get` returns `undefined` on absence; the throwing form wins on type cleanliness, exactly the Part 3 §5.1 argument).
-- Constructors, algebra, and instances emit `@hexagon/runtime` calls; `.d.ts` faces expose `Map<K, V>`-shaped generics over the runtime's persistent classes (final shapes: FFI/emission spec).
+- Constructors, algebra, and instances emit `@hexagon/runtime` calls; `.d.ts` faces expose `Hex.Map<k, v>` and `Hex.Set<a>` from `@hexagon/runtime` (final namespace/import form: FFI spec).
 - `for (k, v) in m` emits the general iterable path (Loops §6.5) with a destructuring head: `for (const [k, v] of m.entries())`-shaped — readable, native.
 
 ---

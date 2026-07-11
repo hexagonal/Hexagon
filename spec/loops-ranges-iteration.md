@@ -188,7 +188,7 @@ A `Seq` may be backed by deferred computation (`Seq.map(s, f)` applies `f` on de
 
 ### 6.5 Emission
 
-`Seq(a)` is emitted onto **JS's native iterable/iterator protocol** — a `Seq` value is (or wraps) a JS iterable, so `for (const x of s)` is directly valid on the JS side, `Seq` pipelines read like the generator-library code a JS developer already knows, and the `.d.ts` face is `Iterable<T>`. The precise representation (plain iterable-of-`[Symbol.iterator]`, or a small wrapper preserving persistence of `next`) is an implementation choice constrained by §6.2's semantics: `Seq.next(s)` must not consume `s` from the caller's perspective. Implementers: JS iterators are single-shot and mutable; the wrapper must memoize or re-derive to honor persistence. This is the one place the pure protocol costs something; monomorphic loops avoid the machinery entirely (§8).
+`Seq(a)` is emitted onto **JS's native iterable/iterator protocol** — a `Seq` value is (or wraps) a JS iterable, so `for (const x of s)` is directly valid on the JS side, `Seq` pipelines read like the generator-library code a JS developer already knows, and the `.d.ts` face is `Iterable<a>`. The precise representation (plain iterable-of-`[Symbol.iterator]`, or a small wrapper preserving persistence of `next`) is an implementation choice constrained by §6.2's semantics: `Seq.next(s)` must not consume `s` from the caller's perspective. Implementers: JS iterators are single-shot and mutable; the wrapper must memoize or re-derive to honor persistence. This is the one place the pure protocol costs something; monomorphic loops avoid the machinery entirely (§8).
 
 ---
 
@@ -238,7 +238,7 @@ Readable-JS doctrine: the general mechanism exists; the common case erases.
 - The counting-loop erasure is **mandatory**, not an optimisation option — it is the readable-JS goal at the language's most common loop, same status as `fromInt` erasure (Numeric Literals §5). "Syntactic range" means the loop head's expression is literally a `..` application / `range(...)` / `rangeDown(...)` call; a `Range` arriving through a variable takes the general `for..of` path.
 - The general path relies on §6.5: everything in the §5 table is a JS iterable in emitted form (`List` per its own emission, `Seq` per §6.5, materialised `Range` objects), so `for (const x of e)` is always valid.
 - Loop bodies emit as ordinary JS blocks; `var`/`:=` inside them emit per Statements §8 (`let` / `=`), which is sound *because* bodies are blocks, not closures — the same coupling recorded in Statements §8 holds here.
-- `.d.ts` impact: `Seq(a)` ↔ `Iterable<T>`; `Range` appears as the emitted range object's interface (or `Iterable<number>`) if it ever crosses the boundary; loops themselves are function-internal and never do.
+- `.d.ts` impact: `Seq(a)` ↔ `Iterable<a>`; `Range` appears as the emitted range object's interface (or `Iterable<number>`) if it ever crosses the boundary; loops themselves are function-internal and never do.
 
 ---
 
@@ -369,7 +369,7 @@ for x in 1..10
 | `while cond` + block; condition grammar = `if`'s, by reference; `Bool`, no truthiness; `Unit`; `while true` legal, no `Never` type invented | §4 |
 | `Seq(a)`: concrete lazy sequence type in v1; protocol is the functional cursor `next : (Seq(a)) -> Option((a, Seq(a)))`; persistence mandatory | §6 |
 | External iteration mandatory; fold-based desugaring forbidden (lambda boundary) | §6.3 |
-| `Seq` emits onto the JS iterable protocol; `.d.ts` face `Iterable<T>` | §6.5 |
+| `Seq` emits onto the JS iterable protocol; `.d.ts` face `Iterable<a>` | §6.5 |
 | `Iterable` compiler-known in v1: internal (constructor → element, strategy) table shaped as the future instance table; never leaks into signatures/hovers; unsolved iterable tyvar = annotation-required error; `Seq` parameters are the generic idiom | §7 |
 | v2 exposure decided-in-principle: `constraint Iterable<c> = type Elem; iterate(xs: c): Seq(Elem)`; `Elem(c)` reference syntax candidate; own spec | §7.2, §11.1 |
 | Emission: counting-loop erasure for syntactic ranges (mandatory), `for..of` general case, `while` verbatim, on-demand `Range` objects | §8 |

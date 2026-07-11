@@ -2,7 +2,7 @@
 
 **Status:** Decided (July 2026)
 **Scope:** The nominal `union` declaration: constructors (nullary and payload-carrying, named and unnamed slots), the `match` expression with flat constructor patterns, exhaustiveness, generics and recursion, the tagged-POJO runtime representation, the all-nullary string special case, prelude `Option`/`Result`, derived-constraint semantics, JS emission and `.d.ts` shapes.
-**Not in scope:** the full pattern grammar — nesting, literals, guards, record/tuple patterns (pattern-matching spec; this doc fixes only flat constructor patterns as that grammar's degenerate case, same move as Products §2.4), the declaration-header grammar shared with `record`/`type` (declarations spec), the constraint mechanism and `implement` (constraints spec; this doc fixes derived-instance *semantics* only), module-level qualification of constructor names (modules spec), FFI conversions (`Nullable(T)` ↔ `Option`) (FFI spec).
+**Not in scope:** the full pattern grammar — nesting, literals, guards, record/tuple patterns (pattern-matching spec; this doc fixes only flat constructor patterns as that grammar's degenerate case, same move as Products §2.4), the declaration-header grammar shared with `record`/`type` (declarations spec), the constraint mechanism and `implement` (constraints spec; this doc fixes derived-instance *semantics* only), module-level qualification of constructor names (modules spec), FFI conversions (`Nullable(a)` ↔ `Option`) (FFI spec).
 **Companions:** Products spec (the product half of the algebra; `itemN` vocabulary; nominal-name opacity doctrine), Functions spec (arity checking, constructors-as-functions, value restriction), Lexer & Layout spec (match arms are a layout block), Primitive Types §7 (Show display semantics).
 
 Written for a future implementation session against the existing `hexc` architecture: Algorithm J, union-find tyvars, level-based generalisation, constraints as dictionaries, layout pass, readable-JS emission with `.d.ts`.
@@ -222,7 +222,7 @@ union Result(a, e) = Ok(value: a) | Err(error: e)
 
 - **Success type first** in `Result`, matching the subject-first convention (Functions §5.3).
 - Payload slots are **named** even though these are the "obvious" constructors, because their emitted shape (`{tag: "Some", value: x}`, `{tag: "Err", error: e}`) is the most-trafficked union surface at the FFI, and `value`/`error` is what a TS author writes there. This deliberately overrides the §2.1 style rule's escape hatch for the prelude's own exports.
-- **Pre-registered rejection — `Option(a)` is not `a | undefined`.** Compiling `Option` to nullable erasure is the tempting interop move and is wrong: `Some(None)` and `None` collapse (generic code over `Option(a)` breaks whenever `a` instantiates to another Option); it special-cases the one place the language promises uniformity; and the emitted type lies structurally. JS-side nullability lives at the boundary as `Nullable(T)` (FFI spec), with explicit prelude conversions (`Option.fromNullable` / `Option.toNullable`, exact signatures owed to the FFI spec). Do not re-litigate without new information.
+- **Pre-registered rejection — `Option(a)` is not `a | undefined`.** Compiling `Option` to nullable erasure is the tempting interop move and is wrong: `Some(None)` and `None` collapse (generic code over `Option(a)` breaks whenever `a` instantiates to another Option); it special-cases the one place the language promises uniformity; and the emitted type lies structurally. JS-side nullability lives at the boundary as `Nullable(a)` (FFI spec), with explicit prelude conversions (`Option.fromNullable` / `Option.toNullable`, exact signatures owed to the FFI spec). Do not re-litigate without new information.
 - The standard partiality story elsewhere in the stdlib (`Int.checkedAdd : ... -> Option(Int)`, `BigInt.toInt` partial, etc.) is this `Option`. Nothing changes there; the type it referred to now exists.
 
 ---
@@ -269,4 +269,4 @@ union Result(a, e) = Ok(value: a) | Err(error: e)
 | `.d.ts` = hand-written-style discriminated union / string-literal union | §6.5 |
 | Derived Eq/Ord/Show semantics; Ord by declaration order (index table for string case); Show positional | §7 |
 | Prelude `Option`/`Result`, named payloads, success-first `Result` | §8 |
-| `Option` ≠ `a \| undefined`; nullability is `Nullable(T)` at the boundary only | §8 |
+| `Option` ≠ `a \| undefined`; nullability is `Nullable(a)` at the boundary only | §8 |

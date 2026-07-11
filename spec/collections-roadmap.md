@@ -1,6 +1,6 @@
 # Hexagon Collections Roadmap
 
-**Status:** Planning note (July 2026) — snapshot taken immediately after the Part 1 decisions session.
+**Status:** **Completed (July 2026)** — all five parts Decided; retained as a historical record of the plan. The part documents are authoritative; nothing here remains open. Exports live on in the stdlib listing and FFI agenda (see Part 5 §16).
 **Purpose:** The Collections effort is the largest remaining spec; this cuts it into parts with recorded dependencies, so each session lands a complete document against settled ground. Update as parts land; strike entries and migrate newly-discovered debts, per the main roadmap's convention.
 **Relation to the main spec roadmap:** replaces the roadmap's single "Collections" Tier-1 entry with this breakdown. The main roadmap's Tier-3 associated-types entry is re-scoped by Part 1 §6.4.
 
@@ -16,7 +16,9 @@ Everything below is written against these decisions; none is open for re-litigat
 
 ---
 
-## Part 2 — `Hash` Constraint & Constraint Type-Members (prerequisite machinery)
+## Part 2 — `Hash` Constraint & Constraint Type-Members (prerequisite machinery) ✅ DONE
+
+**Document:** `collections-part2-hash-and-type-members.md` (Decided, July 2026, incl. §16 correction records). Part 4's determinism fine-print question arrived pre-answered by its §2.4/§16.2: iteration order promises nothing across runs.
 
 The grammar/constraint groundwork the later parts consume. Two halves, one document:
 
@@ -36,7 +38,9 @@ The grammar/constraint groundwork the later parts consume. Two halves, one docum
 
 ---
 
-## Part 3 — `Vector(a)` Spec
+## Part 3 — `Vector(a)` Spec ✅ DONE
+
+**Document:** `collections-part3-vector.md` (Decided, July 2026). Also declared `IndexError`/`SliceError` and claimed String indexing; the `KeyError` payload question passed to Part 4 (resolved there: nullary).
 
 The full type spec for the workhorse sequence.
 
@@ -53,7 +57,9 @@ The full type spec for the workhorse sequence.
 
 ---
 
-## Part 4 — `Map(k, v)` & `Set(a)` Spec
+## Part 4 — `Map(k, v)` & `Set(a)` Spec ✅ DONE
+
+**Document:** `collections-part4-map-set.md` (Decided, July 2026, incl. §17.1 correction record — representative retention). `KeyError` declared nullary; boundary-conversion obligations pinned for FFI (its §10).
 
 - HAMT representation reference and complexity table (get/set/remove O(log₃₂ n) expected; iteration O(n)).
 - Signatures with `<k: Hash>` / `<a: Hash>` throughout; core surface per Part 1 §3 (Map: `empty`/`isEmpty`/`size`/`get`/`containsKey`/`set`/`remove`/`keys`/`values`/`entries`/`fromEntries`(last-wins)/`toSeq`/`fromSeq`; Set: `empty`/`singleton`/`isEmpty`/`size`/`contains`/`add`/`remove`/`union`/`intersect`/`difference`/`isSubsetOf`/`toSeq`/`fromSeq`).
@@ -67,7 +73,9 @@ The full type spec for the workhorse sequence.
 
 ---
 
-## Part 5 — `Iterable` v1 + Surface Boundary & Closeout
+## Part 5 — `Iterable` v1 + Surface Boundary & Closeout ✅ DONE
+
+**Document:** `collections-part5-iterable.md` (Decided, July 2026, incl. §18 correction records). `Iterable<String>` decided (one-codepoint items; `String.toSeq`/`fromSeq`); `Array(a)` iteration handed to FFI as a binding obligation (its §6); combinator boundary and transients decided. **The Collections roadmap is complete.**
 
 - **`Iterable` v1 normative spec**: the Part 1 §6.1 restricted form made formal — table-opening semantics, resolution rule (head-constructor-known lookup; unsolved-tyvar error unchanged), instance globality reliance (Modules §7), orphan-rule application, diagnostics ("`τ` is not iterable" + `toSeq` hint + "or `implement Iterable<τ>`"), emission (user `iterate` → `Seq` → JS iterable protocol per Loops §6.5).
 - **The "writing your own collection" section** (Part 1 §6.5 recipe, normative, with a worked `Bag` example).

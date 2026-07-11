@@ -203,7 +203,7 @@ Rationale for `undefined`: a Hexagon function returning `Unit` is a JS function 
 
 **Implementer cautions:**
 - `()` must lex/parse unambiguously against parenthesised expressions and (future) tuple syntax — `()` is the nullary case of the tuple family; coordinate with the functions/tuples spec rather than special-casing.
-- `Unit`'s JS value being `undefined` must not be confused with the FFI's `Nullable(T)` boundary type (which handles JS `null`/`undefined` at extern boundaries). `Unit` is a real Hexagon type with one value; `Nullable` is a boundary-only foreign shape. They meet at the FFI but are unrelated concepts.
+- `Unit`'s JS value being `undefined` must not be confused with the FFI's `Nullable(a)` boundary type (which handles JS `null`/`undefined` at extern boundaries). `Unit` is a real Hexagon type with one value; `Nullable` is a boundary-only foreign shape. They meet at the FFI but are unrelated concepts.
 
 ---
 

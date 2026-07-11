@@ -40,7 +40,7 @@ The intended user is a JS developer with moderate FP capability who wants to do 
 | `type` | alias declaration | Declarations preamble or Products (forthcoming) | owed — parameterisation, recursion ban, alias-vs-expansion display |
 | type variables `a b c` | — | Primitive Types §1, Functions §4.2 | decided |
 | constraints (`Num`, `Eq`, `Ord`, `Show`, `Frac`, user) | — | Constraints (forthcoming) | partially fixed by Numeric Literals + Primitive Types §7 |
-| extern / FFI shapes (`Nullable(T)` etc.) | boundary-only | FFI (forthcoming) | boundary types never leak into pure Hexagon semantics |
+| extern / FFI shapes (`Nullable(a)` etc.) | boundary-only | FFI (forthcoming) | boundary types never leak into pure Hexagon semantics |
 
 ---
 
@@ -49,7 +49,7 @@ The intended user is a JS developer with moderate FP capability who wants to do 
 - Every primitive maps to a native JS type with no wrapper (Primitive Types §1 table). `Unit` ↔ `undefined`; `Int`/`Float` ↔ `number`; `BigInt` ↔ `bigint`.
 - Emitted `.d.ts` must be honest and idiomatic: n-ary functions as n-ary TS functions, `void`/`undefined` for Unit, `bigint` only where BigInt genuinely appears.
 - Products/unions must choose JS representations a JS consumer would plausibly hand-write (records as plain objects is the presumption; tuple and union representations are owed to their specs, with the readable-JS goal as the tiebreaker).
-- Foreign nullability lives at the boundary (`Nullable(T)`), never inside the language's own types.
+- Foreign nullability lives at the boundary (`Nullable(a)`), never inside the language's own types.
 
 ---
 
