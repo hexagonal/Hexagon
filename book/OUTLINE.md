@@ -29,7 +29,7 @@ print("Hello, Hexagon!")
 Move quickly to a small functional example that demonstrates values flowing through functions. Avoid spending several pages on printing one string. A likely next shape is an exported greeting function that also introduces the JavaScript boundary:
 
 ```hexagon
-export let greet = name => "Hello, " ++ name ++ "!"
+export let greet(name) = "Hello, " ++ name ++ "!"
 ```
 
 The chapter can then show the three useful faces:

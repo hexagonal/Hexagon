@@ -31,7 +31,7 @@ For example, the intended source and boundary experience has this shape:
 **Hexagon source**
 
 ```hexagon
-export let greet = name => "Hello, " ++ name ++ "!"
+export let greet(name) = "Hello, " ++ name ++ "!"
 ```
 
 **JavaScript output**
