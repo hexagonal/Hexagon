@@ -56,7 +56,11 @@ designed. Repetition should create recognition and payoff—like a running joke 
 returning character—not accidental duplication. Each callback must remain consistent
 with the technical and narrative facts established earlier.
 
-No recurring lively material has been fixed yet.
+- `winGame implies getPizza` is the canonical implication example. Explain it as a
+  promise: winning requires pizza; not winning makes no demand. A later callback may
+  return to the pizza promise when it creates recognition or payoff.
+- `dishes |> rinse |> wash |> dry` is the canonical pipe chain. Read it as a familiar
+  left-to-right process; do not require associativity terminology.
 
 ## Pedagogical dependencies
 
@@ -172,10 +176,14 @@ late pedagogy pass, not a commitment to the current order.
 - `0 <= discount <= 100` is the canonical comparison chain. Chain operands evaluate
   once; directions cannot mix; `!=` does not chain.
 - `and`, `or`, and `implies` short-circuit; `iff` evaluates both operands.
+- Teach `implies` through the promise `winGame implies getPizza`, not through the formal
+  rewrite `not left or right`.
 - Inline `if` requires `else`; else-less layout `if` has type `Unit`.
 - Canonical pipe continuation:
   `subtotal |> applyDiscount(discount) |> orderTotal(delivery)`. Pipe means
   first-argument insertion and relies on the subject-first convention.
+- Canonical bare-function pipe chain: `dishes |> rinse |> wash |> dry`, equivalent to
+  `dry(wash(rinse(dishes)))`.
 - `-2 ** 2` means `-(2 ** 2)` and evaluates to `-4`.
 - The chapter closes the first drafting group. Its review is recorded in
   `reviews/01-opening-foundations.md`.

@@ -55,6 +55,10 @@ Preview, but defer full treatment of:
 
 - `0 <= discount <= 100` is the canonical comparison chain.
 - `eligible and not suspended` introduces word-based logic.
+- `winGame implies getPizza` explains implication as a promise rather than through a
+  formal Boolean rewrite.
+- `dishes |> rinse |> wash |> dry` is the canonical pipe chain and is explained as a
+  familiar process rather than through associativity terminology.
 - `subtotal |> applyDiscount(discount) |> orderTotal(delivery)` continues the order
   example and demonstrates subject-first insertion.
 - `-2 ** 2 == -4` is the precedence example where Hexagon follows mathematics.
@@ -69,4 +73,3 @@ Preview, but defer full treatment of:
   chained `!=`.
 - Pipes insert as the first argument and disappear before type inference.
 - Inline `if` requires `else`; else-less layout `if` is `Unit`.
-

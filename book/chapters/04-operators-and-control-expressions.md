@@ -165,7 +165,7 @@ Boolean logic is written with `not`, `and`, `or`, `implies`, and `iff`:
 ```hexagon
 eligible and not suspended
 isAdmin or ownsOrder
-paid implies readyToShip
+winGame implies getPizza
 leftValid iff rightValid
 ```
 
@@ -175,9 +175,14 @@ Evaluation is precise:
 
 - `and` evaluates its right side only when the left side is `true`;
 - `or` evaluates its right side only when the left side is `false`;
-- `implies` means `not left or right`, so it evaluates the right side only when the
-  left side is `true`; and
+- `implies` describes a promise: `winGame implies getPizza` means “if we win, we get
+  pizza.” The right side is checked only when the left side is `true`; and
 - `iff` means the two Boolean values agree, so it evaluates both sides.
+
+The pizza promise is broken only if `winGame` is `true` and `getPizza` is `false`. If
+we do not win, this particular promise makes no demand about pizza. `implies` is less
+common than `and` or `or` in application code, but when a rule really is a promise, it
+says that rule directly.
 
 Hexagon emits the corresponding native JavaScript logic. The words are the language's
 only spellings: `&&`, `||`, and bare `!` are not alternative operators.
@@ -236,8 +241,22 @@ another problem.
 
 ## Pipes show the flow of values
 
-The pipe operator `|>` inserts its left side as the first argument of the call on its
-right:
+We have already seen a single value sent into `ignore`. A longer chain makes the flow
+especially clear:
+
+```hexagon
+dishes |> rinse |> wash |> dry
+```
+
+Read it from left to right: take the dishes, rinse them, wash them, then dry them. The
+equivalent nested calls run in the opposite visual direction:
+
+```hexagon
+dry(wash(rinse(dishes)))
+```
+
+Each function receives the result of the preceding step. When a function needs other
+arguments, the pipe inserts its left side as the first argument:
 
 ```hexagon
 subtotal |> applyDiscount(discount)
@@ -262,14 +281,8 @@ The equivalent nested call is:
 let total = orderTotal(applyDiscount(subtotal, discount), delivery)
 ```
 
-A bare function works too:
-
-```hexagon
-value |> normalize |> show
-```
-
-which becomes `show(normalize(value))`. Pipes associate to the left and are rewritten
-before type inference; there is no pipe object or runtime helper in the emitted code.
+A pipe chain proceeds from left to right and is rewritten before type inference; there
+is no pipe object or runtime helper in the emitted code.
 
 This is first-argument insertion, not currying. The right side may already contain the
 remaining arguments precisely because Hexagon functions are n-ary.
@@ -292,7 +305,7 @@ From tightest to loosest, the operator groups are:
 | | `or` |
 | | `implies` |
 | | `iff` |
-| Loosest infix | pipe `|>` |
+| Loosest infix | pipe <code>&#124;&gt;</code> |
 
 Most of this is the familiar mathematical order. The two rules most worth remembering
 are that exponentiation binds inside unary minus on its left, and `not` applies to a
