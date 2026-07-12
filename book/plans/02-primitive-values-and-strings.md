@@ -55,7 +55,8 @@ Preview, but defer full treatment of:
 - `orderSummary` extends the established `orderTotal` example with interpolation.
 - `attendees = 12_500` is the first numeric-separator example.
 - `exactPopulation = 9_007_199_254_740_993n` distinguishes `BigInt` from `Int`.
-- `"𝕏y"` has two codepoints even though JavaScript reports three UTF-16 code units.
+- `"🙂 Hi!"` has five codepoints even though JavaScript reports six UTF-16 code units;
+  `👍🏽` then distinguishes codepoints from human-perceived graphemes.
 
 ## Audit notes
 
@@ -66,4 +67,3 @@ Preview, but defer full treatment of:
 - `Unit` emits as `undefined` and appears as `void` only in TS return position.
 - Interpolation requires `Show`; it is not universal JavaScript coercion.
 - Strings use codepoints for language operations, despite JS's UTF-16 storage.
-

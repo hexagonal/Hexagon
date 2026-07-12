@@ -224,15 +224,16 @@ JavaScript stores strings as UTF-16 code units. Hexagon keeps that efficient nat
 representation, but it does not expose code units as the ordinary meaning of a text
 position. String length, indexing, and traversal operate on Unicode codepoints.
 
-Consider:
+Consider an ordinary greeting:
 
 ```hexagon
-let symbol = "𝕏y"
+let greeting = "🙂 Hi!"
 ```
 
-Hexagon regards this string as two codepoints: `𝕏` and `y`. JavaScript's
-`symbol.length` reports three because `𝕏` occupies a surrogate pair. Hexagon's string
-operations report two.
+Hexagon regards this string as five codepoints: `🙂`, the space, `H`, `i`, and `!`.
+JavaScript's `greeting.length` reports six because `🙂` occupies a UTF-16 surrogate
+pair. Hexagon's string operations report five—the count that is useful when walking the
+text as Unicode codepoints.
 
 There is no separate `Char` primitive. Indexing or iterating a string produces a
 one-codepoint `String`. Positions are one-based, like other Hexagon sequence positions.
@@ -240,10 +241,13 @@ Detailed indexing, slicing, and iteration belong with collections; the fact to r
 here is that text operations count codepoints rather than UTF-16 storage units.
 
 A codepoint is still not necessarily what a person perceives as one written character.
-Combining marks and emoji sequences can span several codepoints. Human-facing text
-segmentation is a higher-level, locale- and Unicode-aware library concern. Hexagon's
-primitive rule is stable and explicit rather than pretending the distinction does not
-exist.
+The plain thumbs-up `👍` is one codepoint, like `🙂`. Add a skin tone and `👍🏽` becomes
+two codepoints—thumbs-up plus modifier—even though a reader normally perceives one
+emoji. Combining marks and other emoji sequences can be longer still.
+
+That human-perceived unit is called a grapheme. Grapheme segmentation is a higher-level,
+Unicode-aware library concern. Hexagon's primitive rule is stable and explicit rather
+than pretending UTF-16 units, codepoints, and visible characters are always the same.
 
 ## `Unit`: one value, no interesting result
 
@@ -287,4 +291,3 @@ Later chapters will explain how operators choose behavior for these types, how b
 integer literals participate in inference, how `Show` powers interpolation, and how
 string indexing fits the broader collection model. For now, the primitive values are
 ready to serve as the vocabulary of larger examples.
-

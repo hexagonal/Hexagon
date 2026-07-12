@@ -71,8 +71,8 @@ The thread is useful but already frequent. The next drafting group should not fo
 order example where another domain would teach the idea more naturally. A later return
 should provide recognition or payoff, not merely reuse familiar nouns.
 
-`"𝕏y"`, `factorial`, and `isEven`/`isOdd` remain separate canonical examples with no
-conflicting facts.
+`"🙂 Hi!"` (followed by `👍`/`👍🏽`), `factorial`, and `isEven`/`isOdd` remain separate
+canonical examples with no conflicting facts.
 
 ## Technical surface check
 
@@ -91,4 +91,3 @@ conflicting facts.
 - Whether the operator chapter should be split if its density becomes conspicuous
   beside later chapters.
 - Final pacing, lively material, transitions, and the overall length of each chapter.
-

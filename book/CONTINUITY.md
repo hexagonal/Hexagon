@@ -136,8 +136,9 @@ late pedagogy pass, not a commitment to the current order.
   `"Order total: ${total}"`.
 - Interpolation is display through `Show`, not universal coercion. Full constraint
   teaching remains deferred.
-- `"𝕏y"` is the canonical codepoint example: two Hexagon codepoints, three JavaScript
-  UTF-16 code units. Hexagon has no `Char`; one codepoint is represented by `String`.
+- `"🙂 Hi!"` is the canonical codepoint example: five Hexagon codepoints, six
+  JavaScript UTF-16 code units. `👍` is one codepoint; `👍🏽` is two codepoints but one
+  perceived grapheme. Hexagon has no `Char`; one codepoint is represented by `String`.
 
 ### Functions and Application
 
