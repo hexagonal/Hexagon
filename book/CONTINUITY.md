@@ -88,7 +88,7 @@ late pedagogy pass, not a commitment to the current order.
 
 - Assumes expressions, bindings, blocks, primitive values, `Unit`, and the light
   conditional/arithmetic syntax already previewed.
-- Lightly previews tuples, constraints, pipes, method syntax, and polymorphic
+- Lightly previews constraints, pipes, method syntax, and polymorphic
   generalization.
 - Establishes lambdas, n-ary arity, calls, annotations, subject-first order, the
   `let`/`fun` distinction, and recursion.
@@ -150,6 +150,8 @@ late pedagogy pass, not a commitment to the current order.
   lambda and continues the order example. Explain it concretely as
   `withStandardDelivery(80)` → `orderTotal(80, 5)` before naming currying or partial
   application.
+- `auditOrder(order) |> ignore` is the first pipe spelling and deliberately returns to
+  Chapter 1's canonical discard example before multi-argument pipe insertion is shown.
 - `factorial` is the canonical direct-recursion example. `isEven`/`isOdd` are the
   canonical mutual-recursion pair.
 - Subject-first parameter order is introduced here and should recur in pipes,

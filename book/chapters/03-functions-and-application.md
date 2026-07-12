@@ -116,11 +116,6 @@ Functional-programming literature calls the automatic alternatives **currying** 
 Hexagon; the practical rule is simply that every call supplies exactly the number of
 arguments its function declares.
 
-A two-element tuple is one value; two arguments are two values supplied to a
-two-parameter function. Hexagon does not convert between them implicitly. When tuples
-arrive later, passing one tuple to a two-parameter function will still be an arity
-error.
-
 ## Zero parameters means zero arguments
 
 A function may have no parameters:
@@ -183,7 +178,18 @@ unannotated function such as `x => x` becomes reusable at many types.
 
 ## Put the subject first
 
-Hexagon's convention is to place the value being operated on first:
+The `ignore` example from Chapter 1 has a natural data-flow spelling:
+
+```hexagon
+auditOrder(order) |> ignore
+```
+
+The pipe `|>` sends the value on its left into the function on its right. This means
+`ignore(auditOrder(order))`, the canonical deliberate-discard form we already know. The
+operators chapter will cover pipes fully; for now, notice that the piped value becomes
+the function's first argument.
+
+Hexagon therefore conventionally places the value being operated on first:
 
 ```hexagon
 let applyDiscount(subtotal, discount) = ...
@@ -192,9 +198,10 @@ let map(items, transform) = ...
 ```
 
 This “subject-first” order reads naturally as an ordinary call and prepares functions
-for method-style calls and pipes. Later, `items |> map(transform)` will insert `items`
-as the first argument. The convention avoids APIs split between `map(items, transform)`
-and `map(transform, items)` according to whichever syntax happened to inspire them.
+for method-style calls and pipes. For example, `items |> map(transform)` inserts
+`items` as the first argument, producing `map(items, transform)`. The convention avoids
+APIs split between those two parameter orders according to whichever syntax happened
+to inspire them.
 
 It is a convention rather than a different function mechanism. A function may put its
 parameters in any order, but reusable APIs should make composition feel predictable.
@@ -307,7 +314,7 @@ function factorial(n) {
 
 `let` becomes a `const` holding an arrow function at its textual position. Recursive
 `fun` becomes a hoisted JavaScript function declaration. Calls remain ordinary n-ary
-calls; no tuple allocation, currying helper, or wrapper object appears.
+calls; no argument-packing, currying helper, or wrapper object appears.
 
 This output is not only pleasant to inspect. Its shape explains the source rules:
 `let` has sequential initialization, while `fun` receives the hoisted form recursion
