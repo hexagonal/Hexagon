@@ -144,10 +144,12 @@ late pedagogy pass, not a commitment to the current order.
 
 - Core formulation: **ordinary functions use `let`; recursion uses `fun`**.
 - Header definitions and explicitly bound lambdas are equivalent.
-- Functions are genuinely n-ary; calls require parentheses; partial application is
-  written as an explicit lambda.
-- `withStandardDelivery = subtotal => orderTotal(subtotal, 5)` is the first
-  partial-application replacement and continues the order example.
+- Functions are genuinely n-ary; calls require parentheses and supply the declared
+  number of arguments. Incomplete calls are errors.
+- `withStandardDelivery = subtotal => orderTotal(subtotal, 5)` is the first adapting
+  lambda and continues the order example. Explain it concretely as
+  `withStandardDelivery(80)` → `orderTotal(80, 5)` before naming currying or partial
+  application.
 - `factorial` is the canonical direct-recursion example. `isEven`/`isOdd` are the
   canonical mutual-recursion pair.
 - Subject-first parameter order is introduced here and should recur in pipes,

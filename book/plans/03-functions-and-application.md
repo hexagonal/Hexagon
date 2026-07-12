@@ -14,7 +14,7 @@ After this chapter, the reader should be able to:
 - write anonymous lambdas;
 - treat functions as values;
 - understand zero-, one-, and many-parameter functions;
-- recognize arity errors and write explicit partial-application lambdas;
+- recognize incomplete-call errors and write an explicit adapting lambda when useful;
 - annotate parameters, results, and type variables where useful;
 - use subject-first parameter order;
 - choose `let` for ordinary functions and `fun` for recursion;
@@ -43,7 +43,7 @@ Preview, but defer full treatment of:
 1. Return to `orderTotal` as a function value.
 2. Header syntax and its lambda equivalent.
 3. Functions as arguments and results.
-4. N-ary application, required call parentheses, and no currying.
+4. N-ary application, required call parentheses, and incomplete calls.
 5. Nullary functions and `Unit`.
 6. Annotations and explicit type variables.
 7. Subject-first parameter order.
@@ -55,7 +55,7 @@ Preview, but defer full treatment of:
 
 - `orderTotal` returns as the established ordinary `let`-bound function.
 - `withStandardDelivery = subtotal => orderTotal(subtotal, 5)` is the first explicit
-  partial-application replacement.
+  adapting lambda; it is explained by substituting a concrete call.
 - `factorial` is the first recursive `fun`.
 - `isEven`/`isOdd` demonstrate mutual recursion.
 

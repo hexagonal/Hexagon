@@ -63,8 +63,8 @@ The order examples now form one small thread:
 
 - `orderTotal` introduces bindings, blocks, and the JS/TS boundary;
 - `orderSummary` adds checked interpolation;
-- `withStandardDelivery` demonstrates an explicit lambda in place of partial
-  application; and
+- `withStandardDelivery` demonstrates an explicit adapting lambda after a concrete
+  incomplete-call explanation; and
 - `applyDiscount` followed by `orderTotal` demonstrates first-argument piping.
 
 The thread is useful but already frequent. The next drafting group should not force an

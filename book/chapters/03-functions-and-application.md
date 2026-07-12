@@ -81,12 +81,16 @@ compatible arguments and returns a displayable result.
 Anonymous functions are especially useful for small adaptations:
 
 ```hexagon
-let withStandardDelivery = subtotal => orderTotal(subtotal, 5)
+let withStandardDelivery = subtotal =>
+  orderTotal(subtotal, 5)
+
 let total = withStandardDelivery(80)
 ```
 
 `withStandardDelivery` is a new one-parameter function. It supplies the standard
-delivery amount that `orderTotal` still requires.
+delivery amount that `orderTotal` still requires. Calling `withStandardDelivery(80)`
+therefore calls `orderTotal(80, 5)`: the caller supplies the subtotal, while the lambda
+supplies the fixed delivery charge.
 
 ## Arity is part of a function
 
@@ -101,16 +105,16 @@ orderTotal(80)        // error: expected 2 arguments, got 1
 Call parentheses are always required. Hexagon has no whitespace application such as
 `orderTotal 80 12`.
 
-There is also no automatic currying or partial application. The expression
-`orderTotal(80)` is an incomplete call, not a new function waiting for its second
-argument. Write the lambda you mean:
+The expression `orderTotal(80)` is an incomplete call. Hexagon does not silently turn
+it into another function waiting for the delivery argument. When a reusable adaptation
+is useful, write an ordinary lambda such as `withStandardDelivery` above. The lambda's
+one parameter and fixed argument remain visible, and all functions retain one calling
+convention.
 
-```hexagon
-let addDelivery = delivery => orderTotal(80, delivery)
-```
-
-The explicit lambda makes argument order and evaluation visible. It also avoids a
-second, hidden calling convention: all functions are called the same way.
+Functional-programming literature calls the automatic alternatives **currying** and
+**partial application**. Hexagon does neither. You do not need either concept to use
+Hexagon; the practical rule is simply that every call supplies exactly the number of
+arguments its function declares.
 
 A two-element tuple is one value; two arguments are two values supplied to a
 two-parameter function. Hexagon does not convert between them implicitly. When tuples
@@ -315,7 +319,8 @@ requires.
 - Header syntax is convenient spelling for a lambda binding.
 - Functions are values and may be passed, stored, and returned.
 - Calls require parentheses, and arity is checked exactly.
-- Partial application is an explicit lambda, not an implicit calling mode.
+- An incomplete call is an error; write an explicit lambda when a new adapted function
+  is useful.
 - Zero-parameter functions receive zero arguments; `()` remains the `Unit` value.
 - Annotations document or restrict types, while inference remains the normal source of
   polymorphism.
