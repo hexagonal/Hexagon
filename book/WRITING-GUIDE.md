@@ -29,6 +29,8 @@ Where it adds useful understanding, follow with the three-way view:
 
 This view demonstrates Hexagon's readable-JavaScript and honest-interop promises. It is not a ritual. Omit a leg when it would be obvious, redundant, or distracting—for example, when a feature has no public `.d.ts` consequence or the emitted JavaScript adds no insight.
 
+Label the book's first three-way comparison clearly so the reader learns the convention. After that, prefer nearby prose, syntax highlighting, layout, or compact tabs/figures to repeated **Hexagon source**, **JavaScript output**, and **TypeScript declaration** headings. Restore an explicit label only when adjacent representations could genuinely be confused. Do not insert labels as comments inside code: examples should remain clean, valid, and ready to copy.
+
 ## Examples
 
 Examples should be small enough to understand immediately but substantial enough to reveal purpose. Prefer names and situations from ordinary programs over `foo`, `bar`, and unexplained arithmetic.

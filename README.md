@@ -28,13 +28,19 @@ The current design includes:
 
 For example, the intended source and boundary experience has this shape:
 
+**Hexagon source**
+
 ```hexagon
 export let greet(name) = "Hello, " ++ name ++ "!"
 ```
 
+**JavaScript output**
+
 ```js
 export const greet = (name) => "Hello, " + name + "!";
 ```
+
+**TypeScript declaration**
 
 ```ts
 export declare const greet: (name: string) => string;
