@@ -8,17 +8,17 @@ export let orderTotal(subtotal: Int, delivery: Int): Int =
   total
 ```
 
-`Int` is one of six primitive types. These are the small values from which larger
+`Int` is one of the **six primitive types**. These are the small values from which larger
 programs are assembled:
 
-| Hexagon type | Example | JavaScript representation | TypeScript face |
-|---|---|---|---|
-| `Int` | `42` | `number` | `number` |
-| `Float` | `3.5` | `number` | `number` |
-| `BigInt` | `42n` | `bigint` | `bigint` |
-| `Bool` | `true` | `boolean` | `boolean` |
-| `String` | `"ready"` | `string` | `string` |
-| `Unit` | `()` | `undefined` | `undefined`, or `void` as a return |
+| Hexagon type | Literal | JavaScript / TypeScript |
+|---|---|---|
+| `Int` | `42` | `number` |
+| `Float` | `3.5` | `number` |
+| `BigInt` | `42n` | `bigint` |
+| `Bool` | `true` | `boolean` |
+| `String` | `"ready"` | `string` |
+| `Unit` | `()` | `undefined` / `void` return |
 
 There are no wrapper objects around these values. An `Int` becomes an ordinary
 JavaScript number, a `String` becomes an ordinary JavaScript string, and so on. The
