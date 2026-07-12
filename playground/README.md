@@ -93,9 +93,13 @@ Execution occurs outside the compiler worker. A runaway execution can be termina
 
 ## Editor direction
 
-Monaco Editor is the expected primary editor because Hexagon wants an IDE-like playground with diagnostics, hover, completion, definition navigation, semantic highlighting, and read-only JavaScript and `.d.ts` models.
+**Monaco Editor is the decided primary editor.** Hexagon wants the IDE-like experience it provides: diagnostics, hover, completion, definition navigation, semantic highlighting, and read-only JavaScript and `.d.ts` models. This deliberately gives the playground the same editor foundation and familiar feel as the TypeScript Playground and VS Code.
 
-The dependency is not installed by this scaffold. Monaco integration, the bundler, package manager, UI framework or framework-free approach, and deployment platform are selected together when the repository workspace is established.
+Use Monaco's supported ESM build. Do not build new integration against its deprecated AMD distribution. The dependency is not installed by this scaffold because the repository package manager and bundler remain open; choosing those tools will determine the exact worker and asset configuration, not whether Monaco is used.
+
+Monaco does not officially support mobile browsers. The playground is therefore Monaco-first on supported desktop browsers and retains a plain textarea editor for mobile, unsupported environments, initial loading, or editor-startup failure. The fallback must still support source editing, compilation, diagnostics in the Errors tab, generated views, and explicit Run; richer inline language services may be unavailable there. Switching to or from the fallback must preserve the current source and source version.
+
+The present scaffold's textarea is that fallback, not a competing editor choice. Monaco replaces it in place when the editor integration initializes successfully.
 
 The editor adapter must consume compiler source positions through one explicit conversion boundary. It must not introduce a second position convention.
 
@@ -143,11 +147,22 @@ The current UI is deliberately dependency-light. It establishes layout, tab sema
 
 ## Initial delivery order
 
-1. Select workspace, package, build, and Monaco integration tools.
+1. Select the workspace package manager, bundler, and remaining application structure.
 2. Make the static shell build and run in development and production modes.
-3. Connect the platform-neutral compiler core through the compiler worker.
-4. Render structured diagnostics and maintain version-correct generated views.
-5. Add hover and inferred top-level types.
-6. Implement isolated explicit execution and captured output.
-7. Add curated examples, local persistence, and shareable URLs.
-8. Add optional compiler-internal views for development and teaching.
+3. Integrate Monaco's ESM build while preserving the textarea fallback.
+4. Connect the platform-neutral compiler core through the compiler worker.
+5. Render structured diagnostics and maintain version-correct generated views.
+6. Add hover and inferred top-level types.
+7. Implement isolated explicit execution and captured output.
+8. Add curated examples, local persistence, and shareable URLs.
+9. Add optional compiler-internal views for development and teaching.
+
+## Decision record
+
+### Initial editor decision
+
+- Monaco Editor is the primary supported desktop editor.
+- Integration uses Monaco's ESM build, not its deprecated AMD build.
+- The dependency is installed when the repository package manager and bundler are established.
+- A plain textarea remains the mobile, unsupported-browser, loading, and failure fallback.
+- Both editor paths share one source state and compiler position-conversion boundary.
