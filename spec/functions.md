@@ -244,6 +244,8 @@ Readable, idiomatic output is a language goal; emission shape is part of the con
 | Hexagon | JS |
 |---|---|
 | `fun f(n) = body` / `fun f = (n) => body` | `function f(n) { ... }` — a hoisted function declaration |
+| `let f = () => body` / `let f() = body` | `const f = () => ...` at its textual position |
+| `let f = x => body` / `let f(x) = body` | `const f = x => ...` at its textual position |
 | `let f = (x, y) => body` / `let f(x, y) = body` | `const f = (x, y) => ...` at its textual position |
 | anonymous lambda in expression position | JS arrow function |
 | `f(x, y)` | `f(x, y)` — n-ary call, no tuple/array allocation, no spread |
@@ -253,6 +255,7 @@ Notes:
 
 - The `fun` → `function` mapping is sound *because of* §7.1: the lambda-literal restriction guarantees the RHS is evaluation-free, so JS's hoisting of `function` declarations is a faithful translation of `fun`'s block-wide scope. §7.2's capture-set check then guarantees the emitted code never trips a TDZ error at runtime.
 - The same lambda AST node emits differently depending on its binding (`function` under `fun`, `const` + arrow under `let`); the emitter dispatches on the binding form, not the RHS shape.
+- Arrow emission preserves the zero/one/many visual model: `() =>` for no parameters, `x =>` for one, `(x, y) =>` for several. A grouped unary source lambda, `(x) =>`, and unary header sugar, `f(x)`, therefore emit the canonical `x =>` form; the redundant grouping is not preserved. TypeScript function types still use their grammatically required parenthesized parameter list in `.d.ts`.
 - Names pass through unchanged (lowercase-initial Hexagon names are valid JS identifiers; reserved-word collisions are the emitter's problem to mangle, out of scope here).
 
 ---
