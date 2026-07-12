@@ -29,11 +29,11 @@ The current design includes:
 For example, the intended source and boundary experience has this shape:
 
 ```hexagon
-export let greet(name: String) = "Hello, ${name}!"
+export let greet(name) = "Hello, " ++ name ++ "!"
 ```
 
 ```js
-export const greet = (name) => `Hello, ${name}!`;
+export const greet = (name) => "Hello, " + name + "!";
 ```
 
 ```ts
