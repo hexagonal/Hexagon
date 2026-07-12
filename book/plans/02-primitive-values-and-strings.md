@@ -43,10 +43,10 @@ Preview, but defer full treatment of:
 2. The six primitive types and their JS/TS representations.
 3. `Int`: default whole numbers, safe range, and silent overflow boundary.
 4. `Float`: decimal/exponent literals and IEEE 754 honesty.
-5. `BigInt`: explicit arbitrary precision and no mixed arithmetic.
-6. `Bool`: no truthiness.
-7. `String`: one literal form, interpolation through display, multiline text, escapes.
-8. Unicode codepoints, no `Char`, and one-based positions.
+5. `Bool`: no truthiness.
+6. `String`: one literal form, interpolation through display, multiline text, escapes.
+7. Unicode codepoints, no `Char`, and one-based positions.
+8. `BigInt`: specialist arbitrary precision and no mixed arithmetic.
 9. `Unit` as the returning concept from the preceding chapter.
 10. A compact boundary comparison and working summary.
 

@@ -15,9 +15,9 @@ programs are assembled:
 |---|---|---|
 | `Int` | `42` | `number` |
 | `Float` | `3.5` | `number` |
-| `BigInt` | `42n` | `bigint` |
 | `Bool` | `true` | `boolean` |
 | `String` | `"ready"` | `string` |
+| `BigInt` | `42n` | `bigint` |
 | `Unit` | `()` | `undefined` / `void` return |
 
 There are no wrapper objects around these values. An `Int` becomes an ordinary
@@ -104,33 +104,6 @@ library type rather than mistaking binary floating point for decimal arithmetic.
 JavaScript boundary. The distinction lets Hexagon reject fractional values where whole
 numbers are required and give arithmetic the appropriate semantics. The generated
 TypeScript type cannot preserve that distinction; both appear as `number`.
-
-## `BigInt`: arbitrary precision by choice
-
-Append `n` when a whole number must not be limited by the safe-integer range:
-
-```hexagon
-let exactPopulation = 9_007_199_254_740_993n
-let cryptographicModulus = 340_282_366_920_938_463_463_374_607_431_768_211_507n
-```
-
-These literals have type `BigInt` and compile directly to JavaScript `bigint` values.
-Their size is limited by available resources rather than a fixed numeric range.
-
-The suffix is a visible decision. `BigInt` is valuable, but it is not a drop-in
-replacement for JavaScript's ordinary numbers: many web APIs expect `number`, JSON
-serialization does not accept `bigint` by default, and JavaScript itself rejects mixed
-`number`/`bigint` arithmetic. Hexagon catches that mixture statically:
-
-```hexagon
-let small = 3
-let large = 3n
-let invalid = small + large
-```
-
-The final line is a type error. Convert deliberately in the direction appropriate to
-the program. Converting `Int` to `BigInt` is exact; converting a `BigInt` back to `Int`
-can fail when the value is outside the safe range.
 
 ## `Bool`: a condition, not a truthiness convention
 
@@ -249,6 +222,34 @@ That human-perceived unit is called a grapheme. Grapheme segmentation is a highe
 Unicode-aware library concern. Hexagon's primitive rule is stable and explicit rather
 than pretending UTF-16 units, codepoints, and visible characters are always the same.
 
+## `BigInt`: arbitrary precision by choice
+
+Most programs use `Int` and `Float`. When a whole number must exceed `Int`'s safe
+range, append `n` to choose arbitrary precision explicitly:
+
+```hexagon
+let exactPopulation = 9_007_199_254_740_993n
+let cryptographicModulus = 340_282_366_920_938_463_463_374_607_431_768_211_507n
+```
+
+These literals have type `BigInt` and compile directly to JavaScript `bigint` values.
+Their size is limited by available resources rather than a fixed numeric range.
+
+The suffix is a visible decision. `BigInt` is valuable, but it is not a drop-in
+replacement for JavaScript's ordinary numbers: many web APIs expect `number`, JSON
+serialization does not accept `bigint` by default, and JavaScript itself rejects mixed
+`number`/`bigint` arithmetic. Hexagon catches that mixture statically:
+
+```hexagon
+let small = 3
+let large = 3n
+let invalid = small + large
+```
+
+The final line is a type error. Convert deliberately in the direction appropriate to
+the program. Converting `Int` to `BigInt` is exact; converting a `BigInt` back to `Int`
+can fail when the value is outside the safe range.
+
 ## `Unit`: one value, no interesting result
 
 We met `Unit` when sequencing effects. It has exactly one value:
@@ -277,10 +278,10 @@ JavaScript's implicit conversions:
 - `Int` is the ordinary safe-range whole number and usually the type of a bare integer
   literal;
 - `Float` is IEEE 754 binary64 and is selected by a decimal point or exponent;
-- `BigInt` is arbitrary precision, selected explicitly with `n`;
 - `Bool` permits no truthiness conversions;
 - `String` has one interpolating, multiline literal form and codepoint-based text
-  operations; and
+  operations;
+- `BigInt` provides opt-in arbitrary precision through the `n` suffix; and
 - `Unit` is the one-value type used when an expression has no interesting result.
 
 All six use native JavaScript representations. Types make their distinctions visible to
