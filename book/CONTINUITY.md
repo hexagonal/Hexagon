@@ -158,6 +158,8 @@ late pedagogy pass, not a commitment to the current order.
   method-style calls, constraints, and collection examples.
 - JS emission convention established: `let` function → `const` arrow; `fun` → hoisted
   function declaration.
+- Reader-facing capture rule: **captured values must be ready**. Keep temporal-dead-zone
+  and capture-analysis explanations in specification/compiler material.
 - Generalization, the value restriction, lambda-parameter monomorphism, and constrained
   functions are previewed but remain owned by later chapters.
 

@@ -249,14 +249,14 @@ A non-function right-hand side is not legal under `fun`. Nor can an arbitrary fu
 producing call be placed there. This syntactic rule ensures that creating a recursive
 binding performs no computation before the function exists.
 
-### Hoisting without temporal surprises
+### Captured values must be ready
 
 A `fun` name is in scope throughout its enclosing block, supporting direct and mutual
 recursion. A function with no outer local dependencies can even be called before its
 textual definition.
 
-When a recursive function captures an outer binding, Hexagon also checks that the
-captured value has been initialized before the function is used:
+When a recursive function uses a value from its surrounding block, that value must
+already be bound before the function is called:
 
 ```hexagon
 fun announce() = print(message)
@@ -265,9 +265,11 @@ announce()
 ```
 
 This order is valid. Moving `announce()` above the `message` binding is an error:
-`message` would not yet exist at the call. JavaScript might expose this as a temporal
-dead-zone failure at runtime; Hexagon rejects it during compilation. If one local
-`fun` calls another, their captured dependencies are considered transitively.
+`message` would not yet be ready at the call.
+
+A `fun` that uses no later local values may be called anywhere in its block. A `fun`
+that captures local values becomes usable after those values have been bound. The same
+rule includes values needed indirectly through another local recursive function.
 
 ### Mutual recursion
 
@@ -283,7 +285,7 @@ fun isOdd(n: Int): Bool =
 
 The pair forms one recursive group. Calls between their bodies are valid regardless of
 textual order. If either function captures an outer local value, the combined group is
-usable only after all captures required by either function are initialized.
+usable only after all captured values required by either function have been bound.
 
 Recursive calls use one consistent type inside the group. A recursive function may be
 generic for outside callers, but it cannot recursively call itself at unrelated types
@@ -332,8 +334,8 @@ requires.
 - Annotations document or restrict types, while inference remains the normal source of
   polymorphism.
 - Subject-first parameter order prepares APIs for pipes and method-style calls.
-- `fun` supports direct and mutual recursion while checking that captured values are
-  initialized before use.
+- `fun` supports direct and mutual recursion while requiring captured values to be bound
+  before use.
 
 We can now write useful transformations, callbacks, and recursive definitions. The next
 step is to explain more fully what Hexagon has already been doing in these examples:

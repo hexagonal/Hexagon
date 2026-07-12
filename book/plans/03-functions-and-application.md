@@ -48,7 +48,7 @@ Preview, but defer full treatment of:
 6. Annotations and explicit type variables.
 7. Subject-first parameter order.
 8. `let` is non-recursive; `fun` introduces recursion.
-9. Hoisting, captures, mutual recursion, and monomorphic recursive calls.
+9. Captured-value readiness, mutual recursion, and monomorphic recursive calls.
 10. `let` arrows versus `fun` declarations in emitted JavaScript.
 
 ## Examples to preserve
@@ -66,5 +66,5 @@ Preview, but defer full treatment of:
 - `f()` passes no hidden `Unit` argument.
 - `let` cannot refer to its own name, even from a nested lambda.
 - A `fun` RHS must be syntactically a lambda; header syntax satisfies this.
-- A `fun` may be used only after all transitive captures are initialized.
+- A `fun` may be used only after all values it needs directly or indirectly are bound.
 - Recursive uses are monomorphic even though external uses may be polymorphic.
