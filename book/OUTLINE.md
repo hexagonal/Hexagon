@@ -1,6 +1,12 @@
 # Book Outline
 
-**Status:** Developing. Chapter boundaries and order may change as the specification settles and the book is written.
+**Status:** Developing. Chapter boundaries and order may change as drafting reveals
+their pedagogical dependencies. The final order will be tested in a whole-book pedagogy
+pass.
+
+The [feature catalogue](FEATURES.md) is the working inventory of candidate feature
+chapters. This outline records the teaching order as that inventory is shaped into a
+book.
 
 ## Preface — Why Hexagon?
 

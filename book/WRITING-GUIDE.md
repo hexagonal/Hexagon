@@ -13,6 +13,65 @@
 
 The reader should finish the book understanding the language as a coherent whole, without having been made to read every rule that an implementer must know.
 
+## Coherence before accumulation
+
+The book's principal risk is **manuscript drift**: terminology, syntax, teaching order,
+examples, inferred types, emitted JavaScript, and generated `.d.ts` output may each look
+reasonable in isolation while quietly contradicting another chapter.
+
+Coherence is therefore an initial design constraint and a recurring writing activity,
+not a final editing pass. Draft the book in small increments, repeatedly return to its
+global concepts, and allow explicit time for cross-chapter checks. When a chapter
+establishes or changes a global fact, carry that fact through the manuscript while the
+context is fresh.
+
+The living [continuity record](CONTINUITY.md) defines the practice. Consult it before
+each chapter, update it when the book establishes reusable terminology, examples, or
+promises, and perform a broader continuity pass after each small group of chapters.
+
+## The late pedagogy pass
+
+After the body chapters exist, read the manuscript again from the position of a reader
+who knows JavaScript or TypeScript but does not yet know Hexagon or the functional ideas
+being taught. This **pedagogy pass** tests the dependency order of the book rather than
+the correctness of individual chapters.
+
+For every section, ask:
+
+- Has every idea needed to understand this section already been taught?
+- Is a term being used before the reader has been given a useful meaning for it?
+- Does an example rely on syntax, inference, runtime behavior, or library knowledge that
+  has only been explained later?
+- Is a forward preview light enough to understand locally, or is it secretly carrying
+  the teaching burden of a later chapter?
+- Would moving this material later reduce qualification and cognitive load?
+
+Material that depends on several earlier ideas should normally move later. Foundational
+material should move earlier even if it was drafted later. Drafting order is not book
+order, and chapter numbers remain provisional until this pass is complete.
+
+Track obvious dependencies while drafting, but reserve time for the late whole-book
+simulation: only then can we experience the accumulated assumptions in approximately
+the order a new reader will encounter them. Reordering may require new transitions,
+small recap sections, or replacing examples that depend on too much unexplained
+machinery.
+
+## Language guide, not library manual
+
+The book teaches the standard library when it illuminates the language or enables a
+realistic example. It does not catalogue APIs.
+
+Collections, in particular, should teach persistence, iteration, access conventions,
+constraints, and the relationship between `Vector`, `Map`, `Set`, and `Seq` through a
+small number of representative programs. Exhaustive operation lists, constructor
+variants, complexity tables, conversions, and per-function edge cases belong in API
+documentation or a future library manual.
+
+The same boundary applies elsewhere in the standard library: explain the organizing
+ideas, teach the operations readers need for examples, and point them to reference
+material for inventory. Completeness for this book means covering every **language
+feature**, not reproducing every library member.
+
 ## The teaching pattern
 
 Every feature should answer three questions:
@@ -77,4 +136,9 @@ A finished chapter should:
 - explain important inference and runtime representation without drowning in compiler internals;
 - identify common errors or misleading intuitions;
 - connect the feature to concepts already taught; and
+- record the concepts it assumes so the late pedagogy pass can verify its position;
+- agree with the terminology, syntax, examples, inferred types, JavaScript, and `.d.ts`
+  already established elsewhere in the manuscript;
+- update the continuity record when it establishes something later chapters should
+  reuse; and
 - end with the reader able to write something useful.
