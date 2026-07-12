@@ -14,7 +14,7 @@ programs are assembled:
 | Hexagon type | Literal | JavaScript / TypeScript |
 |---|---|---|
 | `Int` | `42` | `number` |
-| `Float` | `3.5` | `number` |
+| `Float` | `3.14` | `number` |
 | `Bool` | `true` | `boolean` |
 | `String` | `"ready"` | `string` |
 | `BigInt` | `42n` | `bigint` |
