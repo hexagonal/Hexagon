@@ -1,4 +1,4 @@
-# Chapter Brief: Values, Bindings, and Expressions
+# Chapter Brief: Expressions
 
 ## Purpose
 
@@ -71,4 +71,3 @@ they survive revision.
 - `ignore` is a prelude function, not syntax.
 - State the no-shadowing rule narrowly here: sequential `let` names may not reuse an
   in-scope name. Head-binder shadowing belongs with functions and patterns.
-

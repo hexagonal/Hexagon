@@ -1,4 +1,4 @@
-# Operators and Control Expressions
+# Operators
 
 We can now name values, work with primitive types, and define functions. Operators are
 the compact vocabulary that connects those pieces:
@@ -284,8 +284,8 @@ let total = orderTotal(applyDiscount(subtotal, discount), delivery)
 A pipe chain proceeds from left to right and is rewritten before type inference; there
 is no pipe object or runtime helper in the emitted code.
 
-This is first-argument insertion, not currying. The right side may already contain the
-remaining arguments precisely because Hexagon functions are n-ary.
+The right side may already contain the remaining arguments precisely because Hexagon
+functions are n-ary.
 
 ## Precedence: the useful shape
 
@@ -321,7 +321,7 @@ x => x |> normalize
 The entire pipe is the lambda body, and the entire conditional is the right operand of
 `+`. Parentheses remain available whenever making the grouping visible helps a reader.
 
-## What to carry forward
+## Summary
 
 - Operator spellings are fixed; capability constraints determine which types support
   the algebraic and comparison operators.

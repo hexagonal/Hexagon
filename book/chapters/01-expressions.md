@@ -1,4 +1,4 @@
-# Values, Bindings, and Expressions
+# Expressions
 
 Hexagon programs are made from values and functions that transform them. Before we
 meet the language's richer types, it helps to understand the small mechanism beneath
@@ -310,7 +310,7 @@ declaration. No wrapper object or runtime type machinery is needed.
 This three-way comparison will return when a feature changes the runtime representation
 or the public type surface. We will omit it when the result would add no understanding.
 
-## What to carry forward
+## Summary
 
 The chapter's model is small enough to remember as a handful of rules:
 

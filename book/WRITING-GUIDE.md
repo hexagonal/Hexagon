@@ -56,6 +56,23 @@ the order a new reader will encounter them. Reordering may require new transitio
 small recap sections, or replacing examples that depend on too much unexplained
 machinery.
 
+## The late liveliness pass
+
+After the complete first draft, perform a separate **liveliness pass**. Programming
+textbooks can become tonally flat even when every paragraph is accurate. Revisit
+examples, transitions, callbacks, and occasional asides so the reader encounters
+character, surprise, and payoff as well as instruction.
+
+Do not burden first-draft work with solving this in every chapter. The current leading
+direction is an Arthurian running story about Lancelot, Merlin, a dragon, and the
+magical language Hexagon, with an optional *Dragon Book* allusion. Move away from an
+accumulation of accountancy examples and prefer premises that are slightly sillier but
+still immediately legible.
+
+The detailed brief and its narrative guardrails live in
+[the liveliness-pass record](LIVELINESS-PASS.md). Any rewritten example must still pass
+the technical continuity and pedagogical-dependency checks.
+
 ## Language guide, not library manual
 
 The book teaches the standard library when it illuminates the language or enables a
@@ -90,6 +107,13 @@ This view demonstrates Hexagon's readable-JavaScript and honest-interop promises
 
 Label the book's first three-way comparison clearly so the reader learns the convention. After that, prefer nearby prose, syntax highlighting, layout, or compact tabs/figures to repeated **Hexagon source**, **JavaScript output**, and **TypeScript declaration** headings. Restore an explicit label only when adjacent representations could genuinely be confused. Do not insert labels as comments inside code: examples should remain clean, valid, and ready to copy.
 
+## Chapter titles
+
+Prefer short, familiar nouns or noun phrases: **Records**, **Unions**, **Constraints**,
+**Mutable Variables**. A title identifies the chapter's central concept; it does not
+need to summarize every operation taught there. Add qualification only when a shorter
+title would be ambiguous or collide with another chapter.
+
 ## Examples
 
 Examples should be small enough to understand immediately but substantial enough to reveal purpose. Prefer names and situations from ordinary programs over `foo`, `bar`, and unexplained arithmetic.
@@ -117,6 +141,18 @@ The prose should be textbook-like in structure and reliability, but lively in vo
 
 The target is neither a chatty tutorial nor a research paper. It is a book a thoughtful programmer can learn from, return to, and enjoy reading.
 
+## Definitions and the index
+
+When the book deliberately defines a technical term, record it in the
+[index-candidate ledger](INDEX-CANDIDATES.md) while the chapter is being written. Do
+not wait until pagination to reconstruct the vocabulary from memory.
+
+A term important enough to index should normally receive a clear definition at its
+first useful appearance. The eventual index should distinguish that principal
+definition from later substantial discussions and examples; it should not list every
+incidental occurrence. Record alternate spellings, closely related terms, and useful
+cross-references together—for example, **arity** and **n-ary**.
+
 ## Relationship to the specification
 
 The specification is normative; the book is explanatory.
@@ -141,4 +177,5 @@ A finished chapter should:
   already established elsewhere in the manuscript;
 - update the continuity record when it establishes something later chapters should
   reuse; and
+- add newly defined technical terms to the index-candidate ledger; and
 - end with the reader able to write something useful.

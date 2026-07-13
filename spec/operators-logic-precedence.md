@@ -20,12 +20,13 @@ Hexagon has **no user-defined operators and no operator overloading**, permanent
 | `/` | `divide` | `Frac` |
 | `**` | `pow` | `Pow` (new — §6.3) |
 | `++` | `concat` | `Concat` (new — §7) |
-| `==` `!=` | `equals` (negated for `!=`) | `Eq` |
+| `==` | `equals` | `Eq` |
+| `!=` | `notEquals` | `Eq` |
 | `<` `>` `<=` `>=` | `compare` | `Ord` |
 
 Everything else in the operator inventory is a **structural form** owned by the language, not by any type: `not`/`and`/`or`/`implies`/`iff` (primitive on `Bool`, §4), `..` (builds a `Range`, Loops spec), `|>` (pre-inference syntactic rewrite, §8), `=>` (lambda), `:=` (assignment statement-expression), `.` (field access), `()` (call), `[]` (index/slice), `if/then/else` (§11). None of these consult an instance table and none can be redefined.
 
-Consequence for the implementer: after elaboration, the type checker sees only ordinary calls (`add(x, y)`, `equals(a, b)`) plus the handful of structural node kinds. Operators do not exist in the typed AST.
+Consequence for the implementer: after elaboration, the type checker sees only ordinary calls (`add(x, y)`, `equals(a, b)`, `notEquals(a, b)`) plus the handful of structural node kinds. Operators do not exist in the typed AST.
 
 ### 1.2 Words for logic, symbols for algebra
 
@@ -143,7 +144,7 @@ Given that, the honest and simpler definition wins: **`a iff b` is Boolean equal
 
 ### 5.1 Elaboration
 
-`==` and `!=` elaborate through `Eq`: `equals(a, b)` and `not equals(a, b)`. The relational four elaborate through `Ord`'s single member `compare(x, y): Ordering`:
+`==` and `!=` elaborate through `Eq`: `equals(a, b)` and `notEquals(a, b)`. `notEquals` has the default `not equals(a, b)` but an instance may override it while preserving that law. The relational four elaborate through `Ord`'s single member `compare(x, y): Ordering`:
 
 | Source | Elaboration |
 |---|---|
@@ -154,7 +155,19 @@ Given that, the honest and simpler definition wins: **`a iff b` is Boolean equal
 
 The early draft's primitive-operator table (`<=` as `a < b or a == b`, etc.) is superseded by the `compare`-based story — one member, one instance obligation, derived operators total by construction, and no double evaluation of operands in the derived forms.
 
-**Codegen fast path (mandatory for readable JS):** when the `Ord`/`Eq` dictionary is the known primitive instance (`Int`, `Float`, `Bool`, all-BMP-safe `String` handling per Primitive Types §5, all-nullary unions), emit the native JS operator (`a < b`, `a === b`) instead of the `compare` call. The polymorphic case emits the dictionary call. `Ord String` remains codepoint-lexicographic with the BMP fast path — Primitive Types spec is authoritative.
+**Codegen fast path (mandatory for readable JS):** when the `Ord`/`Eq` dictionary is a known primitive instance, emit the direct JavaScript operation only when it preserves that instance's semantics. `Int`, `Bool`, all-BMP-safe `String` handling per Primitive Types §5, and the applicable all-nullary-union cases may use native operators directly.
+
+`Float` is the mandatory exception. `Eq<Float>` is SameValueZero (Decisions Batch §1), so bare `===` and `!==` are wrong for `NaN`. Given operands evaluated once as `x` and `y`, the fast paths are:
+
+```js
+// x == y
+x === y || (Number.isNaN(x) && Number.isNaN(y))
+
+// x != y
+!(x === y || (Number.isNaN(x) && Number.isNaN(y)))
+```
+
+An on-demand helper with the same semantics is equally valid where it reads better. `Ord<Float>` may use native relational operators only when neither operand can be `NaN`; the general path uses the total `compare` fixed by Decisions Batch §1. The polymorphic case emits the dictionary call. `Ord String` remains codepoint-lexicographic with the BMP fast path — Primitive Types is authoritative.
 
 Types without the instance simply cannot use the operator: `==` on functions is a compile error ("functions have no `Eq` instance"), and the relational four on discriminated unions are a compile error unless the union has an explicit `Ord` (the standing rule: logic must not depend on declaration order; the diagnostic is "ordering is not defined for union `Shape`").
 
@@ -178,7 +191,7 @@ Chains short-circuit left-to-right exactly as the desugared `and`s do.
 
 ### 5.4 Single-evaluation rule
 
-Whenever a desugaring duplicates an operand syntactically, the compiler binds it to a hidden temporary so every source operand is **evaluated exactly once**, in left-to-right source order. In v1 the only client is chain middles:
+Whenever a desugaring duplicates an operand syntactically, the compiler binds it to a hidden temporary so every source operand is **evaluated exactly once**, in left-to-right source order. Clients include comparison-chain middles and the inline `Float` SameValueZero fast path:
 
 ```
 a < f() < c
@@ -423,6 +436,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | `and`/`or` primitive short-circuit → `&&`/`\|\|`; `implies` = `not a or b`, right-assoc | §4.1 |
 | `iff` = Boolean equality (`equals` at `Bool` → `===`); both operands always evaluated; draft short-circuit claim struck | §4.3 |
 | Relational four elaborate via single `Ord.compare`; native-operator fast path mandatory for primitives | §5.1 |
+| `==` elaborates to `Eq.equals`; `!=` elaborates to defaultable `Eq.notEquals` | §1.1, §5.1 |
 | Chains: directionally consistent families {`<`,`<=`,`==`} / {`>`,`>=`,`==`}; `!=` never chains | §5.3 |
 | Single-evaluation rule: duplicated operands bound once, left-to-right, invisible temporaries | §5.4 |
 | `**` level 2, right-assoc (math); tighter than unary minus on its left, admits it on its right; JS's `-2**2` SyntaxError not adopted, emission parenthesizes | §6.2–6.3 |

@@ -1,10 +1,10 @@
 # Group Review: Opening Foundations
 
-**Chapters reviewed:** Values, Bindings, and Expressions; Primitive Values and Strings;
-Functions and Application; Operators and Control Expressions.
+**Chapters reviewed:** Expressions; Primitive Types;
+Functions; Operators.
 
-**Status:** Reviewed as a consistent drafting group. This is not the late whole-book
-pedagogy pass, and chapter numbers remain provisional.
+**Status:** Reviewed twice as a consistent drafting group. This is not the late
+whole-book pedagogy pass, and chapter numbers remain provisional.
 
 ## Coherence result
 
@@ -31,6 +31,21 @@ Native JavaScript representation remains consistent across all four chapters.
   making it clear that `++` joins strings rather than displaying an integer.
 - Made the TypeScript return face of `Unit` definitive: `void` in function return
   position, `undefined` elsewhere.
+
+Later reader review and the second group pass also:
+
+- replaced the abstract Unicode example with `"🙂 Hi!"`, `👍`, and `👍🏽`;
+- moved specialist `BigInt` material after the common `Bool` and `String` types;
+- rewrote incomplete calls around the concrete `withStandardDelivery` lambda;
+- deferred the tuple/argument distinction until tuples are visible;
+- introduced pipes by returning to `auditOrder(order) |> ignore`;
+- reduced captured-value initialization to the reader-facing rule “captured values must
+  be ready”;
+- taught implication through the `winGame implies getPizza` promise;
+- taught a pipe chain through `dishes |> rinse |> wash |> dry`;
+- made the mutual-recursion example terminate for negative as well as positive `Int`;
+- moved polymorphic-recursion rules to the future type-inference chapter; and
+- removed the unnecessary currying comparison from the pipe chapter.
 
 ## Pedagogical dependency check
 
@@ -72,7 +87,8 @@ order example where another domain would teach the idea more naturally. A later 
 should provide recognition or payoff, not merely reuse familiar nouns.
 
 `"🙂 Hi!"` (followed by `👍`/`👍🏽`), `factorial`, and `isEven`/`isOdd` remain separate
-canonical examples with no conflicting facts.
+canonical examples with no conflicting facts. The mutual-recursion pair steps toward
+zero from either sign.
 
 ## Technical surface check
 
@@ -83,6 +99,8 @@ canonical examples with no conflicting facts.
 - `.d.ts` primitive faces agree across chapters.
 - Integer `div`/`mod` and `quot`/`rem` terminology follows the final Euclidean decision.
 - Comparison, logic, conditional, and precedence claims agree with the specification.
+- The mutual-recursion example steps toward zero for both positive and negative `Int`
+  inputs.
 
 ## Deferred to later reviews
 
@@ -91,3 +109,10 @@ canonical examples with no conflicting facts.
 - Whether the operator chapter should be split if its density becomes conspicuous
   beside later chapters.
 - Final pacing, lively material, transitions, and the overall length of each chapter.
+
+## Second-pass result
+
+No known technical contradiction remains in the four chapters. Polymorphic recursion
+is deliberately absent until type inference gives the reader the concepts needed to
+understand it. The next multi-chapter review should treat this document as the baseline
+rather than reconstructing the history from commits.

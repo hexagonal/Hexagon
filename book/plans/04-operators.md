@@ -1,4 +1,4 @@
-# Chapter Brief: Operators and Control Expressions
+# Chapter Brief: Operators
 
 ## Purpose
 

@@ -1,4 +1,4 @@
-# Primitive Values and Strings
+# Primitive Types
 
 The previous chapter calculated an order total from two `Int` values:
 
@@ -270,7 +270,7 @@ position, its face is `undefined`; as a function return, idiomatic declarations 
 This is the same relationship we saw throughout the chapter: Hexagon adds a precise
 static meaning while retaining the JavaScript value that naturally represents it.
 
-## What to carry forward
+## Summary
 
 Hexagon's primitive types are intentionally close to JavaScript without being ruled by
 JavaScript's implicit conversions:

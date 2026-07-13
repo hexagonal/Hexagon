@@ -6,6 +6,18 @@
 
 Hexagon is an ML-style functional language designed for the JavaScript and TypeScript ecosystem. It combines strong type inference, plain data, algebraic types, pattern matching, row-polymorphic records, and type constraints with readable JavaScript output and accurate `.d.ts` declarations.
 
+One subject-first function, three equally static ways to call it:
+
+```hexagon
+Option.getOrElse(possibleName, "Guest")
+possibleName |> Option.getOrElse("Guest")
+possibleName.getOrElse("Guest")
+```
+
+All three forms mean `Option.getOrElse(possibleName, "Guest")`. The dot form is
+type-directed syntax for the ordinary companion function—not a runtime method, object,
+or prototype lookup.
+
 > [!IMPORTANT]
 > Hexagon is in the language-design and compiler-architecture stage. The specification is incomplete, the compiler has not been implemented, and no Hexagon program can be compiled yet. Syntax, semantics, generated interfaces, and repository structure may change before the first release.
 

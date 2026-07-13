@@ -9,6 +9,10 @@ See the [writing guide](WRITING-GUIDE.md) for the book's coverage, teaching patt
 The [continuity record](CONTINUITY.md) captures the manuscript's principal risk and
 the global concepts that every chapter must preserve.
 
+The planned post-draft [liveliness pass](LIVELINESS-PASS.md) records the recurring-story
+direction and the intention to replace tonally flat examples without distracting the
+first draft from correctness and teaching order.
+
 The developing chapter plan lives in the [outline](OUTLINE.md).
 
 The [feature catalogue](FEATURES.md) inventories the reader-facing language features

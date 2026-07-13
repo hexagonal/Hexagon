@@ -38,16 +38,26 @@ Drafting order is not final reading order.
 ## Global commitments
 
 - The specification is normative; the book is explanatory.
-- For planning and drafting, assume the v1 specification is complete. If it changes,
+- For planning and drafting, assume the specification is complete. If it changes,
   update affected book material at that time.
 - Hexagon source, emitted JavaScript, and generated TypeScript declarations must tell
   the same story.
 - Introduce a term once, use it consistently, and distinguish deliberate teaching
   simplifications from later qualifications.
+- Record deliberately defined technical terms in `INDEX-CANDIDATES.md` as chapters are
+  written. The final index should identify principal definitions and significant later
+  discussions, not every occurrence.
 - Examples must remain valid when reused or extended. A callback inherits the facts
   established by its earlier appearance.
 - The book teaches the language and the ideas exposed by its standard library; it is
   not a library API catalogue.
+- Prefer short, familiar noun or noun-phrase chapter titles. Add qualification only
+  when it distinguishes the chapter from another central concept.
+- Use **Summary** for the closing recap of each chapter. Prefer this familiar heading
+  to instructional phrasing such as “What to carry forward.”
+- Do not put numbered version labels in the book. State current behavior as the
+  language's behavior. When a future possibility genuinely helps the reader, say that
+  it may appear in a later version.
 
 ## Recurring examples and lively material
 
@@ -55,6 +65,21 @@ Record recurring examples, motifs, voices, and other lively material here when t
 designed. Repetition should create recognition and payoff—like a running joke or a
 returning character—not accidental duplication. Each callback must remain consistent
 with the technical and narrative facts established earlier.
+
+The full first draft is followed by a dedicated liveliness pass. Do not require each
+chapter's first draft to solve this locally. The working brief is
+`LIVELINESS-PASS.md`.
+
+- Leading story candidate: Lancelot, a Knight of the Round Table, must undertake a
+  quest to defeat a dragon. Afraid of the unknown, he has only read about dragons in
+  *The Dragon Book*. Merlin helps him learn the magical language Hexagon.
+- The language's **constraint** and **honor** vocabulary provides a natural knightly
+  resonance. The story may extend into quests, spells, inventories, parties, uncertain
+  dangers, and pattern-matched dragons where those examples genuinely teach well.
+- Move away from repeated accountancy examples during the later pass. Prefer examples
+  that are a little sillier, memorable, and still immediately understandable.
+- Treat the story as a source of recurring recognition rather than a theme imposed on
+  every example. Specialist allusions must remain optional.
 
 - `winGame implies getPizza` is the canonical implication example. Explain it as a
   promise: winning requires pizza; not winning makes no demand. A later callback may
@@ -67,7 +92,7 @@ with the technical and narrative facts established earlier.
 Record what each drafted chapter assumes and what it prepares. This is evidence for the
 late pedagogy pass, not a commitment to the current order.
 
-### Values, Bindings, and Expressions
+### Expressions
 
 - Assumes only general programming experience.
 - Lightly previews function headers, `Int`, arithmetic, `Order`, exports, and type
@@ -78,7 +103,7 @@ late pedagogy pass, not a commitment to the current order.
 - Its JavaScript and `.d.ts` comparison assumes basic familiarity with those languages,
   matching the book's intended reader.
 
-### Primitive Values and Strings
+### Primitive Types
 
 - Assumes the distinction between expressions and bindings and the established role of
   `Unit`.
@@ -88,7 +113,7 @@ late pedagogy pass, not a commitment to the current order.
   JavaScript/TypeScript faces for use throughout the book.
 - Prepares operator semantics, type inference, constraints, FFI, and collections.
 
-### Functions and Application
+### Functions
 
 - Assumes expressions, bindings, blocks, primitive values, `Unit`, and the light
   conditional/arithmetic syntax already previewed.
@@ -98,7 +123,7 @@ late pedagogy pass, not a commitment to the current order.
   `let`/`fun` distinction, and recursion.
 - Prepares type inference, operators and pipes, patterns, constraints, and modules.
 
-### Operators and Control Expressions
+### Operators
 
 - Assumes primitive numeric distinctions, `Bool`, `String`, `Unit`, functions, blocks,
   n-ary calls, and subject-first parameter order.
@@ -109,9 +134,183 @@ late pedagogy pass, not a commitment to the current order.
 - Completes the first four-chapter group and prepares type inference, constraints,
   loops, collections, and mutation.
 
+### Layout
+
+- Assumes the established block-final-value rule and familiar function/conditional
+  forms.
+- Establishes indentation as the only block syntax, same-line bodies, braces as records,
+  semicolons as separators, leading-space discipline, and nested comments.
+- Prepares every later layout-bodied declaration and the record chapter.
+
+### Polymorphism
+
+- Assumes functions, primitive types, operators, `ignore`, annotations, and recursion.
+- Establishes inferred relationships, let-polymorphism, monomorphic lambda parameters,
+  the value restriction, numeric defaulting, and monomorphic recursive calls.
+- Lightly previews `Show`; prepares constraints and every later generic data type.
+
+### Tuples
+
+- Assumes inference, functions, primitive types, conditionals, and sequential `let`
+  bindings.
+- Establishes positional compound values, `itemN`, tuple destructuring, `_`, tuple
+  returns, and the tuple-versus-arguments distinction deferred from Chapter 3.
+- Prepares aliases, pattern matching, and structural products.
+
+### Type Aliases
+
+- Assumes tuples, type annotations, module-level exports, and inferred type variables.
+- Lightly previews records, unions, constraints, and exceptions only to establish their
+  related declaration shapes.
+- Establishes transparent naming, parameterized aliases, full application,
+  non-recursion, module-level placement, forward references, and boundary erasure.
+- Completes the second four-chapter drafting group; its review is recorded in
+  `reviews/02-types-and-structure.md`.
+
+### Records
+
+- Assumes tuples, inference, annotations, spread-shaped JavaScript objects, and simple
+  `let` patterns.
+- Establishes structural record literals/types, field access, construction punning,
+  updates, open record requirements, `...` annotations, and plain-object emission.
+- Introduces **row polymorphism** only after showing the useful behavior in ordinary
+  code, then contrasts structural shape directly with nominal identity.
+- Establishes record constructors, identity-preserving updates, the explicit
+  `{...value}` structural crossing, parameterized records, and the ordinary exported
+  boundary.
+- Prepares constructor patterns, deriving, constraints, and method-style calls.
+- Opacity is deliberately deferred to the modules chapter, where exports, privacy,
+  home modules, opaque records, and opaque unions can be taught together.
+
+### Unions
+
+- Assumes nominal declarations, functions and arity, type parameters, layout, and
+  expression-valued control flow.
+- Establishes closed alternatives, nullary and payload constructors, basic exhaustive
+  `match`, recursive unions, `Option`, `Result`, tagged-object emission, and the
+  all-nullary string representation.
+- Prepares the full pattern language, exceptions, deriving, collections, and FFI
+  conversions.
+
+### Patterns
+
+- Assumes tuples, structural and nominal records, unions, Boolean conditions,
+  comparison chains, and simple destructuring.
+- Establishes nested structural patterns, literals, or-patterns, as-patterns, guards,
+  exact exhaustiveness/reachability, irrefutability, and patterned parameters.
+- Completes the third three-chapter drafting group. Its review is recorded in
+  `reviews/03-data-shapes-and-patterns.md`.
+
+### Mutable Variables
+
+- Assumes immutable bindings, `Unit`, block typing, functions, inference, record
+  updates, and lambda capture.
+- Establishes `var`, `:=`, monomorphic mutable bindings, name-only assignment, the
+  lambda boundary, and immutable snapshots.
+- Prepares loop accumulators while preserving the absence of mutable module state,
+  fields, reference cells, and public mutable APIs.
+
+### Loops and Ranges
+
+- Assumes local mutation, `Bool`, blocks, comparison, `Unit`, patterns, constraints,
+  and a light preview of `Seq(a)`.
+- Establishes `for`, `while`, inclusive integer ranges, descending ranges, irrefutable
+  loop patterns, static iteration resolution, and native-loop emission.
+- Keeps associated types and user-defined `Iterable` machinery deferred. Reusable
+  consumers take `Seq(a)` so the element type remains explicit.
+
+### Sequences
+
+- Assumes loops, ranges, `Option`, tuples, pattern matching, lambdas, pipes, and
+  subject-first companion operations.
+- Establishes `Seq(a)` as lazy, immutable, and possibly infinite; `Seq.next` as a
+  persistent functional cursor; demand-driven effects; and `Seq` as the common
+  iteration and collection-conversion currency.
+- Prepares persistent collections and the `Iterable` recipe while avoiding a library
+  API catalogue.
+
+### Exceptions
+
+- Assumes module-level declarations, unions, `Result`, the full pattern language,
+  blocks, and JavaScript/TypeScript boundary representations.
+- Establishes the open `Exn` type, exception declarations, construction versus
+  throwing, expression-valued `try`/`catch`, implicit rethrow, `JsError`,
+  `Result.attempt`, and branded `Error` emission.
+- Completes the fifth four-chapter drafting group. Its review is recorded in
+  `reviews/05-state-iteration-and-failure.md`.
+
+### Collections
+
+- Assumes persistent record updates, vectors previewed only through `Seq`, maps and
+  sets previewed by constraints, one-based indexing, patterns, `Hash`, loops, and dot
+  calls.
+- Establishes persistent `Vector`, `Map`, and `Set` values; vector literals and
+  patterns; asserting brackets versus total `get`; map upsert; set membership; honest
+  `Hash` requirements; unspecified hash traversal order; and `Seq` conversions.
+- Ends with the minimum `Iterable<Bag(a)>` recipe. `type Item = a` is read only as
+  “iterating `Bag(a)` produces `a`”; the following chapter owns associated types.
+- Keeps the chapter example-led and deliberately excludes an API inventory.
+
+### Associated Types
+
+- Assumes constraints, instances, coherence, the orphan rule, concrete iteration,
+  `Seq(a)`, and the `Bag(a)` preview at the end of Collections.
+- Establishes an **associated type** as a type member declared by a constraint and
+  chosen by each instance.
+- Establishes declaration-side `type Name`, instance-side `type Name = T`, multiple
+  type members, exact-once binding, owner-relative identity and scope, and ordinary
+  coherence/orphan behavior.
+- Uses `Conversion` with `Input` and `Output` to show that the feature is general rather
+  than special `Iterable` syntax.
+- Establishes the deliberate restrictions: no external associated-type reference, no
+  associated-type obligations, and no associated-type-bearing constraint on an
+  otherwise unknown type variable. Reusable iteration APIs continue to use `Seq(a)`.
+- Associated types erase and add no runtime or `.d.ts` member machinery.
+
+### Modules
+
+- Assumes module-level declarations and exports as light previews throughout the book,
+  plus constraints, instances, derivation, nominal records/unions, and top-level
+  `Unit` expressions.
+- Establishes one-file/one-module identity, privacy by default, named/aliased/namespace
+  and effect imports, named exports, module aliases, companion modules, prelude
+  occlusion, acyclic loading, selected roots, and direct ESM emission.
+- Introduces **opacity** for records and unions after privacy and home modules are
+  available. Opacity hides structure but not lawful capabilities.
+- Establishes that modules are namespaces rather than values and that Hexagon has no
+  language-level `main` or mutable module cells.
+- Prepares Dot Calls by establishing home modules, companion modules, exported
+  subject-first operations, and qualified lookup.
+
+### JavaScript Output
+
+- Assumes every preceding runtime representation and gathers them without replacing
+  the feature chapters that established their local rules.
+- Establishes **erasure** as removal of compile-time distinctions that need no runtime
+  representation.
+- Reaffirms native primitive/function/tuple/record output, readable tagged unions,
+  direct rewrites for pipes and dot calls, test-and-binding emission for patterns,
+  trailing dictionaries only for genuinely generic code, and explicit runtime support
+  where native JS semantics would be false.
+- Makes preserved evaluation order, ESM identity, and the implementation/API
+  distinction visible before the declaration chapter.
+
+### TypeScript Declarations
+
+- Assumes the emitted JavaScript representations and module export rules.
+- Establishes `.d.ts` as the supported typed public surface rather than an attempt to
+  reproduce the Hexagon checker.
+- Reaffirms primitive, n-ary function, tuple, structural record, discriminated-union,
+  `Seq`, collection, and exception faces; lowercase source generic binders; public
+  alias preservation; and private alias expansion.
+- Establishes TypeScript-only `unique symbol` brands for opaque records and unions,
+  while the JavaScript value remains representation-direct.
+- Defers the deliberate evidence and specialization surface of constrained exports to
+  its later chapter rather than emitting an inaccurate ordinary signature.
+
 ## Established chapter material
 
-### Values, Bindings, and Expressions
+### Expressions
 
 - Core formulation: **expressions produce values; bindings introduce names**.
 - Core block formulation: **the final expression is the value of the block**.
@@ -126,7 +325,7 @@ late pedagogy pass, not a commitment to the current order.
 - The full head-binder/sequential-binder distinction is deliberately previewed but
   deferred until functions and patterns provide concrete examples.
 
-### Primitive Values and Strings
+### Primitive Types
 
 - Primitive boundary table: `Int`/`Float` → `number`, `BigInt` → `bigint`, `Bool` →
   `boolean`, `String` → `string`, and `Unit` → `undefined` (`void` in TS return
@@ -144,12 +343,15 @@ late pedagogy pass, not a commitment to the current order.
   JavaScript UTF-16 code units. `👍` is one codepoint; `👍🏽` is two codepoints but one
   perceived grapheme. Hexagon has no `Char`; one codepoint is represented by `String`.
 
-### Functions and Application
+### Functions
 
 - Core formulation: **ordinary functions use `let`; recursion uses `fun`**.
 - Header definitions and explicitly bound lambdas are equivalent.
 - Functions are genuinely n-ary; calls require parentheses and supply the declared
   number of arguments. Incomplete calls are errors.
+- Define **arity** as the number of parts something takes and **n-ary** as “having *n*
+  parts” when those terms first appear in Chapter 3; functions then make that concrete
+  as a count of arguments.
 - `withStandardDelivery = subtotal => orderTotal(subtotal, 5)` is the first adapting
   lambda and continues the order example. Explain it concretely as
   `withStandardDelivery(80)` → `orderTotal(80, 5)` before naming currying or partial
@@ -157,7 +359,8 @@ late pedagogy pass, not a commitment to the current order.
 - `auditOrder(order) |> ignore` is the first pipe spelling and deliberately returns to
   Chapter 1's canonical discard example before multi-argument pipe insertion is shown.
 - `factorial` is the canonical direct-recursion example. `isEven`/`isOdd` are the
-  canonical mutual-recursion pair.
+  canonical mutual-recursion pair and must handle negative as well as positive `Int`
+  values by stepping toward zero from either direction.
 - Subject-first parameter order is introduced here and should recur in pipes,
   method-style calls, constraints, and collection examples.
 - JS emission convention established: `let` function → `const` arrow; `fun` → hoisted
@@ -166,8 +369,10 @@ late pedagogy pass, not a commitment to the current order.
   and capture-analysis explanations in specification/compiler material.
 - Generalization, the value restriction, lambda-parameter monomorphism, and constrained
   functions are previewed but remain owned by later chapters.
+- Monomorphic recursive calls and the rejection of polymorphic recursion are deferred
+  entirely to the type-inference chapter.
 
-### Operators and Control Expressions
+### Operators
 
 - Fixed vocabulary: symbols for algebra/comparison, words for logic; no user-defined
   operators.
@@ -188,6 +393,295 @@ late pedagogy pass, not a commitment to the current order.
 - The chapter closes the first drafting group. Its review is recorded in
   `reviews/01-opening-foundations.md`.
 
+### Layout
+
+- Core formulation: **indentation is the block syntax**.
+- Same-line bodies contain one expression; indentation is required for multiple items.
+- Braces always begin records and never delimit blocks.
+- Semicolons separate items at the same block level; they are not statement
+  terminators and never open a body.
+- Leading indentation contains spaces only. Line comments use `//`; block comments use
+  nestable `/* ... */`.
+
+### Polymorphism
+
+- `identity` used at `Int` and `String` is the canonical let-polymorphism example.
+- `useAtTwoTypes(f)` uses `ignore(f(1))` before `f("hello")` to show that one lambda
+  parameter cannot change type within a call.
+- `makeIdentity()` is the canonical value-restriction example: binding the call result
+  is monomorphic, and its first use fixes the type.
+- State the conceptual hinge explicitly: `let` is necessary but not sufficient for
+  generalization; its initializer must also be a value.
+- Bare numeric literal defaulting is one-way to `Int`; explicit context may instead
+  select another numeric type.
+- Polymorphic recursion is rejected and taught here, after ordinary recursion and
+  generalization are available.
+
+### Tuples
+
+- `("Mira", 3)` is the first tuple: one `(String, Int)` value.
+- Tuples have arity at least two; `(x)` is grouping and `()` is `Unit`.
+- `itemN` is one-based in Hexagon and emits zero-based JS indexing.
+- `minMax` is the canonical tuple-return example.
+- `move(3.0, 4.0)` versus `move(coordinates)` pays off the deferred distinction between
+  two arguments and one tuple value.
+- `_` in a tuple pattern binds nothing and is distinct from the `ignore` function.
+
+### Type Aliases
+
+- `Coordinates = (Float, Float)` is the canonical transparent alias.
+- `Entry(k, v) = (k, v)` is the canonical parameterized alias.
+- `UserId` and `OrderId` demonstrate that aliases name but do not create identity.
+- Aliases are fully applied, use every parameter, cannot be recursively expanded, and
+  emit no JavaScript.
+- Public useful alias names may remain in `.d.ts`; private aliases in public signatures
+  expand rather than leak private names.
+- Chapter 8 closes the second drafting group. Its review is recorded in
+  `reviews/02-types-and-structure.md`.
+
+### Records
+
+- `reservation = {guest: "Mira", seats: 3, confirmed: false}` is the first structural
+  record and grows naturally from Chapter 7's tuple example.
+- Core reader rule: a function that reads particular fields can accept records
+  containing at least those fields.
+- **Row polymorphism** names that inferred flexibility only after the behavior is
+  concrete. An annotation without `...` is closed; `...` permits additional fields.
+- `{...record, field: value}` is an update, not field addition. One spread comes first.
+- Construction and pattern punning use `{field}` for `{field: field}`.
+- Core contrast: `type` gives a shape another name; `record` creates a distinct
+  identity.
+- `UserId`/`OrderId` demonstrate nominal separation; `Point` demonstrates the explicit
+  structural crossing `Point({...})` in and `{...point}` out.
+- A spread with overrides preserves nominal identity; a spread alone crosses to the
+  closed structural record.
+- Do not introduce `export opaque` here. Opacity belongs to the modules chapter and
+  should cover records and unions together, including the TypeScript-only branded
+  boundary face.
+
+### Unions
+
+- `DeliveryStatus = Pending | Dispatched(tracking: String) | Delivered` is the first
+  union; `displayStatus` is the first exhaustive match.
+- Nullary constructors are values without `()`; payload constructors follow ordinary
+  n-ary function rules. Construction and patterns remain positional.
+- `Option(a) = Some(value: a) | None` represents absence and does not erase to
+  `a | undefined`.
+- `Result(a, e) = Ok(value: a) | Err(error: e)` places success first and represents
+  recoverable failure.
+- Mixed/payload unions emit tagged POJOs; all-nullary unions emit string literals.
+
+### Patterns
+
+- Core formulation: **a pattern describes a shape and may bind names; a guard performs
+  a runtime test**.
+- Structural patterns nest. Record patterns are open and use no `...`; nominal records
+  cross through constructor patterns such as `Point({x, y})`.
+- Literal patterns admit `Int`, `String`, and `Bool`, never `Float`.
+- `()` is the sole `Unit` pattern and covers `Unit` exhaustively.
+- Or-pattern alternatives bind the same names; as-patterns retain the whole value.
+- Guards contribute nothing to exhaustiveness. Missing and unreachable cases are hard
+  errors.
+- **Irrefutable** means a pattern matches every value of its known type; only such
+  patterns may appear in `let`, loop, and parameter binding positions.
+- `(x, y) =>` remains two parameters; `((x, y)) =>` is one tuple-destructured
+  parameter.
+- Vector patterns, loop patterns, and `catch` patterns are taught with collections,
+  loops, and exceptions respectively as extensions of this same grammar.
+- A lowercase pattern name binds, `_` ignores, and a name cannot be bound twice within
+  one whole pattern.
+- Chapter 11 closes the third drafting group. Its review is recorded in
+  `reviews/03-data-shapes-and-patterns.md`.
+
+### Constraints
+
+- Assumes generic functions, explicit type-variable binders, operators, interpolation,
+  nominal declarations, and modules only at the light “declaration has a home” level.
+- Establishes constraints as type obligations, `honor` declarations as their answers,
+  instances, superconstraints, coherence, the orphan rule, the core prelude capability
+  vocabulary, and dictionary erasure.
+- Constraint operations without bodies are required; operations with bodies are
+  inherited defaults that an instance may override. `Eq.equals` is required,
+  `Eq.notEquals` defaults to its negation, and `!=` calls `notEquals`.
+- `Area`/`Rectangle` is the canonical user-defined constraint and instance.
+- Constraint members are direct functions, never method-style companion operations.
+- Uses the final `honor` spelling throughout; older `implement` text in superseded spec
+  passages must never leak into the book.
+- Prepares deriving, collections, loops, and constrained exports.
+
+### Derivation
+
+- Assumes nominal records/unions and the full constraint/instance model.
+- Establishes opt-in `derives` before `=`, and the equivalent
+  `honor Eq<Point> = derive` core form.
+- `Eq`, `Ord`, `Show`, and `Hash` are the derivable capabilities. `Ord` requires
+  `Eq`; user-derived `Hash` requires a derived `Eq` and cannot be hand-written.
+- Deriving `Eq` generates required `equals`; `notEquals` is inherited from the
+  constraint default. Automatic structural instances complete defaults the same way.
+- Structural tuples and records receive conditional structural capabilities
+  automatically; nominal types opt in.
+- Prepares hashed collections while keeping detailed collection mechanics deferred.
+
+### Modules
+
+- Core formulation: **a file is a module, and a module is a file**. There is no module
+  header.
+- Declarations are private by default. Hexagon has named exports only and no default
+  export or re-export syntax in the current language.
+- Four import forms are established: named, aliased named, namespace, and effect.
+  Relative paths omit `.hex`.
+- Module aliases are uppercase namespaces, never values. The same spelling may name a
+  type/constructor and its companion module because positions select namespaces.
+- `export opaque` is limited to nominal records and unions. It exports only the type,
+  hiding record fields/constructor or union constructors outside the home module.
+- Private nominal types cannot appear in public signatures; private aliases expand.
+- Instances are global once their module enters the import graph and are never
+  imported/exported as source names.
+- Imports are acyclic. Dependencies initialize depth-first before a module's top-level
+  `Unit` effects; a host-selected root runs by ordinary ESM evaluation with no special
+  `main`.
+- One Hexagon module emits as one ESM module.
+
+### Dot Calls
+
+- Assumes subject-first functions, pipes, record fields, nominal types, constraints,
+  and the complete home/companion-module account from Modules.
+- Establishes the three equivalent spellings, type-directed companion lookup,
+  exported subject-first eligibility, bare-dot field access, explicit collision
+  resolution, and the independently-known receiver rule.
+- Constraint members remain bare calls or pipes; method syntax never searches
+  instances.
+- Dot calls erase to ordinary function calls and add nothing method-shaped to `.d.ts`.
+- Constraints, Derivation, and Dot Calls were reviewed together before Modules was
+  inserted between the latter two. The historical review remains in
+  `reviews/04-capabilities-and-calls.md`; the new four-chapter transition still needs a
+  cross-chapter check.
+
+### Mutable Variables
+
+- `var` is name-only, function-body-only, monomorphic, and never generalized.
+- `:=` assigns only a bare `var` name, produces `Unit`, and cannot chain.
+- Records, tuples, parameters, patterns, and `let` bindings remain immutable; record
+  change uses an updated copy.
+- A lambda may neither read nor assign an enclosing `var`; copying its current value to
+  a `let` creates the canonical immutable snapshot.
+- Emission is direct JavaScript `let` and assignment; nothing mutable reaches `.d.ts`.
+
+### Loops and Ranges
+
+- `for pattern in source` evaluates its source once; the pattern must be irrefutable
+  and its binders are immutable head binders.
+- `for`/`while` bodies and complete loop expressions have type `Unit`.
+- `..` and `range` are inclusive ascending `Int` ranges; reversed bounds are empty.
+  `rangeDown` is explicitly descending and follows the mirrored empty-range rule.
+- There is no `break` or `continue`.
+- Iteration resolves statically from a known outer type. Each concrete iterable has one
+  element type, and `Seq(a)` is the reusable iteration parameter.
+- The Patterns chapter's complete grammar supersedes the loops spec's original bare-name
+  head: tuple, record, and other irrefutable patterns are legal.
+
+### Sequences
+
+- `Seq(a)` is the concrete lazy, immutable, possibly infinite iteration currency.
+- `Seq.next : (Seq(a)) -> Option((a, Seq(a)))` does not consume the supplied position;
+  traversal advances through the returned successor sequence.
+- Lazy callbacks and their effects run as elements are demanded.
+- `iterate` converts a statically known iterable to `Seq`; companion `toSeq`/`fromSeq`
+  pairs connect collections without making the chapter an API inventory.
+- `Seq(a)` faces JavaScript and TypeScript as `Iterable<a>`, with runtime adaptation
+  preserving persistent sequence positions.
+
+### Exceptions
+
+- Predictable failure remains `Result`/union data; unpredictable failure uses the open
+  `Exn` type.
+- `exception` is module-level, has concrete payload types, and introduces first-class
+  constructors. Construction is separate from `throw`.
+- `try`/`catch` is expression-valued and uses the full pattern language. Missing cases
+  implicitly rethrow; unreachable arms remain hard errors.
+- `JsError` is the sole foreign-throwable door; ordinary catch/rethrow preserves the
+  original foreign value.
+- `Result.attempt` bridges exceptional computation back to `Result(a, Exn)`.
+- Runtime values are branded JavaScript `Error` objects; nullary exceptions construct
+  fresh values for useful stacks; exported faces are branded `Error` intersections.
+- Chapter 19 closes the fifth four-chapter drafting group. Its review is recorded in
+  `reviews/05-state-iteration-and-failure.md`.
+
+### Collections
+
+- Core formulation: **persistent means an update produces a new collection while the
+  old value remains valid**; it does not mean automatic disk storage.
+- `supplies = ["rope", "torch", "map"]` is the first collection example;
+  `Vector.set(supplies, 2, "lantern")` demonstrates persistence and one-based update.
+- `Vector` literals are homogeneous. Brackets assert presence and throw `IndexError`;
+  `Vector.get` returns `Option`; `Vector.at` opts into signed addressing.
+- Vector patterns use `...` for a rest. Fixed patterns partition by length; only
+  `[...]` and `[...all]` are irrefutable vector shapes.
+- `Map.fromVector` and `Set.fromVector` are the compact construction idioms. Map
+  brackets throw `KeyError`; `Map.get` is total; `Map.set` is upsert.
+- `Map` and `Set` iteration order is deterministic for one value within one execution
+  but is neither insertion/sorted order nor stable across executions.
+- `Hash` is an explicit superconstraint of `Eq`; nominal keys derive `(Eq, Hash)` so
+  user hashing cannot disagree with equality.
+- `Seq` is the collection conversion currency; every `fromSeq` is eager.
+- `Bag(a)` briefly shows `type Item = a` and delegates `iterate` to `Vector.toSeq`; the
+  line is intentionally left for the immediately following chapter to explain.
+- Persistent collection `.d.ts` faces are `Hex.Vector`, `Hex.Map`, and `Hex.Set`, not
+  native mutable collection types.
+
+### Associated Types
+
+- `Iterable.Item` is the motivating associated type: the instance, not each caller,
+  chooses the item type.
+- `Conversion<c>` is the general example and declares two members, `Input` and
+  `Output`; `Conversion<ParsePort>` binds them to `String` and
+  `Result(Int, String)`.
+- Type members are owner-relative: two constraints may both declare `Item`, and neither
+  claims a module-level type name.
+- Every `honor` block binds every associated type exactly once; the binding may use the
+  instance's type parameters and is in scope throughout that instance body.
+- Associated types share the constraint instance's one coherence slot and orphan rule.
+- External `Item(T)`/`Constraint.Item(T)` forms and `<c: Iterable>` binders are rejected;
+  concrete operations and loops remain legal, while reusable consumers take `Seq(a)`.
+- Associated types erase before JavaScript and TypeScript boundaries.
+
+### JavaScript Output
+
+- Core formulation: output tells the same story as the source while using helpers
+  wherever superficially similar native JS would violate Hexagon semantics.
+- **Erasure** removes annotations, aliases, and other compile-time distinctions that
+  need no runtime value.
+- Primitive values/functions stay native; tuples are arrays; records are POJOs;
+  directly applied nominal constructors erase; mixed unions are tagged POJOs; and
+  all-nullary unions are strings.
+- Pipes and dot calls become direct function calls; matches become tests and bindings;
+  derivation becomes ordinary generated operations.
+- Genuinely generic constrained functions keep trailing dictionaries after their
+  source parameters. Concrete uses stay direct.
+- Persistent collections, persistent `Seq` positions, codepoint operations, and
+  Hexagon exceptions use explicit runtime support rather than dishonest native forms.
+- Single evaluation, left-to-right order, and the acyclic ESM graph remain visible.
+
+### TypeScript Declarations
+
+- Core formulation: JavaScript says how the module runs; `.d.ts` says what typed
+  foreign callers are invited to use.
+- Exported `let` functions retain the established `export declare const` callable
+  shape; exported constructors are function-shaped where JS callers invoke them.
+- `Unit` is `undefined` as a value and `void` as a function result. Hexagon-originated
+  generic binders remain lowercase.
+- Public aliases remain; private aliases expand. Ordinary exported nominal records
+  expose honest structural POJO types and constructors.
+- Mixed unions are discriminated TypeScript unions; all-nullary unions are string
+  literal unions. Constructor exports match their runtime value/function forms.
+- Opaque records/unions use private `unique symbol` brands in TypeScript, omit raw
+  structure/constructors, and add no runtime wrapper.
+- `Seq(a)` faces as `Iterable<a>`; collections use the `Hex` runtime type namespace.
+- Declarations omit private and source-only machinery and do not attempt to encode all
+  Hexagon checker guarantees.
+- Chapters 20–21 form the sixth drafting group. Its review waits until after reader
+  review of the local drafts.
+
 ## Review history
 
 ### Opening Foundations
@@ -196,3 +690,42 @@ late pedagogy pass, not a commitment to the current order.
 - Result: coherent enough to continue; four small corrections integrated.
 - Known pedagogy loops and later reconsiderations are recorded in
   `reviews/01-opening-foundations.md`.
+
+### Types and Structure
+
+- Chapters 5–8 reviewed together after reader review of the local drafts.
+- Result: coherent enough to continue after correcting `chooseFirst`'s inferred type
+  explanation and sharpening the value-restriction and arity definitions.
+- Previews and later whole-book questions are recorded in
+  `reviews/02-types-and-structure.md`.
+
+### Data Shapes and Patterns
+
+- Chapters 9–11 reviewed together after the structural and nominal record material
+  was combined into one chapter.
+- Result: coherent enough to continue after repairing the combined-chapter transition,
+  stating the duplicate-pattern-binding rule, and completing the current pattern set
+  with `Unit`.
+- Later integrations and whole-book questions are recorded in
+  `reviews/03-data-shapes-and-patterns.md`.
+
+### Capabilities and Calls
+
+- Constraints, Derivation, and Dot Calls were reviewed together after the
+  constraint-default design was completed. They now appear as Chapters 12, 13, and 15
+  because Modules was later inserted at Chapter 14.
+- Result: coherent enough to continue after correcting dictionary evidence order,
+  sharpening derived record ordering and hashing language, and completing the
+  transparent-alias rule for method-style calls.
+- The four-chapter transition through Modules still needs a later cross-chapter check.
+- Later integrations and whole-book questions are recorded in
+  `reviews/04-capabilities-and-calls.md`.
+
+### State, Iteration, and Failure
+
+- Chapters 16–19 reviewed together after their initial reader review.
+- Result: coherent enough to continue after making the lambda and loop-pattern examples
+  self-contained, correcting the exported `Seq` declaration, simplifying chapter
+  titles, and deferring associated types out of the ordinary loop narrative.
+- Later integrations and whole-book questions are recorded in
+  `reviews/05-state-iteration-and-failure.md`.

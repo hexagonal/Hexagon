@@ -1,4 +1,4 @@
-# Chapter Brief: Functions and Application
+# Chapter Brief: Functions
 
 ## Purpose
 
@@ -32,6 +32,7 @@ After this chapter, the reader should be able to:
 Preview, but defer full treatment of:
 
 - Hindley–Milner generalization and the value restriction;
+- monomorphic recursive calls and the rejection of polymorphic recursion;
 - constrained functions and the meaning of `<a: Constraint>`;
 - pipes and operator precedence;
 - tuples and destructuring;
@@ -43,7 +44,7 @@ Preview, but defer full treatment of:
 1. Return to `orderTotal` as a function value.
 2. Header syntax and its lambda equivalent.
 3. Functions as arguments and results.
-4. N-ary application, required call parentheses, and incomplete calls.
+4. Define arity and n-ary, then explain required call parentheses and incomplete calls.
 5. Nullary functions and `Unit`.
 6. Annotations and explicit type variables.
 7. Subject-first parameter order.
@@ -67,4 +68,5 @@ Preview, but defer full treatment of:
 - `let` cannot refer to its own name, even from a nested lambda.
 - A `fun` RHS must be syntactically a lambda; header syntax satisfies this.
 - A `fun` may be used only after all values it needs directly or indirectly are bound.
-- Recursive uses are monomorphic even though external uses may be polymorphic.
+- Recursive uses are monomorphic even though external uses may be polymorphic; verify
+  this in the type-inference chapter rather than teaching it here.

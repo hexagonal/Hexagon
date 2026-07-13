@@ -30,6 +30,7 @@ constraint Show<a> =
 
 constraint Eq<a> =
   equals(x: a, y: a): Bool
+  notEquals(x: a, y: a): Bool = not equals(x, y)
 
 constraint Ord<a: Eq> =
   compare(x: a, y: a): Ordering
@@ -45,15 +46,27 @@ constraint Frac<a: Num> =
   divide(x: a, y: a): a
 ```
 
-*(Member inventories above are illustrative of the shape; the authoritative member lists for the prelude constraints are §7. `Ordering` is a prelude union owed to the stdlib listing.)*
+*(Member inventories above are illustrative of the shape; the authoritative member lists for the prelude constraints are §7. `Ordering` is the prelude union `Less | Equal | Greater`.)*
 
 - **Head:** `constraint Name<subject>` where `Name` is uppercase-initial (it lives in its own namespace — see §2.2) and the subject is exactly one type variable, lowercase-initial, using the standard binder grammar. The subject binder is **mandatory** — this is the one position where bare `<a>` is load-bearing rather than optional.
 - **Superconstraints** are the obligations on the subject: `constraint Ord<a: Eq>` requires every type honoring `Ord` to have (or derive) `Eq`. Conjunctions per the standard form: `constraint C1<a: (C2, C3)>`. Terminology, fixed for diagnostics and docs: if `Ord` implies `Eq`, then `Eq` is the **superconstraint** and `Ord` the **subconstraint**.
 - **Superconstraint cycles are a hard error** at declaration (`C1<a: C2>`, `C2<a: C1>`). The superconstraint relation must be a DAG.
-- **Members are function headers, bodiless.** A member is precisely the header-sugar form from Functions §3.2/§4.1 with the `= body` omitted: `name(params): ReturnType`. This is the *only* place a bodiless header is legal — it does not weaken the "no standalone signature lines" rule (Functions §4.1), because a constraint member *is* the declaration; there is nothing else it could be a signature *of*. No `->` appears in source, preserving that rule too.
-- Member headers must mention the subject variable; annotations on member parameters/returns are **required** here (there is no body to infer from). The subject `a` is in scope in every member; members may not introduce their own `<...>` type parameters in v1 (no polymorphic methods; flagged, not needed by any planned prelude constraint).
+- **Members are fully typed function headers, optionally with a default body.** A required member omits the body: `name(params): ReturnType`. A defaulted member appends `= body`. The bodiless form remains legal only here: a constraint member is the declaration itself, not a standalone signature for some later definition. No `->` appears in source.
+- Member headers must mention the subject variable; annotations on member parameters/returns are **required** even when a default body is present. The subject `a` is in scope in every member; members may not introduce their own `<...>` type parameters in v1 (no polymorphic methods; flagged, not needed by any planned prelude constraint).
 - Members are one per layout line (VSEP/`;` per Lexer & Layout); duplicate member names within one constraint: hard error.
 - Member names are lowercase-initial term names. They enter scope per §2.2.
+
+### Default member bodies
+
+- A member without a body is **required**. Every `honor` declaration must supply it.
+- A member with a body is **defaulted**. An `honor` declaration may omit it and inherit the default, or supply a member of the same name to override it.
+- A constraint must declare at least one required member: either a bodyless function member or an associated type member (Collections Part 2 §5). Associated type members are always required and bound exactly once; they have no default-body form. Defaults supplement an obligation; they do not create marker constraints or Haskell-style "supply either member" minimal-definition alternatives.
+- A default body is checked once in the constraint's generic context against its declared return type. The constraint subject, its superconstraint operations, module-scope names, and all members of the same constraint are in scope.
+- Calls from a default to another member dispatch through the completed instance. An override is therefore respected by defaults that call it. Ordinary recursion rules apply if defaults call themselves or one another; the compiler adds no separate termination analysis.
+- `Eq` is the first prelude use: `equals` is required and `notEquals` defaults to `not equals(x, y)`. An override of `notEquals` is permitted for efficiency but must obey the law `notEquals(x, y) == not equals(x, y)`.
+- Derivation supplies the required members fixed by the structural semantics, then inherits every defaulted member. Thus `honor Eq<Point> = derive`, `derives Eq`, and the automatic `Eq` instances for tuples and structural records generate `equals` and inherit the standard `notEquals` default.
+
+The Haskell `Eq` design, in which equality and inequality default recursively to each other and an instance must supply either one, is deliberately not copied. It requires a separate minimal-complete-definition rule to prevent an instance from inheriting an infinite loop. Hexagon keeps one required semantic foundation (`equals`) and one overridable convenience (`notEquals`): the same optimization door, with no alternative-completeness grammar and no warning-tier trap.
 
 ### 2.1 Superconstraints and constraint-use semantics
 
@@ -91,7 +104,7 @@ honor Ord<Int> =
 ```
 
 - **Head:** `honor ConstraintName<Type>`. The subject slot that held a variable-being-introduced in `constraint` holds a concrete-type-being-supplied in `honor`. Declaration/use duality, deliberately.
-- **Members are ordinary function definitions** (header sugar, or explicit-lambda form — same AST equivalence as everywhere). Every member of the constraint must be supplied exactly once; a missing member is an error naming it; an extra name not in the constraint is an error.
+- **Members are ordinary function definitions** (header sugar, or explicit-lambda form — same AST equivalence as everywhere). Every required member must be supplied exactly once. A defaulted member may be omitted or supplied once as an override. A missing required member is an error naming it; an extra or duplicate name is an error.
 - **Member typing is checking, not inference.** The expected type of each member is fully determined by the constraint definition with the subject substituted; the body checks against it. Annotations on members are optional; if present they must match the expected type exactly — a *less general* annotation is an error here (unlike on free functions), because the dictionary slot's type is fixed.
 - Member RHSs must be **syntactic lambdas** (directly or via header sugar) — the `fun` §7.1 rule, for the same reason: instance construction must be evaluation-free (§6.3).
 
@@ -154,7 +167,7 @@ An instance head is **one type constructor applied to distinct type variables**:
 
 Nothing beyond what Numeric Literals §5 already assumes, now stated in general:
 
-- A **ground instance** is a module-level record of its members: `const Num_Int = { add: (x, y) => x + y, fromInt: (x) => x, ... };` — materialised only if some polymorphic use actually needs it (see erasure below).
+- A **ground instance** is a module-level record of its completed member set: supplied members plus inherited defaults. For example, `const Num_Int = { add: (x, y) => x + y, fromInt: (x) => x, ... };` is materialised only if some polymorphic use actually needs it (see erasure below).
 - A **parameterized instance** is a dictionary-producing function: `const Show_List = (dictA) => ({ show: (xs) => ... });`
 - A constrained function takes its dictionaries as leading parameters, one per constraint on each generalised variable, in a deterministic order (alphabetical by (variable, constraint name) — fixed so separate compilation agrees).
 - **Monomorphic erasure is the norm and the point:** at a call site where the constrained variable is resolved to a concrete type, the dictionary is selected at compile time and known slots are inlined — `add` at `Int` emits `x + y`, `show` at `Int` emits `String(x)` (Primitive Types §7 table), `fromInt` at `Int` erases (Numeric Literals §5). Dictionary records and `dict.member(...)` calls appear **only** inside genuinely polymorphic functions, which already carried them.
@@ -165,7 +178,7 @@ A subconstraint dictionary carries its superconstraint dictionaries as slots (`O
 
 ### 6.3 Evaluation-freeness and ordering
 
-Instance construction is evaluation-free by construction (§4.1: member RHSs are syntactic lambdas; a record of lambdas evaluates nothing). Instances are therefore order-independent within a module and require **no capture-set analysis** (unlike `fun`, Functions §7.2) and no initialisation-order story. Instances may reference each other freely (e.g. `Show_List` using `dictA` which might be `Show_List(Show_Int)` at some call site — composition happens at use sites, not declaration sites).
+Instance construction is evaluation-free by construction (§4.1: supplied member RHSs are syntactic lambdas, and default bodies elaborate to lambdas; a record of lambdas evaluates nothing). A default that calls another member reads that slot when the function is called, after the dictionary is complete. Instances are therefore order-independent within a module and require **no capture-set analysis** (unlike `fun`, Functions §7.2) and no initialisation-order story. Instances may reference each other freely (e.g. `Show_List` using `dictA` which might be `Show_List(Show_Int)` at some call site — composition happens at use sites, not declaration sites).
 
 ### 6.4 `.d.ts`
 
@@ -177,8 +190,8 @@ Constraints and instances are compile-time Hexagon discipline; **nothing constra
 
 | Constraint | Superconstraints | Members | Notes |
 |---|---|---|---|
-| `Eq<a>` | — | `equals(x: a, y: a): Bool` | NaN/−0 semantics: §9.5 |
-| `Ord<a: Eq>` | `Eq` | `compare(x: a, y: a): Ordering` | `Ordering` is a prelude all-nullary union (`Lt \| Eq \| Gt` — name collision with constraint `Eq` to be resolved in the stdlib listing; flagged) |
+| `Eq<a>` | — | required `equals`; defaulted `notEquals` | `notEquals(x, y) = not equals(x, y)`; NaN/−0 semantics: §9.5 |
+| `Ord<a: Eq>` | `Eq` | `compare(x: a, y: a): Ordering` | `Ordering` is the prelude all-nullary union `Less \| Equal \| Greater` |
 | `Show<a>` | — | `show(x: a): String` | contract per Primitive Types §7 |
 | `Num<a>` | — | `add`, `subtract`, `multiply`, `negate` (all `(a, a): a` / `(a): a`), `fromInt(n: Int): a` | `fromInt` law per Numeric Literals §5; no `divide` (evicted, per Primitive Types §2) |
 | `Frac<a: Num>` | `Num` | `divide(x: a, y: a): a` | lawful up to rounding (Float); exact (Rat) |
@@ -196,6 +209,8 @@ Diagnostic noun policy (restated from the preamble): the noun is **instance**, t
 | Situation | Error / hint |
 |---|---|
 | Missing member in `honor` | "the `Ord<Int>` instance is missing `compare`" |
+| Omitted defaulted member | accepted; the constraint body supplies it |
+| Override of a defaulted member | accepted when its type matches the declared member type |
 | Extra member | "`Ord` has no member `compere`" (+ near-miss suggestion) |
 | Member type mismatch | ordinary type error, phrased against the constraint's declared header |
 | Missing superconstraint instance | "cannot honor `Ord<Int>`: `Ord` requires `Eq`, and no `Eq<Int>` instance exists" (§4.2) |
@@ -215,13 +230,13 @@ Diagnostic noun policy (restated from the preamble): the noun is **instance**, t
 
 These were explicitly deferred in the design session. Each needs a decision before or during its noted milestone; none blocks implementing §1–§8.
 
-1. **Default method bodies** in `constraint` declarations (e.g. `notEquals` defined in terms of `equals`, overridable per instance). Useful, pure convenience; the interaction with the "members are bodiless headers" grammar (§2) and with dictionary construction deserves its own look. *Needed by:* whenever a prelude constraint first wants one (candidate: adding `notEquals` to `Eq`).
+1. **Default member bodies. Resolved.** Members with bodies are inherited defaults and may be overridden; members without bodies remain required. `Eq.notEquals` is the first use. The complete rule is in §2.
 2. **Derived structural instances — mechanism.** Semantics are fixed (tuples: Products §2.5; structural records: Products §3.4; unions: Unions §7). Open: how derivation is *invoked* for nominal types — automatic for every `record`/`union`, or opt-in (`honor Show<Point> = derive` or a `deriving`-style header clause)? Automatic is ergonomic; opt-in is consistent with "nominal means you control the surface." Also open within this: whether record `Ord` ships at all (Products §3.4 flags it as droppable). *Needed by:* the moment `record`/`union` values meet `show`/`==` in user code — i.e. early. *(Since resolved in Decisions Batch 2026-07 §2 and Declarations Preamble §2.3: opt-in via header `derives`, elaborating to `honor C<Name> = derive`. Entry retained for the record.)*
 3. **`honor` for structural types.** Instances are keyed on type constructors (§5.4); structural records and tuples have no constructor name. Presumption: users **cannot** write instances for structural types (their instances are exclusively compiler-derived per §9.2), which also dodges "which module owns `{x: Float}`" under the orphan rule. Presumed, not decided.
 4. **LSP display of constraints.** Deferred by agreement until after this spec. The open choice: keep the Haskell-flavored display `Num a => a -> a -> a` (currently named in Numeric Literals §6) or switch hover display to source-shaped `<a: Num>(a, a): a`. Leaning source-shaped for round-trip consistency; the Numeric Literals §6 wording gets updated when this is decided. Display-only; nothing downstream.
 5. **Eq/Ord semantics for `NaN` and `-0`** (promised by Primitive Types §3). IEEE `NaN ≠ NaN` breaks `Eq` reflexivity and poisons collection lookups; total-order (`compare`) treatment of `NaN`/`-0` must be pinned. Candidates: SameValueZero-style equality + a total order placing `NaN` (Rust's `total_cmp` precedent), vs. honest IEEE with documented lawlessness. *Needed by:* `Eq<Float>`/`Ord<Float>` instances — i.e. immediately upon prelude implementation; this is the most urgent item on this list. *(Since resolved: SameValueZero for `Eq<Float>`; `Ord<Float>` places NaN after +Infinity — see Decisions Batch. Entry retained for the record.)*
 6. **Polymorphic constraint members** (members introducing their own type variables). Banned in v1 (§2); no planned prelude constraint needs one. Revisit only on concrete demand.
-7. **`Ordering` name collision** — the prelude union `Ordering = Lt | Eq | Gt` wants a constructor named `Eq`, colliding with the constraint name *only if* constraints and constructors share a namespace; §2.2 gives constraints' members term-namespace residence but the constraint *names* plausibly live with type names. Resolve in the stdlib listing (rename constructor to `EQ`/`Equal`, or confirm namespaces don't collide). Trivial but must not be forgotten.
+7. **`Ordering` spelling. Resolved.** The prelude union is `Ordering = Less | Equal | Greater` (Decisions Batch §3). The full-word constructors avoid the former `Eq` collision and are the final spellings.
 
 ---
 
@@ -233,7 +248,7 @@ These were explicitly deferred in the design session. Each needs a decision befo
 | `constraint Name<a>` head; subject binder mandatory; bare `<a>` load-bearing here | §2 |
 | Superconstraints as subject obligations: `Ord<a: Eq>`; left-to-right implication; no `=>` spelling | §1, §2 |
 | Terminology: super/subconstraint; noun for an honored constraint is **instance** | §2, preamble |
-| Members = bodiless function headers; only place these are legal; annotations required; no `->` in source preserved | §2 |
+| Members = fully typed headers; bodyless members required, bodies provide overridable defaults; at least one required member; no `->` in source preserved | §2 |
 | Members are module-scope terms, constructor-style collision rules | §2.2 |
 | `honor C<T>` head; members are ordinary definitions, checked not inferred; lambda-literal RHS rule | §4.1 |
 | Superconstraint obligations existence-checked, never restated | §4.2 |
@@ -242,6 +257,8 @@ These were explicitly deferred in the design session. Each needs a decision befo
 | Orphan rule (Rust-style); instances global, never imported/hidden | §5.3 |
 | Instance heads: one constructor, distinct variables (H98-style) | §5.4 |
 | Dictionaries: records / dictionary-functions; deterministic parameter order; monomorphic erasure | §6.1 |
+| `Eq.equals` required; `Eq.notEquals` defaults to its negation and may be lawfully overridden; `!=` targets `notEquals` | §2, §7; Operators §5.1 |
+| Derivation supplies required structural members, then inherits defaults; automatic structural instances do the same | §2 |
 | Superconstraint dictionaries nested as slots; lowercased-name slot rule | §6.2 |
 | Instances evaluation-free, order-independent, no capture analysis | §6.3 |
 | Nothing constraint-shaped in `.d.ts` | §6.4 |

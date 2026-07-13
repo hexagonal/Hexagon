@@ -1,4 +1,4 @@
-# Chapter Brief: Primitive Values and Strings
+# Chapter Brief: Primitive Types
 
 ## Purpose
 

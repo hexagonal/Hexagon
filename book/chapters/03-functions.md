@@ -1,4 +1,4 @@
-# Functions and Application
+# Functions
 
 The first function in this book was deliberately ordinary:
 
@@ -94,8 +94,13 @@ supplies the fixed delivery charge.
 
 ## Arity is part of a function
 
-Hexagon functions are genuinely n-ary. A function declared with two parameters must be
-called with two arguments:
+**Arity** is a count of how many parts something takes. For a function, it is the
+number of arguments the function accepts, so a two-parameter function has arity two.
+More generally, **n-ary** means “having *n* parts,” where *n* might be zero, one, two,
+or more.
+
+Hexagon functions are genuinely n-ary: each function has a fixed arity. A function
+declared with two parameters must be called with two arguments:
 
 ```hexagon
 orderTotal(80, 12)    // two arguments: correct
@@ -277,20 +282,25 @@ Two `fun` declarations may refer to each other:
 
 ```hexagon
 fun isEven(n: Int): Bool =
-  if n == 0 then true else isOdd(n - 1)
+  if n == 0
+    true
+  else if n > 0
+    isOdd(n - 1)
+  else
+    isOdd(n + 1)
 
 fun isOdd(n: Int): Bool =
-  if n == 0 then false else isEven(n - 1)
+  if n == 0
+    false
+  else if n > 0
+    isEven(n - 1)
+  else
+    isEven(n + 1)
 ```
 
 The pair forms one recursive group. Calls between their bodies are valid regardless of
 textual order. If either function captures an outer local value, the combined group is
 usable only after all captured values required by either function have been bound.
-
-Recursive calls use one consistent type inside the group. A recursive function may be
-generic for outside callers, but it cannot recursively call itself at unrelated types
-on different steps. This ban on polymorphic recursion keeps inference predictable; the
-type-inference chapter will put the rule in its wider context.
 
 ## The JavaScript remains direct
 
@@ -322,7 +332,7 @@ This output is not only pleasant to inspect. Its shape explains the source rules
 `let` has sequential initialization, while `fun` receives the hoisted form recursion
 requires.
 
-## What to carry forward
+## Summary
 
 - Ordinary named functions use `let`; recursive functions use `fun`.
 - Header syntax is convenient spelling for a lambda binding.

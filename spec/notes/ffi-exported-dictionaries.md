@@ -81,6 +81,18 @@ Show.Dictionary<a>
 
 They are not one universal dictionary type. Each describes the operation record for one constraint and one value type.
 
+The public dictionary shape is the constraint's **completed member set**, including inherited defaulted operations. Consequently `Eq.Dictionary<a>` contains both `equals` and `notEquals` even when the originating `honor Eq<T>` declaration supplied only `equals`:
+
+```ts
+declare const eqDictionaryBrand: unique symbol;
+
+export interface Dictionary<a> {
+  readonly [eqDictionaryBrand]: a;
+  readonly equals: (x: a, y: a) => boolean;
+  readonly notEquals: (x: a, y: a) => boolean;
+}
+```
+
 Representative `num.d.ts` declaration:
 
 ```ts
@@ -352,7 +364,7 @@ Required diagnostic/documentation cases:
 
 1. Fundamental JS entry points specialize and take no dictionaries; separate note owns their names/expansion.
 2. The generic base-name edition appears for public usable non-fundamental evidence.
-3. Dictionary types are constraint-specific and qualified: `Num.Dictionary<a>`, `Eq.Dictionary<a>`, `Show.Dictionary<a>`.
+3. Dictionary types are constraint-specific and qualified: `Num.Dictionary<a>`, `Eq.Dictionary<a>`, `Show.Dictionary<a>`; their operation records contain required and inherited-default members alike.
 4. All Hexagon-originated `.d.ts` binders use lowercase Hexagon convention.
 5. Fundamental handles are constraint-owned (`Num.int`, `Show.string`).
 6. Public non-fundamental handles/factories are type-owned and use lowercase constraint names (`Rat.num`, `Vector.show(...)`).
