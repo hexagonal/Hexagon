@@ -107,7 +107,7 @@ surrounding function so that the intended control flow is explicit.
 
 ## Loop heads use patterns
 
-The pattern language from Chapter 11 applies in a loop head. Suppose a function
+The pattern language from the Patterns chapter applies in a loop head. Suppose a function
 receives a sequence of tuple values:
 
 ```hexagon

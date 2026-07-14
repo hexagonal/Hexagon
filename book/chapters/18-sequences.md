@@ -61,9 +61,9 @@ language chapter.
 
 ## `next` exposes a functional cursor
 
-The fundamental operation is:
+The fundamental operation has this type:
 
-```hexagon
+```text
 Seq.next : (Seq(a)) -> Option((a, Seq(a)))
 ```
 
@@ -107,7 +107,7 @@ sequence values observed by the program remain immutable.
 This external iteration is important. Implementing a loop through `Seq.fold` would
 turn the body into a callback lambda, which could not update an enclosing `var`. A
 direct loop keeps its body as a block and supports both functional traversal and the
-small local accumulators introduced in Chapter 16.
+small local accumulators introduced in the Mutable Variables chapter.
 
 The source expression is still evaluated once. Elements are then pulled on demand,
 which matters when the sequence is lazy or contains effects.

@@ -335,7 +335,6 @@ The entire pipe is the lambda body, and the entire conditional is the right oper
 - Precedence follows mathematics, with `not` below comparisons and pipes looser than
   the rest of the infix vocabulary.
 
-These forms complete the small expression language used throughout the opening group
-of chapters. We can now pause and review that group as a reader would: checking that
-values, primitive types, functions, and operators form one consistent progression
-before adding more of the type system.
+These forms complete the small expression language used throughout the opening
+chapters. Before adding more of the type system, the next chapter makes explicit the
+layout rules that have already been shaping every multi-line example.

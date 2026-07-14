@@ -3,7 +3,7 @@
 **Status:** Decided (July 2026)
 **Scope:** Line comments, nested block comments, reserved doc-comment forms, interaction with the layout pass, diagnostics.
 **Not in scope:** Doc-comment *semantics* and tooling (attachment rules, Markdown flavour, `.d.ts`/JSDoc emission) — owed to a future documentation spec; v1 only reserves the syntax. Comment preservation in emitted JS — codegen quality-of-implementation, noted in §6 but not mandated.
-**Companions:** Lexer & Layout spec (offside rule, leading-whitespace tab error — this doc closes its "comments owed" item), Primitive Types §5 (string lexing; comments and strings do not lex inside each other).
+**Companions:** Physical Lexer (comments as trivia and token interaction), Lexer & Layout (offside rule), Primitive Types §5 (string lexing; comments and strings do not lex inside each other).
 
 ---
 

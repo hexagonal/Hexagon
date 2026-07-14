@@ -19,7 +19,7 @@ small user-defined collection iterable.
 
 1. Persistent updates preserve the old value.
 2. `Vector` literals, one-based access, slices, and vector patterns.
-3. `Map` construction, lookup, and upsert.
+3. `Map` construction, lookup, insertion, and replacement.
 4. `Set` construction, membership, and algebra.
 5. `Hash` as the honest requirement for keyed collections.
 6. `Seq` conversions and unspecified hash-collection order.

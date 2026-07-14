@@ -1,6 +1,9 @@
 # Hexagon Spec: Lexer & Layout
 
-**Status:** Decided (July 2026) — but deliberately **partial**: this document records only the layout/block/`;`/brace decisions made in the Products design session. The full lexer specification (token inventory, string-interpolation mode stack, numeric-literal lexing, UTF-16 column tracking, comments, keywords) is owed; existing decisions that touch the lexer live in their own specs (Numeric Literals §3/§8, Primitive Types §5.2/§5.4/§8) and are cross-referenced, not restated.
+**Status:** Decided (July 2026); compiler pass implemented. This document owns layout, blocks, `;`, and
+brace disambiguation. The companion [Physical Lexer](lexer.md) specification owns
+the complete physical token and keyword inventory, source coordinates, literals,
+whitespace, comments-as-trivia, and lexical diagnostics.
 **Scope:** blocks as pure layout, virtual delimiters, the explicit `;` separator, braces-are-records disambiguation, and the diagnostics these require.
 **Companions:** Products spec (braces = records), Functions spec (block bodies of lambdas).
 
@@ -18,14 +21,53 @@ Consequences:
 
 ## 2. Layout algorithm (shape, for the implementer)
 
-The pass runs between the raw lexer and the parser, standard offside-rule mechanics:
+The pass runs between the physical lexer and the parser. The module itself is an
+implicit block: emit VOPEN before its first token (or at EOF for an empty module),
+and VCLOSE immediately before EOF. Nested blocks use the same mechanics:
 
 - A construct expecting a block whose content starts on a **new line** at column C > enclosing indentation: emit VOPEN, record C on the indentation stack.
 - Each subsequent line beginning exactly at C: emit VSEP before its first token.
 - A line beginning at column < C: emit VCLOSE (popping repeatedly for multiple dedents), then resume comparison against the revealed enclosing context.
 - Same-line (single-expression) bodies involve no virtual tokens.
-- **Interaction with existing lexer decisions:** string-interpolation holes do not participate in layout (Primitive Types §5.2 — expression-level, inside a token as far as layout is concerned). Columns are tracked per the existing UTF-16 scheme; the layout pass consumes those columns as-is.
-- Tabs: [owed to the full lexer spec — recommend hard error on tabs in leading whitespace rather than a tab-width convention; flagged, not decided.]
+- At an open block's indentation, a new logical item receives VSEP. Deeper
+  indentation is a continuation of the current logical item by default; it does
+  **not** open a block merely because it is deeper. This is what keeps a
+  multi-line declaration, operator expression, or argument list together.
+- `else` and `catch` at the enclosing indentation continue the preceding
+  `if`/`try` item: any nested body is closed before the clause, but no VSEP is
+  inserted between the body and its clause.
+- **Interaction with the physical lexer:** string-interpolation holes do not participate in layout (Physical Lexer §6.1; Primitive Types §5.2). Columns are UTF-16 code-unit columns supplied by physical token spans; the layout pass consumes them as-is.
+- The physical lexer rejects tabs in leading whitespace (Physical Lexer §2.2;
+  Decisions Batch 2026-07 §4), so layout never expands tabs.
+
+### 2.1 Complete block-head inventory
+
+Because deeper indentation means continuation unless a block is expected, the
+layout pass recognizes this closed set of block heads. `export` may prefix any
+declaration head in the table without changing it.
+
+| Block head at the end of a logical item | Opens on a following indented line |
+|---|---|
+| Lambda or match-arm `=>` with no same-line body | Body block |
+| Layout `if` (no `then` after that `if`) | Consequence block |
+| `for` or `while` head | Loop body |
+| `match` head | Arm block |
+| Bare `try` | Try body |
+| `else` or `catch` with no same-line body | Clause body / arm block |
+| `constraint ... =` or `honor ... =` | Member block |
+| Function-header definition ending in `=` (`let f(...) =`, `fun f(...) =`, or a member header) | Function body block |
+
+An ordinary binding RHS (`let x =`), and `record`, `union`, or `type` after
+`=`, are continuations rather than blocks. In particular, indented union
+alternatives receive no VOPEN. `finally` is reserved but is not a v1 block head.
+
+### 2.2 Physical delimiters
+
+Ordinary newlines inside `()`, `[]`, and `{}` are continuation whitespace and
+do not produce virtual tokens. A genuine block head may still open a nested
+layout block inside a delimiter—for example, a multiline lambda supplied as a
+call argument. While that nested block is open, its own newlines and semicolons
+use the ordinary block rules.
 
 ## 3. The explicit `;`
 
@@ -57,7 +99,7 @@ the lambda's one-line body is the single expression `print(x)`; the `;` separate
 Analogous to the numeric `_` rule (digit on both sides — Primitive Types §8):
 
 - **No leading `;`, no trailing `;`, no `;;`**, no empty statements. Trailing `;` gets the targeted message in §5, not a generic parse error. (Hexagon's `;` is a *separator*, not a *terminator*; the spec picks separator and says so loudly once.)
-- **`;` is illegal inside brackets** — record literals, tuple literals, argument lists, type-parameter lists all use `,`. A `;` there → "did you mean `,`?". This keeps the token's meaning unique: `;` is exclusively block-level sequencing.
+- **`;` is illegal inside brackets** — record literals, tuple literals, argument lists, type-parameter lists all use `,`. A `;` there → "did you mean `,`?". This keeps the token's meaning unique: `;` is exclusively block-level sequencing. Layout diagnoses the structurally delimited `()`/`[]`/`{}` cases. Because `<` and `>` are also comparison tokens, the parser diagnoses the type-parameter case with the same required message once it knows that context.
 - **The top level of a module is a block**; `;` works there under the same rules. No special case.
 
 ### 3.3 Emission
@@ -91,4 +133,6 @@ These are binding on the implementation, same status as the Functions spec's dia
 | `;` never opens a block | §3.1 |
 | Separator not terminator: no leading/trailing/doubled `;`; illegal inside brackets; top level is a block | §3.2 |
 | `x => { ... }` and trailing-`;` diagnostics mandatory | §5 |
-| Tabs-in-indentation policy | flagged, owed to full lexer spec (§2) |
+| Tabs in leading whitespace are rejected before layout | §2; Physical Lexer §2.2 |
+| Deeper indentation is continuation by default; block heads are a closed inventory | §2–2.1 |
+| Module is an implicit block; clauses attach without VSEP | §2 |

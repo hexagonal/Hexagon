@@ -126,9 +126,10 @@ functions, leaving callers to decide when effects occur.
 
 ## Companion modules give operations a home
 
-The standard-library spelling `Vector.append` is not a special namespace mechanism.
-It is the ordinary module pattern applied consistently: a type has a home module whose
-exported functions operate on that type.
+The **home module** of a nominal type is the file that declares it. The
+standard-library spelling `Vector.append` is not a special namespace mechanism. It is
+the ordinary module pattern applied consistently: exported functions in a type's home
+module operate on that type.
 
 A user-defined type can follow the same pattern. In `point.hex`:
 

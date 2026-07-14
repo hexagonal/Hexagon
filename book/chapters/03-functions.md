@@ -183,7 +183,7 @@ unannotated function such as `x => x` becomes reusable at many types.
 
 ## Put the subject first
 
-The `ignore` example from Chapter 1 has a natural data-flow spelling:
+The `ignore` example from the Expressions chapter has a natural data-flow spelling:
 
 ```hexagon
 auditOrder(order) |> ignore
@@ -203,7 +203,7 @@ let map(items, transform) = ...
 ```
 
 This “subject-first” order reads naturally as an ordinary call and prepares functions
-for method-style calls and pipes. For example, `items |> map(transform)` inserts
+for dot calls and pipes. For example, `items |> map(transform)` inserts
 `items` as the first argument, producing `map(items, transform)`. The convention avoids
 APIs split between those two parameter orders according to whichever syntax happened
 to inspire them.
@@ -343,11 +343,12 @@ requires.
 - Zero-parameter functions receive zero arguments; `()` remains the `Unit` value.
 - Annotations document or restrict types, while inference remains the normal source of
   polymorphism.
-- Subject-first parameter order prepares APIs for pipes and method-style calls.
+- Subject-first parameter order prepares APIs for pipes and dot calls.
 - `fun` supports direct and mutual recursion while requiring captured values to be bound
   before use.
 
-We can now write useful transformations, callbacks, and recursive definitions. The next
-step is to explain more fully what Hexagon has already been doing in these examples:
+We can now write useful transformations, callbacks, and recursive definitions. A later
+chapter will explain more fully what Hexagon has already been doing in these examples:
 inferring types, deciding which bindings are reusable at many types, and rejecting the
-few cases where that reuse would be unsound.
+few cases where that reuse would be unsound. First, we will complete the expression
+language and make its layout rules explicit.

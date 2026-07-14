@@ -211,10 +211,10 @@ may retain a trailing dictionary parameter:
 const labelled = (value, showDict) => `Value: ${showDict.show(value)}`;
 ```
 
-The original value parameters stay in their source order. Dictionary evidence follows
+The original value parameters stay in their source order. Dictionary arguments follow
 them as explicit compiler plumbing rather than altering the subject-first calling
-convention. The later Constrained Exports chapter explains when such a generic edition
-becomes part of a public JavaScript API.
+convention. The later Constraints in JavaScript chapter explains when such a generic
+edition becomes part of a public JavaScript API.
 
 ## Runtime support should be visible when it matters
 
@@ -263,8 +263,8 @@ lower() <= value() <= upper()
 ```
 
 Each operand runs once. Generated temporaries may appear so JavaScript neither repeats
-`value()` nor changes the source order. Those names are evidence of the semantic rule,
-not accidental noise.
+`value()` nor changes the source order. Those names make the semantic rule visible;
+they are not accidental noise.
 
 The same honesty applies to loops and matches: a loop source evaluates once; a match
 scrutinee evaluates once; a pipe does not duplicate its subject.
@@ -310,7 +310,7 @@ what another JavaScript or TypeScript module is invited to depend on.
 - unions remain readable tagged objects, or strings when every constructor is nullary;
 - pipes and dot calls become ordinary calls, while patterns become ordinary tests;
 - derivation generates direct operations instead of runtime reflection;
-- genuinely generic constrained code may retain trailing dictionary evidence;
+- genuinely generic constrained code may retain trailing dictionary arguments;
 - persistent collections and functional sequences use explicit runtime support where
   native JavaScript would provide different semantics;
 - generated code preserves single evaluation and left-to-right order; and

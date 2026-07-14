@@ -328,7 +328,7 @@ Keyword occurrences of `implement` become `honor` corpus-wide; **prose uses of "
 | **operators-logic-precedence.md** | Rejected-alternatives row ("extensibility lives in `implement`" → "…in `honor`"). |
 | **functions.md** | §4.2 pointer ("superconstraints, `implement`") and §deferred list ("Constraints (`Num`, `implement`, …)"). |
 | **type-system-overview.md** | §1 pillar 4 ("user constraints via `implement` blocks") and roadmap item 4 ("Constraints — `implement`, superconstraints, …"). |
-| **lexer-layout.md** | Keyword inventory: remove `implement`, add `honor`. (Also confirm `honour` gets no special treatment — it is an ordinary identifier/unknown name; a near-miss hint "did you mean `honor`?" is nice-to-have, not owed.) |
+| **lexer.md** | Discharged: the hard-keyword inventory contains `honor`, not `implement`. `honour` receives no lexical privilege; a near-miss hint remains optional. |
 | **pattern-matching.md** | Check the 4 hits — believed to be prose-verb uses only; change nothing unless a keyword use surfaces. |
 | **exceptions.md / division-remainder.md / comments.md** | Prose-verb uses only per grep; verify, expect no change. |
 | **hexagon-for-typescript-coders.md** | 1 hit; the guide predates full constraint coverage. When constraints enter the book: `honor` gets a one-paragraph introduction leaning on the TS `implements` contrast ("where TS writes `implements`, Hexagon writes `honor` — an instance honors a constraint") and the §11.1 note that a Hexagon `constraint` is TS's *generic constraint*, never a TS `interface`. |

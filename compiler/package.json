@@ -1,0 +1,31 @@
+{
+  "name": "hexagon-compiler-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "coverage": "vitest run --coverage",
+    "generate:unicode": "node scripts/generate-unicode.mjs",
+    "test": "vitest run",
+    "test:update": "vitest run --update",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@unicode/unicode-17.0.0": "1.6.17",
+    "@vitest/coverage-v8": "4.1.10",
+    "fast-check": "4.3.0",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

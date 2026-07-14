@@ -1,4 +1,4 @@
-# TypeScript Declarations
+# TypeScript Output
 
 Emitted JavaScript says how a Hexagon module runs. Its generated `.d.ts` file says what
 TypeScript callers are invited to use.
@@ -99,9 +99,9 @@ Generated binders retain Hexagon's lowercase style: `<a>`, `<k>`, and `<v>`. The
 ordinary TypeScript generic parameters, not special global names.
 
 Constraints need additional boundary decisions because a JavaScript caller may need
-evidence that Hexagon normally supplies automatically. The later Constrained Exports
-chapter owns that surface; this chapter does not hide it beneath an inaccurate
-constraint-free signature.
+dictionaries that Hexagon normally supplies automatically. The later Constraints in
+JavaScript chapter owns that surface; this chapter does not hide it beneath an
+inaccurate constraint-free signature.
 
 ## Tuples and structural records stay structural
 
@@ -300,9 +300,9 @@ Generated declarations contain no entries for:
 - internal dictionary objects that no foreign caller can name.
 
 These mechanisms affect checking or implementation, not the supported TypeScript
-surface. When compiler-produced evidence genuinely becomes callable public API—as it
-can for constrained polymorphic exports—it appears deliberately under the rules of the
-later dedicated chapter.
+surface. When compiler-produced dictionaries genuinely become callable public API—as
+they can for constrained polymorphic exports—they appear deliberately under the rules
+of the later dedicated chapter.
 
 ## A declaration is not the Hexagon type checker
 
@@ -334,8 +334,8 @@ Generated declarations therefore deserve source control and review like other AP
 artifacts. A concise diff can reveal that a seemingly internal Hexagon edit has widened
 or broken the JavaScript/TypeScript surface.
 
-The following chapters will put this boundary to work: first by importing and exporting
-ordinary JavaScript values, then by exposing constrained polymorphism without making
+The following chapters will put this boundary to work: first by importing ordinary
+JavaScript values, then by exposing constrained polymorphism without making
 ordinary concrete calls pay for it.
 
 ## Summary

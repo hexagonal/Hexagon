@@ -6,7 +6,7 @@ Hexagon's subject-first convention makes a useful transformation easy to recogni
 Option.getOrElse(possibleName, "Guest")
 ```
 
-When the receiver's type is known, the same operation has a **method-style call**:
+When the receiver's type is known, the same operation has a **dot call**:
 
 ```hexagon
 possibleName.getOrElse("Guest")
@@ -80,7 +80,7 @@ The argument list is significant:
 
 ```hexagon
 parcel.status       // field access, if Parcel has a field named status
-parcel.status()     // method-style call, when status is a companion operation
+parcel.status()     // dot call, when status is a companion operation
 ```
 
 `value.name` without an immediate argument list never creates a bound method. It is
@@ -129,7 +129,7 @@ that form only when it is actually valid.
 The ambiguity is based on the name, not on whether the field happens to be callable.
 Changing a field's type must not silently change which operation a program invokes.
 
-## The receiver type must come from real evidence
+## The receiver type must be known independently
 
 A member name does not tell Hexagon which nominal type you intended:
 
@@ -137,7 +137,8 @@ A member name does not tell Hexagon which nominal type you intended:
 let statusOf(value) = value.status()
 ```
 
-With no other evidence, this remains the long-established structural-record meaning:
+With no other type information, this remains the long-established structural-record
+meaning:
 `value` must contain a callable field named `status`. Hexagon does not search every
 companion module for a function with that name and guess `Parcel`.
 
@@ -147,8 +148,8 @@ Annotate the receiver when companion dispatch is the intention:
 let statusOf(value: Parcel) = value.status()
 ```
 
-Evidence elsewhere in the same function may also establish the nominal type. The
-important reader rule is:
+Type information elsewhere in the same function may also establish the nominal type.
+The important reader rule is:
 
 > A dot call selects a companion operation only when the receiver's type is known
 > independently. Otherwise it is a callable record-field requirement.
@@ -202,7 +203,7 @@ representations.
 The editor can still offer method-like completion. After a receiver of known type, it
 can combine visible fields with exported subject-first companion operations and label
 which is which. This discoverability is a source-language service built on static type
-information, not evidence of runtime objects.
+information, not a sign of runtime objects.
 
 ## Summary
 
@@ -216,7 +217,7 @@ information, not evidence of runtime objects.
 - constraint members such as `show` remain direct calls; and
 - dot calls add no runtime methods, `this`, prototypes, or TypeScript methods.
 
-Constraints, deriving, modules, and method-style calls complete the book's first
-account of capabilities: how generic code asks for behavior, how data types acquire
-standard behavior, where ordinary operations live, and how those subject-first
-functions remain convenient to discover and call.
+Together, constraints, derivation, modules, and dot calls form Hexagon's capability
+model: generic code asks for behavior, data types acquire standard behavior, ordinary
+operations receive predictable homes, and subject-first functions remain convenient
+to discover and call.

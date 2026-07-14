@@ -4,6 +4,12 @@ This is the working brief for a dedicated revision after the complete first draf
 The first draft should concentrate on technical accuracy, teaching order, and
 manuscript continuity. It does not need to solve liveliness chapter by chapter.
 
+The eventual short Introduction will contain the story's opening movement before its
+compact introduction to the Hexagon language. That opening should establish only the
+characters and premise needed for later callbacks. Practical installation, execution,
+and first-program teaching belong in the held **Getting Started** chapter rather than
+making the Introduction carry both jobs.
+
 ## Purpose
 
 Programming textbooks have a tendency to become dull even when their explanations are

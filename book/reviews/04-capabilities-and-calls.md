@@ -1,14 +1,9 @@
 # Group Review: Capabilities and Calls
 
-**Chapters reviewed:** Constraints; Derivation; Dot Calls.
+**Chapters reviewed:** Constraints; Derivation; Modules; Dot Calls.
 
 **Status:** Reviewed as a consistent drafting group. This is not the late whole-book
 pedagogy pass, and chapter numbers remain provisional.
-
-**Reordering note:** This review was performed before Modules was drafted and inserted
-between Derivation and Dot Calls. The reviewed chapters now appear as Chapters 12, 13,
-and 15. Their internal findings remain valid; the new four-chapter transition through
-Modules still requires a later cross-chapter check.
 
 ## Coherence result
 
@@ -16,8 +11,9 @@ The group follows one clear progression:
 
 1. constraints let generic code require named behavior;
 2. deriving lets nominal data request lawful standard behavior without repeating its
-   structure; and
-3. method-style calls provide convenient access to ordinary subject-first companion
+   structure;
+3. modules give declarations, instances, and companion operations stable homes; and
+4. dot calls provide convenient access to ordinary subject-first companion
    functions without turning values into objects with methods.
 
 The distinction between constraint operations and companion operations is the
@@ -29,8 +25,8 @@ similar-looking conveniences therefore meet without being conflated.
 ## Integrated corrections
 
 - Changed the generic JavaScript example in Constraints to carry its dictionary after
-  the source arguments. Trailing evidence preserves the subject-first position and
-  agrees with the established FFI direction.
+  the source arguments. Trailing dictionary parameters preserve the subject-first
+  position and agree with the established FFI direction.
 - Replaced “stable hashing” with the narrower promise that hashing is consistent with
   equality. Hash values are deterministic within an execution, but collection table
   placement may be randomized and cross-execution stability is not promised here.
@@ -42,7 +38,13 @@ similar-looking conveniences therefore meet without being conflated.
   `Box((Int) -> Int)`.
 - Added the transparent-alias rule to Dot Calls: an alias creates no new
   companion and uses the companion of its expanded type.
-- Added principal index entries for derivation, method-style calls, and subject-first
+- Defined a nominal type's **home module** directly as the file that declares it before
+  opacity, instance placement, and dot-call lookup depend on the term.
+- Related Hexagon's four import forms to familiar JavaScript ES module imports before
+  stating the language's exact path and namespace rules.
+- Standardized the reader-facing term **dot call** and retained “method-style” only as
+  an informal lookup synonym.
+- Added principal index entries for derivation, dot calls, and subject-first
   style.
 
 ## Pedagogical dependency check
@@ -60,11 +62,11 @@ feature. Records precede unions, matching their earlier teaching order. Hashing 
 explained only far enough to justify the equality law and the derived-only rule;
 collection mechanics remain deferred.
 
-Method-style calls reuse the subject-first convention and pipes from the opening
-chapters. The three-spelling example gives the entire feature before companion-module
-rules add precision. The chapter now follows Modules and can rely on its full account
-of home modules, companion modules, and exported operations. This review originally
-assessed the chapter's smaller local definitions before that move.
+Modules arrives only after declarations, nominal types, constraints, and derivation
+make privacy, opacity, and global instances meaningful. It then defines home and
+companion modules before Dot Calls depends on them. Dot calls reuse the subject-first
+convention and pipes from the opening chapters. The three-spelling example gives the
+entire feature before the lookup rules add precision.
 
 No idea in the group needs to move later. The late pedagogy pass should nevertheless
 test whether the orphan rule and the unknown-receiver fallback need more breathing
@@ -78,9 +80,8 @@ room for a reader encountering type-directed lookup for the first time.
   **dictionary** each receive a direct definition where their purpose is visible.
 - **Derivation** is presented through `derives` and `derive`; its index entry points
   back to instances rather than treating it as unrelated machinery.
-- **Home module**, **companion module**, **subject-first**, and **method-style call**
-  form one vocabulary across Modules and Chapter 15. The later insertion preserves the
-  reviewed meanings while giving the module terms their proper principal definitions.
+- **Home module**, **companion module**, **subject-first**, and **dot call** form one
+  vocabulary across Modules and Chapter 15.
 - Principal definitions and useful lookup forms are represented in
   `INDEX-CANDIDATES.md`.
 
@@ -94,8 +95,8 @@ operator selects.
 
 `Point`, records, and unions reuse data shapes already established in Chapters 9–11.
 `Option.getOrElse(possibleName, "Guest")` connects the earlier subject-first and pipe
-material to the method-style spelling in one compact example. Its clarity also makes
-it suitable for the repository README without requiring the surrounding chapter.
+material to the dot spelling in one compact example. Its clarity also makes it
+suitable for the repository README without requiring the surrounding chapter.
 
 ## Technical surface check
 
@@ -104,12 +105,14 @@ it suitable for the repository README without requiring the surrounding chapter.
   instance participation agree with the constraints specification.
 - `Eq.notEquals` inherits from required `equals`; circular user defaults remain
   possible ordinary recursion and receive an appropriately brief warning.
-- Genuinely polymorphic emitted functions carry trailing dictionary evidence;
+- Genuinely polymorphic emitted functions carry trailing dictionary arguments;
   concrete operations may still specialize away dictionary plumbing.
 - Nominal opt-in derivation, automatic structural instances, record field ordering,
   union declaration ordering, parameter obligations, and the derived-`Eq` requirement
   for `Hash` agree with the data and collections specifications.
-- Method lookup uses the independently known receiver type and its single companion;
+- File identity, four import forms, privacy, opacity, global instances, acyclic loading,
+  root execution, and one-to-one ESM emission agree with the modules specification.
+- Dot-call lookup uses the independently known receiver type and its single companion;
   bare dots remain fields, collisions require explicit spelling, and abstract
   constraint dispatch remains a direct call.
 - The JavaScript and `.d.ts` accounts remain consistent: derivation creates ordinary
@@ -118,15 +121,7 @@ it suitable for the repository README without requiring the surrounding chapter.
 
 ## Deferred to later reviews
 
-- Chapter 14 now gives the full import, export, home-module, companion-module,
-  instance-globality, and opacity account promised by these chapters. Its integration
-  with this group remains to be checked after reader review.
-- Collections must make `Hash` and `Iterable` concrete without turning this book into
-  a library manual, and must preserve the equality/hash law stated here.
-- Later collection-extension or advanced material must explain associated types and
-  user-defined `Iterable`; the ordinary loops chapter deliberately teaches only the
-  concrete element-type relationship and `Seq(a)` consumer idiom.
-- The FFI chapters must reconcile internal trailing evidence with exported dictionary
+- The FFI chapters must reconcile internal trailing dictionaries with exported dictionary
   types and explain the qualified dictionary surface without contradicting the plain
   `.d.ts` statements here.
 - The late pedagogy pass should reconsider pacing, final cross-references, index
@@ -134,9 +129,10 @@ it suitable for the repository README without requiring the surrounding chapter.
 
 ## Review result
 
-After the integrated corrections, no known technical contradiction remained in the
-three chapters reviewed here or between that group and Chapters 1–11. The sequence gives one account
-of capability requirements, generated capability instances, and convenient ordinary
-function calls while maintaining their distinct dispatch rules. The modules,
-collections, loops, and FFI chapters now have explicit promises to discharge in later
-group reviews.
+After the integrated corrections, no known technical contradiction remains in the
+four chapters or between this group and Chapters 1–11. The sequence gives one account
+of capability requirements, generated instances, declaration homes, public APIs, and
+convenient ordinary function calls while maintaining the distinction between instance
+dispatch and companion lookup. Collections and Associated Types have since discharged
+the group's `Hash` and `Iterable` promises; the final FFI group owns the remaining
+boundary promises.

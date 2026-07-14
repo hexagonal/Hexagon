@@ -183,3 +183,12 @@ Temporary local suffixes are not an acceptable substitute for revising the globa
 - Passes have explicit typed phase boundaries.
 - Universal optional-field ASTs, numeric suffixes, and vague transformation-state names are rejected.
 - The doctrine is binding but intentionally revisable through the evolution rule.
+
+### Layout retention clarification (July 2026)
+
+`LaidOut.Token` is the union of unchanged `Lexed.Token` values and
+`LaidOut.VirtualToken`. Layout does not reinterpret or mutate physical token
+payloads; it only interleaves virtual delimiters. This is legitimate shared
+retention under §6, not a partly transformed hybrid: the owning file and public
+pass boundary remain distinctly `Lexed.File -> LaidOut.File`, and the parser
+accepts only the latter.

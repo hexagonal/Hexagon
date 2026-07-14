@@ -565,6 +565,21 @@ Visibility is deliberately simple:
 
 This matches the existing rule that `export` exports everything a declaration introduces and avoids a second nested visibility system. Selective public/private members within one declared extern class are deferred. Binding authors omit unwanted members; if a real library requires a private raw member to implement a public safe facade around the same exported type, that example is the revisit bar.
 
+### Foreign enum decision promoted to a focused spec
+
+The later enum investigation is no longer proto-spec work. `../ffi-foreign-enums.md`
+normatively fixes `extern enum` as a foreign-backed nullary union over an explicit list
+of stable enum-object properties. Typed values cross directly; constructor matches use
+`Object.is`; TypeScript numeric reverse mappings are ignored; and uncertain `JsValue`
+data uses the generated checked `fromJsT` conversion. The same form covers numeric
+and string TypeScript enums, frozen JavaScript constant objects, symbols, and explicitly
+opted-in singleton instances. `const enum`, flags, and literal unions without runtime
+objects remain outside that form.
+
+The ordinary `extern class` decision above is unchanged: classes are opaque unless the
+binding author deliberately describes a finite set of static singleton values with
+`extern enum` instead.
+
 ### Other core forms
 
 Effect-only foreign imports use:

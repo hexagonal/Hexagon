@@ -1,4 +1,4 @@
-# Chapter Brief: TypeScript Declarations
+# Chapter Brief: TypeScript Output
 
 ## Purpose
 
@@ -31,5 +31,5 @@ public boundary changes.
 - Use lowercase generic binders originating in Hexagon.
 - Preserve `Unit` as `undefined` in value position and `void` in return position.
 - Keep `Seq(a)` as `Iterable<a>` and persistent collections under `Hex.*`.
-- Defer constrained-export dictionary and specialization details to their dedicated
-  later chapter.
+- Defer constrained-export dictionaries and generated direct-function details to
+  their dedicated later chapter.

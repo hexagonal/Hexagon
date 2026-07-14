@@ -33,8 +33,8 @@ Field order does not change the type. `{x: Float, y: Float}` and
 `{y: Float, x: Float}` describe the same structure, although emitted JavaScript keeps
 the literal's written order. A field name may appear only once in a literal or type.
 
-The empty record is `{}` in both value and type position. This pays off the layout
-rule from Chapter 5: braces always mean records, never blocks.
+The empty record is `{}` in both value and type position. This pays off the rule from
+the Layout chapter: braces always mean records, never blocks.
 
 Read a field with dot access:
 

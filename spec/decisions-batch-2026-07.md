@@ -150,7 +150,7 @@ Rust's spelling wins for Hexagon on two counts: it dodges the collision **regard
 
 A **tab character (U+0009) anywhere in a line's leading whitespace is a hard lexer error**. Indentation is spaces only. There is no tab-width setting, no `#indent`-style escape hatch, and consequently no documented tab size — tabs do not exist in Hexagon indentation, so the question of their width is unaskable.
 
-- Scope of "leading whitespace": from start-of-line to the first non-whitespace character. Tabs **after** the first non-space token (interior alignment, inside string literals, in comments after code has begun) are not this rule's business; the full lexer spec may regulate or ignore them separately. Tabs inside string literals are of course ordinary characters.
+- Scope of "leading whitespace": from start-of-line to the first non-whitespace character. Tabs **after** the first non-space token (interior alignment, inside string literals, in comments after code has begun) are not this rule's business. The Physical Lexer §2.2 permits interior tabs as formatter-normalized horizontal whitespace. Tabs inside string literals are ordinary characters.
 - The error fires in the raw lexer, before the layout pass; the layout algorithm (Lexer & Layout §2) may therefore assume space-only columns, and the UTF-16 column-tracking scheme needs no tab-expansion case.
 
 ### 4.2 Rationale and precedent
@@ -313,10 +313,9 @@ xs[3..1]                       -- []         (empty range, Loops §3.4; same rul
 ## 10. Hanging questions (recorded, not decided)
 
 1. **Negative indices** — presumed absent (§5.4); confirm in the indexing/collections spec.
-2. **Interior tabs / tabs-after-code** — the leading-whitespace rule (§4) deliberately does not decide them; full lexer spec's call (recommend: legal but formatter-normalised).
-3. **`Float.ieeeEquals` / raw-IEEE escape hatches** — plausible stdlib functions for the rare caller who wants `NaN != NaN`; stdlib listing's call, nothing here depends on them.
-4. **`derives` clause placement for parameterized records** — rides on the declarations-preamble spec's header grammar (§2.5); the clause's semantics are fixed here, only its position is owed there.
-5. **Derivable-set growth** — future derivable constraints (a `Hash`, a `Default`?) join the §2 whitelist by amendment; the whitelist-not-open-set stance is the decision.
+2. **`Float.ieeeEquals` / raw-IEEE escape hatches** — plausible stdlib functions for the rare caller who wants `NaN != NaN`; stdlib listing's call, nothing here depends on them.
+3. **`derives` clause placement for parameterized records** — rides on the declarations-preamble spec's header grammar (§2.5); the clause's semantics are fixed here, only its position is owed there.
+4. **Derivable-set growth** — future derivable constraints (a `Hash`, a `Default`?) join the §2 whitelist by amendment; the whitelist-not-open-set stance is the decision.
 
 ---
 

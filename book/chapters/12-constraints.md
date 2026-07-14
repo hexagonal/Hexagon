@@ -72,8 +72,8 @@ let reportArea<a: Area>(shape: a): String =
 
 The default calls the `area` operation from whichever instance is in use. Call
 `area(shape)` or `describeArea(shape)` directly. Constraint members are not object
-methods and do not use dot-call syntax. That distinction will matter when the book
-introduces method-style calls in Chapter 15.
+methods and do not use dot-call syntax. That distinction will matter in the Dot Calls
+chapter.
 
 ## `honor` supplies an instance
 
@@ -252,21 +252,21 @@ reusable consumers take `Seq(a)` so their element type remains explicit.
 
 ## Concrete code remains concrete
 
-Conceptually, a polymorphic function receives a small record containing the operations
-its constraints require. Such a record is called a **dictionary**. In genuinely
+Conceptually, a polymorphic function receives a small object containing the operations
+its constraints require. Such an object is called a **dictionary**. In genuinely
 generic emitted JavaScript, it may be visible:
 
 ```js
 const labelled = (value, showDict) => `Value: ${showDict.show(value)}`;
 ```
 
-Source arguments remain in their original order; any dictionary evidence follows them
+Source arguments remain in their original order; any dictionary arguments follow them
 as a trailing implementation detail. This preserves the subject-first position used
-by ordinary calls, pipes, and later method-style calls.
+by ordinary calls, pipes, and later dot calls.
 
 At a call whose type is already known, Hexagon selects the instance at compile time and
 uses the direct operation. Integer addition remains `+`; displaying an integer remains
-an ordinary conversion. Dictionary records are plumbing for code that truly remains
+an ordinary conversion. Dictionary objects are plumbing for code that truly remains
 polymorphic, not a tax placed on every value.
 
 Constraints and instances do not become TypeScript interfaces or runtime classes.

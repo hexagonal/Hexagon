@@ -2,7 +2,7 @@
 
 **Status:** Decided (July 2026)
 **Scope:** The nominal `union` declaration: constructors (nullary and payload-carrying, named and unnamed slots), the `match` expression with flat constructor patterns, exhaustiveness, generics and recursion, the tagged-POJO runtime representation, the all-nullary string special case, prelude `Option`/`Result`, derived-constraint semantics, JS emission and `.d.ts` shapes.
-**Not in scope:** the full pattern grammar — nesting, literals, guards, record/tuple patterns (pattern-matching spec; this doc fixes only flat constructor patterns as that grammar's degenerate case, same move as Products §2.4), the declaration-header grammar shared with `record`/`type` (declarations spec), the constraint mechanism and `implement` (constraints spec; this doc fixes derived-instance *semantics* only), module-level qualification of constructor names (modules spec), FFI conversions (`Nullable(a)` ↔ `Option`) (FFI spec).
+**Not in scope:** the full pattern grammar — nesting, literals, guards, record/tuple patterns (pattern-matching spec; this doc fixes only flat constructor patterns as that grammar's degenerate case, same move as Products §2.4), the declaration-header grammar shared with `record`/`type` (declarations spec), the constraint mechanism and `implement` (constraints spec; this doc fixes derived-instance *semantics* only), module-level qualification of constructor names (modules spec), FFI conversions (`Nullable(a)` ↔ `Option`) (FFI spec), or foreign-backed nullary unions (`extern enum`, fixed by `ffi-foreign-enums.md`).
 **Companions:** Products spec (the product half of the algebra; `itemN` vocabulary; nominal-name opacity doctrine), Functions spec (arity checking, constructors-as-functions, value restriction), Lexer & Layout spec (match arms are a layout block), Primitive Types §7 (Show display semantics).
 
 Written for a future implementation session against the existing `hexc` architecture: Algorithm J, union-find tyvars, level-based generalisation, constraints as dictionaries, layout pass, readable-JS emission with `.d.ts`.
@@ -160,6 +160,11 @@ union Color = Red | Green | Blue
 This is the single most idiomatic TS pattern for enum-likes and a large interop win; taken with eyes open (decided). The cost, stated loudly:
 
 > **Representation cliff:** adding a payload-carrying constructor to an all-nullary union flips the *entire* union — including the pre-existing constructors — to the tagged-POJO representation. Hexagon-side code is unaffected (`match` is the only eliminator, and it recompiles). JS-side consumers of the emitted values break. This is accepted because any constructor addition is already a breaking change for JS consumers (their switches stop being exhaustive); the cliff changes *how* it breaks, not *whether*. The FFI documentation must state the contract: the representation of a union is stable only while its all-nullary-ness is.
+
+`extern enum` is the explicit FFI exception to this representation rule. It retains
+nullary-union typing and matching while using captured foreign object-member values as
+constructors; `ffi-foreign-enums.md` owns that boundary form. It does not change the
+representation of any ordinary `union` declaration described here.
 
 - **Rejected: bare strings for nullary constructors of *mixed* unions.** It would force `typeof s === "string" ? s : s.tag` into every emitted match — codegen noise on the hottest path of the feature — and a two-headed `.d.ts`. Uniformity within a union is non-negotiable; the special case is per-union, never per-constructor.
 - Parameterised all-nullary unions (phantom parameters: `union P(a) = X | Y`) still qualify — the test is syntactic (any payload anywhere?), not about the parameters.

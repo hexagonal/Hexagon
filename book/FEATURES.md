@@ -1,7 +1,7 @@
 # Hexagon Feature Catalogue
 
-**Status:** Proposed book coverage. Each numbered item is a candidate chapter, not a
-fixed chapter boundary or final reading order.
+**Status:** Draft 1 coverage. Each numbered item now corresponds to the chapter with
+the same number; later passes may still revise boundaries and order.
 
 This catalogue describes Hexagon from a programmer's point of view. It deliberately
 groups related syntax and rules into things a reader can learn and use; it is not an
@@ -137,18 +137,19 @@ open specification work does not make the book outline provisional.
     types erase where possible, and generated helpers remain explicit. Source, emitted
     JavaScript, and runtime representation should be compared throughout the book.
 
-23. **TypeScript declarations** — Public Hexagon APIs produce accurate `.d.ts`
+23. **TypeScript output** — Public Hexagon APIs produce accurate `.d.ts`
     declarations with idiomatic primitive, function, product, union, and opaque-type
     faces. The generated declaration is part of the language boundary, not incidental
     compiler metadata.
 
-24. **JavaScript interoperation** — Foreign declarations, boundary-only types such as
-    `Nullable(a)` and `Array(a)`, conversions, JavaScript calls, and imported values will
-    define how Hexagon enters an existing JS/TS application.
+24. **JavaScript input** — Foreign declarations, boundary-only types such as
+    `Nullable(a)` and `Array(a)`, foreign-backed enums, conversions, JavaScript calls,
+    and imported values define how Hexagon enters an existing JS/TS application.
 
-25. **Constrained exports** — Constrained polymorphic exports provide
-    named, dictionary-free specializations for lawful fundamental types and, when public
-    evidence exists, a generic dictionary-taking JavaScript entry point. This preserves
+25. **Constraints in JavaScript** — Constrained polymorphic exports provide
+    named, dictionary-free functions for lawful fundamental types and, when all needed
+    public dictionaries exist, a generic dictionary-taking JavaScript function. This
+    preserves
     zero-cost ordinary calls while keeping the TypeScript surface honest.
 
 ## Cross-cutting promises
