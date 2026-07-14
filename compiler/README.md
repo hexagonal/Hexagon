@@ -1,8 +1,20 @@
 # Hexagon Compiler
 
-This folder will contain `hexc`, the Hexagon compiler.
+This folder contains the beginning of `hexc`, the Hexagon compiler.
 
-Implementation has not started. The compiler architecture, naming, and readability doctrines are established before code so that independently developed passes form one coherent and understandable system.
+The platform-neutral TypeScript core now includes shared source coordinates,
+structured diagnostics, the complete physical lexer, and the indentation layout
+pass. Its public pipeline currently reaches
+`Source.File -> Lexed.File -> LaidOut.File`; the parser is the next phase.
+
+Development commands, run from this folder:
+
+```text
+npm ci
+npm run check
+npm test
+npm run build
+```
 
 - [Roadmap](ROADMAP.md)
 - [Global naming doctrine](architecture/naming.md)
@@ -12,4 +24,4 @@ Implementation has not started. The compiler architecture, naming, and readabili
 - [Compilation roots and running modules](architecture/compilation-roots.md)
 - [JavaScript target doctrine](architecture/javascript-target.md)
 
-The implementation language is TypeScript 7 or later. The initial toolchain details remain to be settled before `src/` is created.
+The implementation language is TypeScript 7 or later.

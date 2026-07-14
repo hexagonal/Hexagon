@@ -263,6 +263,6 @@ dialects.
 - missing and unreachable cases are compile errors; and
 - `let`, loop, and parameter patterns must be irrefutable.
 
-Patterns complete the first account of Hexagon's data shapes: tuples for positions,
-records for fields, nominal declarations for identity, unions for alternatives, and
-patterns for taking those shapes apart.
+Together, tuples provide positions, records provide fields, nominal declarations
+provide identity, unions provide alternatives, and patterns take all those shapes
+apart.

@@ -59,6 +59,18 @@ Drafting order is not final reading order.
   language's behavior. When a future possibility genuinely helps the reader, say that
   it may appear in a later version.
 
+## Held front-matter decision
+
+- Keep the **Introduction** small. It should contain a brief liveliness/story section
+  followed by a compact introduction to the Hexagon language.
+- Do not make that Introduction carry practical setup, root-module execution, and the
+  first working program as well.
+- Hold a separate **Getting Started** chapter as the likely new Chapter 1. It would
+  provide the practical first contact and the minimal early module orientation needed
+  by the existing feature chapters.
+- The current 25 chapter files retain their numbers until that structural revision is
+  undertaken deliberately; adopting Getting Started will shift them by one.
+
 ## Recurring examples and lively material
 
 Record recurring examples, motifs, voices, and other lively material here when they are
@@ -117,7 +129,7 @@ late pedagogy pass, not a commitment to the current order.
 
 - Assumes expressions, bindings, blocks, primitive values, `Unit`, and the light
   conditional/arithmetic syntax already previewed.
-- Lightly previews constraints, pipes, method syntax, and polymorphic
+- Lightly previews constraints, pipes, dot calls, and polymorphic
   generalization.
 - Establishes lambdas, n-ary arity, calls, annotations, subject-first order, the
   `let`/`fun` distinction, and recursion.
@@ -178,7 +190,7 @@ late pedagogy pass, not a commitment to the current order.
 - Establishes record constructors, identity-preserving updates, the explicit
   `{...value}` structural crossing, parameterized records, and the ordinary exported
   boundary.
-- Prepares constructor patterns, deriving, constraints, and method-style calls.
+- Prepares constructor patterns, deriving, constraints, and dot calls.
 - Opacity is deliberately deferred to the modules chapter, where exports, privacy,
   home modules, opaque records, and opaque unions can be taught together.
 
@@ -200,6 +212,52 @@ late pedagogy pass, not a commitment to the current order.
   exact exhaustiveness/reachability, irrefutability, and patterned parameters.
 - Completes the third three-chapter drafting group. Its review is recorded in
   `reviews/03-data-shapes-and-patterns.md`.
+
+### Constraints
+
+- Assumes polymorphism, operators, interpolation, nominal declarations, and only the
+  light earlier preview that declarations live in modules.
+- Establishes constraints, instances, default operations, `honor`, superconstraints,
+  coherence, the orphan rule, and the core prelude capability vocabulary.
+- Introduces dictionaries as small operation objects only after ordinary concrete
+  constraint use is understood; concrete calls remain direct.
+- Prepares derivation, collection capabilities, associated types, and the final
+  constrained JavaScript boundary.
+
+### Derivation
+
+- Assumes the complete constraint/instance model and nominal records and unions.
+- Establishes the equivalent `derives` and `honor ... = derive` forms, structural
+  meanings for `Eq`, `Ord`, `Show`, and `Hash`, and the conditions propagated from
+  contained types.
+- Prepares hashed collections while preserving the distinction between generated
+  structural behavior and hand-written domain behavior.
+
+### Modules
+
+- Assumes module-level declarations and exports as light previews throughout the book,
+  plus constraints, instances, derivation, nominal records/unions, and top-level
+  `Unit` expressions.
+- Establishes one-file/one-module identity, privacy by default, named/aliased/namespace
+  and effect imports, named exports, module aliases, companion modules, prelude
+  occlusion, acyclic loading, selected roots, and direct ESM emission.
+- Introduces **opacity** for records and unions after privacy and home modules are
+  available. Opacity hides structure but not lawful capabilities.
+- Establishes that modules are namespaces rather than values and that Hexagon has no
+  language-level `main` or mutable module cells.
+- Prepares Dot Calls by establishing home modules, companion modules, exported
+  subject-first operations, and qualified lookup.
+
+### Dot Calls
+
+- Assumes subject-first functions, pipes, nominal and structural records, constraints,
+  and companion modules.
+- Establishes qualified, pipe, and dot spellings as the same underlying call, with an
+  independently known receiver type and explicit field/operation collision handling.
+- Keeps constraint operations separate from companion lookup and preserves direct
+  JavaScript function emission.
+- Completes the capabilities-and-calls sequence recorded in
+  `reviews/04-capabilities-and-calls.md`.
 
 ### Mutable Variables
 
@@ -245,7 +303,8 @@ late pedagogy pass, not a commitment to the current order.
   sets previewed by constraints, one-based indexing, patterns, `Hash`, loops, and dot
   calls.
 - Establishes persistent `Vector`, `Map`, and `Set` values; vector literals and
-  patterns; asserting brackets versus total `get`; map upsert; set membership; honest
+  patterns; asserting brackets versus total `get`; map insertion/replacement; set
+  membership; honest
   `Hash` requirements; unspecified hash traversal order; and `Seq` conversions.
 - Ends with the minimum `Iterable<Bag(a)>` recipe. `type Item = a` is read only as
   “iterating `Bag(a)` produces `a`”; the following chapter owns associated types.
@@ -267,21 +326,6 @@ late pedagogy pass, not a commitment to the current order.
   otherwise unknown type variable. Reusable iteration APIs continue to use `Seq(a)`.
 - Associated types erase and add no runtime or `.d.ts` member machinery.
 
-### Modules
-
-- Assumes module-level declarations and exports as light previews throughout the book,
-  plus constraints, instances, derivation, nominal records/unions, and top-level
-  `Unit` expressions.
-- Establishes one-file/one-module identity, privacy by default, named/aliased/namespace
-  and effect imports, named exports, module aliases, companion modules, prelude
-  occlusion, acyclic loading, selected roots, and direct ESM emission.
-- Introduces **opacity** for records and unions after privacy and home modules are
-  available. Opacity hides structure but not lawful capabilities.
-- Establishes that modules are namespaces rather than values and that Hexagon has no
-  language-level `main` or mutable module cells.
-- Prepares Dot Calls by establishing home modules, companion modules, exported
-  subject-first operations, and qualified lookup.
-
 ### JavaScript Output
 
 - Assumes every preceding runtime representation and gathers them without replacing
@@ -295,7 +339,7 @@ late pedagogy pass, not a commitment to the current order.
 - Makes preserved evaluation order, ESM identity, and the implementation/API
   distinction visible before the declaration chapter.
 
-### TypeScript Declarations
+### TypeScript Output
 
 - Assumes the emitted JavaScript representations and module export rules.
 - Establishes `.d.ts` as the supported typed public surface rather than an attempt to
@@ -305,8 +349,40 @@ late pedagogy pass, not a commitment to the current order.
   alias preservation; and private alias expansion.
 - Establishes TypeScript-only `unique symbol` brands for opaque records and unions,
   while the JavaScript value remains representation-direct.
-- Defers the deliberate evidence and specialization surface of constrained exports to
+- Defers the deliberate dictionary and specialization surface of constrained exports to
   its later chapter rather than emitting an inaccurate ordinary signature.
+
+### JavaScript Input
+
+- Assumes modules, ordinary imports/exports, all established runtime representations,
+  exceptions, sequences, collections, JavaScript output, and TypeScript declarations.
+- Establishes `extern from` bindings as checked declarations under a trusted foreign
+  implementation contract.
+- Establishes representation-direct values, `Nullable(a)` as the explicit nullish
+  door, `Array(a)` as a readonly borrowed view, and top-level `Seq(a)` as an adapted
+  persistent sequence.
+- Establishes `method`, `get`, `set`, and extern `class` as descriptions of JavaScript
+  calling conventions that produce ordinary subject-first Hexagon functions.
+- Establishes representation-direct callbacks, shallow conversions, the nested-adapter
+  restriction, `JsError` propagation, and explicit decoding of uncertain `JsValue`.
+- Prepares Constraints in JavaScript by separating ordinary direct/adapted boundary
+  calls from the dictionary arguments required by generic constrained functions.
+
+### Constraints in JavaScript
+
+- Assumes constrained polymorphism, dictionaries, coherence, derivation, modules,
+  readable JavaScript output, `.d.ts`, and the trusted FFI boundary.
+- Establishes direct named specializations for every lawful combination of the closed
+  fundamental set and retains unconstrained variables as generic binders.
+- Establishes the source base name as the conditional generic function with stable
+  trailing dictionary parameters.
+- Establishes constraint-qualified branded dictionary types, constraint-owned
+  fundamental handles, type-owned user handles, parameterized factories, and nested
+  superconstraint dictionaries.
+- Establishes that public declarations and public capability determine the foreign
+  surface; private types and internal call sites never do.
+- Establishes generated names, dictionary-parameter order, dictionary shape, and public
+  factories as ABI commitments.
 
 ## Established chapter material
 
@@ -362,7 +438,7 @@ late pedagogy pass, not a commitment to the current order.
   canonical mutual-recursion pair and must handle negative as well as positive `Int`
   values by stepping toward zero from either direction.
 - Subject-first parameter order is introduced here and should recur in pipes,
-  method-style calls, constraints, and collection examples.
+  dot calls, constraints, and collection examples.
 - JS emission convention established: `let` function → `const` arrow; `fun` → hoisted
   function declaration.
 - Reader-facing capture rule: **captured values must be ready**. Keep temporal-dead-zone
@@ -504,7 +580,7 @@ late pedagogy pass, not a commitment to the current order.
   inherited defaults that an instance may override. `Eq.equals` is required,
   `Eq.notEquals` defaults to its negation, and `!=` calls `notEquals`.
 - `Area`/`Rectangle` is the canonical user-defined constraint and instance.
-- Constraint members are direct functions, never method-style companion operations.
+- Constraint members are direct functions, never dot-call companion operations.
 - Uses the final `honor` spelling throughout; older `implement` text in superseded spec
   passages must never leak into the book.
 - Prepares deriving, collections, loops, and constrained exports.
@@ -549,13 +625,11 @@ late pedagogy pass, not a commitment to the current order.
 - Establishes the three equivalent spellings, type-directed companion lookup,
   exported subject-first eligibility, bare-dot field access, explicit collision
   resolution, and the independently-known receiver rule.
-- Constraint members remain bare calls or pipes; method syntax never searches
+- Constraint members remain bare calls or pipes; dot-call syntax never searches
   instances.
 - Dot calls erase to ordinary function calls and add nothing method-shaped to `.d.ts`.
-- Constraints, Derivation, and Dot Calls were reviewed together before Modules was
-  inserted between the latter two. The historical review remains in
-  `reviews/04-capabilities-and-calls.md`; the new four-chapter transition still needs a
-  cross-chapter check.
+- Constraints, Derivation, Modules, and Dot Calls have been reviewed as one sequence in
+  `reviews/04-capabilities-and-calls.md`.
 
 ### Mutable Variables
 
@@ -618,7 +692,7 @@ late pedagogy pass, not a commitment to the current order.
 - Vector patterns use `...` for a rest. Fixed patterns partition by length; only
   `[...]` and `[...all]` are irrefutable vector shapes.
 - `Map.fromVector` and `Set.fromVector` are the compact construction idioms. Map
-  brackets throw `KeyError`; `Map.get` is total; `Map.set` is upsert.
+  brackets throw `KeyError`; `Map.get` is total; `Map.set` inserts or replaces.
 - `Map` and `Set` iteration order is deterministic for one value within one execution
   but is neither insertion/sorted order nor stable across executions.
 - `Hash` is an explicit superconstraint of `Eq`; nominal keys derive `(Eq, Hash)` so
@@ -644,6 +718,8 @@ late pedagogy pass, not a commitment to the current order.
 - External `Item(T)`/`Constraint.Item(T)` forms and `<c: Iterable>` binders are rejected;
   concrete operations and loops remain legal, while reusable consumers take `Seq(a)`.
 - Associated types erase before JavaScript and TypeScript boundaries.
+- Chapters 20–21 form the sixth drafting group. Their review is recorded in
+  `reviews/06-collections-and-associated-types.md`.
 
 ### JavaScript Output
 
@@ -662,7 +738,7 @@ late pedagogy pass, not a commitment to the current order.
   Hexagon exceptions use explicit runtime support rather than dishonest native forms.
 - Single evaluation, left-to-right order, and the acyclic ESM graph remain visible.
 
-### TypeScript Declarations
+### TypeScript Output
 
 - Core formulation: JavaScript says how the module runs; `.d.ts` says what typed
   foreign callers are invited to use.
@@ -679,8 +755,44 @@ late pedagogy pass, not a commitment to the current order.
 - `Seq(a)` faces as `Iterable<a>`; collections use the `Hex` runtime type namespace.
 - Declarations omit private and source-only machinery and do not attempt to encode all
   Hexagon checker guarantees.
-- Chapters 20–21 form the sixth drafting group. Its review waits until after reader
-  review of the local drafts.
+
+### JavaScript Input
+
+- Core formulation: **an extern declaration is checked; the foreign implementation is
+  trusted to satisfy it**.
+- `extern from` supplies named, aliased, default, type, value, and callable bindings;
+  `extern import` supplies foreign effects.
+- `Nullable(a)` is `a | null | undefined` and converts explicitly to `Option(a)` or
+  `NullableCase(a)`.
+- `Array(a)` is a zero-copy readonly borrow with a stability contract; conversions to
+  `Vector(a)` and from `Seq(a)` are explicit and eager where they create ownership.
+- Top-level `Seq(a)` receives one persistent memoizing adapter; hidden nested adapters
+  and adapter-requiring callbacks are rejected.
+- Foreign receiver calls, properties, and classes lower to subject-first companion
+  functions; representation-direct callbacks retain function identity.
+- Collection conversions are shallow; foreign throws use `JsError`; `JsValue` requires
+  explicit checked decoding when a stronger invariant is wanted.
+
+### Constraints in JavaScript
+
+- The six fundamental types form the closed named-specialization set. Each exported
+  constrained function receives every lawful direct, dictionary-free fundamental
+  edition.
+- Specialization names append fundamental type names in declared constrained-variable
+  order; unconstrained variables remain generic and add no suffix.
+- The source base name is reserved for the generic function, which appears only when
+  every required public dictionary is obtainable and at least one belongs to a
+  non-fundamental type.
+- `Constraint.Dictionary<a>` types expose completed member sets with TypeScript brands.
+- Fundamental dictionaries are constraint-owned (`Num.int`); user/runtime dictionaries
+  are type-owned (`Rat.num`); dependent dictionaries come from factories such as
+  `Vector.show(Show.string)`.
+- Dictionary parameters remain a stable trailing suffix, and superconstraint
+  dictionaries are nested.
+- Public capability, never private implementation or internal calls, determines the
+  JavaScript/TypeScript surface.
+- Chapters 22–25 form the final feature-chapter drafting group. Their review is
+  recorded in `reviews/07-javascript-boundaries.md`.
 
 ## Review history
 
@@ -711,13 +823,14 @@ late pedagogy pass, not a commitment to the current order.
 
 ### Capabilities and Calls
 
-- Constraints, Derivation, and Dot Calls were reviewed together after the
-  constraint-default design was completed. They now appear as Chapters 12, 13, and 15
-  because Modules was later inserted at Chapter 14.
-- Result: coherent enough to continue after correcting dictionary evidence order,
+- Constraints, Derivation, and Dot Calls were first reviewed together after the
+  constraint-default design was completed; Modules was then inserted at Chapter 14
+  and the four chapters were reviewed again as one sequence.
+- Result: coherent enough to continue after correcting dictionary parameter order,
   sharpening derived record ordering and hashing language, and completing the
-  transparent-alias rule for method-style calls.
-- The four-chapter transition through Modules still needs a later cross-chapter check.
+  transparent-alias rule for dot calls.
+- A second pass after Modules was inserted defined home modules directly, aligned the
+  import explanation with familiar ESM, and confirmed the four-chapter transition.
 - Later integrations and whole-book questions are recorded in
   `reviews/04-capabilities-and-calls.md`.
 
@@ -729,3 +842,36 @@ late pedagogy pass, not a commitment to the current order.
   titles, and deferring associated types out of the ordinary loop narrative.
 - Later integrations and whole-book questions are recorded in
   `reviews/05-state-iteration-and-failure.md`.
+
+### Collections and Associated Types
+
+- Chapters 20–21 were reviewed together after reader review of both local drafts.
+- Result: coherent enough to continue after removing unnecessary **upsert**
+  terminology and confirming the collection-to-associated-type hand-off against the
+  governing specifications.
+- Final-boundary promises and whole-book questions are recorded in
+  `reviews/06-collections-and-associated-types.md`.
+
+### JavaScript Boundaries
+
+- Chapters 22–25 were reviewed together after reader review of the four local drafts.
+- Result: the runtime-output, typed-output, foreign-input, and constrained-export
+  sequence is coherent after clarifying checked BigInt conversion, fixed extern arity,
+  JavaScript map-key identity, and generated multi-variable constraint names.
+- The reader-facing constraint account now uses concrete dictionary-object vocabulary
+  rather than type-theory **evidence** terminology.
+- The heavier JavaScript Input chapter and final executable output checks are recorded
+  for later passes in `reviews/07-javascript-boundaries.md`.
+
+### Draft 1 Whole Book
+
+- All 25 feature chapters were read continuously after the seven group reviews.
+- Result: the feature order and global language story are coherent; no wholesale
+  chapter reorder is recommended.
+- Clear drift corrections were integrated for transitions, title-based
+  cross-references, dictionary vocabulary, dot-call receiver wording, displayed
+  library types, the index ledger, and planning-document status.
+- A short two-movement Introduction and a separate held **Getting Started** chapter
+  now own orientation before the existing feature body.
+- The complete findings and remaining pedagogy, liveliness, verification, and
+  copy-editing work are recorded in `reviews/08-draft-1-whole-book.md`.

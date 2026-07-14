@@ -3,7 +3,7 @@
 **Status:** Planning note (July 2026) — snapshot after Pattern Matching; **updated July 2026** after Declarations Preamble, Modules, and Collections Part 1 decisions landed, and to log the §5 binder-class correction to the Statements spec (see "Pending cross-spec edits"); **updated again July 2026 at the Collections closeout** (Parts 2–5 Decided — see collections-part5-iterable.md §16).
 **Purpose:** Inventory of remaining language-definition specs with their recorded debts, and a recommended sequencing. Update as specs land; each completed spec should strike its entry and migrate any newly-discovered debts.
 
-**Filed to date:** Primitive Types, Numeric Literals, Functions, Type System Overview, Products, Lexer & Layout, Unions, Constraints (v2, `honor`), Exceptions, Statements/Blocks/Mutability (§5 revised July 2026), Loops/Ranges/Iteration, Operators/Logic/Precedence, Comments, Integral Constraint, Division & Remainder, Decisions Batch 2026-07, Pattern Matching, Declarations Preamble, Modules, Method Syntax, Decisions Batch — Sol Review Closures, and the complete **Collections series, Parts 1–5** (Foundational Decisions; Hash & Constraint Type Members; Vector; Map & Set; Iterable & Closeout).
+**Filed to date:** Primitive Types, Numeric Literals, Functions, Type System Overview, Products, Physical Lexer, Lexer & Layout, Unions, Constraints (v2, `honor`), Exceptions, Statements/Blocks/Mutability (§5 revised July 2026), Loops/Ranges/Iteration, Operators/Logic/Precedence, Comments, Integral Constraint, Division & Remainder, Decisions Batch 2026-07, Pattern Matching, Declarations Preamble, Modules, Method Syntax, Decisions Batch — Sol Review Closures, the complete **Collections series, Parts 1–5** (Foundational Decisions; Hash & Constraint Type Members; Vector; Map & Set; Iterable & Closeout), and the focused FFI component **Foreign Enums**.
 
 ---
 
@@ -19,6 +19,11 @@ Header grammar, `type` aliases, `derives` placement: all discharged.
 Every listed debt discharged across the five parts: `Vector(a)` representation, literals, and API (Part 3); `Concat<Vector>` (Part 3 §8, discharging Operators §7); indexing/slicing made normative with the negative-index presumption promoted to decided (Part 3 §5/§6/§11.1; `IndexError`/`SliceError` declared); `Map`/`Set` shipped (Part 4; `KeyError` nullary); vector patterns discharging Pattern Matching §11.1 (Part 3 §3); `Hash` + constraint type members (Part 2); restricted user `Iterable` with the operational `for..in` spec, `Iterable<String>`, and the closeout decisions (Part 5). Exports: combinator ship-list → Stdlib listing (Part 5 §10); `Array(a)` iteration obligation and `Map`/`Set` boundary conversions → FFI (Part 5 §6; Part 4 §10).
 
 ### 4. FFI / extern
+- **Foreign enums:** `extern enum` is decided normatively in
+  `ffi-foreign-enums.md`: a foreign-backed nullary union over explicitly named stable
+  object members, representation-direct for typed calls, with checked
+  `fromJsT : JsValue -> Option(T)` conversion for uncertain data. Consolidation must
+  absorb that component without redesigning it.
 - `JsValue`: final name and accessor set (Exceptions §10.2 owes `JsError.message`, `JsError.stack` at minimum).
 - `Nullable(a)` ↔ `Option` conversions.
 - `extern` declaration syntax and most core binding forms are proto-decided (`extern from`, `fun`/`let`, `method`, `get`/`set`, extern `class`, default imports, effect imports); normative consolidation remains.
@@ -32,12 +37,6 @@ Every listed debt discharged across the five parts: `Vector(a)` representation, 
 
 ### 5. Stdlib listing
 Consolidation debt; many specs point at it: `Ordering`, `ignore`, `Result.attempt`, `Int.div`/`Int.mod` final form (deep-dive owed — Operators §14.3a reopened floored vs Euclidean), `Float` instance semantics, `Range` `Eq`/`Show` (Loops §3.6 still open), `throw`, `Show` instances, subject-first convention enforcement, `memoFix` / open-recursion patterns. **Inherited from Collections:** the combinator ship-list split (Part 5 §10 fixes the boundary; the v1 ship-vs-defer decision is owed here), `String.join`, `Range.toSeq` candidacy, `Iterable.iterate`'s qualified home (Modules §6.4 invariant), `CiString` name + folding semantics (Part 2 §12.1), and the hostile-specimen constraint exercise (Sol-review §A.5).
-
-### 6. Full lexer
-Lexer & Layout covers layout; remaining crumbs:
-- Interior tabs / tabs-after-code (Decisions Batch §9.2 left to this spec; recommendation on record: legal but formatter-normalised).
-- Complete keyword table — now including `when`, pattern-position `as`, reserved `finally`.
-- Identifier and escape minutiae.
 
 ---
 
@@ -69,6 +68,6 @@ Also noted for the record: the reviewer's proposed "module aliases must be unsha
 
 ## Recommended order and rationale
 
-~~Declarations preamble → Modules → Collections (parts 1–5) →~~ **FFI next** (the agenda, bounded proto-spec, specialization note, and exported-dictionaries note now carry the assembled decision surface), with the Stdlib listing accreting alongside and the Full Lexer slotted wherever convenient. The former Program Structure item is closed by Modules §8.3 and the compiler's compilation-roots architecture: selected root modules run through ordinary ESM evaluation, with no special `main`.
+~~Declarations preamble → Modules → Collections (parts 1–5) →~~ **FFI next** (the agenda, bounded proto-spec, specialization note, and exported-dictionaries note now carry the assembled decision surface), with the Stdlib listing accreting alongside. The Physical Lexer and Layout specs are complete and their compiler passes are implemented. The former Program Structure item is closed by Modules §8.3 and the compiler's compilation-roots architecture: selected root modules run through ordinary ESM evaluation, with no special `main`.
 
 Rationale (original, preserved): the preamble unblocked header-grammar questions; Modules was the biggest unknown and both collections and FFI cite it (orphan rule, qualification). Collections-before-FFI was preferred because list patterns and `List` representation inform the boundary contracts, but Part 1's decisions (Hexagon-owned persistent vector; `Array(a)` as readonly foreign-door type) have de-coupled the ordering. This preserves the property that made past sessions smooth: each spec's dependencies are decided before it needs them.

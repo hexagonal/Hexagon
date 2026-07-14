@@ -1,18 +1,24 @@
 # Hexagon Compiler Roadmap
 
-**Status:** Architectural roadmap. Implementation has not started.
+**Status:** Lexer and layout implemented; parser next.
 
 The compiler is built as a sequence of typed phase transformations. Each milestone must preserve the global naming doctrine in `architecture/naming.md` and the readability and commenting doctrine in `architecture/readability-and-comments.md`.
 
 ## 0. Foundation
 
+**Implemented.**
+
 Use TypeScript 7 or later, compiled with its native Go-based toolchain. Decide the remaining package, formatting, and bundling tools. Establish source files, positions and spans, diagnostics and fix-its, Vitest infrastructure, explicit golden fixtures, fast-check properties, and a platform-neutral compiler API usable by both the Node CLI and the future browser playground. Establish module introductions and conceptual function comments from the first source file rather than retrofitting them after implementation. Follow `architecture/environment.md`, `architecture/testing.md`, and `architecture/readability-and-comments.md`.
 
 ## 1. Lexer
 
+**Implemented.**
+
 Transform source text into physical tokens with exact spans and physical newline/indentation information. Cover identifiers, keywords, literals, punctuation, operators, comments, escapes, invalid characters, and lexical diagnostics.
 
 ## 2. Layout
+
+**Implemented.**
 
 Transform physical tokens into a layout-aware stream containing virtual open, separator, and close tokens. Own indentation stacks, continuation lines, blank/comment lines, explicit semicolons, EOF closure, and layout diagnostics. The parser must not accept raw lexer output.
 

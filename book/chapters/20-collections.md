@@ -140,8 +140,8 @@ let scores = Map.fromVector([
 ])
 ```
 
-The inferred type is `Map(String, Int)`. A map update is an **upsert**: it inserts a
-new key or replaces the value associated with an existing key, and returns a new map.
+The inferred type is `Map(String, Int)`. A map update inserts a new key or replaces the
+value associated with an existing key, and returns a new map.
 
 ```hexagon
 let revised = Map.set(scores, "Mira", 20)
@@ -298,7 +298,7 @@ export declare const invited: Hex.Set<string>;
 ```
 
 Explicit conversion functions are the doors to foreign JavaScript collections. They
-will appear with the rest of JavaScript interoperation rather than being hidden inside
+will appear with the rest of JavaScript input rather than being hidden inside
 ordinary collection operations.
 
 ## Summary

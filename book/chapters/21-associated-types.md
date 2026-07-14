@@ -213,9 +213,9 @@ collect(Bag.toSeq(bag))
 collect(Map.toSeq(scores))
 ```
 
-This restriction is why associated types arrived late in the book. They extend
-instances usefully, but they do not turn ordinary type inference into a language of
-open-ended type-level computation.
+Associated types therefore remain an advanced extension of instances rather than a
+requirement for ordinary generic code. They add a useful fixed relationship without
+turning type inference into open-ended type-level computation.
 
 ## Concrete use remains straightforward
 

@@ -167,9 +167,10 @@ allocate another error merely to classify the foreign one.
 
 ## `Result.attempt` returns to the data world
 
-When a program wants to capture any exceptional outcome as an explicit value, use:
+When a program wants to capture any exceptional outcome as an explicit value,
+`Result.attempt` has this type:
 
-```hexagon
+```text
 Result.attempt : (() -> a) -> Result(a, Exn)
 ```
 
@@ -228,7 +229,7 @@ the brand, then the exception name, and automatically rethrows anything unmatche
 - `Result.attempt` converts exceptional computation into explicit union data; and
 - Hexagon exceptions are branded JavaScript `Error` values, not classes.
 
-Local mutation, loops, lazy iteration, and exceptions complete the book's first account
-of sequential and effectful computation. Each feature remains bounded: mutation stays
-inside a function, iteration resolves statically, laziness is represented by immutable
-values, and exceptional flow crosses one explicit open-error channel.
+Together, local mutation, loops, lazy iteration, and exceptions cover sequential and
+effectful computation without making effects ambient. Mutation stays inside a
+function, iteration resolves statically, laziness is represented by immutable values,
+and exceptional flow crosses one explicit open-error channel.

@@ -18,7 +18,7 @@ support without needing to understand compiler phases.
 2. Native values and functions stay native.
 3. Type-only distinctions erase while runtime data remains honest.
 4. Pipes, dot calls, patterns, and derivation become direct code.
-5. Truly generic constraints retain trailing dictionary evidence.
+5. Truly generic constraints retain trailing dictionary arguments.
 6. Persistent collections, sequences, ranges, and exceptions use explicit runtime
    support where native JavaScript has different semantics.
 7. ESM structure and evaluation order remain visible.
@@ -31,4 +31,4 @@ support without needing to understand compiler phases.
 - Keep tuples as arrays, records as POJOs, and nominal record construction erased when
   directly applied.
 - State that runtime helpers exist where native JS would lie about Hexagon semantics.
-- Keep dictionary evidence trailing and limited to genuinely generic code.
+- Keep dictionary arguments trailing and limited to genuinely generic code.
