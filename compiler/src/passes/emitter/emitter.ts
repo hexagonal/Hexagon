@@ -425,7 +425,7 @@ class JavaScriptEmitter {
     depth: number,
     evidenceNames: EvidenceNames,
   ): string {
-    const matchName = `$match${this.#nextMatch++}`;
+    const matchName = `__match${this.#nextMatch++}`;
     const inner = indent(depth + 1);
     const armIndent = indent(depth + 2);
     const bodyIndent = indent(depth + 3);
@@ -455,7 +455,13 @@ class JavaScriptEmitter {
         );
       }
     }
-    lines.push(`${inner}}`, `${inner}return undefined;`, `${indent(depth)}})()`);
+    if (expression.arms.every((arm) => arm.pattern.kind === "Constructor")) {
+      lines.push(
+        `${armIndent}default:`,
+        `${bodyIndent}throw new RangeError("Unexpected pattern.");`,
+      );
+    }
+    lines.push(`${inner}}`, `${indent(depth)}})()`);
     return lines.join("\n");
   }
 

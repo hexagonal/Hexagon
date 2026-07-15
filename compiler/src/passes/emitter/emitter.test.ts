@@ -69,13 +69,14 @@ describe("emitJavaScript", () => {
         'const Spades = "Spades";\n' +
         "const card = [10, Hearts];\n" +
         "const color = suit => (() => {\n" +
-        "  const $match0 = suit;\n" +
-        "  switch ($match0) {\n" +
+        "  const __match0 = suit;\n" +
+        "  switch (__match0) {\n" +
         '    case "Clubs":\n      return "black";\n' +
         '    case "Diamonds":\n      return "red";\n' +
         '    case "Hearts":\n      return "red";\n' +
         '    case "Spades":\n      return "black";\n' +
-        "  }\n  return undefined;\n})();\n" +
+        '    default:\n      throw new RangeError("Unexpected pattern.");\n' +
+        "  }\n})();\n" +
         "export { Clubs };\nexport { Diamonds };\n" +
         "export { Hearts };\nexport { Spades };\n" +
         "export { card };\nexport { color };\n",
@@ -89,6 +90,20 @@ describe("emitJavaScript", () => {
         "export declare const card: [number, Suit];\n" +
         "export declare const color: (suit: Suit) => string;\n",
     );
+  });
+
+  test("uses a source catch-all arm instead of an unreachable-pattern guard", () => {
+    const module = coreSource(
+      "union Suit = Clubs | Spades\n" +
+        "let color(suit: Suit): String = match suit\n" +
+        '  _ => "black"',
+    );
+
+    const output = emitJavaScript(module);
+
+    expect(output.text.match(/default:/gu)).toHaveLength(1);
+    expect(output.text).not.toContain("Unexpected pattern.");
+    expect(output.diagnostics).toEqual([]);
   });
 
   test("emits recursive fun bindings as hoisted function declarations", () => {
