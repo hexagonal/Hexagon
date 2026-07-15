@@ -73,7 +73,7 @@ Loops §6 fixes all of the following:
 - `Seq(a)` is a concrete lazy sequence with functional cursor operation:
 
   ```hexagon
-  Seq.next : (Seq(a)) -> Option((a, Seq(a)))
+  Seq.next : Seq(a) -> Option((a, Seq(a)))
   ```
 
 - `Seq.next(s)` must not consume `s` from the caller's perspective. Sequence positions are persistent.
@@ -149,13 +149,13 @@ The companion surface includes:
 ```hexagon
 Nullable.undefined      : Nullable(a)
 Nullable.null           : Nullable(a)
-Nullable.isNullish       : (Nullable(a)) -> Bool
-Nullable.isNull          : (Nullable(a)) -> Bool
-Nullable.isUndefined     : (Nullable(a)) -> Bool
-Nullable.toOption        : (Nullable(a)) -> Option(a)
-Nullable.toCase          : (Nullable(a)) -> NullableCase(a)
-Nullable.fromOption      : (Option(a)) -> Nullable(a)  -- None -> undefined
-Nullable.fromOptionOrNull : (Option(a)) -> Nullable(a) -- None -> null
+Nullable.isNullish       : Nullable(a) -> Bool
+Nullable.isNull          : Nullable(a) -> Bool
+Nullable.isUndefined     : Nullable(a) -> Bool
+Nullable.toOption        : Nullable(a) -> Option(a)
+Nullable.toCase          : Nullable(a) -> NullableCase(a)
+Nullable.fromOption      : Option(a) -> Nullable(a)  -- None -> undefined
+Nullable.fromOptionOrNull : Option(a) -> Nullable(a) -- None -> null
 ```
 
 The exact three-way reading is an ordinary Hexagon union:
@@ -280,9 +280,9 @@ If a foreign implementation violates its declared numeric contract, the `extern`
 Dynamic checks belong to operations whose purpose is to establish a narrower invariant from an uncertain value, for example:
 
 ```hexagon
-BigInt.toInt    : (BigInt) -> Option(Int)
-Int.fromFloat   : (Float) -> Option(Int)       -- if included in the stdlib
-JsValue.toInt   : (JsValue) -> Option(Int)     -- if included in the decoder surface
+BigInt.toInt    : BigInt -> Option(Int)
+Int.fromFloat   : Float -> Option(Int)       -- if included in the stdlib
+JsValue.toInt   : JsValue -> Option(Int)     -- if included in the decoder surface
 ```
 
 `BigInt.toInt` checks range; a Float/unknown-value-to-Int conversion uses `Number.isSafeInteger`. An explicit structural decoder for an unknown array of integers must inspect and validate every element and is necessarily O(n). This does not weaken the zero-scan rule for a trusted `extern fun values(): Array(Int)` declaration.
@@ -433,7 +433,7 @@ let readStatus = Response.status
 const readStatus = response => response.status;
 ```
 
-Its ordinary Hexagon type is `(Response) -> Int`.
+Its ordinary Hexagon type is `Response -> Int`.
 
 A writable property requires an explicit `set` declaration; a `get` declaration alone grants no Hexagon write capability even if JavaScript could technically assign the property:
 
@@ -676,12 +676,12 @@ extern from "event-source"
 
   fun addListener(
     target: Target,
-    callback: (Event) -> Unit,
+    callback: Event -> Unit,
   ): Unit
 
   fun removeListener(
     target: Target,
-    callback: (Event) -> Unit,
+    callback: Event -> Unit,
   ): Unit
 ```
 
@@ -693,7 +693,7 @@ Adapter-requiring callback signatures are rejected in v1. The canonical example 
 
 ```hexagon
 extern from "stream-tools"
-  fun visit(callback: (Seq(Int)) -> Unit): Unit
+  fun visit(callback: Seq(Int) -> Unit): Unit
 ```
 
 An arbitrary JS `Iterable<number>` would require a fresh persistent-`Seq` adaptation at each callback invocation, which in turn introduces wrapper identity, retention, failure, and lifetime questions. V1 does not generate that wrapper. The diagnostic identifies the nested `Seq` and recommends a representation-direct type, an explicit eager conversion at a controlled boundary, or a small JavaScript shim. This does not affect already-decided **top-level** `Seq` crossing (`extern fun values(): Seq(Int)`), whose one boundary adapter remains supported (§3).
@@ -931,8 +931,8 @@ The short public name matches the implementation: it accepts required evidence a
 2. Minimum safe accessor set, including:
 
    ```hexagon
-   JsError.message : (JsValue) -> String
-   JsError.stack   : (JsValue) -> Option(String)
+   JsError.message : JsValue -> String
+   JsError.stack   : JsValue -> Option(String)
    ```
 
 3. Behaviour for arbitrary thrown values including `null`, strings, symbols, and hostile objects with throwing property accessors.

@@ -70,7 +70,7 @@ Non-final expression items unify with `Unit`. Consequences:
 ### 3.3 `ignore`
 
 ```
-ignore : (a) -> Unit
+ignore : a -> Unit
 ```
 
 A **prelude function**, not a keyword: it takes anything, returns `()`. It is first-class like any function (`map(xs, ignore)` is legal, if useless). Idiomatic uses:
@@ -267,7 +267,7 @@ fun bump() = count := count + 1     -- ERROR if count is outer (crosses `fun`'s 
 fun step(n) =
   var x = n
   x := x + 1
-  x                                  -- step : (Int) -> Int
+  x                                  -- step : Int -> Int
 
 -- (c) Discarded value
 fun process(items) =
@@ -380,7 +380,7 @@ fun h() =
 | Block: non-final items unify with `Unit`; final item must be an expression; block type = final expression's type | §3 |
 | Block-final binding is a hard error ("did you mean to return x?") | §3.1 |
 | Discarded non-`Unit` values are hard errors (F# warning upgraded); provenance-tagged phrasing; `throw` needs no special case | §3.2 |
-| `ignore : (a) -> Unit` is a prelude function, not a keyword; the single discard idiom; erases in emission | §3.3 |
+| `ignore : a -> Unit` is a prelude function, not a keyword; the single discard idiom; erases in emission | §3.3 |
 | Head Binder Shadowing rule: sequential binders — every name bound by a `let`/`var`/`fun` LHS, destructuring patterns included — never reuse an in-scope name, any depth; head binders (parameters, match/catch-arm binders, loop variables) may shadow anything; class decided by the proper-subterm criterion | §5 |
 | Binder class is positional, not pattern-determined; two classes only, no third; supersedes "pattern forms inherit head-binder status wholesale" | §5.2, §7.4 |
 | **Correction (July 2026):** `let`-pattern binders reclassified head → sequential; refactoring invariance + punning rationale; head-class-for-state-threading alternative rejected; module aliases unshadowable via the case rule (no new restriction) | §5.4, §5.2 |

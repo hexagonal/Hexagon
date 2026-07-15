@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.shared.json",
+  "compilerOptions": {
+    "lib": ["DOM", "DOM.Iterable", "ES2024"],
+    "types": ["vite/client"]
+  },
+  "include": [
+    "src/main.ts",
+    "src/protocol.ts",
+    "src/examples/**/*.ts"
+  ]
+}

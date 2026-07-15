@@ -15,7 +15,7 @@
 
 1. `extern` declaration syntax and module placement (Modules spec now filed; same export-prefix rules presumed).
 2. Type mapping at the boundary: `Vector` (settled above), `Array(a)` ↦ `ReadonlyArray<a>`, `Nullable(a)` ↔ `Option`, per-layer type-directed conversion.
-3. `JsValue` final name + accessor set — Exceptions §10.2 owes at minimum `JsError.message : (JsValue) -> String`, `JsError.stack : (JsValue) -> Option(String)`.
+3. `JsValue` final name + accessor set — Exceptions §10.2 owes at minimum `JsError.message : JsValue -> String`, `JsError.stack : JsValue -> Option(String)`.
 4. Union-representation stability contract for JS consumers, incl. the all-nullary representation cliff (Unions §6.2).
 5. `opaque` types in `.d.ts` (Modules §11.3) — branded/nominal TS shape TBD.
 6. **Constrained-polymorphic exports — proto-decided:** direct named specializations for the closed fundamental set plus a base-name trailing-dictionary edition when public usable non-fundamental evidence exists. Public instances receive type-owned handles/factories (`Rat.num`, `Vector.show(...)`); dictionary types are constraint-qualified with lowercase Hexagon binders (`Num.Dictionary<a>`). See both companion notes; the normative FFI spec consolidates them and refines Constraints §6.1/§6.4.

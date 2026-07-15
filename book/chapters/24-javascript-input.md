@@ -346,7 +346,7 @@ match fromJsDirection(rawValue)
   None => "unknown direction"
 ```
 
-`fromJsDirection` has type `(JsValue) -> Option(Direction)` and checks membership
+`fromJsDirection` has type `JsValue -> Option(Direction)` and checks membership
 against the captured foreign values. `toJsDirection` widens a known member to
 `JsValue` without changing it. These are ordinary module bindings: for a local enum
 named `T`, the generated names are `fromJsT` and `toJsT`. A name collision is a compile
@@ -369,8 +369,8 @@ extern from "event-source"
   type Event
   type Target
 
-  fun addListener(target: Target, callback: (Event) -> Unit): Unit
-  fun removeListener(target: Target, callback: (Event) -> Unit): Unit
+  fun addListener(target: Target, callback: Event -> Unit): Unit
+  fun removeListener(target: Target, callback: Event -> Unit): Unit
 ```
 
 Passing the same Hexagon function to both operations passes the same JavaScript
@@ -379,7 +379,7 @@ and any JavaScript-supplied callback `this` is ignored because Hexagon has no bi
 for it.
 
 A callback whose nested signature would require adaptation is rejected. For example,
-`(Seq(Int)) -> Unit` would need a fresh persistent wrapper on every invocation, raising
+`Seq(Int) -> Unit` would need a fresh persistent wrapper on every invocation, raising
 lifetime and identity questions. Bind a representation-direct callback and convert at
 an explicit point, or place a small JavaScript adapter beside the foreign library.
 

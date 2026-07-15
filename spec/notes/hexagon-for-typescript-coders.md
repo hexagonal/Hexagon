@@ -44,7 +44,7 @@ const sumTo = (n) => {
 
 Two things to notice, and they set the theme for the whole book.
 
-**First: there are no type annotations, yet this function is fully, strongly typed.** The compiler inferred `sumTo : (Int) -> Int` — not guessed, not defaulted to `any`, *proved*. If you call `sumTo("ten")` you get a compile error. We'll spend all of Chapter 2 on this, because it's Hexagon's headline feature.
+**First: there are no type annotations, yet this function is fully, strongly typed.** The compiler inferred `sumTo : Int -> Int` — not guessed, not defaulted to `any`, *proved*. If you call `sumTo("ten")` you get a compile error. We'll spend all of Chapter 2 on this, because it's Hexagon's headline feature.
 
 **Second: the output is the JavaScript you would have written.** No framework runtime bolted on, no wrapper objects, no mangled names — at most a few small, readable helpers where a checked operation needs one. Readable output is a *semantic constraint* in Hexagon's design — features that couldn't compile to clean JS were rejected during design, not patched over afterward. When you debug, you debug code you can read. When a teammate who doesn't know Hexagon opens the output, they see ordinary JavaScript with an ordinary `.d.ts` next to it.
 
@@ -88,7 +88,7 @@ Hexagon uses Hindley–Milner type inference — the ML-family algorithm that Ty
 
 ```hexagon
 let firstWord(s) = split(s, " ")[1]
-// inferred: firstWord : (String) -> String
+// inferred: firstWord : String -> String
 
 let pair(x, y) = (x, y)  // tuple
 // inferred: pair : (a, b) -> (a, b)   — generic over both, automatically

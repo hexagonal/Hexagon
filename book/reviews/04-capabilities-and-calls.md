@@ -35,7 +35,7 @@ similar-looking conveniences therefore meet without being conflated.
 - Clarified derived record ordering: fields are visited in field-name order and their
   values are compared lexicographically.
 - Corrected the nested function type example from `Box(Int -> Int)` to
-  `Box((Int) -> Int)`.
+  `Box(Int -> Int)`.
 - Added the transparent-alias rule to Dot Calls: an alias creates no new
   companion and uses the companion of its expanded type.
 - Defined a nominal type's **home module** directly as the file that declares it before

@@ -212,17 +212,17 @@ The core surface, under the Part 1 §3 naming doctrine (subject-first, `Vector.`
 | Function | Type | Notes |
 |---|---|---|
 | `empty` | `Vector(a)` | the `[]` value |
-| `singleton` | `(a) -> Vector(a)` | |
-| `isEmpty` | `(Vector(a)) -> Bool` | |
-| `size` | `(Vector(a)) -> Int` | O(1) |
+| `singleton` | `a -> Vector(a)` | |
+| `isEmpty` | `Vector(a) -> Bool` | |
+| `size` | `Vector(a) -> Int` | O(1) |
 | `append` | `(Vector(a), a) -> Vector(a)` | O(1) am. |
 | `prepend` | `(Vector(a), a) -> Vector(a)` | O(1) am. |
-| `first` / `last` | `(Vector(a)) -> Option(a)` | total (Part 1 §3.1) |
-| `dropFirst` / `dropLast` | `(Vector(a)) -> Vector(a)` | **total: empty → empty** (§7.1) |
+| `first` / `last` | `Vector(a) -> Option(a)` | total (Part 1 §3.1) |
+| `dropFirst` / `dropLast` | `Vector(a) -> Vector(a)` | **total: empty → empty** (§7.1) |
 | `get` | `(Vector(a), Int) -> Option(a)` | §5.2 |
 | `at` | `(Vector(a), Int) -> a` | §5.3, throws |
 | `set` | `(Vector(a), Int, a) -> Vector(a)` | §5.4, throws |
-| `toSeq` / `fromSeq` | `(Vector(a)) -> Seq(a)` / `(Seq(a)) -> Vector(a)` | §7.2 |
+| `toSeq` / `fromSeq` | `Vector(a) -> Seq(a)` / `Seq(a) -> Vector(a)` | §7.2 |
 | `of`-style construction | — | the literal is the constructor; no public variadic `of` (emission detail, §2) |
 
 ### 7.1 `dropFirst`/`dropLast` on empty: total

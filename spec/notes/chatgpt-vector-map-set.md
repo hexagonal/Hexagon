@@ -111,8 +111,8 @@ Core API:
 
 Map.empty : Map(k, v)
 
-Map.isEmpty : (Map(k, v)) -> Bool
-Map.size : (Map(k, v)) -> Int
+Map.isEmpty : Map(k, v) -> Bool
+Map.size : Map(k, v) -> Int
 
 Map.get<k: Ord>(map: Map(k, v), key: k): Option(v)
 Map.containsKey<k: Ord>(map: Map(k, v), key: k): Bool
@@ -120,12 +120,12 @@ Map.containsKey<k: Ord>(map: Map(k, v), key: k): Bool
 Map.set<k: Ord>(map: Map(k, v), key: k, value: v): Map(k, v)
 Map.remove<k: Ord>(map: Map(k, v), key: k): Map(k, v)
 
-Map.keys : (Map(k, v)) -> Seq(k)
-Map.values : (Map(k, v)) -> Seq(v)
-Map.entries : (Map(k, v)) -> Seq((k, v))
+Map.keys : Map(k, v) -> Seq(k)
+Map.values : Map(k, v) -> Seq(v)
+Map.entries : Map(k, v) -> Seq((k, v))
 
 Map.fromEntries<k: Ord>(entries: Seq((k, v))): Map(k, v)
-Map.toEntries : (Map(k, v)) -> Seq((k, v))
+Map.toEntries : Map(k, v) -> Seq((k, v))
 I like get, set, remove. Do not use assoc, dissoc, lookup, insert, unless you want the library to smell like Clojure/Haskell.
 
 Map.get should return Option(v), never undefined.
@@ -155,10 +155,10 @@ Set
 Core API:
 
 Set.empty : Set(a)
-Set.singleton : (a) -> Set(a)
+Set.singleton : a -> Set(a)
 
-Set.isEmpty : (Set(a)) -> Bool
-Set.size : (Set(a)) -> Int
+Set.isEmpty : Set(a) -> Bool
+Set.size : Set(a) -> Int
 
 Set.contains<a: Ord>(set: Set(a), value: a): Bool
 
@@ -172,7 +172,7 @@ Set.difference<a: Ord>(left: Set(a), right: Set(a)): Set(a)
 Set.isSubsetOf<a: Ord>(left: Set(a), right: Set(a)): Bool
 Set.isSupersetOf<a: Ord>(left: Set(a), right: Set(a)): Bool
 
-Set.toSeq : (Set(a)) -> Seq(a)
+Set.toSeq : Set(a) -> Seq(a)
 Set.fromSeq<a: Ord>(values: Seq(a)): Set(a)
 I would use contains, not has. has is JS-ish, but contains reads better across String, Vector, and Set.
 

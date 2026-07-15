@@ -49,7 +49,7 @@ Exactly the union rules (Unions §2.2), restated for closure:
 ## 3. Typing
 
 - **`Exn` is an opaque prelude type constant.** It unifies with itself and nothing else. No structural anything; no user code can name its "constructor set" because it doesn't have a closed one.
-- `throw : (Exn) -> a` — a prelude function (not a keyword-with-special-grammar; ordinary call syntax `throw(e)`). It never returns, so its result type is a fresh variable that unifies with any expected type — the standard typing of divergence. `if broken then throw(NotFound) else 5` types as `Int`.
+- `throw : Exn -> a` — a prelude function (not a keyword-with-special-grammar; ordinary call syntax `throw(e)`). It never returns, so its result type is a fresh variable that unifies with any expected type — the standard typing of divergence. `if broken then throw(NotFound) else 5` types as `Int`.
 - **`Exn` is not `Result`'s friend by subtyping or coercion** — there is no implicit relationship. The explicit bridge is `Result.attempt` (§8.2).
 - `match` on an `Exn` scrutinee is **not permitted** — "match requires a union type in v1" (Unions §4.2) already excludes it, and it stays excluded permanently: an open sum can never satisfy `match`'s exhaustiveness contract. The only eliminator for `Exn` is a `catch` block. (Consequently there is also no dot access, no predicates — the Unions §5 doctrine transfers whole.)
 
@@ -111,7 +111,7 @@ Hexagon code compiled to JS will have JS exceptions pass through it — a `TypeE
 exception JsError(error: JsValue)
 ```
 
-- `JsValue` is an opaque extern type (name and accessors owed to the FFI spec — at minimum `JsError.message : (JsValue) -> String`, `JsError.stack : (JsValue) -> Option(String)`; flagged there). No attempt is made to type an arbitrary thrown value structurally, because JS permits throwing anything, including `null` and strings.
+- `JsValue` is an opaque extern type (name and accessors owed to the FFI spec — at minimum `JsError.message : JsValue -> String`, `JsError.stack : JsValue -> Option(String)`; flagged there). No attempt is made to type an arbitrary thrown value structurally, because JS permits throwing anything, including `null` and strings.
 - **No decoding.** A JS `RangeError` is a `JsError` whose payload you interrogate via accessors; it does not become a structured Hexagon exception. Classification of foreign errors is userland. This keeps the FFI honest — no typing the untypeable.
 
 ### 6.2 The wrapping is virtual
@@ -257,7 +257,7 @@ Runs the thunk; `Ok(value)` on normal return, `Err(exn)` on any throw — Hexago
 | `exception` = freestanding union-constructor grammar; all-or-none slots; module-level only; no local/generative exceptions | §2 |
 | No polymorphic exceptions (concrete payload types only) | §2 |
 | Reserved slots: `name`, `stack`, `$...`; `message` blessed and String-typed, feeds `Error` message | §2 |
-| `throw : (Exn) -> a`, prelude function, divergence typing; stack captured at construction | §3, §4 |
+| `throw : Exn -> a`, prelude function, divergence typing; stack captured at construction | §3, §4 |
 | `catch` mandatory; `finally` deferred with reserved keyword | §5.1, §10.1 |
 | Catch arms = flat constructor patterns (shared grammar with `match`); implicit rethrow; reachability still hard-errors; no exhaustiveness demand | §5.2–5.3 |
 | `match`/dot-access on `Exn`: never | §3 |

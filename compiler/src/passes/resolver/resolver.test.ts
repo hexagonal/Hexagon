@@ -1,0 +1,345 @@
+import fc from "fast-check";
+import { describe, expect, test } from "vitest";
+
+import * as Source from "../../support/source.js";
+import type * as Resolved from "../../syntax/resolved/index.js";
+import { applyLayout } from "../layout/layout.js";
+import { lex } from "../lexer/lexer.js";
+import { parse } from "../parser/parser.js";
+import { resolve } from "./resolver.js";
+
+describe("resolve", () => {
+  test("assigns stable symbols to sequential bindings and references", () => {
+    const module = resolveSource("let one = 1\nlet two = one + 1\ntwo");
+
+    expect(module.symbols).toMatchObject([
+      { id: 0, name: "one", kind: "let" },
+      { id: 1, name: "two", kind: "let" },
+    ]);
+    expect(module.items[1]).toMatchObject({
+      kind: "Let",
+      binding: { symbol: 1, name: "two" },
+      value: {
+        kind: "Binary",
+        left: { kind: "Name", symbol: 0, text: "one" },
+      },
+    });
+    expect(module.items[2]).toMatchObject({
+      kind: "ExprItem",
+      expression: { kind: "Name", symbol: 1, text: "two" },
+    });
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("diagnoses self-reference because let is non-recursive", () => {
+    const module = resolveSource("let loop = x => loop(x)");
+
+    expect(module.items[0]).toMatchObject({
+      kind: "Let",
+      binding: { symbol: 0 },
+      value: {
+        kind: "Lambda",
+        parameters: [{ symbol: 1, name: "x" }],
+        body: {
+          kind: "Call",
+          callee: { kind: "ErrorExpr" },
+          arguments: [{ kind: "Name", symbol: 1, text: "x" }],
+        },
+      },
+    });
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "`loop` is not in scope in its own `let` definition; `let` is non-recursive — use `fun`.",
+    ]);
+  });
+
+  test("resolves a fun name inside its own body", () => {
+    const module = resolveSource(
+      "fun fact(n: Int): Int = if n <= 1 then 1 else n * fact(n - 1)",
+    );
+
+    expect(module.symbols).toMatchObject([
+      { id: 0, name: "fact", kind: "fun" },
+      { id: 1, name: "n", kind: "parameter" },
+    ]);
+    expect(module.items[0]).toMatchObject({
+      kind: "Fun",
+      binding: { symbol: 0, name: "fact" },
+      value: {
+        kind: "Lambda",
+        body: {
+          kind: "If",
+          alternative: {
+            kind: "Binary",
+            right: {
+              kind: "Call",
+              callee: { kind: "Name", symbol: 0, text: "fact" },
+            },
+          },
+        },
+      },
+    });
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("diagnoses the deferred forward and mutual recursion boundary", () => {
+    const module = resolveSource(
+      "fun even(n: Int): Bool = odd(n - 1)\n" +
+        "fun odd(n: Int): Bool = even(n - 1)",
+    );
+
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "`odd` is declared by a later `fun`; forward and mutual `fun` references are not implemented yet",
+    ]);
+  });
+
+  test("allows lambda parameters to shadow outer bindings", () => {
+    const module = resolveSource("let x = 1\nlet increment = x => x + 1");
+
+    expect(module.symbols).toMatchObject([
+      { id: 0, name: "x", kind: "let" },
+      { id: 1, name: "increment", kind: "let" },
+      { id: 2, name: "x", kind: "parameter" },
+    ]);
+    expect(module.items[1]).toMatchObject({
+      kind: "Let",
+      value: {
+        kind: "Lambda",
+        parameters: [{ symbol: 2 }],
+        body: {
+          kind: "Binary",
+          left: { kind: "Name", symbol: 2, text: "x" },
+        },
+      },
+    });
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("resolves primitive annotations and diagnoses other type names", () => {
+    const module = resolveSource(
+      "let plus(x: Int, y): Int = x + y\n" +
+        "let unsupported(value: Widget) = value",
+    );
+
+    expect(module.items[0]).toMatchObject({
+      kind: "Let",
+      value: {
+        kind: "Lambda",
+        parameters: [
+          { name: "x", annotation: { kind: "Primitive", name: "Int" } },
+          { name: "y" },
+        ],
+        returnAnnotation: { kind: "Primitive", name: "Int" },
+      },
+    });
+    expect(module.items[1]).toMatchObject({
+      kind: "Let",
+      value: {
+        kind: "Lambda",
+        parameters: [
+          { name: "value", annotation: { kind: "ErrorType" } },
+        ],
+      },
+    });
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "unknown type `Widget`; the second compiler slice supports primitive type annotations only",
+    ]);
+  });
+
+  test("rejects sequential rebinding without changing the existing meaning", () => {
+    const module = resolveSource(
+      "let outer = x =>\n  let x = 2\n  x",
+    );
+
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "`x` is already bound (line 1); Hexagon does not allow rebinding — choose a different name.",
+    ]);
+    expect(module.items[0]).toMatchObject({
+      kind: "Let",
+      value: {
+        kind: "Lambda",
+        parameters: [{ symbol: 1, name: "x" }],
+        body: {
+          kind: "Block",
+          items: [
+            { kind: "Let", binding: { symbol: 2, name: "x" } },
+            {
+              kind: "ExprItem",
+              expression: { kind: "Name", symbol: 1, text: "x" },
+            },
+          ],
+        },
+      },
+    });
+  });
+
+  test("rejects duplicate simultaneous parameters and retains the first", () => {
+    const module = resolveSource("let choose = (x, x) => x");
+
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "duplicate parameter `x`",
+    ]);
+    expect(module.items[0]).toMatchObject({
+      kind: "Let",
+      value: {
+        kind: "Lambda",
+        parameters: [{ symbol: 1 }, { symbol: 2 }],
+        body: { kind: "Name", symbol: 1, text: "x" },
+      },
+    });
+  });
+
+  test("keeps block bindings lexical and resolves interpolations", () => {
+    const module = resolveSource(
+      "let f = x =>\n" +
+        "  if x\n" +
+        "    let hidden = 1\n" +
+        '    "${hidden}"\n' +
+        "  hidden",
+    );
+
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "unknown name `hidden`",
+    ]);
+    expect(module.items[0]).toMatchObject({
+      kind: "Let",
+      value: {
+        kind: "Lambda",
+        body: {
+          kind: "Block",
+          items: [
+            {
+              kind: "ExprItem",
+              expression: {
+                kind: "If",
+                consequence: {
+                  kind: "Block",
+                  items: [
+                    { kind: "Let", binding: { symbol: 2, name: "hidden" } },
+                    {
+                      kind: "ExprItem",
+                      expression: {
+                        kind: "String",
+                        parts: [
+                          {
+                            kind: "Interpolation",
+                            expression: {
+                              kind: "Name",
+                              symbol: 2,
+                              text: "hidden",
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+            { kind: "ExprItem", expression: { kind: "ErrorExpr" } },
+          ],
+        },
+      },
+    });
+  });
+
+  test("never crashes on arbitrary parser output and preserves valid symbols", () => {
+    fc.assert(
+      fc.property(fc.string(), (text) => {
+        const module = resolveSource(text);
+
+        for (const symbol of module.symbols) {
+          expect(Number(symbol.id)).toBeGreaterThanOrEqual(0);
+          expect(module.symbols[Number(symbol.id)]).toBe(symbol);
+        }
+        visitItems(module.items, module.symbols, text.length);
+      }),
+      { numRuns: 250 },
+    );
+  });
+});
+
+function resolveSource(text: string): Resolved.Module {
+  const source = new Source.File(Source.fileId(0), "test.hex", text);
+  return resolve(parse(applyLayout(lex(source))));
+}
+
+function visitItems(
+  items: readonly Resolved.Item[],
+  symbols: readonly Resolved.Symbol[],
+  sourceLength: number,
+): void {
+  for (const item of items) {
+    expect(item.span.start.offset).toBeGreaterThanOrEqual(0);
+    expect(item.span.end.offset).toBeLessThanOrEqual(sourceLength);
+    if (item.kind === "Let") visitExpr(item.value, symbols, sourceLength);
+    if (item.kind === "ExprItem") {
+      visitExpr(item.expression, symbols, sourceLength);
+    }
+  }
+}
+
+function visitExpr(
+  expression: Resolved.Expr,
+  symbols: readonly Resolved.Symbol[],
+  sourceLength: number,
+): void {
+  expect(expression.span.start.offset).toBeGreaterThanOrEqual(0);
+  expect(expression.span.end.offset).toBeLessThanOrEqual(sourceLength);
+
+  switch (expression.kind) {
+    case "Name":
+      expect(symbols[Number(expression.symbol)]?.name).toBe(expression.text);
+      return;
+    case "String":
+      for (const part of expression.parts) {
+        if (part.kind === "Interpolation") {
+          visitExpr(part.expression, symbols, sourceLength);
+        }
+      }
+      return;
+    case "Group":
+      return visitExpr(expression.expression, symbols, sourceLength);
+    case "Block":
+      return visitItems(expression.items, symbols, sourceLength);
+    case "Lambda":
+      return visitExpr(expression.body, symbols, sourceLength);
+    case "If":
+      visitExpr(expression.condition, symbols, sourceLength);
+      visitExpr(expression.consequence, symbols, sourceLength);
+      if (expression.alternative !== undefined) {
+        visitExpr(expression.alternative, symbols, sourceLength);
+      }
+      return;
+    case "Call":
+      visitExpr(expression.callee, symbols, sourceLength);
+      for (const argument of expression.arguments) {
+        visitExpr(argument, symbols, sourceLength);
+      }
+      return;
+    case "Access":
+      return visitExpr(expression.receiver, symbols, sourceLength);
+    case "Index":
+      visitExpr(expression.receiver, symbols, sourceLength);
+      return visitExpr(expression.index, symbols, sourceLength);
+    case "Unary":
+      return visitExpr(expression.operand, symbols, sourceLength);
+    case "Binary":
+      visitExpr(expression.left, symbols, sourceLength);
+      return visitExpr(expression.right, symbols, sourceLength);
+    case "Comparison":
+      for (const operand of expression.operands) {
+        visitExpr(operand, symbols, sourceLength);
+      }
+      return;
+    case "Assignment":
+      visitExpr(expression.target, symbols, sourceLength);
+      return visitExpr(expression.value, symbols, sourceLength);
+    case "Unit":
+    case "Boolean":
+    case "Integer":
+    case "BigInt":
+    case "Float":
+    case "ErrorExpr":
+      return;
+  }
+}

@@ -2,7 +2,51 @@
 
 This folder will contain the browser-based Hexagon playground: an interactive place to write Hexagon, inspect what the compiler understood and emitted, and run the resulting JavaScript.
 
-The experience is inspired by the TypeScript Playground without attempting to copy its interface exactly. The primary view is a Hexagon editor beside a result panel with user-facing tabs for runtime output, compiler errors, emitted JavaScript, generated TypeScript declarations, and inferred top-level types.
+The current four slices compile live and expose errors, emitted JavaScript, an
+inspection-only TypeScript preview, and inferred top-level types. Primitive
+parameter and result annotations, directly recursive `fun`, and first-argument
+pipes are accepted, including partially annotated parameter lists.
+Program execution remains disabled until its sandbox and host-capability policy is
+implemented.
+
+## Try it
+
+```sh
+cd playground
+npm install
+npm run dev
+```
+
+Open the local address printed by Vite. Edit `main.hex`, then inspect **Errors**,
+**JS**, **.d.ts**, and **Types**. Top-level bindings do not need `export`: the
+`.d.ts` tab uses the compiler's inspection-only TypeScript preview while preserving
+ordinary Hexagon visibility. This path calls the compiler directly in a Web Worker;
+it does not use the language server or LSP.
+
+The Theme selector offers **System**, **Dark**, and **Light**. System is the default
+and follows live operating-system colour-scheme changes. The selected preference is
+remembered in browser `localStorage`; if storage is unavailable, it still applies
+for the lifetime of the current page.
+
+## GitHub Pages
+
+The repository workflow publishes the playground to
+<https://hexagonal.github.io/Hexagon/> after a successful push to `main`. It tests
+and checks both the compiler and playground before deploying the static Vite build.
+The deployed worker contains the platform-neutral compiler as browser JavaScript;
+no compiler or application server runs behind the site.
+
+The repository owner must enable the workflow once in **Settings → Pages → Build
+and deployment → Source → GitHub Actions**. The workflow can also be started
+manually from the Actions tab.
+
+The ordinary `npm run build` retains Vite's root base for local work. The deployment
+uses `npm run build:pages`, which sets the project-site base to `/Hexagon/`.
+
+The experience is inspired by the TypeScript Playground without attempting to copy
+its interface exactly. The primary view is a Hexagon editor beside a result panel
+with user-facing tabs for runtime output, compiler errors, emitted JavaScript, the
+TypeScript preview, and inferred top-level types.
 
 ## Product shape
 
@@ -25,7 +69,8 @@ On narrow screens the result panel moves below the source editor. The source alw
 - **Output** shows text and values produced by executing the last successful compilation.
 - **Errors** shows structured compiler diagnostics and runtime failures. Selecting a compiler diagnostic focuses its source span; safe fix-its may be applied from here.
 - **JS** shows readable ECMAScript modules emitted by Hexagon.
-- **.d.ts** shows the supported TypeScript declaration surface.
+- **.d.ts** shows an inspection-only TypeScript preview for representable top-level
+  bindings. It does not promote private Hexagon bindings into public exports.
 - **Types** shows a compact list of inferred top-level binding types.
 
 Compiler-development views such as Tokens, Parsed, Resolved, Typed, and Core may be added behind an **Internals** control. They are useful for teaching and implementation but must not crowd the normal language experience.
@@ -109,7 +154,9 @@ Curated examples are grouped by language concept and appear only once their comp
 
 Where practical, example source should be derived from or shared with conformance fixtures and book examples. The repository must avoid three manually copied versions that can drift independently.
 
-The scaffold contains a `hello-world` placeholder to establish the metadata shape. It does not claim that the compiler currently accepts the program.
+The initial `hello-world` example is accepted by the current vertical slices and
+demonstrates inferred and annotated functions, direct recursion, strings, and
+arithmetic without requiring public exports.
 
 ## Testing
 
@@ -143,19 +190,17 @@ playground/
       hello-world.ts
 ```
 
-The current UI is deliberately dependency-light. It establishes layout, tab semantics, state boundaries, and worker message contracts. Compilation and execution return explicit “not available” results until the compiler API and safe runner exist.
+The current UI is deliberately dependency-light. It establishes layout, tab semantics, state boundaries, and worker message contracts. Compilation runs through the complete compiler pipeline in a dedicated worker. Execution returns an explicit “not available” result until the safe runner exists.
 
 ## Initial delivery order
 
-1. Select the workspace package manager, bundler, and remaining application structure.
-2. Make the static shell build and run in development and production modes.
+1. Exercise the direct compiler loop with the textarea fallback.
+2. Render clickable structured diagnostics while preserving version-correct generated views.
 3. Integrate Monaco's ESM build while preserving the textarea fallback.
-4. Connect the platform-neutral compiler core through the compiler worker.
-5. Render structured diagnostics and maintain version-correct generated views.
-6. Add hover and inferred top-level types.
-7. Implement isolated explicit execution and captured output.
-8. Add curated examples, local persistence, and shareable URLs.
-9. Add optional compiler-internal views for development and teaching.
+4. Add hover and richer inferred-type presentation.
+5. Implement isolated explicit execution and captured output.
+6. Add curated examples, local persistence, and shareable URLs.
+7. Add optional compiler-internal views for development and teaching.
 
 ## Decision record
 

@@ -171,7 +171,7 @@ Maps/Sets join the table when they exist (their specs must state their element t
 The core protocol is one function:
 
 ```
-Seq.next : (Seq(a)) -> Option((a, Seq(a)))
+Seq.next : Seq(a) -> Option((a, Seq(a)))
 ```
 
 - `Some((x, rest))`: the head element and the *successor sequence*; the original is unchanged (values are immutable — there is nothing else it could be).
@@ -287,7 +287,7 @@ fun sumTo(n) =
   for i in 1..n
     total := total + i
   total
--- sumTo : (Int) -> Int
+-- sumTo : Int -> Int
 -- emits: let total = 0; for (let i = 1; i <= n; i++) { total = total + i; } return total;
 
 -- (b) Empty range: zero iterations
@@ -296,7 +296,7 @@ sumTo(0)                       -- 0
 -- (c) General-path iteration
 fun printAll(xs) =
   for x in xs
-    print(x)                   -- assuming print : (String) -> Unit
+    print(x)                   -- assuming print : String -> Unit
 -- xs : List(String) at a call site → for (const x of xs) { print(x); }
 
 -- (d) Discard in a loop body
@@ -310,7 +310,7 @@ fun countdown(n0) =
   var n = n0
   while n > 0
     n := n - 1
--- countdown : (Int) -> Unit  (block-final loop; function returns Unit, no ceremony)
+-- countdown : Int -> Unit  (block-final loop; function returns Unit, no ceremony)
 
 -- (f) Loop variable is a head binder; immutable
 let i = 99
@@ -346,9 +346,9 @@ for x in 1..10
 1. **Associated types (v2) — own spec, decided-in-principle.** Design sketch fixed by this spec's needs: `type Elem` members in `constraint`, `type Elem = a` lines in `implement` (keyword shared with the module-level alias declaration, position-disambiguated — §7.2), reference syntax candidate `Elem(c)` (type-application-shaped; coherence makes it a table-lookup type function — search-free, riding on the Constraints §5 discipline exactly as Rust's design rides on its coherence). Its spec owes: the deferred-`Elem(α)` goal mechanism in inference (the first feature to touch `unify`'s environs — deserves its own treatment, not a loops-spec subsection), namespacing of associated type names (constructor-rule family, but in the type namespace), whether an associated type may carry an obligation (`type Elem: Show`) — the minimal answer suffices since §9.5 killed the big client — the divergences from alias rules noted in §7.2 (recursion, expansion in display), and `.d.ts`/LSP display. *Needed by:* the first user-defined collection type that wants `for..in`. Until then, `toSeq` conversion functions are the seam (§7.1).
 2. **Derivation timing:** sequence the associated-types spec immediately after this one, or on first demand — open, low stakes given (1) is design-settled.
 3. **Generators (`seq { ... }` / `yield`).** Coroutine feature, big surface, own spec. `Seq` the type needs none of it; nobody should assume `Seq` implies `yield`.
-4. **`AsyncSeq(a)`.** Committed to v1 *as a direction* but specified in a future (async) spec: `next : (AsyncSeq(a)) -> Promise(Option((a, AsyncSeq(a))))`, mapping onto JS's `AsyncIterator` as `Seq` maps onto `Iterator`; the eventual `for await`-style consumption form belongs to that spec. Core async (`Promise(a)`, `async fun`, `await`) needs no machinery from this spec and no associated types.
+4. **`AsyncSeq(a)`.** Committed to v1 *as a direction* but specified in a future (async) spec: `next : AsyncSeq(a) -> Promise(Option((a, AsyncSeq(a))))`, mapping onto JS's `AsyncIterator` as `Seq` maps onto `Iterator`; the eventual `for await`-style consumption form belongs to that spec. Core async (`Promise(a)`, `async fun`, `await`) needs no machinery from this spec and no associated types.
 5. **Range step.** `range(lo, hi, step)` vs `(1..10).by(2)` vs nothing. No v1 client; decide when field evidence arrives (likely alongside the break/continue deepdive, since both are "loop ergonomics under load").
-6. **`String` iteration element.** Hexagon has no `Char`; if `String` is iterable, the element is presumably a length-1 (codepoint) `String`, consistent with the codepoint indexing doctrine (Primitive Types §5.1) — presumed, not decided; grapheme questions lurk. Decide before `String` enters the §5 table; shipping v1 with `String` *not* iterable (use `String.codepoints : (String) -> Seq(String)` explicitly) is an acceptable interim.
+6. **`String` iteration element.** Hexagon has no `Char`; if `String` is iterable, the element is presumably a length-1 (codepoint) `String`, consistent with the codepoint indexing doctrine (Primitive Types §5.1) — presumed, not decided; grapheme questions lurk. Decide before `String` enters the §5 table; shipping v1 with `String` *not* iterable (use `String.codepoints : String -> Seq(String)` explicitly) is an acceptable interim.
 7. **Slicing.** `xs[i]` and `xs[lo..hi]` belong to the indexing/collections spec, including the partiality story (the leaning from design discussion: `IndexError` throw for `xs[i]`, and note the honest framing — JS returns `undefined` out of bounds, so a bounds check exists either way; throwing wins on *type* cleanliness, not speed). Open within that spec: whether a range slice clamps or throws. This spec's contribution is only that `Range` is a first-class value fit to appear inside `[]`.
 8. **Break/continue deepdive** — §9.4, revisit-bar shared with compound assignment.
 
@@ -367,7 +367,7 @@ for x in 1..10
 | Ascending `lo > hi` ⇒ empty; descending `hi < lo` ⇒ empty; `lo == hi` ⇒ one element | §3.4 |
 | `..` precedence deferred to operators spec (intent: looser than arithmetic, non-chaining) | §3.5 |
 | `while cond` + block; condition grammar = `if`'s, by reference; `Bool`, no truthiness; `Unit`; `while true` legal, no `Never` type invented | §4 |
-| `Seq(a)`: concrete lazy sequence type in v1; protocol is the functional cursor `next : (Seq(a)) -> Option((a, Seq(a)))`; persistence mandatory | §6 |
+| `Seq(a)`: concrete lazy sequence type in v1; protocol is the functional cursor `next : Seq(a) -> Option((a, Seq(a)))`; persistence mandatory | §6 |
 | External iteration mandatory; fold-based desugaring forbidden (lambda boundary) | §6.3 |
 | `Seq` emits onto the JS iterable protocol; `.d.ts` face `Iterable<a>` | §6.5 |
 | `Iterable` compiler-known in v1: internal (constructor → element, strategy) table shaped as the future instance table; never leaks into signatures/hovers; unsolved iterable tyvar = annotation-required error; `Seq` parameters are the generic idiom | §7 |

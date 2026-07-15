@@ -240,8 +240,8 @@ names prefix the unchanged local type name, avoiding acronym case conversion and
 allowing several enums in one binding module:
 
 ```text
-fromJsDirection : (JsValue) -> Option(Direction)
-toJsDirection   : (Direction) -> JsValue
+fromJsDirection : JsValue -> Option(Direction)
+toJsDirection   : Direction -> JsValue
 ```
 
 For any local enum name `T`, the names are exactly `fromJsT` and `toJsT`.

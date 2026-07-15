@@ -31,6 +31,7 @@ const closingDelimiter = new Map<Lexed.Token["kind"], DelimiterKind>([
 ]);
 
 const clauseContinuations = new Set<Lexed.Token["kind"]>([
+  "Then",
   "Else",
   "Catch",
 ]);
