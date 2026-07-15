@@ -53,6 +53,12 @@ Parentheses remain useful when annotations are present or when visual grouping h
 (subtotal: Int) => subtotal + 5
 ```
 
+In inferred types, the same zero/one/many shape applies. A nullary function displays
+as `() -> Result`, a unary function as `Input -> Result`, and an n-ary function as
+`(First, Second) -> Result`. There is no one-item tuple, so a unary type does not grow
+a one-item parameter list: `String -> String`, not `(String) -> String`. Parentheses
+around a function type mean real grouping, as in `(String -> String) -> String`.
+
 Constructing a lambda does not run its body. It creates a function value that can be
 called later.
 

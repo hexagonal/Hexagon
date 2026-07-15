@@ -61,6 +61,23 @@ describe("applyLayout", () => {
     expect(result.diagnostics).toEqual([]);
   });
 
+  test("attaches aligned then and else clauses across physical lines", () => {
+    const result = layout(
+      "fun fact(n: Int): Int =\n" +
+        "  if n <= 1\n" +
+        "  then 1\n" +
+        "  else n * fact(n - 1)",
+    );
+
+    expect(virtualKinds(result.tokens)).toEqual([
+      "VOpen",
+      "VOpen",
+      "VClose",
+      "VClose",
+    ]);
+    expect(result.diagnostics).toEqual([]);
+  });
+
   test("ignores newlines inside physical delimiters", () => {
     const result = layout("let value = call(\n  first,\n  second\n)\nprint(value)");
 

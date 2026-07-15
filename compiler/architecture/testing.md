@@ -64,7 +64,7 @@ test/fixtures/emit/functions/
   expected.d.ts
 ```
 
-Explicit extensions preserve syntax highlighting and make each expected artefact easy to inspect. Vitest snapshots and inline snapshots remain appropriate for compact values such as one token sequence, AST fragment, or diagnostic object.
+Explicit extensions preserve syntax highlighting and make each expected artefact easy to inspect. Vitest snapshots and inline snapshots remain appropriate for compact values such as one token sequence, a phase-qualified syntax-tree fragment, or a diagnostic object.
 
 Golden files are committed to source control and reviewed as code. Continuous integration never updates them automatically.
 

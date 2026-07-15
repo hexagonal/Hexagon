@@ -58,7 +58,7 @@ Point                          -- nullary: no parens at all
 
 ### 2.2 Constructors as terms
 
-- A payload constructor is a **function** in the term namespace: `Circle : (radius: Float) -> Shape`, `Node : (Tree(a), a, Tree(a)) -> Tree(a)`. Ordinary n-ary function rules apply wholesale (Functions §5): parens required, arity checked ("`Rect` expects 2 arguments, got 1"), no partial application, no tuple splatting.
+- A payload constructor is a **function** in the term namespace: `Circle : Float -> Shape`, `Node : (Tree(a), a, Tree(a)) -> Tree(a)`. Ordinary n-ary function rules apply wholesale (Functions §5): arity is displayed with the same zero/one/many convention, checked at calls ("`Rect` expects 2 arguments, got 1"), and never implies partial application or tuple splatting.
 - Constructors are **first-class**: `map(radii, Circle)` is legal. Emission of a referenced-not-applied constructor: §6.4.
 - A **nullary constructor is a value**, not a zero-arg function: `None : Option(a)`, used bare. `None()` is a type error (calling a non-function) with a targeted hint: "`None` is a value, not a function; write it without `()`."
 - **Value restriction:** a constructor application whose arguments are syntactic values is a syntactic value (Functions §8.2 already says so). `let x = Some(1)` generalises… to nothing interesting after literal defaulting (`Option(Int)`), but `let n = None` generalises to `n : Option(a)` — a nullary constructor is a value, so the classic `let xs = emptyList()` monomorphism trap does **not** apply to `None`. This is deliberate and pleasant; assert it in tests.

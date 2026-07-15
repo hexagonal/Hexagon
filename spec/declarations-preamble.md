@@ -33,7 +33,7 @@ union Shape
   | Point
 
 type UserName = String
-type Handler(a) = (a) -> Unit
+type Handler(a) = a -> Unit
 ```
 
 The grammar, uniformly:
@@ -101,8 +101,8 @@ The header grammar being shared, each form's spec already fixed its parameterize
 ```
 type UserName = String
 type Point2D = (Float, Float)
-type Handler(a) = (a) -> Unit
-type Lookup(k, v) = (k) -> Option(v)
+type Handler(a) = a -> Unit
+type Lookup(k, v) = k -> Option(v)
 ```
 
 - **Fully transparent.** The alias and its expansion are *the same type*: the checker expands aliases away before (or during) unification; `UserName` and `String` unify, interconvert with no ceremony, and are indistinguishable to every semantic judgment. No nominal wall, no runtime representation, no constructor.
@@ -252,7 +252,7 @@ Apply on next touch; until then this doc governs.
 -- (a) Header grammar tour
 record Pair(a, b) derives (Eq, Show) = {first: a, second: b}
 union Option(a) derives (Eq, Show) = Some(value: a) | None
-type Lookup(k, v) = (k) -> Option(v)
+type Lookup(k, v) = k -> Option(v)
 
 -- (b) Multi-line union with header derives on a continuation line
 union Shape
@@ -295,7 +295,7 @@ type Forest(a) = List(Tree(a))       -- OK: cycle passes through nominal Tree
 union Tree(a) = Node(a, Forest(a)) | Leaf
 
 -- (i) Fully applied
-type Handler(a) = (a) -> Unit
+type Handler(a) = a -> Unit
 fun register(h: Handler): Unit = ... -- ERROR: `Handler` takes 1 type parameter
 
 -- (j) Order-insensitivity
@@ -304,5 +304,5 @@ union Shape derives (Eq) = Circle(radius: Float) | Point
 
 -- (k) Display stickiness
 let f = (name: UserName) => name ++ "!"
--- hover on f: (UserName) -> String   — parameter sticky, result inferred/structural
+-- hover on f: UserName -> String   — parameter sticky, result inferred/structural
 ```

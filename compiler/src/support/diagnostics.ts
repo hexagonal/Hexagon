@@ -22,7 +22,7 @@ export interface Fix {
 }
 
 export interface Diagnostic {
-  readonly severity: "error";
+  readonly severity: "error" | "warning" | "information";
   readonly message: string;
   readonly primary: Source.Span;
   readonly labels?: readonly Label[];

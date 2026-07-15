@@ -23,7 +23,7 @@ Everything below is written against these decisions; none is open for re-litigat
 The grammar/constraint groundwork the later parts consume. Two halves, one document:
 
 **A. The `Hash` constraint, formal spec.**
-- Declaration shape; `Eq` superconstraint; member surface (`hash : (a) -> Int`? — exact member and its codomain need deciding; note `Int`'s f64 invariant).
+- Declaration shape; `Eq` superconstraint; member surface (`hash : a -> Int`? — exact member and its codomain need deciding; note `Int`'s f64 invariant).
 - **Derivable-only wording**: joins the Decisions Batch §2 derivation whitelist; users cannot write `implement Hash<T>`; the *stdlib* may bless instances for its own types (needed by Part 4 for `Hash<Vector(...)>` etc.). The wording must make the user/stdlib asymmetry precise.
 - `Hash<Float>` per Decisions Batch §1.4 (activated by Part 1 §4.1); `Hash<Int>`, `Hash<String>`, `Hash<Bool>`, structural records/tuples via derivation.
 - Law: `equals(a, b)` implies `hash(a) == hash(b)`; guaranteed by construction under derivable-only, stated anyway.

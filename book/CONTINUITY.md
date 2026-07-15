@@ -657,7 +657,7 @@ late pedagogy pass, not a commitment to the current order.
 ### Sequences
 
 - `Seq(a)` is the concrete lazy, immutable, possibly infinite iteration currency.
-- `Seq.next : (Seq(a)) -> Option((a, Seq(a)))` does not consume the supplied position;
+- `Seq.next : Seq(a) -> Option((a, Seq(a)))` does not consume the supplied position;
   traversal advances through the returned successor sequence.
 - Lazy callbacks and their effects run as elements are demanded.
 - `iterate` converts a statically known iterable to `Seq`; companion `toSeq`/`fromSeq`

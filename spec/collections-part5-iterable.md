@@ -118,11 +118,11 @@ Notes:
 
 ### 5.2 `String.toSeq`
 
-`String.toSeq : (String) -> Seq(String)` — the codepoint sequence, in order. Lazy (a `Seq` view over an immutable string is safe by construction); O(1) to create, O(n) to exhaust. **There is no `String.codepoints` synonym** — Loops §11.6's interim name is not introduced; the uniform suite name is the API (rejected alternative, §13.1).
+`String.toSeq : String -> Seq(String)` — the codepoint sequence, in order. Lazy (a `Seq` view over an immutable string is safe by construction); O(1) to create, O(n) to exhaust. **There is no `String.codepoints` synonym** — Loops §11.6's interim name is not introduced; the uniform suite name is the API (rejected alternative, §13.1).
 
 ### 5.3 `String.fromSeq` — concatenation, full contract
 
-`String.fromSeq : (Seq(String)) -> String` — concatenates the elements. The contract, normative:
+`String.fromSeq : Seq(String) -> String` — concatenates the elements. The contract, normative:
 
 - **Empty sequence produces `""`.**
 - **Elements concatenate in the sequence's traversal order.**
@@ -472,7 +472,7 @@ for x in expensive()                        -- expensive() called exactly once
 -- nats: an infinite Seq of 1, 2, 3, ... (producer illustrative — any infinite
 -- Seq specimen serves; the combinator surface is the stdlib listing's)
 for n in nats
-  if n > 3 then throw(Done()) else consume(n)   -- consume : (Int) -> Unit
+  if n > 3 then throw(Done()) else consume(n)   -- consume : Int -> Unit
 -- pulls 1, 2, 3, 4; consumes 1, 2, 3; throws on 4; each element computed on
 -- demand; nothing materialized
 

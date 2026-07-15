@@ -1,0 +1,78 @@
+name: Deploy playground to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: |
+            compiler/package-lock.json
+            playground/package-lock.json
+
+      - name: Install compiler dependencies
+        run: npm ci
+        working-directory: compiler
+
+      - name: Test compiler
+        run: npm test
+        working-directory: compiler
+
+      - name: Check compiler
+        run: npm run check
+        working-directory: compiler
+
+      - name: Install playground dependencies
+        run: npm ci
+        working-directory: playground
+
+      - name: Test playground
+        run: npm test
+        working-directory: playground
+
+      - name: Check playground
+        run: npm run check
+        working-directory: playground
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Build playground for GitHub Pages
+        run: npm run build:pages
+        working-directory: playground
+
+      - name: Upload playground
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: playground/dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy playground
+        id: deployment
+        uses: actions/deploy-pages@v4

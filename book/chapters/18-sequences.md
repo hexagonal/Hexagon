@@ -64,7 +64,7 @@ language chapter.
 The fundamental operation has this type:
 
 ```text
-Seq.next : (Seq(a)) -> Option((a, Seq(a)))
+Seq.next : Seq(a) -> Option((a, Seq(a)))
 ```
 
 It returns either:

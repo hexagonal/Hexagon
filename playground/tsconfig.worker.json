@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.shared.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "WebWorker"]
+  },
+  "include": [
+    "src/compile.ts",
+    "src/compile.test.ts",
+    "src/compiler-worker.ts",
+    "src/execution-worker.ts",
+    "src/protocol.ts"
+  ]
+}

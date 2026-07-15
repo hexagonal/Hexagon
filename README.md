@@ -21,10 +21,12 @@ or prototype lookup.
 > [!IMPORTANT]
 > Hexagon is under active design and implementation. The language specification is
 > about 95% complete, the reader-facing book has reached its first full draft, and
-> compiler construction has begun with working lexer and layout passes. Parsing and
-> later phases are not implemented yet, so no Hexagon program can be compiled
-> end-to-end. Syntax, semantics, generated interfaces, and repository structure may
-> still change before the first release.
+> compiler construction has working lexer and layout passes plus three thin vertical
+> slices through parsing, name resolution, type checking, Core elaboration,
+> JavaScript emission, and declaration emission. Small programs in that subset,
+> including primitive annotations and directly recursive functions, now compile
+> end to end through the compiler API. Syntax, semantics, generated interfaces, and
+> repository structure may still change before the first release.
 
 ## Direction
 
@@ -63,8 +65,8 @@ export const greet = name => "Hello, " + name + "!";
 export declare const greet: (name: string) => string;
 ```
 
-These examples express the design direction; the compiler does not yet reach code
-generation.
+The compiler now reaches this boundary shape for its first-round subset, though the
+full language and supported toolchain are not yet implemented.
 
 ## Project status
 
@@ -81,15 +83,31 @@ review copies stay outside version control.
 
 Compiler implementation is underway. The platform-neutral TypeScript workspace has
 source coordinates, structured diagnostics, a Unicode-aware physical lexer, and the
-indentation layout pass. Its implemented pipeline currently reaches:
+indentation layout pass. Its parser covers core expressions, `let` bindings,
+lambdas, directly recursive functions, conditionals, calls, primitive annotations,
+and operator precedence. Its resolver assigns stable symbols to `let`, `fun`, and
+lambda-parameter bindings, implements lexical scopes, and diagnoses unknown names
+and illegal rebinding. The implemented
+checker provides the Hindley–Milner core, including let-polymorphism, the value
+restriction, primitive and n-ary function types, unification, numeric defaulting,
+constraint requirements, checked primitive parameter and result annotations, and
+monomorphic direct recursion followed by ordinary generalization. Core elaboration
+makes primitive and dictionary evidence explicit, and the
+experimental emitter produces readable ESM plus an honest `.d.ts` surface for
+module-level `export let` and `export fun` bindings. The implemented pipeline
+currently reaches:
 
 ```text
-Source.File -> Lexed.File -> LaidOut.File
+Source.File -> Lexed.File -> LaidOut.File -> Parsed.Module -> Resolved.Module -> Typed.Module -> Core.Module -> Emitted output
 ```
 
-Parsing is next. Later work will continue through resolution, checking, elaboration,
-JavaScript and `.d.ts` emission, tests, and an interactive playground example before
-a language feature is treated as delivered end-to-end.
+The parser still needs declarations, patterns, and richer type syntax; resolution
+still needs function capture sets, forward/mutual recursion, module graphs, imports,
+companions, and the corresponding declaration scopes. Type checking still needs
+rows, declarations, modules, mutable bindings, and full constraint evidence.
+Emission still needs source maps, constrained-call specialization and the public
+dictionary ABI, records, unions, imports, runtime integration, and the finalized
+portable-JavaScript profile.
 
 There is currently no release, package, command-line tool, playground deployment, or supported installation process.
 

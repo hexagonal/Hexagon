@@ -2,7 +2,7 @@
 
 **Status:** Settled design. Written for Claude-as-implementer.
 **Scope:** Function definition, lambdas, `let`/`fun` binding of functions, application, arity, generalization, naming, and JS emission.
-**Out of scope (own specs):** modules, operators (including `|>` details), constraints (touched only where syntax demands), tuples, FFI/extern, LSP display format, pattern matching.
+**Out of scope (own specs):** modules, operators (including `|>` details), constraints (touched only where syntax demands), tuples, FFI/extern, constraint display format, pattern matching.
 
 ---
 
@@ -76,7 +76,7 @@ let plus = (x: Int, y: Int): Int => x + y
 ```
 
 - Parameter annotations: `name: Type` inside the parameter list.
-- Return annotation: **colon after the parameter list** — TypeScript/C#/Scala/Kotlin style. There is no `->` in source; arrow notation is an LSP display dialect only (specified elsewhere).
+- Return annotation: **colon after the parameter list** — TypeScript/C#/Scala/Kotlin style. There is no `->` in definition headers; arrow notation is the canonical displayed type form (§5.1).
 - Any subset of annotations may be given; inference fills the rest.
 - **No standalone signature lines.** Types are written only on definitions.
 
@@ -115,17 +115,36 @@ f(x, y)      -- two arguments
 - **No splatting / no tuple application.** Given `let t = (3, 7)`, the call `plus(t)` is an arity error (one argument supplied, two expected). Parameter lists *resemble* tuples but are not tuple values; there is no implicit conversion in either direction. Someone holding a tuple destructures it: `let (x, y) = t` then `plus(x, y)` (destructuring per the tuples spec).
 - **No optional, default, or named parameters** in pure Hexagon functions. (The FFI boundary may need its own story — `Nullable(a)` etc. — but that is the FFI spec's problem and must not leak into these semantics.)
 
-### 5.1 The SML reading (pedagogy only)
+### 5.1 Displayed function types
+
+Compiler-facing type displays — hovers, diagnostics, inferred-type views, and documentation signatures — use right-associative arrow notation with a zero/one/many parameter distinction:
+
+```text
+read    : () -> String
+greet   : String -> String
+combine : (String, String) -> String
+apply   : (String -> String) -> String
+```
+
+- A zero-parameter function uses `()` as its domain.
+- A one-parameter function uses the parameter type directly: `A -> B`, never `(A) -> B`. There is no one-item tuple or one-item parameter-list type.
+- A function with two or more parameters uses a parenthesized, comma-separated parameter list: `(A, B) -> C`.
+- `->` associates to the right. Parentheses around a function type are therefore grouping, as in `(A -> B) -> C`; they are not retained merely because a function has one parameter.
+- This notation describes Hexagon types. TypeScript declaration output separately follows TypeScript grammar and therefore retains `(name: A) => B`.
+
+The internal representation remains genuinely n-ary: `TFun([], R)`, `TFun([A], R)`, and `TFun([A, B], R)`. This display rule does not encode unary functions as a special semantic form.
+
+### 5.2 The SML reading (pedagogy only)
 
 The informal model "every function takes one thing — a single value, a tuple-shaped list of values, or nothing (`()`)" is a legitimate way to *teach* the syntax, and the Unit/Numeric spec's remarks about `()` are consistent with it. But the implementer must not encode it: function types are n-ary, calls are checked by arity, and no unit value is passed to `f()`.
 
-### 5.2 Nullary functions and `Unit`
+### 5.3 Nullary functions and `Unit`
 
 - `() => body` is a **zero-parameter function**. No argument (unit or otherwise) is passed; emitted JS takes no parameters.
 - `Unit` appears in this spec only as a **return type** for effect-only functions: `let log(msg: String): Unit = ...`. Its literal `()`, JS representation (`undefined`), and constraint memberships are fixed in the Numeric spec.
 - The parser must keep `()` (unit literal / nullary call syntax) unambiguous against grouping parens; coordinate with the tuples spec rather than special-casing.
 
-### 5.3 Parameter order convention
+### 5.4 Parameter order convention
 
 Because the pipe operator inserts its left operand as the **first argument** of the call on its right (details in the operators spec), the standard library and idiomatic user code should put the "subject" — the value being operated on — **first**: `map(list, f)`, not `map(f, list)`. This spec records the convention; the operator itself is specified elsewhere.
 
@@ -279,8 +298,8 @@ Notes:
 ## 11. Deferred / cross-references
 
 - **Tuples** (C#-value-tuple-flavored syntax, destructuring): own spec. This spec depends only on: no 1-tuples, `()` is the nullary case, no tuple↔argument-list conversion.
-- **Operators**, including `|>` first-argument insertion: own spec. This spec contributes only the subject-first parameter-order convention (§5.3). Note for reading the examples: Hexagon prefers English logical operators (`not`, `and`, `or`, `implies`, `iff`) and uses `if ... then ... else ...` as its conditional expression — there is no C-style `? :` ternary.
+- **Operators**, including `|>` first-argument insertion: own spec. This spec contributes only the subject-first parameter-order convention (§5.4). Note for reading the examples: Hexagon prefers English logical operators (`not`, `and`, `or`, `implies`, `iff`) and uses `if ... then ... else ...` as its conditional expression — there is no C-style `? :` ternary.
 - **Constraints** (`Num`, `implement`, superconstraints): own spec. This spec fixes only the `<a: C>` / `<a: (C1, C2)>` syntax.
 - **FFI**: `Nullable(a)`, extern functions, possible revisiting of placeholders/optional parameters. Nothing here leaks into pure Hexagon function semantics.
-- **LSP display format** (arrow notation, canonicalized constraint display): own spec; display-only, no round-tripping requirement.
+- **Constraint display format** (canonicalized constraint prefixes): own spec. Function arrow shape is fixed here (§5.1).
 - **Type-system internals** (Algorithm J, levels, union-find, bidirectional checking for rank-2): own spec. §8 states only the observable rules.

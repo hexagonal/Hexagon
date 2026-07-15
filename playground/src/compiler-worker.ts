@@ -1,28 +1,32 @@
 import type { CompilerRequest, CompilerResponse } from "./protocol";
+import { compileSource } from "./compile";
 
-/** Owns browser-side compiler state.
- *
- * The real worker will keep a persistent compiler analysis session so edits
- * can invalidate only affected work. This placeholder reports the missing
- * compiler explicitly instead of pretending that a surface form is supported.
- */
+/** Owns browser-side compiler state without routing local work through LSP. */
 self.addEventListener("message", (event: MessageEvent<CompilerRequest>) => {
   const request = event.data;
 
   if (request.kind !== "compile") return;
 
-  const response: CompilerResponse = {
-    kind: "compile-failure",
-    version: request.version,
-    diagnostics: [
-      {
-        severity: "information",
-        message: "The Hexagon compiler has not been connected to the playground yet.",
-        startOffset: 0,
-        endOffset: 0,
-      },
-    ],
-  };
+  let response: CompilerResponse;
+  try {
+    response = compileSource(request.version, request.source);
+  } catch (error) {
+    response = {
+      kind: "compile-failure",
+      version: request.version,
+      diagnostics: [
+        {
+          severity: "error",
+          message:
+            error instanceof Error
+              ? `Internal compiler error: ${error.message}`
+              : "Internal compiler error",
+          startOffset: 0,
+          endOffset: 0,
+        },
+      ],
+    };
+  }
 
   self.postMessage(response);
 });

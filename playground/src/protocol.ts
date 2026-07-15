@@ -27,7 +27,7 @@ export interface CompileSuccess {
   readonly kind: "compile-success";
   readonly version: number;
   readonly javascript: string;
-  readonly declarations: string;
+  readonly typeScriptPreview: string;
   readonly types: readonly InferredBinding[];
   readonly diagnostics: readonly PlaygroundDiagnostic[];
 }

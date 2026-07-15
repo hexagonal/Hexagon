@@ -34,6 +34,7 @@ check
 elaborate
 emitJavaScript
 emitDeclarations
+emitTypeScriptPreview
 ```
 
 The pipeline reads:
@@ -79,6 +80,9 @@ parse(LaidOut.File) -> Result(Parsed.Module)
 resolve(Parsed.Module) -> Result(Resolved.Module)
 check(Resolved.Module) -> Result(Typed.Module)
 elaborate(Typed.Module) -> Core.Module
+emitJavaScript(Core.Module) -> Emitted.JavaScript
+emitDeclarations(Core.Module) -> Emitted.Declarations
+emitTypeScriptPreview(Core.Module) -> Emitted.TypeScriptPreview
 ```
 
 The parser cannot consume `Lexed.File`; layout is not an optional parser mode. The checker cannot consume `Parsed.Module`; resolution is not performed opportunistically during inference.
@@ -140,6 +144,9 @@ src/
     typed/
     core/
 
+  emission/
+    emitted.ts
+
   passes/
     lexer/
     layout/
@@ -192,3 +199,20 @@ payloads; it only interleaves virtual delimiters. This is legitimate shared
 retention under §6, not a partly transformed hybrid: the owning file and public
 pass boundary remain distinctly `Lexed.File -> LaidOut.File`, and the parser
 accepts only the latter.
+
+### Emitted output clarification (July 2026)
+
+`Emitted.JavaScript` and `Emitted.Declarations` are final text artefacts rather
+than syntax trees, so their representation lives under `src/emission/` rather
+than `src/syntax/emitted/`. The transforming algorithms remain under
+`src/passes/emitter/` and expose the distinct verb contracts
+`emitJavaScript(Core.Module) -> Emitted.JavaScript` and
+`emitDeclarations(Core.Module) -> Emitted.Declarations`. These outputs retain
+unchanged source identity and diagnostics, but none exposes or accepts an earlier
+compiler representation.
+
+`Emitted.TypeScriptPreview` is a separate inspection artefact rather than a
+weakened `Emitted.Declarations`. It may describe non-exported top-level bindings
+for interactive tools, while `Emitted.Declarations` remains the public module
+contract. Its transforming verb is
+`emitTypeScriptPreview(Core.Module) -> Emitted.TypeScriptPreview`.

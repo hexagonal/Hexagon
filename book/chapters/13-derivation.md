@@ -123,13 +123,13 @@ record Box(a) derives (Eq, Show) = {value: a}
 
 This generates the equivalent of parameterized instances: `Box(a)` has `Eq` when `a`
 has `Eq`, and has `Show` when `a` has `Show`. `Box(Int)` therefore supports both;
-`Box((Int) -> Int)` does not support derived equality because functions have no `Eq`
+`Box(Int -> Int)` does not support derived equality because functions have no `Eq`
 instance.
 
 The diagnostic points at the obstructing part of the shape:
 
 ```text
-cannot derive Eq<Callback>: field run has type (Int) -> Int, which has no Eq instance
+cannot derive Eq<Callback>: field run has type Int -> Int, which has no Eq instance
 ```
 
 For a union, the same rule applies to every payload slot. One unsupported component is

@@ -115,7 +115,7 @@ A goal whose receiver is still an unsolved (flexible) tyvar after the deadline f
 — the exact constraint the expression has always imposed under Products §3.2/§4 — and let ordinary machinery proceed. Nothing else. In particular:
 
 - **The fallback never rejects.** It constrains. If α carries constraints a structural record cannot discharge (instance heads name constructors — Constraints §5.4 — so a row can honor nothing), ordinary constraint discharge produces the error through existing paths with existing phrasing. There is no soundness precondition on applying the fallback; a "can this soundly be a field requirement" pre-check is a phantom and is rejected (§11.8). *(Deletion of the pre-check: this session, amending Sol's formulation.)*
-- **Tier-0 row polymorphism is untouched.** `fun f(r) = r.callback(3)` infers `{callback: (Int) -> a, ...} -> a` exactly as before this spec existed. The feature changes nothing about any program that compiled before it.
+- **Tier-0 row polymorphism is untouched.** `fun f(r) = r.callback(3)` infers `{callback: Int -> a, ...} -> a` exactly as before this spec existed. The feature changes nothing about any program that compiled before it.
 - **The defined-meaning framing is normative.** The language rule, stated for users: *companion dispatch requires the compiler to know the receiver's type from independent evidence; where it doesn't, a dot call is a record-field call, as always.* This is a defined asymmetry with a defined diagnostic (§3.6), owned out loud — the same posture the pattern-matching spec takes on its open/closed asymmetry — not an inference wobble to be smoothed over.
 
 ### 3.6 The annotation asymmetry, owned
@@ -123,7 +123,7 @@ A goal whose receiver is still an unsolved (flexible) tyvar after the deadline f
 Consequence of §3.5, confronted rather than hidden:
 
 ```
-fun f(v) = v.at(3)                 -- v infers as {at: (Int) -> a, ...}; f is row-polymorphic
+fun f(v) = v.at(3)                 -- v infers as {at: Int -> a, ...}; f is row-polymorphic
 fun g(v: Vector(Int)) = v.at(3)    -- companion dispatch: Vector.at(v, 3)
 ```
 
@@ -156,7 +156,7 @@ The dot-callable operations of a type `T` are exactly:
 **`T`-headed is a syntactic test, not a unification question**: after expanding transparent aliases, the first parameter's outermost type constructor is `T` itself. Constructing the candidate set is therefore a **declaration-indexing operation** — decidable per declaration, once, with no speculative unification anywhere (many types *unify* with `T(…)`, starting with a fresh variable; none of that is consulted). *(Syntactic formulation: Sol.)* Worked examples:
 
 ```
-map(v: Vector(a), f: (a) -> b): Vector(b)    -- included: outermost constructor is Vector
+map(v: Vector(a), f: a -> b): Vector(b)    -- included: outermost constructor is Vector
 empty(): Vector(a)                           -- excluded: no first parameter
 make(x: Float, y: Float): Point              -- excluded: first parameter not Point-headed
 identity<a>(x: a): a                         -- excluded: bare type variable, no constructor
@@ -314,7 +314,7 @@ Any future ergonomic feature that wants the inferencer to postpone a decision ci
 1. **Dot access to constraint members, ever?** (`x.show()` as constraint dispatch.) Closed for v1 (§7, §11.7). Reopen condition: field evidence that TS-audience users pervasively write `x.show()` *and* the stdlib-listing hostile-specimen exercise (Sol-review §A.5) shows qualification pressure that dot syntax would genuinely relieve — and any design must still satisfy §10 (no global search, no import-sensitivity), which no known constraint-dispatch scheme does. Expected answer: permanent no; recorded as hanging only because the audience pressure is predictable.
 2. **Method references / bound methods** (`v.at` as a value). Rejected (§11.6); recorded here only because TS users will ask. Reopen condition: none foreseeable; the pipe and lambdas (`x => Vector.at(v, x)`) cover every use.
 3. **Companion operations on `Range`/`Seq` inventory** — which exports exist is the stdlib listing's; this spec only guarantees the mechanism reaches them (§4.1).
-4. **Monomorphic prelude `show`/`toString`-style companions** (`3.show()` via `Int.show : (Int) -> String`) — stdlib-listing decision (§7); mechanism indifferent.
+4. **Monomorphic prelude `show`/`toString`-style companions** (`3.show()` via `Int.show : Int -> String`) — stdlib-listing decision (§7); mechanism indifferent.
 5. **The three-spellings style question at scale.** §1/§9 fixes the doctrine; whether real codebases fragment anyway is empirical. Watch during dogfooding; the formatter/linter (if one ever exists — there is no warning tier) is *not* the answer; guide pressure is.
 
 ---
@@ -363,7 +363,7 @@ v.map(x => x * 2).take(2).at(1)    -- OK : Int  (each goal's receiver head-known
                                    --   from the previous resolution's result type)
 
 -- (c) Tier-0 preservation: unknown receiver is a field call, exactly as today
-fun f(r) = r.callback(3)           -- OK : {callback: (Int) -> a, ...} -> a
+fun f(r) = r.callback(3)           -- OK : {callback: Int -> a, ...} -> a
 f({callback: n => n + 1})          -- OK : Int
 
 -- (d) Same-region evidence counts, regardless of textual position (§3.1)
@@ -442,12 +442,12 @@ p.x                                -- ERROR: existing opacity error (Modules §4
 
 -- (n) Fallback + underivable constraint: existing error path, no new phrasing
 fun m(x) = add(x, x.total(1))      -- x gets Num (from add) and, at deadline,
-                                   --   the row {total: (Int) -> ...} — ERROR via
+                                   --   the row {total: Int -> ...} — ERROR via
                                    --   ordinary discharge: no Num instance for a
                                    --   record type (existing constraint phrasing)
 
 -- (o) Field-resolved dot call emits as itself
-fun run(r: {step: (Int) -> Int, ...}) = r.step(1)
+fun run(r: {step: Int -> Int, ...}) = r.step(1)
                                    -- emits: r.step(1)   — POJO read, honest JS
 
 -- (p) The pinning rule: inner generalisation around a pending goal (§3.1)
@@ -456,7 +456,7 @@ fun f(v) =
                                    --   quantifying the goal's result tyvar (pinned
                                    --   to f's region)
   Vector.size(v)                   -- v := Vector(a): goal resolves as companion
-  g(1)                             -- OK : a   — g : (Int) -> a after resolution
+  g(1)                             -- OK : a   — g : Int -> a after resolution
 
 -- (q) Post-fallback resumption: survivor rows connect by ordinary unification (§3.3)
 fun w(x) = x.make().run()          -- OK — both goals take the fallback at w's

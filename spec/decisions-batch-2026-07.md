@@ -97,7 +97,7 @@ Products §3.4 flagged nominal-record `Ord` as "possibly droppable." Under opt-i
 
 - `derive` is a **keyword valid only as the complete RHS of an `implement`** (parallel to the Constraints §4.1 lambda-literal rule: the RHS is either the member-block form or exactly `derive`). Anywhere else it is the ordinary unbound-name/parse error.
 - `derives` is a **contextual keyword in declaration headers only**; it does not reserve the identifier elsewhere. It must follow the complete type body (after the record's closing `}`, after the union's final constructor).
-- `implement C<T> = derive` where the *semantics* of `C`-derivation would need something a slot lacks (e.g. `Eq<T>` where a field's type has no `Eq`) is a hard error naming the offending field/slot and its type, phrased against the derivation: "cannot derive `Eq<Point>`: field `render` has type `(Int) -> String`, which has no `Eq` implementation."
+- `implement C<T> = derive` where the *semantics* of `C`-derivation would need something a slot lacks (e.g. `Eq<T>` where a field's type has no `Eq`) is a hard error naming the offending field/slot and its type, phrased against the derivation: "cannot derive `Eq<Point>`: field `render` has type `Int -> String`, which has no `Eq` implementation."
 - `derive` on a parameterized nominal type produces the expected parameterized instance (fields' instances become instance-context obligations per Constraints §4.3). The header grammar for parameterized records is the declarations-preamble spec's business; the `derives` clause rides along whatever it decides.
 - Emission: identical to what the fixed structural semantics dictate — derived `Eq` on records emits fieldwise `&&` chains with the §1.5 fast paths per field type, etc. Nothing new.
 
@@ -201,7 +201,7 @@ Which types support `[]` at all; negative-index policy (presumption: no Python-s
 
 ### 6.1 The decision
 
-The associated-types spec (and therefore user-implementable `Iterable`) is **v2, on first demand** — written when the first user-defined collection type wants `for..in`, not before. Until then, `toSeq : (T) -> Seq(a)` conversion functions are the seam, exactly as Loops §7.1 provides, and `Seq(a)` parameters remain the generic idiom.
+The associated-types spec (and therefore user-implementable `Iterable`) is **v2, on first demand** — written when the first user-defined collection type wants `for..in`, not before. Until then, `toSeq : T -> Seq(a)` conversion functions are the seam, exactly as Loops §7.1 provides, and `Seq(a)` parameters remain the generic idiom.
 
 ### 6.2 Rationale (recorded so the deferral is understood as risk management, not neglect)
 
@@ -284,8 +284,8 @@ Blob({x: 1.0}) == Blob({x: 1.0})
 
 implement Ord<Point> = derive  -- OK iff Eq<Point> exists (it does, via derives)
 
-record Handler = {f: (Int) -> Int} derives Eq
-   -- ERROR: cannot derive `Eq<Handler>`: field `f` has type (Int) -> Int,
+record Handler = {f: Int -> Int} derives Eq
+   -- ERROR: cannot derive `Eq<Handler>`: field `f` has type Int -> Int,
    --        which has no `Eq` implementation
 
 -- (f) Ordering spelling and emission

@@ -101,7 +101,7 @@ record Point = {x: Float, y: Float} derives (Eq, Hash)
 
 - `honor Hash<T> = derive` occupies the ordinary (constraint, constructor) coherence slot, obeys the orphan rule, and participates in superconstraint existence checks: deriving `Hash` with no `Eq<T>` in scope is the existing missing-superconstraint error, plus the hint **"add `Eq` to the `derives` list"** (parallel to `Ord`, Decisions Batch §2.6).
 - On a parameterized nominal type, `derive` produces the expected parameterized instance; component types' `Hash` obligations become instance-context obligations per Constraints §4.3 (`honor<a: Hash> Hash<Box(a)> = derive`-shaped).
-- An underivable slot is the standard error, phrased against the derivation: "cannot derive `Hash<Handler>`: field `f` has type `(Int) -> Int`, which has no `Hash` instance."
+- An underivable slot is the standard error, phrased against the derivation: "cannot derive `Hash<Handler>`: field `f` has type `Int -> Int`, which has no `Hash` instance."
 - The whitelist diagnostic is updated: "`Num` cannot be derived; only `Eq`, `Ord`, `Show`, and `Hash` have derivable forms."
 
 ### 3.2 Derivation semantics (contract, not algorithm)
@@ -180,7 +180,7 @@ honor<a> Iterable<Bag(a)> =
 
 - The binding line is `type Name = τ`. **τ may mention only in-scope type names** (primitives, nominal types, fully-applied aliases per Declarations Preamble §5, other constructors) **and the instance's own `<...>` binders.** τ may **not** mention any associated type name — its own or another constraint's (they are not referenceable in type expressions, §7.3) — which is why recursion through type members is unwritable, discharging Loops §7.2's divergence note against the alias recursion ban: no SCC check is needed because the cycle cannot be written.
 - **Exactly-once discipline**, mirroring function members (Constraints §4.1): every type member declared by the constraint must be bound exactly once in the `honor` block; missing, extra, and duplicate bindings are each errors naming the member (§9).
-- Within the `honor` block, the bare name `Item` is in scope and denotes τ — usable in optional annotations on the block's own function members. Function-member checking proceeds with the substitution applied: `iterate`'s expected type above is `(Bag(a)) -> Seq(a)`.
+- Within the `honor` block, the bare name `Item` is in scope and denotes τ — usable in optional annotations on the block's own function members. Function-member checking proceeds with the substitution applied: `iterate`'s expected type above is `Bag(a) -> Seq(a)`.
 - A bare `Item = a` line (no keyword) is not this form — it is shaped like a term-level binding of an uppercase name, which Functions §2 reserves for constructors; the `type` keyword is what makes the line self-announcing (Loops §7.2's rationale, adopted).
 
 ### 5.4 Coherence
@@ -310,7 +310,7 @@ Pinning the signed-32-bit range as a promise rather than an informative note. Re
 
 Recorded so v2 planning starts here rather than from scratch; **nothing below is decided.**
 
-The shape: `honor (Eq, Hash)<T> = derive via normalize`, where `normalize : (T) -> U` and `U` has `Eq`/`Hash` — both instances defined through the same projection, so the §2.3 law holds **by construction for any user-supplied function**, not by trust. This subsumes case-insensitive keys, normalized-form equality, and most of the demand queued behind "user-implementable `Hash`"; it is therefore a **candidate replacement** for, not an addition to, the Part 1 §6.3 "user `Hash` in v2" entry — a law-proof mechanism where raw hand-written `Hash` is merely law-hoped. Open questions for that spec: the multi-constraint head form, whether `Eq` alone may be derived `via` (creating a hand-written-`Eq`-like instance that §4.3 would then need to reason about), evaluation-freeness of the projection reference (Constraints §6.3 pressure), and interaction with `Ord`. The Part 1 §6.3 remainder and the main roadmap's Tier-3 entry take an edit note pointing here (§14).
+The shape: `honor (Eq, Hash)<T> = derive via normalize`, where `normalize : T -> U` and `U` has `Eq`/`Hash` — both instances defined through the same projection, so the §2.3 law holds **by construction for any user-supplied function**, not by trust. This subsumes case-insensitive keys, normalized-form equality, and most of the demand queued behind "user-implementable `Hash`"; it is therefore a **candidate replacement** for, not an addition to, the Part 1 §6.3 "user `Hash` in v2" entry — a law-proof mechanism where raw hand-written `Hash` is merely law-hoped. Open questions for that spec: the multi-constraint head form, whether `Eq` alone may be derived `via` (creating a hand-written-`Eq`-like instance that §4.3 would then need to reason about), evaluation-freeness of the projection reference (Constraints §6.3 pressure), and interaction with `Ord`. The Part 1 §6.3 remainder and the main roadmap's Tier-3 entry take an edit note pointing here (§14).
 
 ---
 
@@ -384,7 +384,7 @@ hash(0.0 / 0.0) == hash(Float.nan)               -- true (all NaNs one value)
 
 -- (3) Structural types: automatic, conditional
 let t = hash((1, "a", true))                     -- OK (all components Hash)
-let u = hash((1, fn))                            -- ERROR: no Hash for (Int) -> Int (component)
+let u = hash((1, fn))                            -- ERROR: no Hash for Int -> Int (component)
 
 -- (4) Hand-written Hash: closed door, signposted
 honor Hash<UserId> =

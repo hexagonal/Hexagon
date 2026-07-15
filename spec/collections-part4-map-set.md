@@ -178,15 +178,15 @@ Under the Part 1 §3 naming doctrine (subject-first; companion modules `Map`/`Se
 |---|---|---|
 | `empty` | `Map(k, v)` | §3.5, generalizes |
 | `singleton` | `(k, v) -> Map(k, v)` | no constraint — one entry places trivially; first placement occurs on first keyed operation. *(Implementation freedom; if placement-at-construction is simpler, `<k: Hash>` here would be honest too — resolved: unconstrained, §12.4)* |
-| `isEmpty` | `(Map(k, v)) -> Bool` | |
-| `size` | `(Map(k, v)) -> Int` | O(1) |
+| `isEmpty` | `Map(k, v) -> Bool` | |
+| `size` | `Map(k, v) -> Int` | O(1) |
 | `get` | `<k: Hash>(Map(k, v), k) -> Option(v)` | §4.2 |
 | `containsKey` | `<k: Hash>(Map(k, v), k) -> Bool` | room left for a deferred `containsValue` (Part 1 §3.1) |
 | `set` | `<k: Hash>(Map(k, v), k, v) -> Map(k, v)` | upsert, §5.1 |
 | `remove` | `<k: Hash>(Map(k, v), k) -> Map(k, v)` | forgiving, §5.2 |
-| `keys` | `(Map(k, v)) -> Seq(k)` | §7.3 correspondence |
-| `values` | `(Map(k, v)) -> Seq(v)` | §7.3 |
-| `entries` | `(Map(k, v)) -> Seq((k, v))` | ≡ `toSeq`, §3.4 |
+| `keys` | `Map(k, v) -> Seq(k)` | §7.3 correspondence |
+| `values` | `Map(k, v) -> Seq(v)` | §7.3 |
+| `entries` | `Map(k, v) -> Seq((k, v))` | ≡ `toSeq`, §3.4 |
 | `fromEntries` | `<k: Hash>(Seq((k, v))) -> Map(k, v)` | last wins, §3.3; ≡ `fromSeq` |
 | `toSeq` / `fromSeq` | as `entries` / `fromEntries` | the uniform suite, §3.4 |
 | `fromVector` | `<k: Hash>(Vector((k, v))) -> Map(k, v)` | §3.2 |
@@ -196,16 +196,16 @@ Under the Part 1 §3 naming doctrine (subject-first; companion modules `Map`/`Se
 | Function | Type | Notes |
 |---|---|---|
 | `empty` | `Set(a)` | §3.5, generalizes |
-| `singleton` | `(a) -> Set(a)` | unconstrained, as `Map.singleton` |
-| `isEmpty` | `(Set(a)) -> Bool` | |
-| `size` | `(Set(a)) -> Int` | O(1) |
+| `singleton` | `a -> Set(a)` | unconstrained, as `Map.singleton` |
+| `isEmpty` | `Set(a) -> Bool` | |
+| `size` | `Set(a) -> Int` | O(1) |
 | `contains` | `<a: Hash>(Set(a), a) -> Bool` | membership; the only Boolean read |
 | `add` | `<a: Hash>(Set(a), a) -> Set(a)` | §5.1 |
 | `remove` | `<a: Hash>(Set(a), a) -> Set(a)` | forgiving, §5.2 |
 | `union` / `intersect` / `difference` | `<a: Hash>(Set(a), Set(a)) -> Set(a)` | §5.3 |
 | `isSubsetOf` | `<a: Hash>(Set(a), Set(a)) -> Bool` | §5.3 |
-| `toSeq` / `fromSeq` | `(Set(a)) -> Seq(a)` / `<a: Hash>(Seq(a)) -> Set(a)` | |
-| `fromVector` | `<a: Hash>(Vector(a)) -> Set(a)` | §3.2 |
+| `toSeq` / `fromSeq` | `Set(a) -> Seq(a)` / `<a: Hash> Seq(a) -> Set(a)` | |
+| `fromVector` | `<a: Hash> Vector(a) -> Set(a)` | §3.2 |
 
 `Map.singleton` is included (symmetry with `Set.singleton` and genuine utility — the one-entry map is common); decided, §12.4 records the constraint question.
 
