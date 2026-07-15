@@ -141,7 +141,7 @@ describe("resolve", () => {
       },
     });
     expect(module.diagnostics.map(({ message }) => message)).toEqual([
-      "unknown type `Widget`; the second compiler slice supports primitive type annotations only",
+      "unknown type `Widget`; this slice supports primitive, tuple, and declared union types",
     ]);
   });
 

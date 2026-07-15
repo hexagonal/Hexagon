@@ -4,6 +4,7 @@
  */
 
 import * as Diagnostics from "../../support/diagnostics.js";
+import type * as Source from "../../support/source.js";
 import type * as Core from "../../syntax/core/index.js";
 import type * as Emitted from "../../emission/index.js";
 import type * as Resolved from "../../syntax/resolved/index.js";
@@ -29,6 +30,7 @@ type EvidenceNames = ReadonlyMap<string, string>;
 class JavaScriptEmitter {
   readonly #diagnostics = new Diagnostics.Bag();
   readonly #symbols = new Map<Resolved.SymbolId, Core.Symbol>();
+  #nextMatch = 0;
   readonly #helpers = new Set<Helper>();
   readonly #exports: string[] = [];
   readonly #module: Core.Module;
@@ -41,13 +43,29 @@ class JavaScriptEmitter {
 
   emit(): Emitted.JavaScript {
     const body: string[] = [];
-    let previousItem: Core.Item | undefined;
-    for (const item of this.#module.items) {
-      if (previousItem !== undefined) {
-        body.push(...Array(blankLinesBetween(previousItem, item)).fill(""));
+    const trailing = trailingComments(this.#module.items, this.#module.comments);
+    const entries = sourceEntries(
+      this.#module.items,
+      this.#module.comments,
+      trailing,
+    );
+    let previousSpan: Source.Span | undefined;
+    for (const entry of entries) {
+      if (previousSpan !== undefined) {
+        body.push(...Array(blankLinesBetween(previousSpan, entry.span)).fill(""));
       }
-      body.push(...this.#emitItem(item, 0, new Map(), false));
-      previousItem = item;
+      if (entry.kind === "Comment") {
+        body.push(...commentLines(entry.comment));
+      } else {
+        const lines = this.#emitItem(entry.item, 0, new Map(), false);
+        const comments = trailing.get(entry.item) ?? [];
+        if (comments.length > 0 && lines.length > 0) {
+          const last = lines.length - 1;
+          lines[last] = `${lines[last]} ${comments.map(({ text }) => text).join(" ")}`;
+        }
+        body.push(...lines);
+      }
+      previousSpan = entry.span;
     }
     body.push(...this.#exports);
 
@@ -79,6 +97,26 @@ class JavaScriptEmitter {
       ];
     }
 
+    if (item.kind === "LetPattern") {
+      const pattern = this.#emitPattern(item.pattern);
+      const value = this.#emitExpr(item.value, depth, evidenceNames);
+      return [`${prefix}const ${pattern} = ${value};`];
+    }
+    if (item.kind === "Union") {
+      const lines = item.constructors.map((constructor) => {
+        const name = this.#identifier(constructor.symbol, constructor.name);
+        if (item.exported && depth === 0) {
+          this.#exports.push(
+            name === constructor.name
+              ? `export { ${name} };`
+              : `export { ${name} as ${constructor.name} };`,
+          );
+        }
+        return `${prefix}const ${name} = ${JSON.stringify(constructor.name)};`;
+      });
+      return lines;
+    }
+
     if (item.kind === "Fun") {
       const name = this.#identifier(item.binding.symbol, item.binding.name);
       this.#recordExport(item, name, depth);
@@ -89,6 +127,24 @@ class JavaScriptEmitter {
     const value = this.#emitBindingValue(item, depth, evidenceNames);
     this.#recordExport(item, name, depth);
     return [`${prefix}const ${name} = ${value};`];
+  }
+
+  #emitPattern(pattern: Core.Pattern): string {
+    switch (pattern.kind) {
+      case "Binding":
+        return this.#identifier(
+          pattern.binding.symbol,
+          pattern.binding.name,
+        );
+      case "Wildcard":
+        return "";
+      case "Tuple":
+        return `[${pattern.elements.map((element) =>
+          this.#emitPattern(element)
+        ).join(", ")}]`;
+      case "Constructor":
+        return pattern.text;
+    }
   }
 
   #recordExport(
@@ -200,6 +256,15 @@ class JavaScriptEmitter {
         return this.#emitConvertInt(expression, evidenceNames);
       case "String":
         return this.#emitString(expression, depth, evidenceNames);
+      case "Tuple":
+        return `[${expression.elements.map((element) =>
+          this.#emitExpr(element, depth, evidenceNames)
+        ).join(", ")}]`;
+      case "TupleAccess":
+        return (
+          `${this.#emitOperand(expression.receiver, Precedence.Call, depth, evidenceNames)}` +
+          `[${expression.index}]`
+        );
       case "Block":
         return this.#emitBlockExpression(expression, depth, evidenceNames);
       case "Lambda":
@@ -223,6 +288,8 @@ class JavaScriptEmitter {
             : this.#emitExpr(expression.alternative, depth, evidenceNames);
         return `${condition} ? ${consequence} : ${alternative}`;
       }
+      case "Match":
+        return this.#emitMatch(expression, depth, evidenceNames);
       case "Call":
         return this.#emitCall(expression, depth, evidenceNames);
       case "LogicalNot":
@@ -351,6 +418,45 @@ class JavaScriptEmitter {
       this.#emitExpr(argument, depth, evidenceNames),
     );
     return `${callee}(${arguments_.join(", ")})`;
+  }
+
+  #emitMatch(
+    expression: Core.MatchExpr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string {
+    const matchName = `$match${this.#nextMatch++}`;
+    const inner = indent(depth + 1);
+    const armIndent = indent(depth + 2);
+    const bodyIndent = indent(depth + 3);
+    const lines = [
+      "(() => {",
+      `${inner}const ${matchName} = ${this.#emitExpr(expression.scrutinee, depth + 1, evidenceNames)};`,
+      `${inner}switch (${matchName}) {`,
+    ];
+    for (const arm of expression.arms) {
+      const pattern = arm.pattern;
+      if (pattern.kind === "Constructor") {
+        lines.push(`${armIndent}case ${JSON.stringify(pattern.text)}:`);
+        lines.push(
+          `${bodyIndent}return ${this.#emitExpr(arm.body, depth + 3, evidenceNames)};`,
+        );
+      } else {
+        lines.push(`${armIndent}default:`);
+        if (pattern.kind === "Binding") {
+          const name = this.#identifier(
+            pattern.binding.symbol,
+            pattern.binding.name,
+          );
+          lines.push(`${bodyIndent}const ${name} = ${matchName};`);
+        }
+        lines.push(
+          `${bodyIndent}return ${this.#emitExpr(arm.body, depth + 3, evidenceNames)};`,
+        );
+      }
+    }
+    lines.push(`${inner}}`, `${inner}return undefined;`, `${indent(depth)}})()`);
+    return lines.join("\n");
   }
 
   #emitConvertInt(
@@ -623,7 +729,20 @@ class DeclarationEmitter {
 
   emit(): Emitted.Declarations {
     const declarations: string[] = [];
+    let isExternalModule = false;
     for (const item of this.#module.items) {
+      if (item.kind === "Union") {
+        declarations.push(renderUnionDeclaration(item, item.exported));
+        if (item.exported) {
+          isExternalModule = true;
+          for (const constructor of item.constructors) {
+            declarations.push(
+              `export declare const ${constructor.name}: ${item.name};`,
+            );
+          }
+        }
+        continue;
+      }
       if ((item.kind !== "Let" && item.kind !== "Fun") || !item.exported) {
         continue;
       }
@@ -637,6 +756,7 @@ class DeclarationEmitter {
         });
         continue;
       }
+      isExternalModule = true;
 
       const safeName = isSafeIdentifier(item.binding.name);
       const local = safeName
@@ -658,7 +778,7 @@ class DeclarationEmitter {
         declarations.push(`export { ${local} as ${item.binding.name} };`);
       }
     }
-    if (declarations.length === 0) declarations.push("export {};");
+    if (!isExternalModule) declarations.push("export {};");
 
     return {
       kind: "Declarations",
@@ -683,6 +803,28 @@ class TypeScriptPreviewEmitter {
     let isExternalModule = false;
 
     for (const item of this.#module.items) {
+      if (item.kind === "Union") {
+        declarations.push(renderUnionDeclaration(item, item.exported));
+        for (const constructor of item.constructors) {
+          const prefix = item.exported ? "export " : "";
+          declarations.push(
+            `${prefix}declare const ${constructor.name}: ${item.name};`,
+          );
+        }
+        isExternalModule ||= item.exported;
+        continue;
+      }
+      if (item.kind === "LetPattern") {
+        for (const binding of patternBindings(item.pattern)) {
+          const name = isSafeIdentifier(binding.name)
+            ? binding.name
+            : `$hex${Number(binding.symbol)}`;
+          declarations.push(
+            `declare const ${name}: ${renderScheme(binding.scheme)};`,
+          );
+        }
+        continue;
+      }
       if (item.kind !== "Let" && item.kind !== "Fun") continue;
       if (item.binding.scheme.constraints.length > 0) {
         this.#diagnostics.add({
@@ -755,9 +897,70 @@ class TypeScriptPreviewEmitter {
   }
 }
 
-/** Preserves vertical separation where top-level source and Core items align. */
-function blankLinesBetween(previous: Core.Item, next: Core.Item): number {
-  return Math.max(0, next.span.start.line - previous.span.end.line - 1);
+type SourceEntry = ItemEntry | CommentEntry;
+
+interface ItemEntry {
+  readonly kind: "Item";
+  readonly item: Core.Item;
+  readonly span: Source.Span;
+}
+
+interface CommentEntry {
+  readonly kind: "Comment";
+  readonly comment: Source.Comment;
+  readonly span: Source.Span;
+}
+
+function trailingComments(
+  items: readonly Core.Item[],
+  comments: readonly Source.Comment[],
+): ReadonlyMap<Core.Item, readonly Source.Comment[]> {
+  const result = new Map<Core.Item, Source.Comment[]>();
+  for (const comment of comments) {
+    if (comment.kind !== "Line") continue;
+    const item = items.findLast(
+      (candidate) =>
+        candidate.span.end.line === comment.span.start.line &&
+        candidate.span.end.offset <= comment.span.start.offset,
+    );
+    if (item === undefined) continue;
+    const existing = result.get(item) ?? [];
+    existing.push(comment);
+    result.set(item, existing);
+  }
+  return result;
+}
+
+function sourceEntries(
+  items: readonly Core.Item[],
+  comments: readonly Source.Comment[],
+  trailing: ReadonlyMap<Core.Item, readonly Source.Comment[]>,
+): SourceEntry[] {
+  const trailingSet = new Set([...trailing.values()].flat());
+  return [
+    ...items.map((item): ItemEntry => ({ kind: "Item", item, span: item.span })),
+    ...comments
+      .filter(
+        (comment) =>
+          comment.span.start.column === 0 && !trailingSet.has(comment),
+      )
+      .map(
+        (comment): CommentEntry => ({
+          kind: "Comment",
+          comment,
+          span: comment.span,
+        }),
+      ),
+  ].sort((left, right) => left.span.start.offset - right.span.start.offset);
+}
+
+function commentLines(comment: Source.Comment): string[] {
+  return comment.text.split(/\r\n|\r|\n/u);
+}
+
+/** Preserves vertical separation where top-level source entries align. */
+function blankLinesBetween(previous: Source.Span, next: Source.Span): number {
+  return Math.max(0, next.start.line - previous.end.line - 1);
 }
 
 type Helper = "checkedPower" | "compareFloat" | "compareString" | "floatEquals";
@@ -818,6 +1021,8 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
         ? Precedence.Additive
         : Precedence.Conditional;
     case "Call":
+    case "Match":
+    case "TupleAccess":
     case "ConvertInt":
     case "Block":
       return Precedence.Call;
@@ -827,6 +1032,7 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
     case "Number":
     case "BigInt":
     case "Float":
+    case "Tuple":
     case "ErrorExpr":
       return Precedence.Primary;
   }
@@ -1017,6 +1223,14 @@ function renderType(
       }
     case "Variable":
       return variables.get(type.id) ?? "unknown";
+    case "Union":
+      return type.name;
+    case "Tuple":
+      return (
+        `[${type.elements.map((element) =>
+          renderType(element, variables, false)
+        ).join(", ")}]`
+      );
     case "Function": {
       const lambda = value?.kind === "Lambda" ? value : undefined;
       const parameters = type.parameters.map(
@@ -1042,6 +1256,30 @@ function declarationParameterName(
   return isSafeIdentifier(binding.name)
     ? binding.name
     : `$hex${Number(binding.symbol)}`;
+}
+
+function renderUnionDeclaration(
+  item: Core.UnionItem,
+  exported: boolean,
+): string {
+  const prefix = exported ? "export " : "";
+  const alternatives = item.constructors
+    .map(({ name }) => JSON.stringify(name))
+    .join(" | ");
+  return `${prefix}type ${item.name} = ${alternatives};`;
+}
+
+function patternBindings(pattern: Core.Pattern): Core.Binding[] {
+  switch (pattern.kind) {
+    case "Binding":
+      return [pattern.binding];
+    case "Wildcard":
+      return [];
+    case "Tuple":
+      return pattern.elements.flatMap(patternBindings);
+    case "Constructor":
+      return pattern.arguments.flatMap(patternBindings);
+  }
 }
 
 function typeVariableNames(

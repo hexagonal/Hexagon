@@ -97,6 +97,7 @@ export function lex(source: Source.File): Lexed.File {
     fileId: source.id,
     tokens,
     newlines: scanner.newlines,
+    comments: scanner.comments,
     diagnostics: diagnostics.toArray(),
   };
 }
@@ -108,6 +109,7 @@ interface ScannedSequence {
 
 class Scanner {
   readonly newlines: Lexed.Newline[] = [];
+  readonly comments: Source.Comment[] = [];
 
   readonly #source: Source.File;
   readonly #diagnostics: Diagnostics.Bag;
@@ -176,6 +178,7 @@ class Scanner {
       } else if (isNewlineStart(codeUnit)) {
         this.#scanNewline();
       } else if (this.#startsWith("//")) {
+        const commentStart = this.#offset;
         this.#atLineStart = false;
         this.#offset += 2;
         while (
@@ -184,6 +187,7 @@ class Scanner {
         ) {
           this.#offset += scalarWidth(this.#source.text, this.#offset);
         }
+        this.#recordComment("Line", commentStart);
       } else if (this.#startsWith("/*")) {
         this.#atLineStart = false;
         this.#scanBlockComment();
@@ -231,6 +235,7 @@ class Scanner {
   }
 
   #scanBlockComment(): void {
+    const commentStart = this.#offset;
     const openers: number[] = [this.#offset];
     this.#offset += 2;
 
@@ -243,6 +248,7 @@ class Scanner {
         this.#offset += 2;
         if (openers.length === 0) {
           this.#atLineStart = false;
+          this.#recordComment("Block", commentStart);
           return;
         }
       } else if (isNewlineStart(this.#source.text.charCodeAt(this.#offset))) {
@@ -265,6 +271,7 @@ class Scanner {
       depth > 1
         ? ` (nested ${depth} levels deep; each \`/*\` needs its own \`*/\`)`
         : "";
+    this.#recordComment("Block", commentStart);
     this.#error(
       innermost,
       Math.min(innermost + 2, this.#source.text.length),
@@ -272,6 +279,14 @@ class Scanner {
         this.#source.positionAt(innermost).line + 1
       }, column ${this.#source.positionAt(innermost).column + 1}${nested}`,
     );
+  }
+
+  #recordComment(kind: Source.Comment["kind"], start: number): void {
+    this.comments.push({
+      kind,
+      text: this.#source.text.slice(start, this.#offset),
+      span: this.#source.span(start, this.#offset),
+    });
   }
 
   #scanToken(): Lexed.Token | undefined {

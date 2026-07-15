@@ -4,7 +4,7 @@
 
 ## 1. Goal
 
-Hexagon should emit modern JavaScript without chasing the newest syntax merely because it exists. Its default output should be pleasant to read and safe to run across maintained JavaScript environments.
+Hexagon should emit modern JavaScript without chasing the newest syntax merely because it exists. Its default output should be pleasant to read and safe to run across maintained JavaScript environments. Source comments and intentional blank lines between top-level items carry into that output; they are part of how a developer explains and visually groups the program.
 
 The default posture is:
 

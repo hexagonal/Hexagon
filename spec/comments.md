@@ -54,7 +54,12 @@ No warnings; per house rule there is no warning tier.
 
 ## 6. Emission and doc-comment horizon
 
-- Comments have no semantics; the AST need not retain them for correctness. **Preserving comments in emitted JS is desirable** under the readable-JS doctrine and recommended as a codegen goal, but is quality-of-implementation, not spec.
+- Comments have no Hexagon semantics, but the readable-JS doctrine makes source
+  comments part of the default JavaScript presentation. The compiler preserves
+  comments at top-level item boundaries in source order. A trailing line
+  comment remains trailing when its item is emitted on one line. Blank lines between
+  top-level items and comments are preserved as item separation; exact interior
+  whitespace is formatter territory.
 - The exception on the horizon: when the documentation spec lands, `///` / `/** */` content should flow to **JSDoc in the `.d.ts`** — that's the payoff for reserving JS-shaped doc syntax now. Attachment rules (what declaration a doc comment binds to), inner-doc forms (Rust's `//!`), and Markdown processing are all deferred with it.
 
 ## 7. Rejected alternatives (do not relitigate)

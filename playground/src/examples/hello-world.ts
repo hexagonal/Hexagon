@@ -8,12 +8,39 @@ export interface PlaygroundExample {
 
 export const helloWorld: PlaygroundExample = {
   id: "hello-world",
-  title: "Hello, Hexagon",
-  description: "A small module with inferred and annotated private bindings.",
-  source:
-    'let greet(name) = "Hello, " ++ name ++ "!"\n' +
-    "let plus(x: Int, y) = x + y\n" +
-    "fun fact(n: Int): Int = if n <= 1 then 1 else n * fact(n - 1)\n" +
-    "let answer = 6 * 7\n",
+  title: "A Tour of Hexagon",
+  description: "A commented tour of the language slices implemented so far.",
+  source: `// Unions describe a closed set of alternatives.
+union Suit =
+  | Clubs
+  | Diamonds
+  | Hearts
+  | Spades
+
+// Tuples combine values with different types.
+let card = (10, Hearts)
+
+// Patterns unpack structured values.
+let (rank, suit) = card
+
+// Functions infer types from their bodies.
+let greet(name) = "Hello, " ++ name ++ "!"
+
+// Annotations document a boundary when useful.
+let plus(x: Int, y: Int): Int = x + y
+
+// Recursive functions use fun.
+fun factorial(n: Int): Int =
+  if n <= 1
+  then 1
+  else n * factorial(n - 1)
+
+// Match handles every union alternative.
+let color(suit: Suit): String = match suit
+  Clubs => "black"
+  Diamonds => "red"
+  Hearts => "red"
+  Spades => "black"
+`,
   specificationReferences: [],
 };

@@ -8,10 +8,17 @@ import type * as Diagnostics from "../../support/diagnostics.js";
 import type * as Source from "../../support/source.js";
 
 declare const symbolIdBrand: unique symbol;
+declare const unionIdBrand: unique symbol;
 
 export type SymbolId = number & { readonly [symbolIdBrand]: "SymbolId" };
+export type UnionId = number & { readonly [unionIdBrand]: "UnionId" };
 
-export type SymbolKind = "let" | "fun" | "parameter";
+export type SymbolKind =
+  | "let"
+  | "fun"
+  | "parameter"
+  | "pattern"
+  | "constructor";
 
 export type PrimitiveName =
   | "Int"
@@ -21,11 +28,28 @@ export type PrimitiveName =
   | "BigInt"
   | "Unit";
 
-export type TypeAnnotation = PrimitiveTypeAnnotation | ErrorTypeAnnotation;
+export type TypeAnnotation =
+  | PrimitiveTypeAnnotation
+  | TupleTypeAnnotation
+  | UnionTypeAnnotation
+  | ErrorTypeAnnotation;
 
 export interface PrimitiveTypeAnnotation {
   readonly kind: "Primitive";
   readonly name: PrimitiveName;
+  readonly span: Source.Span;
+}
+
+export interface TupleTypeAnnotation {
+  readonly kind: "Tuple";
+  readonly elements: readonly TypeAnnotation[];
+  readonly span: Source.Span;
+}
+
+export interface UnionTypeAnnotation {
+  readonly kind: "Union";
+  readonly union: UnionId;
+  readonly name: string;
   readonly span: Source.Span;
 }
 
@@ -62,17 +86,65 @@ export interface Module {
   readonly fileId: Source.FileId;
   readonly items: readonly Item[];
   readonly symbols: readonly Symbol[];
+  readonly unions: readonly Union[];
+  readonly comments: readonly Source.Comment[];
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }
 
-export type Item = LetItem | FunItem | ExprItem | ErrorItem;
+export type Item =
+  | LetItem
+  | LetPatternItem
+  | FunItem
+  | UnionItem
+  | ExprItem
+  | ErrorItem;
 
 export interface LetItem {
   readonly kind: "Let";
   readonly exported: boolean;
   readonly binding: Binding;
+  readonly annotation?: TypeAnnotation;
   readonly value: Expr;
+  readonly span: Source.Span;
+}
+
+export interface LetPatternItem {
+  readonly kind: "LetPattern";
+  readonly exported: false;
+  readonly pattern: Pattern;
+  readonly value: Expr;
+  readonly span: Source.Span;
+}
+
+export type Pattern =
+  | BindingPattern
+  | WildcardPattern
+  | TuplePattern
+  | ConstructorPattern;
+
+export interface BindingPattern {
+  readonly kind: "Binding";
+  readonly binding: Binding;
+  readonly span: Source.Span;
+}
+
+export interface WildcardPattern {
+  readonly kind: "Wildcard";
+  readonly span: Source.Span;
+}
+
+export interface TuplePattern {
+  readonly kind: "Tuple";
+  readonly elements: readonly Pattern[];
+  readonly span: Source.Span;
+}
+
+export interface ConstructorPattern {
+  readonly kind: "Constructor";
+  readonly symbol: SymbolId;
+  readonly text: string;
+  readonly arguments: readonly Pattern[];
   readonly span: Source.Span;
 }
 
@@ -81,6 +153,27 @@ export interface FunItem {
   readonly exported: boolean;
   readonly binding: Binding;
   readonly value: LambdaExpr;
+  readonly span: Source.Span;
+}
+
+export interface Union {
+  readonly id: UnionId;
+  readonly name: string;
+  readonly span: Source.Span;
+  readonly constructors: readonly Constructor[];
+}
+
+export interface Constructor {
+  readonly binding: Binding;
+  readonly span: Source.Span;
+}
+
+export interface UnionItem {
+  readonly kind: "Union";
+  readonly exported: boolean;
+  readonly union: UnionId;
+  readonly name: string;
+  readonly constructors: readonly Constructor[];
   readonly span: Source.Span;
 }
 
@@ -103,10 +196,12 @@ export type Expr =
   | BigIntExpr
   | FloatExpr
   | StringExpr
+  | TupleExpr
   | GroupExpr
   | BlockExpr
   | LambdaExpr
   | IfExpr
+  | MatchExpr
   | CallExpr
   | AccessExpr
   | IndexExpr
@@ -173,6 +268,12 @@ export interface StringInterpolation {
   readonly span: Source.Span;
 }
 
+export interface TupleExpr {
+  readonly kind: "Tuple";
+  readonly elements: readonly Expr[];
+  readonly span: Source.Span;
+}
+
 export interface GroupExpr {
   readonly kind: "Group";
   readonly expression: Expr;
@@ -198,6 +299,19 @@ export interface IfExpr {
   readonly condition: Expr;
   readonly consequence: Expr;
   readonly alternative?: Expr;
+  readonly span: Source.Span;
+}
+
+export interface MatchExpr {
+  readonly kind: "Match";
+  readonly scrutinee: Expr;
+  readonly arms: readonly MatchArm[];
+  readonly span: Source.Span;
+}
+
+export interface MatchArm {
+  readonly pattern: Pattern;
+  readonly body: Expr;
   readonly span: Source.Span;
 }
 
@@ -286,4 +400,12 @@ export function symbolId(value: number): SymbolId {
     throw new RangeError("a symbol id must be a non-negative safe integer");
   }
   return value as SymbolId;
+}
+
+/** Constructs a checked stable identity for one resolver-owned union. */
+export function unionId(value: number): UnionId {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RangeError("a union id must be a non-negative safe integer");
+  }
+  return value as UnionId;
 }

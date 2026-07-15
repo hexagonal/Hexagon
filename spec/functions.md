@@ -128,6 +128,9 @@ apply   : (String -> String) -> String
 
 - A zero-parameter function uses `()` as its domain.
 - A one-parameter function uses the parameter type directly: `A -> B`, never `(A) -> B`. There is no one-item tuple or one-item parameter-list type.
+- When that one parameter is itself a tuple, its tuple parentheses are grouped once
+  more so arity remains visible: `((A, B)) -> C`. Without the outer grouping,
+  `(A, B) -> C` is the distinct type of a two-parameter function.
 - A function with two or more parameters uses a parenthesized, comma-separated parameter list: `(A, B) -> C`.
 - `->` associates to the right. Parentheses around a function type are therefore grouping, as in `(A -> B) -> C`; they are not retained merely because a function has one parameter.
 - This notation describes Hexagon types. TypeScript declaration output separately follows TypeScript grammar and therefore retains `(name: A) => B`.

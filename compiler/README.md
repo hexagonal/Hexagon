@@ -4,15 +4,16 @@ This folder contains the beginning of `hexc`, the Hexagon compiler.
 
 The platform-neutral TypeScript core now includes shared source coordinates,
 structured diagnostics, the complete physical lexer, and the indentation layout
-pass. Four vertical compiler slices, followed by the initial elaborator
+pass. Seven vertical compiler slices, followed by the initial elaborator
 and emitter slices, now carry the public pipeline through `Source.File -> Lexed.File
 -> LaidOut.File -> Parsed.Module -> Resolved.Module -> Typed.Module -> Core.Module ->
 Emitted output` for a deliberate language subset.
 
 The initial parser supports module and nested block items, `let` bindings,
 module-level exports, function-header sugar and lambdas, directly recursive `fun`
-bindings, primitive parameter and result annotations, literals and string
-interpolation, `then`-form and layout `if`, calls, field access,
+bindings and tuple patterns, primitive, tuple, and declared union annotations,
+tuple literals, nullary union declarations and matches, primitive literals and
+string interpolation, `then`-form and layout `if`, calls, field access,
 indexing, assignment, and the complete operator precedence table. Declaration
 families, patterns, and richer type syntax remain explicit future parser slices;
 encountering one produces a recovery diagnostic rather than a misleading partial
@@ -20,17 +21,19 @@ tree.
 
 The initial resolver assigns stable symbols to sequential `let` bindings, directly
 recursive `fun` bindings, and lambda parameters. It implements lexical block scopes
-and head-binder shadowing and resolves the six primitive annotation names. It
+and head-binder shadowing, resolves primitive, tuple, and union annotations, and
+assigns stable identities to nominal unions and their constructors. It
 diagnoses illegal `let` self-reference, unknown names and types, rebinding, duplicate
 parameters, and the deliberately deferred forward/mutual-recursion boundary.
 Modules, imports, companions, declaration scopes, capture-set hoisting, and mutual
 recursive groups remain later resolution slices.
 
 The initial checker implements the Hindley–Milner core with private union-find
-variables, n-ary function types, let-generalisation, the value restriction, lambda
-monomorphism, primitive types, integer defaulting, operator and interpolation
-constraints, conditionals, calls, first-argument pipe insertion, and block
-sequencing. Typed syntax records an
+variables, n-ary function types, structural tuple types, nominal nullary-union
+types, tuple-pattern binding, exhaustive matching, let-generalisation, the
+value restriction, lambda monomorphism, primitive types, integer defaulting,
+operator and interpolation constraints, tuple access, conditionals, calls,
+first-argument pipe insertion, and block sequencing. Typed syntax records an
 immutable type for every expression and a scheme for every binding. Rows,
 declarations, modules, mutation, richer annotations, full constraint evidence, and
 the remaining surface forms are later checker slices. Primitive annotations
@@ -49,11 +52,13 @@ calls and the forms awaiting checker support remain later elaboration slices.
 The experimental emitter produces deterministic readable ESM and `.d.ts` text
 without performing filesystem writes. It emits private and exported bindings,
 functions, blocks, primitive operations, dictionary-backed generic bodies,
-conditionals, interpolation, semantic helpers, short-circuiting comparison chains,
+conditionals, interpolation, tuple arrays and positional indexing, nullary union
+strings and `switch` matches, semantic helpers, short-circuiting comparison chains,
 and recursive `fun` bindings as hoisted function declarations. Declarations cover
-exported primitives and unconstrained polymorphic functions. Source maps, generic
-call-site evidence and specialization, constrained export ABI, imports, richer
-types, and the finalized portable target profile remain later emission slices.
+exported primitives, tuples, nullary unions and their constructors, and unconstrained
+polymorphic functions. Payload and generic unions, source maps, generic call-site
+evidence and specialization, constrained export ABI, imports, richer types, and the
+finalized portable target profile remain later emission slices.
 
 Interactive tools may additionally call `emitTypeScriptPreview` to inspect every
 representable top-level binding without promoting private bindings into the public

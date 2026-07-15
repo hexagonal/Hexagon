@@ -6,6 +6,17 @@
 
 Hexagon is an ML-style functional language designed for the JavaScript and TypeScript ecosystem. It combines strong type inference, plain data, algebraic types, pattern matching, row-polymorphic records, and type constraints with readable JavaScript output and accurate `.d.ts` declarations.
 
+## Try Hexagon
+
+**[Open the Hexagon Playground](https://hexagonal.zone/Hexagon/)**
+
+The playground runs the compiler directly in a browser worker: there is nothing to
+install, no account to create, and no compiler server behind it. Edit the introductory
+Hexagon program and immediately inspect its readable JavaScript, inferred types,
+TypeScript declaration preview, and any diagnostics. The opening tour demonstrates
+the implemented language subset, including tuples, pattern bindings, nullary unions,
+exhaustive matching, annotations, and recursive functions.
+
 One subject-first function, three equally static ways to call it:
 
 ```hexagon
@@ -21,11 +32,12 @@ or prototype lookup.
 > [!IMPORTANT]
 > Hexagon is under active design and implementation. The language specification is
 > about 95% complete, the reader-facing book has reached its first full draft, and
-> compiler construction has working lexer and layout passes plus three thin vertical
+> compiler construction has complete lexer and layout passes plus seven thin vertical
 > slices through parsing, name resolution, type checking, Core elaboration,
 > JavaScript emission, and declaration emission. Small programs in that subset,
-> including primitive annotations and directly recursive functions, now compile
-> end to end through the compiler API. Syntax, semantics, generated interfaces, and
+> including tuples, pattern bindings, nullary unions and matches, annotations, and
+> directly recursive functions, now compile end to end through the compiler API and
+> run live in the Playground. Syntax, semantics, generated interfaces, and
 > repository structure may still change before the first release.
 
 ## Direction
@@ -84,32 +96,37 @@ review copies stay outside version control.
 Compiler implementation is underway. The platform-neutral TypeScript workspace has
 source coordinates, structured diagnostics, a Unicode-aware physical lexer, and the
 indentation layout pass. Its parser covers core expressions, `let` bindings,
-lambdas, directly recursive functions, conditionals, calls, primitive annotations,
-and operator precedence. Its resolver assigns stable symbols to `let`, `fun`, and
-lambda-parameter bindings, implements lexical scopes, and diagnoses unknown names
-and illegal rebinding. The implemented
+lambdas, directly recursive functions, conditionals, calls, tuple values and patterns,
+nullary unions and exhaustive matches, primitive, tuple, and union annotations, and
+operator precedence. Its resolver assigns stable symbols to `let`, `fun`, pattern,
+constructor, and lambda-parameter bindings, implements lexical scopes, and diagnoses
+unknown names and illegal rebinding. The implemented
 checker provides the Hindley–Milner core, including let-polymorphism, the value
-restriction, primitive and n-ary function types, unification, numeric defaulting,
+restriction, primitive, tuple, nominal nullary-union, and n-ary function types,
+unification, numeric defaulting,
 constraint requirements, checked primitive parameter and result annotations, and
 monomorphic direct recursion followed by ordinary generalization. Core elaboration
 makes primitive and dictionary evidence explicit, and the
 experimental emitter produces readable ESM plus an honest `.d.ts` surface for
-module-level `export let` and `export fun` bindings. The implemented pipeline
+module-level values, functions, and nullary unions. Source comments and intentional
+blank lines between top-level items carry into the generated JavaScript. The
+implemented pipeline
 currently reaches:
 
 ```text
 Source.File -> Lexed.File -> LaidOut.File -> Parsed.Module -> Resolved.Module -> Typed.Module -> Core.Module -> Emitted output
 ```
 
-The parser still needs declarations, patterns, and richer type syntax; resolution
+The parser still needs the remaining declarations, patterns, and richer type syntax; resolution
 still needs function capture sets, forward/mutual recursion, module graphs, imports,
 companions, and the corresponding declaration scopes. Type checking still needs
 rows, declarations, modules, mutable bindings, and full constraint evidence.
 Emission still needs source maps, constrained-call specialization and the public
-dictionary ABI, records, unions, imports, runtime integration, and the finalized
+dictionary ABI, records, payload and generic unions, imports, runtime integration, and the finalized
 portable-JavaScript profile.
 
-There is currently no release, package, command-line tool, playground deployment, or supported installation process.
+There is currently no release, package, command-line tool, or supported installation
+process. The browser Playground is the public way to try the implementation today.
 
 ## Repository map
 
@@ -117,7 +134,7 @@ There is currently no release, package, command-line tool, playground deployment
 - [`compiler/`](compiler/) contains the TypeScript compiler workspace, tests, roadmap, and architecture decisions.
 - [`book/`](book/) contains the 25-chapter first draft, working plans, and review records.
 - [`language-server/`](language-server/) establishes the boundary and roadmap for LSP support.
-- [`playground/`](playground/) contains the browser-playground architecture and an early UI scaffold.
+- [`playground/`](playground/) contains the deployed browser Playground and its architecture.
 
 Useful starting points:
 
@@ -150,18 +167,6 @@ The implementation will use TypeScript and may use imperative techniques whereve
 Compiler code is expected to remain explanatory: types describe program shapes, while comments explain compiler concepts, invariants, reasons, and non-obvious implementation choices. See the [readability and commenting doctrine](compiler/architecture/readability-and-comments.md).
 
 Testing uses Vitest, with fast-check for property-based testing and explicit golden fixtures for diagnostics and generated artefacts. See the [testing doctrine](compiler/architecture/testing.md).
-
-## Contributing
-
-Hexagon is early enough that apparently small language changes can affect inference, runtime representation, JavaScript interoperation, declarations, diagnostics, and future tooling. Before proposing or implementing a feature:
-
-1. check the relevant specification and its status;
-2. check the [specification roadmap](spec/spec-roadmap.md) for recorded dependencies and debts;
-3. preserve the distinction between normative specifications and design notes; and
-4. carry accepted changes through affected specifications rather than leaving contradictory local rules.
-
-Compiler setup and build commands are documented in the
-[compiler README](compiler/README.md).
 
 ## License
 

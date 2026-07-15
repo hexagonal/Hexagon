@@ -30,7 +30,7 @@ interface PlaygroundState {
 const state: PlaygroundState = {
   sourceVersion: 0,
   lastSuccessfulVersion: undefined,
-  activeTab: "output",
+  activeTab: "javascript",
   output: [],
   errors: [],
   javascript: "// JavaScript will appear after compilation.",
@@ -88,9 +88,9 @@ app.innerHTML = `
 
     <section class="panel result-panel" aria-label="Compiler results">
       <div class="tabs" role="tablist" aria-label="Result views">
-        <button role="tab" data-tab="output" aria-selected="true">Output</button>
+        <button role="tab" data-tab="output" aria-selected="false">Output</button>
         <button role="tab" data-tab="errors" aria-selected="false">Errors <span class="badge">0</span></button>
-        <button role="tab" data-tab="javascript" aria-selected="false">JS</button>
+        <button role="tab" data-tab="javascript" aria-selected="true">JS</button>
         <button role="tab" data-tab="typeScriptPreview" aria-selected="false">.d.ts</button>
         <button role="tab" data-tab="types" aria-selected="false">Types</button>
       </div>

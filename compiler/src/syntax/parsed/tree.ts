@@ -1,7 +1,7 @@
 /**
  * Parsed syntax records grammatical structure without resolving names or
  * attaching types. The first-round tree covers the expression-and-binding
- * slice implemented by the initial parser; recovery nodes preserve useful
+ * slices implemented by the parser; recovery nodes preserve useful
  * structure after syntax errors without pretending invalid input is valid.
  */
 
@@ -12,16 +12,32 @@ export interface Module {
   readonly kind: "Module";
   readonly fileId: Source.FileId;
   readonly items: readonly Item[];
+  readonly comments: readonly Source.Comment[];
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }
 
-export type Item = LetItem | FunItem | ExprItem | ErrorItem;
+export type Item =
+  | LetItem
+  | LetPatternItem
+  | FunItem
+  | UnionItem
+  | ExprItem
+  | ErrorItem;
 
 export interface LetItem {
   readonly kind: "Let";
   readonly exported: boolean;
   readonly name: Name;
+  readonly annotation?: TypeAnnotation;
+  readonly value: Expr;
+  readonly span: Source.Span;
+}
+
+export interface LetPatternItem {
+  readonly kind: "LetPattern";
+  readonly exported: false;
+  readonly pattern: Pattern;
   readonly value: Expr;
   readonly span: Source.Span;
 }
@@ -31,6 +47,19 @@ export interface FunItem {
   readonly exported: boolean;
   readonly name: Name;
   readonly value: LambdaExpr;
+  readonly span: Source.Span;
+}
+
+export interface UnionItem {
+  readonly kind: "Union";
+  readonly exported: boolean;
+  readonly name: Name;
+  readonly constructors: readonly Constructor[];
+  readonly span: Source.Span;
+}
+
+export interface Constructor {
+  readonly name: Name;
   readonly span: Source.Span;
 }
 
@@ -51,13 +80,49 @@ export interface Name {
   readonly span: Source.Span;
 }
 
+export type Pattern =
+  | BindingPattern
+  | WildcardPattern
+  | TuplePattern
+  | ConstructorPattern;
+
+export interface BindingPattern {
+  readonly kind: "Binding";
+  readonly name: Name;
+  readonly span: Source.Span;
+}
+
+export interface WildcardPattern {
+  readonly kind: "Wildcard";
+  readonly span: Source.Span;
+}
+
+export interface TuplePattern {
+  readonly kind: "Tuple";
+  readonly elements: readonly Pattern[];
+  readonly span: Source.Span;
+}
+
+export interface ConstructorPattern {
+  readonly kind: "Constructor";
+  readonly name: Name;
+  readonly arguments: readonly Pattern[];
+  readonly span: Source.Span;
+}
+
 export interface NamedType {
   readonly kind: "NamedType";
   readonly name: Name;
   readonly span: Source.Span;
 }
 
-export type TypeAnnotation = NamedType;
+export interface TupleType {
+  readonly kind: "Tuple";
+  readonly elements: readonly TypeAnnotation[];
+  readonly span: Source.Span;
+}
+
+export type TypeAnnotation = NamedType | TupleType;
 
 export interface Parameter {
   readonly name: Name;
@@ -73,10 +138,12 @@ export type Expr =
   | BigIntExpr
   | FloatExpr
   | StringExpr
+  | TupleExpr
   | GroupExpr
   | BlockExpr
   | LambdaExpr
   | IfExpr
+  | MatchExpr
   | CallExpr
   | AccessExpr
   | IndexExpr
@@ -142,6 +209,12 @@ export interface StringInterpolation {
   readonly span: Source.Span;
 }
 
+export interface TupleExpr {
+  readonly kind: "Tuple";
+  readonly elements: readonly Expr[];
+  readonly span: Source.Span;
+}
+
 export interface GroupExpr {
   readonly kind: "Group";
   readonly expression: Expr;
@@ -167,6 +240,19 @@ export interface IfExpr {
   readonly condition: Expr;
   readonly consequence: Expr;
   readonly alternative?: Expr;
+  readonly span: Source.Span;
+}
+
+export interface MatchExpr {
+  readonly kind: "Match";
+  readonly scrutinee: Expr;
+  readonly arms: readonly MatchArm[];
+  readonly span: Source.Span;
+}
+
+export interface MatchArm {
+  readonly pattern: Pattern;
+  readonly body: Expr;
   readonly span: Source.Span;
 }
 

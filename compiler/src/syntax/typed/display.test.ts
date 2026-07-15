@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import * as Source from "../../support/source.js";
 import { displayScheme } from "./display.js";
 import { typeVariableId, type Scheme } from "./tree.js";
+import { unionId } from "../resolved/tree.js";
 
 const source = new Source.File(Source.fileId(0), "test.hex", "");
 
@@ -83,5 +84,37 @@ describe("displayScheme", () => {
         },
       }),
     ).toBe("(String, Int) -> Bool");
+  });
+
+  test("renders tuple types distinctly from function parameter lists", () => {
+    expect(
+      displayScheme({
+        variables: [],
+        constraints: [],
+        type: {
+          kind: "Function",
+          parameters: [
+            {
+              kind: "Tuple",
+              elements: [
+                { kind: "Primitive", name: "String" },
+                { kind: "Primitive", name: "Int" },
+              ],
+            },
+          ],
+          result: { kind: "Primitive", name: "Bool" },
+        },
+      }),
+    ).toBe("((String, Int)) -> Bool");
+  });
+
+  test("renders nominal union names", () => {
+    expect(
+      displayScheme({
+        variables: [],
+        constraints: [],
+        type: { kind: "Union", union: unionId(0), name: "Suit" },
+      }),
+    ).toBe("Suit");
   });
 });
