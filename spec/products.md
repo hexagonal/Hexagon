@@ -33,6 +33,8 @@ Written for a future implementation session against the existing `hexc` architec
 - Structural: no declaration; two tuple types unify iff same arity and componentwise unification succeeds. Arity mismatch is reported as such, not as a component error.
 - Immutable, like everything else.
 - **No tuple↔argument-list conversion in either direction** (Functions spec §5 is authoritative). `plus(t)` where `t = (3, 7)` is an arity error with a destructuring hint.
+- This distinction remains visible in displayed types: `((A, B)) -> C` takes one
+  tuple, while `(A, B) -> C` takes two arguments (Functions §5.1).
 
 ### 2.2 No named elements (decided)
 

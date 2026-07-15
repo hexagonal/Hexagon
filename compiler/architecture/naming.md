@@ -106,6 +106,7 @@ Expected shared examples:
 Source.FileId
 Source.Position
 Source.Span
+Source.Comment
 Diagnostics.Diagnostic
 Resolved.SymbolId   -- created by resolution, carried by later phases
 ```
@@ -216,3 +217,11 @@ weakened `Emitted.Declarations`. It may describe non-exported top-level bindings
 for interactive tools, while `Emitted.Declarations` remains the public module
 contract. Its transforming verb is
 `emitTypeScriptPreview(Core.Module) -> Emitted.TypeScriptPreview`.
+
+### Source-comment retention clarification (July 2026)
+
+`Source.Comment` records source spelling and position rather than a semantic node
+owned by any compiler tree. The lexer creates it and each phase file carries it
+unchanged until readable JavaScript emission. This is legitimate shared source
+metadata under §6, like `Source.Span`; it does not make comments part of parsed,
+resolved, typed, or Core semantics.

@@ -99,6 +99,135 @@ describe("check", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  test("infers structural tuple types and checks positional access", () => {
+    const module = checkSource(
+      'let pair = ("answer", 42)\n' +
+        "let answer = pair.item2\n" +
+        "let duplicate = value => (value, value)\n" +
+        "let swap(value: (String, Int)): (Int, String) = (value.item2, value.item1)",
+    );
+
+    expect(letSymbol(module, "pair").scheme.type).toMatchObject({
+      kind: "Tuple",
+      elements: [
+        { kind: "Primitive", name: "String" },
+        { kind: "Primitive", name: "Int" },
+      ],
+    });
+    expect(typeName(letSymbol(module, "answer").scheme.type)).toBe("Int");
+    expect(letSymbol(module, "duplicate").scheme).toMatchObject({
+      variables: [expect.any(Number)],
+      type: {
+        kind: "Function",
+        parameters: [{ kind: "Variable" }],
+        result: {
+          kind: "Tuple",
+          elements: [{ kind: "Variable" }, { kind: "Variable" }],
+        },
+      },
+    });
+    expect(letSymbol(module, "swap").scheme.type).toMatchObject({
+      kind: "Function",
+      parameters: [{ kind: "Tuple" }],
+      result: { kind: "Tuple" },
+    });
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("reports tuple arity mismatches directly", () => {
+    const module = checkSource(
+      "let choose(flag) = if flag then (1, 2) else (1, 2, 3)",
+    );
+
+    expect(module.diagnostics.map(({ message }) => message)).toContain(
+      "tuple arity mismatch: 2 and 3",
+    );
+  });
+
+  test("types tuple pattern bindings and makes them available sequentially", () => {
+    const module = checkSource(
+      'let (name, _, (x, y)) = ("point", true, (3, 4))\n' +
+        "let total = x + y",
+    );
+
+    expect(typeName(letSymbol(module, "name").scheme.type)).toBe("String");
+    expect(typeName(letSymbol(module, "x").scheme.type)).toBe("Int");
+    expect(typeName(letSymbol(module, "y").scheme.type)).toBe("Int");
+    expect(typeName(letSymbol(module, "total").scheme.type)).toBe("Int");
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("diagnoses duplicate and rebinding names in tuple patterns", () => {
+    const module = checkSource(
+      "let existing = 1\n" +
+        "let (existing, duplicate, duplicate) = (2, 3, 4)",
+    );
+
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "`existing` is already bound (line 1); Hexagon does not allow rebinding — choose a different name.",
+      "`duplicate` is bound twice in this pattern",
+    ]);
+  });
+
+  test("types nullary union constructors, tuples containing them, and matches", () => {
+    const module = checkSource(
+      "union Suit = Clubs | Diamonds | Hearts | Spades\n" +
+        "let card = (10, Hearts)\n" +
+        "let color(suit: Suit): String = match suit\n" +
+        '  Clubs => "black"\n  Diamonds => "red"\n' +
+        '  Hearts => "red"\n  Spades => "black"',
+    );
+
+    expect(letSymbol(module, "card").scheme.type).toMatchObject({
+      kind: "Tuple",
+      elements: [
+        { kind: "Primitive", name: "Int" },
+        { kind: "Union", name: "Suit" },
+      ],
+    });
+    expect(letSymbol(module, "color").scheme.type).toMatchObject({
+      kind: "Function",
+      parameters: [{ kind: "Union", name: "Suit" }],
+      result: { kind: "Primitive", name: "String" },
+    });
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("checks union match exhaustiveness and reachability exactly", () => {
+    const missing = checkSource(
+      "union Suit = Clubs | Diamonds | Hearts | Spades\n" +
+        "let color(suit: Suit) = match suit\n" +
+        '  Clubs => "black"\n  Hearts => "red"',
+    );
+    const unreachable = checkSource(
+      "union Suit = Clubs | Hearts\n" +
+        "let color(suit: Suit) = match suit\n" +
+        '  _ => "known"\n  Hearts => "red"',
+    );
+
+    expect(missing.diagnostics.map(({ message }) => message)).toContain(
+      "match is missing cases: `Diamonds`, `Spades`",
+    );
+    expect(unreachable.diagnostics.map(({ message }) => message)).toContain(
+      "this match arm is unreachable; an earlier pattern matches everything",
+    );
+  });
+
+  test("diagnoses invalid and insufficiently known tuple access", () => {
+    const module = checkSource(
+      "let pair = (1, 2)\n" +
+        "let zero = pair.item0\n" +
+        "let missing = pair.item3\n" +
+        "let unknown = value => value.item1",
+    );
+
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "tuple components are numbered from 1",
+      "this tuple has 2 components; there is no item3",
+      "tuple access needs a known tuple type; add a tuple annotation",
+    ]);
+  });
+
   test("checks complete and partial primitive annotations", () => {
     const module = checkSource(
       "let complete(x: Int, y: Int): Int = x + y\n" +
@@ -292,6 +421,9 @@ function letSymbol(module: Typed.Module, name: string): Typed.Symbol {
 
 function visitType(type: Typed.Type): void {
   if (type.kind === "Variable") expect(Number(type.id)).toBeGreaterThanOrEqual(0);
+  if (type.kind === "Tuple") {
+    for (const element of type.elements) visitType(element);
+  }
   if (type.kind === "Function") {
     for (const parameter of type.parameters) visitType(parameter);
     visitType(type.result);

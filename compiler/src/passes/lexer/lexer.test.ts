@@ -143,6 +143,10 @@ describe("lex", () => {
       "Eof",
     ]);
     expect(result.newlines).toHaveLength(2);
+    expect(result.comments.map(({ kind, text }) => [kind, text])).toEqual([
+      ["Block", "/* outer\n /* inner */ still outer */"],
+      ["Line", "// note"],
+    ]);
     expect(result.diagnostics.map(({ message }) => message)).toEqual([
       "indentation uses spaces; tabs are not allowed here",
     ]);

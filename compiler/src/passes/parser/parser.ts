@@ -1,9 +1,9 @@
 /**
  * The parser turns LaidOut.File into Parsed.Module. It owns block items and the
  * core expression grammar, including precedence and recovery at layout
- * separators. Later slices add primitive annotations and directly recursive
- * `fun` bindings; declarations, patterns, and richer type syntax remain future
- * work.
+ * separators. Tuple patterns, nullary unions and matches, annotations, tuple
+ * values, and directly recursive `fun` bindings are present; the remaining
+ * declarations, patterns, and richer type syntax remain future work.
  */
 
 import * as Diagnostics from "../../support/diagnostics.js";
@@ -54,7 +54,6 @@ const unsupportedItemStarts = new Set<TokenKind>([
   "Import",
   "Record",
   "Type",
-  "Union",
   "Var",
 ]);
 
@@ -65,7 +64,10 @@ export function parse(file: LaidOut.File): Parsed.Module {
     diagnostics.add(diagnostic);
   }
 
-  return new Parser(file.tokens, diagnostics).parseModule(file.fileId);
+  return new Parser(file.tokens, diagnostics).parseModule(
+    file.fileId,
+    file.comments,
+  );
 }
 
 class Parser {
@@ -79,7 +81,10 @@ class Parser {
   }
 
   /** Consumes the module's implicit layout block and requires a final Eof. */
-  parseModule(fileId: Source.FileId): Parsed.Module {
+  parseModule(
+    fileId: Source.FileId,
+    comments: readonly Source.Comment[],
+  ): Parsed.Module {
     const opening = this.#expect("VOpen", "expected the module layout block");
     const items = this.#parseItems(true);
     const closing = this.#expect("VClose", "expected the module layout block to close");
@@ -91,6 +96,7 @@ class Parser {
       kind: "Module",
       fileId,
       items,
+      comments,
       span: spanFrom(first.span, last.span),
       diagnostics: this.#diagnostics.toArray(),
     };
@@ -137,10 +143,10 @@ class Parser {
           span: spanFrom(exportToken.span, this.#previous().span),
         };
       }
-      if (!this.#at("Let") && !this.#at("Fun")) {
+      if (!this.#at("Let") && !this.#at("Fun") && !this.#at("Union")) {
         this.#errorAt(
           exportToken.span,
-          "the current parser supports `export` only on `let` and `fun` bindings",
+          "the current parser supports `export` only on `let`, `fun`, and `union` bindings",
         );
         this.#synchronize(itemEnds);
         return {
@@ -148,15 +154,28 @@ class Parser {
           span: spanFrom(exportToken.span, this.#previous().span),
         };
       }
+      if (this.#at("Union")) return this.#parseUnion(true, exportToken.span);
       return this.#at("Let")
         ? this.#parseBinding("Let", true, exportToken.span)
         : this.#parseBinding("Fun", true, exportToken.span);
     }
     if (this.#at("Let")) {
+      if (this.#peek(1).kind === "LeftParen") {
+        return this.#parsePatternBinding();
+      }
       return this.#parseBinding("Let", false);
     }
     if (this.#at("Fun")) {
       return this.#parseBinding("Fun", false);
+    }
+    if (this.#at("Union")) {
+      if (!moduleItems) {
+        const start = this.#advance();
+        this.#errorAt(start.span, "`union` is only allowed at module top level");
+        this.#synchronize(itemEnds);
+        return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+      }
+      return this.#parseUnion(false);
     }
     if (unsupportedItemStarts.has(this.#current().kind)) {
       const start = this.#advance();
@@ -191,6 +210,7 @@ class Parser {
 
     let parameters: readonly Parsed.Parameter[] | undefined;
     let returnAnnotation: Parsed.TypeAnnotation | undefined;
+    let bindingAnnotation: Parsed.TypeAnnotation | undefined;
     let parameterStartSpan: Source.Span | undefined;
     if (this.#at("LeftParen")) {
       parameterStartSpan = this.#current().span;
@@ -199,6 +219,9 @@ class Parser {
         this.#advance();
         returnAnnotation = this.#parseTypeAnnotation();
       }
+    } else if (bindingKind === "Let" && this.#at("Colon")) {
+      this.#advance();
+      bindingAnnotation = this.#parseTypeAnnotation();
     }
 
     if (
@@ -225,7 +248,16 @@ class Parser {
       name: parsedName(nameToken),
       span: spanFrom(itemStart ?? start.span, value.span),
     };
-    if (bindingKind === "Let") return { kind: "Let", ...common, value };
+    if (bindingKind === "Let") {
+      return {
+        kind: "Let",
+        ...common,
+        ...(bindingAnnotation === undefined
+          ? {}
+          : { annotation: bindingAnnotation }),
+        value,
+      };
+    }
     if (value.kind === "Lambda") return { kind: "Fun", ...common, value };
 
     this.#errorAt(
@@ -235,6 +267,152 @@ class Parser {
     return {
       kind: "ErrorItem",
       span: spanFrom(itemStart ?? start.span, value.span),
+    };
+  }
+
+  #parseUnion(exported: boolean, itemStart?: Source.Span): Parsed.Item {
+    const start = this.#advance();
+    const nameToken = this.#takeName(
+      "UpperName",
+      "`union` requires an uppercase type name",
+    );
+    if (nameToken === undefined) {
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+    }
+    if (this.#at("LeftParen")) {
+      this.#error("generic unions arrive in a later union slice");
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+    }
+    if (this.#expect("Equal", "expected `=` after union name") === undefined) {
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+    }
+    if (this.#at("Bar")) this.#advance();
+
+    const constructors: Parsed.Constructor[] = [];
+    while (!itemEnds.has(this.#current().kind)) {
+      const constructor = this.#takeName(
+        "UpperName",
+        "union constructors must be uppercase names",
+      );
+      if (constructor === undefined) {
+        this.#synchronize(itemEnds);
+        return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+      }
+      if (this.#at("LeftParen")) {
+        this.#error("payload constructors arrive in the next union slice");
+        this.#synchronize(itemEnds);
+        return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+      }
+      const name = parsedName(constructor);
+      constructors.push({ name, span: name.span });
+      if (!this.#at("Bar")) break;
+      this.#advance();
+    }
+    if (constructors.length === 0) {
+      this.#errorAt(nameToken.span, "a union needs at least one constructor");
+    }
+    return {
+      kind: "Union",
+      exported,
+      name: parsedName(nameToken),
+      constructors,
+      span: spanFrom(
+        itemStart ?? start.span,
+        constructors.at(-1)?.span ?? nameToken.span,
+      ),
+    };
+  }
+
+  #parsePatternBinding(): Parsed.Item {
+    const start = this.#advance();
+    const pattern = this.#parsePattern();
+    if (pattern === undefined) {
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+    }
+    if (this.#expect("Equal", "expected `=` after `let` pattern") === undefined) {
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+    }
+    const value = this.#parseBodyExpression();
+    return {
+      kind: "LetPattern",
+      exported: false,
+      pattern,
+      value,
+      span: spanFrom(start.span, value.span),
+    };
+  }
+
+  #parsePattern(): Parsed.Pattern | undefined {
+    const token = this.#current();
+    if (token.kind === "LowerName") {
+      this.#advance();
+      const name = parsedName(token);
+      return { kind: "Binding", name, span: name.span };
+    }
+    if (token.kind === "Wildcard") {
+      this.#advance();
+      return { kind: "Wildcard", span: token.span };
+    }
+    if (token.kind === "UpperName") {
+      this.#advance();
+      const name = parsedName(token);
+      const args: Parsed.Pattern[] = [];
+      let end = token.span;
+      if (this.#at("LeftParen")) {
+        this.#advance();
+        while (!this.#at("RightParen") && !this.#at("Eof")) {
+          const argument = this.#parsePattern();
+          if (argument === undefined) return undefined;
+          args.push(argument);
+          if (!this.#at("Comma")) break;
+          this.#advance();
+        }
+        end = this.#expect(
+          "RightParen",
+          "expected `)` after constructor pattern",
+        )?.span ?? end;
+      }
+      return {
+        kind: "Constructor",
+        name,
+        arguments: args,
+        span: spanFrom(token.span, end),
+      };
+    }
+    if (token.kind !== "LeftParen") {
+      this.#error("expected a binding, `_`, constructor, or tuple pattern");
+      return undefined;
+    }
+
+    const opening = this.#advance();
+    const first = this.#parsePattern();
+    if (first === undefined) return undefined;
+    if (!this.#at("Comma")) {
+      const closing = this.#expect("RightParen", "expected `)` after pattern");
+      return { ...first, span: spanFrom(opening.span, closing?.span ?? first.span) };
+    }
+    const elements: Parsed.Pattern[] = [first];
+    while (this.#at("Comma")) {
+      const comma = this.#advance();
+      if (this.#at("RightParen")) {
+        this.#errorAt(comma.span, "a tuple pattern needs a pattern after `,`");
+        this.#advance();
+        return undefined;
+      }
+      const element = this.#parsePattern();
+      if (element === undefined) return undefined;
+      elements.push(element);
+    }
+    const closing = this.#expect("RightParen", "expected `)` after tuple pattern");
+    return {
+      kind: "Tuple",
+      elements,
+      span: spanFrom(opening.span, closing?.span ?? elements.at(-1)!.span),
     };
   }
 
@@ -370,6 +548,9 @@ class Parser {
     if (this.#at("If")) {
       return this.#parseIf(stops);
     }
+    if (this.#at("Match")) {
+      return this.#parseMatch(stops);
+    }
 
     return this.#parsePrimary(stops);
   }
@@ -403,7 +584,7 @@ class Parser {
         this.#advance();
         return this.#parseString(token);
       case "LeftParen":
-        return this.#parseGroup(stops);
+        return this.#parseParenthesized(stops);
       default:
         this.#error(`expected an expression, found ${describe(token.kind)}`);
         if (!stops.has(token.kind)) {
@@ -425,14 +606,40 @@ class Parser {
     return { kind: "String", parts, span: token.span };
   }
 
-  #parseGroup(stops: ReadonlySet<TokenKind>): Parsed.Expr {
+  #parseParenthesized(stops: ReadonlySet<TokenKind>): Parsed.Expr {
     const opening = this.#advance();
     if (this.#at("RightParen")) {
       const closing = this.#advance();
       return { kind: "Unit", span: spanFrom(opening.span, closing.span) };
     }
 
-    const expression = this.#parseExpression(0, withStops(stops, "RightParen"));
+    const expression = this.#parseExpression(
+      0,
+      withStops(stops, "Comma", "RightParen"),
+    );
+    if (this.#at("Comma")) {
+      const elements: Parsed.Expr[] = [expression];
+      while (this.#at("Comma")) {
+        const comma = this.#advance();
+        if (this.#at("RightParen")) {
+          this.#errorAt(comma.span, "a tuple needs an expression after `,`");
+          const closing = this.#advance();
+          return { kind: "ErrorExpr", span: spanFrom(opening.span, closing.span) };
+        }
+        elements.push(
+          this.#parseExpression(
+            0,
+            withStops(stops, "Comma", "RightParen"),
+          ),
+        );
+      }
+      const closing = this.#expect("RightParen", "expected `)` after tuple elements");
+      return {
+        kind: "Tuple",
+        elements,
+        span: spanFrom(opening.span, closing?.span ?? elements.at(-1)!.span),
+      };
+    }
     const closing = this.#expect("RightParen", "expected `)` after expression");
     return {
       kind: "Group",
@@ -529,6 +736,41 @@ class Parser {
     };
   }
 
+  #parseMatch(outerStops: ReadonlySet<TokenKind>): Parsed.MatchExpr {
+    const start = this.#advance();
+    const scrutinee = this.#parseExpression(
+      0,
+      withStops(outerStops, "VOpen"),
+    );
+    this.#expect("VOpen", "expected an indented block of match arms");
+    const arms: Parsed.MatchArm[] = [];
+    this.#skipSeparators();
+    while (!this.#at("VClose") && !this.#at("Eof")) {
+      const pattern = this.#parsePattern();
+      if (pattern === undefined) {
+        this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
+        this.#skipSeparators();
+        continue;
+      }
+      this.#expect("FatArrow", "expected `=>` after match pattern");
+      const body = this.#parseBodyExpression(
+        new Set(["VSep", "VClose", "Eof"]),
+      );
+      arms.push({ pattern, body, span: spanFrom(pattern.span, body.span) });
+      this.#skipSeparators();
+    }
+    const closing = this.#expect("VClose", "expected the match arms to close");
+    return {
+      kind: "Match",
+      scrutinee,
+      arms,
+      span: spanFrom(
+        start.span,
+        closing?.span ?? arms.at(-1)?.span ?? scrutinee.span,
+      ),
+    };
+  }
+
   #parseBodyExpression(stops: ReadonlySet<TokenKind> = itemEnds): Parsed.Expr {
     return this.#at("VOpen") ? this.#parseBlock() : this.#parseExpression(0, stops);
   }
@@ -580,34 +822,68 @@ class Parser {
       return false;
     }
 
-    let index = this.#index + 1;
-    while (
-      this.#tokens[index]?.kind !== "RightParen" &&
-      this.#tokens[index]?.kind !== "Eof" &&
-      this.#tokens[index]?.kind !== "VSep"
-    ) {
+    let index = this.#index;
+    let depth = 0;
+    do {
+      const kind = this.#tokens[index]?.kind;
+      if (kind === "LeftParen") depth += 1;
+      if (kind === "RightParen") depth -= 1;
+      if (kind === "Eof" || kind === "VSep" || kind === undefined) return false;
       index += 1;
-    }
-    if (this.#tokens[index]?.kind !== "RightParen") return false;
-    index += 1;
+    } while (depth > 0);
+    // `index` points one token beyond the matching parameter `)`.
     if (this.#tokens[index]?.kind === "Colon") {
       index += 1;
-      if (
-        this.#tokens[index]?.kind !== "UpperName" &&
-        this.#tokens[index]?.kind !== "LowerName"
-      ) {
+      if (this.#tokens[index]?.kind === "LeftParen") {
+        let typeDepth = 0;
+        do {
+          const kind = this.#tokens[index]?.kind;
+          if (kind === "LeftParen") typeDepth += 1;
+          if (kind === "RightParen") typeDepth -= 1;
+          if (kind === "Eof" || kind === undefined) return false;
+          index += 1;
+        } while (typeDepth > 0);
+      } else if (this.#tokens[index]?.kind === "UpperName") {
+        index += 1;
+      } else {
         return false;
       }
-      index += 1;
     }
     return this.#tokens[index]?.kind === "FatArrow";
   }
 
   #parseTypeAnnotation(): Parsed.TypeAnnotation | undefined {
     const token = this.#current();
+    if (token.kind === "LeftParen") {
+      const opening = this.#advance();
+      const first = this.#parseTypeAnnotation();
+      if (first === undefined) return undefined;
+      if (!this.#at("Comma")) {
+        const closing = this.#expect("RightParen", "expected `)` after type");
+        return { ...first, span: spanFrom(opening.span, closing?.span ?? first.span) };
+      }
+      const elements: Parsed.TypeAnnotation[] = [first];
+      while (this.#at("Comma")) {
+        const comma = this.#advance();
+        if (this.#at("RightParen")) {
+          this.#errorAt(comma.span, "a tuple type needs a type after `,`");
+          this.#advance();
+          return undefined;
+        }
+        const element = this.#parseTypeAnnotation();
+        if (element === undefined) return undefined;
+        elements.push(element);
+      }
+      const closing = this.#expect("RightParen", "expected `)` after tuple type");
+      return {
+        kind: "Tuple",
+        elements,
+        span: spanFrom(opening.span, closing?.span ?? elements.at(-1)!.span),
+      };
+    }
     if (token.kind !== "UpperName") {
       this.#error(
-        "the second compiler slice supports primitive type names in annotations",
+        "expected a primitive or tuple type annotation",
       );
       if (token.kind === "LowerName") this.#advance();
       return undefined;

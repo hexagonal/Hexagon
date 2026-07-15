@@ -13,6 +13,8 @@ export function elaborate(module: Typed.Module): Core.Module {
     fileId: module.fileId,
     items: module.items.map(elaborateItem),
     symbols: module.symbols,
+    unions: module.unions,
+    comments: module.comments,
     span: module.span,
     diagnostics: module.diagnostics,
   };
@@ -22,6 +24,10 @@ function elaborateItem(item: Typed.Item): Core.Item {
   switch (item.kind) {
     case "Let":
       return { ...item, value: elaborateExpr(item.value) };
+    case "LetPattern":
+      return { ...item, value: elaborateExpr(item.value) };
+    case "Union":
+      return item;
     case "Fun":
       return {
         ...item,
@@ -62,6 +68,11 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
               },
         ),
       };
+    case "Tuple":
+      return {
+        ...expression,
+        elements: expression.elements.map(elaborateExpr),
+      };
     case "Group":
       return elaborateExpr(expression.expression);
     case "Block":
@@ -80,6 +91,15 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
         ? common
         : { ...common, alternative: elaborateExpr(expression.alternative) };
     }
+    case "Match":
+      return {
+        ...expression,
+        scrutinee: elaborateExpr(expression.scrutinee),
+        arms: expression.arms.map((arm) => ({
+          ...arm,
+          body: elaborateExpr(arm.body),
+        })),
+      };
     case "Call":
       return {
         ...expression,
@@ -117,6 +137,15 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
         span: expression.span,
       };
     case "Access":
+      return expression.tupleIndex === undefined
+        ? { kind: "ErrorExpr", type: expression.type, span: expression.span }
+        : {
+            kind: "TupleAccess",
+            receiver: elaborateExpr(expression.receiver),
+            index: expression.tupleIndex,
+            type: expression.type,
+            span: expression.span,
+          };
     case "Index":
     case "Assignment":
       return { kind: "ErrorExpr", type: expression.type, span: expression.span };
@@ -161,6 +190,8 @@ function evidence(requirement: Typed.Constraint | undefined): Core.Evidence {
     case "Variable":
       return { kind: "Dictionary", variable: requirement.type.id };
     case "Function":
+    case "Tuple":
+    case "Union":
     case "Error":
       return { kind: "Error" };
   }

@@ -21,6 +21,13 @@ export interface Span {
   readonly end: Position;
 }
 
+/** Source trivia retained unchanged so text emitters can preserve comments. */
+export interface Comment {
+  readonly kind: "Line" | "Block";
+  readonly text: string;
+  readonly span: Span;
+}
+
 /** Assigns the stable identity supplied by a compiler host to a source file. */
 export function fileId(value: number): FileId {
   if (!Number.isSafeInteger(value) || value < 0) {

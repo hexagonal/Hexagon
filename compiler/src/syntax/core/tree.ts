@@ -45,11 +45,19 @@ export interface Module {
   readonly fileId: Source.FileId;
   readonly items: readonly Item[];
   readonly symbols: readonly Symbol[];
+  readonly unions: readonly Union[];
+  readonly comments: readonly Source.Comment[];
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }
 
-export type Item = LetItem | FunItem | ExprItem | ErrorItem;
+export type Item =
+  | LetItem
+  | LetPatternItem
+  | FunItem
+  | UnionItem
+  | ExprItem
+  | ErrorItem;
 
 export interface LetItem {
   readonly kind: "Let";
@@ -59,11 +67,66 @@ export interface LetItem {
   readonly span: Source.Span;
 }
 
+export interface LetPatternItem {
+  readonly kind: "LetPattern";
+  readonly exported: false;
+  readonly pattern: Pattern;
+  readonly value: Expr;
+  readonly span: Source.Span;
+}
+
+export type Pattern =
+  | BindingPattern
+  | WildcardPattern
+  | TuplePattern
+  | ConstructorPattern;
+
+export interface BindingPattern {
+  readonly kind: "Binding";
+  readonly binding: Binding;
+  readonly span: Source.Span;
+}
+
+export interface WildcardPattern {
+  readonly kind: "Wildcard";
+  readonly span: Source.Span;
+}
+
+export interface TuplePattern {
+  readonly kind: "Tuple";
+  readonly elements: readonly Pattern[];
+  readonly span: Source.Span;
+}
+
+export interface ConstructorPattern {
+  readonly kind: "Constructor";
+  readonly symbol: Resolved.SymbolId;
+  readonly text: string;
+  readonly arguments: readonly Pattern[];
+  readonly span: Source.Span;
+}
+
 export interface FunItem {
   readonly kind: "Fun";
   readonly exported: boolean;
   readonly binding: Binding;
   readonly value: LambdaExpr;
+  readonly span: Source.Span;
+}
+
+export interface Union {
+  readonly id: Resolved.UnionId;
+  readonly name: string;
+  readonly span: Source.Span;
+  readonly constructors: readonly Binding[];
+}
+
+export interface UnionItem {
+  readonly kind: "Union";
+  readonly exported: boolean;
+  readonly union: Resolved.UnionId;
+  readonly name: string;
+  readonly constructors: readonly Binding[];
   readonly span: Source.Span;
 }
 
@@ -91,10 +154,13 @@ export type Expr =
   | BigIntExpr
   | FloatExpr
   | StringExpr
+  | TupleExpr
+  | TupleAccessExpr
   | ConvertIntExpr
   | BlockExpr
   | LambdaExpr
   | IfExpr
+  | MatchExpr
   | CallExpr
   | LogicalNotExpr
   | LogicalExpr
@@ -155,6 +221,18 @@ export interface StringShow {
   readonly span: Source.Span;
 }
 
+export interface TupleExpr extends ExpressionFields {
+  readonly kind: "Tuple";
+  readonly elements: readonly Expr[];
+}
+
+export interface TupleAccessExpr extends ExpressionFields {
+  readonly kind: "TupleAccess";
+  readonly receiver: Expr;
+  /** Zero-based only in Core and emission; source syntax remains one-based. */
+  readonly index: number;
+}
+
 /** A non-representationally-trivial `Num.fromInt` application. */
 export interface ConvertIntExpr extends ExpressionFields {
   readonly kind: "ConvertInt";
@@ -178,6 +256,19 @@ export interface IfExpr extends ExpressionFields {
   readonly condition: Expr;
   readonly consequence: Expr;
   readonly alternative?: Expr;
+}
+
+export interface MatchExpr extends ExpressionFields {
+  readonly kind: "Match";
+  readonly scrutinee: Expr;
+  readonly arms: readonly MatchArm[];
+  readonly union: Resolved.UnionId;
+}
+
+export interface MatchArm {
+  readonly pattern: Pattern;
+  readonly body: Expr;
+  readonly span: Source.Span;
 }
 
 export interface CallExpr extends ExpressionFields {

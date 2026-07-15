@@ -16,6 +16,81 @@ import {
 } from "./emitter.js";
 
 describe("emitJavaScript", () => {
+  test("emits tuples as arrays, positional access, and TypeScript tuple types", () => {
+    const module = coreSource(
+      'export let pair: (String, Int) = ("answer", 42)\n' +
+        "export let answer = pair.item2",
+    );
+
+    expect(emitJavaScript(module).text).toBe(
+      'const pair = ["answer", 42];\n' +
+        "const answer = pair[1];\n" +
+        "export { pair };\n" +
+        "export { answer };\n",
+    );
+    expect(emitDeclarations(module).text).toBe(
+      "export declare const pair: [string, number];\n" +
+        "export declare const answer: number;\n",
+    );
+  });
+
+  test("emits tuple patterns as readable array destructuring", () => {
+    const module = coreSource(
+      'let (name, _, (x, y)) = ("point", true, (3, 4))\n' +
+        "let total = x + y",
+    );
+
+    expect(emitJavaScript(module).text).toBe(
+      'const [name, , [x, y]] = ["point", true, [3, 4]];\n' +
+        "const total = x + y;\n",
+    );
+    expect(emitTypeScriptPreview(module).text).toBe(
+      "declare const name: string;\n" +
+        "declare const x: number;\n" +
+        "declare const y: number;\n" +
+        "declare const total: number;\n" +
+        "export {};\n",
+    );
+  });
+
+  test("emits nullary unions, exhaustive matches, and declaration surfaces", () => {
+    const module = coreSource(
+      "export union Suit = Clubs | Diamonds | Hearts | Spades\n" +
+        "export let card = (10, Hearts)\n" +
+        "export let color(suit: Suit): String = match suit\n" +
+        '  Clubs => "black"\n  Diamonds => "red"\n' +
+        '  Hearts => "red"\n  Spades => "black"',
+    );
+
+    expect(emitJavaScript(module).text).toBe(
+      'const Clubs = "Clubs";\n' +
+        'const Diamonds = "Diamonds";\n' +
+        'const Hearts = "Hearts";\n' +
+        'const Spades = "Spades";\n' +
+        "const card = [10, Hearts];\n" +
+        "const color = suit => (() => {\n" +
+        "  const $match0 = suit;\n" +
+        "  switch ($match0) {\n" +
+        '    case "Clubs":\n      return "black";\n' +
+        '    case "Diamonds":\n      return "red";\n' +
+        '    case "Hearts":\n      return "red";\n' +
+        '    case "Spades":\n      return "black";\n' +
+        "  }\n  return undefined;\n})();\n" +
+        "export { Clubs };\nexport { Diamonds };\n" +
+        "export { Hearts };\nexport { Spades };\n" +
+        "export { card };\nexport { color };\n",
+    );
+    expect(emitDeclarations(module).text).toBe(
+      'export type Suit = "Clubs" | "Diamonds" | "Hearts" | "Spades";\n' +
+        "export declare const Clubs: Suit;\n" +
+        "export declare const Diamonds: Suit;\n" +
+        "export declare const Hearts: Suit;\n" +
+        "export declare const Spades: Suit;\n" +
+        "export declare const card: [number, Suit];\n" +
+        "export declare const color: (suit: Suit) => string;\n",
+    );
+  });
+
   test("emits recursive fun bindings as hoisted function declarations", () => {
     const module = coreSource(
       "export fun fact(n: Int): Int = " +
@@ -138,6 +213,28 @@ describe("emitJavaScript", () => {
         "  return n <= 1 ? 1 : n * fact(n - 1);\n" +
         "}\n\n" +
         "const answer = 6 * 7;\n",
+    );
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("preserves top-level comments and their vertical spacing", () => {
+    const output = emitJavaScript(
+      coreSource(
+        "// Card suits are a closed set.\n" +
+          "union Suit = Clubs | Diamonds | Hearts | Spades\n\n" +
+          "/* A card combines ordinary product and sum types. */\n" +
+          "let card = (10, Hearts) // the ten of hearts",
+      ),
+    );
+
+    expect(output.text).toBe(
+      "// Card suits are a closed set.\n" +
+        'const Clubs = "Clubs";\n' +
+        'const Diamonds = "Diamonds";\n' +
+        'const Hearts = "Hearts";\n' +
+        'const Spades = "Spades";\n\n' +
+        "/* A card combines ordinary product and sum types. */\n" +
+        "const card = [10, Hearts]; // the ten of hearts\n",
     );
     expect(output.diagnostics).toEqual([]);
   });

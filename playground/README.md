@@ -2,7 +2,7 @@
 
 This folder will contain the browser-based Hexagon playground: an interactive place to write Hexagon, inspect what the compiler understood and emitted, and run the resulting JavaScript.
 
-The current four slices compile live and expose errors, emitted JavaScript, an
+The current slices compile live and expose errors, emitted JavaScript, an
 inspection-only TypeScript preview, and inferred top-level types. Primitive
 parameter and result annotations, directly recursive `fun`, and first-argument
 pipes are accepted, including partially annotated parameter lists.
@@ -23,6 +23,10 @@ Open the local address printed by Vite. Edit `main.hex`, then inspect **Errors**
 ordinary Hexagon visibility. This path calls the compiler directly in a Web Worker;
 it does not use the language server or LSP.
 
+The playground opens on **JS** and begins with a commented tour of the supported
+language. Its comments and blank lines between top-level features also appear in
+the emitted JavaScript, so the first view demonstrates the readable-output doctrine.
+
 The Theme selector offers **System**, **Dark**, and **Light**. System is the default
 and follows live operating-system colour-scheme changes. The selected preference is
 remembered in browser `localStorage`; if storage is unavailable, it still applies
@@ -31,7 +35,7 @@ for the lifetime of the current page.
 ## GitHub Pages
 
 The repository workflow publishes the playground to
-<https://hexagonal.github.io/Hexagon/> after a successful push to `main`. It tests
+<https://hexagonal.zone/Hexagon/> after a successful push to `main`. It tests
 and checks both the compiler and playground before deploying the static Vite build.
 The deployed worker contains the platform-neutral compiler as browser JavaScript;
 no compiler or application server runs behind the site.
@@ -155,8 +159,9 @@ Curated examples are grouped by language concept and appear only once their comp
 Where practical, example source should be derived from or shared with conformance fixtures and book examples. The repository must avoid three manually copied versions that can drift independently.
 
 The initial `hello-world` example is accepted by the current vertical slices and
-demonstrates inferred and annotated functions, direct recursion, strings, and
-arithmetic without requiring public exports.
+provides a commented tour of unions, tuples and patterns, inferred and annotated
+functions, direct recursion, matching, strings, and arithmetic without requiring
+public exports.
 
 ## Testing
 

@@ -22,7 +22,13 @@ export type PrimitiveName =
   | "BigInt"
   | "Unit";
 
-export type Type = PrimitiveType | VariableType | FunctionType | ErrorType;
+export type Type =
+  | PrimitiveType
+  | VariableType
+  | TupleType
+  | UnionType
+  | FunctionType
+  | ErrorType;
 
 export interface PrimitiveType {
   readonly kind: "Primitive";
@@ -32,6 +38,17 @@ export interface PrimitiveType {
 export interface VariableType {
   readonly kind: "Variable";
   readonly id: TypeVariableId;
+}
+
+export interface TupleType {
+  readonly kind: "Tuple";
+  readonly elements: readonly Type[];
+}
+
+export interface UnionType {
+  readonly kind: "Union";
+  readonly union: Resolved.UnionId;
+  readonly name: string;
 }
 
 export interface FunctionType {
@@ -91,11 +108,19 @@ export interface Module {
   readonly fileId: Source.FileId;
   readonly items: readonly Item[];
   readonly symbols: readonly Symbol[];
+  readonly unions: readonly Union[];
+  readonly comments: readonly Source.Comment[];
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }
 
-export type Item = LetItem | FunItem | ExprItem | ErrorItem;
+export type Item =
+  | LetItem
+  | LetPatternItem
+  | FunItem
+  | UnionItem
+  | ExprItem
+  | ErrorItem;
 
 export interface LetItem {
   readonly kind: "Let";
@@ -105,11 +130,66 @@ export interface LetItem {
   readonly span: Source.Span;
 }
 
+export interface LetPatternItem {
+  readonly kind: "LetPattern";
+  readonly exported: false;
+  readonly pattern: Pattern;
+  readonly value: Expr;
+  readonly span: Source.Span;
+}
+
+export type Pattern =
+  | BindingPattern
+  | WildcardPattern
+  | TuplePattern
+  | ConstructorPattern;
+
+export interface BindingPattern {
+  readonly kind: "Binding";
+  readonly binding: Binding;
+  readonly span: Source.Span;
+}
+
+export interface WildcardPattern {
+  readonly kind: "Wildcard";
+  readonly span: Source.Span;
+}
+
+export interface TuplePattern {
+  readonly kind: "Tuple";
+  readonly elements: readonly Pattern[];
+  readonly span: Source.Span;
+}
+
+export interface ConstructorPattern {
+  readonly kind: "Constructor";
+  readonly symbol: Resolved.SymbolId;
+  readonly text: string;
+  readonly arguments: readonly Pattern[];
+  readonly span: Source.Span;
+}
+
 export interface FunItem {
   readonly kind: "Fun";
   readonly exported: boolean;
   readonly binding: Binding;
   readonly value: LambdaExpr;
+  readonly span: Source.Span;
+}
+
+export interface Union {
+  readonly id: Resolved.UnionId;
+  readonly name: string;
+  readonly span: Source.Span;
+  readonly constructors: readonly Binding[];
+}
+
+export interface UnionItem {
+  readonly kind: "Union";
+  readonly exported: boolean;
+  readonly union: Resolved.UnionId;
+  readonly name: string;
+  readonly constructors: readonly Binding[];
   readonly span: Source.Span;
 }
 
@@ -137,10 +217,12 @@ export type Expr =
   | BigIntExpr
   | FloatExpr
   | StringExpr
+  | TupleExpr
   | GroupExpr
   | BlockExpr
   | LambdaExpr
   | IfExpr
+  | MatchExpr
   | CallExpr
   | AccessExpr
   | IndexExpr
@@ -204,6 +286,11 @@ export interface StringInterpolation {
   readonly span: Source.Span;
 }
 
+export interface TupleExpr extends ExpressionFields {
+  readonly kind: "Tuple";
+  readonly elements: readonly Expr[];
+}
+
 export interface GroupExpr extends ExpressionFields {
   readonly kind: "Group";
   readonly expression: Expr;
@@ -227,6 +314,19 @@ export interface IfExpr extends ExpressionFields {
   readonly alternative?: Expr;
 }
 
+export interface MatchExpr extends ExpressionFields {
+  readonly kind: "Match";
+  readonly scrutinee: Expr;
+  readonly arms: readonly MatchArm[];
+  readonly union: Resolved.UnionId;
+}
+
+export interface MatchArm {
+  readonly pattern: Pattern;
+  readonly body: Expr;
+  readonly span: Source.Span;
+}
+
 export interface CallExpr extends ExpressionFields {
   readonly kind: "Call";
   readonly callee: Expr;
@@ -237,6 +337,7 @@ export interface AccessExpr extends ExpressionFields {
   readonly kind: "Access";
   readonly receiver: Expr;
   readonly field: FieldName;
+  readonly tupleIndex?: number;
 }
 
 export interface IndexExpr extends ExpressionFields {

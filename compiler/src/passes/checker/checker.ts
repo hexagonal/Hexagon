@@ -1,12 +1,12 @@
 /**
- * The first checker implements the Hindley–Milner core needed by the current
- * expression grammar. Mutable union-find variables are private to inference;
+ * The checker implements the Hindley–Milner core needed by the current vertical
+ * slices. Mutable union-find variables are private to inference;
  * the returned Typed tree contains only immutable types and schemes.
  */
 
 import * as Diagnostics from "../../support/diagnostics.js";
 import type * as Source from "../../support/source.js";
-import type * as Resolved from "../../syntax/resolved/index.js";
+import * as Resolved from "../../syntax/resolved/index.js";
 import * as Typed from "../../syntax/typed/index.js";
 
 export function check(module: Resolved.Module): Typed.Module {
@@ -15,7 +15,13 @@ export function check(module: Resolved.Module): Typed.Module {
   return new Checker(diagnostics).check(module);
 }
 
-type Mono = Variable | Constructor | FunctionMono | ErrorMono;
+type Mono =
+  | Variable
+  | Constructor
+  | TupleMono
+  | UnionMono
+  | FunctionMono
+  | ErrorMono;
 
 interface Variable {
   readonly kind: "Variable";
@@ -35,6 +41,17 @@ interface FunctionMono {
   readonly kind: "Function";
   readonly parameters: readonly Mono[];
   readonly result: Mono;
+}
+
+interface TupleMono {
+  readonly kind: "Tuple";
+  readonly elements: readonly Mono[];
+}
+
+interface UnionMono {
+  readonly kind: "Union";
+  readonly union: Resolved.UnionId;
+  readonly name: string;
 }
 
 interface ErrorMono {
@@ -64,7 +81,11 @@ class Checker {
   readonly #expressionTypes = new WeakMap<Resolved.Expr, Mono>();
   readonly #requirements = new WeakMap<object, readonly Requirement[]>();
   readonly #pipeCalls = new WeakMap<Resolved.BinaryExpr, Resolved.CallExpr>();
+  readonly #tupleAccesses = new WeakMap<Resolved.AccessExpr, number>();
+  readonly #matchUnions = new WeakMap<Resolved.MatchExpr, Resolved.UnionId>();
   readonly #schemes = new Map<Resolved.SymbolId, Scheme>();
+  readonly #unions = new Map<Resolved.UnionId, Resolved.Union>();
+  readonly #constructorUnions = new Map<Resolved.SymbolId, Resolved.UnionId>();
   readonly #variables: Variable[] = [];
   readonly #quantified = new Set<number>();
   readonly #diagnostics: Diagnostics.Bag;
@@ -75,6 +96,18 @@ class Checker {
   }
 
   check(module: Resolved.Module): Typed.Module {
+    for (const union of module.unions) {
+      this.#unions.set(union.id, union);
+      const type: UnionMono = {
+        kind: "Union",
+        union: union.id,
+        name: union.name,
+      };
+      for (const constructor of union.constructors) {
+        this.#constructorUnions.set(constructor.binding.symbol, union.id);
+        this.#schemes.set(constructor.binding.symbol, { variables: [], type });
+      }
+    }
     this.#inferItems(module.items, 0, true);
     this.#defaultRemainingVariables();
 
@@ -88,6 +121,8 @@ class Checker {
       fileId: module.fileId,
       items: module.items.map((item) => this.#materializeItem(item)),
       symbols,
+      unions: module.unions.map((union) => this.#materializeUnion(union)),
+      comments: module.comments,
       span: module.span,
       diagnostics: this.#diagnostics.toArray(),
     };
@@ -104,12 +139,30 @@ class Checker {
 
       if (item.kind === "Let") {
         const valueType = this.#inferExpr(item.value, level + 1);
+        if (item.annotation !== undefined) {
+          this.#unify(
+            this.#annotationType(item.annotation),
+            valueType,
+            item.annotation.span,
+          );
+        }
         const scheme = this.#generalize(
           valueType,
           level,
           this.#isValue(item.value),
         );
         this.#schemes.set(item.binding.symbol, scheme);
+        continue;
+      }
+
+      if (item.kind === "LetPattern") {
+        const valueType = this.#inferExpr(item.value, level + 1);
+        this.#inferPattern(
+          item.pattern,
+          valueType,
+          level,
+          this.#isValue(item.value),
+        );
         continue;
       }
 
@@ -151,7 +204,28 @@ class Checker {
     if (moduleItems) return primitive("Unit");
     const finalItem = items.at(-1);
     if (finalItem === undefined || finalItem.kind === "ErrorItem") return ERROR;
-    if (finalItem.kind === "Let" || finalItem.kind === "Fun") {
+    if (
+      finalItem.kind === "Let" ||
+      finalItem.kind === "LetPattern" ||
+      finalItem.kind === "Fun" ||
+      finalItem.kind === "Union"
+    ) {
+      if (finalItem.kind === "LetPattern") {
+        this.#diagnostics.add({
+          severity: "error",
+          message: "a block cannot end with a `let` pattern; add a final expression",
+          primary: finalItem.span,
+        });
+        return ERROR;
+      }
+      if (finalItem.kind === "Union") {
+        this.#diagnostics.add({
+          severity: "error",
+          message: "a union declaration is only allowed at module level",
+          primary: finalItem.span,
+        });
+        return ERROR;
+      }
       const keyword = finalItem.kind === "Let" ? "let" : "fun";
       this.#diagnostics.add({
         severity: "error",
@@ -204,6 +278,14 @@ class Checker {
         }
         type = primitive("String");
         break;
+      case "Tuple":
+        type = {
+          kind: "Tuple",
+          elements: expression.elements.map((element) =>
+            this.#inferExpr(element, level),
+          ),
+        };
+        break;
       case "Group":
         type = this.#inferExpr(expression.expression, level);
         break;
@@ -244,6 +326,64 @@ class Checker {
           this.#unify(consequence, alternative, expression.span);
           type = consequence;
         }
+        break;
+      }
+      case "Match": {
+        const scrutinee = this.#inferExpr(expression.scrutinee, level);
+        const result = this.#fresh(level, false);
+        let catchAll = false;
+        const covered = new Set<Resolved.SymbolId>();
+        for (const arm of expression.arms) {
+          if (catchAll) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: "this match arm is unreachable; an earlier pattern matches everything",
+              primary: arm.pattern.span,
+            });
+          }
+          if (arm.pattern.kind === "Constructor") {
+            if (covered.has(arm.pattern.symbol)) {
+              this.#diagnostics.add({
+                severity: "error",
+                message: `this case is unreachable; \`${arm.pattern.text}\` is already handled above`,
+                primary: arm.pattern.span,
+              });
+            }
+            covered.add(arm.pattern.symbol);
+          } else if (
+            arm.pattern.kind === "Wildcard" ||
+            arm.pattern.kind === "Binding"
+          ) {
+            catchAll = true;
+          }
+          this.#inferMatchPattern(arm.pattern, scrutinee, level);
+          this.#unify(result, this.#inferExpr(arm.body, level), arm.body.span);
+        }
+        const actual = this.#prune(scrutinee);
+        if (actual.kind !== "Union") {
+          type = this.#unsupported(
+            expression.scrutinee.span,
+            "match requires a union type in the first union slice",
+          );
+          break;
+        }
+        this.#matchUnions.set(expression, actual.union);
+        if (!catchAll) {
+          const union = this.#unions.get(actual.union);
+          const missing = union?.constructors.filter(
+            ({ binding }) => !covered.has(binding.symbol),
+          ) ?? [];
+          if (missing.length > 0) {
+            this.#diagnostics.add({
+              severity: "error",
+              message:
+                "match is missing cases: " +
+                missing.map(({ binding }) => `\`${binding.name}\``).join(", "),
+              primary: expression.span,
+            });
+          }
+        }
+        type = result;
         break;
       }
       case "Call": {
@@ -322,10 +462,50 @@ class Checker {
         type = primitive("Unit");
         break;
       }
-      case "Access":
-        this.#inferExpr(expression.receiver, level);
-        type = this.#unsupported(expression.span, "field access requires row typing");
+      case "Access": {
+        const receiver = this.#prune(this.#inferExpr(expression.receiver, level));
+        const item = /^item(\d+)$/.exec(expression.field.text);
+        if (item === null) {
+          type = this.#unsupported(expression.span, "field access requires row typing");
+          break;
+        }
+        const position = Number(item[1]);
+        if (!Number.isSafeInteger(position) || position < 1) {
+          type = this.#unsupported(
+            expression.field.span,
+            "tuple components are numbered from 1",
+          );
+          break;
+        }
+        if (receiver.kind === "Variable") {
+          type = this.#unsupported(
+            expression.receiver.span,
+            "tuple access needs a known tuple type; add a tuple annotation",
+          );
+          break;
+        }
+        if (receiver.kind !== "Tuple") {
+          type = receiver.kind === "Error"
+            ? ERROR
+            : this.#unsupported(
+                expression.receiver.span,
+                `\`${this.#display(receiver)}\` is not a tuple`,
+              );
+          break;
+        }
+        if (position > receiver.elements.length) {
+          type = this.#unsupported(
+            expression.field.span,
+            `this tuple has ${receiver.elements.length} components; there is no ` +
+              `item${position}`,
+          );
+          break;
+        }
+        const index = position - 1;
+        this.#tupleAccesses.set(expression, index);
+        type = receiver.elements[index]!;
         break;
+      }
       case "Index":
         this.#inferExpr(expression.receiver, level);
         this.#inferExpr(expression.index, level);
@@ -338,6 +518,79 @@ class Checker {
 
     this.#expressionTypes.set(expression, type);
     return type;
+  }
+
+  #inferPattern(
+    pattern: Resolved.Pattern,
+    expected: Mono,
+    level: number,
+    generalizable: boolean,
+  ): void {
+    if (pattern.kind === "Wildcard") return;
+    if (pattern.kind === "Binding") {
+      this.#schemes.set(
+        pattern.binding.symbol,
+        this.#generalize(expected, level, generalizable),
+      );
+      return;
+    }
+    if (pattern.kind === "Constructor") {
+      this.#diagnostics.add({
+        severity: "error",
+        message: "a constructor pattern is refutable and cannot be used in `let`",
+        primary: pattern.span,
+      });
+      return;
+    }
+
+    const elements = pattern.elements.map(() => this.#fresh(level + 1, false));
+    this.#unify(
+      expected,
+      { kind: "Tuple", elements },
+      pattern.span,
+    );
+    pattern.elements.forEach((element, index) => {
+      this.#inferPattern(element, elements[index]!, level, generalizable);
+    });
+  }
+
+  #inferMatchPattern(
+    pattern: Resolved.Pattern,
+    expected: Mono,
+    level: number,
+  ): void {
+    if (pattern.kind === "Wildcard") return;
+    if (pattern.kind === "Binding") {
+      this.#schemes.set(pattern.binding.symbol, { variables: [], type: expected });
+      return;
+    }
+    if (pattern.kind === "Tuple") {
+      this.#diagnostics.add({
+        severity: "error",
+        message: "the first union slice supports constructor and catch-all patterns",
+        primary: pattern.span,
+      });
+      return;
+    }
+
+    const unionId = this.#constructorUnions.get(pattern.symbol);
+    const union = unionId === undefined ? undefined : this.#unions.get(unionId);
+    if (union === undefined) return;
+    this.#unify(
+      expected,
+      { kind: "Union", union: union.id, name: union.name },
+      pattern.span,
+    );
+    if (pattern.arguments.length > 0) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `\`${pattern.text}\` is nullary; write it without \`()\``,
+        primary: pattern.span,
+      });
+    }
+    for (const argument of pattern.arguments) {
+      this.#inferMatchPattern(argument, ERROR, level);
+    }
   }
 
   #inferBinary(expression: Resolved.BinaryExpr, level: number): Mono {
@@ -402,7 +655,13 @@ class Checker {
   ): void {
     const actualLeft = this.#prune(left);
     const actualRight = this.#prune(right);
-    if (actualLeft === actualRight || actualLeft.kind === "Error" || actualRight.kind === "Error") return;
+    if (
+      actualLeft === actualRight ||
+      actualLeft.kind === "Error" ||
+      actualRight.kind === "Error"
+    ) {
+      return;
+    }
 
     if (actualLeft.kind === "Variable") {
       this.#bind(actualLeft, actualRight, span);
@@ -431,6 +690,23 @@ class Checker {
       });
       this.#unify(actualLeft.result, actualRight.result, span);
       return;
+    } else if (actualLeft.kind === "Tuple" && actualRight.kind === "Tuple") {
+      if (actualLeft.elements.length !== actualRight.elements.length) {
+        this.#diagnostics.add({
+          severity: "error",
+          message:
+            `tuple arity mismatch: ${actualLeft.elements.length} and ` +
+            `${actualRight.elements.length}`,
+          primary: span,
+        });
+        return;
+      }
+      actualLeft.elements.forEach((element, index) => {
+        this.#unify(element, actualRight.elements[index]!, span);
+      });
+      return;
+    } else if (actualLeft.kind === "Union" && actualRight.kind === "Union") {
+      if (actualLeft.union === actualRight.union) return;
     }
 
     this.#diagnostics.add({
@@ -467,11 +743,16 @@ class Checker {
   #occurs(variable: Variable, type: Mono): boolean {
     const actual = this.#prune(type);
     if (actual === variable) return true;
-    if (actual.kind !== "Function") return false;
-    return (
-      actual.parameters.some((parameter) => this.#occurs(variable, parameter)) ||
-      this.#occurs(variable, actual.result)
-    );
+    if (actual.kind === "Tuple") {
+      return actual.elements.some((element) => this.#occurs(variable, element));
+    }
+    if (actual.kind === "Function") {
+      return (
+        actual.parameters.some((parameter) => this.#occurs(variable, parameter)) ||
+        this.#occurs(variable, actual.result)
+      );
+    }
+    return false;
   }
 
   #require(
@@ -591,6 +872,9 @@ class Checker {
   #collectVariables(type: Mono, found = new Map<number, Variable>()): Variable[] {
     const actual = this.#prune(type);
     if (actual.kind === "Variable") found.set(actual.id, actual);
+    if (actual.kind === "Tuple") {
+      for (const element of actual.elements) this.#collectVariables(element, found);
+    }
     if (actual.kind === "Function") {
       for (const parameter of actual.parameters) this.#collectVariables(parameter, found);
       this.#collectVariables(actual.result, found);
@@ -625,6 +909,9 @@ class Checker {
           result: copy(actual.result),
         };
       }
+      if (actual.kind === "Tuple") {
+        return { kind: "Tuple", elements: actual.elements.map(copy) };
+      }
       return actual;
     };
     return copy(scheme.type);
@@ -636,9 +923,21 @@ class Checker {
   }
 
   #annotationType(annotation: Resolved.TypeAnnotation): Mono {
-    return annotation.kind === "Primitive"
-      ? primitive(annotation.name)
-      : ERROR;
+    if (annotation.kind === "Primitive") return primitive(annotation.name);
+    if (annotation.kind === "Union") {
+      return {
+        kind: "Union",
+        union: annotation.union,
+        name: annotation.name,
+      };
+    }
+    if (annotation.kind === "Tuple") {
+      return {
+        kind: "Tuple",
+        elements: annotation.elements.map((element) => this.#annotationType(element)),
+      };
+    }
+    return ERROR;
   }
 
   #scheme(symbol: Resolved.SymbolId): Scheme {
@@ -658,8 +957,12 @@ class Checker {
       case "Float":
       case "Lambda":
         return true;
+      case "Name":
+        return this.#constructorUnions.has(expression.symbol);
       case "String":
         return expression.parts.every(({ kind }) => kind === "Text");
+      case "Tuple":
+        return expression.elements.every((element) => this.#isValue(element));
       case "Group":
         return this.#isValue(expression.expression);
       default:
@@ -667,16 +970,32 @@ class Checker {
     }
   }
 
-  #publicType(type: Mono, seen = new Map<number, Typed.VariableType>()): Typed.Type {
+  #publicType(
+    type: Mono,
+    seen = new Map<number, Typed.VariableType>(),
+  ): Typed.Type {
     const actual = this.#prune(type);
     if (actual.kind === "Error") return { kind: "Error" };
-    if (actual.kind === "Constructor") return { kind: "Primitive", name: actual.name };
+    if (actual.kind === "Constructor") {
+      return { kind: "Primitive", name: actual.name };
+    }
     if (actual.kind === "Function") {
       return {
         kind: "Function",
-        parameters: actual.parameters.map((parameter) => this.#publicType(parameter, seen)),
+        parameters: actual.parameters.map((parameter) =>
+          this.#publicType(parameter, seen),
+        ),
         result: this.#publicType(actual.result, seen),
       };
+    }
+    if (actual.kind === "Tuple") {
+      return {
+        kind: "Tuple",
+        elements: actual.elements.map((element) => this.#publicType(element, seen)),
+      };
+    }
+    if (actual.kind === "Union") {
+      return { kind: "Union", union: actual.union, name: actual.name };
     }
     const existing = seen.get(actual.id);
     if (existing !== undefined) return existing;
@@ -719,6 +1038,26 @@ class Checker {
     if (item.kind === "ExprItem") {
       return { ...item, expression: this.#materializeExpr(item.expression) };
     }
+    if (item.kind === "LetPattern") {
+      return {
+        ...item,
+        pattern: this.#materializePattern(item.pattern),
+        value: this.#materializeExpr(item.value),
+      };
+    }
+    if (item.kind === "Union") {
+      return {
+        kind: "Union",
+        exported: item.exported,
+        union: item.union,
+        name: item.name,
+        constructors: item.constructors.map(({ binding }) => ({
+          ...binding,
+          scheme: this.#publicScheme(this.#scheme(binding.symbol)),
+        })),
+        span: item.span,
+      };
+    }
     const scheme = this.#publicScheme(this.#scheme(item.binding.symbol));
     return item.kind === "Fun"
       ? {
@@ -735,6 +1074,46 @@ class Checker {
           value: this.#materializeExpr(item.value),
           span: item.span,
         };
+  }
+
+  #materializePattern(pattern: Resolved.Pattern): Typed.Pattern {
+    if (pattern.kind === "Wildcard") return pattern;
+    if (pattern.kind === "Constructor") {
+      return {
+        ...pattern,
+        arguments: pattern.arguments.map((argument) =>
+          this.#materializePattern(argument),
+        ),
+      };
+    }
+    if (pattern.kind === "Tuple") {
+      return {
+        ...pattern,
+        elements: pattern.elements.map((element) =>
+          this.#materializePattern(element),
+        ),
+      };
+    }
+    return {
+      kind: "Binding",
+      binding: {
+        ...pattern.binding,
+        scheme: this.#publicScheme(this.#scheme(pattern.binding.symbol)),
+      },
+      span: pattern.span,
+    };
+  }
+
+  #materializeUnion(union: Resolved.Union): Typed.Union {
+    return {
+      id: union.id,
+      name: union.name,
+      span: union.span,
+      constructors: union.constructors.map(({ binding }) => ({
+        ...binding,
+        scheme: this.#publicScheme(this.#scheme(binding.symbol)),
+      })),
+    };
   }
 
   #materializeExpr(expression: Resolved.Expr): Typed.Expr {
@@ -769,6 +1148,14 @@ class Checker {
                 },
           ),
         };
+      case "Tuple":
+        return {
+          ...expression,
+          type,
+          elements: expression.elements.map((element) =>
+            this.#materializeExpr(element),
+          ),
+        };
       case "Group":
         return { ...expression, type, expression: this.#materializeExpr(expression.expression) };
       case "Block":
@@ -787,6 +1174,19 @@ class Checker {
           ? common
           : { ...common, alternative: this.#materializeExpr(expression.alternative) };
       }
+      case "Match":
+        return {
+          kind: "Match",
+          scrutinee: this.#materializeExpr(expression.scrutinee),
+          arms: expression.arms.map((arm) => ({
+            ...arm,
+            pattern: this.#materializePattern(arm.pattern),
+            body: this.#materializeExpr(arm.body),
+          })),
+          union: this.#matchUnions.get(expression) ?? Resolved.unionId(0),
+          type,
+          span: expression.span,
+        };
       case "Call":
         return {
           ...expression,
@@ -794,8 +1194,15 @@ class Checker {
           callee: this.#materializeExpr(expression.callee),
           arguments: expression.arguments.map((argument) => this.#materializeExpr(argument)),
         };
-      case "Access":
-        return { ...expression, type, receiver: this.#materializeExpr(expression.receiver) };
+      case "Access": {
+        const tupleIndex = this.#tupleAccesses.get(expression);
+        return {
+          ...expression,
+          type,
+          receiver: this.#materializeExpr(expression.receiver),
+          ...(tupleIndex === undefined ? {} : { tupleIndex }),
+        };
+      }
       case "Index":
         return {
           ...expression,
@@ -964,6 +1371,10 @@ class Checker {
     if (actual.kind === "Error") return "<error>";
     if (actual.kind === "Constructor") return actual.name;
     if (actual.kind === "Variable") return `?${actual.id}`;
+    if (actual.kind === "Tuple") {
+      return `(${actual.elements.map((element) => this.#display(element)).join(", ")})`;
+    }
+    if (actual.kind === "Union") return actual.name;
     return (
       `(${actual.parameters.map((parameter) => this.#display(parameter)).join(", ")})` +
       ` -> ${this.#display(actual.result)}`

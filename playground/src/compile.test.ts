@@ -12,21 +12,26 @@ describe("compileSource", () => {
 
     expect(response.version).toBe(7);
     expect(response.diagnostics).toEqual([]);
+    expect(response.javascript).toContain(
+      "// Unions describe a closed set of alternatives.",
+    );
+    expect(response.javascript).toContain("const card = [10, Hearts];");
     expect(response.javascript).toContain("const greet =");
     expect(response.javascript).toContain("const plus =");
-    expect(response.javascript).toContain("function fact(n)");
-    expect(response.javascript).toContain("const answer =");
+    expect(response.javascript).toContain("function factorial(n)");
+    expect(response.javascript).toContain("const color =");
     expect(response.javascript).not.toContain("export { greet }");
     expect(response.typeScriptPreview).toContain("declare const greet");
-    expect(response.typeScriptPreview).toContain("declare function fact");
+    expect(response.typeScriptPreview).toContain("declare function factorial");
     expect(response.typeScriptPreview).not.toContain(
       "export declare const greet",
     );
     expect(response.types).toEqual([
+      { name: "card", displayedType: "(Int, Suit)" },
       { name: "greet", displayedType: "String -> String" },
       { name: "plus", displayedType: "(Int, Int) -> Int" },
-      { name: "fact", displayedType: "Int -> Int" },
-      { name: "answer", displayedType: "Int" },
+      { name: "factorial", displayedType: "Int -> Int" },
+      { name: "color", displayedType: "Suit -> String" },
     ]);
   });
 

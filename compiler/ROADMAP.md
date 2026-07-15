@@ -1,6 +1,6 @@
 # Hexagon Compiler Roadmap
 
-**Status:** Fourth thin compiler slice implemented through JavaScript and declaration emission.
+**Status:** Seventh thin compiler slice implemented through JavaScript and declaration emission.
 
 The compiler is built as a sequence of typed phase transformations. Each milestone must preserve the global naming doctrine in `architecture/naming.md` and the readability and commenting doctrine in `architecture/readability-and-comments.md`.
 
@@ -24,49 +24,49 @@ Transform physical tokens into a layout-aware stream containing virtual open, se
 
 ## 3. Parser
 
-**Expressions, bindings, primitive annotations, and direct recursive `fun` implemented; full grammar in progress.**
+**Expressions, bindings, tuple patterns, nullary union declarations and matches, primitive and tuple annotations, tuple values, and direct recursive `fun` implemented; full grammar in progress.**
 
 Transform layout-aware tokens into the parsed syntax tree. Implement declarations, expressions, patterns, type syntax, precedence, contextual forms, recovery, and source attribution.
 
 ## 4. Resolution and modules
 
-**Local bindings, direct self-recursion, and primitive annotation names implemented; hoisting, mutual recursion, modules, and declarations in progress.**
+**Local and pattern bindings, nullary union constructors, direct self-recursion, and primitive, tuple, and union annotations implemented; hoisting, mutual recursion, modules, and remaining declarations in progress.**
 
 Replace textual references with stable symbols. Implement scopes, imports, exports, companions, duplicate detection, shadowing rules, module graphs, cycle diagnostics, and topological ordering.
 
 ## 5. Type-system core
 
-**Primitive-and-function inference, primitive annotations, and monomorphic direct recursion implemented; rows and full constraints in progress.**
+**Primitive, tuple, nominal nullary-union, and function inference, corresponding annotations, and monomorphic direct recursion implemented; rows and full constraints in progress.**
 
 Implement Algorithm J, union-find type variables, levels and generalisation, type schemes, unification, rows, constraints, and stable type rendering for diagnostics.
 
 ## 6. Semantic checking
 
-**Expression-and-binding checks, primitive annotations, direct recursive functions, and pre-inference pipe rewriting implemented; full language in progress.**
+**Expression-and-binding checks, tuple-pattern irrefutability, exhaustive nullary-union matches, annotations, tuple access, direct recursive functions, and pre-inference pipe rewriting implemented; full language in progress.**
 
 Type-check expressions and declarations. Enforce value restriction, recursion, exhaustiveness, mutability and capture, constraints and instances, whole-program coherence, and FFI declaration validity.
 
 ## 7. Elaboration
 
-**First-round primitive, operator, interpolation, logic, and pipe slice implemented.**
+**First-round primitive, tuple, nullary-union match, operator, interpolation, logic, and pipe slice implemented.**
 
 Remove surface conveniences and make semantics explicit. Pipes have already become calls before inference; operators become constraint operations; numeric literals elaborate through `fromInt`; evidence becomes explicit where required; patterns lower to tests and bindings; high-level control forms reduce to the core language.
 
 ## 8. Core IR
 
-**Typed expression-and-binding representation, including recursive functions, implemented.**
+**Typed expression-and-binding representation, including patterns, structural tuples, nominal nullary unions, matches, and recursive functions, implemented.**
 
 Define a small typed representation oriented toward readable JavaScript without merely copying JavaScript syntax. Preserve resolved bindings, representation decisions, explicit evidence, control flow, and source attribution.
 
 ## 9. JavaScript emission
 
-**Experimental primitive-and-function slice, including function-declaration emission for direct recursion, implemented.**
+**Experimental primitive, tuple, nullary-union, match, and function slice, including function-declaration emission for direct recursion, implemented.**
 
 Emit readable ESM, source maps, direct primitive operations, records and unions, helpers, runtime imports, specialization, and deterministic output.
 
 ## 10. TypeScript declaration emission
 
-**Primitive and unconstrained-function declarations for `export let` and `export fun` implemented.**
+**Primitive, tuple, nullary-union, constructor, and unconstrained-function declarations implemented.**
 
 Emit the checked public surface as `.d.ts`: generics, records, unions, opaque types, runtime-owned values, FFI signatures, fundamental specializations, and public dictionaries.
 

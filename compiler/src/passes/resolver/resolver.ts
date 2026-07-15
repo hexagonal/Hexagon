@@ -37,6 +37,8 @@ class Scope {
 
 class Resolver {
   readonly #symbols: Resolved.Symbol[] = [];
+  readonly #unions: Resolved.Union[] = [];
+  readonly #unionNames = new Map<string, Resolved.UnionId>();
   readonly #pending: Parsed.Name[] = [];
   readonly #laterFunNames: Parsed.Name[][] = [];
   readonly #diagnostics: Diagnostics.Bag;
@@ -54,6 +56,8 @@ class Resolver {
       fileId: module.fileId,
       items,
       symbols: this.#symbols,
+      unions: this.#unions,
+      comments: module.comments,
       span: module.span,
       diagnostics: this.#diagnostics.toArray(),
     };
@@ -95,7 +99,73 @@ class Resolver {
           kind: "Let",
           exported: item.exported,
           binding,
+          ...(item.annotation === undefined
+            ? {}
+            : { annotation: this.#resolveTypeAnnotation(item.annotation) }),
           value,
+          span: item.span,
+        };
+      }
+      case "LetPattern": {
+        const names = parsedPatternNames(item.pattern);
+        this.#pending.push(...names);
+        const value = this.#resolveExpr(item.value, scope);
+        this.#pending.splice(this.#pending.length - names.length, names.length);
+        const seen = new Map<string, Resolved.Binding>();
+        const pattern = this.#resolvePattern(item.pattern, scope, seen, false);
+        return {
+          kind: "LetPattern",
+          exported: false,
+          pattern,
+          value,
+          span: item.span,
+        };
+      }
+      case "Union": {
+        const existingUnion = this.#unionNames.get(item.name.text);
+        if (existingUnion !== undefined) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `type \`${item.name.text}\` is already declared`,
+            primary: item.name.span,
+          });
+        }
+        const union = Resolved.unionId(this.#unions.length);
+        const seenConstructors = new Set<string>();
+        const constructors = item.constructors.map((constructor) => {
+          const existing = scope.lookup(constructor.name.text);
+          if (seenConstructors.has(constructor.name.text)) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `duplicate constructor \`${constructor.name.text}\``,
+              primary: constructor.span,
+            });
+          } else if (existing !== undefined) {
+            this.#reportRebinding(constructor.name, existing);
+          }
+          seenConstructors.add(constructor.name.text);
+          const binding = this.#declare(constructor.name, "constructor");
+          if (existing === undefined) {
+            scope.define(constructor.name.text, binding.symbol);
+          }
+          return { binding, span: constructor.span };
+        });
+        const declaration: Resolved.Union = {
+          id: union,
+          name: item.name.text,
+          span: item.name.span,
+          constructors,
+        };
+        this.#unions.push(declaration);
+        if (existingUnion === undefined) {
+          this.#unionNames.set(item.name.text, union);
+        }
+        return {
+          kind: "Union",
+          exported: item.exported,
+          union,
+          name: item.name.text,
+          constructors,
           span: item.span,
         };
       }
@@ -150,6 +220,13 @@ class Resolver {
                 },
           ),
         };
+      case "Tuple":
+        return {
+          ...expression,
+          elements: expression.elements.map((element) =>
+            this.#resolveExpr(element, scope),
+          ),
+        };
       case "Group":
         return {
           ...expression,
@@ -178,6 +255,25 @@ class Resolver {
               alternative: this.#resolveExpr(expression.alternative, scope),
             };
       }
+      case "Match":
+        return {
+          ...expression,
+          scrutinee: this.#resolveExpr(expression.scrutinee, scope),
+          arms: expression.arms.map((arm) => {
+            const armScope = new Scope(scope);
+            const pattern = this.#resolvePattern(
+              arm.pattern,
+              armScope,
+              new Map(),
+              true,
+            );
+            return {
+              ...arm,
+              pattern,
+              body: this.#resolveExpr(arm.body, armScope),
+            };
+          }),
+        };
       case "Call":
         return {
           ...expression,
@@ -227,6 +323,63 @@ class Resolver {
           value: this.#resolveExpr(expression.value, scope),
         };
     }
+  }
+
+  #resolvePattern(
+    pattern: Parsed.Pattern,
+    scope: Scope,
+    seen: Map<string, Resolved.Binding>,
+    head: boolean,
+  ): Resolved.Pattern {
+    if (pattern.kind === "Wildcard") return pattern;
+    if (pattern.kind === "Constructor") {
+      const symbol = scope.lookup(pattern.name.text);
+      if (symbol === undefined || this.#symbol(symbol).kind !== "constructor") {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `unknown constructor \`${pattern.name.text}\``,
+          primary: pattern.name.span,
+        });
+        return { kind: "Wildcard", span: pattern.span };
+      }
+      return {
+        kind: "Constructor",
+        symbol,
+        text: pattern.name.text,
+        arguments: pattern.arguments.map((argument) =>
+          this.#resolvePattern(argument, scope, seen, head),
+        ),
+        span: pattern.span,
+      };
+    }
+    if (pattern.kind === "Tuple") {
+      return {
+        ...pattern,
+        elements: pattern.elements.map((element) =>
+          this.#resolvePattern(element, scope, seen, head),
+        ),
+      };
+    }
+
+    const existing = scope.lookup(pattern.name.text);
+    const duplicate = seen.get(pattern.name.text);
+    if (duplicate !== undefined) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `\`${pattern.name.text}\` is bound twice in this pattern`,
+        primary: pattern.name.span,
+        labels: [{ span: duplicate.span, message: "first binding is here" }],
+      });
+    } else if (!head && existing !== undefined) {
+      this.#reportRebinding(pattern.name, existing);
+    }
+
+    const binding = this.#declare(pattern.name, head ? "pattern" : "let");
+    seen.set(pattern.name.text, binding);
+    if (duplicate === undefined && (head || existing === undefined)) {
+      scope.define(pattern.name.text, binding.symbol);
+    }
+    return { kind: "Binding", binding, span: pattern.span };
   }
 
   #resolveName(expression: Parsed.NameExpr, scope: Scope): Resolved.Expr {
@@ -312,6 +465,24 @@ class Resolver {
   #resolveTypeAnnotation(
     annotation: Parsed.TypeAnnotation,
   ): Resolved.TypeAnnotation {
+    if (annotation.kind === "Tuple") {
+      return {
+        kind: "Tuple",
+        elements: annotation.elements.map((element) =>
+          this.#resolveTypeAnnotation(element),
+        ),
+        span: annotation.span,
+      };
+    }
+    const union = this.#unionNames.get(annotation.name.text);
+    if (union !== undefined) {
+      return {
+        kind: "Union",
+        union,
+        name: annotation.name.text,
+        span: annotation.span,
+      };
+    }
     if (isPrimitiveName(annotation.name.text)) {
       return {
         kind: "Primitive",
@@ -323,8 +494,8 @@ class Resolver {
     this.#diagnostics.add({
       severity: "error",
       message:
-        `unknown type \`${annotation.name.text}\`; the second compiler slice ` +
-        "supports primitive type annotations only",
+        `unknown type \`${annotation.name.text}\`; this slice supports primitive, ` +
+        "tuple, and declared union types",
       primary: annotation.span,
     });
     return { kind: "ErrorType", span: annotation.span };
@@ -381,4 +552,17 @@ class Resolver {
 
 function isPrimitiveName(name: string): name is Resolved.PrimitiveName {
   return ["Int", "Float", "Bool", "String", "BigInt", "Unit"].includes(name);
+}
+
+function parsedPatternNames(pattern: Parsed.Pattern): Parsed.Name[] {
+  switch (pattern.kind) {
+    case "Binding":
+      return [pattern.name];
+    case "Wildcard":
+      return [];
+    case "Tuple":
+      return pattern.elements.flatMap(parsedPatternNames);
+    case "Constructor":
+      return pattern.arguments.flatMap(parsedPatternNames);
+  }
 }

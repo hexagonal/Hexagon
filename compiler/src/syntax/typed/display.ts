@@ -25,6 +25,12 @@ function displayType(
       return variables.get(type.id) ?? `t${Number(type.id)}`;
     case "Error":
       return "?";
+    case "Tuple":
+      return `(${type.elements.map((element) =>
+        displayType(element, variables)
+      ).join(", ")})`;
+    case "Union":
+      return type.name;
     case "Function": {
       const parameters = type.parameters.map((parameter) =>
         displayType(parameter, variables),
@@ -33,7 +39,8 @@ function displayType(
         parameters.length === 0
           ? "()"
           : parameters.length === 1
-            ? type.parameters[0]?.kind === "Function"
+            ? type.parameters[0]?.kind === "Function" ||
+                type.parameters[0]?.kind === "Tuple"
               ? `(${parameters[0]})`
               : parameters[0]!
             : `(${parameters.join(", ")})`;
@@ -73,7 +80,11 @@ function collectVariables(
       }
       collectVariables(type.result, variables);
       return;
+    case "Tuple":
+      for (const element of type.elements) collectVariables(element, variables);
+      return;
     case "Primitive":
+    case "Union":
     case "Error":
       return;
   }

@@ -151,5 +151,6 @@ export interface File {
   readonly fileId: Source.FileId;
   readonly tokens: readonly Token[];
   readonly newlines: readonly Newline[];
+  readonly comments: readonly Source.Comment[];
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }

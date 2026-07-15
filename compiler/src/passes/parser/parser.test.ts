@@ -133,8 +133,95 @@ describe("parse", () => {
       { kind: "Let", name: { text: "good" } },
     ]);
     expect(module.diagnostics.map(({ message }) => message)).toEqual([
-      "the second compiler slice supports primitive type names in annotations",
+      "expected a primitive or tuple type annotation",
     ]);
+  });
+
+  test("distinguishes tuple literals and types from grouping and parameters", () => {
+    const module = parseSource(
+      "let pair = (1, \"one\")\n" +
+        "let grouped = (1)\n" +
+        "let second(value: (String, Int)): Int = value.item2",
+    );
+
+    expect(module.items).toMatchObject([
+      { kind: "Let", value: { kind: "Tuple", elements: [{ kind: "Integer" }, { kind: "String" }] } },
+      { kind: "Let", value: { kind: "Group", expression: { kind: "Integer" } } },
+      {
+        kind: "Let",
+        value: {
+          kind: "Lambda",
+          parameters: [{ annotation: { kind: "Tuple", elements: [{ kind: "NamedType" }, { kind: "NamedType" }] } }],
+          returnAnnotation: { kind: "NamedType" },
+          body: { kind: "Access", field: { text: "item2" } },
+        },
+      },
+    ]);
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("parses tuple patterns as let binders", () => {
+    const module = parseSource("let (name, _, (x, y)) = (\"point\", true, (3, 4))");
+
+    expect(module.items).toMatchObject([
+      {
+        kind: "LetPattern",
+        pattern: {
+          kind: "Tuple",
+          elements: [
+            { kind: "Binding", name: { text: "name" } },
+            { kind: "Wildcard" },
+            {
+              kind: "Tuple",
+              elements: [
+                { kind: "Binding", name: { text: "x" } },
+                { kind: "Binding", name: { text: "y" } },
+              ],
+            },
+          ],
+        },
+      },
+    ]);
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("parses nullary unions and match expressions", () => {
+    const module = parseSource(
+      "union Suit =\n" +
+        "  | Clubs\n  | Diamonds\n  | Hearts\n  | Spades\n" +
+        "let color(suit: Suit): String = match suit\n" +
+        '  Clubs => "black"\n  Diamonds => "red"\n' +
+        '  Hearts => "red"\n  Spades => "black"',
+    );
+
+    expect(module.items).toMatchObject([
+      {
+        kind: "Union",
+        name: { text: "Suit" },
+        constructors: [
+          { name: { text: "Clubs" } },
+          { name: { text: "Diamonds" } },
+          { name: { text: "Hearts" } },
+          { name: { text: "Spades" } },
+        ],
+      },
+      {
+        kind: "Let",
+        value: {
+          kind: "Lambda",
+          body: {
+            kind: "Match",
+            arms: [
+              { pattern: { kind: "Constructor", name: { text: "Clubs" } } },
+              { pattern: { kind: "Constructor", name: { text: "Diamonds" } } },
+              { pattern: { kind: "Constructor", name: { text: "Hearts" } } },
+              { pattern: { kind: "Constructor", name: { text: "Spades" } } },
+            ],
+          },
+        },
+      },
+    ]);
+    expect(module.diagnostics).toEqual([]);
   });
 
   test("records module-level exported let bindings", () => {
