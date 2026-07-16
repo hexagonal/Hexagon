@@ -29,6 +29,8 @@ describe("compileSource", () => {
     );
     expect(response.types.map(({ name, displayedType }) => ({ name, displayedType }))).toEqual([
       { name: "card", displayedType: "(Int, Suit)" },
+      { name: "rank", displayedType: "Int" },
+      { name: "suit", displayedType: "Suit" },
       { name: "greet", displayedType: "String -> String" },
       { name: "plus", displayedType: "(Int, Int) -> Int" },
       { name: "factorial", displayedType: "Int -> Int" },
@@ -89,6 +91,29 @@ describe("compileSource", () => {
       startOffset: source.indexOf("answer"),
       endOffset: source.indexOf("answer") + "answer".length,
     });
+  });
+
+  test("returns inferred types and hover spans for tuple pattern bindings", () => {
+    const source = "let card = (10, \"hearts\")\nlet (rank, suit) = card\n";
+    const response = compileSource(11, source);
+
+    expect(response.kind).toBe("compile-success");
+    if (response.kind !== "compile-success") return;
+
+    expect(response.types.slice(1)).toEqual([
+      {
+        name: "rank",
+        displayedType: "Int",
+        startOffset: source.indexOf("rank"),
+        endOffset: source.indexOf("rank") + "rank".length,
+      },
+      {
+        name: "suit",
+        displayedType: "String",
+        startOffset: source.indexOf("suit"),
+        endOffset: source.indexOf("suit") + "suit".length,
+      },
+    ]);
   });
 
   test("returns bounded, de-duplicated diagnostics instead of partial output", () => {
