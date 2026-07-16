@@ -11,54 +11,14 @@ import type {
   SourceEditor,
 } from "./editor";
 import type { InferredBinding } from "./protocol";
+import { hexagonLanguage, hexagonTokens } from "./monaco-language";
 
 globalThis.MonacoEnvironment = {
   getWorker: () => new EditorWorker(),
 };
 
-const hexagonLanguage = "hexagon";
 monaco.languages.register({ id: hexagonLanguage, extensions: [".hex"] });
-monaco.languages.setMonarchTokensProvider(hexagonLanguage, {
-  keywords: [
-    "else",
-    "export",
-    "false",
-    "fun",
-    "if",
-    "let",
-    "match",
-    "then",
-    "true",
-    "union",
-  ],
-  operators: [
-    "+",
-    "-",
-    "*",
-    "/",
-    "++",
-    "==",
-    "!=",
-    "<",
-    ">",
-    "<=",
-    ">=",
-    "|>",
-  ],
-  tokenizer: {
-    root: [
-      [/\/\/.*$/u, "comment"],
-      [/[a-z][\p{L}\p{N}_]*/u, {
-        cases: { "@keywords": "keyword", "@default": "identifier" },
-      }],
-      [/[A-Z][\p{L}\p{N}_]*/u, "type.identifier"],
-      [/\d+(?:\.\d+)?n?/u, "number"],
-      [/"(?:[^"\\]|\\.)*"/u, "string"],
-      [/[()\[\]{},.:]/u, "delimiter"],
-      [/[+*/<>=!|-]+/u, "operator"],
-    ],
-  },
-});
+monaco.languages.setMonarchTokensProvider(hexagonLanguage, hexagonTokens);
 
 export interface MonacoEditors {
   readonly source: SourceEditor;
