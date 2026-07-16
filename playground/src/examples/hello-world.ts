@@ -41,6 +41,9 @@ let color(suit: Suit): String = match suit
   Diamonds => "red"
   Hearts => "red"
   Spades => "black"
+
+// Host console calls are explicit effects and return Unit.
+console.log(greet("Hexagon"))
 `,
   specificationReferences: [],
 };

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { insertIndentedLineBreak } from "./editor";
+import { insertIndentedLineBreak, supportsMonacoEditor } from "./editor";
 
 describe("insertIndentedLineBreak", () => {
   test("copies the current line's leading spaces", () => {
@@ -36,5 +36,13 @@ describe("insertIndentedLineBreak", () => {
       text: "  \n    value",
       caret: 5,
     });
+  });
+});
+
+describe("editor support", () => {
+  test("uses Monaco only with a desktop-sized fine pointer", () => {
+    expect(supportsMonacoEditor(true, 1280)).toBe(true);
+    expect(supportsMonacoEditor(false, 1280)).toBe(false);
+    expect(supportsMonacoEditor(true, 760)).toBe(false);
   });
 });

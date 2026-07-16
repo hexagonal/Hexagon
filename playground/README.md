@@ -2,12 +2,14 @@
 
 This folder will contain the browser-based Hexagon playground: an interactive place to write Hexagon, inspect what the compiler understood and emitted, and run the resulting JavaScript.
 
-The current slices compile live and expose errors, emitted JavaScript, an
+The current slices compile live, run the latest successful compilation, and expose errors, emitted JavaScript, an
 inspection-only TypeScript preview, and inferred top-level types. Primitive
 parameter and result annotations, directly recursive `fun`, and first-argument
-pipes are accepted, including partially annotated parameter lists.
-Program execution remains disabled until its sandbox and host-capability policy is
-implemented.
+pipes are accepted, including partially annotated parameter lists. The first host
+operation, `console.log(...)`, accepts any number of typed arguments, returns
+`Unit`, and writes to both the Output tab and the execution worker's browser console.
+Supported desktop browsers load Monaco asynchronously for Hexagon editing and
+read-only generated-code models; the textarea remains live until Monaco succeeds.
 
 ## Try it
 
@@ -17,8 +19,9 @@ npm install
 npm run dev
 ```
 
-Open the local address printed by Vite. Edit `main.hex`, then inspect **Errors**,
-**JS**, **.d.ts**, and **Types**. Top-level bindings do not need `export`: the
+Open the local address printed by Vite. Edit `main.hex`, inspect **Errors**,
+**JS**, **.d.ts**, and **Types**, then choose **Run**. The **Output** tab receives
+`console.log(...)` output. Top-level bindings do not need `export`: the
 `.d.ts` tab uses the compiler's inspection-only TypeScript preview while preserving
 ordinary Hexagon visibility. This path calls the compiler directly in a Web Worker;
 it does not use the language server or LSP.
@@ -31,6 +34,11 @@ The Theme selector offers **System**, **Dark**, and **Light**. System is the def
 and follows live operating-system colour-scheme changes. The selected preference is
 remembered in browser `localStorage`; if storage is unavailable, it still applies
 for the lifetime of the current page.
+
+Edited source is also restored from `localStorage`. A source-bearing Share URL takes
+precedence on startup, stores source entirely in the URL fragment, and therefore does
+not send program text to the static host. The Example selector offers only programs
+that pass the complete current compiler pipeline.
 
 ## GitHub Pages
 
@@ -70,11 +78,17 @@ On narrow screens the result panel moves below the source editor. The source alw
 
 ### Result tabs
 
-- **Output** shows text and values produced by executing the last successful compilation.
-- **Errors** shows structured compiler diagnostics and runtime failures. Selecting a compiler diagnostic focuses its source span; safe fix-its may be applied from here.
-- **JS** shows readable ECMAScript modules emitted by Hexagon.
+- **Output** shows captured `console.log(...)` lines plus execution completion,
+  timeout, and runtime-failure status. Calls also retain the worker's native browser
+  console behaviour for DevTools.
+- **Errors** shows structured compiler diagnostics. Selecting a diagnostic focuses
+  its exact source span; safe fix-its may be applied here when the compiler supplies
+  them in a future slice.
+- **JS** shows readable ECMAScript modules emitted by Hexagon in a read-only Monaco
+  model on supported desktop browsers.
 - **.d.ts** shows an inspection-only TypeScript preview for representable top-level
-  bindings. It does not promote private Hexagon bindings into public exports.
+  bindings, also in a read-only Monaco model. It does not promote private Hexagon
+  bindings into public exports.
 - **Types** shows a compact list of inferred top-level binding types.
 
 Compiler-development views such as Tokens, Parsed, Resolved, Typed, and Core may be added behind an **Internals** control. They are useful for teaching and implementation but must not crowd the normal language experience.
@@ -138,17 +152,31 @@ The compiler worker prevents analysis from blocking the editor. Each request and
 
 Editing compiles automatically after a short debounce. It never runs the program automatically: Hexagon programs may have effects. **Run** executes only the most recent successful compilation. When the current source contains errors, the UI visibly marks generated artefacts and output as belonging to an earlier version or clears them.
 
-Execution occurs outside the compiler worker. A runaway execution can be terminated by replacing its worker without losing the compiler state or editor contents. The complete execution security and host-capability policy must be decided before arbitrary programs are run in a deployed playground.
+Execution occurs outside the compiler worker. Every Run creates a fresh execution
+worker, and completion, failure, or the two-second timeout terminates it without
+losing compiler state or editor contents. The current accepted language surface
+exposes only the compiler-defined console operation; the host-capability policy must
+be revisited before broader FFI access can expose arbitrary browser facilities.
 
 ## Editor direction
 
-**Monaco Editor is the decided primary editor.** Hexagon wants the IDE-like experience it provides: diagnostics, hover, completion, definition navigation, semantic highlighting, and read-only JavaScript and `.d.ts` models. This deliberately gives the playground the same editor foundation and familiar feel as the TypeScript Playground and VS Code.
+**Monaco Editor is the primary desktop editor.** The current integration provides
+Hexagon tokenization, compiler-owned diagnostic markers, inferred-type hover on
+top-level binding names, and read-only JavaScript and `.d.ts` models. Completion and
+definition navigation remain later language-service slices. This gives the
+playground the same editor foundation and familiar feel as the TypeScript Playground
+and VS Code without moving language semantics into the UI.
 
-Use Monaco's supported ESM build. Do not build new integration against its deprecated AMD distribution. The dependency is not installed by this scaffold because the repository package manager and bundler remain open; choosing those tools will determine the exact worker and asset configuration, not whether Monaco is used.
+The integration uses Monaco's supported ESM build through Vite and a separately
+bundled editor worker, not its deprecated AMD distribution. Monaco is dynamically
+imported so it does not delay the textarea, compiler worker, or unsupported devices.
 
 Monaco does not officially support mobile browsers. The playground is therefore Monaco-first on supported desktop browsers and retains a plain textarea editor for mobile, unsupported environments, initial loading, or editor-startup failure. The fallback must still support source editing, compilation, diagnostics in the Errors tab, generated views, and explicit Run; richer inline language services may be unavailable there. Switching to or from the fallback must preserve the current source and source version.
 
-The present scaffold's textarea is that fallback, not a competing editor choice. Monaco replaces it in place when the editor integration initializes successfully.
+The textarea is that fallback, not a competing editor choice. One `SourceEditor`
+adapter owns source reads, changes, focus, selections, diagnostics, binding hovers,
+and theme changes across both implementations. Monaco replaces the textarea only
+after both source and generated-code editors initialize successfully.
 
 The editor adapter must consume compiler source positions through one explicit conversion boundary. It must not introduce a second position convention.
 
@@ -158,14 +186,15 @@ Curated examples are grouped by language concept and appear only once their comp
 
 Where practical, example source should be derived from or shared with conformance fixtures and book examples. The repository must avoid three manually copied versions that can drift independently.
 
-The initial `hello-world` example is accepted by the current vertical slices and
-provides a commented tour of unions, tuples and patterns, inferred and annotated
-functions, direct recursion, matching, strings, and arithmetic without requiring
-public exports.
+The curated set contains the initial `hello-world` tour plus focused recursion and
+union/match programs. Every example is compiler-tested and demonstrates a top-level
+`console.log(...)` effect without requiring public exports.
 
 ## Testing
 
-Pure playground state and protocol adapters use Vitest under the repository testing doctrine. Browser integration uses a distinct Vitest browser project once Monaco and the browser build exist.
+Pure playground state and protocol adapters use Vitest under the repository testing
+doctrine. The production build verifies Monaco's ESM and worker bundling. A distinct
+Vitest browser project remains the next step for automated DOM-level Monaco behavior.
 
 Tests must cover at least:
 
@@ -191,20 +220,32 @@ playground/
     protocol.ts
     compiler-worker.ts
     execution-worker.ts
+    diagnostics.ts
+    editor.ts
+    execution.ts
+    monaco.ts
+    persistence.ts
+    sharing.ts
     examples/
+      index.ts
       hello-world.ts
+      patterns.ts
+      recursion.ts
 ```
 
-The current UI is deliberately dependency-light. It establishes layout, tab semantics, state boundaries, and worker message contracts. Compilation runs through the complete compiler pipeline in a dedicated worker. Execution returns an explicit “not available” result until the safe runner exists.
+The current UI keeps compiler, editor, and execution ownership separate. Compilation
+runs through the complete compiler pipeline in a dedicated worker, Monaco uses its
+own editor worker, and explicit Run evaluates the latest successful JavaScript in a
+fresh execution worker with a two-second timeout.
 
 ## Initial delivery order
 
 1. Exercise the direct compiler loop with the textarea fallback.
-2. Render clickable structured diagnostics while preserving version-correct generated views.
-3. Integrate Monaco's ESM build while preserving the textarea fallback.
-4. Add hover and richer inferred-type presentation.
-5. Implement isolated explicit execution and captured output.
-6. Add curated examples, local persistence, and shareable URLs.
+2. **Implemented:** clickable structured diagnostics with exact source selection.
+3. **Implemented:** Monaco's ESM build with a lossless textarea fallback.
+4. **Implemented:** binding-span hovers, markers, and generated-code models.
+5. **Implemented:** isolated explicit execution with captured and native console output.
+6. **Implemented:** curated examples, local persistence, and shareable URLs.
 7. Add optional compiler-internal views for development and teaching.
 
 ## Decision record
@@ -213,6 +254,6 @@ The current UI is deliberately dependency-light. It establishes layout, tab sema
 
 - Monaco Editor is the primary supported desktop editor.
 - Integration uses Monaco's ESM build, not its deprecated AMD build.
-- The dependency is installed when the repository package manager and bundler are established.
+- Monaco is dynamically imported and its editor worker is bundled separately by Vite.
 - A plain textarea remains the mobile, unsupported-browser, loading, and failure fallback.
 - Both editor paths share one source state and compiler position-conversion boundary.

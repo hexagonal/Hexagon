@@ -73,6 +73,21 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
         ...expression,
         elements: expression.elements.map(elaborateExpr),
       };
+    case "Record":
+      return {
+        kind: "Record",
+        type: expression.type,
+        ...(expression.spread === undefined
+          ? {}
+          : { spread: elaborateExpr(expression.spread) }),
+        fields: expression.fields.map((field) => ({
+          name: field.name.text,
+          punned: field.punned,
+          value: elaborateExpr(field.value),
+          span: field.span,
+        })),
+        span: expression.span,
+      };
     case "Group":
       return elaborateExpr(expression.expression);
     case "Block":
@@ -96,14 +111,23 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
         ...expression,
         scrutinee: elaborateExpr(expression.scrutinee),
         arms: expression.arms.map((arm) => ({
-          ...arm,
+          pattern: arm.pattern,
+          ...(arm.guard === undefined
+            ? {}
+            : { guard: elaborateExpr(arm.guard) }),
           body: elaborateExpr(arm.body),
+          span: arm.span,
         })),
       };
     case "Call":
       return {
         ...expression,
         callee: elaborateExpr(expression.callee),
+        arguments: expression.arguments.map(elaborateExpr),
+      };
+    case "ConsoleLog":
+      return {
+        ...expression,
         arguments: expression.arguments.map(elaborateExpr),
       };
     case "LogicalNot":
@@ -137,15 +161,23 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
         span: expression.span,
       };
     case "Access":
-      return expression.tupleIndex === undefined
-        ? { kind: "ErrorExpr", type: expression.type, span: expression.span }
-        : {
+      return expression.tupleIndex !== undefined
+        ? {
             kind: "TupleAccess",
             receiver: elaborateExpr(expression.receiver),
             index: expression.tupleIndex,
             type: expression.type,
             span: expression.span,
-          };
+          }
+        : expression.recordField !== undefined
+          ? {
+              kind: "FieldAccess",
+              receiver: elaborateExpr(expression.receiver),
+              field: expression.recordField,
+              type: expression.type,
+              span: expression.span,
+            }
+          : { kind: "ErrorExpr", type: expression.type, span: expression.span };
     case "Index":
     case "Assignment":
       return { kind: "ErrorExpr", type: expression.type, span: expression.span };
@@ -191,6 +223,7 @@ function evidence(requirement: Typed.Constraint | undefined): Core.Evidence {
       return { kind: "Dictionary", variable: requirement.type.id };
     case "Function":
     case "Tuple":
+    case "Record":
     case "Union":
     case "Error":
       return { kind: "Error" };

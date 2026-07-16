@@ -31,6 +31,7 @@ export type PrimitiveName =
 export type TypeAnnotation =
   | PrimitiveTypeAnnotation
   | TupleTypeAnnotation
+  | RecordTypeAnnotation
   | UnionTypeAnnotation
   | ErrorTypeAnnotation;
 
@@ -43,6 +44,20 @@ export interface PrimitiveTypeAnnotation {
 export interface TupleTypeAnnotation {
   readonly kind: "Tuple";
   readonly elements: readonly TypeAnnotation[];
+  readonly span: Source.Span;
+}
+
+export interface RecordTypeAnnotation {
+  readonly kind: "Record";
+  readonly fields: readonly RecordTypeField[];
+  readonly open: boolean;
+  readonly tail?: string;
+  readonly span: Source.Span;
+}
+
+export interface RecordTypeField {
+  readonly name: string;
+  readonly annotation: TypeAnnotation;
   readonly span: Source.Span;
 }
 
@@ -120,7 +135,14 @@ export interface LetPatternItem {
 export type Pattern =
   | BindingPattern
   | WildcardPattern
+  | UnitPattern
+  | BooleanPattern
+  | IntegerPattern
+  | StringPattern
   | TuplePattern
+  | RecordPattern
+  | OrPattern
+  | AsPattern
   | ConstructorPattern;
 
 export interface BindingPattern {
@@ -134,9 +156,57 @@ export interface WildcardPattern {
   readonly span: Source.Span;
 }
 
+export interface UnitPattern {
+  readonly kind: "Unit";
+  readonly span: Source.Span;
+}
+
+export interface AsPattern {
+  readonly kind: "As";
+  readonly pattern: Pattern;
+  readonly binding: Binding;
+  readonly span: Source.Span;
+}
+
+export interface OrPattern {
+  readonly kind: "Or";
+  readonly alternatives: readonly Pattern[];
+  readonly span: Source.Span;
+}
+
+export interface BooleanPattern {
+  readonly kind: "Boolean";
+  readonly value: boolean;
+  readonly span: Source.Span;
+}
+
+export interface IntegerPattern {
+  readonly kind: "Integer";
+  readonly decimal: string;
+  readonly span: Source.Span;
+}
+
+export interface StringPattern {
+  readonly kind: "String";
+  readonly value: string;
+  readonly span: Source.Span;
+}
+
 export interface TuplePattern {
   readonly kind: "Tuple";
   readonly elements: readonly Pattern[];
+  readonly span: Source.Span;
+}
+
+export interface RecordPattern {
+  readonly kind: "Record";
+  readonly fields: readonly RecordPatternField[];
+  readonly span: Source.Span;
+}
+
+export interface RecordPatternField {
+  readonly name: string;
+  readonly pattern: Pattern;
   readonly span: Source.Span;
 }
 
@@ -165,6 +235,13 @@ export interface Union {
 
 export interface Constructor {
   readonly binding: Binding;
+  readonly slots: readonly ConstructorSlot[];
+  readonly span: Source.Span;
+}
+
+export interface ConstructorSlot {
+  readonly field: string;
+  readonly annotation: TypeAnnotation;
   readonly span: Source.Span;
 }
 
@@ -197,12 +274,14 @@ export type Expr =
   | FloatExpr
   | StringExpr
   | TupleExpr
+  | RecordExpr
   | GroupExpr
   | BlockExpr
   | LambdaExpr
   | IfExpr
   | MatchExpr
   | CallExpr
+  | ConsoleLogExpr
   | AccessExpr
   | IndexExpr
   | UnaryExpr
@@ -274,6 +353,20 @@ export interface TupleExpr {
   readonly span: Source.Span;
 }
 
+export interface RecordExpr {
+  readonly kind: "Record";
+  readonly spread?: Expr;
+  readonly fields: readonly RecordField[];
+  readonly span: Source.Span;
+}
+
+export interface RecordField {
+  readonly name: FieldName;
+  readonly punned: boolean;
+  readonly value: Expr;
+  readonly span: Source.Span;
+}
+
 export interface GroupExpr {
   readonly kind: "Group";
   readonly expression: Expr;
@@ -311,6 +404,7 @@ export interface MatchExpr {
 
 export interface MatchArm {
   readonly pattern: Pattern;
+  readonly guard?: Expr;
   readonly body: Expr;
   readonly span: Source.Span;
 }
@@ -318,6 +412,13 @@ export interface MatchArm {
 export interface CallExpr {
   readonly kind: "Call";
   readonly callee: Expr;
+  readonly arguments: readonly Expr[];
+  readonly span: Source.Span;
+}
+
+/** A call to the browser/JavaScript host console's variadic log operation. */
+export interface ConsoleLogExpr {
+  readonly kind: "ConsoleLog";
   readonly arguments: readonly Expr[];
   readonly span: Source.Span;
 }

@@ -115,8 +115,11 @@ Point      HTTP2      Résultat       -- UpperName
 
 - `_` is its own wildcard token. It is not a name. `_name` is invalid because a
   name must begin with a cased letter; underscore remains legal after the initial.
-- `$` is not an identifier character. Dollar-initial generated names belong to the
-  emitter and can never collide with Hexagon source.
+  Double-underscore names belong to compiler-generated local bindings and parameters
+  and can never collide with Hexagon source.
+- `$` is not an identifier character. Dollar-initial names are reserved for emitted
+  module helpers and JavaScript-compatibility bindings and can never collide with
+  Hexagon source.
 - Identifier escapes do not exist. `\u{...}` is a string escape only; a backslash
   in a name is an error.
 - Apostrophes are not identifier characters. ML-style `a'` names do not exist.

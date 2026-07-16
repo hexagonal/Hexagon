@@ -69,7 +69,13 @@ This keeps module semantics uniform: importing a module and running it as a root
 
 Command-line arguments, process exit, environment variables, filesystem access, browser globals, and similar facilities are host capabilities. They do not enter through a magic `main` signature.
 
-Portable Hexagon code receives such capabilities through explicit standard-library or FFI modules. The names and APIs of those modules belong to the standard-library and FFI work; this document fixes only that the root mechanism does not provide implicit parameters or process semantics.
+Portable Hexagon code receives such capabilities through explicit standard-library
+or FFI modules. The initial JavaScript target has one deliberately narrow baseline
+operation: `console.log(...)` is a compiler-known, variadic diagnostic effect that
+returns `Unit` and emits the same JavaScript spelling. It does not make other
+properties of the ambient `console` object available. The names and APIs of broader
+capabilities belong to the standard-library and FFI work; this document fixes only
+that the root mechanism does not provide implicit parameters or process semantics.
 
 A Node CLI adapter may translate an uncaught exception or failed compilation into a process exit status. That is CLI behaviour, not the type or return value of a Hexagon entry function.
 

@@ -31,6 +31,23 @@ describe("resolve", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  test("resolves the unshadowed host console operation explicitly", () => {
+    const module = resolveSource('console.log("hello", 42)');
+
+    expect(module.items[0]).toMatchObject({
+      kind: "ExprItem",
+      expression: {
+        kind: "ConsoleLog",
+        arguments: [
+          { kind: "String" },
+          { kind: "Integer", decimal: "42" },
+        ],
+      },
+    });
+    expect(module.symbols).toEqual([]);
+    expect(module.diagnostics).toEqual([]);
+  });
+
   test("diagnoses self-reference because let is non-recursive", () => {
     const module = resolveSource("let loop = x => loop(x)");
 
@@ -312,6 +329,11 @@ function visitExpr(
       return;
     case "Call":
       visitExpr(expression.callee, symbols, sourceLength);
+      for (const argument of expression.arguments) {
+        visitExpr(argument, symbols, sourceLength);
+      }
+      return;
+    case "ConsoleLog":
       for (const argument of expression.arguments) {
         visitExpr(argument, symbols, sourceLength);
       }

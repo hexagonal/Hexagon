@@ -15,7 +15,11 @@ install, no account to create, and no compiler server behind it. Edit the introd
 Hexagon program and immediately inspect its readable JavaScript, inferred types,
 TypeScript declaration preview, and any diagnostics. The opening tour demonstrates
 the implemented language subset, including tuples, pattern bindings, nullary unions,
-exhaustive matching, annotations, and recursive functions.
+exhaustive matching, annotations, and recursive functions. Run executes the latest
+successful compilation, with `console.log(...)` captured in the Output tab. Source
+is persisted locally, and curated examples and fragment-based Share URLs are built in.
+Supported desktop browsers get Monaco editing, exact compiler markers, inferred-type
+hovers, and read-only generated JavaScript and declaration models.
 
 One subject-first function, three equally static ways to call it:
 
@@ -32,7 +36,7 @@ or prototype lookup.
 > [!IMPORTANT]
 > Hexagon is under active design and implementation. The language specification is
 > about 95% complete, the reader-facing book has reached its first full draft, and
-> compiler construction has complete lexer and layout passes plus seven thin vertical
+> compiler construction has complete lexer and layout passes plus eight thin vertical
 > slices through parsing, name resolution, type checking, Core elaboration,
 > JavaScript emission, and declaration emission. Small programs in that subset,
 > including tuples, pattern bindings, nullary unions and matches, annotations, and

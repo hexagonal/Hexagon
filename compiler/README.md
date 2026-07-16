@@ -11,8 +11,12 @@ Emitted output` for a deliberate language subset.
 
 The initial parser supports module and nested block items, `let` bindings,
 module-level exports, function-header sugar and lambdas, directly recursive `fun`
-bindings and tuple patterns, primitive, tuple, and declared union annotations,
-tuple literals, nullary union declarations and matches, primitive literals and
+bindings plus nested tuple and structural-record patterns, primitive, tuple, structural-record,
+and declared union annotations, tuple and structural-record literals with construction
+punning, immutable record spread updates, payload union declarations and constructor
+patterns, primitive and negative Int/String/Bool pattern literals, Unit, nested
+or-patterns with shared bindings, and as-patterns,
+guarded match arms, direct tuple/record matching, and
 string interpolation, `then`-form and layout `if`, calls, field access,
 indexing, assignment, and the complete operator precedence table. Declaration
 families, patterns, and richer type syntax remain explicit future parser slices;
@@ -21,21 +25,28 @@ tree.
 
 The initial resolver assigns stable symbols to sequential `let` bindings, directly
 recursive `fun` bindings, and lambda parameters. It implements lexical block scopes
-and head-binder shadowing, resolves primitive, tuple, and union annotations, and
-assigns stable identities to nominal unions and their constructors. It
+and head-binder shadowing, resolves primitive, tuple, record, and union annotations, and
+assigns stable identities to nominal unions and their payload constructors. It
 diagnoses illegal `let` self-reference, unknown names and types, rebinding, duplicate
 parameters, and the deliberately deferred forward/mutual-recursion boundary.
 Modules, imports, companions, declaration scopes, capture-set hoisting, and mutual
 recursive groups remain later resolution slices.
 
 The initial checker implements the Hindley–Milner core with private union-find
-variables, n-ary function types, structural tuple types, nominal nullary-union
-types, tuple-pattern binding, exhaustive matching, let-generalisation, the
+variables, n-ary function types, structural tuple and open-row record types,
+nominal payload-union types, nested constructor-payload and record-pattern binding,
+primitive literal, Unit, structural, nested or-, and as-patterns, guarded arms,
+irrefutable single-constructor and exhaustive Bool/closed-union or-pattern
+destructuring, payload-sensitive exhaustive union/Bool/Unit matching with
+structural catch-all enforcement,
+let-generalisation, the
 value restriction, lambda monomorphism, primitive types, integer defaulting,
-operator and interpolation constraints, tuple access, conditionals, calls,
+operator and interpolation constraints, tuple and record access, exact/open record
+annotations with anonymous or named additional-field tails, immutable record updates,
+conditionals, calls,
 first-argument pipe insertion, and block sequencing. Typed syntax records an
-immutable type for every expression and a scheme for every binding. Rows,
-declarations, modules, mutation, richer annotations, full constraint evidence, and
+immutable type for every expression and a scheme for every binding. Declarations,
+modules, mutation, richer annotations, full constraint evidence, and
 the remaining surface forms are later checker slices. Primitive annotations
 constrain inference and are erased after checking rather than leaking into Core.
 Direct recursion uses one monotype inside its own body and generalizes only after
@@ -52,11 +63,14 @@ calls and the forms awaiting checker support remain later elaboration slices.
 The experimental emitter produces deterministic readable ESM and `.d.ts` text
 without performing filesystem writes. It emits private and exported bindings,
 functions, blocks, primitive operations, dictionary-backed generic bodies,
-conditionals, interpolation, tuple arrays and positional indexing, nullary union
-strings and `switch` matches, semantic helpers, short-circuiting comparison chains,
+conditionals, interpolation, tuple arrays and positional indexing, record objects
+and field access, nullary union strings, tagged payload unions and their
+single-constructor and exhaustive or-pattern destructuring, compact `switch`
+matches and ordered guarded/literal/structural/nested-or-pattern tests, semantic helpers,
+short-circuiting comparison chains,
 and recursive `fun` bindings as hoisted function declarations. Declarations cover
-exported primitives, tuples, nullary unions and their constructors, and unconstrained
-polymorphic functions. Payload and generic unions, source maps, generic call-site
+exported primitives, tuples, structural records, discriminated payload unions and
+their constructors, and unconstrained polymorphic functions. Generic unions, source maps, generic call-site
 evidence and specialization, constrained export ABI, imports, richer types, and the
 finalized portable target profile remain later emission slices.
 

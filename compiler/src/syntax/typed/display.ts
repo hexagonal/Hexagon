@@ -29,6 +29,15 @@ function displayType(
       return `(${type.elements.map((element) =>
         displayType(element, variables)
       ).join(", ")})`;
+    case "Record": {
+      const fields = type.fields.map(({ name, type: field }) =>
+        `${name}: ${displayType(field, variables)}`
+      );
+      if (type.tail !== undefined) {
+        fields.push(`...${variables.get(type.tail) ?? `t${Number(type.tail)}`}`);
+      }
+      return `{${fields.join(", ")}}`;
+    }
     case "Union":
       return type.name;
     case "Function": {
@@ -82,6 +91,10 @@ function collectVariables(
       return;
     case "Tuple":
       for (const element of type.elements) collectVariables(element, variables);
+      return;
+    case "Record":
+      for (const field of type.fields) collectVariables(field.type, variables);
+      if (type.tail !== undefined) variables.add(type.tail);
       return;
     case "Primitive":
     case "Union":

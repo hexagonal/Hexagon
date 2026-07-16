@@ -78,7 +78,14 @@ export interface LetPatternItem {
 export type Pattern =
   | BindingPattern
   | WildcardPattern
+  | UnitPattern
+  | BooleanPattern
+  | IntegerPattern
+  | StringPattern
   | TuplePattern
+  | RecordPattern
+  | OrPattern
+  | AsPattern
   | ConstructorPattern;
 
 export interface BindingPattern {
@@ -92,9 +99,57 @@ export interface WildcardPattern {
   readonly span: Source.Span;
 }
 
+export interface UnitPattern {
+  readonly kind: "Unit";
+  readonly span: Source.Span;
+}
+
+export interface AsPattern {
+  readonly kind: "As";
+  readonly pattern: Pattern;
+  readonly binding: Binding;
+  readonly span: Source.Span;
+}
+
+export interface OrPattern {
+  readonly kind: "Or";
+  readonly alternatives: readonly Pattern[];
+  readonly span: Source.Span;
+}
+
+export interface BooleanPattern {
+  readonly kind: "Boolean";
+  readonly value: boolean;
+  readonly span: Source.Span;
+}
+
+export interface IntegerPattern {
+  readonly kind: "Integer";
+  readonly decimal: string;
+  readonly span: Source.Span;
+}
+
+export interface StringPattern {
+  readonly kind: "String";
+  readonly value: string;
+  readonly span: Source.Span;
+}
+
 export interface TuplePattern {
   readonly kind: "Tuple";
   readonly elements: readonly Pattern[];
+  readonly span: Source.Span;
+}
+
+export interface RecordPattern {
+  readonly kind: "Record";
+  readonly fields: readonly RecordPatternField[];
+  readonly span: Source.Span;
+}
+
+export interface RecordPatternField {
+  readonly name: string;
+  readonly pattern: Pattern;
   readonly span: Source.Span;
 }
 
@@ -118,7 +173,17 @@ export interface Union {
   readonly id: Resolved.UnionId;
   readonly name: string;
   readonly span: Source.Span;
-  readonly constructors: readonly Binding[];
+  readonly constructors: readonly Constructor[];
+}
+
+export interface Constructor extends Binding {
+  readonly slots: readonly ConstructorSlot[];
+}
+
+export interface ConstructorSlot {
+  readonly field: string;
+  readonly type: Typed.Type;
+  readonly span: Source.Span;
 }
 
 export interface UnionItem {
@@ -126,7 +191,7 @@ export interface UnionItem {
   readonly exported: boolean;
   readonly union: Resolved.UnionId;
   readonly name: string;
-  readonly constructors: readonly Binding[];
+  readonly constructors: readonly Constructor[];
   readonly span: Source.Span;
 }
 
@@ -156,12 +221,15 @@ export type Expr =
   | StringExpr
   | TupleExpr
   | TupleAccessExpr
+  | RecordExpr
+  | FieldAccessExpr
   | ConvertIntExpr
   | BlockExpr
   | LambdaExpr
   | IfExpr
   | MatchExpr
   | CallExpr
+  | ConsoleLogExpr
   | LogicalNotExpr
   | LogicalExpr
   | ConstraintCallExpr
@@ -233,6 +301,18 @@ export interface TupleAccessExpr extends ExpressionFields {
   readonly index: number;
 }
 
+export interface RecordExpr extends ExpressionFields {
+  readonly kind: "Record";
+  readonly spread?: Expr;
+  readonly fields: readonly { readonly name: string; readonly punned: boolean; readonly value: Expr; readonly span: Source.Span }[];
+}
+
+export interface FieldAccessExpr extends ExpressionFields {
+  readonly kind: "FieldAccess";
+  readonly receiver: Expr;
+  readonly field: string;
+}
+
 /** A non-representationally-trivial `Num.fromInt` application. */
 export interface ConvertIntExpr extends ExpressionFields {
   readonly kind: "ConvertInt";
@@ -262,11 +342,12 @@ export interface MatchExpr extends ExpressionFields {
   readonly kind: "Match";
   readonly scrutinee: Expr;
   readonly arms: readonly MatchArm[];
-  readonly union: Resolved.UnionId;
+  readonly union?: Resolved.UnionId;
 }
 
 export interface MatchArm {
   readonly pattern: Pattern;
+  readonly guard?: Expr;
   readonly body: Expr;
   readonly span: Source.Span;
 }
@@ -274,6 +355,12 @@ export interface MatchArm {
 export interface CallExpr extends ExpressionFields {
   readonly kind: "Call";
   readonly callee: Expr;
+  readonly arguments: readonly Expr[];
+}
+
+/** An explicit effectful call to the JavaScript host console. */
+export interface ConsoleLogExpr extends ExpressionFields {
+  readonly kind: "ConsoleLog";
   readonly arguments: readonly Expr[];
 }
 
