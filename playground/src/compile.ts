@@ -45,18 +45,55 @@ export function compileSource(version: number, text: string): CompilerResponse {
 }
 
 function inferredBindings(module: Typed.Module): readonly InferredBinding[] {
-  return module.items.flatMap((item) =>
-    item.kind === "Let" || item.kind === "Fun"
-      ? [
-          {
-            name: item.binding.name,
-            displayedType: Typed.displayScheme(item.binding.scheme),
-            startOffset: item.binding.span.start.offset,
-            endOffset: item.binding.span.end.offset,
-          },
-        ]
-      : [],
-  );
+  const bindings: InferredBinding[] = [];
+  const seen = new Set<Typed.Binding["symbol"]>();
+  const publish = (binding: Typed.Binding): void => {
+    if (seen.has(binding.symbol)) return;
+    seen.add(binding.symbol);
+    bindings.push({
+      name: binding.name,
+      displayedType: Typed.displayScheme(binding.scheme),
+      startOffset: binding.span.start.offset,
+      endOffset: binding.span.end.offset,
+    });
+  };
+
+  for (const item of module.items) {
+    if (item.kind === "Let" || item.kind === "Fun") publish(item.binding);
+    if (item.kind === "LetPattern") visitPatternBindings(item.pattern, publish);
+  }
+  return bindings;
+}
+
+function visitPatternBindings(
+  pattern: Typed.Pattern,
+  visit: (binding: Typed.Binding) => void,
+): void {
+  switch (pattern.kind) {
+    case "Binding":
+      visit(pattern.binding);
+      return;
+    case "As":
+      visitPatternBindings(pattern.pattern, visit);
+      visit(pattern.binding);
+      return;
+    case "Or":
+      for (const alternative of pattern.alternatives) {
+        visitPatternBindings(alternative, visit);
+      }
+      return;
+    case "Tuple":
+      for (const element of pattern.elements) visitPatternBindings(element, visit);
+      return;
+    case "Record":
+      for (const field of pattern.fields) visitPatternBindings(field.pattern, visit);
+      return;
+    case "Constructor":
+      for (const argument of pattern.arguments) visitPatternBindings(argument, visit);
+      return;
+    default:
+      return;
+  }
 }
 
 function adaptDiagnostics(
