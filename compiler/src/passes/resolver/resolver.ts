@@ -131,6 +131,9 @@ class Resolver {
           });
         }
         const union = Resolved.unionId(this.#unions.length);
+        if (existingUnion === undefined) {
+          this.#unionNames.set(item.name.text, union);
+        }
         const seenConstructors = new Set<string>();
         const constructors = item.constructors.map((constructor) => {
           const existing = scope.lookup(constructor.name.text);
@@ -148,7 +151,15 @@ class Resolver {
           if (existing === undefined) {
             scope.define(constructor.name.text, binding.symbol);
           }
-          return { binding, span: constructor.span };
+          return {
+            binding,
+            slots: constructor.slots.map((slot, index) => ({
+              field: slot.name?.text ?? `item${index + 1}`,
+              annotation: this.#resolveTypeAnnotation(slot.annotation),
+              span: slot.span,
+            })),
+            span: constructor.span,
+          };
         });
         const declaration: Resolved.Union = {
           id: union,
@@ -157,9 +168,6 @@ class Resolver {
           constructors,
         };
         this.#unions.push(declaration);
-        if (existingUnion === undefined) {
-          this.#unionNames.set(item.name.text, union);
-        }
         return {
           kind: "Union",
           exported: item.exported,
@@ -227,6 +235,20 @@ class Resolver {
             this.#resolveExpr(element, scope),
           ),
         };
+      case "Record":
+        return {
+          kind: "Record",
+          ...(expression.spread === undefined
+            ? {}
+            : { spread: this.#resolveExpr(expression.spread, scope) }),
+          fields: expression.fields.map((field) => ({
+            name: { text: field.name.text, case: field.name.case, span: field.name.span },
+            punned: field.punned,
+            value: this.#resolveExpr(field.value, scope),
+            span: field.span,
+          })),
+          span: expression.span,
+        };
       case "Group":
         return {
           ...expression,
@@ -268,13 +290,25 @@ class Resolver {
               true,
             );
             return {
-              ...arm,
               pattern,
+              ...(arm.guard === undefined
+                ? {}
+                : { guard: this.#resolveExpr(arm.guard, armScope) }),
               body: this.#resolveExpr(arm.body, armScope),
+              span: arm.span,
             };
           }),
         };
       case "Call":
+        if (isUnshadowedConsoleLog(expression, scope)) {
+          return {
+            kind: "ConsoleLog",
+            arguments: expression.arguments.map((argument) =>
+              this.#resolveExpr(argument, scope),
+            ),
+            span: expression.span,
+          };
+        }
         return {
           ...expression,
           callee: this.#resolveExpr(expression.callee, scope),
@@ -330,8 +364,76 @@ class Resolver {
     scope: Scope,
     seen: Map<string, Resolved.Binding>,
     head: boolean,
+    sharedBindings?: ReadonlyMap<string, Resolved.Binding>,
   ): Resolved.Pattern {
-    if (pattern.kind === "Wildcard") return pattern;
+    if (
+      pattern.kind === "Wildcard" ||
+      pattern.kind === "Unit" ||
+      pattern.kind === "Boolean" ||
+      pattern.kind === "Integer" ||
+      pattern.kind === "String"
+    ) return pattern;
+    if (pattern.kind === "Or") {
+      const namesByAlternative = pattern.alternatives.map((alternative) =>
+        parsedPatternNames(alternative)
+      );
+      const expected = new Set(namesByAlternative[0]?.map(({ text }) => text));
+      for (const names of namesByAlternative.slice(1)) {
+        const actual = new Set(names.map(({ text }) => text));
+        for (const name of new Set([...expected, ...actual])) {
+          if (expected.has(name) !== actual.has(name)) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `\`${name}\` must be bound in every alternative of an or-pattern`,
+              primary: pattern.span,
+            });
+          }
+        }
+      }
+
+      const sourceNames = new Map<string, Parsed.Name>();
+      for (const name of namesByAlternative.flat()) {
+        if (!sourceNames.has(name.text)) sourceNames.set(name.text, name);
+      }
+      const shared = new Map(sharedBindings);
+      for (const [text, name] of sourceNames) {
+        if (shared.has(text)) continue;
+        const existing = scope.lookup(text);
+        if (!head && existing !== undefined) this.#reportRebinding(name, existing);
+        const binding = this.#declare(name, head ? "pattern" : "let");
+        shared.set(text, binding);
+        if (head || existing === undefined) scope.define(text, binding.symbol);
+      }
+      return {
+        kind: "Or",
+        alternatives: pattern.alternatives.map((alternative) =>
+          this.#resolvePattern(alternative, scope, new Map(), head, shared)
+        ),
+        span: pattern.span,
+      };
+    }
+    if (pattern.kind === "As") {
+      const nested = this.#resolvePattern(
+        pattern.pattern,
+        scope,
+        seen,
+        head,
+        sharedBindings,
+      );
+      const binder = this.#resolvePattern(
+        { kind: "Binding", name: pattern.name, span: pattern.name.span },
+        scope,
+        seen,
+        head,
+        sharedBindings,
+      );
+      return {
+        kind: "As",
+        pattern: nested,
+        binding: (binder as Resolved.BindingPattern).binding,
+        span: pattern.span,
+      };
+    }
     if (pattern.kind === "Constructor") {
       const symbol = scope.lookup(pattern.name.text);
       if (symbol === undefined || this.#symbol(symbol).kind !== "constructor") {
@@ -347,7 +449,7 @@ class Resolver {
         symbol,
         text: pattern.name.text,
         arguments: pattern.arguments.map((argument) =>
-          this.#resolvePattern(argument, scope, seen, head),
+          this.#resolvePattern(argument, scope, seen, head, sharedBindings),
         ),
         span: pattern.span,
       };
@@ -356,8 +458,25 @@ class Resolver {
       return {
         ...pattern,
         elements: pattern.elements.map((element) =>
-          this.#resolvePattern(element, scope, seen, head),
+          this.#resolvePattern(element, scope, seen, head, sharedBindings),
         ),
+      };
+    }
+    if (pattern.kind === "Record") {
+      return {
+        kind: "Record",
+        fields: pattern.fields.map((field) => ({
+          name: field.name.text,
+          pattern: this.#resolvePattern(
+            field.pattern,
+            scope,
+            seen,
+            head,
+            sharedBindings,
+          ),
+          span: field.span,
+        })),
+        span: pattern.span,
       };
     }
 
@@ -370,13 +489,18 @@ class Resolver {
         primary: pattern.name.span,
         labels: [{ span: duplicate.span, message: "first binding is here" }],
       });
-    } else if (!head && existing !== undefined) {
+    } else if (sharedBindings === undefined && !head && existing !== undefined) {
       this.#reportRebinding(pattern.name, existing);
     }
 
-    const binding = this.#declare(pattern.name, head ? "pattern" : "let");
+    const binding = sharedBindings?.get(pattern.name.text) ??
+      this.#declare(pattern.name, head ? "pattern" : "let");
     seen.set(pattern.name.text, binding);
-    if (duplicate === undefined && (head || existing === undefined)) {
+    if (
+      sharedBindings === undefined &&
+      duplicate === undefined &&
+      (head || existing === undefined)
+    ) {
       scope.define(pattern.name.text, binding.symbol);
     }
     return { kind: "Binding", binding, span: pattern.span };
@@ -474,6 +598,19 @@ class Resolver {
         span: annotation.span,
       };
     }
+    if (annotation.kind === "Record") {
+      return {
+        kind: "Record",
+        fields: annotation.fields.map((field) => ({
+          name: field.name.text,
+          annotation: this.#resolveTypeAnnotation(field.annotation),
+          span: field.span,
+        })),
+        open: annotation.open,
+        ...(annotation.tail === undefined ? {} : { tail: annotation.tail.text }),
+        span: annotation.span,
+      };
+    }
     const union = this.#unionNames.get(annotation.name.text);
     if (union !== undefined) {
       return {
@@ -550,6 +687,19 @@ class Resolver {
   }
 }
 
+/** Recognizes the one host-global operation admitted by this thin FFI slice. */
+function isUnshadowedConsoleLog(
+  expression: Parsed.CallExpr,
+  scope: Scope,
+): boolean {
+  const callee = expression.callee;
+  return callee.kind === "Access" &&
+    callee.receiver.kind === "Name" &&
+    callee.receiver.name.text === "console" &&
+    callee.field.text === "log" &&
+    scope.lookup("console") === undefined;
+}
+
 function isPrimitiveName(name: string): name is Resolved.PrimitiveName {
   return ["Int", "Float", "Bool", "String", "BigInt", "Unit"].includes(name);
 }
@@ -559,9 +709,21 @@ function parsedPatternNames(pattern: Parsed.Pattern): Parsed.Name[] {
     case "Binding":
       return [pattern.name];
     case "Wildcard":
+    case "Unit":
+    case "Boolean":
+    case "Integer":
+    case "String":
       return [];
+    case "As":
+      return [...parsedPatternNames(pattern.pattern), pattern.name];
+    case "Or":
+      return pattern.alternatives[0] === undefined
+        ? []
+        : parsedPatternNames(pattern.alternatives[0]);
     case "Tuple":
       return pattern.elements.flatMap(parsedPatternNames);
+    case "Record":
+      return pattern.fields.flatMap((field) => parsedPatternNames(field.pattern));
     case "Constructor":
       return pattern.arguments.flatMap(parsedPatternNames);
   }

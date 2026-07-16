@@ -142,6 +142,7 @@ export const describe = delivery => {
     case "Waiting": return "waiting";
     case "Sent": return `sent as ${delivery.tracking}`;
     case "Arrived": return "arrived";
+    default: throw new RangeError("Unexpected pattern.");
   }
 };
 ```
@@ -187,7 +188,9 @@ ordinary function composition that the Hexagon source expressed more fluently.
 
 Pattern matching likewise becomes tests, field reads, and local bindings. The compiler
 has already checked exhaustiveness and reachability, so it need not ship a runtime
-pattern engine or pattern objects.
+pattern engine or pattern objects. A small throwing default nevertheless protects
+JavaScript that is called outside its original typed context: an impossible value
+fails at the match instead of quietly producing `undefined`.
 
 ## Generated capabilities become ordinary code
 

@@ -16,6 +16,195 @@ import {
 } from "./emitter.js";
 
 describe("emitJavaScript", () => {
+  test("expands nested or-patterns and emits exhaustive or-pattern bindings", () => {
+    const module = coreSource(
+      "union Side = Left(value: Int) | Right(value: Int)\n" +
+        "union Box = Box(side: Side)\n" +
+        "fun unbox(box: Box): Int = match box\n" +
+        "  Box(Left(value) | Right(value)) => value\n" +
+        "let true | false = true\n" +
+        "let Left(amount) | Right(amount) = Left(42)",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const javascript = emitJavaScript(module).text;
+    expect(javascript).toContain(
+      '__match0.side.tag === "Left"',
+    );
+    expect(javascript).toContain(
+      'else if (__match0.tag === "Box" && __match0.side.tag === "Right")',
+    );
+    expect(javascript).toContain("let amount;");
+    expect(javascript).toContain("amount = __match1.value;");
+  });
+
+  test("emits negative, or, and single-constructor binding patterns", () => {
+    const module = coreSource(
+      "union Shape = Circle(radius: Float) | Rectangle(width: Float, height: Float) | Point\n" +
+        "fun measure(shape: Shape): Float = match shape\n" +
+        "  Circle(size) | Rectangle(size, _) when size > 0.0 => size\n" +
+        "  Circle(_) | Rectangle(_, _) => 0.0\n" +
+        "  Point => 0.0\n" +
+        "fun sign(value: Int): String = match value\n" +
+        '  -1 => "negative one"\n' +
+        '  _ => "other"\n' +
+        "union UserId = UserId(value: Int)\n" +
+        "let UserId(value) = UserId(42)",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const javascript = emitJavaScript(module).text;
+    expect(javascript).toContain('if (__match0.tag === "Circle")');
+    expect(javascript).toContain('else if (__match0.tag === "Rectangle")');
+    expect(javascript).toContain("if (__match1 === -1)");
+    expect(javascript).toContain("const { value } = UserId(42);");
+  });
+
+  test("emits Unit, as-pattern, tuple, and record matches through ordered tests", () => {
+    const unit = emitJavaScript(coreSource(
+      'fun describe(value: Unit): String = match value\n  () => "unit"',
+    )).text;
+    expect(unit).toContain("if (__match0 === undefined)");
+
+    const shape = emitJavaScript(coreSource(
+      "union Shape = Circle(radius: Float) | Point\n" +
+        "fun preserve(shape: Shape): Shape = match shape\n" +
+        "  Circle(_) as whole => whole\n" +
+        "  Point as whole => whole",
+    )).text;
+    expect(shape).toContain("const whole = __match0;");
+
+    const structural = emitJavaScript(coreSource(
+      'fun tupleLabel(pair: (Bool, Int)): String = match pair\n' +
+        '  (true, count) => "active"\n' +
+        '  (_, _) => "inactive"\n' +
+        'fun recordName(user: {name: String, active: Bool}): String = match user\n' +
+        '  {active: true, name} => name\n' +
+        '  {name} => name',
+    )).text;
+    expect(structural).toContain("if (__match0[0] === true)");
+    expect(structural).toContain("const count = __match0[1];");
+    expect(structural).toContain("if (__match1.active === true)");
+    expect(structural).toContain("const name = __match1.name;");
+  });
+
+  test("emits record construction punning as JavaScript shorthand", () => {
+    const module = coreSource(
+      'let guest = "Mira"\nlet seats = 3\nlet reservation = {guest, seats}',
+    );
+    expect(module.diagnostics).toEqual([]);
+    expect(emitJavaScript(module).text).toContain(
+      "const reservation = { guest, seats };",
+    );
+  });
+
+  test("emits literal matches and guarded constructor arms in source order", () => {
+    const primitive = coreSource(
+      'fun describe(flag: Bool): String = match flag\n  true => "yes"\n  false => "no"',
+    );
+    const primitiveJavaScript = emitJavaScript(primitive).text;
+    expect(primitiveJavaScript).toContain("if (__match0 === true)");
+    expect(primitiveJavaScript).toContain("if (__match0 === false)");
+
+    const guarded = coreSource(
+      "union Shape = Circle(radius: Float) | Point\n" +
+        "fun describe(shape: Shape): String = match shape\n" +
+        '  Circle(radius) when radius > 0.0 => "positive"\n' +
+        '  Circle(_) => "circle"\n' +
+        '  Point => "point"',
+    );
+    expect(guarded.diagnostics).toEqual([]);
+    const guardedJavaScript = emitJavaScript(guarded).text;
+    expect(guardedJavaScript).toContain(
+      'if (__match0.tag === "Circle")',
+    );
+    expect(guardedJavaScript).toContain("const radius = __match0.radius;");
+    expect(guardedJavaScript).toContain(
+      "if ($hexCompareFloat(radius, 0.0) > 0)",
+    );
+  });
+
+  test("emits nested tuple and renamed record constructor patterns", () => {
+    const module = coreSource(
+      "union Result = Ok(value: (String, Int)) | Err(error: {context: {message: String}, code: Int})\n" +
+        "export fun describe(result: Result): String = match result\n" +
+        "  Ok((name, _)) => name\n" +
+        "  Err({context: {message: reason}}) => reason",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const javascript = emitJavaScript(module).text;
+    expect(javascript).toContain("const [name, ] = __match0.value;");
+    expect(javascript).toContain(
+      "const { context: { message: reason } } = __match0.error;",
+    );
+  });
+
+  test("renders shared named record tails in TypeScript declarations", () => {
+    const module = coreSource(
+      'export fun rename(r: {guest: String, ...rest}): {guest: String, ...rest} = {...r, guest: "Renamed"}',
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    expect(emitDeclarations(module).text).toContain(
+      "export declare function rename<a>(r: ({ guest: string } & a)): ({ guest: string } & a);",
+    );
+  });
+
+  test("emits annotated record updates and open record destructuring readably", () => {
+    const module = coreSource(
+      "export let origin: {x: Float, y: Float} = {x: 0.0, y: 0.0}\n" +
+        "fun move(p: {x: Float, y: Float}): {x: Float, y: Float} = {...p, x: p.x + 1.0}\n" +
+        "let moved = move(origin)\n" +
+        "let {x, y} = moved",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    expect(emitJavaScript(module).text).toBe(
+      "const origin = { x: 0.0, y: 0.0 };\n" +
+        "function move(p) {\n" +
+        "  return { ...p, x: p.x + 1.0 };\n" +
+        "}\n" +
+        "const moved = move(origin);\n" +
+        "const { x, y } = moved;\n" +
+        "export { origin };\n",
+    );
+    expect(emitDeclarations(module).text).toBe(
+      "export declare const origin: { x: number; y: number };\n",
+    );
+  });
+
+  test("emits payload unions, constructor patterns, and structural row-polymorphic records", () => {
+    const module = coreSource(
+      "export union Shape = Circle(radius: Float) | Point\n" +
+        "fun xOf(r) = r.x\n" +
+        "let point = {x: 3, y: 4}\n" +
+        "let x = xOf(point)\n" +
+        "export fun radius(shape: Shape): Float = match shape\n" +
+        "  Circle(value) => value\n" +
+        "  Point => 0.0",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    expect(emitJavaScript(module).text).toContain(
+      'const Circle = (radius) => ({ tag: "Circle", radius: radius });',
+    );
+    expect(emitJavaScript(module).text).toContain("const point = { x: 3, y: 4 };");
+    expect(emitJavaScript(module).text).toContain("const value = __match0.radius;");
+    expect(emitDeclarations(module).text).toContain(
+      'export type Shape = { tag: "Circle"; radius: number } | { tag: "Point" };',
+    );
+  });
+
+  test("emits the host console operation as ordinary readable JavaScript", () => {
+    const module = coreSource('console.log("answer", 42, true)');
+
+    expect(emitJavaScript(module)).toMatchObject({
+      text: 'console.log("answer", 42, true);\n',
+      diagnostics: [],
+    });
+  });
+
   test("emits tuples as arrays, positional access, and TypeScript tuple types", () => {
     const module = coreSource(
       'export let pair: (String, Int) = ("answer", 42)\n' +
@@ -68,15 +257,14 @@ describe("emitJavaScript", () => {
         'const Hearts = "Hearts";\n' +
         'const Spades = "Spades";\n' +
         "const card = [10, Hearts];\n" +
-        "const color = suit => (() => {\n" +
-        "  const __match0 = suit;\n" +
-        "  switch (__match0) {\n" +
+        "const color = suit => {\n" +
+        "  switch (suit) {\n" +
         '    case "Clubs":\n      return "black";\n' +
         '    case "Diamonds":\n      return "red";\n' +
         '    case "Hearts":\n      return "red";\n' +
         '    case "Spades":\n      return "black";\n' +
         '    default:\n      throw new RangeError("Unexpected pattern.");\n' +
-        "  }\n})();\n" +
+        "  }\n};\n" +
         "export { Clubs };\nexport { Diamonds };\n" +
         "export { Hearts };\nexport { Spades };\n" +
         "export { card };\nexport { color };\n",
@@ -101,8 +289,65 @@ describe("emitJavaScript", () => {
 
     const output = emitJavaScript(module);
 
+    expect(output.text).toContain("switch (suit) {");
+    expect(output.text).not.toContain("__match");
     expect(output.text.match(/default:/gu)).toHaveLength(1);
     expect(output.text).not.toContain("Unexpected pattern.");
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("names a scrutinee only when a match arm binds the whole value", () => {
+    const module = coreSource(
+      "union Suit = Clubs | Spades\n" +
+        "let identity(suit: Suit): Suit = match suit\n" +
+        "  whole => whole",
+    );
+
+    const output = emitJavaScript(module);
+
+    expect(output.text).toContain("const __match0 = suit;");
+    expect(output.text).toContain("switch (__match0) {");
+    expect(output.text).toContain("const whole = __match0;");
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("keeps an IIFE only when a match must remain an expression", () => {
+    const module = coreSource(
+      "union Suit = Clubs | Spades\n" +
+        "let suit = Clubs\n" +
+        "let color: String = match suit\n" +
+        '  Clubs => "black"\n' +
+        '  Spades => "black"',
+    );
+
+    expect(emitJavaScript(module).text).toContain(
+      "const color = (() => {\n" +
+        "  switch (suit) {\n" +
+        '    case "Clubs":\n      return "black";\n' +
+        '    case "Spades":\n      return "black";\n' +
+        '    default:\n      throw new RangeError("Unexpected pattern.");\n' +
+        "  }\n})();",
+    );
+  });
+
+  test("emits a final block match as direct control flow", () => {
+    const module = coreSource(
+      "union Suit = Clubs | Spades\n" +
+        "let color(suit: Suit): String =\n" +
+        "  let selected = suit\n" +
+        "  match selected\n" +
+        '    Clubs => "black"\n' +
+        '    Spades => "black"',
+    );
+
+    const output = emitJavaScript(module);
+
+    expect(output.text).toContain(
+      "const color = suit => {\n" +
+        "  const selected = suit;\n" +
+        "  switch (selected) {",
+    );
+    expect(output.text).not.toContain("(() =>");
     expect(output.diagnostics).toEqual([]);
   });
 
@@ -265,8 +510,8 @@ describe("emitJavaScript", () => {
     const output = emitJavaScript(coreSource("let addOne = x => x + 1"));
 
     expect(output.text).toBe(
-      "const addOne = ($dictNum1, x) => " +
-        "$dictNum1.add(x, $dictNum1.fromInt(1));\n",
+      "const addOne = (__dictNum_1, x) => " +
+        "__dictNum_1.add(x, __dictNum_1.fromInt(1));\n",
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -311,11 +556,11 @@ describe("emitJavaScript", () => {
 
     expect(output.text).toBe(
       "const bounded = (() => {\n" +
-        "  const $compare0 = 1;\n" +
-        "  const $compare1 = 2;\n" +
-        "  if (!($compare0 < $compare1)) return false;\n" +
-        "  const $compare2 = 3;\n" +
-        "  return $compare1 <= $compare2;\n" +
+        "  const __compare0 = 1;\n" +
+        "  const __compare1 = 2;\n" +
+        "  if (!(__compare0 < __compare1)) return false;\n" +
+        "  const __compare2 = 3;\n" +
+        "  return __compare1 <= __compare2;\n" +
         "})();\n",
     );
     expect(output.diagnostics).toEqual([]);
@@ -359,10 +604,10 @@ describe("emitJavaScript", () => {
       "const logic = !false && true || false;",
     );
     expect(output.text).toMatch(
-      /const display = \(\$dictShow\d+, x\) => \$dictShow\d+\.show\(x\);/u,
+      /const display = \(__dictShow_\d+, x\) => __dictShow_\d+\.show\(x\);/u,
     );
     expect(output.text).toMatch(
-      /const equal = \(\$dictEq\d+, x\) => \$dictEq\d+\.equals\(x, x\);/u,
+      /const equal = \(__dictEq_\d+, x\) => __dictEq_\d+\.equals\(x, x\);/u,
     );
     expect(output.diagnostics).toEqual([]);
   });

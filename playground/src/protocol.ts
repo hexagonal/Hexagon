@@ -21,6 +21,8 @@ export interface PlaygroundDiagnostic {
 export interface InferredBinding {
   readonly name: string;
   readonly displayedType: string;
+  readonly startOffset: number;
+  readonly endOffset: number;
 }
 
 export interface CompileSuccess {
@@ -50,15 +52,20 @@ export interface ExecuteRequest {
 export interface ExecuteSuccess {
   readonly kind: "execute-success";
   readonly version: number;
-  readonly output: readonly string[];
+}
+
+export interface ExecuteOutput {
+  readonly kind: "execute-output";
+  readonly version: number;
+  readonly line: string;
 }
 
 export interface ExecuteFailure {
   readonly kind: "execute-failure";
   readonly version: number;
   readonly message: string;
-  readonly output: readonly string[];
 }
 
 export type ExecutionRequest = ExecuteRequest;
 export type ExecutionResponse = ExecuteSuccess | ExecuteFailure;
+export type ExecutionEvent = ExecuteOutput | ExecutionResponse;

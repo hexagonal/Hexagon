@@ -51,6 +51,8 @@ function inferredBindings(module: Typed.Module): readonly InferredBinding[] {
           {
             name: item.binding.name,
             displayedType: Typed.displayScheme(item.binding.scheme),
+            startOffset: item.binding.span.start.offset,
+            endOffset: item.binding.span.end.offset,
           },
         ]
       : [],

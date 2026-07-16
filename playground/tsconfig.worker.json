@@ -7,7 +7,12 @@
     "src/compile.ts",
     "src/compile.test.ts",
     "src/compiler-worker.ts",
+    "src/diagnostics.test.ts",
+    "src/execution.test.ts",
     "src/execution-worker.ts",
-    "src/protocol.ts"
+    "src/examples/examples.test.ts",
+    "src/persistence.test.ts",
+    "src/protocol.ts",
+    "src/sharing.test.ts"
   ]
 }

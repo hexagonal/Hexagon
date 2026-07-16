@@ -30,6 +30,7 @@ type EvidenceNames = ReadonlyMap<string, string>;
 class JavaScriptEmitter {
   readonly #diagnostics = new Diagnostics.Bag();
   readonly #symbols = new Map<Resolved.SymbolId, Core.Symbol>();
+  readonly #constructors = new Map<Resolved.SymbolId, { constructor: Core.Constructor; tagged: boolean }>();
   #nextMatch = 0;
   readonly #helpers = new Set<Helper>();
   readonly #exports: string[] = [];
@@ -39,6 +40,12 @@ class JavaScriptEmitter {
     this.#module = module;
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
     for (const symbol of module.symbols) this.#symbols.set(symbol.id, symbol);
+    for (const union of module.unions) {
+      const tagged = union.constructors.some(({ slots }) => (slots?.length ?? 0) > 0);
+      for (const constructor of union.constructors) {
+        this.#constructors.set(constructor.symbol, { constructor, tagged });
+      }
+    }
   }
 
   emit(): Emitted.JavaScript {
@@ -91,18 +98,62 @@ class JavaScriptEmitter {
     const prefix = indent(depth);
     if (item.kind === "ErrorItem") return [`${prefix}undefined;`];
     if (item.kind === "ExprItem") {
+      if (returnFinal) {
+        return this.#emitReturn(item.expression, depth, evidenceNames);
+      }
       const expression = this.#emitExpr(item.expression, depth, evidenceNames);
-      return [
-        returnFinal ? `${prefix}return ${expression};` : `${prefix}${expression};`,
-      ];
+      return [`${prefix}${expression};`];
     }
 
     if (item.kind === "LetPattern") {
-      const pattern = this.#emitPattern(item.pattern);
       const value = this.#emitExpr(item.value, depth, evidenceNames);
-      return [`${prefix}const ${pattern} = ${value};`];
+      const alternatives = expandOrPatterns(item.pattern);
+      if (alternatives.length > 1) {
+        const bindings = patternBindings(item.pattern);
+        if (bindings.length === 0) return [`${prefix}${value};`];
+        const matchName = `__match${this.#nextMatch++}`;
+        const names = bindings.map((binding) =>
+          this.#identifier(binding.symbol, binding.name)
+        );
+        const lines = [
+          `${prefix}const ${matchName} = ${value};`,
+          `${prefix}let ${names.join(", ")};`,
+        ];
+        alternatives.forEach((alternative, index) => {
+          const plan = this.#emitPatternPlan(alternative, matchName);
+          const condition = plan.tests.length === 0
+            ? "true"
+            : plan.tests.join(" && ");
+          lines.push(`${prefix}${index === 0 ? "if" : "else if"} (${condition}) {`);
+          for (const binding of plan.bindings) {
+            lines.push(`${indent(depth + 1)}${binding.replace(/^const /, "")}`);
+          }
+          lines.push(`${prefix}}`);
+        });
+        lines.push(
+          `${prefix}else { throw new RangeError("Unexpected irrefutable pattern."); }`,
+        );
+        return lines;
+      }
+      if (item.pattern.kind === "Unit") return [`${prefix}${value};`];
+      if (item.pattern.kind === "As") {
+        const name = this.#identifier(
+          item.pattern.binding.symbol,
+          item.pattern.binding.name,
+        );
+        const nested = this.#emitPattern(item.pattern.pattern);
+        return [
+          `${prefix}const ${name} = ${value};`,
+          ...(nested === "" ? [] : [`${prefix}const ${nested} = ${name};`]),
+        ];
+      }
+      const pattern = this.#emitPattern(item.pattern);
+      return pattern === ""
+        ? [`${prefix}${value};`]
+        : [`${prefix}const ${pattern} = ${value};`];
     }
     if (item.kind === "Union") {
+      const tagged = item.constructors.some(({ slots }) => (slots?.length ?? 0) > 0);
       const lines = item.constructors.map((constructor) => {
         const name = this.#identifier(constructor.symbol, constructor.name);
         if (item.exported && depth === 0) {
@@ -112,7 +163,15 @@ class JavaScriptEmitter {
               : `export { ${name} as ${constructor.name} };`,
           );
         }
-        return `${prefix}const ${name} = ${JSON.stringify(constructor.name)};`;
+        const slots = constructor.slots ?? [];
+        if (slots.length > 0) {
+          const parameters = slots.map(({ field }) => field);
+          const fields = slots.map(({ field }) => `${field}: ${field}`);
+          return `${prefix}const ${name} = (${parameters.join(", ")}) => ({ tag: ${JSON.stringify(constructor.name)}, ${fields.join(", ")} });`;
+        }
+        return tagged
+          ? `${prefix}const ${name} = { tag: ${JSON.stringify(constructor.name)} };`
+          : `${prefix}const ${name} = ${JSON.stringify(constructor.name)};`;
       });
       return lines;
     }
@@ -138,12 +197,48 @@ class JavaScriptEmitter {
         );
       case "Wildcard":
         return "";
+      case "Unit":
+        return "";
+      case "As":
+        return this.#emitPattern(pattern.pattern);
+      case "Or":
+        return this.#emitPattern(pattern.alternatives[0] ?? {
+          kind: "Wildcard",
+          span: pattern.span,
+        });
+      case "Boolean":
+        return String(pattern.value);
+      case "Integer":
+        return cleanNumber(pattern.decimal);
+      case "String":
+        return JSON.stringify(pattern.value);
       case "Tuple":
         return `[${pattern.elements.map((element) =>
           this.#emitPattern(element)
         ).join(", ")}]`;
-      case "Constructor":
-        return pattern.text;
+      case "Record": {
+        const fields = pattern.fields.flatMap((field) => {
+          const emitted = this.#emitPattern(field.pattern);
+          if (emitted === "") return [];
+          return [field.pattern.kind === "Binding" &&
+              emitted === field.name
+            ? field.name
+            : `${field.name}: ${emitted}`];
+        });
+        return fields.length === 0 ? "" : `{ ${fields.join(", ")} }`;
+      }
+      case "Constructor": {
+        const fields = pattern.arguments.flatMap((argument, index) => {
+          const field = this.#constructors.get(pattern.symbol)?.constructor
+            .slots[index]?.field ?? `item${index + 1}`;
+          const emitted = this.#emitPattern(argument);
+          if (emitted === "") return [];
+          return [argument.kind === "Binding" && emitted === field
+            ? field
+            : `${field}: ${emitted}`];
+        });
+        return fields.length === 0 ? "" : `{ ${fields.join(", ")} }`;
+      }
     }
   }
 
@@ -179,7 +274,7 @@ class JavaScriptEmitter {
     const localEvidence = new Map(evidenceNames);
     const dictionaryParameters = dictionaryEntries(item.binding.scheme).map(
       ({ constraint, variable }) => {
-        const dictionary = `$dict${constraint}${Number(variable)}`;
+        const dictionary = dictionaryParameterName(constraint, variable);
         localEvidence.set(evidenceKey(variable, constraint), dictionary);
         return dictionary;
       },
@@ -198,13 +293,7 @@ class JavaScriptEmitter {
           depth + 1,
           localEvidence,
         )
-      : [
-          `${indent(depth + 1)}return ${this.#emitExpr(
-            item.value.body,
-            depth + 1,
-            localEvidence,
-          )};`,
-        ];
+      : this.#emitReturn(item.value.body, depth + 1, localEvidence);
     return [head, ...body, `${prefix}}`];
   }
 
@@ -220,7 +309,7 @@ class JavaScriptEmitter {
     const localEvidence = new Map(evidenceNames);
     const dictionaryParameters = dictionaryEntries(item.binding.scheme).map(
       ({ constraint, variable }) => {
-        const name = `$dict${constraint}${Number(variable)}`;
+        const name = dictionaryParameterName(constraint, variable);
         localEvidence.set(evidenceKey(variable, constraint), name);
         return name;
       },
@@ -260,11 +349,27 @@ class JavaScriptEmitter {
         return `[${expression.elements.map((element) =>
           this.#emitExpr(element, depth, evidenceNames)
         ).join(", ")}]`;
+      case "Record":
+        return `{ ${[
+          ...(expression.spread === undefined
+            ? []
+            : [`...${this.#emitExpr(expression.spread, depth, evidenceNames)}`]),
+          ...expression.fields.map((field) =>
+            field.punned && field.value.kind === "Name" &&
+                this.#identifier(field.value.symbol, field.value.text) === field.name
+              ? field.name
+              : `${field.name}: ${this.#emitExpr(field.value, depth, evidenceNames)}`
+          ),
+        ].join(", ")} }`;
       case "TupleAccess":
         return (
           `${this.#emitOperand(expression.receiver, Precedence.Call, depth, evidenceNames)}` +
           `[${expression.index}]`
         );
+      case "FieldAccess":
+        return expression.receiver.kind === "Record"
+          ? `(${this.#emitExpr(expression.receiver, depth, evidenceNames)}).${expression.field}`
+          : `${this.#emitOperand(expression.receiver, Precedence.Call, depth, evidenceNames)}.${expression.field}`;
       case "Block":
         return this.#emitBlockExpression(expression, depth, evidenceNames);
       case "Lambda":
@@ -292,6 +397,10 @@ class JavaScriptEmitter {
         return this.#emitMatch(expression, depth, evidenceNames);
       case "Call":
         return this.#emitCall(expression, depth, evidenceNames);
+      case "ConsoleLog":
+        return `console.log(${expression.arguments.map((argument) =>
+          this.#emitExpr(argument, depth, evidenceNames)
+        ).join(", ")})`;
       case "LogicalNot":
         return `!${this.#emitOperand(expression.operand, Precedence.Unary, depth, evidenceNames)}`;
       case "Logical": {
@@ -354,6 +463,14 @@ class JavaScriptEmitter {
         : `(${parameters.join(", ")}) =>`;
 
     if (expression.body.kind !== "Block") {
+      if (expression.body.kind === "Match") {
+        const lines = this.#emitReturn(
+          expression.body,
+          depth + 1,
+          evidenceNames,
+        );
+        return `${head} {\n${lines.join("\n")}\n${indent(depth)}}`;
+      }
       return `${head} ${this.#emitExpr(expression.body, depth, evidenceNames)}`;
     }
 
@@ -388,6 +505,19 @@ class JavaScriptEmitter {
     return items.flatMap((item, index) =>
       this.#emitItem(item, depth, evidenceNames, index === items.length - 1),
     );
+  }
+
+  #emitReturn(
+    expression: Core.Expr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string[] {
+    if (expression.kind === "Match") {
+      return this.#emitReturningMatch(expression, depth, evidenceNames);
+    }
+    return [
+      `${indent(depth)}return ${this.#emitExpr(expression, depth, evidenceNames)};`,
+    ];
   }
 
   #emitCall(
@@ -425,22 +555,64 @@ class JavaScriptEmitter {
     depth: number,
     evidenceNames: EvidenceNames,
   ): string {
-    const matchName = `__match${this.#nextMatch++}`;
-    const inner = indent(depth + 1);
-    const armIndent = indent(depth + 2);
-    const bodyIndent = indent(depth + 3);
-    const lines = [
-      "(() => {",
-      `${inner}const ${matchName} = ${this.#emitExpr(expression.scrutinee, depth + 1, evidenceNames)};`,
-      `${inner}switch (${matchName}) {`,
-    ];
+    const lines = this.#emitReturningMatch(
+      expression,
+      depth + 1,
+      evidenceNames,
+    );
+    return `(() => {\n${lines.join("\n")}\n${indent(depth)}})()`;
+  }
+
+  #emitReturningMatch(
+    expression: Core.MatchExpr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string[] {
+    if (
+      expression.union === undefined ||
+      expression.arms.some((arm) =>
+        arm.guard !== undefined || !isSimpleSwitchPattern(arm.pattern)
+      )
+    ) {
+      return this.#emitConditionalMatch(expression, depth, evidenceNames);
+    }
+    const prefix = indent(depth);
+    const armIndent = indent(depth + 1);
+    const bodyDepth = depth + 2;
+    const bodyIndent = indent(bodyDepth);
+    const union = this.#module.unions.find(({ id }) => id === expression.union);
+    const tagged = union?.constructors.some(({ slots }) => (slots?.length ?? 0) > 0) ?? false;
+    const needsMatchName = tagged || expression.arms.some(
+      (arm) => arm.pattern.kind === "Binding",
+    );
+    const matchName = needsMatchName
+      ? `__match${this.#nextMatch++}`
+      : undefined;
+    const scrutinee = this.#emitExpr(
+      expression.scrutinee,
+      depth,
+      evidenceNames,
+    );
+    const lines = matchName === undefined
+      ? [`${prefix}switch (${scrutinee}) {`]
+      : [
+          `${prefix}const ${matchName} = ${scrutinee};`,
+          `${prefix}switch (${matchName}${tagged ? ".tag" : ""}) {`,
+        ];
     for (const arm of expression.arms) {
       const pattern = arm.pattern;
       if (pattern.kind === "Constructor") {
         lines.push(`${armIndent}case ${JSON.stringify(pattern.text)}:`);
-        lines.push(
-          `${bodyIndent}return ${this.#emitExpr(arm.body, depth + 3, evidenceNames)};`,
-        );
+        const metadata = this.#constructors.get(pattern.symbol)?.constructor;
+        pattern.arguments.forEach((argument, index) => {
+          if (matchName === undefined) return;
+          const field = metadata?.slots[index]?.field ?? `item${index + 1}`;
+          const destructuring = this.#emitPattern(argument);
+          if (destructuring !== "") {
+            lines.push(`${bodyIndent}const ${destructuring} = ${matchName}.${field};`);
+          }
+        });
+        lines.push(...this.#emitReturn(arm.body, bodyDepth, evidenceNames));
       } else {
         lines.push(`${armIndent}default:`);
         if (pattern.kind === "Binding") {
@@ -450,9 +622,7 @@ class JavaScriptEmitter {
           );
           lines.push(`${bodyIndent}const ${name} = ${matchName};`);
         }
-        lines.push(
-          `${bodyIndent}return ${this.#emitExpr(arm.body, depth + 3, evidenceNames)};`,
-        );
+        lines.push(...this.#emitReturn(arm.body, bodyDepth, evidenceNames));
       }
     }
     if (expression.arms.every((arm) => arm.pattern.kind === "Constructor")) {
@@ -461,8 +631,112 @@ class JavaScriptEmitter {
         `${bodyIndent}throw new RangeError("Unexpected pattern.");`,
       );
     }
-    lines.push(`${inner}}`, `${indent(depth)}})()`);
-    return lines.join("\n");
+    lines.push(`${prefix}}`);
+    return lines;
+  }
+
+  #emitConditionalMatch(
+    expression: Core.MatchExpr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string[] {
+    const prefix = indent(depth);
+    const matchName = `__match${this.#nextMatch++}`;
+    const scrutinee = this.#emitExpr(expression.scrutinee, depth, evidenceNames);
+    const lines = [`${prefix}const ${matchName} = ${scrutinee};`];
+
+    for (const arm of expression.arms) {
+      const alternatives = expandOrPatterns(arm.pattern);
+      for (const [index, alternative] of alternatives.entries()) {
+        const plan = this.#emitPatternPlan(alternative, matchName);
+        const condition = plan.tests.length === 0
+          ? "true"
+          : plan.tests.join(" && ");
+        const keyword = index === 0 ? "if" : "else if";
+        lines.push(`${prefix}${keyword} (${condition}) {`);
+        const armDepth = depth + 1;
+        const armPrefix = indent(armDepth);
+        for (const binding of plan.bindings) {
+          lines.push(`${armPrefix}${binding}`);
+        }
+        if (arm.guard === undefined) {
+          lines.push(...this.#emitReturn(arm.body, armDepth, evidenceNames));
+        } else {
+          const guard = this.#emitExpr(arm.guard, armDepth, evidenceNames);
+          lines.push(`${armPrefix}if (${guard}) {`);
+          lines.push(...this.#emitReturn(arm.body, armDepth + 1, evidenceNames));
+          lines.push(`${armPrefix}}`);
+        }
+        lines.push(`${prefix}}`);
+      }
+    }
+    lines.push(`${prefix}throw new RangeError("Unexpected pattern.");`);
+    return lines;
+  }
+
+  #emitPatternPlan(pattern: Core.Pattern, value: string): PatternPlan {
+    switch (pattern.kind) {
+      case "Wildcard":
+        return { tests: [], bindings: [] };
+      case "Unit":
+        return { tests: [`${value} === undefined`], bindings: [] };
+      case "As": {
+        const nested = this.#emitPatternPlan(pattern.pattern, value);
+        const name = this.#identifier(pattern.binding.symbol, pattern.binding.name);
+        return {
+          tests: nested.tests,
+          bindings: [...nested.bindings, `const ${name} = ${value};`],
+        };
+      }
+      case "Or": {
+        const alternatives = pattern.alternatives.map((alternative) =>
+          this.#emitPatternPlan(alternative, value)
+        );
+        if (alternatives.some(({ bindings }) => bindings.length > 0)) {
+          return { tests: ["false"], bindings: [] };
+        }
+        return {
+          tests: [alternatives.map(({ tests }) =>
+            tests.length === 0 ? "true" : `(${tests.join(" && ")})`
+          ).join(" || ")],
+          bindings: [],
+        };
+      }
+      case "Binding": {
+        const name = this.#identifier(pattern.binding.symbol, pattern.binding.name);
+        return { tests: [], bindings: [`const ${name} = ${value};`] };
+      }
+      case "Boolean":
+        return { tests: [`${value} === ${pattern.value}`], bindings: [] };
+      case "Integer":
+        return { tests: [`${value} === ${cleanNumber(pattern.decimal)}`], bindings: [] };
+      case "String":
+        return { tests: [`${value} === ${JSON.stringify(pattern.value)}`], bindings: [] };
+      case "Tuple":
+        return combinePatternPlans(
+          pattern.elements.map((element, index) =>
+            this.#emitPatternPlan(element, `${value}[${index}]`)
+          ),
+        );
+      case "Record":
+        return combinePatternPlans(
+          pattern.fields.map((field) =>
+            this.#emitPatternPlan(field.pattern, `${value}.${field.name}`)
+          ),
+        );
+      case "Constructor": {
+        const metadata = this.#constructors.get(pattern.symbol);
+        const test = metadata?.tagged
+          ? `${value}.tag === ${JSON.stringify(pattern.text)}`
+          : `${value} === ${JSON.stringify(pattern.text)}`;
+        const payloads = pattern.arguments.map((argument, index) => {
+          const field = metadata?.constructor.slots[index]?.field ?? `item${index + 1}`;
+          return this.#emitPatternPlan(argument, `${value}.${field}`);
+        });
+        const combined = combinePatternPlans(payloads);
+        return { tests: [test, ...combined.tests], bindings: combined.bindings };
+      }
+    }
   }
 
   #emitConvertInt(
@@ -625,16 +899,16 @@ class JavaScriptEmitter {
 
     const prefix = indent(depth + 1);
     const lines = [
-      `${prefix}const $compare0 = ${this.#emitExpr(expression.operands[0]!, depth + 1, evidenceNames)};`,
+      `${prefix}const __compare0 = ${this.#emitExpr(expression.operands[0]!, depth + 1, evidenceNames)};`,
     ];
     for (let index = 0; index < expression.steps.length; index += 1) {
-      const operandName = `$compare${index + 1}`;
+      const operandName = `__compare${index + 1}`;
       lines.push(
         `${prefix}const ${operandName} = ${this.#emitExpr(expression.operands[index + 1]!, depth + 1, evidenceNames)};`,
       );
       const test = this.#emitComparisonStep(
         expression.steps[index]!,
-        `$compare${index}`,
+        `__compare${index}`,
         operandName,
         evidenceNames,
       );
@@ -742,8 +1016,11 @@ class DeclarationEmitter {
         if (item.exported) {
           isExternalModule = true;
           for (const constructor of item.constructors) {
+            const type = constructor.slots.length === 0
+              ? item.name
+              : `(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, new Map(), false)}`).join(", ")}) => ${item.name}`;
             declarations.push(
-              `export declare const ${constructor.name}: ${item.name};`,
+              `export declare const ${constructor.name}: ${type};`,
             );
           }
         }
@@ -813,8 +1090,11 @@ class TypeScriptPreviewEmitter {
         declarations.push(renderUnionDeclaration(item, item.exported));
         for (const constructor of item.constructors) {
           const prefix = item.exported ? "export " : "";
+          const type = constructor.slots.length === 0
+            ? item.name
+            : `(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, new Map(), false)}`).join(", ")}) => ${item.name}`;
           declarations.push(
-            `${prefix}declare const ${constructor.name}: ${item.name};`,
+            `${prefix}declare const ${constructor.name}: ${type};`,
           );
         }
         isExternalModule ||= item.exported;
@@ -904,6 +1184,84 @@ class TypeScriptPreviewEmitter {
 }
 
 type SourceEntry = ItemEntry | CommentEntry;
+
+interface PatternPlan {
+  readonly tests: readonly string[];
+  readonly bindings: readonly string[];
+}
+
+function expandOrPatterns(pattern: Core.Pattern): readonly Core.Pattern[] {
+  switch (pattern.kind) {
+    case "Or":
+      return pattern.alternatives.flatMap(expandOrPatterns);
+    case "As":
+      return expandOrPatterns(pattern.pattern).map((nested) => ({
+        ...pattern,
+        pattern: nested,
+      }));
+    case "Tuple":
+      return combinations(pattern.elements.map(expandOrPatterns)).map(
+        (elements) => ({ ...pattern, elements }),
+      );
+    case "Record":
+      return combinations(pattern.fields.map((field) =>
+        expandOrPatterns(field.pattern).map((nested) => ({
+          ...field,
+          pattern: nested,
+        }))
+      )).map((fields) => ({ ...pattern, fields }));
+    case "Constructor":
+      return combinations(pattern.arguments.map(expandOrPatterns)).map(
+        (arguments_) => ({ ...pattern, arguments: arguments_ }),
+      );
+    default:
+      return [pattern];
+  }
+}
+
+function combinations<T>(groups: readonly (readonly T[])[]): readonly T[][] {
+  return groups.reduce<readonly T[][]>(
+    (results, group) => results.flatMap((result) =>
+      group.map((value) => [...result, value])
+    ),
+    [[]],
+  );
+}
+
+function combinePatternPlans(plans: readonly PatternPlan[]): PatternPlan {
+  return {
+    tests: plans.flatMap(({ tests }) => tests),
+    bindings: plans.flatMap(({ bindings }) => bindings),
+  };
+}
+
+function isSimpleSwitchPattern(pattern: Core.Pattern): boolean {
+  return pattern.kind === "Constructor"
+    ? pattern.arguments.every(isSimplePayloadBindingPattern)
+    : pattern.kind === "Binding" || pattern.kind === "Wildcard";
+}
+
+function isSimplePayloadBindingPattern(pattern: Core.Pattern): boolean {
+  switch (pattern.kind) {
+    case "Binding":
+    case "Wildcard":
+    case "Unit":
+      return true;
+    case "Tuple":
+      return pattern.elements.every(isSimplePayloadBindingPattern);
+    case "Record":
+      return pattern.fields.every((field) =>
+        isSimplePayloadBindingPattern(field.pattern)
+      );
+    case "Boolean":
+    case "Integer":
+    case "String":
+    case "Constructor":
+    case "As":
+    case "Or":
+      return false;
+  }
+}
 
 interface ItemEntry {
   readonly kind: "Item";
@@ -998,6 +1356,13 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
         : Precedence.LogicalOr;
     case "LogicalNot":
       return Precedence.Unary;
+    case "FieldAccess":
+    case "TupleAccess":
+    case "Call":
+    case "ConsoleLog":
+      return Precedence.Call;
+    case "Record":
+      return Precedence.Primary;
     case "ConstraintCall":
       if (expression.evidence.kind !== "Primitive") return Precedence.Call;
       switch (expression.member) {
@@ -1026,9 +1391,7 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
       return expression.parts.length > 1
         ? Precedence.Additive
         : Precedence.Conditional;
-    case "Call":
     case "Match":
-    case "TupleAccess":
     case "ConvertInt":
     case "Block":
       return Precedence.Call;
@@ -1110,6 +1473,13 @@ function dictionaryEntries(scheme: Typed.Scheme): readonly {
         Number(left.variable) - Number(right.variable) ||
         left.constraint.localeCompare(right.constraint),
     );
+}
+
+function dictionaryParameterName(
+  constraint: Typed.ConstraintName,
+  variable: Typed.TypeVariableId,
+): string {
+  return `__dict${constraint}_${Number(variable)}`;
 }
 
 function evidenceKey(
@@ -1237,6 +1607,13 @@ function renderType(
           renderType(element, variables, false)
         ).join(", ")}]`
       );
+    case "Record":
+      const record = `{ ${type.fields.map(({ name, type: field }) =>
+        `${name}: ${renderType(field, variables, false)}`
+      ).join("; ")} }`;
+      return type.tail === undefined
+        ? record
+        : `(${record} & ${variables.get(type.tail) ?? "object"})`;
     case "Function": {
       const lambda = value?.kind === "Lambda" ? value : undefined;
       const parameters = type.parameters.map(
@@ -1269,8 +1646,11 @@ function renderUnionDeclaration(
   exported: boolean,
 ): string {
   const prefix = exported ? "export " : "";
+  const tagged = item.constructors.some(({ slots }) => slots.length > 0);
   const alternatives = item.constructors
-    .map(({ name }) => JSON.stringify(name))
+    .map(({ name, slots }) => tagged
+      ? `{ tag: ${JSON.stringify(name)}${slots.map(({ field, type }) => `; ${field}: ${renderType(type, new Map(), false)}`).join("")} }`
+      : JSON.stringify(name))
     .join(" | ");
   return `${prefix}type ${item.name} = ${alternatives};`;
 }
@@ -1280,9 +1660,21 @@ function patternBindings(pattern: Core.Pattern): Core.Binding[] {
     case "Binding":
       return [pattern.binding];
     case "Wildcard":
+    case "Unit":
+    case "Boolean":
+    case "Integer":
+    case "String":
       return [];
+    case "As":
+      return [...patternBindings(pattern.pattern), pattern.binding];
+    case "Or":
+      return pattern.alternatives[0] === undefined
+        ? []
+        : patternBindings(pattern.alternatives[0]);
     case "Tuple":
       return pattern.elements.flatMap(patternBindings);
+    case "Record":
+      return pattern.fields.flatMap((field) => patternBindings(field.pattern));
     case "Constructor":
       return pattern.arguments.flatMap(patternBindings);
   }

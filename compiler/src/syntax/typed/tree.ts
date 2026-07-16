@@ -26,6 +26,7 @@ export type Type =
   | PrimitiveType
   | VariableType
   | TupleType
+  | RecordType
   | UnionType
   | FunctionType
   | ErrorType;
@@ -43,6 +44,12 @@ export interface VariableType {
 export interface TupleType {
   readonly kind: "Tuple";
   readonly elements: readonly Type[];
+}
+
+export interface RecordType {
+  readonly kind: "Record";
+  readonly fields: readonly { readonly name: string; readonly type: Type }[];
+  readonly tail?: TypeVariableId;
 }
 
 export interface UnionType {
@@ -141,7 +148,14 @@ export interface LetPatternItem {
 export type Pattern =
   | BindingPattern
   | WildcardPattern
+  | UnitPattern
+  | BooleanPattern
+  | IntegerPattern
+  | StringPattern
   | TuplePattern
+  | RecordPattern
+  | OrPattern
+  | AsPattern
   | ConstructorPattern;
 
 export interface BindingPattern {
@@ -155,9 +169,57 @@ export interface WildcardPattern {
   readonly span: Source.Span;
 }
 
+export interface UnitPattern {
+  readonly kind: "Unit";
+  readonly span: Source.Span;
+}
+
+export interface AsPattern {
+  readonly kind: "As";
+  readonly pattern: Pattern;
+  readonly binding: Binding;
+  readonly span: Source.Span;
+}
+
+export interface OrPattern {
+  readonly kind: "Or";
+  readonly alternatives: readonly Pattern[];
+  readonly span: Source.Span;
+}
+
+export interface BooleanPattern {
+  readonly kind: "Boolean";
+  readonly value: boolean;
+  readonly span: Source.Span;
+}
+
+export interface IntegerPattern {
+  readonly kind: "Integer";
+  readonly decimal: string;
+  readonly span: Source.Span;
+}
+
+export interface StringPattern {
+  readonly kind: "String";
+  readonly value: string;
+  readonly span: Source.Span;
+}
+
 export interface TuplePattern {
   readonly kind: "Tuple";
   readonly elements: readonly Pattern[];
+  readonly span: Source.Span;
+}
+
+export interface RecordPattern {
+  readonly kind: "Record";
+  readonly fields: readonly RecordPatternField[];
+  readonly span: Source.Span;
+}
+
+export interface RecordPatternField {
+  readonly name: string;
+  readonly pattern: Pattern;
   readonly span: Source.Span;
 }
 
@@ -181,7 +243,17 @@ export interface Union {
   readonly id: Resolved.UnionId;
   readonly name: string;
   readonly span: Source.Span;
-  readonly constructors: readonly Binding[];
+  readonly constructors: readonly Constructor[];
+}
+
+export interface Constructor extends Binding {
+  readonly slots: readonly ConstructorSlot[];
+}
+
+export interface ConstructorSlot {
+  readonly field: string;
+  readonly type: Type;
+  readonly span: Source.Span;
 }
 
 export interface UnionItem {
@@ -189,7 +261,7 @@ export interface UnionItem {
   readonly exported: boolean;
   readonly union: Resolved.UnionId;
   readonly name: string;
-  readonly constructors: readonly Binding[];
+  readonly constructors: readonly Constructor[];
   readonly span: Source.Span;
 }
 
@@ -218,12 +290,14 @@ export type Expr =
   | FloatExpr
   | StringExpr
   | TupleExpr
+  | RecordExpr
   | GroupExpr
   | BlockExpr
   | LambdaExpr
   | IfExpr
   | MatchExpr
   | CallExpr
+  | ConsoleLogExpr
   | AccessExpr
   | IndexExpr
   | LogicalNotExpr
@@ -291,6 +365,19 @@ export interface TupleExpr extends ExpressionFields {
   readonly elements: readonly Expr[];
 }
 
+export interface RecordExpr extends ExpressionFields {
+  readonly kind: "Record";
+  readonly spread?: Expr;
+  readonly fields: readonly RecordField[];
+}
+
+export interface RecordField {
+  readonly name: FieldName;
+  readonly punned: boolean;
+  readonly value: Expr;
+  readonly span: Source.Span;
+}
+
 export interface GroupExpr extends ExpressionFields {
   readonly kind: "Group";
   readonly expression: Expr;
@@ -318,11 +405,12 @@ export interface MatchExpr extends ExpressionFields {
   readonly kind: "Match";
   readonly scrutinee: Expr;
   readonly arms: readonly MatchArm[];
-  readonly union: Resolved.UnionId;
+  readonly union?: Resolved.UnionId;
 }
 
 export interface MatchArm {
   readonly pattern: Pattern;
+  readonly guard?: Expr;
   readonly body: Expr;
   readonly span: Source.Span;
 }
@@ -333,11 +421,18 @@ export interface CallExpr extends ExpressionFields {
   readonly arguments: readonly Expr[];
 }
 
+/** The host console operation accepts any inferred argument types and returns Unit. */
+export interface ConsoleLogExpr extends ExpressionFields {
+  readonly kind: "ConsoleLog";
+  readonly arguments: readonly Expr[];
+}
+
 export interface AccessExpr extends ExpressionFields {
   readonly kind: "Access";
   readonly receiver: Expr;
   readonly field: FieldName;
   readonly tupleIndex?: number;
+  readonly recordField?: string;
 }
 
 export interface IndexExpr extends ExpressionFields {

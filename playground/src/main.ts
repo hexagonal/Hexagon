@@ -1,6 +1,27 @@
+import {
+  formatLocatedDiagnostic,
+  locateDiagnostic,
+  type LocatedDiagnostic,
+} from "./diagnostics";
+import {
+  createTextareaSourceEditor,
+  supportsMonacoEditor,
+  type EditorSubscription,
+  type GeneratedCodeEditor,
+  type SourceEditor,
+} from "./editor";
+import {
+  exampleById,
+  playgroundExamples,
+} from "./examples";
 import { helloWorld } from "./examples/hello-world";
-import { insertIndentedLineBreak } from "./editor";
-import type { CompilerResponse, PlaygroundDiagnostic } from "./protocol";
+import { readStoredSource, writeStoredSource } from "./persistence";
+import type {
+  CompilerResponse,
+  ExecutionEvent,
+  InferredBinding,
+} from "./protocol";
+import { readSharedSource, shareUrl } from "./sharing";
 import {
   parseThemePreference,
   resolveTheme,
@@ -21,10 +42,10 @@ interface PlaygroundState {
   lastSuccessfulVersion: number | undefined;
   activeTab: ResultTab;
   output: readonly string[];
-  errors: readonly string[];
+  diagnostics: readonly LocatedDiagnostic[];
   javascript: string;
   typeScriptPreview: string;
-  types: readonly string[];
+  bindings: readonly InferredBinding[];
 }
 
 const state: PlaygroundState = {
@@ -32,10 +53,10 @@ const state: PlaygroundState = {
   lastSuccessfulVersion: undefined,
   activeTab: "javascript",
   output: [],
-  errors: [],
+  diagnostics: [],
   javascript: "// JavaScript will appear after compilation.",
   typeScriptPreview: "// The TypeScript preview will appear after compilation.",
-  types: [],
+  bindings: [],
 };
 
 const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
@@ -65,8 +86,13 @@ app.innerHTML = `
           <option value="light">Light</option>
         </select>
       </label>
-      <button type="button" data-action="examples">Examples</button>
-      <button type="button" data-action="share" disabled>Share</button>
+      <label class="example-control">
+        <span>Example</span>
+        <select id="example-select" aria-label="Example">
+          <option value="">Choose…</option>
+        </select>
+      </label>
+      <button type="button" data-action="share">Share</button>
       <button class="run-button" type="button" data-action="run" disabled>Run</button>
     </nav>
   </header>
@@ -84,6 +110,7 @@ app.innerHTML = `
         autocapitalize="off"
         spellcheck="false"
       ></textarea>
+      <div id="monaco-source-editor" class="monaco-editor-host" hidden></div>
     </section>
 
     <section class="panel result-panel" aria-label="Compiler results">
@@ -94,7 +121,10 @@ app.innerHTML = `
         <button role="tab" data-tab="typeScriptPreview" aria-selected="false">.d.ts</button>
         <button role="tab" data-tab="types" aria-selected="false">Types</button>
       </div>
-      <pre id="result-view" role="tabpanel" tabindex="0"></pre>
+      <div id="result-view" role="tabpanel" tabindex="0">
+        <div id="result-text"></div>
+        <div id="monaco-generated-editor" class="monaco-editor-host" hidden></div>
+      </div>
     </section>
   </section>
 
@@ -104,25 +134,44 @@ app.innerHTML = `
   </footer>
 `;
 
-const sourceEditor = requireElement<HTMLTextAreaElement>("#source-editor");
+const sourceTextarea = requireElement<HTMLTextAreaElement>("#source-editor");
+const sourceEditorContainer = requireElement<HTMLElement>("#monaco-source-editor");
 const resultView = requireElement<HTMLElement>("#result-view");
+const resultText = requireElement<HTMLElement>("#result-text");
+const generatedEditorContainer = requireElement<HTMLElement>("#monaco-generated-editor");
 const compileStatus = requireElement<HTMLElement>("#compile-status");
 const themeSelect = requireElement<HTMLSelectElement>("#theme-select");
+const exampleSelect = requireElement<HTMLSelectElement>("#example-select");
+const shareButton = requireElement<HTMLButtonElement>("[data-action='share']");
 const runButton = requireElement<HTMLButtonElement>("[data-action='run']");
-runButton.title = "Execution is not enabled in this first playground round.";
+runButton.title = "Run the most recently compiled program.";
 const tabButtons = Array.from(app.querySelectorAll<HTMLButtonElement>("[data-tab]"));
 
-sourceEditor.value = helloWorld.source;
+let sourceEditor: SourceEditor = createTextareaSourceEditor(sourceTextarea);
+let generatedCodeEditor: GeneratedCodeEditor | undefined;
+let sourceSubscription: EditorSubscription = sourceEditor.onDidChange(handleSourceChange);
+sourceEditor.setSource(readInitialSource());
 themeSelect.value = themePreference;
+for (const example of playgroundExamples) {
+  const option = document.createElement("option");
+  option.value = example.id;
+  option.textContent = example.title;
+  exampleSelect.append(option);
+}
+exampleSelect.value = playgroundExamples.find(
+  ({ source }) => source === sourceEditor.getSource(),
+)?.id ?? "";
 
 themeSelect.addEventListener("change", () => {
   themePreference = parseThemePreference(themeSelect.value);
   writeThemePreference(themePreference);
   applyTheme();
+  refreshEditorThemes();
 });
 
 systemTheme.addEventListener("change", () => {
   if (themePreference === "system") applyTheme();
+  if (themePreference === "system") refreshEditorThemes();
 });
 
 // Workers are created at the UI boundary so either one can be replaced after
@@ -131,6 +180,8 @@ const compilerWorker = new Worker(new URL("./compiler-worker.ts", import.meta.ur
   type: "module",
 });
 let compileTimer: ReturnType<typeof setTimeout> | undefined;
+let executionWorker: Worker | undefined;
+let executionTimer: ReturnType<typeof setTimeout> | undefined;
 
 compilerWorker.addEventListener("message", (event: MessageEvent<CompilerResponse>) => {
   const response = event.data;
@@ -143,20 +194,27 @@ compilerWorker.addEventListener("message", (event: MessageEvent<CompilerResponse
     state.lastSuccessfulVersion = response.version;
     state.javascript = response.javascript;
     state.typeScriptPreview = response.typeScriptPreview;
-    state.types = response.types.map(({ name, displayedType }) => `${name} : ${displayedType}`);
-    state.errors = response.diagnostics.map(formatDiagnostic);
+    state.bindings = response.types;
+    state.diagnostics = response.diagnostics.map((diagnostic) =>
+      locateDiagnostic(sourceEditor.getSource(), diagnostic)
+    );
     compileStatus.textContent = `Compiled version ${response.version}`;
-    runButton.disabled = true;
+    runButton.disabled = false;
   } else {
     state.lastSuccessfulVersion = undefined;
     state.javascript = "// No JavaScript emitted for the current source.";
     state.typeScriptPreview =
       "// No TypeScript preview emitted for the current source.";
-    state.types = [];
-    state.errors = response.diagnostics.map(formatDiagnostic);
-    compileStatus.textContent = `${state.errors.length} compiler message${state.errors.length === 1 ? "" : "s"}`;
+    state.bindings = [];
+    state.diagnostics = response.diagnostics.map((diagnostic) =>
+      locateDiagnostic(sourceEditor.getSource(), diagnostic)
+    );
+    compileStatus.textContent = `${state.diagnostics.length} compiler message${state.diagnostics.length === 1 ? "" : "s"}`;
     runButton.disabled = true;
   }
+
+  sourceEditor.publishDiagnostics(state.diagnostics);
+  sourceEditor.publishBindings(state.bindings);
 
   // Continuous compilation updates every view without stealing the tab the
   // developer is inspecting. The status line and Errors badge signal failures.
@@ -164,27 +222,33 @@ compilerWorker.addEventListener("message", (event: MessageEvent<CompilerResponse
   renderResult();
 });
 
-sourceEditor.addEventListener("input", () => {
+function handleSourceChange(): void {
+  stopExecution();
   state.sourceVersion += 1;
+  state.output = [];
+  state.diagnostics = [];
+  state.bindings = [];
+  sourceEditor.publishDiagnostics([]);
+  sourceEditor.publishBindings([]);
+  writeCurrentSource(sourceEditor.getSource());
   runButton.disabled = true;
   compileStatus.textContent = "Waiting to compile…";
+  renderResult();
 
   if (compileTimer !== undefined) clearTimeout(compileTimer);
   compileTimer = setTimeout(compileCurrentSource, 200);
-});
+}
 
-sourceEditor.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter" || event.isComposing) return;
+runButton.addEventListener("click", runCurrentProgram);
+shareButton.addEventListener("click", shareCurrentSource);
 
-  event.preventDefault();
-  const edit = insertIndentedLineBreak(
-    sourceEditor.value,
-    sourceEditor.selectionStart,
-    sourceEditor.selectionEnd,
-  );
-  sourceEditor.value = edit.text;
-  sourceEditor.setSelectionRange(edit.caret, edit.caret);
-  sourceEditor.dispatchEvent(new Event("input", { bubbles: true }));
+exampleSelect.addEventListener("change", () => {
+  const example = exampleById(exampleSelect.value);
+  if (example === undefined) return;
+  sourceEditor.setSource(example.source);
+  handleSourceChange();
+  exampleSelect.value = example.id;
+  sourceEditor.focus();
 });
 
 for (const button of tabButtons) {
@@ -195,19 +259,94 @@ for (const button of tabButtons) {
   });
 }
 
-requireElement<HTMLButtonElement>("[data-action='examples']").addEventListener("click", () => {
-  sourceEditor.value = helloWorld.source;
-  sourceEditor.dispatchEvent(new Event("input"));
-  sourceEditor.focus();
-});
-
 function compileCurrentSource(): void {
   compileStatus.textContent = "Compiling…";
   compilerWorker.postMessage({
     kind: "compile",
     version: state.sourceVersion,
-    source: sourceEditor.value,
+    source: sourceEditor.getSource(),
   });
+}
+
+async function shareCurrentSource(): Promise<void> {
+  const shared = shareUrl(new URL(window.location.href), sourceEditor.getSource());
+  window.history.replaceState(null, "", shared);
+
+  try {
+    if (navigator.clipboard === undefined) throw new Error("clipboard unavailable");
+    await navigator.clipboard.writeText(shared.href);
+    compileStatus.textContent = "Share URL copied to clipboard.";
+  } catch {
+    compileStatus.textContent = "Share URL added to the address bar.";
+  }
+}
+
+function runCurrentProgram(): void {
+  if (state.lastSuccessfulVersion !== state.sourceVersion) return;
+
+  stopExecution();
+  state.output = [];
+  state.activeTab = "output";
+  runButton.disabled = true;
+  compileStatus.textContent = "Running…";
+  renderTabs();
+  renderResult();
+
+  const version = state.sourceVersion;
+  executionWorker = new Worker(new URL("./execution-worker.ts", import.meta.url), {
+    type: "module",
+  });
+  executionWorker.addEventListener("message", (event: MessageEvent<ExecutionEvent>) => {
+    if (event.data.version !== version || version !== state.sourceVersion) return;
+    const response = event.data;
+    if (response.kind === "execute-output") {
+      state.output = [...state.output, response.line];
+      renderResult();
+      return;
+    }
+    state.output = response.kind === "execute-success"
+      ? state.output.length === 0 ? ["Program completed."] : state.output
+      : [...state.output, `Runtime error: ${response.message}`];
+    compileStatus.textContent = response.kind === "execute-success"
+      ? `Ran version ${version}`
+      : `Version ${version} failed at runtime`;
+    finishExecution();
+    renderResult();
+  });
+  executionWorker.addEventListener("error", (event) => {
+    if (version !== state.sourceVersion) return;
+    state.output = [...state.output, `Execution worker failed: ${event.message}`];
+    compileStatus.textContent = `Version ${version} failed at runtime`;
+    finishExecution();
+    renderResult();
+  });
+  executionWorker.postMessage({
+    kind: "execute",
+    version,
+    javascript: state.javascript,
+  });
+  executionTimer = setTimeout(() => {
+    if (version !== state.sourceVersion) return;
+    state.output = [...state.output, "Execution stopped after 2 seconds."];
+    compileStatus.textContent = `Version ${version} timed out`;
+    finishExecution();
+    renderResult();
+  }, 2_000);
+}
+
+function finishExecution(): void {
+  if (executionTimer !== undefined) clearTimeout(executionTimer);
+  executionTimer = undefined;
+  executionWorker?.terminate();
+  executionWorker = undefined;
+  runButton.disabled = state.lastSuccessfulVersion !== state.sourceVersion;
+}
+
+function stopExecution(): void {
+  if (executionTimer !== undefined) clearTimeout(executionTimer);
+  executionTimer = undefined;
+  executionWorker?.terminate();
+  executionWorker = undefined;
 }
 
 function renderTabs(): void {
@@ -217,32 +356,125 @@ function renderTabs(): void {
   }
 
   const errorBadge = app.querySelector<HTMLElement>("[data-tab='errors'] .badge");
-  if (errorBadge !== null) errorBadge.textContent = String(state.errors.length);
+  if (errorBadge !== null) {
+    errorBadge.textContent = String(state.diagnostics.length);
+  }
 }
 
 function renderResult(): void {
+  resultView.classList.toggle("diagnostics-view", state.activeTab === "errors");
+  const generatedLanguage = state.activeTab === "javascript"
+    ? "javascript"
+    : state.activeTab === "typeScriptPreview"
+      ? "typescript"
+      : undefined;
+  if (generatedLanguage !== undefined && generatedCodeEditor !== undefined) {
+    resultText.hidden = true;
+    generatedCodeEditor.show(
+      generatedLanguage,
+      generatedLanguage === "javascript" ? state.javascript : state.typeScriptPreview,
+    );
+    return;
+  }
+
+  generatedCodeEditor?.hide();
+  resultText.hidden = false;
+  if (state.activeTab === "errors") {
+    renderDiagnostics();
+    return;
+  }
+
   const content: Record<ResultTab, string> = {
     output: state.output.length > 0
       ? state.output.join("\n")
-      : "Execution is not enabled yet. Inspect JS, .d.ts, and Types.",
-    errors: state.errors.length > 0 ? state.errors.join("\n\n") : "No errors.",
+      : executionWorker === undefined
+        ? "Run the program to execute its latest successful compilation."
+        : "Program is running…",
+    errors: "",
     javascript: state.javascript,
     typeScriptPreview: state.typeScriptPreview,
-    types: state.types.length > 0 ? state.types.join("\n") : "Inferred types will appear after compilation.",
+    types: state.bindings.length > 0
+      ? state.bindings.map(({ name, displayedType }) => `${name} : ${displayedType}`).join("\n")
+      : "Inferred types will appear after compilation.",
   };
 
-  resultView.textContent = content[state.activeTab];
+  resultText.textContent = content[state.activeTab];
 }
 
-function formatDiagnostic(diagnostic: PlaygroundDiagnostic): string {
-  const before = sourceEditor.value.slice(0, diagnostic.startOffset);
-  const line = before.split(/\r\n|\r|\n/u).length;
-  const lastLineBreak = Math.max(
-    before.lastIndexOf("\n"),
-    before.lastIndexOf("\r"),
-  );
-  const column = diagnostic.startOffset - lastLineBreak;
-  return `${diagnostic.severity} at ${line}:${column} — ${diagnostic.message}`;
+function renderDiagnostics(): void {
+  resultText.replaceChildren();
+  if (state.diagnostics.length === 0) {
+    resultText.textContent = "No errors.";
+    return;
+  }
+
+  const list = document.createElement("ol");
+  list.className = "diagnostic-list";
+  for (const diagnostic of state.diagnostics) {
+    const item = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `diagnostic diagnostic-${diagnostic.severity}`;
+    button.textContent = formatLocatedDiagnostic(diagnostic);
+    button.addEventListener("click", () => focusDiagnostic(diagnostic));
+    item.append(button);
+    list.append(item);
+  }
+  resultText.append(list);
+}
+
+function focusDiagnostic(diagnostic: LocatedDiagnostic): void {
+  const sourceLength = sourceEditor.getSource().length;
+  const start = Math.min(diagnostic.startOffset, sourceLength);
+  const end = Math.max(start, Math.min(diagnostic.endOffset, sourceLength));
+  sourceEditor.focus();
+  sourceEditor.selectOffsets(start, end);
+}
+
+async function initializeMonaco(): Promise<void> {
+  if (!supportsMonacoEditor(
+    window.matchMedia("(pointer: fine)").matches,
+    window.innerWidth,
+  )) return;
+
+  try {
+    const { createMonacoEditors } = await import("./monaco");
+    const editors = createMonacoEditors(
+      sourceTextarea,
+      sourceEditorContainer,
+      generatedEditorContainer,
+      sourceEditor.getSource(),
+      resolveCurrentEditorTheme(),
+    );
+    sourceSubscription.dispose();
+    sourceEditor.dispose();
+    sourceEditor = editors.source;
+    generatedCodeEditor = editors.generated;
+    sourceSubscription = sourceEditor.onDidChange(handleSourceChange);
+    sourceEditor.publishDiagnostics(state.diagnostics);
+    sourceEditor.publishBindings(state.bindings);
+    renderResult();
+  } catch (error: unknown) {
+    console.error("Monaco failed to start; retaining the textarea fallback.", error);
+  }
+}
+
+function readInitialSource(): string {
+  const shared = readSharedSource(new URL(window.location.href));
+  if (shared !== undefined) return shared;
+  try {
+    return readStoredSource(localStorage) ?? helloWorld.source;
+  } catch {
+    return helloWorld.source;
+  }
+}
+
+function writeCurrentSource(source: string): void {
+  try {
+    writeStoredSource(localStorage, source);
+  } catch {
+    // Accessing the storage object itself can fail in restricted contexts.
+  }
 }
 
 function applyTheme(): void {
@@ -250,6 +482,16 @@ function applyTheme(): void {
     themePreference,
     systemTheme.matches,
   );
+}
+
+function refreshEditorThemes(): void {
+  const theme = resolveCurrentEditorTheme();
+  sourceEditor.setTheme(theme);
+  generatedCodeEditor?.setTheme(theme);
+}
+
+function resolveCurrentEditorTheme(): "dark" | "light" {
+  return resolveTheme(themePreference, systemTheme.matches);
 }
 
 function readThemePreference(): ThemePreference {
@@ -278,3 +520,4 @@ function requireElement<T extends Element>(selector: string): T {
 renderTabs();
 renderResult();
 compileCurrentSource();
+void initializeMonaco();

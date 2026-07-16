@@ -20,13 +20,14 @@ describe("compileSource", () => {
     expect(response.javascript).toContain("const plus =");
     expect(response.javascript).toContain("function factorial(n)");
     expect(response.javascript).toContain("const color =");
+    expect(response.javascript).toContain('console.log(greet("Hexagon"));');
     expect(response.javascript).not.toContain("export { greet }");
     expect(response.typeScriptPreview).toContain("declare const greet");
     expect(response.typeScriptPreview).toContain("declare function factorial");
     expect(response.typeScriptPreview).not.toContain(
       "export declare const greet",
     );
-    expect(response.types).toEqual([
+    expect(response.types.map(({ name, displayedType }) => ({ name, displayedType }))).toEqual([
       { name: "card", displayedType: "(Int, Suit)" },
       { name: "greet", displayedType: "String -> String" },
       { name: "plus", displayedType: "(Int, Int) -> Int" },
@@ -52,7 +53,7 @@ describe("compileSource", () => {
     expect(response.typeScriptPreview).toContain(
       "declare function fact(n: number): number",
     );
-    expect(response.types).toEqual([
+    expect(response.types.map(({ name, displayedType }) => ({ name, displayedType }))).toEqual([
       { name: "fact", displayedType: "Int -> Int" },
     ]);
   });
@@ -69,10 +70,25 @@ describe("compileSource", () => {
 
     expect(response.diagnostics).toEqual([]);
     expect(response.javascript).toContain("const answer = add(add(1, 2), 3);");
-    expect(response.types).toEqual([
+    expect(response.types.map(({ name, displayedType }) => ({ name, displayedType }))).toEqual([
       { name: "add", displayedType: "(Int, Int) -> Int" },
       { name: "answer", displayedType: "Int" },
     ]);
+  });
+
+  test("returns exact binding spans for editor hovers", () => {
+    const source = "let answer = 42\n";
+    const response = compileSource(10, source);
+
+    expect(response.kind).toBe("compile-success");
+    if (response.kind !== "compile-success") return;
+
+    expect(response.types[0]).toMatchObject({
+      name: "answer",
+      displayedType: "Int",
+      startOffset: source.indexOf("answer"),
+      endOffset: source.indexOf("answer") + "answer".length,
+    });
   });
 
   test("returns bounded, de-duplicated diagnostics instead of partial output", () => {

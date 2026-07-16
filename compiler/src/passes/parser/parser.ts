@@ -160,7 +160,10 @@ class Parser {
         : this.#parseBinding("Fun", true, exportToken.span);
     }
     if (this.#at("Let")) {
-      if (this.#peek(1).kind === "LeftParen") {
+      if (
+        ["LeftParen", "LeftBrace", "UpperName", "True", "False", "Wildcard"]
+          .includes(this.#peek(1).kind)
+      ) {
         return this.#parsePatternBinding();
       }
       return this.#parseBinding("Let", false);
@@ -301,13 +304,48 @@ class Parser {
         this.#synchronize(itemEnds);
         return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
       }
-      if (this.#at("LeftParen")) {
-        this.#error("payload constructors arrive in the next union slice");
-        this.#synchronize(itemEnds);
-        return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
-      }
       const name = parsedName(constructor);
-      constructors.push({ name, span: name.span });
+      const slots: Parsed.ConstructorSlot[] = [];
+      let end = name.span;
+      if (this.#at("LeftParen")) {
+        const opening = this.#advance();
+        while (!this.#at("RightParen") && !this.#at("Eof")) {
+          const slotStart = this.#current();
+          let slotName: Parsed.Name | undefined;
+          if (slotStart.kind === "LowerName" && this.#peek(1).kind === "Colon") {
+            this.#advance();
+            this.#advance();
+            slotName = parsedName(slotStart);
+          }
+          const annotation = this.#parseTypeAnnotation();
+          if (annotation === undefined) {
+            this.#synchronize(new Set(["Comma", "RightParen", ...structuralEnds]));
+            break;
+          }
+          slots.push({
+            ...(slotName === undefined ? {} : { name: slotName }),
+            annotation,
+            span: spanFrom(slotStart.span, annotation.span),
+          });
+          if (!this.#at("Comma")) break;
+          this.#advance();
+        }
+        const closing = this.#expect("RightParen", "expected `)` after constructor payload");
+        end = closing?.span ?? slots.at(-1)?.span ?? opening.span;
+        if (slots.length === 0) this.#errorAt(opening.span, "constructor payload cannot be empty");
+        const named = slots.filter((slot) => slot.name !== undefined);
+        if (named.length !== 0 && named.length !== slots.length) {
+          this.#errorAt(opening.span, "constructor payload slots must be all named or all unnamed");
+        }
+        const names = new Set<string>();
+        for (const slot of named) {
+          const text = slot.name!.text;
+          if (text === "tag") this.#errorAt(slot.name!.span, "`tag` is reserved for union discrimination");
+          if (names.has(text)) this.#errorAt(slot.name!.span, `duplicate payload slot \`${text}\``);
+          names.add(text);
+        }
+      }
+      constructors.push({ name, slots, span: spanFrom(name.span, end) });
       if (!this.#at("Bar")) break;
       this.#advance();
     }
@@ -348,6 +386,40 @@ class Parser {
   }
 
   #parsePattern(): Parsed.Pattern | undefined {
+    const first = this.#parseAtomicPattern();
+    if (first === undefined) return undefined;
+    const alternatives: Parsed.Pattern[] = [first];
+    while (this.#at("Bar")) {
+      this.#advance();
+      const alternative = this.#parseAtomicPattern();
+      if (alternative === undefined) return undefined;
+      alternatives.push(alternative);
+    }
+    const pattern: Parsed.Pattern = alternatives.length === 1
+      ? first
+      : {
+          kind: "Or",
+          alternatives,
+          span: spanFrom(first.span, alternatives.at(-1)!.span),
+        };
+    const operator = this.#current();
+    if (operator.kind !== "LowerName" || operator.text !== "as") return pattern;
+    this.#advance();
+    const binder = this.#takeName(
+      "LowerName",
+      "`as` in a pattern requires a lowercase binding name",
+    );
+    if (binder === undefined) return undefined;
+    const name = parsedName(binder);
+    return {
+      kind: "As",
+      pattern,
+      name,
+      span: spanFrom(pattern.span, name.span),
+    };
+  }
+
+  #parseAtomicPattern(): Parsed.Pattern | undefined {
     const token = this.#current();
     if (token.kind === "LowerName") {
       this.#advance();
@@ -357,6 +429,42 @@ class Parser {
     if (token.kind === "Wildcard") {
       this.#advance();
       return { kind: "Wildcard", span: token.span };
+    }
+    if (token.kind === "True" || token.kind === "False") {
+      this.#advance();
+      return { kind: "Boolean", value: token.kind === "True", span: token.span };
+    }
+    if (token.kind === "Integer") {
+      this.#advance();
+      return { kind: "Integer", decimal: token.decimal, span: token.span };
+    }
+    if (token.kind === "Minus" && this.#peek(1).kind === "Integer") {
+      const minus = this.#advance();
+      const integer = this.#advance() as Lexed.IntegerToken;
+      return {
+        kind: "Integer",
+        decimal: `-${integer.decimal}`,
+        span: spanFrom(minus.span, integer.span),
+      };
+    }
+    if (token.kind === "Float") {
+      this.#advance();
+      this.#errorAt(
+        token.span,
+        "Float literals cannot appear in patterns; bind a name and compare it in a guard",
+      );
+      return undefined;
+    }
+    if (token.kind === "String") {
+      this.#advance();
+      if (token.parts.some(({ kind }) => kind === "Interpolation")) {
+        this.#errorAt(token.span, "string interpolation cannot appear in a pattern");
+      }
+      return {
+        kind: "String",
+        value: token.parts.map((part) => part.kind === "Text" ? part.value : "").join(""),
+        span: token.span,
+      };
     }
     if (token.kind === "UpperName") {
       this.#advance();
@@ -384,12 +492,52 @@ class Parser {
         span: spanFrom(token.span, end),
       };
     }
+    if (token.kind === "LeftBrace") {
+      const opening = this.#advance();
+      const fields: Parsed.RecordPatternField[] = [];
+      const seen = new Set<string>();
+      while (!this.#at("RightBrace") && !this.#at("Eof")) {
+        const field = this.#takeName("LowerName", "record patterns contain lowercase field names");
+        if (field === undefined) return undefined;
+        const name = parsedName(field);
+        if (seen.has(name.text)) this.#errorAt(name.span, `duplicate record pattern field \`${name.text}\``);
+        seen.add(name.text);
+        let pattern: Parsed.Pattern = {
+          kind: "Binding",
+          name,
+          span: name.span,
+        };
+        if (this.#at("Colon")) {
+          this.#advance();
+          const nested = this.#parsePattern();
+          if (nested === undefined) return undefined;
+          pattern = nested;
+        }
+        fields.push({
+          name,
+          pattern,
+          span: spanFrom(name.span, pattern.span),
+        });
+        if (!this.#at("Comma")) break;
+        this.#advance();
+      }
+      const closing = this.#expect("RightBrace", "expected `}` after record pattern");
+      return {
+        kind: "Record",
+        fields,
+        span: spanFrom(opening.span, closing?.span ?? fields.at(-1)?.span ?? opening.span),
+      };
+    }
     if (token.kind !== "LeftParen") {
-      this.#error("expected a binding, `_`, constructor, or tuple pattern");
+      this.#error("expected a binding, `_`, constructor, tuple, or record pattern");
       return undefined;
     }
 
     const opening = this.#advance();
+    if (this.#at("RightParen")) {
+      const closing = this.#advance();
+      return { kind: "Unit", span: spanFrom(opening.span, closing.span) };
+    }
     const first = this.#parsePattern();
     if (first === undefined) return undefined;
     if (!this.#at("Comma")) {
@@ -585,6 +733,8 @@ class Parser {
         return this.#parseString(token);
       case "LeftParen":
         return this.#parseParenthesized(stops);
+      case "LeftBrace":
+        return this.#parseRecord(stops);
       default:
         this.#error(`expected an expression, found ${describe(token.kind)}`);
         if (!stops.has(token.kind)) {
@@ -592,6 +742,50 @@ class Parser {
         }
         return { kind: "ErrorExpr", span: token.span };
     }
+  }
+
+  #parseRecord(stops: ReadonlySet<TokenKind>): Parsed.Expr {
+    const opening = this.#advance();
+    let spread: Parsed.Expr | undefined;
+    const fields: Parsed.RecordField[] = [];
+    const names = new Set<string>();
+    if (this.#at("Spread")) {
+      this.#advance();
+      spread = this.#parseExpression(0, withStops(stops, "Comma", "RightBrace"));
+      if (this.#at("Comma")) this.#advance();
+    }
+    while (!this.#at("RightBrace") && !this.#at("Eof")) {
+      if (this.#at("Spread")) {
+        this.#error("a record update permits exactly one spread, and it must come first");
+        this.#advance();
+        this.#parseExpression(0, withStops(stops, "Comma", "RightBrace"));
+        if (this.#at("Comma")) this.#advance();
+        continue;
+      }
+      const token = this.#takeName("LowerName", "record fields must be lowercase names");
+      if (token === undefined) break;
+      const name = parsedName(token);
+      const punned = !this.#at("Colon");
+      let value: Parsed.Expr;
+      if (punned) {
+        value = { kind: "Name", name, span: name.span };
+      } else {
+        this.#advance();
+        value = this.#parseExpression(0, withStops(stops, "Comma", "RightBrace"));
+      }
+      if (names.has(name.text)) this.#errorAt(name.span, `duplicate record field \`${name.text}\``);
+      names.add(name.text);
+      fields.push({ name, punned, value, span: spanFrom(name.span, value.span) });
+      if (!this.#at("Comma")) break;
+      this.#advance();
+    }
+    const closing = this.#expect("RightBrace", "expected `}` after record fields");
+    return {
+      kind: "Record",
+      ...(spread === undefined ? {} : { spread }),
+      fields,
+      span: spanFrom(opening.span, closing?.span ?? fields.at(-1)?.span ?? opening.span),
+    };
   }
 
   #parseString(token: Lexed.StringToken): Parsed.StringExpr {
@@ -752,11 +946,25 @@ class Parser {
         this.#skipSeparators();
         continue;
       }
-      this.#expect("FatArrow", "expected `=>` after match pattern");
+      let guard: Parsed.Expr | undefined;
+      const guardStart = this.#current();
+      if (
+        guardStart.kind === "LowerName" &&
+        guardStart.text === "when"
+      ) {
+        this.#advance();
+        guard = this.#parseExpression(0, new Set(["FatArrow", "Eof"]));
+      }
+      this.#expect("FatArrow", "expected `=>` after match pattern or guard");
       const body = this.#parseBodyExpression(
         new Set(["VSep", "VClose", "Eof"]),
       );
-      arms.push({ pattern, body, span: spanFrom(pattern.span, body.span) });
+      arms.push({
+        pattern,
+        ...(guard === undefined ? {} : { guard }),
+        body,
+        span: spanFrom(pattern.span, body.span),
+      });
       this.#skipSeparators();
     }
     const closing = this.#expect("VClose", "expected the match arms to close");
@@ -854,6 +1062,43 @@ class Parser {
 
   #parseTypeAnnotation(): Parsed.TypeAnnotation | undefined {
     const token = this.#current();
+    if (token.kind === "LeftBrace") {
+      const opening = this.#advance();
+      const fields: Parsed.RecordTypeField[] = [];
+      const names = new Set<string>();
+      let open = false;
+      let tail: Parsed.Name | undefined;
+      while (!this.#at("RightBrace") && !this.#at("Eof")) {
+        if (this.#at("Spread")) {
+          this.#advance();
+          open = true;
+          if (this.#at("LowerName")) {
+            tail = parsedName(this.#advance() as Lexed.NameToken);
+          }
+          if (this.#at("Comma")) this.#error("`...` must be the final entry in a record type");
+          break;
+        }
+        const fieldToken = this.#takeName("LowerName", "record type fields must be lowercase names");
+        if (fieldToken === undefined) return undefined;
+        this.#expect("Colon", "expected `:` after record type field name");
+        const annotation = this.#parseTypeAnnotation();
+        if (annotation === undefined) return undefined;
+        const name = parsedName(fieldToken);
+        if (names.has(name.text)) this.#errorAt(name.span, `duplicate record type field \`${name.text}\``);
+        names.add(name.text);
+        fields.push({ name, annotation, span: spanFrom(name.span, annotation.span) });
+        if (!this.#at("Comma")) break;
+        this.#advance();
+      }
+      const closing = this.#expect("RightBrace", "expected `}` after record type");
+      return {
+        kind: "Record",
+        fields,
+        open,
+        ...(tail === undefined ? {} : { tail }),
+        span: spanFrom(opening.span, closing?.span ?? fields.at(-1)?.span ?? opening.span),
+      };
+    }
     if (token.kind === "LeftParen") {
       const opening = this.#advance();
       const first = this.#parseTypeAnnotation();

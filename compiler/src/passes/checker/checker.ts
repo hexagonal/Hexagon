@@ -19,6 +19,7 @@ type Mono =
   | Variable
   | Constructor
   | TupleMono
+  | RecordMono
   | UnionMono
   | FunctionMono
   | ErrorMono;
@@ -46,6 +47,12 @@ interface FunctionMono {
 interface TupleMono {
   readonly kind: "Tuple";
   readonly elements: readonly Mono[];
+}
+
+interface RecordMono {
+  readonly kind: "Record";
+  readonly fields: ReadonlyMap<string, Mono>;
+  readonly tail?: Variable;
 }
 
 interface UnionMono {
@@ -82,6 +89,7 @@ class Checker {
   readonly #requirements = new WeakMap<object, readonly Requirement[]>();
   readonly #pipeCalls = new WeakMap<Resolved.BinaryExpr, Resolved.CallExpr>();
   readonly #tupleAccesses = new WeakMap<Resolved.AccessExpr, number>();
+  readonly #recordAccesses = new WeakMap<Resolved.AccessExpr, string>();
   readonly #matchUnions = new WeakMap<Resolved.MatchExpr, Resolved.UnionId>();
   readonly #schemes = new Map<Resolved.SymbolId, Scheme>();
   readonly #unions = new Map<Resolved.UnionId, Resolved.Union>();
@@ -105,7 +113,15 @@ class Checker {
       };
       for (const constructor of union.constructors) {
         this.#constructorUnions.set(constructor.binding.symbol, union.id);
-        this.#schemes.set(constructor.binding.symbol, { variables: [], type });
+        const parameters = constructor.slots.map((slot) =>
+          this.#annotationType(slot.annotation)
+        );
+        this.#schemes.set(constructor.binding.symbol, {
+          variables: [],
+          type: parameters.length === 0
+            ? type
+            : { kind: "Function", parameters, result: type },
+        });
       }
     }
     this.#inferItems(module.items, 0, true);
@@ -141,7 +157,7 @@ class Checker {
         const valueType = this.#inferExpr(item.value, level + 1);
         if (item.annotation !== undefined) {
           this.#unify(
-            this.#annotationType(item.annotation),
+            this.#annotationType(item.annotation, level + 1),
             valueType,
             item.annotation.span,
           );
@@ -286,6 +302,45 @@ class Checker {
           ),
         };
         break;
+      case "Record":
+        if (expression.spread === undefined) {
+          type = {
+            kind: "Record",
+            fields: new Map(expression.fields.map((field) => [
+              field.name.text,
+              this.#inferExpr(field.value, level),
+            ])),
+          };
+        } else {
+          const receiver = this.#inferExpr(expression.spread, level);
+          const overrides = new Map(expression.fields.map((field) => [
+            field.name.text,
+            this.#inferExpr(field.value, level),
+          ]));
+          const actual = this.#prune(receiver);
+          if (actual.kind === "Record") {
+            for (const [name, override] of overrides) {
+              const existing = actual.fields.get(name);
+              if (existing === undefined) {
+                this.#diagnostics.add({
+                  severity: "error",
+                  message: `record update cannot add fields; the input has no field \`${name}\``,
+                  primary: expression.span,
+                });
+              } else {
+                this.#unify(existing, override, expression.span);
+              }
+            }
+          } else {
+            this.#unify(receiver, {
+              kind: "Record",
+              fields: overrides,
+              tail: this.#fresh(level, false),
+            }, expression.span);
+          }
+          type = receiver;
+        }
+        break;
       case "Group":
         type = this.#inferExpr(expression.expression, level);
         break;
@@ -293,10 +348,11 @@ class Checker {
         type = this.#inferItems(expression.items, level, false);
         break;
       case "Lambda": {
+        const annotationTails = new Map<string, Variable>();
         const parameters = expression.parameters.map((parameter) => {
           const parameterType = parameter.annotation === undefined
             ? this.#fresh(level + 1, false)
-            : this.#annotationType(parameter.annotation);
+            : this.#annotationType(parameter.annotation, level + 1, annotationTails);
           this.#schemes.set(parameter.symbol, {
             variables: [],
             type: parameterType,
@@ -306,7 +362,7 @@ class Checker {
         const result = this.#inferExpr(expression.body, level + 1);
         if (expression.returnAnnotation !== undefined) {
           this.#unify(
-            this.#annotationType(expression.returnAnnotation),
+            this.#annotationType(expression.returnAnnotation, level + 1, annotationTails),
             result,
             expression.returnAnnotation.span,
           );
@@ -332,7 +388,13 @@ class Checker {
         const scrutinee = this.#inferExpr(expression.scrutinee, level);
         const result = this.#fresh(level, false);
         let catchAll = false;
-        const covered = new Set<Resolved.SymbolId>();
+        const coveredConstructors = new Set<Resolved.SymbolId>();
+        const constructorPatterns = new Map<
+          Resolved.SymbolId,
+          Resolved.ConstructorPattern[]
+        >();
+        const coveredLiterals = new Set<string>();
+        const coveredBooleans = new Set<boolean>();
         for (const arm of expression.arms) {
           if (catchAll) {
             this.#diagnostics.add({
@@ -341,47 +403,116 @@ class Checker {
               primary: arm.pattern.span,
             });
           }
-          if (arm.pattern.kind === "Constructor") {
-            if (covered.has(arm.pattern.symbol)) {
-              this.#diagnostics.add({
-                severity: "error",
-                message: `this case is unreachable; \`${arm.pattern.text}\` is already handled above`,
-                primary: arm.pattern.span,
-              });
+          const guarded = arm.guard !== undefined;
+          let armCatchesAll = false;
+          const armConstructors: Resolved.ConstructorPattern[] = [];
+          for (const coveragePattern of coverageAlternatives(arm.pattern)) {
+            if (coveragePattern.kind === "Constructor") {
+              if (coveredConstructors.has(coveragePattern.symbol)) {
+                this.#diagnostics.add({
+                  severity: "error",
+                  message: `this case is unreachable; \`${coveragePattern.text}\` is already handled above`,
+                  primary: coveragePattern.span,
+                });
+              }
+              if (!guarded) armConstructors.push(coveragePattern);
+            } else if (
+              coveragePattern.kind === "Boolean" ||
+              coveragePattern.kind === "Integer" ||
+              coveragePattern.kind === "String"
+            ) {
+              const key = renderLiteralPatternKey(coveragePattern);
+              if (coveredLiterals.has(key)) {
+                this.#diagnostics.add({
+                  severity: "error",
+                  message: "this literal case is unreachable; it is already handled above",
+                  primary: coveragePattern.span,
+                });
+              }
+              if (!guarded) {
+                coveredLiterals.add(key);
+                if (coveragePattern.kind === "Boolean") {
+                  coveredBooleans.add(coveragePattern.value);
+                }
+              }
+            } else if (isStructurallyIrrefutablePattern(coveragePattern)) {
+              armCatchesAll = true;
             }
-            covered.add(arm.pattern.symbol);
-          } else if (
-            arm.pattern.kind === "Wildcard" ||
-            arm.pattern.kind === "Binding"
-          ) {
-            catchAll = true;
           }
+          for (const pattern of armConstructors) {
+            const patterns = constructorPatterns.get(pattern.symbol) ?? [];
+            patterns.push(pattern);
+            constructorPatterns.set(pattern.symbol, patterns);
+            if (this.#constructorPatternsAreExhaustive(patterns)) {
+              coveredConstructors.add(pattern.symbol);
+            }
+          }
+          if (!guarded && armCatchesAll) catchAll = true;
           this.#inferMatchPattern(arm.pattern, scrutinee, level);
+          if (arm.guard !== undefined) {
+            const guard = this.#inferExpr(arm.guard, level);
+            this.#unify(guard, primitive("Bool"), arm.guard.span);
+          }
           this.#unify(result, this.#inferExpr(arm.body, level), arm.body.span);
         }
         const actual = this.#prune(scrutinee);
-        if (actual.kind !== "Union") {
-          type = this.#unsupported(
-            expression.scrutinee.span,
-            "match requires a union type in the first union slice",
-          );
-          break;
-        }
-        this.#matchUnions.set(expression, actual.union);
-        if (!catchAll) {
-          const union = this.#unions.get(actual.union);
-          const missing = union?.constructors.filter(
-            ({ binding }) => !covered.has(binding.symbol),
-          ) ?? [];
-          if (missing.length > 0) {
+        if (actual.kind === "Union") {
+          this.#matchUnions.set(expression, actual.union);
+          if (!catchAll) {
+            const union = this.#unions.get(actual.union);
+            const missing = union?.constructors.filter(
+              ({ binding }) => !coveredConstructors.has(binding.symbol),
+            ) ?? [];
+            if (missing.length > 0) {
+              this.#diagnostics.add({
+                severity: "error",
+                message:
+                  "match is missing cases: " +
+                  missing.map(({ binding }) => `\`${binding.name}\``).join(", "),
+                primary: expression.span,
+              });
+            }
+          }
+        } else if (actual.kind === "Constructor" && actual.name === "Bool") {
+          if (!catchAll && coveredBooleans.size < 2) {
+            const missing = coveredBooleans.has(true) ? "false" : "true";
             this.#diagnostics.add({
               severity: "error",
-              message:
-                "match is missing cases: " +
-                missing.map(({ binding }) => `\`${binding.name}\``).join(", "),
+              message: `match is missing case \`${missing}\``,
               primary: expression.span,
             });
           }
+        } else if (
+          actual.kind === "Constructor" &&
+          (actual.name === "Int" || actual.name === "String")
+        ) {
+          if (!catchAll) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `a match on \`${actual.name}\` needs a catch-all pattern`,
+              primary: expression.span,
+            });
+          }
+        } else if (
+          (actual.kind === "Constructor" && actual.name === "Unit") ||
+          actual.kind === "Tuple" ||
+          actual.kind === "Record"
+        ) {
+          if (!catchAll) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `match on \`${this.#display(actual)}\` needs a catch-all structural pattern`,
+              primary: expression.span,
+            });
+          }
+        } else {
+          type = this.#unsupported(
+            expression.scrutinee.span,
+            actual.kind === "Variable"
+              ? "cannot match on a value of abstract type; use the operations its constraints provide"
+              : `cannot match on \`${this.#display(actual)}\` yet`,
+          );
+          break;
         }
         type = result;
         break;
@@ -415,6 +546,12 @@ class Checker {
         }
         break;
       }
+      case "ConsoleLog":
+        for (const argument of expression.arguments) {
+          this.#inferExpr(argument, level);
+        }
+        type = primitive("Unit");
+        break;
       case "Unary": {
         const operand = this.#inferExpr(expression.operand, level);
         if (expression.operator === "Not") {
@@ -463,10 +600,46 @@ class Checker {
         break;
       }
       case "Access": {
-        const receiver = this.#prune(this.#inferExpr(expression.receiver, level));
+        const inferredReceiver = this.#prune(this.#inferExpr(expression.receiver, level));
+        const receiver = inferredReceiver.kind === "Record"
+          ? this.#normalizeRecord(inferredReceiver)
+          : inferredReceiver;
+        if (receiver.kind === "Record") {
+          const field = receiver.fields.get(expression.field.text);
+          if (field !== undefined) {
+            type = field;
+            this.#recordAccesses.set(expression, expression.field.text);
+            break;
+          }
+          if (receiver.tail === undefined) {
+            const known = [...receiver.fields.keys()];
+            type = this.#unsupported(
+              expression.field.span,
+              known.length === 0
+                ? `the empty record has no field \`${expression.field.text}\``
+                : `record has fields ${known.map((name) => `\`${name}\``).join(", ")}, not \`${expression.field.text}\``,
+            );
+            break;
+          }
+          type = this.#fresh(level, false);
+          this.#unify(receiver, {
+            kind: "Record",
+            fields: new Map([[expression.field.text, type]]),
+            tail: this.#fresh(level, false),
+          }, expression.span);
+          this.#recordAccesses.set(expression, expression.field.text);
+          break;
+        }
         const item = /^item(\d+)$/.exec(expression.field.text);
         if (item === null) {
-          type = this.#unsupported(expression.span, "field access requires row typing");
+          type = this.#fresh(level, false);
+          const tail = this.#fresh(level, false);
+          this.#unify(receiver, {
+            kind: "Record",
+            fields: new Map([[expression.field.text, type]]),
+            tail,
+          }, expression.span);
+          this.#recordAccesses.set(expression, expression.field.text);
           break;
         }
         const position = Number(item[1]);
@@ -527,6 +700,10 @@ class Checker {
     generalizable: boolean,
   ): void {
     if (pattern.kind === "Wildcard") return;
+    if (pattern.kind === "Unit") {
+      this.#unify(expected, primitive("Unit"), pattern.span);
+      return;
+    }
     if (pattern.kind === "Binding") {
       this.#schemes.set(
         pattern.binding.symbol,
@@ -534,12 +711,104 @@ class Checker {
       );
       return;
     }
+    if (pattern.kind === "As") {
+      this.#inferPattern(pattern.pattern, expected, level, generalizable);
+      this.#schemes.set(
+        pattern.binding.symbol,
+        this.#generalize(expected, level, generalizable),
+      );
+      return;
+    }
+    if (pattern.kind === "Or") {
+      this.#inferMatchPattern(pattern, expected, level);
+      for (const binding of resolvedPatternBindings(pattern)) {
+        this.#schemes.set(
+          binding.symbol,
+          this.#generalize(
+            this.#scheme(binding.symbol).type,
+            level,
+            generalizable,
+          ),
+        );
+      }
+      if (!this.#isIrrefutablePattern(pattern, expected)) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: "this or-pattern does not cover every possible value and cannot be used in `let`; use `match`",
+          primary: pattern.span,
+        });
+      }
+      return;
+    }
     if (pattern.kind === "Constructor") {
+      const unionId = this.#constructorUnions.get(pattern.symbol);
+      const union = unionId === undefined ? undefined : this.#unions.get(unionId);
+      if (union === undefined || union.constructors.length !== 1) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: "a constructor pattern is refutable and cannot be used in `let`",
+          primary: pattern.span,
+        });
+        return;
+      }
+      const constructor = union.constructors[0]!;
+      const parameters = constructor.slots.map((slot) =>
+        this.#annotationType(slot.annotation)
+      );
+      this.#unify(
+        expected,
+        { kind: "Union", union: union.id, name: union.name },
+        pattern.span,
+      );
+      if (pattern.arguments.length !== parameters.length) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `constructor pattern \`${pattern.text}\` expects ${parameters.length} arguments, got ${pattern.arguments.length}`,
+          primary: pattern.span,
+        });
+      }
+      pattern.arguments.forEach((argument, index) =>
+        this.#inferPattern(
+          argument,
+          parameters[index] ?? ERROR,
+          level,
+          generalizable,
+        )
+      );
+      return;
+    }
+    if (
+      pattern.kind === "Boolean" ||
+      pattern.kind === "Integer" ||
+      pattern.kind === "String"
+    ) {
       this.#diagnostics.add({
         severity: "error",
-        message: "a constructor pattern is refutable and cannot be used in `let`",
+        message: "a literal pattern is refutable and cannot be used in `let`",
         primary: pattern.span,
       });
+      return;
+    }
+
+    if (pattern.kind === "Record") {
+      const fields = new Map<string, Mono>();
+      for (const fieldPattern of pattern.fields) {
+        const field = this.#fresh(level + 1, false);
+        fields.set(fieldPattern.name, field);
+      }
+      this.#unify(expected, {
+        kind: "Record",
+        fields,
+        tail: this.#fresh(level + 1, false),
+      }, pattern.span);
+      for (const fieldPattern of pattern.fields) {
+        this.#inferPattern(
+          fieldPattern.pattern,
+          fields.get(fieldPattern.name) ?? ERROR,
+          level,
+          generalizable,
+        );
+      }
       return;
     }
 
@@ -560,37 +829,199 @@ class Checker {
     level: number,
   ): void {
     if (pattern.kind === "Wildcard") return;
+    if (pattern.kind === "Unit") {
+      this.#unify(expected, primitive("Unit"), pattern.span);
+      return;
+    }
     if (pattern.kind === "Binding") {
       this.#schemes.set(pattern.binding.symbol, { variables: [], type: expected });
       return;
     }
+    if (pattern.kind === "As") {
+      this.#inferMatchPattern(pattern.pattern, expected, level);
+      this.#schemes.set(pattern.binding.symbol, { variables: [], type: expected });
+      return;
+    }
+    if (pattern.kind === "Or") {
+      const common = new Map<Resolved.SymbolId, Mono>();
+      for (const alternative of pattern.alternatives) {
+        this.#inferMatchPattern(alternative, expected, level);
+        for (const binding of resolvedPatternBindings(alternative)) {
+          const current = this.#scheme(binding.symbol).type;
+          const previous = common.get(binding.symbol);
+          if (previous === undefined) common.set(binding.symbol, current);
+          else this.#unify(previous, current, binding.span);
+        }
+      }
+      for (const [symbol, type] of common) {
+        this.#schemes.set(symbol, { variables: [], type });
+      }
+      return;
+    }
+    if (pattern.kind === "Boolean") {
+      this.#unify(expected, primitive("Bool"), pattern.span);
+      return;
+    }
+    if (pattern.kind === "Integer") {
+      this.#unify(expected, primitive("Int"), pattern.span);
+      return;
+    }
+    if (pattern.kind === "String") {
+      this.#unify(expected, primitive("String"), pattern.span);
+      return;
+    }
     if (pattern.kind === "Tuple") {
-      this.#diagnostics.add({
-        severity: "error",
-        message: "the first union slice supports constructor and catch-all patterns",
-        primary: pattern.span,
-      });
+      const elements = pattern.elements.map(() => this.#fresh(level, false));
+      this.#unify(expected, { kind: "Tuple", elements }, pattern.span);
+      pattern.elements.forEach((element, index) =>
+        this.#inferMatchPattern(element, elements[index] ?? ERROR, level)
+      );
+      return;
+    }
+    if (pattern.kind === "Record") {
+      const fields = new Map(
+        pattern.fields.map((field) => [field.name, this.#fresh(level, false)]),
+      );
+      this.#unify(expected, {
+        kind: "Record",
+        fields,
+        tail: this.#fresh(level, false),
+      }, pattern.span);
+      for (const field of pattern.fields) {
+        this.#inferMatchPattern(
+          field.pattern,
+          fields.get(field.name) ?? ERROR,
+          level,
+        );
+      }
       return;
     }
 
     const unionId = this.#constructorUnions.get(pattern.symbol);
     const union = unionId === undefined ? undefined : this.#unions.get(unionId);
     if (union === undefined) return;
-    this.#unify(
-      expected,
-      { kind: "Union", union: union.id, name: union.name },
-      pattern.span,
+    const constructor = union.constructors.find(
+      ({ binding }) => binding.symbol === pattern.symbol,
     );
-    if (pattern.arguments.length > 0) {
+    if (constructor === undefined) return;
+    const parameters = constructor.slots.map((slot) =>
+      this.#annotationType(slot.annotation)
+    );
+    this.#unify(expected, { kind: "Union", union: union.id, name: union.name }, pattern.span);
+    if (pattern.arguments.length !== parameters.length) {
       this.#diagnostics.add({
         severity: "error",
-        message: `\`${pattern.text}\` is nullary; write it without \`()\``,
+        message: `constructor pattern \`${pattern.text}\` expects ${parameters.length} arguments, got ${pattern.arguments.length}`,
         primary: pattern.span,
       });
     }
-    for (const argument of pattern.arguments) {
-      this.#inferMatchPattern(argument, ERROR, level);
+    pattern.arguments.forEach((argument, index) =>
+      this.#inferMatchPattern(argument, parameters[index] ?? ERROR, level)
+    );
+  }
+
+  #isIrrefutablePattern(pattern: Resolved.Pattern, expected: Mono): boolean {
+    if (pattern.kind === "Wildcard" || pattern.kind === "Binding") return true;
+    if (pattern.kind === "As") {
+      return this.#isIrrefutablePattern(pattern.pattern, expected);
     }
+    const actual = this.#prune(expected);
+    if (pattern.kind === "Or") {
+      if (pattern.alternatives.some((alternative) =>
+        this.#isIrrefutablePattern(alternative, actual)
+      )) return true;
+      if (actual.kind === "Constructor" && actual.name === "Bool") {
+        const values = new Set<boolean>();
+        for (const alternative of pattern.alternatives) {
+          const unwrapped = unwrapAsPattern(alternative);
+          if (unwrapped.kind === "Boolean") values.add(unwrapped.value);
+        }
+        return values.size === 2;
+      }
+      if (actual.kind === "Union") {
+        const union = this.#unions.get(actual.union);
+        return union?.constructors.every((constructor) =>
+          pattern.alternatives.some((alternative) => {
+            const unwrapped = unwrapAsPattern(alternative);
+            if (
+              unwrapped.kind !== "Constructor" ||
+              unwrapped.symbol !== constructor.binding.symbol
+            ) return false;
+            return unwrapped.arguments.every((argument, index) => {
+              const slot = constructor.slots[index];
+              return slot !== undefined && this.#isIrrefutablePattern(
+                argument,
+                this.#annotationType(slot.annotation),
+              );
+            });
+          })
+        ) ?? false;
+      }
+      return false;
+    }
+    if (pattern.kind === "Unit") {
+      return actual.kind === "Constructor" && actual.name === "Unit";
+    }
+    if (pattern.kind === "Tuple") {
+      return actual.kind === "Tuple" &&
+        pattern.elements.length === actual.elements.length &&
+        pattern.elements.every((element, index) =>
+          this.#isIrrefutablePattern(element, actual.elements[index] ?? ERROR)
+        );
+    }
+    if (pattern.kind === "Record") {
+      if (actual.kind !== "Record") return false;
+      const fields = this.#normalizeRecord(actual).fields;
+      return pattern.fields.every((field) =>
+        this.#isIrrefutablePattern(
+          field.pattern,
+          fields.get(field.name) ?? ERROR,
+        )
+      );
+    }
+    if (pattern.kind === "Constructor" && actual.kind === "Union") {
+      const union = this.#unions.get(actual.union);
+      if (union?.constructors.length !== 1) return false;
+      const constructor = union.constructors[0]!;
+      return constructor.binding.symbol === pattern.symbol &&
+        pattern.arguments.every((argument, index) => {
+          const slot = constructor.slots[index];
+          return slot !== undefined && this.#isIrrefutablePattern(
+            argument,
+            this.#annotationType(slot.annotation),
+          );
+        });
+    }
+    return false;
+  }
+
+  #constructorPatternsAreExhaustive(
+    patterns: readonly Resolved.ConstructorPattern[],
+  ): boolean {
+    const first = patterns[0];
+    if (first === undefined) return false;
+    const unionId = this.#constructorUnions.get(first.symbol);
+    const union = unionId === undefined ? undefined : this.#unions.get(unionId);
+    const constructor = union?.constructors.find(
+      ({ binding }) => binding.symbol === first.symbol,
+    );
+    if (constructor === undefined) return false;
+    if (patterns.some((pattern) =>
+      pattern.arguments.length === constructor.slots.length &&
+      pattern.arguments.every((argument, index) =>
+        this.#isIrrefutablePattern(
+          argument,
+          this.#annotationType(constructor.slots[index]!.annotation),
+        )
+      )
+    )) return true;
+    if (constructor.slots.length !== 1) return false;
+    const arguments_ = patterns.flatMap((pattern) => pattern.arguments.slice(0, 1));
+    if (arguments_.length !== patterns.length) return false;
+    return this.#isIrrefutablePattern(
+      { kind: "Or", alternatives: arguments_, span: first.span },
+      this.#annotationType(constructor.slots[0]!.annotation),
+    );
   }
 
   #inferBinary(expression: Resolved.BinaryExpr, level: number): Mono {
@@ -705,6 +1136,9 @@ class Checker {
         this.#unify(element, actualRight.elements[index]!, span);
       });
       return;
+    } else if (actualLeft.kind === "Record" && actualRight.kind === "Record") {
+      this.#unifyRecords(actualLeft, actualRight, span);
+      return;
     } else if (actualLeft.kind === "Union" && actualRight.kind === "Union") {
       if (actualLeft.union === actualRight.union) return;
     }
@@ -715,6 +1149,72 @@ class Checker {
         message?.() ??
         `type mismatch: expected ${this.#display(actualLeft)}, found ` +
           this.#display(actualRight),
+      primary: span,
+    });
+  }
+
+  #unifyRecords(left: RecordMono, right: RecordMono, span: Source.Span): void {
+    left = this.#normalizeRecord(left);
+    right = this.#normalizeRecord(right);
+    for (const [name, type] of left.fields) {
+      const other = right.fields.get(name);
+      if (other !== undefined) this.#unify(type, other, span);
+    }
+    const leftOnly = new Map([...left.fields].filter(([name]) => !right.fields.has(name)));
+    const rightOnly = new Map([...right.fields].filter(([name]) => !left.fields.has(name)));
+
+    if (left.tail === undefined && rightOnly.size > 0) {
+      this.#recordMismatch([...rightOnly.keys()], span);
+      return;
+    }
+    if (right.tail === undefined && leftOnly.size > 0) {
+      this.#recordMismatch([...leftOnly.keys()], span);
+      return;
+    }
+    if (left.tail !== undefined && right.tail !== undefined) {
+      const actualLeftTail = this.#prune(left.tail);
+      const actualRightTail = this.#prune(right.tail);
+      if (actualLeftTail === actualRightTail) {
+        if (leftOnly.size > 0 || rightOnly.size > 0) {
+          this.#recordMismatch([...leftOnly.keys(), ...rightOnly.keys()], span);
+        }
+        return;
+      }
+      const shared = this.#fresh(Math.min(left.tail.level, right.tail.level), false);
+      this.#bind(left.tail, { kind: "Record", fields: rightOnly, tail: shared }, span);
+      this.#bind(right.tail, { kind: "Record", fields: leftOnly, tail: shared }, span);
+      return;
+    }
+    if (left.tail !== undefined) {
+      this.#bind(left.tail, { kind: "Record", fields: rightOnly }, span);
+      return;
+    }
+    if (right.tail !== undefined) {
+      this.#bind(right.tail, { kind: "Record", fields: leftOnly }, span);
+    }
+  }
+
+  #normalizeRecord(record: RecordMono): RecordMono {
+    const fields = new Map(record.fields);
+    let tail = record.tail;
+    while (tail !== undefined) {
+      const actual = this.#prune(tail);
+      if (actual.kind === "Variable") {
+        return { kind: "Record", fields, tail: actual };
+      }
+      if (actual.kind !== "Record") return { kind: "Record", fields };
+      for (const [name, field] of actual.fields) {
+        if (!fields.has(name)) fields.set(name, field);
+      }
+      tail = actual.tail;
+    }
+    return { kind: "Record", fields };
+  }
+
+  #recordMismatch(fields: readonly string[], span: Source.Span): void {
+    this.#diagnostics.add({
+      severity: "error",
+      message: `record fields do not match; unexpected ${fields.map((field) => `\`${field}\``).join(", ")}`,
       primary: span,
     });
   }
@@ -745,6 +1245,10 @@ class Checker {
     if (actual === variable) return true;
     if (actual.kind === "Tuple") {
       return actual.elements.some((element) => this.#occurs(variable, element));
+    }
+    if (actual.kind === "Record") {
+      return [...actual.fields.values()].some((field) => this.#occurs(variable, field)) ||
+        (actual.tail !== undefined && this.#occurs(variable, actual.tail));
     }
     if (actual.kind === "Function") {
       return (
@@ -875,6 +1379,10 @@ class Checker {
     if (actual.kind === "Tuple") {
       for (const element of actual.elements) this.#collectVariables(element, found);
     }
+    if (actual.kind === "Record") {
+      for (const field of actual.fields.values()) this.#collectVariables(field, found);
+      if (actual.tail !== undefined) this.#collectVariables(actual.tail, found);
+    }
     if (actual.kind === "Function") {
       for (const parameter of actual.parameters) this.#collectVariables(parameter, found);
       this.#collectVariables(actual.result, found);
@@ -912,6 +1420,14 @@ class Checker {
       if (actual.kind === "Tuple") {
         return { kind: "Tuple", elements: actual.elements.map(copy) };
       }
+      if (actual.kind === "Record") {
+        const record = this.#normalizeRecord(actual);
+        return {
+          kind: "Record",
+          fields: new Map([...record.fields].map(([name, field]) => [name, copy(field)])),
+          ...(record.tail === undefined ? {} : { tail: copy(record.tail) as Variable }),
+        };
+      }
       return actual;
     };
     return copy(scheme.type);
@@ -922,7 +1438,11 @@ class Checker {
     return ERROR;
   }
 
-  #annotationType(annotation: Resolved.TypeAnnotation): Mono {
+  #annotationType(
+    annotation: Resolved.TypeAnnotation,
+    level = 0,
+    namedTails = new Map<string, Variable>(),
+  ): Mono {
     if (annotation.kind === "Primitive") return primitive(annotation.name);
     if (annotation.kind === "Union") {
       return {
@@ -934,10 +1454,37 @@ class Checker {
     if (annotation.kind === "Tuple") {
       return {
         kind: "Tuple",
-        elements: annotation.elements.map((element) => this.#annotationType(element)),
+        elements: annotation.elements.map((element) =>
+          this.#annotationType(element, level, namedTails)
+        ),
+      };
+    }
+    if (annotation.kind === "Record") {
+      return {
+        kind: "Record",
+        fields: new Map(annotation.fields.map((field) => [
+          field.name,
+          this.#annotationType(field.annotation, level, namedTails),
+        ])),
+        ...(annotation.open
+          ? { tail: this.#annotationTail(annotation.tail, level, namedTails) }
+          : {}),
       };
     }
     return ERROR;
+  }
+
+  #annotationTail(
+    name: string | undefined,
+    level: number,
+    namedTails: Map<string, Variable>,
+  ): Variable {
+    if (name === undefined) return this.#fresh(level, false);
+    const existing = namedTails.get(name);
+    if (existing !== undefined) return existing;
+    const tail = this.#fresh(level, false);
+    namedTails.set(name, tail);
+    return tail;
   }
 
   #scheme(symbol: Resolved.SymbolId): Scheme {
@@ -963,6 +1510,13 @@ class Checker {
         return expression.parts.every(({ kind }) => kind === "Text");
       case "Tuple":
         return expression.elements.every((element) => this.#isValue(element));
+      case "Record":
+        return expression.spread === undefined &&
+          expression.fields.every((field) => this.#isValue(field.value));
+      case "Call":
+        return expression.callee.kind === "Name" &&
+          this.#constructorUnions.has(expression.callee.symbol) &&
+          expression.arguments.every((argument) => this.#isValue(argument));
       case "Group":
         return this.#isValue(expression.expression);
       default:
@@ -992,6 +1546,17 @@ class Checker {
       return {
         kind: "Tuple",
         elements: actual.elements.map((element) => this.#publicType(element, seen)),
+      };
+    }
+    if (actual.kind === "Record") {
+      const tail = actual.tail === undefined ? undefined : this.#prune(actual.tail);
+      return {
+        kind: "Record",
+        fields: [...actual.fields].map(([name, field]) => ({
+          name,
+          type: this.#publicType(field, seen),
+        })),
+        ...(tail?.kind === "Variable" ? { tail: Typed.typeVariableId(tail.id) } : {}),
       };
     }
     if (actual.kind === "Union") {
@@ -1051,9 +1616,14 @@ class Checker {
         exported: item.exported,
         union: item.union,
         name: item.name,
-        constructors: item.constructors.map(({ binding }) => ({
+        constructors: item.constructors.map(({ binding, slots }) => ({
           ...binding,
           scheme: this.#publicScheme(this.#scheme(binding.symbol)),
+          slots: slots.map((slot) => ({
+            field: slot.field,
+            type: this.#publicType(this.#annotationType(slot.annotation)),
+            span: slot.span,
+          })),
         })),
         span: item.span,
       };
@@ -1077,7 +1647,31 @@ class Checker {
   }
 
   #materializePattern(pattern: Resolved.Pattern): Typed.Pattern {
-    if (pattern.kind === "Wildcard") return pattern;
+    if (
+      pattern.kind === "Wildcard" ||
+      pattern.kind === "Unit" ||
+      pattern.kind === "Boolean" ||
+      pattern.kind === "Integer" ||
+      pattern.kind === "String"
+    ) return pattern;
+    if (pattern.kind === "Or") {
+      return {
+        ...pattern,
+        alternatives: pattern.alternatives.map((alternative) =>
+          this.#materializePattern(alternative)
+        ),
+      };
+    }
+    if (pattern.kind === "As") {
+      return {
+        ...pattern,
+        pattern: this.#materializePattern(pattern.pattern),
+        binding: {
+          ...pattern.binding,
+          scheme: this.#publicScheme(this.#scheme(pattern.binding.symbol)),
+        },
+      };
+    }
     if (pattern.kind === "Constructor") {
       return {
         ...pattern,
@@ -1092,6 +1686,15 @@ class Checker {
         elements: pattern.elements.map((element) =>
           this.#materializePattern(element),
         ),
+      };
+    }
+    if (pattern.kind === "Record") {
+      return {
+        ...pattern,
+        fields: pattern.fields.map((field) => ({
+          ...field,
+          pattern: this.#materializePattern(field.pattern),
+        })),
       };
     }
     return {
@@ -1109,9 +1712,14 @@ class Checker {
       id: union.id,
       name: union.name,
       span: union.span,
-      constructors: union.constructors.map(({ binding }) => ({
+      constructors: union.constructors.map(({ binding, slots }) => ({
         ...binding,
         scheme: this.#publicScheme(this.#scheme(binding.symbol)),
+        slots: slots.map((slot) => ({
+          field: slot.field,
+          type: this.#publicType(this.#annotationType(slot.annotation)),
+          span: slot.span,
+        })),
       })),
     };
   }
@@ -1156,6 +1764,19 @@ class Checker {
             this.#materializeExpr(element),
           ),
         };
+      case "Record":
+        return {
+          kind: "Record",
+          type,
+          ...(expression.spread === undefined
+            ? {}
+            : { spread: this.#materializeExpr(expression.spread) }),
+          fields: expression.fields.map((field) => ({
+            ...field,
+            value: this.#materializeExpr(field.value),
+          })),
+          span: expression.span,
+        };
       case "Group":
         return { ...expression, type, expression: this.#materializeExpr(expression.expression) };
       case "Block":
@@ -1175,15 +1796,19 @@ class Checker {
           : { ...common, alternative: this.#materializeExpr(expression.alternative) };
       }
       case "Match":
+        const union = this.#matchUnions.get(expression);
         return {
           kind: "Match",
           scrutinee: this.#materializeExpr(expression.scrutinee),
           arms: expression.arms.map((arm) => ({
-            ...arm,
             pattern: this.#materializePattern(arm.pattern),
+            ...(arm.guard === undefined
+              ? {}
+              : { guard: this.#materializeExpr(arm.guard) }),
             body: this.#materializeExpr(arm.body),
+            span: arm.span,
           })),
-          union: this.#matchUnions.get(expression) ?? Resolved.unionId(0),
+          ...(union === undefined ? {} : { union }),
           type,
           span: expression.span,
         };
@@ -1194,13 +1819,23 @@ class Checker {
           callee: this.#materializeExpr(expression.callee),
           arguments: expression.arguments.map((argument) => this.#materializeExpr(argument)),
         };
+      case "ConsoleLog":
+        return {
+          ...expression,
+          type,
+          arguments: expression.arguments.map((argument) =>
+            this.#materializeExpr(argument)
+          ),
+        };
       case "Access": {
         const tupleIndex = this.#tupleAccesses.get(expression);
+        const recordField = this.#recordAccesses.get(expression);
         return {
           ...expression,
           type,
           receiver: this.#materializeExpr(expression.receiver),
           ...(tupleIndex === undefined ? {} : { tupleIndex }),
+          ...(recordField === undefined ? {} : { recordField }),
         };
       }
       case "Index":
@@ -1375,6 +2010,11 @@ class Checker {
       return `(${actual.elements.map((element) => this.#display(element)).join(", ")})`;
     }
     if (actual.kind === "Union") return actual.name;
+    if (actual.kind === "Record") {
+      const fields = [...actual.fields].map(([name, field]) => `${name}: ${this.#display(field)}`);
+      if (actual.tail !== undefined) fields.push("...");
+      return `{${fields.join(", ")}}`;
+    }
     return (
       `(${actual.parameters.map((parameter) => this.#display(parameter)).join(", ")})` +
       ` -> ${this.#display(actual.result)}`
@@ -1397,6 +2037,85 @@ function rewritePipe(expression: Resolved.BinaryExpr): Resolved.CallExpr {
         arguments: [expression.left],
         span: expression.span,
       };
+}
+
+function renderLiteralPatternKey(
+  pattern: Resolved.BooleanPattern | Resolved.IntegerPattern | Resolved.StringPattern,
+): string {
+  switch (pattern.kind) {
+    case "Boolean":
+      return `Bool:${pattern.value}`;
+    case "Integer":
+      return `Int:${pattern.decimal}`;
+    case "String":
+      return `String:${pattern.value}`;
+  }
+}
+
+function unwrapAsPattern(pattern: Resolved.Pattern): Resolved.Pattern {
+  return pattern.kind === "As" ? unwrapAsPattern(pattern.pattern) : pattern;
+}
+
+function coverageAlternatives(
+  pattern: Resolved.Pattern,
+): readonly Resolved.Pattern[] {
+  const unwrapped = unwrapAsPattern(pattern);
+  return unwrapped.kind === "Or"
+    ? unwrapped.alternatives.flatMap(coverageAlternatives)
+    : [unwrapped];
+}
+
+function resolvedPatternBindings(
+  pattern: Resolved.Pattern,
+): readonly Resolved.Binding[] {
+  switch (pattern.kind) {
+    case "Binding":
+      return [pattern.binding];
+    case "Wildcard":
+    case "Unit":
+    case "Boolean":
+    case "Integer":
+    case "String":
+      return [];
+    case "As":
+      return [...resolvedPatternBindings(pattern.pattern), pattern.binding];
+    case "Or":
+      return pattern.alternatives[0] === undefined
+        ? []
+        : resolvedPatternBindings(pattern.alternatives[0]);
+    case "Tuple":
+      return pattern.elements.flatMap(resolvedPatternBindings);
+    case "Record":
+      return pattern.fields.flatMap((field) =>
+        resolvedPatternBindings(field.pattern)
+      );
+    case "Constructor":
+      return pattern.arguments.flatMap(resolvedPatternBindings);
+  }
+}
+
+function isStructurallyIrrefutablePattern(pattern: Resolved.Pattern): boolean {
+  switch (pattern.kind) {
+    case "Wildcard":
+    case "Binding":
+    case "Unit":
+      return true;
+    case "As":
+      return isStructurallyIrrefutablePattern(pattern.pattern);
+    case "Or":
+      return pattern.alternatives.some(isStructurallyIrrefutablePattern);
+    case "Tuple":
+      return pattern.elements.every(isStructurallyIrrefutablePattern);
+    case "Record":
+      return pattern.fields.every((field) =>
+        isStructurallyIrrefutablePattern(field.pattern)
+      );
+    case "Boolean":
+    case "Integer":
+    case "String":
+    case "Constructor":
+      return false;
+  }
 }
 
 function supports(

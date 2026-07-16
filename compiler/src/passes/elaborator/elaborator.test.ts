@@ -39,6 +39,23 @@ describe("elaborate", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  test("preserves the explicit host console operation", () => {
+    const module = elaborateSource('console.log("answer", 42)');
+
+    expect(module.items[0]).toMatchObject({
+      kind: "ExprItem",
+      expression: {
+        kind: "ConsoleLog",
+        arguments: [
+          { kind: "String" },
+          { kind: "Number", representation: "Int" },
+        ],
+        type: { kind: "Primitive", name: "Unit" },
+      },
+    });
+    expect(module.diagnostics).toEqual([]);
+  });
+
   test("makes concrete numeric operations and evidence explicit", () => {
     const module = elaborateSource("let total = 1 + 2 * 3");
 
@@ -250,6 +267,9 @@ function visitExpr(expression: Core.Expr, visit: (expression: Core.Expr) => void
       return;
     case "Call":
       visitExpr(expression.callee, visit);
+      for (const argument of expression.arguments) visitExpr(argument, visit);
+      return;
+    case "ConsoleLog":
       for (const argument of expression.arguments) visitExpr(argument, visit);
       return;
     case "LogicalNot":

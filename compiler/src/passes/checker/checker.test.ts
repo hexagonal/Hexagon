@@ -10,6 +10,292 @@ import { resolve } from "../resolver/resolver.js";
 import { check } from "./checker.js";
 
 describe("check", () => {
+  test("tracks refutable constructor payloads before marking a case covered", () => {
+    const complete = checkSource(
+      "union Flagged = Flagged(value: Bool) | Empty\n" +
+        "fun describe(flagged: Flagged): String = match flagged\n" +
+        '  Flagged(true) => "yes"\n' +
+        '  Flagged(false) => "no"\n' +
+        '  Empty => "empty"',
+    );
+    expect(complete.diagnostics).toEqual([]);
+
+    const incomplete = checkSource(
+      "union Flagged = Flagged(value: Bool) | Empty\n" +
+        "fun describe(flagged: Flagged): String = match flagged\n" +
+        '  Flagged(true) => "yes"\n' +
+        '  Empty => "empty"',
+    );
+    expect(incomplete.diagnostics.map(({ message }) => message)).toContain(
+      "match is missing cases: `Flagged`",
+    );
+
+    const unreachable = checkSource(
+      "union Flagged = Flagged(value: Bool) | Empty\n" +
+        "fun describe(flagged: Flagged): String = match flagged\n" +
+        '  Flagged(true) => "yes"\n' +
+        '  Flagged(false) => "no"\n' +
+        '  Flagged(_) => "impossible"\n' +
+        '  Empty => "empty"',
+    );
+    expect(unreachable.diagnostics.map(({ message }) => message)).toContain(
+      "this case is unreachable; `Flagged` is already handled above",
+    );
+  });
+
+  test("checks nested or-patterns and exhaustive or-pattern let bindings", () => {
+    const module = checkSource(
+      "union Side = Left(value: Int) | Right(value: Int)\n" +
+        "union Box = Box(side: Side)\n" +
+        "fun unbox(box: Box): Int = match box\n" +
+        "  Box(Left(value) | Right(value)) => value\n" +
+        "let true | false = true\n" +
+        "let Left(amount) | Right(amount) = Left(42)\n" +
+        "let answer = amount",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    expect(letSymbol(module, "answer").scheme.type).toMatchObject({
+      kind: "Primitive",
+      name: "Int",
+    });
+
+    const incomplete = checkSource("let true | true = false");
+    expect(incomplete.diagnostics.map(({ message }) => message)).toContain(
+      "this or-pattern does not cover every possible value and cannot be used in `let`; use `match`",
+    );
+  });
+
+  test("checks negative integer and top-level or-pattern coverage", () => {
+    const module = checkSource(
+      "union Shape = Circle(radius: Float) | Rectangle(width: Float, height: Float) | Point\n" +
+        "fun measure(shape: Shape): Float = match shape\n" +
+        "  Circle(size) | Rectangle(size, _) when size > 0.0 => size\n" +
+        "  Circle(_) | Rectangle(_, _) => 0.0\n" +
+        "  Point => 0.0\n" +
+        "fun sign(value: Int): String = match value\n" +
+        '  -1 => "negative one"\n' +
+        '  _ => "other"',
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const sizes = module.symbols.filter(({ name }) => name === "size");
+    expect(sizes).toHaveLength(1);
+    expect(sizes[0]?.scheme.type).toMatchObject({
+      kind: "Primitive",
+      name: "Float",
+    });
+
+    const mismatched = checkSource(
+      "union Shape = Circle(radius: Float) | Point\n" +
+        "fun measure(shape: Shape): Float = match shape\n" +
+        "  Circle(radius) | Point => radius\n" +
+        "  _ => 0.0",
+    );
+    expect(mismatched.diagnostics.map(({ message }) => message)).toContain(
+      "`radius` must be bound in every alternative of an or-pattern",
+    );
+  });
+
+  test("allows irrefutable single-constructor union patterns in let bindings", () => {
+    const module = checkSource(
+      "union UserId = UserId(value: Int)\n" +
+        "let UserId(value) = UserId(42)\n" +
+        "let answer = value",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    expect(letSymbol(module, "answer").scheme.type).toMatchObject({
+      kind: "Primitive",
+      name: "Int",
+    });
+
+    const refutable = checkSource(
+      "union Maybe = Some(value: Int) | None\n" +
+        "let Some(value) = Some(42)",
+    );
+    expect(refutable.diagnostics.map(({ message }) => message)).toContain(
+      "a constructor pattern is refutable and cannot be used in `let`",
+    );
+  });
+
+  test("checks Unit patterns as exhaustive and irrefutable", () => {
+    const module = checkSource(
+      'fun describe(value: Unit): String = match value\n  () => "unit"\n' +
+        "let () = ()",
+    );
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("checks as-patterns and binds the whole matched value", () => {
+    const module = checkSource(
+      "union Shape = Circle(radius: Float) | Point\n" +
+        "fun preserve(shape: Shape): Shape = match shape\n" +
+        "  Circle(_) as whole => whole\n" +
+        "  Point as whole => whole",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const wholes = module.symbols.filter(({ name }) => name === "whole");
+    expect(wholes).toHaveLength(2);
+    expect(wholes.every(({ scheme }) => scheme.type.kind === "Union")).toBe(true);
+  });
+
+  test("matches tuple and structural-record scrutinees directly", () => {
+    const module = checkSource(
+      'fun tupleLabel(pair: (Bool, Int)): String = match pair\n' +
+        '  (true, count) => "active"\n' +
+        '  (_, _) => "inactive"\n' +
+        'fun recordName(user: {name: String, active: Bool}): String = match user\n' +
+        '  {active: true, name} => name\n' +
+        '  {name} => name',
+    );
+
+    expect(module.diagnostics).toEqual([]);
+
+    const incomplete = checkSource(
+      'fun tupleLabel(pair: (Bool, Int)): String = match pair\n  (true, _) => "active"',
+    );
+    expect(incomplete.diagnostics.map(({ message }) => message)).toContain(
+      "match on `(Bool, Int)` needs a catch-all structural pattern",
+    );
+  });
+
+  test("infers punned record construction fields", () => {
+    const module = checkSource(
+      'let guest = "Mira"\nlet seats = 3\nlet reservation = {guest, seats}',
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    expect(letSymbol(module, "reservation").scheme.type).toMatchObject({
+      kind: "Record",
+      fields: [
+        { name: "guest", type: { kind: "Primitive", name: "String" } },
+        { name: "seats", type: { kind: "Primitive", name: "Int" } },
+      ],
+    });
+  });
+
+  test("checks exhaustive Bool literal matches and catch-alls for infinite primitives", () => {
+    const module = checkSource(
+      'fun describe(flag: Bool): String = match flag\n  true => "yes"\n  false => "no"\n' +
+        'fun count(n: Int): String = match n\n  0 => "none"\n  1 => "one"\n  _ => "many"',
+    );
+    expect(module.diagnostics).toEqual([]);
+
+    const strings = checkSource(
+      'fun agrees(answer: String): Bool = match answer\n  "yes" => true\n  _ => false',
+    );
+    expect(strings.diagnostics).toEqual([]);
+
+    const incomplete = checkSource(
+      'fun count(n: Int): String = match n\n  0 => "none"',
+    );
+    expect(incomplete.diagnostics.map(({ message }) => message)).toContain(
+      "a match on `Int` needs a catch-all pattern",
+    );
+  });
+
+  test("checks guards after pattern bindings without counting them as coverage", () => {
+    const module = checkSource(
+      "union Shape = Circle(radius: Float) | Point\n" +
+        "fun describe(shape: Shape): String = match shape\n" +
+        '  Circle(radius) when radius > 0.0 => "positive"\n' +
+        '  Circle(_) => "circle"\n' +
+        '  Point => "point"',
+    );
+    expect(module.diagnostics).toEqual([]);
+
+    const guardedOnly = checkSource(
+      'fun describe(flag: Bool): String = match flag\n  true when flag => "yes"\n  false => "no"',
+    );
+    expect(guardedOnly.diagnostics.map(({ message }) => message)).toContain(
+      "match is missing case `true`",
+    );
+
+    const wrongGuard = checkSource(
+      'fun describe(flag: Bool): String = match flag\n  true when 1 => "yes"\n  _ => "no"',
+    );
+    expect(wrongGuard.diagnostics.map(({ message }) => message)).toContain(
+      "integer literal cannot have type `Bool`",
+    );
+  });
+
+  test("preserves a named record tail between parameter and result annotations", () => {
+    const module = checkSource(
+      'fun rename(r: {guest: String, ...rest}): {guest: String, ...rest} = {...r, guest: "Renamed"}\n' +
+        'let updated = rename({guest: "Mira", seats: 3})\n' +
+        "let seats = updated.seats",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    expect(typeName(letSymbol(module, "seats").scheme.type)).toBe("Int");
+  });
+
+  test("checks nested tuple and renamed record patterns in constructor payloads", () => {
+    const module = checkSource(
+      "union Result = Ok(value: (String, Int)) | Err(error: {context: {message: String}, code: Int})\n" +
+        "fun describe(result: Result): String = match result\n" +
+        "  Ok((name, _)) => name\n" +
+        "  Err({context: {message: reason}}) => reason",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    expect(typeName(module.symbols.find(({ name }) => name === "reason")!.scheme.type)).toBe("String");
+  });
+
+  test("checks closed and open structural record annotations", () => {
+    const open = checkSource(
+      "fun getX(r: {x: Int, ...}): Int = r.x\n" +
+        "let first = getX({x: 1})\n" +
+        "let second = getX({x: 2, y: true})",
+    );
+    expect(open.diagnostics).toEqual([]);
+
+    const closed = checkSource(
+      "fun getX(r: {x: Int}): Int = r.x\n" +
+        "let extra = getX({x: 1, y: true})",
+    );
+    expect(closed.diagnostics.map(({ message }) => message)).toContain(
+      "record fields do not match; unexpected `y`",
+    );
+  });
+
+  test("checks immutable record updates without permitting field addition", () => {
+    const valid = checkSource(
+      "let point = {x: 1.0, y: 2.0}\n" +
+        "let moved = {...point, x: 3.0}\n" +
+        "let copied = {...moved}",
+    );
+    expect(valid.diagnostics).toEqual([]);
+    expect(letSymbol(valid, "moved").scheme.type).toMatchObject({
+      kind: "Record",
+      fields: [
+        { name: "x", type: { kind: "Primitive", name: "Float" } },
+        { name: "y", type: { kind: "Primitive", name: "Float" } },
+      ],
+    });
+
+    const invalid = checkSource(
+      "let point = {x: 1}\nlet moved = {...point, y: 2}",
+    );
+    expect(invalid.diagnostics.map(({ message }) => message)).toContain(
+      "record update cannot add fields; the input has no field `y`",
+    );
+  });
+
+  test("binds fields from an open structural record pattern", () => {
+    const module = checkSource(
+      'let reservation = {guest: "Mira", seats: 3, confirmed: true}\n' +
+        "let {guest, seats} = reservation\n" +
+        "let label = guest\nlet count = seats",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    expect(typeName(letSymbol(module, "guest").scheme.type)).toBe("String");
+    expect(typeName(letSymbol(module, "seats").scheme.type)).toBe("Int");
+  });
+
   test("types primitive literals and defaults bare integers to Int", () => {
     const module = checkSource(
       'let count = 1\nlet ratio = 1.5\nlet exact = 1n\nlet flag = true\nlet text = "hello"\nlet unit = ()',
@@ -33,6 +319,22 @@ describe("check", () => {
           type: { kind: "Primitive", name: "Int" },
         },
       },
+    });
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("types console.log arguments and returns Unit", () => {
+    const module = checkSource('console.log("answer", 42, true)');
+    const logged = expression(module);
+
+    expect(logged).toMatchObject({
+      kind: "ConsoleLog",
+      type: { kind: "Primitive", name: "Unit" },
+      arguments: [
+        { type: { kind: "Primitive", name: "String" } },
+        { type: { kind: "Primitive", name: "Int" } },
+        { type: { kind: "Primitive", name: "Bool" } },
+      ],
     });
     expect(module.diagnostics).toEqual([]);
   });
