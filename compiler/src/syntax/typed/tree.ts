@@ -253,6 +253,7 @@ export interface RecordPattern {
 
 export interface RecordPatternField {
   readonly name: string;
+  readonly nameSpan: Source.Span;
   readonly pattern: Pattern;
   readonly span: Source.Span;
 }
@@ -261,6 +262,7 @@ export interface ConstructorPattern {
   readonly kind: "Constructor";
   readonly symbol: Resolved.SymbolId;
   readonly text: string;
+  readonly nameSpan: Source.Span;
   readonly arguments: readonly Pattern[];
   readonly span: Source.Span;
 }
@@ -435,11 +437,15 @@ export interface NameExpr extends ExpressionFields {
   readonly kind: "Name";
   readonly symbol: Resolved.SymbolId;
   readonly text: string;
+  /** Companion dot calls consume their subject before presenting this callable. */
+  readonly receiverBound?: boolean;
 }
 
 export interface SeqOperationExpr extends ExpressionFields {
   readonly kind: "SeqOperation";
   readonly operation: "iterate" | "map" | "filter" | "take";
+  /** Companion dot calls consume their subject before presenting this callable. */
+  readonly receiverBound?: boolean;
 }
 
 export interface UnitExpr extends ExpressionFields {

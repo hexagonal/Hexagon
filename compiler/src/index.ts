@@ -23,6 +23,10 @@ export { elaborate } from "./passes/elaborator/elaborator.js";
 export { compileProject } from "./project.js";
 export type { CompiledModule, CompiledProject } from "./project.js";
 export {
+  collectTypeOccurrences,
+  type TypeOccurrence,
+} from "./queries/type-occurrences.js";
+export {
   emitJavaScript,
   emitDeclarations,
   emitTypeScriptPreview,

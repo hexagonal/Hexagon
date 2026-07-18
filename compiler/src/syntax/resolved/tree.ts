@@ -284,6 +284,7 @@ export interface RecordPattern {
 
 export interface RecordPatternField {
   readonly name: string;
+  readonly nameSpan: Source.Span;
   readonly pattern: Pattern;
   readonly span: Source.Span;
 }
@@ -292,6 +293,7 @@ export interface ConstructorPattern {
   readonly kind: "Constructor";
   readonly symbol: SymbolId;
   readonly text: string;
+  readonly nameSpan: Source.Span;
   readonly arguments: readonly Pattern[];
   readonly span: Source.Span;
 }
