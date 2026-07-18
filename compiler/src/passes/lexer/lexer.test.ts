@@ -13,21 +13,21 @@ describe("lex", () => {
 
     expect(kinds(result.tokens)).toEqual([
       "Let",
-      "LowerName",
+      "NonUpperName",
       "Equal",
       "True",
       "Record",
       "UpperName",
       "LeftParen",
-      "LowerName",
+      "NonUpperName",
       "RightParen",
-      "LowerName",
+      "NonUpperName",
       "UpperName",
       "Equal",
       "LeftBrace",
-      "LowerName",
+      "NonUpperName",
       "Colon",
-      "LowerName",
+      "NonUpperName",
       "RightBrace",
       "Eof",
     ]);
@@ -35,14 +35,27 @@ describe("lex", () => {
     expect(result.newlines).toHaveLength(1);
   });
 
-  test("accepts Unicode continuations but requires a cased NFC initial", () => {
-    const result = lexSource("let user東京 = 1\nlet 東京 = 2\nlet é = 3");
+  test("uses JavaScript-compatible Unicode identifiers and classifies only uppercase starts specially", () => {
+    const result = lexSource(
+      "let 用户 = 1\nlet $税率 = 2\nlet _折扣 = 3\nrecord T用户 = {名字: String}\nlet é = 4",
+    );
 
-    expect(result.diagnostics.map(({ message }) => message)).toEqual([
-      "Hexagon names must begin with a lowercase or uppercase cased letter",
-      "identifier is not in Unicode NFC",
+    expect(result.diagnostics).toEqual([]);
+    expect(nameTexts(result.tokens)).toEqual([
+      "用户", "$税率", "_折扣", "T用户", "名字", "String", "é",
     ]);
-    expect(nameTexts(result.tokens)).toContain("user東京");
+    expect(result.tokens.filter(({ kind }) => kind === "UpperName")).toHaveLength(2);
+  });
+
+  test("reserves bare wildcard and compiler names, and rejects emoji and literal bidi controls", () => {
+    const result = lexSource("_ __hex_temp 😀 x\u202Ey");
+
+    expect(result.tokens[0]?.kind).toBe("Wildcard");
+    expect(result.diagnostics.map(({ message }) => message)).toEqual([
+      "`__hex_` is reserved for compiler-generated names",
+      'invalid character "😀" (U+1F600)',
+      "literal bidirectional controls are not allowed in Hexagon source; use a Unicode escape inside a string",
+    ]);
   });
 
   test("classifies every numeric form and keeps dot calls separate", () => {
@@ -59,7 +72,7 @@ describe("lex", () => {
       "Integer",
       "Integer",
       "Dot",
-      "LowerName",
+      "NonUpperName",
       "Eof",
     ]);
     expect(result.tokens[1]).toMatchObject({ decimal: "1000" });
@@ -133,11 +146,11 @@ describe("lex", () => {
 
     expect(kinds(result.tokens)).toEqual([
       "Let",
-      "LowerName",
+      "NonUpperName",
       "Equal",
       "Integer",
       "Let",
-      "LowerName",
+      "NonUpperName",
       "Equal",
       "Integer",
       "Eof",
@@ -164,9 +177,9 @@ describe("lex", () => {
       throw new Error("expected interpolation");
     }
     expect(kinds(string.parts[1].tokens)).toEqual([
-      "LowerName",
+      "NonUpperName",
       "Dot",
-      "LowerName",
+      "NonUpperName",
       "Eof",
     ]);
     expect(string.parts[2]).toMatchObject({ kind: "Text", value: " b 😀" });
@@ -218,6 +231,6 @@ function kinds(tokens: readonly Lexed.Token[]): readonly Lexed.Token["kind"][] {
 
 function nameTexts(tokens: readonly Lexed.Token[]): readonly string[] {
   return tokens.flatMap((token) =>
-    token.kind === "LowerName" || token.kind === "UpperName" ? [token.text] : [],
+    token.kind === "NonUpperName" || token.kind === "UpperName" ? [token.text] : [],
   );
 }

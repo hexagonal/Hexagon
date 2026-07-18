@@ -59,7 +59,7 @@ checks the tuple pattern against that type.
 ## A constraint declares a type member
 
 Inside a constraint body, an associated type is introduced by `type` and an
-uppercase-initial name:
+uppercase-start name:
 
 ```hexagon
 constraint Iterable<c> =

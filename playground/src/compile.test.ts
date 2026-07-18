@@ -1,9 +1,53 @@
 import { describe, expect, test } from "vitest";
 
 import { helloWorld } from "./examples/hello-world";
+import { internationalIdentifiers } from "./examples/international-identifiers";
 import { compileSource } from "./compile";
 
 describe("compileSource", () => {
+  test("compiles international JavaScript-compatible identifiers without mangling", () => {
+    const response = compileSource(6, internationalIdentifiers.source);
+
+    expect(response.kind).toBe("compile-success");
+    if (response.kind !== "compile-success") return;
+
+    expect(response.diagnostics).toEqual([]);
+    expect(response.javascript).toContain(
+      "const Tउपयोगकर्ता = __hex_record => __hex_record;",
+    );
+    expect(response.javascript).toContain(
+      "const __hex_instance_C可显示_Tउपयोगकर्ता",
+    );
+    expect(response.javascript).toContain("const 用户 = { नाम: \"अनाया\", 城市: \"上海\" };");
+    expect(response.javascript).toContain("const $税率 = 0.10;");
+    expect(response.javascript).toContain("const _折扣 = 5;");
+    expect(response.javascript).toContain('import * as Mगणित from "./Mगणित.js";');
+    expect(response.javascript).toContain("console.log(展示(用户,");
+    expect(response.javascript).toContain("Mगणित.जोड़(20, 22)");
+    expect(response.executionModules.map(({ path }) => path)).toEqual([
+      "/Mगणित.hex",
+      "/main.hex",
+    ]);
+  });
+
+  test("maps virtual-module diagnostics back into the combined workspace document", () => {
+    const source =
+      "module Repo\n" +
+      "export let broken = missing\n" +
+      "end module Repo\n" +
+      "console.log(Repo.broken)\n";
+    const response = compileSource(7, source);
+
+    expect(response.kind).toBe("compile-failure");
+    if (response.kind !== "compile-failure") return;
+    expect(response.diagnostics).toContainEqual({
+      severity: "error",
+      message: "unknown name `missing`",
+      startOffset: source.indexOf("missing"),
+      endOffset: source.indexOf("missing") + "missing".length,
+    });
+  });
+
   test("previews private bindings through JavaScript and TypeScript emission", () => {
     const response = compileSource(7, helloWorld.source);
 
@@ -76,6 +120,31 @@ describe("compileSource", () => {
       { name: "add", displayedType: "(Int, Int) -> Int" },
       { name: "answer", displayedType: "Int" },
     ]);
+  });
+
+  test("returns private specialization regions for compact JavaScript views", () => {
+    const response = compileSource(11, "let plus(x, y) = x + y\n");
+
+    expect(response.kind).toBe("compile-success");
+    if (response.kind !== "compile-success") return;
+
+    expect(response.javascript).toContain("function plusInt(x, y)");
+    expect(response.javascript).toContain("function plusFloat(x, y)");
+    expect(response.javascript).toContain("function plusBigInt(x, y)");
+    expect(response.generatedJavaScript).toMatchObject([
+      { generatedName: "plusInt", typeArguments: ["Int"] },
+      { generatedName: "plusFloat", typeArguments: ["Float"] },
+      { generatedName: "plusBigInt", typeArguments: ["BigInt"] },
+    ]);
+    for (const section of response.generatedJavaScript) {
+      expect(response.javascript.slice(section.startOffset, section.endOffset)).toContain(
+        `function ${section.generatedName}`,
+      );
+      expect(section.bytes).toBeGreaterThan(0);
+    }
+    expect(response.typeScriptPreview).toContain(
+      "declare function plusInt(x: number, y: number): number;",
+    );
   });
 
   test("returns exact binding spans for editor hovers", () => {

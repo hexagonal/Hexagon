@@ -30,6 +30,30 @@ The playground opens on **JS** and begins with a commented tour of the supported
 language. Its comments and blank lines between top-level features also appear in
 the emitted JavaScript, so the first view demonstrates the readable-output doctrine.
 
+### Single-document module blocks
+
+The playground has one host-only workspace extension for multi-module examples:
+
+```hexagon
+module Mगणित
+export fun जोड़(left: Int, right: Int): Int = left + right
+end module Mगणित
+
+console.log(Mगणित.जोड़(20, 22))
+```
+
+The block becomes a real virtual `Mगणित.hex` file and the remaining source receives
+the equivalent of `import * as Mगणित from "./Mगणित"`. Block contents deliberately
+stay at column one: adding or removing the wrapper never requires reindentation. The
+closing name must exactly repeat the opener, blocks cannot nest, and names must be
+unique uppercase-start identifiers. Diagnostics retain their positions in the
+combined document, and **Run** executes the emitted modules with ordinary ESM
+linkage.
+
+This notation belongs to the playground document format, not the Hexagon language.
+Real `.hex` projects continue to use one module per file; `module` and `end` remain
+ordinary identifiers outside these exact playground delimiter lines.
+
 The Theme selector offers **System**, **Dark**, and **Light**. System is the default
 and follows live operating-system colour-scheme changes. The selected preference is
 remembered in browser `localStorage`; if storage is unavailable, it still applies
@@ -85,7 +109,9 @@ On narrow screens the result panel moves below the source editor. The source alw
   its exact source span; safe fix-its may be applied here when the compiler supplies
   them in a future slice.
 - **JS** shows readable ECMAScript modules emitted by Hexagon in a read-only Monaco
-  model on supported desktop browsers.
+  model on supported desktop browsers. Generated specialization families are
+  summarized in the default source-shaped view; the view selector exposes the
+  complete module or any individual edition with its concrete types and byte size.
 - **.d.ts** shows an inspection-only TypeScript preview for representable top-level
   bindings, also in a read-only Monaco model. It does not promote private Hexagon
   bindings into public exports.

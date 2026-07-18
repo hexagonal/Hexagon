@@ -14,6 +14,7 @@ export function elaborate(module: Typed.Module): Core.Module {
     items: module.items.map(elaborateItem),
     symbols: module.symbols,
     unions: module.unions,
+    records: module.records,
     comments: module.comments,
     span: module.span,
     diagnostics: module.diagnostics,
@@ -22,11 +23,29 @@ export function elaborate(module: Typed.Module): Core.Module {
 
 function elaborateItem(item: Typed.Item): Core.Item {
   switch (item.kind) {
+    case "Import":
+    case "ConstraintDeclaration":
+      return item;
+    case "Honor":
+      return {
+        ...item,
+        members: item.members.map((member) => ({
+          ...member,
+          value: {
+            ...member.value,
+            body: elaborateExpr(member.value.body),
+          },
+        })),
+      };
     case "Let":
+      return { ...item, value: elaborateExpr(item.value) };
+    case "Var":
       return { ...item, value: elaborateExpr(item.value) };
     case "LetPattern":
       return { ...item, value: elaborateExpr(item.value) };
     case "Union":
+    case "RecordDeclaration":
+    case "Exception":
       return item;
     case "Fun":
       return {
@@ -106,6 +125,30 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
         ? common
         : { ...common, alternative: elaborateExpr(expression.alternative) };
     }
+    case "While":
+      return {
+        ...expression,
+        condition: elaborateExpr(expression.condition),
+        body: elaborateExpr(expression.body) as Core.BlockExpr,
+      };
+    case "For":
+      return {
+        ...expression,
+        iterable: elaborateExpr(expression.iterable),
+        body: elaborateExpr(expression.body) as Core.BlockExpr,
+      };
+    case "Throw":
+      return { ...expression, exception: elaborateExpr(expression.exception) };
+    case "Try":
+      return {
+        ...expression,
+        body: elaborateExpr(expression.body),
+        arms: expression.arms.map((arm) => ({
+          pattern: arm.pattern,
+          body: elaborateExpr(arm.body),
+          span: arm.span,
+        })),
+      };
     case "Match":
       return {
         ...expression,
@@ -121,9 +164,15 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
       };
     case "Call":
       return {
-        ...expression,
+        kind: "Call",
         callee: elaborateExpr(expression.callee),
         arguments: expression.arguments.map(elaborateExpr),
+        evidence: expression.requirements.map((requirement) => ({
+          constraint: requirement.name,
+          value: evidence(requirement),
+        })),
+        type: expression.type,
+        span: expression.span,
       };
     case "ConsoleLog":
       return {
@@ -160,6 +209,12 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
         type: expression.type,
         span: expression.span,
       };
+    case "Range":
+      return {
+        ...expression,
+        start: elaborateExpr(expression.start),
+        end: elaborateExpr(expression.end),
+      };
     case "Access":
       return expression.tupleIndex !== undefined
         ? {
@@ -178,8 +233,17 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
               span: expression.span,
             }
           : { kind: "ErrorExpr", type: expression.type, span: expression.span };
-    case "Index":
     case "Assignment":
+      return expression.target.kind === "Name"
+        ? {
+            kind: "Assignment",
+            target: elaborateExpr(expression.target) as Core.NameExpr,
+            value: elaborateExpr(expression.value),
+            type: expression.type,
+            span: expression.span,
+          }
+        : { kind: "ErrorExpr", type: expression.type, span: expression.span };
+    case "Index":
       return { kind: "ErrorExpr", type: expression.type, span: expression.span };
   }
 }
@@ -216,6 +280,9 @@ function elaborateInteger(expression: Typed.FromIntExpr): Core.Expr {
 
 function evidence(requirement: Typed.Constraint | undefined): Core.Evidence {
   if (requirement === undefined) return { kind: "Error" };
+  if (requirement.dictionary !== undefined) {
+    return { kind: "Instance", dictionary: requirement.dictionary };
+  }
   switch (requirement.type.kind) {
     case "Primitive":
       return { kind: "Primitive", instance: requirement.type.name };
@@ -224,7 +291,9 @@ function evidence(requirement: Typed.Constraint | undefined): Core.Evidence {
     case "Function":
     case "Tuple":
     case "Record":
+    case "Range":
     case "Union":
+    case "NominalRecord":
     case "Error":
       return { kind: "Error" };
   }

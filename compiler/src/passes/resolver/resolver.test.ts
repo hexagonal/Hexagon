@@ -48,6 +48,60 @@ describe("resolve", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  test("gives for-pattern binders a loop-local head scope", () => {
+    const module = resolveSource(
+      "let number = 99\n" +
+        "for number in 1..3\n" +
+        "  console.log(number)\n" +
+        "number",
+    );
+
+    expect(module.symbols.map(({ name, kind }) => ({ name, kind }))).toEqual([
+      { name: "number", kind: "let" },
+      { name: "number", kind: "pattern" },
+    ]);
+    expect(module.items[1]).toMatchObject({
+      expression: {
+        kind: "For",
+        pattern: { binding: { symbol: 1 } },
+        body: {
+          items: [{ expression: { arguments: [{ symbol: 1 }] } }],
+        },
+      },
+    });
+    expect(module.items[2]).toMatchObject({ expression: { symbol: 0 } });
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("resolves local vars and rejects module vars and mutable capture", () => {
+    const local = resolveSource(
+      "fun bump(value: Int): Int =\n" +
+        "  var current = value\n" +
+        "  current := current + 1\n" +
+        "  current",
+    );
+    expect(local.symbols).toMatchObject([
+      { name: "bump", kind: "fun" },
+      { name: "value", kind: "parameter" },
+      { name: "current", kind: "var" },
+    ]);
+    expect(local.diagnostics).toEqual([]);
+
+    const invalid = resolveSource(
+      "var global = 0\n" +
+        "fun outer() =\n" +
+        "  var local = 1\n" +
+        "  let closure = () => local\n" +
+        "  ()",
+    );
+    expect(invalid.diagnostics.map(({ message }) => message)).toContain(
+      "`var` is only allowed inside a function",
+    );
+    expect(invalid.diagnostics.map(({ message }) => message)).toContain(
+      "`local` is a `var` and cannot be used inside a lambda; copy it to a `let` first",
+    );
+  });
+
   test("diagnoses self-reference because let is non-recursive", () => {
     const module = resolveSource("let loop = x => loop(x)");
 
@@ -96,6 +150,22 @@ describe("resolve", () => {
       },
     });
     expect(module.diagnostics).toEqual([]);
+  });
+
+  test("keeps record and union declarations in one type namespace", () => {
+    const recordThenUnion = resolveSource(
+      "record Shape = {size: Int}\nunion Shape = Circle",
+    );
+    const unionThenRecord = resolveSource(
+      "union Shape = Circle\nrecord Shape = {size: Int}",
+    );
+
+    expect(recordThenUnion.diagnostics.map(({ message }) => message)).toContain(
+      "type `Shape` is already declared",
+    );
+    expect(unionThenRecord.diagnostics.map(({ message }) => message)).toContain(
+      "type `Shape` is already declared",
+    );
   });
 
   test("diagnoses the deferred forward and mutual recursion boundary", () => {
@@ -327,6 +397,9 @@ function visitExpr(
         visitExpr(expression.alternative, symbols, sourceLength);
       }
       return;
+    case "While":
+      visitExpr(expression.condition, symbols, sourceLength);
+      return visitExpr(expression.body, symbols, sourceLength);
     case "Call":
       visitExpr(expression.callee, symbols, sourceLength);
       for (const argument of expression.arguments) {

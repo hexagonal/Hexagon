@@ -9,9 +9,25 @@ import type * as Core from "../../syntax/core/index.js";
 import type * as Emitted from "../../emission/index.js";
 import type * as Resolved from "../../syntax/resolved/index.js";
 import type * as Typed from "../../syntax/typed/index.js";
+import { idContinue, idStart } from "../lexer/unicode-17.js";
+import {
+  planFundamentalSpecializations,
+  specializeItem,
+  type FundamentalSpecialization,
+  type SpecializationCollision,
+  type SpecializableItem,
+} from "./specializations.js";
 
-export function emitJavaScript(module: Core.Module): Emitted.JavaScript {
-  return new JavaScriptEmitter(module).emit();
+export interface JavaScriptEmissionOptions {
+  /** Includes private editions for inspection tools; ordinary builds omit them. */
+  readonly previewPrivateSpecializations?: boolean;
+}
+
+export function emitJavaScript(
+  module: Core.Module,
+  options: JavaScriptEmissionOptions = {},
+): Emitted.JavaScript {
+  return new JavaScriptEmitter(module, options).emit();
 }
 
 export function emitDeclarations(module: Core.Module): Emitted.Declarations {
@@ -31,13 +47,24 @@ class JavaScriptEmitter {
   readonly #diagnostics = new Diagnostics.Bag();
   readonly #symbols = new Map<Resolved.SymbolId, Core.Symbol>();
   readonly #constructors = new Map<Resolved.SymbolId, { constructor: Core.Constructor; tagged: boolean }>();
-  #nextMatch = 0;
+  readonly #recordConstructors = new Set<Resolved.SymbolId>();
+  readonly #constrainedImports = new Map<Resolved.SymbolId, string>();
+  readonly #exceptions = new Map<Resolved.SymbolId, Core.ExceptionItem>();
+  readonly #nullaryExceptions = new Set<Resolved.SymbolId>();
+  readonly #generatedNames: GeneratedNames;
   readonly #helpers = new Set<Helper>();
+  readonly #helperNames = new Map<Helper, string>();
   readonly #exports: string[] = [];
   readonly #module: Core.Module;
+  readonly #specializations: readonly FundamentalSpecialization[];
+  readonly #generatedBodies: {
+    readonly specialization: FundamentalSpecialization;
+    readonly text: string;
+  }[] = [];
 
-  constructor(module: Core.Module) {
+  constructor(module: Core.Module, options: JavaScriptEmissionOptions) {
     this.#module = module;
+    this.#generatedNames = new GeneratedNames(module.symbols.map(({ name }) => name));
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
     for (const symbol of module.symbols) this.#symbols.set(symbol.id, symbol);
     for (const union of module.unions) {
@@ -46,6 +73,35 @@ class JavaScriptEmitter {
         this.#constructors.set(constructor.symbol, { constructor, tagged });
       }
     }
+    for (const record of module.records) {
+      this.#recordConstructors.add(record.constructor.symbol);
+    }
+    for (const item of module.items) {
+      if (item.kind !== "Exception") continue;
+      this.#exceptions.set(item.binding.symbol, item);
+      if (item.slots.length === 0) this.#nullaryExceptions.add(item.binding.symbol);
+    }
+    for (const item of module.items) {
+      if (item.kind !== "Import" || item.form.kind === "Effect") continue;
+      for (const name of item.form.names) {
+        if (name.symbol === undefined) continue;
+        const symbol = this.#symbols.get(name.symbol);
+        if ((symbol?.scheme.constraints.length ?? 0) > 0) {
+          this.#constrainedImports.set(
+            name.symbol,
+            item.form.kind === "Namespace"
+              ? internalConstrainedExportName(name.symbol)
+              : name.local,
+          );
+        }
+      }
+    }
+    const plan = planFundamentalSpecializations(
+      module,
+      options.previewPrivateSpecializations ?? false,
+    );
+    this.#specializations = plan.specializations;
+    addSpecializationCollisionDiagnostics(this.#diagnostics, module, plan.collisions);
   }
 
   emit(): Emitted.JavaScript {
@@ -78,13 +134,15 @@ class JavaScriptEmitter {
 
     const helpers = [...this.#helpers]
       .sort()
-      .flatMap((helper) => renderHelper(helper));
+      .flatMap((helper) => renderHelper(helper, this.#helperName(helper)));
     const lines = helpers.length === 0 ? body : [...helpers, "", ...body];
 
+    const text = lines.length === 0 ? "" : `${lines.join("\n")}\n`;
     return {
       kind: "JavaScript",
       fileId: this.#module.fileId,
-      text: lines.length === 0 ? "" : `${lines.join("\n")}\n`,
+      text,
+      generatedSections: this.#generatedSections(text),
       diagnostics: this.#diagnostics.toArray(),
     };
   }
@@ -97,7 +155,64 @@ class JavaScriptEmitter {
   ): string[] {
     const prefix = indent(depth);
     if (item.kind === "ErrorItem") return [`${prefix}undefined;`];
+    if (item.kind === "Import") {
+      const specifier = JSON.stringify(emittedModuleSpecifier(item.specifier));
+      if (item.form.kind === "Effect") return [`${prefix}import ${specifier};`];
+      if (item.form.kind === "Namespace") {
+        const constrained = item.form.names.flatMap(({ symbol }) => {
+          if (symbol === undefined || !this.#constrainedImports.has(symbol)) return [];
+          const name = internalConstrainedExportName(symbol);
+          return [name];
+        });
+        return [
+          `${prefix}import * as ${item.form.alias} from ${specifier};`,
+          ...(constrained.length === 0
+            ? []
+            : [`${prefix}import { ${constrained.join(", ")} } from ${specifier};`]),
+        ];
+      }
+      const names = item.form.names.map(({ imported, local, symbol }) => {
+        const source = symbol !== undefined && this.#constrainedImports.has(symbol)
+          ? internalConstrainedExportName(symbol)
+          : imported;
+        return source === local ? source : `${source} as ${local}`;
+      });
+      return [`${prefix}import { ${names.join(", ")} } from ${specifier};`];
+    }
+    if (item.kind === "ConstraintDeclaration") {
+      return item.members.map((member) => {
+        const name = this.#identifier(member.binding.symbol, member.binding.name);
+        const sourceParameters = member.parameters.map((parameter) =>
+          this.#identifier(parameter.symbol, parameter.name)
+        );
+        const dictionaries = dictionaryEntries(member.binding.scheme).map(
+          ({ constraint, variable }) => dictionaryParameterName(constraint, variable),
+        );
+        const dictionary = dictionaries[0] ?? "undefined";
+        return `${prefix}const ${name} = (${[...sourceParameters, ...dictionaries].join(", ")}) => ${dictionary}.${member.binding.name}(${sourceParameters.join(", ")});`;
+      });
+    }
+    if (item.kind === "Honor") {
+      const members = item.members.map((member) =>
+        `${member.name}: ${this.#emitExpr(member.value, depth, evidenceNames)}`
+      );
+      return [`${prefix}const ${item.dictionary} = { ${members.join(", ")} };`];
+    }
     if (item.kind === "ExprItem") {
+      if (item.expression.kind === "While") {
+        return this.#emitWhile(item.expression, depth, evidenceNames);
+      }
+      if (item.expression.kind === "For") {
+        return this.#emitFor(item.expression, depth, evidenceNames);
+      }
+      if (item.expression.kind === "Assignment") {
+        const target = this.#identifier(
+          item.expression.target.symbol,
+          item.expression.target.text,
+        );
+        const value = this.#emitExpr(item.expression.value, depth, evidenceNames);
+        return [`${prefix}${target} = ${value};`];
+      }
       if (returnFinal) {
         return this.#emitReturn(item.expression, depth, evidenceNames);
       }
@@ -111,7 +226,7 @@ class JavaScriptEmitter {
       if (alternatives.length > 1) {
         const bindings = patternBindings(item.pattern);
         if (bindings.length === 0) return [`${prefix}${value};`];
-        const matchName = `__match${this.#nextMatch++}`;
+        const matchName = this.#generatedNames.fresh("match");
         const names = bindings.map((binding) =>
           this.#identifier(binding.symbol, binding.name)
         );
@@ -175,17 +290,58 @@ class JavaScriptEmitter {
       });
       return lines;
     }
+    if (item.kind === "RecordDeclaration") {
+      const name = this.#identifier(item.constructor.symbol, item.constructor.name);
+      if (item.exported && depth === 0) {
+        this.#exports.push(
+          name === item.name ? `export { ${name} };` : `export { ${name} as ${item.name} };`,
+        );
+      }
+      return [`${prefix}const ${name} = __hex_record => __hex_record;`];
+    }
+    if (item.kind === "Exception") {
+      const exceptionHelper = this.#useHelper("exception");
+      const name = this.#identifier(item.binding.symbol, item.binding.name);
+      const parameters = item.slots.map(({ field }) => field);
+      const message = item.slots.some(({ field }) => field === "message")
+        ? "message"
+        : '""';
+      const fields = `{ ${item.slots.map(({ field }) => `${field}: ${field}`).join(", ")} }`;
+      const value = item.slots.length === 0
+        ? `() => ${exceptionHelper}(${JSON.stringify(item.binding.name)}, "", {})`
+        : `(${parameters.join(", ")}) => ${exceptionHelper}(${JSON.stringify(item.binding.name)}, ${message}, ${fields})`;
+      if (item.exported && depth === 0) {
+        this.#exports.push(
+          name === item.binding.name
+            ? `export { ${name} };`
+            : `export { ${name} as ${item.binding.name} };`,
+        );
+      }
+      return [`${prefix}const ${name} = ${value};`];
+    }
 
     if (item.kind === "Fun") {
       const name = this.#identifier(item.binding.symbol, item.binding.name);
       this.#recordExport(item, name, depth);
-      return this.#emitFunctionDeclaration(item, name, depth, evidenceNames);
+      return [
+        ...this.#emitFunctionDeclaration(item, name, depth, evidenceNames),
+        ...this.#emitSpecializations(item, depth),
+      ];
+    }
+
+    if (item.kind === "Var") {
+      const name = this.#identifier(item.binding.symbol, item.binding.name);
+      const value = this.#emitExpr(item.value, depth, evidenceNames);
+      return [`${prefix}let ${name} = ${value};`];
     }
 
     const name = this.#identifier(item.binding.symbol, item.binding.name);
     const value = this.#emitBindingValue(item, depth, evidenceNames);
     this.#recordExport(item, name, depth);
-    return [`${prefix}const ${name} = ${value};`];
+    return [
+      `${prefix}const ${name} = ${value};`,
+      ...this.#emitSpecializations(item, depth),
+    ];
   }
 
   #emitPattern(pattern: Core.Pattern): string {
@@ -249,13 +405,12 @@ class JavaScriptEmitter {
   ): void {
     if (!item.exported || depth !== 0) return;
     if (item.binding.scheme.constraints.length > 0) {
-      this.#diagnostics.add({
-        severity: "error",
-        message:
-          `cannot emit constrained export \`${item.binding.name}\` until ` +
-          "the public dictionary ABI is implemented",
-        primary: item.binding.span,
-      });
+      this.#exports.push(
+        `export { ${name} as ${internalConstrainedExportName(item.binding.symbol)} };`,
+      );
+      for (const specialization of this.#specializationsFor(item.binding.symbol)) {
+        this.#exports.push(`export { ${specialization.name} };`);
+      }
       return;
     }
     this.#exports.push(
@@ -266,11 +421,12 @@ class JavaScriptEmitter {
   }
 
   #emitFunctionDeclaration(
-    item: Core.FunItem,
+    item: Core.FunItem | Core.LetItem,
     name: string,
     depth: number,
     evidenceNames: EvidenceNames,
   ): string[] {
+    if (item.value.kind !== "Lambda") return [];
     const localEvidence = new Map(evidenceNames);
     const dictionaryParameters = dictionaryEntries(item.binding.scheme).map(
       ({ constraint, variable }) => {
@@ -280,10 +436,10 @@ class JavaScriptEmitter {
       },
     );
     const parameters = [
-      ...dictionaryParameters,
       ...item.value.parameters.map((parameter) =>
         this.#identifier(parameter.symbol, parameter.name),
       ),
+      ...dictionaryParameters,
     ];
     const prefix = indent(depth);
     const head = `${prefix}function ${name}(${parameters.join(", ")}) {`;
@@ -295,6 +451,49 @@ class JavaScriptEmitter {
         )
       : this.#emitReturn(item.value.body, depth + 1, localEvidence);
     return [head, ...body, `${prefix}}`];
+  }
+
+  #emitSpecializations(item: Core.Item, depth: number): string[] {
+    if (depth !== 0 || (item.kind !== "Let" && item.kind !== "Fun")) return [];
+    const lines: string[] = [];
+    for (const specialization of this.#specializationsFor(item.binding.symbol)) {
+      const specialized = specializeItem(item as SpecializableItem, specialization);
+      const emitted = this.#emitFunctionDeclaration(
+        specialized,
+        specialization.name,
+        depth,
+        new Map(),
+      );
+      if (emitted.length === 0) continue;
+      this.#generatedBodies.push({ specialization, text: emitted.join("\n") });
+      lines.push(...emitted);
+    }
+    return lines;
+  }
+
+  #specializationsFor(
+    symbol: Resolved.SymbolId,
+  ): readonly FundamentalSpecialization[] {
+    return this.#specializations.filter(({ sourceSymbol }) => sourceSymbol === symbol);
+  }
+
+  #generatedSections(text: string): readonly Emitted.GeneratedSection[] {
+    let cursor = 0;
+    return this.#generatedBodies.flatMap(({ specialization, text: body }) => {
+      const startOffset = text.indexOf(body, cursor);
+      if (startOffset < 0) return [];
+      const endOffset = startOffset + body.length;
+      cursor = endOffset;
+      return [{
+        kind: "FundamentalSpecialization" as const,
+        sourceName: specialization.sourceName,
+        generatedName: specialization.name,
+        typeArguments: specialization.assignment.map(({ type }) => type),
+        startOffset,
+        endOffset,
+        bytes: utf8ByteLength(body),
+      }];
+    });
   }
 
   #emitBindingValue(
@@ -329,7 +528,12 @@ class JavaScriptEmitter {
   ): string {
     switch (expression.kind) {
       case "Name":
-        return this.#identifier(expression.symbol, expression.text);
+        if (this.#constrainedImports.has(expression.symbol)) {
+          return this.#constrainedImports.get(expression.symbol)!;
+        }
+        if (expression.text.includes(".")) return expression.text;
+        const name = this.#identifier(expression.symbol, expression.text);
+        return this.#nullaryExceptions.has(expression.symbol) ? `${name}()` : name;
       case "Unit":
       case "ErrorExpr":
         return "undefined";
@@ -393,9 +597,28 @@ class JavaScriptEmitter {
             : this.#emitExpr(expression.alternative, depth, evidenceNames);
         return `${condition} ? ${consequence} : ${alternative}`;
       }
+      case "While": {
+        const lines = this.#emitWhile(expression, depth + 1, evidenceNames);
+        return `(() => {\n${lines.join("\n")}\n${indent(depth)}})()`;
+      }
+      case "For": {
+        const lines = this.#emitFor(expression, depth + 1, evidenceNames);
+        return `(() => {\n${lines.join("\n")}\n${indent(depth)}})()`;
+      }
       case "Match":
         return this.#emitMatch(expression, depth, evidenceNames);
+      case "Throw":
+        return `(() => { throw ${this.#emitExpr(expression.exception, depth, evidenceNames)}; })()`;
+      case "Try":
+        return this.#emitTry(expression, depth, evidenceNames);
       case "Call":
+        if (
+          expression.callee.kind === "Name" &&
+          this.#recordConstructors.has(expression.callee.symbol) &&
+          expression.arguments.length === 1
+        ) {
+          return this.#emitExpr(expression.arguments[0]!, depth, evidenceNames);
+        }
         return this.#emitCall(expression, depth, evidenceNames);
       case "ConsoleLog":
         return `console.log(${expression.arguments.map((argument) =>
@@ -427,6 +650,14 @@ class JavaScriptEmitter {
         return this.#emitConstraintCall(expression, depth, evidenceNames);
       case "ComparisonChain":
         return this.#emitComparison(expression, depth, evidenceNames);
+      case "Range": {
+        const helper = this.#useHelper("range");
+        return `${helper}(${this.#emitExpr(expression.start, depth, evidenceNames)}, ${this.#emitExpr(expression.end, depth, evidenceNames)})`;
+      }
+      case "Assignment": {
+        const target = this.#identifier(expression.target.symbol, expression.target.text);
+        return `void (${target} = ${this.#emitExpr(expression.value, depth, evidenceNames)})`;
+      }
     }
   }
 
@@ -452,10 +683,10 @@ class JavaScriptEmitter {
     dictionaryParameters: readonly string[],
   ): string {
     const parameters = [
-      ...dictionaryParameters,
       ...expression.parameters.map((parameter) =>
         this.#identifier(parameter.symbol, parameter.name),
       ),
+      ...dictionaryParameters,
     ];
     const head =
       parameters.length === 1
@@ -515,8 +746,58 @@ class JavaScriptEmitter {
     if (expression.kind === "Match") {
       return this.#emitReturningMatch(expression, depth, evidenceNames);
     }
+    if (expression.kind === "While") {
+      return this.#emitWhile(expression, depth, evidenceNames);
+    }
+    if (expression.kind === "For") {
+      return this.#emitFor(expression, depth, evidenceNames);
+    }
+    if (expression.kind === "Assignment") {
+      const target = this.#identifier(expression.target.symbol, expression.target.text);
+      return [`${indent(depth)}${target} = ${this.#emitExpr(expression.value, depth, evidenceNames)};`];
+    }
     return [
       `${indent(depth)}return ${this.#emitExpr(expression, depth, evidenceNames)};`,
+    ];
+  }
+
+  #emitWhile(
+    expression: Core.WhileExpr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string[] {
+    const prefix = indent(depth);
+    const condition = this.#emitExpr(expression.condition, depth, evidenceNames);
+    const body = expression.body.items.flatMap((item) =>
+      this.#emitItem(item, depth + 1, evidenceNames, false)
+    );
+    return [
+      `${prefix}while (${condition}) {`,
+      ...body,
+      `${prefix}}`,
+    ];
+  }
+
+  #emitFor(
+    expression: Core.ForExpr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string[] {
+    const prefix = indent(depth);
+    const itemName = this.#generatedNames.fresh("item");
+    const iterable = this.#emitExpr(expression.iterable, depth, evidenceNames);
+    const plan = this.#emitPatternPlan(expression.pattern, itemName);
+    const bindings = plan.bindings.map((binding) =>
+      `${indent(depth + 1)}${binding}`
+    );
+    const body = expression.body.items.flatMap((item) =>
+      this.#emitItem(item, depth + 1, evidenceNames, false)
+    );
+    return [
+      `${prefix}for (const ${itemName} of ${iterable}) {`,
+      ...bindings,
+      ...body,
+      `${prefix}}`,
     ];
   }
 
@@ -525,20 +806,6 @@ class JavaScriptEmitter {
     depth: number,
     evidenceNames: EvidenceNames,
   ): string {
-    if (expression.callee.kind === "Name") {
-      const symbol = this.#symbols.get(expression.callee.symbol);
-      if (symbol !== undefined && symbol.scheme.constraints.length > 0) {
-        this.#diagnostics.add({
-          severity: "error",
-          message:
-            `cannot emit constrained call to \`${symbol.name}\` in the ` +
-            "first JavaScript slice",
-          primary: expression.span,
-        });
-        return "undefined";
-      }
-    }
-
     const emittedCallee = this.#emitExpr(expression.callee, depth, evidenceNames);
     const callee =
       expression.callee.kind === "Name" || expression.callee.kind === "Call"
@@ -547,6 +814,16 @@ class JavaScriptEmitter {
     const arguments_ = expression.arguments.map((argument) =>
       this.#emitExpr(argument, depth, evidenceNames),
     );
+    arguments_.push(...expression.evidence.map(({ constraint, value }) => {
+      if (value.kind === "Dictionary") {
+        return evidenceNames.get(evidenceKey(value.variable, constraint)) ?? "undefined";
+      }
+      if (value.kind === "Primitive") {
+        return primitiveDictionary(constraint, value.instance);
+      }
+      if (value.kind === "Instance") return value.dictionary;
+      return "undefined";
+    }));
     return `${callee}(${arguments_.join(", ")})`;
   }
 
@@ -561,6 +838,52 @@ class JavaScriptEmitter {
       evidenceNames,
     );
     return `(() => {\n${lines.join("\n")}\n${indent(depth)}})()`;
+  }
+
+  #emitTry(
+    expression: Core.TryExpr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string {
+    const error = this.#generatedNames.fresh("error");
+    const prefix = indent(depth);
+    const inner = indent(depth + 1);
+    const armIndent = indent(depth + 2);
+    const lines = [
+      "(() => {",
+      `${inner}try {`,
+      `${armIndent}return ${this.#emitExpr(expression.body, depth + 2, evidenceNames)};`,
+      `${inner}} catch (${error}) {`,
+    ];
+    expression.arms.forEach((arm, index) => {
+      const pattern = arm.pattern;
+      const condition = pattern.kind === "Constructor"
+        ? `${error} != null && ${error}.$hex === true && ${error}.name === ${JSON.stringify(pattern.text)}`
+        : "true";
+      lines.push(`${armIndent}${index === 0 ? "if" : "else if"} (${condition}) {`);
+      if (pattern.kind === "Binding") {
+        const name = this.#identifier(pattern.binding.symbol, pattern.binding.name);
+        lines.push(`${indent(depth + 3)}const ${name} = ${error};`);
+      } else if (pattern.kind === "Constructor") {
+        const exception = this.#exceptions.get(pattern.symbol);
+        pattern.arguments.forEach((argument, argumentIndex) => {
+          if (argument.kind !== "Binding") return;
+          const field = exception?.slots[argumentIndex]?.field ?? `item${argumentIndex + 1}`;
+          const name = this.#identifier(argument.binding.symbol, argument.binding.name);
+          lines.push(`${indent(depth + 3)}const ${name} = ${error}.${field};`);
+        });
+      }
+      lines.push(
+        `${indent(depth + 3)}return ${this.#emitExpr(arm.body, depth + 3, evidenceNames)};`,
+        `${armIndent}}`,
+      );
+    });
+    lines.push(
+      `${armIndent}throw ${error};`,
+      `${inner}}`,
+      `${prefix}})()`,
+    );
+    return lines.join("\n");
   }
 
   #emitReturningMatch(
@@ -586,7 +909,7 @@ class JavaScriptEmitter {
       (arm) => arm.pattern.kind === "Binding",
     );
     const matchName = needsMatchName
-      ? `__match${this.#nextMatch++}`
+      ? this.#generatedNames.fresh("match")
       : undefined;
     const scrutinee = this.#emitExpr(
       expression.scrutinee,
@@ -641,7 +964,7 @@ class JavaScriptEmitter {
     evidenceNames: EvidenceNames,
   ): string[] {
     const prefix = indent(depth);
-    const matchName = `__match${this.#nextMatch++}`;
+    const matchName = this.#generatedNames.fresh("match");
     const scrutinee = this.#emitExpr(expression.scrutinee, depth, evidenceNames);
     const lines = [`${prefix}const ${matchName} = ${scrutinee};`];
 
@@ -743,6 +1066,14 @@ class JavaScriptEmitter {
     expression: Core.ConvertIntExpr,
     evidenceNames: EvidenceNames,
   ): string {
+    if (expression.evidence.kind === "Primitive") {
+      return expression.evidence.instance === "BigInt"
+        ? `${cleanNumber(expression.decimal)}n`
+        : cleanNumber(expression.decimal);
+    }
+    if (expression.evidence.kind === "Instance") {
+      return `${expression.evidence.dictionary}.fromInt(${cleanNumber(expression.decimal)})`;
+    }
     if (expression.evidence.kind !== "Dictionary") return "undefined";
     const dictionary = this.#dictionary(
       expression.evidence.variable,
@@ -769,6 +1100,9 @@ class JavaScriptEmitter {
           evidenceNames,
         );
         return `${dictionary}.show(${value})`;
+      }
+      if (part.evidence.kind === "Instance") {
+        return `${part.evidence.dictionary}.show(${value})`;
       }
       if (part.evidence.kind === "Primitive") {
         if (part.evidence.instance === "String") {
@@ -805,6 +1139,9 @@ class JavaScriptEmitter {
       return `${dictionary}.${expression.member}(${arguments_.join(", ")})`;
     }
     if (expression.evidence.kind === "Error") return "undefined";
+    if (expression.evidence.kind === "Instance") {
+      return `${expression.evidence.dictionary}.${expression.member}(${arguments_.join(", ")})`;
+    }
 
     const instance = expression.evidence.instance;
     const [leftExpression, rightExpression] = expression.arguments;
@@ -864,8 +1201,7 @@ class JavaScriptEmitter {
             operand(rightExpression, Precedence.Exponentiation)
           );
         }
-        this.#helpers.add("checkedPower");
-        return `$hexCheckedPower(${arguments_[0] ?? "undefined"}, ${arguments_[1] ?? "undefined"})`;
+        return `${this.#useHelper("checkedPower")}(${arguments_[0] ?? "undefined"}, ${arguments_[1] ?? "undefined"})`;
     }
   }
 
@@ -898,17 +1234,20 @@ class JavaScriptEmitter {
     }
 
     const prefix = indent(depth + 1);
+    const operandNames = expression.operands.map(() =>
+      this.#generatedNames.fresh("compare")
+    );
     const lines = [
-      `${prefix}const __compare0 = ${this.#emitExpr(expression.operands[0]!, depth + 1, evidenceNames)};`,
+      `${prefix}const ${operandNames[0]} = ${this.#emitExpr(expression.operands[0]!, depth + 1, evidenceNames)};`,
     ];
     for (let index = 0; index < expression.steps.length; index += 1) {
-      const operandName = `__compare${index + 1}`;
+      const operandName = operandNames[index + 1]!;
       lines.push(
         `${prefix}const ${operandName} = ${this.#emitExpr(expression.operands[index + 1]!, depth + 1, evidenceNames)};`,
       );
       const test = this.#emitComparisonStep(
         expression.steps[index]!,
-        `__compare${index}`,
+        operandNames[index]!,
         operandName,
         evidenceNames,
       );
@@ -946,13 +1285,18 @@ class JavaScriptEmitter {
       );
     }
     if (step.evidence.kind === "Error") return "false";
+    if (step.evidence.kind === "Instance") {
+      const dictionary = step.evidence.dictionary;
+      if (step.test === "Equal") return `${dictionary}.equals(${left}, ${right})`;
+      if (step.test === "NotEqual") return `${dictionary}.notEquals(${left}, ${right})`;
+      return comparisonFromOrder(step.test, `${dictionary}.compare(${left}, ${right})`);
+    }
 
     const instance = step.evidence.instance;
     if (step.test === "Equal" || step.test === "NotEqual") {
       let equality: string;
       if (instance === "Float") {
-        this.#helpers.add("floatEquals");
-        equality = `$hexFloatEquals(${left}, ${right})`;
+        equality = `${this.#useHelper("floatEquals")}(${left}, ${right})`;
       } else {
         equality = `${left} === ${right}`;
       }
@@ -960,17 +1304,15 @@ class JavaScriptEmitter {
     }
 
     if (instance === "Float") {
-      this.#helpers.add("compareFloat");
       return comparisonFromOrder(
         step.test,
-        `$hexCompareFloat(${left}, ${right})`,
+        `${this.#useHelper("compareFloat")}(${left}, ${right})`,
       );
     }
     if (instance === "String") {
-      this.#helpers.add("compareString");
       return comparisonFromOrder(
         step.test,
-        `$hexCompareString(${left}, ${right})`,
+        `${this.#useHelper("compareString")}(${left}, ${right})`,
       );
     }
     if (instance === "Unit") return comparisonFromOrder(step.test, "0");
@@ -994,17 +1336,34 @@ class JavaScriptEmitter {
   }
 
   #identifier(symbol: Resolved.SymbolId, sourceName: string): string {
-    return isSafeIdentifier(sourceName) ? sourceName : `$hex${Number(symbol)}`;
+    return isSafeIdentifier(sourceName) ? sourceName : `__hex_binding${Number(symbol)}`;
+  }
+
+  #useHelper(helper: Helper): string {
+    this.#helpers.add(helper);
+    return this.#helperName(helper);
+  }
+
+  #helperName(helper: Helper): string {
+    const existing = this.#helperNames.get(helper);
+    if (existing !== undefined) return existing;
+    const name = this.#generatedNames.fixed(helper);
+    this.#helperNames.set(helper, name);
+    return name;
   }
 }
 
 class DeclarationEmitter {
   readonly #diagnostics = new Diagnostics.Bag();
   readonly #module: Core.Module;
+  readonly #specializations: readonly FundamentalSpecialization[];
 
   constructor(module: Core.Module) {
     this.#module = module;
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
+    const plan = planFundamentalSpecializations(module);
+    this.#specializations = plan.specializations;
+    addSpecializationCollisionDiagnostics(this.#diagnostics, module, plan.collisions);
   }
 
   emit(): Emitted.Declarations {
@@ -1015,10 +1374,20 @@ class DeclarationEmitter {
         declarations.push(renderUnionDeclaration(item, item.exported));
         if (item.exported) {
           isExternalModule = true;
+          const variables = typeVariableNames(item.parameters);
+          const genericNames = item.parameters.map((parameter) => variables.get(parameter)!);
+          const generics = genericNames.length === 0
+            ? ""
+            : `<${genericNames.join(", ")}>`;
+          const result = item.parameters.length === 0
+            ? item.name
+            : `${item.name}<${genericNames.join(", ")}>`;
           for (const constructor of item.constructors) {
             const type = constructor.slots.length === 0
-              ? item.name
-              : `(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, new Map(), false)}`).join(", ")}) => ${item.name}`;
+              ? item.parameters.length === 0
+                ? item.name
+                : `${item.name}<${item.parameters.map(() => "never").join(", ")}>`
+              : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, false)}`).join(", ")}) => ${result}`;
             declarations.push(
               `export declare const ${constructor.name}: ${type};`,
             );
@@ -1026,17 +1395,51 @@ class DeclarationEmitter {
         }
         continue;
       }
+      if (item.kind === "RecordDeclaration") {
+        if (!item.exported) continue;
+        const variables = typeVariableNames(item.parameters);
+        const names = item.parameters.map((parameter) => variables.get(parameter)!);
+        const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
+        const recordType = `{ ${item.fields.map((field) =>
+          `${field.name}: ${renderType(field.type, variables, false)}`
+        ).join("; ")} }`;
+        const result = names.length === 0 ? item.name : `${item.name}<${names.join(", ")}>`;
+        declarations.push(`export type ${item.name}${generics} = ${recordType};`);
+        declarations.push(`export declare const ${item.name}: ${generics}(${item.fields.length === 0 ? "record: {}" : `record: ${recordType}`}) => ${result};`);
+        isExternalModule = true;
+        continue;
+      }
+      if (item.kind === "Exception") {
+        if (!item.exported) continue;
+        const face = `Error & { readonly $hex: true; readonly name: ${JSON.stringify(item.binding.name)}${item.slots.map((slot) => `; readonly ${slot.field}: ${renderType(slot.type, new Map(), false)}`).join("")} }`;
+        declarations.push(`export type ${item.binding.name} = ${face};`);
+        const constructor = item.slots.length === 0
+          ? `() => ${item.binding.name}`
+          : `(${item.slots.map((slot) => `${slot.field}: ${renderType(slot.type, new Map(), false)}`).join(", ")}) => ${item.binding.name}`;
+        declarations.push(`export declare const ${item.binding.name}: ${constructor};`);
+        isExternalModule = true;
+        continue;
+      }
       if ((item.kind !== "Let" && item.kind !== "Fun") || !item.exported) {
         continue;
       }
       if (item.binding.scheme.constraints.length > 0) {
-        this.#diagnostics.add({
-          severity: "error",
-          message:
-            `cannot emit constrained export \`${item.binding.name}\` until ` +
-            "the public dictionary ABI is implemented",
-          primary: item.binding.span,
-        });
+        const specializations = this.#specializations.filter(
+          ({ sourceSymbol }) => sourceSymbol === item.binding.symbol,
+        );
+        for (const specialization of specializations) {
+          if (item.value.kind !== "Lambda") continue;
+          const specialized = specializeItem(item as SpecializableItem, specialization);
+          declarations.push(
+            renderFunctionDeclaration(
+              specialization.name,
+              specialized.binding.scheme,
+              specialized.value as Core.LambdaExpr,
+              true,
+            ),
+          );
+        }
+        isExternalModule ||= specializations.length > 0;
         continue;
       }
       isExternalModule = true;
@@ -1044,7 +1447,7 @@ class DeclarationEmitter {
       const safeName = isSafeIdentifier(item.binding.name);
       const local = safeName
         ? item.binding.name
-        : `$hex${Number(item.binding.symbol)}`;
+        : `__hex_binding${Number(item.binding.symbol)}`;
       if (item.kind === "Fun") {
         declarations.push(
           renderFunctionDeclaration(local, item.binding.scheme, item.value, safeName),
@@ -1075,10 +1478,14 @@ class DeclarationEmitter {
 class TypeScriptPreviewEmitter {
   readonly #diagnostics = new Diagnostics.Bag();
   readonly #module: Core.Module;
+  readonly #specializations: readonly FundamentalSpecialization[];
 
   constructor(module: Core.Module) {
     this.#module = module;
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
+    const plan = planFundamentalSpecializations(module, true);
+    this.#specializations = plan.specializations;
+    addSpecializationCollisionDiagnostics(this.#diagnostics, module, plan.collisions);
   }
 
   emit(): Emitted.TypeScriptPreview {
@@ -1088,11 +1495,19 @@ class TypeScriptPreviewEmitter {
     for (const item of this.#module.items) {
       if (item.kind === "Union") {
         declarations.push(renderUnionDeclaration(item, item.exported));
+        const variables = typeVariableNames(item.parameters);
+        const genericNames = item.parameters.map((parameter) => variables.get(parameter)!);
+        const generics = genericNames.length === 0 ? "" : `<${genericNames.join(", ")}>`;
+        const result = item.parameters.length === 0
+          ? item.name
+          : `${item.name}<${genericNames.join(", ")}>`;
         for (const constructor of item.constructors) {
           const prefix = item.exported ? "export " : "";
           const type = constructor.slots.length === 0
-            ? item.name
-            : `(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, new Map(), false)}`).join(", ")}) => ${item.name}`;
+            ? item.parameters.length === 0
+              ? item.name
+              : `${item.name}<${item.parameters.map(() => "never").join(", ")}>`
+            : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, false)}`).join(", ")}) => ${result}`;
           declarations.push(
             `${prefix}declare const ${constructor.name}: ${type};`,
           );
@@ -1100,11 +1515,36 @@ class TypeScriptPreviewEmitter {
         isExternalModule ||= item.exported;
         continue;
       }
+      if (item.kind === "RecordDeclaration") {
+        const prefix = item.exported ? "export " : "";
+        const variables = typeVariableNames(item.parameters);
+        const names = item.parameters.map((parameter) => variables.get(parameter)!);
+        const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
+        const recordType = `{ ${item.fields.map((field) =>
+          `${field.name}: ${renderType(field.type, variables, false)}`
+        ).join("; ")} }`;
+        const result = names.length === 0 ? item.name : `${item.name}<${names.join(", ")}>`;
+        declarations.push(`${prefix}type ${item.name}${generics} = ${recordType};`);
+        declarations.push(`${prefix}declare const ${item.name}: ${generics}(record: ${recordType}) => ${result};`);
+        isExternalModule ||= item.exported;
+        continue;
+      }
+      if (item.kind === "Exception") {
+        const prefix = item.exported ? "export " : "";
+        const face = `Error & { readonly $hex: true; readonly name: ${JSON.stringify(item.binding.name)}${item.slots.map((slot) => `; readonly ${slot.field}: ${renderType(slot.type, new Map(), false)}`).join("")} }`;
+        declarations.push(`${prefix}type ${item.binding.name} = ${face};`);
+        const constructor = item.slots.length === 0
+          ? `() => ${item.binding.name}`
+          : `(${item.slots.map((slot) => `${slot.field}: ${renderType(slot.type, new Map(), false)}`).join(", ")}) => ${item.binding.name}`;
+        declarations.push(`${prefix}declare const ${item.binding.name}: ${constructor};`);
+        isExternalModule ||= item.exported;
+        continue;
+      }
       if (item.kind === "LetPattern") {
         for (const binding of patternBindings(item.pattern)) {
           const name = isSafeIdentifier(binding.name)
             ? binding.name
-            : `$hex${Number(binding.symbol)}`;
+            : `__hex_binding${Number(binding.symbol)}`;
           declarations.push(
             `declare const ${name}: ${renderScheme(binding.scheme)};`,
           );
@@ -1113,21 +1553,28 @@ class TypeScriptPreviewEmitter {
       }
       if (item.kind !== "Let" && item.kind !== "Fun") continue;
       if (item.binding.scheme.constraints.length > 0) {
-        this.#diagnostics.add({
-          severity: item.exported ? "error" : "warning",
-          message: item.exported
-            ? `cannot emit constrained export \`${item.binding.name}\` until ` +
-              "the public dictionary ABI is implemented"
-            : `cannot preview constrained binding \`${item.binding.name}\` in ` +
-              "TypeScript until its dictionary representation is implemented",
-          primary: item.binding.span,
-        });
+        const specializations = this.#specializations.filter(
+          ({ sourceSymbol }) => sourceSymbol === item.binding.symbol,
+        );
+        for (const specialization of specializations) {
+          if (item.value.kind !== "Lambda") continue;
+          const specialized = specializeItem(item as SpecializableItem, specialization);
+          declarations.push(
+            renderFunctionDeclaration(
+              specialization.name,
+              specialized.binding.scheme,
+              specialized.value as Core.LambdaExpr,
+              item.exported,
+            ),
+          );
+        }
+        isExternalModule ||= item.exported && specializations.length > 0;
         continue;
       }
 
       const name = isSafeIdentifier(item.binding.name)
         ? item.binding.name
-        : `$hex${Number(item.binding.symbol)}`;
+        : `__hex_binding${Number(item.binding.symbol)}`;
       if (item.exported) {
         if (item.kind === "Fun") {
           declarations.push(
@@ -1188,6 +1635,36 @@ type SourceEntry = ItemEntry | CommentEntry;
 interface PatternPlan {
   readonly tests: readonly string[];
   readonly bindings: readonly string[];
+}
+
+function addSpecializationCollisionDiagnostics(
+  diagnostics: Diagnostics.Bag,
+  module: Core.Module,
+  collisions: readonly SpecializationCollision[],
+): void {
+  for (const collision of collisions) {
+    diagnostics.add({
+      severity: collision.specialization.sourceExported ? "error" : "warning",
+      message: collision.kind === "explicit"
+        ? collision.otherExported
+          ? `generated specialization \`${collision.specialization.name}\` conflicts with exported \`${collision.otherSourceName}\`; rename one of the exports`
+          : `generated specialization \`${collision.specialization.name}\` conflicts with binding \`${collision.otherSourceName}\`; rename one of the declarations`
+        : `generated specialization \`${collision.specialization.name}\` from \`${collision.specialization.sourceName}\` conflicts with the edition generated by \`${collision.otherSourceName}\`; rename one of the exports`,
+      primary: module.items.find((item) =>
+        (item.kind === "Let" || item.kind === "Fun") &&
+        item.binding.symbol === collision.specialization.sourceSymbol
+      )?.span ?? module.span,
+    });
+  }
+}
+
+function utf8ByteLength(text: string): number {
+  let bytes = 0;
+  for (const character of text) {
+    const codePoint = character.codePointAt(0)!;
+    bytes += codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4;
+  }
+  return bytes;
 }
 
 function expandOrPatterns(pattern: Core.Pattern): readonly Core.Pattern[] {
@@ -1327,7 +1804,7 @@ function blankLinesBetween(previous: Source.Span, next: Source.Span): number {
   return Math.max(0, next.start.line - previous.end.line - 1);
 }
 
-type Helper = "checkedPower" | "compareFloat" | "compareString" | "floatEquals";
+type Helper = "checkedPower" | "compareFloat" | "compareString" | "exception" | "floatEquals" | "range";
 
 enum Precedence {
   Arrow = 1,
@@ -1360,7 +1837,14 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
     case "TupleAccess":
     case "Call":
     case "ConsoleLog":
+    case "While":
+    case "For":
+    case "Throw":
+    case "Try":
+    case "Range":
       return Precedence.Call;
+    case "Assignment":
+      return Precedence.Unary;
     case "Record":
       return Precedence.Primary;
     case "ConstraintCall":
@@ -1413,48 +1897,95 @@ function comparisonPrecedence(step: Core.ComparisonStep): Precedence {
     : Precedence.Relational;
 }
 
-function renderHelper(helper: Helper): string[] {
+function renderHelper(helper: Helper, name: string): string[] {
   switch (helper) {
+    case "exception":
+      return [
+        `function ${name}(__hex_name, __hex_message, __hex_fields) {`,
+        "  return Object.assign(new Error(__hex_message), { $hex: true, name: __hex_name }, __hex_fields);",
+        "}",
+      ];
     case "floatEquals":
       return [
-        "function $hexFloatEquals(left, right) {",
-        "  return left === right || (Number.isNaN(left) && Number.isNaN(right));",
+        `function ${name}(__hex_left, __hex_right) {`,
+        "  return __hex_left === __hex_right || (Number.isNaN(__hex_left) && Number.isNaN(__hex_right));",
         "}",
       ];
     case "compareFloat":
       return [
-        "function $hexCompareFloat(left, right) {",
-        "  if (Number.isNaN(left)) return Number.isNaN(right) ? 0 : 1;",
-        "  if (Number.isNaN(right)) return -1;",
-        "  return left < right ? -1 : left > right ? 1 : 0;",
+        `function ${name}(__hex_left, __hex_right) {`,
+        "  if (Number.isNaN(__hex_left)) return Number.isNaN(__hex_right) ? 0 : 1;",
+        "  if (Number.isNaN(__hex_right)) return -1;",
+        "  return __hex_left < __hex_right ? -1 : __hex_left > __hex_right ? 1 : 0;",
         "}",
       ];
     case "compareString":
       return [
-        "function $hexCompareString(left, right) {",
-        "  const leftPoints = Array.from(left);",
-        "  const rightPoints = Array.from(right);",
-        "  const length = Math.min(leftPoints.length, rightPoints.length);",
-        "  for (let index = 0; index < length; index += 1) {",
-        "    const leftPoint = leftPoints[index].codePointAt(0);",
-        "    const rightPoint = rightPoints[index].codePointAt(0);",
-        "    if (leftPoint < rightPoint) return -1;",
-        "    if (leftPoint > rightPoint) return 1;",
+        `function ${name}(__hex_left, __hex_right) {`,
+        "  const __hex_leftPoints = Array.from(__hex_left);",
+        "  const __hex_rightPoints = Array.from(__hex_right);",
+        "  const __hex_length = Math.min(__hex_leftPoints.length, __hex_rightPoints.length);",
+        "  for (let __hex_index = 0; __hex_index < __hex_length; __hex_index += 1) {",
+        "    const __hex_leftPoint = __hex_leftPoints[__hex_index].codePointAt(0);",
+        "    const __hex_rightPoint = __hex_rightPoints[__hex_index].codePointAt(0);",
+        "    if (__hex_leftPoint < __hex_rightPoint) return -1;",
+        "    if (__hex_leftPoint > __hex_rightPoint) return 1;",
         "  }",
-        "  return leftPoints.length < rightPoints.length ? -1 : leftPoints.length > rightPoints.length ? 1 : 0;",
+        "  return __hex_leftPoints.length < __hex_rightPoints.length ? -1 : __hex_leftPoints.length > __hex_rightPoints.length ? 1 : 0;",
         "}",
       ];
     case "checkedPower":
       return [
-        "function $hexCheckedPower(base, exponent) {",
-        "  if (exponent < 0) {",
-        '    const error = new Error("an integer exponent cannot be negative");',
-        '    error.name = "NegativeExponentError";',
-        "    throw error;",
+        `function ${name}(__hex_base, __hex_exponent) {`,
+        "  if (__hex_exponent < 0) {",
+        '    const __hex_error = new Error("an integer exponent cannot be negative");',
+        '    __hex_error.name = "NegativeExponentError";',
+        "    throw __hex_error;",
         "  }",
-        "  return base ** exponent;",
+        "  return __hex_base ** __hex_exponent;",
         "}",
       ];
+    case "range":
+      return [
+        `function ${name}(__hex_start, __hex_end) {`,
+        "  return {",
+        "    *[Symbol.iterator]() {",
+        "      for (let __hex_value = __hex_start; __hex_value <= __hex_end; __hex_value += 1) yield __hex_value;",
+        "    },",
+        "  };",
+        "}",
+      ];
+  }
+}
+
+class GeneratedNames {
+  readonly #used: Set<string>;
+  readonly #next = new Map<string, number>();
+
+  constructor(existing: Iterable<string>) {
+    this.#used = new Set(existing);
+  }
+
+  fixed(stem: string): string {
+    return this.#claim(stem);
+  }
+
+  fresh(stem: string): string {
+    let index = this.#next.get(stem) ?? 0;
+    while (true) {
+      const name = this.#claim(`${stem}${index}`);
+      this.#next.set(stem, index + 1);
+      return name;
+    }
+  }
+
+  #claim(stem: string): string {
+    const base = `__hex_${stem}`;
+    let name = base;
+    let suffix = 1;
+    while (this.#used.has(name)) name = `${base}${suffix++}`;
+    this.#used.add(name);
+    return name;
   }
 }
 
@@ -1479,7 +2010,35 @@ function dictionaryParameterName(
   constraint: Typed.ConstraintName,
   variable: Typed.TypeVariableId,
 ): string {
-  return `__dict${constraint}_${Number(variable)}`;
+  return `__hex_dict${constraint}_${Number(variable)}`;
+}
+
+function primitiveDictionary(
+  constraint: Typed.ConstraintName,
+  instance: Typed.PrimitiveName,
+): string {
+  switch (constraint) {
+    case "Num":
+      return "({ add: (__hex_a, __hex_b) => __hex_a + __hex_b, subtract: (__hex_a, __hex_b) => __hex_a - __hex_b, multiply: (__hex_a, __hex_b) => __hex_a * __hex_b, negate: __hex_a => -__hex_a, fromInt: __hex_a => __hex_a })";
+    case "Frac":
+      return "({ divide: (__hex_a, __hex_b) => __hex_a / __hex_b })";
+    case "Concat":
+      return "({ concat: (__hex_a, __hex_b) => __hex_a + __hex_b })";
+    case "Pow":
+      return "({ pow: (__hex_a, __hex_b) => __hex_a ** __hex_b })";
+    case "Eq":
+      return instance === "Float"
+        ? "({ equals: (__hex_a, __hex_b) => __hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b), notEquals: (__hex_a, __hex_b) => !(__hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b)) })"
+        : "({ equals: (__hex_a, __hex_b) => __hex_a === __hex_b, notEquals: (__hex_a, __hex_b) => __hex_a !== __hex_b })";
+    case "Ord":
+      return "({ compare: (__hex_a, __hex_b) => __hex_a < __hex_b ? -1 : __hex_a > __hex_b ? 1 : 0 })";
+    case "Show":
+      if (instance === "String") return "({ show: __hex_a => __hex_a })";
+      if (instance === "Unit") return "({ show: () => \"()\" })";
+      return "({ show: __hex_a => String(__hex_a) })";
+    default:
+      return "({})";
+  }
 }
 
 function evidenceKey(
@@ -1487,6 +2046,10 @@ function evidenceKey(
   constraint: Typed.ConstraintName,
 ): string {
   return `${Number(variable)}:${constraint}`;
+}
+
+function internalConstrainedExportName(symbol: Resolved.SymbolId): string {
+  return `__hex_export${Number(symbol)}`;
 }
 
 function comparisonFromOrder(test: Core.ComparisonTest, order: string): string {
@@ -1594,13 +2157,27 @@ function renderType(
           return "string";
         case "BigInt":
           return "bigint";
+        case "Exn":
+          return "Error & { readonly $hex: true; readonly name: string }";
         case "Unit":
           return returnPosition ? "void" : "undefined";
       }
     case "Variable":
       return variables.get(type.id) ?? "unknown";
+    case "Range":
+      return "Iterable<number>";
     case "Union":
-      return type.name;
+      return type.arguments.length === 0
+        ? type.name
+        : `${type.name}<${type.arguments.map((argument) =>
+          renderType(argument, variables, false)
+        ).join(", ")}>`;
+    case "NominalRecord":
+      return type.arguments.length === 0
+        ? type.name
+        : `${type.name}<${type.arguments.map((argument) =>
+          renderType(argument, variables, false)
+        ).join(", ")}>`;
     case "Tuple":
       return (
         `[${type.elements.map((element) =>
@@ -1638,7 +2215,7 @@ function declarationParameterName(
   if (binding === undefined) return `arg${index}`;
   return isSafeIdentifier(binding.name)
     ? binding.name
-    : `$hex${Number(binding.symbol)}`;
+    : `__hex_binding${Number(binding.symbol)}`;
 }
 
 function renderUnionDeclaration(
@@ -1646,13 +2223,16 @@ function renderUnionDeclaration(
   exported: boolean,
 ): string {
   const prefix = exported ? "export " : "";
+  const variables = typeVariableNames(item.parameters);
+  const genericNames = item.parameters.map((parameter) => variables.get(parameter)!);
+  const generics = genericNames.length === 0 ? "" : `<${genericNames.join(", ")}>`;
   const tagged = item.constructors.some(({ slots }) => slots.length > 0);
   const alternatives = item.constructors
     .map(({ name, slots }) => tagged
-      ? `{ tag: ${JSON.stringify(name)}${slots.map(({ field, type }) => `; ${field}: ${renderType(type, new Map(), false)}`).join("")} }`
+      ? `{ tag: ${JSON.stringify(name)}${slots.map(({ field, type }) => `; ${field}: ${renderType(type, variables, false)}`).join("")} }`
       : JSON.stringify(name))
     .join(" | ");
-  return `${prefix}type ${item.name} = ${alternatives};`;
+  return `${prefix}type ${item.name}${generics} = ${alternatives};`;
 }
 
 function patternBindings(pattern: Core.Pattern): Core.Binding[] {
@@ -1692,6 +2272,12 @@ function typeVariableName(index: number): string {
   const letter = String.fromCharCode("a".charCodeAt(0) + (index % 26));
   const cycle = Math.floor(index / 26);
   return cycle === 0 ? letter : `${letter}${cycle}`;
+}
+
+function emittedModuleSpecifier(specifier: string): string {
+  return specifier.endsWith(".hex")
+    ? `${specifier.slice(0, -4)}.js`
+    : `${specifier}.js`;
 }
 
 function cleanNumber(spelling: string): string {
@@ -1752,5 +2338,18 @@ const reservedWords = new Set([
 ]);
 
 function isSafeIdentifier(name: string): boolean {
-  return /^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(name) && !reservedWords.has(name);
+  if (reservedWords.has(name)) return false;
+  const scalars = [...name];
+  const first = scalars.shift();
+  if (first === undefined || !isJavaScriptIdentifierStart(first)) return false;
+  return scalars.every(isJavaScriptIdentifierContinue);
+}
+
+function isJavaScriptIdentifierStart(scalar: string): boolean {
+  return scalar === "$" || scalar === "_" || idStart.test(scalar);
+}
+
+function isJavaScriptIdentifierContinue(scalar: string): boolean {
+  return scalar === "$" || scalar === "_" || scalar === "\u200C" ||
+    scalar === "\u200D" || idContinue.test(scalar);
 }

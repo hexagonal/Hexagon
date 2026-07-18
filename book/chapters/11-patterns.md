@@ -16,7 +16,7 @@ These are parts of one language. A **pattern** describes the shape a value must 
 and may bind names to useful pieces of that value. Patterns do not call functions or
 evaluate arbitrary expressions; runtime conditions belong in guards.
 
-A lowercase name binds the value at that position. `_` matches the same value without
+A non-uppercase-start name binds the value at that position. `_` matches the same value without
 giving it a name. Each name may be bound only once in a whole pattern:
 
 ```hexagon

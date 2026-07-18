@@ -25,10 +25,28 @@ export interface InferredBinding {
   readonly endOffset: number;
 }
 
+export interface GeneratedJavaScriptSection {
+  readonly kind: "FundamentalSpecialization";
+  readonly sourceName: string;
+  readonly generatedName: string;
+  readonly typeArguments: readonly string[];
+  readonly startOffset: number;
+  readonly endOffset: number;
+  readonly bytes: number;
+}
+
+export interface ExecutableModule {
+  readonly path: string;
+  readonly javascript: string;
+}
+
 export interface CompileSuccess {
   readonly kind: "compile-success";
   readonly version: number;
   readonly javascript: string;
+  readonly executionModules: readonly ExecutableModule[];
+  readonly entryPath: string;
+  readonly generatedJavaScript: readonly GeneratedJavaScriptSection[];
   readonly typeScriptPreview: string;
   readonly types: readonly InferredBinding[];
   readonly diagnostics: readonly PlaygroundDiagnostic[];
@@ -46,7 +64,8 @@ export type CompilerResponse = CompileSuccess | CompileFailure;
 export interface ExecuteRequest {
   readonly kind: "execute";
   readonly version: number;
-  readonly javascript: string;
+  readonly modules: readonly ExecutableModule[];
+  readonly entryPath: string;
 }
 
 export interface ExecuteSuccess {

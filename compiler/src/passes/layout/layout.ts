@@ -223,7 +223,7 @@ function expectsBlock(item: readonly Lexed.Token[]): boolean {
   }
 
   const beginsFunction =
-    first?.kind === "LowerName" || first?.kind === "Let" || first?.kind === "Fun";
+    first?.kind === "NonUpperName" || first?.kind === "Let" || first?.kind === "Fun";
   return beginsFunction && item.some(({ kind }) => kind === "LeftParen");
 }
 

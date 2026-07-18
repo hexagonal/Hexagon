@@ -9,8 +9,8 @@ import { applyLayout } from "./layout.js";
 describe("applyLayout", () => {
   test("wraps the module and separates top-level items", () => {
     expect(kinds(layout("let x = 1\nprint(x)").tokens)).toEqual([
-      "VOpen", "Let", "LowerName", "Equal", "Integer",
-      "VSep", "LowerName", "LeftParen", "LowerName", "RightParen",
+      "VOpen", "Let", "NonUpperName", "Equal", "Integer",
+      "VSep", "NonUpperName", "LeftParen", "NonUpperName", "RightParen",
       "VClose", "Eof",
     ]);
   });
