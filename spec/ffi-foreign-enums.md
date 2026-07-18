@@ -14,9 +14,9 @@ Modules (namespaces and export correspondence); Exceptions §6 (`JsValue` and
 `JsError`); the bounded FFI proto-spec (`notes/ffi-proto-spec-questions.md`); and the
 reader-facing JavaScript Input chapter.
 
-This is a focused normative component of the forthcoming consolidated FFI spec. It
-adds one foreign-description form without otherwise reopening the existing extern
-decisions.
+This is a focused normative component of the consolidated FFI corpus indexed by
+`ffi.md`. It adds one foreign-description form without otherwise reopening the
+existing extern decisions.
 
 ---
 
@@ -110,7 +110,7 @@ case, import-alias, qualification, and constructor-ambiguity rules apply unchang
 
 Foreign member names name JavaScript properties and follow the foreign identifier
 grammar accepted elsewhere by extern member declarations. Local constructor names
-must be uppercase-initial. A repeated foreign member or local constructor is a compile
+must be uppercase-start. A repeated foreign member or local constructor is a compile
 error.
 
 The compiler never discovers members with `Object.keys`, `Object.values`, reverse-map
@@ -251,6 +251,8 @@ declaration order using `Object.is`, and returns the corresponding constructor i
 producer cannot state the enum contract. `toJsDirection` is an identity widening to
 opaque `JsValue`; it does not allocate or encode.
 
+This generated closed-set membership projection intentionally returns `Option`: a miss has one meaning and needs no composable reason or path. Part 11's composable `JsValue` decoder surface instead returns `Result(_, JsConversionError)`; any other partial projection states its failure type in its owning specification (Part 12 §11.2).
+
 These are bindings, not members on a type-valued namespace: Hexagon types are not
 runtime objects, and the language does not invent a `Direction.fromJs` lookup rule.
 Either generated name colliding with an explicit or generated term binding is a hard
@@ -262,10 +264,9 @@ two names to one value, those names cannot be distinct Hexagon alternatives; dec
 single constructor or keep the carrier type (`Int`, `String`, or an opaque type) and
 interpret it explicitly.
 
-`JsValue` is the current name consumed from Exceptions and the bounded FFI design. The
-consolidated FFI spec still owns that type's final name and general accessor/decoder
-catalogue; a mechanical rename changes these signatures but does not reopen the enum
-conversion semantics.
+`JsValue` is the final name fixed by Part 11. It faces `unknown`, crosses by identity,
+and owns the general accessor/decoder surface; those facts do not alter this enum's
+membership-projection semantics.
 
 ---
 
@@ -410,6 +411,7 @@ An implementation is not conforming until tests cover at least:
 | Match comparison | `Object.is`, subject to proven-equivalent optimization |
 | Member discovery | Never automatic; explicit declaration list only |
 | Uncertain input | Generated `fromJsT : JsValue -> Option(T)` binding |
+| Checked-failure boundary | Generated membership projections keep `Option`; composable `JsValue` decoders use `Result(_, JsConversionError)` |
 | Outbound `JsValue` | Generated identity `toJsT` binding |
 | JavaScript classes | Opaque under `extern class`; singleton enum view is explicit opt-in |
 | TypeScript numeric reverse map | Ignored |

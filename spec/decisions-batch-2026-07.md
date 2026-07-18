@@ -44,7 +44,7 @@ Hexagon v1 exposes no `Hash` constraint. If one ever ships, `Hash<Float>` **must
   a === b || (Number.isNaN(a) && Number.isNaN(b))
   ```
 
-  or a call to an on-demand prelude helper `$hexFloatEquals` (same on-demand doctrine as constructors, Unions §6.4) — implementer's choice per site, biased toward the inline expression where it stays readable. Note `+0 === -0` is already `true` in JS, so `===` needs no zero patch — only the `NaN` clause is added.
+  or a call to an on-demand prelude helper `__hex_floatEquals` (same on-demand doctrine as constructors, Unions §6.4) — implementer's choice per site, biased toward the inline expression where it stays readable. Note `+0 === -0` is already `true` in JS, so `===` needs no zero patch — only the `NaN` clause is added.
 - `Ord<Float>` fast path: native `<`/`<=`/etc. remain correct **whenever neither operand can be `NaN`**; the general `compare` must implement §1.1's total order (a small prelude function; `NaN` checks first, then native comparison, `+0`/`-0` needs no special case since `<`/`>` already treat them as equal).
 - `.d.ts`: unaffected; nothing constraint-shaped appears there (Constraints §6.4).
 
@@ -257,7 +257,7 @@ Apply on next touch of each document; until then this doc governs.
 nan() == nan()                 -- true    (nan() : Float returning NaN)
 0.0 == -0.0                    -- true
 1.0 == 1.0                     -- true; emits a === b || (Number.isNaN(a) && Number.isNaN(b))
-                               --        (or the $hexFloatEquals helper)
+                               --        (or the __hex_floatEquals helper)
 
 -- (b) Ord<Float> total order
 compare(nan(), nan())          -- Equal

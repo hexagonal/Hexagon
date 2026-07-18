@@ -1,6 +1,6 @@
 # FFI Specification Roadmap
 
-**Status:** Staged drafting plan. The proto-spec remains the decision record until each part is promoted.
+**Status:** Completed and historical (July 2026). Parts 1–12 and Foreign Enums are promoted; `spec/ffi.md` is the canonical entry point.
 
 The FFI is deliberately divided into small normative documents. Each drafting pass has one target file. Fable should modify only that file; cross-references, roadmap updates, and propagation into older specifications are Sol's work.
 
@@ -23,7 +23,7 @@ Specify the trusted, fast boundary; the direct/borrowed/adapted/converted catego
 
 Do not fully specify `Array`, `Nullable`, or `Seq` here. State their category and link forward to their own parts.
 
-**Decision readiness:** Ready.
+**Status:** Decided and promoted (July 2026).
 
 ## Part 2 — `Nullable` and borrowed `Array`
 
@@ -33,7 +33,7 @@ Specify raw `a | null | undefined` representation, `Nullable.null`, `Nullable.un
 
 Default parameters and TypeScript-style flow narrowing are outside this part. Record `.toCase` as the preferred Hexagon alternative to narrowing.
 
-**Decision readiness:** Ready.
+**Status:** Decided and promoted (July 2026).
 
 ## Part 3 — `Seq` interoperation
 
@@ -43,7 +43,7 @@ Specify top-level `Iterable<a>` input, persistent memoizing adaptation, replayab
 
 Single-pass `Iterator<a>`, async iteration, callback-position adapters, and a separate resource-managed stream type are deferred.
 
-**Decision readiness:** Ready.
+**Status:** Decided and promoted (July 2026).
 
 ## Part 4 — Extern modules and bindings
 
@@ -53,7 +53,7 @@ Specify `extern from`, named and aliased bindings, `fun` versus `let`, the diagn
 
 Receiver members and classes belong to Part 5.
 
-**Decision readiness:** Ready.
+**Status:** Decided and promoted after Sol review (July 2026). Review fixed unused-import elision, `extern let` stability, opaque-branded exported extern types, and monomorphic v1 extern declarations.
 
 ## Part 5 — Extern receiver members and classes
 
@@ -63,7 +63,7 @@ Specify `method`, `get`, `set`, receiver binding, `extern class`, instance and s
 
 `create` is the cultural default name for a companion constructor function; it is guidance rather than an enforced special name.
 
-**Decision readiness:** Ready.
+**Status:** Decided and promoted after Sol review (July 2026). Review confirmed flat foreign inheritance for v1, dot-call coverage through the extern type's binding module, cultural class-versus-standalone guidance, and exact property accessor arities.
 
 ## Part 6 — Functions and callbacks
 
@@ -73,7 +73,7 @@ Specify arity, currying/lowering at the boundary, `Unit`, thrown foreign excepti
 
 Defer callback `this`, callbacks requiring boundary adapters, async callbacks, stable wrapper identity caches, and callback forms involving `Seq` or other difficult adapted types.
 
-**Decision readiness:** Ready.
+**Status:** Decided and promoted after Sol review (July 2026). Review confirmed foreign-`Unit` result discarding and the function-typed extern-`let` error, preserved branded exceptions on foreign-frame re-entry, and made receiver independence explicit for raw inbound function values.
 
 ## Part 7 — Hexagon exports and TypeScript declarations
 
@@ -81,9 +81,11 @@ Defer callback `this`, callbacks requiring boundary adapters, async callbacks, s
 
 Specify ESM export correspondence, generated `.d.ts` declarations, records, unions, opaque branded values, exceptions, constructor exports, direct exports versus stable wrappers, and the union representation cliff. Include lowercase Hexagon-style generic binders in Hexagon-originated declarations.
 
+Inherit Part 4 §5/§12.3's decision that an exported extern `type` receives a Hexagon-generated opaque branded declaration rather than re-exporting foreign package typings.
+
 Constrained functions are referenced here but governed by Parts 8 and 9.
 
-**Decision readiness:** Ready.
+**Status:** Decided and promoted after Sol review (July 2026). Review confirmed `never` faces for generic nullary constants, export-triggered stable constructor materialization, and one private-symbol brand mechanism; constrained generic editions wrap only when ABI plumbing requires it.
 
 ## Part 8 — Zero-cost fundamental exports
 
@@ -91,7 +93,7 @@ Constrained functions are referenced here but governed by Parts 8 and 9.
 
 Specify the closed six-type fundamental set, direct named specializations, the lawful Cartesian product, names and collisions, conditional generic edition, public-capability analysis, ABI effects, implementation obligations, and acceptance tests.
 
-**Status:** Drafted by Fable; Sol review in progress.
+**Status:** Decided and promoted after Sol review (July 2026); correction records are in §17 of the target specification.
 
 ## Part 9 — Exported dictionaries
 
@@ -103,7 +105,7 @@ Specify constraint-owned dictionary types such as `Num.Dictionary<a>`, ordinary 
 
 Do not repeat Part 8's specialization algorithm.
 
-**Decision readiness:** Ready after the Part 8 review is settled.
+**Status:** Decided and promoted after Sol review (July 2026). Review confirmed the unified instance-home naming rule and maximal-constraint evidence canonicalization; runtime package subpaths remain representative pending package design.
 
 ## Part 10 — JavaScript `Map` and `Set`
 
@@ -111,7 +113,7 @@ Do not repeat Part 8's specialization algorithm.
 
 Specify the foreign mutable collection types, their names and accessors, identity semantics, snapshot conversion in both directions, shallow nested values, and their separation from Hexagon persistent `Map` and `Set`.
 
-**Decision readiness:** Not ready. Resolve the remaining name/accessor questions first.
+**Status:** Decided and promoted after Sol review (July 2026). Review confirmed `JsMap` brackets, rejected `JsSet` brackets, fixed native equality and `has`-before-`get`, and added direct eager `fromSeq` constructors with fresh-adapter semantics per crossing.
 
 ## Part 11 — Unknown foreign values and conversion failure
 
@@ -119,7 +121,7 @@ Specify the foreign mutable collection types, their names and accessors, identit
 
 Specify `JsValue` or its replacement, explicit checked decoding, conversion-failure representation, path information for nested failures, cyclic foreign structures, and the boundary between trusted extern declarations and defensive decoding.
 
-**Decision readiness:** Not ready. `JsValue`, failure shape, and cycle policy remain open.
+**Status:** Decided and promoted after Sol review (July 2026). Review confirmed the ten-kind inventory, ordinary-data `JsConversionError`, total identity injection, conservative throwable accessors, revoked-proxy split, explicit `Nullable(JsValue)` collapse, and the stdlib ownership of composable decoders; native map/set classification decoders are deferred with a cross-realm revisit bar.
 
 ## Part 12 — Consolidation and conformance
 
@@ -127,10 +129,10 @@ Specify `JsValue` or its replacement, explicit checked decoding, conversion-fail
 
 Create the FFI index and common terminology, reconcile cross-part references, remove duplicated doctrine, assemble a complete diagnostic and acceptance matrix, and update the general specification roadmap. The preceding part files remain normative rather than being pasted into one enormous document.
 
-**Decision readiness:** Last.
+**Status:** Decided and promoted after Sol review (July 2026).
 
 ## Recommended feed order
 
-Draft Parts 1–7 in order, then Part 9. Part 8 already exists and should be corrected before Part 9 is drafted. While Fable handles ready parts, James and Sol can close Parts 10 and 11. Part 12 happens only after every earlier part is stable.
+Completed: Parts 1–11 remain normative components and Part 12 is the compact FFI index and conformance closeout; the component specs were not pasted into it.
 
 This ordering keeps each Fable session bounded and prevents a late decision about `JsValue`, cycles, or JavaScript mutable collections from forcing a rewrite of the already settled core.

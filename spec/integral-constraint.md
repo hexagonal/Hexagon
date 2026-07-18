@@ -1,8 +1,8 @@
 # Hexagon Spec: The `Integral` Constraint
 
-**Status:** Decided (July 2026)
+**Status:** Decided (July 2026), amended by James's decisions that `Rat` is required for v1 and uses `BigInt` representation.
 **Scope:** The `Integral` prelude constraint (polymorphic Euclidean division API + `gcd`), its `Int`/`BigInt` instances, `gcd` semantics, `BigInt.lcm`, emission, and the reconciliation with the Division & Remainder spec's monomorphic functions.
-**Not in scope:** `Rat` itself (future stdlib/spec — this constraint is its enabling machinery, and §9's generic-normalization test is its down payment); the semantics of the four division functions (Division & Remainder spec is authoritative; this doc adds no convention, only a polymorphic surface).
+**Not in scope:** `Rat` itself (a separate focused v1 spec — this constraint is its enabling machinery, and §9's generic-normalization test is its down payment); the semantics of the four division functions (Division & Remainder spec is authoritative; this doc adds no convention, only a polymorphic surface).
 **Companions:** Division & Remainder spec (conventions, zero-divisor policy — edit note §10), Constraints spec (§7 prelude listing — edit note), Numeric Literals spec (`Num`/`fromInt`, which the superconstraint supplies to generic code).
 
 ---
@@ -11,7 +11,7 @@
 
 > **`Integral` is the polymorphic face of integer division.** The monomorphic functions (`Int.div`, `BigInt.mod`, …) remain the primary, everyday spellings; `Integral` packages the same operations for code generic over integer types. `gcd` lives here because it is *definable* only here. `Float` is never `Integral`.
 
-The motivating client is a future `Rat` normalizing over any integer representation — `gcd` to find the common factor, `quot` to divide it out, `Num` for `0`/`1`, `Ord` for sign normalization. That client needs the *family*, which is why this is one constraint and not a `Gcd` micro-constraint.
+The motivating v1 client is `Rat`, whose numerator and denominator use `BigInt` — `gcd` finds the common factor, `quot` divides it out, `Num` supplies `0`/`1`, and `Ord` supplies sign normalization. That client needs the *family*, which is why this is one constraint and not a `Gcd` micro-constraint.
 
 ## 2. Declaration
 
@@ -144,4 +144,4 @@ Edit notes:
 - **Constraints spec §7 (prelude listing):** add `Integral<a: (Num, Ord)>` with the five members; instances `Int`, `BigInt`.
 - **Division & Remainder spec §3:** "monomorphic `Int` functions, not constraint members" → append "…in their primary spelling; they additionally serve as the `Integral` instance bodies (Integral spec §7)." Add `gcd` to the family listing there or cross-reference §3–4 here.
 - **Exceptions spec:** no registry change — `Integral` members throw through their instance bodies, already registered; `gcd`/`lcm` never throw.
-- **Rat (future spec):** cite §9's `normalize` as the intended shape; `Rat` fixes `BigInt` as its representation (the choice §5 anticipates) while the constraint keeps the principle honest.
+- **Rat (required v1 spec):** cite §9's `normalize` as the intended shape; `Rat` fixes `BigInt` as its representation (the choice §5 anticipates) while the constraint keeps the principle honest.

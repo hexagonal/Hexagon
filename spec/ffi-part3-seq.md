@@ -29,13 +29,14 @@ single-shot IterableIterator<a> -> the same persistent memoized adapter
 
 Every foreign `Iterable<a>` returned or supplied at a boundary position declared as `Seq(a)` is accepted and wrapped by the runtime. Ordinary `extern` use requires **no explicit conversion call** — this is Part 1 §2.3's adapted category, and it applies at supported **top-level** positions only (§9). A low-level `Seq.fromIterable`-style facility may exist later, but it is not the normal checked-boundary mechanism and is not v1 surface.
 
-Two different objects are involved, and they must not be conflated:
+Three kinds of objects are involved, and they must not be conflated:
 
 - **The stable exported function wrapper** (Part 7's) is the module-level JavaScript function generated for an exported Hexagon function whose signature needs boundary plumbing. It is allocated once with the ESM binding and has stable JS identity.
+- **The stable imported extern wrapper** (Part 4 §4.3) is the symmetric local binding generated when an extern `fun` signature needs inbound adaptation, such as a foreign `Iterable<a>` result declared as `Seq(a)`. Representation-direct extern functions remain raw imports. Like the exported wrapper, an imported wrapper is allocated once and holds no per-value adapter state.
 - **The adapter** is per adapted value: it holds the one source iterator and the memoization spine (§4) for a *particular* incoming iterable, so it can only come into existence when that value crosses.
 
 ```text
-one stable exported function wrapper
+one stable boundary function wrapper
     -> on each call, adapt each incoming Iterable value
         -> one iterator and one memoization spine for that adapted value
 ```
@@ -180,7 +181,7 @@ Everything else the roadmap assigns to this part is closed by the decision recor
 |---|---|
 | `Seq` crosses the v1 boundary both ways; stale agenda statement superseded (edit note issued) | §1 |
 | Correspondence: `Seq(a)` → replayable `Iterable<a>`; foreign `Iterable<a>`/single-shot `IterableIterator<a>` → one persistent memoized adapter | §1 |
-| Inbound adaptation automatic and type-directed at top-level declared `Seq(a)` positions; no explicit conversion call; stable exported function wrapper (Part 7) distinct from the per-value adapter | §2 |
+| Inbound adaptation automatic and type-directed at top-level declared `Seq(a)` positions; no explicit conversion call; stable exported (Part 7) or imported extern (Part 4) function wrapper distinct from the per-value adapter | §2 |
 | Fresh adapter per boundary crossing; no identity cache (strong-value pinning vs weak-value GC-dependence both disqualifying); repeated crossings of a single-pass generator observe its current position — rewrite: cross once and share the `Seq` | §2.1 |
 | No replayability probing; no speculative `[Symbol.iterator]()`; no restarted foreign computation | §3 |
 | Uniform rule: one iterator requested on first demand; one shared lazy memoization spine; one memoized outcome per node | §4 |

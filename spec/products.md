@@ -1,11 +1,9 @@
 # Hexagon Spec: Products
 
 **Status:** Decided (July 2026)
-**Scope:** Tuples, structural records, row polymorphism (as far as the user can see it), the nominal `record` declaration, field access, spread/update, `let`-destructuring, JS emission and `.d.ts` shapes.
-**Not in scope:** `union` (own spec), full pattern matching (own spec — this doc fixes only flat `let`-destructuring), the constraint system and derived structural `Eq`/`Ord`/`Show` (constraint spec; this doc only names hooks), `type` aliases and the shared declaration-header grammar (declarations spec), row-unification internals (type-system internals spec; this doc fixes observable behaviour), block/layout/`;` rules (Lexer & Layout spec).
-**Companions:** Functions spec (arity, `()`, no tuple↔args conversion), Primitive Types spec (§7 Show, §9 Unit), Type System Overview (row polymorphism as intent — this doc now decides it for records).
-
-Written for a future implementation session against the existing `hexc` architecture: Algorithm J, union-find tyvars, level-based generalisation, constraints as dictionaries, layout pass, readable-JS emission with `.d.ts`.
+**Scope:** Tuples, structural records, row polymorphism (as far as the user can see it), the nominal `record` declaration, field access, spread/update, construction punning, destructuring (as the pattern grammar's degenerate case), JS emission and `.d.ts` shapes.
+**Not in scope:** `union` (own spec), the full pattern grammar and binder rules (Pattern Matching; Statements §5 for binder class), the constraint mechanism and derivation invocation (Constraints §4.5; this doc fixes structural-instance *semantics*), `type` aliases and the shared declaration-header grammar (Declarations Preamble §§2–3), row-unification internals (this doc fixes observable behaviour), block/layout/`;` rules (Lexer & Layout spec).
+**Companions:** Functions spec (arity, `()`, no tuple↔args conversion), Primitive Types spec (§7 Show, §9 Unit), Pattern Matching (§6.3/§6.5/§9 — destructuring, lambda-head patterns, punning), Method Syntax (§3.4–§3.5 — `itemN` and fused dot calls in the resolution table), Collections Part 2 (`Hash`), Collections Part 3 §2/§13 (trailing-comma rule and directed edit note), FFI Part 7 (export faces).
 
 ---
 
@@ -14,7 +12,7 @@ Written for a future implementation session against the existing `hexc` architec
 - **Positions → tuple. Names → record.** Exactly one anonymous positional product and one anonymous named product. No named tuple elements (§2.2); no positional record syntax.
 - **Structural records are row-polymorphic; the row machinery is hidden.** Rows are an inference phenomenon. Users never need the word "row"; annotators see only `...` (§4).
 - **`record` is an erased nominal wrapper over a closed row.** Nominal at typecheck; the same POJO at runtime; structural at the `.d.ts` boundary (§5).
-- **The unifier never unfolds a nominal record name.** Nominal↔structural crossings are explicit terms: `{...p}` out, the constructor in (§5.3). This preserves principal types and keeps `implement` coherence anchored to names.
+- **The unifier never unfolds a nominal record name.** Nominal↔structural crossings are explicit terms: `{...p}` out, the constructor in (§5.3). This preserves principal types and keeps `honor` coherence anchored to names.
 - **Braces mean records, always** — type and term position, never blocks. Blocks are pure layout (Lexer & Layout spec).
 
 ---
@@ -48,30 +46,34 @@ t.item2
 ```
 
 - `itemN` for N ≥ 1, resolved **type-directed**: dot-access on a tuple-typed receiver interprets `itemN` positionally. `itemN` is **not a reserved word** — a record may have a field literally named `item1`, and on a record-typed receiver `r.item1` is ordinary field access. No overlap: no type is both tuple and record.
+- `itemN` participates in Method Syntax's dot-call resolution table (§3.4 there): `t.itemN(args…)` is the positional access followed by an ordinary call, and the component must be callable; all positional-access rules below apply unchanged.
 - Errors: `item0` → "tuple components are numbered from 1"; N > arity → "this tuple has K components; there is no itemN".
 - **Emission: `t.itemN` → `t[N-1]`.** Accessor names are 1-based (language-facing); array indices are 0-based (emission-facing). The off-by-one lives in the emitter and nowhere else — same shape as the LSP column conversion.
 - `itemN` does **not** participate in row polymorphism. It is positional sugar, not a field; you cannot abstract over "anything with an `item1`". Tuples are not rows.
 
-### 2.4 Destructuring (v1: flat, with wildcards)
+### 2.4 Destructuring (the pattern grammar's degenerate case)
 
 ```
 let (x, y) = t
 let (a, _, c) = triple
+let ((a, b), c) = nested          -- nested irrefutable patterns: legal (Pattern Matching)
 ```
 
 - The pattern's arity must equal the tuple's arity (compile error otherwise, same report as §2.1).
 - `_` discards a component; it binds nothing and may repeat.
-- **Flat only in v1:** no nested patterns (`let ((a, b), c) = ...` is a parse error for now), no literals in patterns, nothing else. Nesting arrives with the pattern-matching spec, which owns the full pattern grammar; this destructuring form must be specified there as the degenerate case of that grammar, not as a second grammar.
-- **No patterns in lambda parameters** in v1. `(x, y) => e` is a two-parameter lambda (Functions spec), never a tuple pattern. A lambda that takes one tuple destructures in its body: `t => { let (x, y) = t; ... }` (block per layout rules). Revisit with pattern matching.
+- **Tuple destructuring is the degenerate case of the full pattern grammar** (Pattern Matching §2/§6.3): nested irrefutable patterns ship. Refutable patterns at `let` receive the Pattern Matching §5 irrefutability error.
+- **Lambda parameters accept irrefutable patterns** under Pattern Matching §6.5's depth rule: `(x, y) => e` remains a two-parameter lambda, permanently; `((x, y)) => e` is one tuple-destructured parameter. That spec owns the rule and its diagnostics.
+- **Every name a `let` pattern binds is a sequential binder** (Statements §5/§5.4): it may not reuse a name in scope. Arm and lambda-head positions bind head binders; class is positional, never pattern-determined.
 - Value-restriction interaction: a tuple of syntactic values is a syntactic value (Functions spec §8.2); destructuring a `let`-bound tuple generalises each binding normally under the same rules.
 
 ### 2.5 Constraints
 
-Componentwise, at every arity, via compiler-derived structural instances (mechanism in the constraints spec; this doc fixes the semantics):
+Componentwise, at every arity, via **automatic compiler-derived structural instances — and user-closed**: users cannot write instances for tuples (Constraints §4.5/§9.3; structural types have no constructor to key on and no home module). This doc fixes the semantics:
 
 - `Eq`: component-wise conjunction; defined iff every component type has `Eq`.
 - `Ord`: lexicographic, left to right; defined iff every component has `Ord`.
 - `Show`: `show (1, "a")` is `"(1, a)"` — parenthesised, comma-separated, components via their own `show` (display semantics per Primitive Types §7; note `String` shows bare).
+- `Hash`: structural, automatic, registered to **Collections Part 2** (its algorithm and its consistency-with-derived-`Eq` rule live there, not here).
 - Derivation is structural at any arity — generated by the compiler, not a family of per-arity instances.
 
 ### 2.6 Emission
@@ -98,8 +100,9 @@ r.x                          -- field access
 {...r, x: 3.0}               -- functional update (§3.3)
 ```
 
-- `name: Type` / `name: expr`, comma-separated, braces. Field names are lowercase-initial identifiers (term-level names, Functions spec §2 case rule).
-- **No shorthand `{x, y}`** for `{x: x, y: y}` in v1 (recorded as a fast-follow candidate — easy to add, impossible to remove). **No** computed keys, methods, getters, or spreads-as-construction beyond §3.3. A record literal is `name: expr` pairs, full stop.
+- `name: Type` / `name: expr`, comma-separated, braces. Field names are non-uppercase-start identifiers (term-level names, Functions spec §2 case rule).
+- **Construction punning ships** (Pattern Matching §9): `{x, y}` in value position is `{x: x, y: y}`, and it composes with update spread — `{...p, x}` is `{...p, x: x}`. Term-level only; `{x}` in *type* position remains an error ("record types need field types"). The pun emits JS shorthand. **No** computed keys, methods, getters, or spreads-as-construction beyond §3.3.
+- **Tuple and record *literals* permit a trailing comma after the final element/field in an otherwise-valid literal** (`{x: 1, y: 2,}`, `(1, "a",)`) — Collections Part 3 §2/§13. Existing tuple arity and empty-record rules are unchanged. This is a term-literal rule; nothing is inferred for type syntax.
 - Duplicate field names in one literal or type: compile error.
 - Field order is **not significant** to the type: `{x: Float, y: Float}` and `{y: Float, x: Float}` are the same type. (Emission order: as written in the constructing literal; see §3.5.)
 - Braces never mean blocks — see the Lexer & Layout spec for the `x => { ... }` diagnostic this requires.
@@ -110,6 +113,7 @@ r.x                          -- field access
 
 - Concrete (closed row, or nominal per §5): checked against the known fields; missing field is a compile error naming the record's known fields.
 - Unknown (`r` is a fresh tyvar, e.g. an unannotated parameter): access **constrains** `r`'s type to a record containing `x`, with a fresh hidden tail — this is where row polymorphism does its silent work. `fun getX(r) = r.x` infers the row-polymorphic type with no annotation (§4).
+- The **fused dot-call form** `r.name(args…)` defers through Method Syntax's DotCall goal and *means* field access whenever the receiver is not head-known-nominal — the row fallback is that form's defined meaning, so **Tier-0 row inference results are unchanged** by dot calls (Method Syntax §3.5). Bare `r.name` is field access always, by grammar.
 
 ### 3.3 Spread update — and the crossing
 
@@ -122,7 +126,7 @@ r.x                          -- field access
 
 ### 3.4 Constraints
 
-Same structural derivation story as tuples (§2.5), fieldwise: `Eq`/`Ord`/`Show` defined iff every field's type has them. `Ord` over records is field-name-lexicographic then value-lexicographic — but flag: record `Ord` is of marginal value and may be dropped to `Eq`+`Show` only; the constraints spec decides. `show {x: 1, y: 2}` is `"{x: 1, y: 2}"`, fields in name order (deterministic regardless of construction order). This is the "derived structural show for records" that Primitive Types §7 promises.
+Same structural derivation story as tuples (§2.5), fieldwise — automatic, compiler-derived, user-closed; `Hash` registered to Collections Part 2: `Eq`/`Ord`/`Show` defined iff every field's type has them. `Ord` over structural records is field-name-lexicographic then value-lexicographic; nominal records receive it only by explicit opt-in (Constraints §4.5). `show {x: 1, y: 2}` is `"{x: 1, y: 2}"`, fields in name order (deterministic regardless of construction order). This is the "derived structural show for records" that Primitive Types §7 promises.
 
 ### 3.5 Emission
 
@@ -158,7 +162,7 @@ fun getX(r: {x: Float, ...}): Float = r.x
 fun touch(p: {x: Float, ...r}): {x: Float, ...r} = {...p, x: p.x + 1.0}
 ```
 
-Lowercase per the type-variable case rule; scoped like other type variables in the same signature. Rarely written; exists because inferred types must be *displayable* — LSP hover on Tier-0 `getX` shows `{x: Float, ...} -> Float`, or `...a` when a tail is shared across positions. The pretty-printer's output is the ceiling of what a user ever sees.
+Non-uppercase-start per the type-variable start-class rule; lowercase `a` remains the display convention. It is scoped like other type variables in the same signature. Rarely written; it exists because inferred types must be *displayable* — LSP hover on Tier-0 `getX` shows `{x: Float, ...} -> Float`, or `...a` when a tail is shared across positions. The pretty-printer's output is the ceiling of what a user ever sees.
 
 **Observable unification behaviour** (internals in the type-system spec): field-order-insensitive; open rows unify by matching common fields and constraining tails; **no field addition/deletion/concatenation operations exist** — rows appear in record types only, Elm-0.16-level power, deliberately (Elm's retreat from full extension is the calibration point). No width subtyping; unification only.
 
@@ -174,18 +178,18 @@ Lowercase per the type-variable case rule; scoped like other type variables in t
 record Point = {x: Float, y: Float}
 ```
 
-(Header grammar — placement, type parameters `record Pair(a) = ...` — is the declarations spec's job; this doc fixes the semantics for the monomorphic case and requires the parameterised case to follow identically with the row instantiated.)
+(The header grammar — parameters, `derives` position, layout continuation — is Declarations Preamble §§2–3. This doc fixes the semantics for the monomorphic case; the parameterised case behaves identically with the row instantiated.)
 
 The declaration expands to, precisely:
 
-1. **A fresh nominal type constant `Point`** (compile-time only). Not an alias: `Point` and `{x: Float, y: Float}` do **not** unify; the unifier treats `Point` as opaque and never unfolds it. The row is retained as `Point`'s *definition*, consulted by elaboration (§5.3), invisible to unification. (Why: unfolding destroys principal types — resolution order would decide whether a tyvar ends up nominal or structural — and collapses `implement Show Point` vs `implement Show Vec` coherence. Decided; do not re-litigate.)
-2. **A constructor function `Point : {x: Float, y: Float} -> Point`** in the term namespace (uppercase initial, per the Functions spec's reservation of uppercase for constructors). Argument is the exact closed row; ordinary record-literal checking applies (all fields, no extras).
+1. **A fresh nominal type constant `Point`** (compile-time only). Not an alias: `Point` and `{x: Float, y: Float}` do **not** unify; the unifier treats `Point` as opaque and never unfolds it. The row is retained as `Point`'s *definition*, consulted by elaboration (§5.3), invisible to unification. (Why: unfolding destroys principal types — resolution order would decide whether a tyvar ends up nominal or structural — and collapses `honor Show<Point>` vs `honor Show<Vec>` coherence. Decided; do not re-litigate.)
+2. **A constructor function `Point : {x: Float, y: Float} -> Point`** in the term namespace (uppercase-start, per the Functions spec's reservation for constructors). Argument is the exact closed row; ordinary record-literal checking applies (all fields, no extras).
 3. **Elaboration rules keyed to the name** (§5.3).
 4. **Nothing at runtime** (§5.4).
 
 ### 5.2 What `record` does *not* generate
 
-No per-field accessor functions (dot access is the accessor). No derived `Eq`/`Ord`/`Show` decided here — whether nominal records get automatic structural instances or require explicit `implement` is the **constraints spec's** question; this spec only guarantees the definition row is available to that machinery.
+No per-field accessor functions (dot access is the accessor). **No automatic instances**: a nominal record derives only by explicit opt-in — `honor C<Point> = derive` or the header `derives` clause (Constraints §4.5; Declarations Preamble §2.3) — with the structural semantics of §2.5/§3.4 applied to the definition row. An operation requiring an underived constraint produces the ordinary unsatisfied-constraint error with the corresponding fixit, such as "add `derives Eq`" for `==` or "add `derives Show`" for `show`.
 
 ### 5.3 Transparent operations and the explicit crossing
 
@@ -206,9 +210,9 @@ What does **not** work, by design: passing `p` directly where `{x: Float, ...}` 
 
 - A `Point` **is** the POJO. No wrapper, no brand, no tag.
 - `Point({x: 1.0, y: 2.0})` **applied directly erases**: emits `{x: 1.0, y: 2.0}`.
-- The constructor is first-class (`map(rows, Point)` is legal); when *referenced* rather than applied, the emitter materialises an identity function — `const Point = r => r;` — emitted on demand (or once per declaration, implementer's choice); direct applications still erase.
+- The constructor is first-class (`map(rows, Point)` is legal); when *referenced* rather than applied, the emitter materialises an identity function — `const Point = r => r;` — emitted on demand (or once per declaration, implementer's choice). **Export is a mandatory demand site**: `export record Point` emits one stable named ESM constructor for JavaScript consumers (FFI Part 7 §3). Direct applications still erase, including internal applications of an exported constructor.
 - `{...p}` emits `{...p}` (a real shallow copy — honest).
-- `.d.ts`: `type Point = { x: number; y: number };` — structural, because the TS boundary is structural regardless. Nominality is a Hexagon-side compile-time discipline only, and the spec says so out loud rather than pretending otherwise.
+- `.d.ts`: for an **ordinary exported record**, `type Point = { x: number; y: number };` — structural, because the TS boundary is structural regardless; nominality is a Hexagon-side compile-time discipline only, and the spec says so out loud rather than pretending otherwise. An **`export opaque record`** instead uses FFI Part 7 §5's brand-only face (one non-exported `unique symbol`; no fields exposed) — opacity, unlike ordinary nominality, *does* cross the boundary.
 
 ---
 
@@ -220,7 +224,7 @@ What does **not** work, by design: passing `p` directly where `{x: Float, ...}` 
 | Tuple passed to n-ary function | arity error + destructuring hint (Functions spec §5; §2.1) |
 | `t.item0` / `t.itemN` beyond arity | targeted messages (§2.3) |
 | Destructuring arity mismatch | tuple-arity error (§2.4) |
-| Nested pattern in v1 destructuring | parse error; "nested patterns arrive with pattern matching" (§2.4) |
+| Refutable pattern at `let`/lambda param; `let`-pattern rebinding | Pattern Matching §5.3 and Statements §9.3 own the respective errors and fixits (§2.4 routes) |
 | Record update adds a field | "record update cannot add fields; `p` has no field `z`" (§3.3) |
 | Multiple/late spread | parse error, v1 shape restriction (§3.3) |
 | Closed-row annotation rejects wider record | mention *extra* fields; suggest `...` (§4) |
@@ -237,10 +241,10 @@ What does **not** work, by design: passing `p` directly where `{x: Float, ...}` 
 |---|---|
 | Positions→tuple, names→record; no named tuple elements | §1, §2.2 |
 | Tuples: arity ≥ 2, no cap, structural, immutable | §2.1 |
-| `t.itemN`, 1-based, type-directed, emits `t[N-1]`; not a row | §2.3 |
-| Destructuring: flat with `_` in v1; no lambda-parameter patterns | §2.4 |
+| `t.itemN`, 1-based, type-directed, emits `t[N-1]`; not a row; unchanged in the dot-call resolution table | §2.3 |
+| Destructuring = the pattern grammar's degenerate case: nesting ships; lambda-head irrefutable patterns per the depth rule; `let`-pattern binders sequential | §2.4 |
 | Tuples = JS arrays, TS tuple types | §2.6 |
-| Record syntax `{name: Type}` / `{name: expr}`; no shorthand in v1; `{}` = empty record | §3.1 |
+| Record syntax `{name: Type}` / `{name: expr}`; construction punning ships (`{x, y}`, `{...p, x}`); trailing comma in term literals; `{}` = empty record | §3.1 |
 | Spread update `{...p, x: e}`; no field addition; one spread, first; emits itself | §3.3 |
 | Rows hidden: Tier 0 invisible / Tier 1 `...` / Tier 2 `...r`; closed-by-default annotations | §4 |
 | Row power = access + update only; no extension/deletion/concat; records only; no subtyping | §4 |
@@ -248,5 +252,6 @@ What does **not** work, by design: passing `p` directly where `{x: Float, ...}` 
 | `record` = opaque nominal + constructor fn + elaboration rules + nothing at runtime | §5.1, §5.4 |
 | Unifier never unfolds nominal names; crossings are explicit terms (`{...p}` / constructor) | §5.1, §5.3 |
 | Implicit checking-mode coercion: considered, deferred to v2-with-evidence | §5.3 |
-| `.d.ts` is structural; nominality is Hexagon-side only | §5.4 |
-| Derived Eq/Ord/Show: semantics here (§2.5, §3.4), mechanism + nominal-record policy → constraints spec | §2.5, §3.4, §5.2 |
+| `.d.ts` structural for ordinary exports; `export opaque record` = FFI Part 7 §5 brand-only face | §5.4 |
+| Structural Eq/Ord/Show/Hash: automatic, compiler-derived, **user-closed** (semantics §2.5/§3.4; `Hash` → Collections Part 2); nominal records derive only by explicit `derive`/`derives` (Constraints §4.5) | §2.5, §3.4, §5.2 |
+| Tier-0 row inference unchanged by dot calls; fused `r.name(args…)` = field access unless head-known nominal | §3.2 |

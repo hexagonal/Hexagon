@@ -2,7 +2,7 @@
 
 **Status:** Decided (July 2026) — with a **hanging-questions** section (§10); nothing there blocks implementation of §1–§9.
 **Scope:** The `exception` declaration (an open extensible sum of error constructors), the `Exn` type, `throw`, the `try`/`catch` expression, foreign (JS-originated) throwables and the `JsError` door, the tagged-`Error`-plus-brand runtime representation, prelude additions (`JsError`, `Result.attempt`), emission and `.d.ts` shapes.
-**Not in scope:** `finally` (deferred, §10.1), the full pattern grammar (pattern-matching spec — catch arms use the same flat constructor patterns as `match`, Unions §4.2), the `JsValue` opaque foreign type and its accessors (FFI spec; this doc names the needs), module-level qualification of exception constructor names (modules spec), async/promise-rejection interactions (FFI/async spec, if any).
+**Not in scope:** `finally` (deferred, §10.1), the full pattern grammar (pattern-matching spec — catch arms use the same flat constructor patterns as `match`, Unions §4.2), the `JsValue` type and its decoding surface (FFI Part 11; this doc consumes its two conservative `JsError` accessors), module-level qualification of exception constructor names (modules spec), async/promise-rejection interactions (FFI/async spec, if any).
 **Companions:** Unions spec (constructor grammar reused wholesale; the closed/open contrast is this doc's reason to exist), Functions spec (arity, constructors-as-terms, value restriction), Lexer & Layout spec (`try`/`catch` bodies are layout blocks), Constraints spec (no derived instances for `Exn`, §7).
 
 Written for a future implementation session against the existing `hexc` architecture: Algorithm J, union-find tyvars, level-based generalisation, constraints as dictionaries, layout pass, readable-JS emission with `.d.ts`.
@@ -28,7 +28,7 @@ exception ParseError(line: Int, message: String)
 exception Timeout(millis: Int)
 ```
 
-- **Grammar: exactly a union constructor, freestanding.** The payload is the constructor-payload form from Unions §2.1, inherited wholesale: parenthesised parameter-list-like slots; **per exception, all slots named or all unnamed** (all-or-none); nullary written bare (`exception NotFound`, never `NotFound()`); uppercase-initial constructor name; lowercase-initial slot names; duplicate slot names an error.
+- **Grammar: exactly a union constructor, freestanding.** The payload is the constructor-payload form from Unions §2.1, inherited wholesale: parenthesised parameter-list-like slots; **per exception, all slots named or all unnamed** (all-or-none); nullary written bare (`exception NotFound`, never `NotFound()`); uppercase-start constructor name; non-uppercase-start slot names; duplicate slot names an error.
 - Each declaration adds one constructor to the single open type **`Exn`**. There is no declaration of `Exn` itself; it is a prelude type constant, and `exception` declarations extend its constructor set. Two in-scope exceptions with the same name: error at the point of ambiguity; two in one module: hard error at the second declaration — the constructor-collision rule family (Unions §2), unchanged.
 - **Module-level only.** An `exception` declaration inside a function or block is a parse error. SML's generative local exceptions (a fresh exception per evaluation of the declaration) are deliberately declined — they exist to fake dynamic binding, and nothing in Hexagon's design wants them. (Diagnostic: "exceptions are declared at module level.")
 - **No type parameters, no type variables in payloads.** `exception Wrapped(value: a)` is a hard error: an open sum has no parameterised declaration site the way `Option(a)` does — the `a` has nowhere to be quantified — and SML bans top-level polymorphic exceptions for the same soundness reason. Payload slot types must be closed. (Diagnostic: "exception payloads must have concrete types.")
@@ -111,7 +111,7 @@ Hexagon code compiled to JS will have JS exceptions pass through it — a `TypeE
 exception JsError(error: JsValue)
 ```
 
-- `JsValue` is an opaque extern type (name and accessors owed to the FFI spec — at minimum `JsError.message : JsValue -> String`, `JsError.stack : JsValue -> Option(String)`; flagged there). No attempt is made to type an arbitrary thrown value structurally, because JS permits throwing anything, including `null` and strings.
+- `JsValue` is the representation-direct opaque type for any JavaScript value, facing TypeScript as `unknown` (FFI Part 11). No attempt is made to type an arbitrary thrown value structurally, because JS permits throwing anything, including `null` and strings. FFI Part 11 §7 specifies the total conservative accessors `JsError.message : JsValue -> String` and `JsError.stack : JsValue -> Option(String)`; guarded property failures are suppressed into `""` / `None`.
 - **No decoding.** A JS `RangeError` is a `JsError` whose payload you interrogate via accessors; it does not become a structured Hexagon exception. Classification of foreign errors is userland. This keeps the FFI honest — no typing the untypeable.
 
 ### 6.2 The wrapping is virtual
@@ -192,7 +192,7 @@ type ParseError = Error & { $hex: true; name: "ParseError"; line: number };
 ```
 
 - **The brand is included, deliberately**: JS-side code constructing Hexagon exceptions to throw into Hexagon does it correctly or not at all.
-- Whether exception *constructor functions* are exported for JS callers is the FFI/modules export question (same flag as Unions §6.5); representation-wise nothing blocks it.
+- Exported exceptions ship constructor functions for JavaScript callers (FFI Part 7 §6). Payload constructors follow declared slot order. Nullary exceptions are also function-shaped for JavaScript and construct a fresh branded `Error` on every call, preserving call-site stack capture; they are never exported as shared constants.
 - `Exn` itself, where it appears in exported signatures (e.g. `Result.attempt`'s error side), is `Error` in the `.d.ts` — honest about the foreign door: any caught value is presented as an `Error`-typed thing at the boundary. (Foreign non-`Error` throwables make this a white lie of the same size every TS `catch` clause tells; recorded, accepted.)
 
 ---
@@ -201,7 +201,7 @@ type ParseError = Error & { $hex: true; name: "ParseError"; line: number };
 
 ### 8.1 `JsError`
 
-Per §6.1. Declared in the prelude; its `JsValue` payload type and accessors are the FFI spec's to finish.
+Per §6.1. Declared in the prelude; FFI Part 11 finalizes its `JsValue` payload and the total conservative `message`/`stack` accessors.
 
 ### 8.2 `Result.attempt`
 
@@ -240,10 +240,9 @@ Runs the thunk; `Ok(value)` on normal return, `Err(exn)` on any throw — Hexago
 ## 10. Hanging questions (recorded, not decided)
 
 1. **`finally`.** Deferred from v1 by agreement. It is a resource-management feature and drags real questions (may `finally` throw? does it overwrite the in-flight exception? interaction with the expression-typing of `try`?) that deserve their own session, probably alongside whatever resource/effect story the FFI develops. The keyword should be reserved by the parser now (targeted diagnostic above) so adding it later is non-breaking.
-2. **`JsValue` and its accessors.** Owed to the FFI spec: the opaque type's name (bikeshed: `JsValue` vs `Foreign`), the accessor set (`message`, `stack`, coercions), and whether `JsError.error`'s payload participates in any `Nullable(a)` story.
-3. **Async.** JS promise rejections are exceptions in a trench coat; if Hexagon grows async/await or a Task type, the rejection channel presumably carries `Exn` with the same brand discipline. Nothing here precludes it; flagged so the async design remembers.
-4. **`Show<Exn>` / constraints on `Exn`.** Presumption: `Exn` has **no** derived or prelude instances in v1 — not `Show` (what would it show, given foreign values?), not `Eq` (identity vs structural on error objects is a swamp). Interpolating an `Exn` is therefore a compile error; users show `JsError.message(e)` or their own formatting. Presumed here, confirm in the stdlib listing.
-5. **Warning on over-broad catches?** A lint flagging `_`-arms that swallow everything (the classic error-hiding bug) was floated informally. Linting policy is out of scope for specs so far; parked.
+2. **Async.** JS promise rejections are exceptions in a trench coat; if Hexagon grows async/await or a Task type, the rejection channel presumably carries `Exn` with the same brand discipline. Nothing here precludes it; flagged so the async design remembers.
+3. **`Show<Exn>` / constraints on `Exn`.** Presumption: `Exn` has **no** derived or prelude instances in v1 — not `Show` (what would it show, given foreign values?), not `Eq` (identity vs structural on error objects is a swamp). Interpolating an `Exn` is therefore a compile error; users show `JsError.message(e)` or their own formatting. Presumed here, confirm in the stdlib listing.
+4. **Warning on over-broad catches?** A lint flagging `_`-arms that swallow everything (the classic error-hiding bug) was floated informally. Linting policy is out of scope for specs so far; parked.
 
 ---
 
@@ -262,11 +261,12 @@ Runs the thunk; `Ok(value)` on normal return, `Err(exn)` on any throw — Hexago
 | Catch arms = flat constructor patterns (shared grammar with `match`); implicit rethrow; reachability still hard-errors; no exhaustiveness demand | §5.2–5.3 |
 | `match`/dot-access on `Exn`: never | §3 |
 | Foreign throwables catchable via prelude `JsError(error: JsValue)`; no decoding; classification is userland | §6 |
+| `JsError.message`/`stack` are total conservative Part 11 accessors; objects/functions receive one guarded fresh property read, secondary throws fall back to `""`/`None` | §6.1; FFI Part 11 §7 |
 | `JsError` wrapping is virtual: catch-arm binds raw value; `throw(JsError(e))` unwraps syntactically | §6.2 |
 | Representation: plain `Error` + `$hex: true` brand + `name` discriminant + flat payload; no classes, no `instanceof`, no prototypes | §7.1 |
 | Class-based designs and bare-POJO design rejected, reasons recorded | §7.1 |
 | Nullary exceptions construct fresh (stack capture); union shared-constant trick not applied | §7.3 |
 | Two-stage catch discrimination (brand, then name); `err != null` guard; `_` catches truly everything | §7.4 |
-| `.d.ts`: `Error & {$hex: true; name: "..."; ...}`; brand included; `Exn` at the boundary is `Error` | §7.5 |
+| `.d.ts`: `Error & {$hex: true; name: "..."; ...}`; brand included; exported constructor functions (nullary included, fresh per call); `Exn` at the boundary is `Error` | §7.5; FFI Part 7 §6 |
 | Prelude: `JsError`, `Result.attempt : (() -> a) -> Result(a, Exn)` (stdlib, not magic) | §8 |
-| Five hanging questions recorded | §10 |
+| Four hanging questions recorded | §10 |

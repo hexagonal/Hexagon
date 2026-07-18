@@ -1,11 +1,9 @@
 # Hexagon Spec: Pattern Matching
 
-**Status:** Decided (July 2026)
-**Scope:** The full pattern grammar — nested constructor patterns, tuple and record patterns, record punning, literal patterns, or-patterns, as-patterns; guards as arm syntax; the irrefutability judgment; the five pattern positions (`match` arms, `catch` arms, `let`, `for..in`, lambda parameters) and the generalized `match` scrutinee; exhaustiveness and reachability over the full grammar; emission. Rider decision: record **construction** punning (`{x}` ≡ `{x: x}` in value position) ships in v1 (§9).
-**Not in scope:** list/array patterns (collections spec — see §11.1), range patterns (deferred, §11.2), active/view patterns (not planned, §10), the `match` keyword's precedence slot (Operators §3.2 already seats it among the eats-right forms), `Exn` matching (permanently excluded; Exceptions §3 is authoritative), string representation details behind `Eq<String>` (Primitive Types §5).
-**Companions:** Unions (flat constructor patterns as this grammar's degenerate case; exhaustiveness doctrine; `match` emission baseline), Products (flat `let`-destructuring as degenerate case; record openness vocabulary; tuple emission), Exceptions (catch arms; open-sum reachability model), Statements/Blocks/Mutability §5 (head-binder status of all pattern binders), Operators (Eq/Ord elaboration for literals; chained comparisons in guards; `match` eats right), Decisions Batch 2026-07 (`Eq<Float>` SameValueZero — the reason Float literals are banned from patterns).
-
-Written for a future implementation session against the existing `hexc` architecture: Algorithm J, union-find tyvars, level-based generalisation, constraints as dictionaries, layout pass, readable-JS emission with `.d.ts`.
+**Status:** Decided (July 2026).
+**Scope:** The full pattern grammar — nested constructor patterns, tuple and record patterns, record punning, literal patterns, or-patterns, as-patterns, and (by reference) vector patterns; guards as arm syntax; the irrefutability judgment; the five pattern positions (`match` arms, `catch` arms, `let`, `for..in`, lambda parameters) and the generalized `match` scrutinee; exhaustiveness and reachability over the full grammar; emission. Rider decision: record **construction** punning (`{x}` ≡ `{x: x}` in value position) ships in v1 (§9).
+**Not in scope:** the vector pattern's forms, typing, length-based exhaustiveness, irrefutability, rest spelling, and emission (Collections Part 3 §3 — the form joins this grammar, §2/§11.1; that spec owns its algorithm), range patterns (deferred, §11.2), active/view patterns (not planned, §10), the `match` keyword's precedence slot (Operators §3.2 already seats it among the eats-right forms), `Exn` matching (permanently excluded; Exceptions §3 is authoritative), string representation details behind `Eq<String>` (Primitive Types §5).
+**Companions:** Unions (flat constructor patterns as this grammar's degenerate case; exhaustiveness doctrine; `match` emission baseline), Products (flat `let`-destructuring as degenerate case; record openness vocabulary; tuple emission), Exceptions (catch arms; open-sum reachability model), Statements/Blocks/Mutability §5/§5.4 (binder class is positional; `let`-pattern binders sequential), Collections Part 3 §3 (vector patterns), Collections Part 4 §7.2 (`for (k, v) in map` iteration), Operators (Eq/Ord elaboration for literals; chained comparisons in guards; `match` eats right), Decisions Batch 2026-07 (`Eq<Float>` SameValueZero — the reason Float literals are banned from patterns), Declarations Preamble §1.1 (the Rewrite Rule, which this doc's diagnostics obey).
 
 ---
 
@@ -15,7 +13,7 @@ Written for a future implementation session against the existing `hexc` architec
 - **The flat forms already shipped are this grammar's degenerate case** — exactly as Unions §4.2 and Products §2.4 contracted. Nothing about them changes; they simply stop being the ceiling.
 - **Guards are arm syntax, not pattern syntax** (§3). A pattern is a static shape; a guard is a runtime test. Keeping them in separate grammatical strata is what keeps or-patterns, the same-bindings rule, and exhaustiveness simple.
 - **Exhaustiveness and reachability remain hard errors and remain exact** over the decidable fragment (§7). Guarded arms contribute nothing to coverage. Infinite domains require a catch-all. This is the Unions §4.3 doctrine, generalized, not renegotiated.
-- **All pattern binders are head binders** (Statements §5 — which explicitly demanded that future pattern forms not create a third class; they don't). They shadow freely; duplicates within one whole pattern are errors.
+- **Binder class is positional, never determined by pattern syntax** (Statements §5, the proper-subterm criterion): `match`-arm, `catch`-arm, lambda-parameter, and loop-pattern binders are **head binders** and shadow freely; every name a **`let` pattern** binds is a **sequential binder** (Statements §5.4) and may not reuse a name in scope. The same record pattern `{name}` is a head binder in an arm and a sequential binder on a `let` LHS. No pattern form creates a third class. **Duplicates within one simultaneous pattern are errors regardless of class.**
 - **Emission stays readable**: cascades of `if`/`else if` on tags and fields, `switch` where a single tag discriminates, `const` binders from named fields, guards appended with `&&`. No decision-tree compilation that a TS author couldn't have written by hand.
 
 ---
@@ -35,15 +33,17 @@ C                        -- nullary constructor
 p1 | p2                  -- or-pattern
 p as x                   -- as-pattern: match p, additionally bind the whole to x
 ()                       -- the Unit pattern (trivially irrefutable)
+[p1, ..., pn]  [ps, ...rest]  -- vector patterns (Collections Part 3 §3 owns forms,
+                              --   typing, exhaustiveness, irrefutability, emission)
 ```
 
 Grammar, loosest to tightest: `as` binds looser than `|`; both bind looser than the structural forms. So `Circle(r) | Square(r) as s` is `(Circle(r) | Square(r)) as s`. Parenthesize to override.
 
 ### 2.1 Wildcard and variable
 
-Unchanged from Unions §4.2 / Products §2.4: `_` binds nothing and may repeat; a lowercase name binds the matched value. **Duplicate binders anywhere within one whole pattern are a hard error** — `Rect(w, w)`, `{x: a, y: a}`, `(p, q) as p` — same message family as before ("`w` is bound twice in this pattern"). The check is over the entire pattern including `as` binders and through nesting; or-pattern alternatives are checked per-alternative (each alternative is a separate binding universe, then reconciled by §2.6's same-bindings rule).
+Unchanged from Unions §4.2 / Products §2.4: `_` binds nothing and may repeat; a non-uppercase-start name binds the matched value. **Duplicate binders anywhere within one whole pattern are a hard error** — `Rect(w, w)`, `{x: a, y: a}`, `(p, q) as p` — same message family as before ("`w` is bound twice in this pattern"). The check is over the entire pattern including `as` binders and through nesting; or-pattern alternatives are checked per-alternative (each alternative is a separate binding universe, then reconciled by §2.6's same-bindings rule).
 
-An uppercase name in any pattern position is a constructor reference, never a binder (the case rule). The v1 "nested patterns arrive with pattern matching" parse error is hereby retired: they have arrived.
+An uppercase-start name in any pattern position is a constructor reference, never a binder (the case rule). The v1 "nested patterns arrive with pattern matching" parse error is hereby retired: they have arrived.
 
 ### 2.2 Constructor patterns — now nested
 
@@ -76,7 +76,7 @@ Arity must equal the tuple's arity (Products §2.1 report shape). `(p)` is **gro
 {customer: {name}, total}        -- nested, punned at two depths
 ```
 
-- **`{f: p}` — the field slot holds a full sub-pattern.** When the sub-pattern is a bare lowercase name equal to the field name, the `: name` may be dropped: **`{f}` ≡ `{f: f}`.** That's the entire punning rule.
+- **`{f: p}` — the field slot holds a full sub-pattern.** When the sub-pattern is a bare non-uppercase-start name equal to the field name, the `: name` may be dropped: **`{f}` ≡ `{f: f}`.** That's the entire punning rule.
 - **Open by default, always, with no opt-out syntax.** A record pattern mentions any subset of the scrutinee's fields; unmentioned fields are neither bound nor constrained. There is no `...` in patterns and no closed-record pattern form in v1. This deliberately points the opposite way from *type annotations* (closed by default, Products §4): a pattern destructures a known-typed value; an annotation constrains an unknown one. The asymmetry is principled and must be documented, not smoothed over.
 - Duplicate field names in one record pattern: error. A field the scrutinee's type lacks: the standard missing-field error naming the known fields (Products §3.2 family).
 - Record patterns work on structural records and — through row polymorphism — on unannotated parameters, constraining them exactly as field access does (`fun getX({x}) = x` infers the row-polymorphic type; see §6.5).
@@ -158,7 +158,7 @@ match shape
 
 Pattern typing is checking-mode against the scrutinee type, structurally:
 
-- `_`, `x`: any type; `x` binds at the scrutinee type (monomorphic within the arm — pattern binders are ordinary lambda-class binders, never generalized).
+- `_`, `x`: any type; `x` binds at the scrutinee type and is monomorphic in its binding position, never generalized. Its binder class comes from that position, not from this pattern form (§1).
 - `C(p...)`: the scrutinee unifies with `C`'s union (or nominal record) type at a fresh instantiation; sub-patterns check against the instantiated slot types.
 - Tuples: arity check, then componentwise.
 - Records: each mentioned field's sub-pattern checks against that field's type; on an unknown scrutinee type, each mentioned field *constrains* the row exactly as dot-access does (fresh hidden tail — Products §3.2). Row vocabulary stays banned from diagnostics.
@@ -166,7 +166,9 @@ Pattern typing is checking-mode against the scrutinee type, structurally:
 - `p | q`: both check against the scrutinee type; binder types unify pairwise per the same-bindings rule.
 - `p as x`: `p` checks against the scrutinee type; `x` binds at it.
 
-All binders are head binders (Statements §5): they shadow anything, are shadowed by nothing new, and are simultaneous within one pattern (whence the duplicate rule).
+- Vector patterns: typing per Collections Part 3 §3.2 (checked against `Vector(t)`; rest binders at `Vector(t)`).
+
+Binder class is positional (Statements §5): arm, lambda-parameter, and loop-pattern binders are head binders and shadow freely; `let`-pattern binders are sequential and may not reuse in-scope names (Statements §5.4). All binders within one pattern are simultaneous (whence the duplicate rule), monomorphic, never generalized.
 
 ---
 
@@ -196,6 +198,7 @@ Consequences, spelled out:
 | `true` | `Bool` | refutable | `false` exists |
 | `true \| false` | `Bool` | **irrefutable** | jointly cover the domain — the coverage definition, not a syntactic one, decides |
 | `Some(_) \| None` | `Option(a)` | irrefutable | ditto (binds nothing, so same-bindings is satisfied) |
+| vector patterns | `Vector(a)` | per Collections Part 3 §3 | length-based; that spec's verdicts are authoritative |
 
 ### 5.2 `Some(n)` vs `UserId(n)` — the story, in full
 
@@ -250,7 +253,7 @@ match flag
 Two **permanent** exclusions:
 
 - **`Exn`.** An open sum can never satisfy exhaustiveness; `catch` is the only eliminator (Exceptions §3, unchanged). Diagnostic: "match requires a closed type; exceptions are inspected with `try`/`catch`."
-- **Constraint-bounded abstract types.** A scrutinee whose type is a variable — even one carrying constraints (`c: Iterable`, some future `Elem(c)` projection) — has no visible constructors and cannot be matched. Matching is structural on *known representation*; it never dispatches through a constraint, and it never scrutinizes a `Seq` or any other abstraction by its internals. Diagnostic: "cannot match on a value of abstract type `c`; use the operations its constraints provide." This is the associated-types interaction, stated so nobody expects `match` to grow constraint dispatch.
+- **Constraint-bounded abstract types.** A scrutinee whose type is a variable — even one carrying constraints (`c: Iterable`, some future `Item(c)` projection) — has no visible constructors and cannot be matched. Matching is structural on *known representation*; it never dispatches through a constraint, and it never scrutinizes a `Seq` or any other abstraction by its internals. Diagnostic: "cannot match on a value of abstract type `c`; use the operations its constraints provide." This is the associated-types interaction, stated so nobody expects `match` to grow constraint dispatch.
 
 Everything else from Unions §4 stands: layout arms, `pattern [when g] => body`, expression semantics, single evaluation of the scrutinee, no braced form.
 
@@ -270,6 +273,8 @@ let Some(v) = opt                -- HARD ERROR: refutable
 
 The LHS of `let` is now a full pattern, gated by irrefutability (§5). Products §2.4's flat-tuple form is the degenerate case; its "nested patterns arrive with pattern matching" error is retired. `let _ = e` remains a non-idiom — `_` alone binds nothing, and the discard spelling is `ignore` (Statements §3.3); a bare-`_` `let` is an error with the `ignore` fixit.
 
+**Every name a `let` pattern binds is a sequential binder** (Statements §5/§5.4): it may not reuse any name in scope, punned fields included — `let {name, total} = order` errors if `name` is bound, with the pattern-aware fixits Statements §9.3 owns (discard with `_`, or rename the field: `{name: orderName}`). The arm/lambda/loop positions bind head binders as before; same grammar, different class, decided by position.
+
 ### 6.4 `for..in` loop variable
 
 ```
@@ -280,7 +285,7 @@ for {id, name} in users
   register(id, name)
 ```
 
-The loop variable is a single binder position with no arity question — full patterns, irrefutability-gated, binders are head binders per Statements §5 (already committed for the loop variable).
+The loop variable is a single binder position with no arity question — full patterns, irrefutability-gated, binders are **head binders** (Statements §5). `for (k, v) in map` is live idiom: `Map` iteration yields `(k, v)` tuples (Collections Part 4 §7.2), and the tuple pattern destructures them exactly as above.
 
 ### 6.5 Lambda parameters — the depth rule
 
@@ -384,9 +389,9 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 
 ---
 
-## 11. Deferred (recorded, not decided)
+## 11. Deferred items and resolved anchor
 
-1. **List/array patterns** (`[]`, `[a, b]`, head/rest) — deferred to the collections spec, which owns them as its integration with this grammar. Nothing is reserved here beyond the note; `::` is not an operator in Hexagon and any cons-pattern spelling must be that spec's decision against a decided `List` representation. The gap is accepted for v1 with eyes open.
+1. **Resolved anchor (not a deferral).** The old "list/array patterns" gap is **discharged: vector patterns shipped** in Collections Part 3 §3, which owns their forms, typing, length-based exhaustiveness, irrefutability, rest spelling (`...`), and emission — the form is registered in §2 here by reference. **`Vector` owns `[...]` patterns in v1**: `List` is a reserved name with no representation (Collections Part 1 §1) and gets nothing; the borrowed FFI `Array(a)` has **no v1 pattern surface** — convert with `Array.toVector` and match the stable `Vector` snapshot. This is not an active design debt; a future proposal needs field evidence that the explicit conversion is inadequate and must account for `Array`'s borrowed stability contract. Number kept for existing §11.1 cross-references.
 2. **Range patterns** (`1..10 =>`) — guards with chained comparisons (`when 1 <= x <= 10`) cover the need with visible semantics; interval exhaustiveness reasoning is not worth v1 complexity. Reserve nothing.
 3. **Named-slot constructor patterns** (`Circle(radius: r)`) — plausible future ergonomics for wide constructors; positional-only stands for v1 (Unions §4.2 doctrine).
 4. **String prefix/interpolation patterns** — not planned; noted only because JS developers may ask.
@@ -400,12 +405,13 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 |---|---|
 | Refutable pattern at `let`/`for..in`/lambda param | "this pattern can fail: ⟨witness⟩; use `match`" (§5.3) |
 | Sole-constructor pattern flips refutable after a union gains a constructor | same family, naming the new constructor (§5.2) |
-| Non-exhaustive `match` | "match is missing cases: ⟨witnesses⟩" via §7.3 renderer |
-| Unreachable arm (incl. guarded-arm subtleties) | hard error naming the shadowing arm (§7.2) |
-| Or-pattern binding mismatch | "`x` is bound on the left of `\|` but not the right" (§2.6) |
-| Duplicate binder in one pattern (incl. `as`, nested) | "`w` is bound twice in this pattern" (§2.1) |
+| Non-exhaustive `match` | "match is missing cases: ⟨witnesses⟩" via §7.3 renderer — add the missing arm(s) or a `_` catch-all |
+| Unreachable arm (incl. guarded-arm subtleties) | hard error naming the shadowing arm (§7.2); remove the arm or reorder it above its shadower |
+| Or-pattern binding mismatch | "`x` is bound on the left of `\|` but not the right — bind it in both alternatives; if unused, remove the binding from both" (§2.6) |
+| Duplicate binder in one pattern (incl. `as`, nested) | "`w` is bound twice in this pattern; rename one occurrence"; for an unused subpattern binder suggest `_`, and for an unused `as` binder suggest removing the `as` clause (§2.1) |
+| `let`-pattern name already in scope | Statements §5.1/§9.3's "already bound" error with the pattern-aware fixits (§6.3 here) |
 | `Float` literal pattern | permanent error + guard fixit (§2.5) |
-| Guard on `let`/`for..in`/lambda param | "guards are only legal on `match` and `catch` arms" (§3) |
+| Guard on `let`/`for..in`/lambda param | "guards are only legal on `match` and `catch` arms; use a `match`" (§3) |
 | Bare lambda intended inside a guard | "`=>` ends the guard; parenthesize the lambda" (§3) |
 | `when` inside a nested pattern | parse error, same message (§3) |
 | `match` on `Exn` | "match requires a closed type; exceptions are inspected with `try`/`catch`" (§6.1) |
@@ -440,8 +446,8 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 | Lambda heads: top-level commas = parameters; `((x, y))` = one tuple param; no grouping parens around param lists; single paren-free-pattern params | §6.5 |
 | Exhaustiveness/reachability: Maranget matrix, hard errors, exact; `Bool` exhaustive via literals; record coverage over mentioned fields; witness-pattern rendering | §7 |
 | Construction punning ships in v1; emits JS shorthand; term-level only | §9 |
-| All pattern binders are head binders; duplicate-in-whole-pattern error incl. `as` | §2.1, §4 |
-| List patterns → collections spec; range patterns → guards; type-test patterns → never | §10, §11 |
+| Binder class is positional (Statements §5): arm/lambda/loop binders head, `let`-pattern binders sequential; no third class; duplicate-in-whole-pattern error incl. `as`, class-independent | §1, §2.1, §4, §6.3 |
+| Vector patterns shipped, owned by Collections Part 3 §3; `Vector` owns `[...]` in v1 (no `List`, no `Array` pattern surface); range patterns → guards; type-test patterns → never | §2, §10, §11.1 |
 
 ---
 
@@ -452,11 +458,9 @@ Apply on next touch; until then this doc governs.
 1. **Unions §4.2** → the flat-pattern restrictions (no nesting, no literals, no guards, no or/as, union-only scrutinees) are superseded; replace with a pointer here. The "nested patterns arrive with pattern matching" diagnostic is retired. §4.3's exhaustiveness text gains a pointer to §7 here. The decisions-log row "v1 patterns: flat + `_`" gains "superseded by Pattern Matching spec".
 2. **Products §2.4** → flat-`let`-destructuring restrictions superseded (nesting now legal); lambda-parameter-patterns sentence superseded by §6.5 here. **§3.1** → "No shorthand `{x, y}`" is dissolved: construction punning ships (§9 here); strike the fast-follow note.
 3. **Exceptions §5.2** → "the pattern-matching spec owns the superset grammar" is now discharged; catch arms take the full grammar. §5.3 reachability text gains the or-pattern note (§7.2 here).
-4. **Statements §5.2** → "future pattern forms inherit head-binder status" is discharged; no third class was created (pointedly: not even for lambda heads — §10 here).
-5. **Operators §2/§3.2** → `match` "joins from the pattern-matching spec": joined. `when` joins the keyword inventory (arm syntax; not an operator, no table row).
-6. **Lexer & Layout** → `when` and pattern-position `as` need keyword-table entries; no new layout rules (arms unchanged).
-7. **hexagon-for-typescript-coders** → new chapter material: destructuring in lambda heads (`{a, b} =>` as the JS-muscle-memory hook), newtype unwrapping via `let UserId(n) =`, construction punning.
-8. **Collections spec (future)** → owes list patterns as its integration with this grammar (§11.1), and the indexing spec interaction is unaffected.
+4. **Operators §2/§3.2** → `match` "joins from the pattern-matching spec": joined. `when` joins the keyword inventory (arm syntax; not an operator, no table row).
+5. **Lexer & Layout** → `when` and pattern-position `as` need keyword-table entries; no new layout rules (arms unchanged).
+6. **hexagon-for-typescript-coders** → new chapter material: destructuring in lambda heads (`{a, b} =>` as the JS-muscle-memory hook), newtype unwrapping via `let UserId(n) =`, construction punning; `let`-pattern rebinding errors vs TS shadowing muscle memory (Statements §9.2 owns the same note).
 
 ---
 
