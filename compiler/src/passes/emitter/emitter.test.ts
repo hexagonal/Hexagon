@@ -826,20 +826,19 @@ describe("emitJavaScript", () => {
     expect(output.diagnostics).toEqual([]);
   });
 
-  test("passes concrete evidence at constrained call sites", () => {
+  test("calls an emitted fundamental edition at a concrete constrained call site", () => {
     const output = emitJavaScript(
-      coreSource("let addOne = x => x + 1\naddOne(2)"),
+      coreSource("export let addOne = x => x + 1\naddOne(2)"),
     );
 
-    expect(output.text).toContain(
-      "addOne(2, ({ add: (__hex_a, __hex_b) => __hex_a + __hex_b",
-    );
+    expect(output.text).toContain("addOneInt(2);");
+    expect(output.text).not.toContain("addOne(2, ({");
     expect(output.diagnostics).toEqual([]);
   });
 
-  test("checks explicit constrained binders through the same evidence path", () => {
+  test("calls the emitted edition for explicit constrained binders", () => {
     const module = coreSource(
-      "let plus<a: Num>(left: a, right: a): a = left + right\n" +
+      "export let plus<a: Num>(left: a, right: a): a = left + right\n" +
         "let answer = plus(20, 22)",
     );
 
@@ -848,8 +847,35 @@ describe("emitJavaScript", () => {
     expect(output.text).toMatch(
       /const plus = \(left, right, __hex_dictNum_\d+\) => __hex_dictNum_\d+\.add\(left, right\);/u,
     );
-    expect(output.text).toContain(
-      "const answer = plus(20, 22, ({ add: (__hex_a, __hex_b) => __hex_a + __hex_b",
+    expect(output.text).toContain("const answer = plusInt(20, 22);");
+    expect(output.text).not.toContain("const answer = plus(20, 22, ({");
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("calls a private preview edition without concrete dictionary evidence", () => {
+    const output = emitJavaScript(
+      coreSource(
+        "let plus<a: Num>(left: a, right: a): a = left + right\n" +
+          "let answer = plus(20, 22)",
+      ),
+      { previewPrivateSpecializations: true },
+    );
+
+    expect(output.text).toContain("const answer = plusInt(20, 22);");
+    expect(output.text).not.toContain("const answer = plus(20, 22, ({");
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("keeps trailing evidence for genuinely polymorphic calls", () => {
+    const output = emitJavaScript(
+      coreSource(
+        "export let plus<a: Num>(left: a, right: a): a = left + right\n" +
+          "let double = value => plus(value, value)",
+      ),
+    );
+
+    expect(output.text).toMatch(
+      /const double = \(value, (__hex_dictNum_\d+)\) => plus\(value, value, \1\);/u,
     );
     expect(output.diagnostics).toEqual([]);
   });

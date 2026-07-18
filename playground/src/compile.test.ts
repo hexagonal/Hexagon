@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { helloWorld } from "./examples/hello-world";
 import { internationalIdentifiers } from "./examples/international-identifiers";
+import { specializations } from "./examples/specializations";
 import { compileSource } from "./compile";
 
 describe("compileSource", () => {
@@ -146,6 +147,18 @@ describe("compileSource", () => {
     expect(response.typeScriptPreview).toContain(
       "declare function plusInt(x: number, y: number): number;",
     );
+  });
+
+  test("routes the specialization example's concrete calls through its editions", () => {
+    const response = compileSource(12, specializations.source);
+
+    expect(response.kind).toBe("compile-success");
+    if (response.kind !== "compile-success") return;
+
+    expect(response.javascript).toContain("console.log(plusInt(20, 22));");
+    expect(response.javascript).toContain("console.log(plusFloat(1.5, 2.25));");
+    expect(response.javascript).toContain("console.log(plusBigInt(10n, 20n));");
+    expect(response.javascript).not.toContain("console.log(plus(20, 22,");
   });
 
   test("returns exact binding spans for editor hovers", () => {
