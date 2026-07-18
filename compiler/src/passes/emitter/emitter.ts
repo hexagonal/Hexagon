@@ -879,7 +879,9 @@ class JavaScriptEmitter {
     depth: number,
     evidenceNames: EvidenceNames,
   ): string {
-    const emittedCallee = this.#emitExpr(expression.callee, depth, evidenceNames);
+    const specialization = this.#callSpecialization(expression);
+    const emittedCallee = specialization?.name ??
+      this.#emitExpr(expression.callee, depth, evidenceNames);
     const callee =
       expression.callee.kind === "Name" ||
         expression.callee.kind === "SeqOperation" ||
@@ -889,19 +891,49 @@ class JavaScriptEmitter {
     const arguments_ = expression.arguments.map((argument) =>
       this.#emitExpr(argument, depth, evidenceNames),
     );
-    arguments_.push(...expression.evidence.map(({ constraint, value }) => {
-      if (value.kind === "Dictionary") {
-        return this.#dictionary(
-          value.variable,
-          value.constraint ?? constraint,
-          expression.span,
-          evidenceNames,
-          value.path,
-        );
-      }
-      return this.#emitEvidence(value, constraint, expression.span, evidenceNames);
-    }));
+    if (specialization === undefined) {
+      arguments_.push(...expression.evidence.map(({ constraint, value }) => {
+        if (value.kind === "Dictionary") {
+          return this.#dictionary(
+            value.variable,
+            value.constraint ?? constraint,
+            expression.span,
+            evidenceNames,
+            value.path,
+          );
+        }
+        return this.#emitEvidence(value, constraint, expression.span, evidenceNames);
+      }));
+    }
     return `${callee}(${arguments_.join(", ")})`;
+  }
+
+  #callSpecialization(
+    expression: Core.CallExpr,
+  ): FundamentalSpecialization | undefined {
+    if (expression.callee.kind !== "Name") return undefined;
+    const candidates = this.#specializationsFor(expression.callee.symbol);
+    if (candidates.length === 0) return undefined;
+
+    const symbol = this.#symbols.get(expression.callee.symbol);
+    if (symbol === undefined) return undefined;
+    const entries = dictionaryEntries(symbol.scheme);
+    if (entries.length !== expression.evidence.length) return undefined;
+
+    const assignments = new Map<Typed.TypeVariableId, Typed.PrimitiveName>();
+    for (const [index, entry] of entries.entries()) {
+      const evidence = expression.evidence[index]?.value;
+      if (evidence?.kind !== "Primitive") return undefined;
+      const previous = assignments.get(entry.variable);
+      if (previous !== undefined && previous !== evidence.instance) return undefined;
+      assignments.set(entry.variable, evidence.instance);
+    }
+
+    return candidates.find((candidate) =>
+      candidate.assignment.every(({ variable, type }) =>
+        assignments.get(variable) === type
+      )
+    );
   }
 
   #emitMatch(
