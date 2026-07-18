@@ -1778,7 +1778,11 @@ class JavaScriptEmitter {
       );
     }
     if (evidence.kind === "Primitive") {
-      return primitiveDictionary(constraint, evidence.instance);
+      return primitiveDictionary(
+        constraint,
+        evidence.instance,
+        (helper) => this.#useHelper(helper),
+      );
     }
     if (evidence.kind === "Instance") {
       const arguments_ = evidence.arguments.map((argument) =>
@@ -2603,21 +2607,34 @@ function dictionaryParameterName(
 function primitiveDictionary(
   constraint: Typed.ConstraintName,
   instance: Typed.PrimitiveName,
+  helperName: (helper: Helper) => string,
 ): string {
   switch (constraint) {
-    case "Num":
-      return "({ add: (__hex_a, __hex_b) => __hex_a + __hex_b, subtract: (__hex_a, __hex_b) => __hex_a - __hex_b, multiply: (__hex_a, __hex_b) => __hex_a * __hex_b, negate: __hex_a => -__hex_a, fromInt: __hex_a => __hex_a })";
+    case "Num": {
+      const fromInt = instance === "BigInt"
+        ? "BigInt(__hex_a)"
+        : "__hex_a";
+      return `({ add: (__hex_a, __hex_b) => __hex_a + __hex_b, subtract: (__hex_a, __hex_b) => __hex_a - __hex_b, multiply: (__hex_a, __hex_b) => __hex_a * __hex_b, negate: __hex_a => -__hex_a, fromInt: __hex_a => ${fromInt} })`;
+    }
     case "Frac":
       return "({ divide: (__hex_a, __hex_b) => __hex_a / __hex_b })";
     case "Concat":
       return "({ concat: (__hex_a, __hex_b) => __hex_a + __hex_b })";
     case "Pow":
-      return "({ pow: (__hex_a, __hex_b) => __hex_a ** __hex_b })";
+      return instance === "Float"
+        ? "({ pow: (__hex_a, __hex_b) => __hex_a ** __hex_b })"
+        : `({ pow: (__hex_a, __hex_b) => ${helperName("checkedPower")}(__hex_a, __hex_b) })`;
     case "Eq":
       return instance === "Float"
         ? "({ equals: (__hex_a, __hex_b) => __hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b), notEquals: (__hex_a, __hex_b) => !(__hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b)) })"
         : "({ equals: (__hex_a, __hex_b) => __hex_a === __hex_b, notEquals: (__hex_a, __hex_b) => __hex_a !== __hex_b })";
     case "Ord":
+      if (instance === "Float") {
+        return `({ compare: (__hex_a, __hex_b) => ${helperName("compareFloat")}(__hex_a, __hex_b) })`;
+      }
+      if (instance === "String") {
+        return `({ compare: (__hex_a, __hex_b) => ${helperName("compareString")}(__hex_a, __hex_b) })`;
+      }
       return "({ compare: (__hex_a, __hex_b) => __hex_a < __hex_b ? -1 : __hex_a > __hex_b ? 1 : 0 })";
     case "Show":
       if (instance === "String") return "({ show: __hex_a => __hex_a })";
