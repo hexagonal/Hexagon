@@ -1,5 +1,5 @@
 import type { LocatedDiagnostic } from "./diagnostics";
-import type { InferredBinding } from "./protocol";
+import type { TypeOccurrence } from "./protocol";
 
 export interface TextEdit {
   readonly text: string;
@@ -20,7 +20,7 @@ export interface SourceEditor {
   selectOffsets(startOffset: number, endOffset: number): void;
   onDidChange(listener: () => void): EditorSubscription;
   publishDiagnostics(diagnostics: readonly LocatedDiagnostic[]): void;
-  publishBindings(bindings: readonly InferredBinding[]): void;
+  publishTypes(types: readonly TypeOccurrence[]): void;
   setTheme(theme: EditorTheme): void;
   dispose(): void;
 }
@@ -80,7 +80,7 @@ export function createTextareaSourceEditor(
       return { dispose: () => void listeners.delete(listener) };
     },
     publishDiagnostics: () => {},
-    publishBindings: () => {},
+    publishTypes: () => {},
     setTheme: () => {},
     dispose: () => {
       listeners.clear();

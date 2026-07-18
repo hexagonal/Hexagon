@@ -3440,7 +3440,10 @@ class Checker {
               kind: "SeqOperation",
               operation: seqDotCall.operation,
               type: this.#publicType(seqDotCall.callee),
-              span: expression.callee.span,
+              receiverBound: true,
+              span: expression.callee.kind === "Access"
+                ? expression.callee.field.span
+                : expression.callee.span,
             },
             arguments: [
               this.#materializeExpr(seqDotCall.receiver),
@@ -3460,7 +3463,10 @@ class Checker {
               symbol: dotCall.symbol.id,
               text: this.#operationSpellings.get(dotCall.symbol.id) ?? dotCall.symbol.name,
               type: this.#publicType(dotCall.callee),
-              span: expression.callee.span,
+              receiverBound: true,
+              span: expression.callee.kind === "Access"
+                ? expression.callee.field.span
+                : expression.callee.span,
             },
             arguments: [
               this.#materializeExpr(dotCall.receiver),

@@ -10,12 +10,13 @@ import {
   lex,
   parse,
   resolve,
+  collectTypeOccurrences,
   type Diagnostics,
 } from "../../compiler/src/index";
 
 import type {
   CompilerResponse,
-  InferredBinding,
+  TypeOccurrence,
   PlaygroundDiagnostic,
 } from "./protocol";
 import { parseWorkspaceSource } from "./workspace-source";
@@ -56,7 +57,8 @@ export function compileSource(version: number, text: string): CompilerResponse {
     entryPath: "/main.hex",
     generatedJavaScript: javascript.generatedSections,
     typeScriptPreview: typeScriptPreview.text,
-    types: inferredBindings(typed),
+    types: collectBindingTypes(typed),
+    typeOccurrences: adaptTypeOccurrences(typed),
     diagnostics,
   };
 }
@@ -122,16 +124,29 @@ function compileWorkspace(
     entryPath: "/main.hex",
     generatedJavaScript: main.javascript.generatedSections,
     typeScriptPreview: preview.text,
-    types: project.modules.flatMap(({ typed }) => inferredBindings(typed, mapOffset)),
+    types: project.modules.flatMap(({ typed }) => collectBindingTypes(typed, mapOffset)),
+    typeOccurrences: project.modules.flatMap(({ typed }) => adaptTypeOccurrences(typed, mapOffset)),
     diagnostics,
   };
 }
 
-function inferredBindings(
+function adaptTypeOccurrences(
   module: Typed.Module,
   mapOffset: (fileId: Source.FileId, offset: number) => number = (_fileId, offset) => offset,
-): readonly InferredBinding[] {
-  const bindings: InferredBinding[] = [];
+): readonly TypeOccurrence[] {
+  return collectTypeOccurrences(module).map(({ name, displayedType, span }) => ({
+    name,
+    displayedType,
+    startOffset: mapOffset(span.fileId, span.start.offset),
+    endOffset: mapOffset(span.fileId, span.end.offset),
+  }));
+}
+
+function collectBindingTypes(
+  module: Typed.Module,
+  mapOffset: (fileId: Source.FileId, offset: number) => number = (_fileId, offset) => offset,
+): readonly TypeOccurrence[] {
+  const bindings: TypeOccurrence[] = [];
   const seen = new Set<Typed.Binding["symbol"]>();
   const publish = (binding: Typed.Binding): void => {
     if (seen.has(binding.symbol)) return;

@@ -186,6 +186,32 @@ describe("compileSource", () => {
     ]);
   });
 
+  test("returns hover types for declarations and every value reference", () => {
+    const source =
+      "let identity(value) = value\n" +
+      "let answer = identity(42)\n";
+    const response = compileSource(12, source);
+
+    expect(response.kind).toBe("compile-success");
+    if (response.kind !== "compile-success") return;
+
+    const occurrences = response.typeOccurrences;
+    const at = (name: string, startOffset: number) =>
+      occurrences.find((occurrence) =>
+        occurrence.name === name && occurrence.startOffset === startOffset
+      );
+    const declaration = source.indexOf("identity");
+    const reference = source.lastIndexOf("identity");
+    const parameter = source.indexOf("value");
+    const parameterReference = source.lastIndexOf("value");
+
+    expect(at("identity", declaration)?.displayedType).toBe("a -> a");
+    expect(at("identity", reference)?.displayedType).toBe("a -> a");
+    expect(at("value", parameter)?.displayedType).toBe("a");
+    expect(at("value", parameterReference)?.displayedType).toBe("a");
+    expect(at("answer", source.indexOf("answer"))?.displayedType).toBe("Int");
+  });
+
   test("returns bounded, de-duplicated diagnostics instead of partial output", () => {
     const source = "let broken = missing\n";
     const response = compileSource(8, source);

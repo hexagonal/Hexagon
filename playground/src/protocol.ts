@@ -18,7 +18,7 @@ export interface PlaygroundDiagnostic {
   readonly endOffset: number;
 }
 
-export interface InferredBinding {
+export interface TypeOccurrence {
   readonly name: string;
   readonly displayedType: string;
   readonly startOffset: number;
@@ -48,7 +48,8 @@ export interface CompileSuccess {
   readonly entryPath: string;
   readonly generatedJavaScript: readonly GeneratedJavaScriptSection[];
   readonly typeScriptPreview: string;
-  readonly types: readonly InferredBinding[];
+  readonly types: readonly TypeOccurrence[];
+  readonly typeOccurrences: readonly TypeOccurrence[];
   readonly diagnostics: readonly PlaygroundDiagnostic[];
 }
 

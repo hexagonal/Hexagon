@@ -10,7 +10,7 @@ import type {
   GeneratedCodeEditor,
   SourceEditor,
 } from "./editor";
-import type { InferredBinding } from "./protocol";
+import type { TypeOccurrence } from "./protocol";
 import { hexagonLanguage, hexagonTokens } from "./monaco-language";
 
 globalThis.MonacoEnvironment = {
@@ -70,7 +70,7 @@ export function createMonacoEditors(
   sourceContainer.hidden = false;
   textarea.hidden = true;
 
-  let bindings: readonly InferredBinding[] = [];
+  let types: readonly TypeOccurrence[] = [];
   let suppressChanges = false;
   const changeListeners = new Set<() => void>();
   const changeSubscription = sourceModel.onDidChangeContent(() => {
@@ -81,13 +81,13 @@ export function createMonacoEditors(
     provideHover: (model, position) => {
       if (model !== sourceModel) return undefined;
       const offset = model.getOffsetAt(position);
-      const binding = bindings.find(
+      const occurrence = types.find(
         ({ startOffset, endOffset }) => offset >= startOffset && offset < endOffset,
       );
-      if (binding === undefined) return undefined;
+      if (occurrence === undefined) return undefined;
       return {
-        contents: [{ value: `\`${binding.name} : ${binding.displayedType}\`` }],
-        range: rangeFromOffsets(model, binding.startOffset, binding.endOffset),
+        contents: [{ value: `\`${occurrence.name} : ${occurrence.displayedType}\`` }],
+        range: rangeFromOffsets(model, occurrence.startOffset, occurrence.endOffset),
       };
     },
   });
@@ -117,8 +117,8 @@ export function createMonacoEditors(
         diagnostics.map((diagnostic) => markerFromDiagnostic(sourceModel, diagnostic)),
       );
     },
-    publishBindings: (nextBindings) => {
-      bindings = nextBindings;
+    publishTypes: (nextTypes) => {
+      types = nextTypes;
     },
     setTheme: (nextTheme) => monaco.editor.setTheme(toMonacoTheme(nextTheme)),
     dispose: () => {

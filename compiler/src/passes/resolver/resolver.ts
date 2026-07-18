@@ -970,6 +970,7 @@ class Resolver {
         kind: "Constructor",
         symbol,
         text: pattern.name.text,
+        nameSpan: pattern.name.span,
         arguments: pattern.arguments.map((argument) =>
           this.#resolvePattern(argument, scope, seen, head, sharedBindings),
         ),
@@ -989,6 +990,7 @@ class Resolver {
         kind: "Record",
         fields: pattern.fields.map((field) => ({
           name: field.name.text,
+          nameSpan: field.name.span,
           pattern: this.#resolvePattern(
             field.pattern,
             scope,
