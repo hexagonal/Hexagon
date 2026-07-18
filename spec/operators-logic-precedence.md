@@ -11,7 +11,7 @@
 
 ### 1.1 Operators elaborate to constraint members; nothing else is overloadable
 
-Hexagon has **no user-defined operators and no operator overloading**, permanently — this is a language identity decision, not a v1 deferral. The only extensibility an operator has is the one the constraint system already provides: each *value-level* operator is fixed sugar for a named constraint member, and a type participates in the operator by implementing the constraint. Elaboration table:
+Hexagon has **no user-defined operators and no operator overloading**, permanently — this is a language identity decision, not a v1 deferral. The only extensibility an operator has is the one the constraint system already provides: each *value-level* operator is fixed sugar for a named constraint member, and a type participates in the operator by honoring the constraint. Elaboration table:
 
 | Operator | Elaborates to | Constraint |
 |---|---|---|
@@ -155,6 +155,12 @@ Given that, the honest and simpler definition wins: **`a iff b` is Boolean equal
 
 The early draft's primitive-operator table (`<=` as `a < b or a == b`, etc.) is superseded by the `compare`-based story — one member, one instance obligation, derived operators total by construction, and no double evaluation of operands in the derived forms.
 
+Operands normally share one type. Numeric Literals §5.1 applies before the `Eq`/`Ord`
+operation is selected: an established `Int` operand may widen through `fromInt` when
+another operand independently establishes a `Num` target. Thus `count < cost` is a
+Float comparison when `count : Int` and `cost : Float`; `Int` versus `Int` remains an
+exact Int comparison. Non-numeric comparisons gain no coercion.
+
 **Codegen fast path (mandatory for readable JS):** when the `Ord`/`Eq` dictionary is a known primitive instance, emit the direct JavaScript operation only when it preserves that instance's semantics. `Int`, `Bool`, all-BMP-safe `String` handling per Primitive Types §5, and the applicable all-nullary-union cases may use native operators directly.
 
 `Float` is the mandatory exception. `Eq<Float>` is SameValueZero (Decisions Batch §1), so bare `===` and `!==` are wrong for `NaN`. Given operands evaluated once as `x` and `y`, the fast paths are:
@@ -209,7 +215,7 @@ a < f() < c
 
 ### 6.1 The `Num`/`Frac` four (recap by reference)
 
-`+`, binary `-`, `*` elaborate to `Num` members; `/` to `Frac.divide`. `Int` is `Num` but **not** `Frac` — `intA / intB` is a compile error whose diagnostic points at `Int.div`/`Int.mod` (floored, `DivideByZeroError` on zero divisor — Exceptions spec). Numeric literals under these operators elaborate per the Numeric Literals spec; nothing here changes that machinery. There is no `%` operator (§13).
+`+`, binary `-`, `*` elaborate to `Num` members; `/` to `Frac.divide`. Operands normally share one type after Numeric Literals §5.1's contextual rule has injected any established `Int` expression into an independently established `Num` target. `Int + Int` therefore stays Int, while `count * cost` is Float when `count : Int` and `cost : Float`. `Int` is `Num` but **not** `Frac` — `intA / intB` is a compile error whose diagnostic points at `Int.div`/`Int.mod` (floored, `DivideByZeroError` on zero divisor — Exceptions spec). Numeric literals under these operators elaborate per the Numeric Literals spec. There is no `%` operator (§13).
 
 ### 6.2 Unary minus
 
@@ -336,7 +342,7 @@ All three spellings produce the same conditional. The presence of `then`, rather
 than whether the source happens to occupy one line, distinguishes this form from
 the layout form (§11.3).
 
-Eats to the right (§3.2): `expr2` extends as far as possible, so `1 + if c then a else b` is `1 + (if c then a else b)` and `if c then a else b + 1` is `if c then a else (b + 1)` — the `else` arm ate the `+ 1`. Chained: `if c1 then a else if c2 then b else c` nests rightward with no special grammar. Both arms unify to one type; the whole form has that type.
+Eats to the right (§3.2): `expr2` extends as far as possible, so `1 + if c then a else b` is `1 + (if c then a else b)` and `if c then a else b + 1` is `if c then a else (b + 1)` — the `else` arm ate the `+ 1`. Chained: `if c1 then a else if c2 then b else c` nests rightward with no special grammar. Both arms resolve to one type: exact unification wins, followed by Numeric Literals §5.1's contextual `Int` widening when the other arm independently establishes a `Num` target. The whole form has the resulting type.
 
 **A `then`-form `if` without `else` is a parse error** — an expression must have a value on every path — with the fixit "add an `else`, or use the layout form if the branches are `Unit` effects."
 
@@ -379,7 +385,7 @@ Semantics live in Statements/Blocks/Mutability (`var`-only target, `Unit`-typed,
 | `not` above comparisons (early-draft position) | §3.1. `not a == b` must mean `not (a == b)`; Python/Lean position adopted. |
 | `iff` as desugared double implication | §4.3. Under single-evaluation it never short-circuited anyway; Boolean equality is the same truth table with simpler everything. |
 | Symbolic implication `==>` | Words-only rule; visual collision with `=>`. |
-| User-defined/custom operators, operator overloading | Permanent identity decision (§1.1). Operators are fixed sugar for constraint members; extensibility lives in `implement`. |
+| User-defined/custom operators, operator overloading | Permanent identity decision (§1.1). Operators are fixed sugar for constraint members; extensibility lives in `honor`. |
 | `%` operator | Modulo has two live conventions (floored/truncated); a symbol hides the choice, a name documents it. `Int.mod` (floored) is the way. |
 | `^` for power | Means XOR to the C/JS audience, power to the math audience — unresolvable; `**` chosen, `^` permanently unused. |
 | `+` overloaded for string concatenation | `+` is `Num.add`; joining is `++`/`Concat` (§7). Diagnostic fixit covers the JS habit. |

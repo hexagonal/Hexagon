@@ -59,6 +59,19 @@ Drafting order is not final reading order.
   language's behavior. When a future possibility genuinely helps the reader, say that
   it may appear in a later version.
 
+## Pending specification propagation
+
+- **Contextual Int widening:** before the next explanatory book revision, teach that an
+  established `Int` expression may widen through `Num<a>.fromInt` when an annotation,
+  operand, argument, branch, assignment, or already-constrained type variable
+  independently establishes `a: Num`. Use the banana calculation as the opening
+  example: `count: Int`, `cost: Float`, and `count * cost : Float`. Contrast it with
+  `count + count : Int` (exact matching wins), show generic `Int + a` becoming
+  `dictNum.fromInt(count) + value`, and explain that widening never manufactures
+  polymorphism. Propagate the rule through Primitive Types, Operators, Polymorphism,
+  Constraints, JavaScript Output, and Constraints in JavaScript; do not edit the
+  generated whole-book draft independently of its chapter sources.
+
 ## Held front-matter decision
 
 - Keep the **Introduction** small. It should contain a brief liveliness/story section

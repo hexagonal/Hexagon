@@ -5,7 +5,7 @@
 **Not in scope:** `Char` (does not exist), `Rat` (stdlib module with a focused v1 spec owed), tuples/records/unions/functions (own specs), the constraint system itself (own spec — this doc only *names* which standard constraints each type supports), 1-based indexing in general (forthcoming spec), equality semantics in depth (constraint spec).
 **Companion:** the Numeric Literals spec (polymorphic integer literals, `fromInt`, Int defaulting) — cross-referenced, not restated here.
 
-This document is written for a future implementation session and assumes the existing `hexc` architecture: Algorithm J, level-based generalisation, constraints compiled to dictionary passing, `implement` blocks, lexer with UTF-16 column tracking, layout pass, emission of idiomatic readable JS + `.d.ts`.
+This document is written for a future implementation session and assumes the existing `hexc` architecture: Algorithm J, level-based generalisation, constraints compiled to dictionary passing, `honor` declarations, lexer with UTF-16 column tracking, layout pass, emission of idiomatic readable JS + `.d.ts`.
 
 ---
 
@@ -41,7 +41,7 @@ type name from a type variable and enables implicit generalisation without `fora
 
 **Literals:** decimal digits, optional `_` separators (§8), no decimal point, no exponent, no `n` suffix. Per the Numeric Literals spec: a bare integer literal is *polymorphic* — it elaborates to `fromInt(k) : α` with constraint `Num α`, defaulting to `Int` at generalisation. The lexer range-checks the payload against 2^53 − 1 and errors with an "add `n`" fixit beyond that. **This doc does not restate that machinery; the Numeric Literals spec is authoritative for elaboration, defaulting, and codegen erasure.**
 
-**Division:** `Int` implements `Num` (add/subtract/multiply/negate/fromInt) but **not** `Frac` — there is no generic `divide` at Int (decided when `divide` was evicted from `Num`). Integer division/modulo are the monomorphic `Int.div` / `Int.mod` with deliberately chosen (floored) semantics — see the Num/Frac constraint notes.
+**Division:** `Int` honors `Num` (add/subtract/multiply/negate/fromInt) but **not** `Frac` — there is no generic `divide` at Int (decided when `divide` was evicted from `Num`). Integer division/modulo are the monomorphic `Int.div` / `Int.mod` with deliberately chosen (floored) semantics — see the Num/Frac constraint notes.
 
 **Standard constraints:** `Num`, `Eq`, `Ord`, `Show`.
 
@@ -118,7 +118,7 @@ A `$` **not** followed by `{` is an ordinary character, no escape needed.
 `"a ${e1} b ${e2}"` elaborates to string concatenation of the text chunks with `show(e1)`, `show(e2)` — where `show : Show a => a -> String` is the display method of the `Show` constraint. Consequences the implementer must preserve:
 
 - The constraint **propagates normally**: `fun greet name = "Hello ${name}!"` infers `greet : Show a => a -> String`, dictionary-passed like any constraint. No special machinery beyond what `fromInt` established in the Numeric Literals spec.
-- Interpolating a type with **no Show instance is a compile error**. This is the feature: functions and opaque extern types don't accidentally become `"[object Object]"` or spliced source code. (An extern type may opt in with an explicit `implement Show`.)
+- Interpolating a type with **no Show instance is a compile error**. This is the feature: functions and opaque extern types don't accidentally become `"[object Object]"` or spliced source code. (An extern type may opt in with an explicit `honor Show<T>`.)
 - When the interpolated type is concrete and its `show` is representational identity or `String(x)` (§7), codegen may — and should — emit a plain JS template literal `` `a ${e1} b ${e2}` `` for readability. When `show` is a real call, emit it: `` `a ${Rat_show(e1)} b` ``. Polymorphic case: `dict.show(e1)`.
 - `String.show` is the identity, so interpolating a String splices it bare (no added quotes) — display semantics, not Haskell-`show` semantics. See §7.
 
@@ -146,9 +146,9 @@ Human-facing sorting ("é" before "f", locale digraph rules) is **collation**, i
 
 **Literals:** decimal digits + `n` suffix: `42n`, `9_007_199_254_740_993n`. **Monomorphic, always `BigInt`** — the `n` suffix *is* the type annotation, exactly as in JS, and BigInt literals do **not** participate in the polymorphic `Num`-literal scheme (decided, with reasons recorded in Numeric Literals spec §7: a polymorphic `1n` would hollow out the suffix and force a lossy `fromBigInt` into `Num`). Payload is arbitrary precision; the lexer/AST must store it losslessly (string or JS bigint), never through an f64.
 
-**No implicit conversion** in either direction between `BigInt` and `Int`/`Float` — mixed arithmetic is a compile error (which is an upgrade on the JS runtime `TypeError` it compiles over). Explicit stdlib conversions: `BigInt.fromInt` (total), `BigInt.toInt` (partial, per the standard partiality story), `BigInt.toFloat` (total, lossy, documented).
+**Conversions:** Numeric Literals §5.1's single contextual injection applies from an established `Int` expression into `BigInt`, because `BigInt` honors `Num`; emission is `BigInt(value)` and is exact. There is no conversion in the other direction and no implicit conversion between `BigInt` and `Float` — mixed arithmetic without an `Int` source is a compile error (an upgrade on the JS runtime `TypeError` it compiles over). Explicit stdlib conversions remain `BigInt.fromInt` (total), `BigInt.toInt` (partial, per the standard partiality story), and `BigInt.toFloat` (total, lossy, documented).
 
-**Division:** implements `Num` but **not** `Frac` — BigInt division is truncating-toward-zero in JS, unlawful for generic `divide`. Monomorphic `BigInt.div` / `BigInt.mod` with the **same** floored convention as `Int.div`/`Int.mod`, uniformly wrapped in codegen.
+**Division:** honors `Num` but **not** `Frac` — BigInt division is truncating-toward-zero in JS, unlawful for generic `divide`. Monomorphic `BigInt.div` / `BigInt.mod` with the **same** floored convention as `Int.div`/`Int.mod`, uniformly wrapped in codegen.
 
 **FFI:** appears as `bigint` in emitted `.d.ts`. Known landmine, documented once in FFI docs: `JSON.stringify` throws on bigint — but only records that explicitly contain BigInt fields carry it, which is the point of keeping BigInt out of `Int`.
 

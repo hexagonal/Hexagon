@@ -285,6 +285,7 @@ export type Expr =
   | RecordExpr
   | FieldAccessExpr
   | ConvertIntExpr
+  | WidenIntExpr
   | BlockExpr
   | LambdaExpr
   | IfExpr
@@ -389,6 +390,13 @@ export interface FieldAccessExpr extends ExpressionFields {
 export interface ConvertIntExpr extends ExpressionFields {
   readonly kind: "ConvertInt";
   readonly decimal: string;
+  readonly evidence: Evidence;
+}
+
+/** An explicit contextual `Num.fromInt(value)` selected during checking. */
+export interface WidenIntExpr extends ExpressionFields {
+  readonly kind: "WidenInt";
+  readonly value: Expr;
   readonly evidence: Evidence;
 }
 

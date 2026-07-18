@@ -3,7 +3,7 @@
 **Status:** Decided (July 2026)
 **Decision:** Roc-style polymorphic integer literals with `Int` defaulting. `1n` is monomorphic `BigInt`. Decimal literals are monomorphic `Float`.
 
-This document is written for a future implementation session. It assumes the reader knows the existing `hexc` architecture: Algorithm J with union-find mutable type variables, level-based generalisation, constraints compiled to dictionary passing, `implement` blocks as instance definitions.
+This document is written for a future implementation session. It assumes the reader knows the existing `hexc` architecture: Algorithm J with union-find mutable type variables, level-based generalisation, constraints compiled to dictionary passing, and `honor` declarations as instance definitions.
 
 ---
 
@@ -24,7 +24,8 @@ Key rules:
 3. **Defaulting:** at generalisation time, any type variable that (a) is still unresolved and (b) carries a constraint set arising *solely from literal elaboration and other defaultable constraints* (see §4) is unified with `Int` instead of being generalised. Literal type variables are therefore **never** generalised. `let x = 1` gives `x : Int`, not `x : Num a => a`.
 4. `1n` does **not** participate in the polymorphic scheme. The `n` suffix is a type annotation, exactly as in JavaScript. There is no `fromBigInt` method in `Num` (deliberately — see §7, Rejected alternatives).
 5. Decimal literals do not participate either. `1.5 : Float`, always, in v1.
-6. **Codegen guarantee:** when `α` resolves to `Int` (by unification or defaulting), the `fromInt` wrapper is erased and the plain JS number literal is emitted. Only literals inside genuinely polymorphic (dictionary-taking) functions emit `dict.fromInt(1)`.
+6. **Codegen guarantee:** when `α` resolves to `Int`, `Float`, or `BigInt`, the `fromInt` wrapper is erased and the literal is emitted respectively as `k`, `k.0`, or `kn`. The Float spelling deliberately preserves inferred type intent for a human reader even though `k` and `k.0` are identical JavaScript numbers. Only literals inside genuinely polymorphic (dictionary-taking) functions emit `dict.fromInt(k)`.
+7. **Contextual Int widening:** an expression already typed `Int` may be injected through `Num<a>.fromInt` when an independently established context requires `a: Num`. Exact unification wins first, so `Int + Int` remains `Int`; widening never invents a polymorphic target merely to make an expression type-check (§5.1).
 
 ---
 
@@ -54,7 +55,7 @@ fun addOne x = add x 1
 fun halve x = Float.divide x 2
                      -- 2 elaborates to fromInt(2) : α, Num α
                      -- Float.divide forces α := Float
-                     -- emits: function halve(x) { return x / 2; }
+                     -- emits: function halve(x) { return x / 2.0; }
                      -- (the emitted 2 is Float's fromInt applied at compile time — see §5)
 
 -- (f) Mixed constraints, still defaultable.
@@ -63,12 +64,17 @@ let s = toString (add 1 2)
                      -- both constraints are defaultable ⇒ α := Int ⇒ s : String
                      -- emits: const s = Int.toString(1 + 2)  (or the folded "3", see §5)
 
--- (g) BigInt suffix never coerces.
+-- (g) BigInt suffix never coerces outward.
 fun f x = add x 1n   -- f : BigInt -> BigInt   (1n pins the tyvar to BigInt)
-add 1.5 1n           -- TYPE ERROR: Float vs BigInt. No implicit numeric conversion, ever.
+add 1.5 1n           -- TYPE ERROR: Float vs BigInt; neither operand is Int.
 
 -- (h) Explicit conversion is the escape hatch.
 Rat.fromBigInt 123456789012345678901n   -- big literal into a Rat: explicit, honest
+
+-- (i) An established Int widens into an independently established Num target.
+let count: Int = 3
+let cost: Float = 1.50
+let total = count * cost                -- Float.fromInt(count) * cost : Float
 ```
 
 ---
@@ -117,21 +123,68 @@ Note the closed list means a literal used *only* under a user-defined constraint
 
 ## 5. Codegen
 
+### 5.1 Contextual widening of Int expressions
+
+`fromInt` accepts an `Int` value, not only a literal payload. The checker therefore
+admits one exact contextual conversion:
+
+```text
+Γ ⊢ expression : Int    Γ ⊢ Num<target>    target is independently established
+───────────────────────────────────────────────────────────────────────────────
+Γ ⊢ expression ⇑ target    elaborates as Num<target>.fromInt(expression)
+```
+
+“Independently established” means that the target is fixed by an annotation, a concrete
+operand or argument, a branch or assignment boundary, or an already-constrained type
+variable. It is not a fresh inference variable whose only reason to acquire `Num` would
+be the proposed conversion. Exact unification has priority, and an outer expected type
+does not flow inward to replace an already-valid exact operation. For example,
+`let r: Rat = count + count` performs Int addition and then widens its result, whereas
+`count + ratio` performs Rat addition because the other operand establishes Rat at the operation itself.
+Consequences:
+
+```hexagon
+count + count       // Int; exact match, no widening
+count * cost        // Float when cost : Float
+plus(count, 1.5)    // Float; selects the Float instantiation of plus
+let value: Rat = count
+
+let scale<a: Num>(count: Int, value: a): a = count * value
+// generic body: multiply(fromInt(count), value), using the same Num<a> evidence
+
+let addCount = (count: Int, value) => count + value
+// inferred (Int, Int) -> Int; widening does not manufacture Num<a>
+```
+
+The source must be exactly `Int`. There is no reverse `Float -> Int` conversion, no
+implicit `BigInt -> Float`, and no conversion between two unrelated `Num` subjects.
+A nominal target participates only when its home has explicitly supplied a lawful
+`honor Num<T>`; `Num` is not derivable. This is an evidence-directed `fromInt`
+injection, not numeric subtyping or a promotion lattice.
+
+Emission follows the selected instance. `Int -> Float` erases because both use the
+JavaScript `number` representation; `Int -> BigInt` emits `BigInt(value)`; a concrete
+nominal instance emits its `fromInt` member; a genuinely polymorphic target emits
+`dictNum.fromInt(value)`. The source expression is evaluated exactly once and ordinary
+evaluation order is preserved.
+
+### 5.2 Literal emission
+
 Two regimes, determined entirely by whether `α` is resolved to a concrete type at emission:
 
 **Resolved (the overwhelmingly common case).** Erase the `fromInt` call and emit the concrete literal directly:
 
 - `α = Int` → emit `k` (plain JS number). `Int.fromInt` is the identity; do not emit an identity call.
-- `α = Float` → emit `k` (plain JS number; `Float.fromInt` on an in-range payload is also representational identity in JS).
+- `α = Float` → emit `k.0`. `Float.fromInt` remains representationally erased — `k` and `k.0` are the same JavaScript number — while the decimal spelling preserves the inferred Hexagon type for a human reading the generated code.
 - `α = BigInt` → emit `kn`. (`BigInt.fromInt` folded at compile time. This arises when unification pins a bare literal to BigInt via surrounding code, e.g. `add x 1` with `x : BigInt`.)
 - `α = Rat` → emit the canonical-form constructor call with constant arguments, e.g. `Rat.fromInt(k)` or, if you implement constant folding for it, the direct `{num: kn, den: 1n}` fast-path constructor. Either is acceptable; the fast path is a nice-to-have.
 - Any other instance type → emit `TheType.fromInt(k)` monomorphically (direct call, no dictionary).
 
-**Unresolved-because-polymorphic** (literal inside a function generalised over `Num a`): the dictionary parameter is already in scope by the existing `implement` compilation story; `fromInt` is one more slot in the `Num` dictionary record. Emit `dict.fromInt(k)`. No new mechanism.
+**Unresolved-because-polymorphic** (literal inside a function generalised over `Num a`): the dictionary parameter is already in scope under the existing `honor` compilation story; `fromInt` is one more slot in the `Num` dictionary record. Emit `dict.fromInt(k)`. No new mechanism.
 
-This preserves the readable-JS goal: monomorphic code — nearly all code — contains plain `1` and `1n` literals indistinguishable from hand-written JS. Only genuinely generic functions show dictionary plumbing, and they already did for `add`.
+This preserves the readable-JS goal: monomorphic code — nearly all code — contains direct `1`, `1.0`, and `1n` literals, with the spelling retaining the resolved fundamental type where JavaScript's representation otherwise cannot. Only genuinely generic functions show dictionary plumbing, and they already did for `add`.
 
-**Dictionary shape change:** `Num` dictionaries gain a `fromInt` field. Every existing and future `implement Num T` must supply it. Prelude instances:
+**Dictionary shape change:** `Num` dictionaries gain a `fromInt` field. Every existing and future `honor Num<T>` must supply it. Prelude instances:
 
 ```
 Int.fromInt    = identity
@@ -177,7 +230,7 @@ Elaboration changes the *character* of type errors involving literals, and this 
 2. **Prelude / constraint defs:** add `fromInt : Int -> a` to the `Num` constraint declaration; implement it in the four prelude instances (§5 table); document the exact-homomorphism law.
 3. **Inference:** elaborate IntLit per §3 (fresh tyvar, `Num` constraint with `LiteralConstraint` provenance, `fromInt` application node). BigIntLit/FloatLit type directly.
 4. **Generalisation:** insert the defaulting pass per §4, with the closed defaultable set {Num, Eq, Ord, Show}. Assert successful unification with Int.
-5. **Codegen:** erase resolved `fromInt` per §5 (identity folding for Int/Float, `n`-suffix folding for BigInt, constructor call for Rat/others); dictionary slot for the polymorphic case.
+5. **Codegen:** implement contextual Int widening per §5.1; erase resolved literal `fromInt` per §5.2 (`k` for Int, readable `k.0` identity folding for Float, `kn` folding for BigInt, constructor call for Rat/others); dictionary slots for polymorphic cases.
 6. **Diagnostics:** literal-aware unification errors, blocked-defaulting error, no `fromInt` leakage (§6).
 7. **LSP:** hover types per §6; signature round-trip consistency (`Num a => a -> a -> a` etc.) unchanged.
 8. **Tests:** the eight examples in §2 as golden tests (inferred type + emitted JS), plus the §4 consequence list, plus an error-message snapshot for (g) and the blocked-defaulting case.

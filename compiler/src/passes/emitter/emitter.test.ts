@@ -705,6 +705,104 @@ describe("emitJavaScript", () => {
     expect(output.diagnostics).toEqual([]);
   });
 
+  test("preserves Float intent when an integer literal resolves to Float", () => {
+    const output = emitJavaScript(
+      coreSource("let temperature: Float = 20\nlet mixed = 20 + 1.5"),
+    );
+
+    expect(output.text).toContain("const temperature = 20.0;");
+    expect(output.text).toContain("const mixed = 20.0 + 1.5;");
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("widens established Int values through the contextual Num target", () => {
+    const output = emitJavaScript(
+      coreSource(
+        "let count: Int = 3\n" +
+          "let cost: Float = 1.50\n" +
+          "let total = count * cost\n" +
+          "let doubled = (count + count) * cost\n" +
+          "let affordable = count < cost\n" +
+          "let exact = count + count\n" +
+          "let large: BigInt = count",
+      ),
+    );
+
+    expect(output.text).toContain("const total = count * cost;");
+    expect(output.text).toContain("const doubled = (count + count) * cost;");
+    expect(output.text).toContain(
+      "const affordable = __hex_compareFloat(count, cost) < 0;",
+    );
+    expect(output.text).toContain("const exact = count + count;");
+    expect(output.text).toContain("const large = BigInt(count);");
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("widens Int call arguments before selecting a fundamental edition", () => {
+    const output = emitJavaScript(
+      coreSource(
+        "export let plus(x, y) = x + y\n" +
+          "let count: Int = 3\n" +
+          "let total = plus(count, 1.5)",
+      ),
+    );
+
+    expect(output.text).toContain("const total = plusFloat(count, 1.5);");
+    expect(output.text).not.toContain("fromInt(count)");
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("uses Num evidence when widening Int into an established type variable", () => {
+    const output = emitJavaScript(
+      coreSource(
+        "let scale<a: Num>(count: Int, value: a): a = count * value",
+      ),
+    );
+
+    expect(output.text).toMatch(
+      /const scale = \(count, value, (__hex_dictNum_\d+)\) => \1\.multiply\(\1\.fromInt\(count\), value\);/u,
+    );
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("calls a nominal Num instance when widening Int into its subject", () => {
+    const output = emitJavaScript(
+      coreSource(
+        "record Box = {value: Int}\n" +
+          "honor Num<Box> =\n" +
+          "  add(left, right) = Box({value: left.value + right.value})\n" +
+          "  subtract(left, right) = Box({value: left.value - right.value})\n" +
+          "  multiply(left, right) = Box({value: left.value * right.value})\n" +
+          "  negate(box) = Box({value: -box.value})\n" +
+          "  fromInt(value) = Box({value})\n" +
+          "let count: Int = 3\n" +
+          "let box = Box({value: 2})\n" +
+          "let combined = count + box",
+      ),
+    );
+
+    expect(output.text).toMatch(
+      /const combined = (__hex_instance_Num_Box\d*)\.add\(\1\.fromInt\(count\), box\);/u,
+    );
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("does not manufacture polymorphism solely to widen an Int", () => {
+    const output = emitJavaScript(
+      coreSource(
+        "export let plus(x, y) = x + y\n" +
+          "let count: Int = 3\n" +
+          "let exactCall = plus(count, 1)\n" +
+          "let addCount = value => plus(count, value)",
+      ),
+    );
+
+    expect(output.text).toContain("const exactCall = plusInt(count, 1);");
+    expect(output.text).toContain("const addCount = value => plusInt(count, value);");
+    expect(output.text).not.toMatch(/const addCount = \(value, __hex_dictNum_/u);
+    expect(output.diagnostics).toEqual([]);
+  });
+
   test("emits interpolation, conditionals, and structural logic", () => {
     const output = emitJavaScript(
       coreSource(
@@ -1176,6 +1274,9 @@ describe("emitDeclarations", () => {
       coreSource("export let equal(left, right) = left == right"),
     );
 
+    expect(increment.text).toContain(
+      "function incrementFloat(x) {\n  return x + 1.0;\n}",
+    );
     expect(increment.text).toContain(
       "function incrementBigInt(x) {\n  return x + 1n;\n}",
     );

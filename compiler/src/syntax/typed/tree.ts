@@ -406,6 +406,7 @@ export type Expr =
   | UnitExpr
   | BooleanExpr
   | FromIntExpr
+  | WidenIntExpr
   | BigIntExpr
   | FloatExpr
   | StringExpr
@@ -461,6 +462,13 @@ export interface BooleanExpr extends ExpressionFields {
 export interface FromIntExpr extends ExpressionFields {
   readonly kind: "FromInt";
   readonly decimal: string;
+  readonly requirement: Constraint;
+}
+
+/** A contextual, exact `Int -> a` injection through established `Num<a>` evidence. */
+export interface WidenIntExpr extends ExpressionFields {
+  readonly kind: "WidenInt";
+  readonly value: Expr;
   readonly requirement: Constraint;
 }
 

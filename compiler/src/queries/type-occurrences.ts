@@ -224,6 +224,9 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
         visitExpr(expression.start);
         visitExpr(expression.end);
         return;
+      case "WidenInt":
+        visitExpr(expression.value);
+        return;
       case "Assignment":
         visitExpr(expression.target);
         visitExpr(expression.value);
