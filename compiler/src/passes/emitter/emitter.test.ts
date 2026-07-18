@@ -75,10 +75,11 @@ describe("emitJavaScript", () => {
     expect(javascript).toContain("const character = __hex_item1;");
   });
 
-  test("emits replayable Seq pipelines through JavaScript generators", () => {
+  test("emits replayable Seq method calls and pipelines through JavaScript generators", () => {
     const module = coreSource(
       "let numbers: Seq(Int) = Seq.iterate(1, number => number + 1)\n" +
-        "export let selected = numbers |> Seq.filter(number => number > 3) |> Seq.map(number => number * 2) |> Seq.take(5)\n" +
+        "export let selected = numbers.filter(number => number > 3).map(number => number * 2).take(5)\n" +
+        "let selected2 = numbers |> Seq.filter(number => number > 3) |> Seq.map(number => number * 2) |> Seq.take(5)\n" +
         "for number in selected\n" +
         "  console.log(number)",
     );
@@ -89,6 +90,7 @@ describe("emitJavaScript", () => {
     expect(output.text).toContain("*[Symbol.iterator]()");
     expect(output.text).toContain("const numbers = __hex_seqIterate(1, number => number + 1);");
     expect(output.text).toContain("__hex_seqTake(__hex_seqMap(__hex_seqFilter(numbers,");
+    expect(output.text.match(/__hex_seqTake\(__hex_seqMap\(__hex_seqFilter\(numbers,/gu)).toHaveLength(2);
     expect(output.text).toContain("for (const __hex_item0 of selected)");
     expect(emitDeclarations(module).text).toContain(
       "export declare const selected: Iterable<number>;",
