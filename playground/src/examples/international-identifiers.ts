@@ -2,8 +2,8 @@ import type { PlaygroundExample } from "./hello-world";
 
 export const internationalIdentifiers: PlaygroundExample = {
   id: "international-identifiers",
-  title: "International T · C · M",
-  description: "Hindi and Mandarin names, with cultural prefixes for types, constraints, and modules.",
+  title: "International Names: T · C · M",
+  description: "A later showcase of Hindi and Mandarin names using the optional T/C/M cultural convention.",
   source: `// Playground-only workspace block: a real virtual गणित.hex module.
 // Its contents stay at column one; the repeated name closes it deliberately.
 module Mगणित
