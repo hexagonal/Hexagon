@@ -75,6 +75,42 @@ describe("emitJavaScript", () => {
     expect(javascript).toContain("const character = __hex_item1;");
   });
 
+  test("emits replayable Seq pipelines through JavaScript generators", () => {
+    const module = coreSource(
+      "let numbers: Seq(Int) = Seq.iterate(1, number => number + 1)\n" +
+        "export let selected = numbers |> Seq.filter(number => number > 3) |> Seq.map(number => number * 2) |> Seq.take(5)\n" +
+        "for number in selected\n" +
+        "  console.log(number)",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.text).toContain("function* ()");
+    expect(output.text).toContain("*[Symbol.iterator]()");
+    expect(output.text).toContain("const numbers = __hex_seqIterate(1, number => number + 1);");
+    expect(output.text).toContain("__hex_seqTake(__hex_seqMap(__hex_seqFilter(numbers,");
+    expect(output.text).toContain("for (const __hex_item0 of selected)");
+    expect(emitDeclarations(module).text).toContain(
+      "export declare const selected: Iterable<number>;",
+    );
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("probes Seq helper names consistently on a user-name collision", () => {
+    const module = coreSource("let seed = 1\nlet numbers = Seq.iterate(seed, number => number + 1)");
+    const seeded: Core.Module = {
+      ...module,
+      symbols: module.symbols.map((symbol, index) =>
+        index === 0 ? { ...symbol, name: "__hex_seq" } : symbol
+      ),
+    };
+
+    expect(module.diagnostics).toEqual([]);
+    const javascript = emitJavaScript(seeded).text;
+    expect(javascript).toContain("function __hex_seq1(__hex_source)");
+    expect(javascript).toContain("return __hex_seq1((function* () {");
+  });
+
   test("expands nested or-patterns and emits exhaustive or-pattern bindings", () => {
     const module = coreSource(
       "union Side = Left(value: Int) | Right(value: Int)\n" +
@@ -853,6 +889,133 @@ describe("emitJavaScript", () => {
     expect(output.text).toContain(
       "const text = display({ x: 3 }, __hex_instance_Render_Point);",
     );
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("emits inherited defaults through the instance dictionary", () => {
+    const module = coreSource(
+      "constraint Same<a> =\n" +
+        "  same(left: a, right: a): Bool\n" +
+        "  different(left: a, right: a): Bool = not same(left, right)\n" +
+        "record Token = {value: Int}\n" +
+        "honor Same<Token> =\n" +
+        "  same(left, right) = left.value == right.value\n" +
+        "export let changed = different(Token({value: 1}), Token({value: 2}))",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.diagnostics).toEqual([]);
+    expect(output.text).toContain(
+      "different: (left, right) => !same(left, right, __hex_instance_Same_Token)",
+    );
+    expect(output.text).toContain(
+      "different({ value: 1 }, { value: 2 }, __hex_instance_Same_Token)",
+    );
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("emits superconstraint slots and selects them as generic evidence", () => {
+    const module = coreSource(
+      "constraint Same<a> =\n" +
+        "  same(left: a, right: a): Bool\n" +
+        "constraint Labeled<a: Same> =\n" +
+        "  label(value: a): String\n" +
+        "record Token = {value: Int}\n" +
+        "honor Same<Token> =\n" +
+        "  same(left, right) = left.value == right.value\n" +
+        "honor Labeled<Token> =\n" +
+        '  label(value) = "token"\n' +
+        "fun agrees<a: Labeled>(left: a, right: a): Bool = same(left, right)\n" +
+        "export let yes = agrees(Token({value: 1}), Token({value: 1}))",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.diagnostics).toEqual([]);
+    expect(output.text).toContain(
+      "const __hex_instance_Labeled_Token = { same: __hex_instance_Same_Token, label: value => \"token\" };",
+    );
+    expect(output.text).toMatch(/same\(left, right, __hex_dictLabeled_\d+\.same\)/u);
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("emits parameterized honors as dictionary factories", () => {
+    const module = coreSource(
+        "constraint Render<a> =\n" +
+        "  render(value: a): String\n" +
+        "honor Render<Int> =\n" +
+        '  render(value) = "${value}"\n' +
+        "record Box(a) = {value: a}\n" +
+        "honor<a: Render> Render<Box(a)> =\n" +
+        '  render(box) = "Box(${render(box.value)})"\n' +
+        "export let text = render(Box({value: 42}))",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.diagnostics).toEqual([]);
+    expect(output.text).toMatch(
+      /const __hex_instance_Render_Box = \(__hex_dictRender_\d+\) => \{/u,
+    );
+    expect(output.text).toContain(
+      "__hex_instance_Render_Box(__hex_instance_Render_Int)",
+    );
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("expands derives headers into structural dictionaries", () => {
+    const module = coreSource(
+      "record Point derives Eq = {x: Int, y: Int}\n" +
+        "export let same = Point({x: 1, y: 2}) == Point({x: 1, y: 2})",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.text).toContain(
+      "const __hex_instance_Eq_Point = { equals: (__hex_left, __hex_right) => __hex_left.x === __hex_right.x && __hex_left.y === __hex_right.y",
+    );
+    expect(output.text).toContain("__hex_instance_Eq_Point.equals(");
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("derives parameterized Eq, Ord, and Show dictionaries structurally", () => {
+    const module = coreSource(
+      "record Box(a) derives (Eq, Ord, Show) = {value: a}\n" +
+        "export let ordered = Box({value: 2}) < Box({value: 10})\n" +
+        'export let text = "${Box({value: 42})}"',
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.text).toMatch(/const __hex_instance_Eq_Box = \(__hex_dictEq_\d+\) => \{/u);
+    expect(output.text).toMatch(/const __hex_instance_Ord_Box = \(__hex_dictOrd_\d+\) => \{/u);
+    expect(output.text).toContain("__hex_left.value");
+    expect(output.text).toContain('"{" + "value: " +');
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("erases associated type bindings while emitting their instance dictionary", () => {
+    const module = coreSource(
+      "constraint Source<a> =\n" +
+        "  type Item\n" +
+        "  get(value: a): Item\n" +
+        "record Box = {value: Int}\n" +
+        "honor Source<Box> =\n" +
+        "  type Item = Int\n" +
+        "  get(box) = box.value\n" +
+        "export let answer: Int = get(Box({value: 42}))",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.text).toContain(
+      "const __hex_instance_Source_Box = { get: box => box.value };",
+    );
+    expect(output.text).toContain(
+      "const answer = get({ value: 42 }, __hex_instance_Source_Box);",
+    );
+    expect(output.text).not.toContain("Item");
     expect(output.diagnostics).toEqual([]);
   });
 

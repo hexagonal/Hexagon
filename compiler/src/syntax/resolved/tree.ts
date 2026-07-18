@@ -41,7 +41,9 @@ export type TypeAnnotation =
   | RecordTypeAnnotation
   | UnionTypeAnnotation
   | RecordDeclarationTypeAnnotation
+  | SeqTypeAnnotation
   | TypeVariableAnnotation
+  | AssociatedTypeAnnotation
   | ErrorTypeAnnotation;
 
 export interface PrimitiveTypeAnnotation {
@@ -52,6 +54,12 @@ export interface PrimitiveTypeAnnotation {
 
 export interface RangeTypeAnnotation {
   readonly kind: "Range";
+  readonly span: Source.Span;
+}
+
+export interface SeqTypeAnnotation {
+  readonly kind: "Seq";
+  readonly element: TypeAnnotation;
   readonly span: Source.Span;
 }
 
@@ -85,6 +93,13 @@ export interface UnionTypeAnnotation {
 
 export interface TypeVariableAnnotation {
   readonly kind: "TypeVariable";
+  readonly name: string;
+  readonly span: Source.Span;
+}
+
+export interface AssociatedTypeAnnotation {
+  readonly kind: "AssociatedType";
+  readonly constraint: string;
   readonly name: string;
   readonly span: Source.Span;
 }
@@ -293,6 +308,7 @@ export interface Union {
   readonly id: UnionId;
   readonly name: string;
   readonly parameters: readonly string[];
+  readonly derives: readonly string[];
   readonly span: Source.Span;
   readonly constructors: readonly Constructor[];
 }
@@ -315,6 +331,7 @@ export interface UnionItem {
   readonly union: UnionId;
   readonly name: string;
   readonly parameters: readonly string[];
+  readonly derives: readonly string[];
   readonly constructors: readonly Constructor[];
   readonly span: Source.Span;
 }
@@ -323,6 +340,7 @@ export interface RecordDeclaration {
   readonly id: RecordId;
   readonly name: string;
   readonly parameters: readonly string[];
+  readonly derives: readonly string[];
   readonly constructor: Binding;
   readonly fields: readonly RecordTypeField[];
   readonly span: Source.Span;
@@ -334,6 +352,7 @@ export interface RecordItem {
   readonly record: RecordId;
   readonly name: string;
   readonly parameters: readonly string[];
+  readonly derives: readonly string[];
   readonly constructor: Binding;
   readonly fields: readonly RecordTypeField[];
   readonly span: Source.Span;
@@ -351,7 +370,14 @@ export interface ConstraintItem {
   readonly kind: "ConstraintDeclaration";
   readonly name: string;
   readonly subject: string;
+  readonly superconstraints: readonly string[];
+  readonly associatedTypes: readonly ConstraintAssociatedType[];
   readonly members: readonly ConstraintMember[];
+  readonly span: Source.Span;
+}
+
+export interface ConstraintAssociatedType {
+  readonly name: string;
   readonly span: Source.Span;
 }
 
@@ -359,15 +385,25 @@ export interface ConstraintMember {
   readonly binding: Binding;
   readonly parameters: readonly Parameter[];
   readonly returnAnnotation: TypeAnnotation;
+  readonly defaultValue?: LambdaExpr;
   readonly span: Source.Span;
 }
 
 export interface HonorItem {
   readonly kind: "Honor";
   readonly constraint: string;
+  readonly typeParameters: readonly TypeParameter[];
   readonly subject: TypeAnnotation;
+  readonly derived: boolean;
   readonly dictionary: string;
+  readonly associatedTypes: readonly HonorAssociatedType[];
   readonly members: readonly HonorMember[];
+  readonly span: Source.Span;
+}
+
+export interface HonorAssociatedType {
+  readonly name: string;
+  readonly annotation: TypeAnnotation;
   readonly span: Source.Span;
 }
 
@@ -410,6 +446,7 @@ export type Expr =
   | CallExpr
   | ConsoleLogExpr
   | AccessExpr
+  | SeqOperationExpr
   | IndexExpr
   | UnaryExpr
   | BinaryExpr
@@ -421,6 +458,12 @@ export interface NameExpr {
   readonly kind: "Name";
   readonly symbol: SymbolId;
   readonly text: string;
+  readonly span: Source.Span;
+}
+
+export interface SeqOperationExpr {
+  readonly kind: "SeqOperation";
+  readonly operation: "iterate" | "map" | "filter" | "take";
   readonly span: Source.Span;
 }
 

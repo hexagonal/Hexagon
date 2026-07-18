@@ -4,7 +4,8 @@
  * separators. Tuple patterns, nullary unions and matches, annotations, tuple
  * values, local mutation, inclusive ranges, `while`, `for..in`, and directly recursive
  * `fun` bindings are present; the remaining
- * declarations, patterns, and richer type syntax remain future work.
+ * declarations, patterns, and richer type syntax remain future work. Constraint
+ * bodies include the owner-scoped associated type forms from Collections Part 2 §5.
  */
 
 import * as Diagnostics from "../../support/diagnostics.js";
@@ -303,17 +304,34 @@ class Parser {
       startClass: "upper",
       span: nameToken?.span ?? start.span,
     };
-    this.#expect("Less", "constraint heads use `<subject>`");
-    const subjectToken = this.#takeName("NonUpperName", "a constraint subject is a non-uppercase-start type variable");
-    const subject: Parsed.Name = subjectToken === undefined
-      ? { text: "a", startClass: "non-upper", span: this.#current().span }
-      : parsedName(subjectToken);
-    this.#expect("Greater", "expected `>` after constraint subject");
+    const head = this.#at("Less") ? this.#parseTypeParameters() : [];
+    if (head.length !== 1) {
+      this.#errorAt(start.span, "a constraint head introduces exactly one type variable");
+    }
+    const subject = head[0]?.name ?? {
+      text: "a",
+      startClass: "non-upper" as const,
+      span: this.#current().span,
+    };
+    const superconstraints = head[0]?.constraints ?? [];
     this.#expect("Equal", "expected `=` after constraint head");
     this.#expect("VOpen", "expected an indented constraint body");
+    const associatedTypes: Parsed.ConstraintAssociatedType[] = [];
     const members: Parsed.ConstraintMember[] = [];
     this.#skipSeparators();
     while (!this.#at("VClose") && !this.#at("Eof")) {
+      if (this.#at("Type")) {
+        const type = this.#advance();
+        const typeName = this.#takeName("UpperName", "associated types require an uppercase-start name");
+        if (typeName !== undefined) {
+          associatedTypes.push({
+            name: parsedName(typeName),
+            span: spanFrom(type.span, typeName.span),
+          });
+        }
+        this.#skipSeparators();
+        continue;
+      }
       const memberToken = this.#takeName("NonUpperName", "constraint members are non-uppercase-start names");
       if (memberToken === undefined) {
         this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
@@ -332,15 +350,22 @@ class Parser {
         name: fallbackName,
         span: fallbackName.span,
       };
+      let defaultValue: Parsed.LambdaExpr | undefined;
       if (this.#at("Equal")) {
-        this.#error("default constraint members arrive in the next constraint slice");
         this.#advance();
-        this.#parseBodyExpression(new Set(["VSep", "VClose", "Eof"]));
+        const body = this.#parseBodyExpression(new Set(["VSep", "VClose", "Eof"]));
+        defaultValue = {
+          kind: "Lambda",
+          parameters,
+          body,
+          span: spanFrom(memberToken.span, body.span),
+        };
       }
       members.push({
         name: parsedName(memberToken),
         parameters,
         returnAnnotation: result,
+        ...(defaultValue === undefined ? {} : { defaultValue }),
         span: spanFrom(memberToken.span, result.span),
       });
       this.#skipSeparators();
@@ -351,6 +376,8 @@ class Parser {
       kind: "ConstraintDeclaration",
       name: nameToken === undefined ? fallbackName : parsedName(nameToken),
       subject,
+      superconstraints,
+      associatedTypes,
       members,
       span: spanFrom(start.span, closing?.span ?? members.at(-1)?.span ?? start.span),
     };
@@ -358,6 +385,7 @@ class Parser {
 
   #parseHonor(): Parsed.HonorItem {
     const start = this.#advance();
+    const typeParameters = this.#at("Less") ? this.#parseTypeParameters() : [];
     const constraintToken = this.#takeName("UpperName", "`honor` requires a constraint name");
     const fallback: Parsed.Name = {
       text: "Invalid",
@@ -373,20 +401,38 @@ class Parser {
     this.#expect("Greater", "expected `>` after instance head");
     this.#expect("Equal", "expected `=` after instance head");
     if (this.#at("Derive")) {
-      this.#error("derived instances arrive in the next constraint slice");
       this.#advance();
       return {
         kind: "Honor",
         constraint: constraintToken === undefined ? fallback : parsedName(constraintToken),
+        typeParameters,
         subject,
+        derived: true,
+        associatedTypes: [],
         members: [],
         span: spanFrom(start.span, this.#previous().span),
       };
     }
     this.#expect("VOpen", "expected an indented instance body");
+    const associatedTypes: Parsed.HonorAssociatedType[] = [];
     const members: Parsed.HonorMember[] = [];
     this.#skipSeparators();
     while (!this.#at("VClose") && !this.#at("Eof")) {
+      if (this.#at("Type")) {
+        const type = this.#advance();
+        const typeName = this.#takeName("UpperName", "associated type bindings require an uppercase-start name");
+        this.#expect("Equal", "expected `=` in associated type binding");
+        const annotation = this.#parseTypeAnnotation();
+        if (typeName !== undefined && annotation !== undefined) {
+          associatedTypes.push({
+            name: parsedName(typeName),
+            annotation,
+            span: spanFrom(type.span, annotation.span),
+          });
+        }
+        this.#skipSeparators();
+        continue;
+      }
       const memberToken = this.#takeName("NonUpperName", "instance members are non-uppercase-start names");
       if (memberToken === undefined) {
         this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
@@ -413,7 +459,10 @@ class Parser {
     return {
       kind: "Honor",
       constraint: constraintToken === undefined ? fallback : parsedName(constraintToken),
+      typeParameters,
       subject,
+      derived: false,
+      associatedTypes,
       members,
       span: spanFrom(start.span, closing?.span ?? members.at(-1)?.span ?? subject.span),
     };
@@ -569,8 +618,15 @@ class Parser {
       const name = parsedName(token);
       if (seen.has(name.text)) this.#errorAt(name.span, `duplicate type parameter \`${name.text}\``);
       seen.add(name.text);
-      this.#expect("Colon", "a constrained type parameter needs `:`");
       const constraints: Parsed.Name[] = [];
+      if (this.#at("Colon")) {
+        this.#advance();
+      } else {
+        parameters.push({ name, constraints, span: name.span });
+        if (!this.#at("Comma")) break;
+        this.#advance();
+        continue;
+      }
       if (this.#at("LeftParen")) {
         this.#advance();
         while (!this.#at("RightParen") && !this.#at("Eof")) {
@@ -594,6 +650,27 @@ class Parser {
     }
     this.#expect("Greater", "expected `>` after type parameters");
     return parameters;
+  }
+
+  #parseDerives(): readonly Parsed.Name[] {
+    if (!this.#atContextual("derives")) return [];
+    this.#advance();
+    const derives: Parsed.Name[] = [];
+    const parenthesized = this.#at("LeftParen");
+    if (parenthesized) this.#advance();
+    while (!this.#at("Eof")) {
+      const token = this.#takeName("UpperName", "`derives` requires a constraint name");
+      if (token === undefined) break;
+      const name = parsedName(token);
+      if (derives.some(({ text }) => text === name.text)) {
+        this.#errorAt(name.span, `\`${name.text}\` appears more than once in \`derives\``);
+      }
+      derives.push(name);
+      if (!parenthesized || !this.#at("Comma")) break;
+      this.#advance();
+    }
+    if (parenthesized) this.#expect("RightParen", "expected `)` after `derives` constraints");
+    return derives;
   }
 
   #parseUnion(exported: boolean, itemStart?: Source.Span): Parsed.Item {
@@ -630,6 +707,7 @@ class Parser {
         this.#errorAt(nameToken.span, "generic union parameter list cannot be empty");
       }
     }
+    const derives = this.#parseDerives();
     if (this.#expect("Equal", "expected `=` after union name") === undefined) {
       this.#synchronize(itemEnds);
       return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
@@ -699,6 +777,7 @@ class Parser {
       exported,
       name: parsedName(nameToken),
       parameters,
+      derives,
       constructors,
       span: spanFrom(
         itemStart ?? start.span,
@@ -731,6 +810,7 @@ class Parser {
       this.#expect("RightParen", "expected `)` after record type parameters");
       if (parameters.length === 0) this.#errorAt(nameToken.span, "generic record parameter list cannot be empty");
     }
+    const derives = this.#parseDerives();
     if (this.#expect("Equal", "expected `=` after record name") === undefined ||
         this.#expect("LeftBrace", "expected `{` after record `=`") === undefined) {
       this.#synchronize(itemEnds);
@@ -757,8 +837,12 @@ class Parser {
       exported,
       name: parsedName(nameToken),
       parameters,
+      derives,
       fields,
-      span: spanFrom(itemStart ?? start.span, closing?.span ?? fields.at(-1)?.span ?? nameToken.span),
+      span: spanFrom(
+        itemStart ?? start.span,
+        closing?.span ?? fields.at(-1)?.span ?? nameToken.span,
+      ),
     };
   }
 

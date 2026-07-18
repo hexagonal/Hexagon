@@ -189,6 +189,8 @@ function substituteType(
         ...type,
         elements: type.elements.map((element) => substituteType(element, substitutions)),
       };
+    case "Seq":
+      return { ...type, element: substituteType(type.element, substitutions) };
     case "Record":
       return {
         ...type,

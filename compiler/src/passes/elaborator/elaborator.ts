@@ -29,6 +29,10 @@ function elaborateItem(item: Typed.Item): Core.Item {
     case "Honor":
       return {
         ...item,
+        superconstraints: item.superconstraints.map((constraint) => ({
+          name: constraint.name,
+          evidence: evidence(constraint),
+        })),
         members: item.members.map((member) => ({
           ...member,
           value: {
@@ -65,6 +69,7 @@ function elaborateItem(item: Typed.Item): Core.Item {
 function elaborateExpr(expression: Typed.Expr): Core.Expr {
   switch (expression.kind) {
     case "Name":
+    case "SeqOperation":
     case "Unit":
     case "Boolean":
     case "BigInt":
@@ -281,17 +286,34 @@ function elaborateInteger(expression: Typed.FromIntExpr): Core.Expr {
 function evidence(requirement: Typed.Constraint | undefined): Core.Evidence {
   if (requirement === undefined) return { kind: "Error" };
   if (requirement.dictionary !== undefined) {
-    return { kind: "Instance", dictionary: requirement.dictionary };
+    return {
+      kind: "Instance",
+      dictionary: requirement.dictionary,
+      arguments: (requirement.dictionaryArguments ?? []).map((argument) => ({
+        constraint: argument.name,
+        evidence: evidence(argument),
+      })),
+    };
   }
   switch (requirement.type.kind) {
     case "Primitive":
       return { kind: "Primitive", instance: requirement.type.name };
     case "Variable":
-      return { kind: "Dictionary", variable: requirement.type.id };
+      return {
+        kind: "Dictionary",
+        variable: requirement.type.id,
+        ...(requirement.evidenceConstraint === undefined
+          ? {}
+          : { constraint: requirement.evidenceConstraint }),
+        ...(requirement.evidencePath === undefined
+          ? {}
+          : { path: requirement.evidencePath }),
+      };
     case "Function":
     case "Tuple":
     case "Record":
     case "Range":
+    case "Seq":
     case "Union":
     case "NominalRecord":
     case "Error":

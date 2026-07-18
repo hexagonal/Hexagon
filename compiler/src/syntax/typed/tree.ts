@@ -26,6 +26,7 @@ export type PrimitiveName =
 export type Type =
   | PrimitiveType
   | RangeType
+  | SeqType
   | VariableType
   | TupleType
   | RecordType
@@ -41,6 +42,11 @@ export interface PrimitiveType {
 
 export interface RangeType {
   readonly kind: "Range";
+}
+
+export interface SeqType {
+  readonly kind: "Seq";
+  readonly element: Type;
 }
 
 export interface VariableType {
@@ -90,6 +96,9 @@ export interface Constraint {
   readonly type: Type;
   readonly span: Source.Span;
   readonly dictionary?: string;
+  readonly evidenceConstraint?: ConstraintName;
+  readonly evidencePath?: readonly string[];
+  readonly dictionaryArguments?: readonly Constraint[];
 }
 
 export interface Scheme {
@@ -268,6 +277,7 @@ export interface Union {
   readonly id: Resolved.UnionId;
   readonly name: string;
   readonly parameters: readonly TypeVariableId[];
+  readonly derives: readonly string[];
   readonly span: Source.Span;
   readonly constructors: readonly Constructor[];
 }
@@ -288,6 +298,7 @@ export interface UnionItem {
   readonly union: Resolved.UnionId;
   readonly name: string;
   readonly parameters: readonly TypeVariableId[];
+  readonly derives: readonly string[];
   readonly constructors: readonly Constructor[];
   readonly span: Source.Span;
 }
@@ -296,6 +307,7 @@ export interface RecordDeclaration {
   readonly id: Resolved.RecordId;
   readonly name: string;
   readonly parameters: readonly TypeVariableId[];
+  readonly derives: readonly string[];
   readonly constructor: Binding;
   readonly fields: readonly { readonly name: string; readonly type: Type; readonly span: Source.Span }[];
   readonly span: Source.Span;
@@ -319,7 +331,15 @@ export interface ConstraintItem {
   readonly kind: "ConstraintDeclaration";
   readonly name: string;
   readonly subject: TypeVariableId;
+  readonly superconstraints: readonly ConstraintName[];
+  readonly associatedTypes: readonly ConstraintAssociatedType[];
   readonly members: readonly ConstraintMemberDeclaration[];
+  readonly span: Source.Span;
+}
+
+export interface ConstraintAssociatedType {
+  readonly name: string;
+  readonly type: Type;
   readonly span: Source.Span;
 }
 
@@ -327,15 +347,33 @@ export interface ConstraintMemberDeclaration {
   readonly binding: Binding;
   readonly parameters: readonly Binding[];
   readonly result: Type;
+  readonly defaultValue?: LambdaExpr;
   readonly span: Source.Span;
 }
 
 export interface HonorItem {
   readonly kind: "Honor";
   readonly constraint: string;
+  readonly typeParameters: readonly HonorTypeParameter[];
   readonly subject: Type;
+  readonly derived: boolean;
   readonly dictionary: string;
+  readonly superconstraints: readonly Constraint[];
+  readonly associatedTypes: readonly HonorAssociatedType[];
   readonly members: readonly HonorMember[];
+  readonly span: Source.Span;
+}
+
+export interface HonorTypeParameter {
+  readonly name: string;
+  readonly variable: TypeVariableId;
+  readonly constraints: readonly ConstraintName[];
+  readonly span: Source.Span;
+}
+
+export interface HonorAssociatedType {
+  readonly name: string;
+  readonly type: Type;
   readonly span: Source.Span;
 }
 
@@ -383,6 +421,7 @@ export type Expr =
   | CallExpr
   | ConsoleLogExpr
   | AccessExpr
+  | SeqOperationExpr
   | IndexExpr
   | LogicalNotExpr
   | LogicalExpr
@@ -396,6 +435,11 @@ export interface NameExpr extends ExpressionFields {
   readonly kind: "Name";
   readonly symbol: Resolved.SymbolId;
   readonly text: string;
+}
+
+export interface SeqOperationExpr extends ExpressionFields {
+  readonly kind: "SeqOperation";
+  readonly operation: "iterate" | "map" | "filter" | "take";
 }
 
 export interface UnitExpr extends ExpressionFields {

@@ -23,6 +23,8 @@ function displayType(
       return type.name;
     case "Range":
       return "Range";
+    case "Seq":
+      return `Seq(${displayType(type.element, variables)})`;
     case "Variable":
       return variables.get(type.id) ?? `t${Number(type.id)}`;
     case "Error":

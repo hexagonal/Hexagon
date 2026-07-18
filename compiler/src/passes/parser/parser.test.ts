@@ -471,6 +471,57 @@ describe("parse", () => {
     ]);
   });
 
+  test("parses associated type declarations and instance bindings", () => {
+    const module = parseSource(
+      "constraint Source<a> =\n" +
+        "  type Item\n" +
+        "  get(value: a): Item\n" +
+        "honor Source<Int> =\n" +
+        "  type Item = String\n" +
+        '  get(value) = "${value}"',
+    );
+
+    expect(module.items).toMatchObject([
+      {
+        kind: "ConstraintDeclaration",
+        associatedTypes: [{ name: { text: "Item" } }],
+        members: [{ name: { text: "get" }, returnAnnotation: { name: { text: "Item" } } }],
+      },
+      {
+        kind: "Honor",
+        associatedTypes: [{ name: { text: "Item" }, annotation: { name: { text: "String" } } }],
+      },
+    ]);
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("parses defaults, derives headers, and parameterized honors", () => {
+    const module = parseSource(
+      "constraint Same<a> =\n" +
+        "  same(left: a, right: a): Bool\n" +
+        "  different(left: a, right: a): Bool = not same(left, right)\n" +
+        "record Box(a) derives (Eq, Show) = {value: a}\n" +
+        "honor<a: Eq> Eq<Box(a)> = derive",
+    );
+
+    expect(module.items).toMatchObject([
+      {
+        kind: "ConstraintDeclaration",
+        members: [{}, { defaultValue: { kind: "Lambda" } }],
+      },
+      {
+        kind: "RecordDeclaration",
+        derives: [{ text: "Eq" }, { text: "Show" }],
+      },
+      {
+        kind: "Honor",
+        derived: true,
+        typeParameters: [{ name: { text: "a" }, constraints: [{ text: "Eq" }] }],
+      },
+    ]);
+    expect(module.diagnostics).toEqual([]);
+  });
+
   test("recovers from arbitrary text with bounded public spans", () => {
     fc.assert(
       fc.property(fc.string(), (text) => {

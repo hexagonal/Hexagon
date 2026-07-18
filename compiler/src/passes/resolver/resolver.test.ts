@@ -9,6 +9,25 @@ import { parse } from "../parser/parser.js";
 import { resolve } from "./resolver.js";
 
 describe("resolve", () => {
+  test("gives associated types owner-relative scope", () => {
+    const module = resolveSource(
+      "constraint Source<a> =\n" +
+        "  type Item\n" +
+        "  get(value: a): Item\n" +
+        "constraint Sink<a> =\n" +
+        "  type Item\n" +
+        "  put(value: a, item: Item): Unit\n" +
+        "let invalid(value: Item) = value",
+    );
+
+    expect(module.items.slice(0, 2)).toMatchObject([
+      { kind: "ConstraintDeclaration", associatedTypes: [{ name: "Item" }] },
+      { kind: "ConstraintDeclaration", associatedTypes: [{ name: "Item" }] },
+    ]);
+    expect(module.diagnostics.map(({ message }) => message)).toContain(
+      "`Item` is an associated type declared by `Sink` and `Source` and cannot appear in type expressions",
+    );
+  });
   test("assigns stable symbols to sequential bindings and references", () => {
     const module = resolveSource("let one = 1\nlet two = one + 1\ntwo");
 
