@@ -131,6 +131,11 @@ class Checker {
     readonly callee: Mono;
     readonly receiver: Resolved.Expr;
   }>();
+  readonly #seqDotCalls = new WeakMap<Resolved.CallExpr, {
+    readonly operation: "map" | "filter" | "take";
+    readonly callee: Mono;
+    readonly receiver: Resolved.Expr;
+  }>();
   readonly #tupleAccesses = new WeakMap<Resolved.AccessExpr, number>();
   readonly #recordAccesses = new WeakMap<Resolved.AccessExpr, string>();
   readonly #matchUnions = new WeakMap<Resolved.MatchExpr, Resolved.UnionId>();
@@ -953,44 +958,50 @@ class Checker {
     for (const name of this.#constraintDeclarations.keys()) visit(name, []);
   }
 
+  /** Gives qualified and dot-call Seq operations one shared polymorphic shape. */
+  #seqOperationType(
+    operation: Resolved.SeqOperationExpr["operation"],
+    level: number,
+  ): FunctionMono {
+    const element = this.#fresh(level, false);
+    const result = this.#fresh(level, false);
+    const sequence: SeqMono = { kind: "Seq", element };
+    if (operation === "iterate") {
+      return {
+        kind: "Function",
+        parameters: [element, { kind: "Function", parameters: [element], result: element }],
+        result: sequence,
+      };
+    }
+    if (operation === "map") {
+      return {
+        kind: "Function",
+        parameters: [sequence, { kind: "Function", parameters: [element], result }],
+        result: { kind: "Seq", element: result },
+      };
+    }
+    if (operation === "filter") {
+      return {
+        kind: "Function",
+        parameters: [
+          sequence,
+          { kind: "Function", parameters: [element], result: primitive("Bool") },
+        ],
+        result: sequence,
+      };
+    }
+    return {
+      kind: "Function",
+      parameters: [sequence, primitive("Int")],
+      result: sequence,
+    };
+  }
+
   #inferExpr(expression: Resolved.Expr, level: number): Mono {
     let type: Mono;
     switch (expression.kind) {
       case "SeqOperation": {
-        const element = this.#fresh(level, false);
-        const result = this.#fresh(level, false);
-        const sequence: SeqMono = { kind: "Seq", element };
-        if (expression.operation === "iterate") {
-          type = {
-            kind: "Function",
-            parameters: [element, { kind: "Function", parameters: [element], result: element }],
-            result: sequence,
-          };
-        } else if (expression.operation === "map") {
-          type = {
-            kind: "Function",
-            parameters: [
-              sequence,
-              { kind: "Function", parameters: [element], result },
-            ],
-            result: { kind: "Seq", element: result },
-          };
-        } else if (expression.operation === "filter") {
-          type = {
-            kind: "Function",
-            parameters: [
-              sequence,
-              { kind: "Function", parameters: [element], result: primitive("Bool") },
-            ],
-            result: sequence,
-          };
-        } else {
-          type = {
-            kind: "Function",
-            parameters: [sequence, primitive("Int")],
-            result: sequence,
-          };
-        }
+        type = this.#seqOperationType(expression.operation, level);
         break;
       }
       case "Name":
@@ -1402,6 +1413,34 @@ class Checker {
         if (expression.callee.kind === "Access") {
           const receiver = this.#inferExpr(expression.callee.receiver, level);
           const actual = this.#prune(receiver);
+          if (actual.kind === "Seq") {
+            const field = expression.callee.field.text;
+            if (field !== "map" && field !== "filter" && field !== "take") {
+              type = this.#unsupported(
+                expression.callee.field.span,
+                `the companion of \`Seq\` has no subject-first operation \`${field}\``,
+              );
+              break;
+            }
+            const callee = this.#seqOperationType(field, level);
+            const arguments_ = [
+              receiver,
+              ...expression.arguments.map((argument) => this.#inferExpr(argument, level)),
+            ];
+            const result = this.#fresh(level, false);
+            this.#unify(
+              callee,
+              { kind: "Function", parameters: arguments_, result },
+              expression.span,
+            );
+            this.#seqDotCalls.set(expression, {
+              operation: field,
+              callee,
+              receiver: expression.callee.receiver,
+            });
+            type = result;
+            break;
+          }
           const nominal = actual.kind === "NominalRecord" || actual.kind === "Union";
           const recordHasField = actual.kind === "NominalRecord" &&
             this.#nominalRecordFields(actual).has(expression.callee.field.text);
@@ -3393,6 +3432,25 @@ class Checker {
           span: expression.span,
         };
       case "Call":
+        const seqDotCall = this.#seqDotCalls.get(expression);
+        if (seqDotCall !== undefined) {
+          return {
+            kind: "Call",
+            callee: {
+              kind: "SeqOperation",
+              operation: seqDotCall.operation,
+              type: this.#publicType(seqDotCall.callee),
+              span: expression.callee.span,
+            },
+            arguments: [
+              this.#materializeExpr(seqDotCall.receiver),
+              ...expression.arguments.map((argument) => this.#materializeExpr(argument)),
+            ],
+            requirements: [],
+            type,
+            span: expression.span,
+          };
+        }
         const dotCall = this.#dotCalls.get(expression);
         if (dotCall !== undefined) {
           return {

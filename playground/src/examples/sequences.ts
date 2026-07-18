@@ -8,8 +8,15 @@ export const sequences: PlaygroundExample = {
   source: `// Seq.iterate is infinite unless a consumer such as Seq.take stops it.
 let numbers: Seq(Int) = Seq.iterate(1, number => number + 1)
 
-// Sequence operations are independent, subject-first companion functions.
+// Method syntax reads naturally for subject-first Seq companion functions.
 let selected =
+  numbers
+    .filter(number => number > 3)
+    .map(number => number * 10)
+    .take(5)
+
+// The same independent functions can be called explicitly and piped.
+let selected2 =
   numbers
   |> Seq.filter(number => number > 3)
   |> Seq.map(number => number * 10)
