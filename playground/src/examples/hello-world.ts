@@ -23,8 +23,11 @@ let card = (10, Hearts)
 // Patterns unpack structured values.
 let (rank, suit) = card
 
-// Functions infer types from their bodies.
+// Concatenation makes greet monomorphic: its argument must be a String.
 let greet(name) = "Hello, " ++ name ++ "!"
+
+// Interpolation makes greet2 polymorphic: its argument only needs Show.
+let greet2(thing) = "Hello, \${thing}!"
 
 // Annotations document a boundary when useful.
 let plus(x: Int, y: Int): Int = x + y
@@ -44,6 +47,7 @@ let color(suit: Suit): String = match suit
 
 // Host console calls are explicit effects and return Unit.
 console.log(greet("Hexagon"))
+console.log(greet2(5))
 `,
   specificationReferences: [],
 };

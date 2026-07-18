@@ -69,10 +69,9 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const javascript = emitJavaScript(module).text;
-    expect(javascript).toContain("for (const __hex_item0 of __hex_range(1, 3)) {");
-    expect(javascript).toContain("const number = __hex_item0;");
-    expect(javascript).toContain('for (const __hex_item1 of "ab") {');
-    expect(javascript).toContain("const character = __hex_item1;");
+    expect(javascript).toContain("for (const number of __hex_range(1, 3)) {");
+    expect(javascript).toContain('for (const character of "ab") {');
+    expect(javascript).not.toContain("__hex_item");
   });
 
   test("emits replayable Seq method calls and pipelines through JavaScript generators", () => {
@@ -91,7 +90,8 @@ describe("emitJavaScript", () => {
     expect(output.text).toContain("const numbers = __hex_seqIterate(1, number => number + 1);");
     expect(output.text).toContain("__hex_seqTake(__hex_seqMap(__hex_seqFilter(numbers,");
     expect(output.text.match(/__hex_seqTake\(__hex_seqMap\(__hex_seqFilter\(numbers,/gu)).toHaveLength(2);
-    expect(output.text).toContain("for (const __hex_item0 of selected)");
+    expect(output.text).toContain("for (const number of selected) {");
+    expect(output.text).not.toContain("__hex_item");
     expect(emitDeclarations(module).text).toContain(
       "export declare const selected: Iterable<number>;",
     );
