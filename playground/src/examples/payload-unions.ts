@@ -9,13 +9,13 @@ export const payloadUnions: PlaygroundExample = {
   | Rectangle(width: Float, height: Float)
   | Point
 
-fun area(shape: Shape): Float = match shape
+let area(shape: Shape): Float = match shape
   Circle(radius) when radius <= 0.0 => 0.0
   Circle(radius) => 3.14159 * radius * radius
   Rectangle(width, height) => width * height
   Point => 0.0
 
-fun preserve(shape: Shape): Shape = match shape
+let preserve(shape: Shape): Shape = match shape
   Circle(_) as whole => whole
   Rectangle(_, _) as whole => whole
   Point as whole => whole
@@ -26,7 +26,7 @@ union Reply =
   | Accepted(details: (String, Int))
   | Rejected(error: {message: String, code: Int})
 
-fun describe(reply: Reply): String = match reply
+let describe(reply: Reply): String = match reply
   Accepted((name, _)) => name
   Rejected({message: reason}) => reason
 
