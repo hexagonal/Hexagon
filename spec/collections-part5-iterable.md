@@ -1,11 +1,9 @@
 # Hexagon Spec: Collections Part 5 — `Iterable` & Collections Closeout
 
-**Status:** Decided (July 2026), revised in place after external review (Sol) before landing — see **correction records §18**. Fifth and final part of the Collections roadmap. This document makes the restricted v1 `Iterable` operational: the normative resolution and typing of `for p in e`, the finalized six-row provided-instance table (deciding the `String` row and pre-committing the `Array(a)` obligation to the FFI spec), the table-opening rules for user instances with the worked `Bag(a)` example, emission as forced consequence, the collections/stdlib-listing boundary decision, and the transients decision. It also performs the Collections closeout: amendment confirmations and roadmap strikes. Written against Collections Parts 1–4 (Decided, Part 2 including its §16 correction records), Constraints v2, Loops/Ranges/Iteration, Pattern Matching, Modules, and the Sol-review closures; none re-litigated.
-**Scope:** The `for p in e` resolution algorithm and failure taxonomy (splitting the unsolved-metavariable and rigid-type-variable diagnostics; the two-legal-homes user-nominal message); the six-row provided instance table; `Iterable<String>` with `Item = String` (closing Loops §11.6) and the `String.toSeq`/`String.fromSeq` conversion pair (`fromSeq` = concatenation, full contract §5.3); the collection-conversion-suite domain (finite collections; `Range` and `Seq` exempt with reasons); the binding `Array(a)` iteration obligation handed to the FFI spec (§6); `iterate` as a real prelude term; user-instance mechanics, discoverability, and provided-instance collisions; the "writing your own collection" recipe, normative, with `Bag(a)`; static-resolution emission; the combinator-surface boundary; transients runtime-internal only.
-**Not in scope:** The `Iterable` declaration and type-member grammar (Part 2 §5–§8 — consumed, not restated); the v2 associated-types remainder (deferred `Item(α)` goals, `Item(c)` reference syntax, member obligations, `Iterable` binders, `derive via` — Part 2 §11, Part 1 §6.3); the combinator families themselves (stdlib listing, boundary drawn in §10); `AsyncSeq` and any `for await` form (Loops §11.4); **everything normative about `Array(a)`** — the type, its instance, its conversion functions, observation semantics, emission, and `.d.ts` face (FFI spec; §6 states the obligation and queues the naming direction); the foreign (`.d.ts`) representation of constraints on exported polymorphic functions (FFI spec; see §9.3); `String.join`-style conveniences (stdlib listing).
-**Companions:** Collections Part 1 (§6.1/§6.5 made normative here; §9.5/§9.6 closed); Collections Part 2 (§8's "operational semantics stay in Part 5" pointer discharged; §7.2's binder-ban hint reused verbatim; §9 diagnostics extended); Collections Part 3 (§8 `Iterable<Vector>` row consumed; §9's linear-idiom promise cashed by §5 here); Collections Part 4 (§7.2 rows consumed; §13.1/§13.4 closed); Loops/Ranges/Iteration (§5 table finalized; §7.1 judgment made normative as instance lookup; §11.6 closed; §2.3's `iterate` identified with the member); Pattern Matching (five-positions gate consumed unchanged); Modules (§7 globality and orphan machinery consumed; §7.6 discoverability obligation — per the Sol-review closure §B.2, pending consolidation there — given its loop-side face); FFI agenda (inherits the §6 obligation package; updated at landing).
-
-Written for a future implementation session against the existing `hexc` architecture: Algorithm J, union-find tyvars, dictionary passing, whole-program compilation, readable-JS emission with `.d.ts`, `@hexagon/runtime`.
+**Status:** Decided (July 2026); pre-landing corrections incorporated in place (§18). Fifth and final part of the Collections effort. The authoritative operational specification of v1 `Iterable`: the resolution and typing of `for p in e`, the finalized provided-instance table (nine rows: six collections-owned, three FFI-owned), table-opening for user instances, static-resolution emission, the collections/stdlib boundary, and the transients decision. Written against Collections Parts 1–4, Constraints, Loops/Ranges/Iteration, Pattern Matching, and Modules; none re-litigated.
+**Scope:** The `for p in e` resolution algorithm and four-way failure taxonomy (unsolved-metavariable vs rigid-type-variable split; the two-legal-homes user-nominal message); the provided instance table (§4); `Iterable<String>` with `Item = String` and the `String.toSeq`/`String.fromSeq` conversion pair (`fromSeq` = concatenation, full contract §5.3); the collection-conversion-suite domain (finite collections; `Range` and `Seq` exempt with reasons); `iterate` as a real prelude term; user-instance mechanics, discoverability, and provided-instance collisions; the "writing your own collection" recipe, normative, with `Bag(a)`; static-resolution emission; the combinator-surface boundary; transients runtime-internal only.
+**Not in scope:** The `Iterable` declaration and type-member grammar (Part 2 §5–§8 — consumed, not restated); the v2 associated-types remainder (deferred `Item(α)` goals, `Item(c)` reference syntax, member obligations, `Iterable` binders, `derive via` — Part 2 §11, Part 1 §6.3); the combinator families themselves (`stdlib-roadmap.md` ledger, decided at the stdlib listing; boundary drawn in §10); `AsyncSeq` and any `for await` form (Loops §11.4); **everything normative about the borrowed foreign views `Array(a)`, `JsMap(k, v)`, `JsSet(a)`** — types, borrow contracts, observation semantics, conversions, emission, `.d.ts` faces (FFI Parts 2 and 10; §4 records their instance rows, §6 the discharged `Array` ownership); the foreign (`.d.ts`) representation of constraints on exported polymorphic functions (FFI spec; see §9.3); `String.join`-style conveniences (stdlib listing).
+**Companions:** Collections Part 1 (§6.1/§6.5 made normative here; §9.5/§9.6 closed); Collections Part 2 (§8 declaration; §7.2 binder ban; §9 diagnostics extended); Collections Part 3 (§8 `Iterable<Vector>` row; §9 linear idiom cashed by §5 here); Collections Part 4 (§7.2 rows; §13.1/§13.4 closed here); Loops/Ranges/Iteration (§2.3 desugaring; §5 table finalized as §4 here; §6 `Seq`; §7.1 judgment made normative as instance lookup); Pattern Matching (§5 five-positions gate); Modules (§7 instance globality and orphan rule; §7.6 discoverability); Constraints (§5.1 coherence; §2.2 members); FFI Part 2 (§§6, 8–9: the `Array(a)` obligation discharged); FFI Part 3 (`Seq(a)` boundary crossing); FFI Part 10 (§6 `JsMap`/`JsSet` rows); Primitive Types (§5.1 String indexing).
 
 ---
 
@@ -14,7 +12,7 @@ Written for a future implementation session against the existing `hexc` architec
 - **The table is the constraint.** The Loops §5 iterable table *is* `Iterable`'s instance table (Part 2 §8); this document finalizes its v1 rows and opens it to users. There is no second mechanism, no registry beside the constraint system.
 - **"You can write a real collection" is a v1 requirement, and `for x in myBag` is its floor** (Part 1 §6.1, discharged here). The whole tax is one small `honor` block.
 - **v1 iteration is monomorphic.** The projection-bearing binder ban (Part 2 §7.2) means every `for..in` site knows its collection's outer constructor at compile time. Static instance resolution and dictionary-free loop emission are therefore *consequences*, not optimisations (§9.1).
-- **Iterable and "in the conversion suite" are different properties.** Every **finite collection type** provides `toSeq`/`fromSeq` under exactly those names — now deliberately including `String` (§5). `Range` is iterable but is not a collection: it is exempt (`Range.fromSeq` has no natural meaning; a public `Range.toSeq` is at most a stdlib-listing candidate). `Seq` is the conversion **currency itself** and needs no identity wrappers to satisfy a slogan. `Array(a)`'s suite membership is the FFI spec's to decide (§6). Third-party collections are expected to provide the pair as part of the recipe (§8.1).
+- **Iterable and "in the conversion suite" are different properties.** Every **finite collection type** provides `toSeq`/`fromSeq` under exactly those names — deliberately including `String` (§5). `Range` is iterable but is not a collection: it is exempt (`Range.fromSeq` has no natural meaning; a public `Range.toSeq` is at most a stdlib-listing candidate). `Seq` is the conversion **currency itself** and needs no identity wrappers to satisfy a slogan; it crosses the FFI boundary through FFI Part 3's explicit adapters. `Array(a)` is a suite member (decided by FFI Part 2 §8.3; §6 here). Third-party collections are expected to provide the pair as part of the recipe (§8.1).
 - **Structure here, combinators there.** The collections specs own what a collection *is*; the stdlib listing owns the combinator families over it (§10). The Part 1 §3 naming doctrine binds both.
 
 ---
@@ -75,17 +73,17 @@ The single Loops §7.1 unsolved-case message is hereby **split**: an annotation 
 
 ### 3.3 The user-nominal diagnostic names both legal homes
 
-For a user nominal `T` with no instance, the message is the loop-side face of the instance-discoverability obligation (Sol-review closure §B.2; Modules §7.6 on consolidation there). The compiler always knows both legal homes — the orphan rule's search space of size two — and the message names **both**, leading with the actionable one:
+For a user nominal `T` with no instance, the message is the loop-side face of the instance-discoverability obligation (Modules §7.6). The compiler always knows both legal homes — the orphan rule's search space of size two — and the message names **both**, leading with the actionable one:
 
 > `Bag(Int)` is not iterable. Define `honor<a> Iterable<Bag(a)>` in `./bag.hex`, which declares `Bag`. The only other legal home is the prelude module declaring `Iterable`. Alternatively, convert with `Bag.toSeq`-style functions, or take a `Seq(a)` parameter.
 
-The prelude home is not user-editable, but naming it makes the two-home rule accurate and explains *why no third module can provide the instance* — the orphan rule handed to the user as a closed search space, not a hint. This subsumes Part 1 §6.4's "or `implement Iterable<τ>`" hint amendment, upgraded to name the files.
+The prelude home is not user-editable, but naming it makes the two-home rule accurate and explains *why no third module can provide the instance* — the orphan rule handed to the user as a closed search space, not a hint. This subsumes Part 1 §6.4's earlier hint amendment, upgraded to name the files.
 
 ---
 
 ## 4. Provided instances: the finalized v1 table
 
-All compiler/runtime-provided (Part 2 §4.4 wording — specified normatively, no source form). This is the complete **core** table: the first five rows consolidate Parts 3–4 and Loops; the `String` row is this document's decision (§5).
+All compiler/runtime-provided (Part 2 §4.4 wording — specified normatively, no source form). This is the complete v1 table: the first six rows are collections-owned; the final three are FFI-owned borrowed views.
 
 | Type | `type Item` | `iterate` | Fixed by |
 |---|---|---|---|
@@ -95,13 +93,16 @@ All compiler/runtime-provided (Part 2 §4.4 wording — specified normatively, n
 | `Map(k, v)` | `(k, v)` | `Map.toSeq` (≡ `entries`) | Part 4 §7.2 |
 | `Set(a)` | `a` | `Set.toSeq` | Part 4 §7.2 |
 | `String` | `String` (one codepoint) | `String.toSeq` | **§5 here** |
+| `Array(a)` | `a` | `Array.toSeq` | FFI Part 2 §8 |
+| `JsMap(k, v)` | `(k, v)` | `JsMap.toSeq` (≡ `entries`) | FFI Part 10 §6 |
+| `JsSet(a)` | `a` | `JsSet.toSeq` | FFI Part 10 §6 |
 
 Notes:
 
-- **A seventh row is pre-committed but not declared here:** the v1 FFI spec **must** provide `Iterable<Array(a)>` with `Item = a` and `iterate = Array.toSeq` (§6). The row's *meaning* — observation semantics, emission — can only be defined by the spec that owns the type.
+- The final three rows inherit their observation and emission semantics from their owning FFI parts; this table records their coherent `Iterable` instances rather than restating those borrow contracts.
 - `Range` participates in iteration but not in the conversion suite (§1); its `iterate` is runtime-internal. `Seq`'s row is the identity — the currency needs no conversion into itself.
 - No other v1 type is iterable. In particular `Option`/`Result` are not (matching is their consumption form), and `Bool`/`Int`/`Float`/`Unit`/functions are the §3.2 concrete-non-iterable case.
-- This table **closes Loops §11.6** and finalizes the Loops §5 inventory (edit note, §16).
+- This table closes Loops §11.6 and is the finalized Loops §5 inventory (Loops now defers here by reference).
 
 ---
 
@@ -136,21 +137,17 @@ This keeps the finite-collection conversion suite (§1) exception-free where it 
 
 ---
 
-## 6. `Array(a)`: the obligation handed to FFI
+## 6. `Array(a)`: ownership decided here, discharged by FFI Part 2
 
-### 6.1 The binding requirement
+### 6.1 The obligation, discharged
 
-> **The v1 FFI spec must provide `Iterable<Array(a)>` with `type Item = a` and `iterate = Array.toSeq`.**
+The *direction* — the foreign door is iterable — was decided here as a binding obligation on the v1 FFI spec (`Iterable<Array(a)>` with `type Item = a` and `iterate = Array.toSeq`) and was never FFI's to reopen. Everything that gives the row meaning was FFI's to define, and FFI Part 2 has discharged it in full; nothing about `Array` iteration remains open, and none of it is restated here:
 
-The *direction* — the foreign door is iterable — is decided here and is not FFI's to reopen. Everything that gives the row meaning is FFI's to define, because it cannot be defined coherently before the checked boundary's mutation story exists:
+- **Stability and observation.** FFI Part 2 §6.2 fixes the borrowed stability contract; §6.5 resolves the observation question this section deliberately left to it — under the contract, live and snapshot iteration are observationally identical, so native `for...of` emission is licensed (§8.2 there).
+- **The instance.** FFI Part 2 §8 provides `Iterable<Array(a)>` under exactly the obligated shape; the row appears in §4 here. Suite membership is decided: `Array(a)` joins the finite-collection conversion suite (§8.3 there; doctrine §1 here).
+- **The conversion surface.** FFI Part 2 §9 fixes the four names — `Array.toSeq` / `Array.fromSeq` / `Array.toVector` / `Vector.toArray` — with their laziness/freshness and shallow-element semantics.
 
-- **Observation semantics.** `Array(a)` is readonly *from Hexagon*, but the underlying JS array may be mutated by foreign code. Whether `Array.toSeq` (and therefore `for x in arr`) is a live view or a snapshot is exactly the FFI conversion-semantics question — and **emission is coupled to it**: native `for (const x of arr)` has JavaScript's mutation-observation behaviour and cannot implement snapshot semantics. This document therefore mandates no `Array` emission; the FFI spec decides direct native iteration versus helper/snapshot emission *together with* the semantics it implements.
-- **The conversion surface.** The recommended names, queued for the FFI session: `Array.toSeq` / `Array.fromSeq` / `Array.toVector` / `Vector.toArray` — superseding the FFI agenda's stale pre-rename `Array.toList` / `List.toArray` spellings. Whether `Array(a)` joins the finite-collection conversion suite (§1) is likewise FFI's call, made with the observation semantics in hand.
-- The `.d.ts` faces (`ReadonlyArray<a>` per the agenda), deep-vs-shallow element conversion, and `Nullable` interaction.
-
-### 6.2 What this document guarantees meanwhile
-
-Nothing here depends on FFI's answers: the six-row table (§4), the resolution algorithm (§3), and the recipe (§8) are closed without `Array(a)`. The obligation is carried on the FFI agenda (updated at landing, §16) so the FFI session inherits a settled direction plus a bounded question list — constraints, not design work, per house practice.
+The resolution algorithm (§3), the recipe (§8), and the domestic emission rules (§9) were designed to be, and are, unaffected by the discharge.
 
 ---
 
@@ -170,7 +167,7 @@ Exactly-once member binding, the (constraint, constructor) coherence slot, and t
 
 ### 7.2 Globality and discoverability
 
-Instances are global over the import graph (Modules §7.1). For the home-module instance the graph does the work by construction: **no `Bag` value can exist in a program whose graph excludes `bag.hex`**, so wherever a `Bag` flows, its instance is already present — including into modules that never name `Bag` (values carried by inference). The effect-import pattern (Modules §3.4) is therefore *not needed* for `Iterable` on your own collection and is deliberately not taught in the recipe (Sol-review closure §B.1: nearly vestigial in v1). What the user needs when something goes wrong is §3.3's diagnostic, which hands them the orphan rule's search space of size two.
+Instances are global over the import graph (Modules §7.1). For the home-module instance the graph does the work by construction: **no `Bag` value can exist in a program whose graph excludes `bag.hex`**, so wherever a `Bag` flows, its instance is already present — including into modules that never name `Bag` (values carried by inference). The effect-import pattern (Modules §3.4) is therefore *not needed* for `Iterable` on your own collection and is deliberately not taught in the recipe (Modules §7.6: nearly vestigial in v1). What the user needs when something goes wrong is §3.3's diagnostic, which hands them the orphan rule's search space of size two.
 
 ### 7.3 Collisions with provided instances
 
@@ -255,7 +252,7 @@ Loops §8 is restated **by reference and unchanged** — in particular the count
 | `Range` value through a variable | general path over the materialised range object (Loops §8, unchanged) |
 | **User instance** | statically resolved `iterate` call: `const s = Bag_toSeq(bag); for (const x of s)`-shaped — a fresh name for the once-evaluated source (Loops §2.3), then the general path over the emitted `Seq` |
 
-(`Array(a)` emission is deliberately absent: it is coupled to the observation-semantics decision and belongs to the FFI spec — §6.1.)
+(`Array(a)`, `JsMap`, and `JsSet` emission is owned by FFI Parts 2 and 10, which license native iteration under their borrow contracts — §6.)
 
 The user-instance call is the ordinary emitted module function (here `Bag_toSeq` via the instance's `iterate` body), never dictionary access. Where the instance's `iterate` is a trivial delegation, the emitter may inline through it; observable behaviour per Loops §2.3 either way.
 
@@ -271,9 +268,9 @@ The user-instance call is the ordinary emitted module function (here `Bag_toSeq`
 The roadmap's leaning is fixed as the rule:
 
 - **The collections specs (Parts 1–5) own:** the types and names; representation references and complexity contracts; construction (literals, `fromVector`, `from*` eagerness); the core access surface (the accessor pair, `at`, slicing); the update doctrine (upsert, forgiving removal, representative retention); set algebra; the provided instances (`Eq`/`Ord`/`Show`/`Hash`/`Concat`/`Iterable`); the conversion suite (`toSeq`/`fromSeq` on every finite collection, §1); patterns; operator boundaries.
-- **The stdlib listing owns:** the combinator families — `Vector.map`/`filter`/`fold`/`reverse`/`sort`/`indexOf`/`insertAt`/`removeAt` and kin; the `Map.merge` family, `update`, `filter`, `mapValues`, `getOr`, `containsValue`; `Set.map`/`filter`; the `Seq` combinator set (Loops §6.4); `String.join` and other conveniences — **and the v1 ship-list vs deferred split within them**, decided there under the Part 1 §3 naming doctrine, which binds there in full (banned families, subject-first, `Option`-shaped totality).
+- **The stdlib listing owns:** the combinator families over every collection and `Seq`, plus `String.join`-style conveniences — **and the v1 ship-list vs deferred split within them** — inventoried in `stdlib-roadmap.md` and decided at the listing session under the Part 1 §3 naming doctrine, which binds there in full (banned families, subject-first, `Option`-shaped totality).
 
-The test for future placement: *does it define what the structure is, or what you can do over it?* Structure here; doing there. This closes Part 1 §9.5 and Part 4 §13.1.
+The test for future placement: *does it define what the structure is, or what you can do over it?* Structure here; doing there.
 
 ---
 
@@ -283,7 +280,7 @@ The runtime **may** batch internal construction and bulk operations with transie
 
 Rationale: a public transient is an observable mutable collection value, in a language whose entire mutation story is `var` confinement inside function bodies (Statements §6) — it would be the one value-shaped mutable thing in the language, with an aliasing story (escape, capture, double-commit) that v1 has no machinery to police. The public need transients serve elsewhere is bulk-construction speed, which the runtime achieves internally with zero surface (the Immutable.js precedent: its own `withMutations` is how its constructors are fast; users of *Hexagon's* constructors get that for free). Revisit in v2 only on benchmark evidence from real Hexagon code that **userland** batching — not stdlib-internal construction — is a measured bottleneck; the honest v2 shapes would be syntactic and scoped, not a mutable handle.
 
-This closes Part 1 §9.6, Part 4 §13.4, and the roadmap's Part 5 transients item. Rejected alternative recorded at §13.4.
+This resolves Part 4 §13.4. Rejected alternative recorded at §13.4 below.
 
 ---
 
@@ -330,7 +327,7 @@ Rejected per §11: an observable mutable collection value contradicts the `var`-
 
 ### 13.5 Declaring the normative `Iterable<Array(a)>` row in this document
 
-The draft of this spec did exactly that, with native `for..of` emission mandated and observation semantics left open. Rejected on review (correction record §18.1): the two positions cannot coexist — native JS array iteration has JavaScript's mutation-observation behaviour and cannot implement snapshot semantics if the FFI spec chooses them; a normative row whose meaning is undefined is not a decision. The direction (Array is iterable) is kept as a binding obligation on FFI (§6.1); the meaning lives where it can be defined coherently.
+The draft of this spec did exactly that, with native `for..of` emission mandated and observation semantics left open. Rejected on review (correction record §18.1): the two positions cannot coexist — native JS array iteration has JavaScript's mutation-observation behaviour and cannot implement snapshot semantics if the FFI spec were to choose them; a normative row whose meaning is undefined is not a decision. The direction (Array is iterable) was kept as a binding obligation on FFI (§6.1); the meaning lives where it can be defined coherently, and now is defined there (FFI Part 2 §§6.5, 8).
 
 ### 13.6 Teaching the effect-import pattern in the recipe
 
@@ -340,7 +337,7 @@ Rejected per §7.2: for a home-module instance the pattern is structurally unnec
 
 ## 14. Hanging questions (owned elsewhere; recorded, non-blocking)
 
-1. **The `Array(a)` package** — the type's checked-boundary semantics; `Iterable<Array(a)>` per the §6.1 obligation; `Array.toSeq`/`Array.fromSeq`/`Array.toVector`/`Vector.toArray` (names recommended §6.1, superseding the agenda's stale `toList` spellings); live-view vs snapshot; emission; conversion-suite membership; `.d.ts`; deep-vs-shallow → **FFI spec**, as one coherent item.
+1. *(discharged)* **The `Array(a)` package** — decided in full by **FFI Part 2** (§§6, 8–9): borrow contract, `Iterable<Array(a)>`, live≡snapshot observation, native-iteration emission, the four conversion names, suite membership, `.d.ts` face, shallow element treatment. See §6.
 2. **`String.join(sep, xs)`** and other string conveniences → stdlib listing (§5.3).
 3. **Public `Range.toSeq`** → stdlib listing, candidate at most (§1, §4).
 4. **The v2 associated-types remainder** — deferred `Item(α)` goals, `Item(c)` reference syntax, obligations on type members, `Iterable` binders, `derive via`, `Hash` on user collection types → unchanged, per Part 2 §11 / Part 1 §6.3; nothing here moves it.
@@ -356,13 +353,13 @@ Rejected per §7.2: for a home-module instance the pattern is structurally unnec
 | 2 | `iterate` is an ordinary prelude term; Loops §2.3's desugaring names the member; qualified home owed to the stdlib listing (`Iterable.iterate` presumed) | §2.3 |
 | 3 | Normative 8-step algorithm for `for p in e`; pattern heads per Pattern Matching's five positions, irrefutability-gated; body `Unit`; source evaluated once | §3.1 |
 | 4 | **Unsolved-vs-rigid diagnostic split**: metavariable → annotate; rigid binder variable → `Seq(a)` parameter hint | §3.2 |
-| 5 | User-nominal not-iterable error names **both legal homes** (Sol-review §B.2's loop-side face), leading with the actionable one | §3.3 |
-| 6 | The v1 core provided table is exactly six rows: `Range`, `Vector`, `Seq`, `Map`, `Set`, `String`; plus one pre-committed FFI obligation (`Array(a)`, §6.1); nothing else iterable in v1 | §4, §6 |
+| 5 | User-nominal not-iterable error names **both legal homes** (the Modules §7.6 discoverability obligation's loop-side face), leading with the actionable one | §3.3 |
+| 6 | The v1 core provided table is exactly six rows: `Range`, `Vector`, `Seq`, `Map`, `Set`, `String`; plus the FFI-owned borrowed views `Array(a)` (obligated §6.1, discharged FFI Part 2 §8), `JsMap(k, v)`, `JsSet(a)` (FFI Part 10 §6); nothing else iterable in v1 | §4, §6 |
 | 7 | **`Iterable<String>`: `Item = String`, one codepoint per item** — Loops §11.6 closed; graphemes stay named-function territory | §5.1 |
 | 8 | `String.toSeq` lazy codepoint view; **no `codepoints` synonym** | §5.2, §13.1 |
 | 9 | **`String.fromSeq` ships: concatenation**, full contract — `""` on empty, traversal order, any-length elements, no normalization, eager, linear with join-not-fold implementation note, one-sided round-trip law | §5.3 |
 | 10 | **Conversion-suite domain fixed: finite collection types.** `String` joins; `Range` exempt (not a collection); `Seq` is the currency itself; `Array` membership → FFI; third parties via the recipe | §1, §5.3 |
-| 11 | **`Iterable<Array(a)>` is a binding v1 FFI obligation** (`Item = a`, `iterate = Array.toSeq`); row meaning, conversions, observation semantics, and emission owned by FFI; conversion names recommended, stale `toList` spellings superseded | §6, §13.5 |
+| 11 | **`Iterable<Array(a)>` decided as a binding v1 FFI obligation** (`Item = a`, `iterate = Array.toSeq`); row meaning, conversions, observation semantics, and emission owned by FFI — discharged in full by FFI Part 2 | §6, §13.5 |
 | 12 | Provided-row `honor` collisions surface as orphan errors + "the prelude already provides…" hint; duplicate-proper unreachable for prelude pairs from user code | §7.3 |
 | 13 | Recipe normative (`toSeq`/`fromSeq` + one delegating instance + honest constraint placement); effect-import pattern deliberately untaught; user collections inherit and must state their order contract | §8 |
 | 14 | **Emission: static instance resolution is total** (consequence of the binder ban); Loops §8 erasure mandatory and untouched; `String` emits native `for..of`; no `Iterable`/`Item`/instance machinery in `.d.ts` — other constraints' foreign representation deferred to FFI | §9 |
@@ -373,28 +370,20 @@ Rejected per §7.2: for a home-module instance the pattern is structurally unnec
 
 ## 16. Edit notes to companion specs, and closeout
 
-### 16.1 Edit notes
+### 16.1 Edit notes (live)
 
-Roadmap and agenda rows are **applied at landing** (same batch as this document — the two roadmaps are primary navigation and must not remain knowingly false); companion-spec rows follow the house apply-on-next-touch convention.
+The roadmap and agenda edits queued at landing were applied then; the companion-spec edits to Loops/Ranges/Iteration and Collections Parts 1, 2, and 4 have since been applied in their owners (verified at consolidation) and their rows removed. Two remain live, on the house apply-on-next-touch convention:
 
 | Doc | Edit | When |
 |---|---|---|
-| **collections-roadmap.md** | Parts 2–5: **strike ✅ — the Collections roadmap is complete**; all five parts Decided; document marked historical. | **applied at landing** |
-| **spec-roadmap.md** | Tier 1 Collections entry: **complete** (Parts 1–5 Decided); filed-spec inventory updated; Tier-3 associated-types entry re-scoped to the v2 remainder (restricted concrete user `Iterable` instances are v1); stdlib-listing and FFI entries inherit this doc's exports (§10, §14.1). | **applied at landing** |
-| **ffi-agenda.md** | Inherits the §6 `Array(a)` package as one item (obligation §6.1, recommended conversion names superseding the stale `toList` spellings, observation-semantics and emission questions); the Part 1 §1.3 rename ripple and the Sol-review §D acyclicity item applied in the same touch. | **applied at landing** |
-| **loops-ranges-iteration.md** | §5 table: finalized as §4 here (six core rows; `String` element decided — one-codepoint `String`); §11.6: **closed** (pointer §5 here); §7.1: judgment now normatively instance lookup (§2.2 here); the unsolved-case diagnostic **split** per §3.2 here (rigid case gets the `Seq(a)` hint); §2.3: note `iterate` is the constraint member (§2.3 here); §10.1.4's Primitive Types pointer now resolvable. | on next touch |
-| **collections-part1-decisions.md** | §6.1/§6.5: **made normative** (this doc §3/§8); §6.4's diagnostic-hint amendment upgraded to the two-legal-homes form (§3.3 here); §3.1 uniform suite: domain fixed as finite collections, `String` joins (§1/§5.3 here); §9.5 (boundary) and §9.6 (transients) **closed** (§10/§11 here). | on next touch |
-| **collections-part2-hash-and-type-members.md** | §8's "operational semantics stay in Part 5" line: **discharged** (pointer here §2–§3). No semantic edit. | on next touch |
-| **collections-part4-map-set.md** | §13.1 (combinator boundary) and §13.4 (transients) **closed** (§10/§11 here). No semantic edit. | on next touch |
-| **primitive-types.md** | §5.1: String iteration decided — `for c in s`, one-codepoint items, O(n) single pass (pointer §5 here); the Loops §10.1.4 forward reference lands. | on next touch |
-| **exceptions.md** | No edit. (No new exceptions; `String.fromSeq` is total.) | — |
-| **hexagon-for-typescript-coders.md** | On next touch: `for..in` chapter — Hexagon's `for..in` is JS's `for..of` done right (Loops §1 doctrine); tuple heads over `Map`; String loops are codepoint-correct (unlike naive JS index loops); "write your own collection" sidebar = §8's recipe; the generic-`Iterable` rejection with the `Seq(a)` idiom. | on next touch |
+| **primitive-types.md** | §5.1: note String iteration decided — `for c in s`, one-codepoint items, O(n) single pass (pointer §5 here). | on next touch |
+| **hexagon-for-typescript-coders.md** | `for..in` chapter — Hexagon's `for..in` is JS's `for..of` done right (Loops §1 doctrine); tuple heads over `Map`; String loops are codepoint-correct (unlike naive JS index loops); "write your own collection" sidebar = §8's recipe; the generic-`Iterable` rejection with the `Seq(a)` idiom. | on next touch |
 
 ### 16.2 Closeout confirmations
 
-- **Part 1 §6.4's amendments are reflected**: Decisions Batch 2026-07 §6 stands as amended (the restricted form is v1; the full feature v2 — no further edit needed beyond the pending pointer already noted there); Loops §11.1 was re-scoped by Part 2 §14; the main roadmap's Tier-3 associated-types entry carries the re-scope and the `derive via` pointer (applied at landing, §16.1).
-- **The Part 2 §14 `Elem` → `Item` rename ripple** is unaffected by this document (which uses `Item` throughout); pending textual renames in Part 1/Decisions Batch remain on their apply-on-touch schedule.
-- With Part 5 filed, the Collections effort's remaining exports are exactly two: the stdlib listing's inherited items (§10, §16.1) and the FFI spec's inherited items (§14.1, Part 4 §10.4). Neither blocks the other.
+- **Part 1 §6.4's amendments are reflected**: Decisions Batch 2026-07 §6 stands as amended (the restricted form is v1; the full feature v2); Loops §11.1 was re-scoped by Part 2 §14; the main roadmap's Tier-3 associated-types entry carries the re-scope and the `derive via` pointer.
+- **The Part 2 §14 `Elem` → `Item` rename ripple**: this document and Part 1 use `Item` throughout; the residual historical `Elem` spellings in Decisions Batch 2026-07 ride the consolidation supersede pass, not an edit note here.
+- With Part 5 filed, the Collections effort's outstanding export is the stdlib listing's inherited items (§10, ledgered in `stdlib-roadmap.md`); the FFI inheritance (§14.1, Part 4 §10.4) has been discharged by FFI Parts 2 and 10.
 
 ---
 
@@ -490,22 +479,14 @@ for c in "abc"
 
 ---
 
-## 18. Correction records (July 2026, pre-landing review)
+## 18. Correction records (incorporated)
 
-Both arise from external review (Sol) of the document as first decided; both are applied **in place** above — the corrected sections are marked in their §-references. The same review also tightened the conversion-suite domain (§1, §5.3, §13.2 — "iterable" and "in the suite" are distinct properties, with `Range`/`Seq` exemptions reasoned), completed the two-legal-homes diagnostic so it actually names both homes (§3.3), completed the `String.fromSeq` contract (§5.3 — empty case, order, no normalization, linearity with the join-not-fold implementation note, one-sided round trip), and repaired acceptance-test details (§17 (h) honor-era noun, (j) off-by-one consume count and illustrative producer). Recorded per house rule: defect origin, rationale, rejected alternative marked do-not-relitigate.
+Two pre-landing review corrections were applied in place; this anchor records that they are incorporated. The same review's smaller tightenings — the conversion-suite domain (§1, §5.3, §13.2), the completed two-legal-homes diagnostic (§3.3), the full `String.fromSeq` contract (§5.3), acceptance-test repairs (§17) — are simply part of the normative text above.
 
-### 18.1 `Array(a)` iteration: normative ownership transferred to FFI (§4, §6, §9.2 corrected)
+### 18.1 `Array(a)` iteration: normative ownership transferred to FFI
 
-- **Defect:** the document declared `Iterable<Array(a)>` normatively, mandated native `for (const x of arr)` emission, and simultaneously left the observation semantics (live view vs snapshot under foreign mutation) open for FFI. The positions cannot coexist: native JS array iteration has JavaScript's mutation-observation behaviour and cannot implement snapshot semantics if FFI chooses them. A normative row whose meaning is undefined is not a decision.
-- **Origin:** completeness pressure — the wish for a one-document table — outrunning the dependency order the roadmap itself prescribes (the boundary's mutation story is FFI's, and every observable of the row hangs off it).
-- **Correction:** the core table is six rows (§4); `Array(a)` becomes a **binding obligation on the v1 FFI spec** (§6.1: FFI provides `Iterable<Array(a)>` with `Item = a` and `iterate = Array.toSeq`), with the conversion-surface naming direction queued (stale `toList` spellings noted for supersession) and emission explicitly unmandated here. The *direction* — the foreign door is iterable — is unchanged and not reopened.
-- **Rejected alternative (do not relitigate):** §13.5 — declaring the row here with emission mandated and semantics deferred.
-- **Credit:** Sol.
+The draft declared the `Iterable<Array(a)>` row normatively here while leaving its observation semantics to FFI; the positions cannot coexist (native iteration fixes observation behaviour). Corrected: the row became a binding FFI obligation (§6), since discharged by FFI Part 2. Rejected alternative, do not relitigate: §13.5.
 
-### 18.2 The `.d.ts` claim narrowed to `Iterable` machinery (§9.3 corrected)
+### 18.2 The `.d.ts` claim narrowed to `Iterable` machinery
 
-- **Defect:** §9.3 claimed "nothing constraint-shaped appears in `.d.ts`" unconditionally, and the Bag acceptance test asserted the same of `bag.d.ts` — whose `fromSeq`/`add`/`count` are exported `<a: Hash>` polymorphic functions. Under the bounded FFI direction (`spec/notes/ffi-exported-dictionaries.md`), generic editions expose compiler-produced nominal dictionary evidence in their `.d.ts` faces; the blanket claim would have put this document in contradiction with a design it has no jurisdiction over.
-- **Origin:** quoting Constraints §6.4's slogan wider than its scope — §6.4 itself assigns exported constrained-polymorphic functions to the FFI spec.
-- **Correction:** §9.3 now claims exactly what this document owns: no `Iterable`, `Item`, or `Iterable`-instance machinery in `.d.ts` (true by construction), with the foreign representation of other constraints on exported functions explicitly deferred to FFI; test (l) revised to match. The exported-dictionary design itself is **not** incorporated here — the companion note exists so this document does not contradict it, nothing more.
-- **Rejected alternative (do not relitigate):** restating the unconditional non-leakage slogan in any collections document; the slogan's scope is monomorphic exports plus this constraint's by-construction guarantee.
-- **Credit:** Sol.
+§9.3 originally claimed no constraint machinery of any kind appears in `.d.ts`; the foreign representation of *other* constraints on exported polymorphic functions is the FFI spec's (bounded exported-dictionaries direction, `spec/notes/ffi-exported-dictionaries.md`). Corrected in §9.3 and test (l). Do not restate the unconditional non-leakage slogan in any collections document — its scope is monomorphic exports plus this constraint's by-construction guarantee.

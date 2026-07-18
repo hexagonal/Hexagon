@@ -32,7 +32,14 @@ a | null | undefined
 
 No wrapper object, tag, or brand exists at runtime; a `Nullable(String)` holding `"x"` *is* the string `"x"`. Merely carrying the value preserves whether the foreign value was `null` or `undefined` — the distinction is lost only where a conversion deliberately collapses it (§4).
 
-**`Nullable` is definitionally idempotent:** `Nullable(Nullable(a)) ≡ Nullable(a)`, including through type aliases and generic substitution. There is no distinct doubly-nullable type for the zero-wrapper representation to misrepresent; instantiating a type variable under `Nullable` with another `Nullable` simply collapses at type formation. The representation and the type theory therefore agree by construction — an inner absence and an outer absence are the same absence.
+**`Nullable` is definitionally idempotent over the closed set of designated nullish-absorbing types:**
+
+```text
+Nullable(Nullable(a)) ≡ Nullable(a)
+Nullable(JsValue)     ≡ JsValue
+```
+
+The first equation applies through type aliases and generic substitution: there is no distinct doubly-nullable type for the zero-wrapper representation to misrepresent. Part 11 designates `JsValue` as the second and only other v1 nullish-absorbing type because it already contains both `null` and `undefined`. The designation list is explicit and closed; the checker performs no general structural “contains nullish” analysis over arbitrary unions or opaque foreign types.
 
 ### 2.2 The qualified nullish values
 
@@ -85,6 +92,8 @@ Nullable.toCase : Nullable(a) -> NullableCase(a)
 ```
 
 `toCase` preserves the `null`/`undefined` distinction and supports exhaustive ordinary `match`; the `Value(value)` arm extracts an `a`. `NullableCase` is a plain prelude union with no special typing — it follows Unions §6 for representation (mixed union: tagged POJOs, shared nullary constants) and Unions §4 for matching. Nothing about it is boundary magic; only `toCase` itself touches the foreign representation.
+
+All three constructors are qualified-only in the prelude inventory: `NullableCase.Undefined`, `NullableCase.Null`, and `NullableCase.Value(value)` in expressions and patterns. They are not auto-imported as bare prelude terms. This is ordinary companion qualification and does not change their runtime representations (Part 12 §12).
 
 ---
 
@@ -261,13 +270,14 @@ None. The three blockers this draft originally recorded were resolved by James a
 | `Nullable.null` / `Nullable.undefined` — qualified, typed, `Nullable(a)`-only | §2.2 |
 | `isNullish`/`isNull`/`isUndefined` return `Bool`; no flow narrowing; narrowing reserved for a type-system deep dive with `toCase` as the comparison datum | §2.3, §2.5 |
 | `NullableCase(a) = Undefined \| Null \| Value(value: a)`; `toCase` is the exact exhaustive reading | §3 |
+| All `NullableCase` constructors are qualified-only through the companion; no bare prelude auto-import; representations unchanged | §3; FFI Part 12 §12 |
 | `toOption` collapses both absences to `None`; `fromOption` → `undefined`; `fromOptionOrNull` → `null` | §4 |
 | Supersedes Unions §8's `Option.fromNullable`/`Option.toNullable`; edit note issued | §5 |
 | `Array(a)` = zero-copy readonly borrowed view; `ReadonlyArray<a>` face; no mutation surface | §6.1 |
 | Stability contract covers deferred traversals; escaped `Seq` extends the borrow; fresh arrays stable while exclusively held | §6.2 |
 | Live and snapshot iteration observationally identical under the contract; iteration never copies to enforce the contract | §6.5 |
 | Accessor surface: `size`, 1-based read-only `[]` (throws `IndexError`), `at` (signed), `get` (`Option`), eager shallow clamping slices returning fresh JS arrays; no mutation; `.length` gets a specialized diagnostic naming `Array.size` | §6.3 |
-| `Nullable` definitionally idempotent: `Nullable(Nullable(a)) ≡ Nullable(a)`, through aliases and substitution | §2.1 |
+| `Nullable` is definitionally idempotent over the closed designated nullish-absorbing set: `Nullable(Nullable(a)) ≡ Nullable(a)` and `Nullable(JsValue) ≡ JsValue`; no structural nullish analysis | §2.1; FFI Part 11 §8 |
 | `Array(Nullable(a))` admits sparse arrays; holes observe as `Nullable.undefined`; no presence distinction, no scanning; a hole under a non-nullable element type is a Part 1 §3.1 contract violation | §6.4 |
 | Native iteration needs no closing protocol | §7 |
 | `Iterable<Array(a)>`: `Item = a`, `iterate = Array.toSeq`; native `for...of` emission; suite membership — Collections Part 5 §6 discharged | §8 |

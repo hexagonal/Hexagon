@@ -1,6 +1,6 @@
 # FFI Note: Exported Constraint Dictionaries
 
-**Status:** Proto-spec decision note (July 2026), revised after the zero-cost fundamental-specialization decision. Not yet normative.
+**Status:** Superseded and historical (July 2026). Promoted into FFI Part 9, with the Parts 8–9 relationship fixed normatively there.
 **Purpose:** Specify the generic JavaScript/TypeScript edition of exported constrained-polymorphic Hexagon functions and the compiler-produced evidence handles that make public non-fundamental instances usable from JS.
 **Companions:** `ffi-zero-cost-primitive-exports.md`; `ffi-proto-spec-questions.md`; Constraints §5–§6; Modules §7; Functions subject-first doctrine.
 

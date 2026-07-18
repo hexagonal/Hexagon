@@ -31,11 +31,11 @@ Every **boundary occurrence** falls under exactly one of four categories. The fi
 
 ### 2.1 Representation-direct
 
-The runtime value already has the declared JavaScript representation and crosses **unchanged** — no wrapper, no copy, no check. Primitives, `Unit`, tuples, records, unions, `Option(a)`, `Nullable(a)`, opaque values, exceptions, genuine runtime collection values (`Vector`, persistent `Map`/`Set`), opaque extern types, representation-direct boundary functions, and every callback signature admitted in v1 are representation-direct (§4). Ordinary boundary functions with a supported top-level adapted position instead receive the stable wrapper described by Parts 3 and 7.
+The runtime value already has the declared JavaScript representation and crosses **unchanged** — no wrapper, no copy, no check. Primitives, `Unit`, tuples, records, unions, `Option(a)`, `Nullable(a)`, opaque values, exceptions, genuine runtime collection values (`Vector`, persistent `Map`/`Set`), opaque extern types, representation-direct boundary functions, and every callback signature admitted in v1 are representation-direct (§4). Ordinary boundary functions with a supported top-level adapted position instead receive the stable wrapper described by Parts 3, 4, and 7.
 
 ### 2.2 Borrowed foreign view
 
-Zero-copy, foreign-owned storage that Hexagon can only **observe**, under a stability/lifetime contract stated by the owning part. Foreign code owns the storage; Hexagon gains no mutation capability. `Array(a)` is the v1 borrowed view (Part 2); future `JsMap`/`JsSet` views belong to Part 10.
+Zero-copy, foreign-owned storage that Hexagon can only **observe**, under a stability/lifetime contract stated by the owning part. Foreign code owns the storage; Hexagon gains no mutation capability. `Array(a)` is specified by Part 2; `JsMap(k, v)` and `JsSet(a)` are specified by Part 10.
 
 ### 2.3 Adapted foreign capability
 
@@ -98,7 +98,7 @@ For each Hexagon type: its JavaScript runtime representation, its generated `.d.
 | `Exn` (in exported signatures) | whatever was thrown — branded `Error` or the raw foreign throwable | plain `Error` (Exceptions §7.5's accepted white lie) | direct | trusted |
 | `Range` | materialized range object implementing the JS iterable protocol (Loops §8) | `Hex.Range` — opaque branded interface extending `Iterable<number>` (§8.1) | direct | trusted |
 | opaque extern Promise handles | the foreign `Promise` object, unchanged and by identity | the declared opaque type, per the general extern-type facing rule (Parts 4/7) | direct | trusted; §4.4 (rejection is a foreign async event) |
-| Functions (boundary signatures) | n-ary JS function, same visible argument order | function type | direct in the common case; a supported top-level adapted position (e.g. `Seq(a)`) adds the one stable boundary adapter/wrapper (Part 3; Part 7) | trusted; foreign throws → §7 |
+| Functions (boundary signatures) | n-ary JS function, same visible argument order | function type | direct in the common case; a supported top-level adapted position (e.g. `Seq(a)`) adds one stable boundary function wrapper plus fresh per-value adapters (Parts 3, 4, 7) | trusted; foreign throws → §7 |
 | Callbacks (function-typed arguments/results) | the same JS function object in both directions | function type | direct — v1 admits **only** representation-direct callback signatures (Part 6) | trusted; adapter-requiring callback signatures are a v1 hard error (Part 6) |
 | `Nullable(a)` | `a \| null \| undefined` (zero wrapper) | `a \| null \| undefined` | direct | trusted; companion surface in Part 2 |
 | `Array(a)` | foreign-owned JS array, readonly to Hexagon | `ReadonlyArray<a>` | **borrowed** | stability contract in Part 2; violation → §3.1 |
@@ -106,9 +106,9 @@ For each Hexagon type: its JavaScript runtime representation, its generated `.d.
 | `Seq(a)` inbound (foreign `Iterable<a>` to Hexagon) | persistent memoizing adapter over one foreign iterator, requested on first demand | `Iterable<a>` | **adapted** (top-level only; §5.3) | Part 3; protocol throws → §7 |
 | `Vector(a)` | the runtime trie object **is** the value (identity crossing) | `Hex.Vector<a>` | direct | trusted |
 | persistent `Map(k, v)` / `Set(a)` | runtime HAMT objects (identity crossing) | `Hex.Map<k, v>` / `Hex.Set<a>` | direct | trusted; snapshot conversions are **converted** (Part 10 inherits Collections Part 4 §10) |
-| foreign `JsMap` / `JsSet` (names open) | native JS `Map` / `Set` | provisionally `ReadonlyMap<k, v>` / `ReadonlySet<a>` | borrowed | Part 10 — **not yet decided** (§10) |
-| `JsValue` (name open) | arbitrary JS value, opaque | `unknown` (provisional) | direct (opaque); decoding is converted & checked | Part 11 — **not yet decided** (§10) |
-| extern `type` (opaque foreign type) | whatever the foreign API supplies; Hexagon sees no structure | the declared named type | direct | trusted |
+| `JsMap(k, v)` / `JsSet(a)` | native JS `Map` / `Set` | `ReadonlyMap<k, v>` / `ReadonlySet<a>` | borrowed | Part 10 stability contract; inward persistent conversions are converted & checked |
+| `JsValue` | arbitrary JS value, opaque and identity-crossing | `unknown` | direct (opaque); decoding is converted & checked | Part 11 |
+| extern `type` (opaque foreign type) | whatever the foreign API supplies; Hexagon sees no structure | generated opaque branded named type (exact form Part 7) | direct | trusted |
 | `opaque record` / `opaque union` | the erased underlying runtime value (no wrapper added) | TS `unique symbol` brand hiding the representation (Part 7) | direct | trusted |
 
 ### 4.2 Reading the table
@@ -116,6 +116,7 @@ For each Hexagon type: its JavaScript runtime representation, its generated `.d.
 - **"Trusted" failure mode** means §3.1 governs: no per-call validation exists, and a violated declaration yields unspecified observations. Specified failure results (§3.3) belong to *converted* operations (§2.4) — named conversions and decoders over these types, not rows of this table, which classifies crossing positions.
 - **`Int` versus `Float`:** TypeScript cannot express the `Int` refinement — both face as `number`. The distinction remains part of the generated contract and its documentation (§6).
 - **`Option(a)` is never nullish.** It crosses as its genuine union representation. `Nullable(a)` is the explicit nullish foreign door, and conversion between them is explicit (Part 2). `Unit`'s `undefined` representation is likewise unrelated to nullability (Primitive Types §9).
+- **A foreign callable's declared `Unit` result is an observation rule, not a return-shape assertion.** Hexagon discards whatever the foreign call returns (Part 6 §3.2); exported Hexagon `Unit` functions genuinely return `undefined`.
 - **Runtime collection values cross by identity.** A `Vector` handed to JavaScript, stored there, and returned to Hexagon is the same value; the trie-backed runtime object is the Hexagon value, not a wrapper around one.
 - **Nominal records** are structurally represented at the boundary unless `opaque` changes the boundary face; the constructor/`.d.ts` details are Part 7's.
 
@@ -132,10 +133,10 @@ For each Hexagon type: its JavaScript runtime representation, its generated `.d.
 > **V1 permits an opaque extern type whose underlying foreign representation is a JavaScript Promise. It crosses representation-directly, by identity, and may be stored, passed, or returned unchanged — never wrapped. This introduces no Hexagon `Promise(a)`, no `async`/`await`, no automatic settlement conversion, no cancellation, no scheduling, and no rejection handling.**
 
 - **Failure split:** a synchronous throw from a Promise-returning extern call follows the ordinary `JsError` path (§7). Later rejection of the held Promise is a **foreign asynchronous event** — invisible to Hexagon unless a declared foreign operation delivers it to a callback.
-- **`.d.ts` face:** a Promise-backed handle follows the *general* extern opaque-type facing rule (declaration syntax Part 4; export faces Part 7); nothing Promise-specific is added. If that rule faces the type as a bare opaque name, a JS consumer receiving the handle back cannot `await` it type-safely — an ergonomic consequence recorded here, decided there.
+- **`.d.ts` face:** a Promise-backed handle follows the *general* extern opaque-type facing rule (Part 4 §5/§12.3): a generated opaque branded named type, with the exact declaration form owned by Part 7. Nothing Promise-specific is added. A JS consumer receiving the handle back therefore cannot `await` it type-safely — an accepted consequence of opacity.
 - **Settlement-observing members** (`then`/`catch`/`finally`-shaped declarations) are declarable only as ordinary extern members under the general rules — Part 5 for receiver members, Part 6 for callback signatures — and confer **no** Hexagon-level async semantics: microtask timing, callback ordering, and rejection routing remain entirely foreign. A rejection delivered to a declared callback is an ordinary foreign call into a Hexagon function, nothing more. The async specification is the intended home for settlement observation; hand-rolled `then` bindings should expect to be superseded.
 - **No callback exception:** fulfillment/rejection callbacks must have representation-direct signatures like every other v1 callback (Part 6). Promise support does not loosen that rule.
-- **No Promise-specific generic or structural form is introduced here.** Whether extern types *generally* may be parameterized is Parts 4–5's question and is not decided by this section. The async specification alone owns `Promise(a)`.
+- **No Promise-specific generic or structural form is introduced here.** Part 4 §11/§12.4 makes all v1 extern declarations monomorphic and defers parameterized extern types/functions/classes as one family. The async specification alone owns `Promise(a)`.
 - **Binding-author documentation obligation:** the compiler cannot discover a Promise representation behind opacity, so the warning is the binding author's to supply: that holding a handle neither observes nor suppresses settlement; that unhandled-rejection behavior is host-defined, including possible process termination; and what settlement obligations the bound API imposes. Generated FFI documentation **preserves the supplied warning** rather than inventing it.
 - **No compile-time diagnostic exists, on principle:** any Promise-specific diagnostic would require the compiler to know a foreign representation behind an opaque type, contradicting the opacity doctrine. Its absence is a decision, not an omission.
 - **Non-constraint clause:** the async specification owns `Promise(a)`, `await`, `AsyncSeq`, combinators, cancellation, and rejection integration, and owes these opaque handles nothing beyond their ordinary extern validity. No compatibility, migration, or naming commitment is created here.
@@ -279,14 +280,9 @@ Diagnostics for extern declaration *syntax* (callable `let`, missing subject par
 
 ---
 
-## 10. Open questions (recorded, not decided)
+## 10. Part 12 closeout
 
-Deliberately left open here; nothing in this document may be read as deciding them. All are owed to the later parts named. (The two former promotion blockers — `Range`'s foreign face and Promise-bearing extern declarations — were resolved by James and Sol and are now normative in §8.1 and §4.4 respectively.)
-
-1. **`JsValue`** — final name (`JsValue` vs `Foreign` vs other), accessor set, `unknown` face confirmation, decoding surface, conversion-failure representation, path diagnostics, and cycle policy (Part 11; Exceptions §10 concurs).
-2. **Foreign `JsMap`/`JsSet`** — final type names and accessor surfaces, coupled to `ReadonlyMap`/`ReadonlySet` faces (Part 10). The §4.1 row is categorical only.
-3. **The deterministic `Hex`-alias collision scheme** (§8) — the exact renaming algorithm when a module exports a local `Hex` name; an implementation decision of the `.d.ts` generator to be fixed no later than Part 12.
-4. **A common conversion-failure exception versus per-conversion result types** (§3.3 fixes only that defined failures exist and are distinct from contract violations; the shared shape, if any, is Part 10/Part 11 work).
+Part 12 §11.1 fixes the deterministic `Hex`-alias collision scheme promised by §8. The declaration emitter tries `Hex`, then `Hex1`, `Hex2`, … and takes the first candidate colliding with no top-level identifier emitted in that `.d.ts`, regardless of TypeScript namespace. Only the generated import alias is renamed; a user export is never renamed.
 
 ---
 
@@ -307,3 +303,4 @@ Deliberately left open here; nothing in this document may be read as deciding th
 | Type-only `import type * as Hex from "@hexagon/runtime"`; `Hex.Vector`/`Hex.Map`/`Hex.Set` faces | §8 |
 | Opaque extern Promise handles: representation-direct by identity; no Hexagon async semantics; settlement observation only via ordinary extern members; binding-author warning obligation (docs preserve, never invent); no diagnostic on principle; async spec unconstrained | §4.4 |
 | `Range` faces as `Hex.Range`: opaque branded interface extending `Iterable<number>`; no representation fields; arbitrary `Iterable<number>` does not satisfy it (edit note to Loops §8 issued) | §8.1 |
+| Generated `Hex` import alias uses first-free `Hex`, `Hex1`, `Hex2`, … probing over every emitted top-level `.d.ts` identifier; user exports are never renamed | §10; Part 12 §11.1 |

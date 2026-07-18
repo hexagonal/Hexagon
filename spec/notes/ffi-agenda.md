@@ -1,6 +1,6 @@
 # FFI Spec — Session Agenda
 
-**Status:** Planning note (July 2026; **updated at the Collections closeout** — the `List(a)` → `Vector(a)` rename applied per Collections Part 1 §1.3, items 8–10 added). Not a spec. Agenda for the FFI session, with pre-decided packages recorded so they aren't relitigated.
+**Status:** Completed and historical (July 2026). Fully discharged by FFI Parts 1–12 and Foreign Enums; `spec/ffi.md` is the canonical entry point. This remains drafting history, not a spec.
 **Companion context:** `spec/notes/ffi-proto-spec-questions.md` — bounded proto-spec decision surface; `spec/notes/ffi-zero-cost-primitive-exports.md` — fundamental specialization package; `spec/notes/ffi-exported-dictionaries.md` — generic dictionary edition, public evidence, and ABI.
 
 ## Pre-decided (from the Vector-representation discussion, July 2026; renamed per Collections Part 1 §1)

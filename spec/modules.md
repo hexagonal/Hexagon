@@ -1,11 +1,9 @@
 # Hexagon Spec: Modules
 
 **Status:** Decided (July 2026) — with a **hanging-questions** section (§12); nothing there blocks implementation of §1–§11.
-**Scope:** Module identity (one module per file, no module header), the `import` declaration (named, aliased, namespace forms), the `export` modifier and `export opaque`, privacy defaults, the module-alias namespace and position-based resolution, the prelude occlusion rule (retiring the Statements §10.2 interim rule), import-collision rules, the acyclic-import rule and load order, top-level effects, instance globality and the orphan rule's operational definition of "home module," the private-in-public rule, generalisation at module level (restated), ESM emission, and edit notes to existing specs.
-**Not in scope:** the `.d.ts` representation of `opaque` types (FFI spec — flagged §11.3), package/bare-specifier resolution (§12.1), re-exports (§12.2), CLI root-selection and project-configuration syntax (compiler architecture; §8.3 fixes the language-level absence of a special entry point), the prelude's inventory (stdlib listing — one constraint pre-registered here, §6.4), abstraction pedagogy (owed to a future session by agreement).
-**Companions:** Constraints spec (§5.1 duplicate reporting point and §5.3 orphan rule — both discharged here; §9.3 presumption — confirmed here), Statements/Blocks/Mutability spec (§5.2/§10.2 prelude-collision question — closed here; §6 `var` confinement — restated as module doctrine here), Declarations Preamble (§7 module-level declaration inventory; §10.9 owed items — discharged here), Unions §2 (constructor qualification — discharged here), Functions §8 / Type System Overview §2.2 (generalisation at module export — anchored here), Operators §14 (`.` as module-path separator — semantics fixed here), Lexer & Layout (module top level is a block — unchanged, consumed here).
-
-Written for a future implementation session against the existing `hexc` architecture: Algorithm J, union-find tyvars, level-based generalisation, constraints as dictionaries, layout pass, readable-JS emission with `.d.ts`.
+**Scope:** Module identity (one module per file, no module header), the `import` declaration (named, aliased, namespace forms), the `export` modifier and `export opaque`, privacy defaults, the module-alias namespace and position-based resolution, prelude occlusion, import-collision rules, the acyclic-import rule and load order, top-level effects, instance globality, the orphan rule's operational definition of "home module," instance discoverability (§7.6), the private-in-public rule, generalisation at module level (restated), and ESM/`.d.ts` emission — including the opaque brand face (§11.4, per FFI Part 7 §5).
+**Not in scope:** package/bare-specifier resolution (§12.1), re-exports (§12.2), CLI root-selection and project-configuration syntax (compiler architecture; §8.3 fixes the language-level absence of a special entry point), and the prelude's inventory (stdlib listing — one constraint pre-registered here, §6.4).
+**Companions:** Constraints spec (§5.1 duplicate reporting point; §5.3 orphan rule; §9.3 structural instances), Statements/Blocks/Mutability spec (§5.2/§10.2 prelude collisions; §6 `var` confinement), Declarations Preamble (§7 declaration inventory; Rewrite Rule §1.1), Unions §2 (constructor qualification), Functions §8 (module-level generalisation), Operators §14 (`.` as module-path separator), Method Syntax §4/§8 (companion dispatch and emitted companion imports), Lexer & Layout (module top level as a block), and FFI Parts 4/7 (extern bindings and export surface).
 
 ---
 
@@ -15,7 +13,7 @@ Written for a future implementation session against the existing `hexc` architec
 - **Everything is private unless exported.** `export` is a declaration prefix, JS-style. An unexported binding is invisible outside its file — not "discouraged," invisible: no qualified access, no reflection, no back door.
 - **Modules are fences, not forges.** Modules control *name visibility only*. They do not create type identity — that is the declaration site's job (`record`/`union`, Declarations Preamble). A nominal type is the same type through every import path and alias; structural types belong to no module at all. There are no functors, no signatures, no first-class modules (§9.1 records the rejection).
 - **A module cannot contain, export, or close over mutable state** — in pure Hexagon. This is not a new rule but the module-level face of three existing ones: `var` is function-body-only (Statements §6.1), there are no ref cells (§6.4), and no lambda captures a `var` (§6.2). The only module-level state is immutable `let` bindings evaluated once at load. `export` exposes values and names, never cells. (An `extern` JS module can of course hide mutation behind a function; that lives at the FFI boundary and is that spec's problem.)
-- **Instances are global and unfenced.** `implement` ignores the export system entirely: an instance is visible program-wide the moment its module is in the import graph — never imported, never exported, never hidden (Constraints §5.3, preserved as demanded). Coherence is checked over the whole graph (§7).
+- **Instances are global and unfenced.** `honor` ignores the export system entirely: an instance is visible program-wide the moment its module is in the import graph — never imported, never exported, never hidden (Constraints §5.3). Coherence is checked over the whole graph (§7).
 - **Imports are acyclic, hard error.** No import cycles, ever (§8.1). This buys a deterministic topological load order, keeps the emitted ESM out of JS's cycle semantics (temporal dead zones), and matches the F# lineage.
 - **JS-verbatim syntax; ESM-identity emission.** The import/export surface is deliberately JavaScript's own, and one Hexagon module emits as one ESM module with `export` mapping to `export`. Readable-JS emission is, for this feature, the identity function — the strongest argument for the design and the reason every syntax deviation was declined.
 
@@ -25,8 +23,8 @@ Written for a future implementation session against the existing `hexc` architec
 
 - **One module per file.** File extension `.hex`. The module top level is a block (Lexer & Layout) exempt from the final-expression rule (Statements §3.1); its items are the module-level declarations (Declarations Preamble §7.1), `let`/`fun` bindings, and `Unit`-typed effect expressions (§8.2).
 - **No module header.** `module Geometry` does not exist and is a parse error pointing here. A file does not know or declare its own name; naming is the importer's act. Rationale: the header is pure ceremony under one-module-per-file (the information is the path), it creates a name-vs-path drift hazard (Haskell's directory-mirroring rules exist to police exactly this), and JS-verbatim declines it anyway.
-- **Module paths are string literals, relative form:** `"./geometry"`, `"../shared/util"` — extension omitted, resolved against the importing file. Bare specifiers (`"stdlib/json"`-style package paths) are reserved and currently a compile error ("package imports are not yet supported"); resolution policy is a hanging question (§12.1).
-- **Nominal identity is declaration-site identity.** `Point` declared in `geometry.hex` is one type constructor everywhere it flows, under any alias. Two files each declaring `record Point` produce two unrelated types; the Declarations Preamble §7.3 duplicate rule remains per-module. Structural records and tuples are the same type in every module, need no export, cannot be hidden, and their instances remain exclusively compiler-derived — the Constraints §9.3 presumption is hereby **confirmed as decided**: "which module owns `{x: Float}`" has no answer because structural types have no home module, and nothing needs one.
+- **Module paths are string literals, relative form:** `"./geometry"`, `"../shared/util"` — extension omitted, resolved against the importing file. Bare specifiers (`"stdlib/json"`-style package paths) are reserved for Hexagon-to-Hexagon `import` and currently a compile error ("package imports are not yet supported"); resolution policy is a hanging question (§12.1). This does not restrict foreign `extern from`, whose bare JavaScript/package specifiers are legal under FFI Part 4 §2.1.
+- **Nominal identity is declaration-site identity.** `Point` declared in `geometry.hex` is one type constructor everywhere it flows, under any alias. Two files each declaring `record Point` produce two unrelated types; the Declarations Preamble §7.3 duplicate rule remains per-module. Structural records and tuples are the same type in every module, need no export, cannot be hidden, and their instances remain exclusively compiler-derived: "which module owns `{x: Float}`" has no answer because structural types have no home module, and nothing needs one (Constraints §9.3).
 
 ---
 
@@ -52,17 +50,19 @@ Imports are module-level declarations; an `import` inside a function body joins 
 
 ### 3.2 Aliased imports
 
-`import { area as circleArea }` binds only the alias. The alias obeys the ordinary case rules for what it names (a term import must alias to lowercase-initial, a type/constructor to uppercase-initial; violating this is a parse-adjacent error, "alias case must match what it names"). Aliasing a record's name splits nothing: `import { Point as P }` binds `P` in both namespaces.
+`import { area as circleArea }` binds only the alias. The alias obeys the ordinary start-class rules for what it names (a term import must alias to non-uppercase-start, a type/constructor to uppercase-start; violating this is a parse-adjacent error, "alias start class must match what it names"). Aliasing a record's name splits nothing: `import { Point as P }` binds `P` in both namespaces.
 
 ### 3.3 Namespace imports
 
-`import * as Geo from "./geometry"` binds the single name `Geo` as a **module alias** giving qualified access to every export: `Geo.area(...)`, and in type position `Geo.Point`, `xs: List(Geo.Shape)`. Constructors qualify the same way (`Geo.Circle(1.0)`), including in patterns (`match s` / `Geo.Circle(r) => ...`) — this discharges the Unions §2 qualification flag. Module aliases are uppercase-initial, mandatorily.
+`import * as Geo from "./geometry"` binds the single name `Geo` as a **module alias** giving qualified access to every export: `Geo.area(...)`, and in type position `Geo.Point`, `xs: Vector(Geo.Shape)`. Constructors qualify the same way (`Geo.Circle(1.0)`), including in patterns (`match s` / `Geo.Circle(r) => ...`) (Unions §2). Module aliases are uppercase-start, mandatorily.
 
 **Module aliases are not values.** `let m = Geo` is an error: "modules are not values." No passing, no returning, no storing. This is what keeps the namespace story (§5) honest and forecloses first-class modules by construction.
 
 ### 3.4 Effect imports
 
-`import "./telemetry"` imports nothing and loads the module for its top-level effects and (more importantly) its **instances** — the idiom for pulling a module into the graph so its `implement` declarations exist (§7). Rare by design; the diagnostic for an unsatisfied constraint whose instance lives in an unimported module should suggest it (§10).
+`import "./telemetry"` imports nothing and loads the module for its top-level effects. It also activates any instances declared in that module (§7), although instance-only use is nearly vestigial in v1 (§7.6). Workspace-aware tooling can suggest this import when it finds a lawful instance outside the current graph (§7.6, §10).
+
+The foreign counterpart is `extern import "telemetry/register"` (FFI Part 4 §8): it loads a JavaScript module for effects and introduces no Hexagon bindings. The `extern` keyword keeps the foreign and Hexagon module graphs visibly distinct.
 
 ---
 
@@ -80,10 +80,10 @@ Imports are module-level declarations; an `import` inside a function body joins 
 | `export type UserName = String` | the alias name |
 | `export constraint Ord<a: Eq> = ...` | the constraint name **and** its members |
 | `export exception ParseError(...)` | the exception constructor |
-| `export implement ...` | **hard error** — "implementations are always visible; `export` does not apply" (§7) |
+| `export honor ...` | **hard error** — "instances are always visible; `export` does not apply" (§7) |
 | `export import ...` | **hard error** — re-exports deferred (§12.2) |
 
-There are **no default exports**. `export default` is a parse error ("Hexagon has named exports only"). Rejected with reasons §9.5.
+There are **no default exports**. `export default` is a parse error ("Hexagon has named exports only"). Inside `extern from`, `export default fun`/`let` instead means “bind an incoming JavaScript default export, then expose it as an ordinary named Hexagon export”; it never creates a Hexagon default export (FFI Part 4 §6). Rejected with reasons §9.5.
 
 ### 4.2 `export opaque`
 
@@ -111,7 +111,7 @@ An exported term whose type mentions a **private nominal type** is a hard error 
 Rust's private-in-public rule, same rationale: the caller could neither name nor use the type, so the export is unusable as written, and the fix is one keyword. The error names every offending type once. Details:
 
 - An **`opaque`** type in an exported signature is fine — that is the whole point of `opaque`.
-- A private **alias** in an exported signature is fine: aliases are transparent (Preamble §4), so the exported signature (and its `.d.ts`) simply uses the expansion; display stickiness (Preamble §6) yields to visibility. This discharges Preamble §10.9's "export visibility of aliases referenced by exported signatures."
+- A private **alias** in an exported signature is fine: aliases are transparent (Preamble §4), so the exported signature (and its `.d.ts`) simply uses the expansion; display stickiness (Preamble §6) yields to visibility.
 - Instances are exempt (they are not exports and can mention anything; §7.4).
 
 ---
@@ -132,7 +132,7 @@ Hexagon now has **four namespaces**: terms, types, constraints (Constraints §2.
 - **Two module aliases with the same name** in one module: hard error at the second `import * as` line — the one new collision rule.
 - **Module alias vs type name, module alias vs constructor:** legal, resolved by position. This is deliberate and load-bearing: it is what makes the **companion-module idiom** — `Int` the type / `Int` the module, `Map`/`Map`, `Point`/`Point` — a *rule* rather than a prelude coincidence.
 - **Named-import collisions** are hard errors at the import line: importing the same name from two modules, or importing a name the module also declares (in the same namespace). You wrote both lines; the fix is qualification or an `as` alias, and the error says so. (Cross-namespace coexistence — an imported constructor beside a local type of the same name — follows the ordinary namespace rules; only same-namespace duplicates collide.)
-- **Constructor / module-alias coexistence** (bare `Shape` is a nullary constructor, `Shape.` is a module): **legal in v1.** The Elm-strict alternative (error, force a rename) is recorded as a **v2 candidate** to be adopted if field evidence shows confusion — tightening later is easy; loosening later is a design admission. The LSP hover should disambiguate in the meantime. *(Directional call recorded this session.)*
+- **Constructor / module-alias coexistence** (bare `Shape` is a nullary constructor, `Shape.` is a module): **legal in v1.** The Elm-strict alternative (error, force a rename) is a **v2 candidate** to be adopted if field evidence shows confusion — tightening later is easy; loosening later is a design admission. The LSP hover should disambiguate in the meantime.
 
 ### 5.3 The companion-module idiom (blessed)
 
@@ -150,7 +150,9 @@ let p = Point.make(1.0, 2.0)      -- Point. = module; Point in types = the type
 fun norm(p: Point): Float = ...
 ```
 
-The prelude's `Int.div`, `Map.get`, `List.map` are this exact pattern — auto-imported companion modules, **one mechanism, not a special prelude device**.
+The prelude's `Int.div`, `Map.get`, `Vector.map` are this exact pattern — auto-imported companion modules, **one mechanism, not a special prelude device**.
+
+**Companion dispatch makes this idiom load-bearing** (Method Syntax §4): a dot call `p.getX()` rewrites to the companion operation of the receiver's type, and `CompanionOf` targets **the nominal type's home module** — the declaration site, unconditionally — not the importer's alias or any import path. The idiom is therefore a resolution rule's substrate, not just a style.
 
 ### 5.4 The prelude occlusion rule
 
@@ -159,7 +161,7 @@ The prelude enters every module's scope as a **distinct outermost layer**. The H
 - A **module-level** `let`/`fun` (or import, or declaration) **may occlude a prelude name**. `fun show(x) = ...` at module level is legal; the local `show` wins unqualified module-wide, and the prelude's version remains reachable qualified (`String.show` etc. — §6.4 guarantees a qualified home exists). Explicit imports enter the *same* layer as local bindings and fight under the full ban.
 - A **function-local** binder may occlude **nothing**, prelude included: `let show = ...` inside a function in a module that has not occluded `show` remains the hard error. Inside any function body the ban is absolute and layer-blind — which is where the "refactoring bugs live in names *you* bound" rationale actually lives. You never wrote the prelude name, so a module-level occlusion changes no line of yours; a function-local one could.
 
-This **retires** the Statements §10.2 interim rule ("enforced against function-local scopes only") in exactly this direction, and closes Statements §5.2's flag. Rationale for occlusion at all, recorded: without it, every addition to the prelude in a future release is a breaking change to any program using that name — untenable with no warning tier to soften it.
+This section owns the module/prelude boundary referenced by Statements §5.2/§10.2. Without occlusion, every addition to the prelude in a future release would break any program already using that name — untenable with no warning tier to soften it.
 
 ---
 
@@ -167,7 +169,7 @@ This **retires** the Statements §10.2 interim rule ("enforced against function-
 
 ### 6.1 Values and generalisation
 
-Module-level `let`/`fun` bindings generalise per the existing rules (Functions §8; value restriction) — "generalisation at module export" (Type System Overview §2.2) is anchored here: export adds nothing to generalisation; a module-level binding has its generalised scheme whether exported or not, and import conveys the scheme unchanged. Constrained exports carry their constraints; the importer's call sites discharge them exactly as local calls would.
+Module-level `let`/`fun` bindings generalise per the existing rules (Functions §8; value restriction). Export adds nothing to generalisation: a module-level binding has its generalised scheme whether exported or not, and import conveys the scheme unchanged. Constrained exports carry their constraints; the importer's call sites discharge them exactly as local calls would.
 
 ### 6.2 Types
 
@@ -179,7 +181,7 @@ Structural types (no home), instances (global, §7), `var` (cannot exist at modu
 
 ### 6.4 Pre-registered stdlib constraint
 
-The occlusion rule's "prelude version stays reachable qualified" only works if **every prelude name has a qualified home** — a companion module it also lives in (`List.map` for bare `map`, `String.show`/per-type homes for `show`'s instances, etc.). The stdlib listing **must** maintain this invariant; a bare-only prelude export is a spec violation there. Pre-registered now, subject-first-convention style.
+The occlusion rule's "prelude version stays reachable qualified" only works if **every prelude name has a qualified home** — a companion module it also lives in (`Vector.map` for bare `map`, `String.show`/per-type homes for `show`'s instances, etc.). The stdlib listing **must** maintain this invariant; a bare-only prelude export is a spec violation there. Pre-registered now, subject-first-convention style.
 
 ---
 
@@ -187,23 +189,34 @@ The occlusion rule's "prelude version stays reachable qualified" only works if *
 
 ### 7.1 Globality (restated, now operational)
 
-Instances are visible program-wide once their module is in the import graph — not imported, not exported, not hidden (Constraints §5.3 preserved verbatim). `export implement` is the §4.1 error. The effect-import form (§3.4) exists chiefly to pull instance-bearing modules into the graph.
+Instances are visible program-wide once their module is in the import graph — not imported, not exported, not hidden (Constraints §5.3). `export honor` is the §4.1 error. The effect-import form (§3.4) can pull an otherwise-unreferenced instance home into the graph; §7.6 explains why that use is nearly vestigial in v1.
 
 ### 7.2 "Home module," operationally
 
-The orphan rule's home module (Constraints §5.3) is defined: **the file whose text contains the declaration.** `implement C<T>` must appear in the file declaring `C` or the file declaring `T` (parameterized heads: `T`'s outermost constructor). Trivial under one-module-per-file; recorded so nothing subtler is ever read into it.
+The orphan rule's home module (Constraints §5.3) is defined: **the file whose text contains the declaration.** `honor C<T>` must appear in the file declaring `C` or the file declaring `T` (parameterized heads: `T`'s outermost constructor). Trivial under one-module-per-file; recorded so nothing subtler is ever read into it.
 
-### 7.3 Duplicate-instance reporting point (discharging Constraints §5.1)
+### 7.3 Duplicate-instance reporting point
 
-Same-module duplicates error at the second declaration (unchanged). Cross-module duplicates error **at whole-program check, when the second module enters the import graph**, naming both modules and both declaration sites: "duplicate implementation of `Ord<String>`: declared in `./a.hex` (line N) and `./b.hex` (line M)." The error is attributed to the program, not to either innocent-looking file — which is precisely why the orphan rule exists to make it nearly unreachable.
+Same-module duplicates error at the second declaration (unchanged). Cross-module duplicates error **at whole-program check, when the second module enters the import graph**, naming both modules and both declaration sites: "duplicate instance of `Ord<String>`: declared in `./a.hex` (line N) and `./b.hex` (line M)." The error is attributed to the program, not to either innocent-looking file — which is precisely why the orphan rule exists to make it nearly unreachable.
 
 ### 7.4 Instances on private types
 
-Legal and harmless: an instance on an unexported type exists globally but nothing outside can name the type to reach it. `derives` on private and `opaque` types works unchanged (§4.2). No visibility check applies to instance heads; §4.3's private-in-public rule does not extend to `implement`.
+Legal and harmless: an instance on an unexported type exists globally but nothing outside can name the type to reach it. `derives` on private and `opaque` types works unchanged (§4.2). No visibility check applies to instance heads; §4.3's private-in-public rule does not extend to `honor`.
 
 ### 7.5 Whole-program coherence: acknowledged cost
 
 Coherence and orphan checking are defined **over the whole import graph**, which `hexc` sees today (whole-program compilation). Publishing compiled Hexagon as plain JS to npm loses instance metadata; cross-*package* coherence would require interface files. Known future cost, deliberately not solved here; recorded so the package story (§12.1) inherits it.
+
+### 7.6 Instance discoverability
+
+Globality (§7.1) plus the orphan rule (§7.2) make discoverability a near-non-problem in the ordinary case, with a bounded residue:
+
+- **The ordinary case brings both legal homes along.** Source that names `C<T>` resolves `C` through the constraint's home and `T` through the type's home. With no v1 re-exports, both files are therefore already in the import graph (or are the same file), and the one lawful instance arrives without a separate import.
+- **The residual cases** are (a) a value whose nominal type is *inferred* but never named by the consuming module — its own imports need not name either home even though the wider program graph reaches them through intermediaries — and (b) isolated-file checking (an editor or tool checking one file without the whole graph), where "in the graph" is not yet well-defined.
+- **The diagnostic obligation:** a missing-`C<T>` error must name the two legal homes (or the one home when they coincide) — "no `Ord<Config>` instance is in the program; it could only be declared in `./config` (declares `Config`) or the module declaring `Ord`" — so the fix is a lookup, never a search.
+- **The pre-1.0 LSP obligation:** when a lawful instance exists in the *workspace* but outside the current graph, the tooling must detect it and name the activating import.
+- **Effect-import-for-instances is nearly vestigial in v1** as a consequence of the first bullet. Future re-exports or packages can make it load-bearing by separating names in scope from their instance homes; §13(i) records the spelling without presenting it as a daily idiom.
+- **Packages and future re-exports widen the residue** (§12.1–§12.2): a facade that re-exports a type without its home module's instance context, or a package boundary hiding the home, recreates the discoverability gap at larger scale. The package design inherits this alongside §7.5's coherence cost.
 
 ---
 
@@ -219,7 +232,7 @@ Non-binding `Unit`-typed expressions are **legal at module top level** (`print("
 
 ### 8.3 Root modules; no special `main`
 
-Hexagon has **no language-level entry function**. `main` is an ordinary lowercase identifier: it may be declared, exported, imported, or called, but the compiler never discovers or invokes it implicitly and assigns no special type to it.
+Hexagon has **no language-level entry function**. `main` is an ordinary non-uppercase-start identifier: it may be declared, exported, imported, or called, but the compiler never discovers or invokes it implicitly and assigns no special type to it.
 
 A compiler host selects one or more **root modules**. Imports determine each root's acyclic graph. Building a root emits its ordinary ESM graph; running a root means asking the target host to evaluate that emitted root module. Its imports initialize and its top-level effects run exactly per §8.1–§8.2. No wrapper call or second program-order mechanism exists.
 
@@ -256,34 +269,36 @@ Library versus application is therefore not a distinction in Hexagon module sema
 | `Name.` where `Name` is a type, not a module | "`Shape` is a type, not a module; …" (§5.1) |
 | Alias case mismatch (`import { area as Area }`) | "alias case must match what it names" |
 | Function-local binder occluding any in-scope name incl. prelude | existing Statements §5.1 error, unchanged |
-| `export implement` | "implementations are always visible; `export` does not apply" |
+| `export honor` | "instances are always visible; `export` does not apply" |
 | `export default` | "Hexagon has named exports only" |
 | `opaque` without `export` | "everything is already private; remove `opaque`" |
 | `opaque` on `type` | "aliases are transparent; make it a `record` or single-constructor `union`" |
 | `opaque` on `let`/`fun`/`constraint`/`exception` | parse error: "`opaque` applies to `record` and `union` declarations" |
 | Opaque field access / construction / match outside home module | "`Point` is opaque outside `./point`; use its exported functions" |
 | Private nominal type in exported signature | "exported `parse` mentions the private type `Token`; export `Token` (possibly as `export opaque`)" (§4.3) |
-| Cross-module duplicate instance | "duplicate implementation of `Ord<String>`: `./a.hex` (line N) and `./b.hex` (line M)" (§7.3) |
-| Unsatisfied constraint whose instance exists in an unimported module | existing Constraints §8 phrasing + hint: "its implementation is in `./x`; add `import \"./x\"`" |
-| Bare package specifier | "package imports are not yet supported" (§12.1) |
+| Cross-module duplicate instance | "duplicate instance of `Ord<String>`: `./a.hex` (line N) and `./b.hex` (line M)" (§7.3) |
+| Workspace instance outside the current graph (LSP) | existing Constraints §8 error + hint: "its instance is in `./x`; add `import \"./x\"`" (§7.6) |
+| Bare package specifier in Hexagon `import` | "package imports are not yet supported" (§12.1); foreign `extern from` bare specifiers are legal (FFI Part 4 §2.1) |
+| Uppercase-start name in a binder-pattern position matching an in-scope module alias | "`Json` is a module alias; module aliases are not binders — binders are non-uppercase-start; did you mean `json`?" (near-miss hint, same family as §5.1's type-not-module; Statements §9.2 origin) |
+| Missing `C<T>` instance | names the legal homes (§7.6; two, or one if they coincide): "…could only be declared in `./config` (declares `Config`) or the module declaring `Ord`" |
 
 ---
 
 ## 11. Emission
 
 1. **One module → one ESM module.** `export` → `export`; unexported bindings → plain `const`/`function`. Privacy is enforced by the Hexagon checker; the emitted JS simply doesn't export what wasn't exported.
-2. **Named imports always.** Because module aliases are not values, every `Geo.area` resolves at compile time to a specific export; the emitter uses named ESM imports (`import { area } from "./geometry.js"`) **even when the source used the namespace form** — tree-shakeable, readable, no runtime namespace objects. (An emitted `import * as` is permitted where the emitter judges it more readable for heavy qualified use; semantics identical either way.)
+2. **Named imports always.** Because module aliases are not values, every `Geo.area` resolves at compile time to a specific export; the emitter uses named ESM imports (`import { area } from "./geometry.js"`) **even when the source used the namespace form** — tree-shakeable, readable, no runtime namespace objects. (An emitted `import * as` is permitted where the emitter judges it more readable for heavy qualified use; semantics identical either way.) **The emitter may likewise add a named import a resolved companion dot call requires even when the source never textually imported the companion module** (Method Syntax §8.2) — the same liberty, exercised for calls the checker resolved; emitted-name collisions are the emitter's ordinary renaming problem.
 3. **Load order** is ESM's own, valid because the graph is acyclic (§8.1). Effect imports emit as bare `import "./telemetry.js"`.
-4. **`.d.ts`:** exported terms and types appear; private ones don't; private aliases in exported signatures appear as their expansion (§4.3). The **`opaque` representation in `.d.ts` is deferred to the FFI spec** *(directional call recorded this session)* — the candidates (branded types vs. honest-fields-abstraction-is-Hexagon-side-only) are that spec's first agenda item; until decided, the emitter may ship honest fields with a documented caveat.
-5. **Instances** emit as module-level `const` dictionaries where materialised (Constraints §6.1), exported in JS *only* as plumbing when a genuinely-polymorphic exported function needs cross-module dictionary access — never surfaced in `.d.ts` (Constraints §6.4), never nameable from Hexagon.
+4. **`.d.ts`:** exported terms and types appear; private ones don't; private aliases in exported signatures appear as their expansion (§4.3). An exported opaque record or union uses FFI Part 7 §5's brand-only face: one non-exported `unique symbol` per type, with no honest fields or constructors exposed. The brand is TypeScript-only; runtime representation and identity are unchanged.
+5. **Instances** remain global compiler-selected declarations and are never nameable from Hexagon. At the JavaScript boundary, every instance satisfying FFI Part 9 §5's public-evidence closure forces a stable module-level handle or factory export from the instance declaration's home module, with its `Constraint.Dictionary<a>` face in `.d.ts`; this capability exists independently of current consumption. Private instances remain plumbing. Fundamental specializations are dictionary-free (FFI Part 8).
 
 ---
 
 ## 12. Hanging questions (recorded, not decided)
 
-1. **Package resolution.** Bare specifiers reserved (§2); node_modules-style resolution, a lockfile story, and cross-package coherence via interface files (§7.5) are one connected future design. *Needed by:* first external-library milestone.
-2. **Re-exports** (`export { x } from "./m"`): deferred; the facade-module pattern will eventually want it; declined for v1 to keep export = declaration prefix, one rule.
-3. **Elm-strict constructor/module-alias coexistence** — v2 candidate on field evidence (§5.2). *(Directional call recorded this session.)*
+1. **Package resolution.** Bare specifiers reserved (§2); node_modules-style resolution, a lockfile story, and cross-package coherence via interface files (§7.5) are one connected future design — which also inherits §7.6's instance-discoverability residue, since package boundaries and facades widen it. *Needed by:* first external-library milestone.
+2. **Re-exports** (`export { x } from "./m"`): deferred as *source syntax*; the facade-module pattern will eventually want it; declined for v1 to keep export = declaration prefix, one rule. (FFI facade emission that re-exports extern bindings — FFI Parts 4 §7 / 7 §1 — is emitter output shape and introduces **no** Hexagon re-export syntax.) A landed design also inherits §7.6's discoverability note.
+3. **Elm-strict constructor/module-alias coexistence** — v2 candidate on field evidence (§5.2).
 4. **Selective import of constraint members** — presumed never needed (§3.1); revisit only on concrete demand.
 5. **Formatter policy for import placement/sorting** — out of spec scope, same parking spot as all lint policy.
 
@@ -335,19 +350,20 @@ import { area } from "./rect"                -- ERROR: area already imported; al
 
 -- (h) Private-in-public
 union Token = Word(s: String) | Gap          -- private
-export fun parse(s: String): List(Token) = ...
+export fun parse(s: String): Vector(Token) = ...
 -- ERROR: exported parse mentions the private type Token; export Token
 -- (possibly as export opaque)
 
--- (i) Instance globality + effect import
--- ord-instances.hex: implement Ord<Config> = ...
-import "./ord-instances"                     -- no names; instance now in the graph
+-- (i) Instance globality + effect import (legal but normally redundant in v1,
+--     §7.6; Config's home is one of the only legal instance homes)
+-- config.hex: record Config = ...; honor Ord<Config> = ...
+import "./config"                            -- no names; instance now in the graph
 sort(configs)                                -- OK
 
 -- (j) Cross-module duplicate instance
--- a.hex: implement Show<Weird> = ...        -- (a.hex declares Weird: home, legal)
--- b.hex: implement Show<Weird> = ...        -- ERROR at program check: duplicate
-                                             -- implementation of Show<Weird>:
+-- a.hex: honor Show<Weird> = ...        -- (a.hex declares Weird: home, legal)
+-- b.hex: honor Show<Weird> = ...        -- ERROR at program check: duplicate
+                                             -- instance of Show<Weird>:
                                              -- ./a.hex (line N) and ./b.hex (line M)
                                              -- (b.hex also violates the orphan rule)
 
@@ -364,18 +380,20 @@ Geo.area(2.0)
 | Decision | Where |
 |---|---|
 | One module per file; no `module` header; path = identity; importer names | §1, §2 |
-| Structural types have no home module; Constraints §9.3 presumption confirmed decided | §2 |
+| Structural types have no home module; their instances are compiler-derived only | §2; Constraints §9.3 |
 | JS-verbatim imports: named, `as` aliases, `import * as`, effect imports; items import across all exported namespaces; record import = type + constructor; union constructors imported severally | §3 |
 | Module aliases: uppercase, not values; qualified access in term, type, and pattern position | §3.3 |
 | `export` = declaration prefix exporting everything introduced; no default exports; no re-exports (v1) | §4.1 |
 | `export opaque` on `record`/`union`: type name only; fields/constructors/matching private outside home; derives unaffected; home module unaffected | §4.2 |
-| Private-in-public: hard error for nominal types; transparent aliases exempt (expansion used); Preamble §10.9 discharged | §4.3 |
+| Private-in-public: hard error for nominal types; transparent aliases exempt (expansion used) | §4.3 |
 | Fourth namespace (module aliases); position-based resolution; `Name.` checks modules first | §5.1 |
 | Collisions: duplicate module aliases error; alias-vs-type/constructor legal (companion idiom blessed); named-import same-namespace collisions error; Elm-strict restriction = v2 candidate | §5.2, §12.3 |
-| Prelude occlusion: module-level bindings may occlude prelude; function-local occludes nothing; explicit imports fight; Head Binder rule untouched in statement; Statements §10.2 retired | §5.4 |
+| Prelude occlusion: module-level bindings may occlude prelude; function-local occludes nothing; explicit imports fight; Head Binder rule untouched in statement | §5.4 |
 | Every prelude name must have a qualified home (stdlib invariant, pre-registered) | §6.4 |
 | Instances never exported/imported/hidden; home module = containing file; cross-module duplicates reported at whole-program check naming both sites; instances on private types legal; whole-program coherence cost acknowledged | §7 |
+| Discoverability: ordinary `C<T>` use brings both legal homes into the graph; residue = inferred-never-named types and isolated-file checking; missing-instance diagnostics name the legal homes; pre-1.0 LSP names the activating import; effect-import nearly vestigial; packages/re-exports widen the residue | §7.6 |
+| Companion dispatch targets the nominal type's home module (idiom load-bearing); emitter may add companion-call named imports | §5.3, §11.2 |
 | Imports acyclic, hard error, incl. type-only; deterministic depth-first load order; top-level `Unit` effects legal; selected root module runs through ordinary ESM evaluation; no special `main` | §8 |
 | ML calculus, headers, export lists, `(..)` sugar, default exports, single-namespace, F# priority stack, unified paths, cycles: rejected with reasons | §9 |
-| Emission: 1:1 ESM; named imports even for namespace form; `opaque` `.d.ts` deferred to FFI | §11 |
+| Emission: 1:1 ESM; named imports even for namespace form; exported opaque types use FFI Part 7's private-symbol branded `.d.ts` face | §11 |
 | Five hanging questions recorded | §12 |

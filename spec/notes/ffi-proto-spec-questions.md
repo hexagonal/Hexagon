@@ -1,6 +1,6 @@
 # FFI Proto-Spec: Decision Surface
 
-**Status:** Working note (July 2026). Proto-spec material, not yet normative.
+**Status:** Superseded and historical (July 2026). Fully promoted: §§1–4 → FFI Parts 1–3; §5 → Parts 4–5; §6 → Part 6; §7 → Part 7; §8 → Parts 8–9; §9 → Part 10; §10 → Part 11; §§11–12 discharged. `spec/ffi.md` is the canonical entry point.
 **Purpose:** Bound the decisions required for the v1 JavaScript/TypeScript FFI, separating inherited commitments from questions the FFI specification must close. Existing normative specs govern wherever this note summarizes them.
 
 **Companions:** `ffi-agenda.md`; `ffi-zero-cost-primitive-exports.md`; `ffi-exported-dictionaries.md`; Loops/Ranges/Iteration §6; Collections Part 4 §10; Collections Part 5 §6; Modules §11–§12; Unions §6; Exceptions §6/§10; Constraints §6.

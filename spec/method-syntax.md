@@ -3,7 +3,7 @@
 **Status:** Decided (July 2026), corrected in place after the second Sol review — see **correction record §16.1** (goal ownership). A **hanging-questions** section (§12) remains; nothing there blocks implementation of §1–§11.
 **Scope:** The dot-call form `e.name(args…)`; its semantics as companion-module dispatch; the deferred *DotCall* goal and its resolution lifecycle (opportunistic triggers, the receiver-region deadline and pinning rule, fixpoint, the row fallback); the definition of a type's companion operation set; coverage (eligible and ineligible receiver types); field/method collision rules; interaction with row polymorphism, tuples' `itemN`, opaque types, and transparent aliases; emission; LSP completion obligation; the **Deferred-Goals Doctrine** (new, hosted here pending consolidation into the Declarations Preamble); diagnostics; rejected alternatives; edit notes.
 **Not in scope:** the pipe (`|>` — Operators §8, unchanged); constraint-member call forms (Constraints §2.2 and Sol-review closure §A — explicitly *not* extended by this spec, §7); the stdlib inventory of companion operations (stdlib listing; this spec fixes the *rule* that determines which exports are dot-callable); `.d.ts` (nothing method-shaped exists to represent, §8.3); bound-method values (rejected, §11.6).
-**Companions:** Products spec (§3.2 field access, §4 row tiers, §5 nominal records — the fallback preserves all of it), Modules spec (§5.3 companion idiom, §7.2 home module — the dispatch target; §4.2 `export opaque`), Constraints spec (§2.2 member namespacing — untouched; §7 prelude members — not dot-callable), Operators spec (§10 postfix forms — the dot-call is level 1), Loops spec (§7 — the compiler-known Iterable table, precedent for deadline-resolved machinery), Functions spec (§8 generalisation — the deadline), Sol-review closure (§E Rewrite Rule — cited throughout), Decisions Batch — Sol Review 2 (this spec's origin session).
+**Companions:** Products spec (§3.2 field access, §4 row tiers, §5 nominal records — the fallback preserves all of it), Modules spec (§5.3 companion idiom, §7.2 home module — the dispatch target; §4.2 `export opaque`), FFI Part 5 (§9 — extern nominal types and receiver-member linkage), Constraints spec (§2.2 member namespacing — untouched; §7 prelude members — not dot-callable), Operators spec (§10 postfix forms — the dot-call is level 1), Loops spec (§7 — the compiler-known Iterable table, precedent for deadline-resolved machinery), Functions spec (§8 generalisation — the deadline), Sol-review closure (§E Rewrite Rule — cited throughout), Decisions Batch — Sol Review 2 (this spec's origin session).
 
 Written for a future implementation session against the existing `hexc` architecture: Algorithm J, union-find tyvars, level-based generalisation, constraints as dictionaries, whole-program compilation from an entry point, layout pass, readable-JS emission with `.d.ts`.
 
@@ -38,7 +38,7 @@ e.name               -- bare dot: field access (Products §3.2) / itemN (Product
 (e.name)(args…)      -- parenthesized: field access, then an ordinary call — no goal
 ```
 
-- The dot-call form is precisely: a level-1 postfix expression (Operators §10), a `.`, a **lowercase-initial** term name, and an **immediately following argument list**. It creates a goal only in this exact shape.
+- The dot-call form is precisely: a level-1 postfix expression (Operators §10), a `.`, a **non-uppercase-start** term name, and an **immediately following argument list**. It creates a goal only in this exact shape.
 - Parenthesizing the field access — `(e.name)(args…)` — is the opt-out: no goal is created; this is field access followed by an ordinary call, resolvable today and forever, and it is the disambiguation spelling the collision diagnostic offers (§6). It falls out of the grammar; no new form is introduced.
 - `e.name` bound and called later (`let f = e.name` … `f()`) is likewise plain field access; the goal machinery never sees it.
 - Uppercase after the dot is not this feature: `Alias.Name(args…)` is module-qualified access (Modules §5.1), resolved positionally as today. The `.` token remains the single token of Operators §14, resolved by what the left side names; nothing changes there.
@@ -144,6 +144,7 @@ Under the receiver-level deadline (§3.1), the asymmetry is **cross-region only*
 | Receiver head | Companion |
 |---|---|
 | User nominal type (`record`/`union`, incl. `export opaque`) | The type's **home module** — the file containing its declaration (Modules §7.2). Not the importer's alias, not any import path: the declaration site, unconditionally. Diagnostics and hovers *spell* it using the companion idiom (`Box.size`), which Modules §5.3 blesses. |
+| Extern nominal type (`extern type` or `extern class`) | Its **binding module** — the file containing the extern declaration, hence its foreign type home. Exported subject-first receiver members form its companion operation set under §4.2 exactly like Hexagon-defined operations (FFI Part 5 §9). |
 | `Int`, `Float`, `Bool`, `String`, `Unit` | The fixed prelude companion module of the same name (Modules §5.3: `Int.div` etc. — "one mechanism, not a special prelude device"; §6.4 guarantees the modules exist). |
 | Prelude nominal types (`Vector`, `Map`, `Set`, `Option`, `Result`, `Range`, `Seq`, `Ordering`, …) | Their prelude companion modules — the same rule as user nominals, since prelude types are declared in prelude modules; listed separately only to record that built-ins are *not* special-cased. The authoritative inventory is the stdlib listing's. |
 
@@ -182,6 +183,7 @@ identity<a>(x: a): a                         -- excluded: bare type variable, no
 
 - nominal records — including `export opaque`;
 - nominal unions — no field access exists on union values, so no collision surface; the cleanest receivers the feature has (`option.getOrElse(default)`, `result.map(f)` — still static companion calls, not object methods);
+- extern nominal types and extern class types — their binding module is the companion, and their opaque values expose no Hexagon fields (FFI Part 5 §9);
 - prelude nominal collection and utility types (`Vector`, `Map`, `Set`, `Option`, `Result`, `Range`, `Seq`, …);
 - primitives, through the fixed prelude companions (`"a,b".split(",")`, `n.toFloat()` — inventory per stdlib listing);
 - transparent aliases of any of the above, via expansion (§4.3).
@@ -244,11 +246,11 @@ opt.getOrElse(0) -- emits: getOrElse(opt, 0), or its established inlining
 r.callback(3)    -- (field call) emits: r.callback(3)   — the honest POJO read
 ```
 
-Field-resolved dot calls emit *as themselves* — a JS property access and call on a POJO, which is exactly what the semantics is. Companion-resolved calls emit the named-import call, subject to the emitter's existing inlining rights (e.g. known-instance fast paths). Hexagon values gain no runtime methods; no prototype is touched; there is no hidden `this`.
+Field-resolved dot calls emit *as themselves* — a JS property access and call on a POJO, which is exactly what the semantics is. Companion-resolved calls retain the resolved declaration's ordinary lowering: a Hexagon-defined operation emits the named-import call, subject to established inlining rights, while an extern receiver member retains its FFI linkage and may emit a receiver call or property access directly (FFI Part 5 §9). Method Syntax itself adds no runtime method, prototype change, or hidden `this`.
 
 ### 8.2 Imports
 
-If a call site's module never textually imported the companion, the emitter adds the needed named import to that module's emitted ESM — the same liberty Modules §11 already exercises in emitting named imports for namespace-form access. Emitted-name collisions are the emitter's ordinary renaming problem, not a semantics question.
+If a call site's module never textually imported the companion, the emitter adds whatever dependency the resolved declaration's lowering requires — normally the companion's named import under Modules §11, or the foreign module import/linkage required by an extern receiver member. Emitted-name collisions are the emitter's ordinary renaming problem, not a semantics question.
 
 ### 8.3 `.d.ts`
 
@@ -471,7 +473,7 @@ fun w(x) = x.make().run()          -- OK — both goals take the fallback at w's
 *(House rule: pending notes live here; applied on next touch of the target.)*
 
 - **declarations-preamble.md** — host the **Deferred-Goals Doctrine** (§10) alongside the Rewrite Rule on consolidation, citing literal defaulting, the Iterable table, the projection ban, and DotCall as its instances.
-- **operators-logic-precedence.md** — §10 (postfix forms): note that `e.name(args…)` with lowercase `name` creates the DotCall goal of this spec; `(e.name)(args…)` remains two postfix operations. §14 (`.` token): one cross-reference line; token unchanged.
+- **operators-logic-precedence.md** — §10 (postfix forms): note that `e.name(args…)` with non-uppercase-start `name` creates the DotCall goal of this spec; `(e.name)(args…)` remains two postfix operations. §14 (`.` token): one cross-reference line; token unchanged.
 - **products.md** — §3.2: one line — the fused dot-call form defers via this spec's goal and *means* field access whenever the receiver is not head-known-nominal; Tier-0 inference results are unchanged. §2.3: `itemN` folded into the goal's resolution table with identical behaviour.
 - **modules.md** — §5.3 (companion idiom): note that method syntax makes the idiom load-bearing — `CompanionOf` targets the home module of §7.2. §11: emitter may add named imports for companion-resolved calls at sites that never textually imported the companion.
 - **constraints.md** — §2.2: one line — constraint members are not reachable via dot (this spec §7); the bare/qualified doctrine (Sol-review §A) is unaffected.

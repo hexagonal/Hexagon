@@ -2,8 +2,8 @@
 
 **Status:** Decided (July 2026), revised in place after external review (Sol) before landing — see **correction records §17**. Normative promotion of `spec/notes/ffi-zero-cost-primitive-exports.md`. This is a **component FFI spec**: it fixes the JavaScript/TypeScript export surface of constrained-polymorphic Hexagon functions — and only that. It is **not** the general FFI spec and does not begin it; extern syntax, boundary type mapping, and the rest of the FFI agenda remain owed to the FFI consolidation session.
 **Scope:** The closed fundamental type set and its pre-v1 review obligation; the normative specialization-set algorithm (which named dictionary-free entry points exist) including the full lawful Cartesian product for multiple constrained variables; the generic base-name edition and its public-evidence trigger; the deterministic naming algorithm, base-name reservation, and hard collision errors; the required-emission contract separated from optimizer freedom; `.d.ts` faces for specializations (lowercase Hexagon-originated binders); ABI events; diagnostics; acceptance tests including the code-size acceptance obligation.
-**Not in scope:** **Everything about dictionaries themselves** — evidence shapes, `Constraint.Dictionary<a>` declarations, handle ownership and names (`Num.int`, `Rat.num`), parameterized factories (`Vector.show(...)`), trailing-evidence ordering, superconstraint nesting, branding, validation, and cross-package dictionary ABI — **remains owned by `spec/notes/ffi-exported-dictionaries.md`** until the FFI consolidation promotes it; this document consumes its rules by reference and redesigns nothing. Also not in scope: extern declaration syntax; `Array(a)`/`Map`/`Set` boundary packages; `JsValue`; the internal (Hexagon-side) dictionary-passing scheme (Constraints §6, refined in direction by the dictionaries note).
-**Companions:** `spec/notes/ffi-exported-dictionaries.md` (consumed); `spec/notes/ffi-proto-spec-questions.md` §8 (the FFI-level package this document makes normative, jointly with the dictionaries note); Constraints §4–§6 (lawfulness, coherence, dictionary compilation); Functions §4/§8 (typed forms, generalization); Primitive Types §1 (fundamental JS representations); Numeric Literals §5 (`fromInt` erasure); Decisions Batch 2026-07 §1.5 (`Eq<Float>` emission); Modules §4/§11 (export prefix, ESM emission).
+**Not in scope:** **Everything about dictionaries themselves** — evidence shapes, `Constraint.Dictionary<a>` declarations, handle ownership and names (`Num.int`, `Rat.num`), parameterized factories (`Vector.show(...)`), trailing-evidence ordering, superconstraint nesting, branding, validation, and cross-package dictionary ABI — is owned normatively by FFI Part 9 (`ffi-part9-exported-dictionaries.md`); this document consumes those rules by reference and redesigns nothing. Also not in scope: extern declaration syntax; `Array(a)`/`Map`/`Set` boundary packages; `JsValue`; the internal (Hexagon-side) dictionary-passing scheme (Constraints §6, refined in direction by Part 9).
+**Companions:** FFI Part 9 (`ffi-part9-exported-dictionaries.md`; dictionary ABI consumed); `spec/notes/ffi-exported-dictionaries.md` (historical decision source); `spec/notes/ffi-proto-spec-questions.md` §8; Constraints §4–§6 (lawfulness, coherence, dictionary compilation); Functions §4/§8 (typed forms, generalization); Primitive Types §1 (fundamental JS representations); Numeric Literals §5 (`fromInt` erasure); Decisions Batch 2026-07 §1.5 (`Eq<Float>` emission); Modules §4/§11 (export prefix, ESM emission).
 
 Written for a future implementation session against the existing `hexc` architecture: Algorithm J, union-find tyvars, dictionary passing, whole-program compilation, readable-JS emission with `.d.ts`, `@hexagon/runtime`.
 
@@ -138,7 +138,7 @@ export declare function plus<a>(
 ): a;
 ```
 
-Evidence ordering, dictionary type declarations, handle/factory homes, superconstraint nesting, branding, and validation are **the exported-dictionaries note's** (its §§3–10); this document adds no rule to any of them and defers entirely.
+Evidence ordering, dictionary type declarations, handle/factory homes, superconstraint nesting, branding, and validation are **FFI Part 9's**; this document adds no rule to any of them and defers entirely.
 
 ---
 
@@ -326,9 +326,9 @@ Three gaps in the proto-note required rules to make the algorithms total; each i
 
 ### 13.2 Contradictions with landed specs, recorded — not resolved here
 
-1. **Constraints §6.4** states that nothing constraint-shaped appears in `.d.ts`. The §4 generic edition's evidence parameters (and the dictionaries note's public handles) contradict the blanket wording. The refinement — the slogan's true scope is monomorphic exports and Hexagon-internal surfaces — is already anticipated (dictionaries note §1's core distinction and §12 decisions summary; Collections Part 5 §18.2) and **is owed to the FFI consolidation's edit notes; this document does not edit Constraints.**
-2. **Modules §11.5** states instance dictionaries are "never surfaced in `.d.ts`". Public handles/factories (`Rat.num`, `Vector.show`) surface exactly that for *public* instances. Same resolution path as (1); recorded so the Modules edit note is not forgotten.
-3. **Constraints §6.1's leading-parameter convention** for internal dictionary passing is superseded *in direction* by trailing evidence (dictionaries note §6). Ownership of that refinement is the dictionaries note's / the FFI consolidation's; this document merely depends on "trailing" for §4.2 and takes no position beyond it.
+1. **Constraints §6.4's former blanket claim** that nothing constraint-shaped appears in `.d.ts` is refined by FFI Part 9: generic editions expose evidence parameters and public instances expose handles/factories; monomorphic exports and Hexagon source remain dictionary-free. The refinement has been applied to Constraints §6.4.
+2. **Modules §11.5's former plumbing-only claim** is likewise refined: public handles/factories (`Rat.num`, `Vector.show`) are stable generated exports independent of current consumption under Part 9's public-evidence closure. The refinement has been applied to Modules §11.5.
+3. **Constraints §6.1's former leading-parameter convention** for internal dictionary passing is superseded by FFI Part 9's trailing maximal-evidence suffix. Constraints §6.1 now records that refinement; this document merely depends on it for §4.2.
 
 ### 13.3 Deferred edge
 
@@ -364,7 +364,7 @@ Exported constrained-polymorphic **non-function values**, should generalization 
 | 9 | **All generated-name collisions are hard errors**; no mangling/suffixing/source-order winners for ABI names | §6.2, §11.3 |
 | 10 | Required emission: direct dictionary-free bodies (never wrappers over the generic edition), deterministic surface, semantic equivalence, source-map/doc attribution, no tree-shaking dependence | §8.1 |
 | 11 | Optimizer freedom bounded: fragment sharing and inline/helper choice allowed; **internal call sites are a separate question** and never route through exports by requirement | §8.2 |
-| 12 | Lowercase Hexagon-originated `.d.ts` binders (`a`, `b`, `k`, `v`) throughout generated signatures; dictionary details deferred wholesale to the exported-dictionaries note | §4.2, Scope |
+| 12 | Lowercase Hexagon-originated `.d.ts` binders (`a`, `b`, `k`, `v`) throughout generated signatures; dictionary details owned by FFI Part 9 | §4.2, Scope |
 | 13 | ABI events enumerated: constraint/set changes, first-public-instance additivity, rename ripple; member changes are dictionary-ABI only | §9 |
 | 14 | **Code-size acceptance:** per-module measurement of specialization JS/`.d.ts` size is a binding implementation obligation; caps only ever by explicit design against that evidence | §10, §12.2 |
 | 15 | Per-user-type export explosion rejected permanently; user types share the one generic edition | §11.4 |
@@ -386,7 +386,7 @@ export let plus<a: Num>(x: a, y: a): a = x + y
 export let same<a: Eq>(x: a, y: a): Bool = x == y
 --   sameInt emits:    x === y
 --   sameFloat emits:  x === y || (Number.isNaN(x) && Number.isNaN(y))
---                     (or the $hexFloatEquals helper — Decisions Batch §1.5)
+--                     (or the __hex_floatEquals helper — Decisions Batch §1.5)
 -- The two bodies differ: proof the specializations are direct emissions, not
 -- one shared generic body behind two names.
 

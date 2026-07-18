@@ -232,7 +232,7 @@ constraint Pow<a: Num> =
   pow(x: a, y: a): a
 ```
 
-`pow` is not folded into `Num` (it would obligate every current and future `Num` instance — a future `Rat` has no sensible `Rat`-exponent power) nor into `Frac`. v1 instances:
+`pow` is not folded into `Num` (it would obligate every `Num` instance — v1 `Rat` has no sensible `Rat`-exponent power) nor into `Frac`. v1 instances:
 
 | Instance | Semantics | Emission |
 |---|---|---|

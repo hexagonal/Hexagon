@@ -1,11 +1,9 @@
 # Hexagon Spec: Collections Part 4 — `Map(k, v)` & `Set(a)`
 
-**Status:** Decided (July 2026). Fourth part of the Collections roadmap. The full formal spec of the hash-backed keyed collections: representation and honest complexity, construction (no literals; the `fromVector` convenience), the keyed-access family (`map[k]`, `KeyError`, `Map.get`), the upsert/forgiving update doctrine, set algebra, the iteration-order contract (grounded in Part 2 §2.4 *as corrected by §16.2*), the `Eq`/`Show`/`Hash` instances and the deliberate absence of `Ord`, the core API, and the pinned semantics for the JS boundary (functions owed to the FFI spec). Written against Collections Parts 1–3 (Decided), Collections Part 2 **including its §16 correction records**, Constraints v2, Exceptions, Pattern Matching, Loops, and Modules; none re-litigated.
-**Scope:** As above, plus: the `KeyError` declaration (nullary — the Part 3 §5.5 flag discharged); the `Map.set`-vs-`Vector.set` semantic split stated as doctrine; the **representative-retention rule** (first wins / left wins — §5.4, added by correction §17.1); `keys`/`values`/`entries` correspondence; `fromEntries`/`fromSeq` and `entries`/`toSeq` synonym pairs; the JS→Hexagon key-collapse rule.
-**Not in scope:** The combinator surface (`Map.update`/`merge`/`mergeWith`/`filter`/`mapValues`, `Set.map`/`filter`, `getOr`, `containsValue` — stdlib listing, boundary decided in Part 5); the normative `Iterable` operational spec, table-opening, and the `Bag` worked example (Part 5); transients (Part 5, leaning runtime-internal); the JS conversion *functions* themselves (`toJsMap`/`fromJsMap`/`toJsSet`/`fromJsSet` — FFI spec; this doc pins their semantic obligations, §10); `SortedMap`/`SortedSet` (pre-registered v2, Part 1 §4.1); cyclic-JS-object key conversion failure (FFI conversion-failure story, §10.4).
-**Companions:** Collections Part 1 (§3 naming doctrine applied; §3.3 accessor pair instantiated for `Map`; §4 key model made operational; §7 operator boundaries restated); Collections Part 2 as corrected (§2.4 split determinism consumed as the iteration-order ground truth; §4.4 blessing wording used for all instances; §16.2 relied on, not re-argued); Collections Part 3 (§5.5 `KeyError` flag discharged; accessor-family symmetry maintained and deliberately broken at `set`, §5); Exceptions (gains the `KeyError` declaration; §2 no-polymorphic-payload rule is why it is nullary); Pattern Matching (five positions — tuple patterns in `for` heads now carry Map iteration; supersedes Loops §2.1's bare-name restriction, edit note); Loops (§5 table gains the `Map`/`Set` rows; §2.1 amended); Modules (§6.4 qualified homes: `Map`/`Set` companion modules); FFI agenda (gains the boundary-conversion item, §10); Operators (§7: no `++` for `Map`/`Set`, Part 1 §7 restated).
-
-Written for a future implementation session against the existing `hexc` architecture: Algorithm J, union-find tyvars, dictionary passing, whole-program compilation, readable-JS emission with `.d.ts`, `@hexagon/runtime`.
+**Status:** Decided (July 2026). The authoritative specification of the persistent hash-backed keyed collections: representation and honest complexity, construction (no literals; the `fromVector` convenience), the keyed-access family (`map[k]`, `KeyError`, `Map.get`), the upsert/forgiving update doctrine, representative retention, set algebra, the iteration-order contract (grounded in Part 2 §2.4), the `Eq`/`Show`/`Hash` instances and the deliberate absence of `Ord`, the core API, and the semantic ground rules for the JS boundary (conversions specified in FFI Part 10). Written against Collections Parts 1–3, Constraints, Exceptions, Pattern Matching, Loops, and Modules; none re-litigated.
+**Scope:** As above, plus: the `KeyError` declaration (nullary); the `Map.set`-vs-`Vector.set` semantic split stated as doctrine; the **representative-retention rule** (first wins / left wins — §5.4); `keys`/`values`/`entries` correspondence; `fromEntries`/`fromSeq` and `entries`/`toSeq` synonym pairs; the JS→Hexagon key-collapse rule.
+**Not in scope:** The combinator surface (`Map.update`/`merge`/`mergeWith`/`filter`/`mapValues`, `Set.map`/`filter`, `getOr`, `containsValue` — `stdlib-roadmap.md`; boundary decided in Part 5 §10); the normative `Iterable` operational spec, table-opening, and the `Bag` worked example (Part 5); transients (Part 5 §11 — runtime-internal only); the JS conversion *functions* themselves and their failure machinery (`toJsMap`/`fromJsMap`/`toJsSet`/`fromJsSet`, `JsConversionError`, cycle paths — FFI Part 10/Part 11; this doc pins the semantic ground rules, §10); `SortedMap`/`SortedSet` (pre-registered v2, Part 1 §4.1).
+**Companions:** Collections Part 1 (§3 naming doctrine applied; §3.3 accessor pair instantiated for `Map`; §4 key model made operational; §7 operator boundaries restated); Collections Part 2 (§2.4 split determinism consumed as the iteration-order ground truth; §4.4 wording used for all instances); Collections Part 3 (accessor-family symmetry maintained and deliberately broken at `set`, §5); Exceptions (owed the `KeyError` declaration, §14; §2 no-polymorphic-payload rule is why it is nullary); Pattern Matching (loop heads are pattern positions — `for (k, v) in m`, §7.2); Loops (§2.1 loop heads; §5 table `Map`/`Set` rows); Modules (§6.4 qualified homes: `Map`/`Set` companion modules); FFI Part 10 (`JsMap`/`JsSet` and the boundary conversions); Operators (§7: no `++` for `Map`/`Set`; §14 bracket grammar); Constraints (§4.3 parameterized instances; §7 `Eq<Float>` = SameValueZero).
 
 ---
 
@@ -15,7 +13,7 @@ Written for a future implementation session against the existing `hexc` architec
 - **Vector positions exist or don't; map keys are yours to mint.** `Vector.set` asserts a slot; `Map.set` inserts-or-replaces and never throws. The same name carries the same *direction* (keyed write) with the semantics each structure honestly has (§5.1).
 - **Brackets retrieve; they never ask Boolean questions.** `map[k]` asserts presence and throws `KeyError`; `Map.get` answers with `Option`. `Set` has no brackets at all — membership is `contains` (§4.4).
 - **Removal requests; it does not assert.** `Map.remove`/`Set.remove` on an absent key return the collection unchanged — the `dropFirst` forgiving family, and idempotent (§5.2).
-- **Iteration order is deterministic within one execution, and intentionally nothing more.** Table placement is seeded (Part 2 §2.4, corrected); the order is a property of a collection value within a process, not of its contents, and not of any prior run (§7.1).
+- **Iteration order is deterministic within one execution, and intentionally nothing more.** Table placement is seeded (Part 2 §2.4); the order is a property of a collection value within a process, not of its contents, and not of any prior run (§7.1).
 - **Costs are stated, not hidden.** Expected logarithmic, with the collision worst case named; set algebra is expected-linear in a named side; no structural-merge promise (§2.2).
 
 ---
@@ -24,9 +22,9 @@ Written for a future implementation session against the existing `hexc` architec
 
 ### 2.1 The types
 
-`Map(k, v)` and `Set(a)` are persistent **hash array mapped tries (HAMT lineage)** provided by `@hexagon/runtime` (Part 1 §4.1, restated normatively). The API is representation-silent; the spec pins the complexity contract and nothing structural. Immutable.js remains the private-backend option and property-testing oracle — for the *public hash function and observable semantics*; table placement is seeded per Part 2 §2.4 and is not oracle-constrained.
+`Map(k, v)` and `Set(a)` are persistent **hash array mapped tries (HAMT lineage)**, owned and implemented by Hexagon in `@hexagon/runtime` (Part 1 §4.1). The API is representation-silent; the spec pins the complexity contract and nothing structural. Immutable.js is lineage/influence and a property-testing **oracle** — for the public hash function and observable semantics only; it is not a backend, private or otherwise, and nothing here is defined by reference to its behaviour. Table placement is seeded per Part 2 §2.4 and is not oracle-constrained.
 
-Entries are placed by `mix(processSeed, hash(k))`-shaped internal mixing (Part 2 §2.4). The §2.3 hash law guarantees equal keys land together under any one seed; nothing else about placement is observable or promised.
+Entries are placed by `mix(processSeed, hash(k))`-shaped internal mixing (Part 2 §2.4). The hash law (Part 2 §2.3) guarantees equal keys land together under any one seed; nothing else about placement is observable or promised.
 
 ### 2.2 Complexity contract
 
@@ -53,7 +51,7 @@ Notes, normative where bolded:
 
 ### 3.1 No literals
 
-**`Map` and `Set` have no literal syntax in v1** (Part 1 §9.3's leaning, decided). `{…}` is permanently records; `[k: v]`-style forms would complicate the bracket grammar Part 3 §2 just settled, for two types whose construction is rarely hot in source. Rejected alternative §12.1. Construction is by name:
+**`Map` and `Set` have no literal syntax in v1.** `{…}` is permanently records; `[k: v]`-style forms would complicate the bracket grammar Part 3 §2 settled, for two types whose construction is rarely hot in source. Rejected alternative §12.1. Construction is by name:
 
 ```
 let empty  = Map.empty                                -- Map(k, v), generalizes
@@ -73,9 +71,9 @@ Set.fromVector(xs) ≡ Set.fromSeq(Vector.toSeq(xs))
 Map.fromVector(xs) ≡ Map.fromSeq(Vector.toSeq(xs))
 ```
 
-### 3.3 Duplicates: last wins
+### 3.3 Duplicates: last value, first representative
 
-`Map.fromEntries` keeps the **last** value for a duplicated key (Part 1 §3.1, restated normatively). "Last" means last in the traversal order of the source sequence — well-defined because `Seq` traversal order is the sequence's own. Via §3.2's equivalences, `Map.fromVector` inherits it left-to-right. `Set.fromSeq`/`Set.fromVector` on duplicate elements keep one occurrence — and *which* occurrence is observable, because `equals`-equal values need not be indistinguishable (`equals(-0.0, 0.0)` is true; `show` tells them apart). The retained representative is the **first**, per §5.4 *(corrected — see §17.1)*.
+`Map.fromEntries` keeps the **last** value for a duplicated key (Part 1 §3.1). "Last" means last in the traversal order of the source sequence — well-defined because `Seq` traversal order is the sequence's own. Via §3.2's equivalences, `Map.fromVector` inherits it left-to-right. `Set.fromSeq`/`Set.fromVector` on duplicate elements keep one occurrence — and *which* occurrence is observable, because `equals`-equal values need not be indistinguishable (`equals(-0.0, 0.0)` is true; `show` tells them apart). The retained representative is the **first in source order**, per §5.4; the duplicated key's *key representative* in a `Map` is likewise the first, while its value is the last.
 
 ### 3.4 Synonym pairs; eagerness
 
@@ -102,7 +100,7 @@ Grammar: this is the same postfix bracket Operators §14 fixed and Part 3 §5 co
 
 ### 4.3 The `KeyError` declaration
 
-Discharges the Part 3 §5.5 flag. Declared here, housed in the prelude (edit note to Exceptions §13):
+Declared here, housed in the prelude (edit note to Exceptions, §14):
 
 ```
 exception KeyError
@@ -119,7 +117,7 @@ The asymmetry with `IndexError(index: Int, size: Int)` is principled, not accide
 
 ### 4.4 What `Map` and `Set` do *not* get
 
-- **No slicing.** Windows are positional (Part 3 §6's doctrine); maps have no positions. `m[range]` is an ordinary type error (the key type is not `Range`, unless it literally is — in which case it is a lookup of a `Range`-valued key, which is currently unsatisfiable since `Range` has no `Hash`; Loops §3.6 / Part 2 §12.3).
+- **No slicing — brackets never slice a `Map`.** Windows are positional (Part 3 §6's doctrine); maps have no positions. `m[e]` is always interpreted against the map's key type: when the key type is not `Range`, a `Range`-valued `e` is an ordinary type error; when the key type *is* `Range` and the required `Hash<Range>` instance exists, `m[r]` is an ordinary key lookup — never a slice. (Whether `Range` gets `Eq`/`Hash` at all is a stdlib-listing decision, ledgered in `stdlib-roadmap.md`; the no-slicing rule does not depend on it.)
 - **No `Map.at`.** Signed addressing is from-*end* addressing; a map has no ends.
 - **No `Set` brackets at all.** `s[x]` as a membership test would make `[]` answer a Boolean question — rejected (§12.2). Membership is `Set.contains`; brackets retrieve values associated with keys, and a set's elements *are* its keys, with nothing further to retrieve.
 
@@ -147,21 +145,21 @@ A caller who needs the assertion checks `containsKey` first or reads `m[k]` befo
 
 ### 5.3 Set algebra
 
-`Set.union`, `Set.intersect`, `Set.difference` — all `<a: Hash>`, all total, complexity per §2.2. `Set.isSubsetOf(a, b)` is true iff every element of `a` is in `b` (`empty` is a subset of everything; every set is a subset of itself). Superset is flipped arguments; **no `isSupersetOf`** in the core (§12.3; stdlib-listing candidate at most).
+`Set.union`, `Set.intersect`, `Set.difference` — all `<a: Hash>`, all total, complexity per §2.2, **left-representative retention per §5.4**. `Set.isSubsetOf(a, b)` is true iff every element of `a` is in `b` (`empty` is a subset of everything; every set is a subset of itself). Superset is flipped arguments; **no `isSupersetOf`** in the core (§12.3; stdlib-listing candidate at most).
 
-**No `++`** for either type (Part 1 §7, restated): set union is not concatenation; map combination is the named `merge` family, deferred to the stdlib listing.
+**No `++`** for either type (Part 1 §7, restated): set union is not concatenation; map combination is the named `merge` family, ledgered in `stdlib-roadmap.md`.
 
-### 5.4 Representative retention: first wins, left wins *(added — see §17.1)*
+### 5.4 Representative retention: first wins, left wins
 
-`equals`-equal keys/elements are one map key or set element, but they need not be one *value*: `Eq<Float>` is SameValueZero (chosen in Decisions Batch §1.2 precisely for this key model), so `-0.0` and `0.0` are the same key while remaining observably distinct — and the distinction propagates into any derived-`Eq` structure containing a `Float`, and later into wrapper key types (`CiString "Key"` vs `CiString "key"`, Part 2 §4.5). The collection must therefore say which concrete **representative** it physically retains. The rule:
+`equals`-equal keys/elements are one map key or set element, but they need not be one *value*: `Eq<Float>` is SameValueZero (Constraints §7 — chosen precisely for this key model), so `-0.0` and `0.0` are the same key while remaining observably distinct — and the distinction propagates into any derived-`Eq` structure containing a `Float`, and later into wrapper key types (`CiString "Key"` vs `CiString "key"`, Part 2 §4.5). The collection must therefore say which concrete **representative** it physically retains. The rule:
 
 > **A stored key or element representative is never replaced by an `equals`-equal newcomer.**
 
 Consequences, normative:
 
-- `Set.add(s, x)` where `contains(s, x)`: returns `s` **unchanged** — the stored representative survives. (§5.1's idempotence claim is this rule; a replace-on-add semantics would return a distinguishable set.)
+- `Set.add(s, x)` where `contains(s, x)`: returns `s` **unchanged** — the stored representative survives. (§5.1's idempotence claim *is* this rule; a replace-on-add semantics would return a distinguishable set.)
 - `Map.set(m, k, v)` where `containsKey(m, k)`: replaces the **value**, retains the stored **key** representative. The JS `Map` behaviour exactly, and the asymmetry is stated as one line: *values take last-wins; key representatives take first-wins.*
-- `fromEntries`/`fromSeq`/`fromVector`: for duplicated keys/elements, the **first-inserted representative** survives (with the last value, for `Map` — §3.3, unchanged).
+- `fromEntries`/`fromSeq`/`fromVector`: for duplicated keys/elements, the **first-inserted representative** survives (with the last value, for `Map` — §3.3).
 - **Set algebra: the left operand's representative survives** for elements present in both sides (`union`, `intersect`; `difference` retains only left elements by definition). This is deliberately independent of §2.2's traversal-side freedom — that freedom was already scoped "for the bound only, not for any other observable"; a smaller-side traversal implements left-retention with insert-if-absent in one direction and insert-with-replace in the other. `Map.merge`'s key-representative rule rides with the `merge` family to the stdlib listing, bound by this section's doctrine.
 
 Lineage: JS `Map`/`Set` and Python dicts retain the first key representative; the Immutable.js oracle concurs. In v1 the rule is observable only through SameValueZero-equated Floats (bare or embedded in structures); it becomes load-bearing the day the first wrapper key type ships.
@@ -177,7 +175,7 @@ Under the Part 1 §3 naming doctrine (subject-first; companion modules `Map`/`Se
 | Function | Type | Notes |
 |---|---|---|
 | `empty` | `Map(k, v)` | §3.5, generalizes |
-| `singleton` | `(k, v) -> Map(k, v)` | no constraint — one entry places trivially; first placement occurs on first keyed operation. *(Implementation freedom; if placement-at-construction is simpler, `<k: Hash>` here would be honest too — resolved: unconstrained, §12.4)* |
+| `singleton` | `(k, v) -> Map(k, v)` | **unconstrained — decided** (§12.4); first placement occurs on first keyed operation |
 | `isEmpty` | `Map(k, v) -> Bool` | |
 | `size` | `Map(k, v) -> Int` | O(1) |
 | `get` | `<k: Hash>(Map(k, v), k) -> Option(v)` | §4.2 |
@@ -187,7 +185,7 @@ Under the Part 1 §3 naming doctrine (subject-first; companion modules `Map`/`Se
 | `keys` | `Map(k, v) -> Seq(k)` | §7.3 correspondence |
 | `values` | `Map(k, v) -> Seq(v)` | §7.3 |
 | `entries` | `Map(k, v) -> Seq((k, v))` | ≡ `toSeq`, §3.4 |
-| `fromEntries` | `<k: Hash>(Seq((k, v))) -> Map(k, v)` | last wins, §3.3; ≡ `fromSeq` |
+| `fromEntries` | `<k: Hash>(Seq((k, v))) -> Map(k, v)` | last value, first representative, §3.3; ≡ `fromSeq` |
 | `toSeq` / `fromSeq` | as `entries` / `fromEntries` | the uniform suite, §3.4 |
 | `fromVector` | `<k: Hash>(Vector((k, v))) -> Map(k, v)` | §3.2 |
 
@@ -207,7 +205,7 @@ Under the Part 1 §3 naming doctrine (subject-first; companion modules `Map`/`Se
 | `toSeq` / `fromSeq` | `Set(a) -> Seq(a)` / `<a: Hash> Seq(a) -> Set(a)` | |
 | `fromVector` | `<a: Hash> Vector(a) -> Set(a)` | §3.2 |
 
-`Map.singleton` is included (symmetry with `Set.singleton` and genuine utility — the one-entry map is common); decided, §12.4 records the constraint question.
+`Map.singleton` is included (symmetry with `Set.singleton` and genuine utility — the one-entry map is common).
 
 ---
 
@@ -215,7 +213,7 @@ Under the Part 1 §3 naming doctrine (subject-first; companion modules `Map`/`Se
 
 ### 7.1 The order contract
 
-Grounded entirely in Part 2 §2.4 *as corrected* (§16.2 there); this section instantiates it for `Map`/`Set` and adds nothing:
+Grounded entirely in Part 2 §2.4; this section instantiates it for `Map`/`Set` and adds nothing:
 
 > **Iteration order is deterministic but unspecified.** For a given collection value, repeated iteration yields the same order within one program execution. The order is **not** insertion order, **not** sorted order, **not** stable across program executions or compiler/runtime versions (table placement is per-process seeded), and **not a function of the collection's contents** — extensionally equal collections may iterate in different orders, even within one execution.
 
@@ -239,7 +237,7 @@ for x in s
   ...
 ```
 
-`for (key, value) in m` is legal: the tuple-of-binders pattern is irrefutable, and loop heads are one of Pattern Matching's five positions under the one irrefutability gate — **superseding Loops §2.1's v1 bare-name restriction** (which deferred to the pattern-matching spec by name; that deferral is hereby cashed, and the Loops §5.x interaction note about Map's pair element type discharges with it). Edit note, §14.
+`for (key, value) in m` is legal: the tuple-of-binders pattern is irrefutable, and loop heads are one of Pattern Matching's five positions under the one irrefutability gate (Pattern Matching §6; Loops §2.1).
 
 ### 7.3 `keys` / `values` / `entries` correspondence
 
@@ -292,9 +290,9 @@ Entries appear in the value's §7.1 iteration order — deterministic for that v
 
 Permutation-invariance is stated as the normative contract (not "commutative fold" — a weak combine like bare XOR is technically commutative and still invites cancellation pathologies; the invariance statement constrains the *result*, and the combine algorithm stays runtime-owned per Part 2 §3.2).
 
-This is **forced, not chosen**, by Part 2 §2.4's split: the public `hash` member is unseeded and deterministic across runs, while iteration order is seed-dependent — so any order-sensitive fold over iteration would make `hash(m)` a per-process value, violating the member's own contract. Permutation-invariance is simultaneously what the §2.3 law needs against §8.1's extensional `Eq`. Both routes lead here; the doc records both.
+This is **forced, not chosen**, by Part 2 §2.4's split: the public `hash` member is unseeded and deterministic across runs, while iteration order is seed-dependent — so any order-sensitive fold over iteration would make `hash(m)` a per-process value, violating the member's own contract. Permutation-invariance is simultaneously what the Part 2 §2.3 law needs against §8.1's extensional `Eq`. Both routes lead here; the doc records both.
 
-These instances make `Map`s and `Set`s usable as map keys and set elements themselves (`Set(Set(Int))` works), completing Part 2 §12.4's owed item.
+These instances make `Map`s and `Set`s usable as map keys and set elements themselves (`Set(Set(Int))` works).
 
 ---
 
@@ -305,7 +303,7 @@ These instances make `Map`s and `Set`s usable as map keys and set elements thems
 | `m[k]` with absent key | runtime `KeyError` (nullary; best-effort key rendering in the JS message, non-normative) | §4.1, §4.3 |
 | `m[k]` where `k`'s type lacks `Hash` | ordinary unsatisfied-constraint error (hint: `derives (Eq, Hash)` — Part 2 §9) | §4.1 |
 | `s[x]` on a `Set` | ordinary type error (no bracket support on `Set`); no special diagnostic owed | §4.4 |
-| `m[lo..hi]` | ordinary type error (key type is not `Range`) | §4.4 |
+| `m[lo..hi]` where the key type is not `Range` | ordinary type error; with a `Range` key type (and `Hash<Range>` provided) it is an ordinary key lookup, never a slice | §4.4 |
 | Hand-written-`Eq` key type used with `Map`/`Set` | unsatisfied `Hash` at the use site; the Part 2 §4.3 Eq-agreement error at the derivation site; wrapper-key pattern is the sanctioned answer | Part 2 §4.3/§4.5 |
 | `Map.set` / `remove` / `add` with absent or present key | **no error** — upsert / forgiving by design | §5 |
 | `for (k, v) in m` | legal (irrefutable tuple pattern in a loop head) | §7.2 |
@@ -317,13 +315,13 @@ No new *static* diagnostics: the constraint system and the existing bracket mach
 
 ---
 
-## 10. The JS boundary: semantics pinned, functions owed to FFI
+## 10. The JS boundary: semantic ground rules
 
-The conversion functions (`Map.toJsMap` / `Map.fromJsMap` / `Set.toJsSet` / `Set.fromJsSet` — names pre-registered, subject-first) belong to the **FFI spec**; this section pins the semantic obligations any such functions must honor, so the FFI session inherits constraints rather than open questions. Edit note to `ffi-agenda.md` (§14).
+The conversion functions — `Map.toJsMap` / `Map.fromJsMap` / `Set.toJsSet` / `Set.fromJsSet` — are **specified in FFI Part 10**, together with the `JsMap(k, v)`/`JsSet(a)` borrowed views (`ReadonlyMap`/`ReadonlySet` faces), eager **shallow-snapshot** conversion semantics, checked inward conversion (`Err(JsConversionError)` on cyclic structural-key ingestion, with structured paths per FFI Part 11), and the rule that **values are never traversed**. This section states the semantic ground rules those conversions honor; FFI Part 10 is the operational owner and is not restated here.
 
 ### 10.1 Primitive keys: faithful
 
-For `Int`, `Float`, `String`, `Bool` keys/elements, conversion is semantically faithful in both directions: Hexagon's `Eq` on these types *is* SameValueZero (Decisions Batch §1.2), which *is* JS `Map`/`Set` key equality. `-0`/`+0` unify and all `NaN`s are one key on both sides of the fence. This is the Part 1 §4.2 payoff, stated as normative: **no primitive-keyed entry is collapsed, split, or lost by conversion in either direction.**
+For `Int`, `Float`, `String`, `Bool` keys/elements, conversion is semantically faithful in both directions: Hexagon's `Eq` on these types *is* SameValueZero (Constraints §7), which *is* JS `Map`/`Set` key equality. `-0`/`+0` unify and all `NaN`s are one key on both sides of the fence. This is the Part 1 §4.2 payoff, stated as normative: **no primitive-keyed entry is collapsed, split, or lost by conversion in either direction.**
 
 ### 10.2 Hexagon → JS: structural identity does not survive
 
@@ -332,17 +330,13 @@ Structural/nominal Hexagon keys (records, tuples, unions) convert to distinct JS
 - Two structurally *unequal* Hexagon keys become two JS keys: fine.
 - A Hexagon key's structural identity is **not usable from JS by reconstruction**: looking up in the emitted `JsMap` requires the exact converted object reference; an equal-looking JS object is a different key under JS reference identity. The converted map is a snapshot for JS consumption, not a shared structural index.
 
-### 10.3 JS → Hexagon: structural collapse, later entry wins
+### 10.3 JS → Hexagon: structural collapse — later value, first key representative
 
 A JS `Map` may hold multiple reference-distinct object keys that convert to `equals`-equal Hexagon keys. Those entries collapse, deterministically:
 
-> Conversion traverses the source `JsMap` in its own iteration order (which JS defines as insertion order). When multiple JS keys convert to `equals`-equal Hexagon keys, **the later entry replaces the earlier one.**
+> Conversion traverses the source `JsMap` in its own iteration order (which JS defines as insertion order). When multiple JS keys convert to `equals`-equal Hexagon keys, **the later entry's value wins; the first converted key representative is retained** (§5.4).
 
-Consistent with `fromEntries` last-wins (§3.3) — conversion *is* `fromEntries` over the source's entry sequence, morally and probably literally. `Set` conversion collapses `equals`-equal elements to one, with nothing observable about "which".
-
-### 10.4 Owed to FFI, explicitly
-
-Cyclic JS object keys (structural Hexagon values cannot represent arbitrary cyclic graphs — conversion must fail, and *how* belongs to the FFI conversion-failure story); the `JsMap`/`JsSet` type names and their accessor surfaces; whether conversion is deep or shallow for values (not keys). None decided here.
+Consistent with §3.3 — conversion *is* `fromEntries` over the source's entry sequence, morally and probably literally, and inherits its last-value/first-representative split. `Set` conversion collapses `equals`-equal elements to one, **retaining the first source representative** (§5.4) — which representative survives is observable, exactly as everywhere else in this spec.
 
 ---
 
@@ -359,7 +353,7 @@ Cyclic JS object keys (structural Hexagon values cannot represent arbitrary cycl
 
 ### 12.1 Map/Set literals
 
-`#{…}`, `[k: v]`, `%{…}` et al. Rejected for v1: every candidate either collides with settled syntax (`{…}` is records permanently; `[…]` is Vector/brackets, just settled in Part 3) or spends a sigil (words-only aesthetic, Operators §1.2). Construction-by-name with `fromVector` (§3.2) is one hop from a literal. Revisit only on field evidence that construction is a real ergonomic pain point.
+`#{…}`, `[k: v]`, `%{…}` et al. Rejected for v1: every candidate either collides with settled syntax (`{…}` is records permanently; `[…]` is Vector/brackets, settled in Part 3) or spends a sigil (words-only aesthetic, Operators §1.2). Construction-by-name with `fromVector` (§3.2) is one hop from a literal. Revisit only on field evidence that construction is a real ergonomic pain point.
 
 ### 12.2 `s[x]` as membership test
 
@@ -371,7 +365,7 @@ Exactly `isSubsetOf` with flipped arguments; the lean core wins. A stdlib-listin
 
 ### 12.4 `<k: Hash>` on `singleton`
 
-Considered (a one-entry map arguably "places" its key). Resolved: unconstrained — a singleton can be represented without placement, deferring hashing to the first keyed operation, which carries the constraint. Keeps the §3.5 principle clean: constraints sit on operations that consult keys. If a future runtime finds this genuinely awkward, the constraint may be *added* (adding a constraint to a stdlib signature is the compatible direction under whole-program compilation, and the practical breakage is nil — a key type that never satisfies `Hash` produces an unusable singleton anyway).
+Considered (a one-entry map arguably "places" its key). Resolved: unconstrained — a singleton can be represented without placement, deferring hashing to the first keyed operation, which carries the constraint. Keeps the §3.5 principle clean: constraints sit on operations that consult keys. **The signature is permanent, not provisional**: adding `<k: Hash>` later would be a source- and ABI-breaking change (existing call sites at constraint-free key types stop compiling; the emitted function gains a dictionary parameter), so the decision does not keep a compatibility door open, and the signature is not to be reopened.
 
 ### 12.5 `Ord<Map>` / `Ord<Set>`
 
@@ -383,65 +377,37 @@ Compact and Rust-Debug-familiar, but it displays syntax that does not parse even
 
 ### 12.7 Last-wins key representatives (replace-on-write)
 
-Retaining the *newest* `equals`-equal key/element instead of the stored one. Rejected: it breaks `Set.add` idempotence (adding a present element would return a distinguishable set, forcing §5.1 to be rewritten or falsified); it diverges from JS `Map`/`Set`, Python, and the oracle for no gain; and it makes every insertion a potential representative churn, where first-wins makes presence checks sufficient. "Unspecified representative" was also considered and rejected: it is an observable nondeterminism (via Float today, wrapper keys tomorrow) in a language with no warning tier to excuse one, and the set-algebra case would make the surviving representative depend on operand *sizes*.
+Retaining the *newest* `equals`-equal key/element instead of the stored one. Rejected: it breaks `Set.add` idempotence (adding a present element would return a distinguishable set, forcing §5.1 to be rewritten or falsified); it diverges from JS `Map`/`Set`, Python, and the oracle for no gain; and it makes every insertion a potential representative churn, where first-wins makes presence checks sufficient. **"Unspecified representative" is equally rejected**: the retained representative is observable (via SameValueZero-equated Floats today — bare or embedded in derived-`Eq` structures — and wrapper key types tomorrow, where the representative is the pattern's entire point), so leaving it unspecified is an observable nondeterminism in a language with no warning tier to excuse one; and the set-algebra case would make the surviving representative depend on operand *sizes*.
 
 ### 12.8 Cross-run iteration-order stability / content-determined order
 
-Rejected in Part 2 §16.2 (do-not-relitigate marker there; table placement is seeded, promise is within-execution only). Additionally rejected here on independent grounds even *within* one execution: "extensionally equal collections iterate identically" would be a canonicalization obligation on the runtime (collision-node ordering and deletion history are construction-dependent), not a free consequence of HAMT determinism. Listed to keep this doc's rejection index complete; the authority is Part 2's correction record.
+Rejected in Part 2 §2.4 (do-not-relitigate record there; table placement is seeded, the promise is within-execution only). Additionally rejected here on independent grounds even *within* one execution: "extensionally equal collections iterate identically" would be a canonicalization obligation on the runtime (collision-node ordering and deletion history are construction-dependent), not a free consequence of HAMT determinism. Listed to keep this doc's rejection index complete; the authority is Part 2 §2.4.
 
 ---
 
-## 13. Hanging questions (owned elsewhere; recorded, non-blocking)
+## 13. Routed elsewhere (recorded, non-blocking)
 
-1. **The `Map.merge` family, `update`, `filter`, `mapValues`, `getOr`, `containsValue`; `Set.map`/`filter`** → stdlib listing (Part 5 decides the boundary; Part 1 §9.5's leaning stands).
-2. **JS conversion functions, `JsMap`/`JsSet` naming, cyclic-key failure mode, deep-vs-shallow values** → FFI spec (§10.4; obligations pinned §10.1–10.3).
-3. **`Hash` for `Range`** (rides Loops §3.6's open `Eq`) → stdlib listing; until then `Range` keys are unsatisfiable, which is correct.
-4. **Transients** (`fromSeq`/`fromEntries`/set-algebra internals batching via `withMutations`-style) → Part 5; leaning runtime-internal only, unchanged.
-5. **`SortedMap`/`SortedSet`** → v2 on demand (Part 1 §4.1); they inherit the `Ord` and order-contract questions this doc deliberately refused.
+1. **The `Map.merge` family, `update`, `filter`, `mapValues`, `getOr`, `containsValue`; `Set.map`/`filter`** → `stdlib-roadmap.md` (boundary fixed by Part 5 §10; `merge`'s representative rule bound by §5.4 here).
+2. **`Range` `Eq`/`Hash`** → `stdlib-roadmap.md` (rides Loops §3.6's open `Eq`); until decided, `Range` keys are unsatisfiable, which is correct — and §4.4's no-slicing rule is independent of the outcome.
+3. *(resolved)* **Transients** — decided in **Collections Part 5 §11**: runtime-internal only; no public transient API in v1. Not open.
+4. **`SortedMap`/`SortedSet`** → v2 on demand (Part 1 §4.1); they inherit the `Ord` and order-contract questions this doc deliberately refused.
 
 ---
 
-## 14. Edit notes to companion specs
+## 14. Edit notes to companion specs (unapplied only)
 
 | Doc | Edit |
 |---|---|
-| **exceptions.md** | Prelude exceptions gain **`exception KeyError`** (nullary; §4.3 here) — the `IndexError` sibling pre-registered in Part 1 §3.3/Part 3 §13; note the non-normative message clause. The §2 no-polymorphic-payload rule is cited as the deciding constraint. |
-| **loops-ranges-iteration.md** | §5 table: add rows `Map(k, v)` (element `(k, v)`, `iterate = toSeq`) and `Set(a)` (element `a`); §2.1: the bare-name loop-head restriction is **superseded** — loop heads take irrefutable patterns per Pattern Matching's five positions (`for (k, v) in m` legal); §5.x's Map-pair interaction note discharged; §9.5 diagnostic row ("pattern in loop head" parse error) retired in favor of the irrefutability gate. |
-| **pattern-matching.md** | Note on next touch: the `for (k, v) in pairs` examples are now live idiom (Map iteration); no semantic edit. |
-| **collections-part1-decisions.md** | §9.1: `[]`-beyond-Vector **closed for Map** (throws `KeyError`, §4 here; String was closed in Part 3); §9.3 literals question **closed** (none; `fromVector` convenience, §3 here); §9.4 instances question **closed** (§8 here). |
-| **collections-part2 (current file)** | §12.4 owed item (`Hash<Vector>/<Map>/<Set>`) **discharged** (Part 3 §8 + §8.4 here); the §2.4 iteration-order consequence is consumed by §7.1 here, as the correction record anticipated. |
-| **collections-part3-vector.md** | §12.1 hanging question (`KeyError` payload) **discharged** (nullary, §4.3 here). |
-| **collections-roadmap.md** | Part 4: strike ✅; Part 5 inherits the boundary decision and transients unchanged. |
-| **ffi-agenda.md** | New item: **Map/Set boundary conversions** — function names pre-registered (`toJsMap`/`fromJsMap`/`toJsSet`/`fromJsSet`), semantic obligations pinned by Part 4 §10 (primitive faithfulness normative; Hexagon→JS reference-identity caveat; JS→Hexagon later-entry-wins collapse); owes cyclic-key failure mode and deep-vs-shallow value conversion. |
-| **operators-logic-precedence.md** | §14 note on next touch: the bracket's element-type dispatch now covers `Map` keys (Int index / Range slice / map key — checking-time selection, §4.1 here); no grammar change. |
-| **hexagon-for-typescript-coders.md** | On next touch: Map/Set section — upsert `set`, `get`-returns-`Option`, `m[k]` throws, no literals (`fromVector` idiom), iteration order deliberately unstable across runs (snapshot-test warning), key representatives retained first-wins exactly like JS `Map`/`Set` (§5.4). |
+| **exceptions.md** | Prelude exceptions still lack **`exception KeyError`** (nullary; §4.3 here) — the `IndexError` sibling; note the non-normative message clause and cite the §2 no-polymorphic-payload rule as the deciding constraint. Add on next touch. |
+| **operators-logic-precedence.md** | §14 note on next touch: the bracket's element-type dispatch now covers `Map` keys (Int index / Range slice / map key — checking-time selection, §4.1 here), and a `Range`-typed key is a lookup, never a slice (§4.4); no grammar change. |
+| **ffi-part10-js-map-set.md** | §7.3 still says "the later entry wins" for maps and that the retained `Set` representative has "nothing observable about which" — align with §5.4/§10.3 here: for maps, the later entry's *value* wins and the *first* converted key representative is retained; for sets, the *first* source representative is retained (observably). |
+| **notes/hexagon-for-typescript-coders.md** | On next touch: Map/Set section — upsert `set`, `get`-returns-`Option`, `m[k]` throws, no literals (`fromVector` idiom), iteration order deliberately unstable across runs (snapshot-test warning), key representatives retained first-wins exactly like JS `Map`/`Set` (§5.4). |
 
 ---
 
-## 15. Decisions log
+## 15. Reserved
 
-| # | Decision | § |
-|---|---|---|
-| 1 | HAMT per Part 1; **expected** O(log₃₂ n) core ops, worst-case O(n) under collisions; set algebra expected-linear with traversal side named; no structural-merge promise | §2 |
-| 2 | No Map/Set literals; construction by name | §3.1, §12.1 |
-| 3 | **`fromVector` convenience constructors, core**, definitionally `fromSeq ∘ toSeq` | §3.2 |
-| 4 | `fromEntries` last-wins restated; `fromSeq`≡`fromEntries`, `toSeq`≡`entries` as definitional synonyms; all `from*` eager | §3.3–3.4 |
-| 5 | `empty` polymorphic, generalizes, **no `Hash`**; constraints sit on key-consulting operations | §3.5 |
-| 6 | `m[k]` throws **`KeyError`**; `Map.get` total; no Map slicing; no `Map.at`; **no `Set` brackets** | §4 |
-| 7 | **`exception KeyError` — nullary**; best-effort key rendering in the JS message, non-normative; asymmetry with `IndexError` principled | §4.3 |
-| 8 | **`Map.set` is upsert, never throws** — the stated break with `Vector.set`; "positions exist or don't; keys are yours to mint" | §5.1 |
-| 9 | `remove` forgiving and idempotent (`dropFirst` family); `add` idempotent | §5.1–5.2 |
-| 10 | Set algebra named; `isSubsetOf` only (no `isSupersetOf`); no `++` (Part 1 §7 restated) | §5.3, §12.3 |
-| 11 | `Map.singleton` ships; `singleton` unconstrained | §6, §12.4 |
-| 12 | **Iteration order: deterministic per value within one execution; not insertion/sorted; not cross-run/cross-version stable (seeded placement, Part 2 §16.2); not content-determined — `Eq`-equal values may differ** | §7.1, §12.8 |
-| 13 | `Iterable<Map>` `Item = (k, v)`; `Iterable<Set>` `Item = a`; `for (k, v) in m` legal — Loops §2.1 superseded by pattern loop-heads | §7.2 |
-| 14 | `keys`/`values`/`entries` **correspond**: `entries ≡ zip(keys, values)` as one traversal | §7.3 |
-| 15 | `Eq` extensional: `Eq<Set(a)> given Hash a`; `Eq<Map(k,v)> given Hash k, Eq v` | §8.1 |
-| 16 | **No `Ord<Map>`/`Ord<Set>`**; sorted counterparts inherit the question in v2 | §8.2, §12.5 |
-| 17 | `Show` **constructor-shaped** (`Map.fromVector([...])`), not round-trip; entries in the value's iteration order; pseudo-literals rejected | §8.3, §12.6 |
-| 18 | `Hash<Set>`/`Hash<Map>` **permutation-invariant** (result invariant under every permutation) — forced by the seeded-placement/unseeded-member split *and* by extensional `Eq`; entry hash order-sensitive within the pair; algorithm runtime-owned | §8.4 |
-| 19 | JS boundary: primitive-key faithfulness **normative** (SameValueZero alignment); Hexagon→JS reference-identity caveat documented; JS→Hexagon collapse **later-entry-wins in source iteration order**; functions and failure modes owed to FFI | §10 |
-| 20 | **Representative retention: first wins** (stored key/element representative never replaced by an `equals`-equal newcomer); values last-wins, key representatives first-wins; **set algebra retains the left operand's representative** — corrected, §17.1 | §5.4, §12.7 |
+*Anchor retained for stable inbound references. The canonical decisions of this document live in §§1–14; there is no separate decisions table.*
 
 ---
 
@@ -454,7 +420,7 @@ let m = Map.fromVector([(1, "one"), (2, "two")])
 let s = Set.fromVector([1, 2, 3])
 let one = Map.singleton("a", 1)            -- Map(String, Int)
 Map.fromEntries(Vector.toSeq([(1, "old"), (1, "new")]))[1]
-                                           -- "new"  (last wins)
+                                           -- "new"  (last value wins)
 
 -- (b) Unsatisfied Hash, hinted (key type without derives)
 record Weird = {s: String}
@@ -489,7 +455,7 @@ Set.isSubsetOf(Set.empty, s)               -- true
 s ++ s                                     -- ERROR: no Concat for Set (use Set.union)
 
 -- (g) Iteration; pattern loop head
-var total := 0
+var total = 0
 for (k, v) in m
   total := total + k                       -- OK: irrefutable tuple head
 for [k, v] in m
@@ -526,14 +492,6 @@ Set.union(Set.fromVector([-0.0]), Set.fromVector([0.0]))
 
 ---
 
-## 17. Correction records (July 2026, post-review)
+## 17. Reserved
 
-Applied **in place** above; corrected/added sections are marked. Recorded per house rule: defect origin, rationale, rejected alternative marked do-not-relitigate.
-
-### 17.1 Representative retention: `equals`-equal is not indistinguishable (§3.3 corrected; §5.4 added)
-
-- **Defect:** §3.3 originally claimed that which duplicate a `Set` retains is "unobservable (values that are `equals`-equal under a derived `Eq` are structurally identical)." False for the very instance the key model is built on: `Eq<Float>` = SameValueZero (Decisions Batch §1.2, chosen *for* Map/Set key coherence) equates `-0.0` and `0.0`, which remain observably distinct via `show` and arithmetic — and the distinction propagates into derived-`Eq` structures containing Floats, and later into wrapper key types (Part 2 §4.5), where the retained representative is the pattern's entire point.
-- **Origin:** an intuition true of *derived equality over Hash-able types excluding Float* silently universalized. The document had, in fact, already committed to the answer without noticing: §5.1's `Set.add` idempotence ("returns the set unchanged") is only literally true under first-representative retention.
-- **Correction:** §5.4 — stored representatives are never replaced by `equals`-equal newcomers (first wins; values still last-wins; set algebra retains the left operand's representative, independent of §2.2's traversal-side freedom, which was already scoped to bounds only). JS/Python/oracle-aligned.
-- **Rejected alternatives (do not relitigate):** replace-on-write representatives, and "unspecified representative" — §12.7.
-- **Credit:** Sol (the observability of the retained representative under SameValueZero); the first-wins consequence was latent in §5.1's own idempotence claim.
+*Anchor retained for stable inbound references. The post-review correction formerly recorded here (representative retention — `equals`-equal is not indistinguishable) is incorporated into §§3.3, 5.4, 10.3, and 12.7, with its do-not-relitigate record at §12.7.*

@@ -2,7 +2,7 @@
 
 **Status:** Decided (July 2026)
 **Scope:** Source text, line endings and horizontal whitespace; identifiers and
-case classification; the complete hard and contextual keyword inventory; numeric
+start-class classification; the complete hard and contextual keyword inventory; numeric
 and string literal lexing; the complete punctuation and operator inventory;
 comments as trivia; physical token shapes; maximal munch; lexical diagnostics.
 **Not in scope:** Indentation-stack behaviour and virtual tokens (Lexer & Layout);
@@ -11,9 +11,7 @@ attachment; source-file discovery and filesystem I/O.
 **Companions:** Lexer & Layout, Comments, Primitive Types, Numeric Literals,
 Operators/Logic/Precedence, Pattern Matching, Modules, and Foreign Enums.
 
-This document closes the full-lexer debt recorded in the specification roadmap.
-It consolidates spellings already fixed elsewhere and decides the remaining lexical
-minutiae. A later language feature may add a token only by updating this inventory.
+A later language feature may add a token only by updating this inventory.
 
 ---
 
@@ -25,9 +23,10 @@ minutiae. A later language feature may add a token only by updating this invento
 - **Text stays text.** Every physical token has an exact half-open source span in
   UTF-16 code units. Literal payloads are decoded alongside, never instead of,
   their original spelling.
-- **Case is syntax.** A name's first codepoint classifies it as a lowercase name
-  or an uppercase name before parsing or resolution. This preserves the language's
-  binder-versus-constructor distinction without consulting a symbol table.
+- **Start class is syntax.** A name's literal first codepoint classifies it as
+  uppercase-start or non-uppercase-start before parsing or resolution. This
+  preserves the binder-versus-constructor distinction without consulting a symbol
+  table while admitting JavaScript-compatible caseless, `$`, and `_` starts.
 - **Keywords are split deliberately.** A small hard set is always reserved.
   Position-specific vocabulary remains an identifier token and becomes meaningful
   only in its grammatical context.
@@ -78,60 +77,65 @@ pass can ignore them deliberately rather than losing their existence.
 
 ### 3.1 Character grammar
 
-Identifier characters follow [Unicode Standard Annex #31](https://www.unicode.org/reports/tr31/)'s
-`XID_Start` and `XID_Continue` properties from
-[Unicode 17.0.0](https://www.unicode.org/versions/Unicode17.0.0/), with the case
-restriction below.
-The compiler ships the relevant tables; it must not inherit whatever Unicode version
-happens to be installed on the host.
+Identifiers use the [ECMAScript 2024 `IdentifierName` character repertoire](https://262.ecma-international.org/15.0/#sec-names-and-keywords), interpreted
+with [Unicode 17.0.0](https://www.unicode.org/versions/Unicode17.0.0/) tables. This is
+ECMAScript's `ID_Start`/`ID_Continue` grammar plus `$`, `_`, and the continuation-only
+U+200C ZERO WIDTH NON-JOINER and U+200D ZERO WIDTH JOINER. The compiler ships these
+tables; it must not inherit a host's Unicode version.
 
 ```text
-LowerName = LowercaseStart XID_Continue*
-UpperName = UppercaseStart XID_Continue*
+Identifier       = IdentifierStart IdentifierContinue*
+IdentifierStart  = ID_Start | "$" | "_"
+IdentifierContinue = ID_Continue | "$" | "_" | U+200C | U+200D
 
-LowercaseStart = XID_Start and Unicode Lowercase = Yes
-UppercaseStart = XID_Start and (Unicode Uppercase = Yes or General_Category = Lt)
+UpperName    = Identifier whose first codepoint has Unicode Uppercase = Yes
+               or General_Category = Lt
+NonUpperName = every other Identifier
 ```
 
-The spelling must be in Unicode NFC. A non-NFC identifier is an error with a fix-it
-to its NFC spelling; the compiler does not silently change source text. Identifier
-comparison is then exact codepoint comparison.
+Identifier equality is exact codepoint-for-codepoint spelling equality. Hexagon neither
+normalizes nor case-folds names; canonically equivalent NFC and decomposed spellings are
+distinct identifiers. Tooling may offer normalization or confusable warnings, but such
+warnings never alter name identity and are not compiler diagnostics in v1.
 
-This is a deliberate profile of UAX #31 rather than unrestricted `XID_Start`.
-Hexagon's case rule is load-bearing: an uncased initial such as a Han ideograph cannot
-be classified as a binder or a type/constructor. Such a codepoint is legal after a
-cased initial (`user東京`) but not as the first codepoint. The diagnostic says that
-Hexagon names must begin with a lowercase or uppercase cased letter.
+Uppercase-start names serve the existing type, constructor, constraint, and module-alias
+roles. Non-uppercase-start names serve term and binder roles. Caseless scripts therefore
+work naturally as terms (`用户`). Where an uppercase role is wanted, `T用户`, `C成功`,
+and `M数据库` are cultural conventions using ordinary Latin prefixes, not special syntax.
 
 ASCII examples remain the ordinary forms:
 
 ```text
-name       item2      parse_json     -- LowerName
+name       item2      parse_json     -- NonUpperName
+$name      _name      用户             -- NonUpperName
 Point      HTTP2      Résultat       -- UpperName
 δelta      Δelta                     -- lower and upper Unicode initials
+T用户      C成功      M数据库           -- UpperName by literal first codepoint
 ```
 
 ### 3.2 Deliberate exclusions
 
-- `_` is its own wildcard token. It is not a name. `_name` is invalid because a
-  name must begin with a cased letter; underscore remains legal after the initial.
-  Double-underscore names belong to compiler-generated local bindings and parameters
-  and can never collide with Hexagon source.
-- `$` is not an identifier character. Dollar-initial names are reserved for emitted
-  module helpers and JavaScript-compatibility bindings and can never collide with
-  Hexagon source.
+- Bare `_` is its own wildcard token. `_name` and every other longer valid
+  underscore-start spelling are ordinary non-uppercase-start names.
+- The exact prefix `__hex_` is reserved for compiler-generated JavaScript and
+  declaration-file identifiers. Other underscore-start names, including `__name`,
+  are source names. Generated names probe numeric suffixes deterministically when a
+  foreign or already-emitted name occupies their preferred spelling.
+- `$` and dollar-start names are ordinary non-uppercase-start identifiers.
 - Identifier escapes do not exist. `\u{...}` is a string escape only; a backslash
   in a name is an error.
 - Apostrophes are not identifier characters. ML-style `a'` names do not exist.
-- No case folding occurs. `point`, `Point`, and `POINT` are three spellings, though
-  only the first is a lowercase name.
+- Literal Unicode bidirectional controls are prohibited throughout source, including
+  comments and strings. Write a Unicode escape inside a string when the value itself
+  requires one. Confusables are not rejected or folded.
+- No case folding occurs. `point`, `Point`, and `POINT` are three spellings; only the
+  latter two are uppercase-start.
 
 ### 3.3 Unicode evolution
 
 Unicode 17.0.0 fixes v1's tables. A future Hexagon release may adopt a later Unicode
-version through a recorded compatibility update. UAX #31 guarantees identifier-set
-growth, but the compiler release—not the runtime host—selects the version so unchanged
-compiler bits remain deterministic.
+version through a recorded compatibility update. The compiler release—not the runtime
+host—selects the version so unchanged compiler bits remain deterministic.
 
 ## 4. Keyword inventory
 
@@ -165,7 +169,7 @@ write `honor`.
 
 ### 4.2 Contextual keywords
 
-The following spellings lex as `LowerName`. The parser recognizes them only in the
+The following spellings lex as `NonUpperName`. The parser recognizes them only in the
 listed positions:
 
 | Spelling | Context |
@@ -191,7 +195,7 @@ position; the lexer does not emit contextual-keyword token kinds.
 ### 4.3 Words that are not keywords
 
 `throw`, `ignore`, `range`, `rangeDown`, `show`, `module`, `main`, `async`, `await`,
-`break`, `continue`, and `yield` are ordinary lowercase names. Some are prelude
+`break`, `continue`, and `yield` are ordinary non-uppercase-start names. Some are prelude
 functions, some name rejected or deferred forms, and some have no meaning at all.
 Library membership never turns a name into a keyword.
 
@@ -374,13 +378,13 @@ The physical lexer returns a `Lexed.File` containing:
 
 The code-token kinds are exactly:
 
-1. `LowerName`, `UpperName`, and the hard-keyword kinds from §4.1;
+1. `NonUpperName`, `UpperName`, and the hard-keyword kinds from §4.1;
 2. `Integer`, `BigInt`, `Float`, and composite `String`;
 3. every punctuation/operator/wildcard kind from §8.1; and
 4. `Eof`.
 
 Whitespace and comments are trivia, not code-token kinds. Contextual words are
-`LowerName`. `VOPEN`, `VSEP`, and `VCLOSE` do not occur in `Lexed.File`; the layout
+`NonUpperName`. `VOPEN`, `VSEP`, and `VCLOSE` do not occur in `Lexed.File`; the layout
 pass alone creates them in `LaidOut.File`. The parser must never consume this physical
 stream directly.
 
@@ -397,9 +401,9 @@ token inventory and the lexer must not report the same source code unit twice.
 | Unsupported whitespace | name the codepoint; replace with U+0020 when appropriate |
 | Unpaired surrogate / invalid UTF-8 | "Hexagon source must be valid Unicode" |
 | BOM away from offset zero | "a byte-order mark is only allowed at the start of a file" |
-| Uncased or invalid name initial | "Hexagon names must begin with a lowercase or uppercase cased letter" |
-| Non-NFC name | "identifier is not in Unicode NFC" + normalized fix-it |
-| `_name` | "`_` is the wildcard; names begin with a lowercase or uppercase letter" |
+| Continuation-only or otherwise invalid name initial | state that the character cannot begin an identifier |
+| Reserved `__hex_` prefix | "`__hex_` is reserved for compiler-generated names" + rename fix-it |
+| Literal bidirectional control | reject it; in a string suggest an explicit Unicode escape |
 | Hard keyword in name position | "`WORD` is reserved and cannot be used as a name" |
 | Malformed `_` in a number | "`_` in a number must have a digit on both sides" |
 | `.5` / `1.` | suggest `0.5` / `1.0` |
@@ -420,8 +424,12 @@ There is no warning tier. Every row is either accepted source or a hard error.
 ## 11. Acceptance inventory
 
 ```hexagon
-let café2 = 1_000                 // NFC Unicode LowerName + Integer
+let café2 = 1_000                 // Unicode NonUpperName + Integer
+let 用户 = "小明"                  // caseless-script NonUpperName
+let $税率 = 0.10                  // JavaScript-compatible `$` start
+let _折扣 = 5                     // `_name` is a name; bare `_` remains wildcard
 record Résultat(a) = {value: a}   // Unicode UpperName
+record T用户 = {名字: String}       // uppercase role by ordinary Latin prefix
 let greeting = "Hello ${name}."   // one composite String token
 let lines = "first\r\nsecond"      // escapes retain explicit CRLF
 let multi = "first
@@ -435,8 +443,8 @@ match value
 Rejected lexically:
 
 ```text
-let _name = 1       -- `_` cannot begin a name
-let 東京 = 1         -- uncased initial cannot satisfy the case rule
+let __hex_temp = 1  -- compiler prefix is reserved
+let 😀 = 1           -- emoji is not an ECMAScript identifier start
 let x = .5          -- write 0.5
 let x = 1.          -- write 1.0
 let x = 0xFF        -- decimal only
@@ -452,8 +460,9 @@ a && b              -- write `a and b`
 |---|---|
 | Strict Unicode source; optional initial BOM; LF/CRLF/CR; UTF-16 positions | §2.1 |
 | Only space/tab horizontal whitespace; leading tabs error, interior tabs legal | §2.2 |
-| Unicode 17 XID identifiers, NFC-required, cased initial classifies name | §3 |
-| `_`, `$`, apostrophe, and identifier escapes excluded | §3.2 |
+| ECMAScript 2024 identifier repertoire with pinned Unicode 17 tables | §3 |
+| Uppercase-start/non-uppercase-start classification; exact spelling equality | §3.1 |
+| Bare `_` wildcard; `__hex_` reserved; escapes/apostrophes excluded; bidi controls rejected | §3.2 |
 | Complete hard/contextual/not-keyword tables; `finally` reserved | §4 |
 | Decimal numeric grammar, required digits around `.`, exact suffix rules | §5 |
 | Composite string token; interpolation recursively lexed but layout-suppressed | §6.1 |

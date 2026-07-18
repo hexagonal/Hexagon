@@ -2,7 +2,7 @@
 
 **Status:** Decided (July 2026)
 **Scope:** The six primitive types: `Int`, `Float`, `Bool`, `String`, `BigInt`, `Unit`. Their JS representations, literal syntax, string interpolation, and the `Show` connection.
-**Not in scope:** `Char` (does not exist), `Rat` (stdlib module, see the Rat design notes), tuples/records/unions/functions (own specs), the constraint system itself (own spec — this doc only *names* which standard constraints each type supports), 1-based indexing in general (forthcoming spec), equality semantics in depth (constraint spec).
+**Not in scope:** `Char` (does not exist), `Rat` (stdlib module with a focused v1 spec owed), tuples/records/unions/functions (own specs), the constraint system itself (own spec — this doc only *names* which standard constraints each type supports), 1-based indexing in general (forthcoming spec), equality semantics in depth (constraint spec).
 **Companion:** the Numeric Literals spec (polymorphic integer literals, `fromInt`, Int defaulting) — cross-referenced, not restated here.
 
 This document is written for a future implementation session and assumes the existing `hexc` architecture: Algorithm J, level-based generalisation, constraints compiled to dictionary passing, `implement` blocks, lexer with UTF-16 column tracking, layout pass, emission of idiomatic readable JS + `.d.ts`.
@@ -24,7 +24,12 @@ This document is written for a future implementation session and assumes the exi
 
 ### Naming conventions
 
-Type names begin with a capital letter: `Int`, `String`, `Rat`. Type *variables* begin with a lowercase letter: `a`, `b`, `c`. Where TypeScript convention uses `T`, `U`, `V` for type variables, Hexagon convention (following the ML family) uses `a`, `b`, `c`. This is not merely convention in Hexagon — the case of the initial letter is how the parser/resolver distinguishes a type name from a type variable, which is what makes ML-style implicit generalisation work without a `forall` binder (`a -> a` quantifies `a` because it is lowercase; see the type-signatures decisions).
+Type names are uppercase-start identifiers: `Int`, `String`, `Rat`, or culturally
+prefixed forms such as `T用户`. Type variables are non-uppercase-start identifiers;
+the ML-family `a`, `b`, `c` spellings remain the ordinary convention, while `用户`
+is equally legal. The literal first-codepoint class is how parsing distinguishes a
+type name from a type variable and enables implicit generalisation without `forall`
+(Lexer §3).
 
 ---
 
@@ -224,4 +229,4 @@ Rationale for `undefined`: a Hexagon function returning `Unit` is a JS function 
 | `Float.nan` / `Float.infinity` constants; no special-value literals | this doc §3 |
 | Int overflow: silent past ±2^53, plain-JS operators; checked stdlib variants; `--checked-int` reserved; int32/`\|0` rejected | this doc §2.1 |
 | `Ord String` = codepoint lexicographic, permanent regardless of grapheme indexing; collation is stdlib, never Ord | this doc §5 |
-| Types capitalised, type variables lowercase `a b c` | this doc §1 |
+| Types uppercase-start; type variables non-uppercase-start (`a b c` by convention) | this doc §1; Lexer §3 |

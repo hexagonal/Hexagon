@@ -1,6 +1,6 @@
 # FFI Note: Zero-Cost Fundamental Specializations
 
-**Status:** Proto-spec decision note (July 2026), not yet normative.
+**Status:** Superseded and historical (July 2026). Promoted into FFI Part 8; correction records remain in that normative target.
 **Purpose:** Fix the JavaScript/TypeScript export surface of constrained-polymorphic Hexagon functions so fundamental types retain direct, dictionary-free entry points while public non-fundamental types remain usable through one generic dictionary edition.
 **Companions:** `ffi-proto-spec-questions.md`; `ffi-exported-dictionaries.md`; Constraints §6; Numeric Literals §5; Primitive Types; whole-program emission doctrine.
 

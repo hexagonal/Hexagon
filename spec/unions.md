@@ -1,17 +1,15 @@
 # Hexagon Spec: Unions
 
 **Status:** Decided (July 2026)
-**Scope:** The nominal `union` declaration: constructors (nullary and payload-carrying, named and unnamed slots), the `match` expression with flat constructor patterns, exhaustiveness, generics and recursion, the tagged-POJO runtime representation, the all-nullary string special case, prelude `Option`/`Result`, derived-constraint semantics, JS emission and `.d.ts` shapes.
-**Not in scope:** the full pattern grammar — nesting, literals, guards, record/tuple patterns (pattern-matching spec; this doc fixes only flat constructor patterns as that grammar's degenerate case, same move as Products §2.4), the declaration-header grammar shared with `record`/`type` (declarations spec), the constraint mechanism and `implement` (constraints spec; this doc fixes derived-instance *semantics* only), module-level qualification of constructor names (modules spec), FFI conversions (`Nullable(a)` ↔ `Option`) (FFI spec), or foreign-backed nullary unions (`extern enum`, fixed by `ffi-foreign-enums.md`).
-**Companions:** Products spec (the product half of the algebra; `itemN` vocabulary; nominal-name opacity doctrine), Functions spec (arity checking, constructors-as-functions, value restriction), Lexer & Layout spec (match arms are a layout block), Primitive Types §7 (Show display semantics).
-
-Written for a future implementation session against the existing `hexc` architecture: Algorithm J, union-find tyvars, level-based generalisation, constraints as dictionaries, layout pass, readable-JS emission with `.d.ts`.
+**Scope:** The nominal `union` declaration: constructors (nullary and payload-carrying, named and unnamed slots), the `match` expression's union-specific facts (constructor patterns as the pattern grammar's degenerate case; closed-constructor exhaustiveness), generics and recursion, the tagged-POJO runtime representation, the all-nullary string special case, prelude `Option`/`Result`, derived-constraint semantics, JS emission and `.d.ts` shapes.
+**Not in scope:** the full pattern grammar, guards, generalized scrutinees, and the general exhaustiveness/reachability/irrefutability machinery (Pattern Matching; this doc owns only the union-specific facts, §4), the declaration-header grammar shared with `record`/`type` (Declarations Preamble §§2–3), the constraint mechanism and `honor` (Constraints; this doc fixes derived-instance *semantics* only — invocation is Constraints §4.5), module-level qualification of constructor names (Modules), FFI conversions (`Nullable(a)` ↔ `Option` — FFI Part 2 §4–§5), foreign-backed nullary unions (`extern enum`, `ffi-foreign-enums.md`).
+**Companions:** Products spec (the product half of the algebra; `itemN` vocabulary; nominal-name opacity doctrine; rows are records-only, Products §4), Functions spec (arity checking, constructors-as-functions, value restriction), Pattern Matching (§2/§7/§11.3), Method Syntax (§3.4 — union receivers in the dot-call table), Lexer & Layout spec (match arms are a layout block), Primitive Types §7 (Show display semantics), Collections Part 2 (`Hash`), FFI Part 7 §4 (constructor exports).
 
 ---
 
 ## 1. Doctrine
 
-- **`union` is the nominal sum; there is no structural sum.** Rows are records-only (Type System Overview §2.5, now confirmed): no polymorphic variants, no open unions, no anonymous `A | B` type expressions in Hexagon source. Two unions with identical constructor sets do not unify.
+- **`union` is the nominal sum; there is no structural sum.** Rows are records-only (Products §4): no polymorphic variants, no open unions, no anonymous `A | B` type expressions in Hexagon source. Two unions with identical constructor sets do not unify.
 - **The unifier treats a union name as opaque** — same doctrine as nominal `record` (Products §5.1). There is no structural counterpart to unfold to, so unions don't even have the `{...p}` crossing; the name is the whole story.
 - **`match` is the only eliminator.** No field access on union-typed receivers, no generated predicates, no casts.
 - **Exhaustiveness is a hard error.** Closed nominal sums + no subtyping make it exact and cheap; it is the payoff of the feature and is not demoted to a warning.
@@ -32,8 +30,8 @@ union Tree(a) = Leaf | Node(Tree(a), a, Tree(a))
 ```
 
 - **Leading `|` is optional** (the F#/OCaml rule): the first alternative may or may not be preceded by a bar, in both one-line and multi-line forms. The two spellings are the same declaration — one grammar rule, not two forms. **Preferred style** (recorded for the stdlib and any future formatter): one-liners omit the leading bar; multi-line declarations put `|` at the head of *every* alternative, so cases align vertically and adding, removing, or reordering a case is a one-line diff.
-- Header grammar — placement, the type-parameter form `union Name(a, b) = ...`, how the layout pass treats the continuation lines of the `|` alternatives — is the **declarations spec's** job, shared with `record`/`type`. (Note for that spec: the alternatives are a continuation of the `union` declaration, not a block — the `|` lines are indented deeper than the header and must not trip VSEP into splitting the declaration. Presumably falls out of ordinary offside handling of a multi-line expression, but it's the declarations/layout boundary's job to say so.) This doc fixes the semantics; the parameterised case must behave identically to the monomorphic case with the parameters instantiated.
-- The union name and every constructor name are **uppercase-initial** (Functions §2: uppercase is reserved for types and constructors). The union name enters the type namespace; each constructor enters the **term namespace, unqualified, in module scope** (Elm/Gleam style). Two constructors with the same name among in-scope unions is an error at the point that makes it ambiguous; the declaration-site case (two unions in one module sharing a constructor name) is a hard error at the second declaration. Qualified access and import-driven disambiguation are the modules spec's business.
+- The header grammar — parameters, `derives` position, and the layout-continuation rule (the `|` alternatives are a continuation of the declaration, not a block; no VOPEN after `=`) — is Declarations Preamble §§2–3 (§2.4 for the continuation). This doc fixes the semantics; the parameterised case behaves identically to the monomorphic case with the parameters instantiated.
+- The union name and every constructor name are **uppercase-start** (Functions §2: uppercase is reserved for types and constructors). The union name enters the type namespace; each constructor enters the **term namespace, unqualified, in module scope** (Elm/Gleam style). Two constructors with the same name among in-scope unions is an error at the point that makes it ambiguous; the declaration-site case (two unions in one module sharing a constructor name) is a hard error at the second declaration. Qualified access and import-driven disambiguation are the modules spec's business.
 - Duplicate constructor names within one union: hard error.
 - **Recursion is allowed**, direct or mutual, through any payload position (`Tree` above). Unlike `type` aliases (whose recursion ban is the declarations spec's), the nominal indirection makes this sound with no occurs-check involvement: the union name is a type *constant* to the unifier, so a recursive payload is just another mention of a constant.
 
@@ -49,7 +47,7 @@ Point                          -- nullary: no parens at all
 ```
 
 - Unnamed slots take the tuple vocabulary at the representation level: they emit as `item1 … itemN` fields (§6). This is emission-facing only — there is **no** `s.itemN` access on a union value (§5).
-- Named slots must be lowercase-initial (term-level names). A slot named **`tag` is a hard compile error** — that key belongs to the representation (§6): "`tag` is reserved as the union's discriminant field; rename this field."
+- Named slots must be non-uppercase-start (term-level names). A slot named **`tag` is a hard compile error** — that key belongs to the representation (§6): "`tag` is reserved as the union's discriminant field; rename this field."
 - Duplicate slot names within one constructor: error.
 - `C()` — empty parens — is a parse error: a nullary constructor is written bare, `Point`, mirroring how it is used (§2.2). (Hint: "remove the `()`; nullary constructors take no argument list.")
 - **Slot names do not create named-argument call syntax.** Construction and patterns are positional, always (§2.2, §4.1). Names choose the emitted field names and document intent; nothing more. This keeps the Products §2.2 rejection of `(x: 1, y: 2)` intact — there is still no named-positional anything at call sites.
@@ -89,36 +87,36 @@ match shape
 - The arm body is an expression: same line, or an indented block whose final expression is the arm's value — identical to lambda bodies (Functions §3.1).
 - `match` is an **expression**; all arm bodies unify to one result type. The scrutinee is evaluated once.
 
-### 4.2 Patterns (v1: flat constructor patterns)
-
-The v1 pattern forms, in full:
+### 4.2 Constructor patterns (this grammar's degenerate case; the full grammar is Pattern Matching's)
 
 ```
-Circle(r)        -- constructor, binding each slot to a fresh lowercase name
+Circle(r)        -- constructor, binding each slot to a fresh non-uppercase-start name
 Rect(_, h)       -- `_` discards a slot; may repeat
 Point            -- nullary constructor
-None             -- ditto
+Node(Leaf, x, r) -- nested sub-patterns: legal (Pattern Matching §2.2)
 _                -- wildcard arm: matches anything, binds nothing
 ```
 
-- **Positional, always.** `Circle(r)` binds `r` to the first slot whether the declaration named it `radius` or not. Slot names do not appear in patterns in v1 (a `name: pattern` field-pattern form is plausibly the pattern spec's future business; not here).
-- **Pattern arity must equal constructor arity** — compile error otherwise, same report shape as function-call arity errors. A payload constructor used bare in a pattern (`Circle =>`) is an arity error with a hint ("`Circle` carries 1 field; write `Circle(_)` to ignore it"). A nullary constructor with parens (`Point() =>`) gets the §2.2 hint.
-- Bound names are lowercase-initial (case rule); an uppercase name in a slot position is read as a constructor and is therefore a *nested pattern* — a parse error in v1: "nested patterns arrive with pattern matching" (verbatim the Products §2.4 message family).
-- No literals, no guards, no `|` or-patterns, no bindings-with-`@`, no record/tuple patterns in arms — all deferred to the pattern-matching spec, which owns the superset grammar and must define these flat forms as its degenerate case, **not** as a second grammar. (Same contract Products §2.4 imposed for `let`-destructuring.)
-- Duplicate binder in one pattern (`Rect(w, w)`): error.
-- The pattern-matching spec, when it arrives, also owes: `match` on non-union scrutinees (tuples, records, literals), `let` patterns beyond flat tuples, and lambda-parameter patterns. In v1, **`match` scrutinees must be union-typed**; anything else is "match requires a union type in v1".
+- **The flat forms above are the degenerate case of the single pattern grammar** (Pattern Matching §2). Nesting, literals, guards, or-patterns, as-patterns, tuple/record/vector patterns, and **generalized `match` scrutinees** (tuples, records, `Bool`, …) all ship there; an uppercase-start name in a slot position is simply a nested constructor pattern.
+- **Positional, always** (this doc's rule, standing). `Circle(r)` binds `r` to the first slot whether the declaration named it `radius` or not; slot names never appear in constructor patterns in v1. **Named-slot constructor patterns** (`Circle(radius: r)`) remain a genuine deferred item, owned by Pattern Matching §11.3.
+- **Unions own the constructor arity/nullary diagnostics**: pattern arity must equal constructor arity — a payload constructor used bare (`Circle =>`) is an arity error with the hint "`Circle` carries 1 field; write `Circle(_)` to ignore it"; a nullary constructor with parens (`Point() =>`) gets the §2.2 hint. Pattern Matching §2.2 consumes these unchanged.
+- Duplicate binder in one whole pattern (`Rect(w, w)`): error (whole-pattern check now Pattern Matching §2.1's).
 
-### 4.3 Exhaustiveness and reachability (both hard errors)
+### 4.3 Exhaustiveness and reachability (union-specific facts; general machinery is Pattern Matching §7)
 
-- **Non-exhaustive match is a compile error**, listing the missing constructors by name: "match is missing cases: `Point`, `None`". With flat patterns over a closed nominal union this is set difference — implementers get exactness for free; do not approximate.
-- `_` (or a bare variable binding the whole scrutinee — permitted, same as `_` plus a binding) is the explicit opt-out, matching all remaining constructors.
-- **Unreachable arms are compile errors**, not warnings: a constructor already covered, or any arm after `_`/a bare-variable arm. "this case is unreachable; `Circle` is already handled above" / "unreachable: the `_` case above matches everything". Rationale: with v1's flat patterns reachability is exact too, and a dead arm is always a bug or leftover.
+The general algorithm — Maranget-style usefulness over the full grammar, witness-pattern rendering, guarded-arms-count-nothing, irrefutability as single-row exhaustiveness — is **Pattern Matching §7/§5's**, generalizing this section's doctrine without renegotiating it. What remains union-specific and owned here:
+
+- **Closed nominal constructor sets make coverage exact**: over flat constructor patterns it is set difference, and the missing-constructor listing ("match is missing cases: `Point`, `None`") is the degenerate rendering of Pattern Matching §7.3's witness printer.
+- Both judgments remain **hard errors** — that doctrine originated here and Pattern Matching §1 carries it forward ("generalized, not renegotiated").
+- `_` (or a bare variable) remains the explicit opt-out; a dead arm remains always a bug or leftover.
+- **The closedness payoff** (no subtyping, no open sums) is what makes sole-constructor patterns irrefutable at binding positions and makes adding a constructor flip every such site loudly — Pattern Matching §5.2 tells that story on this section's foundation.
 
 ---
 
 ## 5. No eliminator but `match`
 
-- Dot access on a union-typed receiver is a compile error — including `s.tag` and `s.itemN`: "union values are inspected with `match`". The representation's field names are not part of the language surface. (The FFI spec may later expose the representation contract to *JS-side* consumers; Hexagon-side code never touches it.)
+- **Bare dot access on a union-typed receiver is a compile error** — including `s.tag` and `s.itemN`: "union values are inspected with `match`". The representation's field names are not part of the language surface. (The FFI exposes the representation contract to *JS-side* consumers — Unions §6.5, FFI Part 7 §4; Hexagon-side code never touches it.)
+- A **fused dot call** `opt.getOrElse(0)` may resolve to an ordinary **companion operation** under Method Syntax (§3.4 there — nominal unions are its cleanest receivers, having no field surface to collide with). This is companion dispatch, a static rewrite to `Option.getOrElse(opt, 0)`; **it exposes no fields and inspects no representation** — `match` remains the only way to look inside a union value.
 - No generated `isCircle` predicates, no `Shape.circle?`, nothing.
 - Single-constructor unions are legal but are **not** the newtype idiom — `record` covers "nominal wrapper over one payload" (Products §5) with lighter access. A future lint may suggest as much; not required.
 
@@ -159,7 +157,9 @@ union Color = Red | Green | Blue
 
 This is the single most idiomatic TS pattern for enum-likes and a large interop win; taken with eyes open (decided). The cost, stated loudly:
 
-> **Representation cliff:** adding a payload-carrying constructor to an all-nullary union flips the *entire* union — including the pre-existing constructors — to the tagged-POJO representation. Hexagon-side code is unaffected (`match` is the only eliminator, and it recompiles). JS-side consumers of the emitted values break. This is accepted because any constructor addition is already a breaking change for JS consumers (their switches stop being exhaustive); the cliff changes *how* it breaks, not *whether*. The FFI documentation must state the contract: the representation of a union is stable only while its all-nullary-ness is.
+> **Representation cliff:** adding a payload-carrying constructor to an all-nullary union flips the *entire* union — including the pre-existing constructors — to the tagged-POJO representation. Hexagon-side code is unaffected (`match` is the only eliminator, and it recompiles). JS-side consumers of the emitted values break. This is accepted because any constructor addition is already a breaking change for JS consumers (their switches stop being exhaustive); the cliff changes *how* it breaks, not *whether*.
+
+For every exported all-nullary union, **generated FFI documentation must carry this warning**; the emitter should additionally place it in a `.d.ts` doc comment (FFI Part 7 §4.1). The obligation is normative even though the comment placement is representative.
 
 `extern enum` is the explicit FFI exception to this representation rule. It retains
 nullary-union typing and matching while using captured foreign object-member values as
@@ -187,7 +187,7 @@ switch (s.tag) {
 ### 6.4 Constructors in emitted JS
 
 - **Applied directly, the constructor erases into the object literal** — `Circle(2.0)` emits `{tag: "Circle", radius: 2.0}`, never a function call. Same doctrine as `record`'s constructor (Products §5.4).
-- **Referenced as a value**, the emitter materialises the function on demand: `const Circle = (radius) => ({tag: "Circle", radius});` (once per declaration or per module, implementer's choice; direct applications still erase). String-case constructors referenced as values are just the string constant; nullary POJO constructors are already constants (§6.1).
+- **Referenced as a value**, the emitter materialises the function on demand: `const Circle = (radius) => ({tag: "Circle", radius});` (once per declaration or per module, implementer's choice; direct applications still erase). **Export of a non-opaque union is a mandatory demand site**: it materialises each payload constructor once as a stable named ESM function; string-case and nullary POJO constructors export their existing constants (FFI Part 7 §4). Internal direct applications still erase. `export opaque union` exports the type only and does not materialise or expose its constructors merely because the type is exported (FFI Part 7 §5).
 
 ### 6.5 `.d.ts`
 
@@ -203,18 +203,18 @@ type Shape =
 - Unnamed slots appear as `item1` etc. — legal, if charmless; the stdlib style rule (§2.1) exists so exported unions carry real names.
 - Parameterised unions emit TS generics: `type Option<a> = { tag: "Some"; value: a } | { tag: "None" };` (type-parameter casing follows the Hexagon source; TS is case-agnostic here).
 - All-nullary case: the string-literal union, §6.2 table.
-- Whether constructor *functions* appear in the `.d.ts` (for JS callers constructing Hexagon unions) is the FFI/modules specs' export question; representation-wise nothing blocks it.
+- An exported **non-opaque** union declares every constructor in `.d.ts` (FFI Part 7 §4): payload constructors as functions returning the union type, mixed-union nullaries as shared constants, and all-nullary constructors as string constants. A generic shared nullary constant uses the `never` instantiation (`None: Option<never>`). An `export opaque union` instead has FFI Part 7 §5's brand-only type face and exposes no constructors.
 
 ---
 
 ## 7. Derived constraints (semantics here, mechanism in constraints spec)
 
-Mirroring Products §2.5/§3.4 — defined iff every payload type has the constraint, derived structurally by the compiler at any shape:
+Mirroring Products §2.5/§3.4 — the structural semantics, applied to the declaration's constructors and payloads. **Nominal unions receive no automatic instances**: `Eq`, `Ord`, `Show` — and `Hash`, whose algorithm and derived-`Eq` consistency condition are **Collections Part 2's** — derive only through explicit opt-in, `honor C<Shape> = derive` or the header `derives` clause (Constraints §4.5; same rule as nominal records). The semantics each derivation implements:
 
-- **`Eq`:** same constructor, then payload-wise conjunction. Different constructors are unequal, full stop. (Whether nominal unions get this automatically or via explicit `implement` is the constraints spec's call, same as nominal records — this doc guarantees the definition is available to that machinery.)
+- **`Eq`:** same constructor, then payload-wise conjunction. Different constructors are unequal, full stop.
 - **`Ord`:** by **constructor declaration order** first, then payload-wise lexicographic. Declaration order becoming semantically significant is mildly unpleasant and is what every ML-family language does; recorded, accepted. **Implementer note for the string case (§6.2):** declaration order is *not* alphabetical order, so `Ord` on an all-nullary union must not compile to JS `<` on the strings — it needs a declaration-index table (`{Red: 1, Green: 2, Blue: 3}` and compare indices). Same shape of trap as codepoint-vs-code-unit `Ord String` (Primitive Types §5); the cheap representation does not get to redefine the semantics.
 - **`Show`:** display semantics per Primitive Types §7. Constructor name; parens iff payload; components via their own `show`, comma-separated, **positional** regardless of slot names: `show(Circle(2.0))` is `"Circle(2)"`… — careful: `Float`'s show is JS formatting, so `"Circle(2)"` only if the payload prints so; the rule is the shape, not this example — `show(None)` is `"None"`, `show(Some("a"))` is `"Some(a)"` (String shows bare, pre-existing wart-by-design). Slot names do not appear in `show` output (that is `Debug`-flavoured territory, reserved with `#{}` per Primitive Types §5.4).
-- No `Num`, no `Frac`, obviously; no auto-`Show` for unions with unshowable payloads (a union over a function type simply lacks the instance — the absence is the feature, Primitive Types §7).
+- No `Num`, no `Frac`, obviously. **Derivation fails when a required payload instance is absent**: `honor Show<T> = derive` (or `derives Show`) where some payload type has no `Show` is the Constraints §8 underivable-slot error, naming the offending slot and its type — a union over a function type simply cannot derive `Show`, and the absence is the feature (Primitive Types §7).
 
 ---
 
@@ -227,7 +227,7 @@ union Result(a, e) = Ok(value: a) | Err(error: e)
 
 - **Success type first** in `Result`, matching the subject-first convention (Functions §5.3).
 - Payload slots are **named** even though these are the "obvious" constructors, because their emitted shape (`{tag: "Some", value: x}`, `{tag: "Err", error: e}`) is the most-trafficked union surface at the FFI, and `value`/`error` is what a TS author writes there. This deliberately overrides the §2.1 style rule's escape hatch for the prelude's own exports.
-- **Pre-registered rejection — `Option(a)` is not `a | undefined`.** Compiling `Option` to nullable erasure is the tempting interop move and is wrong: `Some(None)` and `None` collapse (generic code over `Option(a)` breaks whenever `a` instantiates to another Option); it special-cases the one place the language promises uniformity; and the emitted type lies structurally. JS-side nullability lives at the boundary as `Nullable(a)` (FFI spec), with explicit prelude conversions (`Option.fromNullable` / `Option.toNullable`, exact signatures owed to the FFI spec). Do not re-litigate without new information.
+- **Pre-registered rejection — `Option(a)` is not `a | undefined`.** Compiling `Option` to nullable erasure is the tempting interop move and is wrong: `Some(None)` and `None` collapse (generic code over `Option(a)` breaks whenever `a` instantiates to another Option); it special-cases the one place the language promises uniformity; and the emitted type lies structurally. JS-side nullability lives at the boundary as `Nullable(a)`, with the final **`Nullable`-owned** conversions — `Nullable.toOption`, `Nullable.fromOption` (`None` → `undefined`), and `Nullable.fromOptionOrNull` (`None` → `null`) — per FFI Part 2 §4–§5. `Option` owns no nullable-conversion aliases. Do not re-litigate without new information.
 - The standard partiality story elsewhere in the stdlib (`Int.checkedAdd : ... -> Option(Int)`, `BigInt.toInt` partial, etc.) is this `Option`. Nothing changes there; the type it referred to now exists.
 
 ---
@@ -241,15 +241,14 @@ union Result(a, e) = Ok(value: a) | Err(error: e)
 | `C()` empty payload parens (declaration or pattern) | "nullary constructors take no argument list" (§2.1, §4.2) |
 | Calling a nullary constructor: `None()` | type error + "`None` is a value; write it without `()`" (§2.2) |
 | Constructor arity mismatch (call) | standard arity error (Functions §5) |
-| Pattern arity mismatch | arity error; bare payload constructor gets the `Circle(_)` hint (§4.2) |
-| Uppercase name in a pattern slot | "nested patterns arrive with pattern matching" (§4.2) |
-| Duplicate binder in a pattern | error (§4.2) |
-| Non-exhaustive match | hard error listing missing constructors (§4.3) |
-| Unreachable arm | hard error, naming the shadowing case (§4.3) |
+| Pattern arity mismatch | arity error; bare payload constructor gets the `Circle(_)` hint (§4.2 — owned here, consumed by Pattern Matching §2.2) |
+| Duplicate binder in a whole pattern | error (Pattern Matching §2.1 owns the whole-pattern check) |
+| Non-exhaustive match on a union | hard error listing missing constructors — the degenerate witness rendering (§4.3; general machinery Pattern Matching §7) |
+| Unreachable arm | hard error, naming the shadowing case (§4.3; Pattern Matching §7.2) |
 | Braced match body `match e { ... }` | the Lexer & Layout brace diagnostic (records-not-blocks) |
-| Dot access on a union value (incl. `.tag`, `.itemN`) | "union values are inspected with `match`" (§5) |
-| Non-union scrutinee | "match requires a union type in v1" (§4.2) |
+| Bare dot access on a union value (incl. `.tag`, `.itemN`) | "union values are inspected with `match`" (§5; a fused dot call resolving to a companion operation is not access — Method Syntax) |
 | Duplicate constructor name (within a union / across a module's unions) | hard error at declaration (§2) |
+| Underivable payload in a `derive` | Constraints §8's error, naming the offending slot and its type (§7) |
 
 ---
 
@@ -264,14 +263,15 @@ union Result(a, e) = Ok(value: a) | Err(error: e)
 | Slot names are representation/docs only — construction and patterns always positional | §2.1, §4.1–4.2 |
 | Nullary constructors are values (no `()`); generalise as values (`None : Option(a)`) | §2.2 |
 | Recursion allowed (nominal indirection) | §2 |
-| `match`: layout arms, `pattern => expr`, expression, single evaluation; only eliminator | §4, §5 |
-| v1 patterns: flat constructor patterns + `_`; superset grammar owed to pattern spec | §4.2 |
-| Exhaustiveness and reachability: hard errors, exact | §4.3 |
+| `match`: layout arms, `pattern => expr`, expression, single evaluation; only eliminator; fused dot calls = companion dispatch, never field exposure | §4, §5 |
+| Constructor patterns = the pattern grammar's degenerate case (full grammar, nesting, generalized scrutinees: Pattern Matching); positional always; named-slot patterns deferred to Pattern Matching §11.3; arity/nullary diagnostics owned here | §4.2 |
+| Exhaustiveness and reachability: hard errors, exact over closed constructor sets; general machinery Pattern Matching §7 on this section's doctrine | §4.3 |
 | Representation: string-tagged flat POJOs; shared constants for nullary; classes/compressed tags rejected | §6.1 |
 | All-nullary unions emit bare strings; per-union test; representation cliff accepted and documented | §6.2 |
 | Mixed-union string nullaries rejected | §6.2 |
-| Constructor applications erase; referenced constructors materialise on demand | §6.4 |
-| `.d.ts` = hand-written-style discriminated union / string-literal union | §6.5 |
-| Derived Eq/Ord/Show semantics; Ord by declaration order (index table for string case); Show positional | §7 |
+| Constructor applications erase; referenced constructors materialise on demand; non-opaque export is a mandatory stable materialization site; opaque export exposes no constructors | §6.4; FFI Part 7 §§4–5 |
+| `.d.ts` = hand-written-style discriminated union / string-literal union for non-opaque exports, with constructors in their representation shapes; opaque export = brand-only type face | §6.5; FFI Part 7 §§4–5 |
+| No automatic instances for nominal unions; Eq/Ord/Show/Hash by explicit `derive`/`derives` only (Constraints §4.5); semantics here; `Hash` → Collections Part 2; derivation fails on absent payload instances | §7 |
+| Ord by declaration order (index table for string case); Show positional | §7 |
 | Prelude `Option`/`Result`, named payloads, success-first `Result` | §8 |
-| `Option` ≠ `a \| undefined`; nullability is `Nullable(a)` at the boundary only | §8 |
+| `Option` ≠ `a \| undefined`; nullability is `Nullable(a)` at the boundary; conversions are `Nullable.toOption`/`fromOption`/`fromOptionOrNull` (FFI Part 2 §4–§5) | §8 |
