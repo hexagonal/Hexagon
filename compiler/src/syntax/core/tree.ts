@@ -9,7 +9,7 @@ import type * as Source from "../../support/source.js";
 import type * as Resolved from "../resolved/index.js";
 import type * as Typed from "../typed/index.js";
 
-export type Evidence = PrimitiveEvidence | DictionaryEvidence | ErrorEvidence;
+export type Evidence = PrimitiveEvidence | DictionaryEvidence | InstanceEvidence | ErrorEvidence;
 
 export interface PrimitiveEvidence {
   readonly kind: "Primitive";
@@ -23,6 +23,11 @@ export interface DictionaryEvidence {
 
 export interface ErrorEvidence {
   readonly kind: "Error";
+}
+
+export interface InstanceEvidence {
+  readonly kind: "Instance";
+  readonly dictionary: string;
 }
 
 export interface Symbol {
@@ -46,15 +51,22 @@ export interface Module {
   readonly items: readonly Item[];
   readonly symbols: readonly Symbol[];
   readonly unions: readonly Union[];
+  readonly records: readonly RecordDeclaration[];
   readonly comments: readonly Source.Comment[];
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }
 
 export type Item =
+  | ImportItem
   | LetItem
+  | VarItem
   | LetPatternItem
   | FunItem
+  | RecordItem
+  | ExceptionItem
+  | ConstraintItem
+  | HonorItem
   | UnionItem
   | ExprItem
   | ErrorItem;
@@ -62,6 +74,15 @@ export type Item =
 export interface LetItem {
   readonly kind: "Let";
   readonly exported: boolean;
+  readonly binding: Binding;
+  readonly value: Expr;
+  readonly span: Source.Span;
+}
+
+export type ImportItem = Resolved.ImportItem;
+
+export interface VarItem {
+  readonly kind: "Var";
   readonly binding: Binding;
   readonly value: Expr;
   readonly span: Source.Span;
@@ -172,6 +193,7 @@ export interface FunItem {
 export interface Union {
   readonly id: Resolved.UnionId;
   readonly name: string;
+  readonly parameters: readonly Typed.TypeVariableId[];
   readonly span: Source.Span;
   readonly constructors: readonly Constructor[];
 }
@@ -191,7 +213,28 @@ export interface UnionItem {
   readonly exported: boolean;
   readonly union: Resolved.UnionId;
   readonly name: string;
+  readonly parameters: readonly Typed.TypeVariableId[];
   readonly constructors: readonly Constructor[];
+  readonly span: Source.Span;
+}
+
+export type RecordDeclaration = Typed.RecordDeclaration;
+
+export interface RecordItem extends Typed.RecordItem {}
+export interface ExceptionItem extends Typed.ExceptionItem {}
+export interface ConstraintItem extends Typed.ConstraintItem {}
+export interface HonorItem {
+  readonly kind: "Honor";
+  readonly constraint: string;
+  readonly subject: Typed.Type;
+  readonly dictionary: string;
+  readonly members: readonly HonorMember[];
+  readonly span: Source.Span;
+}
+
+export interface HonorMember {
+  readonly name: string;
+  readonly value: LambdaExpr;
   readonly span: Source.Span;
 }
 
@@ -227,13 +270,19 @@ export type Expr =
   | BlockExpr
   | LambdaExpr
   | IfExpr
+  | WhileExpr
+  | ForExpr
   | MatchExpr
+  | TryExpr
+  | ThrowExpr
   | CallExpr
   | ConsoleLogExpr
   | LogicalNotExpr
   | LogicalExpr
   | ConstraintCallExpr
   | ComparisonChainExpr
+  | RangeExpr
+  | AssignmentExpr
   | ErrorExpr;
 
 export interface NameExpr extends ExpressionFields {
@@ -338,11 +387,47 @@ export interface IfExpr extends ExpressionFields {
   readonly alternative?: Expr;
 }
 
+export interface WhileExpr extends ExpressionFields {
+  readonly kind: "While";
+  readonly condition: Expr;
+  readonly body: BlockExpr;
+}
+
+export interface ForExpr extends ExpressionFields {
+  readonly kind: "For";
+  readonly pattern: Pattern;
+  readonly iterable: Expr;
+  readonly body: BlockExpr;
+}
+
+export interface RangeExpr extends ExpressionFields {
+  readonly kind: "Range";
+  readonly start: Expr;
+  readonly end: Expr;
+}
+
+export interface AssignmentExpr extends ExpressionFields {
+  readonly kind: "Assignment";
+  readonly target: NameExpr;
+  readonly value: Expr;
+}
+
 export interface MatchExpr extends ExpressionFields {
   readonly kind: "Match";
   readonly scrutinee: Expr;
   readonly arms: readonly MatchArm[];
   readonly union?: Resolved.UnionId;
+}
+
+export interface ThrowExpr extends ExpressionFields {
+  readonly kind: "Throw";
+  readonly exception: Expr;
+}
+
+export interface TryExpr extends ExpressionFields {
+  readonly kind: "Try";
+  readonly body: Expr;
+  readonly arms: readonly MatchArm[];
 }
 
 export interface MatchArm {
@@ -356,6 +441,12 @@ export interface CallExpr extends ExpressionFields {
   readonly kind: "Call";
   readonly callee: Expr;
   readonly arguments: readonly Expr[];
+  readonly evidence: readonly CallEvidence[];
+}
+
+export interface CallEvidence {
+  readonly constraint: Typed.ConstraintName;
+  readonly value: Evidence;
 }
 
 /** An explicit effectful call to the JavaScript host console. */

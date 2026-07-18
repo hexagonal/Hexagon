@@ -85,7 +85,7 @@ export interface SimpleToken {
 }
 
 export interface NameToken {
-  readonly kind: "LowerName" | "UpperName";
+  readonly kind: "NonUpperName" | "UpperName";
   readonly text: string;
   readonly span: Source.Span;
 }

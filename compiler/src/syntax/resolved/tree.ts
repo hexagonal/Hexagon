@@ -9,16 +9,21 @@ import type * as Source from "../../support/source.js";
 
 declare const symbolIdBrand: unique symbol;
 declare const unionIdBrand: unique symbol;
+declare const recordIdBrand: unique symbol;
 
 export type SymbolId = number & { readonly [symbolIdBrand]: "SymbolId" };
 export type UnionId = number & { readonly [unionIdBrand]: "UnionId" };
+export type RecordId = number & { readonly [recordIdBrand]: "RecordId" };
 
 export type SymbolKind =
   | "let"
+  | "var"
   | "fun"
   | "parameter"
   | "pattern"
-  | "constructor";
+  | "constructor"
+  | "record-constructor"
+  | "constraint-member";
 
 export type PrimitiveName =
   | "Int"
@@ -26,18 +31,27 @@ export type PrimitiveName =
   | "Bool"
   | "String"
   | "BigInt"
+  | "Exn"
   | "Unit";
 
 export type TypeAnnotation =
   | PrimitiveTypeAnnotation
+  | RangeTypeAnnotation
   | TupleTypeAnnotation
   | RecordTypeAnnotation
   | UnionTypeAnnotation
+  | RecordDeclarationTypeAnnotation
+  | TypeVariableAnnotation
   | ErrorTypeAnnotation;
 
 export interface PrimitiveTypeAnnotation {
   readonly kind: "Primitive";
   readonly name: PrimitiveName;
+  readonly span: Source.Span;
+}
+
+export interface RangeTypeAnnotation {
+  readonly kind: "Range";
   readonly span: Source.Span;
 }
 
@@ -65,6 +79,21 @@ export interface UnionTypeAnnotation {
   readonly kind: "Union";
   readonly union: UnionId;
   readonly name: string;
+  readonly arguments: readonly TypeAnnotation[];
+  readonly span: Source.Span;
+}
+
+export interface TypeVariableAnnotation {
+  readonly kind: "TypeVariable";
+  readonly name: string;
+  readonly span: Source.Span;
+}
+
+export interface RecordDeclarationTypeAnnotation {
+  readonly kind: "RecordDeclaration";
+  readonly record: RecordId;
+  readonly name: string;
+  readonly arguments: readonly TypeAnnotation[];
   readonly span: Source.Span;
 }
 
@@ -92,7 +121,7 @@ export interface Parameter extends Binding {
 
 export interface FieldName {
   readonly text: string;
-  readonly case: "lower" | "upper";
+  readonly startClass: "non-upper" | "upper";
   readonly span: Source.Span;
 }
 
@@ -102,15 +131,22 @@ export interface Module {
   readonly items: readonly Item[];
   readonly symbols: readonly Symbol[];
   readonly unions: readonly Union[];
+  readonly records: readonly RecordDeclaration[];
   readonly comments: readonly Source.Comment[];
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }
 
 export type Item =
+  | ImportItem
   | LetItem
+  | VarItem
   | LetPatternItem
   | FunItem
+  | RecordItem
+  | ExceptionItem
+  | ConstraintItem
+  | HonorItem
   | UnionItem
   | ExprItem
   | ErrorItem;
@@ -118,6 +154,33 @@ export type Item =
 export interface LetItem {
   readonly kind: "Let";
   readonly exported: boolean;
+  readonly binding: Binding;
+  readonly annotation?: TypeAnnotation;
+  readonly value: Expr;
+  readonly span: Source.Span;
+}
+
+export interface ImportItem {
+  readonly kind: "Import";
+  readonly specifier: string;
+  readonly form: ImportForm;
+  readonly span: Source.Span;
+}
+
+export type ImportForm =
+  | { readonly kind: "Effect" }
+  | { readonly kind: "Namespace"; readonly alias: string; readonly names: readonly ImportName[] }
+  | { readonly kind: "Named"; readonly names: readonly ImportName[] };
+
+export interface ImportName {
+  readonly imported: string;
+  readonly local: string;
+  readonly symbol?: SymbolId;
+  readonly span: Source.Span;
+}
+
+export interface VarItem {
+  readonly kind: "Var";
   readonly binding: Binding;
   readonly annotation?: TypeAnnotation;
   readonly value: Expr;
@@ -229,6 +292,7 @@ export interface FunItem {
 export interface Union {
   readonly id: UnionId;
   readonly name: string;
+  readonly parameters: readonly string[];
   readonly span: Source.Span;
   readonly constructors: readonly Constructor[];
 }
@@ -250,7 +314,66 @@ export interface UnionItem {
   readonly exported: boolean;
   readonly union: UnionId;
   readonly name: string;
+  readonly parameters: readonly string[];
   readonly constructors: readonly Constructor[];
+  readonly span: Source.Span;
+}
+
+export interface RecordDeclaration {
+  readonly id: RecordId;
+  readonly name: string;
+  readonly parameters: readonly string[];
+  readonly constructor: Binding;
+  readonly fields: readonly RecordTypeField[];
+  readonly span: Source.Span;
+}
+
+export interface RecordItem {
+  readonly kind: "RecordDeclaration";
+  readonly exported: boolean;
+  readonly record: RecordId;
+  readonly name: string;
+  readonly parameters: readonly string[];
+  readonly constructor: Binding;
+  readonly fields: readonly RecordTypeField[];
+  readonly span: Source.Span;
+}
+
+export interface ExceptionItem {
+  readonly kind: "Exception";
+  readonly exported: boolean;
+  readonly binding: Binding;
+  readonly slots: readonly ConstructorSlot[];
+  readonly span: Source.Span;
+}
+
+export interface ConstraintItem {
+  readonly kind: "ConstraintDeclaration";
+  readonly name: string;
+  readonly subject: string;
+  readonly members: readonly ConstraintMember[];
+  readonly span: Source.Span;
+}
+
+export interface ConstraintMember {
+  readonly binding: Binding;
+  readonly parameters: readonly Parameter[];
+  readonly returnAnnotation: TypeAnnotation;
+  readonly span: Source.Span;
+}
+
+export interface HonorItem {
+  readonly kind: "Honor";
+  readonly constraint: string;
+  readonly subject: TypeAnnotation;
+  readonly dictionary: string;
+  readonly members: readonly HonorMember[];
+  readonly span: Source.Span;
+}
+
+export interface HonorMember {
+  readonly name: string;
+  readonly value: LambdaExpr;
   readonly span: Source.Span;
 }
 
@@ -279,7 +402,11 @@ export type Expr =
   | BlockExpr
   | LambdaExpr
   | IfExpr
+  | WhileExpr
+  | ForExpr
   | MatchExpr
+  | TryExpr
+  | ThrowExpr
   | CallExpr
   | ConsoleLogExpr
   | AccessExpr
@@ -382,8 +509,15 @@ export interface BlockExpr {
 export interface LambdaExpr {
   readonly kind: "Lambda";
   readonly parameters: readonly Parameter[];
+  readonly typeParameters?: readonly TypeParameter[];
   readonly returnAnnotation?: TypeAnnotation;
   readonly body: Expr;
+  readonly span: Source.Span;
+}
+
+export interface TypeParameter {
+  readonly name: string;
+  readonly constraints: readonly string[];
   readonly span: Source.Span;
 }
 
@@ -392,6 +526,21 @@ export interface IfExpr {
   readonly condition: Expr;
   readonly consequence: Expr;
   readonly alternative?: Expr;
+  readonly span: Source.Span;
+}
+
+export interface WhileExpr {
+  readonly kind: "While";
+  readonly condition: Expr;
+  readonly body: BlockExpr;
+  readonly span: Source.Span;
+}
+
+export interface ForExpr {
+  readonly kind: "For";
+  readonly pattern: Pattern;
+  readonly iterable: Expr;
+  readonly body: BlockExpr;
   readonly span: Source.Span;
 }
 
@@ -427,6 +576,19 @@ export interface AccessExpr {
   readonly kind: "Access";
   readonly receiver: Expr;
   readonly field: FieldName;
+  readonly span: Source.Span;
+}
+
+export interface ThrowExpr {
+  readonly kind: "Throw";
+  readonly exception: Expr;
+  readonly span: Source.Span;
+}
+
+export interface TryExpr {
+  readonly kind: "Try";
+  readonly body: Expr;
+  readonly arms: readonly MatchArm[];
   readonly span: Source.Span;
 }
 

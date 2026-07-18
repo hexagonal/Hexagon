@@ -121,7 +121,7 @@ describe("parse", () => {
     ]);
   });
 
-  test("recovers locally from a lowercase primitive annotation", () => {
+  test("recovers locally from a non-uppercase-start primitive annotation", () => {
     const module = parseSource("let bad(x: int) = x\nlet good = 1");
 
     expect(module.items).toMatchObject([
@@ -132,9 +132,7 @@ describe("parse", () => {
       },
       { kind: "Let", name: { text: "good" } },
     ]);
-    expect(module.diagnostics.map(({ message }) => message)).toEqual([
-      "expected a primitive or tuple type annotation",
-    ]);
+    expect(module.diagnostics).toEqual([]);
   });
 
   test("distinguishes tuple literals and types from grouping and parameters", () => {
@@ -387,20 +385,89 @@ describe("parse", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  test("parses mutable bindings, inclusive ranges, and while blocks", () => {
+    const module = parseSource(
+      "fun countdown(start: Int) =\n" +
+        "  var current: Int = start\n" +
+        "  let bounds = 1..current\n" +
+        "  while current > 0\n" +
+        "    current := current - 1\n" +
+        "  bounds",
+    );
+
+    expect(module.items[0]).toMatchObject({
+      kind: "Fun",
+      value: {
+        body: {
+          kind: "Block",
+          items: [
+            { kind: "Var", name: { text: "current" } },
+            { kind: "Let", value: { kind: "Binary", operator: "Range" } },
+            {
+              kind: "ExprItem",
+              expression: {
+                kind: "While",
+                body: {
+                  items: [{ expression: { kind: "Assignment" } }],
+                },
+              },
+            },
+            { kind: "ExprItem", expression: { kind: "Name" } },
+          ],
+        },
+      },
+    });
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("parses for loops over ranges and strings", () => {
+    const module = parseSource(
+      "fun visit(): Unit =\n" +
+        "  for number in 1..3\n" +
+        "    console.log(number)\n" +
+        "  for character in \"ab\"\n" +
+        "    console.log(character)",
+    );
+
+    expect(module.items[0]).toMatchObject({
+      kind: "Fun",
+      value: {
+        body: {
+          items: [
+            {
+              expression: {
+                kind: "For",
+                pattern: { kind: "Binding", name: { text: "number" } },
+                iterable: { kind: "Binary", operator: "Range" },
+              },
+            },
+            {
+              expression: {
+                kind: "For",
+                pattern: { kind: "Binding", name: { text: "character" } },
+                iterable: { kind: "String" },
+              },
+            },
+          ],
+        },
+      },
+    });
+    expect(module.diagnostics).toEqual([]);
+  });
+
   test("recovers at layout separators and parses later items", () => {
     const module = parseSource(
       "record Point = {x: Int}\nlet = 1\nlet good = 2",
     );
 
     expect(module.items.map(({ kind }) => kind)).toEqual([
-      "ErrorItem",
+      "RecordDeclaration",
       "ErrorItem",
       "Let",
     ]);
     expect(module.items[2]).toMatchObject({ kind: "Let", name: { text: "good" } });
     expect(module.diagnostics.map(({ message }) => message)).toEqual([
-      "the first-round parser does not support `record` items yet",
-      "`let` requires a lowercase name",
+      "`let` requires a non-uppercase-start name",
     ]);
   });
 

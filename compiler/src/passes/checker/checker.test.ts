@@ -682,6 +682,60 @@ describe("check", () => {
     );
   });
 
+  test("checks monomorphic mutation, Range, and while as Unit", () => {
+    const module = checkSource(
+      "fun countdown(start: Int): Unit =\n" +
+        "  var current = start\n" +
+        "  let visited = 1..current\n" +
+        "  while current > 0\n" +
+        "    current := current - 1",
+    );
+    expect(module.diagnostics).toEqual([]);
+    expect(module.symbols.find(({ name }) => name === "visited")?.scheme.type)
+      .toEqual({ kind: "Range" });
+
+    const invalid = checkSource(
+      "fun bad(): Unit =\n" +
+        "  let fixed = 1\n" +
+        "  fixed := 2\n" +
+        "  while true\n" +
+        "    42",
+    );
+    expect(invalid.diagnostics.map(({ message }) => message)).toContain(
+      "`fixed` is not mutable; declare it with `var` if you need to update it",
+    );
+    expect(invalid.diagnostics.map(({ message }) => message)).toContain(
+      "the final expression of a loop body produces a value that is discarded on every iteration; use `ignore(...)` if intended",
+    );
+  });
+
+  test("checks Range and String for loops with their concrete item types", () => {
+    const module = checkSource(
+      "fun visit(): Unit =\n" +
+        "  for number in 1..3\n" +
+        "    let next: Int = number + 1\n" +
+        "    console.log(next)\n" +
+        "  for character in \"ab\"\n" +
+        "    let copy: String = character\n" +
+        "    console.log(copy)",
+    );
+    expect(module.diagnostics).toEqual([]);
+
+    const invalid = checkSource(
+      "fun bad(): Unit =\n" +
+        "  for true in 1..3\n" +
+        "    ()\n" +
+        "  for item in 42\n" +
+        "    console.log(item)",
+    );
+    expect(invalid.diagnostics.map(({ message }) => message)).toContain(
+      "this loop pattern can fail; bind an irrefutable pattern and use `match` inside the loop",
+    );
+    expect(invalid.diagnostics.map(({ message }) => message)).toContain(
+      "iteration over Int is not implemented yet; the current compiler supports Range and String",
+    );
+  });
+
   test("recovers from arbitrary resolved trees without unbounded public spans", () => {
     fc.assert(
       fc.property(fc.string(), (text) => {

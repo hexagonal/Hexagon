@@ -360,6 +360,32 @@ button:disabled {
   content: "";
 }
 
+.js-view-control {
+  display: flex;
+  min-height: 2.7rem;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: auto;
+  color: var(--muted-text);
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.js-view-control[hidden] {
+  display: none;
+}
+
+.js-view-control select {
+  max-width: 15rem;
+  min-height: 2rem;
+  padding: 0.25rem 1.6rem 0.25rem 0.45rem;
+  border: 1px solid var(--control-border);
+  border-radius: 0.4rem;
+  background: var(--control-background);
+  color: var(--text);
+  font-size: 0.72rem;
+}
+
 .badge {
   display: inline-grid;
   min-width: 1.15rem;

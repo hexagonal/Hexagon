@@ -12,11 +12,10 @@ import * as Diagnostics from "../../support/diagnostics.js";
 import * as Source from "../../support/source.js";
 import type * as Lexed from "../../syntax/lexed/index.js";
 import {
-  lowercase,
+  idContinue,
+  idStart,
   titlecase,
   uppercase,
-  xidContinue,
-  xidStart,
 } from "./unicode-17.js";
 
 const MAX_SAFE_INTEGER_DECIMAL = 9_007_199_254_740_991n;
@@ -295,6 +294,13 @@ class Scanner {
 
     this.#atLineStart = false;
 
+    if (isBidiControl(codeUnit)) {
+      // validateSourceCharacters owns the one diagnostic, including when the
+      // literal control occurs inside a comment or string.
+      this.#offset += 1;
+      return undefined;
+    }
+
     if (this.#startsWith("*/")) {
       this.#offset += 2;
       this.#error(start, this.#offset, "unmatched `*/` — no open block comment");
@@ -337,17 +343,8 @@ class Scanner {
       return undefined;
     }
 
-    if (codeUnit === 0x5f) {
+    if (codeUnit === 0x5f && !this.#continuesIdentifierAt(this.#offset + 1)) {
       this.#offset += 1;
-      if (this.#continuesIdentifierAt(this.#offset)) {
-        this.#consumeIdentifierRun();
-        this.#error(
-          start,
-          this.#offset,
-          "`_` is the wildcard; names begin with a lowercase or uppercase letter",
-        );
-        return undefined;
-      }
       return { kind: "Wildcard", span: this.#source.span(start, this.#offset) };
     }
 
@@ -357,16 +354,16 @@ class Scanner {
       return undefined;
     }
 
-    if (matches(xidStart, scalar)) {
+    if (isIdentifierStart(scalar)) {
       return this.#scanName();
     }
 
-    if (matches(xidContinue, scalar)) {
+    if (isIdentifierContinue(scalar)) {
       this.#consumeIdentifierRun();
       this.#error(
         start,
         this.#offset,
-        "Hexagon names must begin with a lowercase or uppercase cased letter",
+        "identifier continuation character cannot begin a Hexagon name",
       );
       return undefined;
     }
@@ -411,18 +408,18 @@ class Scanner {
     this.#consumeIdentifierRun();
     const text = this.#source.text.slice(start, this.#offset);
 
-    if (text.normalize("NFC") !== text) {
-      this.#error(start, this.#offset, "identifier is not in Unicode NFC", {
-        message: "normalize this identifier",
-        replacement: text.normalize("NFC"),
+    if (text.startsWith("__hex_")) {
+      this.#error(start, this.#offset, "`__hex_` is reserved for compiler-generated names", {
+        message: "rename this identifier",
+        replacement: `_hex_${text.slice("__hex_".length)}`,
       });
       return undefined;
     }
 
-    if (matches(lowercase, first)) {
+    if (!matches(uppercase, first) && !matches(titlecase, first)) {
       const keyword = keywords[text];
       return keyword === undefined
-        ? { kind: "LowerName", text, span: this.#source.span(start, this.#offset) }
+        ? { kind: "NonUpperName", text, span: this.#source.span(start, this.#offset) }
         : { kind: keyword, span: this.#source.span(start, this.#offset) };
     }
 
@@ -434,12 +431,7 @@ class Scanner {
       };
     }
 
-    this.#error(
-      start,
-      this.#offset,
-      "Hexagon names must begin with a lowercase or uppercase cased letter",
-    );
-    return undefined;
+    throw new Error("internal error: identifier start was not classified");
   }
 
   #scanNumber(): Lexed.Token | undefined {
@@ -831,7 +823,7 @@ class Scanner {
 
   #continuesIdentifierAt(offset: number): boolean {
     const scalar = this.#scalarAt(offset);
-    return scalar !== undefined && matches(xidContinue, scalar);
+    return scalar !== undefined && isIdentifierContinue(scalar);
   }
 
   #scalarAt(offset: number): string | undefined {
@@ -903,6 +895,15 @@ function validateSourceCharacters(
   for (let offset = 0; offset < source.text.length; offset += 1) {
     const codeUnit = source.text.charCodeAt(offset);
 
+    if (isBidiControl(codeUnit)) {
+      diagnostics.add({
+        severity: "error",
+        message: "literal bidirectional controls are not allowed in Hexagon source; use a Unicode escape inside a string",
+        primary: source.span(offset, offset + 1),
+      });
+      continue;
+    }
+
     if (codeUnit === 0xfeff && offset !== 0) {
       diagnostics.add({
         severity: "error",
@@ -947,6 +948,21 @@ function isAsciiHex(codeUnit: number): boolean {
     (codeUnit >= 0x41 && codeUnit <= 0x46) ||
     (codeUnit >= 0x61 && codeUnit <= 0x66)
   );
+}
+
+function isIdentifierStart(scalar: string): boolean {
+  return scalar === "$" || scalar === "_" || matches(idStart, scalar);
+}
+
+function isIdentifierContinue(scalar: string): boolean {
+  return scalar === "$" || scalar === "_" || scalar === "\u200C" ||
+    scalar === "\u200D" || matches(idContinue, scalar);
+}
+
+function isBidiControl(codeUnit: number): boolean {
+  return codeUnit === 0x061c || codeUnit === 0x200e || codeUnit === 0x200f ||
+    (codeUnit >= 0x202a && codeUnit <= 0x202e) ||
+    (codeUnit >= 0x2066 && codeUnit <= 0x2069);
 }
 
 function isNewlineStart(codeUnit: number): boolean {

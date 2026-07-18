@@ -20,20 +20,27 @@ export type PrimitiveName =
   | "Bool"
   | "String"
   | "BigInt"
+  | "Exn"
   | "Unit";
 
 export type Type =
   | PrimitiveType
+  | RangeType
   | VariableType
   | TupleType
   | RecordType
   | UnionType
+  | NominalRecordType
   | FunctionType
   | ErrorType;
 
 export interface PrimitiveType {
   readonly kind: "Primitive";
   readonly name: PrimitiveName;
+}
+
+export interface RangeType {
+  readonly kind: "Range";
 }
 
 export interface VariableType {
@@ -56,6 +63,14 @@ export interface UnionType {
   readonly kind: "Union";
   readonly union: Resolved.UnionId;
   readonly name: string;
+  readonly arguments: readonly Type[];
+}
+
+export interface NominalRecordType {
+  readonly kind: "NominalRecord";
+  readonly record: Resolved.RecordId;
+  readonly name: string;
+  readonly arguments: readonly Type[];
 }
 
 export interface FunctionType {
@@ -68,19 +83,13 @@ export interface ErrorType {
   readonly kind: "Error";
 }
 
-export type ConstraintName =
-  | "Num"
-  | "Frac"
-  | "Pow"
-  | "Concat"
-  | "Eq"
-  | "Ord"
-  | "Show";
+export type ConstraintName = string;
 
 export interface Constraint {
   readonly name: ConstraintName;
   readonly type: Type;
   readonly span: Source.Span;
+  readonly dictionary?: string;
 }
 
 export interface Scheme {
@@ -106,7 +115,7 @@ export interface Binding {
 
 export interface FieldName {
   readonly text: string;
-  readonly case: "lower" | "upper";
+  readonly startClass: "non-upper" | "upper";
   readonly span: Source.Span;
 }
 
@@ -116,15 +125,22 @@ export interface Module {
   readonly items: readonly Item[];
   readonly symbols: readonly Symbol[];
   readonly unions: readonly Union[];
+  readonly records: readonly RecordDeclaration[];
   readonly comments: readonly Source.Comment[];
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }
 
 export type Item =
+  | ImportItem
   | LetItem
+  | VarItem
   | LetPatternItem
   | FunItem
+  | RecordItem
+  | ExceptionItem
+  | ConstraintItem
+  | HonorItem
   | UnionItem
   | ExprItem
   | ErrorItem;
@@ -132,6 +148,15 @@ export type Item =
 export interface LetItem {
   readonly kind: "Let";
   readonly exported: boolean;
+  readonly binding: Binding;
+  readonly value: Expr;
+  readonly span: Source.Span;
+}
+
+export type ImportItem = Resolved.ImportItem;
+
+export interface VarItem {
+  readonly kind: "Var";
   readonly binding: Binding;
   readonly value: Expr;
   readonly span: Source.Span;
@@ -242,6 +267,7 @@ export interface FunItem {
 export interface Union {
   readonly id: Resolved.UnionId;
   readonly name: string;
+  readonly parameters: readonly TypeVariableId[];
   readonly span: Source.Span;
   readonly constructors: readonly Constructor[];
 }
@@ -261,7 +287,61 @@ export interface UnionItem {
   readonly exported: boolean;
   readonly union: Resolved.UnionId;
   readonly name: string;
+  readonly parameters: readonly TypeVariableId[];
   readonly constructors: readonly Constructor[];
+  readonly span: Source.Span;
+}
+
+export interface RecordDeclaration {
+  readonly id: Resolved.RecordId;
+  readonly name: string;
+  readonly parameters: readonly TypeVariableId[];
+  readonly constructor: Binding;
+  readonly fields: readonly { readonly name: string; readonly type: Type; readonly span: Source.Span }[];
+  readonly span: Source.Span;
+}
+
+export interface RecordItem extends RecordDeclaration {
+  readonly kind: "RecordDeclaration";
+  readonly exported: boolean;
+  readonly record: Resolved.RecordId;
+}
+
+export interface ExceptionItem {
+  readonly kind: "Exception";
+  readonly exported: boolean;
+  readonly binding: Binding;
+  readonly slots: readonly ConstructorSlot[];
+  readonly span: Source.Span;
+}
+
+export interface ConstraintItem {
+  readonly kind: "ConstraintDeclaration";
+  readonly name: string;
+  readonly subject: TypeVariableId;
+  readonly members: readonly ConstraintMemberDeclaration[];
+  readonly span: Source.Span;
+}
+
+export interface ConstraintMemberDeclaration {
+  readonly binding: Binding;
+  readonly parameters: readonly Binding[];
+  readonly result: Type;
+  readonly span: Source.Span;
+}
+
+export interface HonorItem {
+  readonly kind: "Honor";
+  readonly constraint: string;
+  readonly subject: Type;
+  readonly dictionary: string;
+  readonly members: readonly HonorMember[];
+  readonly span: Source.Span;
+}
+
+export interface HonorMember {
+  readonly name: string;
+  readonly value: LambdaExpr;
   readonly span: Source.Span;
 }
 
@@ -295,7 +375,11 @@ export type Expr =
   | BlockExpr
   | LambdaExpr
   | IfExpr
+  | WhileExpr
+  | ForExpr
   | MatchExpr
+  | TryExpr
+  | ThrowExpr
   | CallExpr
   | ConsoleLogExpr
   | AccessExpr
@@ -304,6 +388,7 @@ export type Expr =
   | LogicalExpr
   | ConstraintCallExpr
   | ComparisonChainExpr
+  | RangeExpr
   | AssignmentExpr
   | ErrorExpr;
 
@@ -401,11 +486,41 @@ export interface IfExpr extends ExpressionFields {
   readonly alternative?: Expr;
 }
 
+export interface WhileExpr extends ExpressionFields {
+  readonly kind: "While";
+  readonly condition: Expr;
+  readonly body: BlockExpr;
+}
+
+export interface ForExpr extends ExpressionFields {
+  readonly kind: "For";
+  readonly pattern: Pattern;
+  readonly iterable: Expr;
+  readonly body: BlockExpr;
+}
+
+export interface RangeExpr extends ExpressionFields {
+  readonly kind: "Range";
+  readonly start: Expr;
+  readonly end: Expr;
+}
+
 export interface MatchExpr extends ExpressionFields {
   readonly kind: "Match";
   readonly scrutinee: Expr;
   readonly arms: readonly MatchArm[];
   readonly union?: Resolved.UnionId;
+}
+
+export interface ThrowExpr extends ExpressionFields {
+  readonly kind: "Throw";
+  readonly exception: Expr;
+}
+
+export interface TryExpr extends ExpressionFields {
+  readonly kind: "Try";
+  readonly body: Expr;
+  readonly arms: readonly MatchArm[];
 }
 
 export interface MatchArm {
@@ -419,6 +534,7 @@ export interface CallExpr extends ExpressionFields {
   readonly kind: "Call";
   readonly callee: Expr;
   readonly arguments: readonly Expr[];
+  readonly requirements: readonly Constraint[];
 }
 
 /** The host console operation accepts any inferred argument types and returns Unit. */

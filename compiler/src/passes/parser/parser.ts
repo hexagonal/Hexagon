@@ -2,7 +2,8 @@
  * The parser turns LaidOut.File into Parsed.Module. It owns block items and the
  * core expression grammar, including precedence and recovery at layout
  * separators. Tuple patterns, nullary unions and matches, annotations, tuple
- * values, and directly recursive `fun` bindings are present; the remaining
+ * values, local mutation, inclusive ranges, `while`, `for..in`, and directly recursive
+ * `fun` bindings are present; the remaining
  * declarations, patterns, and richer type syntax remain future work.
  */
 
@@ -47,14 +48,8 @@ const infix = new Map<TokenKind, Infix>([
 const itemEnds = new Set<TokenKind>(["VSep", "Semicolon", "VClose", "Eof"]);
 const structuralEnds: readonly TokenKind[] = ["VSep", "Semicolon", "VClose", "Eof"];
 const unsupportedItemStarts = new Set<TokenKind>([
-  "Constraint",
-  "Exception",
   "Extern",
-  "Honor",
-  "Import",
-  "Record",
   "Type",
-  "Var",
 ]);
 
 /** Parses one layout-aware file and retains diagnostics from earlier passes. */
@@ -133,6 +128,33 @@ class Parser {
   }
 
   #parseItem(moduleItems: boolean): Parsed.Item {
+    if (this.#at("Import")) {
+      if (!moduleItems) {
+        const start = this.#advance();
+        this.#errorAt(start.span, "imports are declared at module level");
+        this.#synchronize(itemEnds);
+        return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+      }
+      return this.#parseImport();
+    }
+    if (this.#at("Constraint")) {
+      if (!moduleItems) {
+        const start = this.#advance();
+        this.#errorAt(start.span, "constraints are declared at module level");
+        this.#synchronize(itemEnds);
+        return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+      }
+      return this.#parseConstraint();
+    }
+    if (this.#at("Honor")) {
+      if (!moduleItems) {
+        const start = this.#advance();
+        this.#errorAt(start.span, "instances are declared at module level");
+        this.#synchronize(itemEnds);
+        return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+      }
+      return this.#parseHonor();
+    }
     if (this.#at("Export")) {
       const exportToken = this.#advance();
       if (!moduleItems) {
@@ -143,7 +165,7 @@ class Parser {
           span: spanFrom(exportToken.span, this.#previous().span),
         };
       }
-      if (!this.#at("Let") && !this.#at("Fun") && !this.#at("Union")) {
+      if (!this.#at("Let") && !this.#at("Fun") && !this.#at("Union") && !this.#at("Record") && !this.#at("Exception")) {
         this.#errorAt(
           exportToken.span,
           "the current parser supports `export` only on `let`, `fun`, and `union` bindings",
@@ -155,6 +177,8 @@ class Parser {
         };
       }
       if (this.#at("Union")) return this.#parseUnion(true, exportToken.span);
+      if (this.#at("Record")) return this.#parseRecordDeclaration(true, exportToken.span);
+      if (this.#at("Exception")) return this.#parseException(true, exportToken.span);
       return this.#at("Let")
         ? this.#parseBinding("Let", true, exportToken.span)
         : this.#parseBinding("Fun", true, exportToken.span);
@@ -171,6 +195,9 @@ class Parser {
     if (this.#at("Fun")) {
       return this.#parseBinding("Fun", false);
     }
+    if (this.#at("Var")) {
+      return this.#parseVar();
+    }
     if (this.#at("Union")) {
       if (!moduleItems) {
         const start = this.#advance();
@@ -179,6 +206,24 @@ class Parser {
         return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
       }
       return this.#parseUnion(false);
+    }
+    if (this.#at("Record")) {
+      if (!moduleItems) {
+        const start = this.#advance();
+        this.#errorAt(start.span, "`record` is only allowed at module top level");
+        this.#synchronize(itemEnds);
+        return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+      }
+      return this.#parseRecordDeclaration(false);
+    }
+    if (this.#at("Exception")) {
+      if (!moduleItems) {
+        const start = this.#advance();
+        this.#errorAt(start.span, "exceptions are declared at module level");
+        this.#synchronize(itemEnds);
+        return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+      }
+      return this.#parseException(false);
     }
     if (unsupportedItemStarts.has(this.#current().kind)) {
       const start = this.#advance();
@@ -195,6 +240,242 @@ class Parser {
     return { kind: "ExprItem", expression, span: expression.span };
   }
 
+  #parseImport(): Parsed.ImportItem {
+    const start = this.#advance();
+    let form: Parsed.ImportForm;
+    if (this.#at("String")) {
+      const specifier = this.#parseImportSpecifier();
+      return {
+        kind: "Import",
+        specifier: specifier.value,
+        form: { kind: "Effect" },
+        span: spanFrom(start.span, specifier.span),
+      };
+    }
+    if (this.#at("Star")) {
+      this.#advance();
+      this.#expectContextual("as", "expected `as` after `import *`");
+      const aliasToken = this.#takeName("UpperName", "module aliases must be uppercase-start names");
+      const alias = aliasToken === undefined
+        ? { text: "Invalid", startClass: "upper" as const, span: this.#current().span }
+        : parsedName(aliasToken);
+      form = { kind: "Namespace", alias };
+    } else {
+      this.#expect("LeftBrace", "expected `{`, `*`, or a module string after `import`");
+      const names: Parsed.ImportName[] = [];
+      while (!this.#at("RightBrace") && !this.#at("Eof")) {
+        const token = this.#current();
+        if (token.kind !== "NonUpperName" && token.kind !== "UpperName") {
+          this.#error("expected an imported name");
+          break;
+        }
+        this.#advance();
+        const imported = parsedName(token);
+        let local = imported;
+        if (this.#atContextual("as")) {
+          this.#advance();
+          const expected = imported.startClass === "non-upper" ? "NonUpperName" : "UpperName";
+          const alias = this.#takeName(expected, "import alias start class must match what it names");
+          if (alias !== undefined) local = parsedName(alias);
+        }
+        names.push({ imported, local, span: spanFrom(imported.span, local.span) });
+        if (!this.#at("Comma")) break;
+        this.#advance();
+      }
+      this.#expect("RightBrace", "expected `}` after imported names");
+      form = { kind: "Named", names };
+    }
+    this.#expectContextual("from", "expected `from` before the module path");
+    const specifier = this.#parseImportSpecifier();
+    return {
+      kind: "Import",
+      specifier: specifier.value,
+      form,
+      span: spanFrom(start.span, specifier.span),
+    };
+  }
+
+  #parseConstraint(): Parsed.ConstraintItem {
+    const start = this.#advance();
+    const nameToken = this.#takeName("UpperName", "`constraint` requires an uppercase-start name");
+    const fallbackName: Parsed.Name = {
+      text: "Invalid",
+      startClass: "upper",
+      span: nameToken?.span ?? start.span,
+    };
+    this.#expect("Less", "constraint heads use `<subject>`");
+    const subjectToken = this.#takeName("NonUpperName", "a constraint subject is a non-uppercase-start type variable");
+    const subject: Parsed.Name = subjectToken === undefined
+      ? { text: "a", startClass: "non-upper", span: this.#current().span }
+      : parsedName(subjectToken);
+    this.#expect("Greater", "expected `>` after constraint subject");
+    this.#expect("Equal", "expected `=` after constraint head");
+    this.#expect("VOpen", "expected an indented constraint body");
+    const members: Parsed.ConstraintMember[] = [];
+    this.#skipSeparators();
+    while (!this.#at("VClose") && !this.#at("Eof")) {
+      const memberToken = this.#takeName("NonUpperName", "constraint members are non-uppercase-start names");
+      if (memberToken === undefined) {
+        this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
+        this.#skipSeparators();
+        continue;
+      }
+      const parameters = this.#parseParameters();
+      for (const parameter of parameters) {
+        if (parameter.annotation === undefined) {
+          this.#errorAt(parameter.span, "constraint member parameters require type annotations");
+        }
+      }
+      this.#expect("Colon", "constraint members require a result type");
+      const result = this.#parseTypeAnnotation() ?? {
+        kind: "NamedType" as const,
+        name: fallbackName,
+        span: fallbackName.span,
+      };
+      if (this.#at("Equal")) {
+        this.#error("default constraint members arrive in the next constraint slice");
+        this.#advance();
+        this.#parseBodyExpression(new Set(["VSep", "VClose", "Eof"]));
+      }
+      members.push({
+        name: parsedName(memberToken),
+        parameters,
+        returnAnnotation: result,
+        span: spanFrom(memberToken.span, result.span),
+      });
+      this.#skipSeparators();
+    }
+    const closing = this.#expect("VClose", "expected the constraint body to close");
+    if (members.length === 0) this.#errorAt(start.span, "a constraint needs at least one required member");
+    return {
+      kind: "ConstraintDeclaration",
+      name: nameToken === undefined ? fallbackName : parsedName(nameToken),
+      subject,
+      members,
+      span: spanFrom(start.span, closing?.span ?? members.at(-1)?.span ?? start.span),
+    };
+  }
+
+  #parseHonor(): Parsed.HonorItem {
+    const start = this.#advance();
+    const constraintToken = this.#takeName("UpperName", "`honor` requires a constraint name");
+    const fallback: Parsed.Name = {
+      text: "Invalid",
+      startClass: "upper",
+      span: constraintToken?.span ?? start.span,
+    };
+    this.#expect("Less", "instance heads use `<Type>`");
+    const subject = this.#parseTypeAnnotation() ?? {
+      kind: "NamedType" as const,
+      name: fallback,
+      span: fallback.span,
+    };
+    this.#expect("Greater", "expected `>` after instance head");
+    this.#expect("Equal", "expected `=` after instance head");
+    if (this.#at("Derive")) {
+      this.#error("derived instances arrive in the next constraint slice");
+      this.#advance();
+      return {
+        kind: "Honor",
+        constraint: constraintToken === undefined ? fallback : parsedName(constraintToken),
+        subject,
+        members: [],
+        span: spanFrom(start.span, this.#previous().span),
+      };
+    }
+    this.#expect("VOpen", "expected an indented instance body");
+    const members: Parsed.HonorMember[] = [];
+    this.#skipSeparators();
+    while (!this.#at("VClose") && !this.#at("Eof")) {
+      const memberToken = this.#takeName("NonUpperName", "instance members are non-uppercase-start names");
+      if (memberToken === undefined) {
+        this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
+        this.#skipSeparators();
+        continue;
+      }
+      const parameters = this.#parseParameters();
+      this.#expect("Equal", "expected `=` in instance member");
+      const body = this.#parseBodyExpression(new Set(["VSep", "VClose", "Eof"]));
+      const name = parsedName(memberToken);
+      members.push({
+        name,
+        value: {
+          kind: "Lambda",
+          parameters,
+          body,
+          span: spanFrom(name.span, body.span),
+        },
+        span: spanFrom(name.span, body.span),
+      });
+      this.#skipSeparators();
+    }
+    const closing = this.#expect("VClose", "expected the instance body to close");
+    return {
+      kind: "Honor",
+      constraint: constraintToken === undefined ? fallback : parsedName(constraintToken),
+      subject,
+      members,
+      span: spanFrom(start.span, closing?.span ?? members.at(-1)?.span ?? subject.span),
+    };
+  }
+
+  #parseImportSpecifier(): { readonly value: string; readonly span: Source.Span } {
+    const token = this.#current();
+    if (token.kind !== "String") {
+      this.#error("module paths are string literals");
+      return { value: "", span: token.span };
+    }
+    this.#advance();
+    if (token.parts.some((part) => part.kind !== "Text")) {
+      this.#errorAt(token.span, "module paths cannot contain interpolation");
+    }
+    return {
+      value: token.parts.flatMap((part) => part.kind === "Text" ? [part.value] : []).join(""),
+      span: token.span,
+    };
+  }
+
+  #atContextual(text: string): boolean {
+    const token = this.#current();
+    return token.kind === "NonUpperName" && token.text === text;
+  }
+
+  #expectContextual(text: string, message: string): void {
+    if (this.#atContextual(text)) this.#advance();
+    else this.#error(message);
+  }
+
+  #parseVar(): Parsed.Item {
+    const start = this.#advance();
+    if (["LeftParen", "LeftBrace"].includes(this.#current().kind)) {
+      this.#error("`var` binds a single name; destructure with `let` and copy");
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+    }
+    const token = this.#takeName("NonUpperName", "`var` requires a non-uppercase-start name");
+    if (token === undefined) {
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+    }
+    let annotation: Parsed.TypeAnnotation | undefined;
+    if (this.#at("Colon")) {
+      this.#advance();
+      annotation = this.#parseTypeAnnotation();
+    }
+    if (this.#expect("Equal", "expected `=` in `var` binding") === undefined) {
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+    }
+    const value = this.#parseBodyExpression();
+    return {
+      kind: "Var",
+      name: parsedName(token),
+      ...(annotation === undefined ? {} : { annotation }),
+      value,
+      span: spanFrom(start.span, value.span),
+    };
+  }
+
   #parseBinding(
     bindingKind: "Let" | "Fun",
     exported: boolean,
@@ -203,8 +484,8 @@ class Parser {
     const start = this.#advance();
     const keyword = bindingKind === "Let" ? "let" : "fun";
     const nameToken = this.#takeName(
-      "LowerName",
-      `\`${keyword}\` requires a lowercase name`,
+      "NonUpperName",
+      `\`${keyword}\` requires a non-uppercase-start name`,
     );
     if (nameToken === undefined) {
       this.#synchronize(itemEnds);
@@ -212,9 +493,13 @@ class Parser {
     }
 
     let parameters: readonly Parsed.Parameter[] | undefined;
+    let typeParameters: readonly Parsed.TypeParameter[] | undefined;
     let returnAnnotation: Parsed.TypeAnnotation | undefined;
     let bindingAnnotation: Parsed.TypeAnnotation | undefined;
     let parameterStartSpan: Source.Span | undefined;
+    if (this.#at("Less")) {
+      typeParameters = this.#parseTypeParameters();
+    }
     if (this.#at("LeftParen")) {
       parameterStartSpan = this.#current().span;
       parameters = this.#parseParameters();
@@ -241,6 +526,7 @@ class Parser {
       : {
           kind: "Lambda",
           parameters,
+          ...(typeParameters === undefined ? {} : { typeParameters }),
           ...(returnAnnotation === undefined ? {} : { returnAnnotation }),
           body,
           span: spanFrom(parameterStartSpan ?? nameToken.span, body.span),
@@ -273,6 +559,43 @@ class Parser {
     };
   }
 
+  #parseTypeParameters(): readonly Parsed.TypeParameter[] {
+    this.#advance();
+    const parameters: Parsed.TypeParameter[] = [];
+    const seen = new Set<string>();
+    while (!this.#at("Greater") && !this.#at("Eof")) {
+      const token = this.#takeName("NonUpperName", "type parameters must be non-uppercase-start names");
+      if (token === undefined) break;
+      const name = parsedName(token);
+      if (seen.has(name.text)) this.#errorAt(name.span, `duplicate type parameter \`${name.text}\``);
+      seen.add(name.text);
+      this.#expect("Colon", "a constrained type parameter needs `:`");
+      const constraints: Parsed.Name[] = [];
+      if (this.#at("LeftParen")) {
+        this.#advance();
+        while (!this.#at("RightParen") && !this.#at("Eof")) {
+          const constraint = this.#takeName("UpperName", "constraint names are uppercase");
+          if (constraint !== undefined) constraints.push(parsedName(constraint));
+          if (!this.#at("Comma")) break;
+          this.#advance();
+        }
+        this.#expect("RightParen", "expected `)` after constraints");
+      } else {
+        const constraint = this.#takeName("UpperName", "expected a constraint name");
+        if (constraint !== undefined) constraints.push(parsedName(constraint));
+      }
+      parameters.push({
+        name,
+        constraints,
+        span: spanFrom(name.span, constraints.at(-1)?.span ?? name.span),
+      });
+      if (!this.#at("Comma")) break;
+      this.#advance();
+    }
+    this.#expect("Greater", "expected `>` after type parameters");
+    return parameters;
+  }
+
   #parseUnion(exported: boolean, itemStart?: Source.Span): Parsed.Item {
     const start = this.#advance();
     const nameToken = this.#takeName(
@@ -283,10 +606,29 @@ class Parser {
       this.#synchronize(itemEnds);
       return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
     }
+    const parameters: Parsed.Name[] = [];
     if (this.#at("LeftParen")) {
-      this.#error("generic unions arrive in a later union slice");
-      this.#synchronize(itemEnds);
-      return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+      this.#advance();
+      const seen = new Set<string>();
+      while (!this.#at("RightParen") && !this.#at("Eof")) {
+        const parameter = this.#takeName(
+          "NonUpperName",
+          "union type parameters must be non-uppercase-start names",
+        );
+        if (parameter === undefined) break;
+        const name = parsedName(parameter);
+        if (seen.has(name.text)) {
+          this.#errorAt(name.span, `duplicate type parameter \`${name.text}\``);
+        }
+        seen.add(name.text);
+        parameters.push(name);
+        if (!this.#at("Comma")) break;
+        this.#advance();
+      }
+      this.#expect("RightParen", "expected `)` after union type parameters");
+      if (parameters.length === 0) {
+        this.#errorAt(nameToken.span, "generic union parameter list cannot be empty");
+      }
     }
     if (this.#expect("Equal", "expected `=` after union name") === undefined) {
       this.#synchronize(itemEnds);
@@ -298,7 +640,7 @@ class Parser {
     while (!itemEnds.has(this.#current().kind)) {
       const constructor = this.#takeName(
         "UpperName",
-        "union constructors must be uppercase names",
+        "union constructors must be uppercase-start names",
       );
       if (constructor === undefined) {
         this.#synchronize(itemEnds);
@@ -312,7 +654,7 @@ class Parser {
         while (!this.#at("RightParen") && !this.#at("Eof")) {
           const slotStart = this.#current();
           let slotName: Parsed.Name | undefined;
-          if (slotStart.kind === "LowerName" && this.#peek(1).kind === "Colon") {
+          if (slotStart.kind === "NonUpperName" && this.#peek(1).kind === "Colon") {
             this.#advance();
             this.#advance();
             slotName = parsedName(slotStart);
@@ -356,11 +698,122 @@ class Parser {
       kind: "Union",
       exported,
       name: parsedName(nameToken),
+      parameters,
       constructors,
       span: spanFrom(
         itemStart ?? start.span,
         constructors.at(-1)?.span ?? nameToken.span,
       ),
+    };
+  }
+
+  #parseRecordDeclaration(exported: boolean, itemStart?: Source.Span): Parsed.Item {
+    const start = this.#advance();
+    const nameToken = this.#takeName("UpperName", "`record` requires an uppercase type name");
+    if (nameToken === undefined) {
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+    }
+    const parameters: Parsed.Name[] = [];
+    if (this.#at("LeftParen")) {
+      this.#advance();
+      const seen = new Set<string>();
+      while (!this.#at("RightParen") && !this.#at("Eof")) {
+        const parameter = this.#takeName("NonUpperName", "record type parameters must be non-uppercase-start names");
+        if (parameter === undefined) break;
+        const name = parsedName(parameter);
+        if (seen.has(name.text)) this.#errorAt(name.span, `duplicate type parameter \`${name.text}\``);
+        seen.add(name.text);
+        parameters.push(name);
+        if (!this.#at("Comma")) break;
+        this.#advance();
+      }
+      this.#expect("RightParen", "expected `)` after record type parameters");
+      if (parameters.length === 0) this.#errorAt(nameToken.span, "generic record parameter list cannot be empty");
+    }
+    if (this.#expect("Equal", "expected `=` after record name") === undefined ||
+        this.#expect("LeftBrace", "expected `{` after record `=`") === undefined) {
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+    }
+    const fields: Parsed.RecordTypeField[] = [];
+    const seen = new Set<string>();
+    while (!this.#at("RightBrace") && !this.#at("Eof")) {
+      const fieldToken = this.#takeName("NonUpperName", "record fields must be non-uppercase-start names");
+      if (fieldToken === undefined) break;
+      this.#expect("Colon", "expected `:` after record field name");
+      const annotation = this.#parseTypeAnnotation();
+      if (annotation === undefined) break;
+      const name = parsedName(fieldToken);
+      if (seen.has(name.text)) this.#errorAt(name.span, `duplicate record field \`${name.text}\``);
+      seen.add(name.text);
+      fields.push({ name, annotation, span: spanFrom(name.span, annotation.span) });
+      if (!this.#at("Comma")) break;
+      this.#advance();
+    }
+    const closing = this.#expect("RightBrace", "expected `}` after record fields");
+    return {
+      kind: "RecordDeclaration",
+      exported,
+      name: parsedName(nameToken),
+      parameters,
+      fields,
+      span: spanFrom(itemStart ?? start.span, closing?.span ?? fields.at(-1)?.span ?? nameToken.span),
+    };
+  }
+
+  #parseException(exported: boolean, itemStart?: Source.Span): Parsed.Item {
+    const start = this.#advance();
+    const nameToken = this.#takeName("UpperName", "`exception` requires an uppercase-start name");
+    if (nameToken === undefined) {
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+    }
+    const slots: Parsed.ConstructorSlot[] = [];
+    let end = nameToken.span;
+    if (this.#at("LeftParen")) {
+      const opening = this.#advance();
+      while (!this.#at("RightParen") && !this.#at("Eof")) {
+        const slotStart = this.#current();
+        let slotName: Parsed.Name | undefined;
+        if (slotStart.kind === "NonUpperName" && this.#peek(1).kind === "Colon") {
+          this.#advance();
+          this.#advance();
+          slotName = parsedName(slotStart);
+        }
+        const annotation = this.#parseTypeAnnotation();
+        if (annotation === undefined) break;
+        slots.push({
+          ...(slotName === undefined ? {} : { name: slotName }),
+          annotation,
+          span: spanFrom(slotStart.span, annotation.span),
+        });
+        if (!this.#at("Comma")) break;
+        this.#advance();
+      }
+      const closing = this.#expect("RightParen", "expected `)` after exception payload");
+      end = closing?.span ?? slots.at(-1)?.span ?? opening.span;
+      if (slots.length === 0) this.#errorAt(opening.span, "a nullary exception is written without `()`");
+      const named = slots.filter((slot) => slot.name !== undefined);
+      if (named.length !== 0 && named.length !== slots.length) {
+        this.#errorAt(opening.span, "exception payload slots must be all named or all unnamed");
+      }
+      const names = new Set<string>();
+      for (const slot of named) {
+        const name = slot.name!;
+        if (["name", "stack"].includes(name.text) || name.text.startsWith("$")) {
+          this.#errorAt(name.span, `\`${name.text}\` is reserved by the exception representation; rename this field`);
+        }
+        if (names.has(name.text)) this.#errorAt(name.span, `duplicate payload slot \`${name.text}\``);
+        names.add(name.text);
+      }
+    }
+    return {
+      kind: "Exception",
+      exported,
+      name: parsedName(nameToken),
+      slots,
+      span: spanFrom(itemStart ?? start.span, end),
     };
   }
 
@@ -403,11 +856,11 @@ class Parser {
           span: spanFrom(first.span, alternatives.at(-1)!.span),
         };
     const operator = this.#current();
-    if (operator.kind !== "LowerName" || operator.text !== "as") return pattern;
+    if (operator.kind !== "NonUpperName" || operator.text !== "as") return pattern;
     this.#advance();
     const binder = this.#takeName(
-      "LowerName",
-      "`as` in a pattern requires a lowercase binding name",
+      "NonUpperName",
+      "`as` in a pattern requires a non-uppercase-start binding name",
     );
     if (binder === undefined) return undefined;
     const name = parsedName(binder);
@@ -421,7 +874,7 @@ class Parser {
 
   #parseAtomicPattern(): Parsed.Pattern | undefined {
     const token = this.#current();
-    if (token.kind === "LowerName") {
+    if (token.kind === "NonUpperName") {
       this.#advance();
       const name = parsedName(token);
       return { kind: "Binding", name, span: name.span };
@@ -497,7 +950,7 @@ class Parser {
       const fields: Parsed.RecordPatternField[] = [];
       const seen = new Set<string>();
       while (!this.#at("RightBrace") && !this.#at("Eof")) {
-        const field = this.#takeName("LowerName", "record patterns contain lowercase field names");
+        const field = this.#takeName("NonUpperName", "record patterns contain non-uppercase-start field names");
         if (field === undefined) return undefined;
         const name = parsedName(field);
         if (seen.has(name.text)) this.#errorAt(name.span, `duplicate record pattern field \`${name.text}\``);
@@ -641,7 +1094,7 @@ class Parser {
   }
 
   #parsePrefix(stops: ReadonlySet<TokenKind>): Parsed.Expr {
-    if (this.#at("LowerName") && this.#peek(1).kind === "FatArrow") {
+    if (this.#at("NonUpperName") && this.#peek(1).kind === "FatArrow") {
       const parameter = this.#current() as Lexed.NameToken;
       this.#advance();
       this.#advance();
@@ -696,8 +1149,17 @@ class Parser {
     if (this.#at("If")) {
       return this.#parseIf(stops);
     }
+    if (this.#at("While")) {
+      return this.#parseWhile(stops);
+    }
+    if (this.#at("For")) {
+      return this.#parseFor(stops);
+    }
     if (this.#at("Match")) {
       return this.#parseMatch(stops);
+    }
+    if (this.#at("Try")) {
+      return this.#parseTry(stops);
     }
 
     return this.#parsePrimary(stops);
@@ -706,7 +1168,7 @@ class Parser {
   #parsePrimary(stops: ReadonlySet<TokenKind>): Parsed.Expr {
     const token = this.#current();
     switch (token.kind) {
-      case "LowerName":
+      case "NonUpperName":
       case "UpperName":
         this.#advance();
         return { kind: "Name", name: parsedName(token), span: token.span };
@@ -762,7 +1224,7 @@ class Parser {
         if (this.#at("Comma")) this.#advance();
         continue;
       }
-      const token = this.#takeName("LowerName", "record fields must be lowercase names");
+      const token = this.#takeName("NonUpperName", "record fields must be non-uppercase-start names");
       if (token === undefined) break;
       const name = parsedName(token);
       const punned = !this.#at("Colon");
@@ -930,6 +1392,55 @@ class Parser {
     };
   }
 
+  #parseWhile(outerStops: ReadonlySet<TokenKind>): Parsed.Expr {
+    const start = this.#advance();
+    const condition = this.#parseExpression(0, withStops(outerStops, "VOpen"));
+    if (!this.#at("VOpen")) {
+      this.#error("expected an indented block after `while` condition");
+      return {
+        kind: "While",
+        condition,
+        body: { kind: "Block", items: [], span: condition.span },
+        span: spanFrom(start.span, condition.span),
+      };
+    }
+    const body = this.#parseBlock();
+    return {
+      kind: "While",
+      condition,
+      body,
+      span: spanFrom(start.span, body.span),
+    };
+  }
+
+  #parseFor(outerStops: ReadonlySet<TokenKind>): Parsed.Expr {
+    const start = this.#advance();
+    const pattern = this.#parsePattern() ?? {
+      kind: "Wildcard" as const,
+      span: this.#current().span,
+    };
+    this.#expect("In", "expected `in` after `for` pattern");
+    const iterable = this.#parseExpression(0, withStops(outerStops, "VOpen"));
+    if (!this.#at("VOpen")) {
+      this.#error("expected an indented block after `for` iterable");
+      return {
+        kind: "For",
+        pattern,
+        iterable,
+        body: { kind: "Block", items: [], span: iterable.span },
+        span: spanFrom(start.span, iterable.span),
+      };
+    }
+    const body = this.#parseBlock();
+    return {
+      kind: "For",
+      pattern,
+      iterable,
+      body,
+      span: spanFrom(start.span, body.span),
+    };
+  }
+
   #parseMatch(outerStops: ReadonlySet<TokenKind>): Parsed.MatchExpr {
     const start = this.#advance();
     const scrutinee = this.#parseExpression(
@@ -949,7 +1460,7 @@ class Parser {
       let guard: Parsed.Expr | undefined;
       const guardStart = this.#current();
       if (
-        guardStart.kind === "LowerName" &&
+        guardStart.kind === "NonUpperName" &&
         guardStart.text === "when"
       ) {
         this.#advance();
@@ -979,6 +1490,34 @@ class Parser {
     };
   }
 
+  #parseTry(outerStops: ReadonlySet<TokenKind>): Parsed.TryExpr {
+    const start = this.#advance();
+    const body = this.#parseBodyExpression(withStops(outerStops, "Catch"));
+    this.#expect("Catch", "`try` requires a `catch`");
+    this.#expect("VOpen", "expected an indented block of catch arms");
+    const arms: Parsed.MatchArm[] = [];
+    this.#skipSeparators();
+    while (!this.#at("VClose") && !this.#at("Eof")) {
+      const pattern = this.#parsePattern();
+      if (pattern === undefined) {
+        this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
+        this.#skipSeparators();
+        continue;
+      }
+      this.#expect("FatArrow", "expected `=>` after catch pattern");
+      const armBody = this.#parseBodyExpression(new Set(["VSep", "VClose", "Eof"]));
+      arms.push({ pattern, body: armBody, span: spanFrom(pattern.span, armBody.span) });
+      this.#skipSeparators();
+    }
+    const closing = this.#expect("VClose", "expected the catch arms to close");
+    return {
+      kind: "Try",
+      body,
+      arms,
+      span: spanFrom(start.span, closing?.span ?? arms.at(-1)?.span ?? body.span),
+    };
+  }
+
   #parseBodyExpression(stops: ReadonlySet<TokenKind> = itemEnds): Parsed.Expr {
     return this.#at("VOpen") ? this.#parseBlock() : this.#parseExpression(0, stops);
   }
@@ -1000,8 +1539,8 @@ class Parser {
 
     while (!this.#at("RightParen") && !this.#at("Eof")) {
       const name = this.#takeName(
-        "LowerName",
-        "function parameters must be lowercase names",
+        "NonUpperName",
+        "function parameters must be non-uppercase-start names",
       );
       if (name !== undefined) {
         let annotation: Parsed.TypeAnnotation | undefined;
@@ -1072,13 +1611,13 @@ class Parser {
         if (this.#at("Spread")) {
           this.#advance();
           open = true;
-          if (this.#at("LowerName")) {
+          if (this.#at("NonUpperName")) {
             tail = parsedName(this.#advance() as Lexed.NameToken);
           }
           if (this.#at("Comma")) this.#error("`...` must be the final entry in a record type");
           break;
         }
-        const fieldToken = this.#takeName("LowerName", "record type fields must be lowercase names");
+        const fieldToken = this.#takeName("NonUpperName", "record type fields must be non-uppercase-start names");
         if (fieldToken === undefined) return undefined;
         this.#expect("Colon", "expected `:` after record type field name");
         const annotation = this.#parseTypeAnnotation();
@@ -1126,20 +1665,45 @@ class Parser {
         span: spanFrom(opening.span, closing?.span ?? elements.at(-1)!.span),
       };
     }
+    if (token.kind === "NonUpperName") {
+      this.#advance();
+      const name = parsedName(token);
+      return { kind: "TypeVariable", name, span: name.span };
+    }
     if (token.kind !== "UpperName") {
       this.#error(
-        "expected a primitive or tuple type annotation",
+        "expected a type annotation",
       );
-      if (token.kind === "LowerName") this.#advance();
       return undefined;
     }
     this.#advance();
     const name = parsedName(token);
+    if (this.#at("LeftParen")) {
+      this.#advance();
+      const arguments_: Parsed.TypeAnnotation[] = [];
+      while (!this.#at("RightParen") && !this.#at("Eof")) {
+        const argument = this.#parseTypeAnnotation();
+        if (argument === undefined) return undefined;
+        arguments_.push(argument);
+        if (!this.#at("Comma")) break;
+        this.#advance();
+      }
+      const closing = this.#expect("RightParen", "expected `)` after type arguments");
+      if (arguments_.length === 0) {
+        this.#errorAt(name.span, "a type application needs at least one argument");
+      }
+      return {
+        kind: "AppliedType",
+        constructor: name,
+        arguments: arguments_,
+        span: spanFrom(name.span, closing?.span ?? arguments_.at(-1)?.span ?? name.span),
+      };
+    }
     return { kind: "NamedType", name, span: name.span };
   }
 
   #takeName(
-    kind: "LowerName" | "UpperName",
+    kind: "NonUpperName" | "UpperName",
     message: string,
   ): Lexed.NameToken | undefined {
     const token = this.#current();
@@ -1153,7 +1717,7 @@ class Parser {
 
   #takeAnyName(message: string): Lexed.NameToken | undefined {
     const token = this.#current();
-    if (token.kind !== "LowerName" && token.kind !== "UpperName") {
+    if (token.kind !== "NonUpperName" && token.kind !== "UpperName") {
       this.#error(message);
       return undefined;
     }
@@ -1217,7 +1781,7 @@ class Parser {
 function parsedName(token: Lexed.NameToken): Parsed.Name {
   return {
     text: token.text,
-    case: token.kind === "LowerName" ? "lower" : "upper",
+    startClass: token.kind === "NonUpperName" ? "non-upper" : "upper",
     span: token.span,
   };
 }
@@ -1281,8 +1845,8 @@ function describe(kind: TokenKind): string {
     return `\`${kind.toLowerCase()}\``;
   }
   switch (kind) {
-    case "LowerName": return "a lowercase name";
-    case "UpperName": return "an uppercase name";
+    case "NonUpperName": return "a non-uppercase-start name";
+    case "UpperName": return "an uppercase-start name";
     case "Integer": return "an integer literal";
     case "BigInt": return "a BigInt literal";
     case "Float": return "a Float literal";

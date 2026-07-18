@@ -1,4 +1,5 @@
 import { formatConsoleArguments } from "./execution";
+import { linkModule } from "./module-execution";
 import type {
   ExecuteOutput,
   ExecutionRequest,
@@ -22,10 +23,17 @@ self.addEventListener("message", async (event: MessageEvent<ExecutionRequest>) =
     self.postMessage(output);
   };
 
-  const moduleUrl = URL.createObjectURL(
-    new Blob([request.javascript], { type: "text/javascript" }),
-  );
+  const moduleUrls = new Map<string, string>();
   try {
+    for (const module of request.modules) {
+      const linked = linkModule(module.javascript, module.path, moduleUrls);
+      moduleUrls.set(
+        module.path,
+        URL.createObjectURL(new Blob([linked], { type: "text/javascript" })),
+      );
+    }
+    const moduleUrl = moduleUrls.get(request.entryPath);
+    if (moduleUrl === undefined) throw new Error(`missing entry module ${request.entryPath}`);
     // A fresh Blob URL gives every explicit run normal ESM top-level semantics.
     // Console calls intentionally retain the worker's native browser console.
     await import(/* @vite-ignore */ moduleUrl);
@@ -42,6 +50,6 @@ self.addEventListener("message", async (event: MessageEvent<ExecutionRequest>) =
     };
     self.postMessage(response);
   } finally {
-    URL.revokeObjectURL(moduleUrl);
+    for (const moduleUrl of moduleUrls.values()) URL.revokeObjectURL(moduleUrl);
   }
 });

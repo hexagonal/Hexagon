@@ -113,7 +113,7 @@ describe("displayScheme", () => {
       displayScheme({
         variables: [],
         constraints: [],
-        type: { kind: "Union", union: unionId(0), name: "Suit" },
+        type: { kind: "Union", union: unionId(0), name: "Suit", arguments: [] },
       }),
     ).toBe("Suit");
   });

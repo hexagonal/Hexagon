@@ -16,6 +16,65 @@ import {
 } from "./emitter.js";
 
 describe("emitJavaScript", () => {
+  test("emits var, assignment, inclusive Range values, and while readably", () => {
+    const module = coreSource(
+      "fun countdown(start: Int) =\n" +
+        "  var current = start\n" +
+        "  let visited = 1..current\n" +
+        "  while current > 0\n" +
+        "    current := current - 1\n" +
+        "  visited",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const javascript = emitJavaScript(module).text;
+    expect(javascript).toContain("function __hex_range(__hex_start, __hex_end)");
+    expect(javascript).toContain("*[Symbol.iterator]()");
+    expect(javascript).toContain("let current = start;");
+    expect(javascript).toContain("const visited = __hex_range(1, current);");
+    expect(javascript).toContain("while (current > 0) {");
+    expect(javascript).toContain("current = current - 1;");
+    expect(javascript).toContain("return visited;");
+  });
+
+  test("probes generated helper names deterministically on an emitted collision", () => {
+    const module = coreSource("let values = 1..2");
+    const seeded: Core.Module = {
+      ...module,
+      symbols: module.symbols.map((symbol, index) =>
+        index === 0 ? { ...symbol, name: "__hex_range" } : symbol
+      ),
+    };
+
+    const javascript = emitJavaScript(seeded).text;
+    expect(javascript).toContain("function __hex_range1(__hex_start, __hex_end)");
+    expect(javascript).toContain("const values = __hex_range1(1, 2);");
+  });
+
+  test("preserves exact, non-normalized identifier spellings as distinct names", () => {
+    const module = coreSource("let é = 1\nlet é = 2");
+
+    expect(module.diagnostics).toEqual([]);
+    expect(emitJavaScript(module).text).toContain("const é = 1;\nconst é = 2;");
+  });
+
+  test("emits Range and String for loops as native for-of loops", () => {
+    const module = coreSource(
+      "fun visit(): Unit =\n" +
+        "  for number in 1..3\n" +
+        "    console.log(number)\n" +
+        "  for character in \"ab\"\n" +
+        "    console.log(character)",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const javascript = emitJavaScript(module).text;
+    expect(javascript).toContain("for (const __hex_item0 of __hex_range(1, 3)) {");
+    expect(javascript).toContain("const number = __hex_item0;");
+    expect(javascript).toContain('for (const __hex_item1 of "ab") {');
+    expect(javascript).toContain("const character = __hex_item1;");
+  });
+
   test("expands nested or-patterns and emits exhaustive or-pattern bindings", () => {
     const module = coreSource(
       "union Side = Left(value: Int) | Right(value: Int)\n" +
@@ -29,13 +88,13 @@ describe("emitJavaScript", () => {
     expect(module.diagnostics).toEqual([]);
     const javascript = emitJavaScript(module).text;
     expect(javascript).toContain(
-      '__match0.side.tag === "Left"',
+      '__hex_match0.side.tag === "Left"',
     );
     expect(javascript).toContain(
-      'else if (__match0.tag === "Box" && __match0.side.tag === "Right")',
+      'else if (__hex_match0.tag === "Box" && __hex_match0.side.tag === "Right")',
     );
     expect(javascript).toContain("let amount;");
-    expect(javascript).toContain("amount = __match1.value;");
+    expect(javascript).toContain("amount = __hex_match1.value;");
   });
 
   test("emits negative, or, and single-constructor binding patterns", () => {
@@ -54,9 +113,9 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const javascript = emitJavaScript(module).text;
-    expect(javascript).toContain('if (__match0.tag === "Circle")');
-    expect(javascript).toContain('else if (__match0.tag === "Rectangle")');
-    expect(javascript).toContain("if (__match1 === -1)");
+    expect(javascript).toContain('if (__hex_match0.tag === "Circle")');
+    expect(javascript).toContain('else if (__hex_match0.tag === "Rectangle")');
+    expect(javascript).toContain("if (__hex_match1 === -1)");
     expect(javascript).toContain("const { value } = UserId(42);");
   });
 
@@ -64,7 +123,7 @@ describe("emitJavaScript", () => {
     const unit = emitJavaScript(coreSource(
       'fun describe(value: Unit): String = match value\n  () => "unit"',
     )).text;
-    expect(unit).toContain("if (__match0 === undefined)");
+    expect(unit).toContain("if (__hex_match0 === undefined)");
 
     const shape = emitJavaScript(coreSource(
       "union Shape = Circle(radius: Float) | Point\n" +
@@ -72,7 +131,7 @@ describe("emitJavaScript", () => {
         "  Circle(_) as whole => whole\n" +
         "  Point as whole => whole",
     )).text;
-    expect(shape).toContain("const whole = __match0;");
+    expect(shape).toContain("const whole = __hex_match0;");
 
     const structural = emitJavaScript(coreSource(
       'fun tupleLabel(pair: (Bool, Int)): String = match pair\n' +
@@ -82,10 +141,10 @@ describe("emitJavaScript", () => {
         '  {active: true, name} => name\n' +
         '  {name} => name',
     )).text;
-    expect(structural).toContain("if (__match0[0] === true)");
-    expect(structural).toContain("const count = __match0[1];");
-    expect(structural).toContain("if (__match1.active === true)");
-    expect(structural).toContain("const name = __match1.name;");
+    expect(structural).toContain("if (__hex_match0[0] === true)");
+    expect(structural).toContain("const count = __hex_match0[1];");
+    expect(structural).toContain("if (__hex_match1.active === true)");
+    expect(structural).toContain("const name = __hex_match1.name;");
   });
 
   test("emits record construction punning as JavaScript shorthand", () => {
@@ -103,8 +162,8 @@ describe("emitJavaScript", () => {
       'fun describe(flag: Bool): String = match flag\n  true => "yes"\n  false => "no"',
     );
     const primitiveJavaScript = emitJavaScript(primitive).text;
-    expect(primitiveJavaScript).toContain("if (__match0 === true)");
-    expect(primitiveJavaScript).toContain("if (__match0 === false)");
+    expect(primitiveJavaScript).toContain("if (__hex_match0 === true)");
+    expect(primitiveJavaScript).toContain("if (__hex_match0 === false)");
 
     const guarded = coreSource(
       "union Shape = Circle(radius: Float) | Point\n" +
@@ -116,11 +175,11 @@ describe("emitJavaScript", () => {
     expect(guarded.diagnostics).toEqual([]);
     const guardedJavaScript = emitJavaScript(guarded).text;
     expect(guardedJavaScript).toContain(
-      'if (__match0.tag === "Circle")',
+      'if (__hex_match0.tag === "Circle")',
     );
-    expect(guardedJavaScript).toContain("const radius = __match0.radius;");
+    expect(guardedJavaScript).toContain("const radius = __hex_match0.radius;");
     expect(guardedJavaScript).toContain(
-      "if ($hexCompareFloat(radius, 0.0) > 0)",
+      "if (__hex_compareFloat(radius, 0.0) > 0)",
     );
   });
 
@@ -134,9 +193,9 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const javascript = emitJavaScript(module).text;
-    expect(javascript).toContain("const [name, ] = __match0.value;");
+    expect(javascript).toContain("const [name, ] = __hex_match0.value;");
     expect(javascript).toContain(
-      "const { context: { message: reason } } = __match0.error;",
+      "const { context: { message: reason } } = __hex_match0.error;",
     );
   });
 
@@ -190,9 +249,101 @@ describe("emitJavaScript", () => {
       'const Circle = (radius) => ({ tag: "Circle", radius: radius });',
     );
     expect(emitJavaScript(module).text).toContain("const point = { x: 3, y: 4 };");
-    expect(emitJavaScript(module).text).toContain("const value = __match0.radius;");
+    expect(emitJavaScript(module).text).toContain("const value = __hex_match0.radius;");
     expect(emitDeclarations(module).text).toContain(
       'export type Shape = { tag: "Circle"; radius: number } | { tag: "Point" };',
+    );
+  });
+
+  test("emits generic nominal unions, constructors, matches, and declarations", () => {
+    const module = coreSource(
+      "export union Option(a) = Some(value: a) | None\n" +
+        "export fun unwrapOr(value: Option(a), fallback: a): a = match value\n" +
+        "  Some(found) => found\n" +
+        "  None => fallback\n" +
+        "export let answer = unwrapOr(Some(42), 0)",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    expect(emitJavaScript(module).text).toContain(
+      'const Some = (value) => ({ tag: "Some", value: value });',
+    );
+    expect(emitDeclarations(module).text).toBe(
+      'export type Option<a> = { tag: "Some"; value: a } | { tag: "None" };\n' +
+        "export declare const Some: <a>(value: a) => Option<a>;\n" +
+        "export declare const None: Option<never>;\n" +
+        "export declare function unwrapOr<a>(value: Option<a>, fallback: a): a;\n" +
+        "export declare const answer: number;\n",
+    );
+  });
+
+  test("checks generic nominal records while preserving their POJO representation", () => {
+    const module = coreSource(
+      "export record Box(a) = {value: a}\n" +
+        "export fun get(box: Box(a)): a = box.value\n" +
+        "export let answer = Box({value: 42})\n" +
+        "export let changed = {...answer, value: 43}\n" +
+        "export fun expose(box: Box(Int)): {value: Int} = {...box}",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const javascript = emitJavaScript(module).text;
+    expect(javascript).toContain("const Box = __hex_record => __hex_record;");
+    expect(javascript).toContain("const answer = { value: 42 };");
+    expect(javascript).toContain("const changed = { ...answer, value: 43 };");
+    expect(emitDeclarations(module).text).toContain(
+      "export type Box<a> = { value: a };\n" +
+        "export declare const Box: <a>(record: { value: a }) => Box<a>;",
+    );
+    expect(emitDeclarations(module).text).toContain(
+      "export declare function get<a>(box: Box<a>): a;",
+    );
+  });
+
+  test("emits branded Error exceptions, throwing, and expression-valued catches", () => {
+    const module = coreSource(
+      "export exception ParseError(line: Int, message: String)\n" +
+        "export exception Missing\n" +
+        "export fun recover(value: Int): Int = try\n" +
+        "  if value < 0 then throw(ParseError(value, \"bad\")) else value\n" +
+        "catch\n" +
+        "  ParseError(line, _) => 0 - line\n" +
+        "export fun fail(): Int = throw(Missing)",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const javascript = emitJavaScript(module).text;
+    expect(javascript).toContain(
+      "return Object.assign(new Error(__hex_message), { $hex: true, name: __hex_name }, __hex_fields);",
+    );
+    expect(javascript).toContain(
+      'const ParseError = (line, message) => __hex_exception("ParseError", message, { line: line, message: message });',
+    );
+    expect(javascript).toContain(
+      '$hex === true && __hex_error0.name === "ParseError"',
+    );
+    expect(javascript).toContain("throw Missing();");
+    expect(emitDeclarations(module).text).toContain(
+      'export type ParseError = Error & { readonly $hex: true; readonly name: "ParseError"; readonly line: number; readonly message: string };',
+    );
+    expect(emitDeclarations(module).text).toContain(
+      "export declare const Missing: () => Missing;",
+    );
+  });
+
+  test("resolves nominal dot calls to subject-first companion operations", () => {
+    const module = coreSource(
+      "record Point = {x: Int, y: Int}\n" +
+        "fun translate(point: Point, dx: Int): Point = {...point, x: point.x + dx}\n" +
+        "export let shifted = Point({x: 1, y: 2}).translate(3)",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    expect(emitJavaScript(module).text).toContain(
+      "const shifted = translate({ x: 1, y: 2 }, 3);",
+    );
+    expect(emitDeclarations(module).text).toContain(
+      "export declare const shifted: Point;",
     );
   });
 
@@ -290,7 +441,7 @@ describe("emitJavaScript", () => {
     const output = emitJavaScript(module);
 
     expect(output.text).toContain("switch (suit) {");
-    expect(output.text).not.toContain("__match");
+    expect(output.text).not.toContain("__hex_match");
     expect(output.text.match(/default:/gu)).toHaveLength(1);
     expect(output.text).not.toContain("Unexpected pattern.");
     expect(output.diagnostics).toEqual([]);
@@ -305,9 +456,9 @@ describe("emitJavaScript", () => {
 
     const output = emitJavaScript(module);
 
-    expect(output.text).toContain("const __match0 = suit;");
-    expect(output.text).toContain("switch (__match0) {");
-    expect(output.text).toContain("const whole = __match0;");
+    expect(output.text).toContain("const __hex_match0 = suit;");
+    expect(output.text).toContain("switch (__hex_match0) {");
+    expect(output.text).toContain("const whole = __hex_match0;");
     expect(output.diagnostics).toEqual([]);
   });
 
@@ -510,8 +661,8 @@ describe("emitJavaScript", () => {
     const output = emitJavaScript(coreSource("let addOne = x => x + 1"));
 
     expect(output.text).toBe(
-      "const addOne = (__dictNum_1, x) => " +
-        "__dictNum_1.add(x, __dictNum_1.fromInt(1));\n",
+      "const addOne = (x, __hex_dictNum_1) => " +
+        "__hex_dictNum_1.add(x, __hex_dictNum_1.fromInt(1));\n",
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -556,11 +707,11 @@ describe("emitJavaScript", () => {
 
     expect(output.text).toBe(
       "const bounded = (() => {\n" +
-        "  const __compare0 = 1;\n" +
-        "  const __compare1 = 2;\n" +
-        "  if (!(__compare0 < __compare1)) return false;\n" +
-        "  const __compare2 = 3;\n" +
-        "  return __compare1 <= __compare2;\n" +
+        "  const __hex_compare0 = 1;\n" +
+        "  const __hex_compare1 = 2;\n" +
+        "  if (!(__hex_compare0 < __hex_compare1)) return false;\n" +
+        "  const __hex_compare2 = 3;\n" +
+        "  return __hex_compare1 <= __hex_compare2;\n" +
         "})();\n",
     );
     expect(output.diagnostics).toEqual([]);
@@ -571,13 +722,13 @@ describe("emitJavaScript", () => {
       coreSource("let same = 0.0 == 0.0\nlet ordered = 0.0 < 1.0"),
     );
 
-    expect(output.text).toContain("function $hexFloatEquals(left, right)");
-    expect(output.text).toContain("function $hexCompareFloat(left, right)");
+    expect(output.text).toContain("function __hex_floatEquals(__hex_left, __hex_right)");
+    expect(output.text).toContain("function __hex_compareFloat(__hex_left, __hex_right)");
     expect(output.text).toContain(
-      "const same = $hexFloatEquals(0.0, 0.0);",
+      "const same = __hex_floatEquals(0.0, 0.0);",
     );
     expect(output.text).toContain(
-      "const ordered = $hexCompareFloat(0.0, 1.0) < 0;",
+      "const ordered = __hex_compareFloat(0.0, 1.0) < 0;",
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -598,16 +749,16 @@ describe("emitJavaScript", () => {
     expect(output.text).toContain("const negative = -1;");
     expect(output.text).toContain("const quotient = 4.0 / 2.0;");
     expect(output.text).toContain('const joined = "a" + "b";');
-    expect(output.text).toContain("function $hexCheckedPower(base, exponent)");
-    expect(output.text).toContain("const powered = $hexCheckedPower(2n, 3n);");
+    expect(output.text).toContain("function __hex_checkedPower(__hex_base, __hex_exponent)");
+    expect(output.text).toContain("const powered = __hex_checkedPower(2n, 3n);");
     expect(output.text).toContain(
       "const logic = !false && true || false;",
     );
     expect(output.text).toMatch(
-      /const display = \(__dictShow_\d+, x\) => __dictShow_\d+\.show\(x\);/u,
+      /const display = \(x, __hex_dictShow_\d+\) => __hex_dictShow_\d+\.show\(x\);/u,
     );
     expect(output.text).toMatch(
-      /const equal = \(__dictEq_\d+, x\) => __dictEq_\d+\.equals\(x, x\);/u,
+      /const equal = \(x, __hex_dictEq_\d+\) => __hex_dictEq_\d+\.equals\(x, x\);/u,
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -622,9 +773,9 @@ describe("emitJavaScript", () => {
     );
 
     expect(output.text).toContain("const different = !(1 === 2);");
-    expect(output.text).toContain("function $hexCompareString(left, right)");
+    expect(output.text).toContain("function __hex_compareString(__hex_left, __hex_right)");
     expect(output.text).toContain(
-      'const textOrder = $hexCompareString("a", "b") < 0;',
+      'const textOrder = __hex_compareString("a", "b") < 0;',
     );
     expect(output.text).toContain("const unitOrder = 0 <= 0;");
     expect(output.diagnostics).toEqual([]);
@@ -633,19 +784,76 @@ describe("emitJavaScript", () => {
   test("renames JavaScript-reserved source identifiers deterministically", () => {
     const output = emitJavaScript(coreSource("let await = 1\nawait"));
 
-    expect(output.text).toBe("const $hex0 = 1;\n$hex0;\n");
+    expect(output.text).toBe("const __hex_binding0 = 1;\n__hex_binding0;\n");
     expect(output.diagnostics).toEqual([]);
   });
 
-  test("diagnoses constrained calls until call-site evidence reaches Core", () => {
+  test("passes concrete evidence at constrained call sites", () => {
     const output = emitJavaScript(
       coreSource("let addOne = x => x + 1\naddOne(2)"),
     );
 
-    expect(output.text).toContain("undefined;\n");
-    expect(output.diagnostics.map(({ message }) => message)).toEqual([
-      "cannot emit constrained call to `addOne` in the first JavaScript slice",
-    ]);
+    expect(output.text).toContain(
+      "addOne(2, ({ add: (__hex_a, __hex_b) => __hex_a + __hex_b",
+    );
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("checks explicit constrained binders through the same evidence path", () => {
+    const module = coreSource(
+      "let plus<a: Num>(left: a, right: a): a = left + right\n" +
+        "let answer = plus(20, 22)",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.text).toMatch(
+      /const plus = \(left, right, __hex_dictNum_\d+\) => __hex_dictNum_\d+\.add\(left, right\);/u,
+    );
+    expect(output.text).toContain(
+      "const answer = plus(20, 22, ({ add: (__hex_a, __hex_b) => __hex_a + __hex_b",
+    );
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("declares user constraint members as generic dictionary dispatch", () => {
+    const module = coreSource(
+      "constraint Render<a> =\n" +
+        "  render(value: a): String\n" +
+        "let display<a: Render>(value: a): String = render(value)",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.text).toMatch(
+      /const render = \(value, __hex_dictRender_\d+\) => __hex_dictRender_\d+\.render\(value\);/u,
+    );
+    expect(output.text).toMatch(
+      /const display = \(value, __hex_dictRender_\d+\) => render\(value, __hex_dictRender_\d+\);/u,
+    );
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("checks ground honor declarations and selects their dictionaries", () => {
+    const module = coreSource(
+      "constraint Render<a> =\n" +
+        "  render(value: a): String\n" +
+        "record Point = {x: Int}\n" +
+        "honor Render<Point> =\n" +
+        '  render(point) = "Point(${point.x})"\n' +
+        "let display<a: Render>(value: a): String = render(value)\n" +
+        "export let text = display(Point({x: 3}))",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.text).toContain(
+      'const __hex_instance_Render_Point = { render: point => "Point(" + String(point.x) + ")" };',
+    );
+    expect(output.text).toContain(
+      "const text = display({ x: 3 }, __hex_instance_Render_Point);",
+    );
+    expect(output.diagnostics).toEqual([]);
   });
 
   test("is deterministic and bounded for arbitrary compiler input", () => {
@@ -722,17 +930,78 @@ describe("emitDeclarations", () => {
     expect(declarations.diagnostics).toEqual([]);
   });
 
-  test("withholds constrained exports until their public ABI is implemented", () => {
-    const module = coreSource("export let addOne = x => x + 1");
+  test("emits direct fundamental editions for an inferred Num export", () => {
+    const module = coreSource("export let plus(x, y) = x + y");
     const javascript = emitJavaScript(module);
     const declarations = emitDeclarations(module);
-    const message =
-      "cannot emit constrained export `addOne` until the public dictionary ABI is implemented";
 
-    expect(javascript.text).not.toContain("export { addOne }");
-    expect(declarations.text).toBe("export {};\n");
-    expect(javascript.diagnostics.map((diagnostic) => diagnostic.message)).toContain(message);
-    expect(declarations.diagnostics.map((diagnostic) => diagnostic.message)).toContain(message);
+    expect(javascript.text).toMatch(
+      /const plus = \(x, y, __hex_dictNum_\d+\) => __hex_dictNum_\d+\.add\(x, y\);/u,
+    );
+    expect(javascript.text).toContain(
+      "function plusInt(x, y) {\n  return x + y;\n}",
+    );
+    expect(javascript.text).toContain(
+      "function plusFloat(x, y) {\n  return x + y;\n}",
+    );
+    expect(javascript.text).toContain(
+      "function plusBigInt(x, y) {\n  return x + y;\n}",
+    );
+    expect(javascript.text).toContain("export { plusInt };");
+    expect(javascript.text).toContain("export { plusFloat };");
+    expect(javascript.text).toContain("export { plusBigInt };");
+    expect(javascript.text).not.toContain("export { plus };");
+    expect(javascript.generatedSections).toMatchObject([
+      { sourceName: "plus", generatedName: "plusInt", typeArguments: ["Int"] },
+      { sourceName: "plus", generatedName: "plusFloat", typeArguments: ["Float"] },
+      { sourceName: "plus", generatedName: "plusBigInt", typeArguments: ["BigInt"] },
+    ]);
+    expect(declarations.text).toBe(
+      "export declare function plusInt(x: number, y: number): number;\n" +
+        "export declare function plusFloat(x: number, y: number): number;\n" +
+        "export declare function plusBigInt(x: bigint, y: bigint): bigint;\n",
+    );
+    expect(javascript.diagnostics).toEqual([]);
+    expect(declarations.diagnostics).toEqual([]);
+  });
+
+  test("rejects a generated specialization colliding with an explicit export", () => {
+    const module = coreSource(
+      "export let plusInt(x: Int, y: Int): Int = x + y\n" +
+        "export let plus(x, y) = x + y",
+    );
+    const output = emitJavaScript(module);
+
+    expect(output.diagnostics.map(({ message }) => message)).toContain(
+      "generated specialization `plusInt` conflicts with exported `plusInt`; rename one of the exports",
+    );
+  });
+
+  test("specializes constrained literals and equality with concrete semantics", () => {
+    const increment = emitJavaScript(
+      coreSource("export let increment(x) = x + 1"),
+    );
+    const equal = emitJavaScript(
+      coreSource("export let equal(left, right) = left == right"),
+    );
+
+    expect(increment.text).toContain(
+      "function incrementBigInt(x) {\n  return x + 1n;\n}",
+    );
+    expect(equal.text).toContain(
+      "function equalInt(left, right) {\n  return left === right;\n}",
+    );
+    expect(equal.text).toContain("function equalFloat(left, right)");
+    expect(equal.text).toContain("__hex_floatEquals(left, right)");
+    for (const section of [...increment.generatedSections, ...equal.generatedSections]) {
+      const body = (section.sourceName === "increment" ? increment : equal).text.slice(
+        section.startOffset,
+        section.endOffset,
+      );
+      expect(body).not.toContain("__hex_dict");
+    }
+    expect(increment.diagnostics).toEqual([]);
+    expect(equal.diagnostics).toEqual([]);
   });
 });
 
@@ -771,23 +1040,19 @@ describe("emitTypeScriptPreview", () => {
     expect(output.diagnostics).toEqual([]);
   });
 
-  test("withholds constrained previews without failing ordinary compilation", () => {
+  test("previews private fundamental editions without exporting them", () => {
     const output = emitTypeScriptPreview(
-      coreSource("let addOne = x => x + 1\nlet answer = 42"),
+      coreSource("let plus(x, y) = x + y\nlet answer = 42"),
     );
 
     expect(output.text).toBe(
-      "declare const answer: number;\n" +
+      "declare function plusInt(x: number, y: number): number;\n" +
+        "declare function plusFloat(x: number, y: number): number;\n" +
+        "declare function plusBigInt(x: bigint, y: bigint): bigint;\n" +
+        "declare const answer: number;\n" +
         "export {};\n",
     );
-    expect(output.diagnostics).toMatchObject([
-      {
-        severity: "warning",
-        message:
-          "cannot preview constrained binding `addOne` in TypeScript until " +
-          "its dictionary representation is implemented",
-      },
-    ]);
+    expect(output.diagnostics).toEqual([]);
   });
 });
 

@@ -20,6 +20,8 @@ export { parse } from "./passes/parser/parser.js";
 export { resolve } from "./passes/resolver/resolver.js";
 export { check } from "./passes/checker/checker.js";
 export { elaborate } from "./passes/elaborator/elaborator.js";
+export { compileProject } from "./project.js";
+export type { CompiledModule, CompiledProject } from "./project.js";
 export {
   emitJavaScript,
   emitDeclarations,

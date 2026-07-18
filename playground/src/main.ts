@@ -14,12 +14,15 @@ import {
   exampleById,
   playgroundExamples,
 } from "./examples";
+import { groupGeneratedSections, renderGeneratedCodeView } from "./generated-code";
 import { helloWorld } from "./examples/hello-world";
 import { readStoredSource, writeStoredSource } from "./persistence";
 import type {
   CompilerResponse,
   ExecutionEvent,
+  GeneratedJavaScriptSection,
   InferredBinding,
+  ExecutableModule,
 } from "./protocol";
 import { readSharedSource, shareUrl } from "./sharing";
 import {
@@ -44,6 +47,10 @@ interface PlaygroundState {
   output: readonly string[];
   diagnostics: readonly LocatedDiagnostic[];
   javascript: string;
+  executionModules: readonly ExecutableModule[];
+  entryPath: string;
+  generatedJavaScript: readonly GeneratedJavaScriptSection[];
+  javascriptView: string;
   typeScriptPreview: string;
   bindings: readonly InferredBinding[];
 }
@@ -55,6 +62,10 @@ const state: PlaygroundState = {
   output: [],
   diagnostics: [],
   javascript: "// JavaScript will appear after compilation.",
+  executionModules: [],
+  entryPath: "/main.hex",
+  generatedJavaScript: [],
+  javascriptView: "source",
   typeScriptPreview: "// The TypeScript preview will appear after compilation.",
   bindings: [],
 };
@@ -120,6 +131,10 @@ app.innerHTML = `
         <button role="tab" data-tab="javascript" aria-selected="true">JS</button>
         <button role="tab" data-tab="typeScriptPreview" aria-selected="false">.d.ts</button>
         <button role="tab" data-tab="types" aria-selected="false">Types</button>
+        <label class="js-view-control" hidden>
+          <span>View</span>
+          <select id="js-view-select" aria-label="JavaScript generated-code view"></select>
+        </label>
       </div>
       <div id="result-view" role="tabpanel" tabindex="0">
         <div id="result-text"></div>
@@ -144,6 +159,8 @@ const themeSelect = requireElement<HTMLSelectElement>("#theme-select");
 const exampleSelect = requireElement<HTMLSelectElement>("#example-select");
 const shareButton = requireElement<HTMLButtonElement>("[data-action='share']");
 const runButton = requireElement<HTMLButtonElement>("[data-action='run']");
+const javaScriptViewControl = requireElement<HTMLElement>(".js-view-control");
+const javaScriptViewSelect = requireElement<HTMLSelectElement>("#js-view-select");
 runButton.title = "Run the most recently compiled program.";
 const tabButtons = Array.from(app.querySelectorAll<HTMLButtonElement>("[data-tab]"));
 
@@ -193,6 +210,9 @@ compilerWorker.addEventListener("message", (event: MessageEvent<CompilerResponse
   if (response.kind === "compile-success") {
     state.lastSuccessfulVersion = response.version;
     state.javascript = response.javascript;
+    state.executionModules = response.executionModules;
+    state.entryPath = response.entryPath;
+    state.generatedJavaScript = response.generatedJavaScript;
     state.typeScriptPreview = response.typeScriptPreview;
     state.bindings = response.types;
     state.diagnostics = response.diagnostics.map((diagnostic) =>
@@ -203,6 +223,9 @@ compilerWorker.addEventListener("message", (event: MessageEvent<CompilerResponse
   } else {
     state.lastSuccessfulVersion = undefined;
     state.javascript = "// No JavaScript emitted for the current source.";
+    state.executionModules = [];
+    state.entryPath = "/main.hex";
+    state.generatedJavaScript = [];
     state.typeScriptPreview =
       "// No TypeScript preview emitted for the current source.";
     state.bindings = [];
@@ -228,6 +251,7 @@ function handleSourceChange(): void {
   state.output = [];
   state.diagnostics = [];
   state.bindings = [];
+  state.generatedJavaScript = [];
   sourceEditor.publishDiagnostics([]);
   sourceEditor.publishBindings([]);
   writeCurrentSource(sourceEditor.getSource());
@@ -241,6 +265,10 @@ function handleSourceChange(): void {
 
 runButton.addEventListener("click", runCurrentProgram);
 shareButton.addEventListener("click", shareCurrentSource);
+javaScriptViewSelect.addEventListener("change", () => {
+  state.javascriptView = javaScriptViewSelect.value;
+  renderResult();
+});
 
 exampleSelect.addEventListener("change", () => {
   const example = exampleById(exampleSelect.value);
@@ -323,7 +351,8 @@ function runCurrentProgram(): void {
   executionWorker.postMessage({
     kind: "execute",
     version,
-    javascript: state.javascript,
+    modules: state.executionModules,
+    entryPath: state.entryPath,
   });
   executionTimer = setTimeout(() => {
     if (version !== state.sourceVersion) return;
@@ -359,6 +388,7 @@ function renderTabs(): void {
   if (errorBadge !== null) {
     errorBadge.textContent = String(state.diagnostics.length);
   }
+  renderJavaScriptViewControl();
 }
 
 function renderResult(): void {
@@ -372,7 +402,9 @@ function renderResult(): void {
     resultText.hidden = true;
     generatedCodeEditor.show(
       generatedLanguage,
-      generatedLanguage === "javascript" ? state.javascript : state.typeScriptPreview,
+      generatedLanguage === "javascript"
+        ? displayedJavaScript()
+        : state.typeScriptPreview,
     );
     return;
   }
@@ -391,7 +423,7 @@ function renderResult(): void {
         ? "Run the program to execute its latest successful compilation."
         : "Program is running…",
     errors: "",
-    javascript: state.javascript,
+    javascript: displayedJavaScript(),
     typeScriptPreview: state.typeScriptPreview,
     types: state.bindings.length > 0
       ? state.bindings.map(({ name, displayedType }) => `${name} : ${displayedType}`).join("\n")
@@ -400,6 +432,58 @@ function renderResult(): void {
 
   resultText.textContent = content[state.activeTab];
 }
+
+function renderJavaScriptViewControl(): void {
+  const visible = state.activeTab === "javascript" &&
+    state.generatedJavaScript.length > 0;
+  javaScriptViewControl.hidden = !visible;
+  if (!visible) return;
+
+  const validViews = new Set([
+    "source",
+    "complete",
+    ...state.generatedJavaScript.map(({ generatedName }) =>
+      `specialization:${generatedName}`
+    ),
+  ]);
+  if (!validViews.has(state.javascriptView)) state.javascriptView = "source";
+
+  javaScriptViewSelect.replaceChildren();
+  javaScriptViewSelect.append(
+    createOption("source", "Source-shaped"),
+    createOption("complete", "Complete emitted module"),
+  );
+  const groups = groupGeneratedSections(state.generatedJavaScript);
+  for (const [sourceName, sections] of groups) {
+    const bytes = sections.reduce((total, section) => total + section.bytes, 0);
+    const group = document.createElement("optgroup");
+    group.label = `${sourceName} (${sections.length}, ${bytes} B)`;
+    for (const section of sections) {
+      group.append(createOption(
+        `specialization:${section.generatedName}`,
+        `${section.generatedName} · ${section.typeArguments.join(", ")} · ${section.bytes} B`,
+      ));
+    }
+    javaScriptViewSelect.append(group);
+  }
+  javaScriptViewSelect.value = state.javascriptView;
+}
+
+function displayedJavaScript(): string {
+  return renderGeneratedCodeView(
+    state.javascript,
+    state.generatedJavaScript,
+    state.javascriptView,
+  );
+}
+
+function createOption(value: string, label: string): HTMLOptionElement {
+  const element = document.createElement("option");
+  element.value = value;
+  element.textContent = label;
+  return element;
+}
+
 
 function renderDiagnostics(): void {
   resultText.replaceChildren();

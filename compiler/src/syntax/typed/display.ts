@@ -21,6 +21,8 @@ function displayType(
   switch (type.kind) {
     case "Primitive":
       return type.name;
+    case "Range":
+      return "Range";
     case "Variable":
       return variables.get(type.id) ?? `t${Number(type.id)}`;
     case "Error":
@@ -39,7 +41,17 @@ function displayType(
       return `{${fields.join(", ")}}`;
     }
     case "Union":
-      return type.name;
+      return type.arguments.length === 0
+        ? type.name
+        : `${type.name}(${type.arguments.map((argument) =>
+          displayType(argument, variables)
+        ).join(", ")})`;
+    case "NominalRecord":
+      return type.arguments.length === 0
+        ? type.name
+        : `${type.name}(${type.arguments.map((argument) =>
+          displayType(argument, variables)
+        ).join(", ")})`;
     case "Function": {
       const parameters = type.parameters.map((parameter) =>
         displayType(parameter, variables),
@@ -96,8 +108,14 @@ function collectVariables(
       for (const field of type.fields) collectVariables(field.type, variables);
       if (type.tail !== undefined) variables.add(type.tail);
       return;
-    case "Primitive":
     case "Union":
+      for (const argument of type.arguments) collectVariables(argument, variables);
+      return;
+    case "NominalRecord":
+      for (const argument of type.arguments) collectVariables(argument, variables);
+      return;
+    case "Primitive":
+    case "Range":
     case "Error":
       return;
   }

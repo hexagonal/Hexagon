@@ -19,7 +19,10 @@ exhaustive matching, annotations, and recursive functions. Run executes the late
 successful compilation, with `console.log(...)` captured in the Output tab. Source
 is persisted locally, and curated examples and fragment-based Share URLs are built in.
 Supported desktop browsers get Monaco editing, exact compiler markers, inferred-type
-hovers, and read-only generated JavaScript and declaration models.
+hovers, and read-only generated JavaScript and declaration models. The Fundamental
+Specializations example infers one `Num`-polymorphic function; its JS view can hide
+the generated family, show the complete module, or inspect each concrete edition and
+its byte size.
 
 One subject-first function, three equally static ways to call it:
 
@@ -36,11 +39,11 @@ or prototype lookup.
 > [!IMPORTANT]
 > Hexagon is under active design and implementation. The language specification is
 > about 95% complete, the reader-facing book has reached its first full draft, and
-> compiler construction has complete lexer and layout passes plus eight thin vertical
+> compiler construction has complete lexer and layout passes plus twenty-three thin vertical
 > slices through parsing, name resolution, type checking, Core elaboration,
 > JavaScript emission, and declaration emission. Small programs in that subset,
-> including tuples, pattern bindings, nullary unions and matches, annotations, and
-> directly recursive functions, now compile end to end through the compiler API and
+> including tuples, pattern bindings, unions and matches, records, local mutation,
+> inclusive ranges, `while`, Range/String `for..in`, annotations, and directly recursive functions, now compile end to end through the compiler API and
 > run live in the Playground. Syntax, semantics, generated interfaces, and
 > repository structure may still change before the first release.
 
@@ -99,20 +102,21 @@ review copies stay outside version control.
 
 Compiler implementation is underway. The platform-neutral TypeScript workspace has
 source coordinates, structured diagnostics, a Unicode-aware physical lexer, and the
-indentation layout pass. Its parser covers core expressions, `let` bindings,
-lambdas, directly recursive functions, conditionals, calls, tuple values and patterns,
-nullary unions and exhaustive matches, primitive, tuple, and union annotations, and
-operator precedence. Its resolver assigns stable symbols to `let`, `fun`, pattern,
+indentation layout pass. Twenty-three vertical slices cover core expressions, `let` and local `var` bindings,
+lambdas, directly recursive functions, conditionals, `while`, Range/String `for..in`, calls, tuple values and patterns,
+generic unions and nominal records, exceptions, constraints and ground instances,
+relative imports, nominal dot calls, direct fundamental specializations, exhaustive matches, rich annotations, and
+operator precedence. Its resolver assigns stable symbols to `let`, `fun`, loop-head pattern,
 constructor, and lambda-parameter bindings, implements lexical scopes, and diagnoses
 unknown names and illegal rebinding. The implemented
 checker provides the Hindley–Milner core, including let-polymorphism, the value
-restriction, primitive, tuple, nominal nullary-union, and n-ary function types,
+restriction, structural and generic nominal types, exceptions, and n-ary function types,
 unification, numeric defaulting,
-constraint requirements, checked primitive parameter and result annotations, and
-monomorphic direct recursion followed by ordinary generalization. Core elaboration
+constraint requirements with generic call-site evidence, checked annotations, local
+assignment, inclusive ranges, `while`, and monomorphic direct recursion followed by ordinary generalization. Core elaboration
 makes primitive and dictionary evidence explicit, and the
-experimental emitter produces readable ESM plus an honest `.d.ts` surface for
-module-level values, functions, and nullary unions. Source comments and intentional
+experimental emitter produces readable ESM module graphs plus an honest `.d.ts` surface for
+module-level values, functions, generic nominal data, and exceptions. Source comments and intentional
 blank lines between top-level items carry into the generated JavaScript. The
 implemented pipeline
 currently reaches:
@@ -121,12 +125,11 @@ currently reaches:
 Source.File -> Lexed.File -> LaidOut.File -> Parsed.Module -> Resolved.Module -> Typed.Module -> Core.Module -> Emitted output
 ```
 
-The parser still needs the remaining declarations, patterns, and richer type syntax; resolution
-still needs function capture sets, forward/mutual recursion, module graphs, imports,
-companions, and the corresponding declaration scopes. Type checking still needs
-rows, declarations, modules, mutable bindings, and full constraint evidence.
-Emission still needs source maps, constrained-call specialization and the public
-dictionary ABI, records, payload and generic unions, imports, runtime integration, and the finalized
+The parser still needs type aliases and the remaining declaration variants; resolution
+still needs function capture sets, forward/mutual recursion, and qualified type paths.
+Constraints still need defaults, superconstraints, derivation, parameterized instances,
+whole-graph coherence, the conditional generic constrained edition, and the public dictionary ABI. Emission still
+needs source maps, runtime integration, and the finalized
 portable-JavaScript profile.
 
 There is currently no release, package, command-line tool, or supported installation

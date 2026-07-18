@@ -1,8 +1,8 @@
 /**
  * The first resolver assigns stable identities to local bindings and replaces
  * textual references with those identities. It deliberately covers only the
- * binding forms admitted by the current parser: sequential lets, directly
- * recursive functions, and lambda parameters.
+ * binding forms admitted by the current parser: sequential lets and vars,
+ * directly recursive functions, patterns, and lambda parameters.
  */
 
 import * as Diagnostics from "../../support/diagnostics.js";
@@ -10,11 +10,58 @@ import type * as Source from "../../support/source.js";
 import type * as Parsed from "../../syntax/parsed/index.js";
 import * as Resolved from "../../syntax/resolved/index.js";
 
-export function resolve(module: Parsed.Module): Resolved.Module {
+export interface ModuleInterface {
+  readonly module: Resolved.Module;
+  readonly terms: ReadonlyMap<string, Resolved.Symbol>;
+  readonly unions: ReadonlyMap<string, Resolved.Union>;
+  readonly records: ReadonlyMap<string, Resolved.RecordDeclaration>;
+}
+
+export interface ResolveOptions {
+  readonly imports?: ReadonlyMap<string, ModuleInterface>;
+  readonly symbolBase?: number;
+  readonly unionBase?: number;
+  readonly recordBase?: number;
+}
+
+export function resolve(
+  module: Parsed.Module,
+  options: ResolveOptions = {},
+): Resolved.Module {
   const diagnostics = new Diagnostics.Bag();
   for (const diagnostic of module.diagnostics) diagnostics.add(diagnostic);
 
-  return new Resolver(diagnostics).resolve(module);
+  return new Resolver(diagnostics, options).resolve(module);
+}
+
+export function moduleInterface(module: Resolved.Module): ModuleInterface {
+  const symbols = new Map(module.symbols.map((symbol) => [symbol.id, symbol]));
+  const terms = new Map<string, Resolved.Symbol>();
+  const unions = new Map<string, Resolved.Union>();
+  const records = new Map<string, Resolved.RecordDeclaration>();
+  for (const item of module.items) {
+    if (!('exported' in item) || item.exported !== true) continue;
+    if (item.kind === "Let" || item.kind === "Fun") {
+      const symbol = symbols.get(item.binding.symbol);
+      if (symbol !== undefined) terms.set(item.binding.name, symbol);
+    } else if (item.kind === "Union") {
+      const union = module.unions.find(({ id }) => id === item.union);
+      if (union !== undefined) unions.set(item.name, union);
+      for (const constructor of item.constructors) {
+        const symbol = symbols.get(constructor.binding.symbol);
+        if (symbol !== undefined) terms.set(constructor.binding.name, symbol);
+      }
+    } else if (item.kind === "RecordDeclaration") {
+      const record = module.records.find(({ id }) => id === item.record);
+      const symbol = symbols.get(item.constructor.symbol);
+      if (record !== undefined) records.set(item.name, record);
+      if (symbol !== undefined) terms.set(item.name, symbol);
+    } else if (item.kind === "Exception") {
+      const symbol = symbols.get(item.binding.symbol);
+      if (symbol !== undefined) terms.set(item.binding.name, symbol);
+    }
+  }
+  return { module, terms, unions, records };
 }
 
 class Scope {
@@ -36,15 +83,34 @@ class Scope {
 }
 
 class Resolver {
-  readonly #symbols: Resolved.Symbol[] = [];
+  readonly #symbols = new Map<Resolved.SymbolId, Resolved.Symbol>();
+  readonly #importedSymbols = new Map<Resolved.SymbolId, Resolved.Symbol>();
   readonly #unions: Resolved.Union[] = [];
+  readonly #records: Resolved.RecordDeclaration[] = [];
   readonly #unionNames = new Map<string, Resolved.UnionId>();
-  readonly #pending: Parsed.Name[] = [];
+  readonly #unionArities = new Map<string, number>();
+  readonly #recordNames = new Map<string, Resolved.RecordId>();
+  readonly #recordArities = new Map<string, number>();
+  readonly #imports: ReadonlyMap<string, ModuleInterface>;
+  readonly #moduleAliases = new Map<string, ModuleInterface>();
+  readonly #constraintNames = new Set<string>([
+    "Num", "Frac", "Pow", "Concat", "Eq", "Ord", "Show",
+  ]);
+  readonly #pending: { readonly name: Parsed.Name; readonly kind: "let" | "var" }[] = [];
   readonly #laterFunNames: Parsed.Name[][] = [];
+  readonly #varOwners = new Map<Resolved.SymbolId, number>();
   readonly #diagnostics: Diagnostics.Bag;
+  #lambdaDepth = 0;
+  #nextSymbol: number;
+  #nextUnion: number;
+  #nextRecord: number;
 
-  constructor(diagnostics: Diagnostics.Bag) {
+  constructor(diagnostics: Diagnostics.Bag, options: ResolveOptions) {
     this.#diagnostics = diagnostics;
+    this.#imports = options.imports ?? new Map();
+    this.#nextSymbol = options.symbolBase ?? 0;
+    this.#nextUnion = options.unionBase ?? 0;
+    this.#nextRecord = options.recordBase ?? 0;
   }
 
   resolve(module: Parsed.Module): Resolved.Module {
@@ -55,8 +121,9 @@ class Resolver {
       kind: "Module",
       fileId: module.fileId,
       items,
-      symbols: this.#symbols,
+      symbols: [...this.#importedSymbols.values(), ...this.#symbols.values()],
       unions: this.#unions,
+      records: this.#records,
       comments: module.comments,
       span: module.span,
       diagnostics: this.#diagnostics.toArray(),
@@ -82,12 +149,172 @@ class Resolver {
 
   #resolveItem(item: Parsed.Item, scope: Scope): Resolved.Item {
     switch (item.kind) {
+      case "Import": {
+        if (!item.specifier.startsWith("./") && !item.specifier.startsWith("../")) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: "package imports are not yet supported; use a relative module path",
+            primary: item.span,
+          });
+        }
+        const importedModule = this.#imports.get(item.specifier);
+        if (importedModule === undefined) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `cannot resolve module \`${item.specifier}\``,
+            primary: item.span,
+          });
+        }
+        if (item.form.kind === "Namespace" && importedModule !== undefined) {
+          if (this.#moduleAliases.has(item.form.alias.text)) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `module alias \`${item.form.alias.text}\` is already bound`,
+              primary: item.form.alias.span,
+            });
+          } else {
+            this.#moduleAliases.set(item.form.alias.text, importedModule);
+            this.#includeNominals(importedModule);
+            for (const symbol of importedModule.terms.values()) {
+              this.#importedSymbols.set(symbol.id, symbol);
+            }
+          }
+        }
+        const names = item.form.kind === "Named"
+          ? item.form.names.map((name) => {
+              const term = importedModule?.terms.get(name.imported.text);
+              const union = importedModule?.unions.get(name.imported.text);
+              const record = importedModule?.records.get(name.imported.text);
+              if (term === undefined && union === undefined && record === undefined) {
+                this.#diagnostics.add({
+                  severity: "error",
+                  message: `module \`${item.specifier}\` does not export \`${name.imported.text}\``,
+                  primary: name.span,
+                });
+              }
+              if (term !== undefined) {
+                const existing = scope.lookup(name.local.text);
+                if (existing !== undefined) this.#reportRebinding(name.local, existing);
+                else scope.define(name.local.text, term.id);
+                this.#importedSymbols.set(term.id, term);
+              }
+              if (union !== undefined) {
+                if (this.#unionNames.has(name.local.text) || this.#recordNames.has(name.local.text)) {
+                  this.#diagnostics.add({
+                    severity: "error",
+                    message: `type \`${name.local.text}\` is already declared or imported`,
+                    primary: name.span,
+                  });
+                }
+                this.#unionNames.set(name.local.text, union.id);
+                this.#unionArities.set(name.local.text, union.parameters.length);
+                if (!this.#unions.some(({ id }) => id === union.id)) this.#unions.push(union);
+              }
+              if (record !== undefined) {
+                if (this.#unionNames.has(name.local.text) || this.#recordNames.has(name.local.text)) {
+                  this.#diagnostics.add({
+                    severity: "error",
+                    message: `type \`${name.local.text}\` is already declared or imported`,
+                    primary: name.span,
+                  });
+                }
+                this.#recordNames.set(name.local.text, record.id);
+                this.#recordArities.set(name.local.text, record.parameters.length);
+                if (!this.#records.some(({ id }) => id === record.id)) this.#records.push(record);
+              }
+              return {
+                imported: name.imported.text,
+                local: name.local.text,
+                ...(term === undefined ? {} : { symbol: term.id }),
+                span: name.span,
+              };
+            })
+          : undefined;
+        const namespaceAlias = item.form.kind === "Namespace"
+          ? item.form.alias.text
+          : undefined;
+        return {
+          kind: "Import",
+          specifier: item.specifier,
+          form: item.form.kind === "Effect"
+            ? item.form
+            : item.form.kind === "Namespace"
+              ? {
+                  kind: "Namespace",
+                  alias: namespaceAlias!,
+                  names: [...(importedModule?.terms.entries() ?? [])].map(
+                    ([name, symbol]) => ({
+                      imported: name,
+                      local: `${namespaceAlias}.${name}`,
+                      symbol: symbol.id,
+                      span: item.span,
+                    }),
+                  ),
+                }
+              : {
+                  kind: "Named",
+                  names: names ?? [],
+                },
+          span: item.span,
+        };
+      }
+      case "ConstraintDeclaration": {
+        if (this.#constraintNames.has(item.name.text)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `constraint \`${item.name.text}\` is already declared`,
+            primary: item.name.span,
+          });
+        }
+        this.#constraintNames.add(item.name.text);
+        const typeParameters = new Set([item.subject.text]);
+        const members = item.members.map((member) => {
+          const existing = scope.lookup(member.name.text);
+          if (existing !== undefined) this.#reportRebinding(member.name, existing);
+          const binding = this.#declare(member.name, "constraint-member");
+          if (existing === undefined) scope.define(member.name.text, binding.symbol);
+          const parameters = member.parameters.map((parameter) => ({
+            ...this.#declare(parameter.name, "parameter"),
+            ...(parameter.annotation === undefined
+              ? {}
+              : { annotation: this.#resolveTypeAnnotation(parameter.annotation, typeParameters) }),
+          }));
+          return {
+            binding,
+            parameters,
+            returnAnnotation: this.#resolveTypeAnnotation(member.returnAnnotation, typeParameters),
+            span: member.span,
+          };
+        });
+        return {
+          kind: "ConstraintDeclaration",
+          name: item.name.text,
+          subject: item.subject.text,
+          members,
+          span: item.span,
+        };
+      }
+      case "Honor": {
+        const subject = this.#resolveTypeAnnotation(item.subject);
+        return {
+          kind: "Honor",
+          constraint: item.constraint.text,
+          subject,
+          dictionary: `__hex_instance_${item.constraint.text}_${annotationHeadName(subject)}`,
+          members: item.members.map((member) => ({
+            name: member.name.text,
+            value: this.#resolveLambda(member.value, scope),
+            span: member.span,
+          })),
+          span: item.span,
+        };
+      }
       case "Let": {
         const existing = scope.lookup(item.name.text);
         if (existing !== undefined) this.#reportRebinding(item.name, existing);
 
         const binding = this.#declare(item.name, "let");
-        this.#pending.push(item.name);
+        this.#pending.push({ name: item.name, kind: "let" });
         const value = this.#resolveExpr(item.value, scope);
         this.#pending.pop();
 
@@ -106,9 +333,37 @@ class Resolver {
           span: item.span,
         };
       }
+      case "Var": {
+        const existing = scope.lookup(item.name.text);
+        if (existing !== undefined) this.#reportRebinding(item.name, existing);
+        if (this.#lambdaDepth === 0) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: "`var` is only allowed inside a function",
+            primary: item.name.span,
+          });
+        }
+        const binding = this.#declare(item.name, "var");
+        this.#varOwners.set(binding.symbol, this.#lambdaDepth);
+        this.#pending.push({ name: item.name, kind: "var" });
+        const value = this.#resolveExpr(item.value, scope);
+        this.#pending.pop();
+        if (existing === undefined) scope.define(item.name.text, binding.symbol);
+        return {
+          kind: "Var",
+          binding,
+          ...(item.annotation === undefined
+            ? {}
+            : { annotation: this.#resolveTypeAnnotation(item.annotation) }),
+          value,
+          span: item.span,
+        };
+      }
       case "LetPattern": {
         const names = parsedPatternNames(item.pattern);
-        this.#pending.push(...names);
+        this.#pending.push(
+          ...names.map((name) => ({ name, kind: "let" as const })),
+        );
         const value = this.#resolveExpr(item.value, scope);
         this.#pending.splice(this.#pending.length - names.length, names.length);
         const seen = new Map<string, Resolved.Binding>();
@@ -123,17 +378,20 @@ class Resolver {
       }
       case "Union": {
         const existingUnion = this.#unionNames.get(item.name.text);
-        if (existingUnion !== undefined) {
+        const existingRecord = this.#recordNames.has(item.name.text);
+        if (existingUnion !== undefined || existingRecord) {
           this.#diagnostics.add({
             severity: "error",
             message: `type \`${item.name.text}\` is already declared`,
             primary: item.name.span,
           });
         }
-        const union = Resolved.unionId(this.#unions.length);
-        if (existingUnion === undefined) {
+        const union = Resolved.unionId(this.#nextUnion++);
+        if (existingUnion === undefined && !existingRecord) {
           this.#unionNames.set(item.name.text, union);
+          this.#unionArities.set(item.name.text, item.parameters.length);
         }
+        const typeParameters = new Set(item.parameters.map(({ text }) => text));
         const seenConstructors = new Set<string>();
         const constructors = item.constructors.map((constructor) => {
           const existing = scope.lookup(constructor.name.text);
@@ -155,7 +413,7 @@ class Resolver {
             binding,
             slots: constructor.slots.map((slot, index) => ({
               field: slot.name?.text ?? `item${index + 1}`,
-              annotation: this.#resolveTypeAnnotation(slot.annotation),
+              annotation: this.#resolveTypeAnnotation(slot.annotation, typeParameters),
               span: slot.span,
             })),
             span: constructor.span,
@@ -164,6 +422,7 @@ class Resolver {
         const declaration: Resolved.Union = {
           id: union,
           name: item.name.text,
+          parameters: item.parameters.map(({ text }) => text),
           span: item.name.span,
           constructors,
         };
@@ -173,7 +432,70 @@ class Resolver {
           exported: item.exported,
           union,
           name: item.name.text,
+          parameters: item.parameters.map(({ text }) => text),
           constructors,
+          span: item.span,
+        };
+      }
+      case "RecordDeclaration": {
+        const existingType =
+          this.#unionNames.has(item.name.text) || this.#recordNames.has(item.name.text);
+        if (existingType) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `type \`${item.name.text}\` is already declared`,
+            primary: item.name.span,
+          });
+        }
+        const record = Resolved.recordId(this.#nextRecord++);
+        if (!existingType) {
+          this.#recordNames.set(item.name.text, record);
+          this.#recordArities.set(item.name.text, item.parameters.length);
+        }
+        const existing = scope.lookup(item.name.text);
+        if (existing !== undefined) this.#reportRebinding(item.name, existing);
+        const constructor = this.#declare(item.name, "record-constructor");
+        if (existing === undefined) scope.define(item.name.text, constructor.symbol);
+        const typeParameters = new Set(item.parameters.map(({ text }) => text));
+        const fields = item.fields.map((field) => ({
+          name: field.name.text,
+          annotation: this.#resolveTypeAnnotation(field.annotation, typeParameters),
+          span: field.span,
+        }));
+        const declaration: Resolved.RecordDeclaration = {
+          id: record,
+          name: item.name.text,
+          parameters: item.parameters.map(({ text }) => text),
+          constructor,
+          fields,
+          span: item.span,
+        };
+        this.#records.push(declaration);
+        return {
+          kind: "RecordDeclaration",
+          exported: item.exported,
+          record,
+          name: item.name.text,
+          parameters: declaration.parameters,
+          constructor,
+          fields,
+          span: item.span,
+        };
+      }
+      case "Exception": {
+        const existing = scope.lookup(item.name.text);
+        if (existing !== undefined) this.#reportRebinding(item.name, existing);
+        const binding = this.#declare(item.name, "constructor");
+        if (existing === undefined) scope.define(item.name.text, binding.symbol);
+        return {
+          kind: "Exception",
+          exported: item.exported,
+          binding,
+          slots: item.slots.map((slot, index) => ({
+            field: slot.name?.text ?? `item${index + 1}`,
+            annotation: this.#resolveTypeAnnotation(slot.annotation),
+            span: slot.span,
+          })),
           span: item.span,
         };
       }
@@ -242,7 +564,7 @@ class Resolver {
             ? {}
             : { spread: this.#resolveExpr(expression.spread, scope) }),
           fields: expression.fields.map((field) => ({
-            name: { text: field.name.text, case: field.name.case, span: field.name.span },
+            name: { text: field.name.text, startClass: field.name.startClass, span: field.name.span },
             punned: field.punned,
             value: this.#resolveExpr(field.value, scope),
             span: field.span,
@@ -277,6 +599,29 @@ class Resolver {
               alternative: this.#resolveExpr(expression.alternative, scope),
             };
       }
+      case "While":
+        return {
+          kind: "While",
+          condition: this.#resolveExpr(expression.condition, scope),
+          body: this.#resolveExpr(expression.body, scope) as Resolved.BlockExpr,
+          span: expression.span,
+        };
+      case "For": {
+        const loopScope = new Scope(scope);
+        const pattern = this.#resolvePattern(
+          expression.pattern,
+          loopScope,
+          new Map(),
+          true,
+        );
+        return {
+          kind: "For",
+          pattern,
+          iterable: this.#resolveExpr(expression.iterable, scope),
+          body: this.#resolveExpr(expression.body, loopScope) as Resolved.BlockExpr,
+          span: expression.span,
+        };
+      }
       case "Match":
         return {
           ...expression,
@@ -299,7 +644,42 @@ class Resolver {
             };
           }),
         };
+      case "Try":
+        return {
+          kind: "Try",
+          body: this.#resolveExpr(expression.body, scope),
+          arms: expression.arms.map((arm) => {
+            const armScope = new Scope(scope);
+            return {
+              pattern: this.#resolvePattern(arm.pattern, armScope, new Map(), true),
+              body: this.#resolveExpr(arm.body, armScope),
+              span: arm.span,
+            };
+          }),
+          span: expression.span,
+        };
       case "Call":
+        if (
+          expression.callee.kind === "Name" &&
+          expression.callee.name.text === "throw" &&
+          scope.lookup("throw") === undefined
+        ) {
+          if (expression.arguments.length !== 1) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `\`throw\` expects exactly one exception, got ${expression.arguments.length}`,
+              primary: expression.span,
+            });
+          }
+          const argument = expression.arguments[0];
+          return {
+            kind: "Throw",
+            exception: argument === undefined
+              ? { kind: "ErrorExpr", span: expression.span }
+              : this.#resolveExpr(argument, scope),
+            span: expression.span,
+          };
+        }
         if (isUnshadowedConsoleLog(expression, scope)) {
           return {
             kind: "ConsoleLog",
@@ -317,12 +697,33 @@ class Resolver {
           ),
         };
       case "Access":
+        if (expression.receiver.kind === "Name") {
+          const importedModule = this.#moduleAliases.get(expression.receiver.name.text);
+          if (importedModule !== undefined) {
+            const symbol = importedModule.terms.get(expression.field.text);
+            if (symbol === undefined) {
+              this.#diagnostics.add({
+                severity: "error",
+                message: `module \`${expression.receiver.name.text}\` does not export \`${expression.field.text}\``,
+                primary: expression.field.span,
+              });
+              return { kind: "ErrorExpr", span: expression.span };
+            }
+            this.#importedSymbols.set(symbol.id, symbol);
+            return {
+              kind: "Name",
+              symbol: symbol.id,
+              text: `${expression.receiver.name.text}.${expression.field.text}`,
+              span: expression.span,
+            };
+          }
+        }
         return {
           ...expression,
           receiver: this.#resolveExpr(expression.receiver, scope),
           field: {
             text: expression.field.text,
-            case: expression.field.case,
+            startClass: expression.field.startClass,
             span: expression.field.span,
           },
         };
@@ -351,6 +752,13 @@ class Resolver {
           ),
         };
       case "Assignment":
+        if (expression.target.kind !== "Name") {
+          this.#diagnostics.add({
+            severity: "error",
+            message: "assignment targets a bare name; records and tuples are immutable",
+            primary: expression.target.span,
+          });
+        }
         return {
           ...expression,
           target: this.#resolveExpr(expression.target, scope),
@@ -509,6 +917,15 @@ class Resolver {
   #resolveName(expression: Parsed.NameExpr, scope: Scope): Resolved.Expr {
     const symbol = scope.lookup(expression.name.text);
     if (symbol !== undefined) {
+      const owner = this.#varOwners.get(symbol);
+      if (owner !== undefined && owner < this.#lambdaDepth) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `\`${expression.name.text}\` is a \`var\` and cannot be used inside a lambda; copy it to a \`let\` first`,
+          primary: expression.span,
+          labels: [{ span: this.#symbol(symbol).bindingSpan, message: "mutable binding declared here" }],
+        });
+      }
       return {
         kind: "Name",
         symbol,
@@ -521,11 +938,11 @@ class Resolver {
     if (pending !== undefined) {
       this.#diagnostics.add({
         severity: "error",
-        message:
-          `\`${expression.name.text}\` is not in scope in its own ` +
-          "`let` definition; `let` is non-recursive — use `fun`.",
+        message: pending.kind === "let"
+          ? `\`${expression.name.text}\` is not in scope in its own \`let\` definition; \`let\` is non-recursive — use \`fun\`.`
+          : `\`${expression.name.text}\` is not in scope in its own \`var\` definition; initialize it from an earlier binding`,
         primary: expression.span,
-        labels: [{ span: pending.span, message: "binding declared here" }],
+        labels: [{ span: pending.name.span, message: "binding declared here" }],
       });
     } else if (this.#findLaterFun(expression.name.text) !== undefined) {
       this.#diagnostics.add({
@@ -547,6 +964,7 @@ class Resolver {
   }
 
   #resolveLambda(expression: Parsed.LambdaExpr, scope: Scope): Resolved.LambdaExpr {
+    this.#lambdaDepth += 1;
     const lambdaScope = new Scope(scope);
     const parameters = expression.parameters.map((parameter) => {
       const existing = lambdaScope.lookupLocal(parameter.name.text);
@@ -575,25 +993,37 @@ class Resolver {
       };
     });
 
-    return {
+    const resolved: Resolved.LambdaExpr = {
       kind: "Lambda",
       parameters,
+      ...(expression.typeParameters === undefined
+        ? {}
+        : {
+            typeParameters: expression.typeParameters.map((parameter) => ({
+              name: parameter.name.text,
+              constraints: parameter.constraints.map(({ text }) => text),
+              span: parameter.span,
+            })),
+          }),
       ...(expression.returnAnnotation === undefined
         ? {}
         : { returnAnnotation: this.#resolveTypeAnnotation(expression.returnAnnotation) }),
       body: this.#resolveExpr(expression.body, lambdaScope),
       span: expression.span,
     };
+    this.#lambdaDepth -= 1;
+    return resolved;
   }
 
   #resolveTypeAnnotation(
     annotation: Parsed.TypeAnnotation,
+    typeParameters = new Set<string>(),
   ): Resolved.TypeAnnotation {
     if (annotation.kind === "Tuple") {
       return {
         kind: "Tuple",
         elements: annotation.elements.map((element) =>
-          this.#resolveTypeAnnotation(element),
+          this.#resolveTypeAnnotation(element, typeParameters),
         ),
         span: annotation.span,
       };
@@ -603,7 +1033,7 @@ class Resolver {
         kind: "Record",
         fields: annotation.fields.map((field) => ({
           name: field.name.text,
-          annotation: this.#resolveTypeAnnotation(field.annotation),
+          annotation: this.#resolveTypeAnnotation(field.annotation, typeParameters),
           span: field.span,
         })),
         open: annotation.open,
@@ -611,14 +1041,73 @@ class Resolver {
         span: annotation.span,
       };
     }
-    const union = this.#unionNames.get(annotation.name.text);
-    if (union !== undefined) {
+    if (annotation.kind === "TypeVariable") {
       return {
-        kind: "Union",
-        union,
+        kind: "TypeVariable",
         name: annotation.name.text,
         span: annotation.span,
       };
+    }
+    const name = annotation.kind === "AppliedType"
+      ? annotation.constructor.text
+      : annotation.name.text;
+    const union = this.#unionNames.get(name);
+    if (union !== undefined) {
+      const arguments_ = annotation.kind === "AppliedType"
+        ? annotation.arguments.map((argument) =>
+          this.#resolveTypeAnnotation(argument, typeParameters)
+        )
+        : [];
+      const expected = this.#unionArities.get(name) ?? 0;
+      if (arguments_.length !== expected) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `type \`${name}\` expects ${expected} argument${expected === 1 ? "" : "s"}, but ${arguments_.length} were provided`,
+          primary: annotation.span,
+        });
+      }
+      return {
+        kind: "Union",
+        union,
+        name,
+        arguments: arguments_,
+        span: annotation.span,
+      };
+    }
+    if (annotation.kind === "AppliedType") {
+      const record = this.#recordNames.get(name);
+      if (record !== undefined) {
+        const arguments_ = annotation.arguments.map((argument) =>
+          this.#resolveTypeAnnotation(argument, typeParameters)
+        );
+        const expected = this.#recordArities.get(name) ?? 0;
+        if (arguments_.length !== expected) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `type \`${name}\` expects ${expected} argument${expected === 1 ? "" : "s"}, but ${arguments_.length} were provided`,
+            primary: annotation.span,
+          });
+        }
+        return { kind: "RecordDeclaration", record, name, arguments: arguments_, span: annotation.span };
+      }
+      this.#diagnostics.add({
+        severity: "error",
+        message: `unknown generic type \`${name}\``,
+        primary: annotation.span,
+      });
+      return { kind: "ErrorType", span: annotation.span };
+    }
+    const record = this.#recordNames.get(name);
+    if (record !== undefined) {
+      const expected = this.#recordArities.get(name) ?? 0;
+      if (expected !== 0) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `type \`${name}\` expects ${expected} argument${expected === 1 ? "" : "s"}, but 0 were provided`,
+          primary: annotation.span,
+        });
+      }
+      return { kind: "RecordDeclaration", record, name, arguments: [], span: annotation.span };
     }
     if (isPrimitiveName(annotation.name.text)) {
       return {
@@ -626,6 +1115,9 @@ class Resolver {
         name: annotation.name.text,
         span: annotation.span,
       };
+    }
+    if (annotation.name.text === "Range") {
+      return { kind: "Range", span: annotation.span };
     }
 
     this.#diagnostics.add({
@@ -639,8 +1131,8 @@ class Resolver {
   }
 
   #declare(name: Parsed.Name, kind: Resolved.SymbolKind): Resolved.Binding {
-    const symbol = Resolved.symbolId(this.#symbols.length);
-    this.#symbols.push({
+    const symbol = Resolved.symbolId(this.#nextSymbol++);
+    this.#symbols.set(symbol, {
       id: symbol,
       name: name.text,
       kind,
@@ -649,10 +1141,21 @@ class Resolver {
     return { symbol, name: name.text, span: name.span };
   }
 
-  #findPending(name: string): Parsed.Name | undefined {
+  #includeNominals(imported: ModuleInterface): void {
+    for (const union of imported.unions.values()) {
+      if (!this.#unions.some(({ id }) => id === union.id)) this.#unions.push(union);
+    }
+    for (const record of imported.records.values()) {
+      if (!this.#records.some(({ id }) => id === record.id)) this.#records.push(record);
+    }
+  }
+
+  #findPending(
+    name: string,
+  ): { readonly name: Parsed.Name; readonly kind: "let" | "var" } | undefined {
     for (let index = this.#pending.length - 1; index >= 0; index -= 1) {
       const pending = this.#pending[index];
-      if (pending?.text === name) return pending;
+      if (pending?.name.text === name) return pending;
     }
     return undefined;
   }
@@ -681,7 +1184,7 @@ class Resolver {
   }
 
   #symbol(id: Resolved.SymbolId): Resolved.Symbol {
-    const symbol: Resolved.Symbol | undefined = this.#symbols[id];
+    const symbol = this.#symbols.get(id) ?? this.#importedSymbols.get(id);
     if (symbol === undefined) throw new Error(`unknown internal symbol ${id}`);
     return symbol;
   }
@@ -701,7 +1204,7 @@ function isUnshadowedConsoleLog(
 }
 
 function isPrimitiveName(name: string): name is Resolved.PrimitiveName {
-  return ["Int", "Float", "Bool", "String", "BigInt", "Unit"].includes(name);
+  return ["Int", "Float", "Bool", "String", "BigInt", "Exn", "Unit"].includes(name);
 }
 
 function parsedPatternNames(pattern: Parsed.Pattern): Parsed.Name[] {
@@ -726,5 +1229,18 @@ function parsedPatternNames(pattern: Parsed.Pattern): Parsed.Name[] {
       return pattern.fields.flatMap((field) => parsedPatternNames(field.pattern));
     case "Constructor":
       return pattern.arguments.flatMap(parsedPatternNames);
+  }
+}
+
+function annotationHeadName(annotation: Resolved.TypeAnnotation): string {
+  switch (annotation.kind) {
+    case "Primitive": return annotation.name;
+    case "Range": return "Range";
+    case "Union": return annotation.name;
+    case "RecordDeclaration": return annotation.name;
+    case "Tuple": return "Tuple";
+    case "Record": return "Record";
+    case "TypeVariable": return annotation.name;
+    case "ErrorType": return "Error";
   }
 }
