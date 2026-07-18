@@ -842,8 +842,23 @@ class JavaScriptEmitter {
     evidenceNames: EvidenceNames,
   ): string[] {
     const prefix = indent(depth);
-    const itemName = this.#generatedNames.fresh("item");
     const iterable = this.#emitExpr(expression.iterable, depth, evidenceNames);
+    if (expression.pattern.kind === "Binding") {
+      const name = this.#identifier(
+        expression.pattern.binding.symbol,
+        expression.pattern.binding.name,
+      );
+      const body = expression.body.items.flatMap((item) =>
+        this.#emitItem(item, depth + 1, evidenceNames, false)
+      );
+      return [
+        `${prefix}for (const ${name} of ${iterable}) {`,
+        ...body,
+        `${prefix}}`,
+      ];
+    }
+
+    const itemName = this.#generatedNames.fresh("item");
     const plan = this.#emitPatternPlan(expression.pattern, itemName);
     const bindings = plan.bindings.map((binding) =>
       `${indent(depth + 1)}${binding}`

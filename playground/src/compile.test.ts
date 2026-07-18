@@ -76,6 +76,7 @@ describe("compileSource", () => {
       { name: "rank", displayedType: "Int" },
       { name: "suit", displayedType: "Suit" },
       { name: "greet", displayedType: "String -> String" },
+      { name: "greet2", displayedType: "Show a => a -> String" },
       { name: "plus", displayedType: "(Int, Int) -> Int" },
       { name: "factorial", displayedType: "Int -> Int" },
       { name: "color", displayedType: "Suit -> String" },

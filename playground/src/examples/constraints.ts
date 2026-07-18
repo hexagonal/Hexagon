@@ -3,22 +3,22 @@ import type { PlaygroundExample } from "./hello-world";
 export const constraints: PlaygroundExample = {
   id: "constraints",
   title: "Constraints",
-  description: "Define a capability, honor it for a type, and use it from generic code.",
-  source: `// A constraint names operations that a type can provide.
-constraint Labelled<a> =
-  label(value: a): String
+  description: "Honor the prelude Show constraint for a type and use it from generic code.",
+  source: `// Show is a prelude constraint used by string interpolation.
+record Person = {name: String, age: Int}
 
-record Guest = {name: String, seats: Int}
+// A local type can honor Show by supplying its display operation.
+honor Show<Person> =
+  show(person) = "\${person.name}, age \${person.age}"
 
-// honor supplies those operations for one type.
-honor Labelled<Guest> =
-  label(guest) = guest.name
+// Interpolation propagates Show into otherwise generic code.
+let describe<a: Show>(thing: a): String =
+  "Description: \${thing}"
 
-// The constraint lets generic code call label without knowing the concrete type.
-let describe<a: Labelled>(value: a): String = label(value)
+let ada = Person({name: "Ada", age: 36})
 
-let dinner = Guest({name: "Ada", seats: 2})
-console.log(describe(dinner), "has", dinner.seats, "seats")
+console.log(describe(ada))
+console.log(describe(5))
 `,
   specificationReferences: ["spec/constraints.md"],
 };
