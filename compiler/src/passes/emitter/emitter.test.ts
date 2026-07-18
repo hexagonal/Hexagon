@@ -765,6 +765,65 @@ describe("emitJavaScript", () => {
     expect(output.diagnostics).toEqual([]);
   });
 
+  test("executes BigInt widening through a genuine primitive Num dictionary", () => {
+    const output = emitJavaScript(
+      coreSource(
+        "let scale<a: Num>(count: Int, value: a): a = count * value\n" +
+          "let count: Int = 3\n" +
+          "let result = scale(count, 2n)",
+      ),
+    );
+
+    expect(output.text).toContain("fromInt: __hex_a => BigInt(__hex_a)");
+    const execute = Function(`${output.text}\nreturn result;`) as () => bigint;
+    expect(execute()).toBe(6n);
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("preserves primitive Ord semantics through genuine dictionaries", () => {
+    const output = emitJavaScript(
+      coreSource(
+        "let before<a: Ord>(left: a, right: a): Bool = left < right\n" +
+          "let finiteBeforeNaN = before(1.0, 0.0 / 0.0)\n" +
+          'let bmpBeforeAstral = before("\\u{FFFF}", "\\u{10000}")',
+      ),
+    );
+
+    expect(output.text).toContain("function __hex_compareFloat(");
+    expect(output.text).toContain("function __hex_compareString(");
+    const execute = Function(
+      `${output.text}\nreturn [finiteBeforeNaN, bmpBeforeAstral];`,
+    ) as () => readonly [boolean, boolean];
+    expect(execute()).toEqual([true, true]);
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test.each([
+    ["Int", "2", "-1"],
+    ["BigInt", "2n", "-1n"],
+  ])(
+    "checks negative exponents through a genuine Pow<%s> dictionary",
+    (_, base, exponent) => {
+      const output = emitJavaScript(
+        coreSource(
+          "let raise<a: Pow>(base: a, exponent: a): a = base ** exponent\n" +
+            `let result = raise(${base}, ${exponent})`,
+        ),
+      );
+
+      expect(output.text).toContain("function __hex_checkedPower(");
+      let thrown: unknown;
+      try {
+        Function(output.text)();
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).name).toBe("NegativeExponentError");
+      expect(output.diagnostics).toEqual([]);
+    },
+  );
+
   test("calls a nominal Num instance when widening Int into its subject", () => {
     const output = emitJavaScript(
       coreSource(
