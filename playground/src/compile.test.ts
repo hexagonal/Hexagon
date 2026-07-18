@@ -156,9 +156,22 @@ describe("compileSource", () => {
     if (response.kind !== "compile-success") return;
 
     expect(response.javascript).toContain("console.log(plusInt(20, 22));");
-    expect(response.javascript).toContain("console.log(plusFloat(1.5, 2.25));");
+    expect(response.javascript).toContain("console.log(plusFloat(20.0, 1.5));");
     expect(response.javascript).toContain("console.log(plusBigInt(10n, 20n));");
     expect(response.javascript).not.toContain("console.log(plus(20, 22,");
+    expect(response.javascript).toContain("const count = 3;");
+    expect(response.javascript).toContain("const cost = 1.50;");
+    expect(response.javascript).toContain("const total = count * cost;");
+    expect(
+      response.types.slice(-3).map(({ name, displayedType }) => ({
+        name,
+        displayedType,
+      })),
+    ).toEqual([
+      { name: "count", displayedType: "Int" },
+      { name: "cost", displayedType: "Float" },
+      { name: "total", displayedType: "Float" },
+    ]);
   });
 
   test("returns exact binding spans for editor hovers", () => {

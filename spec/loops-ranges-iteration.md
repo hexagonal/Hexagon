@@ -75,7 +75,7 @@ for i in 1..n        -- the counting loop
 
 - `x..y` is a binary operator on `Int`s producing a value of the concrete type **`Range`**: a lightweight, immutable, *lazy* description of a bounded integer progression. It is **not** a `Vector` — `for i in 1..1_000_000` allocates nothing.
 - `Range` is monomorphic over `Int` in v1. No Float ranges, no ranges over arbitrary `Ord` types (no use case until `Char`-like types exist; pre-registered rejection for v1). A `Range(a)` over `<a: (Num, Ord)>` is specifically rejected: fractional ranges inherit IEEE accumulation drift in loop bounds (Haskell's `[0.1, 0.2 .. 1.0]` overshoot is the cautionary precedent), while `Int`-only ranges have an exact element count and make the §8 counting-loop emission (`x <= hi`) trivially correct.
-- **Interaction with polymorphic literals:** the *literals* in `1..10` are polymorphic as always (`fromInt(k) : α, Num α` — Numeric Literals machinery, untouched), but `..` demands `Int` operands, so each `α` unifies with `Int` on the spot. Defaulting never runs; the constraint discharges at the `Int` instance; `fromInt` erases (Numeric Literals §5). Consequently `1..10 : Range` and the loop variable is `Int`, unconditionally — a `Float` accumulator meeting the loop variable is an ordinary type error, fixed with an explicit `Float.fromInt(x)` (no implicit numeric coercion, ever; acceptance test §10.3(i)).
+- **Interaction with polymorphic literals and widening:** the *literals* in `1..10` are polymorphic as always (`fromInt(k) : α, Num α` — Numeric Literals machinery, untouched), but `..` demands `Int` operands, so each `α` unifies with `Int` on the spot. Defaulting never runs; the constraint discharges at the `Int` instance; `fromInt` erases (Numeric Literals §5). Consequently `1..10 : Range` and the loop variable is `Int`, unconditionally. When that established `Int` later meets an independently established `Float` accumulator, Numeric Literals §5.1 widens it contextually through `Float.fromInt`; the range itself remains monomorphic (acceptance test §10.3(i)).
 - Ranges are **inclusive at both ends**, always. There is no exclusive-end variant and no half-open syntax (`..<`, `...`) in v1: with 1-based indexing, the half-open idiom's *raison d'être* (`0..<len`) does not arise — the natural loops are `1..n` and `1..length(xs)`, both inclusive. Pre-registered rejection; revisit only with field evidence.
 - Conceptually a `Range` is `(start, end, direction)` where direction ∈ {ascending, descending}; direction is **not user-visible** in v1 (no field access on `Range`; it is opaque). `..` always builds ascending; `rangeDown` builds descending (§3.3).
 - `Range` is iterable with element type `Int` (§7; instance row Collections Part 5 §4).
@@ -331,17 +331,12 @@ let r = 1..10
 for x in r                     -- general path: r materialised as an iterable object
   ...
 
--- (i) Literals in `..` pin to Int; no defaulting; no implicit coercion
+-- (i) Literals in `..` pin to Int; later arithmetic may widen that Int
 var total = 0.0                -- total : Float (monomorphic Float literal)
 for x in 1..10                 -- x : Int — `..` unifies both literal tyvars with Int
-  total := total + x           -- ERROR: cannot unify Float with Int (ordinary type
-                               -- error at `+`; no literal mentioned — the literals
-                               -- resolved cleanly, this is not a Numeric Literals §6 case)
-
-var total2 = 0.0
-for x in 1..10
-  total2 := total2 + Float.fromInt(x)   -- fine; the Int→Float boundary is visible
--- total2 : Float; range emission unaffected: for (let x = 1; x <= 10; x++)
+  total := total + x           -- x widens through Float.fromInt; emitted JS stays
+                               -- `total = total + x`
+-- total : Float; range emission unaffected: for (let x = 1; x <= 10; x++)
 
 -- (j) Pattern loop head (canonical; per-row goldens live in Collections Parts 4–5)
 for (k, v) in m                -- m : Map(String, Int); k : String, v : Int
@@ -372,7 +367,7 @@ for (k, v) in m                -- m : Map(String, Int); k : String, v : Int
 | Body block checks against `Unit`, no carve-out; §3.2 discard error with loop provenance; loop expression is `Unit` | §2.2 |
 | Reference desugaring: `var` cursor + `Seq.next` pulls; `iterate` is the `Iterable` constraint member; iterated expression evaluated once | §2.3 |
 | `x..y` operator → concrete lazy `Range`; `Int`-only; inclusive both ends; no half-open form | §3.1 |
-| Literals in `..` stay polymorphic but unify with `Int` at the operator; no defaulting; loop variable is always `Int`; `Float` accumulators need explicit `Float.fromInt` | §3.1, §10.3(i) |
+| Literals in `..` stay polymorphic but unify with `Int` at the operator; no defaulting; loop variable is always `Int`; an independently established `Float` accumulator contextually widens that value through `fromInt` | §3.1, §10.3(i) |
 | `range(lo, hi)` prelude twin; `rangeDown(hi, lo)` for descending; direction never inferred from operand order | §3.2–3.4 |
 | Ascending `lo > hi` ⇒ empty; descending `hi < lo` ⇒ empty; `lo == hi` ⇒ one element | §3.4 |
 | `..` precedence decided as recorded intent (looser than arithmetic, non-chaining) — Operators §9 owns | §3.5 |

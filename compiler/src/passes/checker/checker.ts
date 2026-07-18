@@ -123,6 +123,8 @@ function primitive(name: Typed.PrimitiveName): Constructor {
 class Checker {
   readonly #expressionTypes = new WeakMap<Resolved.Expr, Mono>();
   readonly #requirements = new WeakMap<object, readonly Requirement[]>();
+  /** Exact Int expressions that checking injects into an independently known Num target. */
+  readonly #intWidenings = new WeakMap<Resolved.Expr, Requirement>();
   readonly #nameRequirements = new WeakMap<Resolved.NameExpr, readonly Requirement[]>();
   readonly #callRequirements = new WeakMap<Resolved.CallExpr, readonly Requirement[]>();
   readonly #pipeCalls = new WeakMap<Resolved.BinaryExpr, Resolved.CallExpr>();
@@ -465,13 +467,18 @@ class Checker {
       if (item === undefined) continue;
 
       if (item.kind === "Let") {
-        const valueType = this.#inferExpr(item.value, level + 1);
+        const inferredValueType = this.#inferExpr(item.value, level + 1);
+        let valueType = inferredValueType;
         if (item.annotation !== undefined) {
-          this.#unify(
-            this.#annotationType(item.annotation, level + 1),
-            valueType,
+          const annotationType = this.#annotationType(item.annotation, level + 1);
+          this.#unifyExpected(
+            annotationType,
+            inferredValueType,
+            item.value,
             item.annotation.span,
+            true,
           );
+          if (this.#intWidenings.has(item.value)) valueType = annotationType;
         }
         const scheme = this.#generalize(
           valueType,
@@ -675,13 +682,18 @@ class Checker {
       }
 
       if (item.kind === "Var") {
-        const valueType = this.#inferExpr(item.value, level + 1);
+        const inferredValueType = this.#inferExpr(item.value, level + 1);
+        let valueType = inferredValueType;
         if (item.annotation !== undefined) {
-          this.#unify(
-            this.#annotationType(item.annotation, level + 1),
-            valueType,
+          const annotationType = this.#annotationType(item.annotation, level + 1);
+          this.#unifyExpected(
+            annotationType,
+            inferredValueType,
+            item.value,
             item.annotation.span,
+            true,
           );
+          if (this.#intWidenings.has(item.value)) valueType = annotationType;
         }
         this.#schemes.set(item.binding.symbol, { variables: [], type: valueType });
         this.#mutableSymbols.add(item.binding.symbol);
@@ -1154,18 +1166,23 @@ class Checker {
           });
           return parameterType;
         });
-        const result = this.#inferExpr(expression.body, level + 1);
+        const inferredResult = this.#inferExpr(expression.body, level + 1);
+        let result = inferredResult;
         if (expression.returnAnnotation !== undefined) {
-          this.#unify(
-            this.#annotationType(
-              expression.returnAnnotation,
-              level + 1,
-              annotationTails,
-              annotationVariables,
-            ),
-            result,
-            expression.returnAnnotation.span,
+          const annotationType = this.#annotationType(
+            expression.returnAnnotation,
+            level + 1,
+            annotationTails,
+            annotationVariables,
           );
+          this.#unifyExpected(
+            annotationType,
+            inferredResult,
+            expression.body,
+            expression.returnAnnotation.span,
+            true,
+          );
+          if (this.#intWidenings.has(expression.body)) result = annotationType;
         }
         type = { kind: "Function", parameters, result };
         break;
@@ -1179,8 +1196,30 @@ class Checker {
           type = primitive("Unit");
         } else {
           const alternative = this.#inferExpr(expression.alternative, level);
-          this.#unify(consequence, alternative, expression.span);
-          type = consequence;
+          if (
+            this.#tryWidenInt(
+              expression.consequence,
+              consequence,
+              alternative,
+              expression.span,
+              true,
+            )
+          ) {
+            type = alternative;
+          } else if (
+            this.#tryWidenInt(
+              expression.alternative,
+              alternative,
+              consequence,
+              expression.span,
+              true,
+            )
+          ) {
+            type = consequence;
+          } else {
+            this.#unify(consequence, alternative, expression.span);
+            type = consequence;
+          }
         }
         break;
       }
@@ -1427,12 +1466,28 @@ class Checker {
               receiver,
               ...expression.arguments.map((argument) => this.#inferExpr(argument, level)),
             ];
-            const result = this.#fresh(level, false);
-            this.#unify(
-              callee,
-              { kind: "Function", parameters: arguments_, result },
-              expression.span,
-            );
+            const callExpressions = [
+              expression.callee.receiver,
+              ...expression.arguments,
+            ];
+            const knownOperation = this.#prune(callee);
+            const result = knownOperation.kind === "Function"
+              ? knownOperation.result
+              : this.#fresh(level, false);
+            if (knownOperation.kind === "Function") {
+              this.#checkCallArguments(
+                knownOperation.parameters,
+                arguments_,
+                callExpressions,
+                expression.span,
+              );
+            } else {
+              this.#unify(
+                callee,
+                { kind: "Function", parameters: arguments_, result },
+                expression.span,
+              );
+            }
             this.#seqDotCalls.set(expression, {
               operation: field,
               callee,
@@ -1492,6 +1547,14 @@ class Checker {
             primary: expression.span,
           });
           type = ERROR;
+        } else if (knownCallee.kind === "Function") {
+          this.#checkCallArguments(
+            knownCallee.parameters,
+            arguments_,
+            expression.arguments,
+            expression.span,
+          );
+          type = knownCallee.result;
         } else {
           this.#unify(
             callee,
@@ -1534,9 +1597,23 @@ class Checker {
         const operands = expression.operands.map((operand) =>
           this.#inferExpr(operand, level),
         );
-        const common = operands[0] ?? ERROR;
-        for (const operand of operands.slice(1)) {
-          this.#unify(common, operand, expression.span);
+        const targetIndex = operands.findIndex((operand) => {
+          const actual = this.#prune(operand);
+          return !(actual.kind === "Constructor" && actual.name === "Int") &&
+            this.#supportsNumTarget(actual, true);
+        });
+        const common = targetIndex < 0 ? operands[0] ?? ERROR : operands[targetIndex]!;
+        for (const [index, operand] of operands.entries()) {
+          if (index === targetIndex || (targetIndex < 0 && index === 0)) continue;
+          const sourceExpression = expression.operands[index];
+          if (sourceExpression === undefined) continue;
+          this.#unifyExpected(
+            common,
+            operand,
+            sourceExpression,
+            expression.span,
+            true,
+          );
         }
         const requirements = expression.operators.map((operator) =>
           this.#require(
@@ -1552,7 +1629,7 @@ class Checker {
       case "Assignment": {
         const target = this.#inferExpr(expression.target, level);
         const value = this.#inferExpr(expression.value, level);
-        this.#unify(target, value, expression.span);
+        this.#unifyExpected(target, value, expression.value, expression.span, true);
         if (
           expression.target.kind !== "Name" ||
           !this.#mutableSymbols.has(expression.target.symbol)
@@ -2060,7 +2137,6 @@ class Checker {
       this.#unify(right, primitive("Int"), expression.right.span);
       return { kind: "Range" };
     }
-    this.#unify(left, right, expression.span);
     const constraint: Typed.ConstraintName =
       expression.operator === "Divide"
         ? "Frac"
@@ -2069,9 +2145,87 @@ class Checker {
           : expression.operator === "Concat"
             ? "Concat"
             : "Num";
-    const requirement = this.#require(constraint, left, expression.span);
+    let common = left;
+    if (this.#tryWidenInt(expression.left, left, right, expression.span, true)) {
+      common = right;
+    } else if (
+      this.#tryWidenInt(expression.right, right, left, expression.span, true)
+    ) {
+      common = left;
+    } else {
+      this.#unify(left, right, expression.span);
+    }
+    const requirement = this.#require(constraint, common, expression.span);
     this.#requirements.set(expression, [requirement]);
-    return left;
+    return common;
+  }
+
+  #checkCallArguments(
+    parameters: readonly Mono[],
+    arguments_: readonly Mono[],
+    expressions: readonly Resolved.Expr[],
+    span: Source.Span,
+  ): void {
+    // A later argument may establish the shared type of an earlier Int argument
+    // (`plus(count, 1.5)`). Bare literals and fresh variables establish nothing,
+    // so defer both classes until concrete/already-constrained arguments settle.
+    const deferredIntArguments: number[] = [];
+    const deferredLiteralArguments: number[] = [];
+    const establishedVariables = new Set<number>();
+
+    for (const [index, actual] of arguments_.entries()) {
+      const expected = parameters[index] ?? ERROR;
+      const expression = expressions[index];
+      if (expression === undefined) continue;
+      const source = this.#prune(actual);
+      const destination = this.#prune(expected);
+      if (
+        source.kind === "Variable" && source.literalOnly &&
+        destination.kind === "Variable"
+      ) {
+        deferredLiteralArguments.push(index);
+        continue;
+      }
+      if (
+        source.kind === "Constructor" && source.name === "Int" &&
+        destination.kind === "Variable"
+      ) {
+        deferredIntArguments.push(index);
+        continue;
+      }
+      const independentlyEstablished = source.kind !== "Variable" ||
+        this.#supportsNumTarget(source, true);
+      this.#unifyExpected(expected, actual, expression, span, true);
+      const established = this.#prune(expected);
+      if (independentlyEstablished && established.kind === "Variable") {
+        establishedVariables.add(established.id);
+      }
+    }
+
+    for (const index of deferredIntArguments) {
+      const expected = parameters[index] ?? ERROR;
+      const actual = arguments_[index] ?? ERROR;
+      const expression = expressions[index];
+      if (expression === undefined) continue;
+      const destination = this.#prune(expected);
+      const allowVariableTarget = destination.kind === "Variable" &&
+        establishedVariables.has(destination.id);
+      this.#unifyExpected(
+        expected,
+        actual,
+        expression,
+        span,
+        allowVariableTarget,
+      );
+    }
+
+    for (const index of deferredLiteralArguments) {
+      const expected = parameters[index] ?? ERROR;
+      const actual = arguments_[index] ?? ERROR;
+      const expression = expressions[index];
+      if (expression === undefined) continue;
+      this.#unifyExpected(expected, actual, expression, span, true);
+    }
   }
 
   #fresh(level: number, literalOnly: boolean): Variable {
@@ -2323,6 +2477,59 @@ class Checker {
     if (actual.kind === "Variable") this.#attachRequirement(actual, requirement);
     else this.#validate(requirement);
     return requirement;
+  }
+
+  #tryWidenInt(
+    expression: Resolved.Expr,
+    actual: Mono,
+    target: Mono,
+    span: Source.Span,
+    allowVariableTarget = false,
+  ): boolean {
+    // This is contextual evidence insertion, not subtyping: the target must already
+    // support Num, and literal-only variables cannot bootstrap their own target.
+    const source = this.#prune(actual);
+    const destination = this.#prune(target);
+    if (source.kind !== "Constructor" || source.name !== "Int") return false;
+    if (destination.kind === "Constructor" && destination.name === "Int") return false;
+
+    if (!this.#supportsNumTarget(destination, allowVariableTarget)) return false;
+
+    const requirement = this.#require("Num", destination, span);
+    this.#intWidenings.set(expression, requirement);
+    return true;
+  }
+
+  #supportsNumTarget(target: Mono, allowVariableTarget = false): boolean {
+    const destination = this.#prune(target);
+    return destination.kind === "Variable"
+      ? allowVariableTarget && !destination.literalOnly &&
+        destination.requirements.some(({ name }) =>
+          this.#superconstraintPath(name, "Num") !== undefined
+        )
+      : destination.kind === "Constructor"
+        ? supports(destination.name, "Num")
+        : this.#instances.has(this.#instanceKey("Num", destination));
+  }
+
+  #unifyExpected(
+    expected: Mono,
+    actual: Mono,
+    expression: Resolved.Expr,
+    span: Source.Span,
+    allowVariableTarget = false,
+  ): void {
+    if (
+      !this.#tryWidenInt(
+        expression,
+        actual,
+        expected,
+        span,
+        allowVariableTarget,
+      )
+    ) {
+      this.#unify(expected, actual, span);
+    }
   }
 
   #attachRequirement(variable: Variable, requirement: Requirement): void {
@@ -3307,6 +3514,20 @@ class Checker {
   }
 
   #materializeExpr(expression: Resolved.Expr): Typed.Expr {
+    const value = this.#materializeUnwidenedExpr(expression);
+    const widening = this.#intWidenings.get(expression);
+    if (widening === undefined) return value;
+    const requirement = this.#publicRequirement(widening);
+    return {
+      kind: "WidenInt",
+      value,
+      requirement,
+      type: requirement.type,
+      span: expression.span,
+    };
+  }
+
+  #materializeUnwidenedExpr(expression: Resolved.Expr): Typed.Expr {
     const type = this.#publicType(this.#typeOf(expression));
     switch (expression.kind) {
       case "Name":

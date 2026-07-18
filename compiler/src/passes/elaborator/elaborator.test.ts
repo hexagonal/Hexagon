@@ -283,6 +283,8 @@ function visitExpr(expression: Core.Expr, visit: (expression: Core.Expr) => void
     case "ComparisonChain":
       for (const operand of expression.operands) visitExpr(operand, visit);
       return;
+    case "WidenInt":
+      return visitExpr(expression.value, visit);
     case "Name":
     case "Unit":
     case "Boolean":

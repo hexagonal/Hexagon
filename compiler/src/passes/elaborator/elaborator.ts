@@ -78,6 +78,14 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
       return expression;
     case "FromInt":
       return elaborateInteger(expression);
+    case "WidenInt":
+      return {
+        kind: "WidenInt",
+        value: elaborateExpr(expression.value),
+        evidence: evidence(expression.requirement),
+        type: expression.type,
+        span: expression.span,
+      };
     case "String":
       return {
         ...expression,

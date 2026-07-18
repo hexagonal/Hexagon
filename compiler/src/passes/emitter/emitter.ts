@@ -597,14 +597,18 @@ class JavaScriptEmitter {
         return "undefined";
       case "Boolean":
         return String(expression.value);
-      case "Number":
-        return cleanNumber(expression.decimal);
+      case "Number": {
+        const literal = cleanNumber(expression.decimal);
+        return expression.representation === "Float" ? `${literal}.0` : literal;
+      }
       case "BigInt":
         return `${cleanNumber(expression.decimal)}n`;
       case "Float":
         return cleanNumber(expression.spelling);
       case "ConvertInt":
         return this.#emitConvertInt(expression, evidenceNames);
+      case "WidenInt":
+        return this.#emitWidenInt(expression, depth, evidenceNames);
       case "String":
         return this.#emitString(expression, depth, evidenceNames);
       case "Tuple":
@@ -1176,9 +1180,10 @@ class JavaScriptEmitter {
     evidenceNames: EvidenceNames,
   ): string {
     if (expression.evidence.kind === "Primitive") {
-      return expression.evidence.instance === "BigInt"
-        ? `${cleanNumber(expression.decimal)}n`
-        : cleanNumber(expression.decimal);
+      const literal = cleanNumber(expression.decimal);
+      if (expression.evidence.instance === "BigInt") return `${literal}n`;
+      if (expression.evidence.instance === "Float") return `${literal}.0`;
+      return literal;
     }
     if (expression.evidence.kind === "Instance") {
       const dictionary = this.#emitEvidence(
@@ -1198,6 +1203,39 @@ class JavaScriptEmitter {
       expression.evidence.path,
     );
     return `${dictionary}.fromInt(${cleanNumber(expression.decimal)})`;
+  }
+
+  #emitWidenInt(
+    expression: Core.WidenIntExpr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string {
+    const value = this.#emitExpr(expression.value, depth, evidenceNames);
+    if (expression.evidence.kind === "Primitive") {
+      return expression.evidence.instance === "BigInt"
+        ? `BigInt(${value})`
+        : value;
+    }
+    if (expression.evidence.kind === "Dictionary") {
+      const dictionary = this.#dictionary(
+        expression.evidence.variable,
+        expression.evidence.constraint ?? "Num",
+        expression.span,
+        evidenceNames,
+        expression.evidence.path,
+      );
+      return `${dictionary}.fromInt(${value})`;
+    }
+    if (expression.evidence.kind === "Instance") {
+      const dictionary = this.#emitEvidence(
+        expression.evidence,
+        "Num",
+        expression.span,
+        evidenceNames,
+      );
+      return `${dictionary}.fromInt(${value})`;
+    }
+    return "undefined";
   }
 
   #emitString(
@@ -2313,6 +2351,11 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
     case "ConvertInt":
     case "Block":
       return Precedence.Call;
+    case "WidenInt":
+      return expression.evidence.kind === "Primitive" &&
+          expression.evidence.instance !== "BigInt"
+        ? expressionPrecedence(expression.value)
+        : Precedence.Call;
     case "Name":
     case "SeqOperation":
     case "Unit":
