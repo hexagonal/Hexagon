@@ -4,7 +4,7 @@ This folder contains the beginning of `hexc`, the Hexagon compiler.
 
 The platform-neutral TypeScript core now includes shared source coordinates,
 structured diagnostics, the complete physical lexer, and the indentation layout
-pass. Twenty-three vertical compiler slices now carry the public pipeline through `Source.File -> Lexed.File
+pass. Twenty-six vertical compiler slices now carry the public pipeline through `Source.File -> Lexed.File
 -> LaidOut.File -> Parsed.Module -> Resolved.Module -> Typed.Module -> Core.Module ->
 Emitted output` for a deliberate language subset.
 
@@ -19,9 +19,10 @@ guarded match arms, direct tuple/record matching, inclusive ranges, `while`, `fo
 over `Range` and `String`, and
 string interpolation, `then`-form and layout `if`, calls, field access,
 indexing, assignment, generic unions, nominal records, exception declarations and
-`try`/`catch`, user constraints and ground instances, explicit constrained binders,
-relative imports, and the complete operator precedence table. Type aliases, derived
-and parameterized instances, remaining declarations, and richer type syntax remain explicit future parser slices;
+`try`/`catch`, completed user constraint declarations and honors, associated type
+declarations and ground bindings, `derive` and declaration-header `derives`, explicit
+constrained binders, `Seq(a)`, relative imports, and the complete operator precedence
+table. Type aliases, remaining declarations, and richer type syntax remain explicit future parser slices;
 encountering one produces a recovery diagnostic rather than a misleading partial
 tree.
 
@@ -34,7 +35,9 @@ diagnoses illegal `let` self-reference, unknown names and types, rebinding, dupl
 parameters, mutable-capture rejection, and the deliberately deferred forward/mutual-recursion boundary.
 Relative named, aliased, namespace, and effect imports plus nominal companion lookup
 are implemented; qualified type syntax, capture-set hoisting, and mutual recursive
-groups remain later resolution slices.
+groups remain later resolution slices. Associated type names have owner-relative
+scope inside their constraint and instances; attempted v1 references outside those
+owners receive associated-type-specific diagnostics.
 
 The initial checker implements the Hindley–Milner core with private union-find
 variables, n-ary function types, structural tuple and open-row record types,
@@ -48,13 +51,15 @@ value restriction, lambda monomorphism, primitive types, integer defaulting,
 operator and interpolation constraints, tuple and record access, exact/open record
 annotations with anonymous or named additional-field tails, immutable record updates,
 conditionals, calls, monomorphic assignment, inclusive `Range`, `while`, and
-concrete `Range`/`String` iteration,
+concrete `Range`/`String`/`Seq(a)` iteration,
 first-argument pipe insertion, and block sequencing. Typed syntax records an
 immutable type for every expression and a scheme for every binding. Declarations,
 generic call-site evidence, explicit and inferred constraints, required-member user
-constraints, ground instances, exceptions, imported schemes, and nominal dot-call
-resolution. Superconstraints, defaults, derivation, parameterized instances, richer annotations, and
-the remaining surface forms are later checker slices. Primitive annotations
+constraints, superconstraints, inherited defaults, coherent ground and parameterized
+instances, nominal derivation, concrete associated type substitution, the
+projection-bearing constraint binder ban, exceptions, imported schemes, and nominal dot-call
+resolution. The public dictionary ABI, richer annotations, and the remaining surface
+forms are later checker and FFI slices. Primitive annotations
 constrain inference and are erased after checking rather than leaking into Core.
 Direct recursion uses one monotype inside its own body and generalizes only after
 the recursive knot closes.
@@ -77,8 +82,10 @@ matches and ordered guarded/literal/structural/nested-or-pattern tests, semantic
 short-circuiting comparison chains,
 and recursive `fun` bindings as hoisted function declarations, generic nominal data,
 branded real-`Error` exceptions, constraint dictionaries, imported ESM graphs, local mutation as
-JavaScript `let`/assignment, replayable iterable ranges, `while`, and native
-`for..of` loops for Range/String iteration. Exported constrained functions receive
+JavaScript `let`/assignment, replayable iterable ranges and memoized lazy sequences,
+generator-backed `Seq.iterate`/`map`/`filter`/`take`, `while`, and native
+`for..of` loops for Range/String/Seq iteration. Associated type bindings are checked and
+then erased; their term members remain ordinary dictionary fields. Exported constrained functions receive
 direct dictionary-free fundamental editions, with deterministic names, collision
 diagnostics, and byte-counted generated regions. Declarations cover
 exported primitives, tuples, structural records, discriminated payload unions and

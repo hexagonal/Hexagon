@@ -1,6 +1,6 @@
 # Hexagon Compiler Roadmap
 
-**Status:** Twenty-three vertical slices now extend the original expression, pattern, mutation, Range, and loop pipeline with generic nominal unions and records, exceptions, nominal companion dot calls, generic evidence, user constraints and ground instances, relative module graphs, and direct fundamental specializations with navigable generated-code metadata.
+**Status:** Twenty-six vertical slices now extend the original expression, pattern, mutation, Range, and loop pipeline with generic nominal unions and records, exceptions, nominal companion dot calls, completed internal constraint dictionaries, owner-scoped associated types, lazy `Seq`, relative module graphs, and direct fundamental specializations with navigable generated-code metadata.
 
 The compiler is built as a sequence of typed phase transformations. Each milestone must preserve the global naming doctrine in `architecture/naming.md` and the readability and commenting doctrine in `architecture/readability-and-comments.md`.
 
@@ -24,19 +24,19 @@ Transform physical tokens into a layout-aware stream containing virtual open, se
 
 ## 3. Parser
 
-**The existing expression and pattern grammar plus generic unions, nominal records, exceptions and `try`/`catch`, required-member constraints, ground `honor`, explicit constrained binders, and relative imports are implemented; full grammar remains in progress.**
+**The existing expression and pattern grammar plus generic unions, nominal records, exceptions and `try`/`catch`, constraints with associated types/defaults/derivation, ground and parameterized `honor`, explicit constrained binders, `Seq(a)`, and relative imports are implemented; full grammar remains in progress.**
 
 Transform layout-aware tokens into the parsed syntax tree. Implement declarations, expressions, patterns, type syntax, precedence, contextual forms, recovery, and source attribution.
 
 ## 4. Resolution and modules
 
-**Stable local and imported identities, generic nominal declarations, exception and constraint members, relative named/aliased/namespace/effect imports, acyclic dependency ordering, imported schemes, and nominal companion lookup are implemented; qualified type paths, re-exports, packages, and mutual recursion remain in progress.**
+**Stable local and imported identities, generic nominal declarations, exception and constraint members, owner-relative associated type scope, relative named/aliased/namespace/effect imports, acyclic dependency ordering, imported schemes, and nominal companion lookup are implemented; qualified type paths, re-exports, packages, and mutual recursion remain in progress.**
 
 Replace textual references with stable symbols. Implement scopes, imports, exports, companions, duplicate detection, shadowing rules, module graphs, cycle diagnostics, and topological ordering.
 
 ## 5. Type-system core
 
-**The HM and row core now includes generic nominal unions and records, `Exn`, explicit/inferred constraints, trailing generic evidence, required-member user constraints, and ground instances; superconstraints, defaults, derivation, parameterized instances, and the public dictionary ABI remain.**
+**The HM and row core now includes generic nominal unions and records, `Exn`, `Seq(a)`, explicit/inferred constraints, maximal trailing evidence, required/default members, nested superconstraints, coherent ground and parameterized instances, nominal derivation, associated type substitution at concrete calls, and the v1 projection-bearing binder ban; the conditional public dictionary ABI remains with the FFI integration work.**
 
 Implement Algorithm J, union-find type variables, levels and generalisation, type schemes, unification, rows, constraints, and stable type rendering for diagnostics.
 
@@ -54,19 +54,19 @@ Remove surface conveniences and make semantics explicit. Pipes have already beco
 
 ## 8. Core IR
 
-**Typed representation includes patterns, structural and generic nominal data, exceptions, modules, constraint dictionaries, matches, mutation, ranges, loops, and recursive functions.**
+**Typed representation includes patterns, structural and generic nominal data, exceptions, modules, constraint dictionaries and erased associated type bindings, matches, mutation, ranges, loops, and recursive functions.**
 
 Define a small typed representation oriented toward readable JavaScript without merely copying JavaScript syntax. Preserve resolved bindings, representation decisions, explicit evidence, control flow, and source attribution.
 
 ## 9. JavaScript emission
 
-**Readable ESM emission covers the implemented language, including generic nominal data, branded Error exceptions, constraint and instance dictionaries, companion calls, imports, replayable ranges, native Range/String iteration, and direct dictionary-free fundamental specializations.**
+**Readable ESM emission covers the implemented language, including generic nominal data, branded Error exceptions, completed internal constraint dictionaries and factories, companion calls, imports, replayable ranges, persistent generator-backed sequences, native Range/String/Seq iteration, and direct dictionary-free fundamental specializations.**
 
 Emit readable ESM, source maps, direct primitive operations, records and unions, helpers, runtime imports, specialization, and deterministic output.
 
 ## 10. TypeScript declaration emission
 
-**Primitive, tuple, structural/nominal-record, generic discriminated-union, exception, constructor, `Range`/`Iterable<number>`, unconstrained-function, and fundamental-specialization declarations implemented.**
+**Primitive, tuple, structural/nominal-record, generic discriminated-union, exception, constructor, `Range`/`Seq` as `Iterable<T>`, unconstrained-function, and fundamental-specialization declarations implemented.**
 
 Emit the checked public surface as `.d.ts`: generics, records, unions, opaque types, runtime-owned values, FFI signatures, fundamental specializations, and public dictionaries.
 

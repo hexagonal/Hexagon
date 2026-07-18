@@ -682,6 +682,43 @@ describe("check", () => {
     );
   });
 
+  test("checks associated type instances and resolves concrete member results", () => {
+    const module = checkSource(
+      "constraint Source<a> =\n" +
+        "  type Item\n" +
+        "  get(value: a): Item\n" +
+        "record Box = {value: Int}\n" +
+        "honor Source<Box> =\n" +
+        "  type Item = Int\n" +
+        "  get(box: Box) = box.value\n" +
+        "let answer: Int = get(Box({value: 42}))",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    expect(letSymbol(module, "answer").scheme.type).toEqual({
+      kind: "Primitive",
+      name: "Int",
+    });
+  });
+
+  test("enforces associated type completeness and the v1 binder ban", () => {
+    const module = checkSource(
+      "constraint Source<a> =\n" +
+        "  type Item\n" +
+        "  get(value: a): Item\n" +
+        "honor Source<Int> =\n" +
+        "  get(value) = value\n" +
+        "let generic<a: Source>(value: a) = get(value)",
+    );
+
+    expect(module.diagnostics.map(({ message }) => message)).toEqual(
+      expect.arrayContaining([
+        "instance is missing associated type `Item`",
+        "projection-bearing constraint `Source` cannot constrain a type variable in v1; accept a concrete type or a `Seq(a)` instead",
+      ]),
+    );
+  });
+
   test("checks monomorphic mutation, Range, and while as Unit", () => {
     const module = checkSource(
       "fun countdown(start: Int): Unit =\n" +

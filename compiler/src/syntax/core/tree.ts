@@ -19,6 +19,8 @@ export interface PrimitiveEvidence {
 export interface DictionaryEvidence {
   readonly kind: "Dictionary";
   readonly variable: Typed.TypeVariableId;
+  readonly constraint?: Typed.ConstraintName;
+  readonly path?: readonly string[];
 }
 
 export interface ErrorEvidence {
@@ -28,6 +30,12 @@ export interface ErrorEvidence {
 export interface InstanceEvidence {
   readonly kind: "Instance";
   readonly dictionary: string;
+  readonly arguments: readonly EvidenceArgument[];
+}
+
+export interface EvidenceArgument {
+  readonly constraint: Typed.ConstraintName;
+  readonly evidence: Evidence;
 }
 
 export interface Symbol {
@@ -226,10 +234,19 @@ export interface ConstraintItem extends Typed.ConstraintItem {}
 export interface HonorItem {
   readonly kind: "Honor";
   readonly constraint: string;
+  readonly typeParameters: readonly Typed.HonorTypeParameter[];
   readonly subject: Typed.Type;
+  readonly derived: boolean;
   readonly dictionary: string;
+  readonly superconstraints: readonly HonorSuperconstraint[];
+  readonly associatedTypes: readonly Typed.HonorAssociatedType[];
   readonly members: readonly HonorMember[];
   readonly span: Source.Span;
+}
+
+export interface HonorSuperconstraint {
+  readonly name: Typed.ConstraintName;
+  readonly evidence: Evidence;
 }
 
 export interface HonorMember {
@@ -256,6 +273,7 @@ interface ExpressionFields {
 
 export type Expr =
   | NameExpr
+  | SeqOperationExpr
   | UnitExpr
   | BooleanExpr
   | NumberExpr
@@ -289,6 +307,11 @@ export interface NameExpr extends ExpressionFields {
   readonly kind: "Name";
   readonly symbol: Resolved.SymbolId;
   readonly text: string;
+}
+
+export interface SeqOperationExpr extends ExpressionFields {
+  readonly kind: "SeqOperation";
+  readonly operation: "iterate" | "map" | "filter" | "take";
 }
 
 export interface UnitExpr extends ExpressionFields {

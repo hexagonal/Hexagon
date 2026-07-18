@@ -87,6 +87,7 @@ export interface UnionItem {
   readonly exported: boolean;
   readonly name: Name;
   readonly parameters: readonly Name[];
+  readonly derives: readonly Name[];
   readonly constructors: readonly Constructor[];
   readonly span: Source.Span;
 }
@@ -96,6 +97,7 @@ export interface RecordItem {
   readonly exported: boolean;
   readonly name: Name;
   readonly parameters: readonly Name[];
+  readonly derives: readonly Name[];
   readonly fields: readonly RecordTypeField[];
   readonly span: Source.Span;
 }
@@ -112,7 +114,14 @@ export interface ConstraintItem {
   readonly kind: "ConstraintDeclaration";
   readonly name: Name;
   readonly subject: Name;
+  readonly superconstraints: readonly Name[];
+  readonly associatedTypes: readonly ConstraintAssociatedType[];
   readonly members: readonly ConstraintMember[];
+  readonly span: Source.Span;
+}
+
+export interface ConstraintAssociatedType {
+  readonly name: Name;
   readonly span: Source.Span;
 }
 
@@ -120,14 +129,24 @@ export interface ConstraintMember {
   readonly name: Name;
   readonly parameters: readonly Parameter[];
   readonly returnAnnotation: TypeAnnotation;
+  readonly defaultValue?: LambdaExpr;
   readonly span: Source.Span;
 }
 
 export interface HonorItem {
   readonly kind: "Honor";
   readonly constraint: Name;
+  readonly typeParameters: readonly TypeParameter[];
   readonly subject: TypeAnnotation;
+  readonly derived: boolean;
+  readonly associatedTypes: readonly HonorAssociatedType[];
   readonly members: readonly HonorMember[];
+  readonly span: Source.Span;
+}
+
+export interface HonorAssociatedType {
+  readonly name: Name;
+  readonly annotation: TypeAnnotation;
   readonly span: Source.Span;
 }
 

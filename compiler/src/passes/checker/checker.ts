@@ -1,7 +1,9 @@
 /**
  * The checker implements the Hindley–Milner core needed by the current vertical
  * slices. Mutable union-find variables are private to inference;
- * the returned Typed tree contains only immutable types and schemes.
+ * the returned Typed tree contains only immutable types and schemes. Associated
+ * type choices substitute into ground instances and erase before emission; v1
+ * rejects projection-bearing constraints on type-variable binders.
  */
 
 import * as Diagnostics from "../../support/diagnostics.js";
@@ -28,6 +30,7 @@ type Mono =
   | TupleMono
   | RecordMono
   | RangeMono
+  | SeqMono
   | UnionMono
   | NominalRecordMono
   | FunctionMono
@@ -68,6 +71,11 @@ interface RangeMono {
   readonly kind: "Range";
 }
 
+interface SeqMono {
+  readonly kind: "Seq";
+  readonly element: Mono;
+}
+
 interface UnionMono {
   readonly kind: "Union";
   readonly union: Resolved.UnionId;
@@ -91,13 +99,19 @@ interface Requirement {
   readonly type: Mono;
   readonly span: Source.Span;
   readonly origin: "literal" | "operation" | "interpolation";
+  readonly associatedTypes?: ReadonlyMap<string, Mono>;
+  evidenceConstraint?: Typed.ConstraintName;
+  evidencePath?: readonly string[];
   reported: boolean;
   dictionary?: string;
+  dictionaryArguments?: readonly Requirement[];
 }
 
 interface Scheme {
   readonly variables: readonly Variable[];
   readonly type: Mono;
+  readonly constraint?: string;
+  readonly associatedTypes?: ReadonlyMap<string, Variable>;
 }
 
 const ERROR: ErrorMono = { kind: "Error" };
@@ -132,11 +146,22 @@ class Checker {
   readonly #operationsByName = new Map<string, Resolved.Symbol>();
   readonly #operationSpellings = new Map<Resolved.SymbolId, string>();
   readonly #constraintNames = new Set<string>([
-    "Num", "Frac", "Pow", "Concat", "Eq", "Ord", "Show",
+    "Num", "Frac", "Pow", "Concat", "Eq", "Ord", "Show", "Hash", "Iterable", "Integral",
   ]);
   readonly #constraintSubjects = new WeakMap<Resolved.ConstraintItem, Variable>();
+  readonly #constraintAssociatedTypes = new WeakMap<
+    Resolved.ConstraintItem,
+    ReadonlyMap<string, Variable>
+  >();
   readonly #instances = new Map<string, Resolved.HonorItem>();
   readonly #constraintDeclarations = new Map<string, Resolved.ConstraintItem>();
+  readonly #projectionBearingConstraints = new Set<string>();
+  readonly #instanceTypeParameters = new WeakMap<
+    Resolved.HonorItem,
+    ReadonlyMap<string, Variable>
+  >();
+  readonly #instanceSubjects = new WeakMap<Resolved.HonorItem, Mono>();
+  readonly #instanceSuperconstraints = new WeakMap<Resolved.HonorItem, readonly Requirement[]>();
   readonly #mutableSymbols = new Set<Resolved.SymbolId>();
   readonly #variables: Variable[] = [];
   readonly #quantified = new Set<number>();
@@ -163,9 +188,47 @@ class Checker {
       if (item.kind === "ConstraintDeclaration") {
         this.#constraintNames.add(item.name);
         this.#constraintDeclarations.set(item.name, item);
+        if (item.associatedTypes.length > 0) {
+          this.#projectionBearingConstraints.add(item.name);
+        }
       }
+    }
+    for (const item of module.items) {
       if (item.kind === "Honor") {
-        const subject = this.#annotationType(item.subject);
+        this.#checkInstanceHead(item, module.items);
+        const typeParameters = new Map(
+          item.typeParameters.map(({ name }) => [name, this.#fresh(0, false)] as const),
+        );
+        this.#instanceTypeParameters.set(item, typeParameters);
+        for (const parameter of item.typeParameters) {
+          const variable = typeParameters.get(parameter.name)!;
+          for (const constraint of parameter.constraints) {
+            if (!this.#constraintNames.has(constraint)) {
+              this.#diagnostics.add({
+                severity: "error",
+                message: `unknown constraint \`${constraint}\``,
+                primary: parameter.span,
+              });
+              continue;
+            }
+            if (this.#projectionBearingConstraints.has(constraint)) {
+              this.#diagnostics.add({
+                severity: "error",
+                message: `projection-bearing constraint \`${constraint}\` cannot constrain a type variable in v1; accept a concrete type or a \`Seq(a)\` instead`,
+                primary: parameter.span,
+              });
+              continue;
+            }
+            this.#require(constraint, variable, parameter.span);
+          }
+        }
+        const subject = this.#annotationType(
+          item.subject,
+          0,
+          new Map(),
+          typeParameters,
+        );
+        this.#instanceSubjects.set(item, subject);
         const key = this.#instanceKey(item.constraint, subject);
         if (this.#instances.has(key)) {
           this.#diagnostics.add({
@@ -182,12 +245,33 @@ class Checker {
       if (item.kind !== "ConstraintDeclaration") continue;
       const subject = this.#fresh(0, false);
       this.#constraintSubjects.set(item, subject);
-      const typeParameters = new Map([[item.subject, subject]]);
+      const typeParameters = new Map<string, Mono>([[item.subject, subject]]);
+      const associatedTypes = new Map(
+        item.associatedTypes.map(({ name }) => [name, this.#fresh(0, false)] as const),
+      );
+      const seenAssociatedTypes = new Set<string>();
+      for (const associatedType of item.associatedTypes) {
+        if (seenAssociatedTypes.has(associatedType.name)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `associated type \`${associatedType.name}\` is declared more than once in \`${item.name}\``,
+            primary: associatedType.span,
+          });
+        }
+        seenAssociatedTypes.add(associatedType.name);
+      }
+      this.#constraintAssociatedTypes.set(item, associatedTypes);
       for (const member of item.members) {
         const parameters = member.parameters.map((parameter) => {
           const type = parameter.annotation === undefined
             ? ERROR
-            : this.#annotationType(parameter.annotation, 0, new Map(), typeParameters);
+            : this.#annotationType(
+                parameter.annotation,
+                0,
+                new Map(),
+                typeParameters,
+                associatedTypes,
+              );
           this.#schemes.set(parameter.symbol, { variables: [], type });
           return type;
         });
@@ -196,12 +280,33 @@ class Checker {
           0,
           new Map(),
           typeParameters,
+          associatedTypes,
         );
         this.#require(item.name, subject, member.span);
         this.#schemes.set(member.binding.symbol, {
-          variables: [subject],
+          variables: [subject, ...associatedTypes.values()],
           type: { kind: "Function", parameters, result },
+          constraint: item.name,
+          associatedTypes,
         });
+      }
+    }
+    this.#checkSuperconstraintGraph();
+    for (const item of module.items) {
+      if (item.kind !== "ConstraintDeclaration") continue;
+      for (const member of item.members) {
+        if (member.defaultValue === undefined) continue;
+        const expected = this.#prune(this.#scheme(member.binding.symbol).type);
+        if (expected.kind !== "Function") continue;
+        member.defaultValue.parameters.forEach((parameter, index) => {
+          this.#schemes.set(parameter.symbol, {
+            variables: [],
+            type: expected.parameters[index] ?? ERROR,
+          });
+        });
+        const body = this.#inferExpr(member.defaultValue.body, 1);
+        this.#unify(expected.result, body, member.defaultValue.span);
+        this.#expressionTypes.set(member.defaultValue, expected);
       }
     }
     for (const symbol of module.symbols) {
@@ -294,6 +399,57 @@ class Checker {
     };
   }
 
+  #checkInstanceHead(
+    item: Resolved.HonorItem,
+    moduleItems: readonly Resolved.Item[],
+  ): void {
+    const subject = item.subject;
+    const nominal = subject.kind === "Union" || subject.kind === "RecordDeclaration";
+    if (item.typeParameters.length > 0) {
+      const arguments_ = nominal ? subject.arguments : [];
+      const names = arguments_.flatMap((argument) =>
+        argument.kind === "TypeVariable" ? [argument.name] : []
+      );
+      const declared = item.typeParameters.map(({ name }) => name);
+      const lawful = nominal && names.length === arguments_.length &&
+        new Set(names).size === names.length &&
+        names.length === declared.length &&
+        declared.every((name) => names.includes(name));
+      if (!lawful) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: "a parameterized instance head must be a nominal constructor applied once to each distinct instance parameter",
+          primary: item.subject.span,
+        });
+      }
+    } else if (
+      subject.kind !== "Primitive" &&
+      subject.kind !== "Union" &&
+      subject.kind !== "RecordDeclaration"
+    ) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: "an instance head must name a primitive or nominal type constructor",
+        primary: item.subject.span,
+      });
+    }
+
+    const ownsConstraint = this.#constraintDeclarations.has(item.constraint);
+    const ownsSubject = moduleItems.some((candidate) =>
+      (subject.kind === "Union" && candidate.kind === "Union" && candidate.union === subject.union) ||
+      (subject.kind === "RecordDeclaration" &&
+        candidate.kind === "RecordDeclaration" &&
+        candidate.record === subject.record)
+    );
+    if (!ownsConstraint && !ownsSubject) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `orphan instance: this module declares neither \`${item.constraint}\` nor the instance subject`,
+        primary: item.span,
+      });
+    }
+  }
+
   #inferItems(
     items: readonly Resolved.Item[],
     level: number,
@@ -324,7 +480,24 @@ class Checker {
       if (item.kind === "ConstraintDeclaration") continue;
       if (item.kind === "Honor") {
         const declaration = this.#constraintDeclarations.get(item.constraint);
-        if (declaration === undefined) {
+        if (item.derived && !["Eq", "Ord", "Show", "Hash"].includes(item.constraint)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `\`${item.constraint}\` cannot be derived; only \`Eq\`, \`Ord\`, \`Show\`, and \`Hash\` have derivable forms`,
+            primary: item.span,
+          });
+          continue;
+        }
+        if (!item.derived && item.constraint === "Hash") {
+          this.#diagnostics.add({
+            severity: "error",
+            message: "`Hash` instances cannot be hand-written; use `derives Hash` on the declaration of the subject type",
+            primary: item.span,
+          });
+          continue;
+        }
+        if (declaration === undefined && !item.derived) {
+          if (this.#checkPreludeHonor(item, level)) continue;
           this.#diagnostics.add({
             severity: "error",
             message: `unknown constraint \`${item.constraint}\``,
@@ -332,10 +505,82 @@ class Checker {
           });
           continue;
         }
+        if (item.derived) {
+          const instanceSubject = this.#instanceSubjects.get(item) ?? ERROR;
+          const actual = this.#prune(instanceSubject);
+          if (actual.kind !== "Union" && actual.kind !== "NominalRecord") {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `cannot derive \`${item.constraint}<${this.#display(actual)}>\`; derivation requires a nominal record or union`,
+              primary: item.span,
+            });
+          } else {
+            for (const component of this.#derivationComponents(actual, item.span)) {
+              this.#require(item.constraint, component.type, component.span);
+            }
+          }
+          this.#instanceSuperconstraints.set(
+            item,
+            this.#superconstraints(item.constraint).map((superconstraint) =>
+              this.#require(superconstraint, instanceSubject, item.span)
+            ),
+          );
+          if (item.constraint === "Hash") {
+            const equality = this.#instances.get(this.#instanceKey("Eq", instanceSubject));
+            if (equality !== undefined && !equality.derived) {
+              this.#diagnostics.add({
+                severity: "error",
+                message: `cannot derive \`Hash<${this.#display(actual)}>\`: the subject has a hand-written \`Eq\` instance; a derived hash requires derived equality`,
+                primary: item.span,
+              });
+            }
+          }
+          continue;
+        }
+        if (declaration === undefined) continue;
         const supplied = new Set(item.members.map(({ name }) => name));
-        const instanceSubject = this.#annotationType(item.subject, level + 1);
+        const instanceSubject = this.#instanceSubjects.get(item) ?? ERROR;
+        this.#instanceSuperconstraints.set(
+          item,
+          this.#superconstraints(item.constraint).map((superconstraint) =>
+            this.#require(superconstraint, instanceSubject, item.span)
+          ),
+        );
+        const associatedTypes = new Map<string, Mono>();
+        for (const required of declaration.associatedTypes) {
+          const bindings = item.associatedTypes.filter(({ name }) => name === required.name);
+          if (bindings.length === 0) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `instance is missing associated type \`${required.name}\``,
+              primary: item.span,
+            });
+            associatedTypes.set(required.name, ERROR);
+          } else {
+            associatedTypes.set(
+              required.name,
+              this.#annotationType(bindings[0]!.annotation, level + 1),
+            );
+            if (bindings.length > 1) {
+              this.#diagnostics.add({
+                severity: "error",
+                message: `associated type \`${required.name}\` is bound more than once in this instance`,
+                primary: bindings[1]!.span,
+              });
+            }
+          }
+        }
+        for (const binding of item.associatedTypes) {
+          if (!declaration.associatedTypes.some(({ name }) => name === binding.name)) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `\`${binding.name}\` is not an associated type of \`${item.constraint}\``,
+              primary: binding.span,
+            });
+          }
+        }
         for (const required of declaration.members) {
-          if (!supplied.has(required.binding.name)) {
+          if (required.defaultValue === undefined && !supplied.has(required.binding.name)) {
             this.#diagnostics.add({
               severity: "error",
               message: `instance is missing required member \`${required.binding.name}\``,
@@ -344,6 +589,18 @@ class Checker {
           }
         }
         for (const member of item.members) {
+          const firstDefinition = item.members.findIndex(
+            ({ name }) => name === member.name,
+          );
+          if (firstDefinition !== item.members.indexOf(member)) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `instance member \`${member.name}\` is defined more than once`,
+              primary: member.span,
+            });
+            this.#inferExpr(member.value, level + 1);
+            continue;
+          }
           const required = declaration.members.find(
             ({ binding }) => binding.name === member.name,
           );
@@ -356,22 +613,28 @@ class Checker {
             this.#inferExpr(member.value, level + 1);
             continue;
           }
-          const requirements: Requirement[] = [];
-          const expected = this.#instantiate(
-            this.#scheme(required.binding.symbol),
-            level + 1,
-            requirements,
-          );
-          for (const requirement of requirements) {
-            if (requirement.name === item.constraint) {
-              this.#unify(requirement.type, instanceSubject, member.span);
-            }
-          }
-          const expectedFunction = this.#prune(expected);
-          if (expectedFunction.kind !== "Function") {
-            this.#inferExpr(member.value, level + 1);
-            continue;
-          }
+          const subjectTypes = new Map([[declaration.subject, instanceSubject]]);
+          const expectedFunction: FunctionMono = {
+            kind: "Function",
+            parameters: required.parameters.map((parameter) =>
+              parameter.annotation === undefined
+                ? ERROR
+                : this.#annotationType(
+                    parameter.annotation,
+                    level + 1,
+                    new Map(),
+                    subjectTypes,
+                    associatedTypes,
+                  )
+            ),
+            result: this.#annotationType(
+              required.returnAnnotation,
+              level + 1,
+              new Map(),
+              subjectTypes,
+              associatedTypes,
+            ),
+          };
           if (expectedFunction.parameters.length !== member.value.parameters.length) {
             this.#diagnostics.add({
               severity: "error",
@@ -380,10 +643,24 @@ class Checker {
             });
           }
           member.value.parameters.forEach((parameter, index) => {
+            const expectedParameter = expectedFunction.parameters[index] ?? ERROR;
             this.#schemes.set(parameter.symbol, {
               variables: [],
-              type: expectedFunction.parameters[index] ?? ERROR,
+              type: expectedParameter,
             });
+            if (parameter.annotation !== undefined) {
+              this.#unify(
+                this.#annotationType(
+                  parameter.annotation,
+                  level + 1,
+                  new Map(),
+                  new Map(),
+                  associatedTypes,
+                ),
+                expectedParameter,
+                parameter.annotation.span,
+              );
+            }
           });
           const body = this.#inferExpr(member.value.body, level + 1);
           this.#unify(expectedFunction.result, body, member.span);
@@ -505,9 +782,217 @@ class Checker {
     return this.#typeOf(finalItem.expression);
   }
 
+  #derivationComponents(
+    subject: UnionMono | NominalRecordMono,
+    fallbackSpan: Source.Span,
+  ): readonly { readonly type: Mono; readonly span: Source.Span }[] {
+    if (subject.kind === "NominalRecord") {
+      const fields = this.#nominalRecordFields(subject);
+      const declaration = this.#records.get(subject.record);
+      return [...fields].map(([name, type]) => ({
+        type,
+        span: declaration?.fields.find((field) => field.name === name)?.span ??
+          declaration?.span ?? fallbackSpan,
+      }));
+    }
+    const parameters = [...(this.#unionParameters.get(subject.union)?.values() ?? [])];
+    const replacements = new Map(
+      parameters.map((parameter, index) => [parameter.id, subject.arguments[index] ?? ERROR]),
+    );
+    const union = this.#unions.get(subject.union);
+    return union?.constructors.flatMap((constructor) =>
+      constructor.slots.map((slot) => ({
+        type: this.#replaceVariables(
+          this.#annotationType(
+            slot.annotation,
+            0,
+            new Map(),
+            this.#unionParameters.get(subject.union),
+          ),
+          replacements,
+        ),
+        span: slot.span,
+      }))
+    ) ?? [];
+  }
+
+
+  /** Checks compiler-known prelude constraint members before a source prelude exists. */
+  #checkPreludeHonor(item: Resolved.HonorItem, level: number): boolean {
+    const subject = this.#instanceSubjects.get(item) ?? ERROR;
+    const members = new Map<string, { parameters: readonly Mono[]; result: Mono; optional?: boolean }>();
+    const binary = { parameters: [subject, subject], result: subject };
+    if (item.constraint === "Eq") {
+      members.set("equals", { parameters: [subject, subject], result: primitive("Bool") });
+      members.set("notEquals", {
+        parameters: [subject, subject],
+        result: primitive("Bool"),
+        optional: true,
+      });
+    } else if (item.constraint === "Ord") {
+      members.set("compare", { parameters: [subject, subject], result: primitive("Int") });
+    } else if (item.constraint === "Show") {
+      members.set("show", { parameters: [subject], result: primitive("String") });
+    } else if (item.constraint === "Num") {
+      for (const name of ["add", "subtract", "multiply"] as const) members.set(name, binary);
+      members.set("negate", { parameters: [subject], result: subject });
+      members.set("fromInt", { parameters: [primitive("Int")], result: subject });
+    } else if (item.constraint === "Frac") {
+      members.set("divide", binary);
+    } else if (item.constraint === "Concat") {
+      members.set("concat", binary);
+    } else if (item.constraint === "Pow") {
+      members.set("pow", binary);
+    } else {
+      return false;
+    }
+
+    this.#instanceSuperconstraints.set(
+      item,
+      this.#superconstraints(item.constraint).map((superconstraint) =>
+        this.#require(superconstraint, subject, item.span)
+      ),
+    );
+    const supplied = new Set(item.members.map(({ name }) => name));
+    for (const [name, signature] of members) {
+      if (!signature.optional && !supplied.has(name)) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `instance is missing required member \`${name}\``,
+          primary: item.span,
+        });
+      }
+    }
+    for (const member of item.members) {
+      const signature = members.get(member.name);
+      if (signature === undefined) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `\`${member.name}\` is not a member of \`${item.constraint}\``,
+          primary: member.span,
+        });
+        this.#inferExpr(member.value, level + 1);
+        continue;
+      }
+      member.value.parameters.forEach((parameter, index) => {
+        this.#schemes.set(parameter.symbol, {
+          variables: [],
+          type: signature.parameters[index] ?? ERROR,
+        });
+      });
+      if (member.value.parameters.length !== signature.parameters.length) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `instance member \`${member.name}\` expects ${signature.parameters.length} parameters, got ${member.value.parameters.length}`,
+          primary: member.span,
+        });
+      }
+      const body = this.#inferExpr(member.value.body, level + 1);
+      this.#unify(signature.result, body, member.span);
+      this.#expressionTypes.set(member.value, {
+        kind: "Function",
+        parameters: signature.parameters,
+        result: signature.result,
+      });
+    }
+    return true;
+  }
+
+  /** Validates the implication DAG before evidence selection begins. */
+  #checkSuperconstraintGraph(): void {
+    for (const declaration of this.#constraintDeclarations.values()) {
+      for (const superconstraint of declaration.superconstraints) {
+        if (!this.#constraintNames.has(superconstraint)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `unknown superconstraint \`${superconstraint}\``,
+            primary: declaration.span,
+          });
+        }
+        if (this.#projectionBearingConstraints.has(superconstraint)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `projection-bearing constraint \`${superconstraint}\` cannot constrain a type variable in v1; accept a concrete type or a \`Seq(a)\` instead`,
+            primary: declaration.span,
+          });
+        }
+        const reservedMember =
+          (superconstraint[0]?.toLowerCase() ?? "") + superconstraint.slice(1);
+        if (declaration.members.some(({ binding }) => binding.name === reservedMember)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `member \`${reservedMember}\` conflicts with the \`${superconstraint}\` dictionary slot; rename the member`,
+            primary: declaration.span,
+          });
+        }
+      }
+    }
+
+    const state = new Map<string, "visiting" | "visited">();
+    const visit = (name: string, path: readonly string[]): void => {
+      const current = state.get(name);
+      if (current === "visited") return;
+      if (current === "visiting") {
+        const cycle = [...path.slice(path.indexOf(name)), name];
+        this.#diagnostics.add({
+          severity: "error",
+          message: `superconstraint cycle: ${cycle.join(" requires ")}`,
+          primary: this.#constraintDeclarations.get(name)!.span,
+        });
+        return;
+      }
+      state.set(name, "visiting");
+      const declaration = this.#constraintDeclarations.get(name);
+      for (const superconstraint of declaration?.superconstraints ?? []) {
+        if (this.#constraintDeclarations.has(superconstraint)) {
+          visit(superconstraint, [...path, name]);
+        }
+      }
+      state.set(name, "visited");
+    };
+    for (const name of this.#constraintDeclarations.keys()) visit(name, []);
+  }
+
   #inferExpr(expression: Resolved.Expr, level: number): Mono {
     let type: Mono;
     switch (expression.kind) {
+      case "SeqOperation": {
+        const element = this.#fresh(level, false);
+        const result = this.#fresh(level, false);
+        const sequence: SeqMono = { kind: "Seq", element };
+        if (expression.operation === "iterate") {
+          type = {
+            kind: "Function",
+            parameters: [element, { kind: "Function", parameters: [element], result: element }],
+            result: sequence,
+          };
+        } else if (expression.operation === "map") {
+          type = {
+            kind: "Function",
+            parameters: [
+              sequence,
+              { kind: "Function", parameters: [element], result },
+            ],
+            result: { kind: "Seq", element: result },
+          };
+        } else if (expression.operation === "filter") {
+          type = {
+            kind: "Function",
+            parameters: [
+              sequence,
+              { kind: "Function", parameters: [element], result: primitive("Bool") },
+            ],
+            result: sequence,
+          };
+        } else {
+          type = {
+            kind: "Function",
+            parameters: [sequence, primitive("Int")],
+            result: sequence,
+          };
+        }
+        break;
+      }
       case "Name":
         const requirements: Requirement[] = [];
         type = this.#instantiate(this.#scheme(expression.symbol), level, requirements);
@@ -632,6 +1117,14 @@ class Checker {
               });
               continue;
             }
+            if (this.#projectionBearingConstraints.has(constraint)) {
+              this.#diagnostics.add({
+                severity: "error",
+                message: `projection-bearing constraint \`${constraint}\` cannot constrain a type variable in v1; accept a concrete type or a \`Seq(a)\` instead`,
+                primary: parameter.span,
+              });
+              continue;
+            }
             this.#require(constraint, variable, parameter.span);
           }
         }
@@ -701,6 +1194,8 @@ class Checker {
         let element: Mono = ERROR;
         if (actual.kind === "Range") {
           element = primitive("Int");
+        } else if (actual.kind === "Seq") {
+          element = actual.element;
         } else if (
           actual.kind === "Constructor" && actual.name === "String"
         ) {
@@ -708,7 +1203,7 @@ class Checker {
         } else if (actual.kind === "Variable") {
           this.#diagnostics.add({
             severity: "error",
-            message: "cannot determine how to iterate this value; add a `Range` or `String` type annotation",
+            message: "cannot determine how to iterate this value; add a `Range`, `String`, or `Seq(a)` type annotation",
             primary: expression.iterable.span,
           });
         } else if (actual.kind !== "Error") {
@@ -1640,6 +2135,9 @@ class Checker {
       }
     } else if (actualLeft.kind === "Range" && actualRight.kind === "Range") {
       return;
+    } else if (actualLeft.kind === "Seq" && actualRight.kind === "Seq") {
+      this.#unify(actualLeft.element, actualRight.element, span);
+      return;
     }
 
     this.#diagnostics.add({
@@ -1722,7 +2220,9 @@ class Checker {
     if (type.kind === "Variable") {
       type.level = Math.min(type.level, variable.level);
       type.literalOnly &&= variable.literalOnly;
-      type.requirements.push(...variable.requirements);
+      for (const requirement of variable.requirements) {
+        this.#attachRequirement(type, requirement);
+      }
       variable.instance = type;
       return;
     }
@@ -1761,6 +2261,7 @@ class Checker {
     if (actual.kind === "NominalRecord") {
       return actual.arguments.some((argument) => this.#occurs(variable, argument));
     }
+    if (actual.kind === "Seq") return this.#occurs(variable, actual.element);
     return false;
   }
 
@@ -1769,18 +2270,70 @@ class Checker {
     type: Mono,
     span: Source.Span,
     origin: Requirement["origin"] = "operation",
+    associatedTypes?: ReadonlyMap<string, Mono>,
   ): Requirement {
     const requirement: Requirement = {
       name,
       type,
       span,
       origin,
+      ...(associatedTypes === undefined ? {} : { associatedTypes }),
       reported: false,
     };
     const actual = this.#prune(type);
-    if (actual.kind === "Variable") actual.requirements.push(requirement);
+    if (actual.kind === "Variable") this.#attachRequirement(actual, requirement);
     else this.#validate(requirement);
     return requirement;
+  }
+
+  #attachRequirement(variable: Variable, requirement: Requirement): void {
+    const provider = variable.requirements.find(
+      (candidate) =>
+        this.#superconstraintPath(candidate.name, requirement.name) !== undefined,
+    );
+    if (provider !== undefined) {
+      if (provider.name === requirement.name) return;
+      const path = this.#superconstraintPath(provider.name, requirement.name);
+      requirement.evidenceConstraint = provider.name;
+      if (path !== undefined) requirement.evidencePath = path;
+      return;
+    }
+    for (const existing of variable.requirements) {
+      const path = this.#superconstraintPath(requirement.name, existing.name);
+      if (path !== undefined) {
+        existing.evidenceConstraint = requirement.name;
+        existing.evidencePath = path;
+      }
+    }
+    variable.requirements.push(requirement);
+  }
+
+  #superconstraintPath(
+    constraint: string,
+    target: string,
+    seen = new Set<string>(),
+  ): readonly string[] | undefined {
+    if (constraint === target) return [];
+    if (seen.has(constraint)) return undefined;
+    seen.add(constraint);
+    for (const superconstraint of this.#superconstraints(constraint)) {
+      const suffix = this.#superconstraintPath(superconstraint, target, seen);
+      if (suffix !== undefined) {
+        const slot =
+          (superconstraint[0]?.toLowerCase() ?? "") + superconstraint.slice(1);
+        return [slot, ...suffix];
+      }
+    }
+    return undefined;
+  }
+
+  #superconstraints(constraint: string): readonly string[] {
+    const declared = this.#constraintDeclarations.get(constraint);
+    if (declared !== undefined) return declared.superconstraints;
+    if (constraint === "Ord") return ["Eq"];
+    if (constraint === "Frac") return ["Num"];
+    if (constraint === "Hash") return ["Eq"];
+    return [];
   }
 
   #validate(requirement: Requirement): void {
@@ -1791,6 +2344,26 @@ class Checker {
     const instance = this.#instances.get(this.#instanceKey(requirement.name, type));
     if (instance !== undefined) {
       requirement.dictionary = instance.dictionary;
+      requirement.dictionaryArguments = this.#instanceArguments(instance, type);
+      if (requirement.associatedTypes !== undefined) {
+        const parameters = this.#instanceTypeParameters.get(instance) ?? new Map();
+        const replacements = this.#matchInstanceSubject(instance, type);
+        for (const [name, projection] of requirement.associatedTypes) {
+          const binding = instance.associatedTypes.find(
+            (associatedType) => associatedType.name === name,
+          );
+          if (binding !== undefined) {
+            this.#unify(
+              projection,
+              this.#replaceVariables(
+                this.#annotationType(binding.annotation, 0, new Map(), parameters),
+                replacements,
+              ),
+              requirement.span,
+            );
+          }
+        }
+      }
       return;
     }
 
@@ -1807,6 +2380,93 @@ class Checker {
     });
   }
 
+  /** Instantiates the context on a parameterized instance at a concrete use. */
+  #instanceArguments(
+    instance: Resolved.HonorItem,
+    subject: Mono,
+  ): readonly Requirement[] {
+    const replacements = this.#matchInstanceSubject(instance, subject);
+    return instance.typeParameters.flatMap((parameter) => {
+      const formal = this.#instanceTypeParameters.get(instance)?.get(parameter.name);
+      const actual = formal === undefined ? undefined : replacements.get(formal.id);
+      if (actual === undefined) return [];
+      return parameter.constraints.map((constraint) =>
+        this.#require(constraint, actual, parameter.span)
+      );
+    });
+  }
+
+  #matchInstanceSubject(
+    instance: Resolved.HonorItem,
+    subject: Mono,
+  ): ReadonlyMap<number, Mono> {
+    const parameters = new Set(
+      [...(this.#instanceTypeParameters.get(instance)?.values() ?? [])].map(({ id }) => id),
+    );
+    const replacements = new Map<number, Mono>();
+    const match = (formalType: Mono, actualType: Mono): void => {
+      const formal = this.#prune(formalType);
+      const actual = this.#prune(actualType);
+      if (formal.kind === "Variable" && parameters.has(formal.id)) {
+        replacements.set(formal.id, actual);
+        return;
+      }
+      if (formal.kind === "Union" && actual.kind === "Union") {
+        formal.arguments.forEach((argument, index) =>
+          match(argument, actual.arguments[index] ?? ERROR)
+        );
+      }
+      if (formal.kind === "NominalRecord" && actual.kind === "NominalRecord") {
+        formal.arguments.forEach((argument, index) =>
+          match(argument, actual.arguments[index] ?? ERROR)
+        );
+      }
+    };
+    match(this.#instanceSubjects.get(instance) ?? ERROR, subject);
+    return replacements;
+  }
+
+  #replaceVariables(type: Mono, replacements: ReadonlyMap<number, Mono>): Mono {
+    const actual = this.#prune(type);
+    if (actual.kind === "Variable") return replacements.get(actual.id) ?? actual;
+    if (actual.kind === "Tuple") {
+      return { kind: "Tuple", elements: actual.elements.map((element) =>
+        this.#replaceVariables(element, replacements)
+      ) };
+    }
+    if (actual.kind === "Record") {
+      return {
+        kind: "Record",
+        fields: new Map([...actual.fields].map(([name, field]) => [
+          name,
+          this.#replaceVariables(field, replacements),
+        ])),
+        ...(actual.tail === undefined ? {} : { tail: actual.tail }),
+      };
+    }
+    if (actual.kind === "Union" || actual.kind === "NominalRecord") {
+      return {
+        ...actual,
+        arguments: actual.arguments.map((argument) =>
+          this.#replaceVariables(argument, replacements)
+        ),
+      };
+    }
+    if (actual.kind === "Seq") {
+      return { kind: "Seq", element: this.#replaceVariables(actual.element, replacements) };
+    }
+    if (actual.kind === "Function") {
+      return {
+        kind: "Function",
+        parameters: actual.parameters.map((parameter) =>
+          this.#replaceVariables(parameter, replacements)
+        ),
+        result: this.#replaceVariables(actual.result, replacements),
+      };
+    }
+    return actual;
+  }
+
   #generalize(type: Mono, level: number, allow: boolean): Scheme {
     let variables = this.#collectVariables(type).filter(
       (variable) => variable.level > level,
@@ -1816,9 +2476,7 @@ class Checker {
       if (
         !inputVariables.has(variable.id) &&
         variable.requirements.length > 0 &&
-        variable.requirements.every(({ name }) =>
-          ["Num", "Eq", "Ord", "Show"].includes(name),
-        )
+        this.#canDefaultToInt(variable)
       ) {
         this.#bind(variable, primitive("Int"), variable.requirements[0]!.span);
       }
@@ -1847,10 +2505,7 @@ class Checker {
       }
       seen.add(actual.id);
       if (
-        actual.requirements.length > 0 &&
-        actual.requirements.every(({ name }) =>
-          ["Num", "Eq", "Ord", "Show"].includes(name),
-        )
+        this.#canDefaultToInt(actual)
       ) {
         this.#bind(actual, primitive("Int"), actual.requirements[0]!.span);
       }
@@ -1873,14 +2528,19 @@ class Checker {
     const actual = this.#prune(type);
     if (
       actual.kind === "Variable" &&
-      actual.requirements.length > 0 &&
-      actual.requirements.every(({ name }) =>
-        ["Num", "Eq", "Ord", "Show"].includes(name),
-      ) &&
+      this.#canDefaultToInt(actual) &&
       actual.requirements.some(({ name }) => !supports("Unit", name))
     ) {
       this.#bind(actual, primitive("Int"), span);
     }
+  }
+
+  #canDefaultToInt(variable: Variable): boolean {
+    return variable.requirements.length > 0 &&
+      variable.requirements.every(({ name }) =>
+        supports("Int", name) ||
+        this.#instances.has(this.#instanceKey(name, primitive("Int")))
+      );
   }
 
   #collectVariables(type: Mono, found = new Map<number, Variable>()): Variable[] {
@@ -1903,6 +2563,7 @@ class Checker {
     if (actual.kind === "NominalRecord") {
       for (const argument of actual.arguments) this.#collectVariables(argument, found);
     }
+    if (actual.kind === "Seq") this.#collectVariables(actual.element, found);
     return [...found.values()];
   }
 
@@ -1912,20 +2573,32 @@ class Checker {
     collected?: Requirement[],
   ): Mono {
     const replacements = new Map<number, Variable>();
+    const copiedRequirements = new Set<number>();
     for (const variable of scheme.variables) {
       replacements.set(variable.id, this.#fresh(level, variable.literalOnly));
     }
+    const associatedTypes = scheme.associatedTypes === undefined
+      ? undefined
+      : new Map(
+          [...scheme.associatedTypes].map(([name, variable]) => [
+            name,
+            replacements.get(variable.id) ?? variable,
+          ]),
+        );
     const copy = (type: Mono): Mono => {
       const actual = this.#prune(type);
       if (actual.kind === "Variable") {
         const replacement = replacements.get(actual.id);
         if (replacement === undefined) return actual;
+        if (copiedRequirements.has(actual.id)) return replacement;
+        copiedRequirements.add(actual.id);
         for (const requirement of actual.requirements) {
           const copied = this.#require(
             requirement.name,
             replacement,
             requirement.span,
             requirement.origin,
+            requirement.name === scheme.constraint ? associatedTypes : undefined,
           );
           collected?.push(copied);
         }
@@ -1947,6 +2620,7 @@ class Checker {
       if (actual.kind === "NominalRecord") {
         return { ...actual, arguments: actual.arguments.map(copy) };
       }
+      if (actual.kind === "Seq") return { kind: "Seq", element: copy(actual.element) };
       if (actual.kind === "Record") {
         const record = this.#normalizeRecord(actual);
         return {
@@ -1969,17 +2643,30 @@ class Checker {
     annotation: Resolved.TypeAnnotation,
     level = 0,
     namedTails = new Map<string, Variable>(),
-    typeParameters: ReadonlyMap<string, Variable> = new Map(),
+    typeParameters: ReadonlyMap<string, Mono> = new Map(),
+    associatedTypes: ReadonlyMap<string, Mono> = new Map(),
   ): Mono {
     if (annotation.kind === "Primitive") return primitive(annotation.name);
     if (annotation.kind === "Range") return { kind: "Range" };
+    if (annotation.kind === "Seq") {
+      return {
+        kind: "Seq",
+        element: this.#annotationType(
+          annotation.element,
+          level,
+          namedTails,
+          typeParameters,
+          associatedTypes,
+        ),
+      };
+    }
     if (annotation.kind === "Union") {
       return {
         kind: "Union",
         union: annotation.union,
         name: annotation.name,
         arguments: annotation.arguments.map((argument) =>
-          this.#annotationType(argument, level, namedTails, typeParameters)
+          this.#annotationType(argument, level, namedTails, typeParameters, associatedTypes)
         ),
       };
     }
@@ -1989,7 +2676,7 @@ class Checker {
         record: annotation.record,
         name: annotation.name,
         arguments: annotation.arguments.map((argument) =>
-          this.#annotationType(argument, level, namedTails, typeParameters)
+          this.#annotationType(argument, level, namedTails, typeParameters, associatedTypes)
         ),
       };
     }
@@ -2003,11 +2690,14 @@ class Checker {
       }
       return ERROR;
     }
+    if (annotation.kind === "AssociatedType") {
+      return associatedTypes.get(annotation.name) ?? ERROR;
+    }
     if (annotation.kind === "Tuple") {
       return {
         kind: "Tuple",
         elements: annotation.elements.map((element) =>
-          this.#annotationType(element, level, namedTails, typeParameters)
+          this.#annotationType(element, level, namedTails, typeParameters, associatedTypes)
         ),
       };
     }
@@ -2016,7 +2706,7 @@ class Checker {
         kind: "Record",
         fields: new Map(annotation.fields.map((field) => [
           field.name,
-          this.#annotationType(field.annotation, level, namedTails, typeParameters),
+          this.#annotationType(field.annotation, level, namedTails, typeParameters, associatedTypes),
         ])),
         ...(annotation.open
           ? { tail: this.#annotationTail(annotation.tail, level, namedTails) }
@@ -2075,6 +2765,7 @@ class Checker {
       switch (type.kind) {
         case "Primitive": return primitive(type.name);
         case "Range": return { kind: "Range" };
+        case "Seq": return { kind: "Seq", element: copy(type.element) };
         case "Variable": {
           const existing = variables.get(type.id);
           if (existing !== undefined) return existing;
@@ -2122,6 +2813,7 @@ class Checker {
       }
       if (actual.kind === "Union") return { ...actual, arguments: actual.arguments.map(copy) };
       if (actual.kind === "NominalRecord") return { ...actual, arguments: actual.arguments.map(copy) };
+      if (actual.kind === "Seq") return { kind: "Seq", element: copy(actual.element) };
       if (actual.kind === "Function") {
         return {
           kind: "Function",
@@ -2222,6 +2914,9 @@ class Checker {
       };
     }
     if (actual.kind === "Range") return { kind: "Range" };
+    if (actual.kind === "Seq") {
+      return { kind: "Seq", element: this.#publicType(actual.element, seen) };
+    }
     const existing = seen.get(actual.id);
     if (existing !== undefined) return existing;
     const variable: Typed.VariableType = {
@@ -2240,6 +2935,17 @@ class Checker {
       ...(requirement.dictionary === undefined
         ? {}
         : { dictionary: requirement.dictionary }),
+      ...(requirement.evidenceConstraint === undefined
+        ? {}
+        : { evidenceConstraint: requirement.evidenceConstraint }),
+      ...(requirement.evidencePath === undefined
+        ? {}
+        : { evidencePath: requirement.evidencePath }),
+      ...(requirement.dictionaryArguments === undefined
+        ? {}
+        : { dictionaryArguments: requirement.dictionaryArguments.map((argument) =>
+            this.#publicRequirement(argument)
+          ) }),
     };
   }
 
@@ -2263,6 +2969,10 @@ class Checker {
     const constraints = new Map<string, Typed.Constraint>();
     for (const variable of variables) {
       for (const requirement of variable.requirements) {
+        if (
+          requirement.evidenceConstraint !== undefined &&
+          requirement.evidenceConstraint !== requirement.name
+        ) continue;
         const constraint = this.#publicRequirement(requirement);
         constraints.set(`${constraint.name}:${variable.id}`, constraint);
       }
@@ -2283,6 +2993,14 @@ class Checker {
         kind: "ConstraintDeclaration",
         name: item.name,
         subject: Typed.typeVariableId(subject.id),
+        superconstraints: item.superconstraints,
+        associatedTypes: item.associatedTypes.map((associatedType) => ({
+          name: associatedType.name,
+          type: this.#publicType(
+            this.#constraintAssociatedTypes.get(item)?.get(associatedType.name) ?? ERROR,
+          ),
+          span: associatedType.span,
+        })),
         members: item.members.map((member) => ({
           binding: {
             ...member.binding,
@@ -2297,23 +3015,57 @@ class Checker {
             0,
             new Map(),
             new Map([[item.subject, subject]]),
+            this.#constraintAssociatedTypes.get(item),
           )),
+          ...(member.defaultValue === undefined
+            ? {}
+            : { defaultValue: this.#materializeLambda(member.defaultValue) }),
           span: member.span,
         })),
         span: item.span,
       };
     }
     if (item.kind === "Honor") {
+      const typeParameters = this.#instanceTypeParameters.get(item) ?? new Map();
+      const declaration = this.#constraintDeclarations.get(item.constraint);
+      const supplied = new Set(item.members.map(({ name }) => name));
+      const inherited = declaration?.members.flatMap((member) =>
+        member.defaultValue !== undefined && !supplied.has(member.binding.name)
+          ? [{
+              name: member.binding.name,
+              value: this.#materializeLambda(member.defaultValue),
+              span: member.span,
+            }]
+          : []
+      ) ?? [];
       return {
         kind: "Honor",
         constraint: item.constraint,
-        subject: this.#publicType(this.#annotationType(item.subject)),
-        dictionary: item.dictionary,
-        members: item.members.map((member) => ({
-          name: member.name,
-          value: this.#materializeLambda(member.value),
-          span: member.span,
+        typeParameters: item.typeParameters.map((parameter) => ({
+          name: parameter.name,
+          variable: Typed.typeVariableId(typeParameters.get(parameter.name)?.id ?? -1),
+          constraints: parameter.constraints,
+          span: parameter.span,
         })),
+        subject: this.#publicType(this.#instanceSubjects.get(item) ?? ERROR),
+        derived: item.derived,
+        dictionary: item.dictionary,
+        superconstraints: this.#publicRequirements(
+          this.#instanceSuperconstraints.get(item) ?? [],
+        ),
+        associatedTypes: item.associatedTypes.map((associatedType) => ({
+          name: associatedType.name,
+          type: this.#publicType(this.#annotationType(associatedType.annotation)),
+          span: associatedType.span,
+        })),
+        members: [
+          ...item.members.map((member) => ({
+            name: member.name,
+            value: this.#materializeLambda(member.value),
+            span: member.span,
+          })),
+          ...inherited,
+        ],
         span: item.span,
       };
     }
@@ -2335,6 +3087,7 @@ class Checker {
         name: item.name,
         parameters: [...(this.#unionParameters.get(item.union)?.values() ?? [])]
           .map(({ id }) => Typed.typeVariableId(id)),
+        derives: item.derives,
         constructors: item.constructors.map(({ binding, slots }) => ({
           ...binding,
           scheme: this.#publicScheme(this.#scheme(binding.symbol)),
@@ -2470,6 +3223,7 @@ class Checker {
       name: union.name,
       parameters: [...(this.#unionParameters.get(union.id)?.values() ?? [])]
         .map(({ id }) => Typed.typeVariableId(id)),
+      derives: union.derives,
       span: union.span,
       constructors: union.constructors.map(({ binding, slots }) => ({
         ...binding,
@@ -2494,6 +3248,7 @@ class Checker {
       id: record.id,
       name: record.name,
       parameters: [...(parameters?.values() ?? [])].map(({ id }) => Typed.typeVariableId(id)),
+      derives: record.derives,
       constructor: {
         ...record.constructor,
         scheme: this.#publicScheme(this.#scheme(record.constructor.symbol)),
@@ -2516,6 +3271,7 @@ class Checker {
     const type = this.#publicType(this.#typeOf(expression));
     switch (expression.kind) {
       case "Name":
+      case "SeqOperation":
       case "Unit":
       case "Boolean":
       case "BigInt":
@@ -2876,6 +3632,7 @@ class Checker {
         : `${actual.name}(${actual.arguments.map((argument) => this.#display(argument)).join(", ")})`;
     }
     if (actual.kind === "Range") return "Range";
+    if (actual.kind === "Seq") return `Seq(${this.#display(actual.element)})`;
     if (actual.kind === "Record") {
       const fields = [...actual.fields].map(([name, field]) => `${name}: ${this.#display(field)}`);
       if (actual.tail !== undefined) fields.push("...");
@@ -2989,13 +3746,13 @@ function supports(
   constraint: Typed.ConstraintName,
 ): boolean {
   const instances: Record<Typed.PrimitiveName, readonly Typed.ConstraintName[]> = {
-    Int: ["Num", "Eq", "Ord", "Show", "Pow"],
-    Float: ["Num", "Frac", "Eq", "Ord", "Show", "Pow"],
-    Bool: ["Eq", "Ord", "Show"],
-    String: ["Eq", "Ord", "Show", "Concat"],
-    BigInt: ["Num", "Eq", "Ord", "Show", "Pow"],
+    Int: ["Num", "Eq", "Ord", "Show", "Pow", "Hash", "Integral"],
+    Float: ["Num", "Frac", "Eq", "Ord", "Show", "Pow", "Hash"],
+    Bool: ["Eq", "Ord", "Show", "Hash"],
+    String: ["Eq", "Ord", "Show", "Concat", "Hash"],
+    BigInt: ["Num", "Eq", "Ord", "Show", "Pow", "Hash", "Integral"],
     Exn: [],
-    Unit: ["Eq", "Ord", "Show"],
+    Unit: ["Eq", "Ord", "Show", "Hash"],
   };
   return instances[type].includes(constraint);
 }

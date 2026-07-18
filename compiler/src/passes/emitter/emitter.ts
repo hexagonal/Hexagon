@@ -50,6 +50,7 @@ class JavaScriptEmitter {
   readonly #recordConstructors = new Set<Resolved.SymbolId>();
   readonly #constrainedImports = new Map<Resolved.SymbolId, string>();
   readonly #exceptions = new Map<Resolved.SymbolId, Core.ExceptionItem>();
+  readonly #constraints = new Map<string, Core.ConstraintItem>();
   readonly #nullaryExceptions = new Set<Resolved.SymbolId>();
   readonly #generatedNames: GeneratedNames;
   readonly #helpers = new Set<Helper>();
@@ -77,6 +78,7 @@ class JavaScriptEmitter {
       this.#recordConstructors.add(record.constructor.symbol);
     }
     for (const item of module.items) {
+      if (item.kind === "ConstraintDeclaration") this.#constraints.set(item.name, item);
       if (item.kind !== "Exception") continue;
       this.#exceptions.set(item.binding.symbol, item);
       if (item.slots.length === 0) this.#nullaryExceptions.add(item.binding.symbol);
@@ -134,7 +136,11 @@ class JavaScriptEmitter {
 
     const helpers = [...this.#helpers]
       .sort()
-      .flatMap((helper) => renderHelper(helper, this.#helperName(helper)));
+      .flatMap((helper) =>
+        renderHelper(helper, this.#helperName(helper), (dependency) =>
+          this.#helperName(dependency)
+        )
+      );
     const lines = helpers.length === 0 ? body : [...helpers, "", ...body];
 
     const text = lines.length === 0 ? "" : `${lines.join("\n")}\n`;
@@ -193,10 +199,51 @@ class JavaScriptEmitter {
       });
     }
     if (item.kind === "Honor") {
-      const members = item.members.map((member) =>
-        `${member.name}: ${this.#emitExpr(member.value, depth, evidenceNames)}`
+      const localEvidence = new Map(evidenceNames);
+      const parameters = item.typeParameters.flatMap((parameter) =>
+        parameter.constraints.map((constraint) => {
+          const name = dictionaryParameterName(constraint, parameter.variable);
+          localEvidence.set(evidenceKey(parameter.variable, constraint), name);
+          return name;
+        })
       );
-      return [`${prefix}const ${item.dictionary} = { ${members.join(", ")} };`];
+      const localDictionary = parameters.length === 0
+        ? item.dictionary
+        : this.#generatedNames.fresh("instance");
+      const declaration = this.#constraints.get(item.constraint);
+      if (declaration !== undefined) {
+        localEvidence.set(
+          evidenceKey(declaration.subject, item.constraint),
+          localDictionary,
+        );
+      }
+      const superconstraints = item.superconstraints.map(({ name, evidence }) => {
+        const slot = (name[0]?.toLowerCase() ?? "") + name.slice(1);
+        return `${slot}: ${this.#emitEvidence(evidence, name, item.span, localEvidence)}`;
+      });
+      const members = item.derived
+        ? this.#derivedMembers(item, localEvidence)
+        : item.members.map((member) =>
+            `${member.name}: ${this.#emitExpr(member.value, depth, localEvidence)}`
+          );
+      const completedMembers =
+        !item.derived && item.constraint === "Eq" &&
+          !item.members.some(({ name }) => name === "notEquals")
+          ? [
+              ...members,
+              `notEquals: (__hex_left, __hex_right) => !${localDictionary}.equals(__hex_left, __hex_right)`,
+            ]
+          : members;
+      const value = `{ ${[...superconstraints, ...completedMembers].join(", ")} }`;
+      if (parameters.length === 0) {
+        return [`${prefix}const ${item.dictionary} = ${value};`];
+      }
+      return [
+        `${prefix}const ${item.dictionary} = (${parameters.join(", ")}) => {`,
+        `${indent(depth + 1)}const ${localDictionary} = ${value};`,
+        `${indent(depth + 1)}return ${localDictionary};`,
+        `${prefix}};`,
+      ];
     }
     if (item.kind === "ExprItem") {
       if (item.expression.kind === "While") {
@@ -534,6 +581,17 @@ class JavaScriptEmitter {
         if (expression.text.includes(".")) return expression.text;
         const name = this.#identifier(expression.symbol, expression.text);
         return this.#nullaryExceptions.has(expression.symbol) ? `${name}()` : name;
+      case "SeqOperation":
+        this.#useHelper("seq");
+        return this.#useHelper(
+          expression.operation === "iterate"
+            ? "seqIterate"
+            : expression.operation === "map"
+            ? "seqMap"
+            : expression.operation === "filter"
+            ? "seqFilter"
+            : "seqTake",
+        );
       case "Unit":
       case "ErrorExpr":
         return "undefined";
@@ -808,7 +866,9 @@ class JavaScriptEmitter {
   ): string {
     const emittedCallee = this.#emitExpr(expression.callee, depth, evidenceNames);
     const callee =
-      expression.callee.kind === "Name" || expression.callee.kind === "Call"
+      expression.callee.kind === "Name" ||
+        expression.callee.kind === "SeqOperation" ||
+        expression.callee.kind === "Call"
         ? emittedCallee
         : `(${emittedCallee})`;
     const arguments_ = expression.arguments.map((argument) =>
@@ -816,13 +876,15 @@ class JavaScriptEmitter {
     );
     arguments_.push(...expression.evidence.map(({ constraint, value }) => {
       if (value.kind === "Dictionary") {
-        return evidenceNames.get(evidenceKey(value.variable, constraint)) ?? "undefined";
+        return this.#dictionary(
+          value.variable,
+          value.constraint ?? constraint,
+          expression.span,
+          evidenceNames,
+          value.path,
+        );
       }
-      if (value.kind === "Primitive") {
-        return primitiveDictionary(constraint, value.instance);
-      }
-      if (value.kind === "Instance") return value.dictionary;
-      return "undefined";
+      return this.#emitEvidence(value, constraint, expression.span, evidenceNames);
     }));
     return `${callee}(${arguments_.join(", ")})`;
   }
@@ -1072,14 +1134,21 @@ class JavaScriptEmitter {
         : cleanNumber(expression.decimal);
     }
     if (expression.evidence.kind === "Instance") {
-      return `${expression.evidence.dictionary}.fromInt(${cleanNumber(expression.decimal)})`;
+      const dictionary = this.#emitEvidence(
+        expression.evidence,
+        "Num",
+        expression.span,
+        evidenceNames,
+      );
+      return `${dictionary}.fromInt(${cleanNumber(expression.decimal)})`;
     }
     if (expression.evidence.kind !== "Dictionary") return "undefined";
     const dictionary = this.#dictionary(
       expression.evidence.variable,
-      "Num",
+      expression.evidence.constraint ?? "Num",
       expression.span,
       evidenceNames,
+      expression.evidence.path,
     );
     return `${dictionary}.fromInt(${cleanNumber(expression.decimal)})`;
   }
@@ -1095,14 +1164,21 @@ class JavaScriptEmitter {
       if (part.evidence.kind === "Dictionary") {
         const dictionary = this.#dictionary(
           part.evidence.variable,
+          part.evidence.constraint ?? "Show",
+          part.span,
+          evidenceNames,
+          part.evidence.path,
+        );
+        return `${dictionary}.show(${value})`;
+      }
+      if (part.evidence.kind === "Instance") {
+        const dictionary = this.#emitEvidence(
+          part.evidence,
           "Show",
           part.span,
           evidenceNames,
         );
         return `${dictionary}.show(${value})`;
-      }
-      if (part.evidence.kind === "Instance") {
-        return `${part.evidence.dictionary}.show(${value})`;
       }
       if (part.evidence.kind === "Primitive") {
         if (part.evidence.instance === "String") {
@@ -1132,15 +1208,22 @@ class JavaScriptEmitter {
     if (expression.evidence.kind === "Dictionary") {
       const dictionary = this.#dictionary(
         expression.evidence.variable,
-        expression.constraint,
+        expression.evidence.constraint ?? expression.constraint,
         expression.span,
         evidenceNames,
+        expression.evidence.path,
       );
       return `${dictionary}.${expression.member}(${arguments_.join(", ")})`;
     }
     if (expression.evidence.kind === "Error") return "undefined";
     if (expression.evidence.kind === "Instance") {
-      return `${expression.evidence.dictionary}.${expression.member}(${arguments_.join(", ")})`;
+      const dictionary = this.#emitEvidence(
+        expression.evidence,
+        expression.constraint,
+        expression.span,
+        evidenceNames,
+      );
+      return `${dictionary}.${expression.member}(${arguments_.join(", ")})`;
     }
 
     const instance = expression.evidence.instance;
@@ -1266,14 +1349,15 @@ class JavaScriptEmitter {
     right: string,
     evidenceNames: EvidenceNames,
   ): string {
+    const constraint =
+      step.test === "Equal" || step.test === "NotEqual" ? "Eq" : "Ord";
     if (step.evidence.kind === "Dictionary") {
-      const constraint =
-        step.test === "Equal" || step.test === "NotEqual" ? "Eq" : "Ord";
       const dictionary = this.#dictionary(
         step.evidence.variable,
-        constraint,
+        step.evidence.constraint ?? constraint,
         step.span,
         evidenceNames,
+        step.evidence.path,
       );
       if (step.test === "Equal") return `${dictionary}.equals(${left}, ${right})`;
       if (step.test === "NotEqual") {
@@ -1286,7 +1370,12 @@ class JavaScriptEmitter {
     }
     if (step.evidence.kind === "Error") return "false";
     if (step.evidence.kind === "Instance") {
-      const dictionary = step.evidence.dictionary;
+      const dictionary = this.#emitEvidence(
+        step.evidence,
+        constraint,
+        step.span,
+        evidenceNames,
+      );
       if (step.test === "Equal") return `${dictionary}.equals(${left}, ${right})`;
       if (step.test === "NotEqual") return `${dictionary}.notEquals(${left}, ${right})`;
       return comparisonFromOrder(step.test, `${dictionary}.compare(${left}, ${right})`);
@@ -1324,14 +1413,301 @@ class JavaScriptEmitter {
     constraint: Typed.ConstraintName,
     span: Core.Expr["span"],
     evidenceNames: EvidenceNames,
+    path: readonly string[] = [],
   ): string {
     const name = evidenceNames.get(evidenceKey(variable, constraint));
-    if (name !== undefined) return name;
+    if (name !== undefined) {
+      return path.reduce((dictionary, slot) => `${dictionary}.${slot}`, name);
+    }
     this.#diagnostics.add({
       severity: "error",
       message: `missing \`${constraint}\` evidence during JavaScript emission`,
       primary: span,
     });
+    return "undefined";
+  }
+
+  #derivedMembers(item: Core.HonorItem, evidenceNames: EvidenceNames): readonly string[] {
+    const subject = item.subject;
+    const equals = (left: string, right: string): string =>
+      this.#derivedEquals(subject, left, right, evidenceNames);
+    if (item.constraint === "Eq") {
+      return [
+        `equals: (__hex_left, __hex_right) => ${equals("__hex_left", "__hex_right")}`,
+        `notEquals: (__hex_left, __hex_right) => !(${equals("__hex_left", "__hex_right")})`,
+      ];
+    }
+    if (item.constraint === "Show") {
+      return [`show: __hex_value => ${this.#derivedShow(subject, "__hex_value", evidenceNames)}`];
+    }
+    if (item.constraint === "Ord") {
+      return [
+        `compare: (__hex_left, __hex_right) => ${this.#derivedCompare(
+          subject,
+          "__hex_left",
+          "__hex_right",
+          evidenceNames,
+        )}`,
+      ];
+    }
+    return [
+      "hash: __hex_value => { const __hex_text = JSON.stringify(__hex_value); let __hex_hash = 0; for (let __hex_index = 0; __hex_index < __hex_text.length; __hex_index += 1) __hex_hash = ((__hex_hash * 31) + __hex_text.charCodeAt(__hex_index)) | 0; return __hex_hash; }",
+    ];
+  }
+
+  #derivedCompare(
+    type: Typed.Type,
+    left: string,
+    right: string,
+    evidenceNames: EvidenceNames,
+  ): string {
+    if (type.kind === "Primitive") {
+      if (type.name === "Float") return `${this.#useHelper("compareFloat")}(${left}, ${right})`;
+      if (type.name === "String") return `${this.#useHelper("compareString")}(${left}, ${right})`;
+      if (type.name === "Unit") return "0";
+      return `${left} < ${right} ? -1 : ${left} > ${right} ? 1 : 0`;
+    }
+    if (type.kind === "Variable") {
+      return `${this.#dictionary(type.id, "Ord", this.#module.span, evidenceNames)}.compare(${left}, ${right})`;
+    }
+    if (type.kind === "Tuple") {
+      return lexicographicComparison(type.elements.map((element, index) =>
+        this.#derivedCompare(element, `${left}[${index}]`, `${right}[${index}]`, evidenceNames)
+      ));
+    }
+    if (type.kind === "Record") {
+      return lexicographicComparison(
+        [...type.fields].sort((a, b) => a.name.localeCompare(b.name)).map((field) =>
+          this.#derivedCompare(field.type, `${left}.${field.name}`, `${right}.${field.name}`, evidenceNames)
+        ),
+      );
+    }
+    if (type.kind === "NominalRecord") {
+      const record = this.#module.records.find(({ id }) => id === type.record);
+      if (record === undefined) return "0";
+      const replacements = new Map(record.parameters.map((parameter, index) => [
+        parameter,
+        type.arguments[index] ?? { kind: "Error" as const },
+      ]));
+      return lexicographicComparison(
+        [...record.fields].sort((a, b) => a.name.localeCompare(b.name)).map((field) =>
+          this.#derivedCompare(
+            substituteType(field.type, replacements),
+            `${left}.${field.name}`,
+            `${right}.${field.name}`,
+            evidenceNames,
+          )
+        ),
+      );
+    }
+    if (type.kind === "Union") {
+      const union = this.#module.unions.find(({ id }) => id === type.union);
+      if (union === undefined) return "0";
+      const tag = (value: string) => union.constructors
+        .map((constructor, index) => `${value} === ${JSON.stringify(constructor.name)} ? ${index} : `)
+        .join("") + "-1";
+      const tagged = union.constructors.some(({ slots }) => slots.length > 0);
+      if (!tagged) return `(${tag(left)}) - (${tag(right)})`;
+      const replacements = new Map(union.parameters.map((parameter, index) => [
+        parameter,
+        type.arguments[index] ?? { kind: "Error" as const },
+      ]));
+      const cases = union.constructors.map((constructor) => {
+        const comparison = lexicographicComparison(constructor.slots.map((slot) =>
+          this.#derivedCompare(
+            substituteType(slot.type, replacements),
+            `${left}.${slot.field}`,
+            `${right}.${slot.field}`,
+            evidenceNames,
+          )
+        ));
+        return `case ${JSON.stringify(constructor.name)}: return ${comparison};`;
+      }).join(" ");
+      return `(() => { const __hex_tagOrder = (${tag(`${left}.tag`)}) - (${tag(`${right}.tag`)}); if (__hex_tagOrder !== 0) return __hex_tagOrder; switch (${left}.tag) { ${cases} default: return 0; } })()`;
+    }
+    return "0";
+  }
+
+  #derivedEquals(
+    type: Typed.Type,
+    left: string,
+    right: string,
+    evidenceNames: EvidenceNames,
+  ): string {
+    if (type.kind === "Primitive") {
+      return type.name === "Float"
+        ? `${this.#useHelper("floatEquals")}(${left}, ${right})`
+        : `${left} === ${right}`;
+    }
+    if (type.kind === "Variable") {
+      const dictionary = this.#dictionary(
+        type.id,
+        "Eq",
+        this.#module.span,
+        evidenceNames,
+      );
+      return `${dictionary}.equals(${left}, ${right})`;
+    }
+    if (type.kind === "Tuple") {
+      return type.elements.map((element, index) =>
+        this.#derivedEquals(element, `${left}[${index}]`, `${right}[${index}]`, evidenceNames)
+      ).join(" && ") || "true";
+    }
+    if (type.kind === "Record") {
+      return type.fields.map((field) =>
+        this.#derivedEquals(field.type, `${left}.${field.name}`, `${right}.${field.name}`, evidenceNames)
+      ).join(" && ") || "true";
+    }
+    if (type.kind === "NominalRecord") {
+      const record = this.#module.records.find(({ id }) => id === type.record);
+      if (record === undefined) return `${left} === ${right}`;
+      const replacements = new Map(record.parameters.map((parameter, index) => [
+        parameter,
+        type.arguments[index] ?? { kind: "Error" as const },
+      ]));
+      return record.fields.map((field) =>
+        this.#derivedEquals(
+          substituteType(field.type, replacements),
+          `${left}.${field.name}`,
+          `${right}.${field.name}`,
+          evidenceNames,
+        )
+      ).join(" && ") || "true";
+    }
+    if (type.kind === "Union") {
+      const union = this.#module.unions.find(({ id }) => id === type.union);
+      if (union === undefined) return `${left} === ${right}`;
+      const tagged = union.constructors.some(({ slots }) => slots.length > 0);
+      if (!tagged) return `${left} === ${right}`;
+      const replacements = new Map(union.parameters.map((parameter, index) => [
+        parameter,
+        type.arguments[index] ?? { kind: "Error" as const },
+      ]));
+      const cases = union.constructors.map((constructor) => {
+        const fields = constructor.slots.map((slot) =>
+          this.#derivedEquals(
+            substituteType(slot.type, replacements),
+            `${left}.${slot.field}`,
+            `${right}.${slot.field}`,
+            evidenceNames,
+          )
+        ).join(" && ") || "true";
+        return `case ${JSON.stringify(constructor.name)}: return ${fields};`;
+      }).join(" ");
+      return `${left}.tag === ${right}.tag && (() => { switch (${left}.tag) { ${cases} default: return false; } })()`;
+    }
+    return `${left} === ${right}`;
+  }
+
+  #derivedShow(
+    type: Typed.Type,
+    value: string,
+    evidenceNames: EvidenceNames,
+  ): string {
+    if (type.kind === "Primitive") {
+      if (type.name === "String") return value;
+      if (type.name === "Unit") return '"()"';
+      return `String(${value})`;
+    }
+    if (type.kind === "Variable") {
+      return `${this.#dictionary(type.id, "Show", this.#module.span, evidenceNames)}.show(${value})`;
+    }
+    if (type.kind === "Tuple") {
+      const elements = type.elements.map((element, index) =>
+        this.#derivedShow(element, `${value}[${index}]`, evidenceNames)
+      );
+      return elements.length === 0
+        ? '"()"'
+        : `"(" + ${elements.join(' + ", " + ')} + ")"`;
+    }
+    if (type.kind === "Record") {
+      const fields = [...type.fields].sort((a, b) => a.name.localeCompare(b.name)).map((field) =>
+        `${JSON.stringify(`${field.name}: `)} + ${this.#derivedShow(
+          field.type,
+          `${value}.${field.name}`,
+          evidenceNames,
+        )}`
+      );
+      return fields.length === 0 ? '"{}"' : `"{" + ${fields.join(' + ", " + ')} + "}"`;
+    }
+    if (type.kind === "NominalRecord") {
+      const record = this.#module.records.find(({ id }) => id === type.record);
+      if (record !== undefined) {
+        const replacements = new Map(record.parameters.map((parameter, index) => [
+          parameter,
+          type.arguments[index] ?? { kind: "Error" as const },
+        ]));
+        const fields = [...record.fields].sort((a, b) => a.name.localeCompare(b.name)).map((field) =>
+          `${JSON.stringify(`${field.name}: `)} + ${this.#derivedShow(
+            substituteType(field.type, replacements),
+            `${value}.${field.name}`,
+            evidenceNames,
+          )}`
+        );
+        return fields.length === 0
+          ? '"{}"'
+          : `"{" + ${fields.join(` + ", " + `)} + "}"`;
+      }
+    }
+    if (type.kind === "Union") {
+      const union = this.#module.unions.find(({ id }) => id === type.union);
+      if (union !== undefined) {
+        const tagged = union.constructors.some(({ slots }) => slots.length > 0);
+        if (!tagged) return value;
+        const replacements = new Map(union.parameters.map((parameter, index) => [
+          parameter,
+          type.arguments[index] ?? { kind: "Error" as const },
+        ]));
+        const cases = union.constructors.map((constructor) => {
+          const payload = constructor.slots.map((slot) =>
+            this.#derivedShow(
+              substituteType(slot.type, replacements),
+              `${value}.${slot.field}`,
+              evidenceNames,
+            )
+          );
+          const shown = payload.length === 0
+            ? JSON.stringify(constructor.name)
+            : `${JSON.stringify(`${constructor.name}(`)} + ${payload.join(' + ", " + ')} + ")"`;
+          return `case ${JSON.stringify(constructor.name)}: return ${shown};`;
+        }).join(" ");
+        return `(() => { switch (${value}.tag) { ${cases} default: return "<unknown>"; } })()`;
+      }
+    }
+    return `JSON.stringify(${value})`;
+  }
+
+  #emitEvidence(
+    evidence: Core.Evidence,
+    constraint: Typed.ConstraintName,
+    span: Core.Expr["span"],
+    evidenceNames: EvidenceNames,
+  ): string {
+    if (evidence.kind === "Dictionary") {
+      return this.#dictionary(
+        evidence.variable,
+        evidence.constraint ?? constraint,
+        span,
+        evidenceNames,
+        evidence.path,
+      );
+    }
+    if (evidence.kind === "Primitive") {
+      return primitiveDictionary(constraint, evidence.instance);
+    }
+    if (evidence.kind === "Instance") {
+      const arguments_ = evidence.arguments.map((argument) =>
+        this.#emitEvidence(
+          argument.evidence,
+          argument.constraint,
+          span,
+          evidenceNames,
+        )
+      );
+      return arguments_.length === 0
+        ? evidence.dictionary
+        : `${evidence.dictionary}(${arguments_.join(", ")})`;
+    }
     return "undefined";
   }
 
@@ -1804,7 +2180,18 @@ function blankLinesBetween(previous: Source.Span, next: Source.Span): number {
   return Math.max(0, next.start.line - previous.end.line - 1);
 }
 
-type Helper = "checkedPower" | "compareFloat" | "compareString" | "exception" | "floatEquals" | "range";
+type Helper =
+  | "checkedPower"
+  | "compareFloat"
+  | "compareString"
+  | "exception"
+  | "floatEquals"
+  | "range"
+  | "seq"
+  | "seqFilter"
+  | "seqIterate"
+  | "seqMap"
+  | "seqTake";
 
 enum Precedence {
   Arrow = 1,
@@ -1880,6 +2267,7 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
     case "Block":
       return Precedence.Call;
     case "Name":
+    case "SeqOperation":
     case "Unit":
     case "Boolean":
     case "Number":
@@ -1897,7 +2285,11 @@ function comparisonPrecedence(step: Core.ComparisonStep): Precedence {
     : Precedence.Relational;
 }
 
-function renderHelper(helper: Helper, name: string): string[] {
+function renderHelper(
+  helper: Helper,
+  name: string,
+  dependencyName: (helper: Helper) => string,
+): string[] {
   switch (helper) {
     case "exception":
       return [
@@ -1955,6 +2347,68 @@ function renderHelper(helper: Helper, name: string): string[] {
         "  };",
         "}",
       ];
+    case "seq":
+      // Every traversal replays the same memoized spine. The source generator
+      // advances only when a traversal reaches the current frontier.
+      return [
+        `function ${name}(__hex_source) {`,
+        "  const __hex_values = [];",
+        "  const __hex_iterator = __hex_source[Symbol.iterator]();",
+        "  let __hex_done = false;",
+        "  return {",
+        "    *[Symbol.iterator]() {",
+        "      for (let __hex_index = 0; ; __hex_index += 1) {",
+        "        if (__hex_index === __hex_values.length && !__hex_done) {",
+        "          const __hex_next = __hex_iterator.next();",
+        "          __hex_done = __hex_next.done;",
+        "          if (!__hex_done) __hex_values.push(__hex_next.value);",
+        "        }",
+        "        if (__hex_index >= __hex_values.length) return;",
+        "        yield __hex_values[__hex_index];",
+        "      }",
+        "    },",
+        "  };",
+        "}",
+      ];
+    case "seqIterate":
+      return [
+        `function ${name}(__hex_seed, __hex_next) {`,
+        `  return ${dependencyName("seq")}((function* () {`,
+        "    let __hex_value = __hex_seed;",
+        "    while (true) { yield __hex_value; __hex_value = __hex_next(__hex_value); }",
+        "  })());",
+        "}",
+      ];
+    case "seqMap":
+      return [
+        `function ${name}(__hex_values, __hex_transform) {`,
+        `  return ${dependencyName("seq")}((function* () {`,
+        "    for (const __hex_value of __hex_values) yield __hex_transform(__hex_value);",
+        "  })());",
+        "}",
+      ];
+    case "seqFilter":
+      return [
+        `function ${name}(__hex_values, __hex_keep) {`,
+        `  return ${dependencyName("seq")}((function* () {`,
+        "    for (const __hex_value of __hex_values) if (__hex_keep(__hex_value)) yield __hex_value;",
+        "  })());",
+        "}",
+      ];
+    case "seqTake":
+      return [
+        `function ${name}(__hex_values, __hex_count) {`,
+        `  return ${dependencyName("seq")}((function* () {`,
+        "    if (__hex_count <= 0) return;",
+        "    let __hex_seen = 0;",
+        "    for (const __hex_value of __hex_values) {",
+        "      yield __hex_value;",
+        "      __hex_seen += 1;",
+        "      if (__hex_seen >= __hex_count) return;",
+        "    }",
+        "  })());",
+        "}",
+      ];
   }
 }
 
@@ -2004,6 +2458,49 @@ function dictionaryEntries(scheme: Typed.Scheme): readonly {
         Number(left.variable) - Number(right.variable) ||
         left.constraint.localeCompare(right.constraint),
     );
+}
+
+function substituteType(
+  type: Typed.Type,
+  replacements: ReadonlyMap<Typed.TypeVariableId, Typed.Type>,
+): Typed.Type {
+  if (type.kind === "Variable") return replacements.get(type.id) ?? type;
+  if (type.kind === "Function") {
+    return {
+      kind: "Function",
+      parameters: type.parameters.map((parameter) => substituteType(parameter, replacements)),
+      result: substituteType(type.result, replacements),
+    };
+  }
+  if (type.kind === "Tuple") {
+    return { kind: "Tuple", elements: type.elements.map((element) =>
+      substituteType(element, replacements)
+    ) };
+  }
+  if (type.kind === "Record") {
+    return {
+      ...type,
+      fields: type.fields.map((field) => ({
+        ...field,
+        type: substituteType(field.type, replacements),
+      })),
+    };
+  }
+  if (type.kind === "Union" || type.kind === "NominalRecord") {
+    return {
+      ...type,
+      arguments: type.arguments.map((argument) => substituteType(argument, replacements)),
+    };
+  }
+  return type;
+}
+
+function lexicographicComparison(comparisons: readonly string[]): string {
+  if (comparisons.length === 0) return "0";
+  const statements = comparisons.map((comparison, index) =>
+    `const __hex_order${index} = ${comparison}; if (__hex_order${index} !== 0) return __hex_order${index};`
+  );
+  return `(() => { ${statements.join(" ")} return 0; })()`;
 }
 
 function dictionaryParameterName(
@@ -2166,6 +2663,8 @@ function renderType(
       return variables.get(type.id) ?? "unknown";
     case "Range":
       return "Iterable<number>";
+    case "Seq":
+      return `Iterable<${renderType(type.element, variables, false)}>`;
     case "Union":
       return type.arguments.length === 0
         ? type.name
