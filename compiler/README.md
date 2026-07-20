@@ -4,7 +4,7 @@ This folder contains the beginning of `hexc`, the Hexagon compiler.
 
 The platform-neutral TypeScript core now includes shared source coordinates,
 structured diagnostics, the complete physical lexer, and the indentation layout
-pass. Thirty-seven vertical compiler slices now carry the public pipeline through `Source.File -> Lexed.File
+pass. Thirty-eight vertical compiler slices now carry the public pipeline through `Source.File -> Lexed.File
 -> LaidOut.File -> Parsed.Module -> Resolved.Module -> Typed.Module -> Core.Module ->
 Emitted output` for a deliberate language subset.
 
@@ -23,10 +23,10 @@ guarded full-pattern `try`/`catch` arms, completed user constraint declarations 
 declarations and ground bindings, `derive` and declaration-header `derives`, explicit
 constrained binders, `Seq(a)`, relative imports, explicit right-associative function
 types with zero, one, or many parameters, and the complete operator precedence table.
-Transparent parameterized type aliases, qualified type paths, and opaque record
-and union exports are also implemented. `extern` declarations remain an explicit future FFI parser slice;
-encountering one produces a recovery diagnostic rather than a misleading partial
-tree.
+Transparent parameterized type aliases, qualified type paths, opaque record and union
+exports, and module-level `extern` imports with named, aliased, default, effect, value,
+function, and opaque-type declarations are also implemented. Receiver members, classes,
+and enums remain later FFI slices and receive targeted diagnostics.
 
 The initial resolver assigns stable symbols to sequential `let` bindings, directly
 recursive `fun` bindings, local `var` bindings, loop-head patterns, and lambda parameters. It implements lexical block scopes
@@ -63,9 +63,11 @@ constraints, superconstraints, inherited defaults, coherent ground and parameter
 instances, nominal derivation, concrete implied type substitution, the
 projection-bearing constraint binder ban, concrete exception payloads, guarded full-pattern
 exception handling, imported schemes, and nominal dot-call
-resolution. Exported signatures cannot expose private nominal types, and imported opaque
+resolution. Exported signatures cannot expose private nominal or foreign types, and imported opaque
 records reject construction, field access, destructuring, and updates outside their home
-module. The public dictionary ABI and `extern` validation are later FFI slices. Primitive annotations
+module. Extern signatures are monomorphic, annotation-driven, and checked for their
+implemented boundary adaptations. The public dictionary ABI and later FFI validation
+remain future slices. Primitive annotations
 constrain inference and are erased after checking rather than leaking into Core.
 Direct recursion uses one monotype inside its own body and generalizes only after
 the recursive knot closes.
@@ -91,7 +93,9 @@ branded real-`Error` exceptions with nested guarded handlers and implicit rethro
 constraint dictionaries, imported ESM graphs, local mutation as
 JavaScript `let`/assignment, replayable iterable ranges and memoized lazy sequences,
 generator-backed `Seq.iterate`/`map`/`filter`/`take`, `while`, and native
-`for..of` loops for Range/String/Seq iteration. Implied type bindings are checked and
+`for..of` loops for Range/String/Seq iteration. Module-level foreign bindings emit direct
+ESM imports; `Seq` results and values receive one stable boundary adapter, while `Unit`
+results discard the foreign return value. Implied type bindings are checked and
 then erased; their term members remain ordinary dictionary fields. Exported constrained functions receive
 direct dictionary-free fundamental editions, with deterministic names, collision
 diagnostics, and byte-counted generated regions. Declarations cover
@@ -99,7 +103,8 @@ exported primitives, tuples, structural records, discriminated payload unions an
 their constructors, nominal records, exceptions, unconstrained polymorphic functions,
 and fundamental specializations. Exported aliases remain named TypeScript aliases;
 opaque records and unions receive collision-safe private-symbol brands without exporting
-their constructors.
+their constructors. Exported opaque foreign types receive the same collision-safe
+brand treatment, and exported foreign values and functions retain their declared signatures.
 Source maps, the conditional generic constrained edition, public dictionaries, richer types, and the
 finalized portable target profile remain later emission slices.
 

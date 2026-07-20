@@ -223,6 +223,7 @@ function substituteType(
       };
     case "Primitive":
     case "Range":
+    case "ExternType":
     case "Error":
       return type;
   }
@@ -290,6 +291,12 @@ function topLevelTermNames(
       if (item.form.kind === "Namespace") add(item.form.alias, false);
       if (item.form.kind === "Named") {
         for (const name of item.form.names) add(name.local, false);
+      }
+    } else if (item.kind === "ExternBlock") {
+      for (const declaration of item.declarations) {
+        if (declaration.kind !== "ExternType") {
+          add(declaration.localName, declaration.exported);
+        }
       }
     }
   }

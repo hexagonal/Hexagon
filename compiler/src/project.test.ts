@@ -46,6 +46,39 @@ test("compiles relative named, aliased, namespace, and effect imports", () => {
   expect(main.declarations.text).toContain("export declare const answer: number;");
 });
 
+test("re-exports extern bindings and opaque types through Hexagon modules", () => {
+  const project = compileProject([
+    new Source.File(
+      Source.fileId(0),
+      "/tiny-json.hex",
+      "extern from \"tiny-json\"\n" +
+        "  export type JsonValue\n" +
+        "  export fun parse(text: String): JsonValue",
+    ),
+    new Source.File(
+      Source.fileId(1),
+      "/main.hex",
+      'import * as Json from "./tiny-json"\n' +
+        "export let document: Json.JsonValue = Json.parse(\"{}\")",
+    ),
+  ]);
+
+  expect(project.diagnostics).toEqual([]);
+  const bindings = project.modules[0]!;
+  const main = project.modules[1]!;
+  expect(bindings.typed.diagnostics).toEqual([]);
+  expect(main.typed.diagnostics).toEqual([]);
+  expect(bindings.javascript.text).toContain('import { parse } from "tiny-json";');
+  expect(main.javascript.text).toContain('import * as Json from "./tiny-json.js";');
+  expect(bindings.declarations.text).toContain("export type JsonValue =");
+  expect(main.declarations.text).toContain(
+    'import type * as Json from "./tiny-json.js";',
+  );
+  expect(main.declarations.text).toContain(
+    "export declare const document: Json.JsonValue;",
+  );
+});
+
 test("reports import cycles before project checking", () => {
   const project = compileProject([
     new Source.File(Source.fileId(0), "/a.hex", 'import "./b"'),
@@ -54,6 +87,21 @@ test("reports import cycles before project checking", () => {
 
   expect(project.diagnostics.map(({ message }) => message)).toContain(
     "import cycle: /a.hex -> /b.hex -> /a.hex",
+  );
+});
+
+test("rejects extern linkage to a Hexagon source module", () => {
+  const project = compileProject([
+    new Source.File(Source.fileId(0), "/library.hex", "export let answer = 42"),
+    new Source.File(
+      Source.fileId(1),
+      "/main.hex",
+      'extern from "./library"\n  fun answer(): Int',
+    ),
+  ]);
+
+  expect(project.diagnostics.map(({ message }) => message)).toContain(
+    "use `import` for Hexagon modules; `extern from` is for foreign JavaScript",
   );
 });
 

@@ -49,6 +49,20 @@ describe("applyLayout", () => {
     expect(result.diagnostics).toEqual([]);
   });
 
+  test("opens extern module binding blocks", () => {
+    const result = layout(
+      "extern from \"tiny-json\"\n" +
+        "  export type JsonValue\n" +
+        "  export fun parse(text: String): JsonValue\n" +
+        "extern import \"telemetry/register\"",
+    );
+
+    expect(virtualKinds(result.tokens)).toEqual([
+      "VOpen", "VOpen", "VSep", "VClose", "VSep", "VClose",
+    ]);
+    expect(result.diagnostics).toEqual([]);
+  });
+
   test("attaches else and catch clauses without an intervening separator", () => {
     const result = layout(
       "if ready\n  run()\nelse\n  wait()\ntry\n  risky()\ncatch\n  Failure => recover()",

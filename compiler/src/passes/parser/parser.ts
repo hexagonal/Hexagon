@@ -48,10 +48,6 @@ const infix = new Map<TokenKind, Infix>([
 
 const itemEnds = new Set<TokenKind>(["VSep", "Semicolon", "VClose", "Eof"]);
 const structuralEnds: readonly TokenKind[] = ["VSep", "Semicolon", "VClose", "Eof"];
-const unsupportedItemStarts = new Set<TokenKind>([
-  "Extern",
-]);
-
 /** Parses one layout-aware file and retains diagnostics from earlier passes. */
 export function parse(file: LaidOut.File): Parsed.Module {
   const diagnostics = new Diagnostics.Bag();
@@ -128,6 +124,15 @@ class Parser {
   }
 
   #parseItem(moduleItems: boolean): Parsed.Item {
+    if (this.#at("Extern")) {
+      if (!moduleItems) {
+        const start = this.#advance();
+        this.#errorAt(start.span, "foreign declarations are made at module level");
+        this.#synchronize(itemEnds);
+        return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+      }
+      return this.#parseExtern();
+    }
     if (this.#at("Import")) {
       if (!moduleItems) {
         const start = this.#advance();
@@ -240,17 +245,6 @@ class Parser {
       }
       return this.#parseException(false);
     }
-    if (unsupportedItemStarts.has(this.#current().kind)) {
-      const start = this.#advance();
-      this.#errorAt(
-        start.span,
-        `the first-round parser does not support ${describe(start.kind)} items yet`,
-      );
-      this.#synchronize(itemEnds);
-      const end = this.#previous();
-      return { kind: "ErrorItem", span: spanFrom(start.span, end.span) };
-    }
-
     const expression = this.#parseExpression();
     return { kind: "ExprItem", expression, span: expression.span };
   }
@@ -308,6 +302,181 @@ class Parser {
       form,
       span: spanFrom(start.span, specifier.span),
     };
+  }
+
+  #parseExtern(): Parsed.ExternBlockItem | Parsed.ExternImportItem | Parsed.ErrorItem {
+    const start = this.#advance();
+    if (this.#at("Import")) {
+      this.#advance();
+      const specifier = this.#parseImportSpecifier();
+      return {
+        kind: "ExternImport",
+        specifier: specifier.value,
+        span: spanFrom(start.span, specifier.span),
+      };
+    }
+    if (!this.#atContextual("from")) {
+      this.#error("expected `from` or `import` after `extern`");
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+    }
+    this.#advance();
+    const specifier = this.#parseImportSpecifier();
+    this.#expect("VOpen", "expected an indented extern block");
+    const declarations: Parsed.ExternDeclaration[] = [];
+    this.#skipSeparators();
+    while (!this.#at("VClose") && !this.#at("Eof")) {
+      const declaration = this.#parseExternDeclaration();
+      if (declaration !== undefined) declarations.push(declaration);
+      if (this.#at("VSep") || this.#at("Semicolon")) this.#skipSeparators();
+      else if (!this.#at("VClose") && !this.#at("Eof")) {
+        this.#error("expected a newline or `;` between extern declarations");
+        this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
+        this.#skipSeparators();
+      }
+    }
+    const closing = this.#expect("VClose", "expected the extern block to close");
+    return {
+      kind: "ExternBlock",
+      specifier: specifier.value,
+      declarations,
+      span: spanFrom(start.span, closing?.span ?? declarations.at(-1)?.span ?? specifier.span),
+    };
+  }
+
+  #parseExternDeclaration(): Parsed.ExternDeclaration | undefined {
+    const start = this.#current();
+    const exported = this.#at("Export");
+    if (exported) this.#advance();
+    const defaultBinding = this.#atContextual("default");
+    if (defaultBinding) this.#advance();
+    const kind = this.#current().kind;
+    if (kind !== "Fun" && kind !== "Let" && kind !== "Type") {
+      const label = this.#current();
+      const text = label.kind === "NonUpperName" || label.kind === "UpperName"
+        ? `extern \`${label.text}\` declarations belong to a later FFI slice`
+        : "extern blocks contain `fun`, `let`, or `type` declarations";
+      this.#errorAt(label.span, text);
+      this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
+      return undefined;
+    }
+    this.#advance();
+    if (kind === "Type" && defaultBinding) {
+      this.#errorAt(start.span, "`default` applies to foreign functions and values, not types");
+    }
+    const expected = kind === "Type" || !defaultBinding ? undefined : "NonUpperName";
+    const nameToken = expected === undefined
+      ? this.#takeAnyName("extern declarations require a name")
+      : this.#takeName(expected, "default extern bindings require a non-uppercase-start local name");
+    if (nameToken === undefined) {
+      this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
+      return undefined;
+    }
+    const firstName = parsedName(nameToken);
+    let foreignName: Parsed.Name | undefined = defaultBinding ? undefined : firstName;
+    let localName = firstName;
+    if (this.#atContextual("as")) {
+      const asToken = this.#advance();
+      const aliasToken = this.#takeAnyName("expected a local name after `as`");
+      if (defaultBinding) {
+        this.#errorAt(
+          asToken.span,
+          "`as` aliases a foreign export name; a `default` binding has none — name the binding directly",
+        );
+      } else if (aliasToken !== undefined) {
+        localName = parsedName(aliasToken);
+      }
+    }
+    if (kind === "Type") {
+      if (localName.startClass !== "upper") {
+        this.#errorAt(
+          localName.span,
+          `foreign type \`${foreignName?.text ?? localName.text}\` needs an uppercase-start local alias; write \`type ${foreignName?.text ?? localName.text} as T${localName.text}\``,
+        );
+      }
+      if (this.#at("LeftParen") || this.#at("Less")) {
+        this.#errorAt(this.#current().span, "generic extern declarations are not part of Hexagon v1");
+        this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
+      }
+      return {
+        kind: "ExternType",
+        exported,
+        default: false,
+        ...(foreignName === undefined ? {} : { foreignName }),
+        localName,
+        span: spanFrom(start.span, this.#previous().span),
+      };
+    }
+    if (localName.startClass !== "non-upper") {
+      const declaration = kind === "Fun" ? "fun" : "let";
+      this.#errorAt(
+        localName.span,
+        `foreign term \`${foreignName?.text ?? localName.text}\` is not a legal Hexagon term name; bind it with an alias: \`${declaration} ${foreignName?.text ?? localName.text} as ${lowerInitial(localName.text)}\``,
+      );
+    }
+    if (this.#at("Less")) {
+      this.#errorAt(this.#current().span, "generic extern declarations are not part of Hexagon v1");
+      this.#parseTypeParameters();
+    }
+    if (kind === "Fun") {
+      if (!this.#at("LeftParen")) {
+        this.#errorAt(
+          localName.span,
+          `extern \`fun\` declares a callable and requires a parameter list; for a foreign value, write \`let ${localName.text}: Type\``,
+        );
+      }
+      const parameters = this.#at("LeftParen") ? this.#parseParameters() : [];
+      for (const parameter of parameters) {
+        if (parameter.annotation === undefined) {
+          this.#errorAt(parameter.span, "extern function parameters require type annotations");
+        }
+      }
+      this.#expect("Colon", "extern functions require a result type");
+      const returnAnnotation = this.#parseTypeAnnotation() ?? invalidType(localName);
+      this.#rejectExternBody();
+      return {
+        kind: "ExternFun",
+        exported,
+        default: defaultBinding,
+        ...(foreignName === undefined ? {} : { foreignName }),
+        localName,
+        parameters,
+        returnAnnotation,
+        span: spanFrom(start.span, returnAnnotation.span),
+      };
+    }
+    if (this.#at("LeftParen")) {
+      this.#errorAt(
+        localName.span,
+        `extern callable declarations use \`fun\`; write \`fun ${localName.text}(...)\` with explicit parameters`,
+      );
+      this.#parseParameters();
+    }
+    this.#expect("Colon", "extern values require a type annotation");
+    const annotation = this.#parseTypeAnnotation() ?? invalidType(localName);
+    if (annotation.kind === "Function") {
+      this.#errorAt(
+        annotation.span,
+        `extern callable declarations use \`fun\`; write \`fun ${localName.text}(...)\` with explicit parameters`,
+      );
+    }
+    this.#rejectExternBody();
+    return {
+      kind: "ExternLet",
+      exported,
+      default: defaultBinding,
+      ...(foreignName === undefined ? {} : { foreignName }),
+      localName,
+      annotation,
+      span: spanFrom(start.span, annotation.span),
+    };
+  }
+
+  #rejectExternBody(): void {
+    if (!this.#at("Equal")) return;
+    const equal = this.#advance();
+    this.#errorAt(equal.span, "extern declarations have no bodies");
+    this.#parseExpression();
   }
 
   #parseConstraint(): Parsed.ConstraintItem {
@@ -2084,6 +2253,19 @@ function parsedName(token: Lexed.NameToken): Parsed.Name {
     startClass: token.kind === "NonUpperName" ? "non-upper" : "upper",
     span: token.span,
   };
+}
+
+function invalidType(name: Parsed.Name): Parsed.NamedType {
+  return {
+    kind: "NamedType",
+    name: { ...name, text: "Invalid", startClass: "upper" },
+    span: name.span,
+  };
+}
+
+function lowerInitial(name: string): string {
+  const [first = "value", ...rest] = [...name];
+  return `${first.toLocaleLowerCase()}${rest.join("")}`;
 }
 
 function requiredOperator(operation: Infix, token: LaidOut.Token): Parsed.BinaryOperator {

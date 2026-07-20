@@ -10,10 +10,12 @@ import type * as Source from "../../support/source.js";
 declare const symbolIdBrand: unique symbol;
 declare const unionIdBrand: unique symbol;
 declare const recordIdBrand: unique symbol;
+declare const externTypeIdBrand: unique symbol;
 
 export type SymbolId = number & { readonly [symbolIdBrand]: "SymbolId" };
 export type UnionId = number & { readonly [unionIdBrand]: "UnionId" };
 export type RecordId = number & { readonly [recordIdBrand]: "RecordId" };
+export type ExternTypeId = number & { readonly [externTypeIdBrand]: "ExternTypeId" };
 
 export type SymbolKind =
   | "let"
@@ -23,6 +25,7 @@ export type SymbolKind =
   | "pattern"
   | "constructor"
   | "record-constructor"
+  | "extern"
   | "constraint-member";
 
 export type PrimitiveName =
@@ -41,6 +44,7 @@ export type TypeAnnotation =
   | RecordTypeAnnotation
   | UnionTypeAnnotation
   | RecordDeclarationTypeAnnotation
+  | ExternTypeAnnotation
   | SeqTypeAnnotation
   | VectorTypeAnnotation
   | MapTypeAnnotation
@@ -156,6 +160,13 @@ export interface RecordDeclarationTypeAnnotation {
   readonly span: Source.Span;
 }
 
+export interface ExternTypeAnnotation {
+  readonly kind: "ExternType";
+  readonly externType: ExternTypeId;
+  readonly name: string;
+  readonly span: Source.Span;
+}
+
 export interface ErrorTypeAnnotation {
   readonly kind: "ErrorType";
   readonly span: Source.Span;
@@ -191,6 +202,7 @@ export interface Module {
   readonly symbols: readonly Symbol[];
   readonly unions: readonly Union[];
   readonly records: readonly RecordDeclaration[];
+  readonly externTypes: readonly ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
@@ -198,6 +210,8 @@ export interface Module {
 
 export type Item =
   | ImportItem
+  | ExternBlockItem
+  | ExternImportItem
   | LetItem
   | VarItem
   | LetPatternItem
@@ -210,6 +224,51 @@ export type Item =
   | UnionItem
   | ExprItem
   | ErrorItem;
+
+export interface ExternBlockItem {
+  readonly kind: "ExternBlock";
+  readonly specifier: string;
+  readonly declarations: readonly ExternDeclaration[];
+  readonly span: Source.Span;
+}
+
+export interface ExternImportItem {
+  readonly kind: "ExternImport";
+  readonly specifier: string;
+  readonly span: Source.Span;
+}
+
+export type ExternDeclaration =
+  | ExternFunDeclaration
+  | ExternLetDeclaration
+  | ExternTypeDeclaration;
+
+interface ExternDeclarationFields {
+  readonly exported: boolean;
+  readonly default: boolean;
+  readonly foreignName?: string;
+  readonly localName: string;
+  readonly span: Source.Span;
+}
+
+export interface ExternFunDeclaration extends ExternDeclarationFields {
+  readonly kind: "ExternFun";
+  readonly binding: Binding;
+  readonly parameters: readonly Parameter[];
+  readonly returnAnnotation: TypeAnnotation;
+}
+
+export interface ExternLetDeclaration extends ExternDeclarationFields {
+  readonly kind: "ExternLet";
+  readonly binding: Binding;
+  readonly annotation: TypeAnnotation;
+}
+
+export interface ExternTypeDeclaration extends ExternDeclarationFields {
+  readonly kind: "ExternType";
+  readonly default: false;
+  readonly externType: ExternTypeId;
+}
 
 export interface LetItem {
   readonly kind: "Let";
@@ -807,4 +866,12 @@ export function unionId(value: number): UnionId {
     throw new RangeError("a union id must be a non-negative safe integer");
   }
   return value as UnionId;
+}
+
+/** Constructs a checked stable identity for one resolver-owned foreign type. */
+export function externTypeId(value: number): ExternTypeId {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RangeError("an extern type id must be a non-negative safe integer");
+  }
+  return value as ExternTypeId;
 }

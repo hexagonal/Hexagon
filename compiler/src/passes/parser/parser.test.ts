@@ -8,6 +8,61 @@ import { lex } from "../lexer/lexer.js";
 import { parse } from "./parser.js";
 
 describe("parse", () => {
+  test("parses named, aliased, default, type-only, and effect extern declarations", () => {
+    const module = parseSource(
+      "extern from \"tiny-json\"\n" +
+        "  export type JsonValue\n" +
+        "  export fun parse(text: String): JsonValue\n" +
+        "  let VERSION as version: String\n" +
+        "  export default fun createClient(): JsonValue\n" +
+        "extern import \"telemetry/register\"",
+    );
+
+    expect(module.items).toMatchObject([
+      {
+        kind: "ExternBlock",
+        specifier: "tiny-json",
+        declarations: [
+          { kind: "ExternType", exported: true, localName: { text: "JsonValue" } },
+          { kind: "ExternFun", exported: true, localName: { text: "parse" } },
+          {
+            kind: "ExternLet",
+            foreignName: { text: "VERSION" },
+            localName: { text: "version" },
+          },
+          { kind: "ExternFun", default: true, localName: { text: "createClient" } },
+        ],
+      },
+      { kind: "ExternImport", specifier: "telemetry/register" },
+    ]);
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("uses extern-specific rewrites and rejects bodies", () => {
+    const module = parseSource(
+      "extern from \"broken\"\n" +
+        "  let parse(text: String): String\n" +
+        "  fun version: String\n" +
+        "  let callback: String -> String\n" +
+        "  default fun create as make(): String\n" +
+        "  fun run(): Unit = ()",
+    );
+    const messages = module.diagnostics.map(({ message }) => message);
+
+    expect(messages).toContain(
+      "extern callable declarations use `fun`; write `fun parse(...)` with explicit parameters",
+    );
+    expect(messages).toContain(
+      "extern `fun` declares a callable and requires a parameter list; for a foreign value, write `let version: Type`",
+    );
+    expect(messages).toContain(
+      "extern callable declarations use `fun`; write `fun callback(...)` with explicit parameters",
+    );
+    expect(messages).toContain(
+      "`as` aliases a foreign export name; a `default` binding has none — name the binding directly",
+    );
+    expect(messages).toContain("extern declarations have no bodies");
+  });
   test("parses aliases, qualified types, and opaque nominal exports", () => {
     const module = parseSource(
       "export type Pair(a) = (a, a)\n" +
