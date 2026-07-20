@@ -16,6 +16,93 @@ import {
 } from "./emitter.js";
 
 describe("emitJavaScript", () => {
+  test("emits vectors, structural hashes, vector patterns, and one-based access", () => {
+    const module = coreSource(
+      "export let values: Vector(Int) = [10, 20, 30]\n" +
+        "export let second = values[2]\n" +
+        "export let window = values[2..99]\n" +
+        "export let letter = \"héllo\"[2]\n" +
+        "export let fingerprint = hash((values, {name: \"hex\"}))\n" +
+        "export let first = match values\n" +
+        "  [head, ...rest] => head\n" +
+        "  [] => 0",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.text).toContain("const values = [10, 20, 30];");
+    expect(output.text).toContain("__hex_vectorIndex(values, 2)");
+    expect(output.text).toContain("__hex_vectorSlice(values, __hex_range(2, 99))");
+    expect(output.text).toContain('__hex_stringIndex("héllo", 2)');
+    expect(output.text).toContain("function __hex_stableHash");
+    expect(output.text).toContain(".length >= 1");
+    expect(emitDeclarations(module).text).toContain("ReadonlyArray<number>");
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("emits persistent Map and Set core operations with structural key equality", () => {
+    const module = coreSource(
+      "let emptyMap: Map((Int, Int), String) = Map.empty()\n" +
+        "export let names = Map.set(emptyMap, (1, 2), \"first\")\n" +
+        "export let replaced = Map.set(names, (1, 2), \"second\")\n" +
+        "export let hasPair = Map.containsKey(replaced, (1, 2))\n" +
+        "let emptySet: Set((Int, Int)) = Set.empty()\n" +
+        "export let pairs = Set.add(emptySet, (3, 4))\n" +
+        "export let hasPair2 = Set.contains(pairs, (3, 4))",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.text).toContain("function __hex_collectionEquals");
+    expect(output.text).toContain("findIndex");
+    expect(output.text).toContain("some(__hex_item");
+    expect(emitDeclarations(module).text).toContain("ReadonlyMap<[number, number], string>");
+    expect(emitDeclarations(module).text).toContain("ReadonlySet<[number, number]>");
+  });
+
+  test("iterates provided collections and concrete user Iterable instances", () => {
+    const module = coreSource(
+      "constraint Iterable<c> =\n" +
+        "  type Item\n" +
+        "  iterate(value: c): Seq(Item)\n" +
+        "record Bag = {items: Seq(Int)}\n" +
+        "honor Iterable<Bag> =\n" +
+        "  type Item = Int\n" +
+        "  iterate(bag) = bag.items\n" +
+        "let bag = Bag({items: Seq.iterate(1, x => x + 1).take(2)})\n" +
+        "for value in bag\n" +
+        "  console.log(value)\n" +
+        "for value in [1, 2]\n" +
+        "  console.log(value)\n" +
+        "let pairs: Map(Int, String) = Map.set(Map.empty(), 1, \"one\")\n" +
+        "for (key, value) in pairs\n" +
+        "  console.log(key, value)",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.text).toContain("__hex_instance_Iterable_Bag.iterate(bag)");
+    expect(output.text).toContain("for (const value of [1, 2])");
+    expect(output.text).toContain("for (const __hex_item");
+  });
+
+  test("preserves Array and Nullable boundary types in exported declarations", () => {
+    const module = coreSource(
+      "export let count(xs: Array(Int)): Int =\n" +
+        "  var total = 0\n" +
+        "  for _ in xs\n" +
+        "    total := total + 1\n" +
+        "  total\n" +
+        "export let keep(value: Nullable(String)): Nullable(String) = value",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const declarations = emitDeclarations(module).text;
+    expect(declarations).toContain("export declare const count: (xs: Array<number>) => number;");
+    expect(declarations).toContain("export declare const keep: (value: string | null | undefined) => string | null | undefined;");
+    expect(emitJavaScript(module).text).toContain("for (const __hex_item");
+  });
+
   test("emits var, assignment, inclusive Range values, and while readably", () => {
     const module = coreSource(
       "fun countdown(start: Int) =\n" +

@@ -189,6 +189,20 @@ function substituteType(
         ...type,
         elements: type.elements.map((element) => substituteType(element, substitutions)),
       };
+    case "Vector":
+      return { ...type, element: substituteType(type.element, substitutions) };
+    case "Set":
+      return { ...type, element: substituteType(type.element, substitutions) };
+    case "Map":
+      return {
+        ...type,
+        key: substituteType(type.key, substitutions),
+        value: substituteType(type.value, substitutions),
+      };
+    case "Array":
+      return { ...type, element: substituteType(type.element, substitutions) };
+    case "Nullable":
+      return { ...type, value: substituteType(type.value, substitutions) };
     case "Seq":
       return { ...type, element: substituteType(type.element, substitutions) };
     case "Record":
@@ -294,6 +308,11 @@ function patternBindingNames(pattern: Core.Pattern): readonly string[] {
         : patternBindingNames(pattern.alternatives[0]);
     case "Tuple":
       return pattern.elements.flatMap(patternBindingNames);
+    case "Vector":
+      return [
+        ...pattern.elements.flatMap(patternBindingNames),
+        ...(pattern.rest?.pattern === undefined ? [] : patternBindingNames(pattern.rest.pattern)),
+      ];
     case "Record":
       return pattern.fields.flatMap(({ pattern }) => patternBindingNames(pattern));
     case "Constructor":

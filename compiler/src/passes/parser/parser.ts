@@ -1029,6 +1029,39 @@ class Parser {
         span: spanFrom(token.span, end),
       };
     }
+    if (token.kind === "LeftBracket") {
+      const opening = this.#advance();
+      const elements: Parsed.Pattern[] = [];
+      let rest: Parsed.VectorPattern["rest"];
+      while (!this.#at("RightBracket") && !this.#at("Eof")) {
+        if (this.#at("Spread")) {
+          const spread = this.#advance();
+          if (rest !== undefined) {
+            this.#errorAt(spread.span, "a vector pattern may contain at most one `...`");
+          }
+          let pattern: Parsed.Pattern | undefined;
+          if (!this.#at("Comma") && !this.#at("RightBracket")) {
+            pattern = this.#parsePattern();
+          }
+          rest = {
+            ...(pattern === undefined ? {} : { pattern }),
+            index: elements.length,
+            span: spanFrom(spread.span, pattern?.span ?? spread.span),
+          };
+        } else {
+          elements.push(this.#parsePattern() ?? { kind: "Wildcard", span: this.#current().span });
+        }
+        if (!this.#at("Comma")) break;
+        this.#advance();
+      }
+      const closing = this.#expect("RightBracket", "expected `]` after vector pattern");
+      return {
+        kind: "Vector",
+        elements,
+        ...(rest === undefined ? {} : { rest }),
+        span: spanFrom(opening.span, closing?.span ?? rest?.span ?? elements.at(-1)?.span ?? opening.span),
+      };
+    }
     if (token.kind === "LeftBrace") {
       const opening = this.#advance();
       const fields: Parsed.RecordPatternField[] = [];
@@ -1277,6 +1310,8 @@ class Parser {
       case "String":
         this.#advance();
         return this.#parseString(token);
+      case "LeftBracket":
+        return this.#parseVector(stops);
       case "LeftParen":
         return this.#parseParenthesized(stops);
       case "LeftBrace":
@@ -1288,6 +1323,30 @@ class Parser {
         }
         return { kind: "ErrorExpr", span: token.span };
     }
+  }
+
+  /** Parses eager vector literals; spread is deliberately pattern-only in v1. */
+  #parseVector(stops: ReadonlySet<TokenKind>): Parsed.VectorExpr {
+    const opening = this.#advance();
+    const elements: Parsed.Expr[] = [];
+    while (!this.#at("RightBracket") && !this.#at("Eof")) {
+      if (this.#at("Spread")) {
+        const spread = this.#advance();
+        this.#errorAt(
+          spread.span,
+          "spread is vector-pattern syntax; use a named Vector operation to combine values",
+        );
+      }
+      elements.push(this.#parseExpression(0, withStops(stops, "Comma", "RightBracket")));
+      if (!this.#at("Comma")) break;
+      this.#advance();
+    }
+    const closing = this.#expect("RightBracket", "expected `]` after vector elements");
+    return {
+      kind: "Vector",
+      elements,
+      span: spanFrom(opening.span, closing?.span ?? elements.at(-1)?.span ?? opening.span),
+    };
   }
 
   #parseRecord(stops: ReadonlySet<TokenKind>): Parsed.Expr {

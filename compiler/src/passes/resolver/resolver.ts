@@ -654,6 +654,7 @@ class Resolver {
           ),
         };
       case "Tuple":
+      case "Vector":
         return {
           ...expression,
           elements: expression.elements.map((element) =>
@@ -764,6 +765,26 @@ class Resolver {
       case "Call":
         if (
           expression.callee.kind === "Name" &&
+          expression.callee.name.text === "hash" &&
+          scope.lookup("hash") === undefined
+        ) {
+          if (expression.arguments.length !== 1) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `\`hash\` expects exactly one value, got ${expression.arguments.length}`,
+              primary: expression.span,
+            });
+          }
+          return {
+            kind: "Hash",
+            value: expression.arguments[0] === undefined
+              ? { kind: "ErrorExpr", span: expression.span }
+              : this.#resolveExpr(expression.arguments[0], scope),
+            span: expression.span,
+          };
+        }
+        if (
+          expression.callee.kind === "Name" &&
           expression.callee.name.text === "throw" &&
           scope.lookup("throw") === undefined
         ) {
@@ -809,6 +830,17 @@ class Resolver {
             return {
               kind: "SeqOperation",
               operation: expression.field.text as "iterate" | "map" | "filter" | "take",
+              span: expression.span,
+            };
+          }
+          if (
+            ["Map", "Set", "Vector"].includes(expression.receiver.name.text) &&
+            scope.lookup(expression.receiver.name.text) === undefined
+          ) {
+            return {
+              kind: "CollectionOperation",
+              collection: expression.receiver.name.text as "Map" | "Set" | "Vector",
+              operation: expression.field.text,
               span: expression.span,
             };
           }
@@ -983,6 +1015,25 @@ class Resolver {
         elements: pattern.elements.map((element) =>
           this.#resolvePattern(element, scope, seen, head, sharedBindings),
         ),
+      };
+    }
+    if (pattern.kind === "Vector") {
+      const resolvedRest = pattern.rest === undefined
+        ? undefined
+        : {
+            index: pattern.rest.index,
+            span: pattern.rest.span,
+            ...(pattern.rest.pattern === undefined
+              ? {}
+              : { pattern: this.#resolvePattern(pattern.rest.pattern, scope, seen, head, sharedBindings) }),
+          };
+      return {
+        kind: "Vector",
+        elements: pattern.elements.map((element) =>
+          this.#resolvePattern(element, scope, seen, head, sharedBindings)
+        ),
+        ...(resolvedRest === undefined ? {} : { rest: resolvedRest }),
+        span: pattern.span,
       };
     }
     if (pattern.kind === "Record") {
@@ -1212,23 +1263,39 @@ class Resolver {
       };
     }
     if (annotation.kind === "AppliedType") {
-      if (name === "Seq") {
+      if (name === "Seq" || name === "Vector" || name === "Set" || name === "Array" || name === "Nullable") {
         if (annotation.arguments.length !== 1) {
           this.#diagnostics.add({
             severity: "error",
-            message: `type \`Seq\` expects 1 argument, but ${annotation.arguments.length} were provided`,
+            message: `type \`${name}\` expects 1 argument, but ${annotation.arguments.length} were provided`,
+            primary: annotation.span,
+          });
+        }
+        const argument = annotation.arguments[0] === undefined
+          ? { kind: "ErrorType" as const, span: annotation.span }
+          : this.#resolveTypeAnnotation(annotation.arguments[0], typeParameters, associatedContext);
+        if (name === "Nullable") return { kind: "Nullable", value: argument, span: annotation.span };
+        if (name === "Seq") return { kind: "Seq", element: argument, span: annotation.span };
+        if (name === "Vector") return { kind: "Vector", element: argument, span: annotation.span };
+        if (name === "Set") return { kind: "Set", element: argument, span: annotation.span };
+        return { kind: "Array", element: argument, span: annotation.span };
+      }
+      if (name === "Map") {
+        if (annotation.arguments.length !== 2) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `type \`Map\` expects 2 arguments, but ${annotation.arguments.length} were provided`,
             primary: annotation.span,
           });
         }
         return {
-          kind: "Seq",
-          element: annotation.arguments[0] === undefined
+          kind: "Map",
+          key: annotation.arguments[0] === undefined
             ? { kind: "ErrorType", span: annotation.span }
-            : this.#resolveTypeAnnotation(
-                annotation.arguments[0],
-                typeParameters,
-                associatedContext,
-              ),
+            : this.#resolveTypeAnnotation(annotation.arguments[0], typeParameters, associatedContext),
+          value: annotation.arguments[1] === undefined
+            ? { kind: "ErrorType", span: annotation.span }
+            : this.#resolveTypeAnnotation(annotation.arguments[1], typeParameters, associatedContext),
           span: annotation.span,
         };
       }
@@ -1394,7 +1461,13 @@ function parsedPatternNames(pattern: Parsed.Pattern): Parsed.Name[] {
         ? []
         : parsedPatternNames(pattern.alternatives[0]);
     case "Tuple":
-      return pattern.elements.flatMap(parsedPatternNames);
+    case "Vector":
+      return [
+        ...pattern.elements.flatMap(parsedPatternNames),
+        ...(pattern.kind === "Vector" && pattern.rest?.pattern !== undefined
+          ? parsedPatternNames(pattern.rest.pattern)
+          : []),
+      ];
     case "Record":
       return pattern.fields.flatMap((field) => parsedPatternNames(field.pattern));
     case "Constructor":
@@ -1407,6 +1480,11 @@ function annotationHeadName(annotation: Resolved.TypeAnnotation): string {
     case "Primitive": return annotation.name;
     case "Range": return "Range";
     case "Seq": return "Seq";
+    case "Vector": return "Vector";
+    case "Map": return "Map";
+    case "Set": return "Set";
+    case "Array": return "Array";
+    case "Nullable": return "Nullable";
     case "Union": return annotation.name;
     case "RecordDeclaration": return annotation.name;
     case "Tuple": return "Tuple";
@@ -1421,6 +1499,14 @@ function annotationTypeVariables(annotation: Resolved.TypeAnnotation): readonly 
   switch (annotation.kind) {
     case "TypeVariable": return [annotation.name];
     case "Seq": return annotationTypeVariables(annotation.element);
+    case "Vector": return annotationTypeVariables(annotation.element);
+    case "Set": return annotationTypeVariables(annotation.element);
+    case "Array": return annotationTypeVariables(annotation.element);
+    case "Nullable": return annotationTypeVariables(annotation.value);
+    case "Map": return [
+      ...annotationTypeVariables(annotation.key),
+      ...annotationTypeVariables(annotation.value),
+    ];
     case "Tuple": return annotation.elements.flatMap(annotationTypeVariables);
     case "Record": return annotation.fields.flatMap((field) =>
       annotationTypeVariables(field.annotation)

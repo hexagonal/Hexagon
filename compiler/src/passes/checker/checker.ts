@@ -31,6 +31,11 @@ type Mono =
   | RecordMono
   | RangeMono
   | SeqMono
+  | VectorMono
+  | MapMono
+  | SetMono
+  | ArrayMono
+  | NullableMono
   | UnionMono
   | NominalRecordMono
   | FunctionMono
@@ -76,6 +81,32 @@ interface SeqMono {
   readonly element: Mono;
 }
 
+interface VectorMono {
+  readonly kind: "Vector";
+  readonly element: Mono;
+}
+
+interface MapMono {
+  readonly kind: "Map";
+  readonly key: Mono;
+  readonly value: Mono;
+}
+
+interface SetMono {
+  readonly kind: "Set";
+  readonly element: Mono;
+}
+
+interface ArrayMono {
+  readonly kind: "Array";
+  readonly element: Mono;
+}
+
+interface NullableMono {
+  readonly kind: "Nullable";
+  readonly value: Mono;
+}
+
 interface UnionMono {
   readonly kind: "Union";
   readonly union: Resolved.UnionId;
@@ -104,6 +135,7 @@ interface Requirement {
   evidencePath?: readonly string[];
   reported: boolean;
   dictionary?: string;
+  structural?: boolean;
   dictionaryArguments?: readonly Requirement[];
 }
 
@@ -140,7 +172,9 @@ class Checker {
   }>();
   readonly #tupleAccesses = new WeakMap<Resolved.AccessExpr, number>();
   readonly #recordAccesses = new WeakMap<Resolved.AccessExpr, string>();
+  readonly #indexOperations = new WeakMap<Resolved.IndexExpr, NonNullable<Typed.IndexExpr["operation"]>>();
   readonly #matchUnions = new WeakMap<Resolved.MatchExpr, Resolved.UnionId>();
+  readonly #iterations = new WeakMap<Resolved.ForExpr, Requirement>();
   readonly #schemes = new Map<Resolved.SymbolId, Scheme>();
   readonly #unions = new Map<Resolved.UnionId, Resolved.Union>();
   readonly #constructorUnions = new Map<Resolved.SymbolId, Resolved.UnionId>();
@@ -1009,6 +1043,51 @@ class Checker {
     };
   }
 
+  /** Gives compiler-known persistent collection operations their ordinary function types. */
+  #collectionOperationType(
+    collection: Resolved.CollectionOperationExpr["collection"],
+    operation: string,
+    level: number,
+    span: Source.Span,
+  ): Mono {
+    if (collection === "Map") {
+      const key = this.#fresh(level, false);
+      const value = this.#fresh(level, false);
+      const map: MapMono = { kind: "Map", key, value };
+      if (["set", "remove", "containsKey", "get"].includes(operation)) {
+        this.#require("Hash", key, span);
+      }
+      if (operation === "empty") return { kind: "Function", parameters: [], result: map };
+      if (operation === "set") return { kind: "Function", parameters: [map, key, value], result: map };
+      if (operation === "remove") return { kind: "Function", parameters: [map, key], result: map };
+      if (operation === "containsKey") return { kind: "Function", parameters: [map, key], result: primitive("Bool") };
+      if (operation === "get") return { kind: "Function", parameters: [map, key], result: value };
+      if (operation === "size") return { kind: "Function", parameters: [map], result: primitive("Int") };
+      if (operation === "isEmpty") return { kind: "Function", parameters: [map], result: primitive("Bool") };
+    } else if (collection === "Set") {
+      const element = this.#fresh(level, false);
+      const set: SetMono = { kind: "Set", element };
+      if (["add", "remove", "contains", "union", "intersection", "difference"].includes(operation)) {
+        this.#require("Hash", element, span);
+      }
+      if (operation === "empty") return { kind: "Function", parameters: [], result: set };
+      if (operation === "add" || operation === "remove") return { kind: "Function", parameters: [set, element], result: set };
+      if (operation === "contains") return { kind: "Function", parameters: [set, element], result: primitive("Bool") };
+      if (["union", "intersection", "difference"].includes(operation)) return { kind: "Function", parameters: [set, set], result: set };
+      if (operation === "size") return { kind: "Function", parameters: [set], result: primitive("Int") };
+      if (operation === "isEmpty") return { kind: "Function", parameters: [set], result: primitive("Bool") };
+    } else {
+      const element = this.#fresh(level, false);
+      const vector: VectorMono = { kind: "Vector", element };
+      if (operation === "empty") return { kind: "Function", parameters: [], result: vector };
+      if (operation === "size") return { kind: "Function", parameters: [vector], result: primitive("Int") };
+      if (operation === "isEmpty") return { kind: "Function", parameters: [vector], result: primitive("Bool") };
+      if (operation === "append") return { kind: "Function", parameters: [vector, element], result: vector };
+      if (operation === "prepend") return { kind: "Function", parameters: [vector, element], result: vector };
+    }
+    return this.#unsupported(span, `the companion of \`${collection}\` has no core operation \`${operation}\``);
+  }
+
   #inferExpr(expression: Resolved.Expr, level: number): Mono {
     let type: Mono;
     switch (expression.kind) {
@@ -1016,6 +1095,9 @@ class Checker {
         type = this.#seqOperationType(expression.operation, level);
         break;
       }
+      case "CollectionOperation":
+        type = this.#collectionOperationType(expression.collection, expression.operation, level, expression.span);
+        break;
       case "Name":
         const requirements: Requirement[] = [];
         type = this.#instantiate(this.#scheme(expression.symbol), level, requirements);
@@ -1054,6 +1136,13 @@ class Checker {
         }
         type = primitive("String");
         break;
+      case "Hash": {
+        const value = this.#inferExpr(expression.value, level);
+        const requirement = this.#require("Hash", value, expression.span);
+        this.#requirements.set(expression, [requirement]);
+        type = primitive("Int");
+        break;
+      }
       case "Tuple":
         type = {
           kind: "Tuple",
@@ -1062,6 +1151,14 @@ class Checker {
           ),
         };
         break;
+      case "Vector": {
+        const element = this.#fresh(level, false);
+        for (const value of expression.elements) {
+          this.#unifyExpected(element, this.#inferExpr(value, level), value, value.span, true);
+        }
+        type = { kind: "Vector", element };
+        break;
+      }
       case "Record":
         if (expression.spread === undefined) {
           type = {
@@ -1246,6 +1343,10 @@ class Checker {
           element = primitive("Int");
         } else if (actual.kind === "Seq") {
           element = actual.element;
+        } else if (actual.kind === "Vector" || actual.kind === "Set" || actual.kind === "Array") {
+          element = actual.element;
+        } else if (actual.kind === "Map") {
+          element = { kind: "Tuple", elements: [actual.key, actual.value] };
         } else if (
           actual.kind === "Constructor" && actual.name === "String"
         ) {
@@ -1257,11 +1358,15 @@ class Checker {
             primary: expression.iterable.span,
           });
         } else if (actual.kind !== "Error") {
-          this.#diagnostics.add({
-            severity: "error",
-            message: `iteration over ${this.#display(actual)} is not implemented yet; the current compiler supports Range and String`,
-            primary: expression.iterable.span,
-          });
+          element = this.#fresh(level, false);
+          const requirement = this.#require(
+            "Iterable",
+            actual,
+            expression.iterable.span,
+            "operation",
+            new Map([["Item", element]]),
+          );
+          if (!requirement.reported) this.#iterations.set(expression, requirement);
         }
         this.#inferMatchPattern(expression.pattern, element, level);
         if (!this.#isIrrefutablePattern(expression.pattern, element)) {
@@ -1397,6 +1502,31 @@ class Checker {
             this.#diagnostics.add({
               severity: "error",
               message: `match on \`${this.#display(actual)}\` needs a catch-all structural pattern`,
+              primary: expression.span,
+            });
+          }
+        } else if (actual.kind === "Vector") {
+          const patterns = expression.arms.flatMap((arm) =>
+            arm.guard === undefined
+              ? coverageAlternatives(arm.pattern).filter(
+                  (pattern): pattern is Resolved.VectorPattern => pattern.kind === "Vector",
+                )
+              : []
+          );
+          const restMinimum = Math.min(
+            ...patterns.filter(({ rest }) => rest !== undefined).map(({ elements }) => elements.length),
+          );
+          const fixedLengths = new Set(
+            patterns.filter(({ rest }) => rest === undefined).map(({ elements }) => elements.length),
+          );
+          const exhaustive = Number.isFinite(restMinimum) &&
+            Array.from({ length: restMinimum }, (_, length) => length).every((length) =>
+              fixedLengths.has(length)
+            );
+          if (!catchAll && !exhaustive) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: "match is missing a vector length case",
               primary: expression.span,
             });
           }
@@ -1737,11 +1867,32 @@ class Checker {
         type = receiver.elements[index]!;
         break;
       }
-      case "Index":
-        this.#inferExpr(expression.receiver, level);
-        this.#inferExpr(expression.index, level);
-        type = this.#unsupported(expression.span, "indexing is not in the first checker slice");
+      case "Index": {
+        const receiver = this.#prune(this.#inferExpr(expression.receiver, level));
+        const index = this.#prune(this.#inferExpr(expression.index, level));
+        if (receiver.kind === "Vector") {
+          if (index.kind === "Range") {
+            type = receiver;
+            this.#indexOperations.set(expression, "VectorSlice");
+          } else {
+            this.#unify(index, primitive("Int"), expression.index.span);
+            type = receiver.element;
+            this.#indexOperations.set(expression, "VectorElement");
+          }
+        } else if (receiver.kind === "Constructor" && receiver.name === "String") {
+          if (index.kind === "Range") {
+            type = primitive("String");
+            this.#indexOperations.set(expression, "StringSlice");
+          } else {
+            this.#unify(index, primitive("Int"), expression.index.span);
+            type = primitive("String");
+            this.#indexOperations.set(expression, "StringElement");
+          }
+        } else {
+          type = this.#unsupported(expression.receiver.span, "indexing requires a Vector or String value");
+        }
         break;
+      }
       case "ErrorExpr":
         type = ERROR;
         break;
@@ -1847,6 +1998,26 @@ class Checker {
       return;
     }
 
+    if (pattern.kind === "Vector") {
+      const element = this.#fresh(level + 1, false);
+      const vector: VectorMono = { kind: "Vector", element };
+      this.#unify(expected, vector, pattern.span);
+      for (const nested of pattern.elements) {
+        this.#inferPattern(nested, element, level, generalizable);
+      }
+      if (pattern.rest?.pattern !== undefined) {
+        this.#inferPattern(pattern.rest.pattern, vector, level, generalizable);
+      }
+      if (pattern.rest === undefined || pattern.elements.length > 0) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: "this vector pattern can fail because of its length and cannot be used in `let`; use `match`",
+          primary: pattern.span,
+        });
+      }
+      return;
+    }
+
     if (pattern.kind === "Record") {
       const fields = new Map<string, Mono>();
       for (const fieldPattern of pattern.fields) {
@@ -1933,6 +2104,16 @@ class Checker {
       pattern.elements.forEach((element, index) =>
         this.#inferMatchPattern(element, elements[index] ?? ERROR, level)
       );
+      return;
+    }
+    if (pattern.kind === "Vector") {
+      const element = this.#fresh(level, false);
+      const vector: VectorMono = { kind: "Vector", element };
+      this.#unify(expected, vector, pattern.span);
+      for (const nested of pattern.elements) this.#inferMatchPattern(nested, element, level);
+      if (pattern.rest?.pattern !== undefined) {
+        this.#inferMatchPattern(pattern.rest.pattern, vector, level);
+      }
       return;
     }
     if (pattern.kind === "Record") {
@@ -2331,6 +2512,22 @@ class Checker {
     } else if (actualLeft.kind === "Seq" && actualRight.kind === "Seq") {
       this.#unify(actualLeft.element, actualRight.element, span);
       return;
+    } else if (actualLeft.kind === "Vector" && actualRight.kind === "Vector") {
+      this.#unify(actualLeft.element, actualRight.element, span);
+      return;
+    } else if (actualLeft.kind === "Set" && actualRight.kind === "Set") {
+      this.#unify(actualLeft.element, actualRight.element, span);
+      return;
+    } else if (actualLeft.kind === "Array" && actualRight.kind === "Array") {
+      this.#unify(actualLeft.element, actualRight.element, span);
+      return;
+    } else if (actualLeft.kind === "Nullable" && actualRight.kind === "Nullable") {
+      this.#unify(actualLeft.value, actualRight.value, span);
+      return;
+    } else if (actualLeft.kind === "Map" && actualRight.kind === "Map") {
+      this.#unify(actualLeft.key, actualRight.key, span);
+      this.#unify(actualLeft.value, actualRight.value, span);
+      return;
     }
 
     this.#diagnostics.add({
@@ -2455,6 +2652,11 @@ class Checker {
       return actual.arguments.some((argument) => this.#occurs(variable, argument));
     }
     if (actual.kind === "Seq") return this.#occurs(variable, actual.element);
+    if (actual.kind === "Vector") return this.#occurs(variable, actual.element);
+    if (actual.kind === "Set") return this.#occurs(variable, actual.element);
+    if (actual.kind === "Array") return this.#occurs(variable, actual.element);
+    if (actual.kind === "Nullable") return this.#occurs(variable, actual.value);
+    if (actual.kind === "Map") return this.#occurs(variable, actual.key) || this.#occurs(variable, actual.value);
     return false;
   }
 
@@ -2587,6 +2789,21 @@ class Checker {
     const type = this.#prune(requirement.type);
     if (type.kind === "Variable" || type.kind === "Error") return;
     if (type.kind === "Constructor" && supports(type.name, requirement.name)) return;
+    if (
+      ["Eq", "Ord", "Show", "Hash"].includes(requirement.name) &&
+      (type.kind === "Tuple" || type.kind === "Record" || type.kind === "Vector")
+    ) {
+      const components = type.kind === "Tuple"
+        ? type.elements
+        : type.kind === "Record"
+        ? [...type.fields.values()]
+        : [type.element];
+      for (const component of components) {
+        this.#require(requirement.name, component, requirement.span);
+      }
+      requirement.structural = true;
+      return;
+    }
     const instance = this.#instances.get(this.#instanceKey(requirement.name, type));
     if (instance !== undefined) {
       requirement.dictionary = instance.dictionary;
@@ -2701,6 +2918,21 @@ class Checker {
     if (actual.kind === "Seq") {
       return { kind: "Seq", element: this.#replaceVariables(actual.element, replacements) };
     }
+    if (actual.kind === "Vector") {
+      return { kind: "Vector", element: this.#replaceVariables(actual.element, replacements) };
+    }
+    if (actual.kind === "Set") {
+      return { kind: "Set", element: this.#replaceVariables(actual.element, replacements) };
+    }
+    if (actual.kind === "Array") return { kind: "Array", element: this.#replaceVariables(actual.element, replacements) };
+    if (actual.kind === "Nullable") return { kind: "Nullable", value: this.#replaceVariables(actual.value, replacements) };
+    if (actual.kind === "Map") {
+      return {
+        kind: "Map",
+        key: this.#replaceVariables(actual.key, replacements),
+        value: this.#replaceVariables(actual.value, replacements),
+      };
+    }
     if (actual.kind === "Function") {
       return {
         kind: "Function",
@@ -2810,6 +3042,14 @@ class Checker {
       for (const argument of actual.arguments) this.#collectVariables(argument, found);
     }
     if (actual.kind === "Seq") this.#collectVariables(actual.element, found);
+    if (actual.kind === "Vector") this.#collectVariables(actual.element, found);
+    if (actual.kind === "Set") this.#collectVariables(actual.element, found);
+    if (actual.kind === "Array") this.#collectVariables(actual.element, found);
+    if (actual.kind === "Nullable") this.#collectVariables(actual.value, found);
+    if (actual.kind === "Map") {
+      this.#collectVariables(actual.key, found);
+      this.#collectVariables(actual.value, found);
+    }
     return [...found.values()];
   }
 
@@ -2867,6 +3107,11 @@ class Checker {
         return { ...actual, arguments: actual.arguments.map(copy) };
       }
       if (actual.kind === "Seq") return { kind: "Seq", element: copy(actual.element) };
+      if (actual.kind === "Vector") return { kind: "Vector", element: copy(actual.element) };
+      if (actual.kind === "Set") return { kind: "Set", element: copy(actual.element) };
+      if (actual.kind === "Array") return { kind: "Array", element: copy(actual.element) };
+      if (actual.kind === "Nullable") return { kind: "Nullable", value: copy(actual.value) };
+      if (actual.kind === "Map") return { kind: "Map", key: copy(actual.key), value: copy(actual.value) };
       if (actual.kind === "Record") {
         const record = this.#normalizeRecord(actual);
         return {
@@ -2904,6 +3149,24 @@ class Checker {
           typeParameters,
           associatedTypes,
         ),
+      };
+    }
+    if (annotation.kind === "Vector") {
+      return {
+        kind: "Vector",
+        element: this.#annotationType(annotation.element, level, namedTails, typeParameters, associatedTypes),
+      };
+    }
+    if (annotation.kind === "Set") {
+      return { kind: "Set", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, associatedTypes) };
+    }
+    if (annotation.kind === "Array") return { kind: "Array", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, associatedTypes) };
+    if (annotation.kind === "Nullable") return { kind: "Nullable", value: this.#annotationType(annotation.value, level, namedTails, typeParameters, associatedTypes) };
+    if (annotation.kind === "Map") {
+      return {
+        kind: "Map",
+        key: this.#annotationType(annotation.key, level, namedTails, typeParameters, associatedTypes),
+        value: this.#annotationType(annotation.value, level, namedTails, typeParameters, associatedTypes),
       };
     }
     if (annotation.kind === "Union") {
@@ -3012,6 +3275,11 @@ class Checker {
         case "Primitive": return primitive(type.name);
         case "Range": return { kind: "Range" };
         case "Seq": return { kind: "Seq", element: copy(type.element) };
+        case "Vector": return { kind: "Vector", element: copy(type.element) };
+        case "Set": return { kind: "Set", element: copy(type.element) };
+        case "Array": return { kind: "Array", element: copy(type.element) };
+        case "Nullable": return { kind: "Nullable", value: copy(type.value) };
+        case "Map": return { kind: "Map", key: copy(type.key), value: copy(type.value) };
         case "Variable": {
           const existing = variables.get(type.id);
           if (existing !== undefined) return existing;
@@ -3060,6 +3328,11 @@ class Checker {
       if (actual.kind === "Union") return { ...actual, arguments: actual.arguments.map(copy) };
       if (actual.kind === "NominalRecord") return { ...actual, arguments: actual.arguments.map(copy) };
       if (actual.kind === "Seq") return { kind: "Seq", element: copy(actual.element) };
+      if (actual.kind === "Vector") return { kind: "Vector", element: copy(actual.element) };
+      if (actual.kind === "Set") return { kind: "Set", element: copy(actual.element) };
+      if (actual.kind === "Array") return { kind: "Array", element: copy(actual.element) };
+      if (actual.kind === "Nullable") return { kind: "Nullable", value: copy(actual.value) };
+      if (actual.kind === "Map") return { kind: "Map", key: copy(actual.key), value: copy(actual.value) };
       if (actual.kind === "Function") {
         return {
           kind: "Function",
@@ -3163,6 +3436,15 @@ class Checker {
     if (actual.kind === "Seq") {
       return { kind: "Seq", element: this.#publicType(actual.element, seen) };
     }
+    if (actual.kind === "Vector") {
+      return { kind: "Vector", element: this.#publicType(actual.element, seen) };
+    }
+    if (actual.kind === "Set") return { kind: "Set", element: this.#publicType(actual.element, seen) };
+    if (actual.kind === "Array") return { kind: "Array", element: this.#publicType(actual.element, seen) };
+    if (actual.kind === "Nullable") return { kind: "Nullable", value: this.#publicType(actual.value, seen) };
+    if (actual.kind === "Map") {
+      return { kind: "Map", key: this.#publicType(actual.key, seen), value: this.#publicType(actual.value, seen) };
+    }
     const existing = seen.get(actual.id);
     if (existing !== undefined) return existing;
     const variable: Typed.VariableType = {
@@ -3192,6 +3474,7 @@ class Checker {
         : { dictionaryArguments: requirement.dictionaryArguments.map((argument) =>
             this.#publicRequirement(argument)
           ) }),
+      ...(requirement.structural === true ? { structural: true } : {}),
     };
   }
 
@@ -3444,6 +3727,24 @@ class Checker {
         ),
       };
     }
+    if (pattern.kind === "Vector") {
+      return {
+        kind: "Vector",
+        elements: pattern.elements.map((element) => this.#materializePattern(element)),
+        ...(pattern.rest === undefined
+          ? {}
+          : {
+              rest: {
+                index: pattern.rest.index,
+                span: pattern.rest.span,
+                ...(pattern.rest.pattern === undefined
+                  ? {}
+                  : { pattern: this.#materializePattern(pattern.rest.pattern) }),
+              },
+            }),
+        span: pattern.span,
+      };
+    }
     if (pattern.kind === "Record") {
       return {
         ...pattern,
@@ -3532,6 +3833,7 @@ class Checker {
     switch (expression.kind) {
       case "Name":
       case "SeqOperation":
+      case "CollectionOperation":
       case "Unit":
       case "Boolean":
       case "BigInt":
@@ -3560,7 +3862,16 @@ class Checker {
                 },
           ),
         };
+      case "Hash":
+        return {
+          kind: "Hash",
+          value: this.#materializeExpr(expression.value),
+          requirement: this.#publicRequirement(this.#requirements.get(expression)![0]!),
+          type,
+          span: expression.span,
+        };
       case "Tuple":
+      case "Vector":
         return {
           ...expression,
           type,
@@ -3613,6 +3924,9 @@ class Checker {
           pattern: this.#materializePattern(expression.pattern),
           iterable: this.#materializeExpr(expression.iterable),
           body: this.#materializeExpr(expression.body) as Typed.BlockExpr,
+          ...(this.#iterations.get(expression) === undefined
+            ? {}
+            : { iteration: this.#publicRequirement(this.#iterations.get(expression)!) }),
           type,
           span: expression.span,
         };
@@ -3732,6 +4046,9 @@ class Checker {
           type,
           receiver: this.#materializeExpr(expression.receiver),
           index: this.#materializeExpr(expression.index),
+          ...(this.#indexOperations.get(expression) === undefined
+            ? {}
+            : { operation: this.#indexOperations.get(expression)! }),
         };
       case "Unary":
         if (expression.operator === "Not") {
@@ -3918,6 +4235,11 @@ class Checker {
     }
     if (actual.kind === "Range") return "Range";
     if (actual.kind === "Seq") return `Seq(${this.#display(actual.element)})`;
+    if (actual.kind === "Vector") return `Vector(${this.#display(actual.element)})`;
+    if (actual.kind === "Set") return `Set(${this.#display(actual.element)})`;
+    if (actual.kind === "Array") return `Array(${this.#display(actual.element)})`;
+    if (actual.kind === "Nullable") return `Nullable(${this.#display(actual.value)})`;
+    if (actual.kind === "Map") return `Map(${this.#display(actual.key)}, ${this.#display(actual.value)})`;
     if (actual.kind === "Record") {
       const fields = [...actual.fields].map(([name, field]) => `${name}: ${this.#display(field)}`);
       if (actual.tail !== undefined) fields.push("...");
@@ -3993,6 +4315,13 @@ function resolvedPatternBindings(
         : resolvedPatternBindings(pattern.alternatives[0]);
     case "Tuple":
       return pattern.elements.flatMap(resolvedPatternBindings);
+    case "Vector":
+      return [
+        ...pattern.elements.flatMap(resolvedPatternBindings),
+        ...(pattern.rest?.pattern === undefined
+          ? []
+          : resolvedPatternBindings(pattern.rest.pattern)),
+      ];
     case "Record":
       return pattern.fields.flatMap((field) =>
         resolvedPatternBindings(field.pattern)
@@ -4014,6 +4343,8 @@ function isStructurallyIrrefutablePattern(pattern: Resolved.Pattern): boolean {
       return pattern.alternatives.some(isStructurallyIrrefutablePattern);
     case "Tuple":
       return pattern.elements.every(isStructurallyIrrefutablePattern);
+    case "Vector":
+      return pattern.rest !== undefined && pattern.elements.length === 0;
     case "Record":
       return pattern.fields.every((field) =>
         isStructurallyIrrefutablePattern(field.pattern)

@@ -9,7 +9,7 @@ import type * as Source from "../../support/source.js";
 import type * as Resolved from "../resolved/index.js";
 import type * as Typed from "../typed/index.js";
 
-export type Evidence = PrimitiveEvidence | DictionaryEvidence | InstanceEvidence | ErrorEvidence;
+export type Evidence = PrimitiveEvidence | DictionaryEvidence | InstanceEvidence | StructuralEvidence | ErrorEvidence;
 
 export interface PrimitiveEvidence {
   readonly kind: "Primitive";
@@ -31,6 +31,11 @@ export interface InstanceEvidence {
   readonly kind: "Instance";
   readonly dictionary: string;
   readonly arguments: readonly EvidenceArgument[];
+}
+
+export interface StructuralEvidence {
+  readonly kind: "Structural";
+  readonly type: Typed.Type;
 }
 
 export interface EvidenceArgument {
@@ -111,6 +116,7 @@ export type Pattern =
   | BooleanPattern
   | IntegerPattern
   | StringPattern
+  | VectorPattern
   | TuplePattern
   | RecordPattern
   | OrPattern
@@ -161,6 +167,13 @@ export interface IntegerPattern {
 export interface StringPattern {
   readonly kind: "String";
   readonly value: string;
+  readonly span: Source.Span;
+}
+
+export interface VectorPattern {
+  readonly kind: "Vector";
+  readonly elements: readonly Pattern[];
+  readonly rest?: { readonly pattern?: Pattern; readonly index: number; readonly span: Source.Span };
   readonly span: Source.Span;
 }
 
@@ -280,10 +293,14 @@ export type Expr =
   | BigIntExpr
   | FloatExpr
   | StringExpr
+  | VectorExpr
   | TupleExpr
   | TupleAccessExpr
   | RecordExpr
   | FieldAccessExpr
+  | IndexExpr
+  | HashExpr
+  | CollectionOperationExpr
   | ConvertIntExpr
   | WidenIntExpr
   | BlockExpr
@@ -347,6 +364,11 @@ export interface StringExpr extends ExpressionFields {
   readonly parts: readonly StringPart[];
 }
 
+export interface VectorExpr extends ExpressionFields {
+  readonly kind: "Vector";
+  readonly elements: readonly Expr[];
+}
+
 export type StringPart = StringText | StringShow;
 
 export interface StringText {
@@ -384,6 +406,25 @@ export interface FieldAccessExpr extends ExpressionFields {
   readonly kind: "FieldAccess";
   readonly receiver: Expr;
   readonly field: string;
+}
+
+export interface IndexExpr extends ExpressionFields {
+  readonly kind: "Index";
+  readonly receiver: Expr;
+  readonly index: Expr;
+  readonly operation: "VectorElement" | "VectorSlice" | "StringElement" | "StringSlice";
+}
+
+export interface HashExpr extends ExpressionFields {
+  readonly kind: "Hash";
+  readonly value: Expr;
+  readonly evidence: Evidence;
+}
+
+export interface CollectionOperationExpr extends ExpressionFields {
+  readonly kind: "CollectionOperation";
+  readonly collection: "Map" | "Set" | "Vector";
+  readonly operation: string;
 }
 
 /** A non-representationally-trivial `Num.fromInt` application. */
@@ -429,6 +470,7 @@ export interface ForExpr extends ExpressionFields {
   readonly pattern: Pattern;
   readonly iterable: Expr;
   readonly body: BlockExpr;
+  readonly iteration?: Evidence;
 }
 
 export interface RangeExpr extends ExpressionFields {

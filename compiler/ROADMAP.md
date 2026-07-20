@@ -1,6 +1,6 @@
 # Hexagon Compiler Roadmap
 
-**Status:** Twenty-six vertical slices now extend the original expression, pattern, mutation, Range, and loop pipeline with generic nominal unions and records, exceptions, nominal companion dot calls, completed internal constraint dictionaries, owner-scoped associated types, lazy `Seq`, relative module graphs, and direct fundamental specializations with navigable generated-code metadata.
+**Status:** Thirty-two vertical slices now extend the original expression, pattern, mutation, Range, and loop pipeline with generic nominal unions and records, exceptions, nominal companion dot calls, completed internal constraint dictionaries, owner-scoped associated types, lazy `Seq`, structural hashing, vectors, Map/Set core operations, generalized concrete `Iterable`, initial Array/Nullable boundary types, relative module graphs, and direct fundamental specializations with navigable generated-code metadata.
 
 The compiler is built as a sequence of typed phase transformations. Each milestone must preserve the global naming doctrine in `architecture/naming.md` and the readability and commenting doctrine in `architecture/readability-and-comments.md`.
 
@@ -24,7 +24,7 @@ Transform physical tokens into a layout-aware stream containing virtual open, se
 
 ## 3. Parser
 
-**The existing expression and pattern grammar plus generic unions, nominal records, exceptions and `try`/`catch`, constraints with associated types/defaults/derivation, ground and parameterized `honor`, explicit constrained binders, `Seq(a)`, and relative imports are implemented; full grammar remains in progress.**
+**The existing expression and pattern grammar plus vector literals/rest patterns, generic unions, nominal records, exceptions and `try`/`catch`, constraints with associated types/defaults/derivation, ground and parameterized `honor`, explicit constrained binders, `Seq(a)`, collection/FFI type applications, and relative imports are implemented; full grammar remains in progress.**
 
 Transform layout-aware tokens into the parsed syntax tree. Implement declarations, expressions, patterns, type syntax, precedence, contextual forms, recovery, and source attribution.
 
@@ -36,7 +36,7 @@ Replace textual references with stable symbols. Implement scopes, imports, expor
 
 ## 5. Type-system core
 
-**The HM and row core now includes generic nominal unions and records, `Exn`, `Seq(a)`, explicit/inferred constraints, maximal trailing evidence, required/default members, nested superconstraints, coherent ground and parameterized instances, nominal derivation, associated type substitution at concrete calls, and the v1 projection-bearing binder ban; the conditional public dictionary ABI remains with the FFI integration work.**
+**The HM and row core now includes generic nominal unions and records, `Exn`, `Seq(a)`, Vector/Map/Set and Array/Nullable types, explicit/inferred constraints, structural hashing, maximal trailing evidence, required/default members, nested superconstraints, coherent ground and parameterized instances, concrete `Iterable` selection, nominal derivation, associated type substitution at concrete calls, and the v1 projection-bearing binder ban; the conditional public dictionary ABI remains with later FFI integration work.**
 
 Implement Algorithm J, union-find type variables, levels and generalisation, type schemes, unification, rows, constraints, and stable type rendering for diagnostics.
 
@@ -48,25 +48,25 @@ Type-check expressions and declarations. Enforce value restriction, recursion, e
 
 ## 7. Elaboration
 
-**Primitive, structural and nominal data, matches, exceptions, constraint evidence, dot-call rewriting, mutation, range, while, and for-loop slices implemented.**
+**Primitive, structural and nominal data, vector patterns and checked access, collection operations, matches, exceptions, constraint evidence, dot-call rewriting, mutation, range, while, and generalized for-loop slices implemented.**
 
 Remove surface conveniences and make semantics explicit. Pipes have already become calls before inference; operators become constraint operations; numeric literals elaborate through `fromInt`; evidence becomes explicit where required; patterns lower to tests and bindings; high-level control forms reduce to the core language.
 
 ## 8. Core IR
 
-**Typed representation includes patterns, structural and generic nominal data, exceptions, modules, constraint dictionaries and erased associated type bindings, matches, mutation, ranges, loops, and recursive functions.**
+**Typed representation includes vector/rest patterns, structural and generic nominal data, collection and FFI boundary types, exceptions, modules, constraint dictionaries and erased associated type bindings, matches, mutation, ranges, loops, and recursive functions.**
 
 Define a small typed representation oriented toward readable JavaScript without merely copying JavaScript syntax. Preserve resolved bindings, representation decisions, explicit evidence, control flow, and source attribution.
 
 ## 9. JavaScript emission
 
-**Readable ESM emission covers the implemented language, including generic nominal data, branded Error exceptions, completed internal constraint dictionaries and factories, companion calls, imports, replayable ranges, persistent generator-backed sequences, native Range/String/Seq iteration, and direct dictionary-free fundamental specializations.**
+**Readable ESM emission covers the implemented language, including generic nominal data, branded Error exceptions, completed internal constraint dictionaries and factories, structural hashes, checked Vector/String access, persistent Map/Set core operations, companion calls, imports, replayable ranges, persistent generator-backed sequences, provided and user-instance iteration, and direct dictionary-free fundamental specializations.**
 
 Emit readable ESM, source maps, direct primitive operations, records and unions, helpers, runtime imports, specialization, and deterministic output.
 
 ## 10. TypeScript declaration emission
 
-**Primitive, tuple, structural/nominal-record, generic discriminated-union, exception, constructor, `Range`/`Seq` as `Iterable<T>`, unconstrained-function, and fundamental-specialization declarations implemented.**
+**Primitive, tuple, Vector/Map/Set, Array/Nullable, structural/nominal-record, generic discriminated-union, exception, constructor, `Range`/`Seq` as `Iterable<T>`, unconstrained-function, and fundamental-specialization declarations implemented.**
 
 Emit the checked public surface as `.d.ts`: generics, records, unions, opaque types, runtime-owned values, FFI signatures, fundamental specializations, and public dictionaries.
 

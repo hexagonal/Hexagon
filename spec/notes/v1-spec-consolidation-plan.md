@@ -173,6 +173,51 @@ and `__hex_` as the reserved, deterministically probed emitted-name prefix.
   hygiene, `.d.ts` names, Monaco, and corpus-wide naming terminology. Later
   consolidation must preserve these owners rather than restoring lowercase-only text.
 
+### Cultural uppercase prefixes and implied types
+
+**Status:** Naming direction approved by James (July 2026); recorded for a later
+corpus-wide terminology pass rather than partially propagated here.
+
+Caseless scripts need an uppercase Latin first character for Hexagon's
+uppercase-start roles. The cultural convention is one distinct mnemonic per role:
+
+| Prefix | Role | Representative spelling |
+| :--- | :--- | :--- |
+| `T` | type | `T人`, `T花色` |
+| `U` | union case | `U梅花`, `U黑桃` |
+| `C` | constraint | `C显示` |
+| `I` | implied type | `I元素` |
+| `E` | exception | `E无效年龄` |
+| `M` | module alias | `M数据库` |
+
+Record constructors retain their type's `T` name because the type and constructor
+deliberately share one identifier. Foreign-enum cases follow `U`. Type aliases,
+opaque types, and extern classes follow `T`. Values, functions, parameters, fields,
+constraint function members, type variables, and other term/binder roles need no
+prefix; bare caseless-script identifiers already classify correctly.
+
+These prefixes are conventions, not reserved syntax. Naturally uppercase names such
+as `Person`, `Clubs`, `Show`, `Item`, and `Database` remain unchanged; in particular,
+the prelude member `Item` does not become `IItem`.
+
+The terminology **implied type** replaces **associated type**. Definition:
+
+> An implied type is a type uniquely determined by a constraint instance's subject
+> type.
+
+For example, `Iterable<Vector(Int)>` implies `Item = Int`; the `honor` declaration
+explicitly establishes that implication, after which the checker may use it. This is
+not merely a type inferred from an expression. The source forms `type Item` and
+`type Item = a` are unchanged.
+
+A later propagation pass must update the Collections Part 2 vocabulary and
+diagnostics, all associated-type references across the live spec and book, review
+titles where appropriate, compiler diagnostics/tests, and the Lexer §3 cultural
+examples. Preserve the existing technical word **projection** for the operation and
+the definition of projection-bearing constraints unless a separate decision changes
+it; only the user-facing member noun changes from “associated type” to “implied
+type.”
+
 ### Arbitrary-string JavaScript properties
 
 **Status:** Concrete interoperability gap recorded by James (July 2026); deliberately not a consolidation edit. The need and two-door direction are accepted for post-Part-9 design; exact surface spelling remains open.
