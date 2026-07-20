@@ -1,6 +1,6 @@
 # Hexagon Compiler Roadmap
 
-**Status:** Thirty-two vertical slices now extend the original expression, pattern, mutation, Range, and loop pipeline with generic nominal unions and records, exceptions, nominal companion dot calls, completed internal constraint dictionaries, owner-scoped implied types, lazy `Seq`, structural hashing, vectors, Map/Set core operations, generalized concrete `Iterable`, initial Array/Nullable boundary types, relative module graphs, and direct fundamental specializations with navigable generated-code metadata.
+**Status:** Thirty-five vertical slices now extend the original expression, pattern, mutation, Range, and loop pipeline with generic nominal unions and records, exceptions, nominal companion dot calls, completed internal constraint dictionaries, owner-scoped implied types, lazy `Seq`, structural hashing, vectors, Map/Set core operations, generalized concrete `Iterable`, initial Array/Nullable boundary types, relative module graphs, direct fundamental specializations with navigable generated-code metadata, transparent aliases, mutual recursion, qualified types, and opaque module abstractions.
 
 The compiler is built as a sequence of typed phase transformations. Each milestone must preserve the global naming doctrine in `architecture/naming.md` and the readability and commenting doctrine in `architecture/readability-and-comments.md`.
 
@@ -24,13 +24,13 @@ Transform physical tokens into a layout-aware stream containing virtual open, se
 
 ## 3. Parser
 
-**The existing expression and pattern grammar plus vector literals/rest patterns, generic unions, nominal records, exceptions and `try`/`catch`, constraints with implied types/defaults/derivation, ground and parameterized `honor`, explicit constrained binders, `Seq(a)`, collection/FFI type applications, and relative imports are implemented; full grammar remains in progress.**
+**The existing expression and pattern grammar plus vector literals/rest patterns, generic unions, nominal records, transparent parameterized aliases, opaque exports, exceptions and `try`/`catch`, constraints with implied types/defaults/derivation, ground and parameterized `honor`, explicit constrained binders, `Seq(a)`, collection/FFI type applications, qualified type paths, and relative imports are implemented; full grammar remains in progress.**
 
 Transform layout-aware tokens into the parsed syntax tree. Implement declarations, expressions, patterns, type syntax, precedence, contextual forms, recovery, and source attribution.
 
 ## 4. Resolution and modules
 
-**Stable local and imported identities, generic nominal declarations, exception and constraint members, owner-relative implied type scope, relative named/aliased/namespace/effect imports, acyclic dependency ordering, imported schemes, and nominal companion lookup are implemented; qualified type paths, re-exports, packages, and mutual recursion remain in progress.**
+**Stable local and imported identities, order-independent type declarations, generic nominal declarations, transparent-alias expansion and cycle checks, exception and constraint members, owner-relative implied type scope, relative named/aliased/namespace/effect imports, qualified type paths, acyclic dependency ordering, imported schemes, nominal companion lookup, mutual recursive function groups, capture availability, and opaque representation visibility are implemented. Re-exports and packages are post-v1 package-system work.**
 
 Replace textual references with stable symbols. Implement scopes, imports, exports, companions, duplicate detection, shadowing rules, module graphs, cycle diagnostics, and topological ordering.
 

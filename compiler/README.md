@@ -4,7 +4,7 @@ This folder contains the beginning of `hexc`, the Hexagon compiler.
 
 The platform-neutral TypeScript core now includes shared source coordinates,
 structured diagnostics, the complete physical lexer, and the indentation layout
-pass. Thirty-two vertical compiler slices now carry the public pipeline through `Source.File -> Lexed.File
+pass. Thirty-five vertical compiler slices now carry the public pipeline through `Source.File -> Lexed.File
 -> LaidOut.File -> Parsed.Module -> Resolved.Module -> Typed.Module -> Core.Module ->
 Emitted output` for a deliberate language subset.
 
@@ -22,7 +22,8 @@ indexing, assignment, generic unions, nominal records, exception declarations an
 `try`/`catch`, completed user constraint declarations and honors, implied type
 declarations and ground bindings, `derive` and declaration-header `derives`, explicit
 constrained binders, `Seq(a)`, relative imports, and the complete operator precedence
-table. Type aliases, remaining declarations, and richer type syntax remain explicit future parser slices;
+table. Transparent parameterized type aliases, qualified type paths, and opaque record
+and union exports are also implemented. Remaining declarations and richer type syntax remain explicit future parser slices;
 encountering one produces a recovery diagnostic rather than a misleading partial
 tree.
 
@@ -32,10 +33,12 @@ and head-binder shadowing, resolves primitive, tuple, record, and union annotati
 assigns stable identities to generic unions, nominal records, their constructors,
 exception constructors, constraint members, and imported bindings. It
 diagnoses illegal `let` self-reference, unknown names and types, rebinding, duplicate
-parameters, mutable-capture rejection, and the deliberately deferred forward/mutual-recursion boundary.
+parameters, mutable-capture rejection, alias cycles, and calls made before a recursive
+function's captured sequential values are available. Function declarations in one block
+form a mutual-recursion group.
 Relative named, aliased, namespace, and effect imports plus nominal companion lookup
-are implemented; qualified type syntax, capture-set hoisting, and mutual recursive
-groups remain later resolution slices. Implied type names have owner-relative
+are implemented, including qualified type syntax and opaque imported representations.
+Implied type names have owner-relative
 scope inside their constraint and instances; attempted v1 references outside those
 owners receive implied-type-specific diagnostics.
 
@@ -58,7 +61,9 @@ generic call-site evidence, explicit and inferred constraints, required-member u
 constraints, superconstraints, inherited defaults, coherent ground and parameterized
 instances, nominal derivation, concrete implied type substitution, the
 projection-bearing constraint binder ban, exceptions, imported schemes, and nominal dot-call
-resolution. The public dictionary ABI, richer annotations, and the remaining surface
+resolution. Exported signatures cannot expose private nominal types, and imported opaque
+records reject construction, field access, destructuring, and updates outside their home
+module. The public dictionary ABI, richer annotations, and the remaining surface
 forms are later checker and FFI slices. Primitive annotations
 constrain inference and are erased after checking rather than leaking into Core.
 Direct recursion uses one monotype inside its own body and generalizes only after
@@ -90,7 +95,9 @@ direct dictionary-free fundamental editions, with deterministic names, collision
 diagnostics, and byte-counted generated regions. Declarations cover
 exported primitives, tuples, structural records, discriminated payload unions and
 their constructors, nominal records, exceptions, unconstrained polymorphic functions,
-and fundamental specializations.
+and fundamental specializations. Exported aliases remain named TypeScript aliases;
+opaque records and unions receive collision-safe private-symbol brands without exporting
+their constructors.
 Source maps, the conditional generic constrained edition, public dictionaries, richer types, and the
 finalized portable target profile remain later emission slices.
 

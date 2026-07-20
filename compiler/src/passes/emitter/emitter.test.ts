@@ -379,7 +379,7 @@ describe("emitJavaScript", () => {
 
   test("emits nested tuple and renamed record constructor patterns", () => {
     const module = coreSource(
-      "union Result = Ok(value: (String, Int)) | Err(error: {context: {message: String}, code: Int})\n" +
+      "export union Result = Ok(value: (String, Int)) | Err(error: {context: {message: String}, code: Int})\n" +
         "export fun describe(result: Result): String = match result\n" +
         "  Ok((name, _)) => name\n" +
         "  Err({context: {message: reason}}) => reason",
@@ -527,7 +527,7 @@ describe("emitJavaScript", () => {
 
   test("resolves nominal dot calls to subject-first companion operations", () => {
     const module = coreSource(
-      "record Point = {x: Int, y: Int}\n" +
+      "export record Point = {x: Int, y: Int}\n" +
         "fun translate(point: Point, dx: Int): Point = {...point, x: point.x + dx}\n" +
         "export let shifted = Point({x: 1, y: 2}).translate(3)",
     );

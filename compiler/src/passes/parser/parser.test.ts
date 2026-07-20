@@ -8,6 +8,23 @@ import { lex } from "../lexer/lexer.js";
 import { parse } from "./parser.js";
 
 describe("parse", () => {
+  test("parses aliases, qualified types, and opaque nominal exports", () => {
+    const module = parseSource(
+      "export type Pair(a) = (a, a)\n" +
+        "export opaque record Token = {value: Int}\n" +
+        "export opaque union Handle = File(Int) | Socket(Int)\n" +
+        "let value: Api.Pair(Int) = (1, 2)",
+    );
+
+    expect(module.items).toMatchObject([
+      { kind: "TypeAlias", exported: true, name: { text: "Pair" }, parameters: [{ text: "a" }] },
+      { kind: "RecordDeclaration", exported: true, opaque: true },
+      { kind: "Union", exported: true, opaque: true },
+      { kind: "Let", annotation: { kind: "AppliedType", qualifier: { text: "Api" }, constructor: { text: "Pair" } } },
+    ]);
+    expect(module.diagnostics).toEqual([]);
+  });
+
   test("parses module items with the specified arithmetic precedence", () => {
     const module = parseSource("let answer = 1 + 2 * 3 ** 2\nprint(answer)");
 
