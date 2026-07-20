@@ -412,7 +412,8 @@ export interface IndexExpr extends ExpressionFields {
   readonly kind: "Index";
   readonly receiver: Expr;
   readonly index: Expr;
-  readonly operation: "VectorElement" | "VectorSlice" | "StringElement" | "StringSlice";
+  readonly operation: "VectorElement" | "VectorSlice" | "StringElement" | "StringSlice" | "MapElement";
+  readonly hashEvidence?: Evidence;
 }
 
 export interface HashExpr extends ExpressionFields {
@@ -425,6 +426,7 @@ export interface CollectionOperationExpr extends ExpressionFields {
   readonly kind: "CollectionOperation";
   readonly collection: "Map" | "Set" | "Vector";
   readonly operation: string;
+  readonly hashEvidence?: Evidence;
 }
 
 /** A non-representationally-trivial `Num.fromInt` application. */

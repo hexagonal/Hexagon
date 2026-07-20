@@ -70,13 +70,19 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
   switch (expression.kind) {
     case "Name":
     case "SeqOperation":
-    case "CollectionOperation":
     case "Unit":
     case "Boolean":
     case "BigInt":
     case "Float":
     case "ErrorExpr":
       return expression;
+    case "CollectionOperation": {
+      const hashRequirement = expression.requirements.find(({ name }) => name === "Hash");
+      return {
+        ...expression,
+        ...(hashRequirement === undefined ? {} : { hashEvidence: evidence(hashRequirement) }),
+      };
+    }
     case "FromInt":
       return elaborateInteger(expression);
     case "WidenInt":
@@ -280,6 +286,13 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
             receiver: elaborateExpr(expression.receiver),
             index: elaborateExpr(expression.index),
             operation: expression.operation,
+            ...(expression.requirements === undefined
+              ? {}
+              : {
+                  hashEvidence: evidence(
+                    expression.requirements.find(({ name }) => name === "Hash"),
+                  ),
+                }),
             type: expression.type,
             span: expression.span,
           };

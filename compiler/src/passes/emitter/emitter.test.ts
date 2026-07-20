@@ -53,11 +53,80 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
-    expect(output.text).toContain("function __hex_collectionEquals");
-    expect(output.text).toContain("findIndex");
-    expect(output.text).toContain("some(__hex_item");
+    expect(output.text).toContain("const __hex_persistentCollections");
+    expect(output.text).toContain("__hex_hash.eq.equals");
+    expect(output.text).toContain("const insert =");
     expect(emitDeclarations(module).text).toContain("ReadonlyMap<[number, number], string>");
     expect(emitDeclarations(module).text).toContain("ReadonlySet<[number, number]>");
+  });
+
+  test("executes persistent Map and Set updates, lookup, and bracket failure", () => {
+    const module = coreSource(
+      "let m0: Map(Int, String) = Map.empty()\n" +
+        "let m1 = Map.set(m0, 1, \"one\")\n" +
+        "let m2 = Map.set(m1, 33, \"thirty-three\")\n" +
+        "let m3 = Map.set(m2, 1, \"replaced\")\n" +
+        "let unchanged = Map.remove(m3, 99)\n" +
+        "let s0: Set(Int) = Set.empty()\n" +
+        "let s1 = Set.add(Set.add(s0, 1), 33)\n" +
+        "let s2 = Set.add(s1, 1)\n" +
+        "let result = (m3[1], m3[33], Map.size(m0), Map.size(m3), unchanged, m3, Set.size(s2), Set.contains(s2, 33))",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    const execute = Function(`${output.text}\nreturn result;`) as () => unknown;
+    const result = execute() as unknown[];
+    expect(result.slice(0, 4)).toEqual(["replaced", "thirty-three", 0, 2]);
+    expect(result[4]).toBe(result[5]);
+    expect(result.slice(6)).toEqual([2, true]);
+
+    const missingModule = coreSource(
+      "let values: Map(Int, String) = Map.empty()\n" +
+        "let missing = values[99]",
+    );
+    expect(missingModule.diagnostics).toEqual([]);
+    const missingOutput = emitJavaScript(missingModule);
+    expect(() => Function(missingOutput.text)()).toThrowError(
+      expect.objectContaining({ name: "KeyError" }),
+    );
+  });
+
+  test("provides extensional Map and Set instances and the core algebra", () => {
+    const module = coreSource(
+      "let left = Map.fromVector([(1, \"one\"), (2, \"two\")])\n" +
+        "let right = Map.fromVector([(2, \"two\"), (1, \"one\")])\n" +
+        "fun mapFacts<k: Hash, v: Hash>(a: Map(k, v), b: Map(k, v)) = (a == b, hash(a) == hash(b))\n" +
+        "fun setFacts<a: Hash>(a: Set(a), b: Set(a)) = (a == b, hash(a) == hash(b))\n" +
+        "let first = Set.fromVector([1, 2, 3])\n" +
+        "let second = Set.fromVector([3, 4])\n" +
+        "let combined = Set.union(first, second)\n" +
+        "let common = Set.intersect(first, second)\n" +
+        "let rest = Set.difference(first, second)\n" +
+        "let subset = Set.isSubsetOf(common, first)\n" +
+        "let keys = Map.keys(left)\n" +
+        "let mapEvidence = mapFacts(left, right)\n" +
+        "let setEvidence = setFacts(first, Set.fromVector([3, 2, 1]))\n" +
+        "let result = (left == right, hash(left) == hash(right), Set.size(combined), Set.size(common), Set.size(rest), subset, keys, \"${first}\", \"${left}\", mapEvidence, setEvidence)",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    const execute = Function(`${output.text}\nreturn result;`) as () => unknown;
+    const result = execute() as unknown[];
+    expect([...result[6] as Iterable<unknown>]).toEqual([1, 2]);
+    expect([...result.slice(0, 6), ...result.slice(7)]).toEqual([
+      true,
+      true,
+      4,
+      1,
+      2,
+      true,
+      "Set.fromVector([1, 2, 3])",
+      "Map.fromVector([(1, one), (2, two)])",
+      [true, true],
+      [true, true],
+    ]);
   });
 
   test("iterates provided collections and concrete user Iterable instances", () => {

@@ -1049,33 +1049,45 @@ class Checker {
     operation: string,
     level: number,
     span: Source.Span,
+    requirements: Requirement[],
   ): Mono {
+    const requireKey = (subject: Mono): void => {
+      requirements.push(this.#require("Hash", subject, span));
+    };
     if (collection === "Map") {
       const key = this.#fresh(level, false);
       const value = this.#fresh(level, false);
       const map: MapMono = { kind: "Map", key, value };
-      if (["set", "remove", "containsKey", "get"].includes(operation)) {
-        this.#require("Hash", key, span);
+      if (["set", "remove", "containsKey", "fromVector", "fromSeq", "fromEntries"].includes(operation)) {
+        requireKey(key);
       }
       if (operation === "empty") return { kind: "Function", parameters: [], result: map };
       if (operation === "set") return { kind: "Function", parameters: [map, key, value], result: map };
       if (operation === "remove") return { kind: "Function", parameters: [map, key], result: map };
       if (operation === "containsKey") return { kind: "Function", parameters: [map, key], result: primitive("Bool") };
-      if (operation === "get") return { kind: "Function", parameters: [map, key], result: value };
       if (operation === "size") return { kind: "Function", parameters: [map], result: primitive("Int") };
       if (operation === "isEmpty") return { kind: "Function", parameters: [map], result: primitive("Bool") };
+      if (operation === "keys") return { kind: "Function", parameters: [map], result: { kind: "Seq", element: key } };
+      if (operation === "values") return { kind: "Function", parameters: [map], result: { kind: "Seq", element: value } };
+      if (operation === "entries" || operation === "toSeq") return { kind: "Function", parameters: [map], result: { kind: "Seq", element: { kind: "Tuple", elements: [key, value] } } };
+      if (operation === "fromVector") return { kind: "Function", parameters: [{ kind: "Vector", element: { kind: "Tuple", elements: [key, value] } }], result: map };
+      if (operation === "fromSeq" || operation === "fromEntries") return { kind: "Function", parameters: [{ kind: "Seq", element: { kind: "Tuple", elements: [key, value] } }], result: map };
     } else if (collection === "Set") {
       const element = this.#fresh(level, false);
       const set: SetMono = { kind: "Set", element };
-      if (["add", "remove", "contains", "union", "intersection", "difference"].includes(operation)) {
-        this.#require("Hash", element, span);
+      if (["add", "remove", "contains", "union", "intersect", "difference", "isSubsetOf", "fromVector", "fromSeq"].includes(operation)) {
+        requireKey(element);
       }
       if (operation === "empty") return { kind: "Function", parameters: [], result: set };
       if (operation === "add" || operation === "remove") return { kind: "Function", parameters: [set, element], result: set };
       if (operation === "contains") return { kind: "Function", parameters: [set, element], result: primitive("Bool") };
-      if (["union", "intersection", "difference"].includes(operation)) return { kind: "Function", parameters: [set, set], result: set };
+      if (["union", "intersect", "difference"].includes(operation)) return { kind: "Function", parameters: [set, set], result: set };
+      if (operation === "isSubsetOf") return { kind: "Function", parameters: [set, set], result: primitive("Bool") };
       if (operation === "size") return { kind: "Function", parameters: [set], result: primitive("Int") };
       if (operation === "isEmpty") return { kind: "Function", parameters: [set], result: primitive("Bool") };
+      if (operation === "toSeq") return { kind: "Function", parameters: [set], result: { kind: "Seq", element } };
+      if (operation === "fromVector") return { kind: "Function", parameters: [{ kind: "Vector", element }], result: set };
+      if (operation === "fromSeq") return { kind: "Function", parameters: [{ kind: "Seq", element }], result: set };
     } else {
       const element = this.#fresh(level, false);
       const vector: VectorMono = { kind: "Vector", element };
@@ -1096,7 +1108,15 @@ class Checker {
         break;
       }
       case "CollectionOperation":
-        type = this.#collectionOperationType(expression.collection, expression.operation, level, expression.span);
+        const collectionRequirements: Requirement[] = [];
+        type = this.#collectionOperationType(
+          expression.collection,
+          expression.operation,
+          level,
+          expression.span,
+          collectionRequirements,
+        );
+        this.#requirements.set(expression, collectionRequirements);
         break;
       case "Name":
         const requirements: Requirement[] = [];
@@ -1888,8 +1908,16 @@ class Checker {
             type = primitive("String");
             this.#indexOperations.set(expression, "StringElement");
           }
+        } else if (receiver.kind === "Map") {
+          this.#unify(index, receiver.key, expression.index.span);
+          const requirements = [
+            this.#require("Hash", receiver.key, expression.span),
+          ];
+          this.#requirements.set(expression, requirements);
+          type = receiver.value;
+          this.#indexOperations.set(expression, "MapElement");
         } else {
-          type = this.#unsupported(expression.receiver.span, "indexing requires a Vector or String value");
+          type = this.#unsupported(expression.receiver.span, "indexing requires a Vector, String, or Map value");
         }
         break;
       }
@@ -2800,6 +2828,22 @@ class Checker {
         : [type.element];
       for (const component of components) {
         this.#require(requirement.name, component, requirement.span);
+      }
+      requirement.structural = true;
+      return;
+    }
+    if (["Eq", "Show", "Hash"].includes(requirement.name) && type.kind === "Set") {
+      this.#require(requirement.name === "Show" ? "Show" : "Hash", type.element, requirement.span);
+      requirement.structural = true;
+      return;
+    }
+    if (["Eq", "Show", "Hash"].includes(requirement.name) && type.kind === "Map") {
+      if (requirement.name === "Show") {
+        this.#require("Show", type.key, requirement.span);
+        this.#require("Show", type.value, requirement.span);
+      } else {
+        this.#require("Hash", type.key, requirement.span);
+        this.#require(requirement.name === "Hash" ? "Hash" : "Eq", type.value, requirement.span);
       }
       requirement.structural = true;
       return;
@@ -3839,7 +3883,13 @@ class Checker {
       case "BigInt":
       case "Float":
       case "ErrorExpr":
-        return { ...expression, type };
+        return expression.kind === "CollectionOperation"
+          ? {
+              ...expression,
+              type,
+              requirements: this.#publicRequirements(this.#requirements.get(expression) ?? []),
+            }
+          : { ...expression, type };
       case "Integer":
         return {
           kind: "FromInt",
@@ -4049,6 +4099,9 @@ class Checker {
           ...(this.#indexOperations.get(expression) === undefined
             ? {}
             : { operation: this.#indexOperations.get(expression)! }),
+          ...(this.#requirements.get(expression) === undefined
+            ? {}
+            : { requirements: this.#publicRequirements(this.#requirements.get(expression)!) }),
         };
       case "Unary":
         if (expression.operator === "Not") {

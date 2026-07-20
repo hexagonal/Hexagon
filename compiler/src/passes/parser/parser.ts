@@ -1471,6 +1471,20 @@ class Parser {
 
   #parseAccess(receiver: Parsed.Expr): Parsed.Expr {
     this.#advance();
+    if (this.#at("Union")) {
+      const token = this.#advance();
+      const field: Parsed.Name = {
+        text: "union",
+        startClass: "non-upper",
+        span: token.span,
+      };
+      return {
+        kind: "Access",
+        receiver,
+        field,
+        span: spanFrom(receiver.span, token.span),
+      };
+    }
     const field = this.#takeAnyName("expected a field name after `.`");
     if (field === undefined) {
       return { kind: "ErrorExpr", span: receiver.span };

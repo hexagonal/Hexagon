@@ -60,7 +60,7 @@ Define a small typed representation oriented toward readable JavaScript without 
 
 ## 9. JavaScript emission
 
-**Readable ESM emission covers the implemented language, including generic nominal data, branded Error exceptions, completed internal constraint dictionaries and factories, structural hashes, checked Vector/String access, persistent Map/Set core operations, companion calls, imports, replayable ranges, persistent generator-backed sequences, provided and user-instance iteration, and direct dictionary-free fundamental specializations.**
+**Readable ESM emission covers the implemented language, including generic nominal data, branded Error exceptions, completed internal constraint dictionaries and factories, structural hashes, checked Vector/String/Map access, hash-evidence-driven persistent Map/Set tries with extensional `Eq`, constructor-shaped `Show`, permutation-invariant `Hash`, traversals and set algebra, companion calls, imports, replayable ranges, persistent generator-backed sequences, provided and user-instance iteration, and direct dictionary-free fundamental specializations.**
 
 Emit readable ESM, source maps, direct primitive operations, records and unions, helpers, runtime imports, specialization, and deterministic output.
 

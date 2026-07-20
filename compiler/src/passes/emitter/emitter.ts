@@ -598,7 +598,11 @@ class JavaScriptEmitter {
         return collectionOperation(
           expression.collection,
           expression.operation,
-          this.#useHelper("collectionEquals"),
+          this.#useHelper("persistentCollections"),
+          expression.hashEvidence === undefined
+            ? undefined
+            : this.#emitEvidence(expression.hashEvidence, "Hash", expression.span, evidenceNames),
+          this.#useHelper("seq"),
         );
       case "Unit":
       case "ErrorExpr":
@@ -648,6 +652,15 @@ class JavaScriptEmitter {
       case "Index": {
         const receiver = this.#emitExpr(expression.receiver, depth, evidenceNames);
         const index = this.#emitExpr(expression.index, depth, evidenceNames);
+        if (expression.operation === "MapElement") {
+          const hash = this.#emitEvidence(
+            expression.hashEvidence ?? { kind: "Error" },
+            "Hash",
+            expression.span,
+            evidenceNames,
+          );
+          return `${this.#useHelper("persistentCollections")}.mapGet(${hash})(${receiver}, ${index})`;
+        }
         const helper = expression.operation === "VectorElement"
           ? "vectorIndex"
           : expression.operation === "VectorSlice"
@@ -1313,7 +1326,7 @@ class JavaScriptEmitter {
         );
         return `${dictionary}.show(${value})`;
       }
-      if (part.evidence.kind === "Instance") {
+      if (part.evidence.kind === "Instance" || part.evidence.kind === "Structural") {
         const dictionary = this.#emitEvidence(
           part.evidence,
           "Show",
@@ -1569,6 +1582,17 @@ class JavaScriptEmitter {
     return "undefined";
   }
 
+  /** Selects direct Eq evidence or the nested Eq superconstraint of Hash. */
+  #equalityDictionary(
+    variable: Typed.TypeVariableId,
+    evidenceNames: EvidenceNames,
+  ): string {
+    if (evidenceNames.has(evidenceKey(variable, "Eq"))) {
+      return this.#dictionary(variable, "Eq", this.#module.span, evidenceNames);
+    }
+    return `${this.#dictionary(variable, "Hash", this.#module.span, evidenceNames)}.eq`;
+  }
+
   #derivedMembers(item: Core.HonorItem, evidenceNames: EvidenceNames): readonly string[] {
     const subject = item.subject;
     const equals = (left: string, right: string): string =>
@@ -1616,6 +1640,21 @@ class JavaScriptEmitter {
     if (type.kind === "Vector") {
       const elementHash = this.#derivedHash(type.element, "__hex_element", evidenceNames);
       return `(() => { let __hex_hash = 0; for (const __hex_element of ${value}) __hex_hash = ${this.#useHelper("mixHash")}(__hex_hash, ${elementHash}); return __hex_hash; })()`;
+    }
+    if (type.kind === "Set") {
+      const dictionary = type.element.kind === "Variable"
+        ? this.#dictionary(type.element.id, "Hash", this.#module.span, evidenceNames)
+        : this.#emitEvidence({ kind: "Structural", type: type.element }, "Hash", this.#module.span, evidenceNames);
+      return `${this.#useHelper("persistentCollections")}.setHash(${dictionary}, ${this.#useHelper("mixHash")})(${value})`;
+    }
+    if (type.kind === "Map") {
+      const key = type.key.kind === "Variable"
+        ? this.#dictionary(type.key.id, "Hash", this.#module.span, evidenceNames)
+        : this.#emitEvidence({ kind: "Structural", type: type.key }, "Hash", this.#module.span, evidenceNames);
+      const item = type.value.kind === "Variable"
+        ? this.#dictionary(type.value.id, "Hash", this.#module.span, evidenceNames)
+        : this.#emitEvidence({ kind: "Structural", type: type.value }, "Hash", this.#module.span, evidenceNames);
+      return `${this.#useHelper("persistentCollections")}.mapHash(${key}, ${item}, ${this.#useHelper("mixHash")})(${value})`;
     }
     if (type.kind === "Record") {
       return combine([...type.fields].sort((a, b) => a.name.localeCompare(b.name)).map((field) =>
@@ -1740,6 +1779,7 @@ class JavaScriptEmitter {
     left: string,
     right: string,
     evidenceNames: EvidenceNames,
+    hashBacked = false,
   ): string {
     if (type.kind === "Primitive") {
       return type.name === "Float"
@@ -1747,26 +1787,40 @@ class JavaScriptEmitter {
         : `${left} === ${right}`;
     }
     if (type.kind === "Variable") {
-      const dictionary = this.#dictionary(
-        type.id,
-        "Eq",
-        this.#module.span,
-        evidenceNames,
-      );
+      const dictionary = hashBacked
+        ? `${this.#dictionary(type.id, "Hash", this.#module.span, evidenceNames)}.eq`
+        : this.#equalityDictionary(type.id, evidenceNames);
       return `${dictionary}.equals(${left}, ${right})`;
     }
     if (type.kind === "Tuple") {
       return type.elements.map((element, index) =>
-        this.#derivedEquals(element, `${left}[${index}]`, `${right}[${index}]`, evidenceNames)
+        this.#derivedEquals(element, `${left}[${index}]`, `${right}[${index}]`, evidenceNames, hashBacked)
       ).join(" && ") || "true";
     }
     if (type.kind === "Vector") {
-      const elementEquals = this.#derivedEquals(type.element, `${left}[__hex_index]`, `${right}[__hex_index]`, evidenceNames);
+      const elementEquals = this.#derivedEquals(type.element, `${left}[__hex_index]`, `${right}[__hex_index]`, evidenceNames, hashBacked);
       return `${left}.length === ${right}.length && (() => { for (let __hex_index = 0; __hex_index < ${left}.length; __hex_index += 1) if (!(${elementEquals})) return false; return true; })()`;
+    }
+    if (type.kind === "Set") {
+      const hash = type.element.kind === "Variable"
+        ? this.#dictionary(type.element.id, "Hash", this.#module.span, evidenceNames)
+        : this.#emitEvidence({ kind: "Structural", type: type.element }, "Hash", this.#module.span, evidenceNames);
+      return `${this.#useHelper("persistentCollections")}.setEquals(${hash})(${left}, ${right})`;
+    }
+    if (type.kind === "Map") {
+      const hash = type.key.kind === "Variable"
+        ? this.#dictionary(type.key.id, "Hash", this.#module.span, evidenceNames)
+        : this.#emitEvidence({ kind: "Structural", type: type.key }, "Hash", this.#module.span, evidenceNames);
+      const equals = type.value.kind === "Variable"
+        ? hashBacked
+          ? `${this.#dictionary(type.value.id, "Hash", this.#module.span, evidenceNames)}.eq`
+          : this.#equalityDictionary(type.value.id, evidenceNames)
+        : this.#emitEvidence({ kind: "Structural", type: type.value }, "Eq", this.#module.span, evidenceNames);
+      return `${this.#useHelper("persistentCollections")}.mapEquals(${hash}, ${equals})(${left}, ${right})`;
     }
     if (type.kind === "Record") {
       return type.fields.map((field) =>
-        this.#derivedEquals(field.type, `${left}.${field.name}`, `${right}.${field.name}`, evidenceNames)
+        this.#derivedEquals(field.type, `${left}.${field.name}`, `${right}.${field.name}`, evidenceNames, hashBacked)
       ).join(" && ") || "true";
     }
     if (type.kind === "NominalRecord") {
@@ -1782,6 +1836,7 @@ class JavaScriptEmitter {
           `${left}.${field.name}`,
           `${right}.${field.name}`,
           evidenceNames,
+          hashBacked,
         )
       ).join(" && ") || "true";
     }
@@ -1801,6 +1856,7 @@ class JavaScriptEmitter {
             `${left}.${slot.field}`,
             `${right}.${slot.field}`,
             evidenceNames,
+            hashBacked,
           )
         ).join(" && ") || "true";
         return `case ${JSON.stringify(constructor.name)}: return ${fields};`;
@@ -1834,6 +1890,15 @@ class JavaScriptEmitter {
     if (type.kind === "Vector") {
       const shown = this.#derivedShow(type.element, "__hex_element", evidenceNames);
       return `"[" + ${value}.map(__hex_element => ${shown}).join(", ") + "]"`;
+    }
+    if (type.kind === "Set") {
+      const shown = this.#derivedShow(type.element, "__hex_element", evidenceNames);
+      return `${value}.size === 0 ? "Set.empty" : "Set.fromVector([" + [...${value}].map(__hex_element => ${shown}).join(", ") + "])"`;
+    }
+    if (type.kind === "Map") {
+      const key = this.#derivedShow(type.key, "__hex_entry[0]", evidenceNames);
+      const item = this.#derivedShow(type.value, "__hex_entry[1]", evidenceNames);
+      return `${value}.size === 0 ? "Map.empty" : "Map.fromVector([" + [...${value}].map(__hex_entry => "(" + ${key} + ", " + ${item} + ")").join(", ") + "])"`;
     }
     if (type.kind === "Record") {
       const fields = [...type.fields].sort((a, b) => a.name.localeCompare(b.name)).map((field) =>
@@ -1916,7 +1981,8 @@ class JavaScriptEmitter {
     }
     if (evidence.kind === "Structural") {
       if (constraint === "Hash") {
-        return `({ hash: __hex_value => ${this.#derivedHash(evidence.type, "__hex_value", evidenceNames)} })`;
+        const equals = this.#derivedEquals(evidence.type, "__hex_left", "__hex_right", evidenceNames, true);
+        return `({ eq: { equals: (__hex_left, __hex_right) => ${equals}, notEquals: (__hex_left, __hex_right) => !(${equals}) }, hash: __hex_value => ${this.#derivedHash(evidence.type, "__hex_value", evidenceNames)} })`;
       }
       if (constraint === "Eq") {
         const equals = this.#derivedEquals(evidence.type, "__hex_left", "__hex_right", evidenceNames);
@@ -2437,7 +2503,7 @@ type Helper =
   | "stringSlice"
   | "stableHash"
   | "mixHash"
-  | "collectionEquals";
+  | "persistentCollections";
 
 enum Precedence {
   Arrow = 1,
@@ -2546,15 +2612,82 @@ function renderHelper(
   dependencyName: (helper: Helper) => string,
 ): string[] {
   switch (helper) {
-    case "collectionEquals":
+    case "persistentCollections":
       return [
-        `function ${name}(__hex_left, __hex_right) {`,
-        "  if (__hex_left === __hex_right || (typeof __hex_left === \"number\" && Number.isNaN(__hex_left) && Number.isNaN(__hex_right))) return true;",
-        "  if (__hex_left === null || __hex_right === null || typeof __hex_left !== \"object\" || typeof __hex_right !== \"object\") return false;",
-        `  if (Array.isArray(__hex_left) || Array.isArray(__hex_right)) return Array.isArray(__hex_left) && Array.isArray(__hex_right) && __hex_left.length === __hex_right.length && __hex_left.every((__hex_value, __hex_index) => ${name}(__hex_value, __hex_right[__hex_index]));`,
-        "  const __hex_leftKeys = Object.keys(__hex_left).sort(), __hex_rightKeys = Object.keys(__hex_right).sort();",
-        `  return __hex_leftKeys.length === __hex_rightKeys.length && __hex_leftKeys.every((__hex_key, __hex_index) => __hex_key === __hex_rightKeys[__hex_index] && ${name}(__hex_left[__hex_key], __hex_right[__hex_key]));`,
-        "}",
+        `const ${name} = (() => {`,
+        "  const entries = function* (__hex_node) {",
+        "    if (__hex_node === null) return;",
+        "    if (__hex_node.kind === 0) { yield* __hex_node.entries; return; }",
+        "    for (const __hex_child of __hex_node.children) if (__hex_child !== undefined) yield* entries(__hex_child);",
+        "  };",
+        "  const find = (__hex_node, __hex_hash, __hex_key, __hex_equals, __hex_shift = 0) => {",
+        "    if (__hex_node === null) return undefined;",
+        "    if (__hex_node.kind === 0) return __hex_node.hash === __hex_hash ? __hex_node.entries.find(__hex_entry => __hex_equals(__hex_entry[0], __hex_key)) : undefined;",
+        "    return find(__hex_node.children[(__hex_hash >>> __hex_shift) & 31] ?? null, __hex_hash, __hex_key, __hex_equals, __hex_shift + 5);",
+        "  };",
+        "  const join = (__hex_left, __hex_right, __hex_shift) => {",
+        "    const __hex_leftIndex = (__hex_left.hash >>> __hex_shift) & 31, __hex_rightIndex = (__hex_right.hash >>> __hex_shift) & 31;",
+        "    const __hex_children = [];",
+        "    if (__hex_leftIndex === __hex_rightIndex) __hex_children[__hex_leftIndex] = join(__hex_left, __hex_right, __hex_shift + 5);",
+        "    else { __hex_children[__hex_leftIndex] = __hex_left; __hex_children[__hex_rightIndex] = __hex_right; }",
+        "    return { kind: 1, children: __hex_children };",
+        "  };",
+        "  const insert = (__hex_node, __hex_hash, __hex_key, __hex_value, __hex_equals, __hex_shift = 0) => {",
+        "    const __hex_leaf = { kind: 0, hash: __hex_hash, entries: [[__hex_key, __hex_value]] };",
+        "    if (__hex_node === null) return [__hex_leaf, true];",
+        "    if (__hex_node.kind === 0) {",
+        "      if (__hex_node.hash !== __hex_hash) return [join(__hex_node, __hex_leaf, __hex_shift), true];",
+        "      const __hex_index = __hex_node.entries.findIndex(__hex_entry => __hex_equals(__hex_entry[0], __hex_key));",
+        "      if (__hex_index < 0) return [{ ...__hex_node, entries: [...__hex_node.entries, [__hex_key, __hex_value]] }, true];",
+        "      if (__hex_node.entries[__hex_index][1] === __hex_value) return [__hex_node, false];",
+        "      const __hex_updated = __hex_node.entries.slice(); __hex_updated[__hex_index] = [__hex_node.entries[__hex_index][0], __hex_value];",
+        "      return [{ ...__hex_node, entries: __hex_updated }, false];",
+        "    }",
+        "    const __hex_slot = (__hex_hash >>> __hex_shift) & 31, __hex_child = __hex_node.children[__hex_slot] ?? null;",
+        "    const [__hex_updated, __hex_added] = insert(__hex_child, __hex_hash, __hex_key, __hex_value, __hex_equals, __hex_shift + 5);",
+        "    if (__hex_updated === __hex_child) return [__hex_node, __hex_added];",
+        "    const __hex_children = __hex_node.children.slice(); __hex_children[__hex_slot] = __hex_updated;",
+        "    return [{ kind: 1, children: __hex_children }, __hex_added];",
+        "  };",
+        "  const discard = (__hex_node, __hex_hash, __hex_key, __hex_equals, __hex_shift = 0) => {",
+        "    if (__hex_node === null) return [null, false];",
+        "    if (__hex_node.kind === 0) {",
+        "      if (__hex_node.hash !== __hex_hash) return [__hex_node, false];",
+        "      const __hex_index = __hex_node.entries.findIndex(__hex_entry => __hex_equals(__hex_entry[0], __hex_key));",
+        "      if (__hex_index < 0) return [__hex_node, false];",
+        "      const __hex_remaining = __hex_node.entries.filter((_, __hex_entryIndex) => __hex_entryIndex !== __hex_index);",
+        "      return [__hex_remaining.length === 0 ? null : { ...__hex_node, entries: __hex_remaining }, true];",
+        "    }",
+        "    const __hex_slot = (__hex_hash >>> __hex_shift) & 31, __hex_child = __hex_node.children[__hex_slot] ?? null;",
+        "    const [__hex_updated, __hex_removed] = discard(__hex_child, __hex_hash, __hex_key, __hex_equals, __hex_shift + 5);",
+        "    if (!__hex_removed) return [__hex_node, false];",
+        "    const __hex_children = __hex_node.children.slice(); __hex_children[__hex_slot] = __hex_updated ?? undefined;",
+        "    return [{ kind: 1, children: __hex_children }, true];",
+        "  };",
+        "  const mapValue = (__hex_root, __hex_size) => ({ root: __hex_root, size: __hex_size, [Symbol.iterator]: function () { return entries(__hex_root); } });",
+        "  const setValue = (__hex_root, __hex_size) => ({ root: __hex_root, size: __hex_size, [Symbol.iterator]: function* () { for (const [__hex_key] of entries(__hex_root)) yield __hex_key; } });",
+        "  const hashed = (__hex_dictionary, __hex_value) => __hex_dictionary.hash(__hex_value) | 0;",
+        "  const emptyMap = () => mapValue(null, 0), emptySet = () => setValue(null, 0);",
+        "  const mapSet = __hex_hash => (__hex_map, __hex_key, __hex_value) => { const [__hex_root, __hex_added] = insert(__hex_map.root, hashed(__hex_hash, __hex_key), __hex_key, __hex_value, __hex_hash.eq.equals); return __hex_root === __hex_map.root ? __hex_map : mapValue(__hex_root, __hex_map.size + Number(__hex_added)); };",
+        "  const mapRemove = __hex_hash => (__hex_map, __hex_key) => { const [__hex_root, __hex_removed] = discard(__hex_map.root, hashed(__hex_hash, __hex_key), __hex_key, __hex_hash.eq.equals); return __hex_removed ? mapValue(__hex_root, __hex_map.size - 1) : __hex_map; };",
+        "  const mapEntry = (__hex_hash, __hex_map, __hex_key) => find(__hex_map.root, hashed(__hex_hash, __hex_key), __hex_key, __hex_hash.eq.equals);",
+        "  const mapContainsKey = __hex_hash => (__hex_map, __hex_key) => mapEntry(__hex_hash, __hex_map, __hex_key) !== undefined;",
+        "  const mapGet = __hex_hash => (__hex_map, __hex_key) => { const __hex_entry = mapEntry(__hex_hash, __hex_map, __hex_key); if (__hex_entry !== undefined) return __hex_entry[1]; const __hex_error = new Error(\"key is absent\"); __hex_error.name = \"KeyError\"; throw __hex_error; };",
+        "  const setAdd = __hex_hash => (__hex_set, __hex_value) => { const [__hex_root, __hex_added] = insert(__hex_set.root, hashed(__hex_hash, __hex_value), __hex_value, undefined, __hex_hash.eq.equals); return __hex_added ? setValue(__hex_root, __hex_set.size + 1) : __hex_set; };",
+        "  const setRemove = __hex_hash => (__hex_set, __hex_value) => { const [__hex_root, __hex_removed] = discard(__hex_set.root, hashed(__hex_hash, __hex_value), __hex_value, __hex_hash.eq.equals); return __hex_removed ? setValue(__hex_root, __hex_set.size - 1) : __hex_set; };",
+        "  const setContains = __hex_hash => (__hex_set, __hex_value) => find(__hex_set.root, hashed(__hex_hash, __hex_value), __hex_value, __hex_hash.eq.equals) !== undefined;",
+        "  const setUnion = __hex_hash => (__hex_left, __hex_right) => { let __hex_result = __hex_left; for (const __hex_value of __hex_right) __hex_result = setAdd(__hex_hash)(__hex_result, __hex_value); return __hex_result; };",
+        "  const setIntersect = __hex_hash => (__hex_left, __hex_right) => { let __hex_result = emptySet(); const __hex_has = setContains(__hex_hash); for (const __hex_value of __hex_left) if (__hex_has(__hex_right, __hex_value)) __hex_result = setAdd(__hex_hash)(__hex_result, __hex_value); return __hex_result; };",
+        "  const setDifference = __hex_hash => (__hex_left, __hex_right) => { let __hex_result = __hex_left; const __hex_remove = setRemove(__hex_hash); for (const __hex_value of __hex_right) __hex_result = __hex_remove(__hex_result, __hex_value); return __hex_result; };",
+        "  const setIsSubsetOf = __hex_hash => (__hex_left, __hex_right) => { const __hex_has = setContains(__hex_hash); for (const __hex_value of __hex_left) if (!__hex_has(__hex_right, __hex_value)) return false; return true; };",
+        "  const mapFrom = __hex_hash => __hex_source => { let __hex_result = emptyMap(); const __hex_set = mapSet(__hex_hash); for (const [__hex_key, __hex_value] of __hex_source) __hex_result = __hex_set(__hex_result, __hex_key, __hex_value); return __hex_result; };",
+        "  const setFrom = __hex_hash => __hex_source => { let __hex_result = emptySet(); const __hex_add = setAdd(__hex_hash); for (const __hex_value of __hex_source) __hex_result = __hex_add(__hex_result, __hex_value); return __hex_result; };",
+        "  const setEquals = __hex_hash => (__hex_left, __hex_right) => __hex_left.size === __hex_right.size && (() => { const __hex_has = setContains(__hex_hash); for (const __hex_value of __hex_left) if (!__hex_has(__hex_right, __hex_value)) return false; return true; })();",
+        "  const mapEquals = (__hex_hash, __hex_valueEq) => (__hex_left, __hex_right) => __hex_left.size === __hex_right.size && (() => { for (const [__hex_key, __hex_value] of __hex_left) { const __hex_entry = mapEntry(__hex_hash, __hex_right, __hex_key); if (__hex_entry === undefined || !__hex_valueEq.equals(__hex_value, __hex_entry[1])) return false; } return true; })();",
+        "  const setHash = (__hex_hash, __hex_mix) => __hex_set => { let __hex_result = __hex_set.size | 0; for (const __hex_value of __hex_set) __hex_result = (__hex_result + __hex_mix(0x51ed270b, __hex_hash.hash(__hex_value))) | 0; return __hex_result; };",
+        "  const mapHash = (__hex_keyHash, __hex_valueHash, __hex_mix) => __hex_map => { let __hex_result = __hex_map.size | 0; for (const [__hex_key, __hex_value] of __hex_map) __hex_result = (__hex_result + __hex_mix(__hex_keyHash.hash(__hex_key), __hex_valueHash.hash(__hex_value))) | 0; return __hex_result; };",
+        "  return { emptyMap, emptySet, mapSet, mapRemove, mapContainsKey, mapGet, mapFrom, setAdd, setRemove, setContains, setUnion, setIntersect, setDifference, setIsSubsetOf, setFrom, setEquals, mapEquals, setHash, mapHash, size: __hex_collection => __hex_collection.size, isEmpty: __hex_collection => __hex_collection.size === 0, mapKeys: __hex_map => [...__hex_map].map(__hex_entry => __hex_entry[0]), mapValues: __hex_map => [...__hex_map].map(__hex_entry => __hex_entry[1]), mapEntries: __hex_map => [...__hex_map] };",
+        "})();",
       ];
     case "mixHash":
       return [
@@ -2719,31 +2852,35 @@ function renderHelper(
   }
 }
 
-/** Emits persistent collection operations over compact immutable array representations. */
+/** Selects compiler-owned operations over persistent hash-array-mapped tries. */
 function collectionOperation(
   collection: Core.CollectionOperationExpr["collection"],
   operation: string,
-  equals: string,
+  runtime: string,
+  hash?: string,
+  seq?: string,
 ): string {
+  const dictionaries = `${hash}`;
   if (collection === "Map") {
-    if (operation === "empty") return "() => []";
-    if (operation === "set") return `(__hex_map, __hex_key, __hex_value) => { const __hex_index = __hex_map.findIndex(__hex_entry => ${equals}(__hex_entry[0], __hex_key)); if (__hex_index < 0) return [...__hex_map, [__hex_key, __hex_value]]; const __hex_result = __hex_map.slice(); __hex_result[__hex_index] = [__hex_map[__hex_index][0], __hex_value]; return __hex_result; }`;
-    if (operation === "remove") return `(__hex_map, __hex_key) => __hex_map.filter(__hex_entry => !${equals}(__hex_entry[0], __hex_key))`;
-    if (operation === "containsKey") return `(__hex_map, __hex_key) => __hex_map.some(__hex_entry => ${equals}(__hex_entry[0], __hex_key))`;
-    if (operation === "get") return `(__hex_map, __hex_key) => { const __hex_entry = __hex_map.find(__hex_item => ${equals}(__hex_item[0], __hex_key)); if (__hex_entry === undefined) { const __hex_error = new Error("key is absent"); __hex_error.name = "KeyError"; throw __hex_error; } return __hex_entry[1]; }`;
-    if (operation === "size") return "__hex_map => __hex_map.length";
-    if (operation === "isEmpty") return "__hex_map => __hex_map.length === 0";
+    if (operation === "empty") return `${runtime}.emptyMap`;
+    if (["set", "remove", "containsKey", "get"].includes(operation)) {
+      return `${runtime}.map${operation[0]!.toUpperCase()}${operation.slice(1)}(${dictionaries})`;
+    }
+    if (operation === "size") return `${runtime}.size`;
+    if (operation === "isEmpty") return `${runtime}.isEmpty`;
+    if (["keys", "values", "entries"].includes(operation)) return `__hex_map => ${seq}(${runtime}.map${operation[0]!.toUpperCase()}${operation.slice(1)}(__hex_map))`;
+    if (operation === "toSeq") return `__hex_map => ${seq}(${runtime}.mapEntries(__hex_map))`;
+    if (["fromVector", "fromSeq", "fromEntries"].includes(operation)) return `${runtime}.mapFrom(${dictionaries})`;
   }
   if (collection === "Set") {
-    if (operation === "empty") return "() => []";
-    if (operation === "add") return `(__hex_set, __hex_value) => __hex_set.some(__hex_item => ${equals}(__hex_item, __hex_value)) ? __hex_set : [...__hex_set, __hex_value]`;
-    if (operation === "remove") return `(__hex_set, __hex_value) => __hex_set.filter(__hex_item => !${equals}(__hex_item, __hex_value))`;
-    if (operation === "contains") return `(__hex_set, __hex_value) => __hex_set.some(__hex_item => ${equals}(__hex_item, __hex_value))`;
-    if (operation === "union") return `(__hex_left, __hex_right) => __hex_right.reduce((__hex_set, __hex_value) => __hex_set.some(__hex_item => ${equals}(__hex_item, __hex_value)) ? __hex_set : [...__hex_set, __hex_value], __hex_left)`;
-    if (operation === "intersection") return `(__hex_left, __hex_right) => __hex_left.filter(__hex_value => __hex_right.some(__hex_item => ${equals}(__hex_item, __hex_value)))`;
-    if (operation === "difference") return `(__hex_left, __hex_right) => __hex_left.filter(__hex_value => !__hex_right.some(__hex_item => ${equals}(__hex_item, __hex_value)))`;
-    if (operation === "size") return "__hex_set => __hex_set.length";
-    if (operation === "isEmpty") return "__hex_set => __hex_set.length === 0";
+    if (operation === "empty") return `${runtime}.emptySet`;
+    if (["add", "remove", "contains", "union", "intersect", "difference", "isSubsetOf"].includes(operation)) {
+      return `${runtime}.set${operation[0]!.toUpperCase()}${operation.slice(1)}(${dictionaries})`;
+    }
+    if (operation === "size") return `${runtime}.size`;
+    if (operation === "isEmpty") return `${runtime}.isEmpty`;
+    if (operation === "toSeq") return `__hex_set => ${seq}(__hex_set)`;
+    if (operation === "fromVector" || operation === "fromSeq") return `${runtime}.setFrom(${dictionaries})`;
   }
   if (operation === "empty") return "() => []";
   if (operation === "size") return "__hex_vector => __hex_vector.length";
@@ -2891,7 +3028,9 @@ function primitiveDictionary(
       if (instance === "Unit") return "({ show: () => \"()\" })";
       return "({ show: __hex_a => String(__hex_a) })";
     case "Hash":
-      return `({ hash: __hex_a => ${helperName("stableHash")}(__hex_a) })`;
+      return instance === "Float"
+        ? `({ eq: { equals: (__hex_a, __hex_b) => __hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b), notEquals: (__hex_a, __hex_b) => !(__hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b)) }, hash: __hex_a => ${helperName("stableHash")}(__hex_a) })`
+        : `({ eq: { equals: (__hex_a, __hex_b) => __hex_a === __hex_b, notEquals: (__hex_a, __hex_b) => __hex_a !== __hex_b }, hash: __hex_a => ${helperName("stableHash")}(__hex_a) })`;
     default:
       return "({})";
   }

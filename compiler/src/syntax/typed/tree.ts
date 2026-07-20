@@ -662,7 +662,8 @@ export interface IndexExpr extends ExpressionFields {
   readonly kind: "Index";
   readonly receiver: Expr;
   readonly index: Expr;
-  readonly operation?: "VectorElement" | "VectorSlice" | "StringElement" | "StringSlice";
+  readonly operation?: "VectorElement" | "VectorSlice" | "StringElement" | "StringSlice" | "MapElement";
+  readonly requirements?: readonly Constraint[];
 }
 
 export interface HashExpr extends ExpressionFields {
@@ -675,6 +676,7 @@ export interface CollectionOperationExpr extends ExpressionFields {
   readonly kind: "CollectionOperation";
   readonly collection: "Map" | "Set" | "Vector";
   readonly operation: string;
+  readonly requirements: readonly Constraint[];
 }
 
 export interface LogicalNotExpr extends ExpressionFields {
