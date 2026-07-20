@@ -65,6 +65,7 @@ const punctuation: readonly (readonly [string, Lexed.PunctuationKind])[] = [
   ["|>", "Pipe"],
   [":=", "Assign"],
   ["=>", "FatArrow"],
+  ["->", "Arrow"],
   ["(", "LeftParen"],
   [")", "RightParen"],
   ["[", "LeftBracket"],

@@ -331,12 +331,20 @@ export interface RecordTypeField {
   readonly span: Source.Span;
 }
 
+export interface FunctionType {
+  readonly kind: "Function";
+  readonly parameters: readonly TypeAnnotation[];
+  readonly result: TypeAnnotation;
+  readonly span: Source.Span;
+}
+
 export type TypeAnnotation =
   | NamedType
   | AppliedType
   | TypeVariable
   | TupleType
-  | RecordType;
+  | RecordType
+  | FunctionType;
 
 export interface Parameter {
   readonly name: Name;

@@ -1277,6 +1277,21 @@ class Resolver {
     impliedContext?: { readonly owner: string; readonly names: ReadonlySet<string> },
     substitutions: ReadonlyMap<string, Resolved.TypeAnnotation> = new Map(),
   ): Resolved.TypeAnnotation {
+    if (annotation.kind === "Function") {
+      return {
+        kind: "Function",
+        parameters: annotation.parameters.map((parameter) =>
+          this.#resolveTypeAnnotation(parameter, typeParameters, impliedContext, substitutions)
+        ),
+        result: this.#resolveTypeAnnotation(
+          annotation.result,
+          typeParameters,
+          impliedContext,
+          substitutions,
+        ),
+        span: annotation.span,
+      };
+    }
     if (annotation.kind === "Tuple") {
       return {
         kind: "Tuple",
@@ -1717,6 +1732,7 @@ function annotationHeadName(annotation: Resolved.TypeAnnotation): string {
     case "Set": return "Set";
     case "Array": return "Array";
     case "Nullable": return "Nullable";
+    case "Function": return "Function";
     case "Union": return annotation.name;
     case "RecordDeclaration": return annotation.name;
     case "Tuple": return "Tuple";
@@ -1738,6 +1754,10 @@ function annotationTypeVariables(annotation: Resolved.TypeAnnotation): readonly 
     case "Map": return [
       ...annotationTypeVariables(annotation.key),
       ...annotationTypeVariables(annotation.value),
+    ];
+    case "Function": return [
+      ...annotation.parameters.flatMap(annotationTypeVariables),
+      ...annotationTypeVariables(annotation.result),
     ];
     case "Tuple": return annotation.elements.flatMap(annotationTypeVariables);
     case "Record": return annotation.fields.flatMap((field) =>
@@ -1761,6 +1781,10 @@ function parsedAnnotationTypeVariables(annotation: Parsed.TypeAnnotation): Reado
     else if (type.kind === "Tuple") type.elements.forEach(visit);
     else if (type.kind === "Record") type.fields.forEach((field) => visit(field.annotation));
     else if (type.kind === "AppliedType") type.arguments.forEach(visit);
+    else if (type.kind === "Function") {
+      type.parameters.forEach(visit);
+      visit(type.result);
+    }
   };
   visit(annotation);
   return names;
@@ -1790,6 +1814,14 @@ function substituteResolvedType(
     ...type,
     key: substituteResolvedType(type.key, replacements),
     value: substituteResolvedType(type.value, replacements),
+    span,
+  };
+  if (type.kind === "Function") return {
+    ...type,
+    parameters: type.parameters.map((parameter) =>
+      substituteResolvedType(parameter, replacements)
+    ),
+    result: substituteResolvedType(type.result, replacements),
     span,
   };
   if (type.kind === "Union" || type.kind === "RecordDeclaration") {

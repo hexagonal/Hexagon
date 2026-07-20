@@ -615,6 +615,40 @@ describe("check", () => {
     ]);
   });
 
+  test("checks explicit nullary, n-ary, tuple-domain, and higher-order function types", () => {
+    const module = checkSource(
+      "type Mapper(a, b) = a -> b\n" +
+        "let callAlias(callback: Mapper(Int, String)): String = callback(1)\n" +
+        "let callNullary(callback: () -> String): String = callback()\n" +
+        "let callBinary(callback: (Int, String) -> Bool): Bool = callback(1, \"ok\")\n" +
+        "let callTuple(callback: ((Int, String)) -> Bool): Bool = callback((1, \"ok\"))\n" +
+        "let callHigher(callback: (Int -> String) -> Bool, render: Int -> String): Bool = callback(render)",
+    );
+
+    expect(letSymbol(module, "callAlias").scheme.type).toMatchObject({
+      parameters: [{ kind: "Function", parameters: [{ kind: "Primitive", name: "Int" }] }],
+      result: { kind: "Primitive", name: "String" },
+    });
+    expect(letSymbol(module, "callNullary").scheme.type).toMatchObject({
+      kind: "Function",
+      parameters: [{ kind: "Function", parameters: [], result: { kind: "Primitive", name: "String" } }],
+      result: { kind: "Primitive", name: "String" },
+    });
+    expect(letSymbol(module, "callBinary").scheme.type).toMatchObject({
+      parameters: [{ kind: "Function", parameters: [{}, {}] }],
+    });
+    expect(letSymbol(module, "callTuple").scheme.type).toMatchObject({
+      parameters: [{ kind: "Function", parameters: [{ kind: "Tuple", elements: [{}, {}] }] }],
+    });
+    expect(letSymbol(module, "callHigher").scheme.type).toMatchObject({
+      parameters: [
+        { kind: "Function", parameters: [{ kind: "Function" }] },
+        { kind: "Function", parameters: [{ kind: "Primitive", name: "Int" }] },
+      ],
+    });
+    expect(module.diagnostics).toEqual([]);
+  });
+
   test("retains polymorphic constraints when they govern an input", () => {
     const module = checkSource(
       'let addOne = x => x + 1\nlet display = x => "${x}"',

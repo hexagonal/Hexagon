@@ -1434,6 +1434,20 @@ describe("emitDeclarations", () => {
     expect(declarations.diagnostics).toEqual([]);
   });
 
+  test("emits declarations from explicit higher-order function annotations", () => {
+    const declarations = emitDeclarations(
+      coreSource(
+        "export let run(callback: (Int, String) -> Bool, fallback: () -> Bool): Bool = " +
+          "if callback(1, \"ok\") then true else fallback()",
+      ),
+    );
+
+    expect(declarations.text).toBe(
+      "export declare const run: (callback: (arg0: number, arg1: string) => boolean, fallback: () => boolean) => boolean;\n",
+    );
+    expect(declarations.diagnostics).toEqual([]);
+  });
+
   test("emits direct fundamental editions for an inferred Num export", () => {
     const module = coreSource("export let plus(x, y) = x + y");
     const javascript = emitJavaScript(module);

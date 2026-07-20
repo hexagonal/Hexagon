@@ -539,6 +539,75 @@ describe("parse", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  test("parses explicit function types with zero, one, and many parameters", () => {
+    const module = parseSource(
+      "type Nullary = () -> String\n" +
+        "type Unary = Int -> String\n" +
+        "type Binary = (Int, String) -> Bool\n" +
+        "type TupleUnary = ((Int, String)) -> Bool\n" +
+        "type Higher = (Int -> String) -> Bool\n" +
+        "type Chain = Int -> String -> Bool",
+    );
+
+    expect(module.items).toMatchObject([
+      {
+        kind: "TypeAlias",
+        annotation: { kind: "Function", parameters: [], result: { kind: "NamedType", name: { text: "String" } } },
+      },
+      {
+        kind: "TypeAlias",
+        annotation: { kind: "Function", parameters: [{ kind: "NamedType", name: { text: "Int" } }] },
+      },
+      {
+        kind: "TypeAlias",
+        annotation: { kind: "Function", parameters: [{ kind: "NamedType" }, { kind: "NamedType" }] },
+      },
+      {
+        kind: "TypeAlias",
+        annotation: { kind: "Function", parameters: [{ kind: "Tuple", elements: [{}, {}] }] },
+      },
+      {
+        kind: "TypeAlias",
+        annotation: { kind: "Function", parameters: [{ kind: "Function" }] },
+      },
+      {
+        kind: "TypeAlias",
+        annotation: { kind: "Function", result: { kind: "Function" } },
+      },
+    ]);
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("requires an arrow after an empty type parameter list", () => {
+    const module = parseSource("type Wrong = ()");
+
+    expect(module.diagnostics.map(({ message }) => message)).toContain(
+      "an empty type parameter list must be followed by `->`; use `Unit` for the unit type",
+    );
+  });
+
+  test("accepts function types in lambda annotations and layout continuations", () => {
+    const module = parseSource(
+      "type Callback =\n" +
+        "  Int ->\n" +
+        "    String\n" +
+        "let keep = (callback: Int -> String): Int -> String => callback",
+    );
+
+    expect(module.items).toMatchObject([
+      { kind: "TypeAlias", annotation: { kind: "Function" } },
+      {
+        kind: "Let",
+        value: {
+          kind: "Lambda",
+          parameters: [{ annotation: { kind: "Function" } }],
+          returnAnnotation: { kind: "Function" },
+        },
+      },
+    ]);
+    expect(module.diagnostics).toEqual([]);
+  });
+
   test("recovers from arbitrary text with bounded public spans", () => {
     fc.assert(
       fc.property(fc.string(), (text) => {

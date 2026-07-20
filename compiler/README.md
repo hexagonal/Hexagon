@@ -4,7 +4,7 @@ This folder contains the beginning of `hexc`, the Hexagon compiler.
 
 The platform-neutral TypeScript core now includes shared source coordinates,
 structured diagnostics, the complete physical lexer, and the indentation layout
-pass. Thirty-five vertical compiler slices now carry the public pipeline through `Source.File -> Lexed.File
+pass. Thirty-six vertical compiler slices now carry the public pipeline through `Source.File -> Lexed.File
 -> LaidOut.File -> Parsed.Module -> Resolved.Module -> Typed.Module -> Core.Module ->
 Emitted output` for a deliberate language subset.
 
@@ -21,9 +21,10 @@ string interpolation, `then`-form and layout `if`, calls, field access,
 indexing, assignment, generic unions, nominal records, exception declarations and
 `try`/`catch`, completed user constraint declarations and honors, implied type
 declarations and ground bindings, `derive` and declaration-header `derives`, explicit
-constrained binders, `Seq(a)`, relative imports, and the complete operator precedence
-table. Transparent parameterized type aliases, qualified type paths, and opaque record
-and union exports are also implemented. Remaining declarations and richer type syntax remain explicit future parser slices;
+constrained binders, `Seq(a)`, relative imports, explicit right-associative function
+types with zero, one, or many parameters, and the complete operator precedence table.
+Transparent parameterized type aliases, qualified type paths, and opaque record
+and union exports are also implemented. `extern` declarations remain an explicit future FFI parser slice;
 encountering one produces a recovery diagnostic rather than a misleading partial
 tree.
 
@@ -43,7 +44,7 @@ scope inside their constraint and instances; attempted v1 references outside tho
 owners receive implied-type-specific diagnostics.
 
 The initial checker implements the Hindley–Milner core with private union-find
-variables, n-ary function types, structural tuple and open-row record types,
+variables, inferred and explicitly annotated n-ary function types, structural tuple and open-row record types,
 generic nominal union and record types, nested constructor-payload and record-pattern binding,
 primitive literal, Unit, structural, nested or-, and as-patterns, guarded arms,
 irrefutable single-constructor and exhaustive Bool/closed-union or-pattern
@@ -63,8 +64,7 @@ instances, nominal derivation, concrete implied type substitution, the
 projection-bearing constraint binder ban, exceptions, imported schemes, and nominal dot-call
 resolution. Exported signatures cannot expose private nominal types, and imported opaque
 records reject construction, field access, destructuring, and updates outside their home
-module. The public dictionary ABI, richer annotations, and the remaining surface
-forms are later checker and FFI slices. Primitive annotations
+module. The public dictionary ABI and `extern` validation are later FFI slices. Primitive annotations
 constrain inference and are erased after checking rather than leaking into Core.
 Direct recursion uses one monotype inside its own body and generalizes only after
 the recursive knot closes.
