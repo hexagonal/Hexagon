@@ -1012,29 +1012,33 @@ class JavaScriptEmitter {
       `${armIndent}return ${this.#emitExpr(expression.body, depth + 2, evidenceNames)};`,
       `${inner}} catch (${error}) {`,
     ];
-    expression.arms.forEach((arm, index) => {
-      const pattern = arm.pattern;
-      const condition = pattern.kind === "Constructor"
-        ? `${error} != null && ${error}.$hex === true && ${error}.name === ${JSON.stringify(pattern.text)}`
-        : "true";
-      lines.push(`${armIndent}${index === 0 ? "if" : "else if"} (${condition}) {`);
-      if (pattern.kind === "Binding") {
-        const name = this.#identifier(pattern.binding.symbol, pattern.binding.name);
-        lines.push(`${indent(depth + 3)}const ${name} = ${error};`);
-      } else if (pattern.kind === "Constructor") {
-        const exception = this.#exceptions.get(pattern.symbol);
-        pattern.arguments.forEach((argument, argumentIndex) => {
-          if (argument.kind !== "Binding") return;
-          const field = exception?.slots[argumentIndex]?.field ?? `item${argumentIndex + 1}`;
-          const name = this.#identifier(argument.binding.symbol, argument.binding.name);
-          lines.push(`${indent(depth + 3)}const ${name} = ${error}.${field};`);
-        });
+    for (const arm of expression.arms) {
+      for (const alternative of expandOrPatterns(arm.pattern)) {
+        const plan = this.#emitPatternPlan(alternative, error, true);
+        const condition = plan.tests.length === 0
+          ? "true"
+          : plan.tests.join(" && ");
+        lines.push(`${armIndent}if (${condition}) {`);
+        const bodyDepth = depth + 3;
+        const bodyIndent = indent(bodyDepth);
+        for (const binding of plan.bindings) {
+          lines.push(`${bodyIndent}${binding}`);
+        }
+        if (arm.guard === undefined) {
+          lines.push(
+            `${bodyIndent}return ${this.#emitExpr(arm.body, bodyDepth, evidenceNames)};`,
+          );
+        } else {
+          const guard = this.#emitExpr(arm.guard, bodyDepth, evidenceNames);
+          lines.push(`${bodyIndent}if (${guard}) {`);
+          lines.push(
+            `${indent(bodyDepth + 1)}return ${this.#emitExpr(arm.body, bodyDepth + 1, evidenceNames)};`,
+            `${bodyIndent}}`,
+          );
+        }
+        lines.push(`${armIndent}}`);
       }
-      lines.push(
-        `${indent(depth + 3)}return ${this.#emitExpr(arm.body, depth + 3, evidenceNames)};`,
-        `${armIndent}}`,
-      );
-    });
+    }
     lines.push(
       `${armIndent}throw ${error};`,
       `${inner}}`,
@@ -1154,14 +1158,22 @@ class JavaScriptEmitter {
     return lines;
   }
 
-  #emitPatternPlan(pattern: Core.Pattern, value: string): PatternPlan {
+  #emitPatternPlan(
+    pattern: Core.Pattern,
+    value: string,
+    exceptionPatterns = false,
+  ): PatternPlan {
     switch (pattern.kind) {
       case "Wildcard":
         return { tests: [], bindings: [] };
       case "Unit":
         return { tests: [`${value} === undefined`], bindings: [] };
       case "As": {
-        const nested = this.#emitPatternPlan(pattern.pattern, value);
+        const nested = this.#emitPatternPlan(
+          pattern.pattern,
+          value,
+          exceptionPatterns,
+        );
         const name = this.#identifier(pattern.binding.symbol, pattern.binding.name);
         return {
           tests: nested.tests,
@@ -1170,7 +1182,7 @@ class JavaScriptEmitter {
       }
       case "Or": {
         const alternatives = pattern.alternatives.map((alternative) =>
-          this.#emitPatternPlan(alternative, value)
+          this.#emitPatternPlan(alternative, value, exceptionPatterns)
         );
         if (alternatives.some(({ bindings }) => bindings.length > 0)) {
           return { tests: ["false"], bindings: [] };
@@ -1195,7 +1207,11 @@ class JavaScriptEmitter {
       case "Tuple":
         return combinePatternPlans(
           pattern.elements.map((element, index) =>
-            this.#emitPatternPlan(element, `${value}[${index}]`)
+            this.#emitPatternPlan(
+              element,
+              `${value}[${index}]`,
+              exceptionPatterns,
+            )
           ),
         );
       case "Vector": {
@@ -1204,7 +1220,11 @@ class JavaScriptEmitter {
           const position = pattern.rest === undefined || index < pattern.rest.index
             ? String(index)
             : `${value}.length - ${fixed - index}`;
-          return this.#emitPatternPlan(element, `${value}[${position}]`);
+          return this.#emitPatternPlan(
+            element,
+            `${value}[${position}]`,
+            exceptionPatterns,
+          );
         });
         const combined = combinePatternPlans(plans);
         const restEnd = pattern.rest === undefined || pattern.rest.index === fixed
@@ -1215,6 +1235,7 @@ class JavaScriptEmitter {
           : this.#emitPatternPlan(
               pattern.rest.pattern,
               `${value}.slice(${pattern.rest.index}${restEnd})`,
+              exceptionPatterns,
             );
         return {
           tests: [
@@ -1230,17 +1251,32 @@ class JavaScriptEmitter {
       case "Record":
         return combinePatternPlans(
           pattern.fields.map((field) =>
-            this.#emitPatternPlan(field.pattern, `${value}.${field.name}`)
+            this.#emitPatternPlan(
+              field.pattern,
+              `${value}.${field.name}`,
+              exceptionPatterns,
+            )
           ),
         );
       case "Constructor": {
+        const exception = exceptionPatterns
+          ? this.#exceptions.get(pattern.symbol)
+          : undefined;
         const metadata = this.#constructors.get(pattern.symbol);
-        const test = metadata?.tagged
+        const test = exception !== undefined
+          ? `${value} != null && ${value}.$hex === true && ${value}.name === ${JSON.stringify(pattern.text)}`
+          : metadata?.tagged
           ? `${value}.tag === ${JSON.stringify(pattern.text)}`
           : `${value} === ${JSON.stringify(pattern.text)}`;
         const payloads = pattern.arguments.map((argument, index) => {
-          const field = metadata?.constructor.slots[index]?.field ?? `item${index + 1}`;
-          return this.#emitPatternPlan(argument, `${value}.${field}`);
+          const field = exception?.slots[index]?.field ??
+            metadata?.constructor.slots[index]?.field ??
+            `item${index + 1}`;
+          return this.#emitPatternPlan(
+            argument,
+            `${value}.${field}`,
+            exceptionPatterns,
+          );
         });
         const combined = combinePatternPlans(payloads);
         return { tests: [test, ...combined.tests], bindings: combined.bindings };

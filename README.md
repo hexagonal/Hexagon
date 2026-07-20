@@ -102,9 +102,9 @@ review copies stay outside version control.
 
 Compiler implementation is underway. The platform-neutral TypeScript workspace has
 source coordinates, structured diagnostics, a Unicode-aware physical lexer, and the
-indentation layout pass. Thirty-six vertical slices cover core expressions, `let` and local `var` bindings,
+indentation layout pass. Thirty-seven vertical slices cover core expressions, `let` and local `var` bindings,
 lambdas, directly recursive functions, conditionals, `while`, Range/String `for..in`, calls, tuple values and patterns,
-generic unions and nominal records, exceptions, constraints and parameterized instances,
+generic unions and nominal records, guarded full-pattern exception handling, constraints and parameterized instances,
 implied types, aliases, relative imports, mutual recursion, qualified types, opaque exports,
 nominal dot calls, direct fundamental specializations, exhaustive matches, explicit function types, rich annotations, and
 operator precedence. Its resolver assigns stable symbols to `let`, `fun`, loop-head pattern,

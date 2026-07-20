@@ -4,7 +4,7 @@ This folder contains the beginning of `hexc`, the Hexagon compiler.
 
 The platform-neutral TypeScript core now includes shared source coordinates,
 structured diagnostics, the complete physical lexer, and the indentation layout
-pass. Thirty-six vertical compiler slices now carry the public pipeline through `Source.File -> Lexed.File
+pass. Thirty-seven vertical compiler slices now carry the public pipeline through `Source.File -> Lexed.File
 -> LaidOut.File -> Parsed.Module -> Resolved.Module -> Typed.Module -> Core.Module ->
 Emitted output` for a deliberate language subset.
 
@@ -19,7 +19,7 @@ guarded match arms, direct tuple/record matching, inclusive ranges, `while`, `fo
 over `Range` and `String`, and
 string interpolation, `then`-form and layout `if`, calls, field access,
 indexing, assignment, generic unions, nominal records, exception declarations and
-`try`/`catch`, completed user constraint declarations and honors, implied type
+guarded full-pattern `try`/`catch` arms, completed user constraint declarations and honors, implied type
 declarations and ground bindings, `derive` and declaration-header `derives`, explicit
 constrained binders, `Seq(a)`, relative imports, explicit right-associative function
 types with zero, one, or many parameters, and the complete operator precedence table.
@@ -61,7 +61,8 @@ immutable type for every expression and a scheme for every binding. Declarations
 generic call-site evidence, explicit and inferred constraints, required-member user
 constraints, superconstraints, inherited defaults, coherent ground and parameterized
 instances, nominal derivation, concrete implied type substitution, the
-projection-bearing constraint binder ban, exceptions, imported schemes, and nominal dot-call
+projection-bearing constraint binder ban, concrete exception payloads, guarded full-pattern
+exception handling, imported schemes, and nominal dot-call
 resolution. Exported signatures cannot expose private nominal types, and imported opaque
 records reject construction, field access, destructuring, and updates outside their home
 module. The public dictionary ABI and `extern` validation are later FFI slices. Primitive annotations
@@ -86,7 +87,8 @@ single-constructor and exhaustive or-pattern destructuring, compact `switch`
 matches and ordered guarded/literal/structural/nested-or-pattern tests, semantic helpers,
 short-circuiting comparison chains,
 and recursive `fun` bindings as hoisted function declarations, generic nominal data,
-branded real-`Error` exceptions, constraint dictionaries, imported ESM graphs, local mutation as
+branded real-`Error` exceptions with nested guarded handlers and implicit rethrow,
+constraint dictionaries, imported ESM graphs, local mutation as
 JavaScript `let`/assignment, replayable iterable ranges and memoized lazy sequences,
 generator-backed `Seq.iterate`/`map`/`filter`/`take`, `while`, and native
 `for..of` loops for Range/String/Seq iteration. Implied type bindings are checked and

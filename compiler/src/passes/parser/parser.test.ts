@@ -608,6 +608,48 @@ describe("parse", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  test("parses guarded catch arms and reserves finally with one targeted error", () => {
+    const module = parseSource(
+      "exception Wrapped(value: Int)\n" +
+        "let result = try\n" +
+        "  throw(Wrapped(1))\n" +
+        "catch\n" +
+        "  Wrapped(value) when value > 0 => value\n" +
+        "  _ => 0\n" +
+        "finally\n" +
+        "  cleanup()",
+    );
+
+    expect(module.items).toMatchObject([
+      { kind: "Exception" },
+      {
+        kind: "Let",
+        value: {
+          kind: "Try",
+          arms: [
+            { pattern: { kind: "Constructor" }, guard: { kind: "Comparison" } },
+            { pattern: { kind: "Wildcard" } },
+          ],
+        },
+      },
+    ]);
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "`finally` is not part of Hexagon v1",
+    ]);
+  });
+
+  test("uses representation-specific diagnostics for reserved exception fields", () => {
+    const module = parseSource(
+      "exception Named(name: String)\n" +
+        "exception Stacked(stack: String)",
+    );
+
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "`name` is reserved as the exception's discriminant field; rename this field",
+      "`stack` is reserved for the exception's stack trace; rename this field",
+    ]);
+  });
+
   test("recovers from arbitrary text with bounded public spans", () => {
     fc.assert(
       fc.property(fc.string(), (text) => {

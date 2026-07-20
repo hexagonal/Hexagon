@@ -365,6 +365,25 @@ class Checker {
     for (const item of module.items) {
       if (item.kind !== "Exception") continue;
       this.#exceptions.set(item.binding.symbol, item);
+      for (const slot of item.slots) {
+        if (annotationHasTypeVariable(slot.annotation)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: "exception payloads must have concrete types",
+            primary: slot.span,
+          });
+        }
+        if (
+          slot.field === "message" &&
+          !(slot.annotation.kind === "Primitive" && slot.annotation.name === "String")
+        ) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: "exception field `message` must have type `String`",
+            primary: slot.span,
+          });
+        }
+      }
       const parameters = item.slots.map((slot) => this.#annotationType(slot.annotation));
       const result = primitive("Exn");
       this.#schemes.set(item.binding.symbol, {
@@ -1533,6 +1552,15 @@ class Checker {
               });
             }
           }
+        } else if (
+          actual.kind === "Constructor" &&
+          actual.name === "Exn"
+        ) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: "match requires a closed type; exceptions are inspected with `try`/`catch`",
+            primary: expression.scrutinee.span,
+          });
         } else if (actual.kind === "Constructor" && actual.name === "Bool") {
           if (!catchAll && coveredBooleans.size < 2) {
             const missing = coveredBooleans.has(true) ? "false" : "true";
@@ -1611,7 +1639,11 @@ class Checker {
       case "Try": {
         const result = this.#inferExpr(expression.body, level);
         let catchesAll = false;
-        const seen = new Set<Resolved.SymbolId>();
+        const coveredConstructors = new Set<Resolved.SymbolId>();
+        const constructorPatterns = new Map<
+          Resolved.SymbolId,
+          Resolved.ConstructorPattern[]
+        >();
         for (const arm of expression.arms) {
           if (catchesAll) {
             this.#diagnostics.add({
@@ -1620,19 +1652,42 @@ class Checker {
               primary: arm.span,
             });
           }
-          if (arm.pattern.kind === "Binding" || arm.pattern.kind === "Wildcard") {
-            catchesAll = true;
-          } else if (arm.pattern.kind === "Constructor") {
-            if (seen.has(arm.pattern.symbol)) {
-              this.#diagnostics.add({
-                severity: "error",
-                message: `exception \`${arm.pattern.text}\` is already caught above`,
-                primary: arm.pattern.span,
-              });
+          const guarded = arm.guard !== undefined;
+          let armCatchesAll = false;
+          const armConstructors: Resolved.ConstructorPattern[] = [];
+          for (const coveragePattern of coverageAlternatives(arm.pattern)) {
+            if (coveragePattern.kind === "Constructor") {
+              if (coveredConstructors.has(coveragePattern.symbol)) {
+                this.#diagnostics.add({
+                  severity: "error",
+                  message: `exception \`${coveragePattern.text}\` is already caught above`,
+                  primary: coveragePattern.span,
+                });
+              }
+              if (!guarded && this.#exceptions.has(coveragePattern.symbol)) {
+                armConstructors.push(coveragePattern);
+              }
+            } else if (
+              coveragePattern.kind === "Binding" ||
+              coveragePattern.kind === "Wildcard"
+            ) {
+              armCatchesAll = true;
             }
-            seen.add(arm.pattern.symbol);
           }
+          for (const pattern of armConstructors) {
+            const patterns = constructorPatterns.get(pattern.symbol) ?? [];
+            patterns.push(pattern);
+            constructorPatterns.set(pattern.symbol, patterns);
+            if (this.#constructorPatternsAreExhaustive(patterns)) {
+              coveredConstructors.add(pattern.symbol);
+            }
+          }
+          if (!guarded && armCatchesAll) catchesAll = true;
           this.#inferExceptionPattern(arm.pattern, level);
+          if (arm.guard !== undefined) {
+            const guard = this.#inferExpr(arm.guard, level);
+            this.#unify(guard, primitive("Bool"), arm.guard.span);
+          }
           this.#unify(result, this.#inferExpr(arm.body, level), arm.body.span);
         }
         type = result;
@@ -1717,6 +1772,21 @@ class Checker {
               receiver: expression.callee.receiver,
             });
             type = result;
+            break;
+          }
+        }
+        if (expression.callee.kind === "Name") {
+          const exception = this.#exceptions.get(expression.callee.symbol);
+          if (exception?.slots.length === 0) {
+            for (const argument of expression.arguments) {
+              this.#inferExpr(argument, level);
+            }
+            this.#diagnostics.add({
+              severity: "error",
+              message: `\`${expression.callee.text}\` is a value; write it without \`()\``,
+              primary: expression.span,
+            });
+            type = ERROR;
             break;
           }
         }
@@ -1841,6 +1911,13 @@ class Checker {
         const receiver = inferredReceiver.kind === "Record"
           ? this.#normalizeRecord(inferredReceiver)
           : inferredReceiver;
+        if (receiver.kind === "Constructor" && receiver.name === "Exn") {
+          type = this.#unsupported(
+            expression.span,
+            "exceptions are inspected with `try`/`catch`",
+          );
+          break;
+        }
         if (receiver.kind === "NominalRecord") {
           if (!this.#recordRepresentationVisible(receiver.record)) {
             type = this.#unsupported(
@@ -2238,12 +2315,32 @@ class Checker {
       this.#inferMatchPattern(pattern, primitive("Exn"), level);
       return;
     }
-    if (pattern.kind !== "Constructor") {
-      this.#diagnostics.add({
-        severity: "error",
-        message: "catch arms use exception constructors, `_`, or a whole-exception binding",
-        primary: pattern.span,
+    if (pattern.kind === "As") {
+      this.#inferExceptionPattern(pattern.pattern, level);
+      this.#schemes.set(pattern.binding.symbol, {
+        variables: [],
+        type: primitive("Exn"),
       });
+      return;
+    }
+    if (pattern.kind === "Or") {
+      const common = new Map<Resolved.SymbolId, Mono>();
+      for (const alternative of pattern.alternatives) {
+        this.#inferExceptionPattern(alternative, level);
+        for (const binding of resolvedPatternBindings(alternative)) {
+          const current = this.#scheme(binding.symbol).type;
+          const previous = common.get(binding.symbol);
+          if (previous === undefined) common.set(binding.symbol, current);
+          else this.#unify(previous, current, binding.span);
+        }
+      }
+      for (const [symbol, type] of common) {
+        this.#schemes.set(symbol, { variables: [], type });
+      }
+      return;
+    }
+    if (pattern.kind !== "Constructor") {
+      this.#inferMatchPattern(pattern, primitive("Exn"), level);
       return;
     }
     if (!this.#exceptions.has(pattern.symbol)) {
@@ -2353,22 +2450,23 @@ class Checker {
     const constructor = union?.constructors.find(
       ({ binding }) => binding.symbol === first.symbol,
     );
-    if (constructor === undefined) return false;
+    const slots = constructor?.slots ?? this.#exceptions.get(first.symbol)?.slots;
+    if (slots === undefined) return false;
     if (patterns.some((pattern) =>
-      pattern.arguments.length === constructor.slots.length &&
+      pattern.arguments.length === slots.length &&
       pattern.arguments.every((argument, index) =>
         this.#isIrrefutablePattern(
           argument,
-          this.#annotationType(constructor.slots[index]!.annotation),
+          this.#annotationType(slots[index]!.annotation),
         )
       )
     )) return true;
-    if (constructor.slots.length !== 1) return false;
+    if (slots.length !== 1) return false;
     const arguments_ = patterns.flatMap((pattern) => pattern.arguments.slice(0, 1));
     if (arguments_.length !== patterns.length) return false;
     return this.#isIrrefutablePattern(
       { kind: "Or", alternatives: arguments_, span: first.span },
-      this.#annotationType(constructor.slots[0]!.annotation),
+      this.#annotationType(slots[0]!.annotation),
     );
   }
 
@@ -4109,6 +4207,9 @@ class Checker {
           body: this.#materializeExpr(expression.body),
           arms: expression.arms.map((arm) => ({
             pattern: this.#materializePattern(arm.pattern),
+            ...(arm.guard === undefined
+              ? {}
+              : { guard: this.#materializeExpr(arm.guard) }),
             body: this.#materializeExpr(arm.body),
             span: arm.span,
           })),
@@ -4481,6 +4582,42 @@ function coverageAlternatives(
   return unwrapped.kind === "Or"
     ? unwrapped.alternatives.flatMap(coverageAlternatives)
     : [unwrapped];
+}
+
+function annotationHasTypeVariable(
+  annotation: Resolved.TypeAnnotation,
+): boolean {
+  switch (annotation.kind) {
+    case "TypeVariable":
+      return true;
+    case "Function":
+      return annotation.parameters.some(annotationHasTypeVariable) ||
+        annotationHasTypeVariable(annotation.result);
+    case "Seq":
+    case "Vector":
+    case "Set":
+    case "Array":
+      return annotationHasTypeVariable(annotation.element);
+    case "Nullable":
+      return annotationHasTypeVariable(annotation.value);
+    case "Map":
+      return annotationHasTypeVariable(annotation.key) ||
+        annotationHasTypeVariable(annotation.value);
+    case "Tuple":
+      return annotation.elements.some(annotationHasTypeVariable);
+    case "Record":
+      return annotation.fields.some((field) =>
+        annotationHasTypeVariable(field.annotation)
+      );
+    case "Union":
+    case "RecordDeclaration":
+      return annotation.arguments.some(annotationHasTypeVariable);
+    case "Primitive":
+    case "Range":
+    case "ImpliedType":
+    case "ErrorType":
+      return false;
+  }
 }
 
 function resolvedPatternBindings(

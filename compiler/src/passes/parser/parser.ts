@@ -941,8 +941,16 @@ class Parser {
       const names = new Set<string>();
       for (const slot of named) {
         const name = slot.name!;
-        if (["name", "stack"].includes(name.text) || name.text.startsWith("$")) {
-          this.#errorAt(name.span, `\`${name.text}\` is reserved by the exception representation; rename this field`);
+        if (name.text === "name") {
+          this.#errorAt(
+            name.span,
+            "`name` is reserved as the exception's discriminant field; rename this field",
+          );
+        } else if (name.text === "stack") {
+          this.#errorAt(
+            name.span,
+            "`stack` is reserved for the exception's stack trace; rename this field",
+          );
         }
         if (names.has(name.text)) this.#errorAt(name.span, `duplicate payload slot \`${name.text}\``);
         names.add(name.text);
@@ -1717,17 +1725,38 @@ class Parser {
         this.#skipSeparators();
         continue;
       }
-      this.#expect("FatArrow", "expected `=>` after catch pattern");
+      let guard: Parsed.Expr | undefined;
+      const guardStart = this.#current();
+      if (
+        guardStart.kind === "NonUpperName" &&
+        guardStart.text === "when"
+      ) {
+        this.#advance();
+        guard = this.#parseExpression(0, new Set(["FatArrow", "Eof"]));
+      }
+      this.#expect("FatArrow", "expected `=>` after catch pattern or guard");
       const armBody = this.#parseBodyExpression(new Set(["VSep", "VClose", "Eof"]));
-      arms.push({ pattern, body: armBody, span: spanFrom(pattern.span, armBody.span) });
+      arms.push({
+        pattern,
+        ...(guard === undefined ? {} : { guard }),
+        body: armBody,
+        span: spanFrom(pattern.span, armBody.span),
+      });
       this.#skipSeparators();
     }
     const closing = this.#expect("VClose", "expected the catch arms to close");
+    let end = closing?.span ?? arms.at(-1)?.span ?? body.span;
+    if (this.#at("Finally")) {
+      const finallyToken = this.#advance();
+      this.#errorAt(finallyToken.span, "`finally` is not part of Hexagon v1");
+      const rejectedBody = this.#parseBodyExpression(outerStops);
+      end = rejectedBody.span;
+    }
     return {
       kind: "Try",
       body,
       arms,
-      span: spanFrom(start.span, closing?.span ?? arms.at(-1)?.span ?? body.span),
+      span: spanFrom(start.span, end),
     };
   }
 
