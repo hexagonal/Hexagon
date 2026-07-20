@@ -15,7 +15,7 @@ The project contains **two versions** of the Hash / type-members spec:
 They are **not** duplicates. The `__1_` file is the **later, corrected revision**. I diffed them; the `__1_` version differs in two substantive, deliberate corrections (both carrying §16 correction-record markers):
 
 1. **§2.4 rewritten** — public `hash` remains deterministic and unseeded, but stdlib table placement is **seeded** (`mix(processSeed, hash(k))`); iteration order is stable only within one program execution, explicitly unstable across runs (reverting the cross-run extension the older file made). HashDoS rationale, Rust/Go/Python precedent, `HEXAGON_HASH_SEED` implementation note.
-2. **§6 rewritten** — associated type identity is **(owner constraint, member name)**; no module-level namespace registration; two constraints in one module may both declare `type Item`; owner-relative scoping with occlusion inside bodies.
+2. **§6 rewritten** — implied type identity is **(owner constraint, member name)**; no module-level namespace registration; two constraints in one module may both declare `type Item`; owner-relative scoping with occlusion inside bodies.
 
 Part 4 (`Map`/`Set`) was written against the corrected version — its iteration-order and DoS story depends on the seeded-placement decision.
 

@@ -31,10 +31,10 @@
 18. [Sequences](chapters/18-sequences.md)
 19. [Exceptions](chapters/19-exceptions.md)
 
-## Part V — Collections and Associated Types
+## Part V — Collections and Implied Types
 
 20. [Collections](chapters/20-collections.md)
-21. [Associated Types](chapters/21-associated-types.md)
+21. [Implied Types](chapters/21-implied-types.md)
 
 ## Part VI — JavaScript and TypeScript
 

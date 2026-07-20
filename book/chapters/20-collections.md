@@ -271,8 +271,8 @@ For now, read `type Item = a` as “iterating `Bag(a)` produces `a`.” The `ite
 operation supplies those values as a sequence. This is the whole extension needed for
 an ordinary collection.
 
-That `type` line introduces a more general constraint feature called an associated
-type. The next chapter explains associated types properly: how constraints declare
+That `type` line introduces a more general constraint feature called an implied
+type. The next chapter explains implied types properly: how constraints declare
 them, how instances choose them, where their names are visible, and why Hexagon keeps
 their use deliberately restricted.
 

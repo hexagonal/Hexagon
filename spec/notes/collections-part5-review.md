@@ -144,7 +144,7 @@ When Part 5 lands, apply its roadmap edit notes in the same commit:
 - Mark Collections Parts 2–5 complete in `collections-roadmap.md` and mark the roadmap historical/completed.
 - Mark Tier-1 Collections complete in `spec-roadmap.md`.
 - Update the filed-spec inventory.
-- Re-scope the Tier-3 entry to the remaining v2 associated-type machinery: deferred `Item(α)` goals, `Item(c)` references, associated-type obligations, and generic `Iterable` binders. Restricted user-defined concrete `Iterable` instances are v1.
+- Re-scope the Tier-3 entry to the remaining v2 implied-type machinery: deferred `Item(α)` goals, `Item(c)` references, implied-type obligations, and generic `Iterable` binders. Restricted user-defined concrete `Iterable` instances are v1.
 - Carry the newly inherited stdlib and FFI obligations into their roadmap/agenda locations without starting the FFI spec.
 
 Pending companion-document edits may continue to follow the house apply-on-next-touch convention, but the two roadmaps are primary navigation and should not remain knowingly false after the closeout document lands.

@@ -225,7 +225,7 @@ User-facing docs carry the practical consequence in one line: **need an order? s
 
 Provided (Part 2 §4.4 wording; rows in the Loops §5 table):
 
-| Instance | Associated type | `iterate` |
+| Instance | Implied type | `iterate` |
 |---|---|---|
 | `Iterable<Map(k, v)>` | `type Item = (k, v)` | `toSeq` |
 | `Iterable<Set(a)>` | `type Item = a` | `toSeq` |

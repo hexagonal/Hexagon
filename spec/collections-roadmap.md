@@ -2,7 +2,7 @@
 
 **Status:** **Completed (July 2026)** — all five parts Decided; retained as a historical record of the plan. The part documents are authoritative; nothing here remains open. Exports live on in the stdlib listing and FFI agenda (see Part 5 §16).
 **Purpose:** The Collections effort is the largest remaining spec; this cuts it into parts with recorded dependencies, so each session lands a complete document against settled ground. Update as parts land; strike entries and migrate newly-discovered debts, per the main roadmap's convention.
-**Relation to the main spec roadmap:** replaces the roadmap's single "Collections" Tier-1 entry with this breakdown. The main roadmap's Tier-3 associated-types entry is re-scoped by Part 1 §6.4.
+**Relation to the main spec roadmap:** replaces the roadmap's single "Collections" Tier-1 entry with this breakdown. The main roadmap's Tier-3 implied-types entry is re-scoped by Part 1 §6.4.
 
 ---
 
@@ -30,7 +30,7 @@ The grammar/constraint groundwork the later parts consume. Two halves, one docum
 - Diagnostics: unsatisfied `Hash` (hint: `derives (Hash)`), attempted hand-written instance.
 **B. `type` members in `constraint` / `implement` bodies.**
 - The Loops §7.2 sketch, promoted: grammar for `type Elem` (declaration side) and `type Elem = a` (implement side); keyword sharing with the module-level alias, position-disambiguated (three positions, one keyword — the Rust precedent).
-- Namespacing of associated-type names (constructor-rule family, type namespace); coherence slot for the member.
+- Namespacing of implied-type names (constructor-rule family, type namespace); coherence slot for the member.
 - The divergences from alias rules Loops §7.2 already noted: recursion unwritable, expansion/display question deferred (moot in v1 since `Elem(c)` is not referenceable — Part 1 §6.1).
 - **v1 restriction enforcement points**: where the compiler rejects `Elem(c)` in type expressions and `Iterable` as a user constraint binder.
 - Edit notes to: Constraints (grammar §§, whitelist), Declarations Preamble (header/keyword table), Lexer keyword list if affected.

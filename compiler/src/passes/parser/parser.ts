@@ -5,7 +5,7 @@
  * values, local mutation, inclusive ranges, `while`, `for..in`, and directly recursive
  * `fun` bindings are present; the remaining
  * declarations, patterns, and richer type syntax remain future work. Constraint
- * bodies include the owner-scoped associated type forms from Collections Part 2 §5.
+ * bodies include the owner-scoped implied type forms from Collections Part 2 §5.
  */
 
 import * as Diagnostics from "../../support/diagnostics.js";
@@ -316,15 +316,15 @@ class Parser {
     const superconstraints = head[0]?.constraints ?? [];
     this.#expect("Equal", "expected `=` after constraint head");
     this.#expect("VOpen", "expected an indented constraint body");
-    const associatedTypes: Parsed.ConstraintAssociatedType[] = [];
+    const impliedTypes: Parsed.ConstraintImpliedType[] = [];
     const members: Parsed.ConstraintMember[] = [];
     this.#skipSeparators();
     while (!this.#at("VClose") && !this.#at("Eof")) {
       if (this.#at("Type")) {
         const type = this.#advance();
-        const typeName = this.#takeName("UpperName", "associated types require an uppercase-start name");
+        const typeName = this.#takeName("UpperName", "implied types require an uppercase-start name");
         if (typeName !== undefined) {
-          associatedTypes.push({
+          impliedTypes.push({
             name: parsedName(typeName),
             span: spanFrom(type.span, typeName.span),
           });
@@ -377,7 +377,7 @@ class Parser {
       name: nameToken === undefined ? fallbackName : parsedName(nameToken),
       subject,
       superconstraints,
-      associatedTypes,
+      impliedTypes,
       members,
       span: spanFrom(start.span, closing?.span ?? members.at(-1)?.span ?? start.span),
     };
@@ -408,23 +408,23 @@ class Parser {
         typeParameters,
         subject,
         derived: true,
-        associatedTypes: [],
+        impliedTypes: [],
         members: [],
         span: spanFrom(start.span, this.#previous().span),
       };
     }
     this.#expect("VOpen", "expected an indented instance body");
-    const associatedTypes: Parsed.HonorAssociatedType[] = [];
+    const impliedTypes: Parsed.HonorImpliedType[] = [];
     const members: Parsed.HonorMember[] = [];
     this.#skipSeparators();
     while (!this.#at("VClose") && !this.#at("Eof")) {
       if (this.#at("Type")) {
         const type = this.#advance();
-        const typeName = this.#takeName("UpperName", "associated type bindings require an uppercase-start name");
-        this.#expect("Equal", "expected `=` in associated type binding");
+        const typeName = this.#takeName("UpperName", "implied type bindings require an uppercase-start name");
+        this.#expect("Equal", "expected `=` in implied type binding");
         const annotation = this.#parseTypeAnnotation();
         if (typeName !== undefined && annotation !== undefined) {
-          associatedTypes.push({
+          impliedTypes.push({
             name: parsedName(typeName),
             annotation,
             span: spanFrom(type.span, annotation.span),
@@ -462,7 +462,7 @@ class Parser {
       typeParameters,
       subject,
       derived: false,
-      associatedTypes,
+      impliedTypes,
       members,
       span: spanFrom(start.span, closing?.span ?? members.at(-1)?.span ?? subject.span),
     };

@@ -1,11 +1,11 @@
 # Hexagon Spec: Collections Part 2 — The `Hash` Constraint & Constraint Type Members
 
-**Status:** Decided (July 2026). Two halves, one document: the formal spec of the `Hash` constraint (§2–§4), and the grammar and rules for associated `type` members in `constraint`/`honor` bodies (§5–§8), including the `Iterable` prelude declaration (§8). Written against Collections Part 1 and the Constraints spec (`honor` keyword); neither is re-litigated here.
-**Scope:** The `Hash` declaration, member, codomain, law, and determinism contract; the provided (compiler/runtime) instance set for `Hash`; the derivable-only rule and its enforcement, including the Eq-agreement rule; the wrapper-key pattern; the `type`-member grammar on both declaration and instance sides; identity and scoping of associated type names; the **projection-bearing constraint** definition and the v1 binder ban; the `Iterable` prelude declaration.
-**Not in scope:** `Hash` instances for `Vector`/`Map`/`Set` (Part 3 §8, Part 4 §8.4, under §4.4's wording here); table-opening semantics, resolution, diagnostics, and the provided-instance table for `Iterable` (Part 5 — the *declaration* lives here, everything operational there); the v2 associated-types remainder (§11); the `CiString` wrapper's name and folding semantics (`stdlib-roadmap.md`).
+**Status:** Decided (July 2026). Two halves, one document: the formal spec of the `Hash` constraint (§2–§4), and the grammar and rules for implied `type` members in `constraint`/`honor` bodies (§5–§8), including the `Iterable` prelude declaration (§8). Written against Collections Part 1 and the Constraints spec (`honor` keyword); neither is re-litigated here.
+**Scope:** The `Hash` declaration, member, codomain, law, and determinism contract; the provided (compiler/runtime) instance set for `Hash`; the derivable-only rule and its enforcement, including the Eq-agreement rule; the wrapper-key pattern; the `type`-member grammar on both declaration and instance sides; identity and scoping of implied type names; the **projection-bearing constraint** definition and the v1 binder ban; the `Iterable` prelude declaration.
+**Not in scope:** `Hash` instances for `Vector`/`Map`/`Set` (Part 3 §8, Part 4 §8.4, under §4.4's wording here); table-opening semantics, resolution, diagnostics, and the provided-instance table for `Iterable` (Part 5 — the *declaration* lives here, everything operational there); the v2 implied-types remainder (§11); the `CiString` wrapper's name and folding semantics (`stdlib-roadmap.md`).
 **Companions:** Collections Part 1 (§4 key model, §6 restricted `Iterable` — both made formal here); Constraints (§2 member grammar, §4 instance mechanics, §4.5 derivation, §7 prelude registration, §8 diagnostics); Collections Parts 3–5; Loops/Ranges/Iteration (§5 iterable table = §8's instance table; §7 the `Seq(a)` idiom); Declarations Preamble (module-level `type`); Modules (§6.4 qualified homes; §7 instance globality); Products/Unions (structural-instance pattern extended to `Hash`); `stdlib-roadmap.md` (routed items, §12).
 
-**Vocabulary, fixed for docs and diagnostics:** the member declared with the `type` keyword inside a `constraint` is an **associated type member** (short form in prose: *associated type*; the Rust/Swift term, used because the audience knows it and it names exactly this). Diagnostics say **"associated type"**. A **projection-bearing constraint** is a constraint that declares at least one associated type member (§7.1). The word "projection" itself stays out of diagnostics.
+**Vocabulary, fixed for docs and diagnostics:** the member declared with the `type` keyword inside a `constraint` is an **implied type member** (short form in prose: *implied type*). An implied type is a type uniquely determined by a constraint instance's subject type: `Iterable<Vector(Int)>` implies `Item = Int`. The `honor` declaration establishes that implication explicitly; this is not merely a type inferred from an expression. Diagnostics say **"implied type"**. A **projection-bearing constraint** is a constraint that declares at least one implied type member (§7.1). The technical word "projection" names the operation and stays out of diagnostics.
 
 ---
 
@@ -15,7 +15,7 @@
 - **The hash/equality law holds by construction, not by trust.** Every `Hash<T>` a *user* can derive requires a compiler-derived `Eq<T>` (§4.3), so the pair is structurally consistent by construction; every compiler/runtime-provided `Hash` is specified normatively together with its `Eq` (§2.5, §4.4), and the spec text carrying the instance carries the law. v1 has no way to obtain a lawless `Hash`.
 - **Hash values are observable but not portable.** `hash` is an ordinary callable member (§2.2), deterministic and unseeded — but the stdlib's hash-backed collections place entries by *seeded* internal mixing, and iteration order is promised only within one program execution (§2.4).
 - **One keyword, three positions.** The `type` keyword serves the module-level alias (Declarations Preamble §4), the `constraint` body, and the `honor` block; position fully disambiguates — the Rust precedent.
-- **The v1 boundary is drawn at projection, not at `Iterable`.** What v1 lacks is the inference machinery for *projecting* an associated type out of an unsolved variable (`Item(α)` deferred goals). The restriction therefore bans exactly that — projection-bearing constraints on type-variable binders (§7) — uniformly, with no special-cased names.
+- **The v1 boundary is drawn at projection, not at `Iterable`.** What v1 lacks is the inference machinery for *projecting* an implied type out of an unsolved variable (`Item(α)` deferred goals). The restriction therefore bans exactly that — projection-bearing constraints on type-variable binders (§7) — uniformly, with no special-cased names.
 
 ---
 
@@ -175,7 +175,7 @@ honor<a> Iterable<Bag(a)> =
   iterate(xs) = Bag.toSeq(xs)
 ```
 
-- The binding line is `type Name = τ`. **τ may mention only in-scope type names** (primitives, nominal types, fully-applied aliases per Declarations Preamble §5, other constructors) **and the instance's own `<...>` binders.** τ may **not** mention any associated type name — its own or another constraint's (they are not referenceable in type expressions, §7.3) — which is why recursion through type members is unwritable: no SCC check is needed because the cycle cannot be written.
+- The binding line is `type Name = τ`. **τ may mention only in-scope type names** (primitives, nominal types, fully-applied aliases per Declarations Preamble §5, other constructors) **and the instance's own `<...>` binders.** τ may **not** mention any implied type name — its own or another constraint's (they are not referenceable in type expressions, §7.3) — which is why recursion through type members is unwritable: no SCC check is needed because the cycle cannot be written.
 - **Exactly-once discipline**, mirroring function members (Constraints §4.1): every type member declared by the constraint must be bound exactly once in the `honor` block; missing, extra, and duplicate bindings are each errors naming the member (§9).
 - Within the `honor` block, the bare name `Item` is in scope and denotes τ — usable in optional annotations on the block's own function members. Function-member checking proceeds with the substitution applied: `iterate`'s expected type above is `Bag(a) -> Seq(a)`.
 - A bare `Item = a` line (no keyword) is not this form — it is shaped like a term-level binding of an uppercase-start name, which Functions §2 reserves for constructors; the `type` keyword is what makes the line self-announcing.
@@ -186,9 +186,9 @@ A type member is **part of the instance**: it lives in the instance's existing (
 
 ---
 
-## 6. Identity and scoping of associated type names
+## 6. Identity and scoping of implied type names
 
-**The identity of an associated type is the pair (owner constraint, member name).** `Source.Item`, `Sink.Item`, and `Iterable.Item` are three distinct associated types. Associated type names claim **no module-level namespace slot of any kind** — an associated type is a member of its constraint, exactly as a constraint's function members are (Constraints §2.2's member model, transposed to types), not a module-level declaration.
+**The identity of an implied type is the pair (owner constraint, member name).** `Source.Item`, `Sink.Item`, and `Iterable.Item` are three distinct implied types. Implied type names claim **no module-level namespace slot of any kind** — an implied type is a member of its constraint, exactly as a constraint's function members are (Constraints §2.2's member model, transposed to types), not a module-level declaration.
 
 Consequently:
 
@@ -196,9 +196,9 @@ Consequently:
 - A constraint's type member may share a name with a module-level `type`/`record`/`union`: **no conflict.** Inside the owner's body and its `honor` blocks, the bare member name **occludes** the module-level name (the standard local-wins scoping the language already has everywhere); outside those bodies the module-level name resolves by ordinary lexical scoping, untouched.
 - The only duplicate rule is **within one constraint** (§5.1). Duplicate checking never crosses constraint boundaries.
 
-**Scoping is owner-relative**: bare `Item` resolves *to the associated type* only inside its owner constraint's body and that constraint's `honor` blocks (§5.2/§5.3). Everywhere else, the associated type is not referenceable at all (§7.3); a same-spelled module-level type name, where one exists, remains usable there as itself.
+**Scoping is owner-relative**: bare `Item` resolves *to the implied type* only inside its owner constraint's body and that constraint's `honor` blocks (§5.2/§5.3). Everywhere else, the implied type is not referenceable at all (§7.3); a same-spelled module-level type name, where one exists, remains usable there as itself.
 
-**Do not re-litigate: module-level registration of associated type names**, in any collision family. Registering them flat — so that two constraints could not both declare `type Item`, or a type member collided with a same-named module-level declaration — imports the *constructor* collision story for what are *members*; constraint members already have (owner, name) identity with "qualified is normal" as their settled disambiguation doctrine. Flat registration manufactures artificial scarcity (Rust's ecosystem has hundreds of coexisting `Item`s), buys nothing for v2 that owner qualification doesn't buy better, and breaks the member analogy the constraint system is built on.
+**Do not re-litigate: module-level registration of implied type names**, in any collision family. Registering them flat — so that two constraints could not both declare `type Item`, or a type member collided with a same-named module-level declaration — imports the *constructor* collision story for what are *members*; constraint members already have (owner, name) identity with "qualified is normal" as their settled disambiguation doctrine. Flat registration manufactures artificial scarcity (Rust's ecosystem has hundreds of coexisting `Item`s), buys nothing for v2 that owner qualification doesn't buy better, and breaks the member analogy the constraint system is built on.
 
 **v2 lands pre-shaped by existing doctrine.** When the projection reference syntax arrives, it inherits the constraint-member story wholesale: bare `Item(c)` when unambiguous in context, `Iterable.Item(c)` as the ordinary qualified form for collisions — the "qualified is normal" doctrine extending to type members with no new sentence. No registration scheme is needed now for that future to be clean; the owner *is* the disambiguator.
 
@@ -208,7 +208,7 @@ Consequently:
 
 ### 7.1 Definition
 
-> A **projection-bearing constraint** is a constraint that declares at least one associated type member.
+> A **projection-bearing constraint** is a constraint that declares at least one implied type member.
 
 The name states the reason for the rule it serves: what such a constraint adds to the system is a *projection* (from a type to its member's binding), and projection out of an unsolved type variable is precisely the inference machinery (`Item(α)` deferred goals) that v1 does not have and v2 owns (Part 1 §6.2/§6.3).
 
@@ -229,12 +229,12 @@ Functions generic over "any iterable" remain unwritable in v1; `Seq(a)` paramete
 
 ### 7.3 The reference ban
 
-**An associated type is not referenceable in any type expression outside its owning constraint's body and `honor` blocks.** v1 rejects every expression that actually attempts such a reference:
+**An implied type is not referenceable in any type expression outside its owning constraint's body and `honor` blocks.** v1 rejects every expression that actually attempts such a reference:
 
-- **Applied and qualified forms** — `Item(c)`, `Item(Bag(Int))`, `Iterable.Item`, and kin — are always such an attempt: they are v2's reference syntax (§11), and v1 reserves them by rejecting them with a message that knows what they will become, not by parsing them: *"`Item` is an associated type of `Iterable` and cannot appear in type expressions."*
-- **A bare uppercase-start name** outside every owner's body resolves by ordinary lexical scoping. If it resolves to a module-level type of the same spelling, it *is* that type — legal, no interaction with this rule (§6's occlusion works in one direction only). If it resolves to nothing and matches a known associated type name, the resolver rejects it with the same knowing message — cheaper and better-phrased than a bare unbound-name error. A same-spelled identifier is **not** rejected merely for sharing a spelling with an associated type.
+- **Applied and qualified forms** — `Item(c)`, `Item(Bag(Int))`, `Iterable.Item`, and kin — are always such an attempt: they are v2's reference syntax (§11), and v1 reserves them by rejecting them with a message that knows what they will become, not by parsing them: *"`Item` is an implied type of `Iterable` and cannot appear in type expressions."*
+- **A bare uppercase-start name** outside every owner's body resolves by ordinary lexical scoping. If it resolves to a module-level type of the same spelling, it *is* that type — legal, no interaction with this rule (§6's occlusion works in one direction only). If it resolves to nothing and matches a known implied type name, the resolver rejects it with the same knowing message — cheaper and better-phrased than a bare unbound-name error. A same-spelled identifier is **not** rejected merely for sharing a spelling with an implied type.
 
-Enforcement point: type-name resolution. Outside its owner's bodies the associated type is simply not in scope; the resolver's knowledge of owner-scoped member names (§6) upgrades the failure message.
+Enforcement point: type-name resolution. Outside its owner's bodies the implied type is simply not in scope; the resolver's knowledge of owner-scoped member names (§6) upgrades the failure message.
 
 ---
 
@@ -246,7 +246,7 @@ constraint Iterable<c> =
   iterate(xs: c): Seq(Item)
 ```
 
-**The associated type is named `Item`.** Rationale, kept against re-litigation: `Item` is the ordinary full word; it is the exact Rust precedent for this exact slot (`Iterator`'s `type Item`); and the eventual v2 reference syntax `Item(c)` reads as plain English. Rejected: **`Elem`** (a truncation with Haskell-shelf lineage — `Foldable`/MonoTraversable's `Elem`; an abbreviation would be off-doctrine in the most prominent associated type in the language), **`Element`** (the Swift spelling — full-word virtue, but longer while buying nothing `Item` lacks). "Element type" remains the correct *prose* phrase for the concept (Loops §7.1's ε is untouched); `Item` is the member's name.
+**The implied type is named `Item`.** Rationale, kept against re-litigation: `Item` is the ordinary full word; it is the exact Rust precedent for this exact slot (`Iterator`'s `type Item`); and the eventual v2 reference syntax `Item(c)` reads as plain English. Rejected: **`Elem`** (a truncation with Haskell-shelf lineage — `Foldable`/MonoTraversable's `Elem`; an abbreviation would be off-doctrine in the most prominent implied type in the language), **`Element`** (the Swift spelling — full-word virtue, but longer while buying nothing `Item` lacks). "Element type" remains the correct *prose* phrase for the concept (Loops §7.1's ε is untouched); `Item` is the member's name.
 
 - The compiler-known iterable table (Loops §5) **is defined as this constraint's instance table**: one row per instance, element column = the instance's `Item` binding, strategy column = its `iterate`. The definitive v1 table of provided instances — including the FFI-owned `Array(a)`, `JsMap(k, v)`, and `JsSet(a)` rows — is **Part 5 §4**; it is not repeated here.
 - `Iterable` is projection-bearing, so §7.2 applies: it cannot constrain a binder in v1. The Loops §7.1 discipline — `Iterable` never appearing in inferred signatures, hovers, or unsatisfied-constraint errors — is thereby preserved *by construction* rather than by suppression: no binder can introduce it, so inference can never surface it.
@@ -256,7 +256,7 @@ constraint Iterable<c> =
 
 ## 9. Diagnostics checklist
 
-Noun policy: the noun for the `type`-declared member is **associated type**; the instance noun remains **instance**; `Hash` diagnostics use the derivation vocabulary of Constraints §4.5.
+Noun policy: the noun for the `type`-declared member is **implied type**; the instance noun remains **instance**; `Hash` diagnostics use the derivation vocabulary of Constraints §4.5.
 
 | Situation | Error / hint | Provenance |
 |---|---|---|
@@ -267,13 +267,13 @@ Noun policy: the noun for the `type`-declared member is **associated type**; the
 | Underivable field/slot for `Hash` | "cannot derive `Hash<Point>`: field `f` has type `T`, which has no `Hash` instance" | §3.1 |
 | `derive` for a non-derivable constraint | "…only `Eq`, `Ord`, `Show`, and `Hash` have derivable forms" | §3.1, Constraints §8 |
 | `derives Hash` on an `exception` | "exceptions have no derived instances" (existing) | §4.2 |
-| Projection-bearing constraint on a binder | "`Iterable` declares an associated type and cannot constrain a type variable; take a `Seq(a)` parameter instead" (the `Seq` hint appears when the constraint is `Iterable`; for user constraints, the first clause alone) | §7.2 |
-| Attempted associated-type reference in a type expression (applied/qualified form, or unresolvable bare name matching a known associated type) | "`Item` is an associated type of `Iterable` and cannot appear in type expressions" | §7.3 |
+| Projection-bearing constraint on a binder | "`Iterable` declares an implied type and cannot constrain a type variable; take a `Seq(a)` parameter instead" (the `Seq` hint appears when the constraint is `Iterable`; for user constraints, the first clause alone) | §7.2 |
+| Attempted implied-type reference in a type expression (applied/qualified form, or unresolvable bare name matching a known implied type) | "`Item` is an implied type of `Iterable` and cannot appear in type expressions" | §7.3 |
 | Duplicate type member within a constraint | hard error, duplicate-member family | §5.1 |
 | Missing type-member binding in `honor` | "the `Iterable<Bag(a)>` instance is missing `type Item`" | §5.3 |
-| Extra type-member binding in `honor` | "`Iterable` has no associated type `Items`" (+ near-miss suggestion) | §5.3 |
+| Extra type-member binding in `honor` | "`Iterable` has no implied type `Items`" (+ near-miss suggestion) | §5.3 |
 | Duplicate type-member binding in `honor` | hard error at the second line | §5.3 |
-| Associated type name (own or other) in a `type Name = τ` RHS | the §7.3 message (same enforcement point) | §5.3, §7.3 |
+| Implied type name (own or other) in a `type Name = τ` RHS | the §7.3 message (same enforcement point) | §5.3, §7.3 |
 | Bare `Item = a` line in an `honor` block | ordinary parse error for a term-level uppercase binding (Functions §2); near-miss hint "did you mean `type Item = a`?" is nice-to-have, not owed | §5.3 |
 
 ---
@@ -296,9 +296,9 @@ A derivation-variant grammar to serve case-insensitive keys and kin. Rejected: i
 
 Restricting §5's grammar to the prelude, or hardcoding the binder ban to the name `Iterable`. Rejected: a grammar with one permitted inhabitant is a fiction, and a name-keyed restriction turns v2's widening into a migration of the special case rather than a deletion of one rule. The projection-bearing definition (§7.1) bans exactly what v1 cannot do and nothing else; user-declared projection-bearing constraints are legal, honorable, and monomorphically callable today, and join binder positions in v2 with no source changes.
 
-### 10.5 "type member" as the diagnostic noun
+### 10.5 Broader diagnostic nouns
 
-Considered (echoes the source keyword; self-describing). Rejected: "type member" could later cover non-projected members (e.g. a type constant never projected from the subject), silently over-widening every rule phrased with it — the §7.1 definition would drift. "Associated type" names exactly the projected kind, is entrenched for the audience via Rust/Swift, and keeps the projection-bearing definition future-proof.
+"Type member" was considered because it echoes the source keyword and is self-describing. Rejected: it could later cover non-projected members (for example, a type constant never projected from the subject), silently over-widening every rule phrased with it — the §7.1 definition would drift. The earlier ecosystem noun was also rejected as too weak: mere association does not state the functional dependency. **Implied type** says what matters here—the instance subject uniquely determines the member type—and keeps the projection-bearing definition future-proof.
 
 ### 10.6 Normative 32-bit `hash` codomain
 
@@ -312,7 +312,7 @@ Recorded so v2 planning starts here rather than from scratch; **nothing below is
 
 The shape: `honor (Eq, Hash)<T> = derive via normalize`, where `normalize : T -> U` and `U` has `Eq`/`Hash` — both instances defined through the same projection, so the §2.3 law holds **by construction for any user-supplied function**, not by trust. This subsumes case-insensitive keys, normalized-form equality, and most of the demand queued behind "user-implementable `Hash`"; it is therefore a **candidate replacement** for, not an addition to, the Part 1 §6.3 "user `Hash` in v2" entry — a law-proof mechanism where raw hand-written `Hash` is merely law-hoped. Open questions for that spec: the multi-constraint head form, whether `Eq` alone may be derived `via` (creating a hand-written-`Eq`-like instance that §4.3 would then need to reason about), evaluation-freeness of the projection reference (Constraints §6.3 pressure), and interaction with `Ord`.
 
-The v2 associated-types remainder is also routed here: deferred `Item(α)` goals, the `Item(c)` reference syntax (§7.3 reserves it), obligations on type members (`type Item: Show`), and generic `Iterable` binders — per Part 1 §6.3 and the spec roadmap's Tier-3 entry. None of it is designed here.
+The v2 implied-types remainder is also routed here: deferred `Item(α)` goals, the `Item(c)` reference syntax (§7.3 reserves it), obligations on type members (`type Item: Show`), and generic `Iterable` binders — per Part 1 §6.3 and the spec roadmap's Tier-3 entry. None of it is designed here.
 
 ---
 
@@ -322,7 +322,7 @@ The v2 associated-types remainder is also routed here: deferred `Item(α)` goals
 2. **Normative `hash` range** — only if interop pressure materialises; the informative note stands until then (§2.2, §10.6).
 3. **`Hash` for prelude unions** (`Ordering` et al., via `derives` on their prelude declarations) and **`Range` `Eq`/`Hash`** (rides the open Loops §3.6 `Eq` question) → `stdlib-roadmap.md` (prelude-instances rows).
 4. *(discharged)* **`Hash<Vector>`/`Hash<Map>`/`Hash<Set>`** — specified: Part 3 §8 and Part 4 §8.4. Not open.
-5. **`derive via`** and the v2 associated-types remainder → §11.
+5. **`derive via`** and the v2 implied-types remainder → §11.
 
 ---
 
@@ -336,7 +336,7 @@ The v2 associated-types remainder is also routed here: deferred `Item(α)` goals
 
 | Doc | Edit |
 |---|---|
-| **declarations-preamble.md** | Not-in-scope line still reads "associated `type` members in `constraint`/`implement` bodies (v2 …)" — now v1 per this doc; on next touch, repoint to here and note the `type` keyword's three positions (module / `constraint` / `honor`), position-disambiguated. |
+| **declarations-preamble.md** | Not-in-scope line still describes implied `type` members as v2 — now v1 per this doc; on next touch, repoint to here and note the `type` keyword's three positions (module / `constraint` / `honor`), position-disambiguated. |
 | **exceptions.md** | §10 no-instances presumption note on next touch: `Hash<Exn>` is unwritable in total (§4.2 here). |
 | **lexer-layout.md** | Note only, on next touch: no new keyword; `type` gains its third position. |
 
@@ -390,14 +390,14 @@ honor<a> Iterable<Box(a)> =
   iterate(xs) = ...                              -- ERROR: instance is missing `type Item`
 
 -- (10) Projection-bearing binder ban, all positions
-let f<c: Iterable>(xs: c): Int = ...             -- ERROR: `Iterable` declares an associated
+let f<c: Iterable>(xs: c): Int = ...             -- ERROR: `Iterable` declares an implied
                                                  --   type and cannot constrain a type
                                                  --   variable; take a `Seq(a)` parameter
 constraint Countable<c: Iterable> =              -- ERROR: same rule, superconstraint position
   count(xs: c): Int
 
 -- (11) Reference ban (no module-level `Item` in scope)
-let g(e: Item): Int = ...                        -- ERROR: `Item` is an associated type of
+let g(e: Item): Int = ...                        -- ERROR: `Item` is an implied type of
                                                  --   `Iterable` and cannot appear in type
                                                  --   expressions
 
@@ -409,7 +409,7 @@ constraint Source<c> =
   type Item
   next(xs: c): Option(Item)                      -- Item here is Source.Item
 constraint Sink<c> =
-  type Item                                      -- OK: Sink.Item is a distinct associated
+  type Item                                      -- OK: Sink.Item is a distinct implied
   put(xs: c, x: Item): c                         --   type; the owner disambiguates
 
 -- (14) Occlusion inside an owner's body
@@ -425,4 +425,4 @@ constraint Queue<c> =
 
 ## 16. Reserved
 
-*Anchor retained for stable inbound references. The post-review corrections formerly recorded here (owner-scoped associated-type identity; the seeded-placement/iteration-order split) are incorporated into §6 and §2.4 respectively, each with its do-not-relitigate record.*
+*Anchor retained for stable inbound references. The post-review corrections formerly recorded here (owner-scoped implied-type identity; the seeded-placement/iteration-order split) are incorporated into §6 and §2.4 respectively, each with its do-not-relitigate record.*

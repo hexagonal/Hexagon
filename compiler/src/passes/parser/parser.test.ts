@@ -471,7 +471,7 @@ describe("parse", () => {
     ]);
   });
 
-  test("parses associated type declarations and instance bindings", () => {
+  test("parses implied type declarations and instance bindings", () => {
     const module = parseSource(
       "constraint Source<a> =\n" +
         "  type Item\n" +
@@ -484,12 +484,12 @@ describe("parse", () => {
     expect(module.items).toMatchObject([
       {
         kind: "ConstraintDeclaration",
-        associatedTypes: [{ name: { text: "Item" } }],
+        impliedTypes: [{ name: { text: "Item" } }],
         members: [{ name: { text: "get" }, returnAnnotation: { name: { text: "Item" } } }],
       },
       {
         kind: "Honor",
-        associatedTypes: [{ name: { text: "Item" }, annotation: { name: { text: "String" } } }],
+        impliedTypes: [{ name: { text: "Item" }, annotation: { name: { text: "String" } } }],
       },
     ]);
     expect(module.diagnostics).toEqual([]);

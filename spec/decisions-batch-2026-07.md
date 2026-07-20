@@ -1,8 +1,8 @@
 # Hexagon Spec: Decisions Batch — July 2026 Closures
 
 **Status:** Decided (July 2026). This is a **cross-cutting closure document**: it records six decisions that resolve hanging questions filed across existing specs, plus the edit notes those specs need. It is intended to be consolidated into its host specs later; until then it is authoritative for everything it decides, and supersedes the "open"/"flagged" status of every item it names.
-**Scope:** `Eq`/`Ord` semantics for `NaN` and `-0` (with `Hash` consequences); derivation invocation for nominal types (`derive`); the `Ordering` union's constructor spelling; tabs in leading whitespace; indexing/slicing partiality (`IndexError` vs clamp); the associated-types spec timing (deferred to v2, with rationale recorded).
-**Not in scope:** the derivation *semantics* (fixed: Products §2.5/§3.4, Unions §7); the full indexing/collections spec (this doc pre-decides only its partiality story); the associated-types design itself (Loops §7.2/§11.1 remains the sketch of record); `Hash` as a user-facing constraint (not in v1; §1.4 here constrains it if it ever ships); the modules-spec namespace question (§3 reduces its stakes, does not answer it).
+**Scope:** `Eq`/`Ord` semantics for `NaN` and `-0` (with `Hash` consequences); derivation invocation for nominal types (`derive`); the `Ordering` union's constructor spelling; tabs in leading whitespace; indexing/slicing partiality (`IndexError` vs clamp); the implied-types spec timing (deferred to v2, with rationale recorded).
+**Not in scope:** the derivation *semantics* (fixed: Products §2.5/§3.4, Unions §7); the full indexing/collections spec (this doc pre-decides only its partiality story); the implied-types design itself (Loops §7.2/§11.1 remains the sketch of record); `Hash` as a user-facing constraint (not in v1; §1.4 here constrains it if it ever ships); the modules-spec namespace question (§3 reduces its stakes, does not answer it).
 **Companions:** Constraints spec (§9.2, §9.5, §9.7 closed here), Primitive Types spec (§3 promise discharged here), Lexer & Layout spec (§2 tabs flag closed here), Loops/Ranges/Iteration spec (§11.1, §11.2, §11.7 closed or advanced here), Products spec (§3.4 record-`Ord` question dissolved here), Statements/Blocks/Mutability spec (unaffected; listed because `IndexError` phrasing follows its diagnostics doctrine).
 
 Written for a future implementation session against the existing `hexc` architecture: Algorithm J, union-find tyvars, level-based generalisation, constraints as dictionaries, layout pass, readable-JS emission with `.d.ts`.
@@ -195,24 +195,24 @@ Which types support `[]` at all; negative-index policy (presumption: no Python-s
 
 ---
 
-## 6. Associated types: formally deferred to v2
+## 6. Implied types: formally deferred to v2
 
 *Closes Loops §11.2 (timing); reaffirms and re-motivates Loops §11.1.*
 
 ### 6.1 The decision
 
-The associated-types spec (and therefore user-implementable `Iterable`) is **v2, on first demand** — written when the first user-defined collection type wants `for..in`, not before. Until then, `toSeq : T -> Seq(a)` conversion functions are the seam, exactly as Loops §7.1 provides, and `Seq(a)` parameters remain the generic idiom.
+The implied-types spec (and therefore user-implementable `Iterable`) is **v2, on first demand** — written when the first user-defined collection type wants `for..in`, not before. Until then, `toSeq : T -> Seq(a)` conversion functions are the seam, exactly as Loops §7.1 provides, and `Seq(a)` parameters remain the generic idiom.
 
 ### 6.2 Rationale (recorded so the deferral is understood as risk management, not neglect)
 
 Two independent reasons, either sufficient:
 
 1. **Inference risk.** The deferred-`Elem(α)` goal mechanism is *the first feature that touches `unify`'s environs* — everything shipped so far (constraints as dictionaries, defaulting, row polymorphism for records) rides beside Algorithm J without modifying its core discipline. Leaving that known-safe area deserves a dedicated, unhurried session with the whole design in front of it, not a rider on a collections milestone.
-2. **Calibration wants a specimen.** The settled core (member `type Elem`, `implement`-side `type Elem = ...`, coherence-backed table lookup) won't move, but the periphery is exactly the part a first real client would pressure-test: reference syntax (`Elem(c)` vs projection-style `c.Elem` — unknowable until real signatures are written in anger), whether associated types carry obligations (`type Elem: Show`), whether use-site equality constraints (`Iterable<Elem = Int>`-style) are ever needed or `Seq(Int)` parameters cover it, how eagerly deferred goals must force and what the annotation-required error should say, and hover/`.d.ts` display. All calibration, no design risk — and calibration without a specimen produces the wrong grammar with confidence.
+2. **Calibration wants a specimen.** The settled core (member `type Elem`, `implement`-side `type Elem = ...`, coherence-backed table lookup) won't move, but the periphery is exactly the part a first real client would pressure-test: reference syntax (`Elem(c)` vs projection-style `c.Elem` — unknowable until real signatures are written in anger), whether implied types carry obligations (`type Elem: Show`), whether use-site equality constraints (`Iterable<Elem = Int>`-style) are ever needed or `Seq(Int)` parameters cover it, how eagerly deferred goals must force and what the annotation-required error should say, and hover/`.d.ts` display. All calibration, no design risk — and calibration without a specimen produces the wrong grammar with confidence.
 
 ### 6.3 What this does *not* reopen
 
-The v1 compiler-known `Iterable` judgment (internal table, never leaks into signatures, unsolved iterable tyvar ⇒ annotation-required error — Loops §7) is unchanged and unblocked. The design sketch in Loops §7.2/§11.1 remains the sketch of record; this doc adds only the timing decision and its rationale. `AsyncSeq` remains a committed direction whose spec (per Loops §11.4) does **not** depend on associated types and may precede them.
+The v1 compiler-known `Iterable` judgment (internal table, never leaks into signatures, unsolved iterable tyvar ⇒ annotation-required error — Loops §7) is unchanged and unblocked. The design sketch in Loops §7.2/§11.1 remains the sketch of record; this doc adds only the timing decision and its rationale. `AsyncSeq` remains a committed direction whose spec (per Loops §11.4) does **not** depend on implied types and may precede them.
 
 ---
 
@@ -338,4 +338,4 @@ xs[3..1]                       -- []         (empty range, Loops §3.4; same rul
 | Namespace question de-fanged, still owed to modules spec | §3.2, §7.7 |
 | Tabs in leading whitespace: hard lexer error, no tab-width, no escape hatch; F#/Elm/Nim lineage, Haskell as documented rejection; mandatory fixit | §4 |
 | `xs[i]` throws `IndexError`; `xs[lo..hi]` clamps (Python split); assert-vs-request rationale; bare-`.slice()` emission payoff; throw-both (Rust) recorded as principled runner-up | §5 |
-| Associated types / user `Iterable`: v2, on first demand; inference-risk + calibration-wants-a-specimen rationale; `toSeq` remains the seam | §6 |
+| Implied types / user `Iterable`: v2, on first demand; inference-risk + calibration-wants-a-specimen rationale; `toSeq` remains the seam | §6 |

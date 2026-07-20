@@ -11,7 +11,7 @@ Related forms and likely lookup terms should point to one another.
 
 | Term | Principal definition | Significant later discussion |
 | --- | --- | --- |
-| associated type | Chapter 21, opening definition | `Iterable.Item`; multiple type members, scope, coherence, and restrictions |
+| implied type | Chapter 21, opening definition | `Iterable.Item`; multiple type members, scope, coherence, and restrictions |
 | arity | Chapter 3, “Arity is part of a function” | Chapter 7, tuple arity and tuples versus argument lists; Chapter 8, type-alias arguments |
 | as-pattern | Chapter 11, “As-patterns keep the whole value” | See also **pattern** |
 | assignment | Chapter 16, “Assignment produces `Unit`” | `:=`; see **mutable variable** and **var** |

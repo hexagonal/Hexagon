@@ -2,7 +2,7 @@
 
 **Status:** Decided (July 2026). **Permanent host of two corpus-wide doctrines: the Rewrite Rule (§1.1) and the Deferred-Goals Doctrine (§1.2).**
 **Scope:** Corpus doctrine: the Rewrite Rule and the Deferred-Goals Doctrine (§1.1–§1.2). The shared header grammar for the type-introducing declarations (`record`, `union`, `type`): parameter form, the `derives` clause's header position, layout continuation for multi-line declarations. The `type` alias declaration in full: transparency, parameterization, the recursion ban, the no-instances rule, display stickiness, `.d.ts` emission. Consolidation: the module-level declaration inventory and site rule, order-insensitivity and mutual recursion among declarations, the type-namespace duplicate rule.
-**Not in scope:** `derives` *semantics* — the derivable set, superconstraint checks, coherence, per-constraint generated code (Decisions Batch §2, unchanged; this doc fixes only the clause's position), the constraint mechanism and `honor` (Constraints spec), constructor semantics and payload grammar (Unions §2, Products §5 — this doc fixes only their shared header), cross-module name management, imports, qualification (Modules), associated `type` members in `constraint`/`honor` bodies (v2 — Loops §7.2 fixed the keyword sharing; nothing here conflicts).
+**Not in scope:** `derives` *semantics* — the derivable set, superconstraint checks, coherence, per-constraint generated code (Decisions Batch §2, unchanged; this doc fixes only the clause's position), the constraint mechanism and `honor` (Constraints spec), constructor semantics and payload grammar (Unions §2, Products §5 — this doc fixes only their shared header), cross-module name management, imports, qualification (Modules), implied `type` members in `constraint`/`honor` bodies (Collections Part 2 §§5–8 owns their v1 grammar and rules).
 **Companions:** Products §5 (nominal `record` semantics; the header was deferred here), Unions §2 (union semantics; header and layout-continuation note deferred here), Constraints (angle-brackets-vs-parens kind distinction §1; instance machinery), Decisions Batch 2026-07 §2 (derivation mechanism; placement superseded), Exceptions §2 (module-level-only rule, generalized here), Lexer & Layout (offside continuation), `method-syntax.md` §10 (the Deferred-Goals Doctrine's first citing feature).
 
 ---
@@ -39,7 +39,7 @@ Any feature that wants the inferencer to postpone a decision cites this doctrine
 - **the projection-bearing-constraint ban** — `collections-part2-hash-and-type-members.md` §7 (v1 refuses the goal category it cannot yet resolve this way);
 - **DotCall** — `method-syntax.md` (its §10 itemizes the feature's compliance; its resolution machinery lives there).
 
-It also sets the bar any v2 associated-type projection inference must clear before it exists.
+It also sets the bar any v2 implied-type projection inference must clear before it exists.
 
 ---
 
@@ -175,7 +175,7 @@ Aliases may freely *mention* nominal names declared later in the module, and rec
 
 - A type that reached the checker **through an alias the user wrote** (an annotation, a declared signature, a constructor's declared field) displays as the alias in hovers, errors, and inferred-signature printing. Mechanically: the type node carries a display name; any unification step that changes the node's structure drops it.
 - A type **built up by inference** displays structurally. The checker never reverse-searches in-scope aliases to "helpfully" name a synthesized type — with two aliases of the same expansion the choice would be nondeterministic, and a wrong guess is a lie in a diagnostic.
-- Consistency note: this is the same policy family as the associated-types display rule (Loops §7.2 — `Item(List(Int))` expands in hovers once resolved): expansion whenever resolution is complete and the user didn't write the name; the written name wherever they did.
+- Consistency note: this is the same policy family as the implied-types display rule (Loops §7.2 — `Item(List(Int))` expands in hovers once resolved): expansion whenever resolution is complete and the user didn't write the name; the written name wherever they did.
 
 **`.d.ts` follows the same rule.** An exported alias emits the corresponding TS alias declaration and is *used* where the Hexagon source used it:
 
@@ -247,7 +247,7 @@ Two type-namespace declarations of the same name in one module — any mix of `r
 | Parameterized aliases: fully applied always | §5.1 |
 | Unused alias parameters: hard error; syntactic check, proven sufficient by induction; stricter than Haskell on purpose | §5.3 |
 | Alias recursion (direct/mutual through aliases alone) banned via SCC; cycles through nominal names legal; fixit names the nominal escape | §5.4 |
-| Display: alias-sticky, never synthesized; drop the name when structure changes; consistent with associated-type display policy | §6 |
+| Display: alias-sticky, never synthesized; drop the name when structure changes; consistent with implied-type display policy | §6 |
 | `.d.ts`: exported aliases emitted and used per stickiness; expansion where inference produced the type; private aliases in exported signatures emit as their expansion (visibility owned by Modules §4.3/§11.4) | §6 |
 | Declaration inventory module-level only; one diagnostic family | §7.1 |
 | Module-level declarations order-insensitive; mutual recursion per each form's rules; alias SCC the only cycle error | §7.2 |
@@ -264,7 +264,7 @@ Apply on next touch; until then this doc governs.
 3. **Products §5.1** → the deferred `record` header grammar is discharged (§2 here). §3.4/§5.2's instance hooks unchanged.
 4. **Exceptions §2** → the module-level-only rule is now an instance of §7.1's general family; optional cross-reference.
 5. **Constraints** → no semantic change; the instance-on-alias error (§4 here) joins its diagnostics neighborhood on next touch.
-6. **Loops §7.2 / future associated-types spec** → replace its stale `Elem` spelling with final `Item`; keyword sharing is compatible: module-level `type` (here), `constraint`-body `type Item`, `honor`-body `type Item = ...` — three positions, one keyword, position disambiguates. The alias recursion ban's non-transfer to associated types (recorded there) is consistent with §5.4's rationale.
+6. **Loops §7.2 / future implied-types spec** → replace its stale `Elem` spelling with final `Item`; keyword sharing is compatible: module-level `type` (here), `constraint`-body `type Item`, `honor`-body `type Item = ...` — three positions, one keyword, position disambiguates. The alias recursion ban's non-transfer to implied types (recorded there) is consistent with §5.4's rationale.
 7. **hexagon-for-typescript-coders** → introduce the alias/nominal pairing ("`type` renames; `record`/`union` create") and frame `derives` as "like `implements`, except the compiler writes the body."
 
 ---

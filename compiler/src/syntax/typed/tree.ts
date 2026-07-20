@@ -374,12 +374,12 @@ export interface ConstraintItem {
   readonly name: string;
   readonly subject: TypeVariableId;
   readonly superconstraints: readonly ConstraintName[];
-  readonly associatedTypes: readonly ConstraintAssociatedType[];
+  readonly impliedTypes: readonly ConstraintImpliedType[];
   readonly members: readonly ConstraintMemberDeclaration[];
   readonly span: Source.Span;
 }
 
-export interface ConstraintAssociatedType {
+export interface ConstraintImpliedType {
   readonly name: string;
   readonly type: Type;
   readonly span: Source.Span;
@@ -401,7 +401,7 @@ export interface HonorItem {
   readonly derived: boolean;
   readonly dictionary: string;
   readonly superconstraints: readonly Constraint[];
-  readonly associatedTypes: readonly HonorAssociatedType[];
+  readonly impliedTypes: readonly HonorImpliedType[];
   readonly members: readonly HonorMember[];
   readonly span: Source.Span;
 }
@@ -413,7 +413,7 @@ export interface HonorTypeParameter {
   readonly span: Source.Span;
 }
 
-export interface HonorAssociatedType {
+export interface HonorImpliedType {
   readonly name: string;
   readonly type: Type;
   readonly span: Source.Span;

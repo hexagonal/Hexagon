@@ -3,7 +3,7 @@
 **Status:** Decided (July 2026). The keyword pair is **`constraint` / `honor`** (naming record and anti-relitigation anchors: §11; remaining rename propagation: §12). Section numbering §1–§10 is stable; §9 holds resolved anchors plus two open items, none blocking §1–§8.
 **Scope:** The `constraint` declaration (members, subjects, superconstraints), the `honor` declaration (ground and parameterized instances, superconstraint checking, coherence, orphan rule, instance-head restriction), the derivation mechanism (`honor C<T> = derive`, §4.5), constraint-member call style (§2.2), dictionary compilation, and the member lists of the constraints this spec owns (§7 — focused specs own the rest).
 **Not in scope:** derived structural instances' *semantics* (fixed in Products §2.5/§3.4 and Unions §7; the invocation mechanism is §4.5 here), the numeric-literal elaboration and defaulting machinery (Numeric Literals spec, authoritative), `Eq<Float>`/`Ord<Float>` semantics (decided — Decisions Batch §1, en route to Primitive Types; §9.5), LSP display of constraints (open, §9.4), modules and instance visibility (Modules; the orphan rule §5.3 constrains it), `Hash`/`Iterable`/`Integral` member semantics (their focused owners, §7).
-**Companions:** Functions spec (§4.2 angle-bracket type parameters — this doc reuses that grammar wholesale), Numeric Literals spec (`fromInt`, defaulting, dictionary erasure), Primitive Types §7 (Show contract), Products/Unions specs (derived-instance semantics), Declarations Preamble (declaration inventory; `derives` header sugar §2.3; alias-instance rule §4; Rewrite Rule §1.1), Collections Part 2 (`Hash`, associated type members), Method Syntax §7 (constraint members are not dot-callable), `stdlib-roadmap.md` (hostile-specimen exercise; prelude inventory).
+**Companions:** Functions spec (§4.2 angle-bracket type parameters — this doc reuses that grammar wholesale), Numeric Literals spec (`fromInt`, defaulting, dictionary erasure), Primitive Types §7 (Show contract), Products/Unions specs (derived-instance semantics), Declarations Preamble (declaration inventory; `derives` header sugar §2.3; alias-instance rule §4; Rewrite Rule §1.1), Collections Part 2 (`Hash`, implied type members), Method Syntax §7 (constraint members are not dot-callable), `stdlib-roadmap.md` (hostile-specimen exercise; prelude inventory).
 
 **Vocabulary, fixed for docs and diagnostics:** the declared obligation is a **constraint**; the declaration that discharges it is an **`honor` declaration**; the thing an `honor` declaration produces is an **instance**. The words "implement"/"implementation" are avoided in user-facing diagnostics and reference material for this mechanism — they are generic, OO-flavored, and name nothing this design has. ("Implementation" remains fine as an ordinary English word for the compiler itself.)
 
@@ -50,7 +50,7 @@ constraint Frac<a: Num> =
 - **Superconstraints** are the obligations on the subject: `constraint Ord<a: Eq>` requires every type honoring `Ord` to have (or derive) `Eq`. Conjunctions per the standard form: `constraint C1<a: (C2, C3)>`. Terminology, fixed for diagnostics and docs: if `Ord` implies `Eq`, then `Eq` is the **superconstraint** and `Ord` the **subconstraint**.
 - **Superconstraint cycles are a hard error** at declaration (`C1<a: C2>`, `C2<a: C1>`). The superconstraint relation must be a DAG.
 - **Members are fully typed function headers, optionally with a default body.** A required member omits the body: `name(params): ReturnType`. A defaulted member appends `= body`. The bodiless form remains legal only here: a constraint member is the declaration itself, not a standalone signature for some later definition. No `->` appears in source.
-- A constraint body may also declare an **associated type member** as `type Name`. Its owner-scoped identity, grammar, and v1 restrictions are owned by Collections Part 2 §§5–8; it claims no module-level namespace slot.
+- A constraint body may also declare an **implied type member** as `type Name`. Its owner-scoped identity, grammar, and v1 restrictions are owned by Collections Part 2 §§5–8; it claims no module-level namespace slot.
 - Member headers must mention the subject variable; annotations on member parameters/returns are **required** even when a default body is present. The subject `a` is in scope in every member; members may not introduce their own `<...>` type parameters in v1 (no polymorphic methods; flagged, not needed by any planned prelude constraint).
 - Members are one per layout line (VSEP/`;` per Lexer & Layout); duplicate member names within one constraint: hard error.
 - Member names are non-uppercase-start term names. They enter scope per §2.2.
@@ -59,7 +59,7 @@ constraint Frac<a: Num> =
 
 - A member without a body is **required**. Every `honor` declaration must supply it.
 - A member with a body is **defaulted**. An `honor` declaration may omit it and inherit the default, or supply a member of the same name to override it.
-- A constraint must declare at least one required member: either a bodyless function member or an associated type member (Collections Part 2 §5). Associated type members are always required and bound exactly once; they have no default-body form. Defaults supplement an obligation; they do not create marker constraints or Haskell-style "supply either member" minimal-definition alternatives.
+- A constraint must declare at least one required member: either a bodyless function member or an implied type member (Collections Part 2 §5). Implied type members are always required and bound exactly once; they have no default-body form. Defaults supplement an obligation; they do not create marker constraints or Haskell-style "supply either member" minimal-definition alternatives.
 - A default body is checked once in the constraint's generic context against its declared return type. The constraint subject, its superconstraint operations, module-scope names, and all members of the same constraint are in scope.
 - Calls from a default to another member dispatch through the completed instance. An override is therefore respected by defaults that call it. Ordinary recursion rules apply if defaults call themselves or one another; the compiler adds no separate termination analysis.
 - `Eq` is the first prelude use: `equals` is required and `notEquals` defaults to `not equals(x, y)`. An override of `notEquals` is permitted for efficiency but must obey the law `notEquals(x, y) == not equals(x, y)`.
@@ -111,7 +111,7 @@ honor Ord<Int> =
 
 - **Head:** `honor ConstraintName<Type>`. The subject slot that held a variable-being-introduced in `constraint` holds a concrete-type-being-supplied in `honor`. Declaration/use duality, deliberately.
 - **Members are ordinary function definitions** (header sugar, or explicit-lambda form — same AST equivalence as everywhere). Every required member must be supplied exactly once. A defaulted member may be omitted or supplied once as an override. A missing required member is an error naming it; an extra or duplicate name is an error.
-- An associated type member is instead supplied exactly once as `type Name = τ`; Collections Part 2 §5.3 owns its RHS scope and exactly-once rules.
+- An implied type member is instead supplied exactly once as `type Name = τ`; Collections Part 2 §5.3 owns its RHS scope and exactly-once rules.
 - **Member typing is checking, not inference.** The expected type of each member is fully determined by the constraint definition with the subject substituted; the body checks against it. Annotations on members are optional; if present they must match the expected type exactly — a *less general* annotation is an error here (unlike on free functions), because the dictionary slot's type is fixed.
 - Member RHSs must be **syntactic lambdas** (directly or via header sugar) — the `fun` §7.1 rule, for the same reason: instance construction must be evaluation-free (§6.3).
 
@@ -221,7 +221,7 @@ This section owns the member lists of **five** constraints. It is deliberately *
 | `Num<a>` | — | `add`, `subtract`, `multiply`, `negate` (all `(a, a): a` / `(a): a`), `fromInt(n: Int): a` | `fromInt` law per Numeric Literals §5; no `divide` (evicted, per Primitive Types §2) |
 | `Frac<a: Num>` | `Num` | `divide(x: a, y: a): a` | lawful up to rounding (Float); exact (Rat) |
 
-**Owned by focused specs (registered, not restated):** `Hash` — Collections Part 2 (derivable-only; §4.5 here); `Iterable` — Collections Parts 2/5 (associated `type Item`; `iterate` member; restricted v1 user instances); `Integral` — `integral-constraint.md`. Their instances obey every rule of §§4–6 unchanged.
+**Owned by focused specs (registered, not restated):** `Hash` — Collections Part 2 (derivable-only; §4.5 here); `Iterable` — Collections Parts 2/5 (implied `type Item`; `iterate` member; restricted v1 user instances); `Integral` — `integral-constraint.md`. Their instances obey every rule of §§4–6 unchanged.
 
 Whether `Num` should have superconstraints (`Eq`? `Show`?) is **decided: no** — a numeric type without decidable equality (e.g. a lazy/symbolic instance someday) shouldn't be ruled out by the arithmetic constraint, and the defaulting rule (Numeric Literals §4) never needs `Num` to imply anything. Instances that have all three simply honor all three.
 
@@ -256,9 +256,9 @@ Diagnostic noun policy (restated from the preamble): the noun is **instance**, t
 | Underivable slot/field | "cannot derive `Eq<Point>`: field `f` has type `T`, which has no `Eq` instance" — fix the field's type or drop the derivation (§4.5) |
 | `derives Ord` without `Eq` | the §4.2 missing-superconstraint error + hint: "add `Eq` to the `derives` list" (§4.5) |
 | `derive` outside an `honor` RHS | parse error: "`derive` is only legal as the body of an `honor`" (§4.5) |
-| Missing, extra, or duplicate associated type binding | the owner-aware diagnostics in Collections Part 2 §9; supply exactly one `type Name = τ` line for each declared associated type |
+| Missing, extra, or duplicate implied type binding | the owner-aware diagnostics in Collections Part 2 §9; supply exactly one `type Name = τ` line for each declared implied type |
 | Projection-bearing constraint on a type-variable binder | the focused error and rewrite in Collections Part 2 §9 |
-| Associated type name used in a type expression | the owner-aware error in Collections Part 2 §9; v1 has no projection syntax |
+| Implied type name used in a type expression | the owner-aware error in Collections Part 2 §9; v1 has no projection syntax |
 
 ---
 
@@ -284,9 +284,9 @@ Numbers are kept because companion specs cite them; §§9.1–9.3, 9.5, 9.7 are 
 | `constraint Name<a>` head; subject binder mandatory; bare `<a>` load-bearing here | §2 |
 | Superconstraints as subject obligations: `Ord<a: Eq>`; left-to-right implication; no `=>` spelling | §1, §2 |
 | Terminology: super/subconstraint; noun for an honored constraint is **instance** | §2, preamble |
-| Function members = fully typed headers; bodyless members required, bodies provide overridable defaults; associated type members use `type Name`; at least one required member; no `->` in function headers | §2; Collections Part 2 §§5–8 |
+| Function members = fully typed headers; bodyless members required, bodies provide overridable defaults; implied type members use `type Name`; at least one required member; no `->` in function headers | §2; Collections Part 2 §§5–8 |
 | Members are module-scope terms, constructor-style collision rules | §2.2 |
-| `honor C<T>` head; function members are ordinary definitions, checked not inferred, with the lambda-literal RHS rule; associated types bind as `type Name = τ` | §4.1; Collections Part 2 §5.3 |
+| `honor C<T>` head; function members are ordinary definitions, checked not inferred, with the lambda-literal RHS rule; implied types bind as `type Name = τ` | §4.1; Collections Part 2 §5.3 |
 | Superconstraint obligations existence-checked, never restated | §4.2 |
 | Parameterized instances via prefix `<...>` binders; entailment via superconstraint DAG, search-free | §4.3 |
 | Global coherence: one instance per (constraint, constructor); no local/overlapping/named instances | §5.1–5.2 |

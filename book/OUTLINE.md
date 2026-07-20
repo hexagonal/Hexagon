@@ -99,10 +99,10 @@ functions.
 This part introduces Hexagon's bounded forms of changing state, repetition, lazy
 incremental work, and exceptional control flow.
 
-## Part V — Collections and Associated Types
+## Part V — Collections and Implied Types
 
 20. **Collections**
-21. **Associated Types**
+21. **Implied Types**
 
 The practical persistent collections chapter leads directly into the advanced
 constraint feature used to connect a collection with its iteration item type.

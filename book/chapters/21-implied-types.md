@@ -1,4 +1,4 @@
-# Associated Types
+# Implied Types
 
 The Collections chapter ended with one deliberately underexplained line:
 
@@ -19,10 +19,10 @@ constraint Iterable<c> =
   iterate(xs: c): Seq(Item)
 ```
 
-`Item` is an **associated type**: a type member declared by a constraint and chosen by
-each instance of that constraint.
+`Item` is an **implied type**: a type uniquely determined by a constraint instance's
+subject type. For example, `Iterable<Vector(String)>` implies `Item = String`.
 
-## The instance chooses the type
+## The subject type determines the type
 
 A normal type parameter is chosen at a use of a generic declaration. In this function,
 each caller may choose `a`:
@@ -31,9 +31,10 @@ each caller may choose `a`:
 let identity<a>(value: a): a = value
 ```
 
-An associated type works in the opposite direction. Once the program has chosen the
-`Iterable<Vector(String)>` instance, that instance determines its one `Item` type:
-`String`. The caller does not make a second independent choice.
+An implied type works in the opposite direction. Once the subject is
+`Vector(String)`, the unique `Iterable<Vector(String)>` instance determines its one
+`Item` type: `String`. The `honor` declaration explicitly establishes that
+implication. The caller does not make a second independent choice.
 
 The standard instances follow this pattern:
 
@@ -58,7 +59,7 @@ checks the tuple pattern against that type.
 
 ## A constraint declares a type member
 
-Inside a constraint body, an associated type is introduced by `type` and an
+Inside a constraint body, an implied type is introduced by `type` and an
 uppercase-start name:
 
 ```hexagon
@@ -72,7 +73,7 @@ answer. `Item` is available throughout that constraint body, so operation signat
 may use it. Declaring type members before the operations that mention them is the
 clearest style, though their scope does not depend on textual order.
 
-A constraint may declare more than one associated type. The grammar is general rather
+A constraint may declare more than one implied type. The grammar is general rather
 than tailored to iteration:
 
 ```hexagon
@@ -85,7 +86,7 @@ constraint Conversion<c> =
 This constraint describes a conversion object whose source and result types are fixed
 by its instance. Neither type is independently selected on each call to `convert`.
 
-## An instance binds every associated type
+## An instance binds every implied type
 
 An `honor` body supplies the type with the same `type` keyword followed by `=`:
 
@@ -106,7 +107,7 @@ For this instance, `convert` has the effective type:
 (ParsePort, String) -> Result(Int, String)
 ```
 
-The type bindings are part of the instance's answer. Every associated type declared by
+The type bindings are part of the instance's answer. Every implied type declared by
 the constraint must be bound exactly once. Leaving out `Output`, binding `Input` twice,
 or adding an undeclared `Error` type is a compile error that names the offending member.
 
@@ -130,10 +131,10 @@ honor<a> Iterable<Bag(a)> =
 The shorter inferred annotations are normally easier to read, but the explicit form
 shows that type members and operation checking agree.
 
-## Associated names belong to their constraints
+## Implied-type names belong to their constraints
 
-The full identity of an associated type is its owner constraint together with its
-member name. `Iterable.Item` and `Source.Item` are different associated types.
+The full identity of an implied type is its owner constraint together with its
+member name. `Iterable.Item` and `Source.Item` are different implied types.
 
 Consequently, two constraints in one module may both declare `Item`:
 
@@ -151,7 +152,7 @@ There is no collision. Bare `Item` means `Source`'s member inside the `Source` b
 its instances; it means `Sink`'s member inside the `Sink` body and its instances.
 Outside those places, neither bare name is in scope.
 
-An associated type also claims no module-level type name. A module may declare an
+An implied type also claims no module-level type name. A module may declare an
 ordinary `type Item = ...` without colliding with a constraint's member. The local
 constraint context makes the intended owner unambiguous.
 
@@ -160,7 +161,7 @@ operation members.
 
 ## Coherence fixes the choice program-wide
 
-An associated type does not create a second instance system. It belongs to the same
+An implied type does not create a second instance system. It belongs to the same
 `honor` declaration as the constraint's operations:
 
 ```text
@@ -179,10 +180,10 @@ Opacity also changes nothing. The home module can honor `Iterable` for an opaque
 collection because it can see the hidden representation. Consumers cannot see the
 fields, but they can iterate the value through the globally coherent instance.
 
-## Associated types are not general type projections
+## Implied types are not general type projections
 
 Hexagon deliberately supports the useful concrete form without allowing arbitrary
-associated-type expressions elsewhere. `Item` may appear in its owning constraint body
+implied-type expressions elsewhere. `Item` may appear in its owning constraint body
 and `honor` bodies, but source code cannot write an external type such as:
 
 ```hexagon
@@ -191,7 +192,7 @@ Iterable.Item(Bag(Int))
 ```
 
 Nor can an unknown type variable be constrained by a constraint that declares an
-associated type:
+implied type:
 
 ```hexagon
 let collect<c: Iterable>(source: c) = ... // error
@@ -213,7 +214,7 @@ collect(Bag.toSeq(bag))
 collect(Map.toSeq(scores))
 ```
 
-Associated types therefore remain an advanced extension of instances rather than a
+Implied types therefore remain an advanced extension of instances rather than a
 requirement for ordinary generic code. They add a useful fixed relationship without
 turning type inference into open-ended type-level computation.
 
@@ -221,7 +222,7 @@ turning type inference into open-ended type-level computation.
 
 The restriction does not prevent the operations that motivated the feature:
 
-- a user may declare a constraint with one or more associated types;
+- a user may declare a constraint with one or more implied types;
 - an instance at a known type may bind them;
 - code may call the constraint's operations when the subject type is concrete; and
 - `for` may use the statically known `Iterable` instance for its source.
@@ -232,17 +233,17 @@ let converted = convert(parser, "8080")
 ```
 
 In each case, the outer subject type identifies one instance, and that instance fixes
-the associated result types. No runtime search or caller-selected type argument is
+the implied result types. No runtime search or caller-selected type argument is
 involved.
 
-Associated types cannot declare their own obligations. A form such as
+Implied types cannot declare their own obligations. A form such as
 `type Item: Show` is not part of the language. An operation can still require and use
-the concrete types made available within an instance, but the associated declaration
+the concrete types made available within an instance, but the implied-type declaration
 itself remains only a type choice.
 
 ## Type members erase before the boundary
 
-An associated type is compile-time information. `type Item = a` emits no JavaScript
+An implied type is compile-time information. `type Item = a` emits no JavaScript
 property, constructor, or reflection record. The concrete `iterate` operation emits as
 the ordinary function selected by the instance.
 
@@ -256,24 +257,24 @@ for value in bag
 has the same general output shape as calling `Bag.toSeq(bag)` and iterating the
 resulting JavaScript iterable. There is no runtime lookup of `Item`.
 
-Nothing associated-type-shaped appears in generated `.d.ts` files either. `Item` is
+Nothing implied-type-shaped appears in generated `.d.ts` files either. `Item` is
 not an exported TypeScript member, and an `Iterable` instance is not a public object.
 Exported ordinary functions expose their already-resolved parameter and result types.
 
 ## Summary
 
-- an associated type is a type member declared by a constraint and chosen by each
-  instance;
-- normal type parameters are caller-selected, while an instance fixes its associated
+- an implied type is a type uniquely determined by a constraint instance's subject
+  type;
+- normal type parameters are caller-selected, while an instance fixes its implied
   types;
 - constraints declare `type Name`, and `honor` bodies bind `type Name = T`;
-- an instance must bind every associated type exactly once;
-- a constraint may declare multiple associated types;
-- associated names belong to their owner constraints and do not occupy module-level
+- an instance must bind every implied type exactly once;
+- a constraint may declare multiple implied types;
+- implied-type names belong to their owner constraints and do not occupy module-level
   type names;
 - ordinary coherence and the orphan rule govern the type choices together with the
   instance's operations;
-- associated type names are confined to their owning constraint and instance bodies;
-- constraints with associated types cannot constrain otherwise unknown type variables,
+- implied type names are confined to their owning constraint and instance bodies;
+- constraints with implied types cannot constrain otherwise unknown type variables,
   so reusable iteration APIs continue to accept `Seq(a)`; and
-- associated types erase and add no runtime or `.d.ts` machinery.
+- implied types erase and add no runtime or `.d.ts` machinery.

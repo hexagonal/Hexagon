@@ -115,12 +115,12 @@ export interface ConstraintItem {
   readonly name: Name;
   readonly subject: Name;
   readonly superconstraints: readonly Name[];
-  readonly associatedTypes: readonly ConstraintAssociatedType[];
+  readonly impliedTypes: readonly ConstraintImpliedType[];
   readonly members: readonly ConstraintMember[];
   readonly span: Source.Span;
 }
 
-export interface ConstraintAssociatedType {
+export interface ConstraintImpliedType {
   readonly name: Name;
   readonly span: Source.Span;
 }
@@ -139,12 +139,12 @@ export interface HonorItem {
   readonly typeParameters: readonly TypeParameter[];
   readonly subject: TypeAnnotation;
   readonly derived: boolean;
-  readonly associatedTypes: readonly HonorAssociatedType[];
+  readonly impliedTypes: readonly HonorImpliedType[];
   readonly members: readonly HonorMember[];
   readonly span: Source.Span;
 }
 
-export interface HonorAssociatedType {
+export interface HonorImpliedType {
   readonly name: Name;
   readonly annotation: TypeAnnotation;
   readonly span: Source.Span;
