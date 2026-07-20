@@ -4,7 +4,7 @@ This folder contains the beginning of `hexc`, the Hexagon compiler.
 
 The platform-neutral TypeScript core now includes shared source coordinates,
 structured diagnostics, the complete physical lexer, and the indentation layout
-pass. Twenty-six vertical compiler slices now carry the public pipeline through `Source.File -> Lexed.File
+pass. Thirty-two vertical compiler slices now carry the public pipeline through `Source.File -> Lexed.File
 -> LaidOut.File -> Parsed.Module -> Resolved.Module -> Typed.Module -> Core.Module ->
 Emitted output` for a deliberate language subset.
 

@@ -192,6 +192,7 @@ export type Pattern =
   | BooleanPattern
   | IntegerPattern
   | StringPattern
+  | VectorPattern
   | TuplePattern
   | RecordPattern
   | OrPattern
@@ -242,6 +243,13 @@ export interface IntegerPattern {
 export interface StringPattern {
   readonly kind: "String";
   readonly value: string;
+  readonly span: Source.Span;
+}
+
+export interface VectorPattern {
+  readonly kind: "Vector";
+  readonly elements: readonly Pattern[];
+  readonly rest?: { readonly pattern?: Pattern; readonly index: number; readonly span: Source.Span };
   readonly span: Source.Span;
 }
 
@@ -330,6 +338,7 @@ export type Expr =
   | BigIntExpr
   | FloatExpr
   | StringExpr
+  | VectorExpr
   | TupleExpr
   | RecordExpr
   | GroupExpr
@@ -402,6 +411,12 @@ export interface StringText {
 export interface StringInterpolation {
   readonly kind: "Interpolation";
   readonly expression: Expr;
+  readonly span: Source.Span;
+}
+
+export interface VectorExpr {
+  readonly kind: "Vector";
+  readonly elements: readonly Expr[];
   readonly span: Source.Span;
 }
 

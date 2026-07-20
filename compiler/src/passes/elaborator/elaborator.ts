@@ -46,7 +46,7 @@ function elaborateItem(item: Typed.Item): Core.Item {
     case "Var":
       return { ...item, value: elaborateExpr(item.value) };
     case "LetPattern":
-      return { ...item, value: elaborateExpr(item.value) };
+      return { ...item, pattern: elaboratePattern(item.pattern), value: elaborateExpr(item.value) };
     case "Union":
     case "RecordDeclaration":
     case "Exception":
@@ -76,6 +76,13 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
     case "Float":
     case "ErrorExpr":
       return expression;
+    case "CollectionOperation": {
+      const hashRequirement = expression.requirements.find(({ name }) => name === "Hash");
+      return {
+        ...expression,
+        ...(hashRequirement === undefined ? {} : { hashEvidence: evidence(hashRequirement) }),
+      };
+    }
     case "FromInt":
       return elaborateInteger(expression);
     case "WidenInt":
@@ -100,7 +107,16 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
               },
         ),
       };
+    case "Hash":
+      return {
+        kind: "Hash",
+        value: elaborateExpr(expression.value),
+        evidence: evidence(expression.requirement),
+        type: expression.type,
+        span: expression.span,
+      };
     case "Tuple":
+    case "Vector":
       return {
         ...expression,
         elements: expression.elements.map(elaborateExpr),
@@ -146,9 +162,15 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
       };
     case "For":
       return {
-        ...expression,
+        kind: "For",
+        pattern: elaboratePattern(expression.pattern),
         iterable: elaborateExpr(expression.iterable),
         body: elaborateExpr(expression.body) as Core.BlockExpr,
+        ...(expression.iteration === undefined
+          ? {}
+          : { iteration: evidence(expression.iteration) }),
+        type: expression.type,
+        span: expression.span,
       };
     case "Throw":
       return { ...expression, exception: elaborateExpr(expression.exception) };
@@ -157,7 +179,7 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
         ...expression,
         body: elaborateExpr(expression.body),
         arms: expression.arms.map((arm) => ({
-          pattern: arm.pattern,
+          pattern: elaboratePattern(arm.pattern),
           body: elaborateExpr(arm.body),
           span: arm.span,
         })),
@@ -167,7 +189,7 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
         ...expression,
         scrutinee: elaborateExpr(expression.scrutinee),
         arms: expression.arms.map((arm) => ({
-          pattern: arm.pattern,
+          pattern: elaboratePattern(arm.pattern),
           ...(arm.guard === undefined
             ? {}
             : { guard: elaborateExpr(arm.guard) }),
@@ -257,7 +279,69 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
           }
         : { kind: "ErrorExpr", type: expression.type, span: expression.span };
     case "Index":
-      return { kind: "ErrorExpr", type: expression.type, span: expression.span };
+      return expression.operation === undefined
+        ? { kind: "ErrorExpr", type: expression.type, span: expression.span }
+        : {
+            kind: "Index",
+            receiver: elaborateExpr(expression.receiver),
+            index: elaborateExpr(expression.index),
+            operation: expression.operation,
+            ...(expression.requirements === undefined
+              ? {}
+              : {
+                  hashEvidence: evidence(
+                    expression.requirements.find(({ name }) => name === "Hash"),
+                  ),
+                }),
+            type: expression.type,
+            span: expression.span,
+          };
+  }
+}
+
+/** Copies a fully checked pattern into Core without retaining a Typed tree node. */
+function elaboratePattern(pattern: Typed.Pattern): Core.Pattern {
+  switch (pattern.kind) {
+    case "Binding":
+    case "Wildcard":
+    case "Unit":
+    case "Boolean":
+    case "Integer":
+    case "String":
+      return { ...pattern };
+    case "As":
+      return { ...pattern, pattern: elaboratePattern(pattern.pattern) };
+    case "Or":
+      return { ...pattern, alternatives: pattern.alternatives.map(elaboratePattern) };
+    case "Tuple":
+      return { ...pattern, elements: pattern.elements.map(elaboratePattern) };
+    case "Vector":
+      return {
+        kind: "Vector",
+        elements: pattern.elements.map(elaboratePattern),
+        ...(pattern.rest === undefined
+          ? {}
+          : {
+              rest: {
+                index: pattern.rest.index,
+                span: pattern.rest.span,
+                ...(pattern.rest.pattern === undefined
+                  ? {}
+                  : { pattern: elaboratePattern(pattern.rest.pattern) }),
+              },
+            }),
+        span: pattern.span,
+      };
+    case "Record":
+      return {
+        ...pattern,
+        fields: pattern.fields.map((field) => ({
+          ...field,
+          pattern: elaboratePattern(field.pattern),
+        })),
+      };
+    case "Constructor":
+      return { ...pattern, arguments: pattern.arguments.map(elaboratePattern) };
   }
 }
 
@@ -303,6 +387,9 @@ function evidence(requirement: Typed.Constraint | undefined): Core.Evidence {
       })),
     };
   }
+  if (requirement.structural === true) {
+    return { kind: "Structural", type: requirement.type };
+  }
   switch (requirement.type.kind) {
     case "Primitive":
       return { kind: "Primitive", instance: requirement.type.name };
@@ -322,6 +409,11 @@ function evidence(requirement: Typed.Constraint | undefined): Core.Evidence {
     case "Record":
     case "Range":
     case "Seq":
+    case "Vector":
+    case "Map":
+    case "Set":
+    case "Array":
+    case "Nullable":
     case "Union":
     case "NominalRecord":
     case "Error":

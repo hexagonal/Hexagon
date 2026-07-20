@@ -27,6 +27,11 @@ export type Type =
   | PrimitiveType
   | RangeType
   | SeqType
+  | VectorType
+  | MapType
+  | SetType
+  | ArrayType
+  | NullableType
   | VariableType
   | TupleType
   | RecordType
@@ -47,6 +52,32 @@ export interface RangeType {
 export interface SeqType {
   readonly kind: "Seq";
   readonly element: Type;
+}
+
+export interface VectorType {
+  readonly kind: "Vector";
+  readonly element: Type;
+}
+
+export interface MapType {
+  readonly kind: "Map";
+  readonly key: Type;
+  readonly value: Type;
+}
+
+export interface SetType {
+  readonly kind: "Set";
+  readonly element: Type;
+}
+
+export interface ArrayType {
+  readonly kind: "Array";
+  readonly element: Type;
+}
+
+export interface NullableType {
+  readonly kind: "Nullable";
+  readonly value: Type;
 }
 
 export interface VariableType {
@@ -99,6 +130,7 @@ export interface Constraint {
   readonly evidenceConstraint?: ConstraintName;
   readonly evidencePath?: readonly string[];
   readonly dictionaryArguments?: readonly Constraint[];
+  readonly structural?: boolean;
 }
 
 export interface Scheme {
@@ -186,6 +218,7 @@ export type Pattern =
   | BooleanPattern
   | IntegerPattern
   | StringPattern
+  | VectorPattern
   | TuplePattern
   | RecordPattern
   | OrPattern
@@ -236,6 +269,13 @@ export interface IntegerPattern {
 export interface StringPattern {
   readonly kind: "String";
   readonly value: string;
+  readonly span: Source.Span;
+}
+
+export interface VectorPattern {
+  readonly kind: "Vector";
+  readonly elements: readonly Pattern[];
+  readonly rest?: { readonly pattern?: Pattern; readonly index: number; readonly span: Source.Span };
   readonly span: Source.Span;
 }
 
@@ -410,6 +450,7 @@ export type Expr =
   | BigIntExpr
   | FloatExpr
   | StringExpr
+  | VectorExpr
   | TupleExpr
   | RecordExpr
   | GroupExpr
@@ -426,6 +467,8 @@ export type Expr =
   | AccessExpr
   | SeqOperationExpr
   | IndexExpr
+  | HashExpr
+  | CollectionOperationExpr
   | LogicalNotExpr
   | LogicalExpr
   | ConstraintCallExpr
@@ -486,6 +529,11 @@ export interface FloatExpr extends ExpressionFields {
 export interface StringExpr extends ExpressionFields {
   readonly kind: "String";
   readonly parts: readonly StringPart[];
+}
+
+export interface VectorExpr extends ExpressionFields {
+  readonly kind: "Vector";
+  readonly elements: readonly Expr[];
 }
 
 export type StringPart = StringText | StringInterpolation;
@@ -555,6 +603,7 @@ export interface ForExpr extends ExpressionFields {
   readonly pattern: Pattern;
   readonly iterable: Expr;
   readonly body: BlockExpr;
+  readonly iteration?: Constraint;
 }
 
 export interface RangeExpr extends ExpressionFields {
@@ -613,6 +662,21 @@ export interface IndexExpr extends ExpressionFields {
   readonly kind: "Index";
   readonly receiver: Expr;
   readonly index: Expr;
+  readonly operation?: "VectorElement" | "VectorSlice" | "StringElement" | "StringSlice" | "MapElement";
+  readonly requirements?: readonly Constraint[];
+}
+
+export interface HashExpr extends ExpressionFields {
+  readonly kind: "Hash";
+  readonly value: Expr;
+  readonly requirement: Constraint;
+}
+
+export interface CollectionOperationExpr extends ExpressionFields {
+  readonly kind: "CollectionOperation";
+  readonly collection: "Map" | "Set" | "Vector";
+  readonly operation: string;
+  readonly requirements: readonly Constraint[];
 }
 
 export interface LogicalNotExpr extends ExpressionFields {

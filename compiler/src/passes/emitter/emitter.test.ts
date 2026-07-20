@@ -16,6 +16,162 @@ import {
 } from "./emitter.js";
 
 describe("emitJavaScript", () => {
+  test("emits vectors, structural hashes, vector patterns, and one-based access", () => {
+    const module = coreSource(
+      "export let values: Vector(Int) = [10, 20, 30]\n" +
+        "export let second = values[2]\n" +
+        "export let window = values[2..99]\n" +
+        "export let letter = \"héllo\"[2]\n" +
+        "export let fingerprint = hash((values, {name: \"hex\"}))\n" +
+        "export let first = match values\n" +
+        "  [head, ...rest] => head\n" +
+        "  [] => 0",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.text).toContain("const values = [10, 20, 30];");
+    expect(output.text).toContain("__hex_vectorIndex(values, 2)");
+    expect(output.text).toContain("__hex_vectorSlice(values, __hex_range(2, 99))");
+    expect(output.text).toContain('__hex_stringIndex("héllo", 2)');
+    expect(output.text).toContain("function __hex_stableHash");
+    expect(output.text).toContain(".length >= 1");
+    expect(emitDeclarations(module).text).toContain("ReadonlyArray<number>");
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("emits persistent Map and Set core operations with structural key equality", () => {
+    const module = coreSource(
+      "let emptyMap: Map((Int, Int), String) = Map.empty()\n" +
+        "export let names = Map.set(emptyMap, (1, 2), \"first\")\n" +
+        "export let replaced = Map.set(names, (1, 2), \"second\")\n" +
+        "export let hasPair = Map.containsKey(replaced, (1, 2))\n" +
+        "let emptySet: Set((Int, Int)) = Set.empty()\n" +
+        "export let pairs = Set.add(emptySet, (3, 4))\n" +
+        "export let hasPair2 = Set.contains(pairs, (3, 4))",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.text).toContain("const __hex_persistentCollections");
+    expect(output.text).toContain("__hex_hash.eq.equals");
+    expect(output.text).toContain("const insert =");
+    expect(emitDeclarations(module).text).toContain("ReadonlyMap<[number, number], string>");
+    expect(emitDeclarations(module).text).toContain("ReadonlySet<[number, number]>");
+  });
+
+  test("executes persistent Map and Set updates, lookup, and bracket failure", () => {
+    const module = coreSource(
+      "let m0: Map(Int, String) = Map.empty()\n" +
+        "let m1 = Map.set(m0, 1, \"one\")\n" +
+        "let m2 = Map.set(m1, 33, \"thirty-three\")\n" +
+        "let m3 = Map.set(m2, 1, \"replaced\")\n" +
+        "let unchanged = Map.remove(m3, 99)\n" +
+        "let s0: Set(Int) = Set.empty()\n" +
+        "let s1 = Set.add(Set.add(s0, 1), 33)\n" +
+        "let s2 = Set.add(s1, 1)\n" +
+        "let result = (m3[1], m3[33], Map.size(m0), Map.size(m3), unchanged, m3, Set.size(s2), Set.contains(s2, 33))",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    const execute = Function(`${output.text}\nreturn result;`) as () => unknown;
+    const result = execute() as unknown[];
+    expect(result.slice(0, 4)).toEqual(["replaced", "thirty-three", 0, 2]);
+    expect(result[4]).toBe(result[5]);
+    expect(result.slice(6)).toEqual([2, true]);
+
+    const missingModule = coreSource(
+      "let values: Map(Int, String) = Map.empty()\n" +
+        "let missing = values[99]",
+    );
+    expect(missingModule.diagnostics).toEqual([]);
+    const missingOutput = emitJavaScript(missingModule);
+    expect(() => Function(missingOutput.text)()).toThrowError(
+      expect.objectContaining({ name: "KeyError" }),
+    );
+  });
+
+  test("provides extensional Map and Set instances and the core algebra", () => {
+    const module = coreSource(
+      "let left = Map.fromVector([(1, \"one\"), (2, \"two\")])\n" +
+        "let right = Map.fromVector([(2, \"two\"), (1, \"one\")])\n" +
+        "fun mapFacts<k: Hash, v: Hash>(a: Map(k, v), b: Map(k, v)) = (a == b, hash(a) == hash(b))\n" +
+        "fun setFacts<a: Hash>(a: Set(a), b: Set(a)) = (a == b, hash(a) == hash(b))\n" +
+        "let first = Set.fromVector([1, 2, 3])\n" +
+        "let second = Set.fromVector([3, 4])\n" +
+        "let combined = Set.union(first, second)\n" +
+        "let common = Set.intersect(first, second)\n" +
+        "let rest = Set.difference(first, second)\n" +
+        "let subset = Set.isSubsetOf(common, first)\n" +
+        "let keys = Map.keys(left)\n" +
+        "let mapEvidence = mapFacts(left, right)\n" +
+        "let setEvidence = setFacts(first, Set.fromVector([3, 2, 1]))\n" +
+        "let result = (left == right, hash(left) == hash(right), Set.size(combined), Set.size(common), Set.size(rest), subset, keys, \"${first}\", \"${left}\", mapEvidence, setEvidence)",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    const execute = Function(`${output.text}\nreturn result;`) as () => unknown;
+    const result = execute() as unknown[];
+    expect([...result[6] as Iterable<unknown>]).toEqual([1, 2]);
+    expect([...result.slice(0, 6), ...result.slice(7)]).toEqual([
+      true,
+      true,
+      4,
+      1,
+      2,
+      true,
+      "Set.fromVector([1, 2, 3])",
+      "Map.fromVector([(1, one), (2, two)])",
+      [true, true],
+      [true, true],
+    ]);
+  });
+
+  test("iterates provided collections and concrete user Iterable instances", () => {
+    const module = coreSource(
+      "constraint Iterable<c> =\n" +
+        "  type Item\n" +
+        "  iterate(value: c): Seq(Item)\n" +
+        "record Bag = {items: Seq(Int)}\n" +
+        "honor Iterable<Bag> =\n" +
+        "  type Item = Int\n" +
+        "  iterate(bag) = bag.items\n" +
+        "let bag = Bag({items: Seq.iterate(1, x => x + 1).take(2)})\n" +
+        "for value in bag\n" +
+        "  console.log(value)\n" +
+        "for value in [1, 2]\n" +
+        "  console.log(value)\n" +
+        "let pairs: Map(Int, String) = Map.set(Map.empty(), 1, \"one\")\n" +
+        "for (key, value) in pairs\n" +
+        "  console.log(key, value)",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.text).toContain("__hex_instance_Iterable_Bag.iterate(bag)");
+    expect(output.text).toContain("for (const value of [1, 2])");
+    expect(output.text).toContain("for (const __hex_item");
+  });
+
+  test("preserves Array and Nullable boundary types in exported declarations", () => {
+    const module = coreSource(
+      "export let count(xs: Array(Int)): Int =\n" +
+        "  var total = 0\n" +
+        "  for _ in xs\n" +
+        "    total := total + 1\n" +
+        "  total\n" +
+        "export let keep(value: Nullable(String)): Nullable(String) = value",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const declarations = emitDeclarations(module).text;
+    expect(declarations).toContain("export declare const count: (xs: Array<number>) => number;");
+    expect(declarations).toContain("export declare const keep: (value: string | null | undefined) => string | null | undefined;");
+    expect(emitJavaScript(module).text).toContain("for (const __hex_item");
+  });
+
   test("emits var, assignment, inclusive Range values, and while readably", () => {
     const module = coreSource(
       "fun countdown(start: Int) =\n" +

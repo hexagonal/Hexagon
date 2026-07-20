@@ -769,7 +769,7 @@ describe("check", () => {
       "this loop pattern can fail; bind an irrefutable pattern and use `match` inside the loop",
     );
     expect(invalid.diagnostics.map(({ message }) => message)).toContain(
-      "iteration over Int is not implemented yet; the current compiler supports Range and String",
+      "type `Int` has no `Iterable` instance",
     );
   });
 

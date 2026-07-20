@@ -25,6 +25,16 @@ function displayType(
       return "Range";
     case "Seq":
       return `Seq(${displayType(type.element, variables)})`;
+    case "Vector":
+      return `Vector(${displayType(type.element, variables)})`;
+    case "Set":
+      return `Set(${displayType(type.element, variables)})`;
+    case "Map":
+      return `Map(${displayType(type.key, variables)}, ${displayType(type.value, variables)})`;
+    case "Array":
+      return `Array(${displayType(type.element, variables)})`;
+    case "Nullable":
+      return `Nullable(${displayType(type.value, variables)})`;
     case "Variable":
       return variables.get(type.id) ?? `t${Number(type.id)}`;
     case "Error":

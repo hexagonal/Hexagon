@@ -42,6 +42,11 @@ export type TypeAnnotation =
   | UnionTypeAnnotation
   | RecordDeclarationTypeAnnotation
   | SeqTypeAnnotation
+  | VectorTypeAnnotation
+  | MapTypeAnnotation
+  | SetTypeAnnotation
+  | ArrayTypeAnnotation
+  | NullableTypeAnnotation
   | TypeVariableAnnotation
   | AssociatedTypeAnnotation
   | ErrorTypeAnnotation;
@@ -60,6 +65,37 @@ export interface RangeTypeAnnotation {
 export interface SeqTypeAnnotation {
   readonly kind: "Seq";
   readonly element: TypeAnnotation;
+  readonly span: Source.Span;
+}
+
+export interface VectorTypeAnnotation {
+  readonly kind: "Vector";
+  readonly element: TypeAnnotation;
+  readonly span: Source.Span;
+}
+
+export interface MapTypeAnnotation {
+  readonly kind: "Map";
+  readonly key: TypeAnnotation;
+  readonly value: TypeAnnotation;
+  readonly span: Source.Span;
+}
+
+export interface SetTypeAnnotation {
+  readonly kind: "Set";
+  readonly element: TypeAnnotation;
+  readonly span: Source.Span;
+}
+
+export interface ArrayTypeAnnotation {
+  readonly kind: "Array";
+  readonly element: TypeAnnotation;
+  readonly span: Source.Span;
+}
+
+export interface NullableTypeAnnotation {
+  readonly kind: "Nullable";
+  readonly value: TypeAnnotation;
   readonly span: Source.Span;
 }
 
@@ -217,6 +253,7 @@ export type Pattern =
   | BooleanPattern
   | IntegerPattern
   | StringPattern
+  | VectorPattern
   | TuplePattern
   | RecordPattern
   | OrPattern
@@ -267,6 +304,13 @@ export interface IntegerPattern {
 export interface StringPattern {
   readonly kind: "String";
   readonly value: string;
+  readonly span: Source.Span;
+}
+
+export interface VectorPattern {
+  readonly kind: "Vector";
+  readonly elements: readonly Pattern[];
+  readonly rest?: { readonly pattern?: Pattern; readonly index: number; readonly span: Source.Span };
   readonly span: Source.Span;
 }
 
@@ -434,6 +478,7 @@ export type Expr =
   | BigIntExpr
   | FloatExpr
   | StringExpr
+  | VectorExpr
   | TupleExpr
   | RecordExpr
   | GroupExpr
@@ -450,6 +495,8 @@ export type Expr =
   | AccessExpr
   | SeqOperationExpr
   | IndexExpr
+  | HashExpr
+  | CollectionOperationExpr
   | UnaryExpr
   | BinaryExpr
   | ComparisonExpr
@@ -502,6 +549,12 @@ export interface FloatExpr {
 export interface StringExpr {
   readonly kind: "String";
   readonly parts: readonly StringPart[];
+  readonly span: Source.Span;
+}
+
+export interface VectorExpr {
+  readonly kind: "Vector";
+  readonly elements: readonly Expr[];
   readonly span: Source.Span;
 }
 
@@ -641,6 +694,19 @@ export interface IndexExpr {
   readonly kind: "Index";
   readonly receiver: Expr;
   readonly index: Expr;
+  readonly span: Source.Span;
+}
+
+export interface HashExpr {
+  readonly kind: "Hash";
+  readonly value: Expr;
+  readonly span: Source.Span;
+}
+
+export interface CollectionOperationExpr {
+  readonly kind: "CollectionOperation";
+  readonly collection: "Map" | "Set" | "Vector";
+  readonly operation: string;
   readonly span: Source.Span;
 }
 
