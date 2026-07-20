@@ -58,6 +58,7 @@ export const punctuationKinds = [
   "Spread",
   "Equal",
   "FatArrow",
+  "Arrow",
   "Plus",
   "Minus",
   "Star",

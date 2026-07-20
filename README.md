@@ -102,10 +102,11 @@ review copies stay outside version control.
 
 Compiler implementation is underway. The platform-neutral TypeScript workspace has
 source coordinates, structured diagnostics, a Unicode-aware physical lexer, and the
-indentation layout pass. Thirty-two vertical slices cover core expressions, `let` and local `var` bindings,
+indentation layout pass. Thirty-six vertical slices cover core expressions, `let` and local `var` bindings,
 lambdas, directly recursive functions, conditionals, `while`, Range/String `for..in`, calls, tuple values and patterns,
-generic unions and nominal records, exceptions, constraints and ground instances,
-relative imports, nominal dot calls, direct fundamental specializations, exhaustive matches, rich annotations, and
+generic unions and nominal records, exceptions, constraints and parameterized instances,
+implied types, aliases, relative imports, mutual recursion, qualified types, opaque exports,
+nominal dot calls, direct fundamental specializations, exhaustive matches, explicit function types, rich annotations, and
 operator precedence. Its resolver assigns stable symbols to `let`, `fun`, loop-head pattern,
 constructor, and lambda-parameter bindings, implements lexical scopes, and diagnoses
 unknown names and illegal rebinding. The implemented
@@ -125,12 +126,10 @@ currently reaches:
 Source.File -> Lexed.File -> LaidOut.File -> Parsed.Module -> Resolved.Module -> Typed.Module -> Core.Module -> Emitted output
 ```
 
-The parser still needs type aliases and the remaining declaration variants; resolution
-still needs function capture sets, forward/mutual recursion, and qualified type paths.
-Constraints still need defaults, superconstraints, derivation, parameterized instances,
-whole-graph coherence, the conditional generic constrained edition, and the public dictionary ABI. Emission still
-needs source maps, runtime integration, and the finalized
-portable-JavaScript profile.
+The remaining v1 compiler work is concentrated beyond the core language surface:
+`extern` declarations and FFI validation, the conditional generic constrained edition
+and public dictionary ABI, source maps, runtime integration, conformance fixtures, and
+the finalized portable-JavaScript profile.
 
 There is currently no release, package, command-line tool, or supported installation
 process. The browser Playground is the public way to try the implementation today.

@@ -100,7 +100,7 @@ describe("lex", () => {
 
   test("uses maximal munch over the complete punctuation inventory", () => {
     const result = lexSource(
-      "( ) [ ] { } , : ; ... . => = ** * ++ + != == <= < >= > .. |> := | _ - /",
+      "( ) [ ] { } , : ; ... . => -> = ** * ++ + != == <= < >= > .. |> := | _ - /",
     );
 
     expect(kinds(result.tokens)).toEqual([
@@ -116,6 +116,7 @@ describe("lex", () => {
       "Spread",
       "Dot",
       "FatArrow",
+      "Arrow",
       "Equal",
       "Power",
       "Star",

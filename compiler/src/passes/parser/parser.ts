@@ -1794,25 +1794,46 @@ class Parser {
     // `index` points one token beyond the matching parameter `)`.
     if (this.#tokens[index]?.kind === "Colon") {
       index += 1;
-      if (this.#tokens[index]?.kind === "LeftParen") {
-        let typeDepth = 0;
-        do {
-          const kind = this.#tokens[index]?.kind;
-          if (kind === "LeftParen") typeDepth += 1;
-          if (kind === "RightParen") typeDepth -= 1;
-          if (kind === "Eof" || kind === undefined) return false;
-          index += 1;
-        } while (typeDepth > 0);
-      } else if (this.#tokens[index]?.kind === "UpperName") {
+      const annotationStart = index;
+      while (this.#tokens[index]?.kind !== "FatArrow") {
+        const kind = this.#tokens[index]?.kind;
+        if (kind === "Eof" || kind === "VSep" || kind === undefined) return false;
         index += 1;
-      } else {
-        return false;
       }
+      if (index === annotationStart) return false;
     }
     return this.#tokens[index]?.kind === "FatArrow";
   }
 
   #parseTypeAnnotation(): Parsed.TypeAnnotation | undefined {
+    const left = this.#parseTypeOperand();
+    if (left === undefined) return undefined;
+    if (!this.#at("Arrow")) {
+      if (left.parameters?.length === 0) {
+        this.#errorAt(
+          left.annotation.span,
+          "an empty type parameter list must be followed by `->`; use `Unit` for the unit type",
+        );
+        return undefined;
+      }
+      return left.annotation;
+    }
+    this.#advance();
+    const result = this.#parseTypeAnnotation();
+    if (result === undefined) return undefined;
+    return {
+      kind: "Function",
+      parameters: left.parameters ?? [left.annotation],
+      result,
+      span: spanFrom(left.annotation.span, result.span),
+    };
+  }
+
+  /** Retains a direct parenthesized list so `(A, B) -> C` stays n-ary. */
+  #parseTypeOperand(): {
+    readonly annotation: Parsed.TypeAnnotation;
+    readonly parameters?: readonly Parsed.TypeAnnotation[];
+  } | undefined {
     const token = this.#current();
     if (token.kind === "LeftBrace") {
       const opening = this.#advance();
@@ -1844,20 +1865,38 @@ class Parser {
       }
       const closing = this.#expect("RightBrace", "expected `}` after record type");
       return {
-        kind: "Record",
-        fields,
-        open,
-        ...(tail === undefined ? {} : { tail }),
-        span: spanFrom(opening.span, closing?.span ?? fields.at(-1)?.span ?? opening.span),
+        annotation: {
+          kind: "Record",
+          fields,
+          open,
+          ...(tail === undefined ? {} : { tail }),
+          span: spanFrom(opening.span, closing?.span ?? fields.at(-1)?.span ?? opening.span),
+        },
       };
     }
     if (token.kind === "LeftParen") {
       const opening = this.#advance();
+      if (this.#at("RightParen")) {
+        const closing = this.#advance();
+        return {
+          annotation: {
+            kind: "Tuple",
+            elements: [],
+            span: spanFrom(opening.span, closing.span),
+          },
+          parameters: [],
+        };
+      }
       const first = this.#parseTypeAnnotation();
       if (first === undefined) return undefined;
       if (!this.#at("Comma")) {
         const closing = this.#expect("RightParen", "expected `)` after type");
-        return { ...first, span: spanFrom(opening.span, closing?.span ?? first.span) };
+        return {
+          annotation: {
+            ...first,
+            span: spanFrom(opening.span, closing?.span ?? first.span),
+          },
+        };
       }
       const elements: Parsed.TypeAnnotation[] = [first];
       while (this.#at("Comma")) {
@@ -1872,16 +1911,17 @@ class Parser {
         elements.push(element);
       }
       const closing = this.#expect("RightParen", "expected `)` after tuple type");
-      return {
+      const annotation: Parsed.TupleType = {
         kind: "Tuple",
         elements,
         span: spanFrom(opening.span, closing?.span ?? elements.at(-1)!.span),
       };
+      return { annotation, parameters: elements };
     }
     if (token.kind === "NonUpperName") {
       this.#advance();
       const name = parsedName(token);
-      return { kind: "TypeVariable", name, span: name.span };
+      return { annotation: { kind: "TypeVariable", name, span: name.span } };
     }
     if (token.kind !== "UpperName") {
       this.#error(
@@ -1914,18 +1954,22 @@ class Parser {
         this.#errorAt(name.span, "a type application needs at least one argument");
       }
       return {
-        kind: "AppliedType",
-        ...(qualifier === undefined ? {} : { qualifier }),
-        constructor: name,
-        arguments: arguments_,
-        span: spanFrom(name.span, closing?.span ?? arguments_.at(-1)?.span ?? name.span),
+        annotation: {
+          kind: "AppliedType",
+          ...(qualifier === undefined ? {} : { qualifier }),
+          constructor: name,
+          arguments: arguments_,
+          span: spanFrom(name.span, closing?.span ?? arguments_.at(-1)?.span ?? name.span),
+        },
       };
     }
     return {
-      kind: "NamedType",
-      ...(qualifier === undefined ? {} : { qualifier }),
-      name,
-      span: qualifier === undefined ? name.span : spanFrom(qualifier.span, name.span),
+      annotation: {
+        kind: "NamedType",
+        ...(qualifier === undefined ? {} : { qualifier }),
+        name,
+        span: qualifier === undefined ? name.span : spanFrom(qualifier.span, name.span),
+      },
     };
   }
 
@@ -2046,6 +2090,7 @@ function describe(kind: TokenKind): string {
     Spread: "...",
     Equal: "=",
     FatArrow: "=>",
+    Arrow: "->",
     Plus: "+",
     Minus: "-",
     Star: "*",

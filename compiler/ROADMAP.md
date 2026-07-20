@@ -1,6 +1,6 @@
 # Hexagon Compiler Roadmap
 
-**Status:** Thirty-five vertical slices now extend the original expression, pattern, mutation, Range, and loop pipeline with generic nominal unions and records, exceptions, nominal companion dot calls, completed internal constraint dictionaries, owner-scoped implied types, lazy `Seq`, structural hashing, vectors, Map/Set core operations, generalized concrete `Iterable`, initial Array/Nullable boundary types, relative module graphs, direct fundamental specializations with navigable generated-code metadata, transparent aliases, mutual recursion, qualified types, and opaque module abstractions.
+**Status:** Thirty-six vertical slices now extend the original expression, pattern, mutation, Range, and loop pipeline with generic nominal unions and records, exceptions, nominal companion dot calls, completed internal constraint dictionaries, owner-scoped implied types, lazy `Seq`, structural hashing, vectors, Map/Set core operations, generalized concrete `Iterable`, initial Array/Nullable boundary types, relative module graphs, direct fundamental specializations with navigable generated-code metadata, transparent aliases, mutual recursion, qualified types, opaque module abstractions, and explicit n-ary function-type annotations.
 
 The compiler is built as a sequence of typed phase transformations. Each milestone must preserve the global naming doctrine in `architecture/naming.md` and the readability and commenting doctrine in `architecture/readability-and-comments.md`.
 
@@ -24,7 +24,7 @@ Transform physical tokens into a layout-aware stream containing virtual open, se
 
 ## 3. Parser
 
-**The existing expression and pattern grammar plus vector literals/rest patterns, generic unions, nominal records, transparent parameterized aliases, opaque exports, exceptions and `try`/`catch`, constraints with implied types/defaults/derivation, ground and parameterized `honor`, explicit constrained binders, `Seq(a)`, collection/FFI type applications, qualified type paths, and relative imports are implemented; full grammar remains in progress.**
+**The existing expression and pattern grammar plus vector literals/rest patterns, generic unions, nominal records, transparent parameterized aliases, opaque exports, exceptions and `try`/`catch`, constraints with implied types/defaults/derivation, ground and parameterized `honor`, explicit constrained binders, explicit zero-/one-/many-parameter function types, `Seq(a)`, collection/FFI type applications, qualified type paths, and relative imports are implemented; `extern` declarations remain with the FFI parser work.**
 
 Transform layout-aware tokens into the parsed syntax tree. Implement declarations, expressions, patterns, type syntax, precedence, contextual forms, recovery, and source attribution.
 
@@ -36,7 +36,7 @@ Replace textual references with stable symbols. Implement scopes, imports, expor
 
 ## 5. Type-system core
 
-**The HM and row core now includes generic nominal unions and records, `Exn`, `Seq(a)`, Vector/Map/Set and Array/Nullable types, explicit/inferred constraints, structural hashing, maximal trailing evidence, required/default members, nested superconstraints, coherent ground and parameterized instances, concrete `Iterable` selection, nominal derivation, implied type substitution at concrete calls, and the v1 projection-bearing binder ban; the conditional public dictionary ABI remains with later FFI integration work.**
+**The HM and row core now includes generic nominal unions and records, `Exn`, `Seq(a)`, Vector/Map/Set and Array/Nullable types, inferred and explicitly annotated n-ary functions, explicit/inferred constraints, structural hashing, maximal trailing evidence, required/default members, nested superconstraints, coherent ground and parameterized instances, concrete `Iterable` selection, nominal derivation, implied type substitution at concrete calls, and the v1 projection-bearing binder ban; the conditional public dictionary ABI remains with later FFI integration work.**
 
 Implement Algorithm J, union-find type variables, levels and generalisation, type schemes, unification, rows, constraints, and stable type rendering for diagnostics.
 

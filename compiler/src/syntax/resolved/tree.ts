@@ -47,6 +47,7 @@ export type TypeAnnotation =
   | SetTypeAnnotation
   | ArrayTypeAnnotation
   | NullableTypeAnnotation
+  | FunctionTypeAnnotation
   | TypeVariableAnnotation
   | ImpliedTypeAnnotation
   | ErrorTypeAnnotation;
@@ -96,6 +97,13 @@ export interface ArrayTypeAnnotation {
 export interface NullableTypeAnnotation {
   readonly kind: "Nullable";
   readonly value: TypeAnnotation;
+  readonly span: Source.Span;
+}
+
+export interface FunctionTypeAnnotation {
+  readonly kind: "Function";
+  readonly parameters: readonly TypeAnnotation[];
+  readonly result: TypeAnnotation;
   readonly span: Source.Span;
 }
 

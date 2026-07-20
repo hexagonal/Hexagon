@@ -3261,6 +3261,21 @@ class Checker {
         value: this.#annotationType(annotation.value, level, namedTails, typeParameters, impliedTypes),
       };
     }
+    if (annotation.kind === "Function") {
+      return {
+        kind: "Function",
+        parameters: annotation.parameters.map((parameter) =>
+          this.#annotationType(parameter, level, namedTails, typeParameters, impliedTypes)
+        ),
+        result: this.#annotationType(
+          annotation.result,
+          level,
+          namedTails,
+          typeParameters,
+          impliedTypes,
+        ),
+      };
+    }
     if (annotation.kind === "Union") {
       return {
         kind: "Union",
