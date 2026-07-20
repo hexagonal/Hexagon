@@ -161,6 +161,7 @@ class JavaScriptEmitter {
   ): string[] {
     const prefix = indent(depth);
     if (item.kind === "ErrorItem") return [`${prefix}undefined;`];
+    if (item.kind === "TypeAlias") return [];
     if (item.kind === "Import") {
       const specifier = JSON.stringify(emittedModuleSpecifier(item.specifier));
       if (item.form.kind === "Effect") return [`${prefix}import ${specifier};`];
@@ -177,13 +178,15 @@ class JavaScriptEmitter {
             : [`${prefix}import { ${constrained.join(", ")} } from ${specifier};`]),
         ];
       }
-      const names = item.form.names.map(({ imported, local, symbol }) => {
+      const names = item.form.names.filter(({ typeOnly }) => typeOnly !== true).map(({ imported, local, symbol }) => {
         const source = symbol !== undefined && this.#constrainedImports.has(symbol)
           ? internalConstrainedExportName(symbol)
           : imported;
         return source === local ? source : `${source} as ${local}`;
       });
-      return [`${prefix}import { ${names.join(", ")} } from ${specifier};`];
+      return names.length === 0
+        ? [`${prefix}import ${specifier};`]
+        : [`${prefix}import { ${names.join(", ")} } from ${specifier};`];
     }
     if (item.kind === "ConstraintDeclaration") {
       return item.members.map((member) => {
@@ -318,7 +321,7 @@ class JavaScriptEmitter {
       const tagged = item.constructors.some(({ slots }) => (slots?.length ?? 0) > 0);
       const lines = item.constructors.map((constructor) => {
         const name = this.#identifier(constructor.symbol, constructor.name);
-        if (item.exported && depth === 0) {
+        if (item.exported && !item.opaque && depth === 0) {
           this.#exports.push(
             name === constructor.name
               ? `export { ${name} };`
@@ -339,7 +342,7 @@ class JavaScriptEmitter {
     }
     if (item.kind === "RecordDeclaration") {
       const name = this.#identifier(item.constructor.symbol, item.constructor.name);
-      if (item.exported && depth === 0) {
+      if (item.exported && !item.opaque && depth === 0) {
         this.#exports.push(
           name === item.name ? `export { ${name} };` : `export { ${name} as ${item.name} };`,
         );
@@ -2036,9 +2039,11 @@ class DeclarationEmitter {
   readonly #diagnostics = new Diagnostics.Bag();
   readonly #module: Core.Module;
   readonly #specializations: readonly FundamentalSpecialization[];
+  readonly #opaqueBrands: ReadonlyMap<string, string>;
 
   constructor(module: Core.Module) {
     this.#module = module;
+    this.#opaqueBrands = opaqueBrandNames(module);
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
     const plan = planFundamentalSpecializations(module);
     this.#specializations = plan.specializations;
@@ -2049,7 +2054,26 @@ class DeclarationEmitter {
     const declarations: string[] = [];
     let isExternalModule = false;
     for (const item of this.#module.items) {
+      if (item.kind === "TypeAlias") {
+        if (!item.exported) continue;
+        const variables = typeVariableNames(item.parameters);
+        const names = item.parameters.map((parameter) => variables.get(parameter)!);
+        const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
+        declarations.push(`export type ${item.name}${generics} = ${renderType(item.type, variables, false)};`);
+        isExternalModule = true;
+        continue;
+      }
       if (item.kind === "Union") {
+        if (item.opaque && item.exported) {
+          const brand = this.#opaqueBrands.get(item.name)!;
+          const variables = typeVariableNames(item.parameters);
+          const names = item.parameters.map((parameter) => variables.get(parameter)!);
+          const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
+          declarations.push(`declare const ${brand}: unique symbol;`);
+          declarations.push(`export type ${item.name}${generics} = { readonly [${brand}]: ${names.length === 0 ? "never" : names.join(" | ")} };`);
+          isExternalModule = true;
+          continue;
+        }
         declarations.push(renderUnionDeclaration(item, item.exported));
         if (item.exported) {
           isExternalModule = true;
@@ -2079,6 +2103,13 @@ class DeclarationEmitter {
         const variables = typeVariableNames(item.parameters);
         const names = item.parameters.map((parameter) => variables.get(parameter)!);
         const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
+        if (item.opaque) {
+          const brand = this.#opaqueBrands.get(item.name)!;
+          declarations.push(`declare const ${brand}: unique symbol;`);
+          declarations.push(`export type ${item.name}${generics} = { readonly [${brand}]: ${names.length === 0 ? "never" : names.join(" | ")} };`);
+          isExternalModule = true;
+          continue;
+        }
         const recordType = `{ ${item.fields.map((field) =>
           `${field.name}: ${renderType(field.type, variables, false)}`
         ).join("; ")} }`;
@@ -2158,9 +2189,11 @@ class TypeScriptPreviewEmitter {
   readonly #diagnostics = new Diagnostics.Bag();
   readonly #module: Core.Module;
   readonly #specializations: readonly FundamentalSpecialization[];
+  readonly #opaqueBrands: ReadonlyMap<string, string>;
 
   constructor(module: Core.Module) {
     this.#module = module;
+    this.#opaqueBrands = opaqueBrandNames(module);
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
     const plan = planFundamentalSpecializations(module, true);
     this.#specializations = plan.specializations;
@@ -2172,7 +2205,27 @@ class TypeScriptPreviewEmitter {
     let isExternalModule = false;
 
     for (const item of this.#module.items) {
+      if (item.kind === "TypeAlias") {
+        const prefix = item.exported ? "export " : "";
+        const variables = typeVariableNames(item.parameters);
+        const names = item.parameters.map((parameter) => variables.get(parameter)!);
+        const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
+        declarations.push(`${prefix}type ${item.name}${generics} = ${renderType(item.type, variables, false)};`);
+        isExternalModule ||= item.exported;
+        continue;
+      }
       if (item.kind === "Union") {
+        if (item.opaque) {
+          const prefix = item.exported ? "export " : "";
+          const brand = this.#opaqueBrands.get(item.name)!;
+          const variables = typeVariableNames(item.parameters);
+          const names = item.parameters.map((parameter) => variables.get(parameter)!);
+          const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
+          declarations.push(`declare const ${brand}: unique symbol;`);
+          declarations.push(`${prefix}type ${item.name}${generics} = { readonly [${brand}]: ${names.length === 0 ? "never" : names.join(" | ")} };`);
+          isExternalModule ||= item.exported;
+          continue;
+        }
         declarations.push(renderUnionDeclaration(item, item.exported));
         const variables = typeVariableNames(item.parameters);
         const genericNames = item.parameters.map((parameter) => variables.get(parameter)!);
@@ -2199,6 +2252,13 @@ class TypeScriptPreviewEmitter {
         const variables = typeVariableNames(item.parameters);
         const names = item.parameters.map((parameter) => variables.get(parameter)!);
         const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
+        if (item.opaque) {
+          const brand = this.#opaqueBrands.get(item.name)!;
+          declarations.push(`declare const ${brand}: unique symbol;`);
+          declarations.push(`${prefix}type ${item.name}${generics} = { readonly [${brand}]: ${names.length === 0 ? "never" : names.join(" | ")} };`);
+          isExternalModule ||= item.exported;
+          continue;
+        }
         const recordType = `{ ${item.fields.map((field) =>
           `${field.name}: ${renderType(field.type, variables, false)}`
         ).join("; ")} }`;
@@ -2310,6 +2370,23 @@ class TypeScriptPreviewEmitter {
 }
 
 type SourceEntry = ItemEntry | CommentEntry;
+
+function opaqueBrandNames(module: Core.Module): ReadonlyMap<string, string> {
+  const typeNames = module.items.flatMap((item) =>
+    item.kind === "TypeAlias" || item.kind === "Union" || item.kind === "RecordDeclaration"
+      ? [item.name]
+      : []
+  );
+  const names = new GeneratedNames([
+    ...module.symbols.map(({ name }) => name),
+    ...typeNames,
+  ]);
+  return new Map(module.items.flatMap((item) =>
+    (item.kind === "Union" || item.kind === "RecordDeclaration") && item.opaque
+      ? [[item.name, names.fixed(`opaque_${item.name}`)] as const]
+      : []
+  ));
+}
 
 interface PatternPlan {
   readonly tests: readonly string[];

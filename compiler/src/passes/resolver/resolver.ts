@@ -16,6 +16,7 @@ export interface ModuleInterface {
   readonly terms: ReadonlyMap<string, Resolved.Symbol>;
   readonly unions: ReadonlyMap<string, Resolved.Union>;
   readonly records: ReadonlyMap<string, Resolved.RecordDeclaration>;
+  readonly aliases: ReadonlyMap<string, Resolved.TypeAliasItem>;
 }
 
 export interface ResolveOptions {
@@ -40,15 +41,18 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
   const terms = new Map<string, Resolved.Symbol>();
   const unions = new Map<string, Resolved.Union>();
   const records = new Map<string, Resolved.RecordDeclaration>();
+  const aliases = new Map<string, Resolved.TypeAliasItem>();
   for (const item of module.items) {
     if (!('exported' in item) || item.exported !== true) continue;
     if (item.kind === "Let" || item.kind === "Fun") {
       const symbol = symbols.get(item.binding.symbol);
       if (symbol !== undefined) terms.set(item.binding.name, symbol);
+    } else if (item.kind === "TypeAlias") {
+      aliases.set(item.name, item);
     } else if (item.kind === "Union") {
       const union = module.unions.find(({ id }) => id === item.union);
       if (union !== undefined) unions.set(item.name, union);
-      for (const constructor of item.constructors) {
+      for (const constructor of item.opaque ? [] : item.constructors) {
         const symbol = symbols.get(constructor.binding.symbol);
         if (symbol !== undefined) terms.set(constructor.binding.name, symbol);
       }
@@ -56,13 +60,13 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
       const record = module.records.find(({ id }) => id === item.record);
       const symbol = symbols.get(item.constructor.symbol);
       if (record !== undefined) records.set(item.name, record);
-      if (symbol !== undefined) terms.set(item.name, symbol);
+      if (!item.opaque && symbol !== undefined) terms.set(item.name, symbol);
     } else if (item.kind === "Exception") {
       const symbol = symbols.get(item.binding.symbol);
       if (symbol !== undefined) terms.set(item.binding.name, symbol);
     }
   }
-  return { module, terms, unions, records };
+  return { module, terms, unions, records, aliases };
 }
 
 class Scope {
@@ -92,6 +96,10 @@ class Resolver {
   readonly #unionArities = new Map<string, number>();
   readonly #recordNames = new Map<string, Resolved.RecordId>();
   readonly #recordArities = new Map<string, number>();
+  readonly #typeAliases = new Map<string, Parsed.TypeAliasItem | Resolved.TypeAliasItem>();
+  readonly #unionDeclarations = new WeakMap<Parsed.UnionItem, Resolved.UnionId>();
+  readonly #recordDeclarations = new WeakMap<Parsed.RecordItem, Resolved.RecordId>();
+  readonly #resolvingAliases: string[] = [];
   readonly #imports: ReadonlyMap<string, ModuleInterface>;
   readonly #moduleAliases = new Map<string, ModuleInterface>();
   readonly #constraintNames = new Set<string>([
@@ -99,7 +107,11 @@ class Resolver {
   ]);
   readonly #impliedTypeOwners = new Map<string, Set<string>>();
   readonly #pending: { readonly name: Parsed.Name; readonly kind: "let" | "var" }[] = [];
-  readonly #laterFunNames: Parsed.Name[][] = [];
+  readonly #predeclaredBindings = new WeakMap<Parsed.LetItem | Parsed.VarItem | Parsed.FunItem, Resolved.Binding>();
+  readonly #futureSequential: Map<string, Resolved.Binding>[] = [];
+  readonly #currentFunctions: Resolved.SymbolId[] = [];
+  readonly #funCaptures = new Map<Resolved.SymbolId, Set<Resolved.SymbolId>>();
+  readonly #funDependencies = new Map<Resolved.SymbolId, Set<Resolved.SymbolId>>();
   readonly #varOwners = new Map<Resolved.SymbolId, number>();
   readonly #diagnostics: Diagnostics.Bag;
   #lambdaDepth = 0;
@@ -116,6 +128,7 @@ class Resolver {
   }
 
   resolve(module: Parsed.Module): Resolved.Module {
+    this.#predeclareTypes(module.items);
     // Implied type names have owner-relative identity, but failed uses outside
     // an owner still receive the knowing v1 diagnostic even before declaration.
     // See Collections Part 2 §6–§7.3.
@@ -143,21 +156,65 @@ class Resolver {
     };
   }
 
+  /** Registers module type identities before resolving any declaration body. */
+  #predeclareTypes(items: readonly Parsed.Item[]): void {
+    const claimed = new Map<string, Source.Span>();
+    for (const item of items) {
+      if (item.kind !== "TypeAlias" && item.kind !== "Union" && item.kind !== "RecordDeclaration") continue;
+      const previous = claimed.get(item.name.text);
+      if (previous !== undefined) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `type \`${item.name.text}\` is already declared`,
+          primary: item.name.span,
+          labels: [{ span: previous, message: "first declaration is here" }],
+        });
+        continue;
+      }
+      claimed.set(item.name.text, item.name.span);
+      if (item.kind === "TypeAlias") {
+        this.#typeAliases.set(item.name.text, item);
+      } else if (item.kind === "Union") {
+        const id = Resolved.unionId(this.#nextUnion++);
+        this.#unionDeclarations.set(item, id);
+        this.#unionNames.set(item.name.text, id);
+        this.#unionArities.set(item.name.text, item.parameters.length);
+      } else {
+        const id = Resolved.recordId(this.#nextRecord++);
+        this.#recordDeclarations.set(item, id);
+        this.#recordNames.set(item.name.text, id);
+        this.#recordArities.set(item.name.text, item.parameters.length);
+      }
+    }
+  }
+
   #resolveItems(
     items: readonly Parsed.Item[],
     scope: Scope,
   ): readonly Resolved.Item[] {
-    const laterFunNames = items.flatMap((item) =>
-      item.kind === "Fun" ? [item.name] : [],
-    );
-    this.#laterFunNames.push(laterFunNames);
+    const future = new Map<string, Resolved.Binding>();
+    for (const item of items) {
+      if (item.kind === "Fun") {
+        const existing = scope.lookupLocal(item.name.text);
+        if (existing !== undefined) this.#reportRebinding(item.name, existing);
+        const binding = this.#declare(item.name, "fun");
+        this.#predeclaredBindings.set(item, binding);
+        if (existing === undefined) scope.define(item.name.text, binding.symbol);
+      } else if (item.kind === "Let" || item.kind === "Var") {
+        const binding = this.#declare(item.name, item.kind === "Let" ? "let" : "var");
+        this.#predeclaredBindings.set(item, binding);
+        if (!future.has(item.name.text)) future.set(item.name.text, binding);
+      }
+    }
+    this.#futureSequential.push(future);
     const resolved: Resolved.Item[] = [];
     for (const item of items) {
-      if (item.kind === "Fun") laterFunNames.shift();
       const resolvedItem = this.#resolveItem(item, scope);
       resolved.push(resolvedItem, ...this.#derivedHonors(resolvedItem));
+      if (item.kind === "Let" || item.kind === "Var") future.delete(item.name.text);
     }
-    this.#laterFunNames.pop();
+    this.#futureSequential.pop();
+    this.#checkFunctionAvailability(resolved);
     return resolved;
   }
 
@@ -248,7 +305,8 @@ class Resolver {
               const term = importedModule?.terms.get(name.imported.text);
               const union = importedModule?.unions.get(name.imported.text);
               const record = importedModule?.records.get(name.imported.text);
-              if (term === undefined && union === undefined && record === undefined) {
+              const alias = importedModule?.aliases.get(name.imported.text);
+              if (term === undefined && union === undefined && record === undefined && alias === undefined) {
                 this.#diagnostics.add({
                   severity: "error",
                   message: `module \`${item.specifier}\` does not export \`${name.imported.text}\``,
@@ -271,7 +329,7 @@ class Resolver {
                 }
                 this.#unionNames.set(name.local.text, union.id);
                 this.#unionArities.set(name.local.text, union.parameters.length);
-                if (!this.#unions.some(({ id }) => id === union.id)) this.#unions.push(union);
+                if (!this.#unions.some(({ id }) => id === union.id)) this.#unions.push({ ...union, representationVisible: false });
               }
               if (record !== undefined) {
                 if (this.#unionNames.has(name.local.text) || this.#recordNames.has(name.local.text)) {
@@ -283,12 +341,27 @@ class Resolver {
                 }
                 this.#recordNames.set(name.local.text, record.id);
                 this.#recordArities.set(name.local.text, record.parameters.length);
-                if (!this.#records.some(({ id }) => id === record.id)) this.#records.push(record);
+                const importedRecord = { ...record, representationVisible: false };
+                if (!this.#records.some(({ id }) => id === record.id)) this.#records.push(importedRecord);
+              }
+              if (alias !== undefined) {
+                if (this.#typeAliases.has(name.local.text) || this.#unionNames.has(name.local.text) || this.#recordNames.has(name.local.text)) {
+                  this.#diagnostics.add({
+                    severity: "error",
+                    message: `type \`${name.local.text}\` is already declared or imported`,
+                    primary: name.span,
+                  });
+                } else {
+                  this.#typeAliases.set(name.local.text, { ...alias, name: name.local.text });
+                }
               }
               return {
                 imported: name.imported.text,
                 local: name.local.text,
                 ...(term === undefined ? {} : { symbol: term.id }),
+                ...(term === undefined && (union !== undefined || record !== undefined || alias !== undefined)
+                  ? { typeOnly: true }
+                  : {}),
                 span: name.span,
               };
             })
@@ -412,7 +485,7 @@ class Resolver {
         const existing = scope.lookup(item.name.text);
         if (existing !== undefined) this.#reportRebinding(item.name, existing);
 
-        const binding = this.#declare(item.name, "let");
+        const binding = this.#predeclaredBindings.get(item) ?? this.#declare(item.name, "let");
         this.#pending.push({ name: item.name, kind: "let" });
         const value = this.#resolveExpr(item.value, scope);
         this.#pending.pop();
@@ -432,6 +505,32 @@ class Resolver {
           span: item.span,
         };
       }
+      case "TypeAlias": {
+        const parameters = new Set(item.parameters.map(({ text }) => text));
+        const used = parsedAnnotationTypeVariables(item.annotation);
+        for (const parameter of item.parameters) {
+          if (!used.has(parameter.text)) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `type parameter \`${parameter.text}\` is not used by alias \`${item.name.text}\``,
+              primary: parameter.span,
+            });
+          }
+        }
+        this.#resolvingAliases.push(item.name.text);
+        const annotation = this.#resolveTypeAnnotation(item.annotation, parameters);
+        this.#resolvingAliases.pop();
+        const resolvedAlias: Resolved.TypeAliasItem = {
+          kind: "TypeAlias",
+          exported: item.exported,
+          name: item.name.text,
+          parameters: item.parameters.map(({ text }) => text),
+          annotation,
+          span: item.span,
+        };
+        this.#typeAliases.set(item.name.text, resolvedAlias);
+        return resolvedAlias;
+      }
       case "Var": {
         const existing = scope.lookup(item.name.text);
         if (existing !== undefined) this.#reportRebinding(item.name, existing);
@@ -442,7 +541,7 @@ class Resolver {
             primary: item.name.span,
           });
         }
-        const binding = this.#declare(item.name, "var");
+        const binding = this.#predeclaredBindings.get(item) ?? this.#declare(item.name, "var");
         this.#varOwners.set(binding.symbol, this.#lambdaDepth);
         this.#pending.push({ name: item.name, kind: "var" });
         const value = this.#resolveExpr(item.value, scope);
@@ -476,20 +575,7 @@ class Resolver {
         };
       }
       case "Union": {
-        const existingUnion = this.#unionNames.get(item.name.text);
-        const existingRecord = this.#recordNames.has(item.name.text);
-        if (existingUnion !== undefined || existingRecord) {
-          this.#diagnostics.add({
-            severity: "error",
-            message: `type \`${item.name.text}\` is already declared`,
-            primary: item.name.span,
-          });
-        }
-        const union = Resolved.unionId(this.#nextUnion++);
-        if (existingUnion === undefined && !existingRecord) {
-          this.#unionNames.set(item.name.text, union);
-          this.#unionArities.set(item.name.text, item.parameters.length);
-        }
+        const union = this.#unionDeclarations.get(item) ?? Resolved.unionId(this.#nextUnion++);
         const typeParameters = new Set(item.parameters.map(({ text }) => text));
         const seenConstructors = new Set<string>();
         const constructors = item.constructors.map((constructor) => {
@@ -523,6 +609,8 @@ class Resolver {
           name: item.name.text,
           parameters: item.parameters.map(({ text }) => text),
           derives: item.derives.map(({ text }) => text),
+          opaque: item.opaque,
+          representationVisible: true,
           span: item.name.span,
           constructors,
         };
@@ -530,6 +618,7 @@ class Resolver {
         return {
           kind: "Union",
           exported: item.exported,
+          opaque: item.opaque,
           union,
           name: item.name.text,
           parameters: item.parameters.map(({ text }) => text),
@@ -539,20 +628,7 @@ class Resolver {
         };
       }
       case "RecordDeclaration": {
-        const existingType =
-          this.#unionNames.has(item.name.text) || this.#recordNames.has(item.name.text);
-        if (existingType) {
-          this.#diagnostics.add({
-            severity: "error",
-            message: `type \`${item.name.text}\` is already declared`,
-            primary: item.name.span,
-          });
-        }
-        const record = Resolved.recordId(this.#nextRecord++);
-        if (!existingType) {
-          this.#recordNames.set(item.name.text, record);
-          this.#recordArities.set(item.name.text, item.parameters.length);
-        }
+        const record = this.#recordDeclarations.get(item) ?? Resolved.recordId(this.#nextRecord++);
         const existing = scope.lookup(item.name.text);
         if (existing !== undefined) this.#reportRebinding(item.name, existing);
         const constructor = this.#declare(item.name, "record-constructor");
@@ -568,6 +644,8 @@ class Resolver {
           name: item.name.text,
           parameters: item.parameters.map(({ text }) => text),
           derives: item.derives.map(({ text }) => text),
+          opaque: item.opaque,
+          representationVisible: true,
           constructor,
           fields,
           span: item.span,
@@ -576,6 +654,7 @@ class Resolver {
         return {
           kind: "RecordDeclaration",
           exported: item.exported,
+          opaque: item.opaque,
           record,
           name: item.name.text,
           parameters: declaration.parameters,
@@ -603,19 +682,16 @@ class Resolver {
         };
       }
       case "Fun": {
-        const existing = scope.lookup(item.name.text);
-        if (existing !== undefined) this.#reportRebinding(item.name, existing);
-
-        const binding = this.#declare(item.name, "fun");
-        const valueScope = existing === undefined ? scope : new Scope(scope);
-        valueScope.define(item.name.text, binding.symbol);
-        if (existing === undefined) scope.define(item.name.text, binding.symbol);
+        const binding = this.#predeclaredBindings.get(item) ?? this.#declare(item.name, "fun");
+        this.#currentFunctions.push(binding.symbol);
+        const value = this.#resolveLambda(item.value, scope);
+        this.#currentFunctions.pop();
 
         return {
           kind: "Fun",
           exported: item.exported,
           binding,
-          value: this.#resolveLambda(item.value, valueScope),
+          value,
           span: item.span,
         };
       }
@@ -1082,8 +1158,25 @@ class Resolver {
   }
 
   #resolveName(expression: Parsed.NameExpr, scope: Scope): Resolved.Expr {
-    const symbol = scope.lookup(expression.name.text);
+    let symbol = scope.lookup(expression.name.text);
+    const currentFunction = this.#currentFunctions.at(-1);
+    if (symbol === undefined && currentFunction !== undefined) {
+      for (let index = this.#futureSequential.length - 1; index >= 0; index -= 1) {
+        const future = this.#futureSequential[index]?.get(expression.name.text);
+        if (future === undefined) continue;
+        symbol = future.symbol;
+        const captures = this.#funCaptures.get(currentFunction) ?? new Set();
+        captures.add(symbol);
+        this.#funCaptures.set(currentFunction, captures);
+        break;
+      }
+    }
     if (symbol !== undefined) {
+      if (currentFunction !== undefined && this.#symbol(symbol).kind === "fun" && symbol !== currentFunction) {
+        const dependencies = this.#funDependencies.get(currentFunction) ?? new Set();
+        dependencies.add(symbol);
+        this.#funDependencies.set(currentFunction, dependencies);
+      }
       const owner = this.#varOwners.get(symbol);
       if (owner !== undefined && owner < this.#lambdaDepth) {
         this.#diagnostics.add({
@@ -1110,14 +1203,6 @@ class Resolver {
           : `\`${expression.name.text}\` is not in scope in its own \`var\` definition; initialize it from an earlier binding`,
         primary: expression.span,
         labels: [{ span: pending.name.span, message: "binding declared here" }],
-      });
-    } else if (this.#findLaterFun(expression.name.text) !== undefined) {
-      this.#diagnostics.add({
-        severity: "error",
-        message:
-          `\`${expression.name.text}\` is declared by a later \`fun\`; forward ` +
-          "and mutual `fun` references are not implemented yet",
-        primary: expression.span,
       });
     } else {
       this.#diagnostics.add({
@@ -1190,12 +1275,13 @@ class Resolver {
     annotation: Parsed.TypeAnnotation,
     typeParameters = new Set<string>(),
     impliedContext?: { readonly owner: string; readonly names: ReadonlySet<string> },
+    substitutions: ReadonlyMap<string, Resolved.TypeAnnotation> = new Map(),
   ): Resolved.TypeAnnotation {
     if (annotation.kind === "Tuple") {
       return {
         kind: "Tuple",
         elements: annotation.elements.map((element) =>
-          this.#resolveTypeAnnotation(element, typeParameters, impliedContext),
+          this.#resolveTypeAnnotation(element, typeParameters, impliedContext, substitutions),
         ),
         span: annotation.span,
       };
@@ -1205,7 +1291,7 @@ class Resolver {
         kind: "Record",
         fields: annotation.fields.map((field) => ({
           name: field.name.text,
-          annotation: this.#resolveTypeAnnotation(field.annotation, typeParameters, impliedContext),
+          annotation: this.#resolveTypeAnnotation(field.annotation, typeParameters, impliedContext, substitutions),
           span: field.span,
         })),
         open: annotation.open,
@@ -1214,6 +1300,8 @@ class Resolver {
       };
     }
     if (annotation.kind === "TypeVariable") {
+      const replacement = substitutions.get(annotation.name.text);
+      if (replacement !== undefined) return withTypeSpan(replacement, annotation.span);
       return {
         kind: "TypeVariable",
         name: annotation.name.text,
@@ -1223,6 +1311,32 @@ class Resolver {
     const name = annotation.kind === "AppliedType"
       ? annotation.constructor.text
       : annotation.name.text;
+    if (annotation.qualifier !== undefined) {
+      const imported = this.#moduleAliases.get(annotation.qualifier.text);
+      if (imported === undefined) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `unknown module alias \`${annotation.qualifier.text}\``,
+          primary: annotation.qualifier.span,
+        });
+        return { kind: "ErrorType", span: annotation.span };
+      }
+      const arguments_ = annotation.kind === "AppliedType"
+        ? annotation.arguments.map((argument) => this.#resolveTypeAnnotation(argument, typeParameters, impliedContext, substitutions))
+        : [];
+      const union = imported.unions.get(name);
+      if (union !== undefined) return this.#resolvedNominalType("union", union, name, arguments_, annotation.span);
+      const record = imported.records.get(name);
+      if (record !== undefined) return this.#resolvedNominalType("record", record, name, arguments_, annotation.span);
+      const alias = imported.aliases.get(name);
+      if (alias !== undefined) return this.#instantiateResolvedAlias(alias, arguments_, annotation.span);
+      this.#diagnostics.add({
+        severity: "error",
+        message: `module \`${annotation.qualifier.text}\` does not export type \`${name}\``,
+        primary: annotation.span,
+      });
+      return { kind: "ErrorType", span: annotation.span };
+    }
     if (impliedContext?.names.has(name)) {
       if (annotation.kind === "AppliedType") {
         this.#diagnostics.add({
@@ -1239,11 +1353,20 @@ class Resolver {
         span: annotation.span,
       };
     }
+    const alias = this.#typeAliases.get(name);
+    if (alias !== undefined) {
+      const arguments_ = annotation.kind === "AppliedType"
+        ? annotation.arguments.map((argument) => this.#resolveTypeAnnotation(argument, typeParameters, impliedContext, substitutions))
+        : [];
+      return isResolvedTypeAlias(alias)
+        ? this.#instantiateResolvedAlias(alias, arguments_, annotation.span)
+        : this.#resolveAlias(name, arguments_, annotation.span, typeParameters, impliedContext, substitutions);
+    }
     const union = this.#unionNames.get(name);
     if (union !== undefined) {
       const arguments_ = annotation.kind === "AppliedType"
         ? annotation.arguments.map((argument) =>
-          this.#resolveTypeAnnotation(argument, typeParameters, impliedContext)
+          this.#resolveTypeAnnotation(argument, typeParameters, impliedContext, substitutions)
         )
         : [];
       const expected = this.#unionArities.get(name) ?? 0;
@@ -1273,7 +1396,7 @@ class Resolver {
         }
         const argument = annotation.arguments[0] === undefined
           ? { kind: "ErrorType" as const, span: annotation.span }
-          : this.#resolveTypeAnnotation(annotation.arguments[0], typeParameters, impliedContext);
+          : this.#resolveTypeAnnotation(annotation.arguments[0], typeParameters, impliedContext, substitutions);
         if (name === "Nullable") return { kind: "Nullable", value: argument, span: annotation.span };
         if (name === "Seq") return { kind: "Seq", element: argument, span: annotation.span };
         if (name === "Vector") return { kind: "Vector", element: argument, span: annotation.span };
@@ -1292,17 +1415,17 @@ class Resolver {
           kind: "Map",
           key: annotation.arguments[0] === undefined
             ? { kind: "ErrorType", span: annotation.span }
-            : this.#resolveTypeAnnotation(annotation.arguments[0], typeParameters, impliedContext),
+            : this.#resolveTypeAnnotation(annotation.arguments[0], typeParameters, impliedContext, substitutions),
           value: annotation.arguments[1] === undefined
             ? { kind: "ErrorType", span: annotation.span }
-            : this.#resolveTypeAnnotation(annotation.arguments[1], typeParameters, impliedContext),
+            : this.#resolveTypeAnnotation(annotation.arguments[1], typeParameters, impliedContext, substitutions),
           span: annotation.span,
         };
       }
       const record = this.#recordNames.get(name);
       if (record !== undefined) {
         const arguments_ = annotation.arguments.map((argument) =>
-          this.#resolveTypeAnnotation(argument, typeParameters, impliedContext)
+          this.#resolveTypeAnnotation(argument, typeParameters, impliedContext, substitutions)
         );
         const expected = this.#recordArities.get(name) ?? 0;
         if (arguments_.length !== expected) {
@@ -1378,12 +1501,92 @@ class Resolver {
     return { symbol, name: name.text, span: name.span };
   }
 
+  #resolveAlias(
+    name: string,
+    arguments_: readonly Resolved.TypeAnnotation[],
+    span: Source.Span,
+    outerParameters = new Set<string>(),
+    impliedContext?: { readonly owner: string; readonly names: ReadonlySet<string> },
+    outerSubstitutions: ReadonlyMap<string, Resolved.TypeAnnotation> = new Map(),
+  ): Resolved.TypeAnnotation {
+    const alias = this.#typeAliases.get(name);
+    if (alias === undefined || isResolvedTypeAlias(alias)) return { kind: "ErrorType", span };
+    if (this.#resolvingAliases.includes(name)) {
+      const cycle = [...this.#resolvingAliases.slice(this.#resolvingAliases.indexOf(name)), name];
+      this.#diagnostics.add({
+        severity: "error",
+        message: `recursive type alias cycle: ${cycle.map((part) => `\`${part}\``).join(" -> ")}`,
+        primary: span,
+      });
+      return { kind: "ErrorType", span };
+    }
+    if (arguments_.length !== alias.parameters.length) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `type alias \`${name}\` expects ${alias.parameters.length} argument${alias.parameters.length === 1 ? "" : "s"}, but ${arguments_.length} were provided`,
+        primary: span,
+      });
+    }
+    const replacements = new Map(outerSubstitutions);
+    alias.parameters.forEach((parameter, index) => {
+      replacements.set(parameter.text, arguments_[index] ?? { kind: "ErrorType", span });
+    });
+    this.#resolvingAliases.push(name);
+    const result = this.#resolveTypeAnnotation(
+      alias.annotation,
+      new Set([...outerParameters, ...alias.parameters.map(({ text }) => text)]),
+      impliedContext,
+      replacements,
+    );
+    this.#resolvingAliases.pop();
+    return withTypeSpan(result, span);
+  }
+
+  #instantiateResolvedAlias(
+    alias: Resolved.TypeAliasItem,
+    arguments_: readonly Resolved.TypeAnnotation[],
+    span: Source.Span,
+  ): Resolved.TypeAnnotation {
+    if (arguments_.length !== alias.parameters.length) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `type alias \`${alias.name}\` expects ${alias.parameters.length} argument${alias.parameters.length === 1 ? "" : "s"}, but ${arguments_.length} were provided`,
+        primary: span,
+      });
+    }
+    const replacements = new Map(alias.parameters.map((parameter, index) => [
+      parameter,
+      arguments_[index] ?? { kind: "ErrorType" as const, span },
+    ]));
+    return substituteResolvedType(alias.annotation, replacements, span);
+  }
+
+  #resolvedNominalType(
+    kind: "union" | "record",
+    declaration: Resolved.Union | Resolved.RecordDeclaration,
+    name: string,
+    arguments_: readonly Resolved.TypeAnnotation[],
+    span: Source.Span,
+  ): Resolved.TypeAnnotation {
+    const expected = declaration.parameters.length;
+    if (arguments_.length !== expected) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `type \`${name}\` expects ${expected} argument${expected === 1 ? "" : "s"}, but ${arguments_.length} were provided`,
+        primary: span,
+      });
+    }
+    return kind === "union"
+      ? { kind: "Union", union: (declaration as Resolved.Union).id, name, arguments: arguments_, span }
+      : { kind: "RecordDeclaration", record: (declaration as Resolved.RecordDeclaration).id, name, arguments: arguments_, span };
+  }
+
   #includeNominals(imported: ModuleInterface): void {
     for (const union of imported.unions.values()) {
-      if (!this.#unions.some(({ id }) => id === union.id)) this.#unions.push(union);
+      if (!this.#unions.some(({ id }) => id === union.id)) this.#unions.push({ ...union, representationVisible: false });
     }
     for (const record of imported.records.values()) {
-      if (!this.#records.some(({ id }) => id === record.id)) this.#records.push(record);
+      if (!this.#records.some(({ id }) => id === record.id)) this.#records.push({ ...record, representationVisible: false });
     }
   }
 
@@ -1397,14 +1600,37 @@ class Resolver {
     return undefined;
   }
 
-  #findLaterFun(name: string): Parsed.Name | undefined {
-    for (let index = this.#laterFunNames.length - 1; index >= 0; index -= 1) {
-      const found = this.#laterFunNames[index]?.find(
-        (candidate) => candidate.text === name,
-      );
-      if (found !== undefined) return found;
+  #checkFunctionAvailability(items: readonly Resolved.Item[]): void {
+    const required = (symbol: Resolved.SymbolId, visiting = new Set<Resolved.SymbolId>()): Set<Resolved.SymbolId> => {
+      if (visiting.has(symbol)) return new Set();
+      const next = new Set(visiting);
+      next.add(symbol);
+      const captures = new Set(this.#funCaptures.get(symbol) ?? []);
+      for (const dependency of this.#funDependencies.get(symbol) ?? []) {
+        for (const capture of required(dependency, next)) captures.add(capture);
+      }
+      return captures;
+    };
+    const available = new Set<Resolved.SymbolId>();
+    for (const item of items) if (item.kind === "Fun") available.add(item.binding.symbol);
+    for (const item of items) {
+      if (item.kind !== "Fun") {
+        for (const reference of itemNameReferences(item)) {
+          if (this.#symbol(reference.symbol).kind !== "fun") continue;
+          const missing = [...required(reference.symbol)].find((capture) => !available.has(capture));
+          if (missing === undefined) continue;
+          const captured = this.#symbol(missing);
+          this.#diagnostics.add({
+            severity: "error",
+            message: `\`${reference.text}\` cannot be used before captured value \`${captured.name}\` is bound`,
+            primary: reference.span,
+            labels: [{ span: captured.bindingSpan, message: "captured value is bound here" }],
+          });
+        }
+      }
+      if (item.kind === "Let" || item.kind === "Var") available.add(item.binding.symbol);
+      if (item.kind === "LetPattern") for (const binding of resolvedPatternBindings(item.pattern)) available.add(binding.symbol);
     }
-    return undefined;
   }
 
   #reportRebinding(name: Parsed.Name, existing: Resolved.SymbolId): void {
@@ -1442,6 +1668,12 @@ function isUnshadowedConsoleLog(
 
 function isPrimitiveName(name: string): name is Resolved.PrimitiveName {
   return ["Int", "Float", "Bool", "String", "BigInt", "Exn", "Unit"].includes(name);
+}
+
+function isResolvedTypeAlias(
+  alias: Parsed.TypeAliasItem | Resolved.TypeAliasItem,
+): alias is Resolved.TypeAliasItem {
+  return typeof alias.name === "string";
 }
 
 function parsedPatternNames(pattern: Parsed.Pattern): Parsed.Name[] {
@@ -1520,4 +1752,97 @@ function annotationTypeVariables(annotation: Resolved.TypeAnnotation): readonly 
     case "ErrorType":
       return [];
   }
+}
+
+function parsedAnnotationTypeVariables(annotation: Parsed.TypeAnnotation): ReadonlySet<string> {
+  const names = new Set<string>();
+  const visit = (type: Parsed.TypeAnnotation): void => {
+    if (type.kind === "TypeVariable") names.add(type.name.text);
+    else if (type.kind === "Tuple") type.elements.forEach(visit);
+    else if (type.kind === "Record") type.fields.forEach((field) => visit(field.annotation));
+    else if (type.kind === "AppliedType") type.arguments.forEach(visit);
+  };
+  visit(annotation);
+  return names;
+}
+
+function withTypeSpan(type: Resolved.TypeAnnotation, span: Source.Span): Resolved.TypeAnnotation {
+  return { ...type, span };
+}
+
+function substituteResolvedType(
+  type: Resolved.TypeAnnotation,
+  replacements: ReadonlyMap<string, Resolved.TypeAnnotation>,
+  span = type.span,
+): Resolved.TypeAnnotation {
+  if (type.kind === "TypeVariable") return withTypeSpan(replacements.get(type.name) ?? type, span);
+  if (type.kind === "Tuple") return { ...type, elements: type.elements.map((element) => substituteResolvedType(element, replacements)), span };
+  if (type.kind === "Record") return {
+    ...type,
+    fields: type.fields.map((field) => ({ ...field, annotation: substituteResolvedType(field.annotation, replacements) })),
+    span,
+  };
+  if (type.kind === "Seq" || type.kind === "Vector" || type.kind === "Set" || type.kind === "Array") {
+    return { ...type, element: substituteResolvedType(type.element, replacements), span };
+  }
+  if (type.kind === "Nullable") return { ...type, value: substituteResolvedType(type.value, replacements), span };
+  if (type.kind === "Map") return {
+    ...type,
+    key: substituteResolvedType(type.key, replacements),
+    value: substituteResolvedType(type.value, replacements),
+    span,
+  };
+  if (type.kind === "Union" || type.kind === "RecordDeclaration") {
+    return { ...type, arguments: type.arguments.map((argument) => substituteResolvedType(argument, replacements)), span };
+  }
+  return { ...type, span };
+}
+
+function itemNameReferences(item: Resolved.Item): readonly Resolved.NameExpr[] {
+  if (item.kind === "Let" || item.kind === "Var" || item.kind === "LetPattern") return expressionNames(item.value);
+  if (item.kind === "ExprItem") return expressionNames(item.expression);
+  if (item.kind === "Honor") return item.members.flatMap((member) => expressionNames(member.value.body));
+  return [];
+}
+
+function expressionNames(expression: Resolved.Expr): Resolved.NameExpr[] {
+  if (expression.kind === "Name") return [expression];
+  if (expression.kind === "Unit" || expression.kind === "Boolean" || expression.kind === "Integer" || expression.kind === "BigInt" || expression.kind === "Float" || expression.kind === "ErrorExpr" || expression.kind === "SeqOperation" || expression.kind === "CollectionOperation") return [];
+  if (expression.kind === "String") return expression.parts.flatMap((part) => part.kind === "Interpolation" ? expressionNames(part.expression) : []);
+  if (expression.kind === "Tuple" || expression.kind === "Vector") return expression.elements.flatMap(expressionNames);
+  if (expression.kind === "Record") return [...(expression.spread === undefined ? [] : expressionNames(expression.spread)), ...expression.fields.flatMap((field) => expressionNames(field.value))];
+  if (expression.kind === "Group") return expressionNames(expression.expression);
+  if (expression.kind === "Block") return expression.items.flatMap(itemNameReferences);
+  if (expression.kind === "Lambda") return expressionNames(expression.body);
+  if (expression.kind === "If") return [...expressionNames(expression.condition), ...expressionNames(expression.consequence), ...(expression.alternative === undefined ? [] : expressionNames(expression.alternative))];
+  if (expression.kind === "While") return [...expressionNames(expression.condition), ...expressionNames(expression.body)];
+  if (expression.kind === "For") return [...expressionNames(expression.iterable), ...expressionNames(expression.body)];
+  if (expression.kind === "Match") return [
+    ...expressionNames(expression.scrutinee),
+    ...expression.arms.flatMap((arm) => [...(arm.guard === undefined ? [] : expressionNames(arm.guard)), ...expressionNames(arm.body)]),
+  ];
+  if (expression.kind === "Try") return [...expressionNames(expression.body), ...expression.arms.flatMap((arm) => expressionNames(arm.body))];
+  if (expression.kind === "Throw") return expressionNames(expression.exception);
+  if (expression.kind === "Call") return [...expressionNames(expression.callee), ...expression.arguments.flatMap(expressionNames)];
+  if (expression.kind === "ConsoleLog") return expression.arguments.flatMap(expressionNames);
+  if (expression.kind === "Access") return expressionNames(expression.receiver);
+  if (expression.kind === "Hash") return expressionNames(expression.value);
+  if (expression.kind === "Index") return [...expressionNames(expression.receiver), ...expressionNames(expression.index)];
+  if (expression.kind === "Unary") return expressionNames(expression.operand);
+  if (expression.kind === "Binary") return [...expressionNames(expression.left), ...expressionNames(expression.right)];
+  if (expression.kind === "Comparison") return expression.operands.flatMap(expressionNames);
+  return [...expressionNames(expression.target), ...expressionNames(expression.value)];
+}
+
+function resolvedPatternBindings(pattern: Resolved.Pattern): readonly Resolved.Binding[] {
+  if (pattern.kind === "Binding") return [pattern.binding];
+  if (pattern.kind === "As") return [...resolvedPatternBindings(pattern.pattern), pattern.binding];
+  if (pattern.kind === "Or") return pattern.alternatives[0] === undefined ? [] : resolvedPatternBindings(pattern.alternatives[0]);
+  if (pattern.kind === "Tuple" || pattern.kind === "Vector") return [
+    ...pattern.elements.flatMap(resolvedPatternBindings),
+    ...(pattern.kind === "Vector" && pattern.rest?.pattern !== undefined ? resolvedPatternBindings(pattern.rest.pattern) : []),
+  ];
+  if (pattern.kind === "Record") return pattern.fields.flatMap((field) => resolvedPatternBindings(field.pattern));
+  if (pattern.kind === "Constructor") return pattern.arguments.flatMap(resolvedPatternBindings);
+  return [];
 }

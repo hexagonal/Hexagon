@@ -10,6 +10,40 @@ import { resolve } from "../resolver/resolver.js";
 import { check } from "./checker.js";
 
 describe("check", () => {
+  test("expands order-independent aliases and checks mutual recursion", () => {
+    const module = checkSource(
+      "type Coordinates = Point\n" +
+        "record Point = {x: Int, y: Int}\n" +
+        "type Pair(a) = (a, a)\n" +
+        "fun even(n: Int): Bool = if n == 0 then true else odd(n - 1)\n" +
+        "fun odd(n: Int): Bool = if n == 0 then false else even(n - 1)\n" +
+        "let origin: Coordinates = Point({x: 0, y: 0})\n" +
+        "let flags: Pair(Bool) = (even(4), odd(3))",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    expect(letSymbol(module, "origin").scheme.type).toMatchObject({ kind: "NominalRecord", name: "Point" });
+    expect(letSymbol(module, "flags").scheme.type).toMatchObject({
+      kind: "Tuple",
+      elements: [{ name: "Bool" }, { name: "Bool" }],
+    });
+  });
+
+  test("rejects recursive aliases, unused parameters, and private public types", () => {
+    const module = checkSource(
+      "type Loop = Loop\n" +
+        "type Unused(a) = Int\n" +
+        "record Secret = {value: Int}\n" +
+        "export fun reveal(secret: Secret): Int = secret.value",
+    );
+    const messages = module.diagnostics.map(({ message }) => message);
+    expect(messages.some((message) => message.startsWith("recursive type alias cycle:"))).toBe(true);
+    expect(messages).toContain("type parameter `a` is not used by alias `Unused`");
+    expect(messages).toContain(
+      "exported binding `reveal` exposes private type `Secret`; export the type, perhaps opaquely, or keep the binding private",
+    );
+  });
+
   test("tracks refutable constructor payloads before marking a case covered", () => {
     const complete = checkSource(
       "union Flagged = Flagged(value: Bool) | Empty\n" +

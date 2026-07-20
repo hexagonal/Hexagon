@@ -48,6 +48,7 @@ function elaborateItem(item: Typed.Item): Core.Item {
     case "LetPattern":
       return { ...item, pattern: elaboratePattern(item.pattern), value: elaborateExpr(item.value) };
     case "Union":
+    case "TypeAlias":
     case "RecordDeclaration":
     case "Exception":
       return item;

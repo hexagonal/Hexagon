@@ -187,15 +187,35 @@ describe("resolve", () => {
     );
   });
 
-  test("diagnoses the deferred forward and mutual recursion boundary", () => {
+  test("resolves forward and mutual function references as one recursive group", () => {
     const module = resolveSource(
       "fun even(n: Int): Bool = odd(n - 1)\n" +
         "fun odd(n: Int): Bool = even(n - 1)",
     );
 
-    expect(module.diagnostics.map(({ message }) => message)).toEqual([
-      "`odd` is declared by a later `fun`; forward and mutual `fun` references are not implemented yet",
-    ]);
+    expect(module.diagnostics).toEqual([]);
+    expect(module.items[0]).toMatchObject({
+      kind: "Fun",
+      value: { body: { kind: "Call", callee: { kind: "Name", text: "odd" } } },
+    });
+  });
+
+  test("delays a function until its later captures are bound", () => {
+    const early = resolveSource(
+      "fun announce(): String = message\n" +
+        "announce()\n" +
+        'let message = "ready"',
+    );
+    expect(early.diagnostics.map(({ message }) => message)).toContain(
+      "`announce` cannot be used before captured value `message` is bound",
+    );
+
+    const ready = resolveSource(
+      "fun announce(): String = message\n" +
+        'let message = "ready"\n' +
+        "announce()",
+    );
+    expect(ready.diagnostics).toEqual([]);
   });
 
   test("allows lambda parameters to shadow outer bindings", () => {
