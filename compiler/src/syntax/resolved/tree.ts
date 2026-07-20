@@ -194,6 +194,7 @@ export type Item =
   | VarItem
   | LetPatternItem
   | FunItem
+  | TypeAliasItem
   | RecordItem
   | ExceptionItem
   | ConstraintItem
@@ -227,6 +228,7 @@ export interface ImportName {
   readonly imported: string;
   readonly local: string;
   readonly symbol?: SymbolId;
+  readonly typeOnly?: boolean;
   readonly span: Source.Span;
 }
 
@@ -350,11 +352,22 @@ export interface FunItem {
   readonly span: Source.Span;
 }
 
+export interface TypeAliasItem {
+  readonly kind: "TypeAlias";
+  readonly exported: boolean;
+  readonly name: string;
+  readonly parameters: readonly string[];
+  readonly annotation: TypeAnnotation;
+  readonly span: Source.Span;
+}
+
 export interface Union {
   readonly id: UnionId;
   readonly name: string;
   readonly parameters: readonly string[];
   readonly derives: readonly string[];
+  readonly opaque: boolean;
+  readonly representationVisible: boolean;
   readonly span: Source.Span;
   readonly constructors: readonly Constructor[];
 }
@@ -374,6 +387,7 @@ export interface ConstructorSlot {
 export interface UnionItem {
   readonly kind: "Union";
   readonly exported: boolean;
+  readonly opaque: boolean;
   readonly union: UnionId;
   readonly name: string;
   readonly parameters: readonly string[];
@@ -387,6 +401,8 @@ export interface RecordDeclaration {
   readonly name: string;
   readonly parameters: readonly string[];
   readonly derives: readonly string[];
+  readonly opaque: boolean;
+  readonly representationVisible: boolean;
   readonly constructor: Binding;
   readonly fields: readonly RecordTypeField[];
   readonly span: Source.Span;
@@ -395,6 +411,7 @@ export interface RecordDeclaration {
 export interface RecordItem {
   readonly kind: "RecordDeclaration";
   readonly exported: boolean;
+  readonly opaque: boolean;
   readonly record: RecordId;
   readonly name: string;
   readonly parameters: readonly string[];

@@ -76,6 +76,7 @@ export type Item =
   | VarItem
   | LetPatternItem
   | FunItem
+  | TypeAliasItem
   | RecordItem
   | ExceptionItem
   | ConstraintItem
@@ -211,10 +212,14 @@ export interface FunItem {
   readonly span: Source.Span;
 }
 
+export type TypeAliasItem = Typed.TypeAliasItem;
+
 export interface Union {
   readonly id: Resolved.UnionId;
   readonly name: string;
   readonly parameters: readonly Typed.TypeVariableId[];
+  readonly opaque: boolean;
+  readonly representationVisible: boolean;
   readonly span: Source.Span;
   readonly constructors: readonly Constructor[];
 }
@@ -232,6 +237,7 @@ export interface ConstructorSlot {
 export interface UnionItem {
   readonly kind: "Union";
   readonly exported: boolean;
+  readonly opaque: boolean;
   readonly union: Resolved.UnionId;
   readonly name: string;
   readonly parameters: readonly Typed.TypeVariableId[];

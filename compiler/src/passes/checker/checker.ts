@@ -183,6 +183,7 @@ class Checker {
   readonly #recordParameters = new Map<Resolved.RecordId, ReadonlyMap<string, Variable>>();
   readonly #recordFields = new Map<Resolved.RecordId, ReadonlyMap<string, Mono>>();
   readonly #recordConstructors = new Set<Resolved.SymbolId>();
+  readonly #aliasParameters = new WeakMap<Resolved.TypeAliasItem, ReadonlyMap<string, Variable>>();
   readonly #exceptions = new Map<Resolved.SymbolId, Resolved.ExceptionItem>();
   readonly #operationsByName = new Map<string, Resolved.Symbol>();
   readonly #operationSpellings = new Map<Resolved.SymbolId, string>();
@@ -224,6 +225,12 @@ class Checker {
     }
     for (const [symbol, scheme] of this.#importedSchemes) {
       this.#schemes.set(symbol, this.#importScheme(scheme));
+    }
+    for (const item of module.items) {
+      if (item.kind !== "TypeAlias") continue;
+      this.#aliasParameters.set(item, new Map(
+        item.parameters.map((name) => [name, this.#fresh(0, false)] as const),
+      ));
     }
     for (const item of module.items) {
       if (item.kind === "ConstraintDeclaration") {
@@ -421,6 +428,7 @@ class Checker {
     }
     this.#inferItems(module.items, 0, true);
     this.#defaultRemainingVariables();
+    this.#checkPublicSignatures(module.items);
 
     const symbols = module.symbols.map((symbol) => ({
       ...symbol,
@@ -496,6 +504,38 @@ class Checker {
     level: number,
     moduleItems: boolean,
   ): Mono {
+    const sequentialPlaceholders = new Map<Resolved.SymbolId, Variable>();
+    const recursiveTypes = new Map<Resolved.SymbolId, Variable>();
+    const capturedSequential = new Set(
+      items.flatMap((item) => item.kind === "Fun" ? [...referencedSymbols(item.value)] : []),
+    );
+    for (const item of items) {
+      if ((item.kind === "Let" || item.kind === "Var") && capturedSequential.has(item.binding.symbol)) {
+        const placeholder = this.#fresh(level + 1, false);
+        sequentialPlaceholders.set(item.binding.symbol, placeholder);
+        this.#schemes.set(item.binding.symbol, { variables: [], type: placeholder });
+      } else if (item.kind === "Fun") {
+        const recursiveType = this.#fresh(level + 1, false);
+        recursiveTypes.set(item.binding.symbol, recursiveType);
+        this.#schemes.set(item.binding.symbol, { variables: [], type: recursiveType });
+      }
+    }
+    // All functions in one lexical block form a recursive group. Their
+    // provisional monotypes are installed together before any body is checked.
+    for (const item of items) {
+      if (item.kind !== "Fun") continue;
+      const recursiveType = recursiveTypes.get(item.binding.symbol)!;
+      const valueType = this.#inferExpr(item.value, level + 1);
+      this.#unify(recursiveType, valueType, item.span);
+    }
+    for (const item of items) {
+      if (item.kind !== "Fun") continue;
+      this.#schemes.set(
+        item.binding.symbol,
+        this.#generalize(recursiveTypes.get(item.binding.symbol)!, level, true),
+      );
+    }
+
     for (let index = 0; index < items.length; index += 1) {
       const item = items[index];
       if (item === undefined) continue;
@@ -514,6 +554,8 @@ class Checker {
           );
           if (this.#intWidenings.has(item.value)) valueType = annotationType;
         }
+        const placeholder = sequentialPlaceholders.get(item.binding.symbol);
+        if (placeholder !== undefined) this.#unify(placeholder, valueType, item.span);
         const scheme = this.#generalize(
           valueType,
           level,
@@ -729,7 +771,9 @@ class Checker {
           );
           if (this.#intWidenings.has(item.value)) valueType = annotationType;
         }
-        this.#schemes.set(item.binding.symbol, { variables: [], type: valueType });
+        const placeholder = sequentialPlaceholders.get(item.binding.symbol);
+        if (placeholder !== undefined) this.#unify(placeholder, valueType, item.span);
+        this.#schemes.set(item.binding.symbol, { variables: [], type: placeholder ?? valueType });
         this.#mutableSymbols.add(item.binding.symbol);
         continue;
       }
@@ -746,20 +790,6 @@ class Checker {
       }
 
       if (item.kind === "Fun") {
-        // Recursive uses see this one provisional monotype. Generalization is
-        // delayed until the body closes the knot, ruling out polymorphic
-        // recursion without a separate special case.
-        const recursiveType = this.#fresh(level + 1, false);
-        this.#schemes.set(item.binding.symbol, {
-          variables: [],
-          type: recursiveType,
-        });
-        const valueType = this.#inferExpr(item.value, level + 1);
-        this.#unify(recursiveType, valueType, item.span);
-        this.#schemes.set(
-          item.binding.symbol,
-          this.#generalize(recursiveType, level, true),
-        );
         continue;
       }
 
@@ -779,6 +809,7 @@ class Checker {
         }
       }
       if (item.kind === "RecordDeclaration") continue;
+      if (item.kind === "TypeAlias") continue;
       if (item.kind === "Exception") continue;
     }
 
@@ -791,6 +822,7 @@ class Checker {
       finalItem.kind === "Var" ||
       finalItem.kind === "LetPattern" ||
       finalItem.kind === "Fun" ||
+      finalItem.kind === "TypeAlias" ||
       finalItem.kind === "Union"
       || finalItem.kind === "RecordDeclaration"
       || finalItem.kind === "Exception"
@@ -807,6 +839,7 @@ class Checker {
       }
       if (
         finalItem.kind === "Union" ||
+        finalItem.kind === "TypeAlias" ||
         finalItem.kind === "RecordDeclaration" ||
         finalItem.kind === "Exception" ||
         finalItem.kind === "ConstraintDeclaration" ||
@@ -1196,6 +1229,13 @@ class Checker {
           ]));
           const actual = this.#prune(receiver);
           if (actual.kind === "NominalRecord") {
+            if (!this.#recordRepresentationVisible(actual.record)) {
+              type = this.#unsupported(
+                expression.span,
+                `cannot update opaque record \`${actual.name}\`; use an operation exported by its home module`,
+              );
+              break;
+            }
             const fields = this.#nominalRecordFields(actual);
             for (const [name, override] of overrides) {
               const existing = fields.get(name);
@@ -1648,6 +1688,7 @@ class Checker {
           }
           const nominal = actual.kind === "NominalRecord" || actual.kind === "Union";
           const recordHasField = actual.kind === "NominalRecord" &&
+            this.#recordRepresentationVisible(actual.record) &&
             this.#nominalRecordFields(actual).has(expression.callee.field.text);
           if (nominal && !recordHasField) {
             const operation = this.#operationsByName.get(expression.callee.field.text);
@@ -1801,6 +1842,13 @@ class Checker {
           ? this.#normalizeRecord(inferredReceiver)
           : inferredReceiver;
         if (receiver.kind === "NominalRecord") {
+          if (!this.#recordRepresentationVisible(receiver.record)) {
+            type = this.#unsupported(
+              expression.field.span,
+              `cannot access field \`${expression.field.text}\` of opaque record \`${receiver.name}\`; use an operation exported by its home module`,
+            );
+            break;
+          }
           const fields = this.#nominalRecordFields(receiver);
           const field = fields.get(expression.field.text);
           type = field === undefined
@@ -3391,6 +3439,43 @@ class Checker {
     );
   }
 
+  #recordRepresentationVisible(record: Resolved.RecordId): boolean {
+    return this.#records.get(record)?.representationVisible ?? true;
+  }
+
+  #checkPublicSignatures(items: readonly Resolved.Item[]): void {
+    const publicUnions = new Set(items.flatMap((item) => item.kind === "Union" && item.exported ? [item.union] : []));
+    const publicRecords = new Set(items.flatMap((item) => item.kind === "RecordDeclaration" && item.exported ? [item.record] : []));
+    const visit = (type: Mono, found = new Set<string>()): ReadonlySet<string> => {
+      const actual = this.#prune(type);
+      if (actual.kind === "Union") {
+        if (!publicUnions.has(actual.union) && this.#unions.get(actual.union)?.representationVisible) found.add(actual.name);
+        actual.arguments.forEach((argument) => visit(argument, found));
+      } else if (actual.kind === "NominalRecord") {
+        if (!publicRecords.has(actual.record) && this.#records.get(actual.record)?.representationVisible) found.add(actual.name);
+        actual.arguments.forEach((argument) => visit(argument, found));
+      } else if (actual.kind === "Function") {
+        actual.parameters.forEach((parameter) => visit(parameter, found));
+        visit(actual.result, found);
+      } else if (actual.kind === "Tuple") actual.elements.forEach((element) => visit(element, found));
+      else if (actual.kind === "Record") actual.fields.forEach((field) => visit(field, found));
+      else if (actual.kind === "Seq" || actual.kind === "Vector" || actual.kind === "Set" || actual.kind === "Array") visit(actual.element, found);
+      else if (actual.kind === "Nullable") visit(actual.value, found);
+      else if (actual.kind === "Map") { visit(actual.key, found); visit(actual.value, found); }
+      return found;
+    };
+    for (const item of items) {
+      if ((item.kind !== "Let" && item.kind !== "Fun") || !item.exported) continue;
+      for (const name of visit(this.#scheme(item.binding.symbol).type)) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `exported binding \`${item.binding.name}\` exposes private type \`${name}\`; export the type, perhaps opaquely, or keep the binding private`,
+          primary: item.binding.span,
+        });
+      }
+    }
+  }
+
   #typeOf(expression: Resolved.Expr): Mono {
     return this.#expressionTypes.get(expression) ?? ERROR;
   }
@@ -3656,6 +3741,7 @@ class Checker {
       return {
         kind: "Union",
         exported: item.exported,
+        opaque: item.opaque,
         union: item.union,
         name: item.name,
         parameters: [...(this.#unionParameters.get(item.union)?.values() ?? [])]
@@ -3685,6 +3771,17 @@ class Checker {
         exported: item.exported,
         record: item.record,
         ...record,
+      };
+    }
+    if (item.kind === "TypeAlias") {
+      const parameters = this.#aliasParameters.get(item) ?? new Map();
+      return {
+        kind: "TypeAlias",
+        exported: item.exported,
+        name: item.name,
+        parameters: [...parameters.values()].map(({ id }) => Typed.typeVariableId(id)),
+        type: this.#publicType(this.#annotationType(item.annotation, 0, new Map(), parameters)),
+        span: item.span,
       };
     }
     if (item.kind === "Exception") {
@@ -3815,6 +3912,8 @@ class Checker {
       parameters: [...(this.#unionParameters.get(union.id)?.values() ?? [])]
         .map(({ id }) => Typed.typeVariableId(id)),
       derives: union.derives,
+      opaque: union.opaque,
+      representationVisible: union.representationVisible,
       span: union.span,
       constructors: union.constructors.map(({ binding, slots }) => ({
         ...binding,
@@ -3840,6 +3939,8 @@ class Checker {
       name: record.name,
       parameters: [...(parameters?.values() ?? [])].map(({ id }) => Typed.typeVariableId(id)),
       derives: record.derives,
+      opaque: record.opaque,
+      representationVisible: record.representationVisible,
       constructor: {
         ...record.constructor,
         scheme: this.#publicScheme(this.#scheme(record.constructor.symbol)),
@@ -4337,6 +4438,25 @@ function renderLiteralPatternKey(
 
 function unwrapAsPattern(pattern: Resolved.Pattern): Resolved.Pattern {
   return pattern.kind === "As" ? unwrapAsPattern(pattern.pattern) : pattern;
+}
+
+function referencedSymbols(root: object): ReadonlySet<Resolved.SymbolId> {
+  const symbols = new Set<Resolved.SymbolId>();
+  const seen = new WeakSet<object>();
+  const visit = (value: unknown): void => {
+    if (value === null || typeof value !== "object") return;
+    if (seen.has(value)) return;
+    seen.add(value);
+    if ("kind" in value && value.kind === "Name" && "symbol" in value && typeof value.symbol === "number") {
+      symbols.add(value.symbol as Resolved.SymbolId);
+      return;
+    }
+    for (const [key, child] of Object.entries(value)) {
+      if (key !== "span") visit(child);
+    }
+  };
+  visit(root);
+  return symbols;
 }
 
 function coverageAlternatives(

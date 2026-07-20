@@ -23,6 +23,7 @@ export type Item =
   | VarItem
   | LetPatternItem
   | FunItem
+  | TypeAliasItem
   | RecordItem
   | ExceptionItem
   | ConstraintItem
@@ -82,9 +83,19 @@ export interface FunItem {
   readonly span: Source.Span;
 }
 
+export interface TypeAliasItem {
+  readonly kind: "TypeAlias";
+  readonly exported: boolean;
+  readonly name: Name;
+  readonly parameters: readonly Name[];
+  readonly annotation: TypeAnnotation;
+  readonly span: Source.Span;
+}
+
 export interface UnionItem {
   readonly kind: "Union";
   readonly exported: boolean;
+  readonly opaque: boolean;
   readonly name: Name;
   readonly parameters: readonly Name[];
   readonly derives: readonly Name[];
@@ -95,6 +106,7 @@ export interface UnionItem {
 export interface RecordItem {
   readonly kind: "RecordDeclaration";
   readonly exported: boolean;
+  readonly opaque: boolean;
   readonly name: Name;
   readonly parameters: readonly Name[];
   readonly derives: readonly Name[];
@@ -280,12 +292,14 @@ export interface ConstructorPattern {
 
 export interface NamedType {
   readonly kind: "NamedType";
+  readonly qualifier?: Name;
   readonly name: Name;
   readonly span: Source.Span;
 }
 
 export interface AppliedType {
   readonly kind: "AppliedType";
+  readonly qualifier?: Name;
   readonly constructor: Name;
   readonly arguments: readonly TypeAnnotation[];
   readonly span: Source.Span;
