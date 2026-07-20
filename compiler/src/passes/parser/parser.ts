@@ -50,7 +50,6 @@ const itemEnds = new Set<TokenKind>(["VSep", "Semicolon", "VClose", "Eof"]);
 const structuralEnds: readonly TokenKind[] = ["VSep", "Semicolon", "VClose", "Eof"];
 const unsupportedItemStarts = new Set<TokenKind>([
   "Extern",
-  "Type",
 ]);
 
 /** Parses one layout-aware file and retains diagnostics from earlier passes. */
@@ -166,10 +165,12 @@ class Parser {
           span: spanFrom(exportToken.span, this.#previous().span),
         };
       }
-      if (!this.#at("Let") && !this.#at("Fun") && !this.#at("Union") && !this.#at("Record") && !this.#at("Exception")) {
+      const opaque = this.#atContextual("opaque");
+      if (opaque) this.#advance();
+      if (!this.#at("Let") && !this.#at("Fun") && !this.#at("Type") && !this.#at("Union") && !this.#at("Record") && !this.#at("Exception")) {
         this.#errorAt(
           exportToken.span,
-          "the current parser supports `export` only on `let`, `fun`, and `union` bindings",
+          "`export` must be followed by a declaration",
         );
         this.#synchronize(itemEnds);
         return {
@@ -177,12 +178,25 @@ class Parser {
           span: spanFrom(exportToken.span, this.#previous().span),
         };
       }
-      if (this.#at("Union")) return this.#parseUnion(true, exportToken.span);
-      if (this.#at("Record")) return this.#parseRecordDeclaration(true, exportToken.span);
+      if (opaque && !this.#at("Union") && !this.#at("Record")) {
+        this.#errorAt(exportToken.span, "`opaque` is allowed only on exported records and unions");
+      }
+      if (this.#at("Type")) return this.#parseTypeAlias(true, exportToken.span);
+      if (this.#at("Union")) return this.#parseUnion(true, exportToken.span, opaque);
+      if (this.#at("Record")) return this.#parseRecordDeclaration(true, exportToken.span, opaque);
       if (this.#at("Exception")) return this.#parseException(true, exportToken.span);
       return this.#at("Let")
         ? this.#parseBinding("Let", true, exportToken.span)
         : this.#parseBinding("Fun", true, exportToken.span);
+    }
+    if (this.#at("Type")) {
+      if (!moduleItems) {
+        const start = this.#advance();
+        this.#errorAt(start.span, "type aliases are declared at module level");
+        this.#synchronize(itemEnds);
+        return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+      }
+      return this.#parseTypeAlias(false);
     }
     if (this.#at("Let")) {
       if (
@@ -206,7 +220,7 @@ class Parser {
         this.#synchronize(itemEnds);
         return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
       }
-      return this.#parseUnion(false);
+      return this.#parseUnion(false, undefined, false);
     }
     if (this.#at("Record")) {
       if (!moduleItems) {
@@ -215,7 +229,7 @@ class Parser {
         this.#synchronize(itemEnds);
         return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
       }
-      return this.#parseRecordDeclaration(false);
+      return this.#parseRecordDeclaration(false, undefined, false);
     }
     if (this.#at("Exception")) {
       if (!moduleItems) {
@@ -673,7 +687,47 @@ class Parser {
     return derives;
   }
 
-  #parseUnion(exported: boolean, itemStart?: Source.Span): Parsed.Item {
+  #parseTypeAlias(exported: boolean, itemStart?: Source.Span): Parsed.Item {
+    const start = this.#advance();
+    const nameToken = this.#takeName("UpperName", "`type` requires an uppercase type name");
+    if (nameToken === undefined) {
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+    }
+    const parameters: Parsed.Name[] = [];
+    if (this.#at("LeftParen")) {
+      this.#advance();
+      const seen = new Set<string>();
+      while (!this.#at("RightParen") && !this.#at("Eof")) {
+        const token = this.#takeName("NonUpperName", "alias parameters must be non-uppercase-start names");
+        if (token === undefined) break;
+        const parameter = parsedName(token);
+        if (seen.has(parameter.text)) this.#errorAt(parameter.span, `duplicate type parameter \`${parameter.text}\``);
+        seen.add(parameter.text);
+        parameters.push(parameter);
+        if (!this.#at("Comma")) break;
+        this.#advance();
+      }
+      this.#expect("RightParen", "expected `)` after alias parameters");
+      if (parameters.length === 0) this.#errorAt(nameToken.span, "generic alias parameter list cannot be empty");
+    }
+    this.#expect("Equal", "expected `=` after type alias name");
+    const annotation = this.#parseTypeAnnotation();
+    if (annotation === undefined) {
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(itemStart ?? start.span, this.#previous().span) };
+    }
+    return {
+      kind: "TypeAlias",
+      exported,
+      name: parsedName(nameToken),
+      parameters,
+      annotation,
+      span: spanFrom(itemStart ?? start.span, annotation.span),
+    };
+  }
+
+  #parseUnion(exported: boolean, itemStart?: Source.Span, opaque = false): Parsed.Item {
     const start = this.#advance();
     const nameToken = this.#takeName(
       "UpperName",
@@ -775,6 +829,7 @@ class Parser {
     return {
       kind: "Union",
       exported,
+      opaque,
       name: parsedName(nameToken),
       parameters,
       derives,
@@ -786,7 +841,7 @@ class Parser {
     };
   }
 
-  #parseRecordDeclaration(exported: boolean, itemStart?: Source.Span): Parsed.Item {
+  #parseRecordDeclaration(exported: boolean, itemStart?: Source.Span, opaque = false): Parsed.Item {
     const start = this.#advance();
     const nameToken = this.#takeName("UpperName", "`record` requires an uppercase type name");
     if (nameToken === undefined) {
@@ -835,6 +890,7 @@ class Parser {
     return {
       kind: "RecordDeclaration",
       exported,
+      opaque,
       name: parsedName(nameToken),
       parameters,
       derives,
@@ -1834,7 +1890,15 @@ class Parser {
       return undefined;
     }
     this.#advance();
-    const name = parsedName(token);
+    let qualifier: Parsed.Name | undefined;
+    let name = parsedName(token);
+    if (this.#at("Dot")) {
+      this.#advance();
+      const member = this.#takeName("UpperName", "qualified types require an uppercase type name after `.`");
+      if (member === undefined) return undefined;
+      qualifier = name;
+      name = parsedName(member);
+    }
     if (this.#at("LeftParen")) {
       this.#advance();
       const arguments_: Parsed.TypeAnnotation[] = [];
@@ -1851,12 +1915,18 @@ class Parser {
       }
       return {
         kind: "AppliedType",
+        ...(qualifier === undefined ? {} : { qualifier }),
         constructor: name,
         arguments: arguments_,
         span: spanFrom(name.span, closing?.span ?? arguments_.at(-1)?.span ?? name.span),
       };
     }
-    return { kind: "NamedType", name, span: name.span };
+    return {
+      kind: "NamedType",
+      ...(qualifier === undefined ? {} : { qualifier }),
+      name,
+      span: qualifier === undefined ? name.span : spanFrom(qualifier.span, name.span),
+    };
   }
 
   #takeName(

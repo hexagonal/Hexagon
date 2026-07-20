@@ -125,3 +125,45 @@ test("compiles Unicode module paths and cultural M namespace aliases", () => {
   expect(main.javascript.text).toContain('import * as Mगणित from "./गणित.js";');
   expect(main.javascript.text).toContain("const उत्तर = Mगणित.जोड़(20, 22);");
 });
+
+test("links exported aliases and enforces opaque module boundaries", () => {
+  const project = compileProject([
+    new Source.File(
+      Source.fileId(0),
+      "/vault.hex",
+      "export type Pair(a) = (a, a)\n" +
+        "export opaque record Token = {value: Int}\n" +
+        "export fun issue(value: Int): Token = Token({value: value})\n" +
+        "export fun reveal(token: Token): Int = token.value",
+    ),
+    new Source.File(
+      Source.fileId(1),
+      "/main.hex",
+      'import * as Vault from "./vault"\n' +
+        "export let pair: Vault.Pair(Int) = (1, 2)\n" +
+        "let token = Vault.issue(7)\n" +
+        "export let answer = Vault.reveal(token)",
+    ),
+  ]);
+
+  expect(project.diagnostics).toEqual([]);
+  const vault = project.modules.find(({ source }) => source.path === "/vault.hex")!;
+  expect(vault.javascript.text).not.toContain("export { Token }");
+  expect(vault.declarations.text).toContain("export type Pair<a> = [a, a];");
+  expect(vault.declarations.text).toContain("declare const __hex_opaque_Token: unique symbol;");
+
+  const violation = compileProject([
+    project.modules[0]!.source,
+    new Source.File(
+      Source.fileId(2),
+      "/bad.hex",
+      'import * as Vault from "./vault"\n' +
+        "let token = Vault.issue(7)\n" +
+        "let leaked = token.value",
+    ),
+  ]);
+  const bad = violation.modules.find(({ source }) => source.path === "/bad.hex")!;
+  expect(bad.typed.diagnostics.map(({ message }) => message)).toContain(
+    "cannot access field `value` of opaque record `Token`; use an operation exported by its home module",
+  );
+});
