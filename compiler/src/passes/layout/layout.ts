@@ -34,6 +34,7 @@ const clauseContinuations = new Set<Lexed.Token["kind"]>([
   "Then",
   "Else",
   "Catch",
+  "Finally",
 ]);
 
 /** Makes the module block and every nested offside block explicit. */
@@ -197,7 +198,12 @@ function expectsBlock(item: readonly Lexed.Token[]): boolean {
   }
 
   const last = item.at(-1);
-  if (last?.kind === "FatArrow" || last?.kind === "Else" || last?.kind === "Catch") {
+  if (
+    last?.kind === "FatArrow" ||
+    last?.kind === "Else" ||
+    last?.kind === "Catch" ||
+    last?.kind === "Finally"
+  ) {
     return true;
   }
 

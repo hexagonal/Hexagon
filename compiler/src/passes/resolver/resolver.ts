@@ -830,8 +830,17 @@ class Resolver {
           body: this.#resolveExpr(expression.body, scope),
           arms: expression.arms.map((arm) => {
             const armScope = new Scope(scope);
+            const pattern = this.#resolvePattern(
+              arm.pattern,
+              armScope,
+              new Map(),
+              true,
+            );
             return {
-              pattern: this.#resolvePattern(arm.pattern, armScope, new Map(), true),
+              pattern,
+              ...(arm.guard === undefined
+                ? {}
+                : { guard: this.#resolveExpr(arm.guard, armScope) }),
               body: this.#resolveExpr(arm.body, armScope),
               span: arm.span,
             };

@@ -181,6 +181,9 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
         body: elaborateExpr(expression.body),
         arms: expression.arms.map((arm) => ({
           pattern: elaboratePattern(arm.pattern),
+          ...(arm.guard === undefined
+            ? {}
+            : { guard: elaborateExpr(arm.guard) }),
           body: elaborateExpr(arm.body),
           span: arm.span,
         })),

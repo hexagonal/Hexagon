@@ -649,6 +649,74 @@ describe("check", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  test("checks nested, guarded, or-, and as-patterns in catch arms", () => {
+    const module = checkSource(
+      "union Reason = Code(Int) | Other\n" +
+        "exception Wrapped(reason: Reason)\n" +
+        "exception Backup(reason: Reason)\n" +
+        "let recover(value: Int): Int = try\n" +
+        "  throw(Wrapped(Code(value)))\n" +
+        "catch\n" +
+        "  Wrapped(Code(code) as reason) when code > 0 => code\n" +
+        "  Wrapped(Other) | Backup(Other) => 0\n" +
+        "  _ as whole => -1",
+    );
+
+    expect(letSymbol(module, "recover").scheme.type).toMatchObject({
+      kind: "Function",
+      parameters: [{ kind: "Primitive", name: "Int" }],
+      result: { kind: "Primitive", name: "Int" },
+    });
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("keeps guarded catch patterns out of reachability coverage", () => {
+    const reachable = checkSource(
+      "union Reason = Code(Int) | Other\n" +
+        "exception Wrapped(reason: Reason)\n" +
+        "fun choose(reason: Reason): Int = try\n" +
+        "  throw(Wrapped(reason))\n" +
+        "catch\n" +
+        "  Wrapped(_) when false => 1\n" +
+        "  Wrapped(Code(_)) => 2",
+    );
+    const unreachable = checkSource(
+      "union Reason = Code(Int) | Other\n" +
+        "exception Wrapped(reason: Reason)\n" +
+        "fun choose(reason: Reason): Int = try\n" +
+        "  throw(Wrapped(reason))\n" +
+        "catch\n" +
+        "  Wrapped(_) => 1\n" +
+        "  Wrapped(Code(_)) => 2",
+    );
+
+    expect(reachable.diagnostics).toEqual([]);
+    expect(unreachable.diagnostics.map(({ message }) => message)).toContain(
+      "exception `Wrapped` is already caught above",
+    );
+  });
+
+  test("enforces concrete exception payloads and exception-specific rewrites", () => {
+    const module = checkSource(
+      "exception Generic(value: a)\n" +
+        "exception WrongMessage(message: Int)\n" +
+        "exception Missing\n" +
+        "let called = Missing()\n" +
+        "fun inspect(error: Exn): Int = match error\n" +
+        "  _ => 0\n" +
+        "fun field(error: Exn) = error.name",
+    );
+    const messages = module.diagnostics.map(({ message }) => message);
+
+    expect(messages).toContain("exception payloads must have concrete types");
+    expect(messages).toContain("exception field `message` must have type `String`");
+    expect(messages).toContain("`Missing` is a value; write it without `()`");
+    expect(messages).toContain(
+      "match requires a closed type; exceptions are inspected with `try`/`catch`",
+    );
+    expect(messages).toContain("exceptions are inspected with `try`/`catch`");
+  });
+
   test("retains polymorphic constraints when they govern an input", () => {
     const module = checkSource(
       'let addOne = x => x + 1\nlet display = x => "${x}"',

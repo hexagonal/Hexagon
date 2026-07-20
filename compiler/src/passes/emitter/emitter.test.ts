@@ -525,6 +525,57 @@ describe("emitJavaScript", () => {
     );
   });
 
+  test("executes nested and guarded catch patterns with readable fallthrough", () => {
+    const output = emitJavaScript(
+      coreSource(
+        "union Reason = Code(Int) | Other\n" +
+          "exception Wrapped(reason: Reason)\n" +
+          "fun recover(value: Int): Int = try\n" +
+          "  if value < 0 then throw(Wrapped(Other)) else throw(Wrapped(Code(value)))\n" +
+          "catch\n" +
+          "  Wrapped(Code(code)) when code > 0 => code\n" +
+          "  Wrapped(Code(_)) => 0\n" +
+          "  Wrapped(Other) => -1\n" +
+          "let positive = recover(3)\n" +
+          "let zero = recover(0)\n" +
+          "let negative = recover(-1)",
+      ),
+    );
+
+    expect(output.text).toContain('$hex === true');
+    expect(output.text).toContain('.reason.tag === "Code"');
+    expect(output.text).toMatch(/if \(code > 0\)/u);
+    const execute = Function(
+      `${output.text}\nreturn [positive, zero, negative];`,
+    ) as () => readonly [number, number, number];
+    expect(execute()).toEqual([3, 0, -1]);
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("implicitly rethrows an unmatched exception after nested catch tests", () => {
+    const output = emitJavaScript(
+      coreSource(
+        "union Reason = Code(Int)\n" +
+          "exception Wrapped(reason: Reason)\n" +
+          "exception Missing\n" +
+          "let result = try\n" +
+          "  throw(Missing)\n" +
+          "catch\n" +
+          "  Wrapped(Code(_)) => 0",
+      ),
+    );
+
+    let thrown: unknown;
+    try {
+      Function(output.text)();
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).name).toBe("Missing");
+    expect(output.diagnostics).toEqual([]);
+  });
+
   test("resolves nominal dot calls to subject-first companion operations", () => {
     const module = coreSource(
       "export record Point = {x: Int, y: Int}\n" +

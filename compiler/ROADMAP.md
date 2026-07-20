@@ -1,6 +1,6 @@
 # Hexagon Compiler Roadmap
 
-**Status:** Thirty-six vertical slices now extend the original expression, pattern, mutation, Range, and loop pipeline with generic nominal unions and records, exceptions, nominal companion dot calls, completed internal constraint dictionaries, owner-scoped implied types, lazy `Seq`, structural hashing, vectors, Map/Set core operations, generalized concrete `Iterable`, initial Array/Nullable boundary types, relative module graphs, direct fundamental specializations with navigable generated-code metadata, transparent aliases, mutual recursion, qualified types, opaque module abstractions, and explicit n-ary function-type annotations.
+**Status:** Thirty-seven vertical slices now extend the original expression, pattern, mutation, Range, and loop pipeline with generic nominal unions and records, full-pattern guarded exception handling, nominal companion dot calls, completed internal constraint dictionaries, owner-scoped implied types, lazy `Seq`, structural hashing, vectors, Map/Set core operations, generalized concrete `Iterable`, initial Array/Nullable boundary types, relative module graphs, direct fundamental specializations with navigable generated-code metadata, transparent aliases, mutual recursion, qualified types, opaque module abstractions, and explicit n-ary function-type annotations.
 
 The compiler is built as a sequence of typed phase transformations. Each milestone must preserve the global naming doctrine in `architecture/naming.md` and the readability and commenting doctrine in `architecture/readability-and-comments.md`.
 
@@ -24,7 +24,7 @@ Transform physical tokens into a layout-aware stream containing virtual open, se
 
 ## 3. Parser
 
-**The existing expression and pattern grammar plus vector literals/rest patterns, generic unions, nominal records, transparent parameterized aliases, opaque exports, exceptions and `try`/`catch`, constraints with implied types/defaults/derivation, ground and parameterized `honor`, explicit constrained binders, explicit zero-/one-/many-parameter function types, `Seq(a)`, collection/FFI type applications, qualified type paths, and relative imports are implemented; `extern` declarations remain with the FFI parser work.**
+**The existing expression and pattern grammar plus vector literals/rest patterns, generic unions, nominal records, transparent parameterized aliases, opaque exports, exceptions and guarded full-pattern `try`/`catch`, constraints with implied types/defaults/derivation, ground and parameterized `honor`, explicit constrained binders, explicit zero-/one-/many-parameter function types, `Seq(a)`, collection/FFI type applications, qualified type paths, and relative imports are implemented; `finally` has a targeted v1 diagnostic, while `extern` declarations remain with the FFI parser work.**
 
 Transform layout-aware tokens into the parsed syntax tree. Implement declarations, expressions, patterns, type syntax, precedence, contextual forms, recovery, and source attribution.
 
@@ -42,7 +42,7 @@ Implement Algorithm J, union-find type variables, levels and generalisation, typ
 
 ## 6. Semantic checking
 
-**Expression-and-binding checks, monomorphic local mutation, inclusive `Range`, `while` condition/body checks, `for..in` over `Range` and `String` with irrefutable loop patterns, nested tuple/open-record/Unit/as-pattern irrefutability, single-constructor union and exhaustive Bool/closed-union or-pattern irrefutability, payload-sensitive exhaustive union, Bool, Unit, and nested or-pattern matches, catch-all enforcement for Int/String and refutable structural matches, guarded-arm coverage and reachability, nested tuple/record payload destructuring, constructor arity, annotations, tuple and record access/update, direct recursive functions, `console.log` as a variadic `Unit` effect, and pre-inference pipe rewriting implemented; full language in progress.**
+**Expression-and-binding checks, monomorphic local mutation, inclusive `Range`, `while` condition/body checks, `for..in` over `Range` and `String` with irrefutable loop patterns, nested tuple/open-record/Unit/as-pattern irrefutability, single-constructor union and exhaustive Bool/closed-union or-pattern irrefutability, payload-sensitive exhaustive union, Bool, Unit, and nested or-pattern matches, catch-all enforcement for Int/String and refutable structural matches, guarded-arm coverage and reachability, full nested/or/as exception patterns, concrete exception payload enforcement, nested tuple/record payload destructuring, constructor arity, annotations, tuple and record access/update, direct recursive functions, `console.log` as a variadic `Unit` effect, and pre-inference pipe rewriting implemented; full language in progress.**
 
 Type-check expressions and declarations. Enforce value restriction, recursion, exhaustiveness, mutability and capture, constraints and instances, whole-program coherence, and FFI declaration validity.
 
@@ -60,7 +60,7 @@ Define a small typed representation oriented toward readable JavaScript without 
 
 ## 9. JavaScript emission
 
-**Readable ESM emission covers the implemented language, including generic nominal data, branded Error exceptions, completed internal constraint dictionaries and factories, structural hashes, checked Vector/String/Map access, hash-evidence-driven persistent Map/Set tries with extensional `Eq`, constructor-shaped `Show`, permutation-invariant `Hash`, traversals and set algebra, companion calls, imports, replayable ranges, persistent generator-backed sequences, provided and user-instance iteration, and direct dictionary-free fundamental specializations.**
+**Readable ESM emission covers the implemented language, including generic nominal data, branded Error exceptions with nested guarded catch tests and implicit rethrow, completed internal constraint dictionaries and factories, structural hashes, checked Vector/String/Map access, hash-evidence-driven persistent Map/Set tries with extensional `Eq`, constructor-shaped `Show`, permutation-invariant `Hash`, traversals and set algebra, companion calls, imports, replayable ranges, persistent generator-backed sequences, provided and user-instance iteration, and direct dictionary-free fundamental specializations.**
 
 Emit readable ESM, source maps, direct primitive operations, records and unions, helpers, runtime imports, specialization, and deterministic output.
 
