@@ -38,6 +38,7 @@ type Mono =
   | NullableMono
   | UnionMono
   | NominalRecordMono
+  | ExternMono
   | FunctionMono
   | ErrorMono;
 
@@ -121,6 +122,12 @@ interface NominalRecordMono {
   readonly arguments: readonly Mono[];
 }
 
+interface ExternMono {
+  readonly kind: "ExternType";
+  readonly externType: Resolved.ExternTypeId;
+  readonly name: string;
+}
+
 interface ErrorMono {
   readonly kind: "Error";
 }
@@ -180,6 +187,7 @@ class Checker {
   readonly #constructorUnions = new Map<Resolved.SymbolId, Resolved.UnionId>();
   readonly #unionParameters = new Map<Resolved.UnionId, ReadonlyMap<string, Variable>>();
   readonly #records = new Map<Resolved.RecordId, Resolved.RecordDeclaration>();
+  readonly #externTypes = new Map<Resolved.ExternTypeId, Resolved.ExternTypeDeclaration>();
   readonly #recordParameters = new Map<Resolved.RecordId, ReadonlyMap<string, Variable>>();
   readonly #recordFields = new Map<Resolved.RecordId, ReadonlyMap<string, Mono>>();
   readonly #recordConstructors = new Set<Resolved.SymbolId>();
@@ -217,6 +225,9 @@ class Checker {
   }
 
   check(module: Resolved.Module): Typed.Module {
+    for (const externType of module.externTypes) {
+      this.#externTypes.set(externType.externType, externType);
+    }
     for (const item of module.items) {
       if (item.kind !== "Import" || item.form.kind !== "Namespace") continue;
       for (const name of item.form.names) {
@@ -393,6 +404,59 @@ class Checker {
           : { kind: "Function", parameters, result },
       });
     }
+    for (const item of module.items) {
+      if (item.kind !== "ExternBlock") continue;
+      for (const declaration of item.declarations) {
+        if (declaration.kind === "ExternType") continue;
+        const annotations = declaration.kind === "ExternFun"
+          ? [
+              ...declaration.parameters.flatMap((parameter) =>
+                parameter.annotation === undefined ? [] : [parameter.annotation]
+              ),
+              declaration.returnAnnotation,
+            ]
+          : [declaration.annotation];
+        if (annotations.some(annotationHasTypeVariable)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: "generic extern declarations are not part of Hexagon v1",
+            primary: declaration.span,
+          });
+        }
+        for (const annotation of annotations) {
+          const nested = nestedAdapterType(annotation);
+          if (nested !== undefined) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `extern type \`${nested}\` requires adaptation inside a direct value; use an explicit eager conversion at the boundary or a foreign shim`,
+              primary: annotation.span,
+            });
+          }
+        }
+        if (declaration.kind === "ExternLet") {
+          this.#schemes.set(declaration.binding.symbol, {
+            variables: [],
+            type: this.#annotationType(declaration.annotation),
+          });
+          continue;
+        }
+        const parameters = declaration.parameters.map((parameter) => {
+          const type = parameter.annotation === undefined
+            ? ERROR
+            : this.#annotationType(parameter.annotation);
+          this.#schemes.set(parameter.symbol, { variables: [], type });
+          return type;
+        });
+        this.#schemes.set(declaration.binding.symbol, {
+          variables: [],
+          type: {
+            kind: "Function",
+            parameters,
+            result: this.#annotationType(declaration.returnAnnotation),
+          },
+        });
+      }
+    }
     for (const record of module.records) {
       this.#records.set(record.id, record);
       this.#recordConstructors.add(record.constructor.symbol);
@@ -461,6 +525,7 @@ class Checker {
       symbols,
       unions: module.unions.map((union) => this.#materializeUnion(union)),
       records: module.records.map((record) => this.#materializeRecord(record)),
+      externTypes: module.externTypes,
       comments: module.comments,
       span: module.span,
       diagnostics: this.#diagnostics.toArray(),
@@ -583,7 +648,7 @@ class Checker {
         this.#schemes.set(item.binding.symbol, scheme);
         continue;
       }
-      if (item.kind === "Import") continue;
+      if (item.kind === "Import" || item.kind === "ExternBlock" || item.kind === "ExternImport") continue;
       if (item.kind === "ConstraintDeclaration") continue;
       if (item.kind === "Honor") {
         const declaration = this.#constraintDeclarations.get(item.constraint);
@@ -838,6 +903,8 @@ class Checker {
     if (
       finalItem.kind === "Let" ||
       finalItem.kind === "Import" ||
+      finalItem.kind === "ExternBlock" ||
+      finalItem.kind === "ExternImport" ||
       finalItem.kind === "Var" ||
       finalItem.kind === "LetPattern" ||
       finalItem.kind === "Fun" ||
@@ -864,6 +931,8 @@ class Checker {
         finalItem.kind === "ConstraintDeclaration" ||
         finalItem.kind === "Honor" ||
         finalItem.kind === "Import"
+        || finalItem.kind === "ExternBlock"
+        || finalItem.kind === "ExternImport"
       ) {
         this.#diagnostics.add({
           severity: "error",
@@ -2681,6 +2750,11 @@ class Checker {
         });
         return;
       }
+    } else if (
+      actualLeft.kind === "ExternType" &&
+      actualRight.kind === "ExternType"
+    ) {
+      if (actualLeft.externType === actualRight.externType) return;
     } else if (actualLeft.kind === "Range" && actualRight.kind === "Range") {
       return;
     } else if (actualLeft.kind === "Seq" && actualRight.kind === "Seq") {
@@ -3394,6 +3468,13 @@ class Checker {
         ),
       };
     }
+    if (annotation.kind === "ExternType") {
+      return {
+        kind: "ExternType",
+        externType: annotation.externType,
+        name: annotation.name,
+      };
+    }
     if (annotation.kind === "TypeVariable") {
       const existing = typeParameters.get(annotation.name);
       if (existing !== undefined) return existing;
@@ -3500,6 +3581,10 @@ class Checker {
         };
         case "Union": return { ...type, arguments: type.arguments.map(copy) };
         case "NominalRecord": return { ...type, arguments: type.arguments.map(copy) };
+        case "ExternType": return {
+          ...type,
+          name: this.#externTypes.get(type.externType)?.localName ?? type.name,
+        };
         case "Function": return {
           kind: "Function",
           parameters: type.parameters.map(copy),
@@ -3559,6 +3644,11 @@ class Checker {
   #checkPublicSignatures(items: readonly Resolved.Item[]): void {
     const publicUnions = new Set(items.flatMap((item) => item.kind === "Union" && item.exported ? [item.union] : []));
     const publicRecords = new Set(items.flatMap((item) => item.kind === "RecordDeclaration" && item.exported ? [item.record] : []));
+    const publicExternTypes = new Set(
+      [...this.#externTypes.values()].flatMap((declaration) =>
+        declaration.exported ? [declaration.externType] : []
+      ),
+    );
     const visit = (type: Mono, found = new Set<string>()): ReadonlySet<string> => {
       const actual = this.#prune(type);
       if (actual.kind === "Union") {
@@ -3567,6 +3657,8 @@ class Checker {
       } else if (actual.kind === "NominalRecord") {
         if (!publicRecords.has(actual.record) && this.#records.get(actual.record)?.representationVisible) found.add(actual.name);
         actual.arguments.forEach((argument) => visit(argument, found));
+      } else if (actual.kind === "ExternType") {
+        if (!publicExternTypes.has(actual.externType)) found.add(actual.name);
       } else if (actual.kind === "Function") {
         actual.parameters.forEach((parameter) => visit(parameter, found));
         visit(actual.result, found);
@@ -3578,13 +3670,23 @@ class Checker {
       return found;
     };
     for (const item of items) {
-      if ((item.kind !== "Let" && item.kind !== "Fun") || !item.exported) continue;
-      for (const name of visit(this.#scheme(item.binding.symbol).type)) {
+      const bindings = item.kind === "ExternBlock"
+        ? item.declarations.flatMap((declaration) =>
+            declaration.kind !== "ExternType" && declaration.exported
+              ? [declaration.binding]
+              : []
+          )
+        : (item.kind === "Let" || item.kind === "Fun") && item.exported
+          ? [item.binding]
+          : [];
+      for (const binding of bindings) {
+        for (const name of visit(this.#scheme(binding.symbol).type)) {
         this.#diagnostics.add({
           severity: "error",
-          message: `exported binding \`${item.binding.name}\` exposes private type \`${name}\`; export the type, perhaps opaquely, or keep the binding private`,
-          primary: item.binding.span,
+          message: `exported binding \`${binding.name}\` exposes private type \`${name}\`; export the type, perhaps opaquely, or keep the binding private`,
+          primary: binding.span,
         });
+        }
       }
     }
   }
@@ -3674,6 +3776,13 @@ class Checker {
         arguments: actual.arguments.map((argument) => this.#publicType(argument, seen)),
       };
     }
+    if (actual.kind === "ExternType") {
+      return {
+        kind: "ExternType",
+        externType: actual.externType,
+        name: actual.name,
+      };
+    }
     if (actual.kind === "Range") return { kind: "Range" };
     if (actual.kind === "Seq") {
       return { kind: "Seq", element: this.#publicType(actual.element, seen) };
@@ -3758,6 +3867,45 @@ class Checker {
   #materializeItem(item: Resolved.Item): Typed.Item {
     if (item.kind === "ErrorItem") return item;
     if (item.kind === "Import") return item;
+    if (item.kind === "ExternImport") return item;
+    if (item.kind === "ExternBlock") {
+      return {
+        ...item,
+        declarations: item.declarations.map((declaration): Typed.ExternDeclaration => {
+          if (declaration.kind === "ExternType") return declaration;
+          const binding = {
+            ...declaration.binding,
+            scheme: this.#publicScheme(this.#scheme(declaration.binding.symbol)),
+          };
+          if (declaration.kind === "ExternLet") {
+            return {
+              kind: "ExternLet",
+              exported: declaration.exported,
+              default: declaration.default,
+              ...(declaration.foreignName === undefined ? {} : { foreignName: declaration.foreignName }),
+              localName: declaration.localName,
+              binding,
+              type: this.#publicType(this.#annotationType(declaration.annotation)),
+              span: declaration.span,
+            };
+          }
+          return {
+            kind: "ExternFun",
+            exported: declaration.exported,
+            default: declaration.default,
+            ...(declaration.foreignName === undefined ? {} : { foreignName: declaration.foreignName }),
+            localName: declaration.localName,
+            binding,
+            parameters: declaration.parameters.map((parameter) => ({
+              ...parameter,
+              scheme: this.#publicScheme(this.#scheme(parameter.symbol)),
+            })),
+            result: this.#publicType(this.#annotationType(declaration.returnAnnotation)),
+            span: declaration.span,
+          };
+        }),
+      };
+    }
     if (item.kind === "ConstraintDeclaration") {
       const subject = this.#constraintSubjects.get(item) ?? this.#fresh(0, false);
       return {
@@ -4503,6 +4651,7 @@ class Checker {
         ? actual.name
         : `${actual.name}(${actual.arguments.map((argument) => this.#display(argument)).join(", ")})`;
     }
+    if (actual.kind === "ExternType") return actual.name;
     if (actual.kind === "Range") return "Range";
     if (actual.kind === "Seq") return `Seq(${this.#display(actual.element)})`;
     if (actual.kind === "Vector") return `Vector(${this.#display(actual.element)})`;
@@ -4612,12 +4761,58 @@ function annotationHasTypeVariable(
     case "Union":
     case "RecordDeclaration":
       return annotation.arguments.some(annotationHasTypeVariable);
+    case "ExternType":
     case "Primitive":
     case "Range":
     case "ImpliedType":
     case "ErrorType":
       return false;
   }
+}
+
+function nestedAdapterType(
+  annotation: Resolved.TypeAnnotation,
+  nested = false,
+): string | undefined {
+  if (annotation.kind === "Seq") {
+    if (nested) return "Seq";
+    return nestedAdapterType(annotation.element, true);
+  }
+  if (annotation.kind === "Function") {
+    for (const parameter of annotation.parameters) {
+      const found = nestedAdapterType(parameter, true);
+      if (found !== undefined) return found;
+    }
+    return nestedAdapterType(annotation.result, true);
+  }
+  if (annotation.kind === "Tuple") {
+    for (const element of annotation.elements) {
+      const found = nestedAdapterType(element, true);
+      if (found !== undefined) return found;
+    }
+  } else if (annotation.kind === "Record") {
+    for (const field of annotation.fields) {
+      const found = nestedAdapterType(field.annotation, true);
+      if (found !== undefined) return found;
+    }
+  } else if (
+    annotation.kind === "Vector" ||
+    annotation.kind === "Set" ||
+    annotation.kind === "Array"
+  ) {
+    return nestedAdapterType(annotation.element, true);
+  } else if (annotation.kind === "Nullable") {
+    return nestedAdapterType(annotation.value, true);
+  } else if (annotation.kind === "Map") {
+    return nestedAdapterType(annotation.key, true) ??
+      nestedAdapterType(annotation.value, true);
+  } else if (annotation.kind === "Union" || annotation.kind === "RecordDeclaration") {
+    for (const argument of annotation.arguments) {
+      const found = nestedAdapterType(argument, true);
+      if (found !== undefined) return found;
+    }
+  }
+  return undefined;
 }
 
 function resolvedPatternBindings(

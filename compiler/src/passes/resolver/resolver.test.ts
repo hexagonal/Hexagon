@@ -9,6 +9,37 @@ import { parse } from "../parser/parser.js";
 import { resolve } from "./resolver.js";
 
 describe("resolve", () => {
+  test("gives extern terms and opaque types stable module identities", () => {
+    const module = resolveSource(
+      "extern from \"tiny-json\"\n" +
+        "  export type JsonValue\n" +
+        "  export fun parse(text: String): JsonValue\n" +
+        "  let VERSION as version: String\n" +
+        "let document: JsonValue = parse(version)",
+    );
+
+    expect(module.items[0]).toMatchObject({
+      kind: "ExternBlock",
+      declarations: [
+        { kind: "ExternType", localName: "JsonValue", externType: 0 },
+        { kind: "ExternFun", binding: { name: "parse" } },
+        { kind: "ExternLet", binding: { name: "version" } },
+      ],
+    });
+    expect(module.externTypes).toMatchObject([
+      { localName: "JsonValue", externType: 0 },
+    ]);
+    expect(module.items[1]).toMatchObject({
+      kind: "Let",
+      annotation: { kind: "ExternType", name: "JsonValue", externType: 0 },
+      value: {
+        kind: "Call",
+        callee: { kind: "Name", text: "parse" },
+        arguments: [{ kind: "Name", text: "version" }],
+      },
+    });
+    expect(module.diagnostics).toEqual([]);
+  });
   test("gives implied types owner-relative scope", () => {
     const module = resolveSource(
       "constraint Source<a> =\n" +

@@ -16,6 +16,41 @@ import {
 } from "./emitter.js";
 
 describe("emitJavaScript", () => {
+  test("emits readable extern ESM bindings, stable adapters, and opaque declarations", () => {
+    const module = coreSource(
+      "extern from \"tiny-json\"\n" +
+        "  export type JsonValue\n" +
+        "  export fun parse(text: String): JsonValue\n" +
+        "  let VERSION as version: String\n" +
+        "  export default fun createClient(): JsonValue\n" +
+        "  fun stream(): Seq(Int)\n" +
+        "  let values: Seq(Int)\n" +
+        "  fun report(message: String): Unit\n" +
+        "extern import \"telemetry/register\"\n" +
+        "export let document = parse(version)",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.text).toContain('import { parse } from "tiny-json";');
+    expect(output.text).toContain('import { VERSION as version } from "tiny-json";');
+    expect(output.text).toContain('import createClient from "tiny-json";');
+    expect(output.text).toMatch(/import \{ stream as \w+ \} from "tiny-json";/u);
+    expect(output.text).toMatch(/const stream = \(\) => __hex_seq\(\w+\(\)\);/u);
+    expect(output.text).toMatch(/const values = __hex_seq\(\w+\);/u);
+    expect(output.text).toMatch(/const report = \(message\) => \{ \w+\(message\); \};/u);
+    expect(output.text).toContain('import "telemetry/register";');
+    expect(output.text).toContain("export { parse };");
+    expect(output.text).toContain("export { createClient };");
+
+    const declarations = emitDeclarations(module).text;
+    expect(declarations).toMatch(/declare const \w+: unique symbol;/u);
+    expect(declarations).toContain("export type JsonValue =");
+    expect(declarations).toContain("export declare function parse(text: string): JsonValue;");
+    expect(declarations).toContain("export declare function createClient(): JsonValue;");
+    expect(declarations).not.toContain("VERSION");
+    expect(output.diagnostics).toEqual([]);
+  });
   test("emits vectors, structural hashes, vector patterns, and one-based access", () => {
     const module = coreSource(
       "export let values: Vector(Int) = [10, 20, 30]\n" +

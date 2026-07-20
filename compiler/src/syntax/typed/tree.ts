@@ -37,6 +37,7 @@ export type Type =
   | RecordType
   | UnionType
   | NominalRecordType
+  | ExternType
   | FunctionType
   | ErrorType;
 
@@ -110,6 +111,12 @@ export interface NominalRecordType {
   readonly arguments: readonly Type[];
 }
 
+export interface ExternType {
+  readonly kind: "ExternType";
+  readonly externType: Resolved.ExternTypeId;
+  readonly name: string;
+}
+
 export interface FunctionType {
   readonly kind: "Function";
   readonly parameters: readonly Type[];
@@ -167,6 +174,7 @@ export interface Module {
   readonly symbols: readonly Symbol[];
   readonly unions: readonly Union[];
   readonly records: readonly RecordDeclaration[];
+  readonly externTypes: readonly ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
@@ -174,6 +182,8 @@ export interface Module {
 
 export type Item =
   | ImportItem
+  | ExternBlockItem
+  | ExternImportItem
   | LetItem
   | VarItem
   | LetPatternItem
@@ -186,6 +196,47 @@ export type Item =
   | UnionItem
   | ExprItem
   | ErrorItem;
+
+export type ExternImportItem = Resolved.ExternImportItem;
+
+export interface ExternBlockItem {
+  readonly kind: "ExternBlock";
+  readonly specifier: string;
+  readonly declarations: readonly ExternDeclaration[];
+  readonly span: Source.Span;
+}
+
+export type ExternDeclaration =
+  | ExternFunDeclaration
+  | ExternLetDeclaration
+  | ExternTypeDeclaration;
+
+interface ExternDeclarationFields {
+  readonly exported: boolean;
+  readonly default: boolean;
+  readonly foreignName?: string;
+  readonly localName: string;
+  readonly span: Source.Span;
+}
+
+export interface ExternFunDeclaration extends ExternDeclarationFields {
+  readonly kind: "ExternFun";
+  readonly binding: Binding;
+  readonly parameters: readonly Binding[];
+  readonly result: Type;
+}
+
+export interface ExternLetDeclaration extends ExternDeclarationFields {
+  readonly kind: "ExternLet";
+  readonly binding: Binding;
+  readonly type: Type;
+}
+
+export interface ExternTypeDeclaration extends ExternDeclarationFields {
+  readonly kind: "ExternType";
+  readonly default: false;
+  readonly externType: Resolved.ExternTypeId;
+}
 
 export interface LetItem {
   readonly kind: "Let";

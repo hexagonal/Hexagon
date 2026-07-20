@@ -39,7 +39,7 @@ or prototype lookup.
 > [!IMPORTANT]
 > Hexagon is under active design and implementation. The language specification is
 > about 95% complete, the reader-facing book has reached its first full draft, and
-> compiler construction has complete lexer and layout passes plus twenty-three thin vertical
+> compiler construction has complete lexer and layout passes plus thirty-eight thin vertical
 > slices through parsing, name resolution, type checking, Core elaboration,
 > JavaScript emission, and declaration emission. Small programs in that subset,
 > including tuples, pattern bindings, unions and matches, records, local mutation,
@@ -102,10 +102,11 @@ review copies stay outside version control.
 
 Compiler implementation is underway. The platform-neutral TypeScript workspace has
 source coordinates, structured diagnostics, a Unicode-aware physical lexer, and the
-indentation layout pass. Thirty-seven vertical slices cover core expressions, `let` and local `var` bindings,
+indentation layout pass. Thirty-eight vertical slices cover core expressions, `let` and local `var` bindings,
 lambdas, directly recursive functions, conditionals, `while`, Range/String `for..in`, calls, tuple values and patterns,
 generic unions and nominal records, guarded full-pattern exception handling, constraints and parameterized instances,
-implied types, aliases, relative imports, mutual recursion, qualified types, opaque exports,
+implied types, aliases, relative imports, module-level foreign bindings and opaque foreign types,
+mutual recursion, qualified types, opaque exports,
 nominal dot calls, direct fundamental specializations, exhaustive matches, explicit function types, rich annotations, and
 operator precedence. Its resolver assigns stable symbols to `let`, `fun`, loop-head pattern,
 constructor, and lambda-parameter bindings, implements lexical scopes, and diagnoses
@@ -127,7 +128,7 @@ Source.File -> Lexed.File -> LaidOut.File -> Parsed.Module -> Resolved.Module ->
 ```
 
 The remaining v1 compiler work is concentrated beyond the core language surface:
-`extern` declarations and FFI validation, the conditional generic constrained edition
+richer foreign classes and members, later FFI validation, the conditional generic constrained edition
 and public dictionary ABI, source maps, runtime integration, conformance fixtures, and
 the finalized portable-JavaScript profile.
 

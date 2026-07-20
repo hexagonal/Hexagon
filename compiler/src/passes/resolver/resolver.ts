@@ -17,6 +17,7 @@ export interface ModuleInterface {
   readonly unions: ReadonlyMap<string, Resolved.Union>;
   readonly records: ReadonlyMap<string, Resolved.RecordDeclaration>;
   readonly aliases: ReadonlyMap<string, Resolved.TypeAliasItem>;
+  readonly externTypes: ReadonlyMap<string, Resolved.ExternTypeDeclaration>;
 }
 
 export interface ResolveOptions {
@@ -24,6 +25,7 @@ export interface ResolveOptions {
   readonly symbolBase?: number;
   readonly unionBase?: number;
   readonly recordBase?: number;
+  readonly externTypeBase?: number;
 }
 
 export function resolve(
@@ -42,7 +44,19 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
   const unions = new Map<string, Resolved.Union>();
   const records = new Map<string, Resolved.RecordDeclaration>();
   const aliases = new Map<string, Resolved.TypeAliasItem>();
+  const externTypes = new Map<string, Resolved.ExternTypeDeclaration>();
   for (const item of module.items) {
+    if (item.kind === "ExternBlock") {
+      for (const declaration of item.declarations) {
+        if (!declaration.exported) continue;
+        if (declaration.kind === "ExternType") externTypes.set(declaration.localName, declaration);
+        else {
+          const symbol = symbols.get(declaration.binding.symbol);
+          if (symbol !== undefined) terms.set(declaration.localName, symbol);
+        }
+      }
+      continue;
+    }
     if (!('exported' in item) || item.exported !== true) continue;
     if (item.kind === "Let" || item.kind === "Fun") {
       const symbol = symbols.get(item.binding.symbol);
@@ -66,7 +80,7 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
       if (symbol !== undefined) terms.set(item.binding.name, symbol);
     }
   }
-  return { module, terms, unions, records, aliases };
+  return { module, terms, unions, records, aliases, externTypes };
 }
 
 class Scope {
@@ -92,13 +106,16 @@ class Resolver {
   readonly #importedSymbols = new Map<Resolved.SymbolId, Resolved.Symbol>();
   readonly #unions: Resolved.Union[] = [];
   readonly #records: Resolved.RecordDeclaration[] = [];
+  readonly #externTypes: Resolved.ExternTypeDeclaration[] = [];
   readonly #unionNames = new Map<string, Resolved.UnionId>();
   readonly #unionArities = new Map<string, number>();
   readonly #recordNames = new Map<string, Resolved.RecordId>();
   readonly #recordArities = new Map<string, number>();
+  readonly #externTypeNames = new Map<string, Resolved.ExternTypeId>();
   readonly #typeAliases = new Map<string, Parsed.TypeAliasItem | Resolved.TypeAliasItem>();
   readonly #unionDeclarations = new WeakMap<Parsed.UnionItem, Resolved.UnionId>();
   readonly #recordDeclarations = new WeakMap<Parsed.RecordItem, Resolved.RecordId>();
+  readonly #externTypeDeclarations = new WeakMap<Parsed.ExternTypeDeclaration, Resolved.ExternTypeId>();
   readonly #resolvingAliases: string[] = [];
   readonly #imports: ReadonlyMap<string, ModuleInterface>;
   readonly #moduleAliases = new Map<string, ModuleInterface>();
@@ -107,7 +124,7 @@ class Resolver {
   ]);
   readonly #impliedTypeOwners = new Map<string, Set<string>>();
   readonly #pending: { readonly name: Parsed.Name; readonly kind: "let" | "var" }[] = [];
-  readonly #predeclaredBindings = new WeakMap<Parsed.LetItem | Parsed.VarItem | Parsed.FunItem, Resolved.Binding>();
+  readonly #predeclaredBindings = new WeakMap<Parsed.LetItem | Parsed.VarItem | Parsed.FunItem | Parsed.ExternFunDeclaration | Parsed.ExternLetDeclaration, Resolved.Binding>();
   readonly #futureSequential: Map<string, Resolved.Binding>[] = [];
   readonly #currentFunctions: Resolved.SymbolId[] = [];
   readonly #funCaptures = new Map<Resolved.SymbolId, Set<Resolved.SymbolId>>();
@@ -118,6 +135,7 @@ class Resolver {
   #nextSymbol: number;
   #nextUnion: number;
   #nextRecord: number;
+  #nextExternType: number;
 
   constructor(diagnostics: Diagnostics.Bag, options: ResolveOptions) {
     this.#diagnostics = diagnostics;
@@ -125,6 +143,7 @@ class Resolver {
     this.#nextSymbol = options.symbolBase ?? 0;
     this.#nextUnion = options.unionBase ?? 0;
     this.#nextRecord = options.recordBase ?? 0;
+    this.#nextExternType = options.externTypeBase ?? 0;
   }
 
   resolve(module: Parsed.Module): Resolved.Module {
@@ -141,6 +160,7 @@ class Resolver {
       }
     }
     const scope = new Scope();
+    this.#predeclareExternTerms(module.items, scope);
     const items = this.#resolveItems(module.items, scope);
 
     return {
@@ -150,6 +170,7 @@ class Resolver {
       symbols: [...this.#importedSymbols.values(), ...this.#symbols.values()],
       unions: this.#unions,
       records: this.#records,
+      externTypes: this.#externTypes,
       comments: module.comments,
       span: module.span,
       diagnostics: this.#diagnostics.toArray(),
@@ -159,19 +180,35 @@ class Resolver {
   /** Registers module type identities before resolving any declaration body. */
   #predeclareTypes(items: readonly Parsed.Item[]): void {
     const claimed = new Map<string, Source.Span>();
+    const declarations: (
+      | Parsed.TypeAliasItem
+      | Parsed.UnionItem
+      | Parsed.RecordItem
+      | Parsed.ExternTypeDeclaration
+    )[] = [];
     for (const item of items) {
-      if (item.kind !== "TypeAlias" && item.kind !== "Union" && item.kind !== "RecordDeclaration") continue;
-      const previous = claimed.get(item.name.text);
+      if (item.kind === "TypeAlias" || item.kind === "Union" || item.kind === "RecordDeclaration") {
+        declarations.push(item);
+      } else if (item.kind === "ExternBlock") {
+        declarations.push(...item.declarations.filter(
+          (declaration): declaration is Parsed.ExternTypeDeclaration =>
+            declaration.kind === "ExternType",
+        ));
+      }
+    }
+    for (const item of declarations) {
+      const itemName = item.kind === "ExternType" ? item.localName : item.name;
+      const previous = claimed.get(itemName.text);
       if (previous !== undefined) {
         this.#diagnostics.add({
           severity: "error",
-          message: `type \`${item.name.text}\` is already declared`,
-          primary: item.name.span,
+          message: `type \`${itemName.text}\` is already declared`,
+          primary: itemName.span,
           labels: [{ span: previous, message: "first declaration is here" }],
         });
         continue;
       }
-      claimed.set(item.name.text, item.name.span);
+      claimed.set(itemName.text, itemName.span);
       if (item.kind === "TypeAlias") {
         this.#typeAliases.set(item.name.text, item);
       } else if (item.kind === "Union") {
@@ -179,11 +216,29 @@ class Resolver {
         this.#unionDeclarations.set(item, id);
         this.#unionNames.set(item.name.text, id);
         this.#unionArities.set(item.name.text, item.parameters.length);
-      } else {
+      } else if (item.kind === "RecordDeclaration") {
         const id = Resolved.recordId(this.#nextRecord++);
         this.#recordDeclarations.set(item, id);
         this.#recordNames.set(item.name.text, id);
         this.#recordArities.set(item.name.text, item.parameters.length);
+      } else {
+        const id = Resolved.externTypeId(this.#nextExternType++);
+        this.#externTypeDeclarations.set(item, id);
+        this.#externTypeNames.set(item.localName.text, id);
+      }
+    }
+  }
+
+  #predeclareExternTerms(items: readonly Parsed.Item[], scope: Scope): void {
+    for (const item of items) {
+      if (item.kind !== "ExternBlock") continue;
+      for (const declaration of item.declarations) {
+        if (declaration.kind === "ExternType") continue;
+        const existing = scope.lookupLocal(declaration.localName.text);
+        if (existing !== undefined) this.#reportRebinding(declaration.localName, existing);
+        const binding = this.#declare(declaration.localName, "extern");
+        this.#predeclaredBindings.set(declaration, binding);
+        if (existing === undefined) scope.define(declaration.localName.text, binding.symbol);
       }
     }
   }
@@ -294,7 +349,7 @@ class Resolver {
             });
           } else {
             this.#moduleAliases.set(item.form.alias.text, importedModule);
-            this.#includeNominals(importedModule);
+            this.#includeNominals(importedModule, item.form.alias.text);
             for (const symbol of importedModule.terms.values()) {
               this.#importedSymbols.set(symbol.id, symbol);
             }
@@ -306,7 +361,8 @@ class Resolver {
               const union = importedModule?.unions.get(name.imported.text);
               const record = importedModule?.records.get(name.imported.text);
               const alias = importedModule?.aliases.get(name.imported.text);
-              if (term === undefined && union === undefined && record === undefined && alias === undefined) {
+              const externType = importedModule?.externTypes.get(name.imported.text);
+              if (term === undefined && union === undefined && record === undefined && alias === undefined && externType === undefined) {
                 this.#diagnostics.add({
                   severity: "error",
                   message: `module \`${item.specifier}\` does not export \`${name.imported.text}\``,
@@ -345,7 +401,7 @@ class Resolver {
                 if (!this.#records.some(({ id }) => id === record.id)) this.#records.push(importedRecord);
               }
               if (alias !== undefined) {
-                if (this.#typeAliases.has(name.local.text) || this.#unionNames.has(name.local.text) || this.#recordNames.has(name.local.text)) {
+                if (this.#typeAliases.has(name.local.text) || this.#unionNames.has(name.local.text) || this.#recordNames.has(name.local.text) || this.#externTypeNames.has(name.local.text)) {
                   this.#diagnostics.add({
                     severity: "error",
                     message: `type \`${name.local.text}\` is already declared or imported`,
@@ -355,11 +411,25 @@ class Resolver {
                   this.#typeAliases.set(name.local.text, { ...alias, name: name.local.text });
                 }
               }
+              if (externType !== undefined) {
+                if (this.#typeAliases.has(name.local.text) || this.#unionNames.has(name.local.text) || this.#recordNames.has(name.local.text) || this.#externTypeNames.has(name.local.text)) {
+                  this.#diagnostics.add({
+                    severity: "error",
+                    message: `type \`${name.local.text}\` is already declared or imported`,
+                    primary: name.span,
+                  });
+                } else {
+                  this.#externTypeNames.set(name.local.text, externType.externType);
+                  if (!this.#externTypes.some(({ externType: id }) => id === externType.externType)) {
+                    this.#externTypes.push({ ...externType, localName: name.local.text });
+                  }
+                }
+              }
               return {
                 imported: name.imported.text,
                 local: name.local.text,
                 ...(term === undefined ? {} : { symbol: term.id }),
-                ...(term === undefined && (union !== undefined || record !== undefined || alias !== undefined)
+                ...(term === undefined && (union !== undefined || record !== undefined || alias !== undefined || externType !== undefined)
                   ? { typeOnly: true }
                   : {}),
                 span: name.span,
@@ -391,6 +461,59 @@ class Resolver {
                   kind: "Named",
                   names: names ?? [],
                 },
+          span: item.span,
+        };
+      }
+      case "ExternImport":
+        return item;
+      case "ExternBlock": {
+        const declarations = item.declarations.map((declaration): Resolved.ExternDeclaration => {
+          if (declaration.kind === "ExternType") {
+            const resolved: Resolved.ExternTypeDeclaration = {
+              kind: "ExternType",
+              exported: declaration.exported,
+              default: false,
+              ...(declaration.foreignName === undefined ? {} : { foreignName: declaration.foreignName.text }),
+              localName: declaration.localName.text,
+              externType: this.#externTypeDeclarations.get(declaration) ?? Resolved.externTypeId(this.#nextExternType++),
+              span: declaration.span,
+            };
+            this.#externTypes.push(resolved);
+            return resolved;
+          }
+          const binding = this.#predeclaredBindings.get(declaration) ?? this.#declare(declaration.localName, "extern");
+          const common = {
+            exported: declaration.exported,
+            default: declaration.default,
+            ...(declaration.foreignName === undefined ? {} : { foreignName: declaration.foreignName.text }),
+            localName: declaration.localName.text,
+            binding,
+            span: declaration.span,
+          };
+          if (declaration.kind === "ExternLet") {
+            return {
+              kind: "ExternLet",
+              ...common,
+              annotation: this.#resolveTypeAnnotation(declaration.annotation),
+            };
+          }
+          const parameters = declaration.parameters.map((parameter) => ({
+            ...this.#declare(parameter.name, "parameter"),
+            ...(parameter.annotation === undefined
+              ? {}
+              : { annotation: this.#resolveTypeAnnotation(parameter.annotation) }),
+          }));
+          return {
+            kind: "ExternFun",
+            ...common,
+            parameters,
+            returnAnnotation: this.#resolveTypeAnnotation(declaration.returnAnnotation),
+          };
+        });
+        return {
+          kind: "ExternBlock",
+          specifier: item.specifier,
+          declarations,
           span: item.span,
         };
       }
@@ -1354,6 +1477,22 @@ class Resolver {
       if (record !== undefined) return this.#resolvedNominalType("record", record, name, arguments_, annotation.span);
       const alias = imported.aliases.get(name);
       if (alias !== undefined) return this.#instantiateResolvedAlias(alias, arguments_, annotation.span);
+      const externType = imported.externTypes.get(name);
+      if (externType !== undefined) {
+        if (arguments_.length > 0) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `extern type \`${name}\` is monomorphic and takes no type arguments`,
+            primary: annotation.span,
+          });
+        }
+        return {
+          kind: "ExternType",
+          externType: externType.externType,
+          name: `${annotation.qualifier.text}.${name}`,
+          span: annotation.span,
+        };
+      }
       this.#diagnostics.add({
         severity: "error",
         message: `module \`${annotation.qualifier.text}\` does not export type \`${name}\``,
@@ -1385,6 +1524,17 @@ class Resolver {
       return isResolvedTypeAlias(alias)
         ? this.#instantiateResolvedAlias(alias, arguments_, annotation.span)
         : this.#resolveAlias(name, arguments_, annotation.span, typeParameters, impliedContext, substitutions);
+    }
+    const externType = this.#externTypeNames.get(name);
+    if (externType !== undefined) {
+      if (annotation.kind === "AppliedType") {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `extern type \`${name}\` is monomorphic and takes no type arguments`,
+          primary: annotation.span,
+        });
+      }
+      return { kind: "ExternType", externType, name, span: annotation.span };
     }
     const union = this.#unionNames.get(name);
     if (union !== undefined) {
@@ -1605,12 +1755,22 @@ class Resolver {
       : { kind: "RecordDeclaration", record: (declaration as Resolved.RecordDeclaration).id, name, arguments: arguments_, span };
   }
 
-  #includeNominals(imported: ModuleInterface): void {
+  #includeNominals(imported: ModuleInterface, qualifier?: string): void {
     for (const union of imported.unions.values()) {
       if (!this.#unions.some(({ id }) => id === union.id)) this.#unions.push({ ...union, representationVisible: false });
     }
     for (const record of imported.records.values()) {
       if (!this.#records.some(({ id }) => id === record.id)) this.#records.push({ ...record, representationVisible: false });
+    }
+    for (const externType of imported.externTypes.values()) {
+      if (!this.#externTypes.some(({ externType: id }) => id === externType.externType)) {
+        this.#externTypes.push({
+          ...externType,
+          localName: qualifier === undefined
+            ? externType.localName
+            : `${qualifier}.${externType.localName}`,
+        });
+      }
     }
   }
 
@@ -1744,6 +1904,7 @@ function annotationHeadName(annotation: Resolved.TypeAnnotation): string {
     case "Function": return "Function";
     case "Union": return annotation.name;
     case "RecordDeclaration": return annotation.name;
+    case "ExternType": return annotation.name;
     case "Tuple": return "Tuple";
     case "Record": return "Record";
     case "TypeVariable": return annotation.name;
@@ -1775,6 +1936,7 @@ function annotationTypeVariables(annotation: Resolved.TypeAnnotation): readonly 
     case "Union":
     case "RecordDeclaration":
       return annotation.arguments.flatMap(annotationTypeVariables);
+    case "ExternType":
     case "Primitive":
     case "Range":
     case "ImpliedType":

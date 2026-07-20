@@ -1,6 +1,6 @@
 # Hexagon Compiler Roadmap
 
-**Status:** Thirty-seven vertical slices now extend the original expression, pattern, mutation, Range, and loop pipeline with generic nominal unions and records, full-pattern guarded exception handling, nominal companion dot calls, completed internal constraint dictionaries, owner-scoped implied types, lazy `Seq`, structural hashing, vectors, Map/Set core operations, generalized concrete `Iterable`, initial Array/Nullable boundary types, relative module graphs, direct fundamental specializations with navigable generated-code metadata, transparent aliases, mutual recursion, qualified types, opaque module abstractions, and explicit n-ary function-type annotations.
+**Status:** Thirty-eight vertical slices now extend the original expression, pattern, mutation, Range, and loop pipeline with generic nominal unions and records, full-pattern guarded exception handling, nominal companion dot calls, completed internal constraint dictionaries, owner-scoped implied types, lazy `Seq`, structural hashing, vectors, Map/Set core operations, generalized concrete `Iterable`, initial Array/Nullable boundary types, relative module graphs, direct fundamental specializations with navigable generated-code metadata, transparent aliases, mutual recursion, qualified types, opaque module abstractions, explicit n-ary function-type annotations, and module-level foreign bindings with opaque foreign types.
 
 The compiler is built as a sequence of typed phase transformations. Each milestone must preserve the global naming doctrine in `architecture/naming.md` and the readability and commenting doctrine in `architecture/readability-and-comments.md`.
 
@@ -24,13 +24,13 @@ Transform physical tokens into a layout-aware stream containing virtual open, se
 
 ## 3. Parser
 
-**The existing expression and pattern grammar plus vector literals/rest patterns, generic unions, nominal records, transparent parameterized aliases, opaque exports, exceptions and guarded full-pattern `try`/`catch`, constraints with implied types/defaults/derivation, ground and parameterized `honor`, explicit constrained binders, explicit zero-/one-/many-parameter function types, `Seq(a)`, collection/FFI type applications, qualified type paths, and relative imports are implemented; `finally` has a targeted v1 diagnostic, while `extern` declarations remain with the FFI parser work.**
+**The existing expression and pattern grammar plus vector literals/rest patterns, generic unions, nominal records, transparent parameterized aliases, opaque exports, exceptions and guarded full-pattern `try`/`catch`, constraints with implied types/defaults/derivation, ground and parameterized `honor`, explicit constrained binders, explicit zero-/one-/many-parameter function types, `Seq(a)`, collection/FFI type applications, qualified type paths, relative imports, and module-level `extern` declarations are implemented; `finally` and later foreign receiver/class/enum forms have targeted diagnostics.**
 
 Transform layout-aware tokens into the parsed syntax tree. Implement declarations, expressions, patterns, type syntax, precedence, contextual forms, recovery, and source attribution.
 
 ## 4. Resolution and modules
 
-**Stable local and imported identities, order-independent type declarations, generic nominal declarations, transparent-alias expansion and cycle checks, exception and constraint members, owner-relative implied type scope, relative named/aliased/namespace/effect imports, qualified type paths, acyclic dependency ordering, imported schemes, nominal companion lookup, mutual recursive function groups, capture availability, and opaque representation visibility are implemented. Re-exports and packages are post-v1 package-system work.**
+**Stable local, imported, and foreign identities, order-independent type declarations, generic nominal declarations, transparent-alias expansion and cycle checks, exception and constraint members, owner-relative implied type scope, relative named/aliased/namespace/effect imports, qualified type paths, acyclic dependency ordering, imported schemes, nominal companion lookup, mutual recursive function groups, capture availability, and opaque representation visibility are implemented. Re-exports and packages are post-v1 package-system work.**
 
 Replace textual references with stable symbols. Implement scopes, imports, exports, companions, duplicate detection, shadowing rules, module graphs, cycle diagnostics, and topological ordering.
 
@@ -42,7 +42,7 @@ Implement Algorithm J, union-find type variables, levels and generalisation, typ
 
 ## 6. Semantic checking
 
-**Expression-and-binding checks, monomorphic local mutation, inclusive `Range`, `while` condition/body checks, `for..in` over `Range` and `String` with irrefutable loop patterns, nested tuple/open-record/Unit/as-pattern irrefutability, single-constructor union and exhaustive Bool/closed-union or-pattern irrefutability, payload-sensitive exhaustive union, Bool, Unit, and nested or-pattern matches, catch-all enforcement for Int/String and refutable structural matches, guarded-arm coverage and reachability, full nested/or/as exception patterns, concrete exception payload enforcement, nested tuple/record payload destructuring, constructor arity, annotations, tuple and record access/update, direct recursive functions, `console.log` as a variadic `Unit` effect, and pre-inference pipe rewriting implemented; full language in progress.**
+**Expression-and-binding checks, monomorphic local mutation, inclusive `Range`, `while` condition/body checks, `for..in` over `Range` and `String` with irrefutable loop patterns, nested tuple/open-record/Unit/as-pattern irrefutability, single-constructor union and exhaustive Bool/closed-union or-pattern irrefutability, payload-sensitive exhaustive union, Bool, Unit, and nested or-pattern matches, catch-all enforcement for Int/String and refutable structural matches, guarded-arm coverage and reachability, full nested/or/as exception patterns, concrete exception payload enforcement, nested tuple/record payload destructuring, constructor arity, annotations, tuple and record access/update, direct recursive functions, monomorphic annotated foreign signatures, `console.log` as a variadic `Unit` effect, and pre-inference pipe rewriting implemented; full language in progress.**
 
 Type-check expressions and declarations. Enforce value restriction, recursion, exhaustiveness, mutability and capture, constraints and instances, whole-program coherence, and FFI declaration validity.
 
@@ -60,13 +60,13 @@ Define a small typed representation oriented toward readable JavaScript without 
 
 ## 9. JavaScript emission
 
-**Readable ESM emission covers the implemented language, including generic nominal data, branded Error exceptions with nested guarded catch tests and implicit rethrow, completed internal constraint dictionaries and factories, structural hashes, checked Vector/String/Map access, hash-evidence-driven persistent Map/Set tries with extensional `Eq`, constructor-shaped `Show`, permutation-invariant `Hash`, traversals and set algebra, companion calls, imports, replayable ranges, persistent generator-backed sequences, provided and user-instance iteration, and direct dictionary-free fundamental specializations.**
+**Readable ESM emission covers the implemented language, including generic nominal data, branded Error exceptions with nested guarded catch tests and implicit rethrow, completed internal constraint dictionaries and factories, structural hashes, checked Vector/String/Map access, hash-evidence-driven persistent Map/Set tries with extensional `Eq`, constructor-shaped `Show`, permutation-invariant `Hash`, traversals and set algebra, companion calls, imports, replayable ranges, persistent generator-backed sequences, provided and user-instance iteration, direct dictionary-free fundamental specializations, direct foreign ESM bindings, and stable `Seq`/`Unit` boundary adapters.**
 
 Emit readable ESM, source maps, direct primitive operations, records and unions, helpers, runtime imports, specialization, and deterministic output.
 
 ## 10. TypeScript declaration emission
 
-**Primitive, tuple, Vector/Map/Set, Array/Nullable, structural/nominal-record, generic discriminated-union, exception, constructor, `Range`/`Seq` as `Iterable<T>`, unconstrained-function, and fundamental-specialization declarations implemented.**
+**Primitive, tuple, Vector/Map/Set, Array/Nullable, structural/nominal-record, generic discriminated-union, exception, constructor, opaque foreign type, foreign value/function, `Range`/`Seq` as `Iterable<T>`, unconstrained-function, and fundamental-specialization declarations implemented.**
 
 Emit the checked public surface as `.d.ts`: generics, records, unions, opaque types, runtime-owned values, FFI signatures, fundamental specializations, and public dictionaries.
 

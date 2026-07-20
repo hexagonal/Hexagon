@@ -19,6 +19,8 @@ export interface Module {
 
 export type Item =
   | ImportItem
+  | ExternBlockItem
+  | ExternImportItem
   | LetItem
   | VarItem
   | LetPatternItem
@@ -31,6 +33,48 @@ export type Item =
   | UnionItem
   | ExprItem
   | ErrorItem;
+
+export interface ExternBlockItem {
+  readonly kind: "ExternBlock";
+  readonly specifier: string;
+  readonly declarations: readonly ExternDeclaration[];
+  readonly span: Source.Span;
+}
+
+export interface ExternImportItem {
+  readonly kind: "ExternImport";
+  readonly specifier: string;
+  readonly span: Source.Span;
+}
+
+export type ExternDeclaration =
+  | ExternFunDeclaration
+  | ExternLetDeclaration
+  | ExternTypeDeclaration;
+
+interface ExternDeclarationFields {
+  readonly exported: boolean;
+  readonly default: boolean;
+  readonly foreignName?: Name;
+  readonly localName: Name;
+  readonly span: Source.Span;
+}
+
+export interface ExternFunDeclaration extends ExternDeclarationFields {
+  readonly kind: "ExternFun";
+  readonly parameters: readonly Parameter[];
+  readonly returnAnnotation: TypeAnnotation;
+}
+
+export interface ExternLetDeclaration extends ExternDeclarationFields {
+  readonly kind: "ExternLet";
+  readonly annotation: TypeAnnotation;
+}
+
+export interface ExternTypeDeclaration extends ExternDeclarationFields {
+  readonly kind: "ExternType";
+  readonly default: false;
+}
 
 export interface LetItem {
   readonly kind: "Let";

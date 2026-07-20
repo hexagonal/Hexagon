@@ -60,6 +60,18 @@ export function compileProject(files: readonly Source.File[]): CompiledProject {
     if (module === undefined) return;
     visiting.push(path);
     for (const item of module.items) {
+      if (
+        (item.kind === "ExternBlock" || item.kind === "ExternImport") &&
+        (item.specifier.startsWith("./") || item.specifier.startsWith("../")) &&
+        sources.has(resolveSpecifier(path, item.specifier))
+      ) {
+        diagnostics.add({
+          severity: "error",
+          message: "use `import` for Hexagon modules; `extern from` is for foreign JavaScript",
+          primary: item.span,
+        });
+        continue;
+      }
       if (item.kind !== "Import") continue;
       const target = resolveSpecifier(path, item.specifier);
       if (!sources.has(target)) {
@@ -82,6 +94,7 @@ export function compileProject(files: readonly Source.File[]): CompiledProject {
   let symbolBase = 0;
   let unionBase = 0;
   let recordBase = 0;
+  let externTypeBase = 0;
   for (const path of ordered) {
     const source = sources.get(path)!;
     const parsedModule = parsed.get(path)!;
@@ -101,10 +114,15 @@ export function compileProject(files: readonly Source.File[]): CompiledProject {
       symbolBase,
       unionBase,
       recordBase,
+      externTypeBase,
     });
     symbolBase = nextId(resolved.symbols.map(({ id }) => Number(id)), symbolBase);
     unionBase = nextId(resolved.unions.map(({ id }) => Number(id)), unionBase);
     recordBase = nextId(resolved.records.map(({ id }) => Number(id)), recordBase);
+    externTypeBase = nextId(
+      resolved.externTypes.map(({ externType }) => Number(externType)),
+      externTypeBase,
+    );
     const typed = check(resolved, { importedSchemes });
     const core = elaborate(typed);
     const result: CompiledModule = {

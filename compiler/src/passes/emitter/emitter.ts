@@ -188,6 +188,64 @@ class JavaScriptEmitter {
         ? [`${prefix}import ${specifier};`]
         : [`${prefix}import { ${names.join(", ")} } from ${specifier};`];
     }
+    if (item.kind === "ExternImport") {
+      return [`${prefix}import ${JSON.stringify(item.specifier)};`];
+    }
+    if (item.kind === "ExternBlock") {
+      const specifier = JSON.stringify(item.specifier);
+      const lines: string[] = [];
+      for (const declaration of item.declarations) {
+        if (declaration.kind === "ExternType") continue;
+        const local = this.#identifier(
+          declaration.binding.symbol,
+          declaration.localName,
+        );
+        const wrapper = declaration.kind === "ExternFun"
+          ? declaration.result.kind === "Seq" ||
+            (declaration.result.kind === "Primitive" && declaration.result.name === "Unit")
+          : declaration.type.kind === "Seq";
+        if (!wrapper) {
+          if (declaration.default) {
+            lines.push(`${prefix}import ${local} from ${specifier};`);
+          } else {
+            const foreign = declaration.foreignName ?? declaration.localName;
+            lines.push(
+              `${prefix}import { ${foreign}${foreign === local ? "" : ` as ${local}`} } from ${specifier};`,
+            );
+          }
+        } else {
+          const foreign = declaration.foreignName ?? declaration.localName;
+          const imported = this.#generatedNames.fresh(`${local}Foreign`);
+          lines.push(
+            declaration.default
+              ? `${prefix}import ${imported} from ${specifier};`
+              : `${prefix}import { ${foreign} as ${imported} } from ${specifier};`,
+          );
+          if (declaration.kind === "ExternLet") {
+            lines.push(
+              `${prefix}const ${local} = ${this.#useHelper("seq")}(${imported});`,
+            );
+          } else {
+            const parameters = declaration.parameters.map((parameter) =>
+              this.#identifier(parameter.symbol, parameter.name)
+            );
+            const call = `${imported}(${parameters.join(", ")})`;
+            const value = declaration.result.kind === "Seq"
+              ? `${this.#useHelper("seq")}(${call})`
+              : `{ ${call}; }`;
+            lines.push(`${prefix}const ${local} = (${parameters.join(", ")}) => ${value};`);
+          }
+        }
+        if (declaration.exported) {
+          this.#exports.push(
+            local === declaration.localName
+              ? `export { ${local} };`
+              : `export { ${local} as ${declaration.localName} };`,
+          );
+        }
+      }
+      return lines;
+    }
     if (item.kind === "ConstraintDeclaration") {
       return item.members.map((member) => {
         const name = this.#identifier(member.binding.symbol, member.binding.name);
@@ -2090,6 +2148,40 @@ class DeclarationEmitter {
     const declarations: string[] = [];
     let isExternalModule = false;
     for (const item of this.#module.items) {
+      if (item.kind === "Import") {
+        const specifier = JSON.stringify(emittedModuleSpecifier(item.specifier));
+        if (item.form.kind === "Namespace") {
+          declarations.push(`import type * as ${item.form.alias} from ${specifier};`);
+          isExternalModule = true;
+        } else if (item.form.kind === "Named") {
+          const names = item.form.names.filter(({ typeOnly }) => typeOnly === true)
+            .map(({ imported, local }) => imported === local ? imported : `${imported} as ${local}`);
+          if (names.length > 0) {
+            declarations.push(`import type { ${names.join(", ")} } from ${specifier};`);
+            isExternalModule = true;
+          }
+        }
+        continue;
+      }
+      if (item.kind === "ExternBlock") {
+        for (const declaration of item.declarations) {
+          if (!declaration.exported) continue;
+          if (declaration.kind === "ExternType") {
+            const brand = this.#opaqueBrands.get(declaration.localName)!;
+            declarations.push(`declare const ${brand}: unique symbol;`);
+            declarations.push(`export type ${declaration.localName} = { readonly [${brand}]: never };`);
+          } else if (declaration.kind === "ExternFun") {
+            declarations.push(...renderExternFunctionDeclaration(declaration, true));
+          } else {
+            declarations.push(
+              `export declare const ${declaration.localName}: ${renderType(declaration.type, new Map(), false)};`,
+            );
+          }
+          isExternalModule = true;
+        }
+        continue;
+      }
+      if (item.kind === "ExternImport") continue;
       if (item.kind === "TypeAlias") {
         if (!item.exported) continue;
         const variables = typeVariableNames(item.parameters);
@@ -2241,6 +2333,40 @@ class TypeScriptPreviewEmitter {
     let isExternalModule = false;
 
     for (const item of this.#module.items) {
+      if (item.kind === "Import") {
+        const specifier = JSON.stringify(emittedModuleSpecifier(item.specifier));
+        if (item.form.kind === "Namespace") {
+          declarations.push(`import type * as ${item.form.alias} from ${specifier};`);
+          isExternalModule = true;
+        } else if (item.form.kind === "Named") {
+          const names = item.form.names.filter(({ typeOnly }) => typeOnly === true)
+            .map(({ imported, local }) => imported === local ? imported : `${imported} as ${local}`);
+          if (names.length > 0) {
+            declarations.push(`import type { ${names.join(", ")} } from ${specifier};`);
+            isExternalModule = true;
+          }
+        }
+        continue;
+      }
+      if (item.kind === "ExternBlock") {
+        for (const declaration of item.declarations) {
+          const prefix = declaration.exported ? "export " : "";
+          if (declaration.kind === "ExternType") {
+            const brand = this.#opaqueBrands.get(declaration.localName)!;
+            declarations.push(`declare const ${brand}: unique symbol;`);
+            declarations.push(`${prefix}type ${declaration.localName} = { readonly [${brand}]: never };`);
+          } else if (declaration.kind === "ExternFun") {
+            declarations.push(...renderExternFunctionDeclaration(declaration, declaration.exported));
+          } else {
+            declarations.push(
+              `${prefix}declare const ${declaration.localName}: ${renderType(declaration.type, new Map(), false)};`,
+            );
+          }
+          isExternalModule ||= declaration.exported;
+        }
+        continue;
+      }
+      if (item.kind === "ExternImport") continue;
       if (item.kind === "TypeAlias") {
         const prefix = item.exported ? "export " : "";
         const variables = typeVariableNames(item.parameters);
@@ -2411,6 +2537,10 @@ function opaqueBrandNames(module: Core.Module): ReadonlyMap<string, string> {
   const typeNames = module.items.flatMap((item) =>
     item.kind === "TypeAlias" || item.kind === "Union" || item.kind === "RecordDeclaration"
       ? [item.name]
+      : item.kind === "ExternBlock"
+      ? item.declarations.flatMap((declaration) =>
+          declaration.kind === "ExternType" ? [declaration.localName] : []
+        )
       : []
   );
   const names = new GeneratedNames([
@@ -2420,6 +2550,12 @@ function opaqueBrandNames(module: Core.Module): ReadonlyMap<string, string> {
   return new Map(module.items.flatMap((item) =>
     (item.kind === "Union" || item.kind === "RecordDeclaration") && item.opaque
       ? [[item.name, names.fixed(`opaque_${item.name}`)] as const]
+      : item.kind === "ExternBlock"
+      ? item.declarations.flatMap((declaration) =>
+          declaration.kind === "ExternType"
+            ? [[declaration.localName, names.fixed(`opaque_${declaration.localName}`)] as const]
+            : []
+        )
       : []
   ));
 }
@@ -3213,6 +3349,30 @@ function renderScheme(scheme: Typed.Scheme, value?: Core.Expr): string {
   );
 }
 
+function renderExternFunctionDeclaration(
+  declaration: Core.ExternBlockItem["declarations"][number] & { readonly kind: "ExternFun" },
+  exported: boolean,
+): readonly string[] {
+  const parameters = declaration.parameters.map((parameter) =>
+    `${parameter.name}: ${renderType(parameter.scheme.type, new Map(), false)}`
+  );
+  const result = renderType(declaration.result, new Map(), true);
+  const safe = isSafeIdentifier(declaration.localName);
+  const local = safe
+    ? declaration.localName
+    : `__hex_binding${Number(declaration.binding.symbol)}`;
+  if (safe) {
+    return [
+      `${exported ? "export " : ""}declare function ${local}(${parameters.join(", ")}): ${result};`,
+    ];
+  }
+  const lines = [
+    `declare const ${local}: (${parameters.join(", ")}) => ${result};`,
+  ];
+  if (exported) lines.push(`export { ${local} as ${declaration.localName} };`);
+  return lines;
+}
+
 function renderFunctionDeclaration(
   name: string,
   scheme: Typed.Scheme,
@@ -3298,6 +3458,8 @@ function renderType(
         : `${type.name}<${type.arguments.map((argument) =>
           renderType(argument, variables, false)
         ).join(", ")}>`;
+    case "ExternType":
+      return type.name;
     case "Tuple":
       return (
         `[${type.elements.map((element) =>

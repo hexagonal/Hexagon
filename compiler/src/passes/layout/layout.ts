@@ -216,11 +216,19 @@ function expectsBlock(item: readonly Lexed.Token[]): boolean {
       !item.slice(activeControl.index + 1).some(({ kind }) => kind === "Then");
   }
 
+  const first = item[item[0]?.kind === "Export" ? 1 : 0];
+  if (
+    first?.kind === "Extern" &&
+    item.some((token) => token.kind === "NonUpperName" && token.text === "from") &&
+    last?.kind === "String"
+  ) {
+    return true;
+  }
+
   if (last?.kind !== "Equal") {
     return false;
   }
 
-  const first = item[item[0]?.kind === "Export" ? 1 : 0];
   if (first?.kind === "Constraint" || first?.kind === "Honor") {
     return true;
   }

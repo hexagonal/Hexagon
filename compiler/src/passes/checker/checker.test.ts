@@ -10,6 +10,34 @@ import { resolve } from "../resolver/resolver.js";
 import { check } from "./checker.js";
 
 describe("check", () => {
+  test("checks monomorphic extern schemes and opaque foreign types", () => {
+    const module = checkSource(
+      "extern from \"tiny-json\"\n" +
+        "  export type JsonValue\n" +
+        "  export fun parse(text: String): JsonValue\n" +
+        "  let VERSION as version: String\n" +
+        "let document = parse(version)",
+    );
+
+    expect(letSymbol(module, "document").scheme.type).toMatchObject({
+      kind: "ExternType",
+      name: "JsonValue",
+    });
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("rejects generic externs and adapter-requiring nested positions", () => {
+    const module = checkSource(
+      "extern from \"streams\"\n" +
+        "  fun generic(value: a): a\n" +
+        "  fun nested(): Array(Seq(Int))\n" +
+        "  fun callback(run: (() -> Seq(Int))): Unit",
+    );
+    const messages = module.diagnostics.map(({ message }) => message);
+
+    expect(messages).toContain("generic extern declarations are not part of Hexagon v1");
+    expect(messages.filter((message) => message.includes("requires adaptation inside a direct value"))).toHaveLength(2);
+  });
   test("expands order-independent aliases and checks mutual recursion", () => {
     const module = checkSource(
       "type Coordinates = Point\n" +

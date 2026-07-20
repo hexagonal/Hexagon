@@ -15,6 +15,7 @@ export function elaborate(module: Typed.Module): Core.Module {
     symbols: module.symbols,
     unions: module.unions,
     records: module.records,
+    externTypes: module.externTypes,
     comments: module.comments,
     span: module.span,
     diagnostics: module.diagnostics,
@@ -24,6 +25,8 @@ export function elaborate(module: Typed.Module): Core.Module {
 function elaborateItem(item: Typed.Item): Core.Item {
   switch (item.kind) {
     case "Import":
+    case "ExternBlock":
+    case "ExternImport":
     case "ConstraintDeclaration":
       return item;
     case "Honor":
@@ -420,6 +423,7 @@ function evidence(requirement: Typed.Constraint | undefined): Core.Evidence {
     case "Nullable":
     case "Union":
     case "NominalRecord":
+    case "ExternType":
     case "Error":
       return { kind: "Error" };
   }

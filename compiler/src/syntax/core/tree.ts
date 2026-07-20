@@ -65,6 +65,7 @@ export interface Module {
   readonly symbols: readonly Symbol[];
   readonly unions: readonly Union[];
   readonly records: readonly RecordDeclaration[];
+  readonly externTypes: readonly Typed.ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
@@ -72,6 +73,8 @@ export interface Module {
 
 export type Item =
   | ImportItem
+  | ExternBlockItem
+  | ExternImportItem
   | LetItem
   | VarItem
   | LetPatternItem
@@ -84,6 +87,9 @@ export type Item =
   | UnionItem
   | ExprItem
   | ErrorItem;
+
+export type ExternBlockItem = Typed.ExternBlockItem;
+export type ExternImportItem = Typed.ExternImportItem;
 
 export interface LetItem {
   readonly kind: "Let";

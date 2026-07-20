@@ -64,6 +64,8 @@ function displayType(
         : `${type.name}(${type.arguments.map((argument) =>
           displayType(argument, variables)
         ).join(", ")})`;
+    case "ExternType":
+      return type.name;
     case "Function": {
       const parameters = type.parameters.map((parameter) =>
         displayType(parameter, variables),
@@ -126,6 +128,7 @@ function collectVariables(
     case "NominalRecord":
       for (const argument of type.arguments) collectVariables(argument, variables);
       return;
+    case "ExternType":
     case "Primitive":
     case "Range":
     case "Error":
