@@ -150,7 +150,7 @@ The corpus already leans hash-shaped, decisively:
 
 **"You can write a real collection" is a v1 requirement, and `for x in myBag` is its floor.** v1 therefore ships user-implementable `Iterable` in the following restricted form:
 
-- `Iterable` is a real prelude constraint declaration with an associated `type Item` member and `iterate(xs: c): Seq(Item)`. The declaration is Part 2 §8; the `type`-member grammar is Part 2 §5.
+- `Iterable` is a real prelude constraint declaration with an implied `type Item` member and `iterate(xs: c): Seq(Item)`. The declaration is Part 2 §8; the `type`-member grammar is Part 2 §5.
 - A user instance — `honor Iterable<Bag(a)>` with `type Item = a` — adds a row to the iterable table. The operational lookup for `for p in e`, the finalized provided-instance table, the failure taxonomy and diagnostics, and the table-opening rules are Collections Part 5 §§2–8.
 - Instances are global (Modules §7). Discoverability is owned by Modules §7.6 and Part 5 §7.2: for a home-module instance the import graph does the work by construction — no effect import is needed.
 - **v1 restrictions, stated plainly:** `Item(c)` is not referenceable in user type expressions, and `Iterable` cannot appear as a constraint binder on user functions (the projection-bearing restriction, Part 2 §7). Functions generic over "any iterable" remain unwritable in v1; `Seq(a)` parameters remain the idiom (Loops §7.1).
@@ -161,11 +161,11 @@ The original deferral protected against a specific risk: **deferred `Item(α)` g
 
 ### 6.3 What stays v2
 
-Deferred `Item(α)` goals; `Item(c)` in user type expressions; obligations on associated types (`type Item: Show`); non-structural user hashing. The canonical statement of the v1 restriction is Part 2 §7; the pre-registered v2 direction — including `derive via` as the candidate replacement for hand-written `Hash` — is owned by **Part 2 §11**.
+Deferred `Item(α)` goals; `Item(c)` in user type expressions; obligations on implied types (`type Item: Show`); non-structural user hashing. The canonical statement of the v1 restriction is Part 2 §7; the pre-registered v2 direction — including `derive via` as the candidate replacement for hand-written `Hash` — is owned by **Part 2 §11**.
 
 ### 6.4 Amendments (resolved)
 
-The amendments this part made are applied and stand: Decisions Batch 2026-07 §6 is amended (the restricted form is v1; the full associated-types feature remains v2, per §6.3); Loops records the table-opening promotion as resolved (Loops §7, §11), re-scoped by Part 2 §14; the main roadmap's Tier-3 associated-types entry carries the re-scope and the `derive via` pointer. Confirmation record: Part 5 §16.2.
+The amendments this part made are applied and stand: Decisions Batch 2026-07 §6 is amended (the restricted form is v1; the full implied-types feature remains v2, per §6.3); Loops records the table-opening promotion as resolved (Loops §7, §11), re-scoped by Part 2 §14; the main roadmap's Tier-3 implied-types entry carries the re-scope and the `derive via` pointer. Confirmation record: Part 5 §16.2.
 
 ### 6.5 The "so you're writing your own collection" recipe
 

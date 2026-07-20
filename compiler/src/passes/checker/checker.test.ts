@@ -682,7 +682,7 @@ describe("check", () => {
     );
   });
 
-  test("checks associated type instances and resolves concrete member results", () => {
+  test("checks implied type instances and resolves concrete member results", () => {
     const module = checkSource(
       "constraint Source<a> =\n" +
         "  type Item\n" +
@@ -701,7 +701,7 @@ describe("check", () => {
     });
   });
 
-  test("enforces associated type completeness and the v1 binder ban", () => {
+  test("enforces implied type completeness and the v1 binder ban", () => {
     const module = checkSource(
       "constraint Source<a> =\n" +
         "  type Item\n" +
@@ -713,7 +713,7 @@ describe("check", () => {
 
     expect(module.diagnostics.map(({ message }) => message)).toEqual(
       expect.arrayContaining([
-        "instance is missing associated type `Item`",
+        "instance is missing implied type `Item`",
         "projection-bearing constraint `Source` cannot constrain a type variable in v1; accept a concrete type or a `Seq(a)` instead",
       ]),
     );

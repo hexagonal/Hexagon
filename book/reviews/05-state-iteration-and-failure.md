@@ -34,11 +34,11 @@ effects without undoing the earlier value-and-function model.
   only intended failure is pattern refutability rather than missing iterability.
 - Corrected the hypothetical exported sequence declaration to
   `export declare const visibleSquares: Iterable<number>`.
-- Removed `Iterable`'s declaration, `Item`, associated-type terminology, and the
+- Removed `Iterable`'s declaration, `Item`, implied-type terminology, and the
   abstract-binder failure from the loops chapter. Ordinary readers now receive the
   concrete rule: every iterable type has one statically determined element type, and
   reusable consumers accept `Seq(a)`.
-- Updated the previous group review so it no longer promises associated-type teaching
+- Updated the previous group review so it no longer promises implied-type teaching
   in the loops chapter. That mechanism belongs with later collection-extension or
   advanced material.
 - Added the direct mental model that `catch` is like `match`, except its scrutinee is
@@ -58,7 +58,7 @@ or sequence knowledge.
 Loops and Ranges then pays off `var` immediately with `sumTo` and `countdown`. It reuses
 the pattern chapter's irrefutability gate rather than inventing loop-specific
 destructuring. `Seq(a)` is previewed only as an explicitly explained iterable source;
-the following chapter owns laziness and the cursor model. Removing associated types
+the following chapter owns laziness and the cursor model. Removing implied types
 was the right dependency correction: library-extension machinery no longer interrupts
 the ordinary act of writing a loop.
 
@@ -87,7 +87,7 @@ matching.
   categories.
 - **Exception**, **Exn**, **implicit rethrow**, and **JsError** distinguish the open
   failure channel from `Result`'s closed data.
-- Associated types deliberately receive no reader-facing definition or index entry in
+- Implied types deliberately receive no reader-facing definition or index entry in
   this group.
 - Principal terms are represented in `INDEX-CANDIDATES.md`.
 
@@ -128,7 +128,7 @@ bridge; no coercion or subtyping relationship is introduced.
 ## Deferred to later reviews
 
 - Collection-extension material must explain user-defined `Iterable`, its `Item`
-  member, associated types, instance placement, and the `toSeq` delegation recipe.
+  member, implied types, instance placement, and the `toSeq` delegation recipe.
 - Persistent collections must demonstrate `toSeq`/`fromSeq` without turning the book
   into an API manual, and must add vector patterns in their owning context.
 - JavaScript interoperation must complete the `JsValue` access story and verify inbound

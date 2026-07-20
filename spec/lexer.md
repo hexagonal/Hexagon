@@ -98,10 +98,24 @@ normalizes nor case-folds names; canonically equivalent NFC and decomposed spell
 distinct identifiers. Tooling may offer normalization or confusable warnings, but such
 warnings never alter name identity and are not compiler diagnostics in v1.
 
-Uppercase-start names serve the existing type, constructor, constraint, and module-alias
-roles. Non-uppercase-start names serve term and binder roles. Caseless scripts therefore
-work naturally as terms (`用户`). Where an uppercase role is wanted, `T用户`, `C成功`,
-and `M数据库` are cultural conventions using ordinary Latin prefixes, not special syntax.
+Uppercase-start names serve type, union-case, constraint, implied-type, exception,
+and module-alias roles. Non-uppercase-start names serve term and binder roles.
+Caseless scripts therefore work naturally as terms (`用户`). Where an uppercase role
+is wanted, one distinct mnemonic prefix per role is the cultural convention:
+
+| Prefix | Role | Representative spelling |
+| :--- | :--- | :--- |
+| `T` | type | `T人`, `T花色` |
+| `U` | union case | `U梅花`, `U黑桃` |
+| `C` | constraint | `C显示` |
+| `I` | implied type | `I元素` |
+| `E` | exception | `E无效年龄` |
+| `M` | module alias | `M数据库` |
+
+These are ordinary Latin prefixes, not reserved syntax. Record constructors retain
+their type's `T` name because the type and constructor deliberately share one
+identifier. Values, functions, parameters, fields, constraint function members,
+type variables, and other term/binder roles need no prefix.
 
 ASCII examples remain the ordinary forms:
 
@@ -110,7 +124,8 @@ name       item2      parse_json     -- NonUpperName
 $name      _name      用户             -- NonUpperName
 Point      HTTP2      Résultat       -- UpperName
 δelta      Δelta                     -- lower and upper Unicode initials
-T用户      C成功      M数据库           -- UpperName by literal first codepoint
+T用户      U梅花      C显示             -- UpperName by literal first codepoint
+I元素      E无效年龄  M数据库           -- cultural role prefixes, ordinary names
 ```
 
 ### 3.2 Deliberate exclusions

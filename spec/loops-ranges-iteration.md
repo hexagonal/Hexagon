@@ -209,9 +209,9 @@ constraint Iterable<c> =
 - The v1 restriction: `Iterable` is **projection-bearing** and therefore **cannot constrain a generic binder**, and `Item`/`Item(c)` cannot appear in source type expressions (Collections Part 2 §7.2–§7.3). Functions generic over "any iterable" are not writable in v1; the idiom is to **take a `Seq(a)` parameter** and let callers convert (`for x in xs` where `xs : Seq(a)` infers fine — `Seq`'s instance has a variable element).
 - Consequently `Iterable` never appears in inferred signatures, hovers, or unsatisfied-constraint errors in v1 — non-leakage holds **by construction** (no binder can introduce it), not by suppression (Collections Part 2 §8).
 - When the checker sees `for p in e` with `e : τ` and τ is an unsolved metavariable, the error is **annotation-required**; a rigid (binder-bound) variable instead gets the `Seq(a)` rewrite hint — the split diagnostics are Collections Part 5 §3.2 (§10.2 here summarizes).
-### 7.2 The v2 remainder (associated types)
+### 7.2 The v2 remainder (implied types)
 
-The declaration, `Item` naming, `honor`-side `type Item = τ` bindings, and user instances are **v1** (Collections Part 2 §5–§8; Part 5). What remains v2 is the associated-types feature proper, owned by Collections Part 2 §11 / Part 1 §6.3:
+The declaration, `Item` naming, `honor`-side `type Item = τ` bindings, and user instances are **v1** (Collections Part 2 §5–§8; Part 5). What remains v2 is the implied-types feature proper, owned by Collections Part 2 §11 / Part 1 §6.3:
 
 - **deferred `Item(α)` goals** in inference (the machinery that would let `Iterable` constrain a binder);
 - the **`Item(c)` reference syntax** in type expressions (v1 reserves it by rejecting it with a message that knows what it will become — Collections Part 2 §7.3);
@@ -249,7 +249,7 @@ Readable-JS doctrine: the general mechanism exists; the common case erases.
 2. **`do..while`: no.** Rare; expressible with `while` + a `var` flag or restructuring. F# — the statement-model precedent — does not have it either.
 3. **`loop` (loop-forever): no in v1.** Only coherent alongside `break`; automatically part of the break/continue deepdive (below). `while true` covers the interim (§4 note).
 4. **`break` / `continue`: not in v1 — deepdive owed.** F# has neither and has lived without them for two decades; Hexagon starts from the same position (removing them later is impossible; adding them is easy). The deepdive's known decision surface, recorded so it is not rediscovered: (a) statement-flavored `break` as a `Unit`-ish expression legal only in loop bodies — cheapest, but the first non-exception non-local control flow; (b) break-with-value (Rust's `break expr`) — makes loops non-`Unit`, drags the loop's type in; (c) labeled variants — decline outright. The F#-flavored alternative to weigh: `while` + flag covers most `break` cases, inverted `if` covers most `continue` cases; whether that ergonomics is acceptable is exactly what the deepdive decides, with field evidence from real Hexagon code (shared revisit-bar with compound assignment, Statements §6.4).
-5. **An `Iterator` constraint / cursor objects: never.** The `Seq(a)` functional cursor (§6.2) makes a second constraint and its associated `Iter` type pure structure with no job (the `Iterable`-returns-`Iterator` design collapsed once the cursor became a concrete type). Even in v2, `Iterable` is the only iteration constraint.
+5. **An `Iterator` constraint / cursor objects: never.** The `Seq(a)` functional cursor (§6.2) makes a second constraint and its implied `Iter` type pure structure with no job (the `Iterable`-returns-`Iterator` design collapsed once the cursor became a concrete type). Even in v2, `Iterable` is the only iteration constraint.
 6. **Fold-based `for..in` desugaring:** forbidden, §6.3.
 7. **Half-open ranges, Float ranges, ranges over `Ord`:** §3.1.
 8. **Descending-by-operand-order:** §3.4.
@@ -348,10 +348,10 @@ for (k, v) in m                -- m : Map(String, Int); k : String, v : Int
 
 ## 11. Hanging questions — live deferrals and resolved anchors
 
-1. *(resolved — re-scoped)* **Associated types.** The `Iterable` declaration, `Item` naming, `honor`-side `type Item = τ` bindings, and user instances are v1 (Collections Part 2 §5–§8; Part 5 §7). The genuine v2 remainder — deferred `Item(α)` goals, `Item(c)` reference syntax, obligations on type members, `derive via` — is owned by Collections Part 2 §11 / Part 1 §6.3. See §7.2.
+1. *(resolved — re-scoped)* **Implied types.** The `Iterable` declaration, `Item` naming, `honor`-side `type Item = τ` bindings, and user instances are v1 (Collections Part 2 §5–§8; Part 5 §7). The genuine v2 remainder — deferred `Item(α)` goals, `Item(c)` reference syntax, obligations on type members, `derive via` — is owned by Collections Part 2 §11 / Part 1 §6.3. See §7.2.
 2. *(resolved)* **Derivation timing.** No longer an independent question: the declaration shipped with Collections Part 2; only the §11.1 v2 remainder is sequenced later, by its owner.
 3. **Generators (`seq { ... }` / `yield`).** Coroutine feature, big surface, own spec. `Seq` the type needs none of it; nobody should assume `Seq` implies `yield`.
-4. **`AsyncSeq(a)`.** Not a v1 feature. Direction recorded for a future async spec: `next : AsyncSeq(a) -> Promise(Option((a, AsyncSeq(a))))`, mapping onto JS's `AsyncIterator` as `Seq` maps onto `Iterator`; the eventual `for await`-style consumption form belongs to that spec. Core async (`Promise(a)`, `async fun`, `await`) needs no machinery from this spec and no associated types.
+4. **`AsyncSeq(a)`.** Not a v1 feature. Direction recorded for a future async spec: `next : AsyncSeq(a) -> Promise(Option((a, AsyncSeq(a))))`, mapping onto JS's `AsyncIterator` as `Seq` maps onto `Iterator`; the eventual `for await`-style consumption form belongs to that spec. Core async (`Promise(a)`, `async fun`, `await`) needs no machinery from this spec and no implied types.
 5. **Range step.** `range(lo, hi, step)` vs `(1..10).by(2)` vs nothing. No v1 client; decide when field evidence arrives (likely alongside the break/continue deepdive, since both are "loop ergonomics under load").
 6. *(resolved)* **`String` iteration.** Decided: `String` is iterable with **one-codepoint `String`** items, in codepoint order; the conversion pair is `String.toSeq`/`String.fromSeq`. Owner: Collections Part 5 §5 (Primitive Types §5.1 conforms).
 7. *(resolved)* **Slicing and indexing.** `Vector` and `String` are decided by Collections Part 3 §§5–6/§9; borrowed `Array` is decided by FFI Part 2 §6.3; Map key access is Collections Part 4 §4. This spec's surviving contribution stands: `Range` is a first-class value fit to appear inside `[]`.

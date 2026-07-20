@@ -48,7 +48,7 @@ export type TypeAnnotation =
   | ArrayTypeAnnotation
   | NullableTypeAnnotation
   | TypeVariableAnnotation
-  | AssociatedTypeAnnotation
+  | ImpliedTypeAnnotation
   | ErrorTypeAnnotation;
 
 export interface PrimitiveTypeAnnotation {
@@ -133,8 +133,8 @@ export interface TypeVariableAnnotation {
   readonly span: Source.Span;
 }
 
-export interface AssociatedTypeAnnotation {
-  readonly kind: "AssociatedType";
+export interface ImpliedTypeAnnotation {
+  readonly kind: "ImpliedType";
   readonly constraint: string;
   readonly name: string;
   readonly span: Source.Span;
@@ -417,12 +417,12 @@ export interface ConstraintItem {
   readonly name: string;
   readonly subject: string;
   readonly superconstraints: readonly string[];
-  readonly associatedTypes: readonly ConstraintAssociatedType[];
+  readonly impliedTypes: readonly ConstraintImpliedType[];
   readonly members: readonly ConstraintMember[];
   readonly span: Source.Span;
 }
 
-export interface ConstraintAssociatedType {
+export interface ConstraintImpliedType {
   readonly name: string;
   readonly span: Source.Span;
 }
@@ -442,12 +442,12 @@ export interface HonorItem {
   readonly subject: TypeAnnotation;
   readonly derived: boolean;
   readonly dictionary: string;
-  readonly associatedTypes: readonly HonorAssociatedType[];
+  readonly impliedTypes: readonly HonorImpliedType[];
   readonly members: readonly HonorMember[];
   readonly span: Source.Span;
 }
 
-export interface HonorAssociatedType {
+export interface HonorImpliedType {
   readonly name: string;
   readonly annotation: TypeAnnotation;
   readonly span: Source.Span;

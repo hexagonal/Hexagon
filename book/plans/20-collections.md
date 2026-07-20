@@ -7,7 +7,7 @@ without turning the chapter into a standard-library reference. Complete the defe
 vector-pattern and user-defined-`Iterable` stories, and reconnect eager collections to
 `Seq(a)` as their common conversion currency. End with only the minimum preview needed
 to show that a user-defined collection can honor `Iterable`; the following chapter owns
-associated types.
+implied types.
 
 ## Reader outcome
 
@@ -32,7 +32,7 @@ small user-defined collection iterable.
 - Collections are examples of language ideas, not an API inventory.
 - Preserve one-based indexing and the bracket-versus-`get` distinction.
 - Keep subject-first qualified functions compatible with pipes and dot calls.
-- Do not teach associated types here. Allude to the mechanism only far enough to read
+- Do not teach implied types here. Allude to the mechanism only far enough to read
   the `Bag(a)` instance, then hand it to the next chapter.
 - Do not imply that `Map` or `Set` iteration is insertion, sorted, or cross-run stable.
 - Do not identify persistent collections with native mutable JavaScript collections.

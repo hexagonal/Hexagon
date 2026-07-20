@@ -124,11 +124,12 @@ open specification work does not make the book outline provisional.
     complexity row, or conversion; that belongs in generated API documentation or a
     future library manual.
 
-21. **Associated types** — A constraint may declare type members that each `honor`
-    instance binds exactly once. Associated names belong to their constraint, may be
-    used inside its declaration and instances, and participate in ordinary coherence.
+21. **Implied types** — A constraint may declare types uniquely determined by each
+    instance's subject type; each `honor` binds them exactly once. Implied-type names
+    belong to their constraint, may be used inside its declaration and instances, and
+    participate in ordinary coherence.
     Their deliberately restricted form supports concrete facilities such as
-    `Iterable.Item` without adding general associated-type projection to inference.
+    `Iterable.Item` without adding general implied-type projection to inference.
 
 ## JavaScript and TypeScript integration
 

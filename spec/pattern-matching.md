@@ -253,7 +253,7 @@ match flag
 Two **permanent** exclusions:
 
 - **`Exn`.** An open sum can never satisfy exhaustiveness; `catch` is the only eliminator (Exceptions §3, unchanged). Diagnostic: "match requires a closed type; exceptions are inspected with `try`/`catch`."
-- **Constraint-bounded abstract types.** A scrutinee whose type is a variable — even one carrying constraints (`c: Iterable`, some future `Item(c)` projection) — has no visible constructors and cannot be matched. Matching is structural on *known representation*; it never dispatches through a constraint, and it never scrutinizes a `Seq` or any other abstraction by its internals. Diagnostic: "cannot match on a value of abstract type `c`; use the operations its constraints provide." This is the associated-types interaction, stated so nobody expects `match` to grow constraint dispatch.
+- **Constraint-bounded abstract types.** A scrutinee whose type is a variable — even one carrying constraints (`c: Iterable`, some future `Item(c)` projection) — has no visible constructors and cannot be matched. Matching is structural on *known representation*; it never dispatches through a constraint, and it never scrutinizes a `Seq` or any other abstraction by its internals. Diagnostic: "cannot match on a value of abstract type `c`; use the operations its constraints provide." This is the implied-types interaction, stated so nobody expects `match` to grow constraint dispatch.
 
 Everything else from Unions §4 stands: layout arms, `pattern [when g] => body`, expression semantics, single evaluation of the scrutinee, no braced form.
 

@@ -252,7 +252,7 @@ export interface HonorItem {
   readonly derived: boolean;
   readonly dictionary: string;
   readonly superconstraints: readonly HonorSuperconstraint[];
-  readonly associatedTypes: readonly Typed.HonorAssociatedType[];
+  readonly impliedTypes: readonly Typed.HonorImpliedType[];
   readonly members: readonly HonorMember[];
   readonly span: Source.Span;
 }

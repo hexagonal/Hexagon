@@ -9,7 +9,7 @@ import { parse } from "../parser/parser.js";
 import { resolve } from "./resolver.js";
 
 describe("resolve", () => {
-  test("gives associated types owner-relative scope", () => {
+  test("gives implied types owner-relative scope", () => {
     const module = resolveSource(
       "constraint Source<a> =\n" +
         "  type Item\n" +
@@ -21,11 +21,11 @@ describe("resolve", () => {
     );
 
     expect(module.items.slice(0, 2)).toMatchObject([
-      { kind: "ConstraintDeclaration", associatedTypes: [{ name: "Item" }] },
-      { kind: "ConstraintDeclaration", associatedTypes: [{ name: "Item" }] },
+      { kind: "ConstraintDeclaration", impliedTypes: [{ name: "Item" }] },
+      { kind: "ConstraintDeclaration", impliedTypes: [{ name: "Item" }] },
     ]);
     expect(module.diagnostics.map(({ message }) => message)).toContain(
-      "`Item` is an associated type declared by `Sink` and `Source` and cannot appear in type expressions",
+      "`Item` is an implied type declared by `Sink` and `Source` and cannot appear in type expressions",
     );
   });
   test("assigns stable symbols to sequential bindings and references", () => {

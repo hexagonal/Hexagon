@@ -1,7 +1,7 @@
 /**
  * The checker implements the Hindley–Milner core needed by the current vertical
  * slices. Mutable union-find variables are private to inference;
- * the returned Typed tree contains only immutable types and schemes. Associated
+ * the returned Typed tree contains only immutable types and schemes. Implied
  * type choices substitute into ground instances and erase before emission; v1
  * rejects projection-bearing constraints on type-variable binders.
  */
@@ -130,7 +130,7 @@ interface Requirement {
   readonly type: Mono;
   readonly span: Source.Span;
   readonly origin: "literal" | "operation" | "interpolation";
-  readonly associatedTypes?: ReadonlyMap<string, Mono>;
+  readonly impliedTypes?: ReadonlyMap<string, Mono>;
   evidenceConstraint?: Typed.ConstraintName;
   evidencePath?: readonly string[];
   reported: boolean;
@@ -143,7 +143,7 @@ interface Scheme {
   readonly variables: readonly Variable[];
   readonly type: Mono;
   readonly constraint?: string;
-  readonly associatedTypes?: ReadonlyMap<string, Variable>;
+  readonly impliedTypes?: ReadonlyMap<string, Variable>;
 }
 
 const ERROR: ErrorMono = { kind: "Error" };
@@ -190,7 +190,7 @@ class Checker {
     "Num", "Frac", "Pow", "Concat", "Eq", "Ord", "Show", "Hash", "Iterable", "Integral",
   ]);
   readonly #constraintSubjects = new WeakMap<Resolved.ConstraintItem, Variable>();
-  readonly #constraintAssociatedTypes = new WeakMap<
+  readonly #constraintImpliedTypes = new WeakMap<
     Resolved.ConstraintItem,
     ReadonlyMap<string, Variable>
   >();
@@ -229,7 +229,7 @@ class Checker {
       if (item.kind === "ConstraintDeclaration") {
         this.#constraintNames.add(item.name);
         this.#constraintDeclarations.set(item.name, item);
-        if (item.associatedTypes.length > 0) {
+        if (item.impliedTypes.length > 0) {
           this.#projectionBearingConstraints.add(item.name);
         }
       }
@@ -287,21 +287,21 @@ class Checker {
       const subject = this.#fresh(0, false);
       this.#constraintSubjects.set(item, subject);
       const typeParameters = new Map<string, Mono>([[item.subject, subject]]);
-      const associatedTypes = new Map(
-        item.associatedTypes.map(({ name }) => [name, this.#fresh(0, false)] as const),
+      const impliedTypes = new Map(
+        item.impliedTypes.map(({ name }) => [name, this.#fresh(0, false)] as const),
       );
-      const seenAssociatedTypes = new Set<string>();
-      for (const associatedType of item.associatedTypes) {
-        if (seenAssociatedTypes.has(associatedType.name)) {
+      const seenImpliedTypes = new Set<string>();
+      for (const impliedType of item.impliedTypes) {
+        if (seenImpliedTypes.has(impliedType.name)) {
           this.#diagnostics.add({
             severity: "error",
-            message: `associated type \`${associatedType.name}\` is declared more than once in \`${item.name}\``,
-            primary: associatedType.span,
+            message: `implied type \`${impliedType.name}\` is declared more than once in \`${item.name}\``,
+            primary: impliedType.span,
           });
         }
-        seenAssociatedTypes.add(associatedType.name);
+        seenImpliedTypes.add(impliedType.name);
       }
-      this.#constraintAssociatedTypes.set(item, associatedTypes);
+      this.#constraintImpliedTypes.set(item, impliedTypes);
       for (const member of item.members) {
         const parameters = member.parameters.map((parameter) => {
           const type = parameter.annotation === undefined
@@ -311,7 +311,7 @@ class Checker {
                 0,
                 new Map(),
                 typeParameters,
-                associatedTypes,
+                impliedTypes,
               );
           this.#schemes.set(parameter.symbol, { variables: [], type });
           return type;
@@ -321,14 +321,14 @@ class Checker {
           0,
           new Map(),
           typeParameters,
-          associatedTypes,
+          impliedTypes,
         );
         this.#require(item.name, subject, member.span);
         this.#schemes.set(member.binding.symbol, {
-          variables: [subject, ...associatedTypes.values()],
+          variables: [subject, ...impliedTypes.values()],
           type: { kind: "Function", parameters, result },
           constraint: item.name,
-          associatedTypes,
+          impliedTypes,
         });
       }
     }
@@ -592,35 +592,35 @@ class Checker {
             this.#require(superconstraint, instanceSubject, item.span)
           ),
         );
-        const associatedTypes = new Map<string, Mono>();
-        for (const required of declaration.associatedTypes) {
-          const bindings = item.associatedTypes.filter(({ name }) => name === required.name);
+        const impliedTypes = new Map<string, Mono>();
+        for (const required of declaration.impliedTypes) {
+          const bindings = item.impliedTypes.filter(({ name }) => name === required.name);
           if (bindings.length === 0) {
             this.#diagnostics.add({
               severity: "error",
-              message: `instance is missing associated type \`${required.name}\``,
+              message: `instance is missing implied type \`${required.name}\``,
               primary: item.span,
             });
-            associatedTypes.set(required.name, ERROR);
+            impliedTypes.set(required.name, ERROR);
           } else {
-            associatedTypes.set(
+            impliedTypes.set(
               required.name,
               this.#annotationType(bindings[0]!.annotation, level + 1),
             );
             if (bindings.length > 1) {
               this.#diagnostics.add({
                 severity: "error",
-                message: `associated type \`${required.name}\` is bound more than once in this instance`,
+                message: `implied type \`${required.name}\` is bound more than once in this instance`,
                 primary: bindings[1]!.span,
               });
             }
           }
         }
-        for (const binding of item.associatedTypes) {
-          if (!declaration.associatedTypes.some(({ name }) => name === binding.name)) {
+        for (const binding of item.impliedTypes) {
+          if (!declaration.impliedTypes.some(({ name }) => name === binding.name)) {
             this.#diagnostics.add({
               severity: "error",
-              message: `\`${binding.name}\` is not an associated type of \`${item.constraint}\``,
+              message: `\`${binding.name}\` is not an implied type of \`${item.constraint}\``,
               primary: binding.span,
             });
           }
@@ -670,7 +670,7 @@ class Checker {
                     level + 1,
                     new Map(),
                     subjectTypes,
-                    associatedTypes,
+                    impliedTypes,
                   )
             ),
             result: this.#annotationType(
@@ -678,7 +678,7 @@ class Checker {
               level + 1,
               new Map(),
               subjectTypes,
-              associatedTypes,
+              impliedTypes,
             ),
           };
           if (expectedFunction.parameters.length !== member.value.parameters.length) {
@@ -701,7 +701,7 @@ class Checker {
                   level + 1,
                   new Map(),
                   new Map(),
-                  associatedTypes,
+                  impliedTypes,
                 ),
                 expectedParameter,
                 parameter.annotation.span,
@@ -2693,14 +2693,14 @@ class Checker {
     type: Mono,
     span: Source.Span,
     origin: Requirement["origin"] = "operation",
-    associatedTypes?: ReadonlyMap<string, Mono>,
+    impliedTypes?: ReadonlyMap<string, Mono>,
   ): Requirement {
     const requirement: Requirement = {
       name,
       type,
       span,
       origin,
-      ...(associatedTypes === undefined ? {} : { associatedTypes }),
+      ...(impliedTypes === undefined ? {} : { impliedTypes }),
       reported: false,
     };
     const actual = this.#prune(type);
@@ -2852,12 +2852,12 @@ class Checker {
     if (instance !== undefined) {
       requirement.dictionary = instance.dictionary;
       requirement.dictionaryArguments = this.#instanceArguments(instance, type);
-      if (requirement.associatedTypes !== undefined) {
+      if (requirement.impliedTypes !== undefined) {
         const parameters = this.#instanceTypeParameters.get(instance) ?? new Map();
         const replacements = this.#matchInstanceSubject(instance, type);
-        for (const [name, projection] of requirement.associatedTypes) {
-          const binding = instance.associatedTypes.find(
-            (associatedType) => associatedType.name === name,
+        for (const [name, projection] of requirement.impliedTypes) {
+          const binding = instance.impliedTypes.find(
+            (impliedType) => impliedType.name === name,
           );
           if (binding !== undefined) {
             this.#unify(
@@ -3107,10 +3107,10 @@ class Checker {
     for (const variable of scheme.variables) {
       replacements.set(variable.id, this.#fresh(level, variable.literalOnly));
     }
-    const associatedTypes = scheme.associatedTypes === undefined
+    const impliedTypes = scheme.impliedTypes === undefined
       ? undefined
       : new Map(
-          [...scheme.associatedTypes].map(([name, variable]) => [
+          [...scheme.impliedTypes].map(([name, variable]) => [
             name,
             replacements.get(variable.id) ?? variable,
           ]),
@@ -3128,7 +3128,7 @@ class Checker {
             replacement,
             requirement.span,
             requirement.origin,
-            requirement.name === scheme.constraint ? associatedTypes : undefined,
+            requirement.name === scheme.constraint ? impliedTypes : undefined,
           );
           collected?.push(copied);
         }
@@ -3179,7 +3179,7 @@ class Checker {
     level = 0,
     namedTails = new Map<string, Variable>(),
     typeParameters: ReadonlyMap<string, Mono> = new Map(),
-    associatedTypes: ReadonlyMap<string, Mono> = new Map(),
+    impliedTypes: ReadonlyMap<string, Mono> = new Map(),
   ): Mono {
     if (annotation.kind === "Primitive") return primitive(annotation.name);
     if (annotation.kind === "Range") return { kind: "Range" };
@@ -3191,26 +3191,26 @@ class Checker {
           level,
           namedTails,
           typeParameters,
-          associatedTypes,
+          impliedTypes,
         ),
       };
     }
     if (annotation.kind === "Vector") {
       return {
         kind: "Vector",
-        element: this.#annotationType(annotation.element, level, namedTails, typeParameters, associatedTypes),
+        element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes),
       };
     }
     if (annotation.kind === "Set") {
-      return { kind: "Set", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, associatedTypes) };
+      return { kind: "Set", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes) };
     }
-    if (annotation.kind === "Array") return { kind: "Array", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, associatedTypes) };
-    if (annotation.kind === "Nullable") return { kind: "Nullable", value: this.#annotationType(annotation.value, level, namedTails, typeParameters, associatedTypes) };
+    if (annotation.kind === "Array") return { kind: "Array", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes) };
+    if (annotation.kind === "Nullable") return { kind: "Nullable", value: this.#annotationType(annotation.value, level, namedTails, typeParameters, impliedTypes) };
     if (annotation.kind === "Map") {
       return {
         kind: "Map",
-        key: this.#annotationType(annotation.key, level, namedTails, typeParameters, associatedTypes),
-        value: this.#annotationType(annotation.value, level, namedTails, typeParameters, associatedTypes),
+        key: this.#annotationType(annotation.key, level, namedTails, typeParameters, impliedTypes),
+        value: this.#annotationType(annotation.value, level, namedTails, typeParameters, impliedTypes),
       };
     }
     if (annotation.kind === "Union") {
@@ -3219,7 +3219,7 @@ class Checker {
         union: annotation.union,
         name: annotation.name,
         arguments: annotation.arguments.map((argument) =>
-          this.#annotationType(argument, level, namedTails, typeParameters, associatedTypes)
+          this.#annotationType(argument, level, namedTails, typeParameters, impliedTypes)
         ),
       };
     }
@@ -3229,7 +3229,7 @@ class Checker {
         record: annotation.record,
         name: annotation.name,
         arguments: annotation.arguments.map((argument) =>
-          this.#annotationType(argument, level, namedTails, typeParameters, associatedTypes)
+          this.#annotationType(argument, level, namedTails, typeParameters, impliedTypes)
         ),
       };
     }
@@ -3243,14 +3243,14 @@ class Checker {
       }
       return ERROR;
     }
-    if (annotation.kind === "AssociatedType") {
-      return associatedTypes.get(annotation.name) ?? ERROR;
+    if (annotation.kind === "ImpliedType") {
+      return impliedTypes.get(annotation.name) ?? ERROR;
     }
     if (annotation.kind === "Tuple") {
       return {
         kind: "Tuple",
         elements: annotation.elements.map((element) =>
-          this.#annotationType(element, level, namedTails, typeParameters, associatedTypes)
+          this.#annotationType(element, level, namedTails, typeParameters, impliedTypes)
         ),
       };
     }
@@ -3259,7 +3259,7 @@ class Checker {
         kind: "Record",
         fields: new Map(annotation.fields.map((field) => [
           field.name,
-          this.#annotationType(field.annotation, level, namedTails, typeParameters, associatedTypes),
+          this.#annotationType(field.annotation, level, namedTails, typeParameters, impliedTypes),
         ])),
         ...(annotation.open
           ? { tail: this.#annotationTail(annotation.tail, level, namedTails) }
@@ -3567,12 +3567,12 @@ class Checker {
         name: item.name,
         subject: Typed.typeVariableId(subject.id),
         superconstraints: item.superconstraints,
-        associatedTypes: item.associatedTypes.map((associatedType) => ({
-          name: associatedType.name,
+        impliedTypes: item.impliedTypes.map((impliedType) => ({
+          name: impliedType.name,
           type: this.#publicType(
-            this.#constraintAssociatedTypes.get(item)?.get(associatedType.name) ?? ERROR,
+            this.#constraintImpliedTypes.get(item)?.get(impliedType.name) ?? ERROR,
           ),
-          span: associatedType.span,
+          span: impliedType.span,
         })),
         members: item.members.map((member) => ({
           binding: {
@@ -3588,7 +3588,7 @@ class Checker {
             0,
             new Map(),
             new Map([[item.subject, subject]]),
-            this.#constraintAssociatedTypes.get(item),
+            this.#constraintImpliedTypes.get(item),
           )),
           ...(member.defaultValue === undefined
             ? {}
@@ -3626,10 +3626,10 @@ class Checker {
         superconstraints: this.#publicRequirements(
           this.#instanceSuperconstraints.get(item) ?? [],
         ),
-        associatedTypes: item.associatedTypes.map((associatedType) => ({
-          name: associatedType.name,
-          type: this.#publicType(this.#annotationType(associatedType.annotation)),
-          span: associatedType.span,
+        impliedTypes: item.impliedTypes.map((impliedType) => ({
+          name: impliedType.name,
+          type: this.#publicType(this.#annotationType(impliedType.annotation)),
+          span: impliedType.span,
         })),
         members: [
           ...item.members.map((member) => ({

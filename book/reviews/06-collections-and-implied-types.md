@@ -1,6 +1,6 @@
-# Group Review: Collections and Associated Types
+# Group Review: Collections and Implied Types
 
-**Chapters reviewed:** Collections; Associated Types.
+**Chapters reviewed:** Collections; Implied Types.
 
 **Status:** Reviewed as a consistent drafting group after reader review. This is not
 the late whole-book pedagogy pass.
@@ -13,7 +13,7 @@ The pair has one clean teaching movement:
    use rather than an API inventory;
 2. its final `Bag(a)` example shows the smallest complete user-defined `Iterable`
    instance; and
-3. Associated Types immediately returns to the one deliberately unexplained line,
+3. Implied Types immediately returns to the one deliberately unexplained line,
    `type Item = a`, and generalizes the mechanism beyond iteration.
 
 The division is effective. A reader can use the standard collections without first
@@ -26,8 +26,8 @@ space to explain its scope and deliberate limits accurately.
   `Map.set` still says exactly what matters: it inserts an absent key or replaces the
   value for an existing key.
 - Kept the Collections treatment of `type Item = a` to one plain-English sentence and
-  an immediate hand-off to Associated Types.
-- Confirmed that the associated-type chapter defines the general feature with the
+  an immediate hand-off to Implied Types.
+- Confirmed that the implied-type chapter defines the general feature with the
   two-member `Conversion` example instead of making it look like special `Iterable`
   syntax.
 - Confirmed the exact-once, owner-relative, coherence, orphan, projection-ban, binder-
@@ -40,14 +40,14 @@ two access styles, one-based indexing, patterns, loops, sequences, constraints,
 derivation, and dot calls. Every dependency has already received its principal
 explanation. The chapter introduces only the collection-specific consequences.
 
-Associated Types assumes the complete constraint and instance model, concrete
+Implied Types assumes the complete constraint and instance model, concrete
 iteration, home modules, coherence, and the `Bag(a)` example immediately before it.
 It contrasts caller-selected parameters with instance-selected types before presenting
 the grammar. Multiple members, scope, coherence, and restrictions then arrive in the
 order a reader needs them.
 
 No material needs to move earlier. The late pedagogy pass should check only whether the
-Associated Types chapter needs an “advanced chapter” signpost in the final contents;
+Implied Types chapter needs an “advanced chapter” signpost in the final contents;
 its position and internal order are already defensible.
 
 ## Terminology and index check
@@ -55,10 +55,10 @@ its position and internal order are already defensible.
 - **Persistent collection** is defined before the first update example and explicitly
   distinguished from storage persistence.
 - `Vector`, `Map`, `Set`, `Hash`, and `Seq` retain their established meanings.
-- **Associated type** receives one direct definition at the start of Chapter 21.
+- **Implied type** receives one direct definition at the start of Chapter 21.
 - The prose uses ordinary insertion/replacement language instead of teaching
   **upsert**.
-- The principal associated-type and persistent-collection definitions are recorded in
+- The principal implied-type and persistent-collection definitions are recorded in
   `INDEX-CANDIDATES.md`.
 
 ## Example continuity
@@ -68,7 +68,7 @@ the Arthurian story during the first draft. One-based access, persistent updates
 calls, vector patterns, map tuple iteration, `Hash` derivation, and `Seq` conversion all
 reuse rules already established elsewhere.
 
-`Bag(a)` is identical at the hand-off between chapters. Associated Types does not
+`Bag(a)` is identical at the hand-off between chapters. Implied Types does not
 quietly change its instance, item type, or emitted meaning. The later `Conversion`
 example proves generality without contaminating the simpler collection narrative.
 
@@ -84,9 +84,9 @@ example proves generality without contaminating the simpler collection narrative
   operation; concrete loops remain statically resolved.
 - Constraint type members use `type Name`; instances use `type Name = T`; every member
   is bound exactly once and belongs to its owner constraint.
-- External associated-type expressions and projection-bearing constraints on unknown
+- External implied-type expressions and projection-bearing constraints on unknown
   type variables remain rejected; reusable iteration consumers take `Seq(a)`.
-- Associated types erase, while persistent collections retain honest runtime-owned
+- Implied types erase, while persistent collections retain honest runtime-owned
   JavaScript and TypeScript faces.
 
 ## Deferred to the final group
@@ -103,5 +103,5 @@ example proves generality without contaminating the simpler collection narrative
 
 After the integrated terminology correction, no known contradiction remains within
 the two chapters or with Chapters 1–19. Collections stays compact and practical;
-Associated Types pays off its preview immediately and states both the useful feature
+Implied Types pays off its preview immediately and states both the useful feature
 and its inference boundary without pretending Hexagon supports general projection.

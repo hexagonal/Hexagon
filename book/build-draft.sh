@@ -28,7 +28,7 @@ chapters=(
   "18-sequences.md"
   "19-exceptions.md"
   "20-collections.md"
-  "21-associated-types.md"
+  "21-implied-types.md"
   "22-javascript-output.md"
   "23-typescript-output.md"
   "24-javascript-input.md"
@@ -56,7 +56,7 @@ chapter_titles=(
   "Sequences"
   "Exceptions"
   "Collections"
-  "Associated Types"
+  "Implied Types"
   "JavaScript Output"
   "TypeScript Output"
   "JavaScript Input"
@@ -69,7 +69,7 @@ part_for_chapter() {
     7) echo "Part II — Data" ;;
     12) echo "Part III — Capabilities and Modules" ;;
     16) echo "Part IV — State and Flow" ;;
-    20) echo "Part V — Collections and Associated Types" ;;
+    20) echo "Part V — Collections and Implied Types" ;;
     22) echo "Part VI — JavaScript and TypeScript" ;;
   esac
 }
@@ -113,10 +113,10 @@ part_for_chapter() {
   echo '18. [Sequences](#chapter-18)'
   echo '19. [Exceptions](#chapter-19)'
   echo
-  echo '## Part V — Collections and Associated Types'
+  echo '## Part V — Collections and Implied Types'
   echo
   echo '20. [Collections](#chapter-20)'
-  echo '21. [Associated Types](#chapter-21)'
+  echo '21. [Implied Types](#chapter-21)'
   echo
   echo '## Part VI — JavaScript and TypeScript'
   echo

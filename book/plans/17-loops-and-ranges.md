@@ -33,6 +33,6 @@ why a generic function should accept `Seq(a)` rather than an unknown iterable ty
 
 - The Patterns chapter supersedes the original bare-name-only loop head.
 - `String` iteration yields one-codepoint `String` values.
-- Keep associated types and user-defined `Iterable` machinery out of this chapter;
+- Keep implied types and user-defined `Iterable` machinery out of this chapter;
   reusable consumers take `Seq(a)` instead.
 - There is no `break` or `continue`.

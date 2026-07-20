@@ -37,7 +37,7 @@ The chapters fall naturally into six parts:
 2. Data — Chapters 7–11;
 3. Capabilities and Modules — Chapters 12–15;
 4. State and Flow — Chapters 16–19;
-5. Collections and Associated Types — Chapters 20–21; and
+5. Collections and Implied Types — Chapters 20–21; and
 6. JavaScript and TypeScript — Chapters 22–25.
 
 These divisions are now recorded in `OUTLINE.md`. They give the reader large-scale
@@ -54,7 +54,7 @@ Several order decisions deserve to remain:
 - Mutable Variables precedes Loops, so loop accumulation is immediately useful.
 - Sequences precedes Collections, establishing the lazy conversion currency before
   `Vector`, `Map`, and `Set` use it.
-- Associated Types immediately follows the `Iterable<Bag(a)>` example that motivates
+- Implied Types immediately follows the `Iterable<Bag(a)>` example that motivates
   them.
 - Constraints in JavaScript remains last. It is the most specialized combination of
   the constraint, module, JavaScript-output, and TypeScript-output stories.
@@ -88,7 +88,7 @@ The manuscript generally introduces behavior before terminology:
 - reusable inferred functions precede **let-polymorphism** and the value restriction;
 - flexible record access precedes **row polymorphism**;
 - concrete constraint use precedes dictionaries;
-- ordinary collection iteration precedes **associated types**; and
+- ordinary collection iteration precedes **implied types**; and
 - a plain JavaScript operation object precedes the complete constraint-dictionary
   boundary API.
 
@@ -103,7 +103,7 @@ foreign failure. During the late pedagogy pass, give this chapter special attent
 consider a short opening roadmap, stronger internal transitions, or a split only if a
 continuous novice read shows that headings are not enough.
 
-Associated Types is intentionally advanced. Its position, concrete `Bag(a)` hand-off,
+Implied Types is intentionally advanced. Its position, concrete `Bag(a)` hand-off,
 and explicit restriction to owner contexts prevent it from burdening ordinary generic
 programming. It may benefit from an “advanced feature” signpost in the final contents,
 but it does not need to move.

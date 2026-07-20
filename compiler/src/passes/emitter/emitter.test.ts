@@ -1336,7 +1336,7 @@ describe("emitJavaScript", () => {
     expect(output.diagnostics).toEqual([]);
   });
 
-  test("erases associated type bindings while emitting their instance dictionary", () => {
+  test("erases implied type bindings while emitting their instance dictionary", () => {
     const module = coreSource(
       "constraint Source<a> =\n" +
         "  type Item\n" +

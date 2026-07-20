@@ -19,7 +19,7 @@ guarded match arms, direct tuple/record matching, inclusive ranges, `while`, `fo
 over `Range` and `String`, and
 string interpolation, `then`-form and layout `if`, calls, field access,
 indexing, assignment, generic unions, nominal records, exception declarations and
-`try`/`catch`, completed user constraint declarations and honors, associated type
+`try`/`catch`, completed user constraint declarations and honors, implied type
 declarations and ground bindings, `derive` and declaration-header `derives`, explicit
 constrained binders, `Seq(a)`, relative imports, and the complete operator precedence
 table. Type aliases, remaining declarations, and richer type syntax remain explicit future parser slices;
@@ -35,9 +35,9 @@ diagnoses illegal `let` self-reference, unknown names and types, rebinding, dupl
 parameters, mutable-capture rejection, and the deliberately deferred forward/mutual-recursion boundary.
 Relative named, aliased, namespace, and effect imports plus nominal companion lookup
 are implemented; qualified type syntax, capture-set hoisting, and mutual recursive
-groups remain later resolution slices. Associated type names have owner-relative
+groups remain later resolution slices. Implied type names have owner-relative
 scope inside their constraint and instances; attempted v1 references outside those
-owners receive associated-type-specific diagnostics.
+owners receive implied-type-specific diagnostics.
 
 The initial checker implements the Hindley–Milner core with private union-find
 variables, n-ary function types, structural tuple and open-row record types,
@@ -56,7 +56,7 @@ first-argument pipe insertion, and block sequencing. Typed syntax records an
 immutable type for every expression and a scheme for every binding. Declarations,
 generic call-site evidence, explicit and inferred constraints, required-member user
 constraints, superconstraints, inherited defaults, coherent ground and parameterized
-instances, nominal derivation, concrete associated type substitution, the
+instances, nominal derivation, concrete implied type substitution, the
 projection-bearing constraint binder ban, exceptions, imported schemes, and nominal dot-call
 resolution. The public dictionary ABI, richer annotations, and the remaining surface
 forms are later checker and FFI slices. Primitive annotations
@@ -84,7 +84,7 @@ and recursive `fun` bindings as hoisted function declarations, generic nominal d
 branded real-`Error` exceptions, constraint dictionaries, imported ESM graphs, local mutation as
 JavaScript `let`/assignment, replayable iterable ranges and memoized lazy sequences,
 generator-backed `Seq.iterate`/`map`/`filter`/`take`, `while`, and native
-`for..of` loops for Range/String/Seq iteration. Associated type bindings are checked and
+`for..of` loops for Range/String/Seq iteration. Implied type bindings are checked and
 then erased; their term members remain ordinary dictionary fields. Exported constrained functions receive
 direct dictionary-free fundamental editions, with deterministic names, collision
 diagnostics, and byte-counted generated regions. Declarations cover

@@ -1,6 +1,6 @@
 # Hexagon Compiler Roadmap
 
-**Status:** Thirty-two vertical slices now extend the original expression, pattern, mutation, Range, and loop pipeline with generic nominal unions and records, exceptions, nominal companion dot calls, completed internal constraint dictionaries, owner-scoped associated types, lazy `Seq`, structural hashing, vectors, Map/Set core operations, generalized concrete `Iterable`, initial Array/Nullable boundary types, relative module graphs, and direct fundamental specializations with navigable generated-code metadata.
+**Status:** Thirty-two vertical slices now extend the original expression, pattern, mutation, Range, and loop pipeline with generic nominal unions and records, exceptions, nominal companion dot calls, completed internal constraint dictionaries, owner-scoped implied types, lazy `Seq`, structural hashing, vectors, Map/Set core operations, generalized concrete `Iterable`, initial Array/Nullable boundary types, relative module graphs, and direct fundamental specializations with navigable generated-code metadata.
 
 The compiler is built as a sequence of typed phase transformations. Each milestone must preserve the global naming doctrine in `architecture/naming.md` and the readability and commenting doctrine in `architecture/readability-and-comments.md`.
 
@@ -24,19 +24,19 @@ Transform physical tokens into a layout-aware stream containing virtual open, se
 
 ## 3. Parser
 
-**The existing expression and pattern grammar plus vector literals/rest patterns, generic unions, nominal records, exceptions and `try`/`catch`, constraints with associated types/defaults/derivation, ground and parameterized `honor`, explicit constrained binders, `Seq(a)`, collection/FFI type applications, and relative imports are implemented; full grammar remains in progress.**
+**The existing expression and pattern grammar plus vector literals/rest patterns, generic unions, nominal records, exceptions and `try`/`catch`, constraints with implied types/defaults/derivation, ground and parameterized `honor`, explicit constrained binders, `Seq(a)`, collection/FFI type applications, and relative imports are implemented; full grammar remains in progress.**
 
 Transform layout-aware tokens into the parsed syntax tree. Implement declarations, expressions, patterns, type syntax, precedence, contextual forms, recovery, and source attribution.
 
 ## 4. Resolution and modules
 
-**Stable local and imported identities, generic nominal declarations, exception and constraint members, owner-relative associated type scope, relative named/aliased/namespace/effect imports, acyclic dependency ordering, imported schemes, and nominal companion lookup are implemented; qualified type paths, re-exports, packages, and mutual recursion remain in progress.**
+**Stable local and imported identities, generic nominal declarations, exception and constraint members, owner-relative implied type scope, relative named/aliased/namespace/effect imports, acyclic dependency ordering, imported schemes, and nominal companion lookup are implemented; qualified type paths, re-exports, packages, and mutual recursion remain in progress.**
 
 Replace textual references with stable symbols. Implement scopes, imports, exports, companions, duplicate detection, shadowing rules, module graphs, cycle diagnostics, and topological ordering.
 
 ## 5. Type-system core
 
-**The HM and row core now includes generic nominal unions and records, `Exn`, `Seq(a)`, Vector/Map/Set and Array/Nullable types, explicit/inferred constraints, structural hashing, maximal trailing evidence, required/default members, nested superconstraints, coherent ground and parameterized instances, concrete `Iterable` selection, nominal derivation, associated type substitution at concrete calls, and the v1 projection-bearing binder ban; the conditional public dictionary ABI remains with later FFI integration work.**
+**The HM and row core now includes generic nominal unions and records, `Exn`, `Seq(a)`, Vector/Map/Set and Array/Nullable types, explicit/inferred constraints, structural hashing, maximal trailing evidence, required/default members, nested superconstraints, coherent ground and parameterized instances, concrete `Iterable` selection, nominal derivation, implied type substitution at concrete calls, and the v1 projection-bearing binder ban; the conditional public dictionary ABI remains with later FFI integration work.**
 
 Implement Algorithm J, union-find type variables, levels and generalisation, type schemes, unification, rows, constraints, and stable type rendering for diagnostics.
 
@@ -54,7 +54,7 @@ Remove surface conveniences and make semantics explicit. Pipes have already beco
 
 ## 8. Core IR
 
-**Typed representation includes vector/rest patterns, structural and generic nominal data, collection and FFI boundary types, exceptions, modules, constraint dictionaries and erased associated type bindings, matches, mutation, ranges, loops, and recursive functions.**
+**Typed representation includes vector/rest patterns, structural and generic nominal data, collection and FFI boundary types, exceptions, modules, constraint dictionaries and erased implied type bindings, matches, mutation, ranges, loops, and recursive functions.**
 
 Define a small typed representation oriented toward readable JavaScript without merely copying JavaScript syntax. Preserve resolved bindings, representation decisions, explicit evidence, control flow, and source attribution.
 

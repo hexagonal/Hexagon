@@ -234,7 +234,7 @@ late pedagogy pass, not a commitment to the current order.
   coherence, the orphan rule, and the core prelude capability vocabulary.
 - Introduces dictionaries as small operation objects only after ordinary concrete
   constraint use is understood; concrete calls remain direct.
-- Prepares derivation, collection capabilities, associated types, and the final
+- Prepares derivation, collection capabilities, implied types, and the final
   constrained JavaScript boundary.
 
 ### Derivation
@@ -287,7 +287,7 @@ late pedagogy pass, not a commitment to the current order.
   and a light preview of `Seq(a)`.
 - Establishes `for`, `while`, inclusive integer ranges, descending ranges, irrefutable
   loop patterns, static iteration resolution, and native-loop emission.
-- Keeps associated types and user-defined `Iterable` machinery deferred. Reusable
+- Keeps implied types and user-defined `Iterable` machinery deferred. Reusable
   consumers take `Seq(a)` so the element type remains explicit.
 
 ### Sequences
@@ -320,24 +320,24 @@ late pedagogy pass, not a commitment to the current order.
   membership; honest
   `Hash` requirements; unspecified hash traversal order; and `Seq` conversions.
 - Ends with the minimum `Iterable<Bag(a)>` recipe. `type Item = a` is read only as
-  “iterating `Bag(a)` produces `a`”; the following chapter owns associated types.
+  “iterating `Bag(a)` produces `a`”; the following chapter owns implied types.
 - Keeps the chapter example-led and deliberately excludes an API inventory.
 
-### Associated Types
+### Implied Types
 
 - Assumes constraints, instances, coherence, the orphan rule, concrete iteration,
   `Seq(a)`, and the `Bag(a)` preview at the end of Collections.
-- Establishes an **associated type** as a type member declared by a constraint and
+- Establishes an **implied type** as a type member declared by a constraint and
   chosen by each instance.
 - Establishes declaration-side `type Name`, instance-side `type Name = T`, multiple
   type members, exact-once binding, owner-relative identity and scope, and ordinary
   coherence/orphan behavior.
 - Uses `Conversion` with `Input` and `Output` to show that the feature is general rather
   than special `Iterable` syntax.
-- Establishes the deliberate restrictions: no external associated-type reference, no
-  associated-type obligations, and no associated-type-bearing constraint on an
+- Establishes the deliberate restrictions: no external implied-type reference, no
+  implied-type obligations, and no implied-type-bearing constraint on an
   otherwise unknown type variable. Reusable iteration APIs continue to use `Seq(a)`.
-- Associated types erase and add no runtime or `.d.ts` member machinery.
+- Implied types erase and add no runtime or `.d.ts` member machinery.
 
 ### JavaScript Output
 
@@ -716,23 +716,23 @@ late pedagogy pass, not a commitment to the current order.
 - Persistent collection `.d.ts` faces are `Hex.Vector`, `Hex.Map`, and `Hex.Set`, not
   native mutable collection types.
 
-### Associated Types
+### Implied Types
 
-- `Iterable.Item` is the motivating associated type: the instance, not each caller,
-  chooses the item type.
+- `Iterable.Item` is the motivating implied type: the instance subject uniquely
+  determines the item type instead of each caller choosing it.
 - `Conversion<c>` is the general example and declares two members, `Input` and
   `Output`; `Conversion<ParsePort>` binds them to `String` and
   `Result(Int, String)`.
 - Type members are owner-relative: two constraints may both declare `Item`, and neither
   claims a module-level type name.
-- Every `honor` block binds every associated type exactly once; the binding may use the
+- Every `honor` block binds every implied type exactly once; the binding may use the
   instance's type parameters and is in scope throughout that instance body.
-- Associated types share the constraint instance's one coherence slot and orphan rule.
+- Implied types share the constraint instance's one coherence slot and orphan rule.
 - External `Item(T)`/`Constraint.Item(T)` forms and `<c: Iterable>` binders are rejected;
   concrete operations and loops remain legal, while reusable consumers take `Seq(a)`.
-- Associated types erase before JavaScript and TypeScript boundaries.
+- Implied types erase before JavaScript and TypeScript boundaries.
 - Chapters 20–21 form the sixth drafting group. Their review is recorded in
-  `reviews/06-collections-and-associated-types.md`.
+  `reviews/06-collections-and-implied-types.md`.
 
 ### JavaScript Output
 
@@ -852,18 +852,18 @@ late pedagogy pass, not a commitment to the current order.
 - Chapters 16–19 reviewed together after their initial reader review.
 - Result: coherent enough to continue after making the lambda and loop-pattern examples
   self-contained, correcting the exported `Seq` declaration, simplifying chapter
-  titles, and deferring associated types out of the ordinary loop narrative.
+  titles, and deferring implied types out of the ordinary loop narrative.
 - Later integrations and whole-book questions are recorded in
   `reviews/05-state-iteration-and-failure.md`.
 
-### Collections and Associated Types
+### Collections and Implied Types
 
 - Chapters 20–21 were reviewed together after reader review of both local drafts.
 - Result: coherent enough to continue after removing unnecessary **upsert**
-  terminology and confirming the collection-to-associated-type hand-off against the
+  terminology and confirming the collection-to-implied-type hand-off against the
   governing specifications.
 - Final-boundary promises and whole-book questions are recorded in
-  `reviews/06-collections-and-associated-types.md`.
+  `reviews/06-collections-and-implied-types.md`.
 
 ### JavaScript Boundaries
 

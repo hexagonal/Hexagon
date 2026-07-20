@@ -3,7 +3,7 @@
  * textual references with those identities. It deliberately covers only the
  * binding forms admitted by the current parser: sequential lets and vars,
  * directly recursive functions, patterns, lambda parameters, and owner-relative
- * associated type names.
+ * implied type names.
  */
 
 import * as Diagnostics from "../../support/diagnostics.js";
@@ -97,7 +97,7 @@ class Resolver {
   readonly #constraintNames = new Set<string>([
     "Num", "Frac", "Pow", "Concat", "Eq", "Ord", "Show",
   ]);
-  readonly #associatedTypeOwners = new Map<string, Set<string>>();
+  readonly #impliedTypeOwners = new Map<string, Set<string>>();
   readonly #pending: { readonly name: Parsed.Name; readonly kind: "let" | "var" }[] = [];
   readonly #laterFunNames: Parsed.Name[][] = [];
   readonly #varOwners = new Map<Resolved.SymbolId, number>();
@@ -116,15 +116,15 @@ class Resolver {
   }
 
   resolve(module: Parsed.Module): Resolved.Module {
-    // Associated type names have owner-relative identity, but failed uses outside
+    // Implied type names have owner-relative identity, but failed uses outside
     // an owner still receive the knowing v1 diagnostic even before declaration.
     // See Collections Part 2 §6–§7.3.
     for (const item of module.items) {
       if (item.kind !== "ConstraintDeclaration") continue;
-      for (const associatedType of item.associatedTypes) {
-        const owners = this.#associatedTypeOwners.get(associatedType.name.text) ?? new Set();
+      for (const impliedType of item.impliedTypes) {
+        const owners = this.#impliedTypeOwners.get(impliedType.name.text) ?? new Set();
         owners.add(item.name.text);
-        this.#associatedTypeOwners.set(associatedType.name.text, owners);
+        this.#impliedTypeOwners.set(impliedType.name.text, owners);
       }
     }
     const scope = new Scope();
@@ -204,7 +204,7 @@ class Resolver {
       subject,
       derived: true,
       dictionary: `__hex_instance_${constraint}_${item.name}`,
-      associatedTypes: [],
+      impliedTypes: [],
       members: [],
       span: item.span,
     }));
@@ -331,8 +331,8 @@ class Resolver {
         }
         this.#constraintNames.add(item.name.text);
         const typeParameters = new Set([item.subject.text]);
-        const associatedTypes = new Set(item.associatedTypes.map(({ name }) => name.text));
-        const associatedContext = { owner: item.name.text, names: associatedTypes };
+        const impliedTypes = new Set(item.impliedTypes.map(({ name }) => name.text));
+        const impliedContext = { owner: item.name.text, names: impliedTypes };
         const memberBindings = item.members.map((member) => {
           const existing = scope.lookup(member.name.text);
           if (existing !== undefined) this.#reportRebinding(member.name, existing);
@@ -346,15 +346,15 @@ class Resolver {
             ...this.#declare(parameter.name, "parameter"),
             ...(parameter.annotation === undefined
               ? {}
-              : { annotation: this.#resolveTypeAnnotation(parameter.annotation, typeParameters, associatedContext) }),
+              : { annotation: this.#resolveTypeAnnotation(parameter.annotation, typeParameters, impliedContext) }),
           }));
           return {
             binding,
             parameters,
-            returnAnnotation: this.#resolveTypeAnnotation(member.returnAnnotation, typeParameters, associatedContext),
+            returnAnnotation: this.#resolveTypeAnnotation(member.returnAnnotation, typeParameters, impliedContext),
             ...(member.defaultValue === undefined
               ? {}
-              : { defaultValue: this.#resolveLambda(member.defaultValue, scope, associatedContext) }),
+              : { defaultValue: this.#resolveLambda(member.defaultValue, scope, impliedContext) }),
             span: member.span,
           };
         });
@@ -363,7 +363,7 @@ class Resolver {
           name: item.name.text,
           subject: item.subject.text,
           superconstraints: item.superconstraints.map(({ text }) => text),
-          associatedTypes: item.associatedTypes.map(({ name, span }) => ({
+          impliedTypes: item.impliedTypes.map(({ name, span }) => ({
             name: name.text,
             span,
           })),
@@ -374,13 +374,13 @@ class Resolver {
       case "Honor": {
         const typeParameterNames = new Set(item.typeParameters.map(({ name }) => name.text));
         const subject = this.#resolveTypeAnnotation(item.subject, typeParameterNames);
-        const declaration = this.#associatedTypeOwners;
+        const declaration = this.#impliedTypeOwners;
         const names = new Set(
           [...declaration.entries()]
             .filter(([, owners]) => owners.has(item.constraint.text))
             .map(([name]) => name),
         );
-        const associatedContext = { owner: item.constraint.text, names };
+        const impliedContext = { owner: item.constraint.text, names };
         return {
           kind: "Honor",
           constraint: item.constraint.text,
@@ -392,17 +392,17 @@ class Resolver {
           subject,
           derived: item.derived,
           dictionary: `__hex_instance_${item.constraint.text}_${annotationHeadName(subject)}`,
-          associatedTypes: item.associatedTypes.map((associatedType) => ({
-            name: associatedType.name.text,
+          impliedTypes: item.impliedTypes.map((impliedType) => ({
+            name: impliedType.name.text,
             annotation: this.#resolveTypeAnnotation(
-              associatedType.annotation,
+              impliedType.annotation,
               typeParameterNames,
             ),
-            span: associatedType.span,
+            span: impliedType.span,
           })),
           members: item.members.map((member) => ({
             name: member.name.text,
-            value: this.#resolveLambda(member.value, scope, associatedContext),
+            value: this.#resolveLambda(member.value, scope, impliedContext),
             span: member.span,
           })),
           span: item.span,
@@ -1133,7 +1133,7 @@ class Resolver {
   #resolveLambda(
     expression: Parsed.LambdaExpr,
     scope: Scope,
-    associatedContext?: { readonly owner: string; readonly names: ReadonlySet<string> },
+    impliedContext?: { readonly owner: string; readonly names: ReadonlySet<string> },
   ): Resolved.LambdaExpr {
     this.#lambdaDepth += 1;
     const lambdaScope = new Scope(scope);
@@ -1157,7 +1157,7 @@ class Resolver {
 
       const annotation = parameter.annotation === undefined
         ? undefined
-        : this.#resolveTypeAnnotation(parameter.annotation, new Set(), associatedContext);
+        : this.#resolveTypeAnnotation(parameter.annotation, new Set(), impliedContext);
       return {
         ...binding,
         ...(annotation === undefined ? {} : { annotation }),
@@ -1178,7 +1178,7 @@ class Resolver {
           }),
       ...(expression.returnAnnotation === undefined
         ? {}
-        : { returnAnnotation: this.#resolveTypeAnnotation(expression.returnAnnotation, new Set(), associatedContext) }),
+        : { returnAnnotation: this.#resolveTypeAnnotation(expression.returnAnnotation, new Set(), impliedContext) }),
       body: this.#resolveExpr(expression.body, lambdaScope),
       span: expression.span,
     };
@@ -1189,13 +1189,13 @@ class Resolver {
   #resolveTypeAnnotation(
     annotation: Parsed.TypeAnnotation,
     typeParameters = new Set<string>(),
-    associatedContext?: { readonly owner: string; readonly names: ReadonlySet<string> },
+    impliedContext?: { readonly owner: string; readonly names: ReadonlySet<string> },
   ): Resolved.TypeAnnotation {
     if (annotation.kind === "Tuple") {
       return {
         kind: "Tuple",
         elements: annotation.elements.map((element) =>
-          this.#resolveTypeAnnotation(element, typeParameters, associatedContext),
+          this.#resolveTypeAnnotation(element, typeParameters, impliedContext),
         ),
         span: annotation.span,
       };
@@ -1205,7 +1205,7 @@ class Resolver {
         kind: "Record",
         fields: annotation.fields.map((field) => ({
           name: field.name.text,
-          annotation: this.#resolveTypeAnnotation(field.annotation, typeParameters, associatedContext),
+          annotation: this.#resolveTypeAnnotation(field.annotation, typeParameters, impliedContext),
           span: field.span,
         })),
         open: annotation.open,
@@ -1223,18 +1223,18 @@ class Resolver {
     const name = annotation.kind === "AppliedType"
       ? annotation.constructor.text
       : annotation.name.text;
-    if (associatedContext?.names.has(name)) {
+    if (impliedContext?.names.has(name)) {
       if (annotation.kind === "AppliedType") {
         this.#diagnostics.add({
           severity: "error",
-          message: `\`${name}\` is an associated type of \`${associatedContext.owner}\` and cannot be applied in v1`,
+          message: `\`${name}\` is an implied type of \`${impliedContext.owner}\` and cannot be applied in v1`,
           primary: annotation.span,
         });
         return { kind: "ErrorType", span: annotation.span };
       }
       return {
-        kind: "AssociatedType",
-        constraint: associatedContext.owner,
+        kind: "ImpliedType",
+        constraint: impliedContext.owner,
         name,
         span: annotation.span,
       };
@@ -1243,7 +1243,7 @@ class Resolver {
     if (union !== undefined) {
       const arguments_ = annotation.kind === "AppliedType"
         ? annotation.arguments.map((argument) =>
-          this.#resolveTypeAnnotation(argument, typeParameters, associatedContext)
+          this.#resolveTypeAnnotation(argument, typeParameters, impliedContext)
         )
         : [];
       const expected = this.#unionArities.get(name) ?? 0;
@@ -1273,7 +1273,7 @@ class Resolver {
         }
         const argument = annotation.arguments[0] === undefined
           ? { kind: "ErrorType" as const, span: annotation.span }
-          : this.#resolveTypeAnnotation(annotation.arguments[0], typeParameters, associatedContext);
+          : this.#resolveTypeAnnotation(annotation.arguments[0], typeParameters, impliedContext);
         if (name === "Nullable") return { kind: "Nullable", value: argument, span: annotation.span };
         if (name === "Seq") return { kind: "Seq", element: argument, span: annotation.span };
         if (name === "Vector") return { kind: "Vector", element: argument, span: annotation.span };
@@ -1292,17 +1292,17 @@ class Resolver {
           kind: "Map",
           key: annotation.arguments[0] === undefined
             ? { kind: "ErrorType", span: annotation.span }
-            : this.#resolveTypeAnnotation(annotation.arguments[0], typeParameters, associatedContext),
+            : this.#resolveTypeAnnotation(annotation.arguments[0], typeParameters, impliedContext),
           value: annotation.arguments[1] === undefined
             ? { kind: "ErrorType", span: annotation.span }
-            : this.#resolveTypeAnnotation(annotation.arguments[1], typeParameters, associatedContext),
+            : this.#resolveTypeAnnotation(annotation.arguments[1], typeParameters, impliedContext),
           span: annotation.span,
         };
       }
       const record = this.#recordNames.get(name);
       if (record !== undefined) {
         const arguments_ = annotation.arguments.map((argument) =>
-          this.#resolveTypeAnnotation(argument, typeParameters, associatedContext)
+          this.#resolveTypeAnnotation(argument, typeParameters, impliedContext)
         );
         const expected = this.#recordArities.get(name) ?? 0;
         if (arguments_.length !== expected) {
@@ -1344,7 +1344,7 @@ class Resolver {
       return { kind: "Range", span: annotation.span };
     }
 
-    const owners = this.#associatedTypeOwners.get(name);
+    const owners = this.#impliedTypeOwners.get(name);
     if (owners !== undefined) {
       const ownerNames = [...owners].sort();
       const ownership = ownerNames.length === 1
@@ -1352,7 +1352,7 @@ class Resolver {
         : `declared by ${ownerNames.map((owner) => `\`${owner}\``).join(" and ")}`;
       this.#diagnostics.add({
         severity: "error",
-        message: `\`${name}\` is an associated type ${ownership} and cannot appear in type expressions`,
+        message: `\`${name}\` is an implied type ${ownership} and cannot appear in type expressions`,
         primary: annotation.span,
       });
       return { kind: "ErrorType", span: annotation.span };
@@ -1490,7 +1490,7 @@ function annotationHeadName(annotation: Resolved.TypeAnnotation): string {
     case "Tuple": return "Tuple";
     case "Record": return "Record";
     case "TypeVariable": return annotation.name;
-    case "AssociatedType": return annotation.name;
+    case "ImpliedType": return annotation.name;
     case "ErrorType": return "Error";
   }
 }
@@ -1516,7 +1516,7 @@ function annotationTypeVariables(annotation: Resolved.TypeAnnotation): readonly 
       return annotation.arguments.flatMap(annotationTypeVariables);
     case "Primitive":
     case "Range":
-    case "AssociatedType":
+    case "ImpliedType":
     case "ErrorType":
       return [];
   }

@@ -20,8 +20,8 @@
 
 | Deferral | Owner / revisit bar |
 |---|---|
-| Associated types — v2 remainder (deferred `Item(α)` goals, `Item(c)` syntax, obligations on type members, generic `Iterable` binders); restricted concrete user `Iterable` **shipped in v1**; `derive via` pre-registered as user-`Hash` candidate | `decisions-batch-2026-07.md` §6 as amended by `collections-part1-decisions.md` §6.4; `collections-part2-hash-and-type-members.md` §11; v2 on first demand |
-| Async / `AsyncSeq` — committed direction, own spec; independent of associated types | promise-rejection channel flagged in `exceptions.md` §10 item 2; boundary constraints routed by `ffi.md` §9.2 |
+| Implied types — v2 remainder (deferred `Item(α)` goals, `Item(c)` syntax, obligations on type members, generic `Iterable` binders); restricted concrete user `Iterable` **shipped in v1**; `derive via` pre-registered as user-`Hash` candidate | `decisions-batch-2026-07.md` §6 as amended by `collections-part1-decisions.md` §6.4; `collections-part2-hash-and-type-members.md` §11; v2 on first demand |
+| Async / `AsyncSeq` — committed direction, own spec; independent of implied types | promise-rejection channel flagged in `exceptions.md` §10 item 2; boundary constraints routed by `ffi.md` §9.2 |
 | `break` / `continue` deep-dive | `loops-ranges-iteration.md` §9 item 4 (field evidence; "prove the need") |
 | Generators / `yield` | `loops-ranges-iteration.md` §11 item 3 (own coroutine spec if revisited) |
 | `finally` / resource management; keyword reserved | `exceptions.md` §10.1 |

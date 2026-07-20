@@ -133,6 +133,6 @@ After the integrated corrections, no known technical contradiction remains in th
 four chapters or between this group and Chapters 1–11. The sequence gives one account
 of capability requirements, generated instances, declaration homes, public APIs, and
 convenient ordinary function calls while maintaining the distinction between instance
-dispatch and companion lookup. Collections and Associated Types have since discharged
+dispatch and companion lookup. Collections and Implied Types have since discharged
 the group's `Hash` and `Iterable` promises; the final FFI group owns the remaining
 boundary promises.
