@@ -497,7 +497,7 @@ let (true | false) = b              -- legal (binds nothing; pointless but princ
 
 -- (g) Lambda depth rule
 (x, y) => x + y                     -- 2 params
-((x, y)) => x + y                   -- 1 param, tuple; emits (t) => { const [x, y] = t; ... } or param-destructure
+((x, y)) => x + y                   -- 1 param, tuple; emits t => { const [x, y] = t; ... } or param-destructure
 {a, b} => a ++ b                    -- 1 param, record; row-constrains if unannotated
 UserId(n) => n                      -- 1 param, newtype unwrap
 Some(x) => x                        -- ERROR: refutable pattern in a binding position

@@ -101,7 +101,7 @@ r.x                          -- field access
 ```
 
 - `name: Type` / `name: expr`, comma-separated, braces. Field names are non-uppercase-start identifiers (term-level names, Functions spec §2 case rule).
-- **Construction punning ships** (Pattern Matching §9): `{x, y}` in value position is `{x: x, y: y}`, and it composes with update spread — `{...p, x}` is `{...p, x: x}`. Term-level only; `{x}` in *type* position remains an error ("record types need field types"). The pun emits JS shorthand. **No** computed keys, methods, getters, or spreads-as-construction beyond §3.3.
+- **Construction punning ships** (Pattern Matching §9): `{x, y}` in value position is `{x: x, y: y}`, and it composes with update spread — `{...p, x}` is `{...p, x: x}`. Term-level only; `{x}` in *type* position remains an error ("record types need field types"). The emitter uses JS shorthand whenever a field key and its emitted value are the same identifier, whether the Hexagon source used `{x}` or the equivalent `{x: x}`. **No** computed keys, methods, getters, or spreads-as-construction beyond §3.3.
 - **Tuple and record *literals* permit a trailing comma after the final element/field in an otherwise-valid literal** (`{x: 1, y: 2,}`, `(1, "a",)`) — Collections Part 3 §2/§13. Existing tuple arity and empty-record rules are unchanged. This is a term-literal rule; nothing is inferred for type syntax.
 - Duplicate field names in one literal or type: compile error.
 - Field order is **not significant** to the type: `{x: Float, y: Float}` and `{y: Float, x: Float}` are the same type. (Emission order: as written in the constructing literal; see §3.5.)

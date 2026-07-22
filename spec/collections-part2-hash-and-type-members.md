@@ -38,7 +38,7 @@ constraint Hash<a: Eq> =
 
 **Codomain: `Int`.** The normative promise about the *value* is §2.3's law and §2.4's determinism — nothing else. *Informative, non-normative:* all provided and derived hashes in the v1 runtime land in signed 32-bit range (the Immutable.js smi lineage; the runtime folds with `| 0`-family operations). Code must not rely on the range; it may become normative later only under demonstrated interop pressure (§12.2).
 
-Dictionary shape, per Constraints §6.2: `Hash_T = { eq: Eq_T, hash: (x) => ... }`. The member name `hash` does not collide with the lowercased superconstraint slot `eq`; the §6.2 collision check is satisfied trivially.
+Dictionary shape, per Constraints §6.2: `Hash_T = { eq: Eq_T, hash: x => ... }`. The member name `hash` does not collide with the lowercased superconstraint slot `eq`; the §6.2 collision check is satisfied trivially.
 
 ### 2.3 The law
 

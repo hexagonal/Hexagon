@@ -2,12 +2,27 @@ import { describe, expect, test, vi } from "vitest";
 
 import { helloWorld } from "./examples/hello-world";
 import { internationalIdentifiers } from "./examples/international-identifiers";
+import { payloadUnions } from "./examples/payload-unions";
 import { specializations } from "./examples/specializations";
 import { rat } from "./examples/rat";
 import { compileSource } from "./compile";
 import { linkModule } from "./module-execution";
 
 describe("compileSource", () => {
+  test("shows idiomatic payload-union constructors in JavaScript output", () => {
+    const response = compileSource(6, payloadUnions.source);
+
+    expect(response.kind).toBe("compile-success");
+    if (response.kind !== "compile-success") return;
+
+    expect(response.diagnostics).toEqual([]);
+    expect(response.javascript).toContain(
+      'const Circle = radius => ({ tag: "Circle", radius });',
+    );
+    expect(response.javascript).not.toContain("const Circle = (radius) =>");
+    expect(response.javascript).not.toContain("radius: radius");
+  });
+
   test("compiles international JavaScript-compatible identifiers without mangling", () => {
     const response = compileSource(6, internationalIdentifiers.source);
 
