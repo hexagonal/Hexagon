@@ -134,7 +134,7 @@ late pedagogy pass, not a commitment to the current order.
   `Unit`.
 - Lightly previews conditions, comparisons, numeric constraints, interpolation through
   `Show`, conversion, string indexing, and companion-module operations.
-- Establishes the six primitive types, their literal distinctions, and their native
+- Establishes the seven primitive types, their literal distinctions, and their native
   JavaScript/TypeScript faces for use throughout the book.
 - Prepares operator semantics, type inference, constraints, FFI, and collections.
 
@@ -788,7 +788,7 @@ late pedagogy pass, not a commitment to the current order.
 
 ### Constraints in JavaScript
 
-- The six fundamental types form the closed named-specialization set. Each exported
+- The seven fundamental types form the closed named-specialization set. Each exported
   constrained function receives every lawful direct, dictionary-free fundamental
   edition.
 - Specialization names append fundamental type names in declared constrained-variable
@@ -797,7 +797,7 @@ late pedagogy pass, not a commitment to the current order.
   every required public dictionary is obtainable and at least one belongs to a
   non-fundamental type.
 - `Constraint.Dictionary<a>` types expose completed member sets with TypeScript brands.
-- Fundamental dictionaries are constraint-owned (`Signed.int`); user/runtime dictionaries
+- Fundamental dictionaries are constraint-owned (Num.nat, `Signed.int`); user/runtime dictionaries
   are type-owned (`Rat.signed`); dependent dictionaries come from factories such as
   `Vector.show(Show.string)`.
 - Dictionary parameters remain a stable trailing suffix, and superconstraint

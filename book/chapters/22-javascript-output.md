@@ -16,7 +16,7 @@ Hexagon's primitive values are already JavaScript values:
 
 | Hexagon | JavaScript |
 | --- | --- |
-| `Int`, `Float` | `number` |
+| `Nat`, `Int`, `Float` | `number` |
 | `BigInt` | `bigint` |
 | `Bool` | `boolean` |
 | `String` | `string` |

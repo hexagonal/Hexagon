@@ -50,7 +50,7 @@ Type-check expressions and declarations. Enforce value restriction, recursion, e
 
 **Primitive, structural and nominal data, vector patterns and checked access, collection operations, matches, exceptions, constraint evidence, dot-call rewriting, mutation, range, while, and generalized for-loop slices implemented.**
 
-Remove surface conveniences and make semantics explicit. Pipes have already become calls before inference; operators become constraint operations; numeric literals elaborate through `fromInt`; evidence becomes explicit where required; patterns lower to tests and bindings; high-level control forms reduce to the core language.
+Remove surface conveniences and make semantics explicit. Pipes have already become calls before inference; operators become constraint operations; numeric literals elaborate through `Num.fromNat`; evidence becomes explicit where required; patterns lower to tests and bindings; high-level control forms reduce to the core language.
 
 ## 8. Core IR
 

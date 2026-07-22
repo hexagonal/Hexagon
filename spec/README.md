@@ -26,7 +26,7 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Declarations | `statements-blocks-mutability.md` | statements, blocks, `var`/mutability, binder classes |
 | Declarations | `modules.md` | files-as-modules, import/export, visibility, acyclicity, ESM emission |
 | Router | `type-system-overview.md` | non-authoritative legacy orientation; superseded by `language.md` at Part 3 |
-| Types | `primitive-types.md` | `Int`/`Float`/`BigInt`/`Bool`/`String`/`Unit`, `Show`/display |
+| Types | `primitive-types.md` | `Nat`/`Int`/`Float`/`BigInt`/`Bool`/`String`/`Unit`, `Show`/display |
 | Types | `products.md` | tuples, structural/nominal records, rows, field access |
 | Types | `unions.md` | `union` declarations, `match` surface, representations |
 | Types | `integral-constraint.md` | the `Integral` constraint |

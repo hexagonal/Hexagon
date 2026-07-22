@@ -374,10 +374,10 @@ describe("check", () => {
     expect(module.items[0]).toMatchObject({
       kind: "Let",
       value: {
-        kind: "FromInt",
+        kind: "FromNat",
         type: { kind: "Primitive", name: "Int" },
         requirement: {
-          name: "Signed",
+          name: "Num",
           type: { kind: "Primitive", name: "Int" },
         },
       },
@@ -752,7 +752,7 @@ describe("check", () => {
 
     expect(letSymbol(module, "addOne").scheme).toMatchObject({
       variables: [expect.any(Number)],
-      constraints: [{ name: "Signed", type: { kind: "Variable" } }],
+      constraints: [{ name: "Num", type: { kind: "Variable" } }],
       type: {
         kind: "Function",
         parameters: [{ kind: "Variable" }],
@@ -803,20 +803,20 @@ describe("check", () => {
     }
     expect(module.items[2]).toMatchObject({
       kind: "Let",
-      value: { kind: "Call", arguments: [{ kind: "FromInt" }] },
+      value: { kind: "Call", arguments: [{ kind: "FromNat" }] },
     });
     expect(module.items[3]).toMatchObject({
       kind: "Let",
       value: {
         kind: "Call",
-        arguments: [{ kind: "FromInt" }, { kind: "FromInt" }],
+        arguments: [{ kind: "FromNat" }, { kind: "FromNat" }],
       },
     });
     expect(module.items[4]).toMatchObject({
       kind: "Let",
       value: {
         kind: "Call",
-        arguments: [{ kind: "Call" }, { kind: "FromInt" }],
+        arguments: [{ kind: "Call" }, { kind: "FromNat" }],
       },
     });
     expect(module.diagnostics).toEqual([]);
@@ -848,7 +848,7 @@ describe("check", () => {
 
   test("keeps compiler-supported constraint subjects universally quantified", () => {
     const module = checkSource(
-      "constraint Integral<a: (Signed, Ord)> =\n" +
+      "constraint Integral<a: (Num, Ord)> =\n" +
         "  gcd(left: a, right: a): a",
     );
     const gcd = module.symbols.find(({ name }) => name === "gcd");

@@ -1,9 +1,9 @@
 # Hexagon Spec: Primitive Types
 
 **Status:** Decided (July 2026)
-**Scope:** The six primitive types: `Int`, `Float`, `Bool`, `String`, `BigInt`, `Unit`. Their JS representations, literal syntax, string interpolation, and the `Show` connection.
+**Scope:** The seven primitive types: `Nat`, `Int`, `Float`, `Bool`, `String`, `BigInt`, `Unit`. Their JS representations, literal syntax, string interpolation, and the `Show` connection.
 **Not in scope:** `Char` (does not exist), `Rat` (stdlib module with a focused v1 spec owed), tuples/records/unions/functions (own specs), the constraint system itself (own spec — this doc only *names* which standard constraints each type supports), 1-based indexing in general (forthcoming spec), equality semantics in depth (constraint spec).
-**Companion:** the Numeric Literals spec (polymorphic integer literals, `fromInt`, Int defaulting) — cross-referenced, not restated here.
+**Companion:** the Numeric Literals spec (Nat-payload polymorphic integer literals, `fromNat`/`fromInt`, Int defaulting) — cross-referenced, not restated here.
 
 This document is written for a future implementation session and assumes the existing `hexc` architecture: Algorithm J, level-based generalisation, constraints compiled to dictionary passing, `honor` declarations, lexer with UTF-16 column tracking, layout pass, emission of idiomatic readable JS + `.d.ts`.
 
@@ -13,6 +13,7 @@ This document is written for a future implementation session and assumes the exi
 
 | Type | JS Type | Literal example | Description |
 | :--- | :--- | :--- | :--- |
+| `Nat` | `number` | `42` | Non-negative whole numbers up to 2⁵³−1. |
 | `Int` | `number` | `42` | Whole numbers within ±(2⁵³−1). f64-integer-invariant. |
 | `Float` | `number` | `0.5`, `1e9` | IEEE 754 double-precision floating point. |
 | `Bool` | `boolean` | `true` | Boolean values. |
@@ -21,6 +22,21 @@ This document is written for a future implementation session and assumes the exi
 | `Unit` | `undefined` | `()` | The one-value type. |
 
 **Correction to older documentation:** earlier drafts listed `Int → bigint`. This is wrong and was explicitly reversed. `Int` compiles to JS `number`.
+
+### Nat: the non-negative refinement
+
+`Nat` is an unboxed fundamental type represented by a JavaScript `number`. Its values
+are integral and lie in `0 ... 2^53 - 1`; there is no runtime tag or wrapper. Nat is
+deliberately not the default for bare literals: `let count = 3` remains `Int`, while
+`let count: Nat = 3` pins the same bare literal to Nat.
+
+Nat honors `Num`, `Eq`, `Ord`, `Show`, `Hash`, `Pow`, and `Integral`, but not `Signed`
+or `Frac`. Generic addition and multiplication therefore accept Nat; subtraction and
+negation do not. `Nat.fromInt : Int -> Option(Nat)` is the checked boundary conversion,
+while an established Nat can widen exactly through `Num.fromNat` when another numeric
+type is independently established. Nat is intended for values whose non-negativity is
+the invariant—terminal counts, retry limits, page sizes, and checked parse boundaries—
+not as a replacement for ordinary signed arithmetic.
 
 ### Naming conventions
 
@@ -39,11 +55,11 @@ type name from a type variable and enables implicit generalisation without `fora
 
 **Why not BigInt** (decided, do not re-litigate without new information): ambient BigInt taxes every index and loop counter (~10× on small values in V8, no small-int fast path), `JSON.stringify` throws on bigint, `Math.*` rejects it, mixed `number`/`bigint` arithmetic throws, Immutable.js uses number indexes internally (coercion on every List op), and the emitted `.d.ts` would force `bigint` on every JS consumer. Precedents: Dart 2 retreated from arbitrary-precision int to fixed-width largely because of the web target; PureScript/Elm/ReScript/Gleam all chose `number`. Users who need arbitrary precision opt in via `BigInt` (§6).
 
-**Literals:** decimal digits, optional `_` separators (§8), no decimal point, no exponent, no `n` suffix. Per the Numeric Literals spec: a bare integer literal is *polymorphic* — it elaborates to `fromInt(k) : α` with constraint `Signed α`, defaulting to `Int` at generalisation. The lexer range-checks the payload against 2^53 − 1 and errors with an "add `n`" fixit beyond that. **This doc does not restate that machinery; the Numeric Literals spec is authoritative for elaboration, defaulting, and codegen erasure.**
+**Literals:** decimal digits, optional `_` separators (§8), no decimal point, no exponent, no `n` suffix. Per the Numeric Literals spec: a bare integer literal is *polymorphic* — it elaborates to `fromNat(k) : α` with constraint `Num α`, defaulting to `Int` at generalisation. The lexer range-checks the payload against 2^53 − 1 and errors with an "add `n`" fixit beyond that. **This doc does not restate that machinery; the Numeric Literals spec is authoritative for elaboration, defaulting, and codegen erasure.**
 
-**Division:** `Int` honors `Signed` (add/subtract/multiply/negate/fromInt) but **not** `Frac` — there is no generic `divide` at Int (decided when `divide` was evicted from `Signed`). Integer division/modulo are the monomorphic `Int.div` / `Int.mod` with deliberately chosen (floored) semantics — see the Signed/Frac constraint notes.
+**Division:** `Int` honors `Num` and `Signed` (add/multiply plus subtract/negate/fromInt) but **not** `Frac` — there is no generic `divide` at Int (decided when `divide` was evicted from `Signed`). Integer division/modulo are the monomorphic `Int.div` / `Int.mod` with deliberately chosen (floored) semantics — see the Signed/Frac constraint notes.
 
-**Standard constraints:** `Signed`, `Eq`, `Ord`, `Show`.
+**Standard constraints:** `Num`, `Signed`, `Eq`, `Ord`, `Show`.
 
 ### 2.1 Overflow policy (decided)
 
@@ -67,7 +83,7 @@ type name from a type variable and enables implicit generalisation without `fora
 
 **Literals:** monomorphic, always `Float` — a literal is a Float literal iff it contains a `.` or an exponent (`1.5`, `0.0`, `1e9`, `2.5e-3`). `_` separators allowed per §8. Decimal literals do **not** participate in the polymorphic literal scheme in v1 (deferred; the blocker is that `Rat`'s exact-binary `fromFloat` is not what a user writing `0.1` means — see Numeric Literals spec §7).
 
-**Standard constraints:** `Signed`, `Frac` (generic `divide`, lawful up to rounding), `Eq`, `Ord`, `Show`.
+**Standard constraints:** `Num`, `Signed`, `Frac` (generic `divide`, lawful up to rounding), `Eq`, `Ord`, `Show`.
 
 **Show wart, pre-registered as a decision:** `Float.show` is JS number formatting (§7 rule), so `show (0.1 + 0.2)` is `"0.30000000000000004"` and `show 1e21` is `"1e+21"`. This is the honest display of the value and matches JS-developer expectations. Accepted for v1.
 
@@ -117,7 +133,7 @@ A `$` **not** followed by `{` is an ordinary character, no escape needed.
 
 `"a ${e1} b ${e2}"` elaborates to string concatenation of the text chunks with `show(e1)`, `show(e2)` — where `show : Show a => a -> String` is the display method of the `Show` constraint. Consequences the implementer must preserve:
 
-- The constraint **propagates normally**: `fun greet name = "Hello ${name}!"` infers `greet : Show a => a -> String`, dictionary-passed like any constraint. No special machinery beyond what `fromInt` established in the Numeric Literals spec.
+- The constraint **propagates normally**: `fun greet name = "Hello ${name}!"` infers `greet : Show a => a -> String`, dictionary-passed like any constraint. No special machinery beyond what `fromNat` established in the Numeric Literals spec.
 - Interpolating a type with **no Show instance is a compile error**. This is the feature: functions and opaque extern types don't accidentally become `"[object Object]"` or spliced source code. (An extern type may opt in with an explicit `honor Show<T>`.)
 - When the interpolated type is concrete and its `show` is representational identity or `String(x)` (§7), codegen may — and should — emit a plain JS template literal `` `a ${e1} b ${e2}` `` for readability. When `show` is a real call, emit it: `` `a ${Rat_show(e1)} b` ``. Polymorphic case: `dict.show(e1)`.
 - `String.show` is the identity, so interpolating a String splices it bare (no added quotes) — display semantics, not Haskell-`show` semantics. See §7.
@@ -144,15 +160,17 @@ Human-facing sorting ("é" before "f", locale digraph rules) is **collation**, i
 
 **Semantics:** arbitrary-precision integers. JS `bigint`, natively — no hand-rolled bignum library (decided: the engine's implementation is strictly better than anything we'd write, and the gap is only ergonomics around it, not the type).
 
-**Literals:** decimal digits + `n` suffix: `42n`, `9_007_199_254_740_993n`. **Monomorphic, always `BigInt`** — the `n` suffix *is* the type annotation, exactly as in JS, and BigInt literals do **not** participate in the polymorphic `Signed`-literal scheme (decided, with reasons recorded in Numeric Literals spec §7: a polymorphic `1n` would hollow out the suffix and force a lossy `fromBigInt` into `Signed`). Payload is arbitrary precision; the lexer/AST must store it losslessly (string or JS bigint), never through an f64.
+**Literals:** decimal digits + `n` suffix: `42n`, `9_007_199_254_740_993n`. **Monomorphic, always `BigInt`** — the `n` suffix *is* the type annotation, exactly as in JS, and BigInt literals do **not** participate in the polymorphic `Num`-literal scheme (decided, with reasons recorded in Numeric Literals spec §7: a polymorphic `1n` would hollow out the suffix and force a lossy or partial `fromBigInt` into `Num`). Payload is arbitrary precision; the lexer/AST must store it losslessly (string or JS bigint), never through an f64.
 
-**Conversions:** Numeric Literals §5.1's single contextual injection applies from an established `Int` expression into `BigInt`, because `BigInt` honors `Signed`; emission is `BigInt(value)` and is exact. There is no conversion in the other direction and no implicit conversion between `BigInt` and `Float` — mixed arithmetic without an `Int` source is a compile error (an upgrade on the JS runtime `TypeError` it compiles over). Explicit stdlib conversions remain `BigInt.fromInt` (total), `BigInt.toInt` (partial, per the standard partiality story), and `BigInt.toFloat` (total, lossy, documented).
+**Style:** use `n` when no surrounding context pins the type (`let y = 1n`) and whenever the payload exceeds the bare-literal range. In an already BigInt-typed position, bare digits are preferred: `Rat.create(1, 3)` emits `Rat.create(1n, 3n)`.
+
+**Conversions:** Numeric Literals §5.1 applies from established `Nat` and `Int` expressions into `BigInt`, through `Num.fromNat` and `Signed.fromInt` respectively; emission is `BigInt(value)` and is exact. There is no conversion in the other direction and no implicit conversion between `BigInt` and `Float`. Explicit stdlib conversions remain `BigInt.fromInt` (total), `BigInt.toInt` (partial, per the standard partiality story), and `BigInt.toFloat` (total, lossy, documented).
 
 **Division:** honors `Signed` but **not** `Frac` — BigInt division is truncating-toward-zero in JS, unlawful for generic `divide`. Monomorphic `BigInt.div` / `BigInt.mod` with the **same** floored convention as `Int.div`/`Int.mod`, uniformly wrapped in codegen.
 
 **FFI:** appears as `bigint` in emitted `.d.ts`. Known landmine, documented once in FFI docs: `JSON.stringify` throws on bigint — but only records that explicitly contain BigInt fields carry it, which is the point of keeping BigInt out of `Int`.
 
-**Standard constraints:** `Signed`, `Eq`, `Ord`, `Show` (note `show 1n` is `"1"` — **no** `n` suffix; this is JS `String(1n)` behaviour and is display-correct).
+**Standard constraints:** `Num`, `Signed`, `Eq`, `Ord`, `Show` (note `show 1n` is `"1"` — **no** `n` suffix; this is JS `String(1n)` behaviour and is display-correct).
 
 ---
 
@@ -166,6 +184,7 @@ The constraint system has its own spec; this section records only the decisions 
 
 | Type | `show` compiles to | Notes |
 |---|---|---|
+| `Nat` | `String(x)` | sane |
 | `Int` | `String(x)` | sane |
 | `Float` | `String(x)` | sane-ish; wart pre-registered in §3 |
 | `BigInt` | `String(x)` | sane; drops `n`, correct for display |
@@ -183,7 +202,7 @@ The constraint system has its own spec; this section records only the decisions 
 
 ## 8. Numeric `_` separators
 
-Underscore separators are allowed in all numeric literals (`Int`, `Float`, `BigInt`) under **the JS rule** (decided — not Python's, which differs in exactly one corner: Python allows `0x_FF`, JS doesn't; since we emit literals into JS source, JS's rule is the only safe one, and it's Python-minus-that-corner):
+Underscore separators are allowed in all numeric literals (Nat/Int-payload bare literals, `Float`, `BigInt`) under **the JS rule** (decided — not Python's, which differs in exactly one corner: Python allows `0x_FF`, JS doesn't; since we emit literals into JS source, JS's rule is the only safe one, and it's Python-minus-that-corner):
 
 - `_` must have a digit on **both** sides.
 - Therefore: no leading (`_1`) or trailing (`1_`) underscore; no doubling (`1__0`); none adjacent to `.` (`1_.5`, `1._5`), to the exponent marker (`1_e5`, `1e_5`), or to the `n` suffix (`1_n`).
@@ -204,7 +223,7 @@ Rationale for `undefined`: a Hexagon function returning `Unit` is a JS function 
 
 **Role:** Unit exists chiefly for the Standard-ML-flavoured function design, where every function takes exactly one thing — a single value, a tuple, or the empty tuple `()`. That design (call syntax, tuple types, how `()` -taking functions emit) is the functions/tuples spec's job; this doc only fixes the type's existence, literal, and representation.
 
-**Standard constraints:** `Eq` (trivially — one value), `Ord` (trivially), `Show` (`"()"`, a replaced-because-JS-is-stupid case, §7). Not `Signed`.
+**Standard constraints:** `Eq` (trivially — one value), `Ord` (trivially), `Show` (`"()"`, a replaced-because-JS-is-stupid case, §7). Neither `Num` nor `Signed`.
 
 **Implementer cautions:**
 - `()` must lex/parse unambiguously against parenthesised expressions and (future) tuple syntax — `()` is the nullary case of the tuple family; coordinate with the functions/tuples spec rather than special-casing.
@@ -216,8 +235,9 @@ Rationale for `undefined`: a Hexagon function returning `Unit` is a JS function 
 
 | Decision | Where decided |
 |---|---|
+| `Nat` = non-negative safe integer, unboxed JS `number`; honors `Num`, not `Signed`; not the default | this doc §1; Numeric Literals spec |
 | `Int` = f64-integer-invariant `number`, not bigint | this doc §2; Numeric Literals spec |
-| Bare int literals polymorphic via `fromInt`, default `Int` | Numeric Literals spec (authoritative) |
+| Bare int literals use a `Nat` payload and are polymorphic via `Num.fromNat`, default `Int` | Numeric Literals spec (authoritative) |
 | `1n` monomorphic BigInt; suffix = annotation | Numeric Literals spec §7; this doc §6 |
 | Decimal literals monomorphic Float in v1 | Numeric Literals spec; this doc §3 |
 | One string form `"..."`: interpolating, multi-line, no backticks, no tags | this doc §5.2 |

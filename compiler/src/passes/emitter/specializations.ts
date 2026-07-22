@@ -37,6 +37,7 @@ export interface SpecializationPlan {
 export type FundamentalType = Exclude<Typed.PrimitiveName, "Exn">;
 
 const fundamentalTypes: readonly FundamentalType[] = [
+  "Nat",
   "Int",
   "Float",
   "BigInt",
@@ -257,9 +258,10 @@ function fundamentalSupports(
   constraint: Typed.ConstraintName,
 ): boolean {
   const instances: Record<FundamentalType, readonly Typed.ConstraintName[]> = {
-    Int: ["Signed", "Eq", "Ord", "Show", "Pow"],
-    Float: ["Signed", "Frac", "Eq", "Ord", "Show", "Pow"],
-    BigInt: ["Signed", "Eq", "Ord", "Show", "Pow"],
+    Nat: ["Num", "Eq", "Ord", "Show", "Pow", "Integral"],
+    Int: ["Num", "Signed", "Eq", "Ord", "Show", "Pow", "Integral"],
+    Float: ["Num", "Signed", "Frac", "Eq", "Ord", "Show", "Pow"],
+    BigInt: ["Num", "Signed", "Eq", "Ord", "Show", "Pow", "Integral"],
     Bool: ["Eq", "Ord", "Show"],
     String: ["Eq", "Ord", "Show", "Concat"],
     Unit: ["Eq", "Ord", "Show"],

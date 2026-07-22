@@ -128,7 +128,7 @@ The spec needs one authoritative table for source type, JavaScript representatio
 
 It must include:
 
-1. `Int`, `Float`, `BigInt`, `Bool`, `String`, and `Unit`.
+1. `Nat`, `Int`, `Float`, `BigInt`, `Bool`, `String`, and `Unit`.
 2. Functions and higher-order callbacks.
 3. Tuples and structural records.
 4. Nominal records, whose runtime and TypeScript faces are structurally represented unless `opaque` changes the boundary face.
@@ -836,7 +836,7 @@ Hexagon callers are protected by recompilation and `match`; JavaScript consumers
 
 An exported constrained-polymorphic function generates:
 
-1. direct dictionary-free named specializations for every lawful combination of the closed fundamental set (`Int`, `Float`, `BigInt`, `Bool`, `String`, `Unit`); and
+1. direct dictionary-free named specializations for every lawful combination of the closed fundamental set (`Nat`, `Int`, `Float`, `BigInt`, `Bool`, `String`, `Unit`); and
 2. the source base-name generic edition with trailing dictionary evidence when the public instance graph contains usable non-fundamental evidence satisfying its constraints.
 
 Private types and internal call sites never reshape the JS export surface. Fundamental specializations are unconditional for the exported declaration. Multiple constrained variables generate the complete lawful Cartesian product provisionally; suffix order follows declared type-variable order. Generated-name collisions with explicit exports are hard errors.
@@ -844,7 +844,7 @@ Private types and internal call sites never reshape the JS export surface. Funda
 Example:
 
 ```hexagon
-export let plus<a: Signed>(x: a, y: a): a = x + y
+export let plus<a: Num>(x: a, y: a): a = x + y
 ```
 
 ```ts
@@ -852,11 +852,11 @@ export declare function plusInt(x: number, y: number): number;
 export declare function plusFloat(x: number, y: number): number;
 export declare function plusBigInt(x: bigint, y: bigint): bigint;
 
-// Present when public usable non-fundamental Signed evidence exists:
+// Present when public usable non-fundamental Num evidence exists:
 export declare function plus<a>(
   x: a,
   y: a,
-  signed: Signed.Dictionary<a>,
+  num: Num.Dictionary<a>,
 ): a;
 ```
 
@@ -951,7 +951,7 @@ Confirm explicitly in the normative FFI spec:
 - No claim that a bare JavaScript iterator already satisfies persistent `Seq` semantics.
 - No async sequence boundary until the async specification defines `Promise`, `AsyncSeq`, and rejection semantics.
 - No general reflection, prototype-driven type dispatch, or automatic foreign instance search.
-- No automatic **user-type** monomorphic export explosion. The closed fundamental set deliberately receives named specializations (`plusInt`/`plusFloat`/`plusBigInt`); public user types share the generic dictionary edition.
+- No automatic **user-type** monomorphic export explosion. The closed fundamental set deliberately receives named specializations (`plusNat`/`plusInt`/`plusFloat`/`plusBigInt`); public user types share the generic dictionary edition.
 - No inspection of the internal dependency graph of an extern JavaScript module.
 - No TypeScript-style flow narrowing introduced by `Nullable` predicates; the feature is reserved for a separate type-system deep dive.
 

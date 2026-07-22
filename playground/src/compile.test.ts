@@ -133,10 +133,12 @@ describe("compileSource", () => {
     expect(response.kind).toBe("compile-success");
     if (response.kind !== "compile-success") return;
 
+    expect(response.javascript).toContain("function plusNat(x, y)");
     expect(response.javascript).toContain("function plusInt(x, y)");
     expect(response.javascript).toContain("function plusFloat(x, y)");
     expect(response.javascript).toContain("function plusBigInt(x, y)");
     expect(response.generatedJavaScript).toMatchObject([
+      { generatedName: "plusNat", typeArguments: ["Nat"] },
       { generatedName: "plusInt", typeArguments: ["Int"] },
       { generatedName: "plusFloat", typeArguments: ["Float"] },
       { generatedName: "plusBigInt", typeArguments: ["BigInt"] },
@@ -185,19 +187,32 @@ describe("compileSource", () => {
     expect(response.diagnostics).toEqual([]);
     expect(response.javascript).toContain('import * as Rat from "./stdlib/Rat.js";');
     expect(response.javascript).toContain(
-      "const fiveSixths = __hex_imported_0___hex_instance_Signed_Rat.add(half, third);",
+      "const fiveSixths = __hex_imported_0___hex_instance_Num_Rat.add(half, third);",
     );
+    expect(response.javascript).toContain("const half = Rat.create(1n, 2n);");
+    expect(response.javascript).toContain("const tenTwelfths = Rat.create(10n, 12n);");
+    expect(response.javascript).toContain("tenTwelfths, fiveSixths");
     expect(response.javascript).not.toContain("export opaque record Rat");
     expect(response.executionModules.map(({ path }) => path)).toContain(
       "/stdlib/Rat.hex",
     );
+    const ratModule = response.executionModules.find(({ path }) =>
+      path === "/stdlib/Rat.hex"
+    );
+    expect(ratModule?.javascript).toContain('bottom === 0n');
+    expect(ratModule?.javascript).toContain('reducedBottom < 0n');
+    expect(ratModule?.javascript).toContain('name = "DivideByZeroError"');
     expect(response.types).toContainEqual(expect.objectContaining({
       name: "fiveSixths",
       displayedType: "Rat",
     }));
+    expect(response.types).toContainEqual(expect.objectContaining({
+      name: "tenTwelfths",
+      displayedType: "Rat",
+    }));
   });
 
-  test("executes the real stdlib Rat module through imported Signed evidence", async () => {
+  test("executes the real stdlib Rat module through imported Num evidence", async () => {
     const response = compileSource(14, rat.source);
 
     expect(response.kind).toBe("compile-success");

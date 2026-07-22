@@ -15,6 +15,7 @@ export type TypeVariableId = number & {
 };
 
 export type PrimitiveName =
+  | "Nat"
   | "Int"
   | "Float"
   | "Bool"
@@ -511,7 +512,8 @@ export type Expr =
   | NameExpr
   | UnitExpr
   | BooleanExpr
-  | FromIntExpr
+  | FromNatExpr
+  | WidenNatExpr
   | WidenIntExpr
   | BigIntExpr
   | FloatExpr
@@ -568,10 +570,17 @@ export interface BooleanExpr extends ExpressionFields {
   readonly value: boolean;
 }
 
-/** An integer literal with its explicit `Signed.fromInt` requirement. */
-export interface FromIntExpr extends ExpressionFields {
-  readonly kind: "FromInt";
+/** A non-negative integer literal with its explicit `Num.fromNat` requirement. */
+export interface FromNatExpr extends ExpressionFields {
+  readonly kind: "FromNat";
   readonly decimal: string;
+  readonly requirement: Constraint;
+}
+
+/** A contextual, exact `Nat -> a` injection through established `Num<a>` evidence. */
+export interface WidenNatExpr extends ExpressionFields {
+  readonly kind: "WidenNat";
+  readonly value: Expr;
   readonly requirement: Constraint;
 }
 

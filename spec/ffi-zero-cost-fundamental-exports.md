@@ -35,7 +35,7 @@ private/internal types       -> no effect on the JS export surface
 ### 2.1 The closed set
 
 ```text
-Int   Float   BigInt   Bool   String   Unit
+Nat   Int   Float   BigInt   Bool   String   Unit
 ```
 
 **"Fundamental" is a language category, not an inference from runtime size, representation, or current engine performance.** `Date`, `Array(a)`, `Nullable(a)`, the runtime collections (`Vector`, `Map`, `Set`, `Seq`, `Range`), records, unions, and user types do not enter the set merely because their JS representation is small or native (rejected alternative §11.1).
@@ -50,6 +50,7 @@ Per Primitive Types §1 / Type System Overview §4, for use in §8's generated s
 
 | Fundamental | Parameter face | Return face |
 |---|---|---|
+| `Nat` | `number` | `number` |
 | `Int` | `number` | `number` |
 | `Float` | `number` | `number` |
 | `BigInt` | `bigint` | `bigint` |
@@ -74,7 +75,7 @@ For an eligible export `f` with type variables `v1 … vn` **in declared order**
 1. **Partition** the variables: `vi` is *specializing* iff `C(vi)` is non-empty. Unconstrained variables never specialize (§3.3).
 2. **Candidates per specializing variable:**
    `candidates(vi) = { F ∈ FundamentalSet | every K ∈ C(vi) has a lawful instance K<F> }`.
-   Lawfulness is the ordinary Constraints §4/§5 judgment over the compiler/runtime-provided fundamental instances — e.g. `Signed → {Int, Float, BigInt}`; `Show`/`Eq` → whichever members of the closed set carry those instances per the prelude. No new instance judgment is introduced.
+   Lawfulness is the ordinary Constraints §4/§5 judgment over the compiler/runtime-provided fundamental instances — e.g. `Num → {Nat, Int, Float, BigInt}` and `Signed → {Int, Float, BigInt}`; `Show`/`Eq` → whichever members of the closed set carry those instances per the prelude. No new instance judgment is introduced.
 3. **Lawful tuples:** the full Cartesian product of `candidates(vi)` over the specializing variables, in declared order. If any `candidates(vi)` is empty, the product is empty (§3.4). **A tuple is generated only when every chosen fundamental type satisfies all constraints attached to its corresponding variable** — there is no partial tuple and no cross-variable constraint (Hexagon constraints attach to single binders).
 4. **Emit one specialization per lawful tuple** `t = (F1, …, Fk)`:
    - **name:** per Algorithm N (§6);
@@ -122,7 +123,7 @@ The base-name generic edition is emitted **iff** there exists at least one **com
 
 *Publicly obtainable* means there is a public **evidence expression** for it: a public handle per the exported-dictionaries public-exposure rule (constraint publicly nameable; `Ti`'s constructors publicly nameable; every signature component of the handle/factory public; the lawful instance present in the compiled graph), or a public factory applied to inputs that are themselves recursively publicly obtainable — e.g. `Vector.show(Show.string)` is the obtainable evidence for `Show` at `Vector(String)`.
 
-- **Completeness is load-bearing.** The generic function requires evidence for *every* constrained variable; if any variable's constraints have no publicly obtainable evidence at *any* public type — fundamental or not — no JavaScript caller could lawfully call the edition, and it is not emitted. For ordinary prelude-constraint functions (`plus<a: Signed>`) this rule coincides exactly with "some public non-fundamental instance exists", because fundamental evidence for prelude constraints is constraint-owned and public; the completeness condition matters only for multi-variable and user-constraint cases (§17.1).
+- **Completeness is load-bearing.** The generic function requires evidence for *every* constrained variable; if any variable's constraints have no publicly obtainable evidence at *any* public type — fundamental or not — no JavaScript caller could lawfully call the edition, and it is not emitted. For ordinary prelude-constraint functions (`plus<a: Num>`) this rule coincides exactly with "some public non-fundamental instance exists", because fundamental evidence for prelude constraints is constraint-owned and public; the completeness condition matters only for multi-variable and user-constraint cases (§17.1).
 - **Private types and internal call sites never cause the edition to appear** (§5). Conversely, a qualifying public assignment causes it to appear **even if no Hexagon source instantiates `f` at those types** — JavaScript callers sit outside Hexagon call-site analysis.
 - Adding the public instance that first completes a qualifying assignment adds the base-name export: an **additive ABI change** (§9). Removing the evidence that last sustains one removes it: breaking.
 
@@ -134,7 +135,7 @@ When triggered, the edition is exported under the **source base name** with the 
 export declare function plus<a>(
   x: a,
   y: a,
-  signed: Signed.Dictionary<a>,
+  num: Num.Dictionary<a>,
 ): a;
 ```
 
@@ -168,7 +169,7 @@ specialization name = source export name
                        in declared type-variable order
 ```
 
-- Type names are spelled exactly as the language spells them — `Int`, `Float`, `BigInt`, `Bool`, `String`, `Unit` — concatenated with no separator: `plus + Int → plusInt`; `combine + Int + String → combineIntString`.
+- Type names are spelled exactly as the language spells them — `Nat`, `Int`, `Float`, `BigInt`, `Bool`, `String`, `Unit` — concatenated with no separator: `plus + Int → plusInt`; `combine + Int + String → combineIntString`.
 - **Declared type-variable order, never constraint order and never parameter-occurrence order.** Alpha-renaming type variables in source cannot change any generated name (the names use *type* names and *positions*, not variable spellings) — consistent with the dictionaries note's ordinal-based ABI stance.
 - Unconstrained variables contribute nothing (§3.3).
 - **The source base name is reserved for the generic dictionary edition.** It is never used by a specialization, including when the edition is currently absent — reservation is what keeps the §4.1 trigger an *additive* ABI event.
@@ -179,7 +180,7 @@ A generated specialization name that collides with any explicit public export of
 
 ```hexagon
 export let plusInt(x: Int, y: Int): Int = x + y
-export let plus<a: Signed>(x: a, y: a): a = x + y
+export let plus<a: Num>(x: a, y: a): a = x + y
 -- ERROR: generated specialization `plusInt` conflicts with exported `plusInt`;
 --        rename one of the exports
 ```
@@ -191,18 +192,22 @@ Two **generated** names colliding (two eligible exports whose expansions produce
 ## 7. Worked example (single variable)
 
 ```hexagon
-export let plus<a: Signed>(x: a, y: a): a = x + y
+export let plus<a: Num>(x: a, y: a): a = x + y
 ```
 
-Always-generated fundamental entry points (candidates(`a`) under `Signed` = {Int, Float, BigInt}):
+Always-generated fundamental entry points (candidates(`a`) under `Num` = {Nat, Int, Float, BigInt}):
 
 ```ts
+export declare function plusNat(x: number, y: number): number;
 export declare function plusInt(x: number, y: number): number;
 export declare function plusFloat(x: number, y: number): number;
 export declare function plusBigInt(x: bigint, y: bigint): bigint;
 ```
 
 ```js
+export function plusNat(x, y) {
+  return x + y;
+}
 export function plusInt(x, y) {
   return x + y;
 }
@@ -214,13 +219,13 @@ export function plusBigInt(x, y) {
 }
 ```
 
-If (and only if) a public non-fundamental `Signed` instance exists — public `Rat` plus public `Rat.signed` — the module additionally exports the §4.2 generic edition. JavaScript sees:
+If (and only if) a public non-fundamental `Num` instance exists — public `Rat` plus public `Rat.num` — the module additionally exports the §4.2 generic edition. JavaScript sees:
 
 ```ts
 plusInt(10, 20);
 plusFloat(1.5, 2.5);
 plusBigInt(10n, 20n);
-plus(half, third, Rat.signed);   // only with the public Rat evidence in the graph
+plus(half, third, Rat.num);      // only with the public Rat evidence in the graph
 ```
 
 ---
@@ -230,7 +235,7 @@ plus(half, third, Rat.signed);   // only with the public Rat evidence in the gra
 ### 8.1 Required (normative; the ABI)
 
 1. **Every lawful specialization is a public named ESM export** appearing in the module's `.d.ts`, with the deterministic §6 name and the §2.3 faces.
-2. **Direct bodies, dictionary-free.** A specialization's call path contains **no dictionary construction, passing, or member dispatch**. It is the concrete emission the existing specs already fix for that type — e.g. a `Signed<Int>` body emits native `+`; an `Eq<Float>` body emits the SameValueZero form `a === b || (Number.isNaN(a) && Number.isNaN(b))` or its `$hex` helper (Decisions Batch §1.5); `fromInt` erases (Numeric Literals §5).
+2. **Direct bodies, dictionary-free.** A specialization's call path contains **no dictionary construction, passing, or member dispatch**. It is the concrete emission the existing specs already fix for that type — e.g. a `Num<Int>` body emits native `+`; an `Eq<Float>` body emits the SameValueZero form `a === b || (Number.isNaN(a) && Number.isNaN(b))` or its `$hex` helper (Decisions Batch §1.5); `fromNat` erases (Numeric Literals §5).
 3. **Specializations are not wrappers over the generic edition** (rejected alternative §11.2). Calling one never touches evidence.
 4. **Observable behaviour** of `fXY(args)` is exactly `f` instantiated at `(X, Y)` per the language semantics — same result, same exceptions, same evaluation order.
 5. **The generic edition, when triggered, is exported under the base name** with trailing evidence per the dictionaries note; when not triggered it is absent, and the base name exports nothing.
@@ -354,7 +359,7 @@ Exported constrained-polymorphic **non-function values**, should generalization 
 | # | Decision | § |
 |---|---|---|
 | 1 | Hybrid surface doctrine: named dictionary-free fundamental specializations + conditional base-name generic edition; private/internal never affects the public surface | §1, §5 |
-| 2 | **Closed fundamental set: `Int`, `Float`, `BigInt`, `Bool`, `String`, `Unit`** — a language category, never a representation heuristic | §2.1, §11.1 |
+| 2 | **Closed fundamental set: `Nat`, `Int`, `Float`, `BigInt`, `Bool`, `String`, `Unit`** — a language category, never a representation heuristic | §2.1, §11.1 |
 | 3 | One explicit pre-v1 fundamental-set inventory review; additions only by language-design decision | §2.2 |
 | 4 | Algorithm S: per-variable fundamental candidates by ordinary lawfulness; **full lawful Cartesian product** over constrained variables; specializations unconditional for eligible exports; no combination cap | §3.2 |
 | 5 | Unconstrained type variables stay generic binders; no suffix element *(clarification, flagged §13.1)* | §3.3 |
@@ -376,9 +381,9 @@ Exported constrained-polymorphic **non-function values**, should generalization 
 
 ```
 -- (a) Single constrained variable: unconditional specializations, direct bodies
-export let plus<a: Signed>(x: a, y: a): a = x + y
--- exports (no public non-fundamental Signed in graph):
---   plusInt, plusFloat, plusBigInt        (and nothing under the name `plus`)
+export let plus<a: Num>(x: a, y: a): a = x + y
+-- exports (no public non-fundamental Num in graph):
+--   plusNat, plusInt, plusFloat, plusBigInt (and nothing under the name `plus`)
 --   plusInt emits: export function plusInt(x, y) { return x + y; }
 -- No dictionary object, parameter, or member access appears in any of the three.
 
@@ -392,15 +397,15 @@ export let same<a: Eq>(x: a, y: a): Bool = x == y
 
 -- (c) Generic edition appears exactly on public evidence (additive ABI)
 -- program 1: record Rat = ... (private)  → no `plus` export, (a)'s surface only
--- program 2: export record Rat ... ; honor Signed<Rat> = ... (public type, lawful instance)
+-- program 2: export record Rat ... ; honor Num<Rat> = ... (public type, lawful instance)
 --   → `plus` base-name edition appears:
---     export declare function plus<a>(x: a, y: a, signed: Signed.Dictionary<a>): a;
---   and plusInt/plusFloat/plusBigInt are unchanged (names, signatures, bodies).
+--     export declare function plus<a>(x: a, y: a, num: Num.Dictionary<a>): a;
+--   and plusNat/plusInt/plusFloat/plusBigInt are unchanged (names, signatures, bodies).
 
 -- (d) Internal calls never shape the surface
 let internal = plus(20, 22)        -- emits: const internal = 20 + 22;
 -- No Hexagon call to plus at Float exists anywhere; plusFloat is exported anyway.
--- A private type honoring Signed changes nothing foreign.
+-- A private type honoring Num changes nothing foreign.
 
 -- (e) Multiple constrained variables: full lawful Cartesian product, declared order
 export let combine<a: Show, b: Eq>(x: a, y: b): String = ...
@@ -415,7 +420,7 @@ export let tag<a: Show, b>(x: a, y: b): String = ...
 
 -- (g) Collision: hard error, no mangling
 export let plusInt(x: Int, y: Int): Int = x + y
-export let plus<a: Signed>(x: a, y: a): a = x + y
+export let plus<a: Num>(x: a, y: a): a = x + y
 -- ERROR: generated specialization `plusInt` conflicts with exported `plusInt`;
 --        rename one of the exports
 

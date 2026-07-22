@@ -4,17 +4,17 @@ export opaque record Rat derives (Eq, Hash) = {
   bottom: BigInt,
 }
 
-export exception ZeroBottomError(message: String)
+export exception DivideByZeroError(message: String)
 
 export let create(top: BigInt, bottom: BigInt): Rat =
-  if bottom == 0n
-    throw(ZeroBottomError("a Rat bottom cannot be zero"))
+  if bottom == 0
+    throw(DivideByZeroError("Rat.create: bottom is zero"))
   else
     // gcd uses Euclidean modulus internally after normalizing both operands.
     let divisor = BigInt.gcd(top, bottom)
     let reducedTop = BigInt.quot(top, divisor)
     let reducedBottom = BigInt.quot(bottom, divisor)
-    if reducedBottom < 0n
+    if reducedBottom < 0
       Rat({top: -reducedTop, bottom: -reducedBottom})
     else Rat({top: reducedTop, bottom: reducedBottom})
 
@@ -55,9 +55,12 @@ honor Ord<Rat> =
 honor Show<Rat> =
   show(value) = "${value.top}/${value.bottom}"
 
-honor Signed<Rat> =
+honor Num<Rat> =
   add(left, right) = add(left, right)
-  subtract(left, right) = subtract(left, right)
   multiply(left, right) = multiply(left, right)
+  fromNat(value) = create(value, 1)
+
+honor Signed<Rat> =
+  subtract(left, right) = subtract(left, right)
   negate(value) = negate(value)
-  fromInt(value) = create(value, 1n)
+  fromInt(value) = create(value, 1)

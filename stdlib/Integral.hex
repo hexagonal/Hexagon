@@ -1,5 +1,5 @@
 // The polymorphic face of exact integer division and greatest common divisors.
-constraint Integral<a: (Signed, Ord)> =
+constraint Integral<a: (Num, Ord)> =
   div(left: a, right: a): a
   mod(left: a, right: a): a
   quot(left: a, right: a): a

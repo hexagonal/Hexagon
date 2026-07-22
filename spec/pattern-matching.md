@@ -97,7 +97,7 @@ match answer
 ```
 
 - A literal pattern elaborates through **`Eq`** exactly as `==` does (Operators §5.1): the arm test is `equals(scrutinee, lit)`, emitting `===` on the primitive fast path — which is every v1 case, since the allowed types are `Int`, `String`, `Bool`.
-- **Typing joins ordinary inference.** An integer literal in a pattern contributes the same `Signed` (via `fromInt`) and `Eq` constraints that `x == 0` would, and unifies with the scrutinee type; defaulting applies as usual. In v1 the scrutinee is concrete by the time patterns check, so this is invisible — but the spec fixes the mechanism so a future polymorphic scrutinee doesn't force an improvised rule. Literal patterns do not force early monomorphization beyond what the constraints imply.
+- **Typing joins ordinary inference.** An integer literal in a pattern contributes the same `Num` (via `fromNat`) and `Eq` constraints that `x == 0` would, and unifies with the scrutinee type; defaulting applies as usual. In v1 the scrutinee is concrete by the time patterns check, so this is invisible — but the spec fixes the mechanism so a future polymorphic scrutinee doesn't force an improvised rule. Literal patterns do not force early monomorphization beyond what the constraints imply.
 - **`Float` literal patterns are a permanent hard error**, not a deferral. `Eq<Float>` is SameValueZero (Decisions Batch §1): `NaN` would never match its own literal, and `-0.0`/`0.0` would collapse — a pattern that *reads* exact and isn't. The diagnostic must redirect: "Float literals cannot appear in patterns; use a guard: `x when x == 1.5`" — where the SameValueZero semantics is at least attached to a visible `==`. Matching *on* a `Float` scrutinee is fine (variables, `_`, guards); only the literal form is banned.
 - There is no `Char` type in Hexagon; single-character strings are `String` literals like any other.
 - Negative integer literals: `-3` is legal as a literal pattern (the lexer/parser treats the sign as part of the literal in pattern position — patterns contain no operators, so there is no unary-minus expression to collide with).
@@ -162,7 +162,7 @@ Pattern typing is checking-mode against the scrutinee type, structurally:
 - `C(p...)`: the scrutinee unifies with `C`'s union (or nominal record) type at a fresh instantiation; sub-patterns check against the instantiated slot types.
 - Tuples: arity check, then componentwise.
 - Records: each mentioned field's sub-pattern checks against that field's type; on an unknown scrutinee type, each mentioned field *constrains* the row exactly as dot-access does (fresh hidden tail — Products §3.2). Row vocabulary stays banned from diagnostics.
-- Literals: unify with the scrutinee type and contribute `Eq` (+ `Signed` for integer literals) constraints (§2.5).
+- Literals: unify with the scrutinee type and contribute `Eq` (+ `Num` for integer literals) constraints (§2.5).
 - `p | q`: both check against the scrutinee type; binder types unify pairwise per the same-bindings rule.
 - `p as x`: `p` checks against the scrutinee type; `x` binds at it.
 
@@ -437,7 +437,7 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 | `Some(n)` refutable / `UserId(n)` irrefutable — closed-union constructor count decides; flip-on-extension is a feature | §5.2 |
 | Nested patterns everywhere; positional constructor patterns stand; nominal records destructure via constructor pattern `Point({x, y})` | §2.2 |
 | Record patterns open by default, no `...`, punning `{f}` ≡ `{f: f}`; sub-pattern in field slot | §2.4 |
-| Literal patterns: `Int`/`String`/`Bool` via `Eq`; ordinary inference (Signed + Eq constraints); `Float` permanently banned with guard fixit; no `Char` | §2.5 |
+| Literal patterns: `Int`/`String`/`Bool` via `Eq`; ordinary inference (`Num` + `Eq` constraints); `Float` permanently banned with guard fixit; no `Char` | §2.5 |
 | Or-patterns with F# same-bindings rule; spelling `\|` (C#'s `or` rejected: declaration/pattern coherence, predicate disanalogy, `and`/`not` pressure, lambda-head ambiguity) | §2.6, §10 |
 | Guard termination: top-level `=>` after `when` belongs to the arm; lambdas in guards must parenthesize | §3 |
 | `as` keyword; loosest pattern operator, looser than `\|`; refutability-transparent; zero-cost | §2.7 |

@@ -29,6 +29,7 @@ export type SymbolKind =
   | "constraint-member";
 
 export type PrimitiveName =
+  | "Nat"
   | "Int"
   | "Float"
   | "Bool"

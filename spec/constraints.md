@@ -3,7 +3,7 @@
 **Status:** Decided (July 2026). The keyword pair is **`constraint` / `honor`** (naming record and anti-relitigation anchors: §11; remaining rename propagation: §12). Section numbering §1–§10 is stable; §9 holds resolved anchors plus two open items, none blocking §1–§8.
 **Scope:** The `constraint` declaration (members, subjects, superconstraints), the `honor` declaration (ground and parameterized instances, superconstraint checking, coherence, orphan rule, instance-head restriction), the derivation mechanism (`honor C<T> = derive`, §4.5), constraint-member call style (§2.2), dictionary compilation, and the member lists of the constraints this spec owns (§7 — focused specs own the rest).
 **Not in scope:** derived structural instances' *semantics* (fixed in Products §2.5/§3.4 and Unions §7; the invocation mechanism is §4.5 here), the numeric-literal elaboration and defaulting machinery (Numeric Literals spec, authoritative), `Eq<Float>`/`Ord<Float>` semantics (decided — Decisions Batch §1, en route to Primitive Types; §9.5), LSP display of constraints (open, §9.4), modules and instance visibility (Modules; the orphan rule §5.3 constrains it), `Hash`/`Iterable`/`Integral` member semantics (their focused owners, §7).
-**Companions:** Functions spec (§4.2 angle-bracket type parameters — this doc reuses that grammar wholesale), Numeric Literals spec (`fromInt`, defaulting, dictionary erasure), Primitive Types §7 (Show contract), Products/Unions specs (derived-instance semantics), Declarations Preamble (declaration inventory; `derives` header sugar §2.3; alias-instance rule §4; Rewrite Rule §1.1), Collections Part 2 (`Hash`, implied type members), Method Syntax §7 (constraint members are not dot-callable), `stdlib-roadmap.md` (hostile-specimen exercise; prelude inventory).
+**Companions:** Functions spec (§4.2 angle-bracket type parameters — this doc reuses that grammar wholesale), Numeric Literals spec (`fromNat`, `fromInt`, defaulting, dictionary erasure), Primitive Types §7 (Show contract), Products/Unions specs (derived-instance semantics), Declarations Preamble (declaration inventory; `derives` header sugar §2.3; alias-instance rule §4; Rewrite Rule §1.1), Collections Part 2 (`Hash`, implied type members), Method Syntax §7 (constraint members are not dot-callable), `stdlib-roadmap.md` (hostile-specimen exercise; prelude inventory).
 
 **Vocabulary, fixed for docs and diagnostics:** the declared obligation is a **constraint**; the declaration that discharges it is an **`honor` declaration**; the thing an `honor` declaration produces is an **instance**. The words "implement"/"implementation" are avoided in user-facing diagnostics and reference material for this mechanism — they are generic, OO-flavored, and name nothing this design has. ("Implementation" remains fine as an ordinary English word for the compiler itself.)
 
@@ -33,10 +33,13 @@ constraint Eq<a> =
 constraint Ord<a: Eq> =
   compare(x: a, y: a): Ordering
 
-constraint Signed<a> =
+constraint Num<a> =
   add(x: a, y: a): a
-  subtract(x: a, y: a): a
   multiply(x: a, y: a): a
+  fromNat(n: Nat): a
+
+constraint Signed<a: Num> =
+  subtract(x: a, y: a): a
   negate(x: a): a
   fromInt(n: Int): a
 
@@ -89,11 +92,11 @@ Constraint members are module-scope term names (like constructors, Unions §2). 
 Unchanged from Functions §4.2; recorded here because this spec is where a reader will look:
 
 ```
-let plus<a: Signed>(x: a, y: a): a = add(x, y)
+let plus<a: Num>(x: a, y: a): a = add(x, y)
 let member<a: (Eq, Show)>(xs: Vector(a), x: a): Bool = ...
 ```
 
-Inference attaches constraints without annotation (`fun plus(x, y) = add(x, y)` infers the `Signed` constraint from `add`'s type); the explicit `<...>` form names variables and attaches constraints for documentation and restriction. Generalisation of constrained type variables follows Functions §8 plus the Numeric Literals §4 defaulting rule, both unchanged by this spec.
+Inference attaches constraints without annotation (`fun plus(x, y) = add(x, y)` infers the `Num` constraint from `add`'s type); the explicit `<...>` form names variables and attaches constraints for documentation and restriction. Generalisation of constrained type variables follows Functions §8 plus the Numeric Literals §4 defaulting rule, both unchanged by this spec.
 
 ---
 
@@ -190,14 +193,14 @@ An instance head is **one type constructor applied to distinct type variables**:
 
 Nothing beyond what Numeric Literals §5 already assumes, now stated in general:
 
-- A **ground instance** is a module-level record of its completed member set: supplied members plus inherited defaults. For example, `const Signed_Int = { add: (x, y) => x + y, fromInt: (x) => x, ... };` is materialised only if some polymorphic use actually needs it (see erasure below).
+- A **ground instance** is a module-level record of its completed member set: supplied members plus inherited defaults. For example, `const Num_Int = { add: (x, y) => x + y, fromNat: (x) => x, ... };` and `const Signed_Int = { num: Num_Int, subtract: ..., fromInt: ... };` are materialised only if some polymorphic use actually needs them (see erasure below).
 - A **parameterized instance** is a dictionary-producing function: `const Show_Vector = (dictA) => ({ show: (xs) => ... });`
 - A constrained function takes its dictionaries as a **trailing evidence suffix**, after every source parameter (FFI Part 9 §6). Per generalized variable, constraints transitively supplied by a more specific declared constraint are eliminated first; the remaining maximal constraints are ordered by `(type-variable ordinal, constraint name)`. Ordinals, not binder spellings, keep alpha-renaming ABI-neutral. The same convention is internal and public, so a matching generic edition can export directly.
 - **Monomorphic erasure is the norm and the point:** at a call site where the constrained variable is resolved to a concrete type, the dictionary is selected at compile time and known slots are inlined — `add` at `Int` emits `x + y`, `show` at `Int` emits `String(x)` (Primitive Types §7 table), and contextual `fromInt` erases for `Int -> Float` while emitting the selected concrete conversion for other subjects (Numeric Literals §5). Dictionary records and `dict.member(...)` calls appear **only** inside genuinely polymorphic functions, which already carried them.
 
 ### 6.2 Superconstraint dictionaries
 
-A subconstraint dictionary carries its superconstraint dictionaries as slots (`Ord_Int = { eq: Eq_Int, compare: ... }`), so a function constrained `<a: Ord>` receives one dictionary and reaches `equals` as `dict.eq.equals`. Chosen over passing separate flattened dictionaries because it keeps the "one constraint = one parameter" rule stable under superconstraint changes to a constraint's definition. Slot name for a superconstraint: the constraint's name, lowercased (`eq`, `signed`) — collision with a member name is impossible only by luck, so: **a member whose name equals the lowercased name of a superconstraint of the same constraint is a hard error** (obscure, cheap to check, prevents a codegen landmine).
+A subconstraint dictionary carries its superconstraint dictionaries as slots (`Ord_Int = { eq: Eq_Int, compare: ... }`; `Signed_Int = { num: Num_Int, ... }`), so a function constrained `<a: Ord>` receives one dictionary and reaches `equals` as `dict.eq.equals`, while `<a: Signed>` reaches addition as `dict.num.add`. Chosen over passing separate flattened dictionaries because it keeps the "one constraint = one parameter" rule stable under superconstraint changes to a constraint's definition. Slot name for a superconstraint: the constraint's name, lowercased (`eq`, `signed`) — collision with a member name is impossible only by luck, so: **a member whose name equals the lowercased name of a superconstraint of the same constraint is a hard error** (obscure, cheap to check, prevents a codegen landmine).
 
 ### 6.3 Evaluation-freeness and ordering
 
@@ -211,19 +214,20 @@ Constraint and `honor` declarations have no ordinary JavaScript or `.d.ts` expor
 
 ## 7. Prelude constraints owned here (member lists) — and the ones owned elsewhere
 
-This section owns the member lists of **five** constraints. It is deliberately **not** the complete prelude-constraint inventory: focused specs own the rest (registry below), and the full inventory is the stdlib listing's (`stdlib-roadmap.md`).
+This section owns the member lists of **six** constraints. It is deliberately **not** the complete prelude-constraint inventory: focused specs own the rest (registry below), and the full inventory is the stdlib listing's (`stdlib-roadmap.md`).
 
 | Constraint | Superconstraints | Members | Notes |
 |---|---|---|---|
 | `Eq<a>` | — | required `equals`; defaulted `notEquals` | `notEquals(x, y) = not equals(x, y)`; `Eq<Float>` = SameValueZero (Decisions Batch §1 → Primitive Types; §9.5) |
 | `Ord<a: Eq>` | `Eq` | `compare(x: a, y: a): Ordering` | `Ordering` is the prelude all-nullary union `Less \| Equal \| Greater` |
 | `Show<a>` | — | `show(x: a): String` | contract per Primitive Types §7 |
-| `Signed<a>` | — | `add`, `subtract`, `multiply`, `negate` (all `(a, a): a` / `(a): a`), `fromInt(n: Int): a` | `fromInt` law per Numeric Literals §5; no `divide` (evicted, per Primitive Types §2) |
+| `Num<a>` | — | `add`, `multiply`, `fromNat(n: Nat): a` | Nat honors Num; literal and exactness laws per Numeric Literals §5 |
+| `Signed<a: Num>` | `Num` | `subtract`, `negate`, `fromInt(n: Int): a` | `fromInt` law per Numeric Literals §5; no `divide` |
 | `Frac<a: Signed>` | `Signed` | `divide(x: a, y: a): a` | lawful up to rounding (Float); exact (Rat) |
 
 **Owned by focused specs (registered, not restated):** `Hash` — Collections Part 2 (derivable-only; §4.5 here); `Iterable` — Collections Parts 2/5 (implied `type Item`; `iterate` member; restricted v1 user instances); `Integral` — `integral-constraint.md`. Their instances obey every rule of §§4–6 unchanged.
 
-Whether `Signed` should have superconstraints (`Eq`? `Show`?) is **decided: no** — a numeric type without decidable equality (e.g. a lazy/symbolic instance someday) shouldn't be ruled out by the arithmetic constraint, and the defaulting rule (Numeric Literals §4) never needs `Signed` to imply anything. Instances that have all three simply honor all three.
+`Signed` extends `Num`, but neither numeric tier additionally implies `Eq` or `Show` — a numeric type without decidable equality (for example, a lazy or symbolic instance) should not be ruled out by arithmetic. Types that provide those capabilities honor them separately.
 
 Comparison/`equals` operator sugar (`==`, `<`, etc. dispatching to these members) is the **operators spec's** business; this spec fixes only the members.
 
@@ -252,7 +256,7 @@ Diagnostic noun policy (restated from the preamble): the noun is **instance**, t
 | Unsatisfied constraint at a call site | phrased per Numeric Literals §6 where a literal is involved; otherwise "`T` has no `Ord` instance, required by `sort`" — with the derivation fixit where `Ord` is derivable: "add `derives Ord` to the declaration of `T`" (§4.5) |
 | Instance for a structural type (tuple / structural record) | "instances are keyed on type constructors; tuples and structural records have compiler-derived instances only — declare a nominal `record` or `union` for a type you control" (§5.4, §9.3) |
 | `honor C<Alias>` on a transparent alias | "`Meters` is an alias of `Float`; aliases cannot carry their own instances — use a `record` or a single-constructor `union`" (Declarations Preamble §4 owns) |
-| `derive` for a non-derivable constraint | "`Signed` cannot be derived; only `Eq`, `Ord`, `Show`, and `Hash` have derivable forms" (§4.5) |
+| `derive` for a non-derivable constraint | "`Num` cannot be derived; only `Eq`, `Ord`, `Show`, and `Hash` have derivable forms" (§4.5; likewise for `Signed`) |
 | Underivable slot/field | "cannot derive `Eq<Point>`: field `f` has type `T`, which has no `Eq` instance" — fix the field's type or drop the derivation (§4.5) |
 | `derives Ord` without `Eq` | the §4.2 missing-superconstraint error + hint: "add `Eq` to the `derives` list" (§4.5) |
 | `derive` outside an `honor` RHS | parse error: "`derive` is only legal as the body of an `honor`" (§4.5) |
@@ -298,7 +302,7 @@ Numbers are kept because companion specs cite them; §§9.1–9.3, 9.5, 9.7 are 
 | Superconstraint dictionaries nested as slots; lowercased-name slot rule | §6.2 |
 | Instances evaluation-free, order-independent, no capture analysis | §6.3 |
 | `.d.ts` exposes only Parts 8–9's deliberate dictionary surface for generic editions and public evidence; all other constraint machinery stays absent | §6.4 |
-| Prelude member lists for the five constraints owned here; `Signed` has no superconstraints; `Hash`/`Iterable`/`Integral` registered to their focused owners | §7 |
+| Prelude member lists for the six constraints owned here; `Signed` extends `Num` and neither additionally implies `Eq` or `Show`; `Hash`/`Iterable`/`Integral` registered to their focused owners | §7 |
 | Derivation: opt-in `honor C<T> = derive`; header `derives` = Preamble sugar; derived instances are ordinary instances; derivable v1 set = `Eq`/`Ord`/`Show`/`Hash` (`Hash` derivable-only and requiring derived `Eq`, per Collections Part 2); structural instances automatic and user-closed | §4.5 |
 | Call style: bare member calls idiomatic when unambiguous; qualification = ordinary module aliases (no constraint-specific namespace); members not dot-callable (Method Syntax §7); hostile-specimen bar routed to `stdlib-roadmap.md` | §2.2 |
 | §9: five resolved anchors (9.1–9.3, 9.5, 9.7), two open (9.4 LSP display, 9.6 polymorphic members) | §9 |
@@ -338,8 +342,8 @@ Remaining live targets, applied on next touch of each:
 | **modules.md** | §1 doctrine, §3 idiom, §7 orphan-home definition, §8 note, §11/examples (`implement Ord<Config>`, `implement Show<Weird>` ×2). |
 | **loops-ranges-iteration.md** | §7.2 v2 sketch and §11.1 deferred-spec description (keyword uses throughout). |
 | **collections-part1-decisions.md** | Not-in-scope line, `Hash` derivable-only wording, `Iterable` shape lines and recipe, diagnostics hint. |
-| **integral-constraint.md** | Sketch lines `implement Integral for Int`/`for BigInt` → `honor Integral<Int>`/`honor Integral<BigInt>` (also fixes the informal `for` head-form), and the members-violate prose. |
-| **numeric-literals.md** | Architecture preamble, §5 compilation-story line, dictionary-shape note (`implement Signed T` → `honor Signed<T>`, also fixing head form). |
+| **integral-constraint.md** | Instance sketches use `honor Integral<Int>` / `honor Integral<BigInt>` and the members-violate prose uses current source vocabulary. |
+| **numeric-literals.md** | Architecture preamble, §5 compilation-story line, and dictionary-shape note all use the current `honor Signed<T>` source vocabulary. |
 | **primitive-types.md** | Architecture preamble; §7 interpolation note (`implement Show` → `honor Show<T>`). |
 | **products.md** | §1 doctrine line, §5 nominal-record rationale (also fix to angle-bracket heads), §5 trailing note. |
 | **unions.md** | Not-in-scope line; §7 Eq note. |

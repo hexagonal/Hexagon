@@ -41,10 +41,11 @@ Hexagon exports themselves.
 
 ## Primitive types use familiar TypeScript faces
 
-The six primitive types cross directly:
+The seven primitive types cross directly:
 
 | Hexagon | TypeScript |
 | --- | --- |
+| `Nat` | `number` |
 | `Int` | `number` |
 | `Float` | `number` |
 | `BigInt` | `bigint` |

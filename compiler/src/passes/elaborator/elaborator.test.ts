@@ -63,7 +63,7 @@ describe("elaborate", () => {
       kind: "Let",
       value: {
         kind: "ConstraintCall",
-        constraint: "Signed",
+        constraint: "Num",
         member: "add",
         evidence: { kind: "Primitive", instance: "Int" },
         arguments: [
@@ -93,13 +93,13 @@ describe("elaborate", () => {
         kind: "Lambda",
         body: {
           kind: "ConstraintCall",
-          constraint: "Signed",
+          constraint: "Num",
           member: "add",
           evidence: { kind: "Dictionary" },
           arguments: [
             { kind: "Name", text: "x" },
             {
-              kind: "ConvertInt",
+              kind: "ConvertNat",
               decimal: "1",
               evidence: { kind: "Dictionary" },
             },
@@ -112,9 +112,9 @@ describe("elaborate", () => {
       throw new Error("expected a lambda binding");
     }
     const body = item.value.body;
-    if (body.kind !== "ConstraintCall") throw new Error("expected Signed.add");
+    if (body.kind !== "ConstraintCall") throw new Error("expected Num.add");
     const literal = body.arguments[1];
-    if (literal?.kind !== "ConvertInt") throw new Error("expected fromInt");
+    if (literal?.kind !== "ConvertNat") throw new Error("expected fromNat");
     expect(body.evidence).toEqual(literal.evidence);
     expect(module.diagnostics).toEqual([]);
   });
@@ -217,7 +217,7 @@ describe("elaborate", () => {
         const module = elaborateSource(text);
         visitItems(module.items, (expression) => {
           expect([
-            "FromInt",
+            "FromNat",
             "Group",
             "Unary",
             "Binary",
@@ -291,7 +291,7 @@ function visitExpr(expression: Core.Expr, visit: (expression: Core.Expr) => void
     case "Number":
     case "BigInt":
     case "Float":
-    case "ConvertInt":
+    case "ConvertNat":
     case "ErrorExpr":
       return;
   }

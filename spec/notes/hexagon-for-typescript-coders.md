@@ -125,10 +125,10 @@ let double(x) = x + x
 Should `double` work on `Int`? `Float`? Both? Hexagon infers that `double` works for *any numeric type* — the inferred signature carries a constraint, and if you ever wanted to write it explicitly, it looks like this:
 
 ```hexagon
-let double<a: Signed>(x: a): a = x + x
+let double<a: Num>(x: a): a = x + x
 ```
 
-`<a: Signed>` reads as "for any type `a` that is numeric." It's the moral equivalent of a TS generic with a constraint (`<T extends Numeric>`), except that (a) Hexagon infers it, and (b) it's checked soundly — there's no structural loophole.
+`<a: Num>` reads as "for any type `a` that supports non-negative numeric construction, addition, and multiplication." It's the moral equivalent of a TS generic with a constraint (`<T extends Numeric>`), except that (a) Hexagon infers it, and (b) it's checked soundly — there's no structural loophole.
 
 ### 2.5 So when *do* you write types?
 
@@ -220,7 +220,22 @@ let full = first ++ " " ++ last
 
 ### 3.4 Numbers
 
-`Int` and `Float` are distinct types (finally!), and both compile to the JS `number` you already have — `Int` is a compile-time discipline guaranteeing whole-number arithmetic, not a boxed runtime type. `1` is an integer literal, `1.0` is a float literal, and there is no implicit conversion between them; you cross explicitly with `Float.fromInt(n)`. Integer division by zero throws `DivideByZeroError` at runtime; float division follows IEEE 754 like JS does.
+`Nat`, `Int`, and `Float` are distinct types (finally!), and all compile to the JS
+`number` you already have. Nat certifies non-negativity; Int is the ordinary signed
+whole number and remains the default for bare digits; Float carries fractional values.
+The numeric tiers say exactly what generic code uses: `Num` supplies literals, addition,
+and multiplication, while `Signed` extends it with subtraction and negation.
+
+For `BigInt`, the `n` means what it means in JavaScript. Prefer it when nothing else
+pins the literal (`let exact = 1n`), and use it mandatorily beyond Int's safe range. A
+BigInt-typed position needs no repeated suffix:
+
+```hexagon
+let third = Rat.create(1, 3)
+```
+
+That emits `Rat.create(1n, 3n)`. Integer division by zero throws
+`DivideByZeroError`; Float division follows IEEE 754 like JavaScript does.
 
 ### 3.5 Equality that actually works
 
