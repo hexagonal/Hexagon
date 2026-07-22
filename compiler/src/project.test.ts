@@ -79,6 +79,116 @@ test("re-exports extern bindings and opaque types through Hexagon modules", () =
   );
 });
 
+test("makes an imported module's coherent instances available to operators", () => {
+  const project = compileProject([
+    new Source.File(
+      Source.fileId(0),
+      "/box.hex",
+      "export opaque record Box = {value: Int}\n" +
+        "export let create(value: Int): Box = Box({value})\n" +
+        "honor Num<Box> =\n" +
+        "  add(left, right) = create(left.value + right.value)\n" +
+        "  subtract(left, right) = create(left.value - right.value)\n" +
+        "  multiply(left, right) = create(left.value * right.value)\n" +
+        "  negate(value) = create(-value.value)\n" +
+        "  fromInt(value) = create(value)",
+    ),
+    new Source.File(
+      Source.fileId(1),
+      "/main.hex",
+      'import * as Box from "./box"\n' +
+        "export let answer = Box.create(20) + Box.create(22)",
+    ),
+  ]);
+
+  expect(project.diagnostics).toEqual([]);
+  const box = project.modules[0]!;
+  const main = project.modules[1]!;
+  expect(box.typed.diagnostics).toEqual([]);
+  expect(main.typed.diagnostics).toEqual([]);
+  expect(box.javascript.text).toContain("export { __hex_instance_Num_Box };");
+  expect(main.javascript.text).toContain(
+    "__hex_imported_0___hex_instance_Num_Box.add(Box.create(20), Box.create(22))",
+  );
+});
+
+test("propagates coherent instances through the complete import graph", () => {
+  const project = compileProject([
+    new Source.File(
+      Source.fileId(0),
+      "/box.hex",
+      "export opaque record Box = {value: Int}\n" +
+        "export let create(value: Int): Box = Box({value})\n" +
+        "honor Num<Box> =\n" +
+        "  add(left, right) = create(left.value + right.value)\n" +
+        "  subtract(left, right) = create(left.value - right.value)\n" +
+        "  multiply(left, right) = create(left.value * right.value)\n" +
+        "  negate(value) = create(-value.value)\n" +
+        "  fromInt(value) = create(value)",
+    ),
+    new Source.File(
+      Source.fileId(1),
+      "/facade.hex",
+      'import * as Box from "./box"\n' +
+        "export let makeAnswer(): Box.Box = Box.create(20)",
+    ),
+    new Source.File(
+      Source.fileId(2),
+      "/main.hex",
+      'import * as Facade from "./facade"\n' +
+        "export let answer = Facade.makeAnswer() + Facade.makeAnswer()",
+    ),
+  ]);
+
+  expect(project.diagnostics).toEqual([]);
+  const facade = project.modules[1]!;
+  const main = project.modules[2]!;
+  expect(facade.javascript.text).toContain(
+    "export { __hex_imported_0___hex_instance_Num_Box };",
+  );
+  expect(main.typed.diagnostics).toEqual([]);
+  expect(main.javascript.text).toContain(
+    "__hex_imported_1___hex_imported_0___hex_instance_Num_Box.add",
+  );
+});
+
+test("deduplicates one coherent instance reached through a diamond import", () => {
+  const project = compileProject([
+    new Source.File(
+      Source.fileId(0),
+      "/box.hex",
+      "export opaque record Box = {value: Int}\n" +
+        "export let create(value: Int): Box = Box({value})\n" +
+        "honor Num<Box> =\n" +
+        "  add(left, right) = create(left.value + right.value)\n" +
+        "  subtract(left, right) = create(left.value - right.value)\n" +
+        "  multiply(left, right) = create(left.value * right.value)\n" +
+        "  negate(value) = create(-value.value)\n" +
+        "  fromInt(value) = create(value)",
+    ),
+    new Source.File(
+      Source.fileId(1),
+      "/left.hex",
+      'import * as Box from "./box"\nexport let left(): Box.Box = Box.create(20)',
+    ),
+    new Source.File(
+      Source.fileId(2),
+      "/right.hex",
+      'import * as Box from "./box"\nexport let right(): Box.Box = Box.create(22)',
+    ),
+    new Source.File(
+      Source.fileId(3),
+      "/main.hex",
+      'import * as Left from "./left"\n' +
+        'import * as Right from "./right"\n' +
+        "export let answer = Left.left() + Right.right()",
+    ),
+  ]);
+
+  expect(project.diagnostics).toEqual([]);
+  expect(project.modules[3]!.typed.diagnostics).toEqual([]);
+});
+
 test("reports import cycles before project checking", () => {
   const project = compileProject([
     new Source.File(Source.fileId(0), "/a.hex", 'import "./b"'),

@@ -204,6 +204,7 @@ class Checker {
     ReadonlyMap<string, Variable>
   >();
   readonly #instances = new Map<string, Resolved.HonorItem>();
+  readonly #instanceIdentities = new Map<string, string>();
   readonly #constraintDeclarations = new Map<string, Resolved.ConstraintItem>();
   readonly #projectionBearingConstraints = new Set<string>();
   readonly #instanceTypeParameters = new WeakMap<
@@ -253,6 +254,49 @@ class Checker {
       }
     }
     for (const item of module.items) {
+      if (item.kind !== "Import") continue;
+      for (const imported of item.instances) {
+        const instance: Resolved.HonorItem = {
+          kind: "Honor",
+          constraint: imported.constraint,
+          typeParameters: imported.typeParameters,
+          subject: imported.subject,
+          derived: false,
+          dictionary: imported.localDictionary,
+          impliedTypes: imported.impliedTypes,
+          members: [],
+          span: imported.span,
+        };
+        const typeParameters = new Map(
+          instance.typeParameters.map(({ name }) => [
+            name,
+            this.#fresh(0, false),
+          ] as const),
+        );
+        this.#instanceTypeParameters.set(instance, typeParameters);
+        const subject = this.#annotationType(
+          instance.subject,
+          0,
+          new Map(),
+          typeParameters,
+        );
+        this.#instanceSubjects.set(instance, subject);
+        const key = this.#instanceKey(instance.constraint, subject);
+        const existingIdentity = this.#instanceIdentities.get(key);
+        if (existingIdentity === imported.identity) continue;
+        if (existingIdentity !== undefined || this.#instances.has(key)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `duplicate instance of \`${instance.constraint}<${this.#display(subject)}>\``,
+            primary: imported.span,
+          });
+        } else {
+          this.#instances.set(key, instance);
+          this.#instanceIdentities.set(key, imported.identity);
+        }
+      }
+    }
+    for (const item of module.items) {
       if (item.kind === "Honor") {
         this.#checkInstanceHead(item, module.items);
         const typeParameters = new Map(
@@ -297,6 +341,10 @@ class Checker {
           });
         } else {
           this.#instances.set(key, item);
+          this.#instanceIdentities.set(
+            key,
+            `${Number(module.fileId)}:${item.dictionary}`,
+          );
         }
       }
     }

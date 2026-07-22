@@ -18,6 +18,17 @@ export interface ModuleInterface {
   readonly records: ReadonlyMap<string, Resolved.RecordDeclaration>;
   readonly aliases: ReadonlyMap<string, Resolved.TypeAliasItem>;
   readonly externTypes: ReadonlyMap<string, Resolved.ExternTypeDeclaration>;
+  readonly instances: readonly InstanceInterface[];
+}
+
+export interface InstanceInterface {
+  readonly identity: string;
+  readonly constraint: string;
+  readonly typeParameters: readonly Resolved.TypeParameter[];
+  readonly subject: Resolved.TypeAnnotation;
+  readonly impliedTypes: readonly Resolved.HonorImpliedType[];
+  readonly dictionary: string;
+  readonly span: Source.Span;
 }
 
 export interface ResolveOptions {
@@ -45,6 +56,32 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
   const records = new Map<string, Resolved.RecordDeclaration>();
   const aliases = new Map<string, Resolved.TypeAliasItem>();
   const externTypes = new Map<string, Resolved.ExternTypeDeclaration>();
+  const discoveredInstances: InstanceInterface[] = module.items.flatMap((item) => {
+    if (item.kind === "Honor") {
+      return [{
+        identity: `${Number(module.fileId)}:${item.dictionary}`,
+        constraint: item.constraint,
+        typeParameters: item.typeParameters,
+        subject: item.subject,
+        impliedTypes: item.impliedTypes,
+        dictionary: item.dictionary,
+        span: item.span,
+      }];
+    }
+    if (item.kind !== "Import") return [];
+    return item.instances.map((instance) => ({
+      identity: instance.identity,
+      constraint: instance.constraint,
+      typeParameters: instance.typeParameters,
+      subject: instance.subject,
+      impliedTypes: instance.impliedTypes,
+      dictionary: instance.localDictionary,
+      span: instance.span,
+    }));
+  });
+  const instances = [...new Map(
+    discoveredInstances.map((instance) => [instance.identity, instance]),
+  ).values()];
   for (const item of module.items) {
     if (item.kind === "ExternBlock") {
       for (const declaration of item.declarations) {
@@ -80,7 +117,7 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
       if (symbol !== undefined) terms.set(item.binding.name, symbol);
     }
   }
-  return { module, terms, unions, records, aliases, externTypes };
+  return { module, terms, unions, records, aliases, externTypes, instances };
 }
 
 class Scope {
@@ -461,6 +498,17 @@ class Resolver {
                   kind: "Named",
                   names: names ?? [],
                 },
+          instances: (importedModule?.instances ?? []).map((instance) => ({
+            identity: instance.identity,
+            constraint: instance.constraint,
+            typeParameters: instance.typeParameters,
+            subject: instance.subject,
+            impliedTypes: instance.impliedTypes,
+            importedDictionary: instance.dictionary,
+            localDictionary:
+              `__hex_imported_${Number(importedModule!.module.fileId)}_${instance.dictionary}`,
+            span: item.span,
+          })),
           span: item.span,
         };
       }

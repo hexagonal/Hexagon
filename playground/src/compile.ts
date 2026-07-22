@@ -1,15 +1,9 @@
 import {
   Source,
   Typed,
-  applyLayout,
-  check,
   compileProject,
-  elaborate,
   emitJavaScript,
   emitTypeScriptPreview,
-  lex,
-  parse,
-  resolve,
   collectTypeOccurrences,
   type Diagnostics,
 } from "../../compiler/src/index";
@@ -19,6 +13,7 @@ import type {
   TypeOccurrence,
   PlaygroundDiagnostic,
 } from "./protocol";
+import { fundamentalStdlibModules } from "./fundamental-stdlib";
 import { parseWorkspaceSource } from "./workspace-source";
 
 /** Runs the platform-neutral compiler and adapts its result for the worker. */
@@ -31,36 +26,7 @@ export function compileSource(version: number, text: string): CompilerResponse {
       diagnostics: workspace.diagnostics,
     };
   }
-  if (workspace.modules.length > 0) {
-    return compileWorkspace(version, text, workspace);
-  }
-
-  const source = new Source.File(Source.fileId(0), "main.hex", text);
-  const typed = check(resolve(parse(applyLayout(lex(source)))));
-  const core = elaborate(typed);
-  const javascript = emitJavaScript(core, { previewPrivateSpecializations: true });
-  const typeScriptPreview = emitTypeScriptPreview(core);
-  const diagnostics = adaptDiagnostics([
-    ...javascript.diagnostics,
-    ...typeScriptPreview.diagnostics,
-  ]);
-
-  if (diagnostics.some(({ severity }) => severity === "error")) {
-    return { kind: "compile-failure", version, diagnostics };
-  }
-
-  return {
-    kind: "compile-success",
-    version,
-    javascript: javascript.text,
-    executionModules: [{ path: "/main.hex", javascript: javascript.text }],
-    entryPath: "/main.hex",
-    generatedJavaScript: javascript.generatedSections,
-    typeScriptPreview: typeScriptPreview.text,
-    types: collectBindingTypes(typed),
-    typeOccurrences: adaptTypeOccurrences(typed),
-    diagnostics,
-  };
+  return compileWorkspace(version, text, workspace);
 }
 
 function compileWorkspace(
@@ -68,16 +34,36 @@ function compileWorkspace(
   combinedSource: string,
   workspace: ReturnType<typeof parseWorkspaceSource>,
 ): CompilerResponse {
-  const files = workspace.modules.map((module, index) =>
-    new Source.File(Source.fileId(index), module.path, module.text)
+  const shadowedCompanions = new Set(workspace.modules.map(({ name }) => name));
+  const fundamentals = fundamentalStdlibModules.filter(
+    ({ companion }) => !shadowedCompanions.has(companion),
   );
+  const fundamentalPrefix = fundamentals.map(({ companion, path }) => {
+    const specifier = `.${path.slice(0, -".hex".length)}`;
+    return `import * as ${companion} from ${JSON.stringify(specifier)}`;
+  }).join("\n");
+  const mainPrefix = fundamentalPrefix.length === 0 ? "" : `${fundamentalPrefix}\n`;
+  const files = fundamentals.map(({ path, source }, index) =>
+    new Source.File(Source.fileId(index), path, source)
+  );
+  const workspaceFileBase = files.length;
+  files.push(...workspace.modules.map((module, index) =>
+    new Source.File(
+      Source.fileId(workspaceFileBase + index),
+      module.path,
+      module.text,
+    )
+  ));
   const mainId = Source.fileId(files.length);
-  files.push(new Source.File(mainId, "/main.hex", workspace.mainText));
+  files.push(new Source.File(mainId, "/main.hex", `${mainPrefix}${workspace.mainText}`));
 
   const project = compileProject(files);
   const outputs = project.modules.map((module) => ({
     module,
-    javascript: emitJavaScript(module.core, { previewPrivateSpecializations: true }),
+    javascript: emitJavaScript(module.core, {
+      previewPrivateSpecializations: true,
+      exportInstanceEvidence: module.source.path !== "/main.hex",
+    }),
   }));
   const main = outputs.find(({ module }) => module.source.path === "/main.hex");
   if (main === undefined) {
@@ -96,10 +82,18 @@ function compileWorkspace(
   const preview = emitTypeScriptPreview(main.module.core);
   const sourceOffsets = new Map<number, (offset: number) => number>();
   workspace.modules.forEach((module, index) => {
-    sourceOffsets.set(index, (offset) => module.sourceOffset + offset);
+    sourceOffsets.set(workspaceFileBase + index, (offset) =>
+      module.sourceOffset + offset
+    );
   });
   sourceOffsets.set(Number(mainId), (offset) =>
-    Math.max(0, Math.min(combinedSource.length, offset - workspace.mainPrefixLength))
+    Math.max(
+      0,
+      Math.min(
+        combinedSource.length,
+        offset - mainPrefix.length - workspace.mainPrefixLength,
+      ),
+    )
   );
   const mapOffset = (fileId: Source.FileId, offset: number): number =>
     sourceOffsets.get(Number(fileId))?.(offset) ?? 0;
@@ -124,8 +118,12 @@ function compileWorkspace(
     entryPath: "/main.hex",
     generatedJavaScript: main.javascript.generatedSections,
     typeScriptPreview: preview.text,
-    types: project.modules.flatMap(({ typed }) => collectBindingTypes(typed, mapOffset)),
-    typeOccurrences: project.modules.flatMap(({ typed }) => adaptTypeOccurrences(typed, mapOffset)),
+    types: project.modules.flatMap(({ source, typed }) =>
+      source.path.startsWith("/stdlib/") ? [] : collectBindingTypes(typed, mapOffset)
+    ),
+    typeOccurrences: project.modules.flatMap(({ source, typed }) =>
+      source.path.startsWith("/stdlib/") ? [] : adaptTypeOccurrences(typed, mapOffset)
+    ),
     diagnostics,
   };
 }

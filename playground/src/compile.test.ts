@@ -1,10 +1,11 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { helloWorld } from "./examples/hello-world";
 import { internationalIdentifiers } from "./examples/international-identifiers";
 import { specializations } from "./examples/specializations";
 import { rat } from "./examples/rat";
 import { compileSource } from "./compile";
+import { linkModule } from "./module-execution";
 
 describe("compileSource", () => {
   test("compiles international JavaScript-compatible identifiers without mangling", () => {
@@ -27,6 +28,7 @@ describe("compileSource", () => {
     expect(response.javascript).toContain("console.log(展示(用户,");
     expect(response.javascript).toContain("Mगणित.जोड़(20, 22)");
     expect(response.executionModules.map(({ path }) => path)).toEqual([
+      "/stdlib/Rat.hex",
       "/Mगणित.hex",
       "/main.hex",
     ]);
@@ -181,10 +183,59 @@ describe("compileSource", () => {
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
     expect(response.diagnostics).toEqual([]);
-    expect(response.javascript).toContain("BigInt");
-    expect(response.javascript).toContain("__hex_instance_Show_Rat");
-    expect(response.javascript).toContain("const fiveSixths = add(half, third);");
-    expect(response.typeScriptPreview).toContain("type Rat");
+    expect(response.javascript).toContain('import * as Rat from "./stdlib/Rat.js";');
+    expect(response.javascript).toContain(
+      "const fiveSixths = __hex_imported_0___hex_instance_Num_Rat.add(half, third);",
+    );
+    expect(response.javascript).not.toContain("export opaque record Rat");
+    expect(response.executionModules.map(({ path }) => path)).toContain(
+      "/stdlib/Rat.hex",
+    );
+    expect(response.types).toContainEqual(expect.objectContaining({
+      name: "fiveSixths",
+      displayedType: "Rat",
+    }));
+  });
+
+  test("executes the real stdlib Rat module through imported Num evidence", async () => {
+    const response = compileSource(14, rat.source);
+
+    expect(response.kind).toBe("compile-success");
+    if (response.kind !== "compile-success") return;
+    const moduleUrls = new Map<string, string>();
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      for (const module of response.executionModules) {
+        const linked = linkModule(module.javascript, module.path, moduleUrls);
+        moduleUrls.set(
+          module.path,
+          `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
+        );
+      }
+      await import(/* @vite-ignore */ moduleUrls.get(response.entryPath)!);
+      expect(log).toHaveBeenCalledWith("1/2 + 1/3 = 5/6");
+      expect(log).toHaveBeenCalledWith("Normalized equality: true");
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  test("lets a workspace Rat module occlude the fundamental companion", () => {
+    const source =
+      "module Rat\n" +
+      "export let create(value: Int): Int = value\n" +
+      "end module Rat\n" +
+      "let answer = Rat.create(42)\n";
+    const response = compileSource(15, source);
+
+    expect(response.kind).toBe("compile-success");
+    if (response.kind !== "compile-success") return;
+    expect(response.executionModules.map(({ path }) => path)).toEqual([
+      "/Rat.hex",
+      "/main.hex",
+    ]);
+    expect(response.javascript).toContain('import * as Rat from "./Rat.js";');
+    expect(response.javascript).not.toContain("./stdlib/Rat.js");
   });
 
   test("returns exact binding spans for editor hovers", () => {
