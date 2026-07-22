@@ -13,14 +13,14 @@ describe("collectTypeOccurrences", () => {
     const text =
       "record Person = {name: String, age: Int}\n" +
       "honor Show<Person> =\n" +
-      "  show(person) = person.name\n" +
+      "    show(person) = person.name\n" +
       "let identity(value) = value\n" +
       "let ada = Person({name: \"Ada\", age: 36})\n" +
       "let answer = identity(ada).age\n" +
       "let numbers: Seq(Int) = Seq.iterate(1, number => number + 1)\n" +
       "let selected = numbers.map(number => number + 1)\n" +
       "for item in selected\n" +
-      "  console.log(item)\n";
+      "    console.log(item)\n";
     const source = new Source.File(Source.fileId(0), "hover.hex", text);
     const module = check(resolve(parse(applyLayout(lex(source)))));
 

@@ -17,7 +17,7 @@ describe("applyLayout", () => {
 
   test("keeps comment-only lines invisible to the offside rule", () => {
     const result = layout(
-      "if ready\n  first()\n// deliberately outdented\n      /* padded */\n  second()",
+      "if ready\n    first()\n// deliberately outdented\n            /* padded */\n    second()",
     );
 
     expect(virtualKinds(result.tokens)).toEqual([
@@ -27,7 +27,7 @@ describe("applyLayout", () => {
   });
 
   test("opens nested blocks and closes repeated dedents", () => {
-    const result = layout("fun f(x) =\n  if x\n    print(x)\n  print(0)\nprint(1)");
+    const result = layout("fun f(x) =\n    if x\n        print(x)\n    print(0)\nprint(1)");
 
     expect(virtualKinds(result.tokens)).toEqual([
       "VOpen", "VOpen", "VOpen", "VClose", "VSep", "VClose", "VSep", "VClose",
@@ -36,14 +36,14 @@ describe("applyLayout", () => {
   });
 
   test("treats deeper declaration lines as continuations", () => {
-    const result = layout("union Shape\n    derives Eq =\n  | Circle\n  | Point\nlet x = 1");
+    const result = layout("union Shape\n        derives Eq =\n    | Circle\n    | Point\nlet x = 1");
 
     expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VSep", "VClose"]);
     expect(result.diagnostics).toEqual([]);
   });
 
   test("recognizes exported block declarations", () => {
-    const result = layout("export constraint Visible<a> =\n  show(x: a): String");
+    const result = layout("export constraint Visible<a> =\n    show(x: a): String");
 
     expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VOpen", "VClose", "VClose"]);
     expect(result.diagnostics).toEqual([]);
@@ -52,8 +52,8 @@ describe("applyLayout", () => {
   test("opens extern module binding blocks", () => {
     const result = layout(
       "extern from \"tiny-json\"\n" +
-        "  export type JsonValue\n" +
-        "  export fun parse(text: String): JsonValue\n" +
+        "    export type JsonValue\n" +
+        "    export fun parse(text: String): JsonValue\n" +
         "extern import \"telemetry/register\"",
     );
 
@@ -65,7 +65,7 @@ describe("applyLayout", () => {
 
   test("attaches else and catch clauses without an intervening separator", () => {
     const result = layout(
-      "if ready\n  run()\nelse\n  wait()\ntry\n  risky()\ncatch\n  Failure => recover()",
+      "if ready\n    run()\nelse\n    wait()\ntry\n    risky()\ncatch\n    Failure => recover()",
     );
 
     expect(virtualKinds(result.tokens)).toEqual([
@@ -78,9 +78,9 @@ describe("applyLayout", () => {
   test("attaches aligned then and else clauses across physical lines", () => {
     const result = layout(
       "fun fact(n: Int): Int =\n" +
-        "  if n <= 1\n" +
-        "  then 1\n" +
-        "  else n * fact(n - 1)",
+        "    if n <= 1\n" +
+        "    then 1\n" +
+        "    else n * fact(n - 1)",
     );
 
     expect(virtualKinds(result.tokens)).toEqual([
@@ -93,14 +93,14 @@ describe("applyLayout", () => {
   });
 
   test("ignores newlines inside physical delimiters", () => {
-    const result = layout("let value = call(\n  first,\n  second\n)\nprint(value)");
+    const result = layout("let value = call(\n    first,\n    second\n)\nprint(value)");
 
     expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VSep", "VClose"]);
     expect(result.diagnostics).toEqual([]);
   });
 
   test("allows a layout lambda body inside a physical delimiter", () => {
-    const result = layout("map(values, x =>\n  inspect(x); transform(x)\n)\nprint(\"done\")");
+    const result = layout("map(values, x =>\n    inspect(x); transform(x)\n)\nprint(\"done\")");
 
     expect(virtualKinds(result.tokens)).toEqual([
       "VOpen", "VOpen", "VClose", "VSep", "VClose",
@@ -129,10 +129,10 @@ describe("applyLayout", () => {
   });
 
   test("reports inconsistent dedents and recovers at the revealed block", () => {
-    const result = layout("if x\n  if y\n    a\n   b\nc");
+    const result = layout("if x\n    if y\n        a\n      b\nc");
 
     expect(result.diagnostics.map(({ message }) => message)).toContain(
-      "inconsistent dedent; expected one of columns 0, 2",
+      "inconsistent dedent; expected one of columns 0, 4",
     );
     expect(result.tokens.at(-1)?.kind).toBe("Eof");
   });

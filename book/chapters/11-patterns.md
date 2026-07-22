@@ -7,9 +7,9 @@ let (guest, seats) = reservationPair
 let {name, confirmed} = reservation
 
 match status
-  Pending => "waiting"
-  Dispatched(code) => code
-  Delivered => "arrived"
+    Pending => "waiting"
+    Dispatched(code) => code
+    Delivered => "arrived"
 ```
 
 These are parts of one language. A **pattern** describes the shape a value must have
@@ -32,8 +32,8 @@ Constructor, tuple, and record patterns may contain other patterns:
 
 ```hexagon
 match result
-  Ok((name, seats)) => "${name}: ${seats}"
-  Err({message}) => message
+    Ok((name, seats)) => "${name}: ${seats}"
+    Err({message}) => message
 ```
 
 The `Ok` pattern opens a union constructor and then a tuple. The `Err` pattern opens a
@@ -44,8 +44,8 @@ always open and mention only the fields they need.
 
 ```hexagon
 match reservation
-  {confirmed: true, guest} => "Confirmed for ${guest}"
-  {guest} => "Awaiting confirmation for ${guest}"
+    {confirmed: true, guest} => "Confirmed for ${guest}"
+    {guest} => "Awaiting confirmation for ${guest}"
 ```
 
 The second arm does not say that `guest` is the record's only field. It binds `guest`
@@ -65,8 +65,8 @@ A nominal record must cross through its constructor pattern:
 record Point = {x: Float, y: Float}
 
 let distanceFromOrigin(point: Point): Float =
-  match point
-    Point({x, y}) => (x ** 2.0 + y ** 2.0) ** 0.5
+    match point
+        Point({x, y}) => (x ** 2.0 + y ** 2.0) ** 0.5
 ```
 
 `Point({x, y})` is the pattern-side counterpart of constructing with `Point({...})`.
@@ -78,10 +78,10 @@ A bare `{x, y}` pattern would describe a structural record, not the nominal `Poi
 
 ```hexagon
 let describeCount(count: Int): String =
-  match count
-    0 => "none"
-    1 => "one"
-    _ => "many"
+    match count
+        0 => "none"
+        1 => "one"
+        _ => "many"
 ```
 
 `_` is the wildcard: it matches anything and binds nothing. Infinite sets such as
@@ -92,8 +92,8 @@ of literals cannot cover every possible value.
 
 ```hexagon
 match enabled
-  true => "enabled"
-  false => "disabled"
+    true => "enabled"
+    false => "disabled"
 ```
 
 `Unit` also has one possible value, written `()`, and the same spelling is its pattern:
@@ -102,7 +102,7 @@ match enabled
 let finished: Unit = ()
 
 match finished
-  () => "finished"
+    () => "finished"
 ```
 
 That single arm is exhaustive because every `Unit` value is `()`.
@@ -117,8 +117,8 @@ Use `|` when several shapes should take the same path:
 
 ```hexagon
 match status
-  Pending | Dispatched(_) => "still active"
-  Delivered => "complete"
+    Pending | Dispatched(_) => "still active"
+    Delivered => "complete"
 ```
 
 An **or-pattern** tries its alternatives from left to right. If the alternatives bind
@@ -126,7 +126,7 @@ names, every alternative must bind the same names at compatible types:
 
 ```hexagon
 match result
-  Ok(message) | Err(message) => message
+    Ok(message) | Err(message) => message
 ```
 
 This is legal when both payloads are `String`. `Ok(value) | Err(problem)` is an error:
@@ -143,8 +143,8 @@ both:
 
 ```hexagon
 match status
-  Dispatched(code) as travelling => logStatus(travelling, code)
-  Pending | Delivered as settled => logSimpleStatus(settled)
+    Dispatched(code) as travelling => logStatus(travelling, code)
+    Pending | Delivered as settled => logSimpleStatus(settled)
 ```
 
 `Dispatched(code) as travelling` binds `code` to the payload and `travelling` to the
@@ -160,11 +160,11 @@ A pattern handles shape; a guard handles a condition that must be evaluated:
 
 ```hexagon
 let classifyPort(port: Int): String =
-  match port
-    0 => "automatic"
-    value when 1 <= value <= 1023 => "privileged"
-    value when 1024 <= value <= 65535 => "ordinary"
-    _ => "invalid"
+    match port
+        0 => "automatic"
+        value when 1 <= value <= 1023 => "privileged"
+        value when 1024 <= value <= 65535 => "ordinary"
+        _ => "invalid"
 ```
 
 The guard follows `when` and must produce `Bool`. Pattern bindings are available inside

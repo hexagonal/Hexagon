@@ -21,9 +21,9 @@
 
 ```
 union Shape =
-  | Circle(radius: Float)
-  | Rect(width: Float, height: Float)
-  | Point
+    | Circle(radius: Float)
+    | Rect(width: Float, height: Float)
+    | Point
 
 union Option(a) = Some(value: a) | None
 union Tree(a) = Leaf | Node(Tree(a), a, Tree(a))
@@ -77,9 +77,9 @@ Point                          -- nullary: no parens at all
 
 ```
 match shape
-  Circle(r) => 3.14 * r * r
-  Rect(w, h) => w * h
-  Point => 0.0
+    Circle(r) => 3.14 * r * r
+    Rect(w, h) => w * h
+    Point => 0.0
 ```
 
 - `match scrutineeExpr` followed by a **layout block of arms** — one arm per VSEP, `;` usable as the compressed newline exactly per the Lexer & Layout rules. There is no braced form: braces are records, so Rust-style `match e { ... }` does not exist and must produce the standard brace diagnostic if attempted.

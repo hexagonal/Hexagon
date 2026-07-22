@@ -87,13 +87,13 @@ Arity must equal the tuple's arity (Products §2.1 report shape). `(p)` is **gro
 
 ```
 match n
-  0 => "zero"
-  1 => "one"
-  _ => "many"
+    0 => "zero"
+    1 => "one"
+    _ => "many"
 
 match answer
-  true => proceed()
-  false => abort()               -- exhaustive: no _ required (§7.1)
+    true => proceed()
+    false => abort()               -- exhaustive: no _ required (§7.1)
 ```
 
 - A literal pattern elaborates through **`Eq`** exactly as `==` does (Operators §5.1): the arm test is `equals(scrutinee, lit)`, emitting `===` on the primitive fast path — which is every v1 case, since the allowed types are `Int`, `String`, `Bool`.
@@ -140,9 +140,9 @@ Patterns contain **no operators, no calls, no expressions**. `C(...)` in pattern
 
 ```
 match shape
-  Circle(r) when 0.0 <= r < 100.0 => draw(r)
-  Circle(_)                       => tooBig()
-  _                               => skip()
+    Circle(r) when 0.0 <= r < 100.0 => draw(r)
+    Circle(_)                       => tooBig()
+    _                               => skip()
 ```
 
 - **`when` is arm syntax, not pattern syntax.** The grammar of a match/catch arm is `pattern [when expr] => body`. A guard therefore always covers the *entire* arm pattern — `A(x) | B(x) when g` guards both alternatives — and can never appear inside a nested pattern. This placement is decided; guards-in-patterns would wreck or-pattern factoring, the same-bindings check, and exhaustiveness locality, for no expressive gain.
@@ -211,8 +211,8 @@ These two patterns are **syntactically identical** — a constructor applied to 
 union UserId = UserId(Int)
 
 fun format(id: UserId): String =
-  let UserId(n) = id
-  "user-${n}"
+    let UserId(n) = id
+    "user-${n}"
 
 userIds |> map(UserId(n) => "user-${n}")     -- same thing, lambda-parameter position
 ```
@@ -235,19 +235,19 @@ The v1 restriction "`match` scrutinees must be union-typed" is **retired**. A `m
 
 ```
 match point
-  (0, 0) => "origin"
-  (x, 0) => "on x-axis: ${x}"
-  (0, y) => "on y-axis: ${y}"
-  _      => "elsewhere"
+    (0, 0) => "origin"
+    (x, 0) => "on x-axis: ${x}"
+    (0, y) => "on y-axis: ${y}"
+    _      => "elsewhere"
 
 match user
-  {role: Admin}        => allowAll()
-  {role: _, verified: true} => allowSome()
-  _                    => deny()
+    {role: Admin}        => allowAll()
+    {role: _, verified: true} => allowSome()
+    _                    => deny()
 
 match flag
-  true  => on()
-  false => off()
+    true  => on()
+    false => off()
 ```
 
 Two **permanent** exclusions:
@@ -279,10 +279,10 @@ The LHS of `let` is now a full pattern, gated by irrefutability (§5). Products 
 
 ```
 for (k, v) in pairs
-  process(k, v)
+    process(k, v)
 
 for {id, name} in users
-  register(id, name)
+    register(id, name)
 ```
 
 The loop variable is a single binder position with no arity question — full patterns, irrefutability-gated, binders are **head binders** (Statements §5). `for (k, v) in map` is live idiom: `Map` iteration yields `(k, v)` tuples (Collections Part 4 §7.2), and the tuple pattern destructures them exactly as above.
@@ -469,15 +469,15 @@ Apply on next touch; until then this doc governs.
 ```
 -- (a) Nesting + as + guard + chained comparison
 match tree
-  Node(Leaf, x, Leaf) as leaf when 0 <= x < 100 => promote(leaf)
-  Node(l, _, r) => merge(l, r)
-  Leaf => Leaf
+    Node(Leaf, x, Leaf) as leaf when 0 <= x < 100 => promote(leaf)
+    Node(l, _, r) => merge(l, r)
+    Leaf => Leaf
 -- guard emits: 0 <= x && x < 100 appended with && to the arm test
 
 -- (b) Bool exhaustive via literals; no wildcard
 match flag
-  true => 1
-  false => 0
+    true => 1
+    false => 0
 -- exhaustive; adding `_ => 2` afterwards is an unreachable-arm error
 
 -- (c) Or-pattern same-bindings
@@ -504,23 +504,23 @@ Some(x) => x                        -- ERROR: refutable pattern in a binding pos
 
 -- (h) Record openness + punning + literal sub-pattern
 match user
-  {role: Admin} => allowAll()
-  {verified: true, name} => greet(name)
-  _ => deny()
+    {role: Admin} => allowAll()
+    {verified: true, name} => greet(name)
+    _ => deny()
 -- coverage computed over {role, verified, name}; witness rendering on removal of `_`:
 --   match is missing cases: {role: Member, verified: false}   (or shallowest equivalent)
 
 -- (i) Guards never count
 match n
-  x when x >= 0 => "nonneg"
-  x when x < 0 => "neg"
+    x when x >= 0 => "nonneg"
+    x when x < 0 => "neg"
 -- ERROR: non-exhaustive — guarded arms contribute nothing; requires a catch-all
 
 -- (i2) Guard termination: => after when belongs to the arm
 match n
-  x when isPositive => "pos"       -- guard is the expression `isPositive`; => is the arm's
-  x when exists(preds, (p => p(x))) => "any"   -- lambda in a guard: parenthesized
-  _ => "other"
+    x when isPositive => "pos"       -- guard is the expression `isPositive`; => is the arm's
+    x when exists(preds, (p => p(x))) => "any"   -- lambda in a guard: parenthesized
+    _ => "other"
 -- `x when f => x` where a lambda guard was intended: error with parenthesize fixit
 
 -- (j) Construction punning round trip
@@ -530,9 +530,9 @@ let {name: n} = user                -- n = "Ada"
 
 -- (k) Float literal ban
 match temp
-  0.0 => "freezing"                 -- ERROR: Float literals cannot appear in patterns; use a guard
-  t when t <= 0.0 => "freezing"     -- the sanctioned spelling
-  _ => "ok"
+    0.0 => "freezing"                 -- ERROR: Float literals cannot appear in patterns; use a guard
+    t when t <= 0.0 => "freezing"     -- the sanctioned spelling
+    _ => "ok"
 
 -- (l) Nominal record destructure
 record Point = {x: Float, y: Float}
@@ -540,14 +540,14 @@ let Point({x, y}) = origin          -- OK; bare {x, y} against Point is the nomi
 
 -- (m) for..in patterns
 for (k, v) in pairs
-  print("${k}: ${v}")
+    print("${k}: ${v}")
 
 -- (n) Emission shape (readable-JS pin)
 match shape
-  Circle(r) when r > 0.0 => area(r)
-  Circle(_) => 0.0
-  Rect(w, h) => w * h
-  Point => 0.0
+    Circle(r) when r > 0.0 => area(r)
+    Circle(_) => 0.0
+    Rect(w, h) => w * h
+    Point => 0.0
 -- emits an if/else-if cascade on shape.tag (guards preclude plain switch fall-through),
 -- OR switch with guard-carrying cases restructured; either accepted if a TS author would write it
 ```

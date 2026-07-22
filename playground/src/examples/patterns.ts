@@ -5,32 +5,32 @@ export const patterns: PlaygroundExample = {
   title: "Unions and Match",
   description: "A closed union handled by an exhaustive match expression.",
   source: `union Direction =
-  | North
-  | East
-  | South
-  | West
+    | North
+    | East
+    | South
+    | West
 
 let opposite(direction: Direction): Direction = match direction
-  North => South
-  East => West
-  South => North
-  West => East
+    North => South
+    East => West
+    South => North
+    West => East
 
 console.log("Opposite of North:", opposite(North))
 
 fun attendanceLabel(count: Int): String = match count
-  0 => "none"
-  1 => "one"
-  _ => "many"
+    0 => "none"
+    1 => "one"
+    _ => "many"
 
 console.log("Guests:", attendanceLabel(1))
 
 fun tupleLabel(pair: (Bool, Int)): String = match pair
-  (true, _) => "active"
-  (_, _) => "inactive"
+    (true, _) => "active"
+    (_, _) => "inactive"
 
 fun unitLabel(value: Unit): String = match value
-  () => "unit"
+    () => "unit"
 
 console.log(tupleLabel((true, 3)), unitLabel(()))
 `,

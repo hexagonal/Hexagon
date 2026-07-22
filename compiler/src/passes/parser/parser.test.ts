@@ -11,10 +11,10 @@ describe("parse", () => {
   test("parses named, aliased, default, type-only, and effect extern declarations", () => {
     const module = parseSource(
       "extern from \"tiny-json\"\n" +
-        "  export type JsonValue\n" +
-        "  export fun parse(text: String): JsonValue\n" +
-        "  let VERSION as version: String\n" +
-        "  export default fun createClient(): JsonValue\n" +
+        "    export type JsonValue\n" +
+        "    export fun parse(text: String): JsonValue\n" +
+        "    let VERSION as version: String\n" +
+        "    export default fun createClient(): JsonValue\n" +
         "extern import \"telemetry/register\"",
     );
 
@@ -41,11 +41,11 @@ describe("parse", () => {
   test("uses extern-specific rewrites and rejects bodies", () => {
     const module = parseSource(
       "extern from \"broken\"\n" +
-        "  let parse(text: String): String\n" +
-        "  fun version: String\n" +
-        "  let callback: String -> String\n" +
-        "  default fun create as make(): String\n" +
-        "  fun run(): Unit = ()",
+        "    let parse(text: String): String\n" +
+        "    fun version: String\n" +
+        "    let callback: String -> String\n" +
+        "    default fun create as make(): String\n" +
+        "    fun run(): Unit = ()",
     );
     const messages = module.diagnostics.map(({ message }) => message);
 
@@ -258,10 +258,10 @@ describe("parse", () => {
   test("parses nullary unions and match expressions", () => {
     const module = parseSource(
       "union Suit =\n" +
-        "  | Clubs\n  | Diamonds\n  | Hearts\n  | Spades\n" +
+        "    | Clubs\n    | Diamonds\n    | Hearts\n    | Spades\n" +
         "let color(suit: Suit): String = match suit\n" +
-        '  Clubs => "black"\n  Diamonds => "red"\n' +
-        '  Hearts => "red"\n  Spades => "black"',
+        '    Clubs => "black"\n    Diamonds => "red"\n' +
+        '    Hearts => "red"\n    Spades => "black"',
     );
 
     expect(module.items).toMatchObject([
@@ -362,11 +362,11 @@ describe("parse", () => {
     const module = parseSource(
       "let choose = if ready then yes else no\n" +
       "let act(x) =\n" +
-      "  if x\n" +
-      "    print(x)\n" +
-      "  else\n" +
-      "    print(0)\n" +
-      "  x",
+      "    if x\n" +
+      "        print(x)\n" +
+      "    else\n" +
+      "        print(0)\n" +
+      "    x",
     );
     const bindings = module.items as readonly Parsed.LetItem[];
 
@@ -398,14 +398,14 @@ describe("parse", () => {
   test("treats aligned line breaks before then and else as continuations", () => {
     const splitThen = parseSource(
       "fun fact(n: Int): Int =\n" +
-        "  if n <= 1\n" +
-        "  then 1\n" +
-        "  else n * fact(n - 1)",
+        "    if n <= 1\n" +
+        "    then 1\n" +
+        "    else n * fact(n - 1)",
     );
     const splitElse = parseSource(
       "fun fact(n: Int): Int =\n" +
-        "  if n <= 1 then 1\n" +
-        "  else n * fact(n - 1)",
+        "    if n <= 1 then 1\n" +
+        "    else n * fact(n - 1)",
     );
 
     for (const module of [splitThen, splitElse]) {
@@ -460,11 +460,11 @@ describe("parse", () => {
   test("parses mutable bindings, inclusive ranges, and while blocks", () => {
     const module = parseSource(
       "fun countdown(start: Int) =\n" +
-        "  var current: Int = start\n" +
-        "  let bounds = 1..current\n" +
-        "  while current > 0\n" +
-        "    current := current - 1\n" +
-        "  bounds",
+        "    var current: Int = start\n" +
+        "    let bounds = 1..current\n" +
+        "    while current > 0\n" +
+        "        current := current - 1\n" +
+        "    bounds",
     );
 
     expect(module.items[0]).toMatchObject({
@@ -495,10 +495,10 @@ describe("parse", () => {
   test("parses for loops over ranges and strings", () => {
     const module = parseSource(
       "fun visit(): Unit =\n" +
-        "  for number in 1..3\n" +
-        "    console.log(number)\n" +
-        "  for character in \"ab\"\n" +
-        "    console.log(character)",
+        "    for number in 1..3\n" +
+        "        console.log(number)\n" +
+        "    for character in \"ab\"\n" +
+        "        console.log(character)",
     );
 
     expect(module.items[0]).toMatchObject({
@@ -546,11 +546,11 @@ describe("parse", () => {
   test("parses implied type declarations and instance bindings", () => {
     const module = parseSource(
       "constraint Source<a> =\n" +
-        "  type Item\n" +
-        "  get(value: a): Item\n" +
+        "    type Item\n" +
+        "    get(value: a): Item\n" +
         "honor Source<Int> =\n" +
-        "  type Item = String\n" +
-        '  get(value) = "${value}"',
+        "    type Item = String\n" +
+        '    get(value) = "${value}"',
     );
 
     expect(module.items).toMatchObject([
@@ -570,8 +570,8 @@ describe("parse", () => {
   test("parses defaults, derives headers, and parameterized honors", () => {
     const module = parseSource(
       "constraint Same<a> =\n" +
-        "  same(left: a, right: a): Bool\n" +
-        "  different(left: a, right: a): Bool = not same(left, right)\n" +
+        "    same(left: a, right: a): Bool\n" +
+        "    different(left: a, right: a): Bool = not same(left, right)\n" +
         "record Box(a) derives (Eq, Show) = {value: a}\n" +
         "honor<a: Eq> Eq<Box(a)> = derive",
     );
@@ -644,8 +644,8 @@ describe("parse", () => {
   test("accepts function types in lambda annotations and layout continuations", () => {
     const module = parseSource(
       "type Callback =\n" +
-        "  Int ->\n" +
-        "    String\n" +
+        "    Int ->\n" +
+        "        String\n" +
         "let keep = (callback: Int -> String): Int -> String => callback",
     );
 
@@ -667,12 +667,12 @@ describe("parse", () => {
     const module = parseSource(
       "exception Wrapped(value: Int)\n" +
         "let result = try\n" +
-        "  throw(Wrapped(1))\n" +
+        "    throw(Wrapped(1))\n" +
         "catch\n" +
-        "  Wrapped(value) when value > 0 => value\n" +
-        "  _ => 0\n" +
+        "    Wrapped(value) when value > 0 => value\n" +
+        "    _ => 0\n" +
         "finally\n" +
-        "  cleanup()",
+        "    cleanup()",
     );
 
     expect(module.items).toMatchObject([

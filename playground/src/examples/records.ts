@@ -7,11 +7,11 @@ export const records: PlaygroundExample = {
   source: `fun guestName(reservation: {guest: String, ...}): String = reservation.guest
 
 fun renameGuest(reservation: {guest: String, ...rest}, guest: String): {guest: String, ...rest} =
-  {...reservation, guest: guest}
+    {...reservation, guest: guest}
 
 fun confirmedGuest(reservation: {guest: String, confirmed: Bool}): String = match reservation
-  {confirmed: true, guest} => guest
-  {guest} => guest
+    {confirmed: true, guest} => guest
+    {guest} => guest
 
 let dinner = {guest: "Ada", seats: 2}
 let lunch = {guest: "Grace", vegetarian: true, seats: 1}

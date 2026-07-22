@@ -38,12 +38,12 @@ Everything in Part 4 §1 applies unchanged: declarations are bodyless and fully 
 
 ```hexagon
 extern from "url-tools"
-  export type SearchParams
+    export type SearchParams
 
-  export method get(
-    params: SearchParams,
-    key: String,
-  ): Nullable(String)
+    export method get(
+        params: SearchParams,
+        key: String,
+    ): Nullable(String)
 ```
 
 **The first parameter is mandatory and remains the explicit Hexagon subject.** Hexagon sees the ordinary function type:
@@ -106,12 +106,12 @@ Local member names obey ordinary Hexagon naming rules (Part 4 §3.2); a foreign 
 
 ```hexagon
 extern from "web-response"
-  export type Response
-  export type Headers
+    export type Response
+    export type Headers
 
-  export get status(response: Response): Int
-  export get headers(response: Response): Headers
-  export get redirected(response: Response): Bool
+    export get status(response: Response): Int
+    export get headers(response: Response): Headers
+    export get redirected(response: Response): Bool
 ```
 
 Hexagon calls emit property reads:
@@ -149,14 +149,14 @@ A writable property requires an explicit `set` declaration; **a `get` declaratio
 
 ```hexagon
 extern from "http-client"
-  export type Request
+    export type Request
 
-  export get timeout(request: Request): Int
+    export get timeout(request: Request): Int
 
-  export set timeout as setTimeout(
-    request: Request,
-    value: Int,
-  ): Unit
+    export set timeout as setTimeout(
+        request: Request,
+        value: Int,
+    ): Unit
 ```
 
 ```hexagon
@@ -194,14 +194,14 @@ These rules govern `method`, `get`, and `set` wherever they appear — standalon
 
 ```hexagon
 extern from "node:url"
-  export class URL as Url
-    new as create(text: String)
+    export class URL as Url
+        new as create(text: String)
 
-    static method canParse(text: String): Bool
-    static get defaultPort(): Int
+        static method canParse(text: String): Bool
+        static get defaultPort(): Int
 
-    method toString(url: Url): String
-    get hostname(url: Url): String
+        method toString(url: Url): String
+        get hostname(url: Url): String
 ```
 
 The Hexagon companion surface is:
@@ -269,8 +269,8 @@ Part 4 §6's `default` modifier applies to classes:
 
 ```hexagon
 extern from "database-client"
-  export default class Client
-    new as create(config: Config)
+    export default class Client
+        new as create(config: Config)
 ```
 
 `default` selects the incoming JavaScript default export as the foreign class; everything else — the private-by-default binding, `export` producing a *named* Hexagon export, never a Hexagon or emitted-JS default export — is Part 4 §6 unchanged. A `default class` header names its local type directly (there is no foreign name), so `default class Foreign as Local` is ill-formed, mirroring Part 4's no-`as`-on-`default` rule.

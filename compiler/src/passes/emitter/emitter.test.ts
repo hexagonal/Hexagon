@@ -19,13 +19,13 @@ describe("emitJavaScript", () => {
   test("emits readable extern ESM bindings, stable adapters, and opaque declarations", () => {
     const module = coreSource(
       "extern from \"tiny-json\"\n" +
-        "  export type JsonValue\n" +
-        "  export fun parse(text: String): JsonValue\n" +
-        "  let VERSION as version: String\n" +
-        "  export default fun createClient(): JsonValue\n" +
-        "  fun stream(): Seq(Int)\n" +
-        "  let values: Seq(Int)\n" +
-        "  fun report(message: String): Unit\n" +
+        "    export type JsonValue\n" +
+        "    export fun parse(text: String): JsonValue\n" +
+        "    let VERSION as version: String\n" +
+        "    export default fun createClient(): JsonValue\n" +
+        "    fun stream(): Seq(Int)\n" +
+        "    let values: Seq(Int)\n" +
+        "    fun report(message: String): Unit\n" +
         "extern import \"telemetry/register\"\n" +
         "export let document = parse(version)",
     );
@@ -59,8 +59,8 @@ describe("emitJavaScript", () => {
         "export let letter = \"héllo\"[2]\n" +
         "export let fingerprint = hash((values, {name: \"hex\"}))\n" +
         "export let first = match values\n" +
-        "  [head, ...rest] => head\n" +
-        "  [] => 0",
+        "    [head, ...rest] => head\n" +
+        "    [] => 0",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -167,20 +167,20 @@ describe("emitJavaScript", () => {
   test("iterates provided collections and concrete user Iterable instances", () => {
     const module = coreSource(
       "constraint Iterable<c> =\n" +
-        "  type Item\n" +
-        "  iterate(value: c): Seq(Item)\n" +
+        "    type Item\n" +
+        "    iterate(value: c): Seq(Item)\n" +
         "record Bag = {items: Seq(Int)}\n" +
         "honor Iterable<Bag> =\n" +
-        "  type Item = Int\n" +
-        "  iterate(bag) = bag.items\n" +
+        "    type Item = Int\n" +
+        "    iterate(bag) = bag.items\n" +
         "let bag = Bag({items: Seq.iterate(1, x => x + 1).take(2)})\n" +
         "for value in bag\n" +
-        "  console.log(value)\n" +
+        "    console.log(value)\n" +
         "for value in [1, 2]\n" +
-        "  console.log(value)\n" +
+        "    console.log(value)\n" +
         "let pairs: Map(Int, String) = Map.set(Map.empty(), 1, \"one\")\n" +
         "for (key, value) in pairs\n" +
-        "  console.log(key, value)",
+        "    console.log(key, value)",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -193,10 +193,10 @@ describe("emitJavaScript", () => {
   test("preserves Array and Nullable boundary types in exported declarations", () => {
     const module = coreSource(
       "export let count(xs: Array(Int)): Int =\n" +
-        "  var total = 0\n" +
-        "  for _ in xs\n" +
-        "    total := total + 1\n" +
-        "  total\n" +
+        "    var total = 0\n" +
+        "    for _ in xs\n" +
+        "        total := total + 1\n" +
+        "    total\n" +
         "export let keep(value: Nullable(String)): Nullable(String) = value",
     );
 
@@ -210,11 +210,11 @@ describe("emitJavaScript", () => {
   test("emits var, assignment, inclusive Range values, and while readably", () => {
     const module = coreSource(
       "fun countdown(start: Int) =\n" +
-        "  var current = start\n" +
-        "  let visited = 1..current\n" +
-        "  while current > 0\n" +
-        "    current := current - 1\n" +
-        "  visited",
+        "    var current = start\n" +
+        "    let visited = 1..current\n" +
+        "    while current > 0\n" +
+        "        current := current - 1\n" +
+        "    visited",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -252,10 +252,10 @@ describe("emitJavaScript", () => {
   test("emits Range and String for loops as native for-of loops", () => {
     const module = coreSource(
       "fun visit(): Unit =\n" +
-        "  for number in 1..3\n" +
-        "    console.log(number)\n" +
-        "  for character in \"ab\"\n" +
-        "    console.log(character)",
+        "    for number in 1..3\n" +
+        "        console.log(number)\n" +
+        "    for character in \"ab\"\n" +
+        "        console.log(character)",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -271,7 +271,7 @@ describe("emitJavaScript", () => {
         "export let selected = numbers.filter(number => number > 3).map(number => number * 2).take(5)\n" +
         "let selected2 = numbers |> Seq.filter(number => number > 3) |> Seq.map(number => number * 2) |> Seq.take(5)\n" +
         "for number in selected\n" +
-        "  console.log(number)",
+        "    console.log(number)",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -309,7 +309,7 @@ describe("emitJavaScript", () => {
       "union Side = Left(value: Int) | Right(value: Int)\n" +
         "union Box = Box(side: Side)\n" +
         "fun unbox(box: Box): Int = match box\n" +
-        "  Box(Left(value) | Right(value)) => value\n" +
+        "    Box(Left(value) | Right(value)) => value\n" +
         "let true | false = true\n" +
         "let Left(amount) | Right(amount) = Left(42)",
     );
@@ -330,12 +330,12 @@ describe("emitJavaScript", () => {
     const module = coreSource(
       "union Shape = Circle(radius: Float) | Rectangle(width: Float, height: Float) | Point\n" +
         "fun measure(shape: Shape): Float = match shape\n" +
-        "  Circle(size) | Rectangle(size, _) when size > 0.0 => size\n" +
-        "  Circle(_) | Rectangle(_, _) => 0.0\n" +
-        "  Point => 0.0\n" +
+        "    Circle(size) | Rectangle(size, _) when size > 0.0 => size\n" +
+        "    Circle(_) | Rectangle(_, _) => 0.0\n" +
+        "    Point => 0.0\n" +
         "fun sign(value: Int): String = match value\n" +
-        '  -1 => "negative one"\n' +
-        '  _ => "other"\n' +
+        '    -1 => "negative one"\n' +
+        '    _ => "other"\n' +
         "union UserId = UserId(value: Int)\n" +
         "let UserId(value) = UserId(42)",
     );
@@ -350,25 +350,25 @@ describe("emitJavaScript", () => {
 
   test("emits Unit, as-pattern, tuple, and record matches through ordered tests", () => {
     const unit = emitJavaScript(coreSource(
-      'fun describe(value: Unit): String = match value\n  () => "unit"',
+      'fun describe(value: Unit): String = match value\n    () => "unit"',
     )).text;
     expect(unit).toContain("if (__hex_match0 === undefined)");
 
     const shape = emitJavaScript(coreSource(
       "union Shape = Circle(radius: Float) | Point\n" +
         "fun preserve(shape: Shape): Shape = match shape\n" +
-        "  Circle(_) as whole => whole\n" +
-        "  Point as whole => whole",
+        "    Circle(_) as whole => whole\n" +
+        "    Point as whole => whole",
     )).text;
     expect(shape).toContain("const whole = __hex_match0;");
 
     const structural = emitJavaScript(coreSource(
       'fun tupleLabel(pair: (Bool, Int)): String = match pair\n' +
-        '  (true, count) => "active"\n' +
-        '  (_, _) => "inactive"\n' +
+        '    (true, count) => "active"\n' +
+        '    (_, _) => "inactive"\n' +
         'fun recordName(user: {name: String, active: Bool}): String = match user\n' +
-        '  {active: true, name} => name\n' +
-        '  {name} => name',
+        '    {active: true, name} => name\n' +
+        '    {name} => name',
     )).text;
     expect(structural).toContain("if (__hex_match0[0] === true)");
     expect(structural).toContain("const count = __hex_match0[1];");
@@ -388,7 +388,7 @@ describe("emitJavaScript", () => {
 
   test("emits literal matches and guarded constructor arms in source order", () => {
     const primitive = coreSource(
-      'fun describe(flag: Bool): String = match flag\n  true => "yes"\n  false => "no"',
+      'fun describe(flag: Bool): String = match flag\n    true => "yes"\n    false => "no"',
     );
     const primitiveJavaScript = emitJavaScript(primitive).text;
     expect(primitiveJavaScript).toContain("if (__hex_match0 === true)");
@@ -397,9 +397,9 @@ describe("emitJavaScript", () => {
     const guarded = coreSource(
       "union Shape = Circle(radius: Float) | Point\n" +
         "fun describe(shape: Shape): String = match shape\n" +
-        '  Circle(radius) when radius > 0.0 => "positive"\n' +
-        '  Circle(_) => "circle"\n' +
-        '  Point => "point"',
+        '    Circle(radius) when radius > 0.0 => "positive"\n' +
+        '    Circle(_) => "circle"\n' +
+        '    Point => "point"',
     );
     expect(guarded.diagnostics).toEqual([]);
     const guardedJavaScript = emitJavaScript(guarded).text;
@@ -416,8 +416,8 @@ describe("emitJavaScript", () => {
     const module = coreSource(
       "export union Result = Ok(value: (String, Int)) | Err(error: {context: {message: String}, code: Int})\n" +
         "export fun describe(result: Result): String = match result\n" +
-        "  Ok((name, _)) => name\n" +
-        "  Err({context: {message: reason}}) => reason",
+        "    Ok((name, _)) => name\n" +
+        "    Err({context: {message: reason}}) => reason",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -469,8 +469,8 @@ describe("emitJavaScript", () => {
         "let point = {x: 3, y: 4}\n" +
         "let x = xOf(point)\n" +
         "export fun radius(shape: Shape): Float = match shape\n" +
-        "  Circle(value) => value\n" +
-        "  Point => 0.0",
+        "    Circle(value) => value\n" +
+        "    Point => 0.0",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -488,8 +488,8 @@ describe("emitJavaScript", () => {
     const module = coreSource(
       "export union Option(a) = Some(value: a) | None\n" +
         "export fun unwrapOr(value: Option(a), fallback: a): a = match value\n" +
-        "  Some(found) => found\n" +
-        "  None => fallback\n" +
+        "    Some(found) => found\n" +
+        "    None => fallback\n" +
         "export let answer = unwrapOr(Some(42), 0)",
     );
 
@@ -534,9 +534,9 @@ describe("emitJavaScript", () => {
       "export exception ParseError(line: Int, message: String)\n" +
         "export exception Missing\n" +
         "export fun recover(value: Int): Int = try\n" +
-        "  if value < 0 then throw(ParseError(value, \"bad\")) else value\n" +
+        "    if value < 0 then throw(ParseError(value, \"bad\")) else value\n" +
         "catch\n" +
-        "  ParseError(line, _) => 0 - line\n" +
+        "    ParseError(line, _) => 0 - line\n" +
         "export fun fail(): Int = throw(Missing)",
     );
 
@@ -566,11 +566,11 @@ describe("emitJavaScript", () => {
         "union Reason = Code(Int) | Other\n" +
           "exception Wrapped(reason: Reason)\n" +
           "fun recover(value: Int): Int = try\n" +
-          "  if value < 0 then throw(Wrapped(Other)) else throw(Wrapped(Code(value)))\n" +
+          "    if value < 0 then throw(Wrapped(Other)) else throw(Wrapped(Code(value)))\n" +
           "catch\n" +
-          "  Wrapped(Code(code)) when code > 0 => code\n" +
-          "  Wrapped(Code(_)) => 0\n" +
-          "  Wrapped(Other) => -1\n" +
+          "    Wrapped(Code(code)) when code > 0 => code\n" +
+          "    Wrapped(Code(_)) => 0\n" +
+          "    Wrapped(Other) => -1\n" +
           "let positive = recover(3)\n" +
           "let zero = recover(0)\n" +
           "let negative = recover(-1)",
@@ -594,9 +594,9 @@ describe("emitJavaScript", () => {
           "exception Wrapped(reason: Reason)\n" +
           "exception Missing\n" +
           "let result = try\n" +
-          "  throw(Missing)\n" +
+          "    throw(Missing)\n" +
           "catch\n" +
-          "  Wrapped(Code(_)) => 0",
+          "    Wrapped(Code(_)) => 0",
       ),
     );
 
@@ -678,8 +678,8 @@ describe("emitJavaScript", () => {
       "export union Suit = Clubs | Diamonds | Hearts | Spades\n" +
         "export let card = (10, Hearts)\n" +
         "export let color(suit: Suit): String = match suit\n" +
-        '  Clubs => "black"\n  Diamonds => "red"\n' +
-        '  Hearts => "red"\n  Spades => "black"',
+        '    Clubs => "black"\n    Diamonds => "red"\n' +
+        '    Hearts => "red"\n    Spades => "black"',
     );
 
     expect(emitJavaScript(module).text).toBe(
@@ -715,7 +715,7 @@ describe("emitJavaScript", () => {
     const module = coreSource(
       "union Suit = Clubs | Spades\n" +
         "let color(suit: Suit): String = match suit\n" +
-        '  _ => "black"',
+        '    _ => "black"',
     );
 
     const output = emitJavaScript(module);
@@ -731,7 +731,7 @@ describe("emitJavaScript", () => {
     const module = coreSource(
       "union Suit = Clubs | Spades\n" +
         "let identity(suit: Suit): Suit = match suit\n" +
-        "  whole => whole",
+        "    whole => whole",
     );
 
     const output = emitJavaScript(module);
@@ -747,8 +747,8 @@ describe("emitJavaScript", () => {
       "union Suit = Clubs | Spades\n" +
         "let suit = Clubs\n" +
         "let color: String = match suit\n" +
-        '  Clubs => "black"\n' +
-        '  Spades => "black"',
+        '    Clubs => "black"\n' +
+        '    Spades => "black"',
     );
 
     expect(emitJavaScript(module).text).toContain(
@@ -765,10 +765,10 @@ describe("emitJavaScript", () => {
     const module = coreSource(
       "union Suit = Clubs | Spades\n" +
         "let color(suit: Suit): String =\n" +
-        "  let selected = suit\n" +
-        "  match selected\n" +
-        '    Clubs => "black"\n' +
-        '    Spades => "black"',
+        "    let selected = suit\n" +
+        "    match selected\n" +
+        '        Clubs => "black"\n' +
+        '        Spades => "black"',
     );
 
     const output = emitJavaScript(module);
@@ -892,9 +892,9 @@ describe("emitJavaScript", () => {
     const output = emitJavaScript(
       coreSource(
         "fun fact(n: Int): Int =\n" +
-          "  if n <= 1\n" +
-          "  then 1\n" +
-          "  else n * fact(n - 1)\n\n" +
+          "    if n <= 1\n" +
+          "    then 1\n" +
+          "    else n * fact(n - 1)\n\n" +
           "let answer = 6 * 7",
       ),
     );
@@ -1117,16 +1117,16 @@ describe("emitJavaScript", () => {
     const output = emitJavaScript(
       coreSource(
         "constraint Integral<a: (Num, Ord)> =\n" +
-          "  div(x: a, y: a): a\n" +
-          "  mod(x: a, y: a): a\n" +
-          "  quot(x: a, y: a): a\n" +
-          "  rem(x: a, y: a): a\n" +
-          "  gcd(x: a, y: a): a\n" +
+          "    div(x: a, y: a): a\n" +
+          "    mod(x: a, y: a): a\n" +
+          "    quot(x: a, y: a): a\n" +
+          "    rem(x: a, y: a): a\n" +
+          "    gcd(x: a, y: a): a\n" +
           "fun normalize<a: Integral>(n: a, d: a): (a, a) =\n" +
-          "  let g = gcd(n, d)\n" +
-          "  let n2 = quot(n, g)\n" +
-          "  let d2 = quot(d, g)\n" +
-          "  (n2, d2)\n" +
+          "    let g = gcd(n, d)\n" +
+          "    let n2 = quot(n, g)\n" +
+          "    let d2 = quot(d, g)\n" +
+          "    (n2, d2)\n" +
           "let result = normalize(4n, 6n)",
       ),
     );
@@ -1145,17 +1145,17 @@ describe("emitJavaScript", () => {
         "record Rat derives Eq = {top: BigInt, bottom: BigInt}\n" +
           "exception DivideByZeroError(message: String)\n" +
           "let create(top: BigInt, bottom: BigInt): Rat =\n" +
-          "  if bottom == 0n\n" +
-          "    throw(DivideByZeroError(\"Rat.create: bottom is zero\"))\n" +
-          "  else\n" +
-          "    let divisor = BigInt.gcd(top, bottom)\n" +
-          "    let reducedTop = BigInt.quot(top, divisor)\n" +
-          "    let reducedBottom = BigInt.quot(bottom, divisor)\n" +
-          "    if reducedBottom < 0n\n" +
-          "      Rat({top: -reducedTop, bottom: -reducedBottom})\n" +
-          "    else Rat({top: reducedTop, bottom: reducedBottom})\n" +
+          "    if bottom == 0n\n" +
+          "        throw(DivideByZeroError(\"Rat.create: bottom is zero\"))\n" +
+          "    else\n" +
+          "        let divisor = BigInt.gcd(top, bottom)\n" +
+          "        let reducedTop = BigInt.quot(top, divisor)\n" +
+          "        let reducedBottom = BigInt.quot(bottom, divisor)\n" +
+          "        if reducedBottom < 0n\n" +
+          "            Rat({top: -reducedTop, bottom: -reducedBottom})\n" +
+          "        else Rat({top: reducedTop, bottom: reducedBottom})\n" +
           "let add(left: Rat, right: Rat): Rat =\n" +
-          "  create(left.top * right.bottom + right.top * left.bottom, left.bottom * right.bottom)\n" +
+          "    create(left.top * right.bottom + right.top * left.bottom, left.bottom * right.bottom)\n" +
           "let half = create(1n, 2n)\n" +
           "let third = create(1n, 3n)\n" +
           "let fiveSixths = add(half, third)\n" +
@@ -1204,13 +1204,13 @@ describe("emitJavaScript", () => {
         "record Box = {value: Int}\n" +
           "let create(value: Int): Box = Box({value})\n" +
           "honor Num<Box> =\n" +
-          "  add(left, right) = Box({value: left.value + right.value})\n" +
-          "  multiply(left, right) = Box({value: left.value * right.value})\n" +
-          "  fromNat(value) = create(value)\n" +
+          "    add(left, right) = Box({value: left.value + right.value})\n" +
+          "    multiply(left, right) = Box({value: left.value * right.value})\n" +
+          "    fromNat(value) = create(value)\n" +
           "honor Signed<Box> =\n" +
-          "  subtract(left, right) = Box({value: left.value - right.value})\n" +
-          "  negate(box) = Box({value: -box.value})\n" +
-          "  fromInt(value) = Box({value})\n" +
+          "    subtract(left, right) = Box({value: left.value - right.value})\n" +
+          "    negate(box) = Box({value: -box.value})\n" +
+          "    fromInt(value) = Box({value})\n" +
           "let count: Int = 3\n" +
           "let box = Box({value: 2})\n" +
           "let combined = count + box",
@@ -1259,7 +1259,7 @@ describe("emitJavaScript", () => {
   test("emits block returns and immediately called lambdas", () => {
     const output = emitJavaScript(
       coreSource(
-        "let compute = () =>\n  let value = 1\n  value\n" +
+        "let compute = () =>\n    let value = 1\n    value\n" +
           "let immediate = (x => x)(2)",
       ),
     );
@@ -1417,7 +1417,7 @@ describe("emitJavaScript", () => {
   test("declares user constraint members as generic dictionary dispatch", () => {
     const module = coreSource(
       "constraint Render<a> =\n" +
-        "  render(value: a): String\n" +
+        "    render(value: a): String\n" +
         "let display<a: Render>(value: a): String = render(value)",
     );
 
@@ -1435,10 +1435,10 @@ describe("emitJavaScript", () => {
   test("checks ground honor declarations and selects their dictionaries", () => {
     const module = coreSource(
       "constraint Render<a> =\n" +
-        "  render(value: a): String\n" +
+        "    render(value: a): String\n" +
         "record Point = {x: Int}\n" +
         "honor Render<Point> =\n" +
-        '  render(point) = "Point(${point.x})"\n' +
+        '    render(point) = "Point(${point.x})"\n' +
         "let display<a: Render>(value: a): String = render(value)\n" +
         "export let text = display(Point({x: 3}))",
     );
@@ -1457,11 +1457,11 @@ describe("emitJavaScript", () => {
   test("emits inherited defaults through the instance dictionary", () => {
     const module = coreSource(
       "constraint Same<a> =\n" +
-        "  same(left: a, right: a): Bool\n" +
-        "  different(left: a, right: a): Bool = not same(left, right)\n" +
+        "    same(left: a, right: a): Bool\n" +
+        "    different(left: a, right: a): Bool = not same(left, right)\n" +
         "record Token = {value: Int}\n" +
         "honor Same<Token> =\n" +
-        "  same(left, right) = left.value == right.value\n" +
+        "    same(left, right) = left.value == right.value\n" +
         "export let changed = different(Token({value: 1}), Token({value: 2}))",
     );
 
@@ -1480,14 +1480,14 @@ describe("emitJavaScript", () => {
   test("emits superconstraint slots and selects them as generic evidence", () => {
     const module = coreSource(
       "constraint Same<a> =\n" +
-        "  same(left: a, right: a): Bool\n" +
+        "    same(left: a, right: a): Bool\n" +
         "constraint Labeled<a: Same> =\n" +
-        "  label(value: a): String\n" +
+        "    label(value: a): String\n" +
         "record Token = {value: Int}\n" +
         "honor Same<Token> =\n" +
-        "  same(left, right) = left.value == right.value\n" +
+        "    same(left, right) = left.value == right.value\n" +
         "honor Labeled<Token> =\n" +
-        '  label(value) = "token"\n' +
+        '    label(value) = "token"\n' +
         "fun agrees<a: Labeled>(left: a, right: a): Bool = same(left, right)\n" +
         "export let yes = agrees(Token({value: 1}), Token({value: 1}))",
     );
@@ -1505,12 +1505,12 @@ describe("emitJavaScript", () => {
   test("emits parameterized honors as dictionary factories", () => {
     const module = coreSource(
         "constraint Render<a> =\n" +
-        "  render(value: a): String\n" +
+        "    render(value: a): String\n" +
         "honor Render<Int> =\n" +
-        '  render(value) = "${value}"\n' +
+        '    render(value) = "${value}"\n' +
         "record Box(a) = {value: a}\n" +
         "honor<a: Render> Render<Box(a)> =\n" +
-        '  render(box) = "Box(${render(box.value)})"\n' +
+        '    render(box) = "Box(${render(box.value)})"\n' +
         "export let text = render(Box({value: 42}))",
     );
 
@@ -1560,12 +1560,12 @@ describe("emitJavaScript", () => {
   test("erases implied type bindings while emitting their instance dictionary", () => {
     const module = coreSource(
       "constraint Source<a> =\n" +
-        "  type Item\n" +
-        "  get(value: a): Item\n" +
+        "    type Item\n" +
+        "    get(value: a): Item\n" +
         "record Box = {value: Int}\n" +
         "honor Source<Box> =\n" +
-        "  type Item = Int\n" +
-        "  get(box) = box.value\n" +
+        "    type Item = Int\n" +
+        "    get(box) = box.value\n" +
         "export let answer: Int = get(Box({value: 42}))",
     );
 

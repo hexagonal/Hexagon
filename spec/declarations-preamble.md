@@ -52,9 +52,9 @@ record Pair(a, b) derives (Eq, Show) = {first: a, second: b}
 union Option(a) derives (Eq, Show) = Some(value: a) | None
 union Shape
     derives (Eq, Show) =
-  | Circle(radius: Float)
-  | Rect(width: Float, height: Float)
-  | Point
+    | Circle(radius: Float)
+    | Rect(width: Float, height: Float)
+    | Point
 
 type UserName = String
 type Handler(a) = a -> Unit
@@ -94,14 +94,14 @@ A declaration's header and RHS are **one logical line under ordinary offside han
 ```
 union Shape
     derives (Eq, Show) =        -- derives on its own continuation line
-  | Circle(radius: Float)        -- alternatives are continuations, not a block
-  | Rect(width: Float, height: Float)
-  | Point
+    | Circle(radius: Float)        -- alternatives are continuations, not a block
+    | Rect(width: Float, height: Float)
+    | Point
 
 record Config derives (Eq) = {
-  host: String,                  -- record braces may span lines; braces make this
-  port: Int,                     -- trivially a continuation regardless
-  verbose: Bool
+    host: String,                  -- record braces may span lines; braces make this
+    port: Int,                     -- trivially a continuation regardless
+    verbose: Bool
 }
 ```
 
@@ -279,10 +279,10 @@ type Lookup(k, v) = k -> Option(v)
 
 -- (b) Multi-line union with header derives on a continuation line
 union Shape
-    derives (Eq, Show) =
-  | Circle(radius: Float)
-  | Rect(width: Float, height: Float)
-  | Point
+        derives (Eq, Show) =
+    | Circle(radius: Float)
+    | Rect(width: Float, height: Float)
+    | Point
 -- one declaration; no VSEP fires; adding `| Ring(inner: Float, outer: Float)`
 -- is a one-line diff that does not touch the derives clause
 

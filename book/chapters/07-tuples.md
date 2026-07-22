@@ -104,7 +104,7 @@ A function still returns one value, but that value may be a tuple:
 
 ```hexagon
 let minMax(first: Int, second: Int): (Int, Int) =
-  if first <= second then (first, second) else (second, first)
+    if first <= second then (first, second) else (second, first)
 
 let (smallest, largest) = minMax(8, 3)
 ```
@@ -118,7 +118,7 @@ Tuples can also carry intermediate state without mutation:
 
 ```hexagon
 let nextPosition(x: Int, y: Int): (Int, Int) =
-  (x + 1, y + 1)
+    (x + 1, y + 1)
 ```
 
 ## One tuple is not several arguments
@@ -149,8 +149,8 @@ Or define a function that deliberately accepts one tuple parameter:
 
 ```hexagon
 let movePoint(point: (Float, Float)): String =
-  let (x, y) = point
-  "Move to ${x}, ${y}"
+    let (x, y) = point
+    "Move to ${x}, ${y}"
 
 movePoint(coordinates)
 ```

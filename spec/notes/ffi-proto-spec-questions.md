@@ -162,9 +162,9 @@ The exact three-way reading is an ordinary Hexagon union:
 
 ```hexagon
 union NullableCase(a) =
-  Undefined
-  | Null
-  | Value(value: a)
+    Undefined
+    | Null
+    | Value(value: a)
 ```
 
 `Nullable.toCase` preserves the distinction and supports exhaustive ordinary pattern matching; the `Value(value)` arm extracts an `a`. `Nullable.toOption` remains the shorter common path when both absence forms deliberately mean `None`.
@@ -303,10 +303,10 @@ Foreign bindings use JavaScript's `from "specifier"` vocabulary, TypeScript-like
 
 ```hexagon
 extern from "tiny-json"
-  export type JsonValue
-  export fun parse(text: String): JsonValue
-  export fun stringify(value: JsonValue): String
-  let VERSION as version: String
+    export type JsonValue
+    export fun parse(text: String): JsonValue
+    export fun stringify(value: JsonValue): String
+    let VERSION as version: String
 ```
 
 The block introduces ordinary module-level Hexagon bindings. They are private unless individually prefixed with `export`; an exported extern binding is re-exported from the compiled Hexagon facade and appears in its `.d.ts`. The foreign module specifier may be a bare package specifier because this construct is explicitly outside Hexagon-to-Hexagon import resolution.
@@ -332,7 +332,7 @@ Targeted syntax diagnostics prevent the ordinary Hexagon `let`-function habit fr
 
 ```hexagon
 extern from "tiny-json"
-  let parse(text: String): JsonValue
+    let parse(text: String): JsonValue
 ```
 
 > extern callable declarations use `fun`; write `fun parse(text: String): JsonValue`
@@ -351,12 +351,12 @@ For example:
 
 ```hexagon
 extern from "url-tools"
-  export type SearchParams
+    export type SearchParams
 
-  export method get(
-    params: SearchParams,
-    key: String,
-  ): Nullable(String)
+    export method get(
+        params: SearchParams,
+        key: String,
+    ): Nullable(String)
 ```
 
 The first parameter is mandatory and remains the explicit Hexagon subject. Hexagon sees the ordinary function type:
@@ -399,12 +399,12 @@ Receiver properties follow their JavaScript operation by analogy, while entering
 
 ```hexagon
 extern from "web-response"
-  export type Response
-  export type Headers
+    export type Response
+    export type Headers
 
-  export get status(response: Response): Int
-  export get headers(response: Response): Headers
-  export get redirected(response: Response): Bool
+    export get status(response: Response): Int
+    export get headers(response: Response): Headers
+    export get redirected(response: Response): Bool
 ```
 
 Hexagon calls:
@@ -439,14 +439,14 @@ A writable property requires an explicit `set` declaration; a `get` declaration 
 
 ```hexagon
 extern from "http-client"
-  export type Request
+    export type Request
 
-  export get timeout(request: Request): Int
+    export get timeout(request: Request): Int
 
-  export set timeout as setTimeout(
-    request: Request,
-    value: Int,
-  ): Unit
+    export set timeout as setTimeout(
+        request: Request,
+        value: Int,
+    ): Unit
 ```
 
 ```hexagon
@@ -503,8 +503,8 @@ Thus the house rule is:
 
 ```hexagon
 extern from "node:url"
-  class URL as Url
-    new as create(text: String)
+    class URL as Url
+        new as create(text: String)
 ```
 
 ```hexagon
@@ -525,14 +525,14 @@ An extern class may declare static receiver operations alongside construction an
 
 ```hexagon
 extern from "node:url"
-  export class URL as Url
-    new as create(text: String)
+    export class URL as Url
+        new as create(text: String)
 
-    static method canParse(text: String): Bool
-    static get defaultPort(): Int
+        static method canParse(text: String): Bool
+        static get defaultPort(): Int
 
-    method toString(url: Url): String
-    get hostname(url: Url): String
+        method toString(url: Url): String
+        get hostname(url: Url): String
 ```
 
 The Hexagon companion surface is:
@@ -596,7 +596,7 @@ JavaScript default exports ship in v1. Inside an extern block, `default` can onl
 
 ```hexagon
 extern from "client-library"
-  default fun createClient(config: Config): Client
+    default fun createClient(config: Config): Client
 ```
 
 ```js
@@ -607,7 +607,7 @@ The binding is private by default. The ordinary leading `export` modifier makes 
 
 ```hexagon
 extern from "client-library"
-  export default fun createClient(config: Config): Client
+    export default fun createClient(config: Config): Client
 ```
 
 This does **not** create a Hexagon or emitted-JS default export. Directionally:
@@ -629,11 +629,11 @@ The same linkage modifier applies to values and classes:
 
 ```hexagon
 extern from "settings"
-  default let settings: Settings
+    default let settings: Settings
 
 extern from "database-client"
-  export default class Client
-    new as create(config: Config)
+    export default class Client
+        new as create(config: Config)
 ```
 
 `export` keeps its sole Hexagon meaning throughout: expose the declaration's local binding. `default` keeps its extern-only meaning: select the unnamed JavaScript export. The contextual reading is preferred over the less familiar `default export` order.
@@ -642,10 +642,10 @@ Optional/default parameters are not introduced by FFI. V1 extern callables have 
 
 ```hexagon
 extern from "library"
-  fun lookupRaw(
-    key: String,
-    fallback: Nullable(String),
-  ): String
+    fun lookupRaw(
+        key: String,
+        fallback: Nullable(String),
+    ): String
 ```
 
 Callers use `Nullable.undefined` for the ordinary omitted/default JS case and `Nullable.null` when the API specifically distinguishes explicit null. Rest parameters, overload declarations, and general optional-argument syntax remain outside this core decision.
@@ -671,18 +671,18 @@ Callbacks are required for a usable JavaScript FFI, but v1 supports only **repre
 
 ```hexagon
 extern from "event-source"
-  type Event
-  type Target
+    type Event
+    type Target
 
-  fun addListener(
-    target: Target,
-    callback: Event -> Unit,
-  ): Unit
+    fun addListener(
+        target: Target,
+        callback: Event -> Unit,
+    ): Unit
 
-  fun removeListener(
-    target: Target,
-    callback: Event -> Unit,
-  ): Unit
+    fun removeListener(
+        target: Target,
+        callback: Event -> Unit,
+    ): Unit
 ```
 
 `Event` is an opaque representation-direct foreign value, and `Unit` is JavaScript `undefined`; no wrapper is required. Passing the same Hexagon function to `addListener` and `removeListener` therefore passes the same JS function identity naturally. No weak wrapper cache exists in v1 because no supported callback signature needs a wrapper.
@@ -693,7 +693,7 @@ Adapter-requiring callback signatures are rejected in v1. The canonical example 
 
 ```hexagon
 extern from "stream-tools"
-  fun visit(callback: Seq(Int) -> Unit): Unit
+    fun visit(callback: Seq(Int) -> Unit): Unit
 ```
 
 An arbitrary JS `Iterable<number>` would require a fresh persistent-`Seq` adaptation at each callback invocation, which in turn introduces wrapper identity, retention, failure, and lifetime questions. V1 does not generate that wrapper. The diagnostic identifies the nested `Seq` and recommends a representation-direct type, an explicit eager conversion at a controlled boundary, or a small JavaScript shim. This does not affect already-decided **top-level** `Seq` crossing (`extern fun values(): Seq(Int)`), whose one boundary adapter remains supported (§3).

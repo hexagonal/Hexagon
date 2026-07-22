@@ -164,10 +164,11 @@ describe("lex", () => {
     expect(result.diagnostics.map(({ message }) => message)).toEqual([
       "indentation uses spaces; tabs are not allowed here",
     ]);
+    expect(result.diagnostics[0]?.fixes?.[0]?.edits[0]?.replacement).toBe("    ");
   });
 
   test("keeps interpolations nested inside one string token", () => {
-    const result = lexSource('"a\r\n${\n user.name} b \\u{1F600}"');
+    const result = lexSource('"a\r\n${\n  user.name} b \\u{1F600}"');
     const string = result.tokens[0] as Lexed.StringToken;
 
     expect(string.kind).toBe("String");

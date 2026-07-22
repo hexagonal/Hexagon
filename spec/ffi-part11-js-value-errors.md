@@ -38,8 +38,8 @@ Fixed here, from the approved package:
 
 ```hexagon
 union JsKind =
-  Undefined | Null | Bool | Number | BigInt
-  | String | Symbol | Function | Array | Object
+    Undefined | Null | Bool | Number | BigInt
+    | String | Symbol | Function | Array | Object
 ```
 
 All-nullary, so its JS representation is the string union — pleasant and free (Unions §6.2).
@@ -103,20 +103,20 @@ This part's composable decoder surface returns `Result(_, JsConversionError)` so
 
 ```hexagon
 union JsPathSegment =
-  Field(name: String)
-  | Index(index: Int)                          -- 1-based
-  | MapKey(position: Int)                      -- 1-based source-iteration position
-  | MapValue(position: Int)
-  | SetElement(position: Int)
+    Field(name: String)
+    | Index(index: Int)                          -- 1-based
+    | MapKey(position: Int)                      -- 1-based source-iteration position
+    | MapValue(position: Int)
+    | SetElement(position: Int)
 
 union JsConversionReason =
-  Shape
-  | Range
-  | Cycle(firstSeen: Vector(JsPathSegment))
+    Shape
+    | Range
+    | Cycle(firstSeen: Vector(JsPathSegment))
 
 record JsConversionError = {
-  reason: JsConversionReason,
-  path: Vector(JsPathSegment),
+    reason: JsConversionReason,
+    path: Vector(JsPathSegment),
 }
 ```
 

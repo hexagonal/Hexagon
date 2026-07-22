@@ -4,8 +4,8 @@ The previous chapter calculated an order total from two `Int` values:
 
 ```hexagon
 export let orderTotal(subtotal: Int, delivery: Int): Int =
-  let total = subtotal + delivery
-  total
+    let total = subtotal + delivery
+    total
 ```
 
 `Int` is one of the **seven primitive types**. These are the small values from which larger
@@ -173,8 +173,8 @@ interpolation:
 
 ```hexagon
 export let orderSummary(subtotal: Int, delivery: Int): String =
-  let total = orderTotal(subtotal, delivery)
-  "Order total: ${total}"
+    let total = orderTotal(subtotal, delivery)
+    "Order total: ${total}"
 ```
 
 `${total}` evaluates the expression and inserts its human-readable display. For this

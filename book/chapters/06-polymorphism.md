@@ -35,7 +35,7 @@ used earlier:
 
 ```hexagon
 let orderTotal(subtotal: Int, delivery: Int): Int =
-  subtotal + delivery
+    subtotal + delivery
 ```
 
 Inference and annotation cooperate. The body still has to satisfy the written type;
@@ -82,8 +82,8 @@ This attempted higher-order function fails:
 
 ```hexagon
 let useAtTwoTypes(f) =
-  ignore(f(1))
-  f("hello")
+    ignore(f(1))
+    f("hello")
 ```
 
 Within one call to `useAtTwoTypes`, the parameter `f` has one type. Its first use says
@@ -153,7 +153,7 @@ Annotations are useful when they communicate intent:
 
 ```hexagon
 export let circleArea(radius: Float): Float =
-  3.14 * radius ** 2.0
+    3.14 * radius ** 2.0
 ```
 
 They also resolve an otherwise ambiguous producer or deliberately restrict a more

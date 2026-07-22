@@ -4,8 +4,8 @@ The first function in this book was deliberately ordinary:
 
 ```hexagon
 export let orderTotal(subtotal: Int, delivery: Int): Int =
-  let total = subtotal + delivery
-  total
+    let total = subtotal + delivery
+    total
 ```
 
 Functions are Hexagon's everyday way to organize behavior. They accept values, produce
@@ -23,7 +23,7 @@ The header form gives a name, parameters, and a body:
 
 ```hexagon
 let orderTotal(subtotal, delivery) =
-  subtotal + delivery
+    subtotal + delivery
 ```
 
 Hexagon infers the types from the body and its uses. Annotations can make the intended
@@ -34,7 +34,7 @@ The header is convenient syntax for binding a lambda:
 
 ```hexagon
 let orderTotal = (subtotal, delivery) =>
-  subtotal + delivery
+    subtotal + delivery
 ```
 
 These definitions mean exactly the same thing. They are not two subtly different kinds
@@ -75,9 +75,9 @@ It can also be passed to a function that controls when or how it is called:
 
 ```hexagon
 let logResult(calculate, subtotal, delivery) =
-  let total = calculate(subtotal, delivery)
-  print("Calculated ${total}")
-  total
+    let total = calculate(subtotal, delivery)
+    print("Calculated ${total}")
+    total
 ```
 
 Nothing object-oriented or reflective happens here. `calculate` is a parameter whose
@@ -88,7 +88,7 @@ Anonymous functions are especially useful for small adaptations:
 
 ```hexagon
 let withStandardDelivery = subtotal =>
-  orderTotal(subtotal, 5)
+    orderTotal(subtotal, 5)
 
 let total = withStandardDelivery(80)
 ```
@@ -157,14 +157,14 @@ parameter list:
 
 ```hexagon
 let orderTotal(subtotal: Int, delivery: Int): Int =
-  subtotal + delivery
+    subtotal + delivery
 ```
 
 Any subset may be annotated. Inference fills the remainder:
 
 ```hexagon
 let orderTotal(subtotal: Int, delivery) =
-  subtotal + delivery
+    subtotal + delivery
 ```
 
 Annotations are checked against the body. They can document a public boundary or
@@ -230,7 +230,7 @@ Like every `let`, the function name is not in scope inside its own right-hand si
 
 ```hexagon
 let factorial(n: Int): Int =
-  if n <= 1 then 1 else n * factorial(n - 1)
+    if n <= 1 then 1 else n * factorial(n - 1)
 ```
 
 This is an error even though the self-reference sits inside the function body. `let` is
@@ -246,14 +246,14 @@ Change the binding word when self-reference is part of the definition:
 
 ```hexagon
 fun factorial(n: Int): Int =
-  if n <= 1 then 1 else n * factorial(n - 1)
+    if n <= 1 then 1 else n * factorial(n - 1)
 ```
 
 The body must be a lambda, either through this header form or written directly:
 
 ```hexagon
 fun factorial = (n: Int): Int =>
-  if n <= 1 then 1 else n * factorial(n - 1)
+    if n <= 1 then 1 else n * factorial(n - 1)
 ```
 
 A non-function right-hand side is not legal under `fun`. Nor can an arbitrary function-
@@ -288,20 +288,20 @@ Two `fun` declarations may refer to each other:
 
 ```hexagon
 fun isEven(n: Int): Bool =
-  if n == 0
-    true
-  else if n > 0
-    isOdd(n - 1)
-  else
-    isOdd(n + 1)
+    if n == 0
+        true
+    else if n > 0
+        isOdd(n - 1)
+    else
+        isOdd(n + 1)
 
 fun isOdd(n: Int): Bool =
-  if n == 0
-    false
-  else if n > 0
-    isEven(n - 1)
-  else
-    isEven(n + 1)
+    if n == 0
+        false
+    else if n > 0
+        isEven(n - 1)
+    else
+        isEven(n + 1)
 ```
 
 The pair forms one recursive group. Calls between their bodies are valid regardless of
@@ -317,7 +317,7 @@ JavaScript form.
 let orderTotal(subtotal, delivery) = subtotal + delivery
 
 fun factorial(n: Int): Int =
-  if n <= 1 then 1 else n * factorial(n - 1)
+    if n <= 1 then 1 else n * factorial(n - 1)
 ```
 
 emits in this shape:

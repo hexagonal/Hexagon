@@ -63,9 +63,9 @@ expects a value:
 
 ```hexagon
 let requireName(possibleName: Option(String)): String =
-  match possibleName
-    Some(name) => name
-    None => throw(NotFound)
+    match possibleName
+        Some(name) => name
+        None => throw(NotFound)
 ```
 
 The function still returns `String` when it returns normally.
@@ -83,13 +83,13 @@ an exhaustiveness error:
 
 ```hexagon
 let loadConfiguration(path: String): Configuration =
-  try
-    readConfiguration(path)
-  catch
-    ParseError(line, message) =>
-      print("Line ${line}: ${message}")
-      defaultConfiguration
-    NotFound => defaultConfiguration
+    try
+        readConfiguration(path)
+    catch
+        ParseError(line, message) =>
+            print("Line ${line}: ${message}")
+            defaultConfiguration
+        NotFound => defaultConfiguration
 ```
 
 The `try` body and every catch-arm body must produce the same type. Here successful
@@ -115,9 +115,9 @@ A wildcard catches everything:
 
 ```hexagon
 try
-  riskyOperation()
+    riskyOperation()
 catch
-  _ => fallback
+    _ => fallback
 ```
 
 Use that breadth deliberately—it includes both Hexagon and foreign failures. Reachability
@@ -144,9 +144,9 @@ Catch it like another constructor:
 
 ```hexagon
 try
-  callForeignParser(input)
+    callForeignParser(input)
 catch
-  JsError(error) => handleForeignError(error)
+    JsError(error) => handleForeignError(error)
 ```
 
 The payload is an opaque `JsValue`; Hexagon does not pretend that arbitrary thrown
@@ -159,7 +159,7 @@ too:
 
 ```hexagon
 JsError(error) =>
-  if canRecover(error) then fallback else throw(JsError(error))
+    if canRecover(error) then fallback else throw(JsError(error))
 ```
 
 This wrapping is virtual in the common catch and rethrow paths; Hexagon need not
@@ -179,7 +179,7 @@ when anything is thrown:
 
 ```hexagon
 let loaded: Result(Configuration, Exn) =
-  Result.attempt(() => readConfiguration(path))
+    Result.attempt(() => readConfiguration(path))
 ```
 
 This is an explicit bridge, not a coercion between `Exn` and `Result`. Once captured,

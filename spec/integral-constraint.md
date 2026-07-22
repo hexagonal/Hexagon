@@ -17,11 +17,11 @@ The motivating v1 client is `Rat`, whose top and bottom use `BigInt` — `gcd` f
 
 ```
 constraint Integral<a: (Num, Ord)> =
-  div(x: a, y: a): a       -- Euclidean quotient
-  mod(x: a, y: a): a       -- Euclidean remainder, in [0, abs(y))
-  quot(x: a, y: a): a      -- truncated quotient
-  rem(x: a, y: a): a       -- truncated remainder
-  gcd(x: a, y: a): a       -- greatest common divisor, always >= 0
+    div(x: a, y: a): a       -- Euclidean quotient
+    mod(x: a, y: a): a       -- Euclidean remainder, in [0, abs(y))
+    quot(x: a, y: a): a      -- truncated quotient
+    rem(x: a, y: a): a       -- truncated remainder
+    gcd(x: a, y: a): a       -- greatest common divisor, always >= 0
 ```
 
 - **Superconstraints `(Num, Ord)`**: `Num` gives generic code non-negative literals via `fromNat`, and `Ord` gives comparisons. `Nat`, `Int`, and `BigInt` satisfy both. Code that also subtracts, negates, or normalizes signs states `Signed` separately; `Integral` itself does not require signedness.
@@ -111,11 +111,11 @@ Int.gcd(0, 0)       -- 0
 
 -- Polymorphic use: the Rat down payment
 fun normalize<a: Integral>(n: a, d: a): (a, a) =
-  let g = gcd(n, d)
-  if g == 0 then (0, 1)                    -- 0/0 input; literals via Num super
-  else
-    let (n2, d2) = (quot(n, g), quot(d, g))
-    if d2 < 0 then (negate(n2), negate(d2)) else (n2, d2)   -- Ord super at work
+    let g = gcd(n, d)
+    if g == 0 then (0, 1)                    -- 0/0 input; literals via Num super
+    else
+        let (n2, d2) = (quot(n, g), quot(d, g))
+        if d2 < 0 then (negate(n2), negate(d2)) else (n2, d2)   -- Ord super at work
 -- normalize : <a: Integral>(a, a) -> (a, a)
 -- concrete sites emit direct calls: normalize(4, -6) uses Int.gcd/Int.quot → (-2, 3)
 -- normalize(4n, -6n) uses the BigInt instance → (-2n, 3n)

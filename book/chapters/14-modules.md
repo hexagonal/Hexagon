@@ -14,7 +14,7 @@ Suppose `geometry.hex` contains:
 export record Point = {x: Float, y: Float}
 
 export let distanceFromOrigin(point: Point): Float =
-  (point.x ** 2.0 + point.y ** 2.0) ** 0.5
+    (point.x ** 2.0 + point.y ** 2.0) ** 0.5
 
 let origin = Point({x: 0.0, y: 0.0})
 ```
@@ -137,7 +137,7 @@ A user-defined type can follow the same pattern. In `point.hex`:
 export record Point = {x: Float, y: Float}
 
 export let translate(point: Point, dx: Float, dy: Float): Point =
-  {...point, x: point.x + dx, y: point.y + dy}
+    {...point, x: point.x + dx, y: point.y + dy}
 ```
 
 A consumer may import the type and give the module the same name:
@@ -184,8 +184,8 @@ Opaque unions hide all their constructors in the same way:
 
 ```hexagon
 export opaque union Handle =
-  FileHandle(descriptor: Int)
-  | NetworkHandle(socket: Int)
+    FileHandle(descriptor: Int)
+    | NetworkHandle(socket: Int)
 ```
 
 The home module can still construct and match both alternatives. Consumers use its

@@ -35,14 +35,14 @@ signature should deliberately be no more general:
 
 ```hexagon
 let smaller<a: Ord>(left: a, right: a): a =
-  if left < right then left else right
+    if left < right then left else right
 ```
 
 Several obligations use the familiar parenthesized list:
 
 ```hexagon
 let describeEqual<a: (Eq, Show)>(left: a, right: a): String =
-  if left == right then "Both are ${left}" else "They differ"
+    if left == right then "Both are ${left}" else "They differ"
 ```
 
 The angle brackets introduce a type variable and its obligations. Parentheses still
@@ -55,8 +55,8 @@ Programs may define capabilities of their own:
 
 ```hexagon
 constraint Area<a> =
-  area(value: a): Float
-  describeArea(value: a): String = "Area: ${area(value)}"
+    area(value: a): Float
+    describeArea(value: a): String = "Area: ${area(value)}"
 ```
 
 The subject `a` is the type being described. A member without a body is required, so
@@ -68,7 +68,7 @@ Use either operation like an ordinary function:
 
 ```hexagon
 let reportArea<a: Area>(shape: a): String =
-  describeArea(shape)
+    describeArea(shape)
 ```
 
 The default calls the `area` operation from whichever instance is in use. Call
@@ -84,7 +84,7 @@ Suppose a program declares a nominal rectangle:
 record Rectangle = {width: Float, height: Float}
 
 honor Area<Rectangle> =
-  area(rectangle) = rectangle.width * rectangle.height
+    area(rectangle) = rectangle.width * rectangle.height
 ```
 
 The declaration reads naturally: this program **honors** the `Area` obligation for
@@ -97,9 +97,9 @@ version:
 
 ```hexagon
 honor Area<Rectangle> =
-  area(rectangle) = rectangle.width * rectangle.height
-  describeArea(rectangle) =
-    "${rectangle.width} × ${rectangle.height}: ${area(rectangle)} square units"
+    area(rectangle) = rectangle.width * rectangle.height
+    describeArea(rectangle) =
+        "${rectangle.width} × ${rectangle.height}: ${area(rectangle)} square units"
 ```
 
 This is an alternative to the preceding instance, not a second instance: coherence
@@ -110,7 +110,7 @@ Every required member must appear exactly once. A misspelling is not a new helpe
 
 ```hexagon
 honor Area<Rectangle> =
-  arrea(rectangle) = rectangle.width * rectangle.height
+    arrea(rectangle) = rectangle.width * rectangle.height
 // error: Area has no member arrea; the instance is missing area
 ```
 
@@ -120,8 +120,8 @@ The prelude uses the same mechanism for `Eq`:
 
 ```hexagon
 constraint Eq<a> =
-  equals(left: a, right: a): Bool
-  notEquals(left: a, right: a): Bool = not equals(left, right)
+    equals(left: a, right: a): Bool
+    notEquals(left: a, right: a): Bool = not equals(left, right)
 ```
 
 An `Eq` instance must supply `equals`. It normally inherits `notEquals`, and the `!=`
@@ -151,7 +151,7 @@ true of the contained types:
 
 ```hexagon
 honor<a: Show> Show<Box(a)> =
-  show(box) = "Box(${show(box.value)})"
+    show(box) = "Box(${show(box.value)})"
 ```
 
 Read the header in two parts:
@@ -190,7 +190,7 @@ Ordering must agree with equality, so the prelude declares `Ord` with `Eq` as a
 
 ```hexagon
 constraint Ord<a: Eq> =
-  compare(left: a, right: a): Ordering
+    compare(left: a, right: a): Ordering
 ```
 
 Read the header from left to right: `Ord` implies `Eq`. A function requiring `Ord` may
@@ -201,14 +201,14 @@ The numeric hierarchy uses the same mechanism:
 
 ```hexagon
 constraint Num<a> =
-  add(left: a, right: a): a
-  multiply(left: a, right: a): a
-  fromNat(value: Nat): a
+    add(left: a, right: a): a
+    multiply(left: a, right: a): a
+    fromNat(value: Nat): a
 
 constraint Signed<a: Num> =
-  subtract(left: a, right: a): a
-  negate(value: a): a
-  fromInt(value: Int): a
+    subtract(left: a, right: a): a
+    negate(value: a): a
+    fromInt(value: Int): a
 ```
 
 Nat honors Num but not Signed. Int, Float, BigInt, and Rat honor both. A function that

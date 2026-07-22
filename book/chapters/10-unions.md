@@ -5,9 +5,9 @@ one of those alternatives:
 
 ```hexagon
 union DeliveryStatus =
-  | Pending
-  | Dispatched(tracking: String)
-  | Delivered
+    | Pending
+    | Dispatched(tracking: String)
+    | Delivered
 ```
 
 A **union** declares one nominal type with a closed set of possible shapes. Each
@@ -46,9 +46,9 @@ two styles in one payload:
 
 ```hexagon
 union Shape =
-  | Circle(radius: Float)
-  | Rectangle(width: Float, height: Float)
-  | Point
+    | Circle(radius: Float)
+    | Rectangle(width: Float, height: Float)
+    | Point
 ```
 
 The name `tag` is reserved inside union payloads because emitted JavaScript uses it to
@@ -62,10 +62,10 @@ expression handles the alternatives:
 
 ```hexagon
 let displayStatus(status: DeliveryStatus): String =
-  match status
-    Pending => "Waiting to leave"
-    Dispatched(code) => "In transit: ${code}"
-    Delivered => "Delivered"
+    match status
+        Pending => "Waiting to leave"
+        Dispatched(code) => "In transit: ${code}"
+        Delivered => "Delivered"
 ```
 
 Constructor patterns are positional, so `Dispatched(code)` binds the payload to the
@@ -93,9 +93,9 @@ Type parameters let one family of alternatives carry many types:
 
 ```hexagon
 union LoadState(a) =
-  | Loading
-  | Loaded(value: a)
-  | Failed(message: String)
+    | Loading
+    | Loaded(value: a)
+    | Failed(message: String)
 ```
 
 `Loaded(42)` has type `LoadState(Int)`; `Loaded("ready")` has type
@@ -106,8 +106,8 @@ real step in the data:
 
 ```hexagon
 union IntTree =
-  | Leaf
-  | Node(left: IntTree, value: Int, right: IntTree)
+    | Leaf
+    | Node(left: IntTree, value: Int, right: IntTree)
 ```
 
 Each `Node` contains smaller tree values. A later recursive function can inspect them
@@ -125,16 +125,16 @@ Use `Some(value)` when a value exists and `None` when it does not:
 
 ```hexagon
 let findGuest(id: Int): Option(String) =
-  if id == 42 then Some("Mira") else None
+    if id == 42 then Some("Mira") else None
 ```
 
 The caller must handle both cases:
 
 ```hexagon
 let greeting =
-  match findGuest(42)
-    Some(name) => "Hello, ${name}!"
-    None => "Guest not found"
+    match findGuest(42)
+        Some(name) => "Hello, ${name}!"
+        None => "Guest not found"
 ```
 
 `Option(a)` is not secretly `a | undefined`. Its constructors remain distinct even
@@ -154,10 +154,10 @@ The first type parameter is the success value and the second is the error value:
 
 ```hexagon
 let validatePort(port: Int): Result(Int, String) =
-  if 1 <= port <= 65535
-    Ok(port)
-  else
-    Err("port must be between 1 and 65535")
+    if 1 <= port <= 65535
+        Ok(port)
+    else
+        Err("port must be between 1 and 65535")
 ```
 
 A result makes failure part of the function's ordinary return type. The caller chooses
@@ -165,9 +165,9 @@ how to recover:
 
 ```hexagon
 let message =
-  match validatePort(8080)
-    Ok(port) => "Listening on ${port}"
-    Err(problem) => "Invalid port: ${problem}"
+    match validatePort(8080)
+        Ok(port) => "Listening on ${port}"
+        Err(problem) => "Invalid port: ${problem}"
 ```
 
 Exceptions remain available for exceptional control flow, but `Result` is the common

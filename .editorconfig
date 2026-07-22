@@ -1,0 +1,17 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+trim_trailing_whitespace = true
+
+[*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}]
+indent_size = 2
+
+[*.hex]
+indent_size = 4
+
+[*.md]
+trim_trailing_whitespace = false

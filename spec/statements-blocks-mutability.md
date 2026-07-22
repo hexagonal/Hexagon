@@ -257,43 +257,43 @@ This spec imposed two requirements on loops, both now normative in `loops-ranges
 ```
 -- (a) The accumulator shape (loop form per loops-ranges-iteration.md)
 fun sumTo(n) =
-  var total = 0
-  ... total := total + i ...        -- however iterated
-  total
+    var total = 0
+    ... total := total + i ...        -- however iterated
+    total
 -- total : Int; emits let total = 0; ... total = total + i; ... return total;
 
 -- (b) Block-final assignment: Unit function, no ceremony
 fun bump() = count := count + 1     -- ERROR if count is outer (crosses `fun`'s lambda);
                                     -- legal only for a var in the same body — so:
 fun step(n) =
-  var x = n
-  x := x + 1
-  x                                  -- step : Int -> Int
+    var x = n
+    x := x + 1
+    x                                  -- step : Int -> Int
 
 -- (c) Discarded value
 fun process(items) =
-  validateAll(items)                 -- ERROR: value discarded; use ignore(...)
-  saveAll(items)
+    validateAll(items)                 -- ERROR: value discarded; use ignore(...)
+    saveAll(items)
 
 fun process2(items) =
-  ignore(validateAll(items))         -- fine; emits validateAll(items);
-  saveAll(items)
+    ignore(validateAll(items))         -- fine; emits validateAll(items);
+    saveAll(items)
 
 -- (d) Block-final binding
 fun f() =
-  let x = compute()                  -- ERROR: block cannot end with a let;
+    let x = compute()                  -- ERROR: block cannot end with a let;
                                      -- did you mean to return x?
 
 -- (e) Lambda boundary
 fun g(xs) =
-  var shift = 1
-  xs |> map(x => x + shift)          -- ERROR: shift is a var; copy to a let first
+    var shift = 1
+    xs |> map(x => x + shift)          -- ERROR: shift is a var; copy to a let first
 
 fun g2(xs) =
-  var shift = 1
-  ...
-  let s = shift
-  xs |> map(x => x + s)              -- fine
+    var shift = 1
+    ...
+    let s = shift
+    xs |> map(x => x + s)              -- fine
 
 -- (f) Head Binder Shadowing
 let x = 1
@@ -312,14 +312,14 @@ let name = currentUser()
 let {name, total} = order            -- ERROR: name is already bound; rename the
                                      -- field: {name: orderName}
 match order
-  {name, total} => use(name, total)  -- fine: match-arm binder is a head binder;
+    {name, total} => use(name, total)  -- fine: match-arm binder is a head binder;
                                      -- same pattern, different position, different class
 
 -- (g) Monomorphic var, value restriction
 fun h() =
-  var xs = emptyList()               -- xs : List(?1)
-  xs := ints                         -- pins ?1 := Int
-  xs := strings                      -- ERROR: xs has type List(Int)
+    var xs = emptyList()               -- xs : List(?1)
+    xs := ints                         -- pins ?1 := Int
+    xs := strings                      -- ERROR: xs has type List(Int)
 ```
 
 ### 9.2 Edit notes to existing specs (apply on merge)

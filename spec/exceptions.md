@@ -74,11 +74,11 @@ throw(err)                    -- err : Exn, constructed earlier
 
 ```
 try
-  parse(input)
+    parse(input)
 catch
-  ParseError(line, _) => defaultFor(line)
-  NotFound => fallback
-  JsError(e) => log(e); fallback
+    ParseError(line, _) => defaultFor(line)
+    NotFound => fallback
+    JsError(e) => log(e); fallback
 ```
 
 - **`try` takes a body** — same line or an indented layout block, final expression is its value (identical to lambda bodies, Functions §3.1). **`catch` takes a layout block of arms**, one per VSEP/`;`, each `pattern => body` — syntactically the same arm form as `match` (Unions §4.1), parsed in the same arm context, with the same `=>` token. Braced forms do not exist; a `{` after `try` or `catch` gets the standard records-not-blocks diagnostic (Lexer & Layout §5).

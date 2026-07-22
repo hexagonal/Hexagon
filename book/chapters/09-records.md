@@ -5,9 +5,9 @@ grows, names become more valuable than brevity:
 
 ```hexagon
 let reservation = {
-  guest: "Mira",
-  seats: 3,
-  confirmed: false
+    guest: "Mira",
+    seats: 3,
+    confirmed: false
 }
 ```
 
@@ -76,14 +76,14 @@ Write `...` when an annotation should permit additional fields:
 
 ```hexagon
 let guestName(reservation: {guest: String, ...}): String =
-  reservation.guest
+    reservation.guest
 ```
 
 Without `...`, the annotation is exact:
 
 ```hexagon
 let exactGuest(reservation: {guest: String}): String =
-  reservation.guest
+    reservation.guest
 
 exactGuest({guest: "Mira", seats: 3}) // error: extra field seats
 ```
@@ -95,10 +95,10 @@ tail expresses that relationship:
 
 ```hexagon
 let renameGuest(
-  reservation: {guest: String, ...r},
-  guest: String
+    reservation: {guest: String, ...r},
+    guest: String
 ): {guest: String, ...r} =
-  {...reservation, guest: guest}
+    {...reservation, guest: guest}
 ```
 
 The `r` means that every additional input field is also present in the result. Most

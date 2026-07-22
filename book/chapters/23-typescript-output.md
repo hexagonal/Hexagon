@@ -75,7 +75,7 @@ N-ary Hexagon functions become ordinary fixed-parameter TypeScript functions:
 
 ```hexagon
 export let between(value: Int, lower: Int, upper: Int): Bool =
-  lower <= value <= upper
+    lower <= value <= upper
 ```
 
 ```ts
@@ -188,9 +188,9 @@ A mixed or payload-carrying union becomes the familiar `tag` shape:
 
 ```hexagon
 export union Delivery =
-  Waiting
-  | Sent(tracking: String)
-  | Arrived
+    Waiting
+    | Sent(tracking: String)
+    | Arrived
 ```
 
 ```ts

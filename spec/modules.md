@@ -327,7 +327,7 @@ import * as Point from "./point"
 let p = Point.make(1.0, 2.0)                 -- OK
 p.x                                          -- ERROR: Point is opaque outside ./point
 match p                                      -- ERROR: same
-  Point(r) => ...
+    Point(r) => ...
 
 -- (d) Companion idiom: alias/type/constructor coexistence
 import * as Point from "./point"
@@ -337,8 +337,8 @@ let q = Point.make(3.0, 4.0)                 -- Point. : the module
 -- (e) Prelude occlusion: module-level yes, function-local no
 fun show(x: Config): String = "..."          -- OK: occludes prelude show, module-wide
 fun f(c) =
-  let show = 1                               -- ERROR: show is already bound (§5.4)
-  ...
+    let show = 1                               -- ERROR: show is already bound (§5.4)
+    ...
 
 -- (f) Named-import collision
 import { area } from "./circle"

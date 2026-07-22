@@ -31,11 +31,11 @@ Hexagon describes that shape with a **foreign-backed nullary union**:
 
 ```hexagon
 extern from "direction"
-  enum Direction =
-    | Up
-    | Down
-    | Left
-    | Right
+    enum Direction =
+        | Up
+        | Down
+        | Left
+        | Right
 ```
 
 Inside Hexagon, `Direction` is a closed nominal union. `Up`, `Down`, `Left`, and
@@ -76,7 +76,7 @@ The compact single-line form is also legal:
 
 ```hexagon
 extern from "direction"
-  enum Direction = Up | Down
+    enum Direction = Up | Down
 ```
 
 The foreign type name identifies the named module export containing the enum object.
@@ -84,9 +84,9 @@ As elsewhere in `extern`, aliases are foreign-name-first:
 
 ```hexagon
 extern from "keyboard"
-  enum Key as Direction derives (Eq, Show) =
-    | ARROW_UP as Up
-    | ARROW_DOWN as Down
+    enum Key as Direction derives (Eq, Show) =
+        | ARROW_UP as Up
+        | ARROW_DOWN as Down
 ```
 
 This imports `Key`, reads `Key.ARROW_UP` and `Key.ARROW_DOWN`, introduces the local
@@ -172,9 +172,9 @@ all-nullary union:
 let initial: Direction = Up
 
 let describe(direction: Direction): String =
-  match direction
-    Up => "up"
-    Down => "down"
+    match direction
+        Up => "up"
+        Down => "down"
 ```
 
 Constructors are values, not nullary functions. `Up()` receives the ordinary nullary
@@ -210,9 +210,9 @@ An enum value crosses unchanged in both directions:
 
 ```hexagon
 extern from "direction"
-  enum Direction = Up | Down
-  fun current(): Direction
-  fun move(direction: Direction): Unit
+    enum Direction = Up | Down
+    fun current(): Direction
+    fun move(direction: Direction): Unit
 ```
 
 `move(Up)` passes the captured `$Direction.Up` value. `current()` returns its JavaScript

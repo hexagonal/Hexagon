@@ -232,9 +232,9 @@ Provided (Part 2 §4.4 wording; rows in the Loops §5 table):
 
 ```
 for (key, value) in m
-  ...
+    ...
 for x in s
-  ...
+    ...
 ```
 
 `for (key, value) in m` is legal: the tuple-of-binders pattern is irrefutable, and loop heads are one of Pattern Matching's five positions under the one irrefutability gate (Pattern Matching §6; Loops §2.1).
@@ -425,7 +425,7 @@ Map.fromEntries(Vector.toSeq([(1, "old"), (1, "new")]))[1]
 -- (b) Unsatisfied Hash, hinted (key type without derives)
 record Weird = {s: String}
 honor Eq<Weird> =
-  equals(a, b) = String.lower(a.s) == String.lower(b.s)
+    equals(a, b) = String.lower(a.s) == String.lower(b.s)
 let bad = Map.set(Map.empty, Weird {s: "K"}, 1)
                                            -- ERROR: no Hash instance for Weird
                                            --   (and derives Hash is barred by the
@@ -457,9 +457,9 @@ s ++ s                                     -- ERROR: no Concat for Set (use Set.
 -- (g) Iteration; pattern loop head
 var total = 0
 for (k, v) in m
-  total := total + k                       -- OK: irrefutable tuple head
+    total := total + k                       -- OK: irrefutable tuple head
 for [k, v] in m
-  ...                                      -- ERROR: this pattern can fail; use match
+    ...                                      -- ERROR: this pattern can fail; use match
 
 -- (h) Order contract (property-shaped, not golden-output)
 -- toSeq(m) traversed twice in one run: identical order.

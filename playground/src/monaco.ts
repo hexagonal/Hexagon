@@ -43,7 +43,7 @@ export function createMonacoEditors(
     minimap: { enabled: false },
     padding: { top: 14 },
     scrollBeyondLastLine: false,
-    tabSize: 2,
+    tabSize: 4,
     theme: toMonacoTheme(theme),
   });
   const javascriptModel = replaceModel(

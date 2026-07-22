@@ -161,7 +161,7 @@ The offside rule needs an unambiguous column for every line; a tab's column cont
 
 | Situation | Message (shape) |
 |---|---|
-| Tab in leading whitespace | "tab character in indentation; Hexagon indentation uses spaces only" + fixit replacing the tab(s) with spaces (pasted code is the common source; the fixit is mandatory, width of replacement is the formatter's call — recommend the enclosing file's prevailing indent unit, else 2) |
+| Tab in leading whitespace | "tab character in indentation; Hexagon indentation uses spaces only" + fixit replacing the tab(s) with spaces (pasted code is the common source; the fixit is mandatory, width of replacement is the formatter's call — recommend the enclosing file's prevailing indent unit, else 4) |
 
 ---
 
@@ -291,9 +291,9 @@ record Handler = {f: Int -> Int} derives Eq
 -- (f) Ordering spelling and emission
 compare(1, 2)                  -- Less;  runtime value the string "Less"
 match compare(a, b)
-  Less => ...
-  Equal => ...
-  Greater => ...               -- exhaustive, no wildcard needed
+    Less => ...
+    Equal => ...
+    Greater => ...               -- exhaustive, no wildcard needed
 
 -- (g) Tabs
 <TAB>print("hi")               -- LEX ERROR: tab character in indentation;
