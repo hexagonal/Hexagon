@@ -29,7 +29,7 @@
 | Package system — bare-specifier resolution, lockfile story, re-exports, cross-package coherence/interface files, dictionary-ABI metadata, runtime-subpath layout | `modules.md` §12.1–12.2; `ffi-part9-exported-dictionaries.md` §11/§13.3 |
 | Flow-sensitive narrowing — language/type-system deep dive with the recorded comparison bar | `ffi-part2-nullable-array.md` §2.5 |
 | Module-alias vs nullary-constructor coexistence (Elm-strict) — v2 candidate on field evidence; the Statements-§5 review counts as one datum | `modules.md` §5.2 |
-| Future numeric systems and hierarchy stress test — Complex numbers and matrices; discussion may happen before v2, implementation is unscheduled | §3.1 below; revisit the current `Frac` boundary explicitly rather than silently changing v1 instances |
+| Future numeric systems and hierarchy stress test — Complex numbers and matrices; discussion may happen before v2, implementation is unscheduled | §3.1 below |
 | FFI-owned deferrals (async callbacks and adapters, mutable/weak foreign collections, generic externs, overloads/rest, globals/CommonJS, unsafe casts, …) | routed wholesale by `ffi.md` §9.2 — not re-listed here |
 
 ### 3.1 Future numeric systems and hierarchy stress test
@@ -45,7 +45,7 @@ This grid records questions for that discussion, not current or promised instanc
 | Candidate type | `Num` | `Signed` | `Frac` | `Integral` | `Ord` |
 |---|---:|---:|---:|---:|---:|
 | `BigInt` | yes | yes | no | yes | yes |
-| `Rat` | yes | yes | candidate; v1 no | no | yes |
+| `Rat` | yes | yes | yes | no | yes |
 | `Float` | yes | yes | yes | no | yes |
 | `Complex(a)` | if `a` supports it | if `a` supports it | possibly | no | no |
 | square `Matrix(n, a)` | if `a` supports it | if `a` supports it | generally no | no | no |
@@ -65,11 +65,6 @@ Design guards for the eventual discussion:
 - The hierarchy fails this stress test if it must invent an ordering for Complex,
   pretend matrices are always divisible, or fragment every arithmetic operation into
   its own constraint.
-
-V1 deliberately does not provide `Frac<Rat>` because the current constraint owns
-IEEE-style division (`rat.md` §5). Treating exact rational division as `Frac` is a
-future boundary question and must amend that contract explicitly; this roadmap entry
-does not do so.
 
 ## 4. Pending cross-spec edits (compressed; full edit text lives with the owner)
 

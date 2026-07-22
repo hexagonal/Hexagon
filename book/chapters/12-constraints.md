@@ -209,12 +209,17 @@ constraint Signed<a: Num> =
     subtract(left: a, right: a): a
     negate(value: a): a
     fromInt(value: Int): a
+
+constraint Frac<a: Signed> =
+    divide(left: a, right: a): a
 ```
 
 Nat honors Num but not Signed. Int, Float, BigInt, and Rat honor both. A function that
 only adds or multiplies is consequently as general as it honestly can be, while a
 Signed dictionary carries its Num dictionary in one parent slot rather than requiring
-two independent dictionary parameters.
+two independent dictionary parameters. Float and Rat additionally honor Frac: Float
+division follows IEEE 754, while Rat division is exact. Int and BigInt keep their named
+division families because their quotient conventions need to remain explicit.
 
 `Ordering` is the union:
 

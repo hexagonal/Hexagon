@@ -64,3 +64,6 @@ honor Signed<Rat> =
     subtract(left, right) = subtract(left, right)
     negate(value) = negate(value)
     fromInt(value) = create(value, 1)
+
+honor Frac<Rat> =
+    divide(left, right) = divide(left, right)
