@@ -43,6 +43,15 @@ e.name               -- bare dot: field access (Products §3.2) / itemN (Product
 - `e.name` bound and called later (`let f = e.name` … `f()`) is likewise plain field access; the goal machinery never sees it.
 - Uppercase after the dot is not this feature: `Alias.Name(args…)` is module-qualified access (Modules §5.1), resolved positionally as today. The `.` token remains the single token of Operators §14, resolved by what the left side names; nothing changes there.
 - Dot calls interleave freely with the other level-1 postfix forms: `v.slice(1..3)[2].show()` parses as postfix chains always have. (Whether each link *resolves* is §3's business.)
+- In a multiline chain, a leading dot is a postfix continuation. The canonical layout aligns each leading dot with the receiver, just as a leading `|>` aligns with the value in a multiline pipe:
+
+  ```hexagon
+  let selected =
+      numbers
+      .filter(number => number > 3)
+      .map(number => number * 10)
+      .take(5)
+  ```
 
 ### 2.2 What the goal records
 
