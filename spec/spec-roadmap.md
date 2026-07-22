@@ -29,7 +29,47 @@
 | Package system — bare-specifier resolution, lockfile story, re-exports, cross-package coherence/interface files, dictionary-ABI metadata, runtime-subpath layout | `modules.md` §12.1–12.2; `ffi-part9-exported-dictionaries.md` §11/§13.3 |
 | Flow-sensitive narrowing — language/type-system deep dive with the recorded comparison bar | `ffi-part2-nullable-array.md` §2.5 |
 | Module-alias vs nullary-constructor coexistence (Elm-strict) — v2 candidate on field evidence; the Statements-§5 review counts as one datum | `modules.md` §5.2 |
+| Future numeric systems and hierarchy stress test — Complex numbers and matrices; discussion may happen before v2, implementation is unscheduled | §3.1 below; revisit the current `Frac` boundary explicitly rather than silently changing v1 instances |
 | FFI-owned deferrals (async callbacks and adapters, mutable/weak foreign collections, generic externs, overloads/rest, globals/CommonJS, unsafe casts, …) | routed wholesale by `ffi.md` §9.2 — not re-listed here |
+
+### 3.1 Future numeric systems and hierarchy stress test
+
+Complex numbers and matrices are recorded as future numeric-system candidates, possibly
+after v2. They are not implementation commitments, but they participate in any earlier
+discussion of the `Num` → `Signed` → `Frac` hierarchy because they expose assumptions
+that the primitive types do not. The public constraint spelling under discussion is
+**`Frac`**, consistent with `Eq`, `Ord`, and `Num`; do not expand it to `Fractional`.
+
+This grid records questions for that discussion, not current or promised instances:
+
+| Candidate type | `Num` | `Signed` | `Frac` | `Integral` | `Ord` |
+|---|---:|---:|---:|---:|---:|
+| `BigInt` | yes | yes | no | yes | yes |
+| `Rat` | yes | yes | candidate; v1 no | no | yes |
+| `Float` | yes | yes | yes | no | yes |
+| `Complex(a)` | if `a` supports it | if `a` supports it | possibly | no | no |
+| square `Matrix(n, a)` | if `a` supports it | if `a` supports it | generally no | no | no |
+| rectangular `Matrix(r, c, a)` | generally no | generally no | no | no | no |
+
+Design guards for the eventual discussion:
+
+- `Signed` must not imply `Ord`: Complex supports negation and subtraction without a
+  natural total order.
+- `abs` need not return the subject type: a Complex magnitude is scalar.
+- `Num` must not promise commutative multiplication: square-matrix multiplication is
+  noncommutative.
+- Square matrices may fit the closed `Num`/`Signed` hierarchy when their elements do,
+  but are not generally `Frac` because inversion is partial.
+- Rectangular matrix multiplication changes dimensions and belongs in explicit
+  companion operations rather than a closed same-subject `Num` member.
+- The hierarchy fails this stress test if it must invent an ordering for Complex,
+  pretend matrices are always divisible, or fragment every arithmetic operation into
+  its own constraint.
+
+V1 deliberately does not provide `Frac<Rat>` because the current constraint owns
+IEEE-style division (`rat.md` §5). Treating exact rational division as `Frac` is a
+future boundary question and must amend that contract explicitly; this roadmap entry
+does not do so.
 
 ## 4. Pending cross-spec edits (compressed; full edit text lives with the owner)
 
