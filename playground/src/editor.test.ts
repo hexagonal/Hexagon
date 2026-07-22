@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
 
-import { insertIndentedLineBreak, supportsMonacoEditor } from "./editor";
+import {
+  insertIndentedLineBreak,
+  isIPadOS,
+  supportsMonacoEditor,
+} from "./editor";
 
 describe("insertIndentedLineBreak", () => {
   test("copies the current line's leading spaces", () => {
@@ -44,5 +48,25 @@ describe("editor support", () => {
     expect(supportsMonacoEditor(true, 1280)).toBe(true);
     expect(supportsMonacoEditor(false, 1280)).toBe(false);
     expect(supportsMonacoEditor(true, 760)).toBe(false);
+  });
+
+  test("detects only iPadOS for the caret-driven hover fallback", () => {
+    expect(isIPadOS(
+      "Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X)",
+      "iPad",
+      5,
+    )).toBe(true);
+    expect(isIPadOS(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15)",
+      "MacIntel",
+      5,
+    )).toBe(true);
+    expect(isIPadOS(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15)",
+      "MacIntel",
+      0,
+    )).toBe(false);
+    expect(isIPadOS("Mozilla/5.0 (Windows NT 10.0)", "Win32", 10)).toBe(false);
+    expect(isIPadOS("Mozilla/5.0 (Linux; Android 15)", "Linux armv8l", 10)).toBe(false);
   });
 });

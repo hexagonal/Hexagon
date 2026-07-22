@@ -5,6 +5,7 @@ import {
 } from "./diagnostics";
 import {
   createTextareaSourceEditor,
+  isIPadOS,
   supportsMonacoEditor,
   type EditorSubscription,
   type GeneratedCodeEditor,
@@ -534,6 +535,11 @@ async function initializeMonaco(): Promise<void> {
       generatedEditorContainer,
       sourceEditor.getSource(),
       resolveCurrentEditorTheme(),
+      isIPadOS(
+        navigator.userAgent,
+        navigator.platform,
+        navigator.maxTouchPoints,
+      ),
     );
     sourceSubscription.dispose();
     sourceEditor.dispose();
