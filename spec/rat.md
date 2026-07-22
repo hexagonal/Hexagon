@@ -118,7 +118,7 @@ those general mechanisms, not a privileged compiler type.
 Rat.create(2n, 4n) == Rat.create(1n, 2n)       -- true
 Rat.create(1n, -2n) == Rat.create(-1n, 2n)     -- true
 Rat.create(0n, 99n) == Rat.create(0n, 1n)      -- true
-Rat.add(Rat.create(1n, 2n), Rat.create(1n, 3n))
+Rat.create(1n, 2n) + Rat.create(1n, 3n)
   == Rat.create(5n, 6n)                         -- true
 show(Rat.create(10n, 12n))                      -- "5/6"
 Rat.create(1n, 0n)                              -- ZeroDenominatorError

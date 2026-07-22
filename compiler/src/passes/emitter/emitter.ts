@@ -21,6 +21,8 @@ import {
 export interface JavaScriptEmissionOptions {
   /** Includes private editions for inspection tools; ordinary builds omit them. */
   readonly previewPrivateSpecializations?: boolean;
+  /** Exposes reserved evidence handles needed by dependent Hexagon modules. */
+  readonly exportInstanceEvidence?: boolean;
 }
 
 export function emitJavaScript(
@@ -56,7 +58,9 @@ class JavaScriptEmitter {
   readonly #helpers = new Set<Helper>();
   readonly #helperNames = new Map<Helper, string>();
   readonly #exports: string[] = [];
+  readonly #exportedEvidence = new Set<string>();
   readonly #module: Core.Module;
+  readonly #exportInstanceEvidence: boolean;
   readonly #specializations: readonly FundamentalSpecialization[];
   readonly #generatedBodies: {
     readonly specialization: FundamentalSpecialization;
@@ -65,6 +69,7 @@ class JavaScriptEmitter {
 
   constructor(module: Core.Module, options: JavaScriptEmissionOptions) {
     this.#module = module;
+    this.#exportInstanceEvidence = options.exportInstanceEvidence ?? false;
     this.#generatedNames = new GeneratedNames(module.symbols.map(({ name }) => name));
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
     for (const symbol of module.symbols) this.#symbols.set(symbol.id, symbol);
@@ -164,7 +169,24 @@ class JavaScriptEmitter {
     if (item.kind === "TypeAlias") return [];
     if (item.kind === "Import") {
       const specifier = JSON.stringify(emittedModuleSpecifier(item.specifier));
-      if (item.form.kind === "Effect") return [`${prefix}import ${specifier};`];
+      const instances = item.instances.map(({ importedDictionary, localDictionary }) =>
+        importedDictionary === localDictionary
+          ? importedDictionary
+          : `${importedDictionary} as ${localDictionary}`
+      );
+      const instanceImport = instances.length === 0
+        ? []
+        : [`${prefix}import { ${instances.join(", ")} } from ${specifier};`];
+      if (this.#exportInstanceEvidence) {
+        for (const { localDictionary } of item.instances) {
+          this.#exportEvidence(localDictionary);
+        }
+      }
+      if (item.form.kind === "Effect") {
+        return instanceImport.length === 0
+          ? [`${prefix}import ${specifier};`]
+          : instanceImport;
+      }
       if (item.form.kind === "Namespace") {
         const constrained = item.form.names.flatMap(({ symbol }) => {
           if (symbol === undefined || !this.#constrainedImports.has(symbol)) return [];
@@ -176,6 +198,7 @@ class JavaScriptEmitter {
           ...(constrained.length === 0
             ? []
             : [`${prefix}import { ${constrained.join(", ")} } from ${specifier};`]),
+          ...instanceImport,
         ];
       }
       const names = item.form.names.filter(({ typeOnly }) => typeOnly !== true).map(({ imported, local, symbol }) => {
@@ -184,9 +207,10 @@ class JavaScriptEmitter {
           : imported;
         return source === local ? source : `${source} as ${local}`;
       });
-      return names.length === 0
+      return [...(names.length === 0
         ? [`${prefix}import ${specifier};`]
-        : [`${prefix}import { ${names.join(", ")} } from ${specifier};`];
+        : [`${prefix}import { ${names.join(", ")} } from ${specifier};`]),
+        ...instanceImport];
     }
     if (item.kind === "ExternImport") {
       return [`${prefix}import ${JSON.stringify(item.specifier)};`];
@@ -296,6 +320,9 @@ class JavaScriptEmitter {
             ]
           : members;
       const value = `{ ${[...superconstraints, ...completedMembers].join(", ")} }`;
+      if (this.#exportInstanceEvidence) {
+        this.#exportEvidence(item.dictionary);
+      }
       if (parameters.length === 0) {
         return [`${prefix}const ${item.dictionary} = ${value};`];
       }
@@ -2113,6 +2140,12 @@ class JavaScriptEmitter {
 
   #identifier(symbol: Resolved.SymbolId, sourceName: string): string {
     return isSafeIdentifier(sourceName) ? sourceName : `__hex_binding${Number(symbol)}`;
+  }
+
+  #exportEvidence(dictionary: string): void {
+    if (this.#exportedEvidence.has(dictionary)) return;
+    this.#exportedEvidence.add(dictionary);
+    this.#exports.push(`export { ${dictionary} };`);
   }
 
   #useHelper(helper: Helper): string {

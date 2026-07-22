@@ -131,7 +131,7 @@ export function compileProject(files: readonly Source.File[]): CompiledProject {
       resolved,
       typed,
       core,
-      javascript: emitJavaScript(core),
+      javascript: emitJavaScript(core, { exportInstanceEvidence: true }),
       declarations: emitDeclarations(core),
     };
     compiled.set(path, result);

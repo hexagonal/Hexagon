@@ -23,6 +23,9 @@ hovers, and read-only generated JavaScript and declaration models. The Fundament
 Specializations example infers one `Num`-polymorphic function; its JS view can hide
 the generated family, show the complete module, or inspect each concrete edition and
 its byte size.
+The exact-fractions example uses the canonical `stdlib/Rat.hex` module supplied by
+the Playground's deliberately provisional fundamental stdlib, including ordinary
+`half + third` dispatch through `Num<Rat>`.
 
 One subject-first function, three equally static ways to call it:
 
@@ -39,7 +42,7 @@ or prototype lookup.
 > [!IMPORTANT]
 > Hexagon is under active design and implementation. The language specification is
 > about 95% complete, the reader-facing book has reached its first full draft, and
-> compiler construction has complete lexer and layout passes plus forty thin vertical
+> compiler construction has complete lexer and layout passes plus forty-one thin vertical
 > slices through parsing, name resolution, type checking, Core elaboration,
 > JavaScript emission, and declaration emission. Small programs in that subset,
 > including tuples, pattern bindings, unions and matches, records, local mutation,
@@ -102,7 +105,7 @@ review copies stay outside version control.
 
 Compiler implementation is underway. The platform-neutral TypeScript workspace has
 source coordinates, structured diagnostics, a Unicode-aware physical lexer, and the
-indentation layout pass. Forty vertical slices cover core expressions, `let` and local `var` bindings,
+indentation layout pass. Forty-one vertical slices cover core expressions, `let` and local `var` bindings,
 lambdas, directly recursive functions, conditionals, `while`, Range/String `for..in`, calls, tuple values and patterns,
 generic unions and nominal records, guarded full-pattern exception handling, constraints and parameterized instances,
 implied types, aliases, relative imports, module-level foreign bindings and opaque foreign types,

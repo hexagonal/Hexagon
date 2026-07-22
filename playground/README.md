@@ -11,6 +11,14 @@ operation, `console.log(...)`, accepts any number of typed arguments, returns
 Supported desktop browsers load Monaco asynchronously for Hexagon editing and
 read-only generated-code models; the textarea remains live until Monaco succeeds.
 
+The Playground also supplies a deliberately small, provisional **fundamental
+stdlib** from the repository's canonical Hexagon sources. `Rat` is its first module:
+Playground programs use the real opaque type and its globally coherent instances,
+not an example-local reimplementation. “Fundamental” names the current host-supplied
+foundation, not a closed inventory; the complete boundary remains stdlib-listing and
+project-loader work. This is distinct from the compiler's **fundamental
+specializations**, which are generated monomorphic editions of generic functions.
+
 ## Try it
 
 ```sh
@@ -212,9 +220,11 @@ Curated examples are grouped by language concept and appear only once their comp
 
 Where practical, example source should be derived from or shared with conformance fixtures and book examples. The repository must avoid three manually copied versions that can drift independently.
 
-The curated set contains the initial `hello-world` tour plus focused recursion and
-union/match programs. Every example is compiler-tested and demonstrates a top-level
-`console.log(...)` effect without requiring public exports.
+The curated set contains the initial `hello-world` tour plus focused recursion,
+union/match, and exact `Rat` programs. Every example is compiler-tested and
+demonstrates a top-level `console.log(...)` effect without requiring public exports.
+The `Rat` example exercises the canonical fundamental stdlib module through
+`half + third`, selecting its imported `Num<Rat>` evidence.
 
 ## Testing
 

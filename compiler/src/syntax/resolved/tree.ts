@@ -283,6 +283,20 @@ export interface ImportItem {
   readonly kind: "Import";
   readonly specifier: string;
   readonly form: ImportForm;
+  /** Coherent instance evidence made global by loading this module. */
+  readonly instances: readonly InstanceImport[];
+  readonly span: Source.Span;
+}
+
+export interface InstanceImport {
+  /** Stable declaration identity used to deduplicate diamond import paths. */
+  readonly identity: string;
+  readonly constraint: string;
+  readonly typeParameters: readonly TypeParameter[];
+  readonly subject: TypeAnnotation;
+  readonly impliedTypes: readonly HonorImpliedType[];
+  readonly importedDictionary: string;
+  readonly localDictionary: string;
   readonly span: Source.Span;
 }
 
