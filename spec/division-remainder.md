@@ -2,7 +2,7 @@
 
 **Status:** Decided (July 2026); compiler companion operations and emitted runtime semantics implemented. Closes the reopened question in Operators §14.3a; amended to record `Rat` as a required v1 consumer.
 **Scope:** The division/remainder function families on `Int`, `BigInt`, and `Float`: names, conventions, zero-divisor behaviour, emission, diagnostics.
-**Not in scope:** The `Frac` constraint and `/` (Operators §6.1, unchanged); the rejection of a `%` operator (Operators §13, unchanged — this doc supplies the semantics that rejection deferred to names); `Signed`/literal machinery (Numeric Literals spec); checked-overflow variants (Primitive Types §2.1).
+**Not in scope:** The `Frac` constraint and `/` (Operators §6.1, unchanged); the rejection of a `%` operator (Operators §13, unchanged — this doc supplies the semantics that rejection deferred to names); `Num`/`Signed` literal machinery (Numeric Literals spec); checked-overflow variants (Primitive Types §2.1).
 **Companions:** Operators & Precedence spec (§6.1, §13, §14.3a — edit notes §8 here), Primitive Types spec (§2 — edit note), Integral Constraint spec (generic family and v1 `Rat` normalization), Exceptions spec (registry addition), `hexagon-for-typescript-coders` Ch. 3.4 (needs no change; it never named the convention).
 
 ---
@@ -169,5 +169,5 @@ isEven = n => Int.mod(n, 2) == 0    -- correct for negative n; with rem it would
 - **Operators §6.1:** "(floored, `DivideByZeroError` on zero divisor)" → "(Euclidean — see Division & Remainder spec; `DivideByZeroError` on zero divisor)"; extend the `intA / intB` diagnostic hint per §7 here.
 - **Operators §13 (`%` row):** "…`Int.mod` (floored) is the way" → "…`Int.mod` (Euclidean) and `Int.rem` (truncated) are the way — two conventions, two names."
 - **Primitive Types §2 (Division paragraph):** "deliberately chosen (floored) semantics" → "deliberately chosen **Euclidean** semantics"; add the `Int.quot`/`Int.rem` pair to the sentence.
-- **Exceptions spec (registry):** `DivideByZeroError` throwers now: `Int.div`, `Int.mod`, `Int.quot`, `Int.rem`, and the four `BigInt` counterparts.
+- **Exceptions spec (registry):** `DivideByZeroError` throwers now: `Int.div`, `Int.mod`, `Int.quot`, `Int.rem`, the four `BigInt` counterparts, and the Rat construction boundary reached by `Rat.create`, division, and reciprocal.
 - **hexagon-for-typescript-coders Ch. 3.4:** optional one-liner when next touched: "`Int.mod` is always non-negative (unlike JS's `%`); `Int.rem` is JS's `%` under an honest name."

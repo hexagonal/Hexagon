@@ -91,7 +91,7 @@ Constrained functions are referenced here but governed by Parts 8 and 9.
 
 **Target:** `spec/ffi-zero-cost-fundamental-exports.md`
 
-Specify the closed six-type fundamental set, direct named specializations, the lawful Cartesian product, names and collisions, conditional generic edition, public-capability analysis, ABI effects, implementation obligations, and acceptance tests.
+Specify the closed seven-type fundamental set, direct named specializations, the lawful Cartesian product, names and collisions, conditional generic edition, public-capability analysis, ABI effects, implementation obligations, and acceptance tests.
 
 **Status:** Decided and promoted after Sol review (July 2026); correction records are in §17 of the target specification.
 

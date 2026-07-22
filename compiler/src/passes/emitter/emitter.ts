@@ -707,8 +707,10 @@ class JavaScriptEmitter {
         return `${cleanNumber(expression.decimal)}n`;
       case "Float":
         return cleanNumber(expression.spelling);
-      case "ConvertInt":
-        return this.#emitConvertInt(expression, evidenceNames);
+      case "ConvertNat":
+        return this.#emitConvertNat(expression, evidenceNames);
+      case "WidenNat":
+        return this.#emitWidenNat(expression, depth, evidenceNames);
       case "WidenInt":
         return this.#emitWidenInt(expression, depth, evidenceNames);
       case "String":
@@ -1371,8 +1373,8 @@ class JavaScriptEmitter {
     }
   }
 
-  #emitConvertInt(
-    expression: Core.ConvertIntExpr,
+  #emitConvertNat(
+    expression: Core.ConvertNatExpr,
     evidenceNames: EvidenceNames,
   ): string {
     if (expression.evidence.kind === "Primitive") {
@@ -1384,21 +1386,54 @@ class JavaScriptEmitter {
     if (expression.evidence.kind === "Instance" || expression.evidence.kind === "Structural") {
       const dictionary = this.#emitEvidence(
         expression.evidence,
-        "Signed",
+        "Num",
         expression.span,
         evidenceNames,
       );
-      return `${dictionary}.fromInt(${cleanNumber(expression.decimal)})`;
+      return `${dictionary}.fromNat(${cleanNumber(expression.decimal)})`;
     }
     if (expression.evidence.kind !== "Dictionary") return "undefined";
     const dictionary = this.#dictionary(
       expression.evidence.variable,
-      expression.evidence.constraint ?? "Signed",
+      expression.evidence.constraint ?? "Num",
       expression.span,
       evidenceNames,
       expression.evidence.path,
     );
-    return `${dictionary}.fromInt(${cleanNumber(expression.decimal)})`;
+    return `${dictionary}.fromNat(${cleanNumber(expression.decimal)})`;
+  }
+
+  #emitWidenNat(
+    expression: Core.WidenNatExpr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string {
+    const value = this.#emitExpr(expression.value, depth, evidenceNames);
+    if (expression.evidence.kind === "Primitive") {
+      return expression.evidence.instance === "BigInt"
+        ? `BigInt(${value})`
+        : value;
+    }
+    if (expression.evidence.kind === "Dictionary") {
+      const dictionary = this.#dictionary(
+        expression.evidence.variable,
+        expression.evidence.constraint ?? "Num",
+        expression.span,
+        evidenceNames,
+        expression.evidence.path,
+      );
+      return `${dictionary}.fromNat(${value})`;
+    }
+    if (expression.evidence.kind === "Instance" || expression.evidence.kind === "Structural") {
+      const dictionary = this.#emitEvidence(
+        expression.evidence,
+        "Num",
+        expression.span,
+        evidenceNames,
+      );
+      return `${dictionary}.fromNat(${value})`;
+    }
+    return "undefined";
   }
 
   #emitWidenInt(
@@ -2874,9 +2909,10 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
         ? Precedence.Additive
         : Precedence.Conditional;
     case "Match":
-    case "ConvertInt":
+    case "ConvertNat":
     case "Block":
       return Precedence.Call;
+    case "WidenNat":
     case "WidenInt":
       return expression.evidence.kind === "Primitive" &&
           expression.evidence.instance !== "BigInt"
@@ -3374,11 +3410,17 @@ function primitiveDictionary(
   helperName: (helper: Helper) => string,
 ): string {
   switch (constraint) {
+    case "Num": {
+      const fromNat = instance === "BigInt"
+        ? "BigInt(__hex_a)"
+        : "__hex_a";
+      return `({ add: (__hex_a, __hex_b) => __hex_a + __hex_b, multiply: (__hex_a, __hex_b) => __hex_a * __hex_b, fromNat: __hex_a => ${fromNat} })`;
+    }
     case "Signed": {
       const fromInt = instance === "BigInt"
         ? "BigInt(__hex_a)"
         : "__hex_a";
-      return `({ add: (__hex_a, __hex_b) => __hex_a + __hex_b, subtract: (__hex_a, __hex_b) => __hex_a - __hex_b, multiply: (__hex_a, __hex_b) => __hex_a * __hex_b, negate: __hex_a => -__hex_a, fromInt: __hex_a => ${fromInt} })`;
+      return `({ num: ${primitiveDictionary("Num", instance, helperName)}, subtract: (__hex_a, __hex_b) => __hex_a - __hex_b, negate: __hex_a => -__hex_a, fromInt: __hex_a => ${fromInt} })`;
     }
     case "Frac":
       return `({ signed: ${primitiveDictionary("Signed", instance, helperName)}, divide: (__hex_a, __hex_b) => __hex_a / __hex_b })`;
@@ -3386,8 +3428,8 @@ function primitiveDictionary(
       return "({ concat: (__hex_a, __hex_b) => __hex_a + __hex_b })";
     case "Pow":
       return instance === "Float"
-        ? "({ pow: (__hex_a, __hex_b) => __hex_a ** __hex_b })"
-        : `({ pow: (__hex_a, __hex_b) => ${helperName("checkedPower")}(__hex_a, __hex_b) })`;
+        ? `({ num: ${primitiveDictionary("Num", instance, helperName)}, pow: (__hex_a, __hex_b) => __hex_a ** __hex_b })`
+        : `({ num: ${primitiveDictionary("Num", instance, helperName)}, pow: (__hex_a, __hex_b) => ${helperName("checkedPower")}(__hex_a, __hex_b) })`;
     case "Eq":
       return instance === "Float"
         ? "({ equals: (__hex_a, __hex_b) => __hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b), notEquals: (__hex_a, __hex_b) => !(__hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b)) })"
@@ -3409,11 +3451,12 @@ function primitiveDictionary(
         ? `({ eq: { equals: (__hex_a, __hex_b) => __hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b), notEquals: (__hex_a, __hex_b) => !(__hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b)) }, hash: __hex_a => ${helperName("stableHash")}(__hex_a) })`
         : `({ eq: { equals: (__hex_a, __hex_b) => __hex_a === __hex_b, notEquals: (__hex_a, __hex_b) => __hex_a !== __hex_b }, hash: __hex_a => ${helperName("stableHash")}(__hex_a) })`;
     case "Integral": {
-      const signed = primitiveDictionary("Signed", instance, helperName);
+      const num = primitiveDictionary("Num", instance, helperName);
       const ordering = primitiveDictionary("Ord", instance, helperName);
+      const operationOwner = instance === "Nat" ? "Int" : instance;
       const member = (operation: Core.PrimitiveOperationExpr["operation"]): string =>
-        helperName(primitiveOperationHelper(instance as "Int" | "BigInt", operation));
-      return `({ signed: ${signed}, ord: ${ordering}, div: ${member("div")}, mod: ${member("mod")}, quot: ${member("quot")}, rem: ${member("rem")}, gcd: ${member("gcd")} })`;
+        helperName(primitiveOperationHelper(operationOwner as "Int" | "BigInt", operation));
+      return `({ num: ${num}, ord: ${ordering}, div: ${member("div")}, mod: ${member("mod")}, quot: ${member("quot")}, rem: ${member("rem")}, gcd: ${member("gcd")} })`;
     }
     default:
       return "({})";
@@ -3551,6 +3594,7 @@ function renderType(
   switch (type.kind) {
     case "Primitive":
       switch (type.name) {
+        case "Nat":
         case "Int":
         case "Float":
           return "number";

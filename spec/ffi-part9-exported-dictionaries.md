@@ -27,6 +27,7 @@ The boundary never requires runtime type dispatch, prototype inspection, global 
 `Dictionary` is a TypeScript-only public type exported by the module corresponding to one Hexagon constraint, qualified at use sites by an ordinary namespace alias:
 
 ```ts
+Num.Dictionary<a>
 Signed.Dictionary<a>
 Eq.Dictionary<a>
 Show.Dictionary<a>
@@ -50,14 +51,25 @@ export interface Dictionary<a> {
 ```
 
 ```ts
+// num.d.ts
+declare const numDictionaryBrand: unique symbol;
+
+export interface Dictionary<a> {
+  readonly [numDictionaryBrand]: a;
+  readonly add: (x: a, y: a) => a;
+  readonly multiply: (x: a, y: a) => a;
+  readonly fromNat: (value: number) => a;
+}
+```
+
+```ts
 // signed.d.ts (representative member set; the constraint declaration is authoritative)
 declare const signedDictionaryBrand: unique symbol;
 
 export interface Dictionary<a> {
   readonly [signedDictionaryBrand]: a;
-  readonly add: (x: a, y: a) => a;
+  readonly num: Num.Dictionary<a>;
   readonly subtract: (x: a, y: a) => a;
-  readonly multiply: (x: a, y: a) => a;
   readonly negate: (x: a) => a;
   readonly fromInt: (value: number) => a;
 }
@@ -88,13 +100,19 @@ The rule is a derivation of ownership reality rather than a preference: only the
 Fundamental evidence lives under the constraint namespace for discoverability:
 
 ```ts
+// num.d.ts
+export declare const nat: Dictionary<number>;
+export declare const int: Dictionary<number>;
+export declare const float: Dictionary<number>;
+export declare const bigInt: Dictionary<bigint>;
+
 // signed.d.ts
 export declare const int: Dictionary<number>;
 export declare const float: Dictionary<number>;
 export declare const bigInt: Dictionary<bigint>;
 ```
 
-giving `Signed.int`, `Signed.float`, `Signed.bigInt`, `Eq.string`, `Show.bool`, and so on. These remain useful even though fundamental *function* entry points are specialized (Part 8): factories and generic editions need composable evidence — `Vector.show(Show.string)` has nowhere else to get its element dictionary.
+giving `Num.nat`, `Num.int`, `Signed.int`, `Signed.float`, `Signed.bigInt`, `Eq.string`, `Show.bool`, and so on. These remain useful even though fundamental *function* entry points are specialized (Part 8): factories and generic editions need composable evidence — `Vector.show(Show.string)` has nowhere else to get its element dictionary.
 
 ### 3.3 Type-owned handles
 
@@ -102,8 +120,10 @@ Public non-fundamental evidence lives in the public type's companion module unde
 
 ```ts
 // rat.d.ts
+import type * as Num from "@hexagon/runtime/num";
 import type * as Signed from "@hexagon/runtime/signed";
 
+export declare const num: Num.Dictionary<Rat>;
 export declare const signed: Signed.Dictionary<Rat>;
 export declare const eq: Eq.Dictionary<Rat>;
 export declare const show: Show.Dictionary<Rat>;
@@ -111,7 +131,7 @@ export declare const show: Show.Dictionary<Rat>;
 
 ```ts
 import * as Rat from "./rat.js";
-plus(half, third, Rat.signed);
+plus(half, third, Rat.num);
 ```
 
 `Rat.signed` is ordinary namespace-import qualification — packages never mutate a central runtime object or attach properties to the `Rat` runtime value.
@@ -259,8 +279,8 @@ The generic edition uses **the same trailing-evidence convention as internal pol
 This is Part 7's corrected direct-vs-wrapper rule applied to constrained exports. Where a wrapper exists it follows the corpus wrapper discipline: allocated once with the ESM binding, stable JS identity, no defensive validation (Part 6 §1; Part 7 §7). Representative emission of the direct case:
 
 ```js
-export function plus(x, y, signed) {
-  return signed.add(x, y);
+export function plus(x, y, num) {
+  return num.add(x, y);
 }
 ```
 

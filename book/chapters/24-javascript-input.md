@@ -26,6 +26,7 @@ The direct cases cross unchanged:
 
 | Hexagon type | Required JavaScript value | TypeScript face |
 | --- | --- | --- |
+| `Nat` | non-negative safe integral `number` | `number` |
 | `Int` | safe integral `number` | `number` |
 | `Float` | any `number` | `number` |
 | `BigInt` | `bigint` | `bigint` |

@@ -88,8 +88,16 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
         ...(hashRequirement === undefined ? {} : { hashEvidence: evidence(hashRequirement) }),
       };
     }
-    case "FromInt":
+    case "FromNat":
       return elaborateInteger(expression);
+    case "WidenNat":
+      return {
+        kind: "WidenNat",
+        value: elaborateExpr(expression.value),
+        evidence: evidence(expression.requirement),
+        type: expression.type,
+        span: expression.span,
+      };
     case "WidenInt":
       return {
         kind: "WidenInt",
@@ -353,9 +361,13 @@ function elaboratePattern(pattern: Typed.Pattern): Core.Pattern {
   }
 }
 
-function elaborateInteger(expression: Typed.FromIntExpr): Core.Expr {
+function elaborateInteger(expression: Typed.FromNatExpr): Core.Expr {
   if (expression.type.kind === "Primitive") {
-    if (expression.type.name === "Int" || expression.type.name === "Float") {
+    if (
+      expression.type.name === "Nat" ||
+      expression.type.name === "Int" ||
+      expression.type.name === "Float"
+    ) {
       return {
         kind: "Number",
         decimal: expression.decimal,
@@ -375,7 +387,7 @@ function elaborateInteger(expression: Typed.FromIntExpr): Core.Expr {
   }
 
   return {
-    kind: "ConvertInt",
+    kind: "ConvertNat",
     decimal: expression.decimal,
     evidence: evidence(expression.requirement),
     type: expression.type,

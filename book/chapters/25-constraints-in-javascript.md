@@ -35,12 +35,13 @@ types. Hexagon therefore gives constrained exports two complementary forms:
 Consider:
 
 ```hexagon
-export let plus<a: Signed>(left: a, right: a): a = left + right
+export let plus<a: Num>(left: a, right: a): a = left + right
 ```
 
 Hexagon gives JavaScript callers direct functions for the fundamental numeric types:
 
 ```ts
+export declare function plusNat(left: number, right: number): number;
 export declare function plusInt(left: number, right: number): number;
 export declare function plusFloat(left: number, right: number): number;
 export declare function plusBigInt(left: bigint, right: bigint): bigint;
@@ -49,15 +50,15 @@ export declare function plusBigInt(left: bigint, right: bigint): bigint;
 The complete fundamental set is:
 
 ```text
-Int  Float  BigInt  Bool  String  Unit
+Nat  Int  Float  BigInt  Bool  String  Unit
 ```
 
 This is a fixed language category. Records, unions, arrays, sequences, collections, and
 user-defined types do not become fundamental merely because their JavaScript
 representation happens to be simple.
 
-Each constraint selects the fundamental types that actually honor it. `Signed` applies to
-`Int`, `Float`, and `BigInt`, so `plus` receives exactly those three functions. Another
+Each constraint selects the fundamental types that actually honor it. `Num` applies to
+`Nat`, `Int`, `Float`, and `BigInt`, so `plus` receives exactly those four functions. Another
 constraint may produce a different subset.
 
 The generated name preserves a distinction that TypeScript cannot express in its type
@@ -69,6 +70,10 @@ Hexagon semantics.
 Representative JavaScript for `plus` is unsurprising:
 
 ```js
+export function plusNat(left, right) {
+  return left + right;
+}
+
 export function plusInt(left, right) {
   return left + right;
 }
@@ -119,23 +124,23 @@ function under the original source name:
 export declare function plus<a>(
   left: a,
   right: a,
-  signed: Signed.Dictionary<a>,
+  num: Num.Dictionary<a>,
 ): a;
 ```
 
-The final `signed` parameter is a constraint dictionary. The JavaScript implementation
+The final `num` parameter is a constraint dictionary. The JavaScript implementation
 uses its operations:
 
 ```js
-export function plus(left, right, signed) {
-  return signed.add(left, right);
+export function plus(left, right, num) {
+  return num.add(left, right);
 }
 ```
 
-A public `Rat` type with a public `Signed<Rat>` dictionary can call it like this:
+A public `Rat` type with a public `Num<Rat>` dictionary can call it like this:
 
 ```ts
-plus(half, third, Rat.signed);
+plus(half, third, Rat.num);
 ```
 
 The generic function appears only when JavaScript can obtain every dictionary it needs
@@ -144,13 +149,14 @@ are private, exporting the function would give JavaScript callers an unusable en
 point, so the generic function is omitted.
 
 The original source name remains reserved for this generic form even while it is
-absent. Direct functions always carry type suffixes such as `plusInt`.
+absent. Direct functions always carry type suffixes such as `plusNat` and `plusInt`.
 
 ## Dictionary types describe their objects
 
 Each constraint owns a distinct TypeScript dictionary type:
 
 ```ts
+Num.Dictionary<a>
 Signed.Dictionary<a>
 Eq.Dictionary<a>
 Show.Dictionary<a>
@@ -183,6 +189,10 @@ dictionaries should be frozen where practical.
 Fundamental dictionaries live with the constraint:
 
 ```ts
+Num.nat
+Num.int
+Num.float
+Num.bigInt
 Signed.int
 Signed.float
 Signed.bigInt
@@ -194,12 +204,13 @@ A public user-type dictionary lives with that type under the lowercase constrain
 name:
 
 ```ts
+Rat.num
 Rat.signed
 Customer.eq
 Customer.show
 ```
 
-These are ordinary ESM exports from companion modules. `Rat.signed` is module
+These are ordinary ESM exports from companion modules. `Rat.num` is module
 qualification, not a property installed on a global `Rat` object or prototype.
 
 Some dictionaries depend on other dictionaries. Hexagon exports an ordinary factory
@@ -256,8 +267,8 @@ The generated JavaScript surface depends on:
 - the public dictionaries available in the compiled program.
 
 It does not depend on private types, private dictionaries, or which calls happen inside
-Hexagon. Removing the last internal use of `plus(Int, Int)` does not remove `plusInt`.
-Adding a private `Signed<Secret>` instance does not add the generic `plus` function.
+Hexagon. Removing the last internal use of `plus(Int, Int)` does not remove `plusNat` and `plusInt`.
+Adding a private `Num<Secret>` instance does not add the generic `plus` function.
 
 JavaScript callers are invisible to Hexagon's analysis of internal calls. Keeping the
 foreign surface tied to public declarations makes it stable under private refactoring.
@@ -292,7 +303,7 @@ that exchange dictionaries must use compatible Hexagon runtime dictionary format
   one Hexagon constraint;
 - exported constrained functions receive direct dictionary-free functions for every
   permitted fundamental-type combination;
-- the fundamental set is `Int`, `Float`, `BigInt`, `Bool`, `String`, and `Unit`;
+- the fundamental set is `Nat`, `Int`, `Float`, `BigInt`, `Bool`, `String`, and `Unit`;
 - generated names append fundamental type names in declared variable order;
 - unconstrained type variables remain generic and add no suffix;
 - public user types share a generic function under the original source name;

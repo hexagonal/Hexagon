@@ -157,7 +157,7 @@ class Resolver {
   readonly #imports: ReadonlyMap<string, ModuleInterface>;
   readonly #moduleAliases = new Map<string, ModuleInterface>();
   readonly #constraintNames = new Set<string>([
-    "Signed", "Frac", "Pow", "Concat", "Eq", "Ord", "Show",
+    "Num", "Signed", "Frac", "Pow", "Concat", "Eq", "Ord", "Show",
   ]);
   readonly #impliedTypeOwners = new Map<string, Set<string>>();
   readonly #pending: { readonly name: Parsed.Name; readonly kind: "let" | "var" }[] = [];
@@ -1911,7 +1911,7 @@ function isUnshadowedConsoleLog(
 }
 
 function isPrimitiveName(name: string): name is Resolved.PrimitiveName {
-  return ["Int", "Float", "Bool", "String", "BigInt", "Exn", "Unit"].includes(name);
+  return ["Nat", "Int", "Float", "Bool", "String", "BigInt", "Exn", "Unit"].includes(name);
 }
 
 function isResolvedTypeAlias(

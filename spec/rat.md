@@ -16,7 +16,7 @@ tests.
 positive, so equality and hashing can use the canonical pair directly.
 
 Decimal literals remain `Float`; v1 does not infer `Rat` from `0.5`. Exactness is
-requested visibly through `Rat.create(1n, 2n)` or an operation returning `Rat`.
+requested visibly through `Rat.create(1, 2)` or an operation returning `Rat`.
 
 ## 2. Representation and invariant
 
@@ -47,12 +47,13 @@ Rat.top(value: Rat): BigInt
 Rat.bottom(value: Rat): BigInt
 ```
 
-`create` throws `ZeroBottomError` when the bottom is zero. Otherwise it:
+`create` throws `DivideByZeroError` when the bottom is zero. Otherwise it:
 
 1. computes `g = BigInt.gcd(top, bottom)` with the Euclidean
    algorithm and its non-negative Euclidean remainder step;
 2. divides both values by `g` with `BigInt.quot`; and
-3. negates both results when the reduced bottom is negative.
+3. negates both results when the reduced bottom is negative, so the canonical bottom
+   is always positive and any negative sign is always carried by the top.
 
 The accessors expose the canonical values, never mutable storage.
 
@@ -62,9 +63,10 @@ The v1 companion supplies `add`, `subtract`, `multiply`, `divide`, `negate`, and
 `reciprocal`. Every result passes through `create`; implementations may cancel
 common factors before multiplication as a transparent optimization.
 
-Division and `reciprocal(0)` throw `ZeroBottomError` through the same smart
-construction boundary. Addition and multiplication never round. `Signed<Rat>` uses
-this family and defines `fromInt(n)` as `n / 1`.
+Division and `reciprocal(0)` throw `DivideByZeroError` through the same smart
+construction boundary. Addition and multiplication never round. `Num<Rat>` owns
+those operations and defines `fromNat(n)` as `n / 1`; `Signed<Rat>` adds subtraction,
+negation, and `fromInt(n)` as `n / 1`.
 
 ## 5. Constraints
 
@@ -74,7 +76,9 @@ this family and defines `fromInt(n)` as `n / 1`.
 - `Show<Rat>` emits `top/bottom`, including `/1` so the representation
   remains visible and unsurprising.
 - `Hash<Rat>` combines the canonical `BigInt` top and bottom hashes.
-- `Signed<Rat>` is provided. `Integral<Rat>` and `Frac<Rat>` are not: a rational is not
+- `Num<Rat>` and `Signed<Rat>` are provided. Num owns addition, multiplication, and
+  exact `fromNat`; Signed extends it with subtraction, negation, and exact `fromInt`.
+  `Integral<Rat>` and `Frac<Rat>` are not: a rational is not
   an integer, while v1 `Frac` owns IEEE-style `/` and is deliberately not the exact
   fraction abstraction.
 
@@ -106,22 +110,24 @@ those general mechanisms, not a privileged compiler type.
 
 ## 8. Diagnostics
 
-- A zero bottom reports `ZeroBottomError` and rewrites toward a nonzero
+- A zero bottom reports `DivideByZeroError` and rewrites toward a nonzero
   bottom or explicit validation before `Rat.create`.
-- Division by a zero `Rat` reports `ZeroBottomError` through `Rat.create`.
+- Division by a zero `Rat` reports `DivideByZeroError` through `Rat.create`.
 - Attempts to access fields outside Rat's home module receive the standard opaque
   record diagnostic and point to `Rat.top` / `Rat.bottom`.
 
 ## 9. Acceptance tests
 
 ```hexagon
-Rat.create(2n, 4n) == Rat.create(1n, 2n)       -- true
-Rat.create(1n, -2n) == Rat.create(-1n, 2n)     -- true
-Rat.create(0n, 99n) == Rat.create(0n, 1n)      -- true
-Rat.create(1n, 2n) + Rat.create(1n, 3n)
-  == Rat.create(5n, 6n)                         -- true
-show(Rat.create(10n, 12n))                      -- "5/6"
-Rat.create(1n, 0n)                              -- ZeroBottomError
+Rat.create(2, 4) == Rat.create(1, 2)       -- true
+Rat.create(1, -2) == Rat.create(-1, 2)     -- true
+Rat.top(Rat.create(1, -2))                  -- -1
+Rat.bottom(Rat.create(1, -2))               -- 2
+Rat.create(0, 99) == Rat.create(0, 1)      -- true
+Rat.create(1, 2) + Rat.create(1, 3)
+  == Rat.create(5, 6)                         -- true
+show(Rat.create(10, 12))                      -- "5/6"
+Rat.create(1, 0)                              -- DivideByZeroError
 ```
 
 The compiler conformance suite must execute the emitted JavaScript for normalization

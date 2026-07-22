@@ -314,7 +314,8 @@ export type Expr =
   | HashExpr
   | CollectionOperationExpr
   | PrimitiveOperationExpr
-  | ConvertIntExpr
+  | ConvertNatExpr
+  | WidenNatExpr
   | WidenIntExpr
   | BlockExpr
   | LambdaExpr
@@ -358,7 +359,7 @@ export interface BooleanExpr extends ExpressionFields {
 export interface NumberExpr extends ExpressionFields {
   readonly kind: "Number";
   readonly decimal: string;
-  readonly representation: "Int" | "Float";
+  readonly representation: "Nat" | "Int" | "Float";
 }
 
 export interface BigIntExpr extends ExpressionFields {
@@ -449,10 +450,17 @@ export interface PrimitiveOperationExpr extends ExpressionFields {
   readonly operation: "div" | "mod" | "quot" | "rem" | "gcd" | "lcm";
 }
 
-/** A non-representationally-trivial `Signed.fromInt` application. */
-export interface ConvertIntExpr extends ExpressionFields {
-  readonly kind: "ConvertInt";
+/** A non-representationally-trivial `Num.fromNat` application. */
+export interface ConvertNatExpr extends ExpressionFields {
+  readonly kind: "ConvertNat";
   readonly decimal: string;
+  readonly evidence: Evidence;
+}
+
+/** An explicit contextual `Num.fromNat(value)` selected during checking. */
+export interface WidenNatExpr extends ExpressionFields {
+  readonly kind: "WidenNat";
+  readonly value: Expr;
   readonly evidence: Evidence;
 }
 

@@ -18,7 +18,7 @@ Three compilation regimes remain distinct:
 
 The foreign surface adds a fourth *entry-point form*, not a fourth semantic regime:
 
-4. **JavaScript fundamental specializations:** named monomorphic exports such as `plusInt`/`plusFloat`/`plusBigInt`, with direct bodies and no dictionaries (`ffi-zero-cost-primitive-exports.md`).
+4. **JavaScript fundamental specializations:** named monomorphic exports such as `plusNat`/`plusInt`/`plusFloat`/`plusBigInt`, with direct bodies and no dictionaries (`ffi-zero-cost-primitive-exports.md`).
 
 The boundary never requires runtime type dispatch, prototype inspection, global instance search, JS-authored instance records, or automatic per-user-type function explosion.
 
@@ -29,7 +29,7 @@ The boundary never requires runtime type dispatch, prototype inspection, global 
 Hexagon:
 
 ```hexagon
-export let plus<a: Signed>(x: a, y: a): a = x + y
+export let plus<a: Num>(x: a, y: a): a = x + y
 ```
 
 Fundamental entry points:
@@ -40,19 +40,19 @@ export declare function plusFloat(x: number, y: number): number;
 export declare function plusBigInt(x: bigint, y: bigint): bigint;
 ```
 
-When the public instance graph includes a usable non-fundamental `Signed` instance, the base-name generic edition additionally appears:
+When the public instance graph includes a usable non-fundamental `Num` instance, the base-name generic edition additionally appears:
 
 ```ts
 export declare function plus<a>(
   x: a,
   y: a,
-  signed: Signed.Dictionary<a>,
+  num: Num.Dictionary<a>,
 ): a;
 ```
 
 ```js
-export function plus(x, y, signed) {
-  return signed.add(x, y);
+export function plus(x, y, num) {
+  return num.add(x, y);
 }
 ```
 
@@ -62,7 +62,7 @@ Calls:
 plusInt(10, 20);
 plusFloat(1.5, 2.5);
 plusBigInt(10n, 20n);
-plus(half, third, Rat.signed);
+plus(half, third, Rat.num);
 ```
 
 The generic edition is not emitted merely because a private type or internal call instantiates `plus`. Its trigger is public usable non-fundamental evidence, as fixed by the specialization note.
@@ -111,6 +111,7 @@ export interface Dictionary<a> {
 Consumer/generated declaration:
 
 ```ts
+import type * as Num from "@hexagon/runtime/num";
 import type * as Signed from "@hexagon/runtime/signed";
 
 export declare function plus<a>(
@@ -178,6 +179,7 @@ import type * as Signed from "@hexagon/runtime/signed";
 import type * as Eq from "@hexagon/runtime/eq";
 import type * as Show from "@hexagon/runtime/show";
 
+export declare const num: Num.Dictionary<Rat>;
 export declare const signed: Signed.Dictionary<Rat>;
 export declare const eq: Eq.Dictionary<Rat>;
 export declare const show: Show.Dictionary<Rat>;
@@ -188,10 +190,10 @@ Consumer:
 ```ts
 import * as Rat from "./rat.js";
 
-plus(half, third, Rat.signed);
+plus(half, third, Rat.num);
 ```
 
-This reflects lawful ownership and package reality: built-in evidence is discovered from the constraint module; separately compiled user packages expose evidence from the user type's home module. Packages do not mutate a central runtime or type object to attach `Rat` members. `Rat.signed` is ordinary namespace-import qualification, not a property magically attached to the Rat runtime value/constructor.
+This reflects lawful ownership and package reality: built-in evidence is discovered from the constraint module; separately compiled user packages expose evidence from the user type's home module. Packages do not mutate a central runtime or type object to attach `Rat` members. `Rat.num` and `Rat.signed` are ordinary namespace-import qualification, not properties magically attached to the Rat runtime value/constructor.
 
 A generated handle/factory name colliding with an explicit public companion export is a hard compile error. The compiler never silently renames public evidence.
 

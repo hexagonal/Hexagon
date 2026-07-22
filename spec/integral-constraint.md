@@ -1,9 +1,9 @@
 # Hexagon Spec: The `Integral` Constraint
 
 **Status:** Decided (July 2026); compiler dictionaries and primitive instances implemented. Amended by James's decisions that `Rat` is required for v1 and uses `BigInt` representation.
-**Scope:** The `Integral` prelude constraint (polymorphic Euclidean division API + `gcd`), its `Int`/`BigInt` instances, `gcd` semantics, `BigInt.lcm`, emission, and the reconciliation with the Division & Remainder spec's monomorphic functions.
+**Scope:** The `Integral` prelude constraint (polymorphic Euclidean division API + `gcd`), its `Nat`/`Int`/`BigInt` instances, `gcd` semantics, `BigInt.lcm`, emission, and the reconciliation with the Division & Remainder spec's monomorphic functions.
 **Not in scope:** `Rat` itself (a separate focused v1 spec — this constraint is its enabling machinery, and §9's generic-normalization test is its down payment); the semantics of the four division functions (Division & Remainder spec is authoritative; this doc adds no convention, only a polymorphic surface).
-**Companions:** Division & Remainder spec (conventions, zero-divisor policy — edit note §10), Constraints spec (§7 prelude listing — edit note), Numeric Literals spec (`Signed`/`fromInt`, which the superconstraint supplies to generic code).
+**Companions:** Division & Remainder spec (conventions, zero-divisor policy — edit note §10), Constraints spec (§7 prelude listing — edit note), Numeric Literals spec (`Num`/`fromNat`; signed normalization is a separate obligation).
 
 ---
 
@@ -11,12 +11,12 @@
 
 > **`Integral` is the polymorphic face of integer division.** The monomorphic functions (`Int.div`, `BigInt.mod`, …) remain the primary, everyday spellings; `Integral` packages the same operations for code generic over integer types. `gcd` lives here because it is *definable* only here. `Float` is never `Integral`.
 
-The motivating v1 client is `Rat`, whose top and bottom use `BigInt` — `gcd` finds the common factor, `quot` divides it out, `Signed` supplies `0`/`1`, and `Ord` supplies sign normalization. That client needs the *family*, which is why this is one constraint and not a `Gcd` micro-constraint.
+The motivating v1 client is `Rat`, whose top and bottom use `BigInt` — `gcd` finds the common factor, `quot` divides it out, `Num` supplies `0`/`1`, while the concrete BigInt implementation uses `Signed` and `Ord` for sign normalization. That client needs the *family*, which is why this is one constraint and not a `Gcd` micro-constraint.
 
 ## 2. Declaration
 
 ```
-constraint Integral<a: (Signed, Ord)> =
+constraint Integral<a: (Num, Ord)> =
   div(x: a, y: a): a       -- Euclidean quotient
   mod(x: a, y: a): a       -- Euclidean remainder, in [0, abs(y))
   quot(x: a, y: a): a      -- truncated quotient
@@ -24,19 +24,20 @@ constraint Integral<a: (Signed, Ord)> =
   gcd(x: a, y: a): a       -- greatest common divisor, always >= 0
 ```
 
-- **Superconstraints `(Signed, Ord)`** (standard left-to-right form, Constraints spec): `Signed` gives generic code literals via `fromInt` — a generic `Rat` needs `0` and `1` — and `Ord` gives comparisons (sign normalization: bottoms kept positive). `Int` and `BigInt` satisfy both already; nothing lighter keeps the motivating client writable.
-- The five members obey the Division & Remainder spec's contracts *as laws of the constraint*: the two division identities, the Euclidean invariant, and §4's `gcd` laws. An `implement Integral` whose members violate them is wrong in the same informal-but-documented sense as a lawless `Eq`.
-- Zero-divisor behaviour is **not** a law of the constraint; it follows each instance's type doctrine. Both v1 instances throw `DivideByZeroError` (integer partiality throws), and any future instance is expected to do likewise — recorded as expectation, not equation.
+- **Superconstraints `(Num, Ord)`**: `Num` gives generic code non-negative literals via `fromNat`, and `Ord` gives comparisons. `Nat`, `Int`, and `BigInt` satisfy both. Code that also subtracts, negates, or normalizes signs states `Signed` separately; `Integral` itself does not require signedness.
+- The five members obey the Division & Remainder spec's contracts *as laws of the constraint*: the two division identities, the Euclidean invariant, and §4's `gcd` laws. An `honor Integral<T>` whose members violate them is wrong in the same informal-but-documented sense as a lawless `Eq`.
+- Zero-divisor behaviour is **not** a law of the constraint; it follows each instance's type doctrine. All three v1.1 instances throw `DivideByZeroError` (integer partiality throws), and any future instance is expected to do likewise — recorded as expectation, not equation.
 
 ## 3. Instances
 
 ```
-implement Integral for Int    -- members are Int.div, Int.mod, Int.quot, Int.rem, Int.gcd
-implement Integral for BigInt -- members are the BigInt counterparts
+honor Integral<Nat>    -- same safe-number operations, restricted to non-negative inputs
+honor Integral<Int>    -- members are Int.div, Int.mod, Int.quot, Int.rem, Int.gcd
+honor Integral<BigInt> -- members are the BigInt counterparts
 ```
 
 - The instance bodies **are** the monomorphic functions — one implementation, two spellings. `Int.gcd` and `BigInt.gcd` are hereby added to the monomorphic families as the fifth member each.
-- **`Float` is permanently not `Integral`**, and `gcd` is a member here precisely so that `gcd(1.5, 2.0)` fails with the exactly-right message: "`Float` is not `Integral`." This is also why `gcd` must not hang off `Signed`.
+- **`Float` is permanently not `Integral`**, and `gcd` is a member here precisely so that `gcd(1.5, 2.0)` fails with the exactly-right message: "`Float` is not `Integral`." This is also why `gcd` must not hang off the broader `Num` constraint.
 
 ## 4. `gcd` semantics
 
@@ -93,9 +94,9 @@ That spec's §3 says the four functions are "monomorphic `Int` functions, not co
 
 | Situation | Message (shape) |
 |---|---|
-| `gcd`/`div`/`mod`/`quot`/`rem` at `Float` | ordinary missing-instance error: "`Float` is not `Integral`"; for `gcd` add "gcd is defined for integer types (`Int`, `BigInt`)" — never suggest rounding |
+| `gcd`/`div`/`mod`/`quot`/`rem` at `Float` | ordinary missing-instance error: "`Float` is not `Integral`"; for `gcd` add "gcd is defined for integer types (`Nat`, `Int`, `BigInt`)" — never suggest rounding |
 | Name `Int.lcm` not found | curated hint: "`Int` has no `lcm` — its results overflow `Int`'s safe range for ordinary inputs; use `BigInt.lcm`" (name-not-found hints are cheap; this one prevents a hand-rolled `a * b / gcd` with the overflow bug) |
-| Unsolved tyvar at a bare `gcd(x, y)` call with no other constraint source | standard ambiguity error per Numeric Literals §6 machinery; `Signed` superconstraint defaulting resolves the literal-only case to `Int` as usual |
+| Unsolved tyvar at a bare `gcd(x, y)` call with no other constraint source | standard ambiguity error per Numeric Literals §6 machinery; `Num` superconstraint defaulting resolves the literal-only case to `Int` as usual |
 
 ## 9. Acceptance tests
 
@@ -111,7 +112,7 @@ Int.gcd(0, 0)       -- 0
 -- Polymorphic use: the Rat down payment
 fun normalize<a: Integral>(n: a, d: a): (a, a) =
   let g = gcd(n, d)
-  if g == 0 then (0, 1)                    -- 0/0 input; literals via Signed super
+  if g == 0 then (0, 1)                    -- 0/0 input; literals via Num super
   else
     let (n2, d2) = (quot(n, g), quot(d, g))
     if d2 < 0 then (negate(n2), negate(d2)) else (n2, d2)   -- Ord super at work
@@ -132,8 +133,8 @@ Int.lcm             -- ERROR: name not found + curated hint (§8)
 
 | Decision | Where |
 |---|---|
-| `Integral<a: (Signed, Ord)>` prelude constraint: `div`/`mod`/`quot`/`rem`/`gcd` | §2 |
-| Instances `Int`, `BigInt`; `Float` permanently excluded | §3 |
+| `Integral<a: (Num, Ord)>` prelude constraint: `div`/`mod`/`quot`/`rem`/`gcd` | §2 |
+| Instances `Nat`, `Int`, `BigInt`; `Float` permanently excluded | §3 |
 | `gcd` non-negative; `gcd(a,0)=abs(a)`; `gcd(0,0)=0`; never throws | §4 |
 | `Int.gcd`/`BigInt.gcd` added to the monomorphic families | §3 |
 | `lcm` not in the constraint; `Int.lcm` does not exist; `BigInt.lcm` monomorphic, divide-first, `lcm(a,0)=0` | §5 |
@@ -141,7 +142,7 @@ Int.lcm             -- ERROR: name not found + curated hint (§8)
 | `gcd` helpers may use native `%` internally post-`abs` | §6 |
 
 Edit notes:
-- **Constraints spec §7 (prelude listing):** add `Integral<a: (Signed, Ord)>` with the five members; instances `Int`, `BigInt`.
+- **Constraints spec §7 (prelude listing):** add `Integral<a: (Num, Ord)>` with the five members; instances `Nat`, `Int`, `BigInt`.
 - **Division & Remainder spec §3:** "monomorphic `Int` functions, not constraint members" → append "…in their primary spelling; they additionally serve as the `Integral` instance bodies (Integral spec §7)." Add `gcd` to the family listing there or cross-reference §3–4 here.
 - **Exceptions spec:** no registry change — `Integral` members throw through their instance bodies, already registered; `gcd`/`lcm` never throw.
 - **Rat (required v1 spec):** cite §9's `normalize` as the intended shape; `Rat` fixes `BigInt` as its representation (the choice §5 anticipates) while the constraint keeps the principle honest.

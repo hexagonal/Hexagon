@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Give readers a practical model of Hexagon's six primitive types and show that their
+Give readers a practical model of Hexagon's seven primitive types and show that their
 JavaScript-native representations are a deliberate part of the language design. Spend
 the most teaching time on numeric distinctions, interpolation, and Unicode behavior;
 avoid turning the chapter into a catalogue of primitive-module functions.
@@ -12,7 +12,7 @@ avoid turning the chapter into a catalogue of primitive-module functions.
 After this chapter, the reader should be able to:
 
 - choose among `Int`, `Float`, and `BigInt`;
-- recognize the literal syntax of all six primitive types;
+- recognize the literal syntax of all seven primitive types;
 - understand integer safe-range and floating-point limitations;
 - use numeric separators;
 - rely on `Bool` without JavaScript truthiness;
@@ -40,7 +40,7 @@ Preview, but defer full treatment of:
 ## Technical skeleton
 
 1. Return to the order example and inspect its concrete values.
-2. The six primitive types and their JS/TS representations.
+2. The seven primitive types and their JS/TS representations.
 3. `Int`: default whole numbers, safe range, and silent overflow boundary.
 4. `Float`: decimal/exponent literals and IEEE 754 honesty.
 5. `Bool`: no truthiness.

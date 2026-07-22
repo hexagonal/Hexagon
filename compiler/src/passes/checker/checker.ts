@@ -162,6 +162,8 @@ function primitive(name: Typed.PrimitiveName): Constructor {
 class Checker {
   readonly #expressionTypes = new WeakMap<Resolved.Expr, Mono>();
   readonly #requirements = new WeakMap<object, readonly Requirement[]>();
+  /** Exact Nat expressions that checking injects into an independently known Num target. */
+  readonly #natWidenings = new WeakMap<Resolved.Expr, Requirement>();
   /** Exact Int expressions that checking injects into an independently known Signed target. */
   readonly #intWidenings = new WeakMap<Resolved.Expr, Requirement>();
   readonly #nameRequirements = new WeakMap<Resolved.NameExpr, readonly Requirement[]>();
@@ -196,7 +198,7 @@ class Checker {
   readonly #operationsByName = new Map<string, Resolved.Symbol>();
   readonly #operationSpellings = new Map<Resolved.SymbolId, string>();
   readonly #constraintNames = new Set<string>([
-    "Signed", "Frac", "Pow", "Concat", "Eq", "Ord", "Show", "Hash", "Iterable", "Integral",
+    "Num", "Signed", "Frac", "Pow", "Concat", "Eq", "Ord", "Show", "Hash", "Iterable", "Integral",
   ]);
   readonly #constraintSubjects = new WeakMap<Resolved.ConstraintItem, Variable>();
   readonly #constraintImpliedTypes = new WeakMap<
@@ -688,7 +690,7 @@ class Checker {
             item.annotation.span,
             true,
           );
-          if (this.#intWidenings.has(item.value)) valueType = annotationType;
+          if (this.#hasNumericWidening(item.value)) valueType = annotationType;
         }
         const placeholder = sequentialPlaceholders.get(item.binding.symbol);
         if (placeholder !== undefined) this.#unify(placeholder, valueType, item.span);
@@ -905,7 +907,7 @@ class Checker {
             item.annotation.span,
             true,
           );
-          if (this.#intWidenings.has(item.value)) valueType = annotationType;
+          if (this.#hasNumericWidening(item.value)) valueType = annotationType;
         }
         const placeholder = sequentialPlaceholders.get(item.binding.symbol);
         if (placeholder !== undefined) this.#unify(placeholder, valueType, item.span);
@@ -1057,8 +1059,11 @@ class Checker {
       members.set("compare", { parameters: [subject, subject], result: primitive("Int") });
     } else if (item.constraint === "Show") {
       members.set("show", { parameters: [subject], result: primitive("String") });
+    } else if (item.constraint === "Num") {
+      for (const name of ["add", "multiply"] as const) members.set(name, binary);
+      members.set("fromNat", { parameters: [primitive("Nat")], result: subject });
     } else if (item.constraint === "Signed") {
-      for (const name of ["add", "subtract", "multiply"] as const) members.set(name, binary);
+      members.set("subtract", binary);
       members.set("negate", { parameters: [subject], result: subject });
       members.set("fromInt", { parameters: [primitive("Int")], result: subject });
     } else if (item.constraint === "Frac") {
@@ -1323,7 +1328,7 @@ class Checker {
         break;
       case "Integer": {
         type = this.#fresh(level, true);
-        const requirement = this.#require("Signed", type, expression.span, "literal");
+        const requirement = this.#require("Num", type, expression.span, "literal");
         this.#requirements.set(expression, [requirement]);
         break;
       }
@@ -1498,7 +1503,7 @@ class Checker {
             expression.returnAnnotation.span,
             true,
           );
-          if (this.#intWidenings.has(expression.body)) result = annotationType;
+          if (this.#hasNumericWidening(expression.body)) result = annotationType;
         }
         type = { kind: "Function", parameters, result };
         break;
@@ -1513,7 +1518,7 @@ class Checker {
         } else {
           const alternative = this.#inferExpr(expression.alternative, level);
           if (
-            this.#tryWidenInt(
+            this.#tryWidenNumeric(
               expression.consequence,
               consequence,
               alternative,
@@ -1523,7 +1528,7 @@ class Checker {
           ) {
             type = alternative;
           } else if (
-            this.#tryWidenInt(
+            this.#tryWidenNumeric(
               expression.alternative,
               alternative,
               consequence,
@@ -1998,11 +2003,17 @@ class Checker {
         const operands = expression.operands.map((operand) =>
           this.#inferExpr(operand, level),
         );
-        const targetIndex = operands.findIndex((operand) => {
+        let targetIndex = operands.findIndex((operand) => {
           const actual = this.#prune(operand);
-          return !(actual.kind === "Constructor" && actual.name === "Int") &&
-            this.#supportsSignedTarget(actual, true);
+          return !(actual.kind === "Constructor" && ["Nat", "Int"].includes(actual.name)) &&
+            this.#supportsNumericTarget(actual, true);
         });
+        if (targetIndex < 0) {
+          targetIndex = operands.findIndex((operand) => {
+            const actual = this.#prune(operand);
+            return actual.kind === "Constructor" && actual.name === "Int";
+          });
+        }
         const common = targetIndex < 0 ? operands[0] ?? ERROR : operands[targetIndex]!;
         for (const [index, operand] of operands.entries()) {
           if (index === targetIndex || (targetIndex < 0 && index === 0)) continue;
@@ -2637,14 +2648,16 @@ class Checker {
         ? "Frac"
         : expression.operator === "Power"
           ? "Pow"
-          : expression.operator === "Concat"
-            ? "Concat"
-            : "Signed";
+        : expression.operator === "Concat"
+          ? "Concat"
+          : expression.operator === "Subtract"
+            ? "Signed"
+            : "Num";
     let common = left;
-    if (this.#tryWidenInt(expression.left, left, right, expression.span, true)) {
+    if (this.#tryWidenNumeric(expression.left, left, right, expression.span, true)) {
       common = right;
     } else if (
-      this.#tryWidenInt(expression.right, right, left, expression.span, true)
+      this.#tryWidenNumeric(expression.right, right, left, expression.span, true)
     ) {
       common = left;
     } else {
@@ -2661,10 +2674,10 @@ class Checker {
     expressions: readonly Resolved.Expr[],
     span: Source.Span,
   ): void {
-    // A later argument may establish the shared type of an earlier Int argument
+    // A later argument may establish the shared type of an earlier Nat/Int argument
     // (`plus(count, 1.5)`). Bare literals and fresh variables establish nothing,
     // so defer both classes until concrete/already-constrained arguments settle.
-    const deferredIntArguments: number[] = [];
+    const deferredNumericArguments: number[] = [];
     const deferredLiteralArguments: number[] = [];
     const establishedVariables = new Set<number>();
 
@@ -2682,14 +2695,14 @@ class Checker {
         continue;
       }
       if (
-        source.kind === "Constructor" && source.name === "Int" &&
+        source.kind === "Constructor" && ["Nat", "Int"].includes(source.name) &&
         destination.kind === "Variable"
       ) {
-        deferredIntArguments.push(index);
+        deferredNumericArguments.push(index);
         continue;
       }
       const independentlyEstablished = source.kind !== "Variable" ||
-        this.#supportsSignedTarget(source, true);
+        this.#supportsNumericTarget(source, true);
       this.#unifyExpected(expected, actual, expression, span, true);
       const established = this.#prune(expected);
       if (independentlyEstablished && established.kind === "Variable") {
@@ -2697,7 +2710,7 @@ class Checker {
       }
     }
 
-    for (const index of deferredIntArguments) {
+    for (const index of deferredNumericArguments) {
       const expected = parameters[index] ?? ERROR;
       const actual = arguments_[index] ?? ERROR;
       const expression = expressions[index];
@@ -3008,7 +3021,7 @@ class Checker {
     allowVariableTarget = false,
   ): boolean {
     // This is contextual evidence insertion, not subtyping: the target must already
-    // support Signed, and literal-only variables cannot bootstrap their own target.
+    // support the matching numeric tier, and literal-only variables cannot bootstrap their own target.
     const source = this.#prune(actual);
     const destination = this.#prune(target);
     if (source.kind !== "Constructor" || source.name !== "Int") return false;
@@ -3021,16 +3034,61 @@ class Checker {
     return true;
   }
 
-  #supportsSignedTarget(target: Mono, allowVariableTarget = false): boolean {
+  #tryWidenNat(
+    expression: Resolved.Expr,
+    actual: Mono,
+    target: Mono,
+    span: Source.Span,
+    allowVariableTarget = false,
+  ): boolean {
+    const source = this.#prune(actual);
+    const destination = this.#prune(target);
+    if (source.kind !== "Constructor" || source.name !== "Nat") return false;
+    if (destination.kind === "Constructor" && destination.name === "Nat") return false;
+    if (!this.#supportsTarget(destination, "Num", allowVariableTarget)) return false;
+
+    const requirement = this.#require("Num", destination, span);
+    this.#natWidenings.set(expression, requirement);
+    return true;
+  }
+
+  #tryWidenNumeric(
+    expression: Resolved.Expr,
+    actual: Mono,
+    target: Mono,
+    span: Source.Span,
+    allowVariableTarget = false,
+  ): boolean {
+    return this.#tryWidenInt(expression, actual, target, span, allowVariableTarget) ||
+      this.#tryWidenNat(expression, actual, target, span, allowVariableTarget);
+  }
+
+  #hasNumericWidening(expression: Resolved.Expr): boolean {
+    return this.#natWidenings.has(expression) || this.#intWidenings.has(expression);
+  }
+
+  #supportsTarget(
+    target: Mono,
+    constraint: Typed.ConstraintName,
+    allowVariableTarget = false,
+  ): boolean {
     const destination = this.#prune(target);
     return destination.kind === "Variable"
       ? allowVariableTarget && !destination.literalOnly &&
         destination.requirements.some(({ name }) =>
-          this.#superconstraintPath(name, "Signed") !== undefined
+          this.#superconstraintPath(name, constraint) !== undefined
         )
       : destination.kind === "Constructor"
-        ? supports(destination.name, "Signed")
-        : this.#instances.has(this.#instanceKey("Signed", destination));
+        ? supports(destination.name, constraint)
+        : this.#instances.has(this.#instanceKey(constraint, destination));
+  }
+
+  #supportsSignedTarget(target: Mono, allowVariableTarget = false): boolean {
+    return this.#supportsTarget(target, "Signed", allowVariableTarget);
+  }
+
+  #supportsNumericTarget(target: Mono, allowVariableTarget = false): boolean {
+    return this.#supportsTarget(target, "Num", allowVariableTarget);
   }
 
   #unifyExpected(
@@ -3041,7 +3099,7 @@ class Checker {
     allowVariableTarget = false,
   ): void {
     if (
-      !this.#tryWidenInt(
+      !this.#tryWidenNumeric(
         expression,
         actual,
         expected,
@@ -3098,9 +3156,11 @@ class Checker {
     const declared = this.#constraintDeclarations.get(constraint);
     if (declared !== undefined) return declared.superconstraints;
     if (constraint === "Ord") return ["Eq"];
+    if (constraint === "Signed") return ["Num"];
     if (constraint === "Frac") return ["Signed"];
+    if (constraint === "Pow") return ["Num"];
     if (constraint === "Hash") return ["Eq"];
-    if (constraint === "Integral") return ["Signed", "Ord"];
+    if (constraint === "Integral") return ["Num", "Ord"];
     return [];
   }
 
@@ -4294,6 +4354,17 @@ class Checker {
 
   #materializeExpr(expression: Resolved.Expr): Typed.Expr {
     const value = this.#materializeUnwidenedExpr(expression);
+    const natWidening = this.#natWidenings.get(expression);
+    if (natWidening !== undefined) {
+      const requirement = this.#publicRequirement(natWidening);
+      return {
+        kind: "WidenNat",
+        value,
+        requirement,
+        type: requirement.type,
+        span: expression.span,
+      };
+    }
     const widening = this.#intWidenings.get(expression);
     if (widening === undefined) return value;
     const requirement = this.#publicRequirement(widening);
@@ -4327,7 +4398,7 @@ class Checker {
           : { ...expression, type };
       case "Integer":
         return {
-          kind: "FromInt",
+          kind: "FromNat",
           decimal: expression.decimal,
           requirement: this.#publicRequirement(this.#requirements.get(expression)![0]!),
           type,
@@ -4668,9 +4739,9 @@ class Checker {
       >
     > = {
       Power: ["Pow", "pow"],
-      Multiply: ["Signed", "multiply"],
+      Multiply: ["Num", "multiply"],
       Divide: ["Frac", "divide"],
-      Add: ["Signed", "add"],
+      Add: ["Num", "add"],
       Subtract: ["Signed", "subtract"],
       Concat: ["Concat", "concat"],
     };
@@ -4955,11 +5026,12 @@ function supports(
   constraint: Typed.ConstraintName,
 ): boolean {
   const instances: Record<Typed.PrimitiveName, readonly Typed.ConstraintName[]> = {
-    Int: ["Signed", "Eq", "Ord", "Show", "Pow", "Hash", "Integral"],
-    Float: ["Signed", "Frac", "Eq", "Ord", "Show", "Pow", "Hash"],
+    Nat: ["Num", "Eq", "Ord", "Show", "Pow", "Hash", "Integral"],
+    Int: ["Num", "Signed", "Eq", "Ord", "Show", "Pow", "Hash", "Integral"],
+    Float: ["Num", "Signed", "Frac", "Eq", "Ord", "Show", "Pow", "Hash"],
     Bool: ["Eq", "Ord", "Show", "Hash"],
     String: ["Eq", "Ord", "Show", "Concat", "Hash"],
-    BigInt: ["Signed", "Eq", "Ord", "Show", "Pow", "Hash", "Integral"],
+    BigInt: ["Num", "Signed", "Eq", "Ord", "Show", "Pow", "Hash", "Integral"],
     Exn: [],
     Unit: ["Eq", "Ord", "Show", "Hash"],
   };
@@ -4967,7 +5039,7 @@ function supports(
 }
 
 function isConstraintName(name: string): name is Typed.ConstraintName {
-  return ["Signed", "Frac", "Pow", "Concat", "Eq", "Ord", "Show", "Hash", "Iterable", "Integral"].includes(name);
+  return ["Num", "Signed", "Frac", "Pow", "Concat", "Eq", "Ord", "Show", "Hash", "Iterable", "Integral"].includes(name);
 }
 
 /** Keeps the technical projection vocabulary out of source-facing diagnostics. */

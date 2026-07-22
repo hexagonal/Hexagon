@@ -81,6 +81,7 @@ For each Hexagon type: its JavaScript runtime representation, its generated `.d.
 
 | Hexagon type | JS runtime representation | `.d.ts` face | Category | Failure mode |
 |---|---|---|---|---|
+| `Nat` | non-negative `number` satisfying `Number.isSafeInteger` | `number` | direct | trusted; violation → §3.1 |
 | `Int` | `number` satisfying `Number.isSafeInteger` | `number` | direct | trusted; violation → §3.1 |
 | `Float` | any `number` (incl. `NaN`, infinities, `-0`) | `number` | direct | trusted |
 | `BigInt` | `bigint` | `bigint` | direct | trusted |

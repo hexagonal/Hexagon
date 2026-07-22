@@ -1,6 +1,6 @@
 # Hexagon Feature Catalogue
 
-**Status:** Draft 1 coverage. Each numbered item now corresponds to the chapter with
+**Status:** Draft 2 coverage. Each numbered item now corresponds to the chapter with
 the same number; later passes may still revise boundaries and order.
 
 This catalogue describes Hexagon from a programmer's point of view. It deliberately
@@ -76,7 +76,7 @@ open specification work does not make the book outline provisional.
     punning. Exhaustiveness and unreachable arms are compile errors, and refutable
     patterns are restricted in binding positions.
 
-13. **Constraints** — Constraints such as `Eq`, `Ord`, `Show`, `Signed`,
+13. **Constraints** — Constraints such as `Eq`, `Ord`, `Show`, `Num`, `Signed`,
     `Frac`, `Integral`, `Concat`, `Pow`, `Hash`, and `Iterable` express capabilities.
     Operations may provide overridable defaults; `honor` declarations provide coherent
     instances under an orphan rule. Constrained polymorphism compiles through dictionary

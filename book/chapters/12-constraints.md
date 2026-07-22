@@ -26,8 +26,9 @@ let labelled(value) = "Value: ${value}"
 ```
 
 String interpolation uses `show`, so the inferred type says that the argument type
-must honor `Show`. Operators behave similarly. `x == y` requires `Eq`; arithmetic such
-as `x + y` requires `Signed`; ordering comparisons require `Ord`.
+must honor `Show`. Operators behave similarly. `x == y` requires `Eq`; addition and
+multiplication require `Num`; subtraction and negation require `Signed`; ordering
+comparisons require `Ord`.
 
 Write an explicit binder when the capability is important documentation or when a
 signature should deliberately be no more general:
@@ -196,6 +197,25 @@ Read the header from left to right: `Ord` implies `Eq`. A function requiring `Or
 therefore use both `compare` and `equals`, and a type cannot honor `Ord` unless it also
 has an `Eq` instance.
 
+The numeric hierarchy uses the same mechanism:
+
+```hexagon
+constraint Num<a> =
+  add(left: a, right: a): a
+  multiply(left: a, right: a): a
+  fromNat(value: Nat): a
+
+constraint Signed<a: Num> =
+  subtract(left: a, right: a): a
+  negate(value: a): a
+  fromInt(value: Int): a
+```
+
+Nat honors Num but not Signed. Int, Float, BigInt, and Rat honor both. A function that
+only adds or multiplies is consequently as general as it honestly can be, while a
+Signed dictionary carries its Num dictionary in one parent slot rather than requiring
+two independent dictionary parameters.
+
 `Ordering` is the union:
 
 ```hexagon
@@ -239,7 +259,7 @@ The important organizing ideas are more useful than a catalogue of member functi
 | `Eq` | equality |
 | `Ord` | total ordering, with `Eq` |
 | `Show` | human-readable display |
-| `Signed`, `Frac`, `Integral` | numeric operations at different levels |
+| `Num`, `Signed`, `Frac`, `Integral` | numeric operations at different levels |
 | `Concat`, `Pow` | concatenation and exponentiation |
 | `Hash` | hashing consistent with equality for hashed collections |
 | `Iterable` | producing values for iteration |

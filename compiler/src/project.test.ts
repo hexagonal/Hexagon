@@ -86,10 +86,12 @@ test("makes an imported module's coherent instances available to operators", () 
       "/box.hex",
       "export opaque record Box = {value: Int}\n" +
         "export let create(value: Int): Box = Box({value})\n" +
-        "honor Signed<Box> =\n" +
+        "honor Num<Box> =\n" +
         "  add(left, right) = create(left.value + right.value)\n" +
-        "  subtract(left, right) = create(left.value - right.value)\n" +
         "  multiply(left, right) = create(left.value * right.value)\n" +
+        "  fromNat(value) = create(value)\n" +
+        "honor Signed<Box> =\n" +
+        "  subtract(left, right) = create(left.value - right.value)\n" +
         "  negate(value) = create(-value.value)\n" +
         "  fromInt(value) = create(value)",
     ),
@@ -106,9 +108,9 @@ test("makes an imported module's coherent instances available to operators", () 
   const main = project.modules[1]!;
   expect(box.typed.diagnostics).toEqual([]);
   expect(main.typed.diagnostics).toEqual([]);
-  expect(box.javascript.text).toContain("export { __hex_instance_Signed_Box };");
+  expect(box.javascript.text).toContain("export { __hex_instance_Num_Box };");
   expect(main.javascript.text).toContain(
-    "__hex_imported_0___hex_instance_Signed_Box.add(Box.create(20), Box.create(22))",
+    "__hex_imported_0___hex_instance_Num_Box.add(Box.create(20), Box.create(22))",
   );
 });
 
@@ -119,10 +121,12 @@ test("propagates coherent instances through the complete import graph", () => {
       "/box.hex",
       "export opaque record Box = {value: Int}\n" +
         "export let create(value: Int): Box = Box({value})\n" +
-        "honor Signed<Box> =\n" +
+        "honor Num<Box> =\n" +
         "  add(left, right) = create(left.value + right.value)\n" +
-        "  subtract(left, right) = create(left.value - right.value)\n" +
         "  multiply(left, right) = create(left.value * right.value)\n" +
+        "  fromNat(value) = create(value)\n" +
+        "honor Signed<Box> =\n" +
+        "  subtract(left, right) = create(left.value - right.value)\n" +
         "  negate(value) = create(-value.value)\n" +
         "  fromInt(value) = create(value)",
     ),
@@ -144,11 +148,11 @@ test("propagates coherent instances through the complete import graph", () => {
   const facade = project.modules[1]!;
   const main = project.modules[2]!;
   expect(facade.javascript.text).toContain(
-    "export { __hex_imported_0___hex_instance_Signed_Box };",
+    "export { __hex_imported_0___hex_instance_Num_Box };",
   );
   expect(main.typed.diagnostics).toEqual([]);
   expect(main.javascript.text).toContain(
-    "__hex_imported_1___hex_imported_0___hex_instance_Signed_Box.add",
+    "__hex_imported_1___hex_imported_0___hex_instance_Num_Box.add",
   );
 });
 
@@ -159,10 +163,12 @@ test("deduplicates one coherent instance reached through a diamond import", () =
       "/box.hex",
       "export opaque record Box = {value: Int}\n" +
         "export let create(value: Int): Box = Box({value})\n" +
-        "honor Signed<Box> =\n" +
+        "honor Num<Box> =\n" +
         "  add(left, right) = create(left.value + right.value)\n" +
-        "  subtract(left, right) = create(left.value - right.value)\n" +
         "  multiply(left, right) = create(left.value * right.value)\n" +
+        "  fromNat(value) = create(value)\n" +
+        "honor Signed<Box> =\n" +
+        "  subtract(left, right) = create(left.value - right.value)\n" +
         "  negate(value) = create(-value.value)\n" +
         "  fromInt(value) = create(value)",
     ),

@@ -8,11 +8,12 @@ export let orderTotal(subtotal: Int, delivery: Int): Int =
   total
 ```
 
-`Int` is one of the **six primitive types**. These are the small values from which larger
+`Int` is one of the **seven primitive types**. These are the small values from which larger
 programs are assembled:
 
 | Hexagon type | Literal | JavaScript / TypeScript |
 |---|---|---|
+| `Nat` | `42` | `number` |
 | `Int` | `42` | `number` |
 | `Float` | `3.14` | `number` |
 | `Bool` | `true` | `boolean` |
@@ -25,6 +26,32 @@ JavaScript number, a `String` becomes an ordinary JavaScript string, and so on. 
 differences Hexagon adds are checked before the program runs: an integer cannot be
 silently mixed with a `BigInt`, a string cannot wander into a Boolean condition, and
 interpolation cannot stringify a value that has no meaningful display form.
+
+## `Nat`: non-negative by construction
+
+`Nat` represents whole numbers from zero through JavaScript's maximum safe integer.
+It has the same unboxed `number` representation as `Int`, but its type records that a
+negative value has already been excluded:
+
+```hexagon
+let pageSize: Nat = 50
+let retryLimit: Nat = 3
+```
+
+Nat is useful when non-negativity is the whole invariant and the value is counted,
+displayed, compared, or iterated. At an untrusted boundary, `Nat.fromInt` returns an
+`Option(Nat)`, allowing the program to validate once and carry the fact in the type.
+
+Nat supports numeric literals, addition, and multiplication through `Num`. It does not
+support subtraction or negation through `Signed`: those operations can leave the
+non-negative domain. This makes Nat a useful refinement, not a replacement for Int.
+Bare literals still default to Int, because ordinary application arithmetic often
+needs subtraction:
+
+```hexagon
+let ordinary = 3        // Int
+let counted: Nat = 3    // Nat
+```
 
 ## `Int`: the ordinary whole number
 
@@ -224,8 +251,10 @@ than pretending UTF-16 units, codepoints, and visible characters are always the 
 
 ## `BigInt`: arbitrary precision by choice
 
-Most programs use `Int` and `Float`. When a whole number must exceed `Int`'s safe
-range, append `n` to choose arbitrary precision explicitly:
+Most programs use `Int` and `Float`. The `n` suffix means what it means in JavaScript:
+this literal itself is a `BigInt`. It is the preferred compact annotation when no
+surrounding context pins the type, and it is mandatory when a payload exceeds Int's
+safe range:
 
 ```hexagon
 let exactPopulation = 9_007_199_254_740_993n
@@ -234,6 +263,17 @@ let cryptographicModulus = 340_282_366_920_938_463_463_374_607_431_768_211_507n
 
 These literals have type `BigInt` and compile directly to JavaScript `bigint` values.
 Their size is limited by available resources rather than a fixed numeric range.
+
+When a parameter or annotation already requires BigInt, bare digits are the recommended
+spelling:
+
+```hexagon
+let oneThird = Rat.create(1, 3)
+```
+
+Both arguments are pinned by `Rat.create`'s BigInt parameters, so the emitted JavaScript
+is `Rat.create(1n, 3n)`. The suffix communicates a type decision; it need not repeat one
+the surrounding program has already made.
 
 The suffix is a visible decision. `BigInt` is valuable, but it is not a drop-in
 replacement for JavaScript's ordinary numbers: many web APIs expect `number`, JSON
@@ -275,16 +315,17 @@ static meaning while retaining the JavaScript value that naturally represents it
 Hexagon's primitive types are intentionally close to JavaScript without being ruled by
 JavaScript's implicit conversions:
 
-- `Int` is the ordinary safe-range whole number and usually the type of a bare integer
+- `Nat` records a non-negative safe-range whole number without changing its JS representation;
+- `Int` is the ordinary signed safe-range whole number and usually the type of a bare integer
   literal;
 - `Float` is IEEE 754 binary64 and is selected by a decimal point or exponent;
 - `Bool` permits no truthiness conversions;
 - `String` has one interpolating, multiline literal form and codepoint-based text
   operations;
-- `BigInt` provides opt-in arbitrary precision through the `n` suffix; and
+- `BigInt` provides arbitrary precision; `n` pins an otherwise unpinned literal and is mandatory beyond Int's range; and
 - `Unit` is the one-value type used when an expression has no interesting result.
 
-All six use native JavaScript representations. Types make their distinctions visible to
+All seven use native JavaScript representations. Types make their distinctions visible to
 Hexagon even where JavaScript or generated TypeScript erases one—most notably the
 distinction between `Int` and `Float`.
 
