@@ -1,6 +1,6 @@
 # Hexagon Spec: The `Integral` Constraint
 
-**Status:** Decided (July 2026), amended by James's decisions that `Rat` is required for v1 and uses `BigInt` representation.
+**Status:** Decided (July 2026); compiler dictionaries and primitive instances implemented. Amended by James's decisions that `Rat` is required for v1 and uses `BigInt` representation.
 **Scope:** The `Integral` prelude constraint (polymorphic Euclidean division API + `gcd`), its `Int`/`BigInt` instances, `gcd` semantics, `BigInt.lcm`, emission, and the reconciliation with the Division & Remainder spec's monomorphic functions.
 **Not in scope:** `Rat` itself (a separate focused v1 spec — this constraint is its enabling machinery, and §9's generic-normalization test is its down payment); the semantics of the four division functions (Division & Remainder spec is authoritative; this doc adds no convention, only a polymorphic surface).
 **Companions:** Division & Remainder spec (conventions, zero-divisor policy — edit note §10), Constraints spec (§7 prelude listing — edit note), Numeric Literals spec (`Num`/`fromInt`, which the superconstraint supplies to generic code).

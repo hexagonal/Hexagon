@@ -581,6 +581,7 @@ export type Expr =
   | IndexExpr
   | HashExpr
   | CollectionOperationExpr
+  | PrimitiveOperationExpr
   | UnaryExpr
   | BinaryExpr
   | ComparisonExpr
@@ -791,6 +792,14 @@ export interface CollectionOperationExpr {
   readonly kind: "CollectionOperation";
   readonly collection: "Map" | "Set" | "Vector";
   readonly operation: string;
+  readonly span: Source.Span;
+}
+
+/** A compiler-known operation in a primitive type's companion. */
+export interface PrimitiveOperationExpr {
+  readonly kind: "PrimitiveOperation";
+  readonly primitive: "Int" | "BigInt" | "Float";
+  readonly operation: "div" | "mod" | "quot" | "rem" | "gcd" | "lcm";
   readonly span: Source.Span;
 }
 

@@ -5,6 +5,7 @@ import { modules } from "./modules";
 import { patterns } from "./patterns";
 import { payloadUnions } from "./payload-unions";
 import { records } from "./records";
+import { rat } from "./rat";
 import { recursion } from "./recursion";
 import { sequences } from "./sequences";
 import { specializations } from "./specializations";
@@ -16,6 +17,7 @@ export const playgroundExamples: readonly PlaygroundExample[] = [
   payloadUnions,
   records,
   constraints,
+  rat,
   sequences,
   modules,
   specializations,

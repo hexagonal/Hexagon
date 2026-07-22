@@ -39,7 +39,7 @@ or prototype lookup.
 > [!IMPORTANT]
 > Hexagon is under active design and implementation. The language specification is
 > about 95% complete, the reader-facing book has reached its first full draft, and
-> compiler construction has complete lexer and layout passes plus thirty-eight thin vertical
+> compiler construction has complete lexer and layout passes plus forty thin vertical
 > slices through parsing, name resolution, type checking, Core elaboration,
 > JavaScript emission, and declaration emission. Small programs in that subset,
 > including tuples, pattern bindings, unions and matches, records, local mutation,
@@ -102,11 +102,11 @@ review copies stay outside version control.
 
 Compiler implementation is underway. The platform-neutral TypeScript workspace has
 source coordinates, structured diagnostics, a Unicode-aware physical lexer, and the
-indentation layout pass. Thirty-eight vertical slices cover core expressions, `let` and local `var` bindings,
+indentation layout pass. Forty vertical slices cover core expressions, `let` and local `var` bindings,
 lambdas, directly recursive functions, conditionals, `while`, Range/String `for..in`, calls, tuple values and patterns,
 generic unions and nominal records, guarded full-pattern exception handling, constraints and parameterized instances,
 implied types, aliases, relative imports, module-level foreign bindings and opaque foreign types,
-mutual recursion, qualified types, opaque exports,
+mutual recursion, qualified types, opaque exports, Euclidean integer division and exact rational arithmetic,
 nominal dot calls, direct fundamental specializations, exhaustive matches, explicit function types, rich annotations, and
 operator precedence. Its resolver assigns stable symbols to `let`, `fun`, loop-head pattern,
 constructor, and lambda-parameter bindings, implements lexical scopes, and diagnoses
