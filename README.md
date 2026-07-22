@@ -20,12 +20,12 @@ successful compilation, with `console.log(...)` captured in the Output tab. Sour
 is persisted locally, and curated examples and fragment-based Share URLs are built in.
 Supported desktop browsers get Monaco editing, exact compiler markers, inferred-type
 hovers, and read-only generated JavaScript and declaration models. The Fundamental
-Specializations example infers one `Num`-polymorphic function; its JS view can hide
+Specializations example infers one `Signed`-polymorphic function; its JS view can hide
 the generated family, show the complete module, or inspect each concrete edition and
 its byte size.
 The exact-fractions example uses the canonical `stdlib/Rat.hex` module supplied by
 the Playground's deliberately provisional fundamental stdlib, including ordinary
-`half + third` dispatch through `Num<Rat>`.
+`half + third` dispatch through `Signed<Rat>`.
 
 One subject-first function, three equally static ways to call it:
 

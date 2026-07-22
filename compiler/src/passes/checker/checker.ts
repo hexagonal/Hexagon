@@ -162,7 +162,7 @@ function primitive(name: Typed.PrimitiveName): Constructor {
 class Checker {
   readonly #expressionTypes = new WeakMap<Resolved.Expr, Mono>();
   readonly #requirements = new WeakMap<object, readonly Requirement[]>();
-  /** Exact Int expressions that checking injects into an independently known Num target. */
+  /** Exact Int expressions that checking injects into an independently known Signed target. */
   readonly #intWidenings = new WeakMap<Resolved.Expr, Requirement>();
   readonly #nameRequirements = new WeakMap<Resolved.NameExpr, readonly Requirement[]>();
   readonly #callRequirements = new WeakMap<Resolved.CallExpr, readonly Requirement[]>();
@@ -196,7 +196,7 @@ class Checker {
   readonly #operationsByName = new Map<string, Resolved.Symbol>();
   readonly #operationSpellings = new Map<Resolved.SymbolId, string>();
   readonly #constraintNames = new Set<string>([
-    "Num", "Frac", "Pow", "Concat", "Eq", "Ord", "Show", "Hash", "Iterable", "Integral",
+    "Signed", "Frac", "Pow", "Concat", "Eq", "Ord", "Show", "Hash", "Iterable", "Integral",
   ]);
   readonly #constraintSubjects = new WeakMap<Resolved.ConstraintItem, Variable>();
   readonly #constraintImpliedTypes = new WeakMap<
@@ -1057,7 +1057,7 @@ class Checker {
       members.set("compare", { parameters: [subject, subject], result: primitive("Int") });
     } else if (item.constraint === "Show") {
       members.set("show", { parameters: [subject], result: primitive("String") });
-    } else if (item.constraint === "Num") {
+    } else if (item.constraint === "Signed") {
       for (const name of ["add", "subtract", "multiply"] as const) members.set(name, binary);
       members.set("negate", { parameters: [subject], result: subject });
       members.set("fromInt", { parameters: [primitive("Int")], result: subject });
@@ -1323,7 +1323,7 @@ class Checker {
         break;
       case "Integer": {
         type = this.#fresh(level, true);
-        const requirement = this.#require("Num", type, expression.span, "literal");
+        const requirement = this.#require("Signed", type, expression.span, "literal");
         this.#requirements.set(expression, [requirement]);
         break;
       }
@@ -1985,7 +1985,7 @@ class Checker {
           type = primitive("Bool");
           this.#requirements.set(expression, []);
         } else {
-          const requirement = this.#require("Num", operand, expression.span);
+          const requirement = this.#require("Signed", operand, expression.span);
           this.#requirements.set(expression, [requirement]);
           type = operand;
         }
@@ -2001,7 +2001,7 @@ class Checker {
         const targetIndex = operands.findIndex((operand) => {
           const actual = this.#prune(operand);
           return !(actual.kind === "Constructor" && actual.name === "Int") &&
-            this.#supportsNumTarget(actual, true);
+            this.#supportsSignedTarget(actual, true);
         });
         const common = targetIndex < 0 ? operands[0] ?? ERROR : operands[targetIndex]!;
         for (const [index, operand] of operands.entries()) {
@@ -2639,7 +2639,7 @@ class Checker {
           ? "Pow"
           : expression.operator === "Concat"
             ? "Concat"
-            : "Num";
+            : "Signed";
     let common = left;
     if (this.#tryWidenInt(expression.left, left, right, expression.span, true)) {
       common = right;
@@ -2689,7 +2689,7 @@ class Checker {
         continue;
       }
       const independentlyEstablished = source.kind !== "Variable" ||
-        this.#supportsNumTarget(source, true);
+        this.#supportsSignedTarget(source, true);
       this.#unifyExpected(expected, actual, expression, span, true);
       const established = this.#prune(expected);
       if (independentlyEstablished && established.kind === "Variable") {
@@ -3008,29 +3008,29 @@ class Checker {
     allowVariableTarget = false,
   ): boolean {
     // This is contextual evidence insertion, not subtyping: the target must already
-    // support Num, and literal-only variables cannot bootstrap their own target.
+    // support Signed, and literal-only variables cannot bootstrap their own target.
     const source = this.#prune(actual);
     const destination = this.#prune(target);
     if (source.kind !== "Constructor" || source.name !== "Int") return false;
     if (destination.kind === "Constructor" && destination.name === "Int") return false;
 
-    if (!this.#supportsNumTarget(destination, allowVariableTarget)) return false;
+    if (!this.#supportsSignedTarget(destination, allowVariableTarget)) return false;
 
-    const requirement = this.#require("Num", destination, span);
+    const requirement = this.#require("Signed", destination, span);
     this.#intWidenings.set(expression, requirement);
     return true;
   }
 
-  #supportsNumTarget(target: Mono, allowVariableTarget = false): boolean {
+  #supportsSignedTarget(target: Mono, allowVariableTarget = false): boolean {
     const destination = this.#prune(target);
     return destination.kind === "Variable"
       ? allowVariableTarget && !destination.literalOnly &&
         destination.requirements.some(({ name }) =>
-          this.#superconstraintPath(name, "Num") !== undefined
+          this.#superconstraintPath(name, "Signed") !== undefined
         )
       : destination.kind === "Constructor"
-        ? supports(destination.name, "Num")
-        : this.#instances.has(this.#instanceKey("Num", destination));
+        ? supports(destination.name, "Signed")
+        : this.#instances.has(this.#instanceKey("Signed", destination));
   }
 
   #unifyExpected(
@@ -3098,9 +3098,9 @@ class Checker {
     const declared = this.#constraintDeclarations.get(constraint);
     if (declared !== undefined) return declared.superconstraints;
     if (constraint === "Ord") return ["Eq"];
-    if (constraint === "Frac") return ["Num"];
+    if (constraint === "Frac") return ["Signed"];
     if (constraint === "Hash") return ["Eq"];
-    if (constraint === "Integral") return ["Num", "Ord"];
+    if (constraint === "Integral") return ["Signed", "Ord"];
     return [];
   }
 
@@ -4552,7 +4552,7 @@ class Checker {
         }
         return this.#materializeConstraintCall(
           expression,
-          "Num",
+          "Signed",
           "negate",
           [expression.operand],
         );
@@ -4668,10 +4668,10 @@ class Checker {
       >
     > = {
       Power: ["Pow", "pow"],
-      Multiply: ["Num", "multiply"],
+      Multiply: ["Signed", "multiply"],
       Divide: ["Frac", "divide"],
-      Add: ["Num", "add"],
-      Subtract: ["Num", "subtract"],
+      Add: ["Signed", "add"],
+      Subtract: ["Signed", "subtract"],
       Concat: ["Concat", "concat"],
     };
     const detail = details[expression.operator];
@@ -4955,11 +4955,11 @@ function supports(
   constraint: Typed.ConstraintName,
 ): boolean {
   const instances: Record<Typed.PrimitiveName, readonly Typed.ConstraintName[]> = {
-    Int: ["Num", "Eq", "Ord", "Show", "Pow", "Hash", "Integral"],
-    Float: ["Num", "Frac", "Eq", "Ord", "Show", "Pow", "Hash"],
+    Int: ["Signed", "Eq", "Ord", "Show", "Pow", "Hash", "Integral"],
+    Float: ["Signed", "Frac", "Eq", "Ord", "Show", "Pow", "Hash"],
     Bool: ["Eq", "Ord", "Show", "Hash"],
     String: ["Eq", "Ord", "Show", "Concat", "Hash"],
-    BigInt: ["Num", "Eq", "Ord", "Show", "Pow", "Hash", "Integral"],
+    BigInt: ["Signed", "Eq", "Ord", "Show", "Pow", "Hash", "Integral"],
     Exn: [],
     Unit: ["Eq", "Ord", "Show", "Hash"],
   };
@@ -4967,7 +4967,7 @@ function supports(
 }
 
 function isConstraintName(name: string): name is Typed.ConstraintName {
-  return ["Num", "Frac", "Pow", "Concat", "Eq", "Ord", "Show", "Hash", "Iterable", "Integral"].includes(name);
+  return ["Signed", "Frac", "Pow", "Concat", "Eq", "Ord", "Show", "Hash", "Iterable", "Integral"].includes(name);
 }
 
 /** Keeps the technical projection vocabulary out of source-facing diagnostics. */

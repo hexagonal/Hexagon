@@ -74,8 +74,8 @@ for i in 1..n        -- the counting loop
 ```
 
 - `x..y` is a binary operator on `Int`s producing a value of the concrete type **`Range`**: a lightweight, immutable, *lazy* description of a bounded integer progression. It is **not** a `Vector` — `for i in 1..1_000_000` allocates nothing.
-- `Range` is monomorphic over `Int` in v1. No Float ranges, no ranges over arbitrary `Ord` types (no use case until `Char`-like types exist; pre-registered rejection for v1). A `Range(a)` over `<a: (Num, Ord)>` is specifically rejected: fractional ranges inherit IEEE accumulation drift in loop bounds (Haskell's `[0.1, 0.2 .. 1.0]` overshoot is the cautionary precedent), while `Int`-only ranges have an exact element count and make the §8 counting-loop emission (`x <= hi`) trivially correct.
-- **Interaction with polymorphic literals and widening:** the *literals* in `1..10` are polymorphic as always (`fromInt(k) : α, Num α` — Numeric Literals machinery, untouched), but `..` demands `Int` operands, so each `α` unifies with `Int` on the spot. Defaulting never runs; the constraint discharges at the `Int` instance; `fromInt` erases (Numeric Literals §5). Consequently `1..10 : Range` and the loop variable is `Int`, unconditionally. When that established `Int` later meets an independently established `Float` accumulator, Numeric Literals §5.1 widens it contextually through `Float.fromInt`; the range itself remains monomorphic (acceptance test §10.3(i)).
+- `Range` is monomorphic over `Int` in v1. No Float ranges, no ranges over arbitrary `Ord` types (no use case until `Char`-like types exist; pre-registered rejection for v1). A `Range(a)` over `<a: (Signed, Ord)>` is specifically rejected: fractional ranges inherit IEEE accumulation drift in loop bounds (Haskell's `[0.1, 0.2 .. 1.0]` overshoot is the cautionary precedent), while `Int`-only ranges have an exact element count and make the §8 counting-loop emission (`x <= hi`) trivially correct.
+- **Interaction with polymorphic literals and widening:** the *literals* in `1..10` are polymorphic as always (`fromInt(k) : α, Signed α` — Numeric Literals machinery, untouched), but `..` demands `Int` operands, so each `α` unifies with `Int` on the spot. Defaulting never runs; the constraint discharges at the `Int` instance; `fromInt` erases (Numeric Literals §5). Consequently `1..10 : Range` and the loop variable is `Int`, unconditionally. When that established `Int` later meets an independently established `Float` accumulator, Numeric Literals §5.1 widens it contextually through `Float.fromInt`; the range itself remains monomorphic (acceptance test §10.3(i)).
 - Ranges are **inclusive at both ends**, always. There is no exclusive-end variant and no half-open syntax (`..<`, `...`) in v1: with 1-based indexing, the half-open idiom's *raison d'être* (`0..<len`) does not arise — the natural loops are `1..n` and `1..length(xs)`, both inclusive. Pre-registered rejection; revisit only with field evidence.
 - Conceptually a `Range` is `(start, end, direction)` where direction ∈ {ascending, descending}; direction is **not user-visible** in v1 (no field access on `Range`; it is opaque). `..` always builds ascending; `rangeDown` builds descending (§3.3).
 - `Range` is iterable with element type `Int` (§7; instance row Collections Part 5 §4).
@@ -111,7 +111,7 @@ Descending iteration is **never inferred from operand order** (§3.4); it is alw
 
 ### 3.6 Constraints on `Range`
 
-`Eq` and `Show` are plausible and deferred to `stdlib-roadmap.md` (which also tracks the dependent `Hash<Range>`); nothing in this spec requires them. `Range` is not `Ord`, not `Num`.
+`Eq` and `Show` are plausible and deferred to `stdlib-roadmap.md` (which also tracks the dependent `Hash<Range>`); nothing in this spec requires them. `Range` is not `Ord`, not `Signed`.
 
 ---
 

@@ -257,9 +257,9 @@ function fundamentalSupports(
   constraint: Typed.ConstraintName,
 ): boolean {
   const instances: Record<FundamentalType, readonly Typed.ConstraintName[]> = {
-    Int: ["Num", "Eq", "Ord", "Show", "Pow"],
-    Float: ["Num", "Frac", "Eq", "Ord", "Show", "Pow"],
-    BigInt: ["Num", "Eq", "Ord", "Show", "Pow"],
+    Int: ["Signed", "Eq", "Ord", "Show", "Pow"],
+    Float: ["Signed", "Frac", "Eq", "Ord", "Show", "Pow"],
+    BigInt: ["Signed", "Eq", "Ord", "Show", "Pow"],
     Bool: ["Eq", "Ord", "Show"],
     String: ["Eq", "Ord", "Show", "Concat"],
     Unit: ["Eq", "Ord", "Show"],

@@ -99,7 +99,7 @@ record Point = {x: Float, y: Float} derives (Eq, Hash)
 - `honor Hash<T> = derive` occupies the ordinary (constraint, constructor) coherence slot, obeys the orphan rule, and participates in superconstraint existence checks: deriving `Hash` with no `Eq<T>` in scope is the existing missing-superconstraint error, plus the hint **"add `Eq` to the `derives` list"** (parallel to `Ord`).
 - On a parameterized nominal type, `derive` produces the expected parameterized instance; component types' `Hash` obligations become instance-context obligations per Constraints §4.3 (`honor<a: Hash> Hash<Box(a)> = derive`-shaped).
 - An underivable slot is the standard error, phrased against the derivation: "cannot derive `Hash<Handler>`: field `f` has type `Int -> Int`, which has no `Hash` instance."
-- The whitelist diagnostic names all four: "`Num` cannot be derived; only `Eq`, `Ord`, `Show`, and `Hash` have derivable forms."
+- The whitelist diagnostic names all four: "`Signed` cannot be derived; only `Eq`, `Ord`, `Show`, and `Hash` have derivable forms."
 
 ### 3.2 Derivation semantics (contract, not algorithm)
 
@@ -375,7 +375,7 @@ record P = {n: Int} derives Hash                 -- ERROR: missing Eq
                                                  --   hint: add `Eq` to the `derives` list
 
 -- (7) Whitelist message names all four
-honor Num<P> = derive                            -- ERROR: only Eq, Ord, Show, and Hash
+honor Signed<P> = derive                            -- ERROR: only Eq, Ord, Show, and Hash
                                                  --   have derivable forms
 
 -- (8) A user collection joins for..in (operational check in Part 5)

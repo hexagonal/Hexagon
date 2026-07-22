@@ -1384,7 +1384,7 @@ class JavaScriptEmitter {
     if (expression.evidence.kind === "Instance" || expression.evidence.kind === "Structural") {
       const dictionary = this.#emitEvidence(
         expression.evidence,
-        "Num",
+        "Signed",
         expression.span,
         evidenceNames,
       );
@@ -1393,7 +1393,7 @@ class JavaScriptEmitter {
     if (expression.evidence.kind !== "Dictionary") return "undefined";
     const dictionary = this.#dictionary(
       expression.evidence.variable,
-      expression.evidence.constraint ?? "Num",
+      expression.evidence.constraint ?? "Signed",
       expression.span,
       evidenceNames,
       expression.evidence.path,
@@ -1415,7 +1415,7 @@ class JavaScriptEmitter {
     if (expression.evidence.kind === "Dictionary") {
       const dictionary = this.#dictionary(
         expression.evidence.variable,
-        expression.evidence.constraint ?? "Num",
+        expression.evidence.constraint ?? "Signed",
         expression.span,
         evidenceNames,
         expression.evidence.path,
@@ -1425,7 +1425,7 @@ class JavaScriptEmitter {
     if (expression.evidence.kind === "Instance" || expression.evidence.kind === "Structural") {
       const dictionary = this.#emitEvidence(
         expression.evidence,
-        "Num",
+        "Signed",
         expression.span,
         evidenceNames,
       );
@@ -3374,14 +3374,14 @@ function primitiveDictionary(
   helperName: (helper: Helper) => string,
 ): string {
   switch (constraint) {
-    case "Num": {
+    case "Signed": {
       const fromInt = instance === "BigInt"
         ? "BigInt(__hex_a)"
         : "__hex_a";
       return `({ add: (__hex_a, __hex_b) => __hex_a + __hex_b, subtract: (__hex_a, __hex_b) => __hex_a - __hex_b, multiply: (__hex_a, __hex_b) => __hex_a * __hex_b, negate: __hex_a => -__hex_a, fromInt: __hex_a => ${fromInt} })`;
     }
     case "Frac":
-      return `({ num: ${primitiveDictionary("Num", instance, helperName)}, divide: (__hex_a, __hex_b) => __hex_a / __hex_b })`;
+      return `({ signed: ${primitiveDictionary("Signed", instance, helperName)}, divide: (__hex_a, __hex_b) => __hex_a / __hex_b })`;
     case "Concat":
       return "({ concat: (__hex_a, __hex_b) => __hex_a + __hex_b })";
     case "Pow":
@@ -3409,11 +3409,11 @@ function primitiveDictionary(
         ? `({ eq: { equals: (__hex_a, __hex_b) => __hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b), notEquals: (__hex_a, __hex_b) => !(__hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b)) }, hash: __hex_a => ${helperName("stableHash")}(__hex_a) })`
         : `({ eq: { equals: (__hex_a, __hex_b) => __hex_a === __hex_b, notEquals: (__hex_a, __hex_b) => __hex_a !== __hex_b }, hash: __hex_a => ${helperName("stableHash")}(__hex_a) })`;
     case "Integral": {
-      const numeric = primitiveDictionary("Num", instance, helperName);
+      const signed = primitiveDictionary("Signed", instance, helperName);
       const ordering = primitiveDictionary("Ord", instance, helperName);
       const member = (operation: Core.PrimitiveOperationExpr["operation"]): string =>
         helperName(primitiveOperationHelper(instance as "Int" | "BigInt", operation));
-      return `({ num: ${numeric}, ord: ${ordering}, div: ${member("div")}, mod: ${member("mod")}, quot: ${member("quot")}, rem: ${member("rem")}, gcd: ${member("gcd")} })`;
+      return `({ signed: ${signed}, ord: ${ordering}, div: ${member("div")}, mod: ${member("mod")}, quot: ${member("quot")}, rem: ${member("rem")}, gcd: ${member("gcd")} })`;
     }
     default:
       return "({})";

@@ -449,14 +449,14 @@ export interface PrimitiveOperationExpr extends ExpressionFields {
   readonly operation: "div" | "mod" | "quot" | "rem" | "gcd" | "lcm";
 }
 
-/** A non-representationally-trivial `Num.fromInt` application. */
+/** A non-representationally-trivial `Signed.fromInt` application. */
 export interface ConvertIntExpr extends ExpressionFields {
   readonly kind: "ConvertInt";
   readonly decimal: string;
   readonly evidence: Evidence;
 }
 
-/** An explicit contextual `Num.fromInt(value)` selected during checking. */
+/** An explicit contextual `Signed.fromInt(value)` selected during checking. */
 export interface WidenIntExpr extends ExpressionFields {
   readonly kind: "WidenInt";
   readonly value: Expr;

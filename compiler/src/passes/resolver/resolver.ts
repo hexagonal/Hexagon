@@ -157,7 +157,7 @@ class Resolver {
   readonly #imports: ReadonlyMap<string, ModuleInterface>;
   readonly #moduleAliases = new Map<string, ModuleInterface>();
   readonly #constraintNames = new Set<string>([
-    "Num", "Frac", "Pow", "Concat", "Eq", "Ord", "Show",
+    "Signed", "Frac", "Pow", "Concat", "Eq", "Ord", "Show",
   ]);
   readonly #impliedTypeOwners = new Map<string, Set<string>>();
   readonly #pending: { readonly name: Parsed.Name; readonly kind: "let" | "var" }[] = [];

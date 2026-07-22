@@ -225,7 +225,7 @@ Exported extern bindings re-export per Part 4 §7; their `.d.ts` faces follow th
 
 ## 8. Constrained exports (reference only)
 
-An exported constrained-polymorphic declaration is governed by **Part 8** (`ffi-zero-cost-fundamental-exports.md`): unconditional dictionary-free named specializations over the closed fundamental set, plus the conditional base-name generic edition with trailing evidence under Algorithm G's trigger. Dictionary types (`Num.Dictionary<a>`), public evidence handles, parameterized factories, and suffix ABI are governed by **Part 9** (`ffi-part9-exported-dictionaries.md`). This part adds nothing to either; it records only that:
+An exported constrained-polymorphic declaration is governed by **Part 8** (`ffi-zero-cost-fundamental-exports.md`): unconditional dictionary-free named specializations over the closed fundamental set, plus the conditional base-name generic edition with trailing evidence under Algorithm G's trigger. Dictionary types (`Signed.Dictionary<a>`), public evidence handles, parameterized factories, and suffix ABI are governed by **Part 9** (`ffi-part9-exported-dictionaries.md`). This part adds nothing to either; it records only that:
 
 - generated specializations and generic editions obey this part's general rules — named ESM exports, lowercase binders (§2.2), stable identity, no defensive validation;
 - generated-name collisions with explicit exports are Part 8 §6.2's hard errors, not a new rule here.

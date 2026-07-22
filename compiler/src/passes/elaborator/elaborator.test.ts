@@ -63,7 +63,7 @@ describe("elaborate", () => {
       kind: "Let",
       value: {
         kind: "ConstraintCall",
-        constraint: "Num",
+        constraint: "Signed",
         member: "add",
         evidence: { kind: "Primitive", instance: "Int" },
         arguments: [
@@ -93,7 +93,7 @@ describe("elaborate", () => {
         kind: "Lambda",
         body: {
           kind: "ConstraintCall",
-          constraint: "Num",
+          constraint: "Signed",
           member: "add",
           evidence: { kind: "Dictionary" },
           arguments: [
@@ -112,7 +112,7 @@ describe("elaborate", () => {
       throw new Error("expected a lambda binding");
     }
     const body = item.value.body;
-    if (body.kind !== "ConstraintCall") throw new Error("expected Num.add");
+    if (body.kind !== "ConstraintCall") throw new Error("expected Signed.add");
     const literal = body.arguments[1];
     if (literal?.kind !== "ConvertInt") throw new Error("expected fromInt");
     expect(body.evidence).toEqual(literal.evidence);

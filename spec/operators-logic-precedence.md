@@ -15,8 +15,8 @@ Hexagon has **no user-defined operators and no operator overloading**, permanent
 
 | Operator | Elaborates to | Constraint |
 |---|---|---|
-| `+` `-` (binary) `*` | `add`, `subtract`, `multiply` | `Num` |
-| `-` (unary) | `negate` | `Num` |
+| `+` `-` (binary) `*` | `add`, `subtract`, `multiply` | `Signed` |
+| `-` (unary) | `negate` | `Signed` |
 | `/` | `divide` | `Frac` |
 | `**` | `pow` | `Pow` (new — §6.3) |
 | `++` | `concat` | `Concat` (new — §7) |
@@ -157,7 +157,7 @@ The early draft's primitive-operator table (`<=` as `a < b or a == b`, etc.) is 
 
 Operands normally share one type. Numeric Literals §5.1 applies before the `Eq`/`Ord`
 operation is selected: an established `Int` operand may widen through `fromInt` when
-another operand independently establishes a `Num` target. Thus `count < cost` is a
+another operand independently establishes a `Signed` target. Thus `count < cost` is a
 Float comparison when `count : Int` and `cost : Float`; `Int` versus `Int` remains an
 exact Int comparison. Non-numeric comparisons gain no coercion.
 
@@ -213,9 +213,9 @@ a < f() < c
 
 ## 6. Arithmetic operators
 
-### 6.1 The `Num`/`Frac` four (recap by reference)
+### 6.1 The `Signed`/`Frac` four (recap by reference)
 
-`+`, binary `-`, `*` elaborate to `Num` members; `/` to `Frac.divide`. Operands normally share one type after Numeric Literals §5.1's contextual rule has injected any established `Int` expression into an independently established `Num` target. `Int + Int` therefore stays Int, while `count * cost` is Float when `count : Int` and `cost : Float`. `Int` is `Num` but **not** `Frac` — `intA / intB` is a compile error whose diagnostic points at `Int.div`/`Int.mod` (floored, `DivideByZeroError` on zero divisor — Exceptions spec). Numeric literals under these operators elaborate per the Numeric Literals spec. There is no `%` operator (§13).
+`+`, binary `-`, `*` elaborate to `Signed` members; `/` to `Frac.divide`. Operands normally share one type after Numeric Literals §5.1's contextual rule has injected any established `Int` expression into an independently established `Signed` target. `Int + Int` therefore stays Int, while `count * cost` is Float when `count : Int` and `cost : Float`. `Int` is `Signed` but **not** `Frac` — `intA / intB` is a compile error whose diagnostic points at `Int.div`/`Int.mod` (floored, `DivideByZeroError` on zero divisor — Exceptions spec). Numeric literals under these operators elaborate per the Numeric Literals spec. There is no `%` operator (§13).
 
 ### 6.2 Unary minus
 
@@ -234,16 +234,16 @@ Level 3, elaborates to `negate`. Interactions, all decided:
 Elaboration target — a new small prelude constraint (edit note to Constraints §7):
 
 ```
-constraint Pow<a: Num> =
+constraint Pow<a: Signed> =
   pow(x: a, y: a): a
 ```
 
-`pow` is not folded into `Num` (it would obligate every `Num` instance — v1 `Rat` has no sensible `Rat`-exponent power) nor into `Frac`. v1 instances:
+`pow` is not folded into `Signed` (it would obligate every `Signed` instance — v1 `Rat` has no sensible `Rat`-exponent power) nor into `Frac`. v1 instances:
 
 | Instance | Semantics | Emission |
 |---|---|---|
 | `Float` | IEEE 754, JS `**` exactly (including `NaN` edges) | native `**` |
-| `Int` | exact for `y >= 0` within the safe range (overflow policy = `Num` ops, Primitive Types §2.1); **`y < 0` throws `NegativeExponentError`** — a fractional result cannot be an `Int`, same species of partiality as `Int.div`'s zero check | `Int.pow(x, y)` helper (carries the guard) |
+| `Int` | exact for `y >= 0` within the safe range (overflow policy = `Signed` ops, Primitive Types §2.1); **`y < 0` throws `NegativeExponentError`** — a fractional result cannot be an `Int`, same species of partiality as `Int.div`'s zero check | `Int.pow(x, y)` helper (carries the guard) |
 | `BigInt` | exact; `y < 0` throws `NegativeExponentError` (JS `**` on bigints throws `RangeError`; we brand our own — Exceptions edit note §14.2) | `BigInt.pow(x, y)` helper |
 
 The polymorphic case is the ordinary dictionary call. `pow` is also directly callable as a member, like every constraint member.
@@ -263,7 +263,7 @@ constraint Concat<a> =
 - **`List(a)` instance owed to the collections spec** — the operator was chosen with lists in mind; nothing here blocks it.
 - Left-associativity note for implementers: `a ++ b ++ c` as `(a ++ b) ++ c` is O(n²) if `concat` copies; the collections spec may fuse chained emission (`[...a, ...b, ...c]`). String chains fold into one `+` chain naturally.
 
-Lineage: Haskell, Elm, PureScript, and (as `<>`/append) the broader ML family. Overloading `+` for strings was rejected: `+` is `Num.add` and `String` is not `Num`; keeping algebra and joining as separate operators is both the FP tradition and a genuine diagnostic improvement (`"a" + "b"` errors with "did you mean `++`?" — mandatory fixit, see §14.1).
+Lineage: Haskell, Elm, PureScript, and (as `<>`/append) the broader ML family. Overloading `+` for strings was rejected: `+` is `Signed.add` and `String` is not `Signed`; keeping algebra and joining as separate operators is both the FP tradition and a genuine diagnostic improvement (`"a" + "b"` errors with "did you mean `++`?" — mandatory fixit, see §14.1).
 
 `++` and `+`/`-` sharing level 5 is harmless in practice — mixing them in one expression is invariably a type error anyway — and saves a table row.
 
@@ -342,7 +342,7 @@ All three spellings produce the same conditional. The presence of `then`, rather
 than whether the source happens to occupy one line, distinguishes this form from
 the layout form (§11.3).
 
-Eats to the right (§3.2): `expr2` extends as far as possible, so `1 + if c then a else b` is `1 + (if c then a else b)` and `if c then a else b + 1` is `if c then a else (b + 1)` — the `else` arm ate the `+ 1`. Chained: `if c1 then a else if c2 then b else c` nests rightward with no special grammar. Both arms resolve to one type: exact unification wins, followed by Numeric Literals §5.1's contextual `Int` widening when the other arm independently establishes a `Num` target. The whole form has the resulting type.
+Eats to the right (§3.2): `expr2` extends as far as possible, so `1 + if c then a else b` is `1 + (if c then a else b)` and `if c then a else b + 1` is `if c then a else (b + 1)` — the `else` arm ate the `+ 1`. Chained: `if c1 then a else if c2 then b else c` nests rightward with no special grammar. Both arms resolve to one type: exact unification wins, followed by Numeric Literals §5.1's contextual `Int` widening when the other arm independently establishes a `Signed` target. The whole form has the resulting type.
 
 **A `then`-form `if` without `else` is a parse error** — an expression must have a value on every path — with the fixit "add an `else`, or use the layout form if the branches are `Unit` effects."
 
@@ -388,12 +388,12 @@ Semantics live in Statements/Blocks/Mutability (`var`-only target, `Unit`-typed,
 | User-defined/custom operators, operator overloading | Permanent identity decision (§1.1). Operators are fixed sugar for constraint members; extensibility lives in `honor`. |
 | `%` operator | Modulo has two live conventions (floored/truncated); a symbol hides the choice, a name documents it. `Int.mod` (floored) is the way. |
 | `^` for power | Means XOR to the C/JS audience, power to the math audience — unresolvable; `**` chosen, `^` permanently unused. |
-| `+` overloaded for string concatenation | `+` is `Num.add`; joining is `++`/`Concat` (§7). Diagnostic fixit covers the JS habit. |
+| `+` overloaded for string concatenation | `+` is `Signed.add`; joining is `++`/`Concat` (§7). Diagnostic fixit covers the JS habit. |
 | Left-associative `**` | Math reads exponent towers right-to-left (§6.3). |
 | JS's `-2 ** 2` SyntaxError | Hexagon parses it as `-(2 ** 2)`, the mathematical reading (§6.2); emission parenthesizes. |
 | Direction-mixed comparison chains (`a < b > c`) | §5.3; error with split-into-`and` fixit. |
 | Chaining `!=` | §5.3; `a != b != c` universally misread as "all distinct." |
-| `pow` as a `Num` member | Would obligate every `Num` instance forever; separate `Pow` constraint (§6.3). |
+| `pow` as a `Signed` member | Would obligate every `Signed` instance forever; separate `Pow` constraint (§6.3). |
 | Bitwise operators | No v1 use case at the language level; stdlib functions if ever needed. Symbols stay free. |
 | Comparison operators as four primitive members | Superseded by single `Ord.compare` (§5.1): one obligation, derived totality, no double evaluation. |
 
@@ -411,7 +411,7 @@ Semantics live in Statements/Blocks/Mutability (`var`-only target, `Unit`-typed,
 - Add **`NegativeExponentError`** to the exception registry (thrown by `Int.pow`/`BigInt.pow` on `y < 0`; the `**` operator reaches it through those instances). Same branding scheme (`$hex: true`, `name` discriminant) as `IndexError`/`DivideByZeroError`.
 
 ### 14.3 Constraints spec §7 (prelude listing)
-- Add `Pow<a: Num>` with member `pow(x: a, y: a): a`; instances `Int`, `Float`, `BigInt` (§6.3).
+- Add `Pow<a: Signed>` with member `pow(x: a, y: a): a`; instances `Int`, `Float`, `BigInt` (§6.3).
 - Add `Concat<a>` with member `concat(x: a, y: a): a`; instance `String` in v1, `List` owed to collections (§7).
 
 ### 14.3a Primitive Types — `Int.div`/`Int.mod` convention REOPENED (deep-dive owed before v1)
@@ -463,7 +463,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | Chains: directionally consistent families {`<`,`<=`,`==`} / {`>`,`>=`,`==`}; `!=` never chains | §5.3 |
 | Single-evaluation rule: duplicated operands bound once, left-to-right, invisible temporaries | §5.4 |
 | `**` level 2, right-assoc (math); tighter than unary minus on its left, admits it on its right; JS's `-2**2` SyntaxError not adopted, emission parenthesizes | §6.2–6.3 |
-| New `Pow<a: Num>` constraint; `Int`/`BigInt` throw `NegativeExponentError` on negative exponent | §6.3 |
+| New `Pow<a: Signed>` constraint; `Int`/`BigInt` throw `NegativeExponentError` on negative exponent | §6.3 |
 | `++` = `Concat.concat`; level 5 with `+`; `String` in v1, `List` owed; `+` on strings rejected with fixit | §7 |
 | Pipe: F# token, ReScript first-arg semantics, pre-inference rewrite; bare `a \|> f` = `f(a)`; subject-first stdlib convention normative | §8 |
 | `..` level 6 (looser than arithmetic, tighter than comparison), non-assoc, non-chaining | §9 |
@@ -505,7 +505,7 @@ false implies loop()           -- true; loop() not evaluated → !false || loop(
 
 -- (g) Concatenation
 "foo" ++ "bar" ++ s            -- String → emits "foo" + "bar" + s
-"a" + "b"                      -- ERROR: String is not Num; did you mean `++`?
+"a" + "b"                      -- ERROR: String is not Signed; did you mean `++`?
 
 -- (h) Pipe, including both => interaction cases
 xs |> map(x => x + 1) |> take(3)     -- take(map(xs, x => x + 1), 3)

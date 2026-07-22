@@ -76,7 +76,7 @@ open specification work does not make the book outline provisional.
     punning. Exhaustiveness and unreachable arms are compile errors, and refutable
     patterns are restricted in binding positions.
 
-13. **Constraints** — Constraints such as `Eq`, `Ord`, `Show`, `Num`,
+13. **Constraints** — Constraints such as `Eq`, `Ord`, `Show`, `Signed`,
     `Frac`, `Integral`, `Concat`, `Pow`, `Hash`, and `Iterable` express capabilities.
     Operations may provide overridable defaults; `honor` declarations provide coherent
     instances under an orphan rule. Constrained polymorphism compiles through dictionary

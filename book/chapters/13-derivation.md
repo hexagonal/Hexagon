@@ -39,7 +39,7 @@ A single capability needs no parentheses:
 record Ticket derives Eq = {number: Int}
 ```
 
-Only `Eq`, `Ord`, `Show`, and `Hash` have derivable forms. Capabilities such as `Num`
+Only `Eq`, `Ord`, `Show`, and `Hash` have derivable forms. Capabilities such as `Signed`
 or `Area` require real domain decisions and must be honored with hand-written members.
 
 ## Structural values already know their structure

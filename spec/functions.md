@@ -91,18 +91,18 @@ let plus = (x: Int, y: Int): Int => x + y
 Angle-bracket syntax, settled form:
 
 ```
-let plus<a: Num>(x: a, y: a): a = x + y
-let plus = <a: Num>(x: a, y: a): a => x + y      -- equivalent, same AST node
+let plus<a: Signed>(x: a, y: a): a = x + y
+let plus = <a: Signed>(x: a, y: a): a => x + y      -- equivalent, same AST node
 ```
 
 - Form: `<typevar: constraintList>` where `constraintList` is a single constraint or a parenthesized list `(C1, C2, ...)` meaning *all* listed constraints hold. The tuple notation is suggestive (conjunction is a product); it is not a real tuple. Example: `<a: (Eq, Show)>`.
-- Multiple type variables: `<a: Num, b: Show>` etc.
+- Multiple type variables: `<a: Signed, b: Show>` etc.
 - An unconstrained variable may be written bare: `<a>`.
 - Type variables are non-uppercase-start; lowercase `a`, `b`, `k`, and `v` remain the ML-family cultural convention.
 - **Explicit type parameters do not create polymorphism** — inference generalizes anyway (§8). They (a) name the variables for documentation and (b) attach constraints. If the declared type is *less* general than the body supports, the declaration wins (the function is deliberately restricted). If it is *more* general than the body supports, that is a type error.
 - **Position restriction:** `<...>` type parameters are syntactically permitted only on lambdas in `let`/`fun` RHS position (equivalently, in header sugar). A `<...>`-annotated lambda anywhere else is a parse error. This prevents rank-2 types from being *expressed* here; rank-2 has its own annotation-gated pathway outside this spec's scope.
 
-Constraint semantics (what `Num` means, superconstraints, `honor`) are the Constraints spec's business. This spec fixes only the syntax above.
+Constraint semantics (what `Signed` means, superconstraints, `honor`) are the Constraints spec's business. This spec fixes only the syntax above.
 
 ---
 
@@ -314,7 +314,7 @@ Diagnostics obey the Rewrite Rule (Declarations Preamble §1.1): where a legal s
 
 - **Tuples and destructuring**: Products spec (tuple values, no 1-tuples, `()` as the nullary case) and Pattern Matching (destructuring in every binding position). This spec depends only on: no 1-tuples, `()` is the nullary case, no tuple↔argument-list conversion.
 - **Operators**, including `|>` first-argument insertion: Operators §8. This spec contributes only the subject-first parameter-order convention (§5.4). Note for reading the examples: Hexagon prefers English logical operators (`not`, `and`, `or`, `implies`, `iff`) and uses `if ... then ... else ...` as its conditional expression — there is no C-style `? :` ternary (Operators spec).
-- **Constraints** (`Num`, `honor`, superconstraints): Constraints spec. This spec fixes only the `<a: C>` / `<a: (C1, C2)>` syntax (§4.2).
+- **Constraints** (`Signed`, `honor`, superconstraints): Constraints spec. This spec fixes only the `<a: C>` / `<a: (C1, C2)>` syntax (§4.2).
 - **FFI** (complete; `ffi.md` is the entry point): `Nullable(a)` and boundary conversions are FFI Part 2; extern functions and bindings are Part 4; the boundary calling convention for functions and callbacks (identity convention, exact arity, `Unit` discarding) is Part 6; optional/default parameters, rest/variadics, and overloads at the boundary are recorded post-v1 deferrals (ffi.md §9.2). Nothing there leaks into pure Hexagon function semantics.
 - **Constraint display in tooling**: open at Constraints §9.4 (LSP display format). The function arrow shape itself is fixed here (§5.1).
 - **Type-system internals** (Algorithm J, levels, union-find, bidirectional checking for rank-2): compiler architecture, not additional language surface. §8 owns the observable rules.

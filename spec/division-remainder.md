@@ -2,7 +2,7 @@
 
 **Status:** Decided (July 2026); compiler companion operations and emitted runtime semantics implemented. Closes the reopened question in Operators §14.3a; amended to record `Rat` as a required v1 consumer.
 **Scope:** The division/remainder function families on `Int`, `BigInt`, and `Float`: names, conventions, zero-divisor behaviour, emission, diagnostics.
-**Not in scope:** The `Frac` constraint and `/` (Operators §6.1, unchanged); the rejection of a `%` operator (Operators §13, unchanged — this doc supplies the semantics that rejection deferred to names); `Num`/literal machinery (Numeric Literals spec); checked-overflow variants (Primitive Types §2.1).
+**Not in scope:** The `Frac` constraint and `/` (Operators §6.1, unchanged); the rejection of a `%` operator (Operators §13, unchanged — this doc supplies the semantics that rejection deferred to names); `Signed`/literal machinery (Numeric Literals spec); checked-overflow variants (Primitive Types §2.1).
 **Companions:** Operators & Precedence spec (§6.1, §13, §14.3a — edit notes §8 here), Primitive Types spec (§2 — edit note), Integral Constraint spec (generic family and v1 `Rat` normalization), Exceptions spec (registry addition), `hexagon-for-typescript-coders` Ch. 3.4 (needs no change; it never named the convention).
 
 ---
@@ -53,7 +53,7 @@ Int.rem(a: Int, b: Int): Int      -- truncated remainder (JS's `%` exactly)
 - **All four throw `DivideByZeroError` on `b == 0`.** JS's `a % 0` is `NaN`, which would silently break the Int-is-a-whole-JS-number invariant; the truncated pair gets no IEEE exemption just because its convention matches JS — the *type* is `Int`, and `Int` partiality throws (same doctrine as `Int.div` always had, and as `IndexError`).
 - `quot`/`rem` satisfy their own identity (`quot(a,b) * b + rem(a,b) == a`) with `abs(rem(a,b)) < abs(b)` and `rem` taking the dividend's sign. Names per the Haskell (`quot`/`rem` vs `div`/`mod`) and Rust lineage.
 - **Why `quot`/`rem` exist at all:** interop and porting. `Int.rem(a, b)` is bit-for-bit JS's `a % b` (for valid `Int` inputs), so code transliterated from JS/TS — or any C-family source — can keep its remainder semantics under a name that *says* it's the machine convention. The docs for `rem` state "this is JS's `%`" in those words.
-- All four are monomorphic `Int` functions, not constraint members — same status as `Int.div` always had (`Int` is `Num` but not `Frac`; Operators §6.1).
+- All four are monomorphic `Int` functions, not constraint members — same status as `Int.div` always had (`Int` is `Signed` but not `Frac`; Operators §6.1).
 
 ## 4. `BigInt` mirrors `Int`
 

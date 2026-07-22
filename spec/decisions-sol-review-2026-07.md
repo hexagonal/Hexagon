@@ -120,7 +120,7 @@ Two checklist items, binding on every future spec session:
 
 Append one sentence to the existing bullet:
 
-> That phrase is informal: formally, a constraint is a **predicate over types** — a statement of required operations and laws — not a kind. Constraints never appear where types appear; `Num` has no kind, is not a first-class type-level value, and `Num` in a type position is an error.
+> That phrase is informal: formally, a constraint is a **predicate over types** — a statement of required operations and laws — not a kind. Constraints never appear where types appear; `Signed` has no kind, is not a first-class type-level value, and `Signed` in a type position is an error.
 
 The memorable phrase stays (it earns its keep in teaching); the sentence forecloses the three questions Sol predicts someone will eventually ask. User-facing material continues to prefer the plain form already in the corpus: *a constraint describes operations and laws required of a type.*
 

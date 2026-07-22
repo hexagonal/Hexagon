@@ -101,7 +101,7 @@ Specify the closed six-type fundamental set, direct named specializations, the l
 
 **Supporting note:** `spec/notes/ffi-exported-dictionaries.md`
 
-Specify constraint-owned dictionary types such as `Num.Dictionary<a>`, ordinary public handles such as `Num.int`, parameterized dictionary factories such as `Vector.show(Show.string)`, trailing evidence parameters, public-evidence closure, and the relationship to Part 8's base-name generic edition.
+Specify constraint-owned dictionary types such as `Signed.Dictionary<a>`, ordinary public handles such as `Signed.int`, parameterized dictionary factories such as `Vector.show(Show.string)`, trailing evidence parameters, public-evidence closure, and the relationship to Part 8's base-name generic edition.
 
 Do not repeat Part 8's specialization algorithm.
 

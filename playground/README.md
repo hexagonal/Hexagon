@@ -224,7 +224,7 @@ The curated set contains the initial `hello-world` tour plus focused recursion,
 union/match, and exact `Rat` programs. Every example is compiler-tested and
 demonstrates a top-level `console.log(...)` effect without requiring public exports.
 The `Rat` example exercises the canonical fundamental stdlib module through
-`half + third`, selecting its imported `Num<Rat>` evidence.
+`half + third`, selecting its imported `Signed<Rat>` evidence.
 
 ## Testing
 

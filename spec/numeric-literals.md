@@ -13,19 +13,19 @@ There are three literal forms:
 
 | Syntax | Type | Elaboration |
 |--------|------|-------------|
-| `1`, `42`, `0` | `Num a => a` (polymorphic) | `fromInt(1) : α` with pending constraint `Num α` |
+| `1`, `42`, `0` | `Signed a => a` (polymorphic) | `fromInt(1) : α` with pending constraint `Signed α` |
 | `1n`, `42n` | `BigInt` (monomorphic, always) | the literal itself |
 | `1.5`, `0.0`, `1e9` | `Float` (monomorphic, always) | the literal itself |
 
 Key rules:
 
-1. **Every** integer literal (no `n` suffix, no decimal point) elaborates uniformly to a call `fromInt(lit)` at a fresh type variable `α`, with constraint `Num α`. There is no syntactic detection of "polymorphic context" — polymorphism or monomorphism is an *inference outcome*, discovered by unification, never a property of the literal's location.
-2. `fromInt : Int -> a` is a method of the `Num` constraint. Every `Num` instance must implement it. It is total and exact for all planned instances (`Int`, `Float`, `BigInt`, `Rat`).
-3. **Defaulting:** at generalisation time, any type variable that (a) is still unresolved and (b) carries a constraint set arising *solely from literal elaboration and other defaultable constraints* (see §4) is unified with `Int` instead of being generalised. Literal type variables are therefore **never** generalised. `let x = 1` gives `x : Int`, not `x : Num a => a`.
-4. `1n` does **not** participate in the polymorphic scheme. The `n` suffix is a type annotation, exactly as in JavaScript. There is no `fromBigInt` method in `Num` (deliberately — see §7, Rejected alternatives).
+1. **Every** integer literal (no `n` suffix, no decimal point) elaborates uniformly to a call `fromInt(lit)` at a fresh type variable `α`, with constraint `Signed α`. There is no syntactic detection of "polymorphic context" — polymorphism or monomorphism is an *inference outcome*, discovered by unification, never a property of the literal's location.
+2. `fromInt : Int -> a` is a method of the `Signed` constraint. Every `Signed` instance must implement it. It is total and exact for all planned instances (`Int`, `Float`, `BigInt`, `Rat`).
+3. **Defaulting:** at generalisation time, any type variable that (a) is still unresolved and (b) carries a constraint set arising *solely from literal elaboration and other defaultable constraints* (see §4) is unified with `Int` instead of being generalised. Literal type variables are therefore **never** generalised. `let x = 1` gives `x : Int`, not `x : Signed a => a`.
+4. `1n` does **not** participate in the polymorphic scheme. The `n` suffix is a type annotation, exactly as in JavaScript. There is no `fromBigInt` method in `Signed` (deliberately — see §7, Rejected alternatives).
 5. Decimal literals do not participate either. `1.5 : Float`, always, in v1.
 6. **Codegen guarantee:** when `α` resolves to `Int`, `Float`, or `BigInt`, the `fromInt` wrapper is erased and the literal is emitted respectively as `k`, `k.0`, or `kn`. The Float spelling deliberately preserves inferred type intent for a human reader even though `k` and `k.0` are identical JavaScript numbers. Only literals inside genuinely polymorphic (dictionary-taking) functions emit `dict.fromInt(k)`.
-7. **Contextual Int widening:** an expression already typed `Int` may be injected through `Num<a>.fromInt` when an independently established context requires `a: Num`. Exact unification wins first, so `Int + Int` remains `Int`; widening never invents a polymorphic target merely to make an expression type-check (§5.1).
+7. **Contextual Int widening:** an expression already typed `Int` may be injected through `Signed<a>.fromInt` when an independently established context requires `a: Signed`. Exact unification wins first, so `Int + Int` remains `Int`; widening never invents a polymorphic target merely to make an expression type-check (§5.1).
 
 ---
 
@@ -42,25 +42,25 @@ let y = 1n           -- y : BigInt       emits: const y = 1n;
 
 -- (c) Polymorphic function, no literals: ordinary let-polymorphism.
 fun plus a b = add a b
-                     -- plus : Num a => a -> a -> a
+                     -- plus : Signed a => a -> a -> a
 
 -- (d) Literal in a polymorphic body: stays generic via fromInt.
 fun addOne x = add x 1
-                     -- addOne : Num a => a -> a -> a's elaboration:
+                     -- addOne : Signed a => a -> a -> a's elaboration:
                      --   addOne x = add x (fromInt 1)
                      -- emits (dictionary style):
                      --   function addOne(dict, x) { return dict.add(x, dict.fromInt(1)); }
 
 -- (e) Literal pinned by unification: fromInt erased.
 fun halve x = Float.divide x 2
-                     -- 2 elaborates to fromInt(2) : α, Num α
+                     -- 2 elaborates to fromInt(2) : α, Signed α
                      -- Float.divide forces α := Float
                      -- emits: function halve(x) { return x / 2.0; }
                      -- (the emitted 2 is Float's fromInt applied at compile time — see §5)
 
 -- (f) Mixed constraints, still defaultable.
 let s = toString (add 1 2)
-                     -- α carries {Num α, Show α}; α unresolved at generalisation;
+                     -- α carries {Signed α, Show α}; α unresolved at generalisation;
                      -- both constraints are defaultable ⇒ α := Int ⇒ s : String
                      -- emits: const s = Int.toString(1 + 2)  (or the folded "3", see §5)
 
@@ -71,7 +71,7 @@ add 1.5 1n           -- TYPE ERROR: Float vs BigInt; neither operand is Int.
 -- (h) Explicit conversion is the escape hatch.
 Rat.fromBigInt 123456789012345678901n   -- big literal into a Rat: explicit, honest
 
--- (i) An established Int widens into an independently established Num target.
+-- (i) An established Int widens into an independently established Signed target.
 let count: Int = 3
 let cost: Float = 1.50
 let total = count * cost                -- Float.fromInt(count) * cost : Float
@@ -84,8 +84,8 @@ let total = count * cost                -- Float.fromInt(count) * cost : Float
 When the inferencer reaches an integer literal `k` (lexed token: digits, no `.`, no `n`, no exponent):
 
 1. Allocate a fresh type variable `α` at the current level.
-2. Record the constraint `Num α`, tagged with provenance `LiteralConstraint(span, k)`. Provenance is load-bearing: it is used both for defaulting eligibility (§4) and for error messages (§6).
-3. The elaborated term is `App(NumMethod("fromInt", α), IntLit(k))` — i.e. the literal node in the typed AST is *already* a `fromInt` call. Do not keep a separate "maybe-polymorphic literal" node that gets rewritten later; there is exactly one representation, and the "monomorphic case" is an *optimisation on resolved types* (§5), not a different elaboration.
+2. Record the constraint `Signed α`, tagged with provenance `LiteralConstraint(span, k)`. Provenance is load-bearing: it is used both for defaulting eligibility (§4) and for error messages (§6).
+3. The elaborated term is `App(SignedMethod("fromInt", α), IntLit(k))` — i.e. the literal node in the typed AST is *already* a `fromInt` call. Do not keep a separate "maybe-polymorphic literal" node that gets rewritten later; there is exactly one representation, and the "monomorphic case" is an *optimisation on resolved types* (§5), not a different elaboration.
 
 The literal's payload `k` is validated at lex time: it must be an exact f64 integer, i.e. `|k| <= 2^53 - 1`. A bare literal outside that range is a **compile error** with a fixit suggesting the `n` suffix ("integer literal exceeds Int range; write `...n` for a BigInt, or use an explicit conversion"). Rationale: the payload is an `Int` (f64-integer-invariant) by construction, so `fromInt` never receives a value it can't represent, and every instance's `fromInt` stays total *and exact*.
 
@@ -95,7 +95,7 @@ Decimal literals: elaborate directly to `FloatLit`, type `Float`. (Future work n
 
 ### Interaction with the existing pipeline
 
-- Constraint recording uses the same machinery as constraints introduced by calls to `Num`-constrained functions. Nothing new in `unify`. The four cases of `unify` are untouched.
+- Constraint recording uses the same machinery as constraints introduced by calls to `Signed`-constrained functions. Nothing new in `unify`. The four cases of `unify` are untouched.
 - Levels: `α` is allocated at the current level like any other tyvar, so it participates in level-based generalisation checks normally. The defaulting rule (§4) runs *inside* the generalisation step, before the "escapes-current-level ⇒ generalise" decision.
 - Value restriction / `var` rule: unaffected. Defaulting makes literal tyvars monomorphic, which is strictly *more* conservative than generalisation, so `var x = 1` (had it been at risk) simply gets `x : Int`, which is what the `var`-no-generalisation rule wanted anyway.
 
@@ -107,17 +107,17 @@ Run at generalisation time, per binding group, immediately before quantification
 
 > For each type variable `α` that would otherwise be quantified: if `α`'s constraint set is non-empty and every constraint on `α` is **defaultable**, unify `α := Int` (this must succeed by construction, since all defaultable constraints have an `Int` instance — assert this). Otherwise leave `α` to the ordinary generalisation path.
 
-**Defaultable constraints (v1, closed list):** `Num`, `Eq`, `Ord`, `Show`. All four have `Int` instances in the prelude. The list is a hard-coded set in the compiler, not user-extensible. Maximally dumb on purpose: "unresolved literal var ⇒ Int, always, no negotiation." Do not import Haskell's numeric-defaulting machinery (multiple candidate types, module-local `default` declarations, the interaction with user classes); that machinery is one of Haskell's most complained-about corners, and Hexagon's rule avoids it by having exactly one candidate type and a closed constraint list.
+**Defaultable constraints (v1, closed list):** `Signed`, `Eq`, `Ord`, `Show`. All four have `Int` instances in the prelude. The list is a hard-coded set in the compiler, not user-extensible. Maximally dumb on purpose: "unresolved literal var ⇒ Int, always, no negotiation." Do not import Haskell's numeric-defaulting machinery (multiple candidate types, module-local `default` declarations, the interaction with user classes); that machinery is one of Haskell's most complained-about corners, and Hexagon's rule avoids it by having exactly one candidate type and a closed constraint list.
 
 Consequences worth asserting in tests:
 
-- A tyvar with `{Num α}` only: defaults. (`let x = 1`)
-- A tyvar with `{Num α, Show α}`: defaults. (`toString (add 1 2)`)
-- A tyvar with `{Num α, SomeUserConstraint α}`: does **not** default; proceeds to ordinary generalisation if the binding form allows it, or produces an ambiguity error if it doesn't. Error message should name the non-defaultable constraint (§6).
+- A tyvar with `{Signed α}` only: defaults. (`let x = 1`)
+- A tyvar with `{Signed α, Show α}`: defaults. (`toString (add 1 2)`)
+- A tyvar with `{Signed α, SomeUserConstraint α}`: does **not** default; proceeds to ordinary generalisation if the binding form allows it, or produces an ambiguity error if it doesn't. Error message should name the non-defaultable constraint (§6).
 - A tyvar with an empty constraint set: never defaults (it's not a literal var; ordinary generalisation applies).
 - Defaulting is per-tyvar, not per-binding: `let pair = (1, 1.5)` defaults the first component's tyvar to `Int` independently; the `1.5` was never polymorphic.
 
-Note the closed list means a literal used *only* under a user-defined constraint keeps `Num` in its set too (elaboration always adds `Num`), so the "solely defaultable" test correctly fails on the user constraint, not on `Num`.
+Note the closed list means a literal used *only* under a user-defined constraint keeps `Signed` in its set too (elaboration always adds `Signed`), so the "solely defaultable" test correctly fails on the user constraint, not on `Signed`.
 
 ---
 
@@ -129,14 +129,14 @@ Note the closed list means a literal used *only* under a user-defined constraint
 admits one exact contextual conversion:
 
 ```text
-Γ ⊢ expression : Int    Γ ⊢ Num<target>    target is independently established
+Γ ⊢ expression : Int    Γ ⊢ Signed<target>    target is independently established
 ───────────────────────────────────────────────────────────────────────────────
-Γ ⊢ expression ⇑ target    elaborates as Num<target>.fromInt(expression)
+Γ ⊢ expression ⇑ target    elaborates as Signed<target>.fromInt(expression)
 ```
 
 “Independently established” means that the target is fixed by an annotation, a concrete
 operand or argument, a branch or assignment boundary, or an already-constrained type
-variable. It is not a fresh inference variable whose only reason to acquire `Num` would
+variable. It is not a fresh inference variable whose only reason to acquire `Signed` would
 be the proposed conversion. Exact unification has priority, and an outer expected type
 does not flow inward to replace an already-valid exact operation. For example,
 `let r: Rat = count + count` performs Int addition and then widens its result, whereas
@@ -149,23 +149,23 @@ count * cost        // Float when cost : Float
 plus(count, 1.5)    // Float; selects the Float instantiation of plus
 let value: Rat = count
 
-let scale<a: Num>(count: Int, value: a): a = count * value
-// generic body: multiply(fromInt(count), value), using the same Num<a> evidence
+let scale<a: Signed>(count: Int, value: a): a = count * value
+// generic body: multiply(fromInt(count), value), using the same Signed<a> evidence
 
 let addCount = (count: Int, value) => count + value
-// inferred (Int, Int) -> Int; widening does not manufacture Num<a>
+// inferred (Int, Int) -> Int; widening does not manufacture Signed<a>
 ```
 
 The source must be exactly `Int`. There is no reverse `Float -> Int` conversion, no
-implicit `BigInt -> Float`, and no conversion between two unrelated `Num` subjects.
+implicit `BigInt -> Float`, and no conversion between two unrelated `Signed` subjects.
 A nominal target participates only when its home has explicitly supplied a lawful
-`honor Num<T>`; `Num` is not derivable. This is an evidence-directed `fromInt`
+`honor Signed<T>`; `Signed` is not derivable. This is an evidence-directed `fromInt`
 injection, not numeric subtyping or a promotion lattice.
 
 Emission follows the selected instance. `Int -> Float` erases because both use the
 JavaScript `number` representation; `Int -> BigInt` emits `BigInt(value)`; a concrete
 nominal instance emits its `fromInt` member; a genuinely polymorphic target emits
-`dictNum.fromInt(value)`. The source expression is evaluated exactly once and ordinary
+`dictSigned.fromInt(value)`. The source expression is evaluated exactly once and ordinary
 evaluation order is preserved.
 
 ### 5.2 Literal emission
@@ -180,11 +180,11 @@ Two regimes, determined entirely by whether `α` is resolved to a concrete type 
 - `α = Rat` → emit the canonical-form constructor call with constant arguments, e.g. `Rat.fromInt(k)` or, if you implement constant folding for it, the direct `{num: kn, den: 1n}` fast-path constructor. Either is acceptable; the fast path is a nice-to-have.
 - Any other instance type → emit `TheType.fromInt(k)` monomorphically (direct call, no dictionary).
 
-**Unresolved-because-polymorphic** (literal inside a function generalised over `Num a`): the dictionary parameter is already in scope under the existing `honor` compilation story; `fromInt` is one more slot in the `Num` dictionary record. Emit `dict.fromInt(k)`. No new mechanism.
+**Unresolved-because-polymorphic** (literal inside a function generalised over `Signed a`): the dictionary parameter is already in scope under the existing `honor` compilation story; `fromInt` is one more slot in the `Signed` dictionary record. Emit `dict.fromInt(k)`. No new mechanism.
 
 This preserves the readable-JS goal: monomorphic code — nearly all code — contains direct `1`, `1.0`, and `1n` literals, with the spelling retaining the resolved fundamental type where JavaScript's representation otherwise cannot. Only genuinely generic functions show dictionary plumbing, and they already did for `add`.
 
-**Dictionary shape change:** `Num` dictionaries gain a `fromInt` field. Every existing and future `honor Num<T>` must supply it. Prelude instances:
+**Dictionary shape change:** `Signed` dictionaries gain a `fromInt` field. Every existing and future `honor Signed<T>` must supply it. Prelude instances:
 
 ```
 Int.fromInt    = identity
@@ -193,7 +193,7 @@ BigInt.fromInt = n => BigInt(n)
 Rat.fromInt    = n => mkFast(BigInt(n), 1n)
 ```
 
-All four are total and exact. This is a checked property of the design: keep it true for future instances, and document it as a law of `Num` (`fromInt` must be an exact ring homomorphism from Int — `fromInt(a+b) == add(fromInt a)(fromInt b)`, etc.).
+All four are total and exact. This is a checked property of the design: keep it true for future instances, and document it as a law of `Signed` (`fromInt` must be an exact ring homomorphism from Int — `fromInt(a+b) == add(fromInt a)(fromInt b)`, etc.).
 
 ---
 
@@ -201,22 +201,22 @@ All four are total and exact. This is a checked property of the design: keep it 
 
 Elaboration changes the *character* of type errors involving literals, and this is where Haskell beginners bleed. Budget for special-cased reporting using the `LiteralConstraint` provenance from §3:
 
-- When unification fails and one side traces to a literal's `α`, report it as a literal-type mismatch, not a constraint failure. Prefer: `This literal is used as Float here but as BigInt there` over `Cannot satisfy Num constraint arising from...`.
+- When unification fails and one side traces to a literal's `α`, report it as a literal-type mismatch, not a constraint failure. Prefer: `This literal is used as Float here but as BigInt there` over `Cannot satisfy Signed constraint arising from...`.
 - When defaulting is blocked by a non-defaultable constraint (§4), the error must name the blocking constraint and the literal's location, and suggest an annotation: `The literal 1 at <span> has constraint MyConstraint, which prevents defaulting to Int. Add a type annotation to pin its type.`
 - Never surface the name `fromInt` in an error for code the user wrote without mentioning it. The elaboration is invisible machinery; errors should speak in terms of the literal.
-- LSP hover on a bare literal in polymorphic position should show `Num a => a` (matching the round-trip-consistency rule for signatures); hover on a defaulted or pinned literal shows the concrete type.
+- LSP hover on a bare literal in polymorphic position should show `Signed a => a` (matching the round-trip-consistency rule for signatures); hover on a defaulted or pinned literal shows the concrete type.
 
 ---
 
 ## 7. Rejected alternatives (do not re-litigate without new information)
 
-**Fully monomorphic literals** (`1 : Int` always). Rejected because `fun addOne x = add x 1` collapses to `Int -> Int`, forcing duplication of any generic numeric code that mentions a constant. The polymorphic scheme costs one `Num` method plus one defaulting rule and recovers Haskell/Roc ergonomics.
+**Fully monomorphic literals** (`1 : Int` always). Rejected because `fun addOne x = add x 1` collapses to `Int -> Int`, forcing duplication of any generic numeric code that mentions a constant. The polymorphic scheme costs one `Signed` method plus one defaulting rule and recovers Haskell/Roc ergonomics.
 
 **Context-dependent rewriting** ("rewrite the literal to `fromInt` when it appears in a polymorphic context"). Rejected as an implementation strategy — not because the observable behaviour is wrong, but because "polymorphic context" is not syntactically detectable; it is an inference outcome. In `fun f x = add x 1`, whether the `1` is polymorphic depends on what later unification pins `x` to. The uniform elaborate-always + erase-when-resolved strategy (§3, §5) produces the behaviour the context-dependent intuition wants, with a rule that can actually be implemented in one pass.
 
-**`1n` as a polymorphic Num literal** (elaborating via `fromBigInt : BigInt -> a` in `Num`). Rejected for two reasons. (1) It hollows out the suffix: if both `1` and `1n` are polymorphic, `n` no longer means "this is a BigInt", breaking the JS developer's correct intuition — the suffix is supposed to *be* the type annotation, as in JS. (2) It forces `fromBigInt` into `Num`, whose `Float` instance is silently lossy for values beyond 2^53 (`fromBigInt(2n**60n)` rounds without a peep). Haskell's `fromInteger` has exactly this wart; Hexagon doesn't need it because the polymorphic `Int`-payload literal covers every exact case, and oversized literals go through explicit conversions (`Rat.fromBigInt ...n`).
+**`1n` as a polymorphic Signed literal** (elaborating via `fromBigInt : BigInt -> a` in `Signed`). Rejected for two reasons. (1) It hollows out the suffix: if both `1` and `1n` are polymorphic, `n` no longer means "this is a BigInt", breaking the JS developer's correct intuition — the suffix is supposed to *be* the type annotation, as in JS. (2) It forces `fromBigInt` into `Signed`, whose `Float` instance is silently lossy for values beyond 2^53 (`fromBigInt(2n**60n)` rounds without a peep). Haskell's `fromInteger` has exactly this wart; Hexagon doesn't need it because the polymorphic `Int`-payload literal covers every exact case, and oversized literals go through explicit conversions (`Rat.fromBigInt ...n`).
 
-**Haskell-style generalisation of bare literal bindings** (`let x = 1` giving `x : Num a => a`). Rejected: conflicts with the "no defaulting negotiation" goal, produces dictionary-abstracted values where users expect constants, and interacts badly with the value-restriction-adjacent rules already in place (`var` never generalises). Defaulting to `Int` at generalisation is strictly simpler and matches Roc.
+**Haskell-style generalisation of bare literal bindings** (`let x = 1` giving `x : Signed a => a`). Rejected: conflicts with the "no defaulting negotiation" goal, produces dictionary-abstracted values where users expect constants, and interacts badly with the value-restriction-adjacent rules already in place (`var` never generalises). Defaulting to `Int` at generalisation is strictly simpler and matches Roc.
 
 **Haskell-style extensible defaulting** (multiple candidate types, `default` declarations). Rejected: single candidate (`Int`), closed defaultable-constraint list, no per-module configuration. See §4.
 
@@ -227,10 +227,10 @@ Elaboration changes the *character* of type errors involving literals, and this 
 ## 8. Implementation checklist
 
 1. **Lexer:** ensure three distinct token kinds (IntLit, BigIntLit, FloatLit). Range-check IntLit payload against 2^53−1; emit the fixit error otherwise. BigIntLit payload stored losslessly.
-2. **Prelude / constraint defs:** add `fromInt : Int -> a` to the `Num` constraint declaration; implement it in the four prelude instances (§5 table); document the exact-homomorphism law.
-3. **Inference:** elaborate IntLit per §3 (fresh tyvar, `Num` constraint with `LiteralConstraint` provenance, `fromInt` application node). BigIntLit/FloatLit type directly.
-4. **Generalisation:** insert the defaulting pass per §4, with the closed defaultable set {Num, Eq, Ord, Show}. Assert successful unification with Int.
+2. **Prelude / constraint defs:** add `fromInt : Int -> a` to the `Signed` constraint declaration; implement it in the four prelude instances (§5 table); document the exact-homomorphism law.
+3. **Inference:** elaborate IntLit per §3 (fresh tyvar, `Signed` constraint with `LiteralConstraint` provenance, `fromInt` application node). BigIntLit/FloatLit type directly.
+4. **Generalisation:** insert the defaulting pass per §4, with the closed defaultable set {Signed, Eq, Ord, Show}. Assert successful unification with Int.
 5. **Codegen:** implement contextual Int widening per §5.1; erase resolved literal `fromInt` per §5.2 (`k` for Int, readable `k.0` identity folding for Float, `kn` folding for BigInt, constructor call for Rat/others); dictionary slots for polymorphic cases.
 6. **Diagnostics:** literal-aware unification errors, blocked-defaulting error, no `fromInt` leakage (§6).
-7. **LSP:** hover types per §6; signature round-trip consistency (`Num a => a -> a -> a` etc.) unchanged.
+7. **LSP:** hover types per §6; signature round-trip consistency (`Signed a => a -> a -> a` etc.) unchanged.
 8. **Tests:** the eight examples in §2 as golden tests (inferred type + emitted JS), plus the §4 consequence list, plus an error-message snapshot for (g) and the blocked-defaulting case.

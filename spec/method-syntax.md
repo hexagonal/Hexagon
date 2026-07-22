@@ -443,9 +443,9 @@ p.getX()                           -- OK : Float  (outside home; field x invisib
 p.x                                -- ERROR: existing opacity error (Modules §4.2)
 
 -- (n) Fallback + underivable constraint: existing error path, no new phrasing
-fun m(x) = add(x, x.total(1))      -- x gets Num (from add) and, at deadline,
+fun m(x) = add(x, x.total(1))      -- x gets Signed (from add) and, at deadline,
                                    --   the row {total: Int -> ...} — ERROR via
-                                   --   ordinary discharge: no Num instance for a
+                                   --   ordinary discharge: no Signed instance for a
                                    --   record type (existing constraint phrasing)
 
 -- (o) Field-resolved dot call emits as itself

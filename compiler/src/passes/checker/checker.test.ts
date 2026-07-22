@@ -377,7 +377,7 @@ describe("check", () => {
         kind: "FromInt",
         type: { kind: "Primitive", name: "Int" },
         requirement: {
-          name: "Num",
+          name: "Signed",
           type: { kind: "Primitive", name: "Int" },
         },
       },
@@ -752,7 +752,7 @@ describe("check", () => {
 
     expect(letSymbol(module, "addOne").scheme).toMatchObject({
       variables: [expect.any(Number)],
-      constraints: [{ name: "Num", type: { kind: "Variable" } }],
+      constraints: [{ name: "Signed", type: { kind: "Variable" } }],
       type: {
         kind: "Function",
         parameters: [{ kind: "Variable" }],
@@ -842,13 +842,13 @@ describe("check", () => {
     expect(typeName(letSymbol(module, "divided").scheme.type)).toBe("Float");
     expect(typeName(letSymbol(module, "joined").scheme.type)).toBe("String");
     expect(module.diagnostics.map(({ message }) => message)).toContain(
-      "type `String` has no `Num` instance",
+      "type `String` has no `Signed` instance",
     );
   });
 
   test("keeps compiler-supported constraint subjects universally quantified", () => {
     const module = checkSource(
-      "constraint Integral<a: (Num, Ord)> =\n" +
+      "constraint Integral<a: (Signed, Ord)> =\n" +
         "  gcd(left: a, right: a): a",
     );
     const gcd = module.symbols.find(({ name }) => name === "gcd");
