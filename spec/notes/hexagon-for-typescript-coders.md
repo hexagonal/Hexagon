@@ -33,7 +33,7 @@ let sumTo(n) =
 And here is the JavaScript the compiler emits for it:
 
 ```js
-const sumTo = (n) => {
+const sumTo = n => {
   let total = 0;
   for (let i = 1; i <= n; i++) {
     total = total + i;
@@ -389,7 +389,7 @@ let collatzSteps(n0) =
 This compiles to exactly the `let`-and-loop JavaScript you'd write yourself:
 
 ```js
-const collatzSteps = (n0) => {
+const collatzSteps = n0 => {
   let n = n0;
   let steps = 0;
   while (n !== 1) {

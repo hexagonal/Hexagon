@@ -187,7 +187,7 @@ switch (s.tag) {
 ### 6.4 Constructors in emitted JS
 
 - **Applied directly, the constructor erases into the object literal** — `Circle(2.0)` emits `{tag: "Circle", radius: 2.0}`, never a function call. Same doctrine as `record`'s constructor (Products §5.4).
-- **Referenced as a value**, the emitter materialises the function on demand: `const Circle = (radius) => ({tag: "Circle", radius});` (once per declaration or per module, implementer's choice; direct applications still erase). **Export of a non-opaque union is a mandatory demand site**: it materialises each payload constructor once as a stable named ESM function; string-case and nullary POJO constructors export their existing constants (FFI Part 7 §4). Internal direct applications still erase. `export opaque union` exports the type only and does not materialise or expose its constructors merely because the type is exported (FFI Part 7 §5).
+- **Referenced as a value**, the emitter materialises the function on demand: `const Circle = radius => ({tag: "Circle", radius});` (once per declaration or per module, implementer's choice; direct applications still erase). This follows the general JavaScript-output rules: a unary arrow omits redundant parameter parentheses, and an object field uses shorthand when its key and emitted value are the same identifier. **Export of a non-opaque union is a mandatory demand site**: it materialises each payload constructor once as a stable named ESM function; string-case and nullary POJO constructors export their existing constants (FFI Part 7 §4). Internal direct applications still erase. `export opaque union` exports the type only and does not materialise or expose its constructors merely because the type is exported (FFI Part 7 §5).
 
 ### 6.5 `.d.ts`
 

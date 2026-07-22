@@ -38,7 +38,7 @@ describe("emitJavaScript", () => {
     expect(output.text).toMatch(/import \{ stream as \w+ \} from "tiny-json";/u);
     expect(output.text).toMatch(/const stream = \(\) => __hex_seq\(\w+\(\)\);/u);
     expect(output.text).toMatch(/const values = __hex_seq\(\w+\);/u);
-    expect(output.text).toMatch(/const report = \(message\) => \{ \w+\(message\); \};/u);
+    expect(output.text).toMatch(/const report = message => \{ \w+\(message\); \};/u);
     expect(output.text).toContain('import "telemetry/register";');
     expect(output.text).toContain("export { parse };");
     expect(output.text).toContain("export { createClient };");
@@ -380,9 +380,9 @@ describe("emitJavaScript", () => {
     expect(structural).toContain("const name = __hex_match1.name;");
   });
 
-  test("emits record construction punning as JavaScript shorthand", () => {
+  test("emits matching record fields as JavaScript shorthand", () => {
     const module = coreSource(
-      'let guest = "Mira"\nlet seats = 3\nlet reservation = {guest, seats}',
+      'let guest = "Mira"\nlet seats = 3\nlet reservation = {guest, seats: seats}',
     );
     expect(module.diagnostics).toEqual([]);
     expect(emitJavaScript(module).text).toContain(
@@ -479,7 +479,7 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     expect(emitJavaScript(module).text).toContain(
-      'const Circle = (radius) => ({ tag: "Circle", radius: radius });',
+      'const Circle = radius => ({ tag: "Circle", radius });',
     );
     expect(emitJavaScript(module).text).toContain("const point = { x: 3, y: 4 };");
     expect(emitJavaScript(module).text).toContain("const value = __hex_match0.radius;");
@@ -499,7 +499,7 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     expect(emitJavaScript(module).text).toContain(
-      'const Some = (value) => ({ tag: "Some", value: value });',
+      'const Some = value => ({ tag: "Some", value });',
     );
     expect(emitDeclarations(module).text).toBe(
       'export type Option<a> = { tag: "Some"; value: a } | { tag: "None" };\n' +
@@ -536,6 +536,7 @@ describe("emitJavaScript", () => {
   test("emits branded Error exceptions, throwing, and expression-valued catches", () => {
     const module = coreSource(
       "export exception ParseError(line: Int, message: String)\n" +
+        "export exception Note(message: String)\n" +
         "export exception Missing\n" +
         "export fun recover(value: Int): Int = try\n" +
         "    if value < 0 then throw(ParseError(value, \"bad\")) else value\n" +
@@ -550,7 +551,10 @@ describe("emitJavaScript", () => {
       "return Object.assign(new Error(__hex_message), { $hex: true, name: __hex_name }, __hex_fields);",
     );
     expect(javascript).toContain(
-      'const ParseError = (line, message) => __hex_exception("ParseError", message, { line: line, message: message });',
+      'const ParseError = (line, message) => __hex_exception("ParseError", message, { line, message });',
+    );
+    expect(javascript).toContain(
+      'const Note = message => __hex_exception("Note", message, { message });',
     );
     expect(javascript).toContain(
       '$hex === true && __hex_error0.name === "ParseError"',
@@ -1522,7 +1526,7 @@ describe("emitJavaScript", () => {
     const output = emitJavaScript(module);
     expect(output.diagnostics).toEqual([]);
     expect(output.text).toMatch(
-      /const __hex_instance_Render_Box = \(__hex_dictRender_\d+\) => \{/u,
+      /const __hex_instance_Render_Box = __hex_dictRender_\d+ => \{/u,
     );
     expect(output.text).toContain(
       "__hex_instance_Render_Box(__hex_instance_Render_Int)",
@@ -1554,8 +1558,8 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
-    expect(output.text).toMatch(/const __hex_instance_Eq_Box = \(__hex_dictEq_\d+\) => \{/u);
-    expect(output.text).toMatch(/const __hex_instance_Ord_Box = \(__hex_dictOrd_\d+\) => \{/u);
+    expect(output.text).toMatch(/const __hex_instance_Eq_Box = __hex_dictEq_\d+ => \{/u);
+    expect(output.text).toMatch(/const __hex_instance_Ord_Box = __hex_dictOrd_\d+ => \{/u);
     expect(output.text).toContain("__hex_left.value");
     expect(output.text).toContain('"{" + "value: " +');
     expect(output.diagnostics).toEqual([]);

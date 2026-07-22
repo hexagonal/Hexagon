@@ -59,6 +59,12 @@ function factorial(n) {
 }
 ```
 
+Generated arrows keep JavaScript's conventional zero/one/many shape: `() =>` for no
+parameters, `value =>` for one, and `(left, right) =>` for several. Generated object
+literals likewise use property shorthand whenever a key and its value are the same
+identifier, so `{radius: radius}` becomes `{radius}`. These rules apply uniformly to
+ordinary functions, adapters, constructors, exceptions, dictionaries, and records.
+
 N-ary Hexagon functions remain n-ary JavaScript functions in the same argument order.
 There is no curried wrapper, tuple packing, implicit `this`, or object allocation around
 an ordinary call.

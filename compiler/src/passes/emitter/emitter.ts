@@ -257,7 +257,7 @@ class JavaScriptEmitter {
             const value = declaration.result.kind === "Seq"
               ? `${this.#useHelper("seq")}(${call})`
               : `{ ${call}; }`;
-            lines.push(`${prefix}const ${local} = (${parameters.join(", ")}) => ${value};`);
+            lines.push(`${prefix}const ${local} = ${arrowParameters(parameters)} => ${value};`);
           }
         }
         if (declaration.exported) {
@@ -280,7 +280,8 @@ class JavaScriptEmitter {
           ({ constraint, variable }) => dictionaryParameterName(constraint, variable),
         );
         const dictionary = dictionaries[0] ?? "undefined";
-        return `${prefix}const ${name} = (${[...sourceParameters, ...dictionaries].join(", ")}) => ${dictionary}.${member.binding.name}(${sourceParameters.join(", ")});`;
+        const parameters = [...sourceParameters, ...dictionaries];
+        return `${prefix}const ${name} = ${arrowParameters(parameters)} => ${dictionary}.${member.binding.name}(${sourceParameters.join(", ")});`;
       });
     }
     if (item.kind === "Honor") {
@@ -304,12 +305,18 @@ class JavaScriptEmitter {
       }
       const superconstraints = item.superconstraints.map(({ name, evidence }) => {
         const slot = (name[0]?.toLowerCase() ?? "") + name.slice(1);
-        return `${slot}: ${this.#emitEvidence(evidence, name, item.span, localEvidence)}`;
+        return objectProperty(
+          slot,
+          this.#emitEvidence(evidence, name, item.span, localEvidence),
+        );
       });
       const members = item.derived
         ? this.#derivedMembers(item, localEvidence)
         : item.members.map((member) =>
-            `${member.name}: ${this.#emitExpr(member.value, depth, localEvidence)}`
+            objectProperty(
+              member.name,
+              this.#emitExpr(member.value, depth, localEvidence),
+            )
           );
       const completedMembers =
         !item.derived && item.constraint === "Eq" &&
@@ -327,7 +334,7 @@ class JavaScriptEmitter {
         return [`${prefix}const ${item.dictionary} = ${value};`];
       }
       return [
-        `${prefix}const ${item.dictionary} = (${parameters.join(", ")}) => {`,
+        `${prefix}const ${item.dictionary} = ${arrowParameters(parameters)} => {`,
         `${indent(depth + 1)}const ${localDictionary} = ${value};`,
         `${indent(depth + 1)}return ${localDictionary};`,
         `${prefix}};`,
@@ -416,8 +423,8 @@ class JavaScriptEmitter {
         const slots = constructor.slots ?? [];
         if (slots.length > 0) {
           const parameters = slots.map(({ field }) => field);
-          const fields = slots.map(({ field }) => `${field}: ${field}`);
-          return `${prefix}const ${name} = (${parameters.join(", ")}) => ({ tag: ${JSON.stringify(constructor.name)}, ${fields.join(", ")} });`;
+          const fields = slots.map(({ field }) => objectProperty(field, field));
+          return `${prefix}const ${name} = ${arrowParameters(parameters)} => ({ tag: ${JSON.stringify(constructor.name)}, ${fields.join(", ")} });`;
         }
         return tagged
           ? `${prefix}const ${name} = { tag: ${JSON.stringify(constructor.name)} };`
@@ -441,10 +448,10 @@ class JavaScriptEmitter {
       const message = item.slots.some(({ field }) => field === "message")
         ? "message"
         : '""';
-      const fields = `{ ${item.slots.map(({ field }) => `${field}: ${field}`).join(", ")} }`;
+      const fields = `{ ${item.slots.map(({ field }) => objectProperty(field, field)).join(", ")} }`;
       const value = item.slots.length === 0
         ? `() => ${exceptionHelper}(${JSON.stringify(item.binding.name)}, "", {})`
-        : `(${parameters.join(", ")}) => ${exceptionHelper}(${JSON.stringify(item.binding.name)}, ${message}, ${fields})`;
+        : `${arrowParameters(parameters)} => ${exceptionHelper}(${JSON.stringify(item.binding.name)}, ${message}, ${fields})`;
       if (item.exported && depth === 0) {
         this.#exports.push(
           name === item.binding.name
@@ -726,10 +733,10 @@ class JavaScriptEmitter {
             ? []
             : [`...${this.#emitExpr(expression.spread, depth, evidenceNames)}`]),
           ...expression.fields.map((field) =>
-            field.punned && field.value.kind === "Name" &&
-                this.#identifier(field.value.symbol, field.value.text) === field.name
-              ? field.name
-              : `${field.name}: ${this.#emitExpr(field.value, depth, evidenceNames)}`
+            objectProperty(
+              field.name,
+              this.#emitExpr(field.value, depth, evidenceNames),
+            )
           ),
         ].join(", ")} }`;
       case "TupleAccess":
@@ -880,10 +887,7 @@ class JavaScriptEmitter {
       ),
       ...dictionaryParameters,
     ];
-    const head =
-      parameters.length === 1
-        ? `${parameters[0]} =>`
-        : `(${parameters.join(", ")}) =>`;
+    const head = `${arrowParameters(parameters)} =>`;
 
     if (expression.body.kind !== "Block") {
       if (expression.body.kind === "Match") {
@@ -2802,6 +2806,18 @@ function commentLines(comment: Source.Comment): string[] {
 /** Preserves vertical separation where top-level source entries align. */
 function blankLinesBetween(previous: Source.Span, next: Source.Span): number {
   return Math.max(0, next.start.line - previous.end.line - 1);
+}
+
+/** Emits the canonical zero/one/many JavaScript arrow-parameter shape. */
+function arrowParameters(parameters: readonly string[]): string {
+  return parameters.length === 1
+    ? parameters[0]!
+    : `(${parameters.join(", ")})`;
+}
+
+/** Uses object-property shorthand whenever the emitted key and value coincide. */
+function objectProperty(name: string, value: string): string {
+  return name === value ? name : `${name}: ${value}`;
 }
 
 type Helper =

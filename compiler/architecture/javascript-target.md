@@ -96,6 +96,12 @@ edge request/response API       worker-platform-specific dependency
 
 The default output is readable **ECMAScript modules**.
 
+Formatting choices are consistent across source-derived code and compiler-generated
+adapters/helpers. Arrow functions use `() =>` for zero parameters, `value =>` for one,
+and `(left, right) =>` for several. Object literals use property shorthand whenever a
+key and its emitted value are the same identifier. These are JavaScript-output rules;
+TypeScript function types retain their required parenthesised parameter lists.
+
 The profile governs both syntax and required built-ins. It also governs private helpers emitted by `hexc` and the platform-neutral runtime: compiler-generated code does not receive permission to use newer features than user-visible emitted code.
 
 The final v1 inventory must state at least:
