@@ -1,59 +1,59 @@
-// Exact rational arithmetic over canonical BigInt numerator/denominator pairs.
+// Exact rational arithmetic over canonical BigInt top/bottom pairs.
 export opaque record Rat derives (Eq, Hash) = {
-  numerator: BigInt,
-  denominator: BigInt,
+  top: BigInt,
+  bottom: BigInt,
 }
 
-export exception ZeroDenominatorError(message: String)
+export exception ZeroBottomError(message: String)
 
-export let create(numerator: BigInt, denominator: BigInt): Rat =
-  if denominator == 0n
-    throw(ZeroDenominatorError("a Rat denominator cannot be zero"))
+export let create(top: BigInt, bottom: BigInt): Rat =
+  if bottom == 0n
+    throw(ZeroBottomError("a Rat bottom cannot be zero"))
   else
     // gcd uses Euclidean modulus internally after normalizing both operands.
-    let divisor = BigInt.gcd(numerator, denominator)
-    let reducedNumerator = BigInt.quot(numerator, divisor)
-    let reducedDenominator = BigInt.quot(denominator, divisor)
-    if reducedDenominator < 0n
-      Rat({numerator: -reducedNumerator, denominator: -reducedDenominator})
-    else Rat({numerator: reducedNumerator, denominator: reducedDenominator})
+    let divisor = BigInt.gcd(top, bottom)
+    let reducedTop = BigInt.quot(top, divisor)
+    let reducedBottom = BigInt.quot(bottom, divisor)
+    if reducedBottom < 0n
+      Rat({top: -reducedTop, bottom: -reducedBottom})
+    else Rat({top: reducedTop, bottom: reducedBottom})
 
-export let numerator(value: Rat): BigInt = value.numerator
-export let denominator(value: Rat): BigInt = value.denominator
+export let top(value: Rat): BigInt = value.top
+export let bottom(value: Rat): BigInt = value.bottom
 
 export let add(left: Rat, right: Rat): Rat =
   create(
-    left.numerator * right.denominator + right.numerator * left.denominator,
-    left.denominator * right.denominator
+    left.top * right.bottom + right.top * left.bottom,
+    left.bottom * right.bottom
   )
 
 export let subtract(left: Rat, right: Rat): Rat =
   create(
-    left.numerator * right.denominator - right.numerator * left.denominator,
-    left.denominator * right.denominator
+    left.top * right.bottom - right.top * left.bottom,
+    left.bottom * right.bottom
   )
 
 export let multiply(left: Rat, right: Rat): Rat =
-  create(left.numerator * right.numerator, left.denominator * right.denominator)
+  create(left.top * right.top, left.bottom * right.bottom)
 
 export let divide(left: Rat, right: Rat): Rat =
-  create(left.numerator * right.denominator, left.denominator * right.numerator)
+  create(left.top * right.bottom, left.bottom * right.top)
 
 export let negate(value: Rat): Rat =
-  Rat({numerator: -value.numerator, denominator: value.denominator})
+  Rat({top: -value.top, bottom: value.bottom})
 
-export let reciprocal(value: Rat): Rat = create(value.denominator, value.numerator)
+export let reciprocal(value: Rat): Rat = create(value.bottom, value.top)
 
 honor Ord<Rat> =
   compare(left, right) =
-    let leftProduct = left.numerator * right.denominator
-    let rightProduct = right.numerator * left.denominator
+    let leftProduct = left.top * right.bottom
+    let rightProduct = right.top * left.bottom
     if leftProduct < rightProduct then -1
     else if leftProduct > rightProduct then 1
     else 0
 
 honor Show<Rat> =
-  show(value) = "${value.numerator}/${value.denominator}"
+  show(value) = "${value.top}/${value.bottom}"
 
 honor Signed<Rat> =
   add(left, right) = add(left, right)

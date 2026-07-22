@@ -11,7 +11,7 @@
 
 > **`Integral` is the polymorphic face of integer division.** The monomorphic functions (`Int.div`, `BigInt.mod`, …) remain the primary, everyday spellings; `Integral` packages the same operations for code generic over integer types. `gcd` lives here because it is *definable* only here. `Float` is never `Integral`.
 
-The motivating v1 client is `Rat`, whose numerator and denominator use `BigInt` — `gcd` finds the common factor, `quot` divides it out, `Signed` supplies `0`/`1`, and `Ord` supplies sign normalization. That client needs the *family*, which is why this is one constraint and not a `Gcd` micro-constraint.
+The motivating v1 client is `Rat`, whose top and bottom use `BigInt` — `gcd` finds the common factor, `quot` divides it out, `Signed` supplies `0`/`1`, and `Ord` supplies sign normalization. That client needs the *family*, which is why this is one constraint and not a `Gcd` micro-constraint.
 
 ## 2. Declaration
 
@@ -24,7 +24,7 @@ constraint Integral<a: (Signed, Ord)> =
   gcd(x: a, y: a): a       -- greatest common divisor, always >= 0
 ```
 
-- **Superconstraints `(Signed, Ord)`** (standard left-to-right form, Constraints spec): `Signed` gives generic code literals via `fromInt` — a generic `Rat` needs `0` and `1` — and `Ord` gives comparisons (sign normalization: denominators kept positive). `Int` and `BigInt` satisfy both already; nothing lighter keeps the motivating client writable.
+- **Superconstraints `(Signed, Ord)`** (standard left-to-right form, Constraints spec): `Signed` gives generic code literals via `fromInt` — a generic `Rat` needs `0` and `1` — and `Ord` gives comparisons (sign normalization: bottoms kept positive). `Int` and `BigInt` satisfy both already; nothing lighter keeps the motivating client writable.
 - The five members obey the Division & Remainder spec's contracts *as laws of the constraint*: the two division identities, the Euclidean invariant, and §4's `gcd` laws. An `implement Integral` whose members violate them is wrong in the same informal-but-documented sense as a lawless `Eq`.
 - Zero-divisor behaviour is **not** a law of the constraint; it follows each instance's type doctrine. Both v1 instances throw `DivideByZeroError` (integer partiality throws), and any future instance is expected to do likewise — recorded as expectation, not equation.
 

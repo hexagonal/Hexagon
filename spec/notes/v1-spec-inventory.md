@@ -134,7 +134,7 @@ Counts: 41 `spec/` + 11 `notes/` = 52. N=38 · R=5 · S=1 · H=8. Dispositions: 
 | Item | Status | Source |
 |---|---|---|
 | Composable `JsValue` decoder family | **v1 obligation** | ffi.md §9.1.1; FFI P11 §9/§13.2 |
-| `Rat` focused specification and stdlib module | **v1 obligation** | `BigInt` numerator/denominator representation fixed; Integral Constraint §1/§9; Division & Remainder; James's v1 decisions |
+| `Rat` focused specification and stdlib module | **v1 obligation** | `BigInt` top/bottom representation fixed; Integral Constraint §1/§9; Division & Remainder; James's v1 decisions |
 | Qualified homes `NullableCase.*` / `JsKind.*` | **v1 obligation** | ffi.md §9.1.2/§12 |
 | `toJsMap`/`toJsSet` classification (cross-realm bar) | ship/defer | ffi.md §9.1.3; P11 §13.1 |
 | `JsMap.keys`/`values`; `JsSet` algebra | ship/defer | ffi.md §9.1.4; P10 §9 |

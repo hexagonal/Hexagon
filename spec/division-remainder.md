@@ -26,7 +26,7 @@ div(a, b) * b + mod(a, b) == a          -- the division identity
 
 Equivalently: `div(a, b)` is `floor(a / b)` when `b > 0` and `ceil(a / b)` when `b < 0`; `mod` is the residue that makes the identity hold. The invariant is the whole point: **the remainder is a canonical residue — non-negative, unconditionally** — with no caveat about the sign of either operand. Floored (Python/Knuth) shares the identity but lets the remainder take the divisor's sign; truncated (C/JS/Java) lets it take the *dividend's* sign, which is the convention that breaks `isEven`-via-remainder, hash bucketing, ring indexing, and calendar arithmetic on negative inputs.
 
-This convention is load-bearing for v1 `Rat`: its normalization consumes the `Integral` Euclidean family, so gcd reduction and denominator-sign canonicalization share one sign-stable integer foundation.
+This convention is load-bearing for v1 `Rat`: its normalization consumes the `Integral` Euclidean family, so gcd reduction and bottom-sign canonicalization share one sign-stable integer foundation.
 
 The three conventions, side by side (they agree wherever both operands are non-negative — i.e. in most real code):
 

@@ -177,7 +177,7 @@ Two regimes, determined entirely by whether `α` is resolved to a concrete type 
 - `α = Int` → emit `k` (plain JS number). `Int.fromInt` is the identity; do not emit an identity call.
 - `α = Float` → emit `k.0`. `Float.fromInt` remains representationally erased — `k` and `k.0` are the same JavaScript number — while the decimal spelling preserves the inferred Hexagon type for a human reading the generated code.
 - `α = BigInt` → emit `kn`. (`BigInt.fromInt` folded at compile time. This arises when unification pins a bare literal to BigInt via surrounding code, e.g. `add x 1` with `x : BigInt`.)
-- `α = Rat` → emit the canonical-form constructor call with constant arguments, e.g. `Rat.fromInt(k)` or, if you implement constant folding for it, the direct `{num: kn, den: 1n}` fast-path constructor. Either is acceptable; the fast path is a nice-to-have.
+- `α = Rat` → emit the canonical-form constructor call with constant arguments, e.g. `Rat.fromInt(k)` or, if you implement constant folding for it, the direct `{top: kn, bottom: 1n}` fast-path constructor. Either is acceptable; the fast path is a nice-to-have.
 - Any other instance type → emit `TheType.fromInt(k)` monomorphically (direct call, no dictionary).
 
 **Unresolved-because-polymorphic** (literal inside a function generalised over `Signed a`): the dictionary parameter is already in scope under the existing `honor` compilation story; `fromInt` is one more slot in the `Signed` dictionary record. Emit `dict.fromInt(k)`. No new mechanism.
