@@ -219,6 +219,11 @@ a < f() < c
 
 `+` and `*` elaborate to `Num`; binary `-` to `Signed.subtract`; `/` to `Frac.divide`. Operands normally share one type after Numeric Literals §5.1 has injected an established `Nat` through `Num.fromNat` or an established `Int` through `Signed.fromInt`. `Int + Int` stays Int; `Int * Nat` widens Nat to Int; and `count * cost` is Float when `count : Int` and `cost : Float`. Nat honors Num but not Signed; Int honors both but not Frac. Numeric literals elaborate per the Numeric Literals spec. There is no `%` operator (§13).
 
+`Float` and `Rat` both honor `Frac`, with type-owned failure and precision semantics:
+Float division is native IEEE 754 division, while Rat division is exact and throws
+`DivideByZeroError` for a zero divisor. `Int` and `BigInt` do not honor `Frac`; their
+named division families state the quotient and remainder convention explicitly.
+
 ### 6.2 Unary minus
 
 Level 3, elaborates to `negate`. Interactions, all decided:

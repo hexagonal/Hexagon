@@ -32,14 +32,17 @@ a ** b
 ```
 
 Addition, subtraction, multiplication, and negation work with the numeric primitive
-types. Division `/` belongs to fractional values such as `Float`:
+types. Division `/` belongs to types honoring `Frac`, including `Float` and exact
+`Rat` values:
 
 ```hexagon
 let average = 7.5 / 3.0
+let threeHalves = Rat.create(1, 2) / Rat.create(1, 3)
 ```
 
 If both values are `Float`, this is IEEE 754 division and follows the same infinity and
-`NaN` behavior as JavaScript. `Int` deliberately does not support `/`: a whole-number
+`NaN` behavior as JavaScript. Rat division is exact and throws `DivideByZeroError` for
+a zero divisor. `Int` and `BigInt` deliberately do not support `/`: whole-number
 division must say which rounding and remainder convention it intends.
 
 Exponentiation uses `**`, not `^`, and associates to the right:

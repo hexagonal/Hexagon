@@ -158,6 +158,7 @@ Each constraint owns a distinct TypeScript dictionary type:
 ```ts
 Num.Dictionary<a>
 Signed.Dictionary<a>
+Frac.Dictionary<a>
 Eq.Dictionary<a>
 Show.Dictionary<a>
 ```
@@ -196,6 +197,7 @@ Num.bigInt
 Signed.int
 Signed.float
 Signed.bigInt
+Frac.float
 Eq.string
 Show.bool
 ```
@@ -206,6 +208,7 @@ name:
 ```ts
 Rat.num
 Rat.signed
+Rat.frac
 Customer.eq
 Customer.show
 ```

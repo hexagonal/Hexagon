@@ -189,6 +189,9 @@ describe("compileSource", () => {
     expect(response.javascript).toContain(
       "const fiveSixths = __hex_imported_0___hex_instance_Num_Rat.add(half, third);",
     );
+    expect(response.javascript).toContain(
+      "const threeHalves = __hex_imported_0___hex_instance_Frac_Rat.divide(half, third);",
+    );
     expect(response.javascript).toContain("const half = Rat.create(1n, 2n);");
     expect(response.javascript).toContain("const tenTwelfths = Rat.create(10n, 12n);");
     expect(response.javascript).toContain("tenTwelfths, fiveSixths");
@@ -202,8 +205,16 @@ describe("compileSource", () => {
     expect(ratModule?.javascript).toContain('bottom === 0n');
     expect(ratModule?.javascript).toContain('reducedBottom < 0n');
     expect(ratModule?.javascript).toContain('name = "DivideByZeroError"');
+    expect(ratModule?.javascript).toContain(
+      "const __hex_instance_Frac_Rat = { signed: __hex_instance_Signed_Rat, divide:",
+    );
+    expect(ratModule?.javascript).toContain("export { __hex_instance_Frac_Rat };");
     expect(response.types).toContainEqual(expect.objectContaining({
       name: "fiveSixths",
+      displayedType: "Rat",
+    }));
+    expect(response.types).toContainEqual(expect.objectContaining({
+      name: "threeHalves",
       displayedType: "Rat",
     }));
     expect(response.types).toContainEqual(expect.objectContaining({
@@ -212,7 +223,7 @@ describe("compileSource", () => {
     }));
   });
 
-  test("executes the real stdlib Rat module through imported Num evidence", async () => {
+  test("executes the real stdlib Rat module through imported Num and Frac evidence", async () => {
     const response = compileSource(14, rat.source);
 
     expect(response.kind).toBe("compile-success");
@@ -229,10 +240,42 @@ describe("compileSource", () => {
       }
       await import(/* @vite-ignore */ moduleUrls.get(response.entryPath)!);
       expect(log).toHaveBeenCalledWith("1/2 + 1/3 = 5/6");
+      expect(log).toHaveBeenCalledWith("1/2 / 1/3 = 3/2");
       expect(log).toHaveBeenCalledWith("Does 10/12 = 5/6? true");
     } finally {
       log.mockRestore();
     }
+  });
+
+  test("brands exact Rat division by zero through imported Frac evidence", async () => {
+    const response = compileSource(
+      15,
+      "let half = Rat.create(1, 2)\n" +
+        "let zero = Rat.create(0, 1)\n" +
+        "let impossible = half / zero\n",
+    );
+
+    expect(response.kind).toBe("compile-success");
+    if (response.kind !== "compile-success") return;
+    expect(response.javascript).toContain(
+      "__hex_imported_0___hex_instance_Frac_Rat.divide(half, zero)",
+    );
+    const moduleUrls = new Map<string, string>();
+    for (const module of response.executionModules) {
+      const linked = linkModule(module.javascript, module.path, moduleUrls);
+      moduleUrls.set(
+        module.path,
+        `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
+      );
+    }
+    let thrown: unknown;
+    try {
+      await import(/* @vite-ignore */ moduleUrls.get(response.entryPath)!);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown).toMatchObject({ name: "DivideByZeroError", $hex: true });
   });
 
   test("lets a workspace Rat module occlude the fundamental companion", () => {
