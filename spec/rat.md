@@ -66,7 +66,9 @@ common factors before multiplication as a transparent optimization.
 Division and `reciprocal(0)` throw `DivideByZeroError` through the same smart
 construction boundary. Addition and multiplication never round. `Num<Rat>` owns
 those operations and defines `fromNat(n)` as `n / 1`; `Signed<Rat>` adds subtraction,
-negation, and `fromInt(n)` as `n / 1`.
+negation, and `fromInt(n)` as `n / 1`; `Frac<Rat>` owns exact division. Unlike
+`Frac<Float>`, it never rounds and has no IEEE infinity or `NaN` result: a zero divisor
+throws `DivideByZeroError`.
 
 ## 5. Constraints
 
@@ -76,11 +78,10 @@ negation, and `fromInt(n)` as `n / 1`.
 - `Show<Rat>` emits `top/bottom`, including `/1` so the representation
   remains visible and unsurprising.
 - `Hash<Rat>` combines the canonical `BigInt` top and bottom hashes.
-- `Num<Rat>` and `Signed<Rat>` are provided. Num owns addition, multiplication, and
-  exact `fromNat`; Signed extends it with subtraction, negation, and exact `fromInt`.
-  `Integral<Rat>` and `Frac<Rat>` are not: a rational is not
-  an integer, while v1 `Frac` owns IEEE-style `/` and is deliberately not the exact
-  fraction abstraction.
+- `Num<Rat>`, `Signed<Rat>`, and `Frac<Rat>` are provided. Num owns addition,
+  multiplication, and exact `fromNat`; Signed extends it with subtraction, negation,
+  and exact `fromInt`; Frac supplies exact division through `create`.
+- `Integral<Rat>` is not provided: a rational is not an integer.
 
 ## 6. Surface
 
@@ -126,6 +127,8 @@ Rat.bottom(Rat.create(1, -2))               -- 2
 Rat.create(0, 99) == Rat.create(0, 1)      -- true
 Rat.create(1, 2) + Rat.create(1, 3)
     == Rat.create(5, 6)                         -- true
+Rat.create(1, 2) / Rat.create(1, 3)
+    == Rat.create(3, 2)                         -- true
 show(Rat.create(10, 12))                      -- "5/6"
 Rat.create(1, 0)                              -- DivideByZeroError
 ```
