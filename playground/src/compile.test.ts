@@ -229,7 +229,7 @@ describe("compileSource", () => {
       }
       await import(/* @vite-ignore */ moduleUrls.get(response.entryPath)!);
       expect(log).toHaveBeenCalledWith("1/2 + 1/3 = 5/6");
-      expect(log).toHaveBeenCalledWith("Normalized equality: true");
+      expect(log).toHaveBeenCalledWith("Does 10/12 = 5/6? true");
     } finally {
       log.mockRestore();
     }
