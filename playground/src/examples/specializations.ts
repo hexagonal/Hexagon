@@ -4,8 +4,8 @@ export const specializations: PlaygroundExample = {
   id: "fundamental-specializations",
   title: "Fundamental Specializations",
   description:
-    "Inspect direct Num editions, then use contextual Int widening to buy some bananas.",
-  source: `// The inferred type is: <a: Num> (a, a) -> a
+    "Inspect direct Signed editions, then use contextual Int widening to buy some bananas.",
+  source: `// The inferred type is: <a: Signed> (a, a) -> a
 let plus(x, y) = x + y
 
 // Open the JS View menu to inspect each generated edition.

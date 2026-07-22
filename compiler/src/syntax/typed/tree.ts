@@ -568,14 +568,14 @@ export interface BooleanExpr extends ExpressionFields {
   readonly value: boolean;
 }
 
-/** An integer literal with its explicit `Num.fromInt` requirement. */
+/** An integer literal with its explicit `Signed.fromInt` requirement. */
 export interface FromIntExpr extends ExpressionFields {
   readonly kind: "FromInt";
   readonly decimal: string;
   readonly requirement: Constraint;
 }
 
-/** A contextual, exact `Int -> a` injection through established `Num<a>` evidence. */
+/** A contextual, exact `Int -> a` injection through established `Signed<a>` evidence. */
 export interface WidenIntExpr extends ExpressionFields {
   readonly kind: "WidenInt";
   readonly value: Expr;

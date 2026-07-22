@@ -29,7 +29,7 @@ The boundary never requires runtime type dispatch, prototype inspection, global 
 Hexagon:
 
 ```hexagon
-export let plus<a: Num>(x: a, y: a): a = x + y
+export let plus<a: Signed>(x: a, y: a): a = x + y
 ```
 
 Fundamental entry points:
@@ -40,19 +40,19 @@ export declare function plusFloat(x: number, y: number): number;
 export declare function plusBigInt(x: bigint, y: bigint): bigint;
 ```
 
-When the public instance graph includes a usable non-fundamental `Num` instance, the base-name generic edition additionally appears:
+When the public instance graph includes a usable non-fundamental `Signed` instance, the base-name generic edition additionally appears:
 
 ```ts
 export declare function plus<a>(
   x: a,
   y: a,
-  num: Num.Dictionary<a>,
+  signed: Signed.Dictionary<a>,
 ): a;
 ```
 
 ```js
-export function plus(x, y, num) {
-  return num.add(x, y);
+export function plus(x, y, signed) {
+  return signed.add(x, y);
 }
 ```
 
@@ -62,7 +62,7 @@ Calls:
 plusInt(10, 20);
 plusFloat(1.5, 2.5);
 plusBigInt(10n, 20n);
-plus(half, third, Rat.num);
+plus(half, third, Rat.signed);
 ```
 
 The generic edition is not emitted merely because a private type or internal call instantiates `plus`. Its trigger is public usable non-fundamental evidence, as fixed by the specialization note.
@@ -74,7 +74,7 @@ The generic edition is not emitted merely because a private type or internal cal
 `Dictionary` is a TypeScript-only public type exported by the module corresponding to one Hexagon constraint. At a use site, the ordinary module namespace alias provides qualification. The types are distinct:
 
 ```ts
-Num.Dictionary<a>
+Signed.Dictionary<a>
 Eq.Dictionary<a>
 Show.Dictionary<a>
 ```
@@ -93,13 +93,13 @@ export interface Dictionary<a> {
 }
 ```
 
-Representative `num.d.ts` declaration:
+Representative `signed.d.ts` declaration:
 
 ```ts
-declare const numDictionaryBrand: unique symbol;
+declare const signedDictionaryBrand: unique symbol;
 
 export interface Dictionary<a> {
-  readonly [numDictionaryBrand]: a;
+  readonly [signedDictionaryBrand]: a;
   readonly add: (x: a, y: a) => a;
   readonly subtract: (x: a, y: a) => a;
   readonly multiply: (x: a, y: a) => a;
@@ -111,16 +111,16 @@ export interface Dictionary<a> {
 Consumer/generated declaration:
 
 ```ts
-import type * as Num from "@hexagon/runtime/num";
+import type * as Signed from "@hexagon/runtime/signed";
 
 export declare function plus<a>(
   x: a,
   y: a,
-  num: Num.Dictionary<a>,
+  signed: Signed.Dictionary<a>,
 ): a;
 ```
 
-`Num` here is a normal TypeScript/ESM namespace import alias, just as companion qualification is a normal module alias in Hexagon; it is not a global object or a special nested-type mechanism. `Dictionary` has no runtime constructor or value. `Num.int`, `Rat.num`, and dictionary factories are real module exports reached through ordinary namespace imports. The generic parameter name is lowercase because these are Hexagon-originated public ABI declarations expressed in TypeScript; the same rule applies to generated `<a>`, `<b>`, `<k>`, and `<v>` binders elsewhere.
+`Signed` here is a normal TypeScript/ESM namespace import alias, just as companion qualification is a normal module alias in Hexagon; it is not a global object or a special nested-type mechanism. `Dictionary` has no runtime constructor or value. `Signed.int`, `Rat.signed`, and dictionary factories are real module exports reached through ordinary namespace imports. The generic parameter name is lowercase because these are Hexagon-originated public ABI declarations expressed in TypeScript; the same rule applies to generated `<a>`, `<b>`, `<k>`, and `<v>` binders elsewhere.
 
 The brand is nominal TypeScript evidence, not general runtime validation. Runtime objects may carry a private symbol and should be frozen where practical, but ordinary fixed-arity calls remain governed by the trusted-boundary doctrine.
 
@@ -135,9 +135,9 @@ Every lawful instance whose constraint and outer type constructor are publicly n
 Fundamental handles live under the constraint namespace for discoverability:
 
 ```ts
-Num.int
-Num.float
-Num.bigInt
+Signed.int
+Signed.float
+Signed.bigInt
 
 Eq.int
 Eq.string
@@ -148,7 +148,7 @@ Show.string
 Show.bool
 ```
 
-Representative `num.d.ts` exports:
+Representative `signed.d.ts` exports:
 
 ```ts
 export declare const int: Dictionary<number>;
@@ -163,7 +163,7 @@ These handles remain useful even though fundamental function entry points are sp
 Non-fundamental handles live in the public type's companion/module under the lowercase constraint name:
 
 ```ts
-Rat.num
+Rat.signed
 Rat.eq
 Rat.show
 
@@ -174,11 +174,11 @@ Customer.show
 Representative `rat.d.ts` exports:
 
 ```ts
-import type * as Num from "@hexagon/runtime/num";
+import type * as Signed from "@hexagon/runtime/signed";
 import type * as Eq from "@hexagon/runtime/eq";
 import type * as Show from "@hexagon/runtime/show";
 
-export declare const num: Num.Dictionary<Rat>;
+export declare const signed: Signed.Dictionary<Rat>;
 export declare const eq: Eq.Dictionary<Rat>;
 export declare const show: Show.Dictionary<Rat>;
 ```
@@ -188,10 +188,10 @@ Consumer:
 ```ts
 import * as Rat from "./rat.js";
 
-plus(half, third, Rat.num);
+plus(half, third, Rat.signed);
 ```
 
-This reflects lawful ownership and package reality: built-in evidence is discovered from the constraint module; separately compiled user packages expose evidence from the user type's home module. Packages do not mutate a central runtime or type object to attach `Rat` members. `Rat.num` is ordinary namespace-import qualification, not a property magically attached to the Rat runtime value/constructor.
+This reflects lawful ownership and package reality: built-in evidence is discovered from the constraint module; separately compiled user packages expose evidence from the user type's home module. Packages do not mutate a central runtime or type object to attach `Rat` members. `Rat.signed` is ordinary namespace-import qualification, not a property magically attached to the Rat runtime value/constructor.
 
 A generated handle/factory name colliding with an explicit public companion export is a hard compile error. The compiler never silently renames public evidence.
 
@@ -364,10 +364,10 @@ Required diagnostic/documentation cases:
 
 1. Fundamental JS entry points specialize and take no dictionaries; separate note owns their names/expansion.
 2. The generic base-name edition appears for public usable non-fundamental evidence.
-3. Dictionary types are constraint-specific and qualified: `Num.Dictionary<a>`, `Eq.Dictionary<a>`, `Show.Dictionary<a>`; their operation records contain required and inherited-default members alike.
+3. Dictionary types are constraint-specific and qualified: `Signed.Dictionary<a>`, `Eq.Dictionary<a>`, `Show.Dictionary<a>`; their operation records contain required and inherited-default members alike.
 4. All Hexagon-originated `.d.ts` binders use lowercase Hexagon convention.
-5. Fundamental handles are constraint-owned (`Num.int`, `Show.string`).
-6. Public non-fundamental handles/factories are type-owned and use lowercase constraint names (`Rat.num`, `Vector.show(...)`).
+5. Fundamental handles are constraint-owned (`Signed.int`, `Show.string`).
+6. Public non-fundamental handles/factories are type-owned and use lowercase constraint names (`Rat.signed`, `Vector.show(...)`).
 7. Every publicly nameable lawful instance receives a handle/factory; private instances do not.
 8. Parameterized evidence is a real companion factory function.
 9. Evidence is trailing; ordering is stable by type-variable ordinal then constraint name.

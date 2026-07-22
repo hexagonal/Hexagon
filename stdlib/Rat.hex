@@ -55,7 +55,7 @@ honor Ord<Rat> =
 honor Show<Rat> =
   show(value) = "${value.numerator}/${value.denominator}"
 
-honor Num<Rat> =
+honor Signed<Rat> =
   add(left, right) = add(left, right)
   subtract(left, right) = subtract(left, right)
   multiply(left, right) = multiply(left, right)

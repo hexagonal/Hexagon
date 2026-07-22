@@ -2,7 +2,7 @@
 
 **Status:** Decided (July 2026), revised in place after external review (Sol) before landing — see **correction records §17**. Normative promotion of `spec/notes/ffi-zero-cost-primitive-exports.md`. This is a **component FFI spec**: it fixes the JavaScript/TypeScript export surface of constrained-polymorphic Hexagon functions — and only that. It is **not** the general FFI spec and does not begin it; extern syntax, boundary type mapping, and the rest of the FFI agenda remain owed to the FFI consolidation session.
 **Scope:** The closed fundamental type set and its pre-v1 review obligation; the normative specialization-set algorithm (which named dictionary-free entry points exist) including the full lawful Cartesian product for multiple constrained variables; the generic base-name edition and its public-evidence trigger; the deterministic naming algorithm, base-name reservation, and hard collision errors; the required-emission contract separated from optimizer freedom; `.d.ts` faces for specializations (lowercase Hexagon-originated binders); ABI events; diagnostics; acceptance tests including the code-size acceptance obligation.
-**Not in scope:** **Everything about dictionaries themselves** — evidence shapes, `Constraint.Dictionary<a>` declarations, handle ownership and names (`Num.int`, `Rat.num`), parameterized factories (`Vector.show(...)`), trailing-evidence ordering, superconstraint nesting, branding, validation, and cross-package dictionary ABI — is owned normatively by FFI Part 9 (`ffi-part9-exported-dictionaries.md`); this document consumes those rules by reference and redesigns nothing. Also not in scope: extern declaration syntax; `Array(a)`/`Map`/`Set` boundary packages; `JsValue`; the internal (Hexagon-side) dictionary-passing scheme (Constraints §6, refined in direction by Part 9).
+**Not in scope:** **Everything about dictionaries themselves** — evidence shapes, `Constraint.Dictionary<a>` declarations, handle ownership and names (`Signed.int`, `Rat.signed`), parameterized factories (`Vector.show(...)`), trailing-evidence ordering, superconstraint nesting, branding, validation, and cross-package dictionary ABI — is owned normatively by FFI Part 9 (`ffi-part9-exported-dictionaries.md`); this document consumes those rules by reference and redesigns nothing. Also not in scope: extern declaration syntax; `Array(a)`/`Map`/`Set` boundary packages; `JsValue`; the internal (Hexagon-side) dictionary-passing scheme (Constraints §6, refined in direction by Part 9).
 **Companions:** FFI Part 9 (`ffi-part9-exported-dictionaries.md`; dictionary ABI consumed); `spec/notes/ffi-exported-dictionaries.md` (historical decision source); `spec/notes/ffi-proto-spec-questions.md` §8; Constraints §4–§6 (lawfulness, coherence, dictionary compilation); Functions §4/§8 (typed forms, generalization); Primitive Types §1 (fundamental JS representations); Numeric Literals §5 (`fromInt` erasure); Decisions Batch 2026-07 §1.5 (`Eq<Float>` emission); Modules §4/§11 (export prefix, ESM emission).
 
 Written for a future implementation session against the existing `hexc` architecture: Algorithm J, union-find tyvars, dictionary passing, whole-program compilation, readable-JS emission with `.d.ts`, `@hexagon/runtime`.
@@ -74,7 +74,7 @@ For an eligible export `f` with type variables `v1 … vn` **in declared order**
 1. **Partition** the variables: `vi` is *specializing* iff `C(vi)` is non-empty. Unconstrained variables never specialize (§3.3).
 2. **Candidates per specializing variable:**
    `candidates(vi) = { F ∈ FundamentalSet | every K ∈ C(vi) has a lawful instance K<F> }`.
-   Lawfulness is the ordinary Constraints §4/§5 judgment over the compiler/runtime-provided fundamental instances — e.g. `Num → {Int, Float, BigInt}`; `Show`/`Eq` → whichever members of the closed set carry those instances per the prelude. No new instance judgment is introduced.
+   Lawfulness is the ordinary Constraints §4/§5 judgment over the compiler/runtime-provided fundamental instances — e.g. `Signed → {Int, Float, BigInt}`; `Show`/`Eq` → whichever members of the closed set carry those instances per the prelude. No new instance judgment is introduced.
 3. **Lawful tuples:** the full Cartesian product of `candidates(vi)` over the specializing variables, in declared order. If any `candidates(vi)` is empty, the product is empty (§3.4). **A tuple is generated only when every chosen fundamental type satisfies all constraints attached to its corresponding variable** — there is no partial tuple and no cross-variable constraint (Hexagon constraints attach to single binders).
 4. **Emit one specialization per lawful tuple** `t = (F1, …, Fk)`:
    - **name:** per Algorithm N (§6);
@@ -122,7 +122,7 @@ The base-name generic edition is emitted **iff** there exists at least one **com
 
 *Publicly obtainable* means there is a public **evidence expression** for it: a public handle per the exported-dictionaries public-exposure rule (constraint publicly nameable; `Ti`'s constructors publicly nameable; every signature component of the handle/factory public; the lawful instance present in the compiled graph), or a public factory applied to inputs that are themselves recursively publicly obtainable — e.g. `Vector.show(Show.string)` is the obtainable evidence for `Show` at `Vector(String)`.
 
-- **Completeness is load-bearing.** The generic function requires evidence for *every* constrained variable; if any variable's constraints have no publicly obtainable evidence at *any* public type — fundamental or not — no JavaScript caller could lawfully call the edition, and it is not emitted. For ordinary prelude-constraint functions (`plus<a: Num>`) this rule coincides exactly with "some public non-fundamental instance exists", because fundamental evidence for prelude constraints is constraint-owned and public; the completeness condition matters only for multi-variable and user-constraint cases (§17.1).
+- **Completeness is load-bearing.** The generic function requires evidence for *every* constrained variable; if any variable's constraints have no publicly obtainable evidence at *any* public type — fundamental or not — no JavaScript caller could lawfully call the edition, and it is not emitted. For ordinary prelude-constraint functions (`plus<a: Signed>`) this rule coincides exactly with "some public non-fundamental instance exists", because fundamental evidence for prelude constraints is constraint-owned and public; the completeness condition matters only for multi-variable and user-constraint cases (§17.1).
 - **Private types and internal call sites never cause the edition to appear** (§5). Conversely, a qualifying public assignment causes it to appear **even if no Hexagon source instantiates `f` at those types** — JavaScript callers sit outside Hexagon call-site analysis.
 - Adding the public instance that first completes a qualifying assignment adds the base-name export: an **additive ABI change** (§9). Removing the evidence that last sustains one removes it: breaking.
 
@@ -134,7 +134,7 @@ When triggered, the edition is exported under the **source base name** with the 
 export declare function plus<a>(
   x: a,
   y: a,
-  num: Num.Dictionary<a>,
+  signed: Signed.Dictionary<a>,
 ): a;
 ```
 
@@ -179,7 +179,7 @@ A generated specialization name that collides with any explicit public export of
 
 ```hexagon
 export let plusInt(x: Int, y: Int): Int = x + y
-export let plus<a: Num>(x: a, y: a): a = x + y
+export let plus<a: Signed>(x: a, y: a): a = x + y
 -- ERROR: generated specialization `plusInt` conflicts with exported `plusInt`;
 --        rename one of the exports
 ```
@@ -191,10 +191,10 @@ Two **generated** names colliding (two eligible exports whose expansions produce
 ## 7. Worked example (single variable)
 
 ```hexagon
-export let plus<a: Num>(x: a, y: a): a = x + y
+export let plus<a: Signed>(x: a, y: a): a = x + y
 ```
 
-Always-generated fundamental entry points (candidates(`a`) under `Num` = {Int, Float, BigInt}):
+Always-generated fundamental entry points (candidates(`a`) under `Signed` = {Int, Float, BigInt}):
 
 ```ts
 export declare function plusInt(x: number, y: number): number;
@@ -214,13 +214,13 @@ export function plusBigInt(x, y) {
 }
 ```
 
-If (and only if) a public non-fundamental `Num` instance exists — public `Rat` plus public `Rat.num` — the module additionally exports the §4.2 generic edition. JavaScript sees:
+If (and only if) a public non-fundamental `Signed` instance exists — public `Rat` plus public `Rat.signed` — the module additionally exports the §4.2 generic edition. JavaScript sees:
 
 ```ts
 plusInt(10, 20);
 plusFloat(1.5, 2.5);
 plusBigInt(10n, 20n);
-plus(half, third, Rat.num);   // only with the public Rat evidence in the graph
+plus(half, third, Rat.signed);   // only with the public Rat evidence in the graph
 ```
 
 ---
@@ -230,7 +230,7 @@ plus(half, third, Rat.num);   // only with the public Rat evidence in the graph
 ### 8.1 Required (normative; the ABI)
 
 1. **Every lawful specialization is a public named ESM export** appearing in the module's `.d.ts`, with the deterministic §6 name and the §2.3 faces.
-2. **Direct bodies, dictionary-free.** A specialization's call path contains **no dictionary construction, passing, or member dispatch**. It is the concrete emission the existing specs already fix for that type — e.g. a `Num<Int>` body emits native `+`; an `Eq<Float>` body emits the SameValueZero form `a === b || (Number.isNaN(a) && Number.isNaN(b))` or its `$hex` helper (Decisions Batch §1.5); `fromInt` erases (Numeric Literals §5).
+2. **Direct bodies, dictionary-free.** A specialization's call path contains **no dictionary construction, passing, or member dispatch**. It is the concrete emission the existing specs already fix for that type — e.g. a `Signed<Int>` body emits native `+`; an `Eq<Float>` body emits the SameValueZero form `a === b || (Number.isNaN(a) && Number.isNaN(b))` or its `$hex` helper (Decisions Batch §1.5); `fromInt` erases (Numeric Literals §5).
 3. **Specializations are not wrappers over the generic edition** (rejected alternative §11.2). Calling one never touches evidence.
 4. **Observable behaviour** of `fXY(args)` is exactly `f` instantiated at `(X, Y)` per the language semantics — same result, same exceptions, same evaluation order.
 5. **The generic edition, when triggered, is exported under the base name** with trailing evidence per the dictionaries note; when not triggered it is absent, and the base name exports nothing.
@@ -276,7 +276,7 @@ Admitting `Date`, `Array`, `Nullable`, or "anything small/native" to the set by 
 
 ### 11.2 Specializations as wrappers over the generic edition
 
-`plusInt = (x, y) => plus(x, y, Num.int)`. Rejected: reintroduces dictionary dispatch on exactly the entry points whose reason to exist is its absence; also couples the specializations' existence to the generic edition's (which is conditional). Fragment sharing that preserves direct emission remains permitted (§8.2).
+`plusInt = (x, y) => plus(x, y, Signed.int)`. Rejected: reintroduces dictionary dispatch on exactly the entry points whose reason to exist is its absence; also couples the specializations' existence to the generic edition's (which is conditional). Fragment sharing that preserves direct emission remains permitted (§8.2).
 
 ### 11.3 Silent collision handling
 
@@ -327,7 +327,7 @@ Three gaps in the proto-note required rules to make the algorithms total; each i
 ### 13.2 Contradictions with landed specs, recorded — not resolved here
 
 1. **Constraints §6.4's former blanket claim** that nothing constraint-shaped appears in `.d.ts` is refined by FFI Part 9: generic editions expose evidence parameters and public instances expose handles/factories; monomorphic exports and Hexagon source remain dictionary-free. The refinement has been applied to Constraints §6.4.
-2. **Modules §11.5's former plumbing-only claim** is likewise refined: public handles/factories (`Rat.num`, `Vector.show`) are stable generated exports independent of current consumption under Part 9's public-evidence closure. The refinement has been applied to Modules §11.5.
+2. **Modules §11.5's former plumbing-only claim** is likewise refined: public handles/factories (`Rat.signed`, `Vector.show`) are stable generated exports independent of current consumption under Part 9's public-evidence closure. The refinement has been applied to Modules §11.5.
 3. **Constraints §6.1's former leading-parameter convention** for internal dictionary passing is superseded by FFI Part 9's trailing maximal-evidence suffix. Constraints §6.1 now records that refinement; this document merely depends on it for §4.2.
 
 ### 13.3 Deferred edge
@@ -376,8 +376,8 @@ Exported constrained-polymorphic **non-function values**, should generalization 
 
 ```
 -- (a) Single constrained variable: unconditional specializations, direct bodies
-export let plus<a: Num>(x: a, y: a): a = x + y
--- exports (no public non-fundamental Num in graph):
+export let plus<a: Signed>(x: a, y: a): a = x + y
+-- exports (no public non-fundamental Signed in graph):
 --   plusInt, plusFloat, plusBigInt        (and nothing under the name `plus`)
 --   plusInt emits: export function plusInt(x, y) { return x + y; }
 -- No dictionary object, parameter, or member access appears in any of the three.
@@ -392,15 +392,15 @@ export let same<a: Eq>(x: a, y: a): Bool = x == y
 
 -- (c) Generic edition appears exactly on public evidence (additive ABI)
 -- program 1: record Rat = ... (private)  → no `plus` export, (a)'s surface only
--- program 2: export record Rat ... ; honor Num<Rat> = ... (public type, lawful instance)
+-- program 2: export record Rat ... ; honor Signed<Rat> = ... (public type, lawful instance)
 --   → `plus` base-name edition appears:
---     export declare function plus<a>(x: a, y: a, num: Num.Dictionary<a>): a;
+--     export declare function plus<a>(x: a, y: a, signed: Signed.Dictionary<a>): a;
 --   and plusInt/plusFloat/plusBigInt are unchanged (names, signatures, bodies).
 
 -- (d) Internal calls never shape the surface
 let internal = plus(20, 22)        -- emits: const internal = 20 + 22;
 -- No Hexagon call to plus at Float exists anywhere; plusFloat is exported anyway.
--- A private type honoring Num changes nothing foreign.
+-- A private type honoring Signed changes nothing foreign.
 
 -- (e) Multiple constrained variables: full lawful Cartesian product, declared order
 export let combine<a: Show, b: Eq>(x: a, y: b): String = ...
@@ -415,7 +415,7 @@ export let tag<a: Show, b>(x: a, y: b): String = ...
 
 -- (g) Collision: hard error, no mangling
 export let plusInt(x: Int, y: Int): Int = x + y
-export let plus<a: Num>(x: a, y: a): a = x + y
+export let plus<a: Signed>(x: a, y: a): a = x + y
 -- ERROR: generated specialization `plusInt` conflicts with exported `plusInt`;
 --        rename one of the exports
 
@@ -461,7 +461,7 @@ Applied **in place** above; the corrected section is marked. Recorded per house 
 ### 17.1 Algorithm G: the trigger requires a complete evidence assignment (§4.1 corrected)
 
 - **Defect:** §4.1 originally triggered the generic edition when *any one* constrained variable had usable public non-fundamental evidence, asserting the other variables could never block because fundamental dictionaries are public. The assertion is false for user constraints: in `combine<a: CustomA, b: CustomB>` with public non-fundamental `CustomA` evidence but no publicly obtainable `CustomB` dictionary for **any** type (a user constraint need not have fundamental instances at all), the emitted edition would require evidence no JavaScript caller can lawfully obtain — exactly the dead, misleading entry point §11.7 rejects the unconditional edition for.
-- **Origin:** over-generalizing from the prelude constraints, whose fundamental handles are constraint-owned and always public; "always dischargeable" was true of `Num`/`Eq`/`Show` and silently universalized to all constraints.
+- **Origin:** over-generalizing from the prelude constraints, whose fundamental handles are constraint-owned and always public; "always dischargeable" was true of `Signed`/`Eq`/`Show` and silently universalized to all constraints.
 - **Correction:** the trigger is existence of at least one **complete, publicly obtainable evidence assignment for all constrained variables, with at least one non-fundamental component** (§4.1). For single-variable prelude-constraint exports this coincides exactly with the previous reading; only multi-variable and user-constraint cases change — from emitting an uncallable export to emitting nothing. Acceptance test (k) pins the case.
 - **Rejected alternative (do not relitigate):** the per-variable trigger ("any one variable has public non-fundamental evidence"), and any variant that can emit a generic edition lacking a lawful complete call — both fail §11.7's own honesty standard.
 - **Credit:** Sol.

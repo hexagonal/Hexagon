@@ -19,7 +19,7 @@ The intended user is a JS developer with moderate FP capability who wants to do 
 1. **Hindley–Milner inference, Algorithm J.** Union-find mutable type variables, level-based generalisation. Types are optional everywhere; untyped code is the primary form. Annotations exist for comprehension and constraining, never because the compiler needs them.
 2. **Let-polymorphism with the ML value restriction.** Generalisation happens at `let`/`fun`/module export; only syntactic values generalise; lambda parameters are monomorphic; `var` never generalises. (Observable rules fixed in the Functions spec §8.)
 3. **No `forall` binder.** Non-uppercase-start = type variable, uppercase-start = type name; implicit quantification falls out of the start-class rule (Primitive Types §1; Lexer §3). Rank-2 types, if they arrive, come through a separate annotation-gated pathway.
-4. **Type constraints, compiled to dictionaries.** `Num`, `Eq`, `Ord`, `Show` (+ `Frac`), user constraints via `implement` blocks. Monomorphic code pays nothing — dictionaries appear only in genuinely polymorphic functions. Closed defaulting rule: unresolved literal-born tyvars whose constraints are all in the closed set {Num, Eq, Ord, Show} default to `Int` (Numeric Literals spec §4).
+4. **Type constraints, compiled to dictionaries.** `Signed`, `Eq`, `Ord`, `Show` (+ `Frac`), user constraints via `implement` blocks. Monomorphic code pays nothing — dictionaries appear only in genuinely polymorphic functions. Closed defaulting rule: unresolved literal-born tyvars whose constraints are all in the closed set {Signed, Eq, Ord, Show} default to `Int` (Numeric Literals spec §4).
 5. **Row polymorphism for records.** Structural records with row variables in the unifier — the one deliberate extension beyond vanilla HM. Extent and mechanics are the Products spec's job (open: width-subtyping-free row polymorphism à la Elm/PureScript is the presumed shape; whether rows appear anywhere besides records — e.g. polymorphic variants — is presumed **no** for v1).
 6. **No subtyping.** Rows give the "this function accepts any record with at least field x" ergonomics without a subsumption relation. Unification-only.
 7. **N-ary functions, no currying.** `TFun([A, B], C)`; arity checked at every call; no partial application (Functions spec).
@@ -39,7 +39,7 @@ The intended user is a JS developer with moderate FP capability who wants to do 
 | `union` | nominal sum declaration | Unions (forthcoming) | owed — constructors, matching, exhaustiveness, tagged JS representation |
 | `type` | alias declaration | Declarations preamble or Products (forthcoming) | owed — parameterisation, recursion ban, alias-vs-expansion display |
 | type variables `a b c` | — | Primitive Types §1, Functions §4.2 | decided |
-| constraints (`Num`, `Eq`, `Ord`, `Show`, `Frac`, user) | — | Constraints (forthcoming) | partially fixed by Numeric Literals + Primitive Types §7 |
+| constraints (`Signed`, `Eq`, `Ord`, `Show`, `Frac`, user) | — | Constraints (forthcoming) | partially fixed by Numeric Literals + Primitive Types §7 |
 | extern / FFI shapes (`Nullable(a)` etc.) | boundary-only | FFI (forthcoming) | boundary types never leak into pure Hexagon semantics |
 
 ---

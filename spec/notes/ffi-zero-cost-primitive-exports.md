@@ -44,7 +44,7 @@ Before v1 freezes, perform one explicit inventory review of commonly used JavaSc
 A specialization exists only when every constraint on the relevant type variable has a lawful instance for that fundamental type. For example:
 
 ```text
-Num  -> Int, Float, BigInt
+Signed  -> Int, Float, BigInt
 Show -> whichever members of the closed set have Show
 Eq   -> whichever members of the closed set have Eq
 ```
@@ -56,7 +56,7 @@ Eq   -> whichever members of the closed set have Eq
 Hexagon:
 
 ```hexagon
-export let plus<a: Num>(x: a, y: a): a = x + y
+export let plus<a: Signed>(x: a, y: a): a = x + y
 ```
 
 Always-generated fundamental TypeScript entry points:
@@ -85,19 +85,19 @@ export function plusBigInt(x, y) {
 
 The specializations are direct emitted bodies, not wrappers that call the dictionary edition. The compiler may share private implementation fragments where doing so preserves the same direct observable emission, but it must not reintroduce dictionary dispatch on these entry points.
 
-If a public non-fundamental `Num` instance exists—for example public `Rat` plus public `Rat.num`—the module additionally exports:
+If a public non-fundamental `Signed` instance exists—for example public `Rat` plus public `Rat.signed`—the module additionally exports:
 
 ```ts
 export declare function plus<a>(
   x: a,
   y: a,
-  num: Num.Dictionary<a>,
+  signed: Signed.Dictionary<a>,
 ): a;
 ```
 
 ```js
-export function plus(x, y, num) {
-  return num.add(x, y);
+export function plus(x, y, signed) {
+  return signed.add(x, y);
 }
 ```
 
@@ -107,10 +107,10 @@ JavaScript/TypeScript calls:
 plusInt(10, 20);
 plusFloat(1.5, 2.5);
 plusBigInt(10n, 20n);
-plus(half, third, Rat.num);
+plus(half, third, Rat.signed);
 ```
 
-If no public usable non-fundamental instance satisfies `Num`, the base-name dictionary edition is absent. Adding the first such public instance adds the base-name export; this is an additive ABI change.
+If no public usable non-fundamental instance satisfies `Signed`, the base-name dictionary edition is absent. Adding the first such public instance adds the base-name export; this is an additive ABI change.
 
 ---
 
@@ -179,7 +179,7 @@ A generated specialization that collides with an explicit public export is a har
 
 ```hexagon
 export let plusInt(x: Int, y: Int): Int = x + y
-export let plus<a: Num>(x: a, y: a): a = x + y
+export let plus<a: Signed>(x: a, y: a): a = x + y
 ```
 
 Diagnostic:
@@ -229,7 +229,7 @@ The dictionary types and handles use Hexagon-originated lowercase type parameter
 ```ts
 Show.Dictionary<a>
 Eq.Dictionary<a>
-Num.Dictionary<a>
+Signed.Dictionary<a>
 ```
 
 See `ffi-exported-dictionaries.md` for handle ownership, factories, branding, evidence order, and ABI.

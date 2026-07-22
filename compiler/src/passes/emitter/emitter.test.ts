@@ -941,8 +941,8 @@ describe("emitJavaScript", () => {
     const output = emitJavaScript(coreSource("let addOne = x => x + 1"));
 
     expect(output.text).toBe(
-      "const addOne = (x, __hex_dictNum_1) => " +
-        "__hex_dictNum_1.add(x, __hex_dictNum_1.fromInt(1));\n",
+      "const addOne = (x, __hex_dictSigned_1) => " +
+        "__hex_dictSigned_1.add(x, __hex_dictSigned_1.fromInt(1));\n",
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -957,7 +957,7 @@ describe("emitJavaScript", () => {
     expect(output.diagnostics).toEqual([]);
   });
 
-  test("widens established Int values through the contextual Num target", () => {
+  test("widens established Int values through the contextual Signed target", () => {
     const output = emitJavaScript(
       coreSource(
         "let count: Int = 3\n" +
@@ -994,23 +994,23 @@ describe("emitJavaScript", () => {
     expect(output.diagnostics).toEqual([]);
   });
 
-  test("uses Num evidence when widening Int into an established type variable", () => {
+  test("uses Signed evidence when widening Int into an established type variable", () => {
     const output = emitJavaScript(
       coreSource(
-        "let scale<a: Num>(count: Int, value: a): a = count * value",
+        "let scale<a: Signed>(count: Int, value: a): a = count * value",
       ),
     );
 
     expect(output.text).toMatch(
-      /const scale = \(count, value, (__hex_dictNum_\d+)\) => \1\.multiply\(\1\.fromInt\(count\), value\);/u,
+      /const scale = \(count, value, (__hex_dictSigned_\d+)\) => \1\.multiply\(\1\.fromInt\(count\), value\);/u,
     );
     expect(output.diagnostics).toEqual([]);
   });
 
-  test("executes BigInt widening through a genuine primitive Num dictionary", () => {
+  test("executes BigInt widening through a genuine primitive Signed dictionary", () => {
     const output = emitJavaScript(
       coreSource(
-        "let scale<a: Num>(count: Int, value: a): a = count * value\n" +
+        "let scale<a: Signed>(count: Int, value: a): a = count * value\n" +
           "let count: Int = 3\n" +
           "let result = scale(count, 2n)",
       ),
@@ -1051,7 +1051,7 @@ describe("emitJavaScript", () => {
 
     expect(output.diagnostics).toEqual([]);
     expect(output.text).toContain("eq:");
-    expect(output.text).toContain("num:");
+    expect(output.text).toContain("signed:");
     const execute = Function(`${output.text}\nreturn result;`) as () => readonly unknown[];
     expect(execute()).toEqual([true, 4]);
   });
@@ -1089,7 +1089,7 @@ describe("emitJavaScript", () => {
   test("passes complete Integral dictionaries through generic code", () => {
     const output = emitJavaScript(
       coreSource(
-        "constraint Integral<a: (Num, Ord)> =\n" +
+        "constraint Integral<a: (Signed, Ord)> =\n" +
           "  div(x: a, y: a): a\n" +
           "  mod(x: a, y: a): a\n" +
           "  quot(x: a, y: a): a\n" +
@@ -1107,7 +1107,7 @@ describe("emitJavaScript", () => {
     expect(output.diagnostics).toEqual([]);
     expect(output.text).toContain("gcd:");
     expect(output.text).toContain("ord:");
-    expect(output.text).toContain("num:");
+    expect(output.text).toContain("signed:");
     const execute = Function(`${output.text}\nreturn result;`) as () => readonly bigint[];
     expect(execute()).toEqual([2n, 3n]);
   });
@@ -1170,11 +1170,11 @@ describe("emitJavaScript", () => {
     },
   );
 
-  test("calls a nominal Num instance when widening Int into its subject", () => {
+  test("calls a nominal Signed instance when widening Int into its subject", () => {
     const output = emitJavaScript(
       coreSource(
         "record Box = {value: Int}\n" +
-          "honor Num<Box> =\n" +
+          "honor Signed<Box> =\n" +
           "  add(left, right) = Box({value: left.value + right.value})\n" +
           "  subtract(left, right) = Box({value: left.value - right.value})\n" +
           "  multiply(left, right) = Box({value: left.value * right.value})\n" +
@@ -1187,7 +1187,7 @@ describe("emitJavaScript", () => {
     );
 
     expect(output.text).toMatch(
-      /const combined = (__hex_instance_Num_Box\d*)\.add\(\1\.fromInt\(count\), box\);/u,
+      /const combined = (__hex_instance_Signed_Box\d*)\.add\(\1\.fromInt\(count\), box\);/u,
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -1204,7 +1204,7 @@ describe("emitJavaScript", () => {
 
     expect(output.text).toContain("const exactCall = plusInt(count, 1);");
     expect(output.text).toContain("const addCount = value => plusInt(count, value);");
-    expect(output.text).not.toMatch(/const addCount = \(value, __hex_dictNum_/u);
+    expect(output.text).not.toMatch(/const addCount = \(value, __hex_dictSigned_/u);
     expect(output.diagnostics).toEqual([]);
   });
 
@@ -1341,14 +1341,14 @@ describe("emitJavaScript", () => {
 
   test("calls the emitted edition for explicit constrained binders", () => {
     const module = coreSource(
-      "export let plus<a: Num>(left: a, right: a): a = left + right\n" +
+      "export let plus<a: Signed>(left: a, right: a): a = left + right\n" +
         "let answer = plus(20, 22)",
     );
 
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
     expect(output.text).toMatch(
-      /const plus = \(left, right, __hex_dictNum_\d+\) => __hex_dictNum_\d+\.add\(left, right\);/u,
+      /const plus = \(left, right, __hex_dictSigned_\d+\) => __hex_dictSigned_\d+\.add\(left, right\);/u,
     );
     expect(output.text).toContain("const answer = plusInt(20, 22);");
     expect(output.text).not.toContain("const answer = plus(20, 22, ({");
@@ -1358,7 +1358,7 @@ describe("emitJavaScript", () => {
   test("calls a private preview edition without concrete dictionary evidence", () => {
     const output = emitJavaScript(
       coreSource(
-        "let plus<a: Num>(left: a, right: a): a = left + right\n" +
+        "let plus<a: Signed>(left: a, right: a): a = left + right\n" +
           "let answer = plus(20, 22)",
       ),
       { previewPrivateSpecializations: true },
@@ -1372,13 +1372,13 @@ describe("emitJavaScript", () => {
   test("keeps trailing evidence for genuinely polymorphic calls", () => {
     const output = emitJavaScript(
       coreSource(
-        "export let plus<a: Num>(left: a, right: a): a = left + right\n" +
+        "export let plus<a: Signed>(left: a, right: a): a = left + right\n" +
           "let double = value => plus(value, value)",
       ),
     );
 
     expect(output.text).toMatch(
-      /const double = \(value, (__hex_dictNum_\d+)\) => plus\(value, value, \1\);/u,
+      /const double = \(value, (__hex_dictSigned_\d+)\) => plus\(value, value, \1\);/u,
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -1638,13 +1638,13 @@ describe("emitDeclarations", () => {
     expect(declarations.diagnostics).toEqual([]);
   });
 
-  test("emits direct fundamental editions for an inferred Num export", () => {
+  test("emits direct fundamental editions for an inferred Signed export", () => {
     const module = coreSource("export let plus(x, y) = x + y");
     const javascript = emitJavaScript(module);
     const declarations = emitDeclarations(module);
 
     expect(javascript.text).toMatch(
-      /const plus = \(x, y, __hex_dictNum_\d+\) => __hex_dictNum_\d+\.add\(x, y\);/u,
+      /const plus = \(x, y, __hex_dictSigned_\d+\) => __hex_dictSigned_\d+\.add\(x, y\);/u,
     );
     expect(javascript.text).toContain(
       "function plusInt(x, y) {\n  return x + y;\n}",

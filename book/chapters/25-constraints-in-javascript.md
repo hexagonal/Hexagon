@@ -35,7 +35,7 @@ types. Hexagon therefore gives constrained exports two complementary forms:
 Consider:
 
 ```hexagon
-export let plus<a: Num>(left: a, right: a): a = left + right
+export let plus<a: Signed>(left: a, right: a): a = left + right
 ```
 
 Hexagon gives JavaScript callers direct functions for the fundamental numeric types:
@@ -56,7 +56,7 @@ This is a fixed language category. Records, unions, arrays, sequences, collectio
 user-defined types do not become fundamental merely because their JavaScript
 representation happens to be simple.
 
-Each constraint selects the fundamental types that actually honor it. `Num` applies to
+Each constraint selects the fundamental types that actually honor it. `Signed` applies to
 `Int`, `Float`, and `BigInt`, so `plus` receives exactly those three functions. Another
 constraint may produce a different subset.
 
@@ -119,23 +119,23 @@ function under the original source name:
 export declare function plus<a>(
   left: a,
   right: a,
-  num: Num.Dictionary<a>,
+  signed: Signed.Dictionary<a>,
 ): a;
 ```
 
-The final `num` parameter is a constraint dictionary. The JavaScript implementation
+The final `signed` parameter is a constraint dictionary. The JavaScript implementation
 uses its operations:
 
 ```js
-export function plus(left, right, num) {
-  return num.add(left, right);
+export function plus(left, right, signed) {
+  return signed.add(left, right);
 }
 ```
 
-A public `Rat` type with a public `Num<Rat>` dictionary can call it like this:
+A public `Rat` type with a public `Signed<Rat>` dictionary can call it like this:
 
 ```ts
-plus(half, third, Rat.num);
+plus(half, third, Rat.signed);
 ```
 
 The generic function appears only when JavaScript can obtain every dictionary it needs
@@ -151,7 +151,7 @@ absent. Direct functions always carry type suffixes such as `plusInt`.
 Each constraint owns a distinct TypeScript dictionary type:
 
 ```ts
-Num.Dictionary<a>
+Signed.Dictionary<a>
 Eq.Dictionary<a>
 Show.Dictionary<a>
 ```
@@ -183,9 +183,9 @@ dictionaries should be frozen where practical.
 Fundamental dictionaries live with the constraint:
 
 ```ts
-Num.int
-Num.float
-Num.bigInt
+Signed.int
+Signed.float
+Signed.bigInt
 Eq.string
 Show.bool
 ```
@@ -194,12 +194,12 @@ A public user-type dictionary lives with that type under the lowercase constrain
 name:
 
 ```ts
-Rat.num
+Rat.signed
 Customer.eq
 Customer.show
 ```
 
-These are ordinary ESM exports from companion modules. `Rat.num` is module
+These are ordinary ESM exports from companion modules. `Rat.signed` is module
 qualification, not a property installed on a global `Rat` object or prototype.
 
 Some dictionaries depend on other dictionaries. Hexagon exports an ordinary factory
@@ -257,7 +257,7 @@ The generated JavaScript surface depends on:
 
 It does not depend on private types, private dictionaries, or which calls happen inside
 Hexagon. Removing the last internal use of `plus(Int, Int)` does not remove `plusInt`.
-Adding a private `Num<Secret>` instance does not add the generic `plus` function.
+Adding a private `Signed<Secret>` instance does not add the generic `plus` function.
 
 JavaScript callers are invisible to Hexagon's analysis of internal calls. Keeping the
 foreign surface tied to public declarations makes it stable under private refactoring.

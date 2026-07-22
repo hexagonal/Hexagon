@@ -125,10 +125,10 @@ let double(x) = x + x
 Should `double` work on `Int`? `Float`? Both? Hexagon infers that `double` works for *any numeric type* — the inferred signature carries a constraint, and if you ever wanted to write it explicitly, it looks like this:
 
 ```hexagon
-let double<a: Num>(x: a): a = x + x
+let double<a: Signed>(x: a): a = x + x
 ```
 
-`<a: Num>` reads as "for any type `a` that is numeric." It's the moral equivalent of a TS generic with a constraint (`<T extends Numeric>`), except that (a) Hexagon infers it, and (b) it's checked soundly — there's no structural loophole.
+`<a: Signed>` reads as "for any type `a` that is numeric." It's the moral equivalent of a TS generic with a constraint (`<T extends Numeric>`), except that (a) Hexagon infers it, and (b) it's checked soundly — there's no structural loophole.
 
 ### 2.5 So when *do* you write types?
 
@@ -575,7 +575,7 @@ The pattern: Hexagon's abstractions are *compile-time* abstractions. Types, infe
 
 ## What this book left out
 
-Plenty — this is a preview, not a manual. Among the things not covered: the constraint system that powers `Num`, `Eq`, `Ord`, and `Show` (Hexagon's principled answer to ad-hoc polymorphism — think Rust traits, no inheritance); lazy sequences (`Seq`) and the iteration protocol; the full story on exceptions and the JS interop boundary; string details; and everything still being designed — deep pattern matching, modules, async, and the standard library.
+Plenty — this is a preview, not a manual. Among the things not covered: the constraint system that powers `Signed`, `Eq`, `Ord`, and `Show` (Hexagon's principled answer to ad-hoc polymorphism — think Rust traits, no inheritance); lazy sequences (`Seq`) and the iteration protocol; the full story on exceptions and the JS interop boundary; string details; and everything still being designed — deep pattern matching, modules, async, and the standard library.
 
 The design is documented as it happens, with every decision — and every *rejected* alternative — written down with its reasoning. If this tour made you curious, that's the right reaction: Hexagon is being built for exactly the developer who read this far.
 

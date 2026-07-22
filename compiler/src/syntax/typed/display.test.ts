@@ -36,7 +36,7 @@ describe("displayScheme", () => {
       variables: [variable],
       constraints: [
         {
-          name: "Num",
+          name: "Signed",
           type: { kind: "Variable", id: variable },
           span: source.span(0, 0),
         },
@@ -54,7 +54,7 @@ describe("displayScheme", () => {
       },
     };
 
-    expect(displayScheme(scheme)).toBe("Num a => (a -> a) -> a");
+    expect(displayScheme(scheme)).toBe("Signed a => (a -> a) -> a");
   });
 
   test("distinguishes zero, one, and many parameters", () => {

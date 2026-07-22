@@ -185,7 +185,7 @@ describe("compileSource", () => {
     expect(response.diagnostics).toEqual([]);
     expect(response.javascript).toContain('import * as Rat from "./stdlib/Rat.js";');
     expect(response.javascript).toContain(
-      "const fiveSixths = __hex_imported_0___hex_instance_Num_Rat.add(half, third);",
+      "const fiveSixths = __hex_imported_0___hex_instance_Signed_Rat.add(half, third);",
     );
     expect(response.javascript).not.toContain("export opaque record Rat");
     expect(response.executionModules.map(({ path }) => path)).toContain(
@@ -197,7 +197,7 @@ describe("compileSource", () => {
     }));
   });
 
-  test("executes the real stdlib Rat module through imported Num evidence", async () => {
+  test("executes the real stdlib Rat module through imported Signed evidence", async () => {
     const response = compileSource(14, rat.source);
 
     expect(response.kind).toBe("compile-success");

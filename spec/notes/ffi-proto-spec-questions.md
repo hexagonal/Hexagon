@@ -844,7 +844,7 @@ Private types and internal call sites never reshape the JS export surface. Funda
 Example:
 
 ```hexagon
-export let plus<a: Num>(x: a, y: a): a = x + y
+export let plus<a: Signed>(x: a, y: a): a = x + y
 ```
 
 ```ts
@@ -852,11 +852,11 @@ export declare function plusInt(x: number, y: number): number;
 export declare function plusFloat(x: number, y: number): number;
 export declare function plusBigInt(x: bigint, y: bigint): bigint;
 
-// Present when public usable non-fundamental Num evidence exists:
+// Present when public usable non-fundamental Signed evidence exists:
 export declare function plus<a>(
   x: a,
   y: a,
-  num: Num.Dictionary<a>,
+  signed: Signed.Dictionary<a>,
 ): a;
 ```
 
@@ -867,12 +867,12 @@ The fundamental functions contain direct concrete emitted operations; they are n
 Dictionary types are distinct constraint-qualified Hexagon ABI types expressed in TypeScript:
 
 ```ts
-Num.Dictionary<a>
+Signed.Dictionary<a>
 Eq.Dictionary<a>
 Show.Dictionary<a>
 ```
 
-All Hexagon-originated `.d.ts` generic binders use lowercase Hexagon convention (`a`, `b`, `k`, `v`). Fundamental evidence is constraint-owned (`Num.int`, `Show.string`, `Eq.bool`). Public non-fundamental evidence is type-owned under the lowercase constraint name (`Rat.num`, `Customer.show`).
+All Hexagon-originated `.d.ts` generic binders use lowercase Hexagon convention (`a`, `b`, `k`, `v`). Fundamental evidence is constraint-owned (`Signed.int`, `Show.string`, `Eq.bool`). Public non-fundamental evidence is type-owned under the lowercase constraint name (`Rat.signed`, `Customer.show`).
 
 Every lawful instance whose constraint, outer type constructor, and handle/factory signature are publicly nameable receives a public handle or factory. This is determined by public capability, not current consumption. Private instances remain compiler plumbing.
 

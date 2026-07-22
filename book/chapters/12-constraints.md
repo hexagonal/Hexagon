@@ -27,7 +27,7 @@ let labelled(value) = "Value: ${value}"
 
 String interpolation uses `show`, so the inferred type says that the argument type
 must honor `Show`. Operators behave similarly. `x == y` requires `Eq`; arithmetic such
-as `x + y` requires `Num`; ordering comparisons require `Ord`.
+as `x + y` requires `Signed`; ordering comparisons require `Ord`.
 
 Write an explicit binder when the capability is important documentation or when a
 signature should deliberately be no more general:
@@ -239,7 +239,7 @@ The important organizing ideas are more useful than a catalogue of member functi
 | `Eq` | equality |
 | `Ord` | total ordering, with `Eq` |
 | `Show` | human-readable display |
-| `Num`, `Frac`, `Integral` | numeric operations at different levels |
+| `Signed`, `Frac`, `Integral` | numeric operations at different levels |
 | `Concat`, `Pow` | concatenation and exponentiation |
 | `Hash` | hashing consistent with equality for hashed collections |
 | `Iterable` | producing values for iteration |

@@ -63,7 +63,7 @@ The v1 companion supplies `add`, `subtract`, `multiply`, `divide`, `negate`, and
 common factors before multiplication as a transparent optimization.
 
 Division and `reciprocal(0)` throw `ZeroDenominatorError` through the same smart
-construction boundary. Addition and multiplication never round. `Num<Rat>` uses
+construction boundary. Addition and multiplication never round. `Signed<Rat>` uses
 this family and defines `fromInt(n)` as `n / 1`.
 
 ## 5. Constraints
@@ -74,7 +74,7 @@ this family and defines `fromInt(n)` as `n / 1`.
 - `Show<Rat>` emits `numerator/denominator`, including `/1` so the representation
   remains visible and unsurprising.
 - `Hash<Rat>` combines the canonical `BigInt` numerator and denominator hashes.
-- `Num<Rat>` is provided. `Integral<Rat>` and `Frac<Rat>` are not: a rational is not
+- `Signed<Rat>` is provided. `Integral<Rat>` and `Frac<Rat>` are not: a rational is not
   an integer, while v1 `Frac` owns IEEE-style `/` and is deliberately not the exact
   fraction abstraction.
 

@@ -31,7 +31,7 @@ After this chapter, the reader should be able to:
 
 Preview, but defer full treatment of:
 
-- `Num`, `Frac`, `Show`, and constraint inference;
+- `Signed`, `Frac`, `Show`, and constraint inference;
 - operator elaboration, precedence, division, and comparison semantics;
 - indexing, slicing, and collection iteration;
 - derived display for structured values; and

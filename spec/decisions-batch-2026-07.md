@@ -106,7 +106,7 @@ Products §3.4 flagged nominal-record `Ord` as "possibly droppable." Under opt-i
 | Situation | Error / hint |
 |---|---|
 | `==`/`show`/`<` on a nominal type without the instance | existing Constraints §8 unsatisfied-constraint phrasing, **plus** the fixit hint: "add `derives Eq` to the declaration of `Point`, or write an `implement`" |
-| `derive` for a non-derivable constraint | "`Num` cannot be derived; only `Eq`, `Ord`, and `Show` have derivable forms" |
+| `derive` for a non-derivable constraint | "`Signed` cannot be derived; only `Eq`, `Ord`, and `Show` have derivable forms" |
 | Underivable slot/field | "cannot derive `Eq<Point>`: field `f` has type `T`, which has no `Eq` implementation" |
 | `derives Ord` without `Eq` in scope | the existing missing-superconstraint error (Constraints §8), plus hint: "add `Eq` to the `derives` list" |
 | `derive` outside an `implement` RHS | parse error: "`derive` is only legal as the body of an `implement`" |
@@ -239,7 +239,7 @@ Apply on next touch of each document; until then this doc governs.
 |---|---|---|
 | Tab in leading whitespace | "tab character in indentation; Hexagon indentation uses spaces only" + space fixit | §4.3 |
 | `==`/`show`/`<` on nominal type lacking instance | unsatisfied-constraint phrasing + "add `derives Eq` to the declaration of `Point`, or write an `implement`" | §2.6 |
-| `derive` for non-derivable constraint | "`Num` cannot be derived; only `Eq`, `Ord`, and `Show` have derivable forms" | §2.6 |
+| `derive` for non-derivable constraint | "`Signed` cannot be derived; only `Eq`, `Ord`, and `Show` have derivable forms" | §2.6 |
 | Underivable field/slot | "cannot derive `Eq<Point>`: field `f` has type `T`, which has no `Eq` implementation" | §2.6 |
 | `derives Ord` without `Eq` | missing-superconstraint error + "add `Eq` to the `derives` list" | §2.6 |
 | `derive` outside `implement` RHS | "`derive` is only legal as the body of an `implement`" | §2.6 |
