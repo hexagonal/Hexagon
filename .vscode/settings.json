@@ -1,0 +1,10 @@
+{
+  "files.associations": {
+    "*.hex": "hexagon"
+  },
+  "[hexagon]": {
+    "editor.detectIndentation": false,
+    "editor.insertSpaces": true,
+    "editor.tabSize": 4
+  }
+}

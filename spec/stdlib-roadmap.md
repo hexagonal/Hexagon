@@ -66,7 +66,117 @@
 | Public `Range.toSeq` | `collections-part5-iterable.md` §14.3 ("candidate at most") | `Range` iterates without it; its `iterate` is runtime-internal | field demand | listing (post-v1 review) |
 | Grapheme-cluster iteration for `String` | `collections-part5-iterable.md` §5.1 | named stdlib function if ever; the `Iterable` instance is codepoints permanently | field demand | listing (post-v1 review) |
 
-## 5. Discharge and maintenance
+## 5. Long-term canonical source for every standard-library companion
+
+**Status:** Long-term implementation-architecture plan approved by James (July
+2026); deliberately incremental and not a v1 public-surface blocker.
+
+Every standard-library companion must ultimately have canonical Hexagon source. A
+reader following `Type.operation` must be able to find the companion's public
+declarations, documentation, and all Hexagon-expressible implementation in a `.hex`
+module rather than discovering that the whole surface exists only as
+resolver/checker/emitter special cases. This rule covers primitive companions and
+ordinary prelude/stdlib types alike.
+
+Canonical Hexagon source does not require every operation to be implemented purely in
+Hexagon. A module may cross a narrow, explicitly declared private intrinsic or runtime
+boundary where the language cannot express the operation. The `.hex` module still
+owns the public surface and explains that boundary. Compiler inlining and specialized
+lowering remain implementation choices. This does **not** change already-decided
+public names or semantics, and it is not motivated by a performance problem: source
+ownership and optimized lowering are separate decisions.
+
+### 5.1 Hexagon-first implementation doctrine
+
+Standard-library behavior is authored in Hexagon whenever Hexagon can express it
+with equivalent asymptotic complexity and acceptable generated code. A private
+intrinsic/runtime implementation is justified only by at least one of:
+
+- a host capability Hexagon cannot express (for example native BigInt quotient and
+  remainder while the public language has neither BigInt `/` nor `%`);
+- access to an intentionally opaque or performance-critical representation;
+- a required compiler transformation rather than a library operation (for example
+  counting-loop erasure or constraint-evidence specialization); or
+- measured performance evidence showing that the Hexagon implementation cannot yet
+  produce acceptable code.
+
+Even then, canonical `.hex` source owns the public declarations, documentation, and
+the visible call into the narrow private boundary. “Authored in Hexagon” does not ban
+inlining, specialization, helper selection, or other semantics-preserving compiler
+optimization.
+
+The current compiler-owned surface yields this migration inventory:
+
+| Canonical source | Hexagon-owned behavior | Narrow intrinsic/runtime residue |
+| :--- | :--- | :--- |
+| `BigInt.hex` | Euclidean `div`/`mod`, iterative `gcd`, divide-first `lcm`, guards, public instances | native truncated quotient/remainder |
+| `Int.hex` | Euclidean family, `gcd`, checked arithmetic, public instances | native remainder/truncation and representation-sensitive operations |
+| `Float.hex` | public wrappers and instances | IEEE/NaN and selected `Math` primitives |
+| `String.hex` | companion algorithms and public instances | efficient JS UTF-16/codepoint bridge primitives |
+| `Seq.hex` | `iterate`, `map`, `filter`, `take`, and later combinators | memoized lazy spine and generator/iterator bridge |
+| `Vector.hex` | companion API and combinators | persistent-vector representation core |
+| `Map.hex` / `Set.hex` | algebra, conversions, projections, and combinators | HAMT lookup/insertion/removal and representation core |
+| `Range.hex` | public constructors and companion functions | iterator bridge; counting-loop erasure remains a compiler transformation |
+| `Option.hex` / `Result.hex` | declarations, instances, and ordinary combinators | only genuine foreign-boundary helpers, if any |
+| Prelude constraint sources | declarations and primitive `honor` blocks | derivation, evidence selection, and specialization |
+| Prelude exception/function sources | public declarations and wrappers | JS `throw`, `Error` construction, hashing primitives, and other host operations |
+
+The persistent HAMT implementation currently embedded as an emitted TypeScript
+string is especially misplaced: its structural core may remain a tuned runtime
+component, but Map/Set public operations and derivable algebra should not live in the
+emitter. Likewise, compiler-known `Seq` algorithms and primitive-instance tables are
+library source awaiting a sufficiently complete prelude loader, not language
+semantics.
+
+### 5.2 Incremental sequence
+
+Proceed a piece at a time:
+
+1. **Stage 1 — `BigInt.hex`:** establish the package/prelude loader boundary that
+   makes `stdlib/BigInt.hex` the canonical home of the existing `BigInt.*` surface
+   without inventing a runtime namespace object. It is the first worked example of
+   the all-companions rule, not a one-off cleanup.
+2. Reduce BigInt's compiler-owned boundary to the genuinely irreducible native
+   operations that public Hexagon cannot express (`BigInt` truncated
+   quotient/remainder while `BigInt` has no `/` and Hexagon has no `%`). Give those
+   operations a narrow private intrinsic door rather than treating the whole
+   companion as intrinsic.
+3. Move derived operations into understandable Hexagon source: Euclidean `div`/`mod`,
+   iterative `gcd`, divide-first `lcm`, zero checks, and Hexagon exception branding.
+4. Move the coherent `Integral<BigInt>` instance to the appropriate canonical source
+   home once prelude instance loading supports it; preserve the one-implementation,
+   two-spellings contract between the companion functions and constraint members.
+5. Retain compiler inlining/specialization latitude and readable generated JavaScript;
+   a function being authored in `BigInt.hex` must not forbid an optimized helper or
+   direct native operation after checking.
+6. Record the resulting source/runtime/intrinsic pattern as the standard companion
+   template: public declarations and Hexagon-expressible behavior live in canonical
+   `.hex` source; only irreducible operations cross the private boundary.
+7. Apply that template one companion at a time across the complete standard-library
+   inventory — including `Int`, `Float`, other primitives, collections, sequences,
+   ranges, and prelude nominal types. No big-bang rewrite; each stage lands as a
+   usable, reviewable vertical slice.
+
+After the BigInt worked example, the preferred order is:
+
+1. primitive constraint declarations and their canonical instances;
+2. `Seq.hex`, retaining only the lazy-spine/iterator bridge;
+3. Map/Set algebra over a retained tuned HAMT core;
+4. `Option.hex` and `Result.hex`; and
+5. the remaining primitive and collection companions, one bounded slice at a time.
+
+Parsing, resolution, checking, exhaustiveness, derivation, evidence selection,
+specialization, representation lowering, counting-loop erasure, and JavaScript FFI
+mechanics are language/compiler responsibilities and are not candidates for migration
+merely because their implementations also contain reusable-looking code.
+
+The first motivation is explanatory and architectural: `stdlib/Rat.hex` should lead a
+reader to a real `BigInt.hex` implementation, and the same trail must eventually exist
+for every standard-library companion. Performance must be measured separately and is
+not a reason to keep public declarations or derivable library algorithms hidden in
+the compiler.
+
+## 6. Discharge and maintenance
 
 - Each row is discharged when the stdlib listing spec lands the surface (or records the defer) and this ledger's row is updated to point at the landing section; rows never silently disappear.
 - The listing session inherits this ledger as its agenda; anything it adds mid-session gets a row first (ledger rule 1).
