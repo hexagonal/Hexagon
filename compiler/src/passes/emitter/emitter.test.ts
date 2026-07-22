@@ -1115,24 +1115,24 @@ describe("emitJavaScript", () => {
   test("executes Rat normalization and arithmetic through Euclidean BigInt machinery", () => {
     const output = emitJavaScript(
       coreSource(
-        "record Rat derives Eq = {numerator: BigInt, denominator: BigInt}\n" +
-          "exception ZeroDenominatorError(message: String)\n" +
-          "let create(numerator: BigInt, denominator: BigInt): Rat =\n" +
-          "  if denominator == 0n\n" +
-          "    throw(ZeroDenominatorError(\"a Rat denominator cannot be zero\"))\n" +
+        "record Rat derives Eq = {top: BigInt, bottom: BigInt}\n" +
+          "exception ZeroBottomError(message: String)\n" +
+          "let create(top: BigInt, bottom: BigInt): Rat =\n" +
+          "  if bottom == 0n\n" +
+          "    throw(ZeroBottomError(\"a Rat bottom cannot be zero\"))\n" +
           "  else\n" +
-          "    let divisor = BigInt.gcd(numerator, denominator)\n" +
-          "    let reducedNumerator = BigInt.quot(numerator, divisor)\n" +
-          "    let reducedDenominator = BigInt.quot(denominator, divisor)\n" +
-          "    if reducedDenominator < 0n\n" +
-          "      Rat({numerator: -reducedNumerator, denominator: -reducedDenominator})\n" +
-          "    else Rat({numerator: reducedNumerator, denominator: reducedDenominator})\n" +
+          "    let divisor = BigInt.gcd(top, bottom)\n" +
+          "    let reducedTop = BigInt.quot(top, divisor)\n" +
+          "    let reducedBottom = BigInt.quot(bottom, divisor)\n" +
+          "    if reducedBottom < 0n\n" +
+          "      Rat({top: -reducedTop, bottom: -reducedBottom})\n" +
+          "    else Rat({top: reducedTop, bottom: reducedBottom})\n" +
           "let add(left: Rat, right: Rat): Rat =\n" +
-          "  create(left.numerator * right.denominator + right.numerator * left.denominator, left.denominator * right.denominator)\n" +
+          "  create(left.top * right.bottom + right.top * left.bottom, left.bottom * right.bottom)\n" +
           "let half = create(1n, 2n)\n" +
           "let third = create(1n, 3n)\n" +
           "let fiveSixths = add(half, third)\n" +
-          "let result = (fiveSixths.numerator, fiveSixths.denominator, fiveSixths == create(10n, 12n), create(0n, -99n).denominator)",
+          "let result = (fiveSixths.top, fiveSixths.bottom, fiveSixths == create(10n, 12n), create(0n, -99n).bottom)",
       ),
     );
 
