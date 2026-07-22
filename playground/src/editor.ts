@@ -41,6 +41,16 @@ export function supportsMonacoEditor(
   return hasFinePointer && viewportWidth > 760;
 }
 
+/** Detects iPadOS without classifying touch-capable Windows or Android devices. */
+export function isIPadOS(
+  userAgent: string,
+  platform: string,
+  maxTouchPoints: number,
+): boolean {
+  return /\biPad\b/u.test(userAgent) ||
+    (platform === "MacIntel" && maxTouchPoints > 1);
+}
+
 /** Adapts the always-available textarea without leaking DOM details to the app. */
 export function createTextareaSourceEditor(
   element: HTMLTextAreaElement,

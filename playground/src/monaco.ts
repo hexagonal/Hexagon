@@ -32,6 +32,7 @@ export function createMonacoEditors(
   generatedContainer: HTMLElement,
   source: string,
   theme: EditorTheme,
+  showTypesAtCaret: boolean,
 ): MonacoEditors {
   const sourceModel = replaceModel("inmemory://hexagon/main.hex", source, hexagonLanguage);
   const sourceEditor = monaco.editor.create(sourceContainer, {
@@ -72,6 +73,8 @@ export function createMonacoEditors(
 
   let types: readonly TypeOccurrence[] = [];
   let suppressChanges = false;
+  let caretTypeActivated = false;
+  let disposed = false;
   const changeListeners = new Set<() => void>();
   const changeSubscription = sourceModel.onDidChangeContent(() => {
     if (suppressChanges) return;
@@ -81,9 +84,7 @@ export function createMonacoEditors(
     provideHover: (model, position) => {
       if (model !== sourceModel) return undefined;
       const offset = model.getOffsetAt(position);
-      const occurrence = types.find(
-        ({ startOffset, endOffset }) => offset >= startOffset && offset < endOffset,
-      );
+      const occurrence = typeOccurrenceAtOffset(types, offset, showTypesAtCaret);
       if (occurrence === undefined) return undefined;
       return {
         contents: [{ value: `\`${occurrence.name} : ${occurrence.displayedType}\`` }],
@@ -91,6 +92,26 @@ export function createMonacoEditors(
       };
     },
   });
+  const showTypeAtCaret = (): void => {
+    const position = sourceEditor.getPosition();
+    if (position === null) return;
+    const offset = sourceModel.getOffsetAt(position);
+    if (typeOccurrenceAtOffset(types, offset, true) === undefined) return;
+    queueMicrotask(() => {
+      if (disposed) return;
+      sourceEditor.trigger(
+        "hexagon.ipadTypeAtCaret",
+        "editor.action.showHover",
+        undefined,
+      );
+    });
+  };
+  const cursorSubscription = showTypesAtCaret
+    ? sourceEditor.onDidChangeCursorPosition(() => {
+        caretTypeActivated = true;
+        showTypeAtCaret();
+      })
+    : undefined;
 
   const sourceAdapter: SourceEditor = {
     getSource: () => sourceModel.getValue(),
@@ -119,9 +140,12 @@ export function createMonacoEditors(
     },
     publishTypes: (nextTypes) => {
       types = nextTypes;
+      if (caretTypeActivated) showTypeAtCaret();
     },
     setTheme: (nextTheme) => monaco.editor.setTheme(toMonacoTheme(nextTheme)),
     dispose: () => {
+      disposed = true;
+      cursorSubscription?.dispose();
       hoverProvider.dispose();
       changeSubscription.dispose();
       changeListeners.clear();
@@ -150,6 +174,18 @@ export function createMonacoEditors(
   };
 
   return { source: sourceAdapter, generated: generatedAdapter };
+}
+
+function typeOccurrenceAtOffset(
+  types: readonly TypeOccurrence[],
+  offset: number,
+  includePrevious: boolean,
+): TypeOccurrence | undefined {
+  const at = (candidate: number): TypeOccurrence | undefined =>
+    types.find(({ startOffset, endOffset }) =>
+      candidate >= startOffset && candidate < endOffset
+    );
+  return at(offset) ?? (includePrevious && offset > 0 ? at(offset - 1) : undefined);
 }
 
 function replaceModel(uri: string, source: string, language: string): monaco.editor.ITextModel {
