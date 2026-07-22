@@ -91,9 +91,9 @@ Length test + indexed reads, readable:
 ```
 -- match xs with [a, b, ...rest] => …
 if (xs.size >= 2) {
-  const a = xs.get(0), b = xs.get(1);
-  const rest = xs.slice(2);
-  …
+    const a = xs.get(0), b = xs.get(1);
+    const rest = xs.slice(2);
+    …
 }
 ```
 
@@ -351,29 +351,29 @@ let sp = [x, ...ys]                   -- ERROR: spread is pattern syntax;
 
 -- (b) Patterns: forms and nesting
 match xs
-  [] => 0
-  [x] => x
-  [x, ...rest] => x + size(rest)      -- exhaustive: [] covers 0, [x] covers 1, third covers ≥1
+    [] => 0
+    [x] => x
+    [x, ...rest] => x + size(rest)      -- exhaustive: [] covers 0, [x] covers 1, third covers ≥1
 
 match pairs
-  [(k, v), ...] => k                  -- nested tuple in element slot
-  [] => defaultKey
+    [(k, v), ...] => k                  -- nested tuple in element slot
+    [] => defaultKey
 
 match ys
-  [first, ..., last] => first + last  -- middle rest
-  [x] => x
-  [] => 0                             -- exhaustive
+    [first, ..., last] => first + last  -- middle rest
+    [x] => x
+    [] => 0                             -- exhaustive
 
 -- (c) Exhaustiveness by length
 match xs
-  [] => 0
-  [a, b] => a + b                     -- ERROR: non-exhaustive; e.g. [_] not covered
+    [] => 0
+    [a, b] => a + b                     -- ERROR: non-exhaustive; e.g. [_] not covered
 
 -- (d) One rest only; spelling
 match xs
-  [...a, ...b] => 0                   -- ERROR: at most one `...`
+    [...a, ...b] => 0                   -- ERROR: at most one `...`
 match xs
-  [x, ..rest] => x                    -- ERROR: Hexagon spells rest patterns with `...`
+    [x, ..rest] => x                    -- ERROR: Hexagon spells rest patterns with `...`
 
 -- (e) Irrefutability gate
 let [x, ...rest] = xs                 -- ERROR: this pattern can fail: []; use `match`
@@ -405,7 +405,7 @@ Vector.dropFirst([1, 2])              -- [2]
 show([1, 2])                          -- "[1, 2]"      (Show)
 [1] ++ [2, 3]                         -- [1, 2, 3]     (Concat; linear, documented)
 for x in [1, 2, 3]                    -- Iterable: Item = Int
-  total := total + x
+    total := total + x
 
 -- (j) String, same doctrine
 let s = "héllo"

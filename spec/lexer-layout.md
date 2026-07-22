@@ -15,7 +15,7 @@ Hexagon's layout pass inserts virtual tokens — internally **VOPEN**, **VSEP**,
 
 Consequences:
 
-- **Indentation is the only block form.** The body of a lambda, an `if`/`then`/`else` branch, or any construct taking a block is either a single expression on the same line, or an indented block on following lines. A block's value is its final expression.
+- **Indentation is the only block form.** The body of a lambda, an `if`/`then`/`else` branch, or any construct taking a block is either a single expression on the same line, or an indented block on following lines. A block's value is its final expression. Canonical Hexagon style uses four spaces for each indentation level; the layout grammar accepts any consistent deeper column.
 - **`{` in source always begins a record** (type or literal), in every position. The parser has one rule, no context-dependence.
 - **`{}` is the empty record**, never an empty block.
 

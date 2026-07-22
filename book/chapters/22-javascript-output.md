@@ -48,7 +48,7 @@ emit as hoisted function declarations:
 let double(x: Int): Int = x * 2
 
 fun factorial(n: Int): Int =
-  if n == 0 then 1 else n * factorial(n - 1)
+    if n == 0 then 1 else n * factorial(n - 1)
 ```
 
 ```js
@@ -119,15 +119,15 @@ plain object. Consider:
 
 ```hexagon
 export union Delivery =
-  Waiting
-  | Sent(tracking: String)
-  | Arrived
+    Waiting
+    | Sent(tracking: String)
+    | Arrived
 
 export let describe(delivery: Delivery): String =
-  match delivery
-    Waiting => "waiting"
-    Sent(tracking) => "sent as ${tracking}"
-    Arrived => "arrived"
+    match delivery
+        Waiting => "waiting"
+        Sent(tracking) => "sent as ${tracking}"
+        Arrived => "arrived"
 ```
 
 The generated JavaScript has this general shape:

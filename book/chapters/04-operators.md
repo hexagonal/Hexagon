@@ -206,7 +206,7 @@ An inline conditional has both branches and produces the value of the selected o
 
 ```hexagon
 let shippingLabel =
-  if international then "International" else "Domestic"
+    if international then "International" else "Domestic"
 ```
 
 The condition must be `Bool`, and both branches must produce the same type. There is no
@@ -217,11 +217,11 @@ Longer branches use layout:
 
 ```hexagon
 let shippingLabel =
-  if international
-    let region = destinationRegion(order)
-    "International: ${region}"
-  else
-    "Domestic"
+    if international
+        let region = destinationRegion(order)
+        "International: ${region}"
+    else
+        "Domestic"
 ```
 
 Each branch is a block, so the final-expression rule from the first chapter applies.
@@ -232,7 +232,7 @@ An else-less layout conditional is permitted when it exists only for an effect:
 
 ```hexagon
 if delayed
-  print("Order delayed")
+    print("Order delayed")
 ```
 
 The missing branch contributes `Unit`, so the body must also produce `Unit`. This is not

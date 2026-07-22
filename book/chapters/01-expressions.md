@@ -9,8 +9,8 @@ Here is a complete function that calculates the total cost of an order:
 
 ```hexagon
 export let orderTotal(subtotal: Int, delivery: Int): Int =
-  let total = subtotal + delivery
-  total
+    let total = subtotal + delivery
+    total
 ```
 
 The first line introduces the function `orderTotal`. Inside its body, `let` gives the
@@ -100,9 +100,9 @@ block:
 
 ```hexagon
 let invoiceTotal(subtotal: Int, delivery: Int, handling: Int): Int =
-  let deliveredTotal = subtotal + delivery
-  let finalTotal = deliveredTotal + handling
-  finalTotal
+    let deliveredTotal = subtotal + delivery
+    let finalTotal = deliveredTotal + handling
+    finalTotal
 ```
 
 Indentation tells us that all three lines belong to the function body. The first two
@@ -114,7 +114,7 @@ The final expression need not be a bare name:
 
 ```hexagon
 let orderTotal(subtotal: Int, delivery: Int): Int =
-  subtotal + delivery
+    subtotal + delivery
 ```
 
 A one-expression block is the simplest block. Introducing `total` in the opening
@@ -131,7 +131,7 @@ Consider this attempted function:
 
 ```hexagon
 let orderTotal(subtotal: Int, delivery: Int): Int =
-  let total = subtotal + delivery
+    let total = subtotal + delivery
 ```
 
 The body introduces `total` and then ends. But a binding exists to make a name
@@ -143,8 +143,8 @@ with `total`?
 
 ```hexagon
 let orderTotal(subtotal: Int, delivery: Int): Int =
-  let total = subtotal + delivery
-  total
+    let total = subtotal + delivery
+    total
 ```
 
 This rule applies to nested blocks as well as function bodies. The top level of a
@@ -170,8 +170,8 @@ A `Unit`-producing expression can appear before the final expression of a block:
 
 ```hexagon
 let prepareOrder(order: Order): Order =
-  print("Preparing order")
-  order
+    print("Preparing order")
+    order
 ```
 
 The first line of the body is evaluated for its printing effect. Its uninteresting
@@ -192,9 +192,9 @@ Suppose `auditOrder` examines an order and returns a report:
 
 ```hexagon
 let prepareOrder(order: Order): Order =
-  auditOrder(order)
-  print("Preparing order")
-  order
+    auditOrder(order)
+    print("Preparing order")
+    order
 ```
 
 If `auditOrder(order)` returns an `AuditReport`, placing it before the end of the block
@@ -215,9 +215,9 @@ If evaluating the expression matters but its result genuinely does not, say so w
 
 ```hexagon
 let prepareOrder(order: Order): Order =
-  ignore(auditOrder(order))
-  print("Preparing order")
-  order
+    ignore(auditOrder(order))
+    print("Preparing order")
+    order
 ```
 
 `ignore` is an ordinary prelude function: it accepts a value of any type and produces
@@ -280,8 +280,8 @@ Here is our opening function again.
 
 ```hexagon
 export let orderTotal(subtotal: Int, delivery: Int): Int =
-  let total = subtotal + delivery
-  total
+    let total = subtotal + delivery
+    total
 ```
 
 **JavaScript output**

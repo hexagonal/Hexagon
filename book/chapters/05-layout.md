@@ -4,11 +4,11 @@ The opening chapters have already relied on indentation:
 
 ```hexagon
 let shippingLabel(international: Bool, region: String): String =
-  if international
-    let label = "International: ${region}"
-    label
-  else
-    "Domestic"
+    if international
+        let label = "International: ${region}"
+        label
+    else
+        "Domestic"
 ```
 
 The shape is not decorative. Indentation tells Hexagon which expressions and bindings
@@ -22,9 +22,9 @@ block's indentation. Lines that begin at the same indentation belong to the same
 
 ```hexagon
 let prepare(order: Order): Order =
-  print("Preparing order")
-  let checkedOrder = check(order)
-  checkedOrder
+    print("Preparing order")
+    let checkedOrder = check(order)
+    checkedOrder
 ```
 
 All three body items begin in the same column. The call to `print`, the `let` binding,
@@ -35,19 +35,20 @@ Indenting farther opens a nested block. Returning to an earlier column closes it
 
 ```hexagon
 let describeDelay(delayed: Bool): String =
-  if delayed
-    print("Order delayed")
-    "Delayed"
-  else
-    "On time"
+    if delayed
+        print("Order delayed")
+        "Delayed"
+    else
+        "On time"
 ```
 
 `print` and `"Delayed"` belong to the first branch. The dedented `else` closes that
 branch and begins the alternative.
 
-Use spaces for leading indentation. A tab before the first token of a line is an error;
-there is no project-specific tab width that might make the same source appear to have
-different blocks in different editors.
+Use four spaces for each level of leading indentation. A tab before the first token of
+a line is an error; there is no project-specific tab width that might make the same
+source appear to have different blocks in different editors. The compiler accepts any
+consistent deeper indentation, but Hexagon code conventionally uses four spaces.
 
 ## A same-line body is one expression
 
@@ -63,8 +64,8 @@ several items:
 
 ```hexagon
 let clean(dishes: Dishes): Dishes =
-  let cleanDishes = dishes |> rinse |> wash |> dry
-  cleanDishes
+    let cleanDishes = dishes |> rinse |> wash |> dry
+    cleanDishes
 ```
 
 This is the same block model, not a second function syntax.
@@ -82,7 +83,7 @@ give one direct correction:
 
 ```hexagon
 let greet(name) =
-  print("Hello ${name}")
+    print("Hello ${name}")
 ```
 
 There is no context where braces switch back to block delimiters. Later, when records
@@ -95,17 +96,17 @@ indentation:
 
 ```hexagon
 let sum(): Int =
-  let x = 1; let y = 2
-  x + y
+    let x = 1; let y = 2
+    x + y
 ```
 
 This contains the same items at the same block level as:
 
 ```hexagon
 let sum(): Int =
-  let x = 1
-  let y = 2
-  x + y
+    let x = 1
+    let y = 2
+    x + y
 ```
 
 The semicolon is a **separator**, not a JavaScript-style terminator. Do not put one at
@@ -123,8 +124,8 @@ to the lambda, use indentation:
 
 ```hexagon
 let greet = name =>
-  print("Hello ${name}")
-  print("Ready")
+    print("Hello ${name}")
+    print("Ready")
 ```
 
 Semicolons are occasionally convenient for tiny neighboring bindings. Newlines are
@@ -162,11 +163,11 @@ separates two items:
 
 ```hexagon
 let prepare(order: Order): Order =
-  // Keep the effect close to the work it announces.
-  print("Preparing order")
+    // Keep the effect close to the work it announces.
+    print("Preparing order")
 
-      // Comment-only indentation is ignored.
-  order
+            // Comment-only indentation is ignored.
+    order
 ```
 
 The body still contains the call followed by the final `order` expression. A trailing

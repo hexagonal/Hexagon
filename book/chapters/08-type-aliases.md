@@ -13,9 +13,9 @@ The alias can now appear wherever the tuple type could appear:
 let origin: Coordinates = (0.0, 0.0)
 
 let move(point: Coordinates, offset: Coordinates): Coordinates =
-  let (x, y) = point
-  let (dx, dy) = offset
-  (x + dx, y + dy)
+    let (x, y) = point
+    let (dx, dy) = offset
+    (x + dx, y + dy)
 ```
 
 `Coordinates` gives the type a useful name. It does not create a new runtime value or a

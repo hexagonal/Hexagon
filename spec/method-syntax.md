@@ -370,9 +370,9 @@ f({callback: n => n + 1})          -- OK : Int
 
 -- (d) Same-region evidence counts, regardless of textual position (§3.1)
 fun g(v) =
-  let x = v.at(3)                  -- goal pends; receiver tyvar owned by g's region
-  Vector.size(v)                   -- v := Vector(a): trigger fires, goal resolves
-  x                                -- OK — the dot call is Vector.at(v, 3); the inner
+    let x = v.at(3)                  -- goal pends; receiver tyvar owned by g's region
+    Vector.size(v)                   -- v := Vector(a): trigger fires, goal resolves
+    x                                -- OK — the dot call is Vector.at(v, 3); the inner
                                    --   let boundary did NOT force the fallback (§11.10)
                                    --   [corrected: was wrongly an error — §16.1]
 
@@ -412,14 +412,14 @@ v.empty()                          -- ERROR (row 5): `Vector` has no field `empt
 
 -- (j) Rigid variable with a matching constraint member: the redirect
 fun cmp<a: Ord>(x: a, y: a) =
-  x.compare(y)                     -- ERROR (row 6): `a` is an abstract type variable,
+    x.compare(y)                     -- ERROR (row 6): `a` is an abstract type variable,
                                    --   so the compiler cannot select a companion
                                    --   operation; `compare` is a constraint member —
                                    --   call it directly: `compare(x, y)`
 
 -- (j2) Rigid variable, no matching member: the options message
 fun go<a>(x: a) =
-  x.process()                      -- ERROR (row 7): `a` is an abstract type variable,
+    x.process()                      -- ERROR (row 7): `a` is an abstract type variable,
                                    --   so the compiler cannot select a companion
                                    --   operation for `.process`; require a callable
                                    --   record field in the parameter's type, use a
@@ -454,11 +454,11 @@ fun run(r: {step: Int -> Int, ...}) = r.step(1)
 
 -- (p) The pinning rule: inner generalisation around a pending goal (§3.1)
 fun f(v) =
-  let g = x => v.at(x)             -- g is a syntactic value; generalises WITHOUT
+    let g = x => v.at(x)             -- g is a syntactic value; generalises WITHOUT
                                    --   quantifying the goal's result tyvar (pinned
                                    --   to f's region)
-  Vector.size(v)                   -- v := Vector(a): goal resolves as companion
-  g(1)                             -- OK : a   — g : Int -> a after resolution
+    Vector.size(v)                   -- v := Vector(a): goal resolves as companion
+    g(1)                             -- OK : a   — g : Int -> a after resolution
 
 -- (q) Post-fallback resumption: survivor rows connect by ordinary unification (§3.3)
 fun w(x) = x.make().run()          -- OK — both goals take the fallback at w's

@@ -6,10 +6,10 @@ proceeds. Hexagon provides one deliberately confined tool for that job:
 
 ```hexagon
 let boundedStep(start: Int, amount: Int, maximum: Int): Int =
-  var current = start
-  current := current + amount
-  if current > maximum then current := maximum else ()
-  current
+    var current = start
+    current := current + amount
+    if current > maximum then current := maximum else ()
+    current
 ```
 
 `var` introduces a mutable local binding. `:=` changes the value held by that binding.
@@ -71,8 +71,8 @@ If assignment is the final expression, the block itself produces `Unit`:
 
 ```hexagon
 let reset(): Unit =
-  var count = 3
-  count := 0
+    var count = 3
+    count := 0
 ```
 
 `:=` is the loosest expression form and does not chain. `x := y := z` is rejected;
@@ -136,10 +136,10 @@ A lambda may not read or assign a `var` declared outside that lambda:
 
 ```hexagon
 let shifted(value: Int): Int =
-  var shift = calculateShift()
-  let applyShift = number => number + shift
-  // error: shift is a var and cannot be used inside a lambda
-  applyShift(value)
+    var shift = calculateShift()
+    let applyShift = number => number + shift
+    // error: shift is a var and cannot be used inside a lambda
+    applyShift(value)
 ```
 
 The boundary is a lambda, not an indented block. An `if`, `match`, `try`, or loop body
@@ -149,11 +149,11 @@ When a callback needs the current value, take an immutable snapshot:
 
 ```hexagon
 let shifted(value: Int): Int =
-  var shift = calculateShift()
-  shift := normalizeShift(shift)
-  let fixedShift = shift
-  let applyShift = number => number + fixedShift
-  applyShift(value)
+    var shift = calculateShift()
+    shift := normalizeShift(shift)
+    let fixedShift = shift
+    let applyShift = number => number + fixedShift
+    applyShift(value)
 ```
 
 The lambda captures `fixedShift`, whose value cannot later change. This makes the

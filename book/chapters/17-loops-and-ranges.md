@@ -4,7 +4,7 @@ Hexagon's primary loop reads as a direct description of iteration:
 
 ```hexagon
 for number in 1..5
-  print("Number ${number}")
+    print("Number ${number}")
 ```
 
 The range contains `1`, `2`, `3`, `4`, and `5`. The loop binds each value to `number`
@@ -14,10 +14,10 @@ Loops work naturally with the mutable variables introduced in the preceding chap
 
 ```hexagon
 let sumTo(limit: Int): Int =
-  var total = 0
-  for number in 1..limit
-    total := total + number
-  total
+    var total = 0
+    for number in 1..limit
+        total := total + number
+    total
 ```
 
 The body is an ordinary block inside `sumTo`, not a callback function. It can therefore
@@ -29,7 +29,7 @@ The general form is:
 
 ```hexagon
 for pattern in source
-  body
+    body
 ```
 
 Hexagon evaluates `source` once, then visits its elements in order. The loop pattern is
@@ -45,7 +45,7 @@ with a useful value is rejected:
 
 ```hexagon
 for number in 1..5
-  number * number // error: this value would be discarded
+    number * number // error: this value would be discarded
 ```
 
 Perform an effect, assign an accumulator, or explicitly pipe an intentionally ignored
@@ -92,10 +92,10 @@ source:
 
 ```hexagon
 let countdown(start: Int): Unit =
-  var remaining = start
-  while remaining > 0
-    print("${remaining}")
-    remaining := remaining - 1
+    var remaining = start
+    while remaining > 0
+        print("${remaining}")
+        remaining := remaining - 1
 ```
 
 The condition must be `Bool`; Hexagon has no numeric or object truthiness. It is tested
@@ -112,8 +112,8 @@ receives a sequence of tuple values:
 
 ```hexagon
 let printReservations(entries: Seq((String, Int))): Unit =
-  for (guest, seats) in entries
-    print("${guest}: ${seats}")
+    for (guest, seats) in entries
+        print("${guest}: ${seats}")
 ```
 
 The tuple pattern is **irrefutable**: every element of `(String, Int)` has exactly two
@@ -124,9 +124,9 @@ A loop pattern must match every possible element. A refutable pattern is an erro
 
 ```hexagon
 let printPresent(possibilities: Seq(Option(Int))): Unit =
-  for Some(value) in possibilities
-    print("${value}")
-  // error: an element might be None; use match in the body
+    for Some(value) in possibilities
+        print("${value}")
+    // error: an element might be None; use match in the body
 ```
 
 Use a simple binder and perform an explicit `match` when some elements need different
@@ -148,8 +148,8 @@ boundary:
 
 ```hexagon
 let consume<a>(source: Seq(a)): Unit =
-  for item in source
-    item |> ignore
+    for item in source
+        item |> ignore
 ```
 
 How library authors make their own types iterable is a separate, more advanced topic.
@@ -162,7 +162,7 @@ A syntactic range loop emits as a native counting loop:
 
 ```hexagon
 for number in 1..limit
-  total := total + number
+    total := total + number
 ```
 
 ```js

@@ -214,7 +214,7 @@ class Scanner {
         "indentation uses spaces; tabs are not allowed here",
         {
           message: "replace tabs with spaces",
-          replacement: "  ".repeat(this.#offset - start),
+          replacement: "    ".repeat(this.#offset - start),
         },
       );
     }

@@ -12,10 +12,10 @@ export const helloWorld: PlaygroundExample = {
   description: "A commented tour of the language slices implemented so far.",
   source: `// Unions describe a closed set of alternatives.
 union Suit =
-  | Clubs
-  | Diamonds
-  | Hearts
-  | Spades
+    | Clubs
+    | Diamonds
+    | Hearts
+    | Spades
 
 // Tuples combine values with different types.
 let card = (10, Hearts)
@@ -34,16 +34,16 @@ let plus(x: Int, y: Int): Int = x + y
 
 // Recursive functions use fun.
 fun factorial(n: Int): Int =
-  if n <= 1
-  then 1
-  else n * factorial(n - 1)
+    if n <= 1
+    then 1
+    else n * factorial(n - 1)
 
 // Match handles every union alternative.
 let color(suit: Suit): String = match suit
-  Clubs => "black"
-  Diamonds => "red"
-  Hearts => "red"
-  Spades => "black"
+    Clubs => "black"
+    Diamonds => "red"
+    Hearts => "red"
+    Spades => "black"
 
 // Host console calls are explicit effects and return Unit.
 console.log(greet("Hexagon"))

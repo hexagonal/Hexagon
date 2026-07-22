@@ -25,7 +25,7 @@
 
 ```
 constraint Hash<a: Eq> =
-  hash(x: a): Int
+    hash(x: a): Int
 ```
 
 - `Eq` is the superconstraint: `Hash` implies `Eq`, per the standard left-to-right reading (Constraints §1/§2.1). Every type honoring `Hash` has an `Eq` instance, and a function constrained `<a: Hash>` may use `equals` on `a`.
@@ -115,7 +115,7 @@ Derived `Hash` for a nominal `record` is a hash over its fields' hashes; for a `
 
 ```
 honor Hash<UserId> =
-  hash(u) = u.n * 31        -- ERROR
+    hash(u) = u.n * 31        -- ERROR
 ```
 
 — is a **hard error with its own message** (§9), distinct from the generic non-derivable-constraint error: the user found the right constraint and the wrong door, and the message must say which door is open. Everything else about `honor ... = derive` (placement, orphan rule, coherence) is §3.1.
@@ -154,8 +154,8 @@ The sanctioned v1 answer to "I need non-structural key equality" is a **wrapper 
 
 ```
 constraint Iterable<c> =
-  type Item
-  iterate(xs: c): Seq(Item)
+    type Item
+    iterate(xs: c): Seq(Item)
 ```
 
 - A **type member** line is the keyword `type` followed by an uppercase-start name, on its own layout line (VSEP/`;` per Lexer & Layout), among the ordinary function members. No `=`, no parameters, no obligations (`type Item: Show` is v2 — §11).
@@ -171,8 +171,8 @@ A type member's bare name (`Item`) is in scope **throughout the constraint body*
 
 ```
 honor<a> Iterable<Bag(a)> =
-  type Item = a
-  iterate(xs) = Bag.toSeq(xs)
+    type Item = a
+    iterate(xs) = Bag.toSeq(xs)
 ```
 
 - The binding line is `type Name = τ`. **τ may mention only in-scope type names** (primitives, nominal types, fully-applied aliases per Declarations Preamble §5, other constructors) **and the instance's own `<...>` binders.** τ may **not** mention any implied type name — its own or another constraint's (they are not referenceable in type expressions, §7.3) — which is why recursion through type members is unwritable: no SCC check is needed because the cycle cannot be written.
@@ -242,8 +242,8 @@ Enforcement point: type-name resolution. Outside its owner's bodies the implied 
 
 ```
 constraint Iterable<c> =
-  type Item
-  iterate(xs: c): Seq(Item)
+    type Item
+    iterate(xs: c): Seq(Item)
 ```
 
 **The implied type is named `Item`.** Rationale, kept against re-litigation: `Item` is the ordinary full word; it is the exact Rust precedent for this exact slot (`Iterator`'s `type Item`); and the eventual v2 reference syntax `Item(c)` reads as plain English. Rejected: **`Elem`** (a truncation with Haskell-shelf lineage — `Foldable`/MonoTraversable's `Elem`; an abbreviation would be off-doctrine in the most prominent implied type in the language), **`Element`** (the Swift spelling — full-word virtue, but longer while buying nothing `Item` lacks). "Element type" remains the correct *prose* phrase for the concept (Loops §7.1's ε is untouched); `Item` is the member's name.
@@ -359,13 +359,13 @@ let u = hash((1, fn))                            -- ERROR: no Hash for Int -> In
 
 -- (4) Hand-written Hash: closed door, signposted
 honor Hash<UserId> =
-  hash(u) = u.n                                  -- ERROR: Hash instances cannot be
+    hash(u) = u.n                                  -- ERROR: Hash instances cannot be
                                                  --   hand-written; use `derives Hash`
 
 -- (5) Eq-agreement rule
 record Weird = {s: String}
 honor Eq<Weird> =
-  equals(a, b) = String.lower(a.s) == String.lower(b.s)
+    equals(a, b) = String.lower(a.s) == String.lower(b.s)
 honor Hash<Weird> = derive                       -- ERROR: `Weird` has a hand-written `Eq`
                                                  --   instance; a derived hash is only
                                                  --   consistent with a derived equality
@@ -382,19 +382,19 @@ honor Signed<P> = derive                            -- ERROR: only Eq, Ord, Show
 union Bag(a) = MkBag(Vector(a))
 let toSeq<a>(b: Bag(a)): Seq(a) = ...
 honor<a> Iterable<Bag(a)> =
-  type Item = a
-  iterate(xs) = toSeq(xs)                        -- OK; instance row: Bag → Item = a
+    type Item = a
+    iterate(xs) = toSeq(xs)                        -- OK; instance row: Bag → Item = a
 
 -- (9) Exactly-once on the instance side
 honor<a> Iterable<Box(a)> =
-  iterate(xs) = ...                              -- ERROR: instance is missing `type Item`
+    iterate(xs) = ...                              -- ERROR: instance is missing `type Item`
 
 -- (10) Projection-bearing binder ban, all positions
 let f<c: Iterable>(xs: c): Int = ...             -- ERROR: `Iterable` declares an implied
                                                  --   type and cannot constrain a type
                                                  --   variable; take a `Seq(a)` parameter
 constraint Countable<c: Iterable> =              -- ERROR: same rule, superconstraint position
-  count(xs: c): Int
+    count(xs: c): Int
 
 -- (11) Reference ban (no module-level `Item` in scope)
 let g(e: Item): Int = ...                        -- ERROR: `Item` is an implied type of
@@ -406,17 +406,17 @@ let n = iterate(MkBag(v))                        -- OK : Seq(Int)   (head constr
 
 -- (13) Owner-scoped identity (two user constraints, one module)
 constraint Source<c> =
-  type Item
-  next(xs: c): Option(Item)                      -- Item here is Source.Item
+    type Item
+    next(xs: c): Option(Item)                      -- Item here is Source.Item
 constraint Sink<c> =
-  type Item                                      -- OK: Sink.Item is a distinct implied
-  put(xs: c, x: Item): c                         --   type; the owner disambiguates
+    type Item                                      -- OK: Sink.Item is a distinct implied
+    put(xs: c, x: Item): c                         --   type; the owner disambiguates
 
 -- (14) Occlusion inside an owner's body
 type Item = Int                                  -- a module-level alias, coexisting freely
 constraint Queue<c> =
-  type Item                                      -- OK: no conflict with the alias
-  peek(xs: c): Option(Item)                      -- Item = Queue.Item here (occludes the alias)
+    type Item                                      -- OK: no conflict with the alias
+    peek(xs: c): Option(Item)                      -- Item = Queue.Item here (occludes the alias)
 ```
 
 *(Bare `Item` outside any owner's body still means the module-level alias where one is in scope — as after test (14)'s alias; inside `Queue`'s body it means `Queue.Item`. Standard local-wins scoping — §6, §7.3.)*

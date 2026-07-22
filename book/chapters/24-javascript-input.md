@@ -6,10 +6,10 @@ module provides:
 
 ```hexagon
 extern from "tiny-json"
-  type JsonValue
-  fun parse(text: String): JsonValue
-  fun stringify(value: JsonValue): String
-  let VERSION as version: String
+    type JsonValue
+    fun parse(text: String): JsonValue
+    fun stringify(value: JsonValue): String
+    let VERSION as version: String
 ```
 
 The block introduces ordinary module-level Hexagon names. `parse` and `stringify` are
@@ -38,9 +38,9 @@ An extern annotation does not request a hidden numeric guard:
 
 ```hexagon
 extern from "measurements"
-  fun sampleCount(): Int
-  fun temperature(): Float
-  fun population(): BigInt
+    fun sampleCount(): Int
+    fun temperature(): Float
+    fun population(): BigInt
 ```
 
 The binding author is asserting that `sampleCount` returns a safe integer. If the
@@ -68,9 +68,9 @@ Named foreign exports use JavaScript's foreign-name-first alias order:
 
 ```hexagon
 extern from "tiny-json"
-  fun parse as parseJson(text: String): JsonValue
-  let VERSION as version: String
-  type ForeignNode as Node
+    fun parse as parseJson(text: String): JsonValue
+    let VERSION as version: String
+    type ForeignNode as Node
 ```
 
 The name after `as` is the local Hexagon name. `fun` declares a callable export; `let`
@@ -81,7 +81,7 @@ Bindings are private unless individually exported:
 
 ```hexagon
 extern from "tiny-json"
-  export fun parse(text: String): JsonValue
+    export fun parse(text: String): JsonValue
 ```
 
 This creates a named export from the compiled Hexagon module. It does not modify the
@@ -91,7 +91,7 @@ JavaScript default exports use `default` only inside an extern declaration:
 
 ```hexagon
 extern from "client-library"
-  default fun createClient(config: Config): Client
+    default fun createClient(config: Config): Client
 ```
 
 `createClient` is still an ordinary local name. Writing `export default fun ...` in the
@@ -115,7 +115,7 @@ Hexagon does not make every type nullable. A JavaScript API that may return `nul
 
 ```hexagon
 extern from "browser-profile"
-  fun displayName(): Nullable(String)
+    fun displayName(): Nullable(String)
 ```
 
 `Nullable(a)` crosses with no wrapper and has the TypeScript face
@@ -132,9 +132,9 @@ When the API distinguishes them, preserve all three cases:
 
 ```hexagon
 match Nullable.toCase(displayName())
-  Undefined => "not supplied"
-  Null => "explicitly blank"
-  Value(name) => name
+    Undefined => "not supplied"
+    Null => "explicitly blank"
+    Value(name) => name
 ```
 
 `Nullable.null` and `Nullable.undefined` supply explicit values to foreign calls.
@@ -154,7 +154,7 @@ calling convention to Hexagon.
 
 ```hexagon
 extern from "score-service"
-  fun recentScores(): Array(Int)
+    fun recentScores(): Array(Int)
 ```
 
 JavaScript owns the underlying storage. While Hexagon—or a deferred traversal created
@@ -184,7 +184,7 @@ positions. A top-level extern declaration may nevertheless request `Seq(a)`:
 
 ```hexagon
 extern from "number-stream"
-  fun values(): Seq(Int)
+    fun values(): Seq(Int)
 ```
 
 Hexagon accepts a JavaScript `Iterable<number>` and installs one lazy memoizing adapter.
@@ -202,7 +202,7 @@ It is not silently pushed inside a direct aggregate:
 
 ```hexagon
 extern from "stream-groups"
-  fun groups(): Array(Seq(Int)) // error: nested Seq adaptation would be hidden
+    fun groups(): Array(Seq(Int)) // error: nested Seq adaptation would be hidden
 ```
 
 The outer `Array` promises zero-copy indexing, while each arbitrary iterable inside
@@ -216,12 +216,12 @@ Hexagon language:
 
 ```hexagon
 extern from "url-tools"
-  export type SearchParams
+    export type SearchParams
 
-  export method get(
-    params: SearchParams,
-    key: String,
-  ): Nullable(String)
+    export method get(
+        params: SearchParams,
+        key: String,
+    ): Nullable(String)
 ```
 
 Hexagon sees an ordinary subject-first function:
@@ -245,9 +245,9 @@ Properties use equally direct declarations:
 
 ```hexagon
 extern from "web-response"
-  export type Response
-  export get status(response: Response): Int
-  export set timeout as setTimeout(response: Response, value: Int): Unit
+    export type Response
+    export get status(response: Response): Int
+    export set timeout as setTimeout(response: Response, value: Int): Unit
 ```
 
 Every `get` call performs a fresh property read; foreign properties may vary, compute,
@@ -261,11 +261,11 @@ operations:
 
 ```hexagon
 extern from "node:url"
-  export class URL as Url
-    new as create(text: String)
-    static method canParse(text: String): Bool
-    method toString(url: Url): String
-    get hostname(url: Url): String
+    export class URL as Url
+        new as create(text: String)
+        static method canParse(text: String): Bool
+        method toString(url: Url): String
+        get hostname(url: Url): String
 ```
 
 Hexagon calls `Url.create(text)`, `Url.canParse(text)`, `Url.toString(url)`, and
@@ -288,12 +288,12 @@ An `extern enum` gives that object a closed Hexagon union view:
 
 ```hexagon
 extern from "direction"
-  enum Direction derives (Eq, Show) =
-    | Up
-    | Down
+    enum Direction derives (Eq, Show) =
+        | Up
+        | Down
 
-  fun current(): Direction
-  fun move(direction: Direction): Unit
+    fun current(): Direction
+    fun move(direction: Direction): Unit
 ```
 
 The foreign module might contain a TypeScript string enum:
@@ -310,9 +310,9 @@ and exhaustive:
 
 ```hexagon
 let describe(direction: Direction): String =
-  match direction
-    Up => "up"
-    Down => "down"
+    match direction
+        Up => "up"
+        Down => "down"
 ```
 
 Unlike an ordinary all-nullary union, whose values are constructor-name strings, this
@@ -325,9 +325,9 @@ Foreign and local names can differ using the usual foreign-name-first order:
 
 ```hexagon
 extern from "keyboard"
-  enum Key as Direction =
-    | ARROW_UP as Up
-    | ARROW_DOWN as Down
+    enum Key as Direction =
+        | ARROW_UP as Up
+        | ARROW_DOWN as Down
 ```
 
 The member list is always explicit. The compiler does not inspect `Object.values` or
@@ -343,8 +343,8 @@ the generated checked conversion:
 
 ```hexagon
 match fromJsDirection(rawValue)
-  Some(direction) => describe(direction)
-  None => "unknown direction"
+    Some(direction) => describe(direction)
+    None => "unknown direction"
 ```
 
 `fromJsDirection` has type `JsValue -> Option(Direction)` and checks membership
@@ -367,11 +367,11 @@ representation-direct:
 
 ```hexagon
 extern from "event-source"
-  type Event
-  type Target
+    type Event
+    type Target
 
-  fun addListener(target: Target, callback: Event -> Unit): Unit
-  fun removeListener(target: Target, callback: Event -> Unit): Unit
+    fun addListener(target: Target, callback: Event -> Unit): Unit
+    fun removeListener(target: Target, callback: Event -> Unit): Unit
 ```
 
 Passing the same Hexagon function to both operations passes the same JavaScript

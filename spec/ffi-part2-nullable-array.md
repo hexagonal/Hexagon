@@ -82,9 +82,9 @@ The exact three-way reading is an ordinary Hexagon union:
 
 ```hexagon
 union NullableCase(a) =
-  Undefined
-  | Null
-  | Value(value: a)
+    Undefined
+    | Null
+    | Value(value: a)
 ```
 
 ```hexagon

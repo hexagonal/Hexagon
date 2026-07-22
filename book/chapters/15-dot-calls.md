@@ -48,7 +48,7 @@ Suppose the module declaring `Parcel` also exports:
 record Parcel = {tracking: String, delivered: Bool}
 
 export let status(parcel: Parcel): String =
-  if parcel.delivered then "delivered" else "in transit"
+    if parcel.delivered then "delivered" else "in transit"
 ```
 
 For a `Parcel` value, these calls are equivalent:

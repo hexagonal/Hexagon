@@ -12,9 +12,9 @@ describe("resolve", () => {
   test("gives extern terms and opaque types stable module identities", () => {
     const module = resolveSource(
       "extern from \"tiny-json\"\n" +
-        "  export type JsonValue\n" +
-        "  export fun parse(text: String): JsonValue\n" +
-        "  let VERSION as version: String\n" +
+        "    export type JsonValue\n" +
+        "    export fun parse(text: String): JsonValue\n" +
+        "    let VERSION as version: String\n" +
         "let document: JsonValue = parse(version)",
     );
 
@@ -43,11 +43,11 @@ describe("resolve", () => {
   test("gives implied types owner-relative scope", () => {
     const module = resolveSource(
       "constraint Source<a> =\n" +
-        "  type Item\n" +
-        "  get(value: a): Item\n" +
+        "    type Item\n" +
+        "    get(value: a): Item\n" +
         "constraint Sink<a> =\n" +
-        "  type Item\n" +
-        "  put(value: a, item: Item): Unit\n" +
+        "    type Item\n" +
+        "    put(value: a, item: Item): Unit\n" +
         "let invalid(value: Item) = value",
     );
 
@@ -102,7 +102,7 @@ describe("resolve", () => {
     const module = resolveSource(
       "let number = 99\n" +
         "for number in 1..3\n" +
-        "  console.log(number)\n" +
+        "    console.log(number)\n" +
         "number",
     );
 
@@ -126,9 +126,9 @@ describe("resolve", () => {
   test("resolves local vars and rejects module vars and mutable capture", () => {
     const local = resolveSource(
       "fun bump(value: Int): Int =\n" +
-        "  var current = value\n" +
-        "  current := current + 1\n" +
-        "  current",
+        "    var current = value\n" +
+        "    current := current + 1\n" +
+        "    current",
     );
     expect(local.symbols).toMatchObject([
       { name: "bump", kind: "fun" },
@@ -140,9 +140,9 @@ describe("resolve", () => {
     const invalid = resolveSource(
       "var global = 0\n" +
         "fun outer() =\n" +
-        "  var local = 1\n" +
-        "  let closure = () => local\n" +
-        "  ()",
+        "    var local = 1\n" +
+        "    let closure = () => local\n" +
+        "    ()",
     );
     expect(invalid.diagnostics.map(({ message }) => message)).toContain(
       "`var` is only allowed inside a function",
@@ -304,7 +304,7 @@ describe("resolve", () => {
 
   test("rejects sequential rebinding without changing the existing meaning", () => {
     const module = resolveSource(
-      "let outer = x =>\n  let x = 2\n  x",
+      "let outer = x =>\n    let x = 2\n    x",
     );
 
     expect(module.diagnostics.map(({ message }) => message)).toEqual([
@@ -348,10 +348,10 @@ describe("resolve", () => {
   test("keeps block bindings lexical and resolves interpolations", () => {
     const module = resolveSource(
       "let f = x =>\n" +
-        "  if x\n" +
-        "    let hidden = 1\n" +
-        '    "${hidden}"\n' +
-        "  hidden",
+        "    if x\n" +
+        "        let hidden = 1\n" +
+        '        "${hidden}"\n' +
+        "    hidden",
     );
 
     expect(module.diagnostics.map(({ message }) => message)).toEqual([

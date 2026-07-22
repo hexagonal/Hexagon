@@ -13,10 +13,10 @@ Foreign bindings use JavaScript's `from "specifier"` vocabulary, TypeScript-like
 
 ```hexagon
 extern from "tiny-json"
-  export type JsonValue
-  export fun parse(text: String): JsonValue
-  export fun stringify(value: JsonValue): String
-  let VERSION as version: String
+    export type JsonValue
+    export fun parse(text: String): JsonValue
+    export fun stringify(value: JsonValue): String
+    let VERSION as version: String
 ```
 
 The block introduces **ordinary module-level Hexagon bindings**. After the declaration, an extern binding is used exactly like any other binding of the enclosing module: same typing, same visibility rules, same collision rules. Only its linkage (a foreign ESM import) and its trust status (Part 1 §1: a trusted programmer assertion, validated as a declaration and then believed) differ.
@@ -115,14 +115,14 @@ Ordinary Hexagon permits the `let`-function habit (`let double(x: Int): Int = ..
 
 ```hexagon
 extern from "tiny-json"
-  let parse(text: String): JsonValue
+    let parse(text: String): JsonValue
 ```
 
 > extern callable declarations use `fun`; write `fun parse(text: String): JsonValue`
 
 ```hexagon
 extern from "tiny-json"
-  fun version: String
+    fun version: String
 ```
 
 > extern `fun` declares a callable and requires a parameter list; for a foreign value, write `let version: String`
@@ -151,10 +151,10 @@ This is the reviewed reading of the trusted-boundary doctrine (§12.2), not an E
 
 ```hexagon
 extern from "tiny-json"
-  export type JsonValue
+    export type JsonValue
 
 extern from "url-tools"
-  type ForeignNode as Node
+    type ForeignNode as Node
 ```
 
 It has no automatically available structure, constructor, or instances. Hexagon can receive, hold, pass, store, and return values of the type; every operation on it comes from other extern declarations (or Part 5 members) that mention it. Its boundary category is representation-direct — whatever object the foreign API supplies crosses unchanged and by identity (Part 1 §4.1, "extern `type`" row). Opaque extern Promise handles (Part 1 §4.4) are this mechanism applied to a `Promise`-typed foreign value.
@@ -171,7 +171,7 @@ JavaScript default exports ship in v1. Inside an extern block, `default` can onl
 
 ```hexagon
 extern from "client-library"
-  default fun createClient(config: Config): Client
+    default fun createClient(config: Config): Client
 ```
 
 ```js
@@ -186,7 +186,7 @@ The binding is private by default. The ordinary leading `export` modifier makes 
 
 ```hexagon
 extern from "client-library"
-  export default fun createClient(config: Config): Client
+    export default fun createClient(config: Config): Client
 ```
 
 This does **not** create a Hexagon or emitted-JS default export. Directionally:
@@ -208,7 +208,7 @@ The same linkage modifier applies to values:
 
 ```hexagon
 extern from "settings"
-  default let settings: Settings
+    default let settings: Settings
 ```
 
 and to classes (`export default class ...`), specified in Part 5.
@@ -262,10 +262,10 @@ Optional/default parameters are not introduced by FFI. **V1 extern callables hav
 
 ```hexagon
 extern from "library"
-  fun lookupRaw(
-    key: String,
-    fallback: Nullable(String),
-  ): String
+    fun lookupRaw(
+        key: String,
+        fallback: Nullable(String),
+    ): String
 ```
 
 Callers use `Nullable.undefined` for the ordinary omitted/default JS case and `Nullable.null` when the API specifically distinguishes explicit null (Part 2). Rest parameters, overload declarations, and general optional-argument syntax remain outside this part (§11). Arity at the call boundary — exact-arity calls, extra-argument behavior for JS callers — is Part 6's.

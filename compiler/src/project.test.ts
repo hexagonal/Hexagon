@@ -52,8 +52,8 @@ test("re-exports extern bindings and opaque types through Hexagon modules", () =
       Source.fileId(0),
       "/tiny-json.hex",
       "extern from \"tiny-json\"\n" +
-        "  export type JsonValue\n" +
-        "  export fun parse(text: String): JsonValue",
+        "    export type JsonValue\n" +
+        "    export fun parse(text: String): JsonValue",
     ),
     new Source.File(
       Source.fileId(1),
@@ -87,13 +87,13 @@ test("makes an imported module's coherent instances available to operators", () 
       "export opaque record Box = {value: Int}\n" +
         "export let create(value: Int): Box = Box({value})\n" +
         "honor Num<Box> =\n" +
-        "  add(left, right) = create(left.value + right.value)\n" +
-        "  multiply(left, right) = create(left.value * right.value)\n" +
-        "  fromNat(value) = create(value)\n" +
+        "    add(left, right) = create(left.value + right.value)\n" +
+        "    multiply(left, right) = create(left.value * right.value)\n" +
+        "    fromNat(value) = create(value)\n" +
         "honor Signed<Box> =\n" +
-        "  subtract(left, right) = create(left.value - right.value)\n" +
-        "  negate(value) = create(-value.value)\n" +
-        "  fromInt(value) = create(value)",
+        "    subtract(left, right) = create(left.value - right.value)\n" +
+        "    negate(value) = create(-value.value)\n" +
+        "    fromInt(value) = create(value)",
     ),
     new Source.File(
       Source.fileId(1),
@@ -122,13 +122,13 @@ test("propagates coherent instances through the complete import graph", () => {
       "export opaque record Box = {value: Int}\n" +
         "export let create(value: Int): Box = Box({value})\n" +
         "honor Num<Box> =\n" +
-        "  add(left, right) = create(left.value + right.value)\n" +
-        "  multiply(left, right) = create(left.value * right.value)\n" +
-        "  fromNat(value) = create(value)\n" +
+        "    add(left, right) = create(left.value + right.value)\n" +
+        "    multiply(left, right) = create(left.value * right.value)\n" +
+        "    fromNat(value) = create(value)\n" +
         "honor Signed<Box> =\n" +
-        "  subtract(left, right) = create(left.value - right.value)\n" +
-        "  negate(value) = create(-value.value)\n" +
-        "  fromInt(value) = create(value)",
+        "    subtract(left, right) = create(left.value - right.value)\n" +
+        "    negate(value) = create(-value.value)\n" +
+        "    fromInt(value) = create(value)",
     ),
     new Source.File(
       Source.fileId(1),
@@ -164,13 +164,13 @@ test("deduplicates one coherent instance reached through a diamond import", () =
       "export opaque record Box = {value: Int}\n" +
         "export let create(value: Int): Box = Box({value})\n" +
         "honor Num<Box> =\n" +
-        "  add(left, right) = create(left.value + right.value)\n" +
-        "  multiply(left, right) = create(left.value * right.value)\n" +
-        "  fromNat(value) = create(value)\n" +
+        "    add(left, right) = create(left.value + right.value)\n" +
+        "    multiply(left, right) = create(left.value * right.value)\n" +
+        "    fromNat(value) = create(value)\n" +
         "honor Signed<Box> =\n" +
-        "  subtract(left, right) = create(left.value - right.value)\n" +
-        "  negate(value) = create(-value.value)\n" +
-        "  fromInt(value) = create(value)",
+        "    subtract(left, right) = create(left.value - right.value)\n" +
+        "    negate(value) = create(-value.value)\n" +
+        "    fromInt(value) = create(value)",
     ),
     new Source.File(
       Source.fileId(1),
@@ -212,7 +212,7 @@ test("rejects extern linkage to a Hexagon source module", () => {
     new Source.File(
       Source.fileId(1),
       "/main.hex",
-      'extern from "./library"\n  fun answer(): Int',
+      'extern from "./library"\n    fun answer(): Int',
     ),
   ]);
 

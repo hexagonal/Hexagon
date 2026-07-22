@@ -4,8 +4,8 @@ The Collections chapter ended with one deliberately underexplained line:
 
 ```hexagon
 honor<a> Iterable<Bag(a)> =
-  type Item = a
-  iterate(bag) = Vector.toSeq(bag.items)
+    type Item = a
+    iterate(bag) = Vector.toSeq(bag.items)
 ```
 
 `iterate` is an ordinary constraint operation. `type Item = a` answers a different
@@ -15,8 +15,8 @@ The `Iterable` constraint asks that question by declaring a type of its own:
 
 ```hexagon
 constraint Iterable<c> =
-  type Item
-  iterate(xs: c): Seq(Item)
+    type Item
+    iterate(xs: c): Seq(Item)
 ```
 
 `Item` is an **implied type**: a type uniquely determined by a constraint instance's
@@ -51,7 +51,7 @@ This is why a map loop receives tuples without another annotation:
 
 ```hexagon
 for (key, value) in scores
-  print("${key}: ${value}")
+    print("${key}: ${value}")
 ```
 
 The compiler finds `Iterable<Map(String, Int)>`, whose `Item` is `(String, Int)`, and
@@ -64,8 +64,8 @@ uppercase-start name:
 
 ```hexagon
 constraint Iterable<c> =
-  type Item
-  iterate(xs: c): Seq(Item)
+    type Item
+    iterate(xs: c): Seq(Item)
 ```
 
 There is no `=` on the declaration line because the constraint does not choose the
@@ -78,9 +78,9 @@ than tailored to iteration:
 
 ```hexagon
 constraint Conversion<c> =
-  type Input
-  type Output
-  convert(conversion: c, value: Input): Output
+    type Input
+    type Output
+    convert(conversion: c, value: Input): Output
 ```
 
 This constraint describes a conversion object whose source and result types are fixed
@@ -94,11 +94,11 @@ An `honor` body supplies the type with the same `type` keyword followed by `=`:
 record ParsePort = {fallback: Int}
 
 honor Conversion<ParsePort> =
-  type Input = String
-  type Output = Result(Int, String)
+    type Input = String
+    type Output = Result(Int, String)
 
-  convert(parser, text) =
-    parsePort(text, parser.fallback)
+    convert(parser, text) =
+        parsePort(text, parser.fallback)
 ```
 
 For this instance, `convert` has the effective type:
@@ -115,8 +115,8 @@ An instance binding may use its own type parameters:
 
 ```hexagon
 honor<a> Iterable<Bag(a)> =
-  type Item = a
-  iterate(bag) = Vector.toSeq(bag.items)
+    type Item = a
+    iterate(bag) = Vector.toSeq(bag.items)
 ```
 
 Within the `honor` body, `Item` means the chosen type `a`. Optional annotations on its
@@ -124,8 +124,8 @@ operations may use that name:
 
 ```hexagon
 honor<a> Iterable<Bag(a)> =
-  type Item = a
-  iterate(bag: Bag(a)): Seq(Item) = Vector.toSeq(bag.items)
+    type Item = a
+    iterate(bag: Bag(a)): Seq(Item) = Vector.toSeq(bag.items)
 ```
 
 The shorter inferred annotations are normally easier to read, but the explicit form
@@ -140,12 +140,12 @@ Consequently, two constraints in one module may both declare `Item`:
 
 ```hexagon
 constraint Source<s> =
-  type Item
-  read(source: s): Option((Item, s))
+    type Item
+    read(source: s): Option((Item, s))
 
 constraint Sink<s> =
-  type Item
-  write(sink: s, value: Item): s
+    type Item
+    write(sink: s, value: Item): s
 ```
 
 There is no collision. Bare `Item` means `Source`'s member inside the `Source` body and
@@ -251,7 +251,7 @@ At a loop whose source type is known, instance selection is static:
 
 ```hexagon
 for value in bag
-  print(value)
+    print(value)
 ```
 
 has the same general output shape as calling `Bag.toSeq(bag)` and iterating the

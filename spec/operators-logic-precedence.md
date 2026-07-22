@@ -237,7 +237,7 @@ Elaboration target — a new small prelude constraint (edit note to Constraints 
 
 ```
 constraint Pow<a: Num> =
-  pow(x: a, y: a): a
+    pow(x: a, y: a): a
 ```
 
 `pow` is not folded into `Num` (it would obligate every `Num` instance — v1 `Rat` has no sensible `Rat`-exponent power) nor into `Frac`. v1.1 instances:
@@ -259,7 +259,7 @@ Binary, level 5 (additive), left-associative. Elaborates to a new prelude constr
 
 ```
 constraint Concat<a> =
-  concat(x: a, y: a): a
+    concat(x: a, y: a): a
 ```
 
 - **v1 instance: `String`.** Emission for the monomorphic case is JS `+` — readable and exactly right, and safe *because* Hexagon's types prevent the mixed-operand accidents that make JS `+` on strings a hazard.
@@ -524,16 +524,16 @@ a*2..b*2                       -- (a * 2)..(b * 2)
 1 + if c then a else b         -- 1 + (if c then a else b) → 1 + (c ? a : b)
 if c then a else b + 1         -- else arm is (b + 1)
 fun clamp(x, lo, hi) =
-  if x < lo then lo
-  else if x > hi then hi
-  else x
+    if x < lo then lo
+    else if x > hi then hi
+    else x
 -- clamp : (Int, Int, Int) -> Int  (at an Int call site)
 
 -- (k) Layout if, else-less, Unit-checked
 if ready
-  print("go")                  -- fine: Unit block, form is Unit
+    print("go")                  -- fine: Unit block, form is Unit
 if ready
-  compute()                    -- ERROR if compute returns non-Unit (Statements §3.2)
+    compute()                    -- ERROR if compute returns non-Unit (Statements §3.2)
 
 -- (l) := grammar
 total := if c then a else b    -- fine; RHS is the eats-right if

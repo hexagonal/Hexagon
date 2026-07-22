@@ -9,11 +9,11 @@ record Person = {name: String, age: Int}
 
 // A local type can honor Show by supplying its display operation.
 honor Show<Person> =
-  show(person) = "\${person.name}, age \${person.age}"
+    show(person) = "\${person.name}, age \${person.age}"
 
 // Interpolation propagates Show into otherwise generic code.
 let describe<a: Show>(thing: a): String =
-  "Description: \${thing}"
+    "Description: \${thing}"
 
 let ada = Person({name: "Ada", age: 36})
 

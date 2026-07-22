@@ -77,9 +77,9 @@ These two forms express different intentions:
 let requiredHeading = chapters[1]
 
 let optionalHeading =
-  match Vector.get(chapters, requestedIndex)
-    Some(heading) => heading
-    None => "Untitled"
+    match Vector.get(chapters, requestedIndex)
+        Some(heading) => heading
+        None => "Untitled"
 ```
 
 `Vector.at` adds explicit from-the-end addressing. Positive positions agree with
@@ -104,10 +104,10 @@ The pattern language gains a vector shape:
 
 ```hexagon
 let describe(items: Vector(String)): String =
-  match items
-    [] => "nothing"
-    [only] => "one item: ${only}"
-    [first, ...rest] => "first: ${first}; more: ${Vector.size(rest)}"
+    match items
+        [] => "nothing"
+        [only] => "one item: ${only}"
+        [first, ...rest] => "first: ${first}; more: ${Vector.size(rest)}"
 ```
 
 `[]` matches exactly the empty vector. A fixed pattern such as `[only]` matches one
@@ -135,8 +135,8 @@ easy to read:
 
 ```hexagon
 let scores = Map.fromVector([
-  ("Mira", 18),
-  ("Niko", 24),
+    ("Mira", 18),
+    ("Niko", 24),
 ])
 ```
 
@@ -165,7 +165,7 @@ Maps iterate as key-value tuples, so tuple patterns fit directly:
 
 ```hexagon
 for (name, score) in scores
-  print("${name}: ${score}")
+    print("${name}: ${score}")
 ```
 
 ## Sets answer membership questions
@@ -178,7 +178,7 @@ let withIvo = Set.add(invited, "Ivo")
 let withoutNiko = Set.remove(withIvo, "Niko")
 
 if Set.contains(withoutNiko, "Mira")
-  print("Mira is invited")
+    print("Mira is invited")
 ```
 
 Adding an element already present and removing an element already absent both leave
@@ -200,7 +200,7 @@ the key type to honor `Hash`:
 
 ```hexagon
 let remember<k: Hash, v>(cache: Map(k, v), key: k, value: v): Map(k, v) =
-  Map.set(cache, key, value)
+    Map.set(cache, key, value)
 ```
 
 `Hash` has `Eq` as a superconstraint. Equal keys must have equal hash values; unequal
@@ -225,10 +225,10 @@ Every finite collection provides `toSeq` and `fromSeq` operations:
 
 ```hexagon
 let selected =
-  scores
-  |> Map.toSeq
-  |> Seq.filter((entry) => entry.item2 >= 20)
-  |> Vector.fromSeq
+    scores
+    |> Map.toSeq
+    |> Seq.filter((entry) => entry.item2 >= 20)
+    |> Vector.fromSeq
 ```
 
 `Seq(a)` remains the lazy currency between APIs. `toSeq` can expose collection values
@@ -254,8 +254,8 @@ possible collection representation.
 record Bag(a) = {items: Vector(a)}
 
 honor<a> Iterable<Bag(a)> =
-  type Item = a
-  iterate(bag) = Vector.toSeq(bag.items)
+    type Item = a
+    iterate(bag) = Vector.toSeq(bag.items)
 ```
 
 Now ordinary loop syntax works:
@@ -264,7 +264,7 @@ Now ordinary loop syntax works:
 let bag = Bag({items: [2, 3, 3]})
 
 for number in bag
-  print(number)
+    print(number)
 ```
 
 For now, read `type Item = a` as “iterating `Bag(a)` produces `a`.” The `iterate`

@@ -67,9 +67,9 @@ field comparisons must succeed:
 
 ```hexagon
 record Reservation derives (Eq, Show) = {
-  guest: String,
-  seats: Int,
-  confirmed: Bool
+    guest: String,
+    seats: Int,
+    confirmed: Bool
 }
 ```
 
@@ -93,8 +93,8 @@ For a union, equality first checks the constructor and then compares its payload
 
 ```hexagon
 union Temperature derives (Eq, Show) =
-  | Celsius(value: Float)
-  | Fahrenheit(value: Float)
+    | Celsius(value: Float)
+    | Fahrenheit(value: Float)
 ```
 
 `Celsius(20.0)` does not equal `Fahrenheit(20.0)`, even though the payloads match. With
@@ -163,9 +163,9 @@ capability. Sometimes it does not:
 
 ```hexagon
 record User = {
-  id: Int,
-  displayName: String,
-  cachedGreeting: String
+    id: Int,
+    displayName: String,
+    cachedGreeting: String
 }
 ```
 
@@ -174,7 +174,7 @@ display changes significant. Write the decision explicitly instead:
 
 ```hexagon
 honor Eq<User> =
-  equals(left, right) = left.id == right.id
+    equals(left, right) = left.id == right.id
 ```
 
 Display can need similar care. A record containing a secret token should not derive

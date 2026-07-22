@@ -24,10 +24,10 @@ Here is a complete Hexagon function:
 
 ```hexagon
 let sumTo(n) =
-  var total = 0
-  for i in 1..n
-    total := total + i
-  total
+    var total = 0
+    for i in 1..n
+        total := total + i
+    total
 ```
 
 And here is the JavaScript the compiler emits for it:
@@ -153,7 +153,7 @@ let name = "Ada"              // immutable binding (your beloved const)
 let year = 1815
 
 let greet(who) =              // functions too: this is header sugar for
-  "Hello, ${who}!"            // let greet = (who) => "Hello, ${who}!"
+    "Hello, ${who}!"            // let greet = (who) => "Hello, ${who}!"
 ```
 
 `let` is `const`: immutable, block-scoped, and it binds *everything* — numbers, strings, records, and functions alike, because a function is just another value. The header form `let greet(who) = ...` and the lambda form `let greet = (who) => ...` are the same declaration; use whichever reads better.
@@ -162,7 +162,7 @@ One deliberate limitation: `let` is **non-recursive**. Inside the right-hand sid
 
 ```hexagon
 fun fib(n) =
-  if n < 2 then n else fib(n - 1) + fib(n - 2)
+    if n < 2 then n else fib(n - 1) + fib(n - 2)
 ```
 
 `fun` is hoisted (like a JS `function` declaration) and supports self- and mutual recursion. That's its entire job — it's the special case, not the default. Everyday Hexagon is `let` all the way down, and you'll notice every other function in this book is one; recursion is rarer than you'd think in a language with `for`, `while`, and a pipeline-friendly stdlib.
@@ -181,9 +181,9 @@ Blocks are indentation-based (think Python, or the F#/Haskell layout tradition),
 
 ```hexagon
 let describe(n) =
-  let sign = if n < 0 then "negative" else "non-negative"
-  let parity = if isEven(n) then "even" else "odd"
-  "${n} is ${sign} and ${parity}"    // this is the return value; no `return` keyword
+    let sign = if n < 0 then "negative" else "non-negative"
+    let parity = if isEven(n) then "even" else "odd"
+    "${n} is ${sign} and ${parity}"    // this is the return value; no `return` keyword
 ```
 
 Braces are never blocks in Hexagon — braces always mean records (Chapter 8).
@@ -192,7 +192,7 @@ Braces are never blocks in Hexagon — braces always mean records (Chapter 8).
 
 ```hexagon
 if not done and count > 0 or force
-  retry()
+    retry()
 ```
 
 Logic is spelled `not`, `and`, `or` (plus `implies` and `iff` for the mathematically inclined). Writing `!`, `&&`, or `||` is a lexer error with a fix-it pointing you to the word. `and`/`or` short-circuit and compile to JS `&&`/`||`.
@@ -320,18 +320,18 @@ That's it. Unpacking the two halves:
 
 ```hexagon
 let process(order) =
-  let total = subtotal(order)
-  let total = total + tax(order)     // ERROR: `total` is already bound
-  total
+    let total = subtotal(order)
+    let total = total + tax(order)     // ERROR: `total` is already bound
+    total
 ```
 
 If you've written Rust you may *miss* this pattern (Rust encourages rebinding). Hexagon rejects it deliberately: when you read `total` on line 10 of a function, it means the same thing it meant on line 2. No mental version-tracking of which `total` is live. The fix is honest names:
 
 ```hexagon
 let process(order) =
-  let subtotal = subtotal(order)
-  let total = subtotal + tax(order)
-  total
+    let subtotal = subtotal(order)
+    let total = subtotal + tax(order)
+    total
 ```
 
 **But binders that open a fresh scope shadow freely.** Function parameters, loop variables, and `match`-arm bindings (Chapter 7) are all allowed to reuse any name in scope:
@@ -342,7 +342,7 @@ let x = 99
 let addOne(x) = x + 1        // fine: parameter x shadows the outer x
 
 for x in 1..3                // fine: loop variable x shadows too
-  print(show(x))             // 1, 2, 3 — the loop's x
+    print(show(x))             // 1, 2, 3 — the loop's x
 ```
 
 ### 5.2 Why the split?
@@ -376,12 +376,12 @@ Interesting feature number three. Hexagon is an immutable-by-default language �
 
 ```hexagon
 let collatzSteps(n0) =
-  var n = n0
-  var steps = 0
-  while n != 1
-    if isEven(n) then n := Int.div(n, 2) else n := 3 * n + 1
-    steps := steps + 1
-  steps
+    var n = n0
+    var steps = 0
+    while n != 1
+        if isEven(n) then n := Int.div(n, 2) else n := 3 * n + 1
+        steps := steps + 1
+    steps
 ```
 
 `var` declares a mutable local; `:=` assigns to it. (Assignment gets its own operator so that `=` can stay pure — you cannot accidentally assign in a condition, because `:=` isn't valid there and `==` is the only equality.)
@@ -410,8 +410,8 @@ Here's what makes Hexagon's `var` different from TypeScript's `let`: **a `var` c
 
 ```hexagon
 let makeCounter() =
-  var count = 0
-  () => count := count + 1     // ERROR: lambda cannot capture the `var` count
+    var count = 0
+    () => count := count + 1     // ERROR: lambda cannot capture the `var` count
 ```
 
 In JavaScript, that closure-over-mutable pattern is idiomatic — and it's also the source of every "why is my callback seeing a stale value" bug, every loop-variable-capture surprise, every action-at-a-distance state mutation. Hexagon draws the line differently: mutation is a *local implementation detail*. Inside a function, mutate freely; from the outside, every Hexagon function looks pure. If a value crosses a function boundary, it's immutable data.
@@ -456,15 +456,15 @@ Hexagon:
 
 ```hexagon
 union Shape =
-  | Circle(radius: Float)
-  | Rect(width: Float, height: Float)
-  | Point
+    | Circle(radius: Float)
+    | Rect(width: Float, height: Float)
+    | Point
 
 let area(s) =
-  match s
-    Circle(r) => 3.14 * r * r
-    Rect(w, h) => w * h
-    Point => 0.0
+    match s
+        Circle(r) => 3.14 * r * r
+        Rect(w, h) => w * h
+        Point => 0.0
 ```
 
 Things to notice:

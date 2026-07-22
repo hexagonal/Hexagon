@@ -24,27 +24,27 @@
 
 ```
 constraint Show<a> =
-  show(x: a): String
+    show(x: a): String
 
 constraint Eq<a> =
-  equals(x: a, y: a): Bool
-  notEquals(x: a, y: a): Bool = not equals(x, y)
+    equals(x: a, y: a): Bool
+    notEquals(x: a, y: a): Bool = not equals(x, y)
 
 constraint Ord<a: Eq> =
-  compare(x: a, y: a): Ordering
+    compare(x: a, y: a): Ordering
 
 constraint Num<a> =
-  add(x: a, y: a): a
-  multiply(x: a, y: a): a
-  fromNat(n: Nat): a
+    add(x: a, y: a): a
+    multiply(x: a, y: a): a
+    fromNat(n: Nat): a
 
 constraint Signed<a: Num> =
-  subtract(x: a, y: a): a
-  negate(x: a): a
-  fromInt(n: Int): a
+    subtract(x: a, y: a): a
+    negate(x: a): a
+    fromInt(n: Int): a
 
 constraint Frac<a: Signed> =
-  divide(x: a, y: a): a
+    divide(x: a, y: a): a
 ```
 
 *(Member inventories above are illustrative of the shape; the authoritative member lists for the prelude constraints are §7. `Ordering` is the prelude union `Less | Equal | Greater`.)*
@@ -106,10 +106,10 @@ Inference attaches constraints without annotation (`fun plus(x, y) = add(x, y)` 
 
 ```
 honor Show<Point> =
-  show(p) = "(${p.x}, ${p.y})"
+    show(p) = "(${p.x}, ${p.y})"
 
 honor Ord<Int> =
-  compare(x, y) = ...
+    compare(x, y) = ...
 ```
 
 - **Head:** `honor ConstraintName<Type>`. The subject slot that held a variable-being-introduced in `constraint` holds a concrete-type-being-supplied in `honor`. Declaration/use duality, deliberately.
@@ -130,10 +130,10 @@ Naming instances would only make sense under multiple candidate instances, which
 
 ```
 honor<a: Show> Show<Vector(a)> =
-  show(xs) = ...
+    show(xs) = ...
 
 honor<a: Eq, b: Eq> Eq<Pair(a, b)> =
-  equals(p, q) = ...
+    equals(p, q) = ...
 ```
 
 - The prefix `<...>` is the standard binder grammar again — introduce variables, attach obligations — in yet another position, with identical meaning. An `honor` head's subject may then mention those variables.

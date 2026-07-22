@@ -23,8 +23,8 @@
 
 ```
 constraint Iterable<c> =
-  type Item
-  iterate(xs: c): Seq(Item)
+    type Item
+    iterate(xs: c): Seq(Item)
 ```
 
 Normative home: Part 2 §8 (declaration, `Item` naming, projection-bearing status, binder and reference bans). Nothing is redeclared here; this document is its operational half, exactly as Part 2's not-in-scope line promised.
@@ -159,8 +159,8 @@ Exactly the Part 2 §5.3 form — nothing loop-specific:
 
 ```
 honor<a> Iterable<Bag(a)> =
-  type Item = a
-  iterate(bag) = toSeq(bag)
+    type Item = a
+    iterate(bag) = toSeq(bag)
 ```
 
 Exactly-once member binding, the (constraint, constructor) coherence slot, and the orphan rule (home of `Iterable` — the prelude — or home of `Bag`) all apply unchanged (Part 2 §5.3–§5.4, Modules §7.2). Writing the instance adds the row; §3's resolution needs nothing else. The instance is legal on `record` and `union` types alike, `opaque` or not — opacity hides structure, not capabilities (Modules §4.2).
@@ -198,11 +198,11 @@ export fun add<a: Hash>(bag: Bag(a), x: a): Bag(a) = ...
 export fun count<a: Hash>(bag: Bag(a), x: a): Int = ...   -- 0 when absent
 export fun size(bag: Bag(a)): Int = ...                    -- total multiplicity
 export fun toSeq<a>(bag: Bag(a)): Seq(a) = ...
-  -- each element repeated `count` times, elements grouped; see order note below
+    -- each element repeated `count` times, elements grouped; see order note below
 
 honor<a> Iterable<Bag(a)> =
-  type Item = a
-  iterate(bag) = toSeq(bag)
+    type Item = a
+    iterate(bag) = toSeq(bag)
 ```
 
 ```
@@ -212,12 +212,12 @@ import * as Bag from "./bag"
 let bag = Bag.fromSeq(Vector.toSeq([1, 2, 2, 3]))
 var total = 0
 for x in bag                 -- Item = Int; resolution: head constructor Bag → the instance
-  total := total + x         -- 8
+    total := total + x         -- 8
 
 -- The generic form remains unwritable in v1, exactly as designed:
 fun sum<c: Iterable>(xs: c): Int = ...
-  -- ERROR: `Iterable` declares an implied type and cannot constrain a
-  --        type variable; take a `Seq(a)` parameter instead   (Part 2 §7.2/§9)
+    -- ERROR: `Iterable` declares an implied type and cannot constrain a
+    --        type variable; take a `Seq(a)` parameter instead   (Part 2 §7.2/§9)
 
 -- The idiom:
 fun sum(xs: Seq(Int)): Int = ...
@@ -392,19 +392,19 @@ The roadmap and agenda edits queued at landing were applied then; the companion-
 ```
 -- (a) Every provided row loops, with the right element type
 for i in 1..3            -- i : Int      (counting-loop emission, mandatory)
-  ...
+    ...
 for x in [10, 20]        -- x : Int      (Vector)
-  ...
+    ...
 for c in "héllo"         -- c : String   (one codepoint; emits for (const c of s))
-  ...
+    ...
 for x in Set.fromVector([1, 2])   -- x : Int
-  ...
+    ...
 
 -- (b) Map: tuple head; vector-pattern head still gated
 for (k, v) in m          -- irrefutable tuple head; emits for (const [k, v] of ...)
-  ...
+    ...
 for [k, v] in m          -- ERROR: this pattern can fail; use match (Part 4 §9)
-  ...
+    ...
 
 -- (c) String conversion suite (contract per §5.3)
 String.toSeq("ab")                          -- Seq(String): "a", "b"
@@ -417,24 +417,24 @@ String.fromSeq(Seq.empty)                   -- ""
 let bag = Bag.fromSeq(Vector.toSeq([1, 2, 2, 3]))   -- fromSeq needs Hash<Int>: provided
 var total = 0
 for x in bag                                -- iteration needs no Hash
-  total := total + x                        -- total = 8
+    total := total + x                        -- total = 8
 -- emits: const s = Bag_toSeq(bag); for (const x of s) { total = total + x; }
 
 -- (e) Rigid vs unsolved: two different errors
 fun f<c>(xs: c) =
-  for x in xs                               -- ERROR: `xs` has the generic type `c`, and
-    ...                                     --   Iterable cannot constrain a type variable
+    for x in xs                               -- ERROR: `xs` has the generic type `c`, and
+        ...                                     --   Iterable cannot constrain a type variable
                                             --   in v1; take a Seq(a) parameter instead
 fun g() =
-  let xs = deserialize(input)               -- suppose xs : α, unsolved
-  for x in xs                               -- ERROR: cannot determine what `xs` iterates
-    ...                                     --   over; add a type annotation
+    let xs = deserialize(input)               -- suppose xs : α, unsolved
+    for x in xs                               -- ERROR: cannot determine what `xs` iterates
+        ...                                     --   over; add a type annotation
 
 -- (f) Non-iterable: plain vs user-nominal (two legal homes)
 for x in 42                                 -- ERROR: `Int` is not iterable
-  ...
+    ...
 for x in widget                             -- widget : Widget, user record, no instance
-  ...                                       -- ERROR: `Widget` is not iterable. Define
+    ...                                       -- ERROR: `Widget` is not iterable. Define
                                             --   honor Iterable<Widget> in ./widget.hex,
                                             --   which declares Widget. The only other
                                             --   legal home is the prelude module
@@ -443,8 +443,8 @@ for x in widget                             -- widget : Widget, user record, no 
 
 -- (g) Provided-row collision: orphan error with the prelude hint
 honor<a> Iterable<Vector(a)> =              -- in user code
-  type Item = a
-  iterate(xs) = Vector.toSeq(xs)
+    type Item = a
+    iterate(xs) = Vector.toSeq(xs)
 -- ERROR: orphan instance — this module declares neither `Iterable` nor `Vector`;
 --        the prelude already provides Iterable<Vector(a)>
 
@@ -454,21 +454,21 @@ honor<a> Iterable<Bag(a)> = ...             -- second declaration in bag.hex
 
 -- (i) Once-evaluation of the source
 for x in expensive()                        -- expensive() called exactly once
-  ...
+    ...
 -- emits: const s = expensive_result_path; for (const x of s) { ... }
 
 -- (j) Infinite Seq: lazy pull, no divergence before the loop
 -- nats: an infinite Seq of 1, 2, 3, ... (producer illustrative — any infinite
 -- Seq specimen serves; the combinator surface is the stdlib listing's)
 for n in nats
-  if n > 3 then throw(Done()) else consume(n)   -- consume : Int -> Unit
+    if n > 3 then throw(Done()) else consume(n)   -- consume : Int -> Unit
 -- pulls 1, 2, 3, 4; consumes 1, 2, 3; throws on 4; each element computed on
 -- demand; nothing materialized
 
 -- (k) var mutation in loop bodies keeps working (blocks, not lambdas)
 var acc = ""
 for c in "abc"
-  acc := acc ++ c                           -- acc = "abc"
+    acc := acc ++ c                           -- acc = "abc"
 
 -- (l) No Iterable machinery in .d.ts
 -- bag.hex's emitted bag.d.ts contains no Iterable, no Item, no Iterable-instance

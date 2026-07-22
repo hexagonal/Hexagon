@@ -1,7 +1,7 @@
 // The polymorphic face of exact integer division and greatest common divisors.
 constraint Integral<a: (Num, Ord)> =
-  div(left: a, right: a): a
-  mod(left: a, right: a): a
-  quot(left: a, right: a): a
-  rem(left: a, right: a): a
-  gcd(left: a, right: a): a
+    div(left: a, right: a): a
+    mod(left: a, right: a): a
+    quot(left: a, right: a): a
+    rem(left: a, right: a): a
+    gcd(left: a, right: a): a

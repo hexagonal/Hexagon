@@ -452,7 +452,7 @@ second"                           // physical newline contributes one \n
 let n = 1..10                     // Integer, Range, Integer
 let subtract = x --1              // x - (-1); never a comment
 match value
-  Some(x) | None as whole when ready => whole
+    Some(x) | None as whole when ready => whole
 ```
 
 Rejected lexically:

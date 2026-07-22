@@ -102,18 +102,18 @@ Callbacks are required for a usable JavaScript FFI, but v1 supports only **repre
 
 ```hexagon
 extern from "event-source"
-  export type Event
-  export type Target
+    export type Event
+    export type Target
 
-  export fun addListener(
-    target: Target,
-    callback: Event -> Unit,
-  ): Unit
+    export fun addListener(
+        target: Target,
+        callback: Event -> Unit,
+    ): Unit
 
-  export fun removeListener(
-    target: Target,
-    callback: Event -> Unit,
-  ): Unit
+    export fun removeListener(
+        target: Target,
+        callback: Event -> Unit,
+    ): Unit
 ```
 
 `Event` is an opaque representation-direct foreign value and `Unit` is JavaScript `undefined`; no wrapper is required. Passing the same Hexagon function to `addListener` and then `removeListener` passes the same JS function identity naturally — the listener actually deregisters. **No weak wrapper cache exists in v1 because no supported callback signature needs a wrapper**; identity preservation is a consequence of the representation, not a caching feature.
@@ -126,12 +126,12 @@ A practical shape this admits today, without waiting for Part 11: Node-style err
 
 ```hexagon
 extern from "legacy-io"
-  export type IoError
+    export type IoError
 
-  export fun readText(
-    path: String,
-    callback: (Nullable(IoError), Nullable(String)) -> Unit,
-  ): Unit
+    export fun readText(
+        path: String,
+        callback: (Nullable(IoError), Nullable(String)) -> Unit,
+    ): Unit
 ```
 
 ### 5.3 Inbound function values
@@ -146,7 +146,7 @@ The canonical example:
 
 ```hexagon
 extern from "stream-tools"
-  fun visit(callback: Seq(Int) -> Unit): Unit
+    fun visit(callback: Seq(Int) -> Unit): Unit
 ```
 
 An arbitrary JS `Iterable<number>` would require a fresh persistent-`Seq` adaptation **at each callback invocation**, which drags in wrapper identity, retention, failure memoization, and lifetime questions that v1 deliberately refuses (Part 3 §10). V1 does not generate that wrapper. This is a hard error at the extern declaration, and it discharges the rejection Part 3 §9.3 and §11 assigned to this part. Per the Rewrite Rule, the diagnostic identifies the nested adapter-requiring type and names the three rewrites:
@@ -211,29 +211,29 @@ removeListener(target, onEvent)          -- same JS identity; actually deregiste
 -- (b) Extra JS callback arguments are harmless
 -- foreign: array.forEach(cb) invokes cb(value, index, array)
 extern from "helpers"
-  fun each(values: Array(Int), callback: Int -> Unit): Unit
+    fun each(values: Array(Int), callback: Int -> Unit): Unit
 each(xs, n => total.push(n))             -- index/array ignored by representation
 
 -- (c) Meaningful callback result preserved
 extern from "helpers"
-  fun filter(values: Array(Int), keep: Int -> Bool): Array(Int)
+    fun filter(values: Array(Int), keep: Int -> Bool): Array(Int)
 
 -- (d) Unit result is discarding
 extern from "collections"
-  type JsArray
-  method push(arr: JsArray, value: Int): Unit
+    type JsArray
+    method push(arr: JsArray, value: Int): Unit
 JsArray.push(arr, 3)                     -- JS push returns the new length; discarded
 
 -- (e) Hexagon exception through a callback, caught back in Hexagon
 try
-  each(xs, n => if n < 0 then throw(Negative) else ())
+    each(xs, n => if n < 0 then throw(Negative) else ())
 catch
-  Negative => ...                        -- still branded through the foreign frames
-  JsError(e) => ...                      -- a throw from `each` itself lands here
+    Negative => ...                        -- still branded through the foreign frames
+    JsError(e) => ...                      -- a throw from `each` itself lands here
 
 -- (f) Rejected: adapter in callback position
 extern from "stream-tools"
-  fun visit(callback: Seq(Int) -> Unit): Unit
+    fun visit(callback: Seq(Int) -> Unit): Unit
                                          -- ERROR (§5.4): names Seq(Int), offers the
                                          --   three rewrites; top-level Seq unaffected
 ```

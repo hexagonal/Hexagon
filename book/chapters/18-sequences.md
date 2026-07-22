@@ -6,11 +6,11 @@ collection.
 
 ```hexagon
 let visibleSquares =
-  1..100
-  |> iterate
-  |> Seq.map(number => number * number)
-  |> Seq.filter(square => square < 50)
-  |> Seq.take(5)
+    1..100
+    |> iterate
+    |> Seq.map(number => number * number)
+    |> Seq.filter(square => square < 50)
+    |> Seq.take(5)
 ```
 
 This code describes work. It does not immediately calculate one hundred squares or
@@ -41,8 +41,8 @@ Callbacks in a lazy pipeline do not run merely because the pipeline was declared
 
 ```hexagon
 let announce(name) =
-  print("Preparing ${name}")
-  name
+    print("Preparing ${name}")
+    name
 
 let announced = names |> Seq.map(announce)
 ```
@@ -76,9 +76,9 @@ Pattern matching makes the two cases explicit:
 
 ```hexagon
 let firstOrZero(numbers: Seq(Int)): Int =
-  match Seq.next(numbers)
-    Some((first, _)) => first
-    None => 0
+    match Seq.next(numbers)
+        Some((first, _)) => first
+        None => 0
 ```
 
 Calling `Seq.next(numbers)` does not consume `numbers`. Repeating the call at the same
@@ -87,12 +87,12 @@ sequence position observes the same next value. Continue traversal with the retu
 
 ```hexagon
 match Seq.next(numbers)
-  Some((first, rest)) =>
-    print("First: ${first}")
-    match Seq.next(rest)
-      Some((second, _)) => print("Second: ${second}")
-      None => ()
-  None => ()
+    Some((first, rest)) =>
+        print("First: ${first}")
+        match Seq.next(rest)
+            Some((second, _)) => print("Second: ${second}")
+            None => ()
+    None => ()
 ```
 
 There is no public mutable iterator with separate `moveNext` and `current` operations.
@@ -140,10 +140,10 @@ for generic iteration:
 
 ```hexagon
 let count<a>(values: Seq(a)): Int =
-  var total = 0
-  for _ in values
-    total := total + 1
-  total
+    var total = 0
+    for _ in values
+        total := total + 1
+    total
 ```
 
 Callers decide how to convert their concrete source. The function itself does not need

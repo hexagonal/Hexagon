@@ -24,8 +24,8 @@ The stdlib declaration has this semantic shape:
 
 ```hexagon
 export opaque record Rat derives Eq = {
-  top: BigInt,
-  bottom: BigInt,
+    top: BigInt,
+    bottom: BigInt,
 }
 ```
 
@@ -125,7 +125,7 @@ Rat.top(Rat.create(1, -2))                  -- -1
 Rat.bottom(Rat.create(1, -2))               -- 2
 Rat.create(0, 99) == Rat.create(0, 1)      -- true
 Rat.create(1, 2) + Rat.create(1, 3)
-  == Rat.create(5, 6)                         -- true
+    == Rat.create(5, 6)                         -- true
 show(Rat.create(10, 12))                      -- "5/6"
 Rat.create(1, 0)                              -- DivideByZeroError
 ```

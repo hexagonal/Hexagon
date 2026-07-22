@@ -25,7 +25,7 @@
 
 ```
 for p in e
-  body...
+    body...
 ```
 
 - `for` PATTERN `in` EXPR, then a block (indentation per Lexer & Layout; the body block opens on the following line or via the ordinary block rules). `for` and `in` are keywords.
@@ -119,7 +119,7 @@ Descending iteration is **never inferred from operand order** (§3.4); it is alw
 
 ```
 while cond
-  body...
+    body...
 ```
 
 - `while` EXPR, then a block. The condition's grammar is **the `if` condition's grammar, by reference** — whatever the operators/expressions spec decides for `if` (parenthesization, layout) applies here verbatim; this spec does not restate it.
@@ -131,12 +131,12 @@ while cond
 
 ```
 fun collatzSteps(n0) =
-  var n = n0
-  var steps = 0
-  while n != 1
-    if isEven(n) then n := Int.div(n, 2) else n := 3 * n + 1
-    steps := steps + 1
-  steps
+    var n = n0
+    var steps = 0
+    while n != 1
+        if isEven(n) then n := Int.div(n, 2) else n := 3 * n + 1
+        steps := steps + 1
+    steps
 ```
 
 - **`while true`:** legal, type `Unit`. With no `break`, an intentional infinite loop exits only via `throw` (or process end). Note for implementers and doc-writers: Hexagon has no `Never`/bottom type, so `while true ...` in final block position makes the function return `Unit` as far as the checker knows, even though it never returns. Accepted for v1; a `Never` type is not being invented here.
@@ -200,8 +200,8 @@ is normatively **lookup in the global `Iterable` instance table**: find the uniq
 
 ```
 constraint Iterable<c> =
-  type Item
-  iterate(xs: c): Seq(Item)
+    type Item
+    iterate(xs: c): Seq(Item)
 ```
 
 - `iterate` is an **ordinary constraint member** — a real prelude term, callable at concrete types (Collections Part 5 §2.3); the §2.3 desugaring names it.
@@ -288,10 +288,10 @@ Diagnostics obey the Rewrite Rule (Declarations Preamble §1.1): where a legal s
 ```
 -- (a) The accumulator idiom, at last (completes Statements §9.1(a))
 fun sumTo(n) =
-  var total = 0
-  for i in 1..n
-    total := total + i
-  total
+    var total = 0
+    for i in 1..n
+        total := total + i
+    total
 -- sumTo : Int -> Int
 -- emits: let total = 0; for (let i = 1; i <= n; i++) { total = total + i; } return total;
 
@@ -300,47 +300,47 @@ sumTo(0)                       -- 0
 
 -- (c) General-path iteration
 fun printAll(xs) =
-  for x in xs
-    print(x)                   -- assuming print : String -> Unit
+    for x in xs
+        print(x)                   -- assuming print : String -> Unit
 -- xs : Vector(String) at a call site → for (const x of xs) { print(x); }
 
 -- (d) Discard in a loop body
 for x in 1..10
-  compute(x)                   -- ERROR (10.2 row 1) if compute returns non-Unit
+    compute(x)                   -- ERROR (10.2 row 1) if compute returns non-Unit
 for x in 1..10
-  ignore(compute(x))           -- fine
+    ignore(compute(x))           -- fine
 
 -- (e) while, load-bearing
 fun countdown(n0) =
-  var n = n0
-  while n > 0
-    n := n - 1
+    var n = n0
+    while n > 0
+        n := n - 1
 -- countdown : Int -> Unit  (block-final loop; function returns Unit, no ceremony)
 
 -- (f) Loop variable is a head binder; immutable
 let i = 99
 for i in 1..3                  -- fine: head binder shadows
-  i := 5                       -- ERROR: loop variable cannot be assigned
+    i := 5                       -- ERROR: loop variable cannot be assigned
 
 -- (g) Seq as the generic idiom (v1's answer to "any iterable" parameters)
 fun firstOrZero(s: Seq(Int)): Int =
-  ...Seq.next(s)...            -- Seq has an Iterable instance; for..in over s is fine
+    ...Seq.next(s)...            -- Seq has an Iterable instance; for..in over s is fine
 
 -- (h) Range escaping a loop head
 let r = 1..10
 for x in r                     -- general path: r materialised as an iterable object
-  ...
+    ...
 
 -- (i) Literals in `..` pin to Int; later arithmetic may widen that Int
 var total = 0.0                -- total : Float (monomorphic Float literal)
 for x in 1..10                 -- x : Int — `..` unifies both literal tyvars with Int
-  total := total + x           -- x widens through Float.fromInt; emitted JS stays
+    total := total + x           -- x widens through Float.fromInt; emitted JS stays
                                -- `total = total + x`
 -- total : Float; range emission unaffected: for (let x = 1; x <= 10; x++)
 
 -- (j) Pattern loop head (canonical; per-row goldens live in Collections Parts 4–5)
 for (k, v) in m                -- m : Map(String, Int); k : String, v : Int
-  ...
+    ...
 -- emits: for (const [k, v] of m.entries()) { ... }
 ```
 
