@@ -36,6 +36,20 @@ No single spelling must replace the others. A chain of transformations often rea
 best as a pipe; several operations from one companion often read naturally with dots;
 the qualified form is always available when maximum clarity matters.
 
+When a dot chain spans several lines, align each leading dot with the receiver:
+
+```hexagon
+let selected =
+    numbers
+    .filter(number => number > 3)
+    .map(number => number * 10)
+    .take(5)
+```
+
+The leading dots continue the postfix expression. This alignment puts the receiver and
+each operation on the same visual axis, matching the established layout for a multiline
+pipe.
+
 ## Companion operations belong with a type
 
 The Modules chapter established every nominal type's **home module** and its

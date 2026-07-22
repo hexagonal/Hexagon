@@ -11,9 +11,9 @@ let numbers: Seq(Int) = Seq.iterate(1, number => number + 1)
 // Method syntax reads naturally for subject-first Seq companion functions.
 let selected =
     numbers
-        .filter(number => number > 3)
-        .map(number => number * 10)
-        .take(5)
+    .filter(number => number > 3)
+    .map(number => number * 10)
+    .take(5)
 
 // The same independent functions can be called explicitly and piped.
 let selected2 =

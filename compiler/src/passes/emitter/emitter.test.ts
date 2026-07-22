@@ -265,10 +265,14 @@ describe("emitJavaScript", () => {
     expect(javascript).not.toContain("__hex_item");
   });
 
-  test("emits replayable Seq method calls and pipelines through JavaScript generators", () => {
+  test("emits aligned multiline Seq dot calls and pipelines through JavaScript generators", () => {
     const module = coreSource(
       "let numbers: Seq(Int) = Seq.iterate(1, number => number + 1)\n" +
-        "export let selected = numbers.filter(number => number > 3).map(number => number * 2).take(5)\n" +
+        "export let selected =\n" +
+        "    numbers\n" +
+        "    .filter(number => number > 3)\n" +
+        "    .map(number => number * 2)\n" +
+        "    .take(5)\n" +
         "let selected2 = numbers |> Seq.filter(number => number > 3) |> Seq.map(number => number * 2) |> Seq.take(5)\n" +
         "for number in selected\n" +
         "    console.log(number)",
