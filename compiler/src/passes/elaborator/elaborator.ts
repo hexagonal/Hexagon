@@ -74,6 +74,7 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
   switch (expression.kind) {
     case "Name":
     case "SeqOperation":
+    case "PrimitiveOperation":
     case "Unit":
     case "Boolean":
     case "BigInt":

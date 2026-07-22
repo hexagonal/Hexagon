@@ -313,6 +313,7 @@ export type Expr =
   | IndexExpr
   | HashExpr
   | CollectionOperationExpr
+  | PrimitiveOperationExpr
   | ConvertIntExpr
   | WidenIntExpr
   | BlockExpr
@@ -439,6 +440,13 @@ export interface CollectionOperationExpr extends ExpressionFields {
   readonly collection: "Map" | "Set" | "Vector";
   readonly operation: string;
   readonly hashEvidence?: Evidence;
+}
+
+/** A compiler-owned primitive companion operation awaiting JavaScript lowering. */
+export interface PrimitiveOperationExpr extends ExpressionFields {
+  readonly kind: "PrimitiveOperation";
+  readonly primitive: "Int" | "BigInt" | "Float";
+  readonly operation: "div" | "mod" | "quot" | "rem" | "gcd" | "lcm";
 }
 
 /** A non-representationally-trivial `Num.fromInt` application. */

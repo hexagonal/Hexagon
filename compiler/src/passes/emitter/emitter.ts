@@ -665,6 +665,8 @@ class JavaScriptEmitter {
             : this.#emitEvidence(expression.hashEvidence, "Hash", expression.span, evidenceNames),
           this.#useHelper("seq"),
         );
+      case "PrimitiveOperation":
+        return this.#useHelper(primitiveOperationHelper(expression.primitive, expression.operation));
       case "Unit":
       case "ErrorExpr":
         return "undefined";
@@ -2752,6 +2754,19 @@ type Helper =
   | "stringSlice"
   | "stableHash"
   | "mixHash"
+  | "intDiv"
+  | "intMod"
+  | "intQuot"
+  | "intRem"
+  | "intGcd"
+  | "bigIntDiv"
+  | "bigIntMod"
+  | "bigIntQuot"
+  | "bigIntRem"
+  | "bigIntGcd"
+  | "bigIntLcm"
+  | "floatMod"
+  | "floatRem"
   | "persistentCollections";
 
 enum Precedence {
@@ -2837,6 +2852,7 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
     case "Name":
     case "SeqOperation":
     case "CollectionOperation":
+    case "PrimitiveOperation":
     case "Unit":
     case "Boolean":
     case "Number":
@@ -2861,6 +2877,22 @@ function renderHelper(
   dependencyName: (helper: Helper) => string,
 ): string[] {
   switch (helper) {
+    case "intDiv":
+    case "intMod":
+    case "intQuot":
+    case "intRem":
+    case "intGcd":
+    case "bigIntDiv":
+    case "bigIntMod":
+    case "bigIntQuot":
+    case "bigIntRem":
+    case "bigIntGcd":
+    case "bigIntLcm":
+    case "floatMod":
+    case "floatRem": {
+      const [primitive, operation] = primitiveOperationFromHelper(helper);
+      return [`const ${name} = ${primitiveOperation(primitive, operation)};`];
+    }
     case "persistentCollections":
       return [
         `const ${name} = (() => {`,
@@ -3139,6 +3171,69 @@ function collectionOperation(
   return "() => undefined";
 }
 
+/** Emits the fixed primitive companion families without inventing runtime objects. */
+function primitiveOperation(
+  primitive: Core.PrimitiveOperationExpr["primitive"],
+  operation: Core.PrimitiveOperationExpr["operation"],
+): string {
+  const zero = primitive === "BigInt" ? "0n" : "0";
+  if (primitive === "Float") {
+    if (operation === "rem") return "(__hex_a, __hex_b) => __hex_a % __hex_b";
+    return "(__hex_a, __hex_b) => { const __hex_r = __hex_a % __hex_b; return __hex_r < 0 ? __hex_r + Math.abs(__hex_b) : __hex_r; }";
+  }
+  const guard = `if (__hex_b === ${zero}) { const __hex_error = new Error(${JSON.stringify(`${primitive}.${operation}: divisor is zero`)}); __hex_error.name = \"DivideByZeroError\"; __hex_error.$hex = true; throw __hex_error; }`;
+  if (operation === "rem") return `(__hex_a, __hex_b) => { ${guard} return __hex_a % __hex_b; }`;
+  if (operation === "quot") {
+    return primitive === "BigInt"
+      ? `(__hex_a, __hex_b) => { ${guard} return __hex_a / __hex_b; }`
+      : `(__hex_a, __hex_b) => { ${guard} return Math.trunc(__hex_a / __hex_b); }`;
+  }
+  if (operation === "mod") {
+    return `(__hex_a, __hex_b) => { ${guard} const __hex_r = __hex_a % __hex_b; const __hex_abs = __hex_b < ${zero} ? -__hex_b : __hex_b; return __hex_r < ${zero} ? __hex_r + __hex_abs : __hex_r; }`;
+  }
+  if (operation === "div") {
+    return `(__hex_a, __hex_b) => { ${guard} const __hex_r0 = __hex_a % __hex_b; const __hex_abs = __hex_b < ${zero} ? -__hex_b : __hex_b; const __hex_r = __hex_r0 < ${zero} ? __hex_r0 + __hex_abs : __hex_r0; return (__hex_a - __hex_r) / __hex_b; }`;
+  }
+  if (operation === "gcd") {
+    const left = primitive === "BigInt"
+      ? "(__hex_a < 0n ? -__hex_a : __hex_a)"
+      : "Math.abs(__hex_a)";
+    const right = primitive === "BigInt"
+      ? "(__hex_b < 0n ? -__hex_b : __hex_b)"
+      : "Math.abs(__hex_b)";
+    return `(__hex_a, __hex_b) => { let __hex_x = ${left}; let __hex_y = ${right}; while (__hex_y !== ${zero}) { const __hex_t = __hex_x % __hex_y; __hex_x = __hex_y; __hex_y = __hex_t; } return __hex_x; }`;
+  }
+  return `(__hex_a, __hex_b) => { if (__hex_a === ${zero} || __hex_b === ${zero}) return ${zero}; const __hex_gcd = ${primitiveOperation(primitive, "gcd")}; const __hex_value = (__hex_a / __hex_gcd(__hex_a, __hex_b)) * __hex_b; return __hex_value < ${zero} ? -__hex_value : __hex_value; }`;
+}
+
+type PrimitiveOperationHelper = Extract<
+  Helper,
+  | "intDiv" | "intMod" | "intQuot" | "intRem" | "intGcd"
+  | "bigIntDiv" | "bigIntMod" | "bigIntQuot" | "bigIntRem" | "bigIntGcd" | "bigIntLcm"
+  | "floatMod" | "floatRem"
+>;
+
+function primitiveOperationHelper(
+  primitive: Core.PrimitiveOperationExpr["primitive"],
+  operation: Core.PrimitiveOperationExpr["operation"],
+): PrimitiveOperationHelper {
+  const owner = primitive === "BigInt" ? "bigInt" : primitive.toLowerCase();
+  return `${owner}${operation[0]!.toUpperCase()}${operation.slice(1)}` as PrimitiveOperationHelper;
+}
+
+function primitiveOperationFromHelper(
+  helper: PrimitiveOperationHelper,
+): readonly [Core.PrimitiveOperationExpr["primitive"], Core.PrimitiveOperationExpr["operation"]] {
+  const primitive = helper.startsWith("bigInt")
+    ? "BigInt"
+    : helper.startsWith("float")
+    ? "Float"
+    : "Int";
+  const ownerLength = primitive === "BigInt" ? 6 : primitive === "Float" ? 5 : 3;
+  const operation = helper.slice(ownerLength).toLowerCase() as Core.PrimitiveOperationExpr["operation"];
+  return [primitive, operation];
+}
+
 class GeneratedNames {
   readonly #used: Set<string>;
   readonly #next = new Map<string, number>();
@@ -3253,7 +3348,7 @@ function primitiveDictionary(
       return `({ add: (__hex_a, __hex_b) => __hex_a + __hex_b, subtract: (__hex_a, __hex_b) => __hex_a - __hex_b, multiply: (__hex_a, __hex_b) => __hex_a * __hex_b, negate: __hex_a => -__hex_a, fromInt: __hex_a => ${fromInt} })`;
     }
     case "Frac":
-      return "({ divide: (__hex_a, __hex_b) => __hex_a / __hex_b })";
+      return `({ num: ${primitiveDictionary("Num", instance, helperName)}, divide: (__hex_a, __hex_b) => __hex_a / __hex_b })`;
     case "Concat":
       return "({ concat: (__hex_a, __hex_b) => __hex_a + __hex_b })";
     case "Pow":
@@ -3266,12 +3361,12 @@ function primitiveDictionary(
         : "({ equals: (__hex_a, __hex_b) => __hex_a === __hex_b, notEquals: (__hex_a, __hex_b) => __hex_a !== __hex_b })";
     case "Ord":
       if (instance === "Float") {
-        return `({ compare: (__hex_a, __hex_b) => ${helperName("compareFloat")}(__hex_a, __hex_b) })`;
+        return `({ eq: ${primitiveDictionary("Eq", instance, helperName)}, compare: (__hex_a, __hex_b) => ${helperName("compareFloat")}(__hex_a, __hex_b) })`;
       }
       if (instance === "String") {
-        return `({ compare: (__hex_a, __hex_b) => ${helperName("compareString")}(__hex_a, __hex_b) })`;
+        return `({ eq: ${primitiveDictionary("Eq", instance, helperName)}, compare: (__hex_a, __hex_b) => ${helperName("compareString")}(__hex_a, __hex_b) })`;
       }
-      return "({ compare: (__hex_a, __hex_b) => __hex_a < __hex_b ? -1 : __hex_a > __hex_b ? 1 : 0 })";
+      return `({ eq: ${primitiveDictionary("Eq", instance, helperName)}, compare: (__hex_a, __hex_b) => __hex_a < __hex_b ? -1 : __hex_a > __hex_b ? 1 : 0 })`;
     case "Show":
       if (instance === "String") return "({ show: __hex_a => __hex_a })";
       if (instance === "Unit") return "({ show: () => \"()\" })";
@@ -3280,6 +3375,13 @@ function primitiveDictionary(
       return instance === "Float"
         ? `({ eq: { equals: (__hex_a, __hex_b) => __hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b), notEquals: (__hex_a, __hex_b) => !(__hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b)) }, hash: __hex_a => ${helperName("stableHash")}(__hex_a) })`
         : `({ eq: { equals: (__hex_a, __hex_b) => __hex_a === __hex_b, notEquals: (__hex_a, __hex_b) => __hex_a !== __hex_b }, hash: __hex_a => ${helperName("stableHash")}(__hex_a) })`;
+    case "Integral": {
+      const numeric = primitiveDictionary("Num", instance, helperName);
+      const ordering = primitiveDictionary("Ord", instance, helperName);
+      const member = (operation: Core.PrimitiveOperationExpr["operation"]): string =>
+        helperName(primitiveOperationHelper(instance as "Int" | "BigInt", operation));
+      return `({ num: ${numeric}, ord: ${ordering}, div: ${member("div")}, mod: ${member("mod")}, quot: ${member("quot")}, rem: ${member("rem")}, gcd: ${member("gcd")} })`;
+    }
     default:
       return "({})";
   }

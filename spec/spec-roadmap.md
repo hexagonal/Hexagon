@@ -13,7 +13,7 @@
 ## 2. Active v1 sequence (ordered; the order is deliberate)
 
 1. **Finish the corpus consolidation** — `notes/v1-spec-consolidation-plan.md` Parts 6–9 (focused-spec canonicalization, historical archive, reconciliation audit, Sol closeout). Parts 1–5 are done (inventory, `README.md`, `language.md`, `stdlib-roadmap.md`, this rewrite).
-2. **Draft and promote the focused v1 `Rat` specification** — after consolidation, before the stdlib listing closes. **Decided (James, July 2026), not revisitable:** `Rat` ships in v1, and its numerator and denominator representation is definitively `BigInt`. Euclidean division and the `Integral` machinery are the load-bearing foundations for canonical normalization (`division-remainder.md`; `integral-constraint.md` §1/§9; inherited decisions incl. `numeric-literals.md` §5). The focused spec owns encapsulation, exact runtime shape, API, operations, and instances. V1 decimal literals remain governed by `numeric-literals.md` — no literal polymorphism is implied by this decision.
+2. **Implement the promoted v1 `Rat` specification in the stdlib listing** — `rat.md` now fixes the `BigInt` representation, canonical normalization, minimum companion surface, instances, emission boundary, and acceptance tests. Euclidean division and `Integral` remain its load-bearing foundations (`division-remainder.md`; `integral-constraint.md`). V1 decimal literals remain governed by `numeric-literals.md`; no literal polymorphism is implied.
 3. **Close the stdlib listing against `stdlib-roadmap.md`** — the sole global ledger. All obligations, ship/defer questions, and post-v1 candidates (including the `Rat` ledger row) live there and are not reproduced here.
 
 ## 3. Language and package deferrals (v2 / on-demand; recorded, not owed for v1)

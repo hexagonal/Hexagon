@@ -30,6 +30,7 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Types | `products.md` | tuples, structural/nominal records, rows, field access |
 | Types | `unions.md` | `union` declarations, `match` surface, representations |
 | Types | `integral-constraint.md` | the `Integral` constraint |
+| Types | `rat.md` | exact `BigInt`-backed rational values |
 | Types | `constraints.md` | constraints, `honor` instances, coherence, dictionaries, defaults |
 | Control | `operators-logic-precedence.md` | operator inventory, precedence, pipe, `if/then/else`, bracket grammar |
 | Control | `pattern-matching.md` | patterns, exhaustiveness, binders |
@@ -60,7 +61,8 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Routers | `spec-roadmap.md` | remaining work, deferrals, pending cross-spec edits (Part 5 target) |
 | Guides | `notes/hexagon-for-typescript-coders.md` | active reader guide (supporting, non-normative) |
 
-**Pending canonical targets** (explicitly not yet written): `language.md` — core-language router and conceptual map (consolidation Part 3); `stdlib-roadmap.md` — the single global ledger for all stdlib-owned work (consolidation Part 4; obligations currently enumerated in `ffi.md` §9.1 and the inventory §3.3). Until Part 4 lands, a newly discovered stdlib debt is added to the inventory rather than scattered into another temporary ledger.
+The canonical routers `language.md`, `spec-roadmap.md`, and `stdlib-roadmap.md` are
+promoted. Newly discovered stdlib debt is recorded only in `stdlib-roadmap.md`.
 
 ## Minimal reading sets
 

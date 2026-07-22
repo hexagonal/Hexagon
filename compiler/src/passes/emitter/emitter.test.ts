@@ -1040,6 +1040,110 @@ describe("emitJavaScript", () => {
     expect(output.diagnostics).toEqual([]);
   });
 
+  test("selects primitive superconstraint evidence through composed dictionaries", () => {
+    const output = emitJavaScript(
+      coreSource(
+        "let orderedEqual<a: Ord>(left: a, right: a): Bool = left == right\n" +
+          "let addRatio<a: Frac>(left: a, right: a): a = left + right\n" +
+          "let result = (orderedEqual(0.0, -0.0), addRatio(1.5, 2.5))",
+      ),
+    );
+
+    expect(output.diagnostics).toEqual([]);
+    expect(output.text).toContain("eq:");
+    expect(output.text).toContain("num:");
+    const execute = Function(`${output.text}\nreturn result;`) as () => readonly unknown[];
+    expect(execute()).toEqual([true, 4]);
+  });
+
+  test("executes the primitive division families with their specified conventions", () => {
+    const output = emitJavaScript(
+      coreSource(
+        "let result = (" +
+          "Int.div(-7, 3), Int.mod(-7, 3), Int.quot(-7, 3), Int.rem(-7, 3), " +
+          "BigInt.div(7n, -3n), BigInt.mod(7n, -3n), BigInt.gcd(-12n, 18n), BigInt.lcm(4n, 6n), " +
+          "Float.mod(-7.0, 3.0), Float.rem(-7.0, 3.0))",
+      ),
+    );
+
+    expect(output.diagnostics).toEqual([]);
+    expect(output.text).toContain("const __hex_bigIntGcd");
+    expect(output.text).toContain("const __hex_bigIntLcm");
+    expect(output.text).not.toContain("const __hex_bigIntRem");
+    const execute = Function(`${output.text}\nreturn result;`) as () => readonly unknown[];
+    expect(execute()).toEqual([-3, 2, -2, -1, -2n, 1n, 6n, 12n, 2, -1]);
+  });
+
+  test("brands integer division by zero as DivideByZeroError", () => {
+    const output = emitJavaScript(coreSource("Int.mod(1, 0)"));
+    let thrown: unknown;
+    try {
+      Function(output.text)();
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown).toMatchObject({ name: "DivideByZeroError", $hex: true });
+  });
+
+  test("passes complete Integral dictionaries through generic code", () => {
+    const output = emitJavaScript(
+      coreSource(
+        "constraint Integral<a: (Num, Ord)> =\n" +
+          "  div(x: a, y: a): a\n" +
+          "  mod(x: a, y: a): a\n" +
+          "  quot(x: a, y: a): a\n" +
+          "  rem(x: a, y: a): a\n" +
+          "  gcd(x: a, y: a): a\n" +
+          "fun normalize<a: Integral>(n: a, d: a): (a, a) =\n" +
+          "  let g = gcd(n, d)\n" +
+          "  let n2 = quot(n, g)\n" +
+          "  let d2 = quot(d, g)\n" +
+          "  (n2, d2)\n" +
+          "let result = normalize(4n, 6n)",
+      ),
+    );
+
+    expect(output.diagnostics).toEqual([]);
+    expect(output.text).toContain("gcd:");
+    expect(output.text).toContain("ord:");
+    expect(output.text).toContain("num:");
+    const execute = Function(`${output.text}\nreturn result;`) as () => readonly bigint[];
+    expect(execute()).toEqual([2n, 3n]);
+  });
+
+  test("executes Rat normalization and arithmetic through Euclidean BigInt machinery", () => {
+    const output = emitJavaScript(
+      coreSource(
+        "record Rat derives Eq = {numerator: BigInt, denominator: BigInt}\n" +
+          "exception ZeroDenominatorError(message: String)\n" +
+          "let create(numerator: BigInt, denominator: BigInt): Rat =\n" +
+          "  if denominator == 0n\n" +
+          "    throw(ZeroDenominatorError(\"a Rat denominator cannot be zero\"))\n" +
+          "  else\n" +
+          "    let divisor = BigInt.gcd(numerator, denominator)\n" +
+          "    let reducedNumerator = BigInt.quot(numerator, divisor)\n" +
+          "    let reducedDenominator = BigInt.quot(denominator, divisor)\n" +
+          "    if reducedDenominator < 0n\n" +
+          "      Rat({numerator: -reducedNumerator, denominator: -reducedDenominator})\n" +
+          "    else Rat({numerator: reducedNumerator, denominator: reducedDenominator})\n" +
+          "let add(left: Rat, right: Rat): Rat =\n" +
+          "  create(left.numerator * right.denominator + right.numerator * left.denominator, left.denominator * right.denominator)\n" +
+          "let half = create(1n, 2n)\n" +
+          "let third = create(1n, 3n)\n" +
+          "let fiveSixths = add(half, third)\n" +
+          "let result = (fiveSixths.numerator, fiveSixths.denominator, fiveSixths == create(10n, 12n), create(0n, -99n).denominator)",
+      ),
+    );
+
+    expect(output.diagnostics).toEqual([]);
+    expect(output.text).toContain("const __hex_bigIntGcd");
+    expect(output.text).toContain("const __hex_bigIntQuot");
+    expect(output.text).not.toContain("const __hex_bigIntLcm");
+    const execute = Function(`${output.text}\nreturn result;`) as () => readonly unknown[];
+    expect(execute()).toEqual([5n, 6n, true, 1n]);
+  });
+
   test.each([
     ["Int", "2", "-1"],
     ["BigInt", "2n", "-1n"],

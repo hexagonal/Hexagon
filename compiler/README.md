@@ -4,7 +4,7 @@ This folder contains the beginning of `hexc`, the Hexagon compiler.
 
 The platform-neutral TypeScript core now includes shared source coordinates,
 structured diagnostics, the complete physical lexer, and the indentation layout
-pass. Thirty-eight vertical compiler slices now carry the public pipeline through `Source.File -> Lexed.File
+pass. Forty vertical compiler slices now carry the public pipeline through `Source.File -> Lexed.File
 -> LaidOut.File -> Parsed.Module -> Resolved.Module -> Typed.Module -> Core.Module ->
 Emitted output` for a deliberate language subset.
 
@@ -23,6 +23,9 @@ guarded full-pattern `try`/`catch` arms, completed user constraint declarations 
 declarations and ground bindings, `derive` and declaration-header `derives`, explicit
 constrained binders, `Seq(a)`, relative imports, explicit right-associative function
 types with zero, one, or many parameters, and the complete operator precedence table.
+Compiler-known primitive companions provide the decided `Int`/`BigInt`
+`div`/`mod`/`quot`/`rem`/`gcd` families, `BigInt.lcm`, and `Float.mod`/`rem`;
+the Hexagon-written `stdlib/Rat.hex` module is their first exact-arithmetic client.
 Transparent parameterized type aliases, qualified type paths, opaque record and union
 exports, and module-level `extern` imports with named, aliased, default, effect, value,
 function, and opaque-type declarations are also implemented. Receiver members, classes,

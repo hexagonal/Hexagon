@@ -273,7 +273,7 @@ class Checker {
             if (this.#projectionBearingConstraints.has(constraint)) {
               this.#diagnostics.add({
                 severity: "error",
-                message: `projection-bearing constraint \`${constraint}\` cannot constrain a type variable in v1; accept a concrete type or a \`Seq(a)\` instead`,
+                message: impliedTypeBinderMessage(constraint),
                 primary: parameter.span,
               });
               continue;
@@ -303,6 +303,10 @@ class Checker {
     for (const item of module.items) {
       if (item.kind !== "ConstraintDeclaration") continue;
       const subject = this.#fresh(0, false);
+      // A constraint's subject is universally quantified by the declaration.
+      // It must never participate in ordinary unresolved-variable defaulting,
+      // even when the constraint happens to have an Int instance.
+      this.#quantified.add(subject.id);
       this.#constraintSubjects.set(item, subject);
       const typeParameters = new Map<string, Mono>([[item.subject, subject]]);
       const impliedTypes = new Map(
@@ -1015,6 +1019,10 @@ class Checker {
       members.set("concat", binary);
     } else if (item.constraint === "Pow") {
       members.set("pow", binary);
+    } else if (item.constraint === "Integral") {
+      for (const name of ["div", "mod", "quot", "rem", "gcd"] as const) {
+        members.set(name, binary);
+      }
     } else {
       return false;
     }
@@ -1084,7 +1092,7 @@ class Checker {
         if (this.#projectionBearingConstraints.has(superconstraint)) {
           this.#diagnostics.add({
             severity: "error",
-            message: `projection-bearing constraint \`${superconstraint}\` cannot constrain a type variable in v1; accept a concrete type or a \`Seq(a)\` instead`,
+            message: impliedTypeBinderMessage(superconstraint),
             primary: declaration.span,
           });
         }
@@ -1239,6 +1247,21 @@ class Checker {
         );
         this.#requirements.set(expression, collectionRequirements);
         break;
+      case "PrimitiveOperation": {
+        const subject = primitive(expression.primitive);
+        const permitted = expression.primitive === "Float"
+          ? ["mod", "rem"]
+          : expression.primitive === "Int"
+          ? ["div", "mod", "quot", "rem", "gcd"]
+          : ["div", "mod", "quot", "rem", "gcd", "lcm"];
+        type = permitted.includes(expression.operation)
+          ? { kind: "Function", parameters: [subject, subject], result: subject }
+          : this.#unsupported(
+              expression.span,
+              `the companion of \`${expression.primitive}\` has no operation \`${expression.operation}\``,
+            );
+        break;
+      }
       case "Name":
         const requirements: Requirement[] = [];
         type = this.#instantiate(this.#scheme(expression.symbol), level, requirements);
@@ -1388,7 +1411,7 @@ class Checker {
             if (this.#projectionBearingConstraints.has(constraint)) {
               this.#diagnostics.add({
                 severity: "error",
-                message: `projection-bearing constraint \`${constraint}\` cannot constrain a type variable in v1; accept a concrete type or a \`Seq(a)\` instead`,
+                message: impliedTypeBinderMessage(constraint),
                 primary: parameter.span,
               });
               continue;
@@ -3029,6 +3052,7 @@ class Checker {
     if (constraint === "Ord") return ["Eq"];
     if (constraint === "Frac") return ["Num"];
     if (constraint === "Hash") return ["Eq"];
+    if (constraint === "Integral") return ["Num", "Ord"];
     return [];
   }
 
@@ -4240,6 +4264,7 @@ class Checker {
       case "Name":
       case "SeqOperation":
       case "CollectionOperation":
+      case "PrimitiveOperation":
       case "Unit":
       case "Boolean":
       case "BigInt":
@@ -4894,5 +4919,13 @@ function supports(
 }
 
 function isConstraintName(name: string): name is Typed.ConstraintName {
-  return ["Num", "Frac", "Pow", "Concat", "Eq", "Ord", "Show"].includes(name);
+  return ["Num", "Frac", "Pow", "Concat", "Eq", "Ord", "Show", "Hash", "Iterable", "Integral"].includes(name);
+}
+
+/** Keeps the technical projection vocabulary out of source-facing diagnostics. */
+function impliedTypeBinderMessage(constraint: string): string {
+  const reason = `\`${constraint}\` declares an implied type and cannot constrain a type variable in v1`;
+  return constraint === "Iterable"
+    ? `${reason}; take a \`Seq(a)\` parameter instead`
+    : reason;
 }

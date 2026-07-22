@@ -535,6 +535,7 @@ export type Expr =
   | IndexExpr
   | HashExpr
   | CollectionOperationExpr
+  | PrimitiveOperationExpr
   | LogicalNotExpr
   | LogicalExpr
   | ConstraintCallExpr
@@ -743,6 +744,13 @@ export interface CollectionOperationExpr extends ExpressionFields {
   readonly collection: "Map" | "Set" | "Vector";
   readonly operation: string;
   readonly requirements: readonly Constraint[];
+}
+
+/** A checked compiler-known operation in a primitive type's companion. */
+export interface PrimitiveOperationExpr extends ExpressionFields {
+  readonly kind: "PrimitiveOperation";
+  readonly primitive: "Int" | "BigInt" | "Float";
+  readonly operation: "div" | "mod" | "quot" | "rem" | "gcd" | "lcm";
 }
 
 export interface LogicalNotExpr extends ExpressionFields {

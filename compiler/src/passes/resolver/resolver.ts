@@ -1052,6 +1052,18 @@ class Resolver {
               span: expression.span,
             };
           }
+          if (
+            ["Int", "BigInt", "Float"].includes(expression.receiver.name.text) &&
+            scope.lookup(expression.receiver.name.text) === undefined &&
+            ["div", "mod", "quot", "rem", "gcd", "lcm"].includes(expression.field.text)
+          ) {
+            return {
+              kind: "PrimitiveOperation",
+              primitive: expression.receiver.name.text as "Int" | "BigInt" | "Float",
+              operation: expression.field.text as "div" | "mod" | "quot" | "rem" | "gcd" | "lcm",
+              span: expression.span,
+            };
+          }
           const importedModule = this.#moduleAliases.get(expression.receiver.name.text);
           if (importedModule !== undefined) {
             const symbol = importedModule.terms.get(expression.field.text);
@@ -2010,7 +2022,7 @@ function itemNameReferences(item: Resolved.Item): readonly Resolved.NameExpr[] {
 
 function expressionNames(expression: Resolved.Expr): Resolved.NameExpr[] {
   if (expression.kind === "Name") return [expression];
-  if (expression.kind === "Unit" || expression.kind === "Boolean" || expression.kind === "Integer" || expression.kind === "BigInt" || expression.kind === "Float" || expression.kind === "ErrorExpr" || expression.kind === "SeqOperation" || expression.kind === "CollectionOperation") return [];
+  if (expression.kind === "Unit" || expression.kind === "Boolean" || expression.kind === "Integer" || expression.kind === "BigInt" || expression.kind === "Float" || expression.kind === "ErrorExpr" || expression.kind === "SeqOperation" || expression.kind === "CollectionOperation" || expression.kind === "PrimitiveOperation") return [];
   if (expression.kind === "String") return expression.parts.flatMap((part) => part.kind === "Interpolation" ? expressionNames(part.expression) : []);
   if (expression.kind === "Tuple" || expression.kind === "Vector") return expression.elements.flatMap(expressionNames);
   if (expression.kind === "Record") return [...(expression.spread === undefined ? [] : expressionNames(expression.spread)), ...expression.fields.flatMap((field) => expressionNames(field.value))];

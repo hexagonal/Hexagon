@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import { helloWorld } from "./examples/hello-world";
 import { internationalIdentifiers } from "./examples/international-identifiers";
 import { specializations } from "./examples/specializations";
+import { rat } from "./examples/rat";
 import { compileSource } from "./compile";
 
 describe("compileSource", () => {
@@ -172,6 +173,18 @@ describe("compileSource", () => {
       { name: "cost", displayedType: "Float" },
       { name: "total", displayedType: "Float" },
     ]);
+  });
+
+  test("compiles the Rat example through exact BigInt arithmetic", () => {
+    const response = compileSource(13, rat.source);
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.diagnostics).toEqual([]);
+    expect(response.javascript).toContain("BigInt");
+    expect(response.javascript).toContain("__hex_instance_Show_Rat");
+    expect(response.javascript).toContain("const fiveSixths = add(half, third);");
+    expect(response.typeScriptPreview).toContain("type Rat");
   });
 
   test("returns exact binding spans for editor hovers", () => {

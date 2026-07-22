@@ -846,6 +846,25 @@ describe("check", () => {
     );
   });
 
+  test("keeps compiler-supported constraint subjects universally quantified", () => {
+    const module = checkSource(
+      "constraint Integral<a: (Num, Ord)> =\n" +
+        "  gcd(left: a, right: a): a",
+    );
+    const gcd = module.symbols.find(({ name }) => name === "gcd");
+
+    expect(gcd?.scheme).toMatchObject({
+      variables: [expect.any(Number)],
+      constraints: [{ name: "Integral", type: { kind: "Variable" } }],
+      type: {
+        kind: "Function",
+        parameters: [{ kind: "Variable" }, { kind: "Variable" }],
+        result: { kind: "Variable" },
+      },
+    });
+    expect(module.diagnostics).toEqual([]);
+  });
+
   test("checks implied type instances and resolves concrete member results", () => {
     const module = checkSource(
       "constraint Source<a> =\n" +
@@ -878,7 +897,7 @@ describe("check", () => {
     expect(module.diagnostics.map(({ message }) => message)).toEqual(
       expect.arrayContaining([
         "instance is missing implied type `Item`",
-        "projection-bearing constraint `Source` cannot constrain a type variable in v1; accept a concrete type or a `Seq(a)` instead",
+        "`Source` declares an implied type and cannot constrain a type variable in v1",
       ]),
     );
   });
