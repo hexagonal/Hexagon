@@ -22,9 +22,36 @@ This is a tooling and maintenance convention. A pinned receiver or scrutinee giv
 dot-dispatch and pattern completion a stable anchor; module boundaries form an
 error firewall; exported annotations stabilize generated TypeScript declarations;
 and the shape follows habits familiar to TypeScript programmers. It applies
-consistently, including to literals, without changing inference semantics.
+consistently, including to literals. An accurate annotation preserves the
+program’s inferred type and emitted behavior; an inaccurate annotation
+additionally rejects accidental specialization. That rejection is the boundary
+error firewall doing its job, not a change to the meaning of a well-typed
+program.
 
-### 1.1 Constraint boundaries
+### 1.1 Parameter annotations are contracts
+
+For a generic parameter, `thing: a` has two simultaneous jobs:
+
+- it tells the reader that the function is deliberately generic; and
+- it requires the checker to keep `a` generic while checking the body.
+
+The written type variable is rigid. It may accumulate inferred constraints, but
+it cannot quietly become `Int` or another concrete type. Thus:
+
+```
+let takesInt(value: Int) = value
+let inferred(value) = takesInt(value)       -- value is inferred as Int
+let rejected(value: a) = takesInt(value)    -- error: a cannot become Int
+```
+
+For a module-level function, the canonical repair is to replace `a` with the
+actual inferred parameter type. Removing the annotation is also a valid local
+rewrite that exposes inference, but it exits canonical module-level formatting.
+Annotation suggestions and generated examples must therefore insert the
+inferred type, never a placeholder type variable chosen merely because the
+type is not yet known.
+
+### 1.2 Constraint boundaries
 
 Constraints follow the output side of the boundary doctrine:
 
@@ -49,6 +76,12 @@ TypeScript declaration, and an API may deliberately demand a stronger
 constraint than its current implementation happens to use. Private helpers
 retain inferred constraints for the same reason their return types remain
 inferred: both are outputs of the implementation.
+
+The checker enforces the other direction as well: the body of an explicitly
+constrained function may demand only constraints entailed by the published
+list. A body requiring `Hash` under a written `<a: Eq>` is an error at the
+definition; it does not silently strengthen the public contract. The canonical
+repair is `<a: Hash>`, with the entailed `Eq` omitted.
 
 ## 2. Declarations are total; consumption is free
 
@@ -90,8 +123,9 @@ spelling.
    explicit open rows to review.
 
 Each phase must typecheck before and after the edit. Formatting changes must not
-alter inferred types, exported declaration shapes, emitted behavior, or inference
-rules.
+alter the intended inferred types, exported declaration shapes, or emitted
+behavior of well-typed programs. Canonical annotations deliberately reject a
+program when its written boundary disagrees with what the body requires.
 
 ## 5. Conditionals
 

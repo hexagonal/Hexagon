@@ -1,7 +1,8 @@
 /**
  * The checker implements the Hindley–Milner core needed by the current vertical
- * slices. Mutable union-find variables are private to inference;
- * the returned Typed tree contains only immutable types and schemes. Implied
+ * slices. Mutable union-find variables are private to inference; type variables
+ * written in annotations are rigid while their definition is checked. The
+ * returned Typed tree contains only immutable types and schemes. Implied
  * type choices substitute into ground instances and erase before emission; v1
  * rejects projection-bearing constraints on type-variable binders.
  */
@@ -45,10 +46,13 @@ type Mono =
 interface Variable {
   readonly kind: "Variable";
   readonly id: number;
+  readonly rigidName?: string;
+  readonly declaredConstraints?: readonly Typed.ConstraintName[];
   level: number;
   instance?: Mono;
   literalOnly: boolean;
   readonly requirements: Requirement[];
+  readonly rejectedConstraints: Set<Typed.ConstraintName>;
 }
 
 interface Constructor {
@@ -136,7 +140,7 @@ interface Requirement {
   readonly name: Typed.ConstraintName;
   readonly type: Mono;
   readonly span: Source.Span;
-  readonly origin: "literal" | "operation" | "interpolation";
+  readonly origin: "annotation" | "literal" | "operation" | "interpolation";
   readonly impliedTypes?: ReadonlyMap<string, Mono>;
   evidenceConstraint?: Typed.ConstraintName;
   evidencePath?: readonly string[];
@@ -1450,7 +1454,16 @@ class Checker {
         const annotationTails = new Map<string, Variable>();
         const annotationVariables = new Map<string, Variable>();
         for (const parameter of expression.typeParameters ?? []) {
-          const variable = this.#fresh(level + 1, false);
+          const declaredConstraints = parameter.constraints.filter((constraint) =>
+            this.#constraintNames.has(constraint) &&
+            !this.#projectionBearingConstraints.has(constraint)
+          );
+          const variable = this.#fresh(
+            level + 1,
+            false,
+            parameter.name,
+            declaredConstraints,
+          );
           annotationVariables.set(parameter.name, variable);
           for (const constraint of parameter.constraints) {
             if (!this.#constraintNames.has(constraint)) {
@@ -1469,7 +1482,12 @@ class Checker {
               });
               continue;
             }
-            this.#require(constraint, variable, parameter.span);
+            this.#require(
+              constraint,
+              variable,
+              parameter.span,
+              "annotation",
+            );
           }
         }
         const parameters = expression.parameters.map((parameter) => {
@@ -2731,13 +2749,21 @@ class Checker {
     }
   }
 
-  #fresh(level: number, literalOnly: boolean): Variable {
+  #fresh(
+    level: number,
+    literalOnly: boolean,
+    rigidName?: string,
+    declaredConstraints?: readonly Typed.ConstraintName[],
+  ): Variable {
     const variable: Variable = {
       kind: "Variable",
       id: this.#nextVariable++,
+      ...(rigidName === undefined ? {} : { rigidName }),
+      ...(declaredConstraints === undefined ? {} : { declaredConstraints }),
       level,
       literalOnly,
       requirements: [],
+      rejectedConstraints: new Set(),
     };
     this.#variables.push(variable);
     return variable;
@@ -2934,11 +2960,43 @@ class Checker {
   }
 
   #bind(variable: Variable, type: Mono, span: Source.Span): void {
+    if (variable.rigidName !== undefined) {
+      if (type.kind === "Variable" && type.rigidName === undefined) {
+        this.#bind(type, variable, span);
+        return;
+      }
+      if (type.kind === "Variable" && type.rigidName !== undefined) {
+        this.#diagnostics.add({
+          severity: "error",
+          message:
+            `\`${variable.rigidName}\` and \`${type.rigidName}\` are distinct declared type variables, ` +
+            "but the body requires them to be the same; use one type variable name in both " +
+            "annotations, or remove an annotation to let the type be inferred",
+          primary: span,
+        });
+      } else {
+        const required = Typed.displayScheme({
+          variables: [],
+          constraints: [],
+          type: this.#publicType(type),
+        });
+        this.#diagnostics.add({
+          severity: "error",
+          message:
+            `\`${variable.rigidName}\` is a declared type variable, but the body requires ` +
+            `\`${required}\`; change the annotation to \`${required}\`, or remove it to let ` +
+            "the type be inferred",
+          primary: span,
+        });
+      }
+      variable.instance = ERROR;
+      return;
+    }
     if (type.kind === "Variable") {
       type.level = Math.min(type.level, variable.level);
       type.literalOnly &&= variable.literalOnly;
       for (const requirement of variable.requirements) {
-        this.#attachRequirement(type, requirement);
+        this.#acceptRequirement(type, requirement);
       }
       variable.instance = type;
       return;
@@ -3003,7 +3061,7 @@ class Checker {
       reported: false,
     };
     const actual = this.#prune(type);
-    if (actual.kind === "Variable") this.#attachRequirement(actual, requirement);
+    if (actual.kind === "Variable") this.#acceptRequirement(actual, requirement);
     else this.#validate(requirement);
     return requirement;
   }
@@ -3126,6 +3184,67 @@ class Checker {
       }
     }
     variable.requirements.push(requirement);
+  }
+
+  #acceptRequirement(variable: Variable, requirement: Requirement): void {
+    const declared = variable.declaredConstraints;
+    if (
+      declared !== undefined &&
+      requirement.origin !== "annotation" &&
+      !declared.some((constraint) =>
+        this.#baseConstraintPath(constraint, requirement.name) !== undefined
+      )
+    ) {
+      if (variable.rejectedConstraints.has(requirement.name)) {
+        requirement.reported = true;
+        return;
+      }
+      variable.rejectedConstraints.add(requirement.name);
+      const canonical = this.#maximalConstraintNames([
+        ...declared,
+        requirement.name,
+      ]);
+      const constraintList = canonical.length === 1
+        ? canonical[0]!
+        : `(${canonical.join(", ")})`;
+      const declaration = declared.length === 0
+        ? `\`${variable.rigidName}\` is declared without constraints`
+        : `\`${variable.rigidName}\` is declared to honor ${
+          this.#formatConstraintNames(declared)
+        }`;
+      const inferenceRewrite = declared.length === 0
+        ? "remove the explicit type parameter to let it be inferred"
+        : "remove the constraint annotation to let it be inferred";
+      this.#diagnostics.add({
+        severity: "error",
+        message:
+          `${declaration}, but the body requires ` +
+          `\`${requirement.name}\`; write \`<${variable.rigidName}: ${constraintList}>\`, ` +
+          `or ${inferenceRewrite}`,
+        primary: requirement.span,
+      });
+      requirement.reported = true;
+      return;
+    }
+    this.#attachRequirement(variable, requirement);
+  }
+
+  #maximalConstraintNames(
+    constraints: readonly Typed.ConstraintName[],
+  ): readonly Typed.ConstraintName[] {
+    const unique = [...new Set(constraints)];
+    return unique.filter((constraint) =>
+      !unique.some((other) =>
+        other !== constraint &&
+        this.#baseConstraintPath(other, constraint) !== undefined
+      )
+    );
+  }
+
+  #formatConstraintNames(
+    constraints: readonly Typed.ConstraintName[],
+  ): string {
+    return constraints.map((constraint) => `\`${constraint}\``).join(" and ");
   }
 
   #baseConstraintPath(
@@ -3606,7 +3725,7 @@ class Checker {
       const existing = typeParameters.get(annotation.name);
       if (existing !== undefined) return existing;
       if (typeParameters instanceof Map) {
-        const variable = this.#fresh(level, false);
+        const variable = this.#fresh(level, false, annotation.name);
         typeParameters.set(annotation.name, variable);
         return variable;
       }

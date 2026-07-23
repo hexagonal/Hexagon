@@ -144,8 +144,9 @@ late pedagogy pass, not a commitment to the current order.
   conditional/arithmetic syntax already previewed.
 - Lightly previews constraints, pipes, dot calls, and polymorphic
   generalization.
-- Establishes lambdas, n-ary arity, calls, annotations, subject-first order, the
-  `let`/`fun` distinction, and recursion.
+- Establishes lambdas, n-ary arity, calls, annotations, declared type variables
+  as rigid definition contracts, subject-first order, the `let`/`fun`
+  distinction, and recursion.
 - Prepares type inference, operators and pipes, patterns, constraints, and modules.
 
 ### Operators
@@ -452,6 +453,9 @@ late pedagogy pass, not a commitment to the current order.
   values by stepping toward zero from either direction.
 - Subject-first parameter order is introduced here and should recur in pipes,
   dot calls, constraints, and collection examples.
+- A declared type variable such as `value: a` is a polymorphism firewall: it may
+  collect inferred constraints but cannot collapse silently to a concrete type.
+  An unannotated parameter remains flexible and may infer that concrete type.
 - JS emission convention established: `let` function → `const` arrow; `fun` → hoisted
   function declaration.
 - Reader-facing capture rule: **captured values must be ready**. Keep temporal-dead-zone
@@ -594,6 +598,9 @@ late pedagogy pass, not a commitment to the current order.
   inherited defaults that an instance may override. `Eq.equals` is required,
   `Eq.notEquals` defaults to its negation, and `!=` calls `notEquals`.
 - `Area`/`Rectangle` is the canonical user-defined constraint and instance.
+- Exported functions write maximal constraint contracts explicitly; private
+  functions infer constraints. A body may not silently strengthen a written
+  constraint list, and entailed base constraints are never restated.
 - Constraint members are direct functions, never dot-call companion operations.
 - Uses the final `honor` spelling throughout; older `implement` text in superseded spec
   passages must never leak into the book.

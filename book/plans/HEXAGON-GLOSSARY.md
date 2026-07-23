@@ -147,6 +147,24 @@ prose when citing precedent, glossed on first use; not the Hexagon-speak name.
 **Status:** Type members in constraints are formally deferred to v2; design
 decided in principle. This entry fixes the vocabulary ahead of the feature.
 
+### 4.2 declared type variable
+
+A type variable deliberately written in a function annotation, such as `a` in
+`thing: a`. It is rigid while the definition is checked: repeated uses of the
+same name denote the same type, inferred constraints may attach to it, and it
+cannot silently become a concrete type.
+
+**Diagnostics and pedagogy:** “declared type variable.” Explain the source
+contract directly: “`a` is a declared type variable, but the body requires
+`Int`.”
+
+**Spec and implementation:** “rigid annotation type variable” is legal when the
+rigidity distinction matters.
+
+**Literature cross-reference: skolem.** Legal once in spec prose when anchoring
+the implementation technique. Never use `skolem` in diagnostics or as the
+pedagogical name of the Hexagon feature.
+
 ## 5. Feature names
 
 ### 5.1 type-directed companion dispatch
@@ -210,3 +228,4 @@ The diagnostic register applies unless noted otherwise.
 | UFCS / methods | rejected as feature name (§5.1) | type-directed companion dispatch |
 | associated type | not banned; literature cross-reference only (§4.1) | implied type |
 | implies (for base constraints) | retired (§3.7) | extends / builds on / requires |
+| skolem | literature cross-reference only (§4.2); banned in diagnostics and pedagogy | declared type variable |

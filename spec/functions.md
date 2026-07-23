@@ -85,6 +85,25 @@ let plus = (x: Int, y: Int): Int => x + y
 - Return annotation: **colon after the parameter list** — TypeScript/C#/Scala/Kotlin style. There is no `->` in definition headers; arrow notation is the canonical displayed type form (§5.1).
 - Any subset of annotations may be given; inference fills the rest.
 - **No standalone signature lines.** Types are written only on definitions.
+- **A type variable written in an annotation is rigid while that definition is
+  checked.** Repeated `a` occurrences name the same type, but `a` cannot quietly
+  become `Int` or another concrete type to satisfy the body. The annotation is
+  a contract, not a hint. An unannotated parameter still receives an ordinary
+  inference variable and may resolve to a concrete type.
+
+The distinction is observable only when an annotation overpromises:
+
+```
+let takesInt(value: Int) = value
+let inferred(value) = takesInt(value)       -- legal; value is inferred as Int
+let rejected(value: a) = takesInt(value)    -- ERROR: declared a, body requires Int
+let numeric(value: a) = value + 1           -- legal; Num is inferred for a
+```
+
+Rigid annotation variables still accumulate inferred constraints. Rigidity
+pins type structure; it does not suppress demands discovered in the body.
+The literature term *skolem* may be used once to anchor the implementation
+technique, but Hexagon diagnostics say **declared type variable**.
 
 ### 4.2 Explicit type parameters
 
@@ -100,6 +119,11 @@ let plus = <a: Num>(x: a, y: a): a => x + y      -- equivalent, same AST node
 - An unconstrained variable may be written bare: `<a>`.
 - Type variables are non-uppercase-start; lowercase `a`, `b`, `k`, and `v` remain the ML-family cultural convention.
 - **Explicit type parameters do not create polymorphism** — inference generalizes anyway (§8). They (a) name the variables for documentation and (b) attach constraints. If the declared type is *less* general than the body supports, the declaration wins (the function is deliberately restricted). If it is *more* general than the body supports, that is a type error.
+- A written constraint list is also checked as a contract. Every constraint
+  demanded by the body must be entailed by a declared constraint; the checker
+  must not silently strengthen the list. Thus a body that uses `hash(value)`
+  is rejected under `<a: Eq>` and accepted under `<a: Hash>`. Because `Hash`
+  extends `Eq`, the latter also covers equality uses without restating `Eq`.
 - **Position restriction:** `<...>` type parameters are syntactically permitted only on lambdas in `let`/`fun` RHS position (equivalently, in header sugar). A `<...>`-annotated lambda anywhere else is a parse error. This prevents rank-2 types from being *expressed* here; rank-2 has its own annotation-gated pathway outside this spec's scope.
 
 Constraint semantics (what `Num` means, base constraints, `honor`) are the Constraints spec's business. This spec fixes only the syntax above.
@@ -306,6 +330,8 @@ Diagnostics obey the Rewrite Rule (Declarations Preamble §1.1): where a legal s
 | `((x, y)) => e` written meaning two parameters | Pattern Matching §6.5 owns it — "one parameter destructuring a tuple; remove the outer parentheses for two parameters" |
 | Polymorphic recursion | ordinary unification failure at the recursive call site (§7.4); consider a hint when the failing call is a self/SCC reference |
 | Lambda parameter used at two types | unification failure (§8.5); diagnostic should distinguish this from other type errors if feasible |
+| Declared type variable forced to a concrete type | "`a` is a declared type variable, but the body requires `Int`; change the annotation to `Int`, or remove it to let the type be inferred" (§4.1) |
+| Body requires a constraint not entailed by the written constraint list | "`a` is declared to honor `Eq`, but the body requires `Hash`; write `<a: Hash>`, or remove the constraint annotation to let it be inferred" (§4.2) |
 | `<...>` type parameters on a lambda outside `let`/`fun` RHS position | parse error (§4.2) |
 
 ---
@@ -318,3 +344,17 @@ Diagnostics obey the Rewrite Rule (Declarations Preamble §1.1): where a legal s
 - **FFI** (complete; `ffi.md` is the entry point): `Nullable(a)` and boundary conversions are FFI Part 2; extern functions and bindings are Part 4; the boundary calling convention for functions and callbacks (identity convention, exact arity, `Unit` discarding) is Part 6; optional/default parameters, rest/variadics, and overloads at the boundary are recorded post-v1 deferrals (ffi.md §9.2). Nothing there leaks into pure Hexagon function semantics.
 - **Constraint display in tooling**: open at Constraints §9.4 (LSP display format). The function arrow shape itself is fixed here (§5.1).
 - **Type-system internals** (Algorithm J, levels, union-find, bidirectional checking for rank-2): compiler architecture, not additional language surface. §8 owns the observable rules.
+
+---
+
+## 12. Conformance correction record
+
+**2026-07-24 — implemented in conformance with the existing rule.** Section
+4.2 already required an error when a declared type was more general than its
+body. The checker had represented user-written type variables with ordinary
+unification variables, allowing an annotation such as `value: a` to collapse
+silently to `Int`. The implementation now treats written annotation variables
+as rigid during definition checking and checks written constraint lists for
+completeness. This is a compiler defect correction, not a specification change.
+The implementation record and Sol credit live in
+`notes/compiler-conformance-defects.md`.

@@ -182,7 +182,7 @@ Constraint members are deliberately separate from companion operations:
 let display<a: Show>(value: a): String = show(value)
 ```
 
-Do not write `value.show()`. An abstract type variable does not identify one companion
+Do not write `value.show()`. A declared type variable does not identify one companion
 module, and dot syntax does not search instances. Call `show(value)` directly or pipe
 to the bare constrained function when it reads well:
 

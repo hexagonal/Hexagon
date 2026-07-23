@@ -1,7 +1,7 @@
 # Hexagon Spec: Collections Part 5 — `Iterable` & Collections Closeout
 
 **Status:** Decided (July 2026); pre-landing corrections incorporated in place (§18). Fifth and final part of the Collections effort. The authoritative operational specification of v1 `Iterable`: the resolution and typing of `for p in e`, the finalized provided-instance table (nine rows: six collections-owned, three FFI-owned), table-opening for user instances, static-resolution emission, the collections/stdlib boundary, and the transients decision. Written against Collections Parts 1–4, Constraints, Loops/Ranges/Iteration, Pattern Matching, and Modules; none re-litigated.
-**Scope:** The `for p in e` resolution algorithm and four-way failure taxonomy (unsolved-metavariable vs rigid-type-variable split; the two-legal-homes user-nominal message); the provided instance table (§4); `Iterable<String>` with `Item = String` and the `String.toSeq`/`String.fromSeq` conversion pair (`fromSeq` = concatenation, full contract §5.3); the collection-conversion-suite domain (finite collections; `Range` and `Seq` exempt with reasons); `iterate` as a real prelude term; user-instance mechanics, discoverability, and provided-instance collisions; the "writing your own collection" recipe, normative, with `Bag(a)`; static-resolution emission; the combinator-surface boundary; transients runtime-internal only.
+**Scope:** The `for p in e` resolution algorithm and four-way failure taxonomy (unsolved inference variable vs declared type variable; the two-legal-homes user-nominal message); the provided instance table (§4); `Iterable<String>` with `Item = String` and the `String.toSeq`/`String.fromSeq` conversion pair (`fromSeq` = concatenation, full contract §5.3); the collection-conversion-suite domain (finite collections; `Range` and `Seq` exempt with reasons); `iterate` as a real prelude term; user-instance mechanics, discoverability, and provided-instance collisions; the "writing your own collection" recipe, normative, with `Bag(a)`; static-resolution emission; the combinator-surface boundary; transients runtime-internal only.
 **Not in scope:** The `Iterable` declaration and type-member grammar (Part 2 §5–§8 — consumed, not restated); the v2 implied-types remainder (deferred `Item(α)` goals, `Item(c)` reference syntax, member obligations, `Iterable` binders, `derive via` — Part 2 §11, Part 1 §6.3); the combinator families themselves (`stdlib-roadmap.md` ledger, decided at the stdlib listing; boundary drawn in §10); `AsyncSeq` and any `for await` form (Loops §11.4); **everything normative about the borrowed foreign views `Array(a)`, `JsMap(k, v)`, `JsSet(a)`** — types, borrow contracts, observation semantics, conversions, emission, `.d.ts` faces (FFI Parts 2 and 10; §4 records their instance rows, §6 the discharged `Array` ownership); the foreign (`.d.ts`) representation of constraints on exported polymorphic functions (FFI spec; see §9.3); `String.join`-style conveniences (stdlib listing).
 **Companions:** Collections Part 1 (§6.1/§6.5 made normative here; §9.5/§9.6 closed); Collections Part 2 (§8 declaration; §7.2 binder ban; §9 diagnostics extended); Collections Part 3 (§8 `Iterable<Vector>` row; §9 linear idiom cashed by §5 here); Collections Part 4 (§7.2 rows; §13.1/§13.4 closed here); Loops/Ranges/Iteration (§2.3 desugaring; §5 table finalized as §4 here; §6 `Seq`; §7.1 judgment made normative as instance lookup); Pattern Matching (§5 five-positions gate); Modules (§7 instance globality and orphan rule; §7.6 discoverability); Constraints (§5.1 coherence; §2.2 members); FFI Part 2 (§§6, 8–9: the `Array(a)` obligation discharged); FFI Part 3 (`Seq(a)` boundary crossing); FFI Part 10 (§6 `JsMap`/`JsSet` rows); Primitive Types (§5.1 String indexing).
 
@@ -50,7 +50,7 @@ With Part 2 §8's promotion, `iterate` is an ordinary constraint member: a modul
 For `for p in e` with body `b`:
 
 1. Typecheck `e` **once**, yielding τ. (`e` is evaluated once at runtime, before iteration — Loops §2.3, unchanged.)
-2. Resolve τ's **outer type constructor**. If it is not known — τ is an unsolved metavariable or a rigid (binder-bound) type variable — fail per §3.2.
+2. Resolve τ's **outer type constructor**. If it is not known — τ is an unsolved inference variable or a declared type variable — fail per §3.2.
 3. Look up the unique global `Iterable` instance for that constructor (§2.2). If none exists, fail per §3.2.
 4. Substitute τ's arguments into the instance's `Item` binding, yielding the element type ε.
 5. Check the loop pattern `p` against ε. `p` is a full pattern; its binders are **head binders** (Statements §5, via Pattern Matching's loop-head position).
@@ -62,12 +62,12 @@ Steps 5–6 consume Part 4 §7.2's supersession of Loops §2.1: loop heads are o
 
 ### 3.2 Failure taxonomy — four cases
 
-The single Loops §7.1 unsolved-case message is hereby **split**: an annotation fixes a metavariable; it cannot fix a rigid variable, and telling the user to annotate a generic parameter is a false trail. The rigid case reuses Part 2 §9's binder-ban hint verbatim, because it is the same fact surfacing at a use site.
+The single Loops §7.1 unsolved-case message is hereby **split**: an annotation fixes an inference variable; it cannot fix a declared type variable, and telling the user to annotate a generic parameter is a false trail. The declared-variable case reuses Part 2 §9's binder-ban hint verbatim, because it is the same fact surfacing at a use site.
 
 | τ at step 2/3 | Error |
 |---|---|
-| Unsolved metavariable | "cannot determine what `xs` iterates over; add a type annotation" (unchanged) |
-| Rigid type variable (a binder of the enclosing function or instance) | "`xs` has the generic type `c`, and `Iterable` cannot constrain a type variable in v1; take a `Seq(a)` parameter instead" |
+| Unsolved inference variable | "cannot determine what `xs` iterates over; add a type annotation" (unchanged) |
+| Declared type variable (a binder of the enclosing function or instance) | "`xs` has the generic type `c`, and `Iterable` cannot constrain a type variable in v1; take a `Seq(a)` parameter instead" |
 | Concrete constructor, no instance, **not** a user nominal type | "`Int` is not iterable" + a conversion hint where one exists |
 | Concrete constructor, no instance, **user nominal type** | the two-legal-homes form, §3.3 |
 
@@ -290,7 +290,7 @@ New rows first; inherited rows by reference (unchanged, listed for the consolida
 
 | Situation | Error / hint | § |
 |---|---|---|
-| `for x in xs`, `xs` an unsolved metavariable | "cannot determine what `xs` iterates over; add a type annotation" | §3.2 (Loops §7.1, unchanged) |
+| `for x in xs`, `xs` an unsolved inference variable | "cannot determine what `xs` iterates over; add a type annotation" | §3.2 (Loops §7.1, unchanged) |
 | `for x in xs`, `xs : c` a rigid binder variable | "`xs` has the generic type `c`, and `Iterable` cannot constrain a type variable in v1; take a `Seq(a)` parameter instead" | **§3.2 (new split)** |
 | Non-iterable concrete type, not user-nominal | "`Int` is not iterable" (+ conversion hint where one exists) | §3.2 |
 | Non-iterable user nominal type | two-legal-homes form: the type's home file with the `honor` fixit, the prelude as the only other legal home, and the `toSeq`/`Seq(a)` alternatives | **§3.3 (new)** |
@@ -352,7 +352,7 @@ Rejected per §7.2: for a home-module instance the pattern is structurally unnec
 | 1 | Iterable(τ)=ε defined as global-instance lookup on τ's outer constructor; the Loops table is the instance table, operationally | §2.2 |
 | 2 | `iterate` is an ordinary prelude term; Loops §2.3's desugaring names the member; qualified home owed to the stdlib listing (`Iterable.iterate` presumed) | §2.3 |
 | 3 | Normative 8-step algorithm for `for p in e`; pattern heads per Pattern Matching's five positions, irrefutability-gated; body `Unit`; source evaluated once | §3.1 |
-| 4 | **Unsolved-vs-rigid diagnostic split**: metavariable → annotate; rigid binder variable → `Seq(a)` parameter hint | §3.2 |
+| 4 | **Inference-vs-declared diagnostic split**: unsolved inference variable → annotate; declared type variable → `Seq(a)` parameter hint | §3.2 |
 | 5 | User-nominal not-iterable error names **both legal homes** (the Modules §7.6 discoverability obligation's loop-side face), leading with the actionable one | §3.3 |
 | 6 | The v1 core provided table is exactly six rows: `Range`, `Vector`, `Seq`, `Map`, `Set`, `String`; plus the FFI-owned borrowed views `Array(a)` (obligated §6.1, discharged FFI Part 2 §8), `JsMap(k, v)`, `JsSet(a)` (FFI Part 10 §6); nothing else iterable in v1 | §4, §6 |
 | 7 | **`Iterable<String>`: `Item = String`, one codepoint per item** — Loops §11.6 closed; graphemes stay named-function territory | §5.1 |

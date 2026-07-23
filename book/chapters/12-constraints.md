@@ -4,7 +4,7 @@ A function that displays a value does not need to know every possible displayabl
 type. It needs one particular capability:
 
 ```hexagon
-let labelled<a: Show>(value: a): String = "Value: ${value}"
+export let labelled<a: Show>(value: a): String = "Value: ${value}"
 
 let countLabel = labelled(3)
 let nameLabel = labelled("Mira")
@@ -19,10 +19,11 @@ it accepts exactly the types Hexagon knows how to display.
 
 ## Constraints often arrive through inference
 
-The annotation above documents the relationship, but Hexagon can infer it:
+The exported annotation above publishes and pins the relationship, but a private
+helper leaves its constraints to inference:
 
 ```hexagon
-let labelled(value) = "Value: ${value}"
+let labelled(value: a) = "Value: ${value}"
 ```
 
 String interpolation uses `show`, so the inferred type says that the argument type
@@ -34,20 +35,26 @@ Write an explicit binder when the capability is important documentation or when 
 signature should deliberately be no more general:
 
 ```hexagon
-let smaller<a: Ord>(left: a, right: a): a =
+export let smaller<a: Ord>(left: a, right: a): a =
     if left < right then left else right
 ```
 
 Several obligations use the familiar parenthesized list:
 
 ```hexagon
-let describeEqual<a: (Eq, Show)>(left: a, right: a): String =
+export let describeEqual<a: (Eq, Show)>(left: a, right: a): String =
     if left == right then "Both are ${left}" else "They differ"
 ```
 
 The angle brackets introduce a type variable and its obligations. Parentheses still
 apply a type constructor: `Option(a)` is a type, while `<a: Show>` introduces a type
 variable that must be displayable.
+
+A written constraint list is a contract, not a starting point for inference to
+strengthen. If a body uses `hash(value)`, `<a: Eq>` is rejected because `Eq` does not
+provide `Hash`; the canonical repair is `<a: Hash>`. In the other direction,
+`<a: Hash>` already provides `Eq` through its base constraint, so equality needs no
+repeated `Eq` entry.
 
 ## A constraint declares the required operations
 
@@ -67,7 +74,7 @@ overrides that operation.
 Use either operation like an ordinary function:
 
 ```hexagon
-let reportArea<a: Area>(shape: a): String =
+let reportArea(shape: a) =
     describeArea(shape)
 ```
 
