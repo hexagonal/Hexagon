@@ -23,23 +23,23 @@ let card = (10, Hearts)
 // Patterns unpack structured values.
 let (rank, suit) = card
 
-// Concatenation makes greet monomorphic: its argument must be a String.
-let greet(name) = "Hello, " ++ name ++ "!"
+// Module-level parameters form an explicit inference boundary.
+let greet(name: String) = "Hello, " ++ name ++ "!"
 
-// Interpolation makes greet2 polymorphic: its argument only needs Show.
-let greet2(thing) = "Hello, \${thing}!"
+// Generic boundaries name the constraint inferred from interpolation.
+let greet2<a: Show>(thing: a) = "Hello, \${thing}!"
 
-// Annotations document a boundary when useful.
-let plus(x: Int, y: Int): Int = x + y
+// Private return types remain inferred.
+let plus(x: Int, y: Int) = x + y
 
 // Recursive functions use fun.
-fun factorial(n: Int): Int =
+fun factorial(n: Int) =
     if n <= 1
     then 1
     else n * factorial(n - 1)
 
 // Match handles every union alternative.
-let color(suit: Suit): String = match suit
+let color(suit: Suit) = match suit
     Clubs => "black"
     Diamonds => "red"
     Hearts => "red"
