@@ -26,7 +26,7 @@ The `.d.ts` faces are TypeScript's native readonly interfaces, not `Hex.` types 
 
 Foreign code owns the underlying `Map`/`Set` and must keep its **entries, elements, and size stable** while Hexagon — including any deferred traversal derived from the view (§6.3) — may observe it. This is Part 2's `Array` stability contract, applied to keyed storage:
 
-- Violation does not imply memory unsafety; affected contents, order, size, lookup, and traversal observations are **unspecified** (Part 1 §3.1).
+- Violation does not create memory unsafety; affected contents, order, size, lookup, and traversal observations are **unspecified** (Part 1 §3.1).
 - An escaped `Seq` extends the borrow obligation through its possible consumption lifetime (§6.3).
 - A freshly constructed native collection (e.g. `Map.toJsMap`'s result, §7.2) is stable while exclusively held by Hexagon; the obligation becomes relevant once foreign code can alias it.
 - Under valid use, **live observation and snapshot observation are observationally identical** — which is what licenses native iteration (§6.4) and the two-step bracket lowering (§4.2) without copies or atomicity machinery.
@@ -116,7 +116,7 @@ The rejected spellings, each with its specific defect:
 1. **`jsSet[x] : Bool`** — brackets never answer predicates. A Boolean-returning bracket would fork `[]`'s meaning by receiver type (retrieval on `Vector`/`Map`/`String`/`JsMap`, predicate on sets), destroying the one-rule teachability the accessor pair exists for — Collections Part 4 §12.2's rejection, extended verbatim to the foreign door.
 2. **`jsSet[x] : a` returning the query** — not retrieval; the caller already holds `x`. A bracket that hands back its own argument is ceremony.
 3. **`jsSet[x] : a` returning the stored representative** — genuine retrieval semantics exist here in principle (representatives are real, Collections Part 4 §5.4), but native `Set` **cannot produce the stored element without an O(n) scan**: JS offers `has`, never a lookup of the stored member. An O(n) bracket would lie about cost (Collections Part 1 §3's naming doctrine). Symmetric with the persistent side: `Set(a)` offers no representative accessor either — `contains` is its only Boolean read.
-4. **`jsSet[i]` integer indexing** — falsely implies positional structure (insertion order is an iteration contract, not an index), and is also O(n).
+4. **`jsSet[i]` integer indexing** — falsely suggests positional structure (insertion order is an iteration contract, not an index), and is also O(n).
 
 ---
 

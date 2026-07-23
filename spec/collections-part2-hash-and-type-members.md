@@ -28,7 +28,7 @@ constraint Hash<a: Eq> =
     hash(x: a): Int
 ```
 
-- `Eq` is the superconstraint: `Hash` implies `Eq`, per the standard left-to-right reading (Constraints §1/§2.1). Every type honoring `Hash` has an `Eq` instance, and a function constrained `<a: Hash>` may use `equals` on `a`.
+- `Eq` is the base constraint: `Hash` extends `Eq`, per the standard left-to-right reading (Constraints §1/§2.1). Every type honoring `Hash` has an `Eq` instance, and a function constrained `<a: Hash>` may use `equals` on `a`.
 - `Hash` lives in the prelude; its qualified home exists per Modules §6.4. Its name occupies the constraint namespace like any other (Constraints §2.2).
 - This is a real declaration with a real member, not a marker (rejected alternative §10.1).
 
@@ -38,15 +38,15 @@ constraint Hash<a: Eq> =
 
 **Codomain: `Int`.** The normative promise about the *value* is §2.3's law and §2.4's determinism — nothing else. *Informative, non-normative:* all provided and derived hashes in the v1 runtime land in signed 32-bit range (the Immutable.js smi lineage; the runtime folds with `| 0`-family operations). Code must not rely on the range; it may become normative later only under demonstrated interop pressure (§12.2).
 
-Dictionary shape, per Constraints §6.2: `Hash_T = { eq: Eq_T, hash: x => ... }`. The member name `hash` does not collide with the lowercased superconstraint slot `eq`; the §6.2 collision check is satisfied trivially.
+Dictionary shape, per Constraints §6.2: `Hash_T = { eq: Eq_T, hash: x => ... }`. The member name `hash` does not collide with the lowercased base constraint slot `eq`; the §6.2 collision check is satisfied trivially.
 
 ### 2.3 The law
 
-> For all `x`, `y` of a type honoring `Hash`: **`equals(x, y)` implies `hash(x) == hash(y)`.**
+> For all `x`, `y` of a type honoring `Hash`: **if `equals(x, y)`, then `hash(x) == hash(y)`.**
 
 Stated normatively even though §4.3 makes it hold by construction in v1 — this is the sentence any future instance-producing mechanism (v2 `derive via`, §11) must discharge. The converse is explicitly **not** a law: unequal values may collide, and collision handling is entirely the collections' business.
 
-Consequence of the superconstraint: **`Hash<Float>` normalises consistently with `Eq<Float>`'s SameValueZero** (Constraints §7) — `-0` hashes as `+0`, and all `NaN` bit patterns hash to a single value.
+Consequence of the base constraint: **`Hash<Float>` normalises consistently with `Eq<Float>`'s SameValueZero** (Constraints §7) — `-0` hashes as `+0`, and all `NaN` bit patterns hash to a single value.
 
 ### 2.4 Determinism — public function vs table placement
 
@@ -96,7 +96,7 @@ record Point = {x: Float, y: Float} derives (Eq, Hash)
 --   honor Hash<Point> = derive
 ```
 
-- `honor Hash<T> = derive` occupies the ordinary (constraint, constructor) coherence slot, obeys the orphan rule, and participates in superconstraint existence checks: deriving `Hash` with no `Eq<T>` in scope is the existing missing-superconstraint error, plus the hint **"add `Eq` to the `derives` list"** (parallel to `Ord`).
+- `honor Hash<T> = derive` occupies the ordinary (constraint, constructor) coherence slot, obeys the orphan rule, and participates in base-constraint existence checks: deriving `Hash` with no `Eq<T>` in scope produces the existing error for a missing base constraint, plus the hint **"add `Eq` to the `derives` list"** (parallel to `Ord`).
 - On a parameterized nominal type, `derive` produces the expected parameterized instance; component types' `Hash` obligations become instance-context obligations per Constraints §4.3 (`honor<a: Hash> Hash<Box(a)> = derive`-shaped).
 - An underivable slot is the standard error, phrased against the derivation: "cannot derive `Hash<Handler>`: field `f` has type `Int -> Int`, which has no `Hash` instance."
 - The whitelist diagnostic names all four derivable forms: "`Num` cannot be derived; only `Eq`, `Ord`, `Show`, and `Hash` have derivable forms." The same form applies to `Signed`.
@@ -216,7 +216,7 @@ The name states the reason for the rule it serves: what such a constraint adds t
 
 > **A projection-bearing constraint cannot be imposed on a type-variable binder in v1.**
 
-This is uniform over every binder position: function type parameters (`let f<c: Iterable>(...)` — error), `honor` prefix binders (`honor<a: Iterable> ...` — error), constraint subject binders, i.e. superconstraint position (`constraint Foo<c: Iterable>` — error), and conjunctions (`<a: (Eq, Iterable)>` — error on the `Iterable` conjunct). There are no other binder positions (data-declaration headers take no constraints, Declarations Preamble §2.2).
+This is uniform over every binder position: function type parameters (`let f<c: Iterable>(...)` — error), `honor` prefix binders (`honor<a: Iterable> ...` — error), constraint subject binders, i.e. base constraint position (`constraint Foo<c: Iterable>` — error), and conjunctions (`<a: (Eq, Iterable)>` — error on the `Iterable` conjunct). There are no other binder positions (data-declaration headers take no constraints, Declarations Preamble §2.2).
 
 What remains — and suffices for Part 1 §6.1's floor — is everything that never projects from a variable:
 
@@ -263,7 +263,7 @@ Noun policy: the noun for the `type`-declared member is **implied type**; the in
 | Unsatisfied `Hash` at a call/use site | standard unsatisfied-constraint phrasing ("`Point` has no `Hash` instance, required by `Map.set`") **plus** fixit: "add `derives Hash` to the declaration of `Point`" | Constraints §8 pattern + this doc |
 | Member-block `honor Hash<T>` | "`Hash` instances cannot be hand-written; use `derives Hash` on the declaration of `T`" | §4.1 |
 | `honor Hash<T> = derive` with hand-written `Eq<T>` | "cannot derive `Hash<Weird>`: `Weird` has a hand-written `Eq` instance; a derived hash is only consistent with a derived equality" | §4.3 |
-| `derives Hash` with no `Eq` in scope | missing-superconstraint error + "add `Eq` to the `derives` list" | §3.1 |
+| `derives Hash` with no `Eq` in scope | error for a missing base constraint + "add `Eq` to the `derives` list" | §3.1 |
 | Underivable field/slot for `Hash` | "cannot derive `Hash<Point>`: field `f` has type `T`, which has no `Hash` instance" | §3.1 |
 | `derive` for a non-derivable constraint | "…only `Eq`, `Ord`, `Show`, and `Hash` have derivable forms" | §3.1, Constraints §8 |
 | `derives Hash` on an `exception` | "exceptions have no derived instances" (existing) | §4.2 |
@@ -370,7 +370,7 @@ honor Hash<Weird> = derive                       -- ERROR: `Weird` has a hand-wr
                                                  --   instance; a derived hash is only
                                                  --   consistent with a derived equality
 
--- (6) Missing superconstraint, hinted
+-- (6) Missing base constraint, hinted
 record P = {n: Int} derives Hash                 -- ERROR: missing Eq
                                                  --   hint: add `Eq` to the `derives` list
 
@@ -393,7 +393,7 @@ honor<a> Iterable<Box(a)> =
 let f<c: Iterable>(xs: c): Int = ...             -- ERROR: `Iterable` declares an implied
                                                  --   type and cannot constrain a type
                                                  --   variable; take a `Seq(a)` parameter
-constraint Countable<c: Iterable> =              -- ERROR: same rule, superconstraint position
+constraint Countable<c: Iterable> =              -- ERROR: same rule, base constraint position
     count(xs: c): Int
 
 -- (11) Reference ban (no module-level `Item` in scope)

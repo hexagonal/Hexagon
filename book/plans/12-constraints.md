@@ -8,7 +8,7 @@ and why global coherence makes the result predictable and cheap.
 ## Reader outcome
 
 The reader can read and write constrained functions, declare a small constraint,
-supply an instance, understand superconstraints and the orphan rule, and recognize
+supply an instance, understand base constraints and the orphan rule, and recognize
 when dictionaries do or do not survive into JavaScript.
 
 ## Governing specification
@@ -25,7 +25,7 @@ when dictionaries do or do not survive into JavaScript.
 3. Constraint declarations, required operations, and default operations.
 4. Default operations and `Eq.notEquals`.
 5. `honor` declarations and instance checking.
-6. Superconstraints.
+6. Base constraints.
 7. Coherence, overlap, and the orphan rule.
 8. Prelude capability map without becoming an API inventory.
 9. Dictionary compilation, monomorphic erasure, and the JS/TS boundary.
@@ -34,7 +34,7 @@ when dictionaries do or do not survive into JavaScript.
 
 - `Show` gives a small generic label function.
 - `Area` and `Rectangle` are the canonical user-defined constraint and instance.
-- `Ord` requiring `Eq` demonstrates a superconstraint.
+- `Ord` requiring `Eq` demonstrates a base constraint.
 
 ## Audit notes
 

@@ -78,7 +78,7 @@ either: records display fields in field-name order so the result is deterministi
 when two literals were written in different orders.
 
 Derived `Ord` visits fields in field-name order and compares their values
-lexicographically. Because `Ord` has `Eq` as a superconstraint, request both:
+lexicographically. Because `Ord` has `Eq` as a base constraint, request both:
 
 ```hexagon
 record Version derives (Eq, Ord, Show) = {major: Int, minor: Int}

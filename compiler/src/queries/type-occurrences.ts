@@ -163,7 +163,7 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
       case "If":
         visitExpr(expression.condition);
         visitExpr(expression.consequence);
-        if (expression.alternative !== undefined) visitExpr(expression.alternative);
+        visitExpr(expression.alternative);
         return;
       case "While":
         visitExpr(expression.condition);

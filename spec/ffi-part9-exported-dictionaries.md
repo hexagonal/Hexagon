@@ -1,9 +1,9 @@
 # Hexagon FFI Part 9: Exported Constraint Dictionaries
 
 **Status:** Decided (July 2026), revised in place after external review (Sol) before landing. Normative promotion of `spec/notes/ffi-exported-dictionaries.md` (§§3–10 of which Part 8 defers to by name). The note's two delegated completions were confirmed in §13: handles and factories live in the instance declaration's home module under the lowercased other-party name, and evidence suffixes retain maximal constraints per variable before ordering. Preserves Part 7's corrected wrapper rule: a constrained generic edition exports the matching internal trailing-evidence function directly; a stable wrapper exists only when public ABI plumbing requires one (§9).
-**Scope:** `Constraint.Dictionary<a>` declaration shapes and nominal TypeScript branding; constraint-owned fundamental handles (`Signed.int`); type-owned non-fundamental handles (`Rat.signed`); parameterized dictionary factories (`Vector.show(Show.string)`); the public-evidence closure and ownership/nameability rules; trailing evidence ordering; superconstraint nesting and duplicate elimination; the relationship to Part 8's Algorithm G trigger; emission, identity, collisions, validation policy, and cross-package dictionary ABI.
+**Scope:** `Constraint.Dictionary<a>` declaration shapes and nominal TypeScript branding; constraint-owned fundamental handles (`Signed.int`); type-owned non-fundamental handles (`Rat.signed`); parameterized dictionary factories (`Vector.show(Show.string)`); the public-evidence closure and ownership/nameability rules; trailing evidence ordering; base constraint nesting and duplicate elimination; the relationship to Part 8's Algorithm G trigger; emission, identity, collisions, validation policy, and cross-package dictionary ABI.
 **Not in scope:** the specialization set, Algorithm S/G/N mechanics, and the fundamental type set (Part 8, `ffi-zero-cost-fundamental-exports.md` — Decided; **this part does not repeat the specialization algorithm**); constraint semantics, instance coherence, and the orphan rule (Constraints §2–§6 — consumed); general export correspondence and `.d.ts` structure (Part 7); package-resolution mechanics (Modules §12.1, future package spec).
-**Companions:** Constraints §5–§6 (instance globality; dictionaries; superconstraint slots; evaluation-freeness; the §6.4 `.d.ts` flag this part discharges for the generic-edition case); Part 7 §1/§2/§7 (correspondence, lowercase binders, direct-vs-wrapper); Part 8 §4–§6/§9 (trigger, public capability, names, ABI events); Modules §7/§11.5 (home module; dictionary emission); Functions §5.4 (subject-first).
+**Companions:** Constraints §5–§6 (instance globality; dictionaries; base constraint slots; evaluation-freeness; the §6.4 `.d.ts` flag this part discharges for the generic-edition case); Part 7 §1/§2/§7 (correspondence, lowercase binders, direct-vs-wrapper); Part 8 §4–§6/§9 (trigger, public capability, names, ABI events); Modules §7/§11.5 (home module; dictionary emission); Functions §5.4 (subject-first).
 
 ---
 
@@ -76,7 +76,7 @@ export interface Dictionary<a> {
 ```
 
 - **The brand is Part 7 §5's non-exported `unique symbol` mechanism**, with one deliberate difference: the brand slot carries the type parameter (`readonly [brand]: a`), making `Eq.Dictionary<Rat>` and `Eq.Dictionary<number>` nominally distinct *and* inference-bearing — TypeScript can identify the value type from the evidence argument (diagnostic quality, §12).
-- **Branding is nominal TypeScript evidence, not runtime validation** (§10). Superconstraint slots appear as nested dictionary fields (§7.1); members use the boundary faces of their Hexagon signatures with lowercase binders (Part 7 §2.2).
+- **Branding is nominal TypeScript evidence, not runtime validation** (§10). Base constraint slots appear as nested dictionary fields (§7.1); members use the boundary faces of their Hexagon signatures with lowercase binders (Part 7 §2.2).
 
 ---
 
@@ -230,11 +230,11 @@ Suffix **positions** are the ABI; the `.d.ts` parameter names (`eqA`, `showA`, �
 
 ---
 
-## 7. Superconstraints and duplicate elimination
+## 7. Base constraints and duplicate elimination
 
 ### 7.1 Nesting
 
-Superconstraint evidence is **nested in the subconstraint dictionary as slots** (Constraints §6.2 — slot name is the superconstraint's name, lowercased):
+Base-constraint evidence is **nested in the extending constraint’s dictionary as slots** (Constraints §6.2 — slot name is the base constraint’s name, lowercased):
 
 ```ts
 // ord.d.ts
@@ -251,11 +251,11 @@ A JS caller passes only the most specific required dictionary; an `Ord.Dictionar
 
 ### 7.2 Duplicate elimination: maximal constraints only
 
-When a declaration constrains one variable with both a constraint and its (transitive) superconstraint, the suffix must not request the superconstraint's evidence separately — it is already inside the subconstraint's dictionary. The rule, stated normatively:
+When a declaration constrains one variable with both a constraint and its (transitive) base constraint, the suffix must not request the base constraint’s evidence separately — it is already inside the extending constraint’s dictionary. The rule, stated normatively:
 
-> Per constrained variable, the evidence suffix contains dictionaries for the **maximal constraints** only — those that are not (transitive) superconstraints of another constraint declared on the same variable. Elimination happens before the §6.2 ordering is applied; the eliminated constraint's members are reached through the retained dictionary's nested slot.
+> Per constrained variable, the evidence suffix contains dictionaries for the **maximal constraints** only — those that are not (transitive) base constraints of another constraint declared on the same variable. Elimination happens before the §6.2 ordering is applied; the eliminated constraint's members are reached through the retained dictionary's nested slot.
 
-So `<a: (Eq, Ord)>` produces one `Ord.Dictionary<a>` parameter, and the emitted body reaches `equals` as `ord.eq.equals`. Consequences, ABI-relevant: adding a subconstraint that newly subsumes a previously maximal constraint **changes the suffix** and is a breaking ABI event (§11); the internal Hexagon convention and the public edition apply the same canonicalization, which is what keeps §9's direct export possible. Confirmed at review (§13.2).
+So `<a: (Eq, Ord)>` produces one `Ord.Dictionary<a>` parameter, and the emitted body reaches `equals` as `ord.eq.equals`. Consequences, ABI-relevant: adding an extending constraint that newly subsumes a previously maximal constraint **changes the suffix** and is a breaking ABI event (§11); the internal Hexagon convention and the public edition apply the same canonicalization, which is what keeps §9’s direct export possible. Confirmed at review (§13.2).
 
 ---
 
@@ -299,13 +299,13 @@ export function plus(x, y, num) {
 Public dictionaries from separately compiled Hexagon packages interoperate **only against a compatible `@hexagon/runtime` dictionary ABI version**. The ABI commitments:
 
 - constraint member names and callable signatures (the completed member set, §2.2);
-- superconstraint slots and their names (§7.1);
+- base constraint slots and their names (§7.1);
 - evidence suffix ordering and duplicate-elimination canonicalization (§6.2, §7.2);
 - brand identity/recognition where present;
 - factory argument order (§4);
 - runtime package major compatibility.
 
-**Adding, removing, or renaming a constraint member — including adding a defaulted member — is a public dictionary-ABI event**, as is changing superconstraint structure, factory argument order, or evidence ordering (Part 8 §9.5 points here). Package metadata/interface files must eventually record the dictionary ABI/runtime version; the mechanics stay with the package-system design (Modules §12.1), which inherits this requirement.
+**Adding, removing, or renaming a constraint member — including adding a defaulted member — is a public dictionary-ABI event**, as is changing base constraint structure, factory argument order, or evidence ordering (Part 8 §9.5 points here). Package metadata/interface files must eventually record the dictionary ABI/runtime version; the mechanics stay with the package-system design (Modules §12.1), which inherits this requirement.
 
 ---
 
@@ -330,7 +330,7 @@ Public dictionaries from separately compiled Hexagon packages interoperate **onl
 
 ### 13.2 Duplicate-evidence elimination (§7.2)
 
-**Confirmed.** Canonicalization retains **maximal constraints per variable, eliminating subsumed superconstraints before ordering, identically in the internal and public conventions**. Keeping duplicates is redundant; applying elimination only after assigning positions would make positions unstable under equivalent constraint lists.
+**Confirmed.** Canonicalization retains **maximal constraints per variable, eliminating subsumed base constraints before ordering, identically in the internal and public conventions**. Keeping duplicates is redundant; applying elimination only after assigning positions would make positions unstable under equivalent constraint lists.
 
 ### 13.3 Runtime constraint-module layout (deferred, not blocking)
 
@@ -350,8 +350,8 @@ Public dictionaries from separately compiled Hexagon packages interoperate **onl
 | Parameterized evidence is a real companion factory (`Vector.show(Show.string)`); argument order = instance-head parameter order (ABI); memoization licensed by coherence, identity of results unpromised | §4 |
 | Public-evidence closure: nameability (4 conditions), never consumption; generated, never written (`export honor` stays illegal); feeds Part 8 §4.1's "publicly obtainable" | §5 |
 | Two-ended elaboration doctrine; suffix ordered by (type-variable ordinal, constraint name); positions are ABI, parameter names representative | §6 |
-| Superconstraint evidence nested (Constraints §6.2); callers pass the most specific dictionary; **suffix contains maximal constraints only**, eliminated before ordering, same rule internally and publicly (confirmed at review) | §7, §13.2 |
+| Base constraint evidence nested (Constraints §6.2); callers pass the most specific dictionary; **suffix contains maximal constraints only**, eliminated before ordering, same rule internally and publicly (confirmed at review) | §7, §13.2 |
 | Part 8 relationship by reference: Algorithm G trigger, base-name reservation, additive/breaking ABI events; specializations are not wrappers; handles independent of specializations | §8 |
 | **Direct export of the internal trailing-evidence function when conventions match; stable wrapper only for ABI plumbing** (Part 7 correction preserved); wrapper discipline unchanged where one exists | §9 |
 | No routine runtime evidence validation; TS brands mandatory; freeze recommended; variadic right-edge extraction deferred with pre-registered brand-validation recommendation | §10 |
-| Cross-package compatibility requires a compatible dictionary ABI; member/superconstraint/ordering/factory-order changes are ABI events (defaulted members included); metadata requirement inherited by the package spec | §11 |
+| Cross-package compatibility requires a compatible dictionary ABI; member/base constraint/ordering/factory-order changes are ABI events (defaulted members included); metadata requirement inherited by the package spec | §11 |

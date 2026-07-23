@@ -262,7 +262,7 @@ All compiler/runtime-provided (Part 2 §4.4 wording — specified normatively he
 | `Eq<Set(a)>` | `Hash a` | equal sizes, and every element of either set is contained in the other |
 | `Eq<Map(k, v)>` | `Hash k`, `Eq v` | equal sizes, and every key of either maps in both to `equals`-equal values |
 
-Purely extensional — same contents, equal; construction history, internal form, and iteration order are irrelevant *by definition* (order-independence is not a property the implementation must arrange; it is what the definition says). Keys need `Hash` (which supplies their `Eq` via the superconstraint); map values need only `Eq`. The obvious implementation is size check + per-entry lookup (expected O(n log₃₂ n)); non-normative. Constraint propagation is the standard parameterized-instance shape (Constraints §4.3).
+Purely extensional — same contents, equal; construction history, internal form, and iteration order are irrelevant *by definition* (order-independence is not a property the implementation must arrange; it is what the definition says). Keys need `Hash` (which supplies their `Eq` via the base constraint); map values need only `Eq`. The obvious implementation is size check + per-entry lookup (expected O(n log₃₂ n)); non-normative. Constraint propagation is the standard parameterized-instance shape (Constraints §4.3).
 
 ### 8.2 No `Ord` — decided
 

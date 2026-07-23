@@ -303,7 +303,7 @@ class JavaScriptEmitter {
           localDictionary,
         );
       }
-      const superconstraints = item.superconstraints.map(({ name, evidence }) => {
+      const baseConstraints = item.baseConstraints.map(({ name, evidence }) => {
         const slot = (name[0]?.toLowerCase() ?? "") + name.slice(1);
         return objectProperty(
           slot,
@@ -326,7 +326,7 @@ class JavaScriptEmitter {
               `notEquals: (__hex_left, __hex_right) => !${localDictionary}.equals(__hex_left, __hex_right)`,
             ]
           : members;
-      const value = `{ ${[...superconstraints, ...completedMembers].join(", ")} }`;
+      const value = `{ ${[...baseConstraints, ...completedMembers].join(", ")} }`;
       if (this.#exportInstanceEvidence) {
         this.#exportEvidence(item.dictionary);
       }
@@ -773,8 +773,14 @@ class JavaScriptEmitter {
         const dictionary = this.#emitEvidence(expression.evidence, "Hash", expression.span, evidenceNames);
         return `${dictionary}.hash(${this.#emitExpr(expression.value, depth, evidenceNames)})`;
       }
-      case "Block":
-        return this.#emitBlockExpression(expression, depth, evidenceNames);
+      case "Block": {
+        const only = expression.items.length === 1
+          ? expression.items[0]
+          : undefined;
+        return only?.kind === "ExprItem"
+          ? this.#emitExpr(only.expression, depth, evidenceNames)
+          : this.#emitBlockExpression(expression, depth, evidenceNames);
+      }
       case "Lambda":
         return this.#emitLambda(expression, depth, evidenceNames, []);
       case "If": {
@@ -790,10 +796,11 @@ class JavaScriptEmitter {
           depth,
           evidenceNames,
         );
-        const alternative =
-          expression.alternative === undefined
-            ? "undefined"
-            : this.#emitExpr(expression.alternative, depth, evidenceNames);
+        const alternative = this.#emitExpr(
+          expression.alternative,
+          depth,
+          evidenceNames,
+        );
         return `${condition} ? ${consequence} : ${alternative}`;
       }
       case "While": {
@@ -1747,7 +1754,7 @@ class JavaScriptEmitter {
     return "undefined";
   }
 
-  /** Selects direct Eq evidence or the nested Eq superconstraint of Hash. */
+  /** Selects direct Eq evidence or the nested Eq base constraint of Hash. */
   #equalityDictionary(
     variable: Typed.TypeVariableId,
     evidenceNames: EvidenceNames,

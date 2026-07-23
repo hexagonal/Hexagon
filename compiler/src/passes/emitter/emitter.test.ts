@@ -900,9 +900,10 @@ describe("emitJavaScript", () => {
     const output = emitJavaScript(
       coreSource(
         "fun fact(n: Int): Int =\n" +
-          "    if n <= 1\n" +
-          "    then 1\n" +
-          "    else n * fact(n - 1)\n\n" +
+          "    if n <= 1 then\n" +
+          "        1\n" +
+          "    else\n" +
+          "        n * fact(n - 1)\n\n" +
           "let answer = 6 * 7",
       ),
     );
@@ -1075,7 +1076,7 @@ describe("emitJavaScript", () => {
     expect(output.diagnostics).toEqual([]);
   });
 
-  test("selects primitive superconstraint evidence through composed dictionaries", () => {
+  test("selects primitive base-constraint evidence through composed dictionaries", () => {
     const output = emitJavaScript(
       coreSource(
         "let orderedEqual<a: Ord>(left: a, right: a): Bool = left == right\n" +
@@ -1153,15 +1154,16 @@ describe("emitJavaScript", () => {
         "record Rat derives Eq = {top: BigInt, bottom: BigInt}\n" +
           "exception DivideByZeroError(message: String)\n" +
           "let create(top: BigInt, bottom: BigInt): Rat =\n" +
-          "    if bottom == 0n\n" +
+          "    if bottom == 0n then\n" +
           "        throw(DivideByZeroError(\"Rat.create: bottom is zero\"))\n" +
           "    else\n" +
           "        let divisor = BigInt.gcd(top, bottom)\n" +
           "        let reducedTop = BigInt.quot(top, divisor)\n" +
           "        let reducedBottom = BigInt.quot(bottom, divisor)\n" +
-          "        if reducedBottom < 0n\n" +
+          "        if reducedBottom < 0n then\n" +
           "            Rat({top: -reducedTop, bottom: -reducedBottom})\n" +
-          "        else Rat({top: reducedTop, bottom: reducedBottom})\n" +
+          "        else\n" +
+          "            Rat({top: reducedTop, bottom: reducedBottom})\n" +
           "let add(left: Rat, right: Rat): Rat =\n" +
           "    create(left.top * right.bottom + right.top * left.bottom, left.bottom * right.bottom)\n" +
           "let half = create(1n, 2n)\n" +
@@ -1485,7 +1487,7 @@ describe("emitJavaScript", () => {
     expect(output.diagnostics).toEqual([]);
   });
 
-  test("emits superconstraint slots and selects them as generic evidence", () => {
+  test("emits base-constraint slots and selects them as generic evidence", () => {
     const module = coreSource(
       "constraint Same<a> =\n" +
         "    same(left: a, right: a): Bool\n" +

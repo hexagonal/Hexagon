@@ -274,9 +274,9 @@ export declare function inspect<a, b>(
 
 ---
 
-## 7. Superconstraints
+## 7. Base constraints
 
-Superconstraint evidence is nested in the subconstraint dictionary as already directed by Constraints §6.2. A JS caller passes only the most specific required dictionary.
+Base-constraint evidence is nested in the extending constraint’s dictionary as already directed by Constraints §6.2. A JS caller passes only the most specific required dictionary.
 
 Conceptually:
 
@@ -290,7 +290,7 @@ export interface Dictionary<a> {
 }
 ```
 
-An `Ord.Dictionary<a>` therefore discharges both `Ord<a>` and `Eq<a>`. If a function independently declares both constraints, compiler canonicalization must avoid requesting duplicate evidence already supplied through a superconstraint; exact elaboration follows the normative Constraints/compiler rule and becomes part of the dictionary ABI.
+An `Ord.Dictionary<a>` therefore discharges both `Ord<a>` and `Eq<a>`. If a function independently declares both constraints, compiler canonicalization must avoid requesting duplicate evidence already supplied through a base constraint; exact elaboration follows the normative Constraints/compiler rule and becomes part of the dictionary ABI.
 
 ---
 
@@ -337,7 +337,7 @@ Public dictionaries from separately compiled Hexagon packages are compatible onl
 ABI commitments include:
 
 - constraint member names and callable signatures;
-- superconstraint slots;
+- base constraint slots;
 - evidence ordering;
 - brand identity/recognition where present;
 - factory argument order;
@@ -373,7 +373,7 @@ Required diagnostic/documentation cases:
 7. Every publicly nameable lawful instance receives a handle/factory; private instances do not.
 8. Parameterized evidence is a real companion factory function.
 9. Evidence is trailing; ordering is stable by type-variable ordinal then constraint name.
-10. Superconstraint evidence is nested; callers pass the most specific required dictionary.
+10. Base constraint evidence is nested; callers pass the most specific required dictionary.
 11. TypeScript branding is mandatory; routine runtime validation is not.
 12. Cross-package dictionaries require a compatible runtime/dictionary ABI.
 13. Variadic evidence extraction is deferred but remains mechanically compatible.

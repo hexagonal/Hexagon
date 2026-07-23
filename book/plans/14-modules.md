@@ -30,5 +30,5 @@ and execution without looking for a special `main` function.
   sources of type identity.
 - Opacity hides structure, not capabilities; derived and declared instances remain
   available.
-- Do not imply a language-level `main` or module-level mutable state.
+- Do not suggest a language-level `main` or module-level mutable state.
 - Keep the source import/export surface visibly close to ESM.

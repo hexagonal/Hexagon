@@ -53,7 +53,7 @@ This grid records questions for that discussion, not current or promised instanc
 
 Design guards for the eventual discussion:
 
-- `Signed` must not imply `Ord`: Complex supports negation and subtraction without a
+- `Signed` must not extend `Ord`: Complex supports negation and subtraction without a
   natural total order.
 - `abs` need not return the subject type: a Complex magnitude is scalar.
 - `Num` must not promise commutative multiplication: square-matrix multiplication is
@@ -68,10 +68,9 @@ Design guards for the eventual discussion:
 
 ## 4. Pending cross-spec edits (compressed; full edit text lives with the owner)
 
-Per the house convention (README authority rule 4), pending notes live in their originating documents and are applied at consolidation Part 6. The two ripples large enough to track here:
+Per the house convention (README authority rule 4), pending notes live in their originating documents and are applied at consolidation Part 6. The remaining ripple large enough to track here:
 
 - **Statements §5 correction** (`let`-pattern binders are sequential) — owner: `statements-blocks-mutability.md` §5/§5.4, full edit text in its §9.2 items 5–8; targets: `pattern-matching.md`, `products.md` §2.4, `modules.md` §10 (near-miss diagnostic), `notes/hexagon-for-typescript-coders.md`.
-- **`implement` → `honor` rename ripple** — owner: `constraints.md` §12 (complete target table there, including constraints' own body).
 
 The complete pending-note registry, per originating document, is `notes/v1-spec-inventory.md` §3.2 (approved; consumed by Part 6).
 

@@ -41,5 +41,5 @@ tuple representations.
 - Tuples have arity at least two; parentheses around one value are grouping.
 - Access is one-based `item1`, `item2`, and emits zero-based JS indexing.
 - Tuples are immutable structural values represented by JS arrays.
-- Do not teach named tuple elements; names imply records.
+- Do not teach named tuple elements; names suggest records.
 - Keep pattern examples simple even though the later pattern chapter expands them.

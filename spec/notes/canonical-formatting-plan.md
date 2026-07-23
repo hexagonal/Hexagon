@@ -1,8 +1,9 @@
 # Hexagon canonical formatting plan
 
-**Status:** Planning note (July 2026). The Playground examples and `stdlib/Rat.hex`
-are the first canonicalized corpus. Apply the remaining phases gradually when
-their source is otherwise being touched.
+**Status:** Planning note (July 2026). Boundary annotations are canonicalized in
+the Playground examples and `stdlib/Rat.hex`; mandatory-`then` conditional
+formatting is canonicalized across the live corpus. Apply the remaining phases
+gradually when their source is otherwise being touched.
 
 ## 1. Boundary-first annotation doctrine
 
@@ -63,3 +64,27 @@ spelling.
 Each phase must typecheck before and after the edit. Formatting changes must not
 alter inferred types, exported declaration shapes, emitted behavior, or inference
 rules.
+
+## 5. Conditionals
+
+Every conditional uses mandatory `then` and `else`. Keep a genuinely short
+conditional on one line:
+
+```
+if isTall then 5 else 6
+```
+
+Otherwise use the reliable multiline form:
+
+```
+if condition then
+    trueExpression
+else
+    falseExpression
+```
+
+The formatter may collapse the multiline form only when the complete conditional
+fits the configured line-width limit.
+
+In multiline code, a nested false-branch conditional is indented beneath `else`;
+`else if` is reserved for a complete conditional that stays on one line.

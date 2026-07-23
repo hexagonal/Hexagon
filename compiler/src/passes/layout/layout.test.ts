@@ -17,7 +17,7 @@ describe("applyLayout", () => {
 
   test("keeps comment-only lines invisible to the offside rule", () => {
     const result = layout(
-      "if ready\n    first()\n// deliberately outdented\n            /* padded */\n    second()",
+      "while ready\n    first()\n// deliberately outdented\n            /* padded */\n    second()",
     );
 
     expect(virtualKinds(result.tokens)).toEqual([
@@ -27,10 +27,11 @@ describe("applyLayout", () => {
   });
 
   test("opens nested blocks and closes repeated dedents", () => {
-    const result = layout("fun f(x) =\n    if x\n        print(x)\n    print(0)\nprint(1)");
+    const result = layout("fun f(x) =\n    if x then\n        print(x)\n    else\n        print(0)\n    print(1)\nprint(2)");
 
     expect(virtualKinds(result.tokens)).toEqual([
-      "VOpen", "VOpen", "VOpen", "VClose", "VSep", "VClose", "VSep", "VClose",
+      "VOpen", "VOpen", "VOpen", "VClose", "VOpen", "VClose",
+      "VSep", "VClose", "VSep", "VClose",
     ]);
     expect(result.diagnostics).toEqual([]);
   });
@@ -65,7 +66,7 @@ describe("applyLayout", () => {
 
   test("attaches else and catch clauses without an intervening separator", () => {
     const result = layout(
-      "if ready\n    run()\nelse\n    wait()\ntry\n    risky()\ncatch\n    Failure => recover()",
+      "if ready then\n    run()\nelse\n    wait()\ntry\n    risky()\ncatch\n    Failure => recover()",
     );
 
     expect(virtualKinds(result.tokens)).toEqual([
@@ -75,17 +76,22 @@ describe("applyLayout", () => {
     expect(result.diagnostics).toEqual([]);
   });
 
-  test("attaches aligned then and else clauses across physical lines", () => {
+  test("opens a true-branch block after mandatory then", () => {
     const result = layout(
       "fun fact(n: Int): Int =\n" +
-        "    if n <= 1\n" +
-        "    then 1\n" +
-        "    else n * fact(n - 1)",
+        "    if n <= 1 then\n" +
+        "        1\n" +
+        "    else\n" +
+        "        n * fact(n - 1)",
     );
 
     expect(virtualKinds(result.tokens)).toEqual([
       "VOpen",
       "VOpen",
+      "VOpen",
+      "VClose",
+      "VOpen",
+      "VClose",
       "VClose",
       "VClose",
     ]);
@@ -129,7 +135,7 @@ describe("applyLayout", () => {
   });
 
   test("reports inconsistent dedents and recovers at the revealed block", () => {
-    const result = layout("if x\n    if y\n        a\n      b\nc");
+    const result = layout("if x then\n    if y then\n        a\n      b\nelse\n    c");
 
     expect(result.diagnostics.map(({ message }) => message)).toContain(
       "inconsistent dedent; expected one of columns 0, 4",
@@ -148,7 +154,7 @@ describe("applyLayout", () => {
   });
 
   test("reports a block head left open at end of file", () => {
-    const result = layout("if ready");
+    const result = layout("if ready then");
 
     expect(result.diagnostics.map(({ message }) => message)).toContain(
       "expected an indented block",

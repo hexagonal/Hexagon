@@ -34,5 +34,5 @@ small user-defined collection iterable.
 - Keep subject-first qualified functions compatible with pipes and dot calls.
 - Do not teach implied types here. Allude to the mechanism only far enough to read
   the `Bag(a)` instance, then hand it to the next chapter.
-- Do not imply that `Map` or `Set` iteration is insertion, sorted, or cross-run stable.
+- Do not suggest that `Map` or `Set` iteration is insertion, sorted, or cross-run stable.
 - Do not identify persistent collections with native mutable JavaScript collections.

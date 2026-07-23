@@ -214,7 +214,7 @@ class Checker {
     ReadonlyMap<string, Variable>
   >();
   readonly #instanceSubjects = new WeakMap<Resolved.HonorItem, Mono>();
-  readonly #instanceSuperconstraints = new WeakMap<Resolved.HonorItem, readonly Requirement[]>();
+  readonly #instanceBaseConstraints = new WeakMap<Resolved.HonorItem, readonly Requirement[]>();
   readonly #mutableSymbols = new Set<Resolved.SymbolId>();
   readonly #variables: Variable[] = [];
   readonly #quantified = new Set<number>();
@@ -404,7 +404,7 @@ class Checker {
         });
       }
     }
-    this.#checkSuperconstraintGraph();
+    this.#checkBaseConstraintGraph();
     for (const item of module.items) {
       if (item.kind !== "ConstraintDeclaration") continue;
       for (const member of item.members) {
@@ -745,10 +745,10 @@ class Checker {
               this.#require(item.constraint, component.type, component.span);
             }
           }
-          this.#instanceSuperconstraints.set(
+          this.#instanceBaseConstraints.set(
             item,
-            this.#superconstraints(item.constraint).map((superconstraint) =>
-              this.#require(superconstraint, instanceSubject, item.span)
+            this.#baseConstraints(item.constraint).map((baseConstraint) =>
+              this.#require(baseConstraint, instanceSubject, item.span)
             ),
           );
           if (item.constraint === "Hash") {
@@ -766,10 +766,10 @@ class Checker {
         if (declaration === undefined) continue;
         const supplied = new Set(item.members.map(({ name }) => name));
         const instanceSubject = this.#instanceSubjects.get(item) ?? ERROR;
-        this.#instanceSuperconstraints.set(
+        this.#instanceBaseConstraints.set(
           item,
-          this.#superconstraints(item.constraint).map((superconstraint) =>
-            this.#require(superconstraint, instanceSubject, item.span)
+          this.#baseConstraints(item.constraint).map((baseConstraint) =>
+            this.#require(baseConstraint, instanceSubject, item.span)
           ),
         );
         const impliedTypes = new Map<string, Mono>();
@@ -1080,10 +1080,10 @@ class Checker {
       return false;
     }
 
-    this.#instanceSuperconstraints.set(
+    this.#instanceBaseConstraints.set(
       item,
-      this.#superconstraints(item.constraint).map((superconstraint) =>
-        this.#require(superconstraint, subject, item.span)
+      this.#baseConstraints(item.constraint).map((baseConstraint) =>
+        this.#require(baseConstraint, subject, item.span)
       ),
     );
     const supplied = new Set(item.members.map(({ name }) => name));
@@ -1132,29 +1132,29 @@ class Checker {
   }
 
   /** Validates the implication DAG before evidence selection begins. */
-  #checkSuperconstraintGraph(): void {
+  #checkBaseConstraintGraph(): void {
     for (const declaration of this.#constraintDeclarations.values()) {
-      for (const superconstraint of declaration.superconstraints) {
-        if (!this.#constraintNames.has(superconstraint)) {
+      for (const baseConstraint of declaration.baseConstraints) {
+        if (!this.#constraintNames.has(baseConstraint)) {
           this.#diagnostics.add({
             severity: "error",
-            message: `unknown superconstraint \`${superconstraint}\``,
+            message: `unknown base constraint \`${baseConstraint}\``,
             primary: declaration.span,
           });
         }
-        if (this.#projectionBearingConstraints.has(superconstraint)) {
+        if (this.#projectionBearingConstraints.has(baseConstraint)) {
           this.#diagnostics.add({
             severity: "error",
-            message: impliedTypeBinderMessage(superconstraint),
+            message: impliedTypeBinderMessage(baseConstraint),
             primary: declaration.span,
           });
         }
         const reservedMember =
-          (superconstraint[0]?.toLowerCase() ?? "") + superconstraint.slice(1);
+          (baseConstraint[0]?.toLowerCase() ?? "") + baseConstraint.slice(1);
         if (declaration.members.some(({ binding }) => binding.name === reservedMember)) {
           this.#diagnostics.add({
             severity: "error",
-            message: `member \`${reservedMember}\` conflicts with the \`${superconstraint}\` dictionary slot; rename the member`,
+            message: `member \`${reservedMember}\` conflicts with the \`${baseConstraint}\` dictionary slot; rename the member`,
             primary: declaration.span,
           });
         }
@@ -1169,16 +1169,16 @@ class Checker {
         const cycle = [...path.slice(path.indexOf(name)), name];
         this.#diagnostics.add({
           severity: "error",
-          message: `superconstraint cycle: ${cycle.join(" requires ")}`,
+          message: `base constraint cycle: ${cycle.join(" requires ")}`,
           primary: this.#constraintDeclarations.get(name)!.span,
         });
         return;
       }
       state.set(name, "visiting");
       const declaration = this.#constraintDeclarations.get(name);
-      for (const superconstraint of declaration?.superconstraints ?? []) {
-        if (this.#constraintDeclarations.has(superconstraint)) {
-          visit(superconstraint, [...path, name]);
+      for (const baseConstraint of declaration?.baseConstraints ?? []) {
+        if (this.#constraintDeclarations.has(baseConstraint)) {
+          visit(baseConstraint, [...path, name]);
         }
       }
       state.set(name, "visited");
@@ -1512,35 +1512,30 @@ class Checker {
         const condition = this.#inferExpr(expression.condition, level);
         this.#unify(condition, primitive("Bool"), expression.condition.span);
         const consequence = this.#inferExpr(expression.consequence, level);
-        if (expression.alternative === undefined) {
-          this.#unify(consequence, primitive("Unit"), expression.consequence.span);
-          type = primitive("Unit");
+        const alternative = this.#inferExpr(expression.alternative, level);
+        if (
+          this.#tryWidenNumeric(
+            expression.consequence,
+            consequence,
+            alternative,
+            expression.span,
+            true,
+          )
+        ) {
+          type = alternative;
+        } else if (
+          this.#tryWidenNumeric(
+            expression.alternative,
+            alternative,
+            consequence,
+            expression.span,
+            true,
+          )
+        ) {
+          type = consequence;
         } else {
-          const alternative = this.#inferExpr(expression.alternative, level);
-          if (
-            this.#tryWidenNumeric(
-              expression.consequence,
-              consequence,
-              alternative,
-              expression.span,
-              true,
-            )
-          ) {
-            type = alternative;
-          } else if (
-            this.#tryWidenNumeric(
-              expression.alternative,
-              alternative,
-              consequence,
-              expression.span,
-              true,
-            )
-          ) {
-            type = consequence;
-          } else {
-            this.#unify(consequence, alternative, expression.span);
-            type = consequence;
-          }
+          this.#unify(consequence, alternative, expression.span);
+          type = consequence;
         }
         break;
       }
@@ -3076,7 +3071,7 @@ class Checker {
     return destination.kind === "Variable"
       ? allowVariableTarget && !destination.literalOnly &&
         destination.requirements.some(({ name }) =>
-          this.#superconstraintPath(name, constraint) !== undefined
+          this.#baseConstraintPath(name, constraint) !== undefined
         )
       : destination.kind === "Constructor"
         ? supports(destination.name, constraint)
@@ -3114,17 +3109,17 @@ class Checker {
   #attachRequirement(variable: Variable, requirement: Requirement): void {
     const provider = variable.requirements.find(
       (candidate) =>
-        this.#superconstraintPath(candidate.name, requirement.name) !== undefined,
+        this.#baseConstraintPath(candidate.name, requirement.name) !== undefined,
     );
     if (provider !== undefined) {
       if (provider.name === requirement.name) return;
-      const path = this.#superconstraintPath(provider.name, requirement.name);
+      const path = this.#baseConstraintPath(provider.name, requirement.name);
       requirement.evidenceConstraint = provider.name;
       if (path !== undefined) requirement.evidencePath = path;
       return;
     }
     for (const existing of variable.requirements) {
-      const path = this.#superconstraintPath(requirement.name, existing.name);
+      const path = this.#baseConstraintPath(requirement.name, existing.name);
       if (path !== undefined) {
         existing.evidenceConstraint = requirement.name;
         existing.evidencePath = path;
@@ -3133,7 +3128,7 @@ class Checker {
     variable.requirements.push(requirement);
   }
 
-  #superconstraintPath(
+  #baseConstraintPath(
     constraint: string,
     target: string,
     seen = new Set<string>(),
@@ -3141,20 +3136,20 @@ class Checker {
     if (constraint === target) return [];
     if (seen.has(constraint)) return undefined;
     seen.add(constraint);
-    for (const superconstraint of this.#superconstraints(constraint)) {
-      const suffix = this.#superconstraintPath(superconstraint, target, seen);
+    for (const baseConstraint of this.#baseConstraints(constraint)) {
+      const suffix = this.#baseConstraintPath(baseConstraint, target, seen);
       if (suffix !== undefined) {
         const slot =
-          (superconstraint[0]?.toLowerCase() ?? "") + superconstraint.slice(1);
+          (baseConstraint[0]?.toLowerCase() ?? "") + baseConstraint.slice(1);
         return [slot, ...suffix];
       }
     }
     return undefined;
   }
 
-  #superconstraints(constraint: string): readonly string[] {
+  #baseConstraints(constraint: string): readonly string[] {
     const declared = this.#constraintDeclarations.get(constraint);
-    if (declared !== undefined) return declared.superconstraints;
+    if (declared !== undefined) return declared.baseConstraints;
     if (constraint === "Ord") return ["Eq"];
     if (constraint === "Signed") return ["Num"];
     if (constraint === "Frac") return ["Signed"];
@@ -4044,7 +4039,7 @@ class Checker {
         kind: "ConstraintDeclaration",
         name: item.name,
         subject: Typed.typeVariableId(subject.id),
-        superconstraints: item.superconstraints,
+        baseConstraints: item.baseConstraints,
         impliedTypes: item.impliedTypes.map((impliedType) => ({
           name: impliedType.name,
           type: this.#publicType(
@@ -4101,8 +4096,8 @@ class Checker {
         subject: this.#publicType(this.#instanceSubjects.get(item) ?? ERROR),
         derived: item.derived,
         dictionary: item.dictionary,
-        superconstraints: this.#publicRequirements(
-          this.#instanceSuperconstraints.get(item) ?? [],
+        baseConstraints: this.#publicRequirements(
+          this.#instanceBaseConstraints.get(item) ?? [],
         ),
         impliedTypes: item.impliedTypes.map((impliedType) => ({
           name: impliedType.name,
@@ -4454,18 +4449,15 @@ class Checker {
         return { ...expression, type, items: expression.items.map((item) => this.#materializeItem(item)) };
       case "Lambda":
         return this.#materializeLambda(expression);
-      case "If": {
-        const common = {
+      case "If":
+        return {
           kind: "If" as const,
           condition: this.#materializeExpr(expression.condition),
           consequence: this.#materializeExpr(expression.consequence),
+          alternative: this.#materializeExpr(expression.alternative),
           type,
           span: expression.span,
         };
-        return expression.alternative === undefined
-          ? common
-          : { ...common, alternative: this.#materializeExpr(expression.alternative) };
-      }
       case "While":
         return {
           kind: "While",

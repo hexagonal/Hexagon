@@ -51,7 +51,7 @@ An explicit, eager, named operation traverses or constructs a new representation
 
 ### 3.1 Contract violation: unspecified observations
 
-When foreign code violates a trusted declaration or a borrow contract — a non-integral `number` behind an `Int` declaration, a mutated array behind a live `Array(a)` borrow — the affected Hexagon observations are **unspecified**. This does not imply memory unsafety; it means Hexagon promises nothing about the affected contents, order, length, or derived results. Informally this is a cultural responsibility — binding authors check that the JavaScript API really satisfies the declaration — but normatively it is a programmer-supplied boundary contract.
+When foreign code violates a trusted declaration or a borrow contract — a non-integral `number` behind an `Int` declaration, a mutated array behind a live `Array(a)` borrow — the affected Hexagon observations are **unspecified**. This does not create memory unsafety; it means Hexagon promises nothing about the affected contents, order, length, or derived results. Informally this is a cultural responsibility — binding authors check that the JavaScript API really satisfies the declaration — but normatively it is a programmer-supplied boundary contract.
 
 ### 3.2 Where checks lawfully live
 

@@ -145,7 +145,7 @@ Element types obey Part 1 §5.2's recursive representation contract: `Array(Int)
 > **Foreign code must keep the array's elements and length stable while Hexagon, including any deferred traversal derived from the array, may observe it.**
 
 - The obligation lasts while Hexagon or any deferred `Array.toSeq` traversal may still observe the array. **An escaped sequence extends the borrow obligation** through its possible consumption lifetime: handing `Array.toSeq(arr)` onward hands the stability obligation onward with it.
-- Violation is a Part 1 §3.1 contract violation: it does not imply memory unsafety, but the affected contents, order, length, and traversal observations are unspecified.
+- Violation is a Part 1 §3.1 contract violation: it does not create memory unsafety, but the affected contents, order, length, and traversal observations are unspecified.
 - **A freshly runtime-constructed array is stable while exclusively held by Hexagon.** `Array.fromSeq` and `Vector.toArray` produce fresh arrays (§9); the stability obligation becomes relevant only once foreign code can alias the reference. Hexagon never gains a public mutation operation either way.
 
 ### 6.3 The accessor surface

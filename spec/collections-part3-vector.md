@@ -88,8 +88,8 @@ Same uniform gate message, same witness printer (Pattern Matching §5.3).
 
 Length test + indexed reads, readable:
 
-```
--- match xs with [a, b, ...rest] => …
+```javascript
+// match xs with [a, b, ...rest] => …
 if (xs.size >= 2) {
     const a = xs.get(0), b = xs.get(1);
     const rest = xs.slice(2);

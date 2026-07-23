@@ -36,7 +36,7 @@ Replace textual references with stable symbols. Implement scopes, imports, expor
 
 ## 5. Type-system core
 
-**The HM and row core now includes generic nominal unions and records, `Exn`, `Seq(a)`, Vector/Map/Set and Array/Nullable types, inferred and explicitly annotated n-ary functions, explicit/inferred constraints, structural hashing, maximal trailing evidence, required/default members, nested superconstraints, coherent ground and parameterized instances, concrete `Iterable` selection, nominal derivation, implied type substitution at concrete calls, and the v1 projection-bearing binder ban; the conditional public dictionary ABI remains with later FFI integration work.**
+**The HM and row core now includes generic nominal unions and records, `Exn`, `Seq(a)`, Vector/Map/Set and Array/Nullable types, inferred and explicitly annotated n-ary functions, explicit/inferred constraints, structural hashing, maximal trailing evidence, required/default members, nested base constraints, coherent ground and parameterized instances, concrete `Iterable` selection, nominal derivation, implied type substitution at concrete calls, and the v1 projection-bearing binder ban; the conditional public dictionary ABI remains with later FFI integration work.**
 
 Implement Algorithm J, union-find type variables, levels and generalisation, type schemes, unification, rows, constraints, and stable type rendering for diagnostics.
 

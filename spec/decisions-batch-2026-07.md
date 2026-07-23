@@ -63,9 +63,9 @@ The `Eq`/`Ord` laws (reflexivity, symmetry, transitivity; `compare`-`equals` agr
 Derived instances for **nominal** types (`record`, `union`) are **opt-in**. Two spellings, one meaning:
 
 ```
--- Core form: an implement whose body is the keyword `derive`
-implement Show<Point> = derive
-implement Eq<Point> = derive
+-- Core form: an honor declaration whose body is the keyword `derive`
+honor Show<Point> = derive
+honor Eq<Point> = derive
 
 -- Header-clause sugar, desugaring to the above, one per listed constraint
 record Point = {x: Float, y: Float} derives (Eq, Show)
@@ -74,20 +74,20 @@ union Shape = Circle(Float) | Rect(Float, Float) derives (Eq, Show, Ord)
 
 - The `derives (...)` clause takes the same parenthesized constraint list as multi-constraint binders (`<a: (Eq, Show)>`, Constraints §1); a single constraint may drop the parens: `derives Eq`.
 - Derivable in v1: `Eq`, `Ord`, `Show` — exactly the constraints whose structural semantics are already fixed (tuples: Products §2.5; structural records: Products §3.4; unions: Unions §7). A nominal derivation is that structural semantics applied to the underlying shape. `derive` for any other constraint is a hard error (§2.5).
-- A derived instance is an ordinary instance thereafter: it occupies the (constraint, constructor) coherence slot (Constraints §5.1), participates in superconstraint existence checks (deriving `Ord` requires an `Eq` instance in scope — derived or hand-written — per Constraints §4.2), and obeys the orphan rule (`derive` is only writable where a hand-written instance would be legal, §5.3 there).
-- **Structural types are untouched**: tuples and structural records keep their automatic compiler-derived instances (they have no constructor name to hang an `implement` on — consistent with the Constraints §9.3 presumption, which stands).
+- A derived instance is an ordinary instance thereafter: it occupies the (constraint, constructor) coherence slot (Constraints §5.1), participates in base constraint existence checks (deriving `Ord` requires an `Eq` instance in scope — derived or hand-written — per Constraints §4.2), and obeys the orphan rule (`derive` is only writable where a hand-written instance would be legal, §5.3 there).
+- **Structural types are untouched**: tuples and structural records keep their automatic compiler-derived instances (they have no constructor name to hang an `honor` declaration on — consistent with the Constraints §9.3 presumption, which stands).
 
 ### 2.2 Rationale
 
 The field splits cleanly. Automatic camp: F# (structural equality/comparison on records and unions by default, opt-*out* attributes), Elm, Kotlin data classes. Opt-in camp: Haskell (`deriving`), Rust (`#[derive]`), Swift (declare conformance, compiler synthesizes), Roc (opaque types: `implements [Eq, Hash]`), OCaml (ppx).
 
-Hexagon's primary expression-model reference (F#) is automatic; its constraint-system lineage (Rust) is opt-in. The tiebreaker is Hexagon's own recorded principle — **"nominal means you control the surface"** (Products spec). Automatic `Show` leaks representation into output as a permanent public contract; automatic `Eq` blesses structural equality even where it is meaningless for the type (caches, normalized-plus-raw pairs, anything with incidental fields). The decades of Haskell/Rust field evidence say opt-in ages better; Swift, designed with both bodies of evidence available, chose opt-in; and F#'s own ecosystem routinely reaches for `[<CustomEquality>]`/`[<NoComparison>]` opt-outs — the tell that automatic was the wrong default. Opt-in also keeps the derivation mechanism *inside* the constraint system (`derive` is an `implement` body) rather than beside it, which is the Rust-shaped move consistent with everything in the Constraints spec.
+Hexagon's primary expression-model reference (F#) is automatic; its constraint-system lineage (Rust) is opt-in. The tiebreaker is Hexagon's own recorded principle — **"nominal means you control the surface"** (Products spec). Automatic `Show` leaks representation into output as a permanent public contract; automatic `Eq` blesses structural equality even where it is meaningless for the type (caches, normalized-plus-raw pairs, anything with incidental fields). The decades of Haskell/Rust field evidence say opt-in ages better; Swift, designed with both bodies of evidence available, chose opt-in; and F#'s own ecosystem routinely reaches for `[<CustomEquality>]`/`[<NoComparison>]` opt-outs — the tell that automatic was the wrong default. Opt-in also keeps the derivation mechanism *inside* the constraint system (`derive` is an `honor` body) rather than beside it, which is the Rust-shaped move consistent with everything in the Constraints spec.
 
 ### 2.3 Rejected alternatives
 
-- **Automatic derivation for every `record`/`union`** (F#/Elm): rejected per §2.2. Recorded consequence deliberately accepted: `==` on a fresh user record is a compile error ("`Point` has no `Eq` implementation") until the author writes `derives Eq` — one clause, once, per type. That friction is the feature.
+- **Automatic derivation for every `record`/`union`** (F#/Elm): rejected per §2.2. Recorded consequence deliberately accepted: `==` on a fresh user record is a compile error ("`Point` has no `Eq` instance") until the author writes `derives Eq` — one clause, once, per type. That friction is the feature.
 - **Automatic with opt-out attributes** (F#'s actual design): the worst of both — the default still leaks, and the escape hatch is an attribute grammar Hexagon otherwise doesn't have.
-- **`derive` as a magic top-level declaration** (`derive Eq for Point`): a second instance-introducing form competing with `implement`; rejected for grammar economy — `derive` as an `implement` body means coherence, orphan, and superconstraint checking need zero new code paths.
+- **`derive` as a magic top-level declaration** (`derive Eq for Point`): a second instance-introducing form competing with `honor`; rejected for grammar economy — `derive` as an `honor` body means coherence, orphan, and base constraint checking need zero new code paths.
 
 ### 2.4 The record-`Ord` question dissolves
 
@@ -95,9 +95,9 @@ Products §3.4 flagged nominal-record `Ord` as "possibly droppable." Under opt-i
 
 ### 2.5 Grammar and checking notes (for the implementer)
 
-- `derive` is a **keyword valid only as the complete RHS of an `implement`** (parallel to the Constraints §4.1 lambda-literal rule: the RHS is either the member-block form or exactly `derive`). Anywhere else it is the ordinary unbound-name/parse error.
+- `derive` is a **keyword valid only as the complete RHS of an `honor` declaration** (parallel to the Constraints §4.1 lambda-literal rule: the RHS is either the member-block form or exactly `derive`). Anywhere else it is the ordinary unbound-name/parse error.
 - `derives` is a **contextual keyword in declaration headers only**; it does not reserve the identifier elsewhere. It must follow the complete type body (after the record's closing `}`, after the union's final constructor).
-- `implement C<T> = derive` where the *semantics* of `C`-derivation would need something a slot lacks (e.g. `Eq<T>` where a field's type has no `Eq`) is a hard error naming the offending field/slot and its type, phrased against the derivation: "cannot derive `Eq<Point>`: field `render` has type `Int -> String`, which has no `Eq` implementation."
+- `honor C<T> = derive` where the *semantics* of `C`-derivation would need something a slot lacks (e.g. `Eq<T>` where a field's type has no `Eq`) is a hard error naming the offending field/slot and its type, phrased against the derivation: "cannot derive `Eq<Point>`: field `render` has type `Int -> String`, which has no `Eq` instance."
 - `derive` on a parameterized nominal type produces the expected parameterized instance (fields' instances become instance-context obligations per Constraints §4.3). The header grammar for parameterized records is the declarations-preamble spec's business; the `derives` clause rides along whatever it decides.
 - Emission: identical to what the fixed structural semantics dictate — derived `Eq` on records emits fieldwise `&&` chains with the §1.5 fast paths per field type, etc. Nothing new.
 
@@ -105,11 +105,11 @@ Products §3.4 flagged nominal-record `Ord` as "possibly droppable." Under opt-i
 
 | Situation | Error / hint |
 |---|---|
-| `==`/`show`/`<` on a nominal type without the instance | existing Constraints §8 unsatisfied-constraint phrasing, **plus** the fixit hint: "add `derives Eq` to the declaration of `Point`, or write an `implement`" |
+| `==`/`show`/`<` on a nominal type without the instance | existing Constraints §8 unsatisfied-constraint phrasing, **plus** the fixit hint: "add `derives Eq` to the declaration of `Point`, or write an `honor` declaration" |
 | `derive` for a non-derivable constraint | "`Num` cannot be derived; only `Eq`, `Ord`, and `Show` have derivable forms" (likewise for `Signed`) |
-| Underivable slot/field | "cannot derive `Eq<Point>`: field `f` has type `T`, which has no `Eq` implementation" |
-| `derives Ord` without `Eq` in scope | the existing missing-superconstraint error (Constraints §8), plus hint: "add `Eq` to the `derives` list" |
-| `derive` outside an `implement` RHS | parse error: "`derive` is only legal as the body of an `implement`" |
+| Underivable slot/field | "cannot derive `Eq<Point>`: field `f` has type `T`, which has no `Eq` instance" |
+| `derives Ord` without `Eq` in scope | the existing error for a missing base constraint (Constraints §8), plus hint: "add `Eq` to the `derives` list" |
+| `derive` outside an `honor` RHS | parse error: "`derive` is only legal as the body of an `honor` declaration" |
 | `derives` clause on an `exception` | "exceptions have no derived instances" (consistent with Exceptions §10.4's no-instances presumption) |
 
 ---
@@ -208,7 +208,7 @@ The implied-types spec (and therefore user-implementable `Iterable`) is **v2, on
 Two independent reasons, either sufficient:
 
 1. **Inference risk.** The deferred-`Elem(α)` goal mechanism is *the first feature that touches `unify`'s environs* — everything shipped so far (constraints as dictionaries, defaulting, row polymorphism for records) rides beside Algorithm J without modifying its core discipline. Leaving that known-safe area deserves a dedicated, unhurried session with the whole design in front of it, not a rider on a collections milestone.
-2. **Calibration wants a specimen.** The settled core (member `type Elem`, `implement`-side `type Elem = ...`, coherence-backed table lookup) won't move, but the periphery is exactly the part a first real client would pressure-test: reference syntax (`Elem(c)` vs projection-style `c.Elem` — unknowable until real signatures are written in anger), whether implied types carry obligations (`type Elem: Show`), whether use-site equality constraints (`Iterable<Elem = Int>`-style) are ever needed or `Seq(Int)` parameters cover it, how eagerly deferred goals must force and what the annotation-required error should say, and hover/`.d.ts` display. All calibration, no design risk — and calibration without a specimen produces the wrong grammar with confidence.
+2. **Calibration wants a specimen.** The settled core (member `type Elem`, `honor`-side `type Elem = ...`, coherence-backed table lookup) won't move, but the periphery is exactly the part a first real client would pressure-test: reference syntax (`Elem(c)` vs projection-style `c.Elem` — unknowable until real signatures are written in anger), whether implied types carry obligations (`type Elem: Show`), whether use-site equality constraints (`Iterable<Elem = Int>`-style) are ever needed or `Seq(Int)` parameters cover it, how eagerly deferred goals must force and what the annotation-required error should say, and hover/`.d.ts` display. All calibration, no design risk — and calibration without a specimen produces the wrong grammar with confidence.
 
 ### 6.3 What this does *not* reopen
 
@@ -221,10 +221,10 @@ The v1 compiler-known `Iterable` judgment (internal table, never leaks into sign
 Apply on next touch of each document; until then this doc governs.
 
 1. **Constraints §9.5** → resolved; replace with a pointer to §1 here. **§9.2** → mechanism half resolved (opt-in `derive`, §2 here); the remaining text should keep only the pointer. **§9.7** → resolved (§3 here); update the prelude listing's `Ordering` when written. **§8** diagnostics table → add the §2.6 rows.
-2. **Primitive Types §3** → the promised `NaN`/`-0` treatment is §1 here; add the cross-reference and strike the promissory language. If §3 currently implies `===` is the universal `Eq<Float>` emission, correct per §1.5.
+2. **Primitive Types §3** → the promised `NaN`/`-0` treatment is §1 here; add the cross-reference and strike the promissory language. If §3 currently suggests that `===` is the universal `Eq<Float>` emission, correct per §1.5.
 3. **Lexer & Layout §2** → replace the bracketed tabs flag with: "Tabs in leading whitespace are a hard error (Decisions Batch §4); columns are space-counted." **§5/§6** → add the §4.3 diagnostic row and a decisions-log line.
 4. **Loops/Ranges/Iteration §11.2** → resolved (v2 on first demand, §6 here). **§11.7** → the partiality leaning is now decided (§5 here); the clamp-vs-throw open question inside it is closed (clamp). **§11.1** → append: "Timing: v2, on first demand — Decisions Batch §6."
-5. **Products §3.4** → the "record `Ord` droppable?" flag is dissolved by opt-in derivation (§2.4 here); nominal instances now arrive only via `derives`/`implement`. Structural-record automatic instances unchanged.
+5. **Products §3.4** → the "record `Ord` droppable?" flag is dissolved by opt-in derivation (§2.4 here); nominal instances now arrive only via `derives`/`honor`. Structural-record automatic instances unchanged.
 6. **Unions** (derived-instances section) → nominal unions now receive derived instances via §2's opt-in forms; semantics unchanged. All-nullary prelude `Ordering` per §3.
 7. **Modules spec (future)** → the constraint-name/constructor namespace question remains owed but is flagged **no longer load-bearing** (§3.2 here).
 8. **Exceptions §10.4** → the no-instances presumption for `Exn` is now also enforced syntactically by §2.6's `derives`-on-`exception` error; note when confirming in the stdlib listing.
@@ -238,11 +238,11 @@ Apply on next touch of each document; until then this doc governs.
 | Situation | Error / hint | Section |
 |---|---|---|
 | Tab in leading whitespace | "tab character in indentation; Hexagon indentation uses spaces only" + space fixit | §4.3 |
-| `==`/`show`/`<` on nominal type lacking instance | unsatisfied-constraint phrasing + "add `derives Eq` to the declaration of `Point`, or write an `implement`" | §2.6 |
+| `==`/`show`/`<` on nominal type lacking instance | unsatisfied-constraint phrasing + "add `derives Eq` to the declaration of `Point`, or write an `honor` declaration" | §2.6 |
 | `derive` for non-derivable constraint | "`Num` cannot be derived; only `Eq`, `Ord`, and `Show` have derivable forms" (likewise for `Signed`) | §2.6 |
-| Underivable field/slot | "cannot derive `Eq<Point>`: field `f` has type `T`, which has no `Eq` implementation" | §2.6 |
-| `derives Ord` without `Eq` | missing-superconstraint error + "add `Eq` to the `derives` list" | §2.6 |
-| `derive` outside `implement` RHS | "`derive` is only legal as the body of an `implement`" | §2.6 |
+| Underivable field/slot | "cannot derive `Eq<Point>`: field `f` has type `T`, which has no `Eq` instance" | §2.6 |
+| `derives Ord` without `Eq` | error for a missing base constraint + "add `Eq` to the `derives` list" | §2.6 |
+| `derive` outside `honor` RHS | "`derive` is only legal as the body of an `honor` declaration" | §2.6 |
 | `derives` on `exception` | "exceptions have no derived instances" | §2.6 |
 | `xs[i]` out of bounds | runtime `IndexError` (not a diagnostic; listed for the boundary) | §5.1 |
 
@@ -279,14 +279,14 @@ record Point = {x: Float, y: Float} derives (Eq, Show)
 Point({x: 1.0, y: 2.0}) == Point({x: 1.0, y: 2.0})   -- true
 record Blob = {x: Float}
 Blob({x: 1.0}) == Blob({x: 1.0})
-   -- ERROR: `Blob` has no `Eq` implementation
+   -- ERROR: `Blob` has no `Eq` instance
    --        hint: add `derives Eq` to the declaration of `Blob`
 
-implement Ord<Point> = derive  -- OK iff Eq<Point> exists (it does, via derives)
+honor Ord<Point> = derive  -- OK iff Eq<Point> exists (it does, via derives)
 
 record Handler = {f: Int -> Int} derives Eq
    -- ERROR: cannot derive `Eq<Handler>`: field `f` has type Int -> Int,
-   --        which has no `Eq` implementation
+   --        which has no `Eq` instance
 
 -- (f) Ordering spelling and emission
 compare(1, 2)                  -- Less;  runtime value the string "Less"
@@ -328,12 +328,12 @@ xs[3..1]                       -- []         (empty range, Loops §3.4; same rul
 | Honest-IEEE `Eq`, `total_cmp`-verbatim, and SameValue all rejected with reasons | §1.3 |
 | `Hash<Float>` (if ever) must normalise `-0` and NaN | §1.4 |
 | `Eq<Int>` keeps bare `===`; `Eq<Float>` fast path = two-clause expression or on-demand helper | §1.5 |
-| Derivation is opt-in; `implement C<T> = derive` core form; `derives (...)` header sugar | §2.1 |
+| Derivation is opt-in; `honor C<T> = derive` core form; `derives (...)` header sugar | §2.1 |
 | Derivable set (v1): `Eq`, `Ord`, `Show`; whitelist stance | §2.1, §10.5 |
-| Derived instances are ordinary instances: coherence slot, superconstraint checks, orphan rule | §2.1 |
+| Derived instances are ordinary instances: coherence slot, base constraint checks, orphan rule | §2.1 |
 | F#-style automatic (and automatic-with-opt-out) rejected; "nominal means you control the surface" governs | §2.2–2.3 |
 | Record-`Ord`-shipping question dissolved by opt-in | §2.4 |
-| Structural types keep automatic instances; users still cannot `implement` for them | §2.1; Constraints §9.3 presumption stands |
+| Structural types keep automatic instances; users still cannot write `honor` declarations for them | §2.1; Constraints §9.3 presumption stands |
 | `Ordering = Less \| Equal \| Greater` (Rust spelling); `LT/EQ/GT` and int-returning `compare` rejected | §3 |
 | Namespace question de-fanged, still owed to modules spec | §3.2, §7.7 |
 | Tabs in leading whitespace: hard lexer error, no tab-width, no escape hatch; F#/Elm/Nim lineage, Haskell as documented rejection; mandatory fixit | §4 |

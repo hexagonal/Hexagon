@@ -7,16 +7,17 @@ export opaque record Rat derives (Eq, Hash) = {
 export exception DivideByZeroError(message: String)
 
 export let create(top: BigInt, bottom: BigInt): Rat =
-    if bottom == 0
+    if bottom == 0 then
         throw(DivideByZeroError("Rat.create: bottom is zero"))
     else
         // gcd uses Euclidean modulus internally after normalizing both operands.
         let divisor = BigInt.gcd(top, bottom)
         let reducedTop = BigInt.quot(top, divisor)
         let reducedBottom = BigInt.quot(bottom, divisor)
-        if reducedBottom < 0
+        if reducedBottom < 0 then
             Rat({top: -reducedTop, bottom: -reducedBottom})
-        else Rat({top: reducedTop, bottom: reducedBottom})
+        else
+            Rat({top: reducedTop, bottom: reducedBottom})
 
 export let top(value: Rat): BigInt = value.top
 export let bottom(value: Rat): BigInt = value.bottom
@@ -48,9 +49,13 @@ honor Ord<Rat> =
     compare(left, right) =
         let leftProduct = left.top * right.bottom
         let rightProduct = right.top * left.bottom
-        if leftProduct < rightProduct then -1
-        else if leftProduct > rightProduct then 1
-        else 0
+        if leftProduct < rightProduct then
+            -1
+        else
+            if leftProduct > rightProduct then
+                1
+            else
+                0
 
 honor Show<Rat> =
     show(value) = "${value.top}/${value.bottom}"

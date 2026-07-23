@@ -61,7 +61,7 @@ The intended user is a JS developer with moderate FP capability who wants to do 
 1. **Declarations preamble** — shared header grammar for `type` / `record` / `union` (capitalisation, type-parameter syntax, placement), plus `type` alias semantics.
 2. **Products** — tuples, structural records + rows, nominal `record`, destructuring. Must resolve: row-polymorphism mechanics in Algorithm J; nominal-record-vs-row relationship; ownership of the pattern grammar (shared with Unions).
 3. **Unions** — nominal sums, constructors, pattern matching, exhaustiveness, JS tagging.
-4. **Constraints** — `implement`, superconstraints, derived structural `Show`/`Eq` for products and unions, Eq/Ord semantics incl. NaN/−0.
+4. **Constraints** — `implement`, base constraints, derived structural `Show`/`Eq` for products and unions, Eq/Ord semantics incl. NaN/−0.
 5. **Type-system internals** — Algorithm J details, levels, row unification, rank-2 pathway.
 6. Also owed: 1-based indexing (global), operators (incl. `|>`), modules, FFI, and the constraint portion of LSP display. Function-type display is fixed by Functions §5.1.
 

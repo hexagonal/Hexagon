@@ -186,14 +186,14 @@ displayed**. `Box(Int)` uses the existing `Show<Int>` instance; `Box(String)` us
 ## A constraint may require another constraint
 
 Ordering must agree with equality, so the prelude declares `Ord` with `Eq` as a
-**superconstraint**:
+**base constraint**:
 
 ```hexagon
 constraint Ord<a: Eq> =
     compare(left: a, right: a): Ordering
 ```
 
-Read the header from left to right: `Ord` implies `Eq`. A function requiring `Ord` may
+Read the header from left to right: `Ord` extends `Eq`. A function requiring `Ord` may
 therefore use both `compare` and `equals`, and a type cannot honor `Ord` unless it also
 has an `Eq` instance.
 
@@ -307,7 +307,7 @@ exporting constrained polymorphic functions.
 - constraint operations with bodies provide overridable defaults;
 - `Eq.equals` is required and `Eq.notEquals` defaults to its Boolean negation;
 - an `honor` declaration supplies the unique instance of a constraint for a type;
-- a superconstraint is an obligation implied by another constraint;
+- a base constraint is an obligation that another constraint builds on;
 - coherence gives every constraint/type pair one program-wide meaning;
 - the orphan rule places an instance with either its constraint or its type; and
 - dictionaries appear only where JavaScript must preserve genuine polymorphism.

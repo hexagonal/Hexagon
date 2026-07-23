@@ -16,7 +16,7 @@ instance when representation is not meaning.
 - `spec/decisions-batch-2026-07.md` §2
 - `spec/products.md` structural constraint semantics
 - `spec/unions.md` §7
-- `spec/constraints.md` coherence and superconstraints
+- `spec/constraints.md` coherence and base constraints
 
 ## Technical skeleton
 

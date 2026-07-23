@@ -154,7 +154,7 @@ The first type parameter is the success value and the second is the error value:
 
 ```hexagon
 let validatePort(port: Int): Result(Int, String) =
-    if 1 <= port <= 65535
+    if 1 <= port <= 65535 then
         Ok(port)
     else
         Err("port must be between 1 and 65535")

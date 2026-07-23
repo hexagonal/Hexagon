@@ -606,7 +606,7 @@ class Resolver {
           kind: "ConstraintDeclaration",
           name: item.name.text,
           subject: item.subject.text,
-          superconstraints: item.superconstraints.map(({ text }) => text),
+          baseConstraints: item.baseConstraints.map(({ text }) => text),
           impliedTypes: item.impliedTypes.map(({ name, span }) => ({
             name: name.text,
             span,
@@ -936,20 +936,14 @@ class Resolver {
       }
       case "Lambda":
         return this.#resolveLambda(expression, scope);
-      case "If": {
-        const common = {
+      case "If":
+        return {
           kind: "If" as const,
           condition: this.#resolveExpr(expression.condition, scope),
           consequence: this.#resolveExpr(expression.consequence, scope),
+          alternative: this.#resolveExpr(expression.alternative, scope),
           span: expression.span,
         };
-        return expression.alternative === undefined
-          ? common
-          : {
-              ...common,
-              alternative: this.#resolveExpr(expression.alternative, scope),
-            };
-      }
       case "While":
         return {
           kind: "While",
@@ -2077,7 +2071,7 @@ function expressionNames(expression: Resolved.Expr): Resolved.NameExpr[] {
   if (expression.kind === "Group") return expressionNames(expression.expression);
   if (expression.kind === "Block") return expression.items.flatMap(itemNameReferences);
   if (expression.kind === "Lambda") return expressionNames(expression.body);
-  if (expression.kind === "If") return [...expressionNames(expression.condition), ...expressionNames(expression.consequence), ...(expression.alternative === undefined ? [] : expressionNames(expression.alternative))];
+  if (expression.kind === "If") return [...expressionNames(expression.condition), ...expressionNames(expression.consequence), ...expressionNames(expression.alternative)];
   if (expression.kind === "While") return [...expressionNames(expression.condition), ...expressionNames(expression.body)];
   if (expression.kind === "For") return [...expressionNames(expression.iterable), ...expressionNames(expression.body)];
   if (expression.kind === "Match") return [

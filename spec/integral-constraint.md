@@ -24,7 +24,7 @@ constraint Integral<a: (Num, Ord)> =
     gcd(x: a, y: a): a       -- greatest common divisor, always >= 0
 ```
 
-- **Superconstraints `(Num, Ord)`**: `Num` gives generic code non-negative literals via `fromNat`, and `Ord` gives comparisons. `Nat`, `Int`, and `BigInt` satisfy both. Code that also subtracts, negates, or normalizes signs states `Signed` separately; `Integral` itself does not require signedness.
+- **Base constraints `(Num, Ord)`**: `Num` gives generic code non-negative literals via `fromNat`, and `Ord` gives comparisons. `Nat`, `Int`, and `BigInt` satisfy both. Code that also subtracts, negates, or normalizes signs states `Signed` separately; `Integral` itself does not require signedness.
 - The five members obey the Division & Remainder spec's contracts *as laws of the constraint*: the two division identities, the Euclidean invariant, and §4's `gcd` laws. An `honor Integral<T>` whose members violate them is wrong in the same informal-but-documented sense as a lawless `Eq`.
 - Zero-divisor behaviour is **not** a law of the constraint; it follows each instance's type doctrine. All three v1.1 instances throw `DivideByZeroError` (integer partiality throws), and any future instance is expected to do likewise — recorded as expectation, not equation.
 
@@ -96,7 +96,7 @@ That spec's §3 says the four functions are "monomorphic `Int` functions, not co
 |---|---|
 | `gcd`/`div`/`mod`/`quot`/`rem` at `Float` | ordinary missing-instance error: "`Float` is not `Integral`"; for `gcd` add "gcd is defined for integer types (`Nat`, `Int`, `BigInt`)" — never suggest rounding |
 | Name `Int.lcm` not found | curated hint: "`Int` has no `lcm` — its results overflow `Int`'s safe range for ordinary inputs; use `BigInt.lcm`" (name-not-found hints are cheap; this one prevents a hand-rolled `a * b / gcd` with the overflow bug) |
-| Unsolved tyvar at a bare `gcd(x, y)` call with no other constraint source | standard ambiguity error per Numeric Literals §6 machinery; `Num` superconstraint defaulting resolves the literal-only case to `Int` as usual |
+| Unsolved tyvar at a bare `gcd(x, y)` call with no other constraint source | standard ambiguity error per Numeric Literals §6 machinery; `Num` base constraint defaulting resolves the literal-only case to `Int` as usual |
 
 ## 9. Acceptance tests
 

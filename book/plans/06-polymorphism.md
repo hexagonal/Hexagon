@@ -47,4 +47,4 @@ understand the narrow boundary around recursive polymorphism.
   can remain constraint-directed.
 - Explicit type variables describe/restrict inferred polymorphism; they do not create it.
 - Recursive calls in a `fun` group use the group's monomorphic type.
-- Do not imply rank-2 polymorphism or first-class polymorphic lambda parameters.
+- Do not suggest rank-2 polymorphism or first-class polymorphic lambda parameters.

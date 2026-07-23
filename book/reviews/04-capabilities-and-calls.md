@@ -53,7 +53,7 @@ Constraints arrives only after ordinary polymorphism, operators, nominal types, 
 direct function calls are familiar. The `Show` example makes constrained polymorphism
 concrete before the chapter names dictionaries or discusses coherence. `Area` then
 introduces user-defined constraints, required operations, defaults, and instances in
-one small domain. Superconstraints, coherence, and the orphan rule follow only after
+one small domain. Base constraints, coherence, and the orphan rule follow only after
 the reader knows what an instance supplies.
 
 Deriving depends on that full instance model. Its two spellings are shown together,
@@ -76,7 +76,7 @@ room for a reader encountering type-directed lookup for the first time.
 
 - **Constraint**, **instance**, and **constrained polymorphism** are defined together
   at first use.
-- **Default operation**, **superconstraint**, **coherence**, **orphan rule**, and
+- **Default operation**, **base constraint**, **coherence**, **orphan rule**, and
   **dictionary** each receive a direct definition where their purpose is visible.
 - **Derivation** is presented through `derives` and `derive`; its index entry points
   back to instances rather than treating it as unrelated machinery.
@@ -101,7 +101,7 @@ suitable for the repository README without requiring the surrounding chapter.
 ## Technical surface check
 
 - Required and defaulted constraint operations, completed-instance dispatch,
-  superconstraints, coherence, orphan placement, simple instance heads, and global
+  base constraints, coherence, orphan placement, simple instance heads, and global
   instance participation agree with the constraints specification.
 - `Eq.notEquals` inherits from required `equals`; circular user defaults remain
   possible ordinary recursion and receive an appropriately brief warning.

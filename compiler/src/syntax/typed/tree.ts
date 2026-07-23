@@ -440,7 +440,7 @@ export interface ConstraintItem {
   readonly kind: "ConstraintDeclaration";
   readonly name: string;
   readonly subject: TypeVariableId;
-  readonly superconstraints: readonly ConstraintName[];
+  readonly baseConstraints: readonly ConstraintName[];
   readonly impliedTypes: readonly ConstraintImpliedType[];
   readonly members: readonly ConstraintMemberDeclaration[];
   readonly span: Source.Span;
@@ -467,7 +467,7 @@ export interface HonorItem {
   readonly subject: Type;
   readonly derived: boolean;
   readonly dictionary: string;
-  readonly superconstraints: readonly Constraint[];
+  readonly baseConstraints: readonly Constraint[];
   readonly impliedTypes: readonly HonorImpliedType[];
   readonly members: readonly HonorMember[];
   readonly span: Source.Span;
@@ -665,7 +665,7 @@ export interface IfExpr extends ExpressionFields {
   readonly kind: "If";
   readonly condition: Expr;
   readonly consequence: Expr;
-  readonly alternative?: Expr;
+  readonly alternative: Expr;
 }
 
 export interface WhileExpr extends ExpressionFields {

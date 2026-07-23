@@ -32,9 +32,9 @@ explicit conversion.
 
 ## Continuity constraints
 
-- Keep `Option(a)` as a real Hexagon union; never imply it erases to nullish values.
+- Keep `Option(a)` as a real Hexagon union; never suggest that it erases to nullish values.
 - Keep `Array(a)` distinct from persistent `Vector(a)` and expose no array mutation.
-- Do not imply that arbitrary JavaScript iterators already satisfy persistent `Seq`
+- Do not suggest that arbitrary JavaScript iterators already satisfy persistent `Seq`
   semantics.
 - Keep subject-first argument order; receiver restoration is an emission rule only.
 - State that ordinary extern declarations are trusted rather than silently validated.
