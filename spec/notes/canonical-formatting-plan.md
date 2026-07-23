@@ -11,6 +11,8 @@ Annotations belong at declaration boundaries:
 
 - every module-level function annotates every parameter;
 - an exported function additionally annotates its return type;
+- an exported function explicitly writes every constraint in its public contract;
+- a non-exported module-level function leaves its constraints to inference;
 - lambdas and local bindings do not carry annotations;
 - an exported value binding annotates its type;
 - an exported signature names a type alias instead of spelling an inline
@@ -21,6 +23,32 @@ dot-dispatch and pattern completion a stable anchor; module boundaries form an
 error firewall; exported annotations stabilize generated TypeScript declarations;
 and the shape follows habits familiar to TypeScript programmers. It applies
 consistently, including to literals, without changing inference semantics.
+
+### 1.1 Constraint boundaries
+
+Constraints follow the output side of the boundary doctrine:
+
+- an exported function writes the constraints it intends to publish, even when
+  its body would infer them;
+- the published list contains only the strongest constraints: omit any
+  constraint entailed by another constraint already listed;
+- a non-exported module-level function omits its constraint binders and lets its
+  body infer the minimal principal constraint set;
+- its parameter types remain annotated, including generic structure such as
+  `xs: Vector(a)`, because those annotations anchor receiver and scrutinee
+  tooling.
+
+For example, if `Hash` extends `Eq`, an exported function publishes `<a: Hash>`,
+never `<a: (Eq, Hash)>`. `Eq` rides along through base-constraint entailment.
+This is both the minimal canonical spelling and the clearest statement of the
+strongest capability demanded.
+
+Explicit constraints on an exported function stabilize its public contract.
+Refactoring the body must not silently weaken or strengthen the generated
+TypeScript declaration, and an API may deliberately demand a stronger
+constraint than its current implementation happens to use. Private helpers
+retain inferred constraints for the same reason their return types remain
+inferred: both are outputs of the implementation.
 
 ## 2. Declarations are total; consumption is free
 

@@ -169,8 +169,11 @@ Canonical names; definitions live in their owning specs.
   boundaries from quantifying goal-entangled variables.
 - **Boundary Annotation Doctrine** — annotate where types flow in
   (module-level function parameters and exported surfaces), and infer where
-  types flow out (return types of non-exported functions, locals, lambdas, and
-  pattern binders). Declarations are total; consumption is free.
+  types flow out (return types and constraints of non-exported functions,
+  locals, lambdas, and pattern binders). Exported functions explicitly publish
+  their constraints, listing only the strongest constraints and never
+  restating an entailed base constraint. Declarations are total; consumption is
+  free.
 - **Head Binder Shadowing rule** — sequential binders never reuse an in-scope
   name; head binders may shadow freely.
 
