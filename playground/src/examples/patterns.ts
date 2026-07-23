@@ -10,7 +10,7 @@ export const patterns: PlaygroundExample = {
     | South
     | West
 
-let opposite(direction: Direction): Direction = match direction
+let opposite(direction: Direction) = match direction
     North => South
     East => West
     South => North
@@ -18,18 +18,18 @@ let opposite(direction: Direction): Direction = match direction
 
 console.log("Opposite of North:", opposite(North))
 
-fun attendanceLabel(count: Int): String = match count
+fun attendanceLabel(count: Int) = match count
     0 => "none"
     1 => "one"
     _ => "many"
 
 console.log("Guests:", attendanceLabel(1))
 
-fun tupleLabel(pair: (Bool, Int)): String = match pair
+fun tupleLabel(pair: (Bool, Int)) = match pair
     (true, _) => "active"
     (_, _) => "inactive"
 
-fun unitLabel(value: Unit): String = match value
+fun unitLabel(value: Unit) = match value
     () => "unit"
 
 console.log(tupleLabel((true, 3)), unitLabel(()))

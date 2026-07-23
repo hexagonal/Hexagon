@@ -60,6 +60,7 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | FFI | `ffi-foreign-enums.md` | `extern enum` |
 | Routers | `spec-roadmap.md` | remaining work, deferrals, pending cross-spec edits (Part 5 target) |
 | Guides | `notes/hexagon-for-typescript-coders.md` | active reader guide (supporting, non-normative) |
+| Guides | `notes/canonical-formatting-plan.md` | gradual source-formatting rollout (supporting, non-normative) |
 
 The canonical routers `language.md`, `spec-roadmap.md`, and `stdlib-roadmap.md` are
 promoted. Newly discovered stdlib debt is recorded only in `stdlib-roadmap.md`.
@@ -77,7 +78,7 @@ Load the set for the task; add files only when a cited section demands it. `ffi.
 | **Collections work** | `collections-part1-decisions.md` through `collections-part5-iterable.md`, `loops-ranges-iteration.md`; for the JS boundary add `ffi-part10-js-map-set.md` |
 | **FFI work** | `ffi.md` first, then the owning part(s) via its §4 router; `exceptions.md` §6–§7 and `modules.md` §11 as cited |
 | **Stdlib work** | `collections-part1-decisions.md` §3 (naming/accessor doctrine), `collections-part5-iterable.md` §10, `method-syntax.md` §4/§15 (dot-callability constraints), `ffi.md` §9.1, `stdlib-roadmap.md` *(pending)*; prelude rules in `modules.md` §6 |
-| **Documentation work** | `notes/hexagon-for-typescript-coders.md`, `type-system-overview.md` *(orienting, stale — prefer `language.md` once it lands)*, `spec-roadmap.md`, this file |
+| **Documentation work** | `notes/hexagon-for-typescript-coders.md`, `notes/canonical-formatting-plan.md`, `type-system-overview.md` *(orienting, stale — prefer `language.md` once it lands)*, `spec-roadmap.md`, this file |
 
 ## Historical material
 

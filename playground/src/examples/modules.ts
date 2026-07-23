@@ -7,7 +7,7 @@ export const modules: PlaygroundExample = {
   source: `// A real Hexagon module is a file. In a project, this would be Numbers.hex.
 // module/end module is only a Playground wrapper that creates that virtual file.
 module Numbers
-export let answer = 21
+export let answer: Int = 21
 export let double(value: Int): Int = value * 2
 end module Numbers
 

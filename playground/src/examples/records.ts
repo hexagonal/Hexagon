@@ -4,12 +4,12 @@ export const records: PlaygroundExample = {
   id: "records",
   title: "Records and Rows",
   description: "Annotate open records, update them immutably, and destructure selected fields.",
-  source: `fun guestName(reservation: {guest: String, ...}): String = reservation.guest
+  source: `fun guestName(reservation: {guest: String, ...}) = reservation.guest
 
-fun renameGuest(reservation: {guest: String, ...rest}, guest: String): {guest: String, ...rest} =
+fun renameGuest(reservation: {guest: String, ...rest}, guest: String) =
     {...reservation, guest: guest}
 
-fun confirmedGuest(reservation: {guest: String, confirmed: Bool}): String = match reservation
+fun confirmedGuest(reservation: {guest: String, confirmed: Bool}) = match reservation
     {confirmed: true, guest} => guest
     {guest} => guest
 

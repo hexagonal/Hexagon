@@ -12,7 +12,7 @@ honor Show<Person> =
     show(person) = "\${person.name}, age \${person.age}"
 
 // Interpolation propagates Show into otherwise generic code.
-let describe<a: Show>(thing: a): String =
+let describe<a: Show>(thing: a) =
     "Description: \${thing}"
 
 let ada = Person({name: "Ada", age: 36})
