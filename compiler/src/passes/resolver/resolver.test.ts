@@ -348,9 +348,11 @@ describe("resolve", () => {
   test("keeps block bindings lexical and resolves interpolations", () => {
     const module = resolveSource(
       "let f = x =>\n" +
-        "    if x\n" +
+        "    if x then\n" +
         "        let hidden = 1\n" +
         '        "${hidden}"\n' +
+        "    else\n" +
+        '        ""\n' +
         "    hidden",
     );
 
@@ -463,9 +465,7 @@ function visitExpr(
     case "If":
       visitExpr(expression.condition, symbols, sourceLength);
       visitExpr(expression.consequence, symbols, sourceLength);
-      if (expression.alternative !== undefined) {
-        visitExpr(expression.alternative, symbols, sourceLength);
-      }
+      visitExpr(expression.alternative, symbols, sourceLength);
       return;
     case "While":
       visitExpr(expression.condition, symbols, sourceLength);

@@ -212,15 +212,15 @@ let shippingLabel =
     if international then "International" else "Domestic"
 ```
 
-The condition must be `Bool`, and both branches must produce the same type. There is no
-inline `if` without `else`: a value-producing expression must say what it produces on
-every path.
+The condition must be `Bool`, and both branches must produce the same type. There is
+no `if` without `then` or `else`: a value-producing expression must say what it
+produces on every path.
 
-Longer branches use layout:
+Longer branches keep `then` on the condition line and use layout for both branches:
 
 ```hexagon
 let shippingLabel =
-    if international
+    if international then
         let region = destinationRegion(order)
         "International: ${region}"
     else
@@ -231,16 +231,17 @@ Each branch is a block, so the final-expression rule from the first chapter appl
 The first branch ends in a `String`, the second branch is a one-expression block, and
 the whole `if` produces `String`.
 
-An else-less layout conditional is permitted when it exists only for an effect:
+Conditionals that exist only for an effect still state both paths:
 
 ```hexagon
-if delayed
+if delayed then
     print("Order delayed")
+else
+    ()
 ```
 
-The missing branch contributes `Unit`, so the body must also produce `Unit`. This is not
-a special statement form; it is the same expression and block model returning to solve
-another problem.
+Both branches produce `Unit`. This is not a special statement form; it is the same
+expression and block model returning to solve another problem.
 
 ## Pipes show the flow of values
 

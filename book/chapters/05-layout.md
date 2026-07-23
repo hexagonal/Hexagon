@@ -4,7 +4,7 @@ The opening chapters have already relied on indentation:
 
 ```hexagon
 let shippingLabel(international: Bool, region: String): String =
-    if international
+    if international then
         let label = "International: ${region}"
         label
     else
@@ -35,7 +35,7 @@ Indenting farther opens a nested block. Returning to an earlier column closes it
 
 ```hexagon
 let describeDelay(delayed: Bool): String =
-    if delayed
+    if delayed then
         print("Order delayed")
         "Delayed"
     else

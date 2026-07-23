@@ -1,7 +1,7 @@
 # Hexagon Spec — Operators, Logic & Precedence
 
 **Status:** Decided (v1), except items explicitly marked deferred.
-**Scope:** The complete v1 operator inventory; the precedence and associativity table; word-based logical operators (`not`, `and`, `or`, `implies`, `iff`) and their desugarings; comparison operators, chaining, and the single-evaluation rule; arithmetic operators including `**`; the concatenation operator `++`; the pipe operator `|>`; the `if … then … else` expression (both `then` and layout forms); the grammatical placement of `..`, `:=`, `=>`, `[]`, `.`, and call syntax.
+**Scope:** The complete v1 operator inventory; the precedence and associativity table; word-based logical operators (`not`, `and`, `or`, `implies`, `iff`) and their desugarings; comparison operators, chaining, and the single-evaluation rule; arithmetic operators including `**`; the concatenation operator `++`; the pipe operator `|>`; the mandatory-keyword `if … then … else` expression; the grammatical placement of `..`, `:=`, `=>`, `[]`, `.`, and call syntax.
 **Not in scope:** Semantics of indexing/slicing (`xs[i]`, `xs[lo..hi]`) beyond precedence — owed to the collections/indexing spec. Semantics of `Range` construction — Loops, Ranges & Iteration spec is authoritative; this spec only fixes `..`'s precedence. `match` — pattern-matching spec; referenced here only as a member of the eats-to-the-right family. Constraint mechanics (dictionary passing, coherence) — Constraints spec.
 **Companions:** Constraints (operator→member elaboration targets, prelude constraint listing), Primitive Types (per-type instance inventories, `Ord String`), Numeric Literals (literal elaboration under operators), Loops/Ranges/Iteration (`..` semantics, `while`/`for` condition grammar by reference), Statements/Blocks/Mutability (`:=` semantics, discard rule), Exceptions (edit note §14.2), Functions (`=>`, header sugar).
 
@@ -328,50 +328,47 @@ The conditional is an **expression**, this spec owns it fully, and the Loops spe
 
 Bare expression, no required parentheses, must be `Bool` — no truthiness, and the diagnostic for a non-`Bool` condition never suggests coercion. (Parentheses are of course *allowed*; they're just parentheses.) `while` inherits exactly this, per the Loops spec's reference.
 
-### 11.2 `then` form
+### 11.2 Mandatory clauses
 
 ```
-if cond then expr1 else expr2
+if condition then trueExpression else falseExpression
 ```
 
-`then` and `else` are clause continuations and may instead begin aligned physical
-lines. Physical line breaks do not choose a different grammar:
-
-```
-if cond
-then expr1
-else expr2
-
-if cond then expr1
-else expr2
-```
-
-All three spellings produce the same conditional. The presence of `then`, rather
-than whether the source happens to occupy one line, distinguishes this form from
-the layout form (§11.3).
+Both `then` and `else` are mandatory. An `if` without `then` is a parse error,
+including when an indented line follows the condition. An `if` without `else` is
+also a parse error: every conditional is an expression with a value on every path.
+Every compiler representation from Parsed onward therefore carries both branches;
+error recovery inserts an error expression rather than preserving an optional
+false branch.
 
 Eats to the right (§3.2): `expr2` extends as far as possible, so `1 + if c then a else b` is `1 + (if c then a else b)` and `if c then a else b + 1` is `if c then a else (b + 1)` — the `else` arm ate the `+ 1`. Chained: `if c1 then a else if c2 then b else c` nests rightward with no special grammar. Both arms resolve to one type: exact unification wins, followed by Numeric Literals §5.1's contextual widening: established `Nat` through `Num.fromNat`, or established `Int` through `Signed.fromInt`, when the other arm independently establishes the corresponding target. The whole form has the resulting type.
 
-**A `then`-form `if` without `else` is a parse error** — an expression must have a value on every path — with the fixit "add an `else`, or use the layout form if the branches are `Unit` effects."
+### 11.3 Canonical formatting
 
-### 11.3 Layout form
-
-Mirrors `for`/`while`: header, then an indented block via the standard virtual tokens (Lexer & Layout spec). **No `then` in the layout form** — the block is the consequence, exactly as a loop body follows its header without a keyword:
+When the entire conditional is short enough, keep it on one line:
 
 ```
-if cond
-  effects...
-else if cond2
-  effects...
+if isTall then 5 else 6
+```
+
+Otherwise, `then` stays on the condition line and each branch is an indented block:
+
+```
+if condition then
+    trueExpression
 else
-  effects...
+    falseExpression
 ```
 
-- `else if` is `else` whose body is another `if` — flat chains fall out, no dedicated construct.
-- **`else`-less layout `if` is legal and is `Unit`:** the missing arm is `Unit`, so the then-block must check against `Unit` (the Statements discard rule applies inside it as in any block). With an `else` present, the form is an ordinary expression: arms unify, the `if` has the unified type, and a block arm's value is its final expression per the standard block rule.
-- Line breaks before aligned `then` and `else` clauses belong to the `then` form
-  (§11.2); they do not create layout branch blocks. The no-`then` form above remains
-  the only form whose branches are indented blocks.
+This multiline spelling is the reliable canonical form regardless of branch
+complexity. A formatter may collapse it only when the complete conditional fits
+the configured line-width limit. A block arm's value is its final expression per
+the standard block rule.
+
+`else if` is syntactically `else` whose expression is another mandatory-`then`
+conditional; there is no dedicated construct. It may appear in a one-line conditional
+when the whole expression fits. In canonical multiline formatting, the nested
+conditional is indented beneath `else` like every other false-branch expression.
 
 ### 11.4 Emission
 
@@ -448,7 +445,8 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | `intA / intB` | type error + fixit pointing at `Int.div` / `Int.mod` |
 | `1..2..3` | "`..` does not chain; a range has exactly two endpoints" |
 | Eats-right form in non-final operand position | parse error + "parenthesize the `if` / lambda / `match`" |
-| `then`-form `if` without `else` | parse error + "add an `else`, or use the layout form if the branches are `Unit` effects" |
+| `if` without `then` | parse error + "`if` requires `then`; write `if condition then` before the indented true branch" |
+| `if` without `else` | parse error + "`if` requires an `else`" |
 | `x := y := z` | "`:=` does not chain; assignment produces `Unit`" |
 | `Int.pow` / `**` at `Int` with negative exponent | runtime `NegativeExponentError` |
 
@@ -476,7 +474,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | Pipe: F# token, ReScript first-arg semantics, pre-inference rewrite; bare `a \|> f` = `f(a)`; subject-first stdlib convention normative | §8 |
 | `..` level 6 (looser than arithmetic, tighter than comparison), non-assoc, non-chaining | §9 |
 | Postfix `.`/call/`[]` level 1; indexing/slicing semantics deferred to collections spec | §10 |
-| `if` owns a `then` form (clause keywords may begin aligned lines; `else` mandatory) and a layout form (no `then`; `else`-less = `Unit`); condition = bare `Bool` expr, inherited by `while` by reference | §11 |
+| Every `if` requires `then` and `else`; canonical multiline form keeps `then` on the condition line and indents both branches; condition = bare `Bool` expr, inherited by `while` by reference | §11 |
 | `:=` loosest, non-associative, does not chain | §12 |
 
 ---
@@ -525,20 +523,20 @@ let f = x => x |> g                  -- lambda body is the whole pipe: f = x => 
 a*2..b*2                       -- (a * 2)..(b * 2)
 1..2..3                        -- ERROR: `..` does not chain
 
--- (j) if eats right, both forms
+-- (j) if eats right; short inline form
 1 + if c then a else b         -- 1 + (if c then a else b) → 1 + (c ? a : b)
 if c then a else b + 1         -- else arm is (b + 1)
-fun clamp(x, lo, hi) =
-    if x < lo then lo
-    else if x > hi then hi
-    else x
--- clamp : (Int, Int, Int) -> Int  (at an Int call site)
 
--- (k) Layout if, else-less, Unit-checked
-if ready
-    print("go")                  -- fine: Unit block, form is Unit
-if ready
-    compute()                    -- ERROR if compute returns non-Unit (Statements §3.2)
+-- (k) Canonical multiline form
+fun clamp(x, lo, hi) =
+    if x < lo then
+        lo
+    else
+        if x > hi then
+            hi
+        else
+            x
+-- clamp : (Int, Int, Int) -> Int  (at an Int call site)
 
 -- (l) := grammar
 total := if c then a else b    -- fine; RHS is the eats-right if

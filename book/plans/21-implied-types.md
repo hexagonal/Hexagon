@@ -32,6 +32,6 @@ the forms Hexagon deliberately does not permit.
 - Use `type Name` in a constraint and `type Name = T` in an `honor` body.
 - Implied-type names are owner-relative and have no module-level namespace slot.
 - Every implied type is bound exactly once by an instance.
-- Do not imply external `Item(c)` projection, implied-type obligations, or generic
+- Do not suggest external `Item(c)` projection, implied-type obligations, or generic
   `<c: Iterable>` binders.
 - Keep reusable iteration APIs on `Seq(a)`.

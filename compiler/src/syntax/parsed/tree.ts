@@ -170,7 +170,7 @@ export interface ConstraintItem {
   readonly kind: "ConstraintDeclaration";
   readonly name: Name;
   readonly subject: Name;
-  readonly superconstraints: readonly Name[];
+  readonly baseConstraints: readonly Name[];
   readonly impliedTypes: readonly ConstraintImpliedType[];
   readonly members: readonly ConstraintMember[];
   readonly span: Source.Span;
@@ -537,7 +537,7 @@ export interface IfExpr {
   readonly kind: "If";
   readonly condition: Expr;
   readonly consequence: Expr;
-  readonly alternative?: Expr;
+  readonly alternative: Expr;
   readonly span: Source.Span;
 }
 

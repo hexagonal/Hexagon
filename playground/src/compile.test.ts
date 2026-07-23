@@ -102,13 +102,14 @@ describe("compileSource", () => {
     ]);
   });
 
-  test("compiles then-form conditionals split across aligned lines", () => {
+  test("compiles the canonical multiline conditional", () => {
     const response = compileSource(
       8,
       "fun fact(n: Int): Int =\n" +
-        "    if n <= 1\n" +
-        "    then 1\n" +
-        "    else n * fact(n - 1)\n",
+        "    if n <= 1 then\n" +
+        "        1\n" +
+        "    else\n" +
+        "        n * fact(n - 1)\n",
     );
 
     expect(response.kind).toBe("compile-success");

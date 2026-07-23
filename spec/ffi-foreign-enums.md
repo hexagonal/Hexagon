@@ -273,7 +273,7 @@ membership-projection semantics.
 ## 6. Derivation
 
 `derives` occupies the ordinary header position, after the local type name and before
-`=`. The derivable set and superconstraint rules are the ordinary union rules. Their
+`=`. The derivable set and base constraint rules are the ordinary union rules. Their
 observable semantics are representation-independent:
 
 - `Eq` compares constructors; emission may use `Object.is` on the captured values;

@@ -17,7 +17,7 @@ patterns, primitive and negative Int/String/Bool pattern literals, Unit, nested
 or-patterns with shared bindings, and as-patterns,
 guarded match arms, direct tuple/record matching, inclusive ranges, `while`, `for..in`
 over `Range` and `String`, and
-string interpolation, `then`-form and layout `if`, calls, field access,
+string interpolation, mandatory-`then` inline and multiline `if`, calls, field access,
 indexing, assignment, generic unions, nominal records, exception declarations and
 guarded full-pattern `try`/`catch` arms, completed user constraint declarations and honors, implied type
 declarations and ground bindings, `derive` and declaration-header `derives`, explicit
@@ -66,7 +66,7 @@ concrete `Range`/`String`/`Seq(a)` iteration,
 first-argument pipe insertion, and block sequencing. Typed syntax records an
 immutable type for every expression and a scheme for every binding. Declarations,
 generic call-site evidence, explicit and inferred constraints, required-member user
-constraints, superconstraints, inherited defaults, coherent ground and parameterized
+constraints, base constraints, inherited defaults, coherent ground and parameterized
 instances, nominal derivation, concrete implied type substitution, the
 projection-bearing constraint binder ban, concrete exception payloads, guarded full-pattern
 exception handling, imported schemes, and nominal dot-call

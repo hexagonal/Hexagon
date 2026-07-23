@@ -49,7 +49,7 @@ declaration head in the table without changing it.
 | Block head at the end of a logical item | Opens on a following indented line |
 |---|---|
 | Lambda or match-arm `=>` with no same-line body | Body block |
-| Layout `if` (no `then` after that `if`) | Consequence block |
+| Conditional header ending in mandatory `then` | True-branch block |
 | `for` or `while` head | Loop body |
 | `match` head | Arm block |
 | Bare `try` | Try body |

@@ -358,11 +358,11 @@ describe("parse", () => {
     ]);
   });
 
-  test("parses inline and layout conditionals with nested blocks", () => {
+  test("parses inline and multiline conditionals with nested blocks", () => {
     const module = parseSource(
       "let choose = if ready then yes else no\n" +
       "let act(x) =\n" +
-      "    if x\n" +
+      "    if x then\n" +
       "        print(x)\n" +
       "    else\n" +
       "        print(0)\n" +
@@ -395,45 +395,65 @@ describe("parse", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
-  test("treats aligned line breaks before then and else as continuations", () => {
-    const splitThen = parseSource(
-      "fun fact(n: Int): Int =\n" +
-        "    if n <= 1\n" +
-        "    then 1\n" +
-        "    else n * fact(n - 1)",
-    );
-    const splitElse = parseSource(
-      "fun fact(n: Int): Int =\n" +
-        "    if n <= 1 then 1\n" +
-        "    else n * fact(n - 1)",
+  test("rejects the former layout conditional without then", () => {
+    const module = parseSource(
+      "let choose =\n" +
+        "    if ready\n" +
+        "        yes\n" +
+        "    else\n" +
+        "        no",
     );
 
-    for (const module of [splitThen, splitElse]) {
-      expect(module.items[0]).toMatchObject({
-        kind: "Fun",
-        value: {
-          kind: "Lambda",
-          body: {
-            kind: "Block",
-            items: [
-              {
-                kind: "ExprItem",
-                expression: {
-                  kind: "If",
-                  condition: {
-                    kind: "Comparison",
-                    operators: ["LessEqual"],
-                  },
-                  consequence: { kind: "Integer", decimal: "1" },
-                  alternative: { kind: "Binary", operator: "Multiply" },
+    expect(module.diagnostics.map(({ message }) => message)).toContain(
+      "`if` requires `then`; write `if condition then` before the indented true branch",
+    );
+  });
+
+  test("requires an else for every conditional", () => {
+    const module = parseSource(
+      "let act(ready: Bool) =\n" +
+        "    if ready then\n" +
+        "        print(\"ready\")",
+    );
+
+    expect(module.diagnostics.map(({ message }) => message)).toContain(
+      "`if` requires an `else`",
+    );
+  });
+
+  test("parses the canonical multiline conditional", () => {
+    const module = parseSource(
+      "fun fact(n: Int): Int =\n" +
+        "    if n <= 1 then\n" +
+        "        1\n" +
+        "    else\n" +
+        "        n * fact(n - 1)",
+    );
+
+    expect(module.items[0]).toMatchObject({
+      kind: "Fun",
+      value: {
+        kind: "Lambda",
+        body: {
+          kind: "Block",
+          items: [
+            {
+              kind: "ExprItem",
+              expression: {
+                kind: "If",
+                condition: {
+                  kind: "Comparison",
+                  operators: ["LessEqual"],
                 },
+                consequence: { kind: "Block" },
+                alternative: { kind: "Block" },
               },
-            ],
-          },
+            },
+          ],
         },
-      });
-      expect(module.diagnostics).toEqual([]);
-    }
+      },
+    });
+    expect(module.diagnostics).toEqual([]);
   });
 
   test("parses expressions nested inside string interpolation", () => {

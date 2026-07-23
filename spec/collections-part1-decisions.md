@@ -108,7 +108,7 @@ The doctrine is fixed here; the normative surfaces live with their owners: `Vect
 
 - `Map(k, v)` and `Set(a)` are **hash-tried persistent collections (HAMT lineage)** provided by `@hexagon/runtime`.
 - Their key/element constraint is **`Hash`**, which **ships in v1**, formally specified in Part 2. The load-bearing properties, fixed here:
-  - `Hash` has `Eq` as a superconstraint (`Hash` implies `Eq`).
+  - `Hash` has `Eq` as a base constraint (`Hash` extends `Eq`).
   - `Hash` is **derivable-only for user code**: it joins the derivation whitelist; users cannot write `honor Hash<T>` by hand, and deriving `Hash<T>` additionally requires that the `Eq<T>` instance is itself compiler-derived (the Eq-agreement rule, Part 2 §4.3).
   - Prelude and collection instances are compiler/runtime-provided — specified normatively by spec text, with no source form (Part 2 §2.5, §4.4; Part 4 §8). "Derivable-only" constrains users, not the specification.
   - `Hash<Float>` normalises consistently with `Eq<Float>`'s SameValueZero: `-0` hashes as `+0`, all `NaN` bit patterns hash to one value. The normative statement is Part 2 §2.3/§2.5.

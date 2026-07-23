@@ -250,7 +250,7 @@ import "telemetry/register";
 
 ### 8.2 Foreign evaluation semantics
 
-Emitted code is readable ESM, so foreign module evaluation follows JavaScript's ordinary module semantics: a foreign module is evaluated once, on first load, regardless of how many extern blocks or Hexagon modules import from it. Hexagon adds no scheduling of its own and makes no promise about foreign evaluation order beyond what the emitted ESM import graph implies.
+Emitted code is readable ESM, so foreign module evaluation follows JavaScript's ordinary module semantics: a foreign module is evaluated once, on first load, regardless of how many extern blocks or Hexagon modules import from it. Hexagon adds no scheduling of its own and makes no promise about foreign evaluation order beyond that determined by the emitted ESM import graph.
 
 `extern import` is the form whose **purpose** is effects and whose evaluation edge is therefore retained. An `extern from` block does not separately guarantee evaluation when none of its bindings survive whole-program compilation (§2.3, §12.1); a program that requires a foreign module's top-level effects states so with `extern import`.
 

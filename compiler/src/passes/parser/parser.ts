@@ -496,7 +496,7 @@ class Parser {
       startClass: "non-upper" as const,
       span: this.#current().span,
     };
-    const superconstraints = head[0]?.constraints ?? [];
+    const baseConstraints = head[0]?.constraints ?? [];
     this.#expect("Equal", "expected `=` after constraint head");
     this.#expect("VOpen", "expected an indented constraint body");
     const impliedTypes: Parsed.ConstraintImpliedType[] = [];
@@ -559,7 +559,7 @@ class Parser {
       kind: "ConstraintDeclaration",
       name: nameToken === undefined ? fallbackName : parsedName(nameToken),
       subject,
-      superconstraints,
+      baseConstraints,
       impliedTypes,
       members,
       span: spanFrom(start.span, closing?.span ?? members.at(-1)?.span ?? start.span),
@@ -1750,35 +1750,46 @@ class Parser {
     );
 
     let consequence: Parsed.Expr;
-    let alternative: Parsed.Expr | undefined;
+    let alternative: Parsed.Expr;
     if (this.#at("Then")) {
       this.#advance();
-      consequence = this.#parseExpression(0, withStops(outerStops, "Else"));
+      consequence = this.#parseBodyExpression(withStops(outerStops, "Else"));
       if (
-        this.#expect("Else", "`then`-form `if` requires an `else`") !== undefined
+        this.#expect("Else", "`if` requires an `else`") !== undefined
       ) {
-        alternative = this.#parseExpression(0, outerStops);
+        alternative = this.#at("If")
+          ? this.#parseIf(outerStops)
+          : this.#parseBodyExpression(outerStops);
+      } else {
+        alternative = { kind: "ErrorExpr", span: this.#current().span };
       }
     } else if (this.#at("VOpen")) {
+      this.#errorAt(
+        start.span,
+        "`if` requires `then`; write `if condition then` before the indented true branch",
+      );
       consequence = this.#parseBlock();
       if (this.#at("Else")) {
         this.#advance();
         alternative = this.#at("If")
           ? this.#parseIf(outerStops)
           : this.#parseBodyExpression(outerStops);
+      } else {
+        this.#errorAt(start.span, "`if` requires an `else`");
+        alternative = { kind: "ErrorExpr", span: this.#current().span };
       }
     } else {
-      this.#error("expected `then` or an indented block after `if` condition");
+      this.#error("expected `then` after `if` condition");
       consequence = { kind: "ErrorExpr", span: this.#current().span };
+      alternative = { kind: "ErrorExpr", span: this.#current().span };
     }
 
-    const end = alternative ?? consequence;
     return {
       kind: "If",
       condition,
       consequence,
-      ...(alternative === undefined ? {} : { alternative }),
-      span: spanFrom(start.span, end.span),
+      alternative,
+      span: spanFrom(start.span, alternative.span),
     };
   }
 

@@ -16,7 +16,7 @@ After this chapter, the reader should be able to:
 - read the precedence table and recognize its few intentional departures from JS;
 - write safe comparison chains;
 - predict short-circuit behavior;
-- use inline and layout `if` expressions;
+- use inline and canonical multiline `if … then … else` expressions;
 - use `|>` as first-argument insertion; and
 - understand that operators are a fixed language vocabulary rather than user-defined
   punctuation.
@@ -46,7 +46,7 @@ Preview, but defer full treatment of:
 4. String concatenation.
 5. Equality, ordering, and comparison chains.
 6. Word-based Boolean logic and short-circuiting.
-7. Inline and layout conditionals as expressions.
+7. Inline and canonical multiline conditionals as expressions.
 8. The pipe as first-argument insertion.
 9. The compact precedence table and two notable parses.
 10. Direct JavaScript emission and working summary.
@@ -72,4 +72,5 @@ Preview, but defer full treatment of:
 - Comparison chains evaluate each source operand once and reject mixed directions and
   chained `!=`.
 - Pipes insert as the first argument and disappear before type inference.
-- Inline `if` requires `else`; else-less layout `if` is `Unit`.
+- Every `if` requires both `then` and `else`; canonical multiline formatting keeps
+  `then` on the condition line and indents both branches.

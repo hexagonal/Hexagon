@@ -24,7 +24,7 @@ the foreign API.
 6. Constraint-qualified dictionary types expose the completed member set.
 7. Fundamental dictionary handles are constraint-owned; user/runtime handles are
    type-owned; parameterized instances become dictionary factories.
-8. Dictionary parameters form a stable trailing suffix, and a superconstraint
+8. Dictionary parameters form a stable trailing suffix, and a base constraint
    dictionary is nested inside the more specific dictionary.
 9. Public declarations and public capability—not private calls—determine the surface.
 10. Generated names, dictionary shapes, and dictionary-parameter order are API and ABI.

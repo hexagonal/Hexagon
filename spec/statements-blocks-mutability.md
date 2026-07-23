@@ -89,7 +89,8 @@ Emission: an applied `ignore(e)` emits the bare expression statement `e;` — st
 Nothing changes from the companions; recorded so this spec is self-contained:
 
 - `if`/`match`/`try` are expressions *containing* blocks. Each branch/arm block types per §3; the construct's type unifies all branch types as before. `if p then x := 1 else x := 2` is therefore an `if` expression of type `Unit` — both branch blocks end in a `Unit`-typed expression.
-- An `if` **without** `else` exists only in the layout form (Operators §11: the `then`-form requires `else`) and is `Unit`-typed, the then-block unifying against `Unit` — exactly this section's rule applied by that owner.
+- Every `if` requires both `then` and `else` (Operators §11), including conditionals
+  whose branches are `Unit`.
 - A lambda whose body block ends in `x := e` is a function returning `Unit` — no ceremony, no trailing `()`. This is the ergonomic payoff of the F# model and one of this spec's acceptance tests (§9.1).
 
 ---
@@ -367,7 +368,9 @@ fun h() =
 
 1. **Cosmetic restriction on value-position `:=`.** `let y = (x := 6)` is legal and useless (§2). A parse-level restriction to statement-ish positions would cost a grammar wrinkle for zero semantic gain; left legal. Revisit only if it confuses real users.
 2. **Resolved anchor (not an open question).** Head Binder Shadowing vs module/prelude names is **decided by Modules §5.4** (module-level bindings may occlude the prelude; function-local binders occlude nothing; the interim rule here is retired). This entry keeps its number only because existing cross-references cite §10.2.
-3. **Resolved anchor (not an open question).** `else`-less `if` is **decided by Operators §11**: the layout form permits it (`Unit`-typed, per §4 here); the `then`-form requires `else`. Number kept for existing cross-references.
+3. **Resolved anchor (not an open question).** Every `if` requires both `then` and
+   `else`, including `Unit` conditionals, as decided by Operators §11. Number kept
+   for existing cross-references.
 4. **Over-broad `ignore` lint.** `ignore` can hide bugs exactly as it prevents them; a lint on suspicious discards was floated (same parking spot as the Exceptions §10.5 over-broad-catch lint). Linting policy remains out of spec scope.
 5. **Compound assignment** (`+=` etc.): rejected for v1 (§6.4); revisit with field evidence alongside the loops spec, where the itch would first appear.
 6. **`var` destructuring pressure from state-threading** (§5.4): the tuple state-threading idiom now requires fresh names or a loop, and the scalar escape hatch (`var`) forbids destructuring (§6.1). If field evidence shows users repeatedly wanting `var (state, x) = ...`, reopening §6.1's name-only rule is the pressure-relief valve to consider — the §5.4 classification itself is closed.

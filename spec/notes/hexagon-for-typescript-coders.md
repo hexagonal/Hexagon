@@ -191,8 +191,10 @@ Braces are never blocks in Hexagon — braces always mean records (Chapter 8).
 ### 3.3 Operators: words, not symbols
 
 ```hexagon
-if not done and count > 0 or force
+if not done and count > 0 or force then
     retry()
+else
+    ()
 ```
 
 Logic is spelled `not`, `and`, `or` (plus `implies` and `iff` for the mathematically inclined). Writing `!`, `&&`, or `||` is a lexer error with a fix-it pointing you to the word. `and`/`or` short-circuit and compile to JS `&&`/`||`.
@@ -204,8 +206,8 @@ Two more differences from JS that remove entire bug classes:
 **Comparison chaining.** This works, and means what it says:
 
 ```hexagon
-if 0 <= x and x <= 10 ...     // fine, but also:
-if 0 <= x <= 10 ...           // legal Hexagon: chained comparison, math semantics
+if 0 <= x and x <= 10 then ... else ...     // fine, but also:
+if 0 <= x <= 10 then ... else ...           // legal Hexagon: chained comparison, math semantics
 ```
 
 In JS, `0 <= x <= 10` silently evaluates to nonsense via boolean coercion. Hexagon gives it the meaning your math teacher intended.

@@ -288,20 +288,22 @@ Two `fun` declarations may refer to each other:
 
 ```hexagon
 fun isEven(n: Int): Bool =
-    if n == 0
+    if n == 0 then
         true
-    else if n > 0
-        isOdd(n - 1)
     else
-        isOdd(n + 1)
+        if n > 0 then
+            isOdd(n - 1)
+        else
+            isOdd(n + 1)
 
 fun isOdd(n: Int): Bool =
-    if n == 0
+    if n == 0 then
         false
-    else if n > 0
-        isEven(n - 1)
     else
-        isEven(n + 1)
+        if n > 0 then
+            isEven(n - 1)
+        else
+            isEven(n + 1)
 ```
 
 The pair forms one recursive group. Calls between their bodies are valid regardless of

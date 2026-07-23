@@ -177,8 +177,10 @@ let invited = Set.fromVector(["Mira", "Niko", "Asha"])
 let withIvo = Set.add(invited, "Ivo")
 let withoutNiko = Set.remove(withIvo, "Niko")
 
-if Set.contains(withoutNiko, "Mira")
+if Set.contains(withoutNiko, "Mira") then
     print("Mira is invited")
+else
+    ()
 ```
 
 Adding an element already present and removing an element already absent both leave
@@ -203,7 +205,7 @@ let remember<k: Hash, v>(cache: Map(k, v), key: k, value: v): Map(k, v) =
     Map.set(cache, key, value)
 ```
 
-`Hash` has `Eq` as a superconstraint. Equal keys must have equal hash values; unequal
+`Hash` has `Eq` as a base constraint. Equal keys must have equal hash values; unequal
 keys may still collide. Primitive values and structural products receive lawful hash
 behavior from Hexagon. A nominal key type opts in through derivation:
 

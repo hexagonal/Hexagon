@@ -258,7 +258,7 @@ Pipes and dot calls keep supplying the first ordinary argument. Generating a dir
 function removes only the dictionary parameters; it never moves a source parameter.
 
 Dictionary order is stable: declared type-variable position first, then constraint
-name. A superconstraint is stored inside the more specific dictionary. An
+name. A base constraint is stored inside the more specific dictionary. An
 `Ord.Dictionary<a>` therefore includes its required `Eq.Dictionary<a>`, and a caller
 passes the `Ord` dictionary rather than repeating both.
 

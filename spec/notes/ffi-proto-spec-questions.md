@@ -29,7 +29,7 @@ The standard vocabulary is:
 
 Validation occurs only where the named operation exists to establish an invariant or where protocol participation inherently requires a check: numeric narrowing, explicit decoding, malformed iterator results, cycle detection during structural-key ingestion, and similar conversion-owned cases. Fixed-arity dictionary evidence relies on TypeScript branding plus the trusted boundary; future variadic evidence is deferred rather than forcing routine v1 validation.
 
-When foreign code violates a trusted declaration or borrow contract, affected Hexagon observations are unspecified; this does not imply memory unsafety. When an explicit checked decoder/converter encounters valid foreign input outside its representable domain, its own specified `Option`/`Result`/exception failure applies. Contract violation and defined conversion failure are distinct.
+When foreign code violates a trusted declaration or borrow contract, affected Hexagon observations are unspecified; this does not create memory unsafety. When an explicit checked decoder/converter encounters valid foreign input outside its representable domain, its own specified `Option`/`Result`/exception failure applies. Contract violation and defined conversion failure are distinct.
 
 ---
 
@@ -44,7 +44,7 @@ When foreign code violates a trusted declaration or borrow contract, affected He
 
 ### Current proto-decision
 
-`Array(a)` is a zero-copy borrowed view. Foreign code owns the underlying JavaScript array and must keep its elements and length stable while Hexagon, including a deferred traversal derived from the array, may observe it. Violation does not imply memory unsafety, but the affected contents, order, length, and traversal observations are unspecified.
+`Array(a)` is a zero-copy borrowed view. Foreign code owns the underlying JavaScript array and must keep its elements and length stable while Hexagon, including a deferred traversal derived from the array, may observe it. Violation does not create memory unsafety, but the affected contents, order, length, and traversal observations are unspecified.
 
 Under valid use, live iteration and snapshot iteration are observationally identical. Native `for...of` emission is therefore permitted and preferred; iteration does not copy merely to enforce a condition already required by the boundary contract.
 
@@ -890,12 +890,12 @@ The short public name matches the implementation: it accepts required evidence a
 
 - Evidence occupies the trailing suffix; pipes/source arguments stay at the left edge.
 - Multiple evidence parameters order by type-variable ordinal then constraint name; alpha-renaming cannot alter ABI.
-- Superconstraint dictionaries are nested; callers pass the most specific required dictionary.
+- Base constraint dictionaries are nested; callers pass the most specific required dictionary.
 - TypeScript `unique symbol` branding distinguishes constraint/value evidence statically.
 - Fixed-arity v1 calls perform no routine runtime dictionary validation under the trusted-boundary doctrine.
 - Dictionary objects should be frozen where practical.
 - Cross-package evidence requires a compatible `@hexagon/runtime` dictionary ABI.
-- Changing constraint members, superconstraint slots, factory argument order, or evidence order is an ABI event.
+- Changing constraint members, base constraint slots, factory argument order, or evidence order is an ABI event.
 - Variadic right-edge evidence extraction remains deferred with general rest parameters; it is not v1 surface.
 
 ---

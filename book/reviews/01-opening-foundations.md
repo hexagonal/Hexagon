@@ -17,7 +17,7 @@ The group has a stable conceptual progression:
 
 The central ideas recur without changing meaning. `Unit` moves from sequencing to its
 primitive representation and then to nullary/effectful functions. The final-expression
-rule returns in layout conditionals. Subject-first parameter order is introduced with
+rule returns in multiline conditionals. Subject-first parameter order is introduced with
 functions through `auditOrder(order) |> ignore`, then paid off fully by the pipe.
 Native JavaScript representation remains consistent across all four chapters.
 

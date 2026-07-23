@@ -34,9 +34,10 @@ let plus(x: Int, y: Int) = x + y
 
 // Recursive functions use fun.
 fun factorial(n: Int) =
-    if n <= 1
-    then 1
-    else n * factorial(n - 1)
+    if n <= 1 then
+        1
+    else
+        n * factorial(n - 1)
 
 // Match handles every union alternative.
 let color(suit: Suit) = match suit

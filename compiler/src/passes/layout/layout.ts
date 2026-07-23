@@ -200,6 +200,7 @@ function expectsBlock(item: readonly Lexed.Token[]): boolean {
   const last = item.at(-1);
   if (
     last?.kind === "FatArrow" ||
+    last?.kind === "Then" ||
     last?.kind === "Else" ||
     last?.kind === "Catch" ||
     last?.kind === "Finally"
@@ -212,8 +213,16 @@ function expectsBlock(item: readonly Lexed.Token[]): boolean {
     if (activeControl.kind === "Try") {
       return activeControl.index === item.length - 1;
     }
-    return activeControl.kind !== "If" ||
-      !item.slice(activeControl.index + 1).some(({ kind }) => kind === "Then");
+    if (activeControl.kind === "If") {
+      // A bare `if` remains a recovery head so the parser can diagnose the
+      // formerly valid layout spelling at the right boundary. Valid multiline
+      // conditionals open their true-branch block after mandatory `then`.
+      const hasThen = item
+        .slice(activeControl.index + 1)
+        .some(({ kind }) => kind === "Then");
+      return !hasThen;
+    }
+    return true;
   }
 
   const first = item[item[0]?.kind === "Export" ? 1 : 0];

@@ -263,13 +263,13 @@ export interface HonorItem {
   readonly subject: Typed.Type;
   readonly derived: boolean;
   readonly dictionary: string;
-  readonly superconstraints: readonly HonorSuperconstraint[];
+  readonly baseConstraints: readonly HonorBaseConstraint[];
   readonly impliedTypes: readonly Typed.HonorImpliedType[];
   readonly members: readonly HonorMember[];
   readonly span: Source.Span;
 }
 
-export interface HonorSuperconstraint {
+export interface HonorBaseConstraint {
   readonly name: Typed.ConstraintName;
   readonly evidence: Evidence;
 }
@@ -486,7 +486,7 @@ export interface IfExpr extends ExpressionFields {
   readonly kind: "If";
   readonly condition: Expr;
   readonly consequence: Expr;
-  readonly alternative?: Expr;
+  readonly alternative: Expr;
 }
 
 export interface WhileExpr extends ExpressionFields {

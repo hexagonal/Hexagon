@@ -25,7 +25,7 @@ support without needing to understand compiler phases.
 
 ## Continuity constraints
 
-- Do not imply textual source-to-source translation; readability is constrained by
+- Do not suggest textual source-to-source translation; readability is constrained by
   semantics.
 - Keep all-nullary unions as strings and mixed unions uniformly tagged objects.
 - Keep tuples as arrays, records as POJOs, and nominal record construction erased when

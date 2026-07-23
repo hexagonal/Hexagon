@@ -61,7 +61,7 @@ Selecting this file as the run root evaluates `greeting` first and then calls `p
 let main() = print("not called automatically")
 ```
 
-The declaration above does nothing unless ordinary program evaluation calls `main()`. A diagnostic, editor, or project template must not imply otherwise.
+The declaration above does nothing unless ordinary program evaluation calls `main()`. A diagnostic, editor, or project template must not suggest otherwise.
 
 This keeps module semantics uniform: importing a module and running it as a root differ only in which module the host asks ESM to evaluate, not in hidden language behaviour.
 

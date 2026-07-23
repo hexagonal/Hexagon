@@ -230,7 +230,7 @@ late pedagogy pass, not a commitment to the current order.
 
 - Assumes polymorphism, operators, interpolation, nominal declarations, and only the
   light earlier preview that declarations live in modules.
-- Establishes constraints, instances, default operations, `honor`, superconstraints,
+- Establishes constraints, instances, default operations, `honor`, base constraints,
   coherence, the orphan rule, and the core prelude capability vocabulary.
 - Introduces dictionaries as small operation objects only after ordinary concrete
   constraint use is understood; concrete calls remain direct.
@@ -391,7 +391,7 @@ late pedagogy pass, not a commitment to the current order.
   trailing dictionary parameters.
 - Establishes constraint-qualified branded dictionary types, constraint-owned
   fundamental handles, type-owned user handles, parameterized factories, and nested
-  superconstraint dictionaries.
+  base constraint dictionaries.
 - Establishes that public declarations and public capability determine the foreign
   surface; private types and internal call sites never do.
 - Establishes generated names, dictionary-parameter order, dictionary shape, and public
@@ -472,7 +472,8 @@ late pedagogy pass, not a commitment to the current order.
 - `and`, `or`, and `implies` short-circuit; `iff` evaluates both operands.
 - Teach `implies` through the promise `winGame implies getPizza`, not through the formal
   rewrite `not left or right`.
-- Inline `if` requires `else`; else-less layout `if` has type `Unit`.
+- Every `if` requires both `then` and `else`; multiline conditionals keep `then`
+  on the condition line and indent both branches.
 - Canonical pipe continuation:
   `subtotal |> applyDiscount(discount) |> orderTotal(delivery)`. Pipe means
   first-argument insertion and relies on the subject-first convention.
@@ -587,7 +588,7 @@ late pedagogy pass, not a commitment to the current order.
 - Assumes generic functions, explicit type-variable binders, operators, interpolation,
   nominal declarations, and modules only at the light “declaration has a home” level.
 - Establishes constraints as type obligations, `honor` declarations as their answers,
-  instances, superconstraints, coherence, the orphan rule, the core prelude capability
+  instances, base constraints, coherence, the orphan rule, the core prelude capability
   vocabulary, and dictionary erasure.
 - Constraint operations without bodies are required; operations with bodies are
   inherited defaults that an instance may override. `Eq.equals` is required,
@@ -708,7 +709,7 @@ late pedagogy pass, not a commitment to the current order.
   brackets throw `KeyError`; `Map.get` is total; `Map.set` inserts or replaces.
 - `Map` and `Set` iteration order is deterministic for one value within one execution
   but is neither insertion/sorted order nor stable across executions.
-- `Hash` is an explicit superconstraint of `Eq`; nominal keys derive `(Eq, Hash)` so
+- `Hash` is an explicit base constraint of `Eq`; nominal keys derive `(Eq, Hash)` so
   user hashing cannot disagree with equality.
 - `Seq` is the collection conversion currency; every `fromSeq` is eager.
 - `Bag(a)` briefly shows `type Item = a` and delegates `iterate` to `Vector.toSeq`; the
@@ -800,7 +801,7 @@ late pedagogy pass, not a commitment to the current order.
 - Fundamental dictionaries are constraint-owned (Num.nat, `Signed.int`); user/runtime dictionaries
   are type-owned (`Rat.signed`); dependent dictionaries come from factories such as
   `Vector.show(Show.string)`.
-- Dictionary parameters remain a stable trailing suffix, and superconstraint
+- Dictionary parameters remain a stable trailing suffix, and base constraint
   dictionaries are nested.
 - Public capability, never private implementation or internal calls, determines the
   JavaScript/TypeScript surface.

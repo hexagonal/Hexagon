@@ -32,7 +32,7 @@ function elaborateItem(item: Typed.Item): Core.Item {
     case "Honor":
       return {
         ...item,
-        superconstraints: item.superconstraints.map((constraint) => ({
+        baseConstraints: item.baseConstraints.map((constraint) => ({
           name: constraint.name,
           evidence: evidence(constraint),
         })),
@@ -155,18 +155,15 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
       return { ...expression, items: expression.items.map(elaborateItem) };
     case "Lambda":
       return { ...expression, body: elaborateExpr(expression.body) };
-    case "If": {
-      const common = {
+    case "If":
+      return {
         kind: "If" as const,
         condition: elaborateExpr(expression.condition),
         consequence: elaborateExpr(expression.consequence),
+        alternative: elaborateExpr(expression.alternative),
         type: expression.type,
         span: expression.span,
       };
-      return expression.alternative === undefined
-        ? common
-        : { ...common, alternative: elaborateExpr(expression.alternative) };
-    }
     case "While":
       return {
         ...expression,

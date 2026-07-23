@@ -263,7 +263,7 @@ function visitExpr(expression: Core.Expr, visit: (expression: Core.Expr) => void
     case "If":
       visitExpr(expression.condition, visit);
       visitExpr(expression.consequence, visit);
-      if (expression.alternative !== undefined) visitExpr(expression.alternative, visit);
+      visitExpr(expression.alternative, visit);
       return;
     case "Call":
       visitExpr(expression.callee, visit);
