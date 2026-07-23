@@ -5,8 +5,8 @@ export const specializations: PlaygroundExample = {
   title: "Fundamental Specializations",
   description:
     "Inspect direct Num editions, then use contextual Int widening to buy some bananas.",
-  source: `// The declared boundary keeps the inferred type: <a: Num> (a, a) -> a
-let plus<a: Num>(x: a, y: a) = x + y
+  source: `// The typed parameters anchor the generic boundary; Num is inferred.
+let plus(x: a, y: a) = x + y
 
 // Open the JS View menu to inspect each generated edition.
 console.log(plus(20, 22))

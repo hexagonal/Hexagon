@@ -26,8 +26,8 @@ let (rank, suit) = card
 // Module-level parameters form an explicit inference boundary.
 let greet(name: String) = "Hello, " ++ name ++ "!"
 
-// Generic boundaries name the constraint inferred from interpolation.
-let greet2<a: Show>(thing: a) = "Hello, \${thing}!"
+// Private constraints remain inferred.
+let greet2(thing: a) = "Hello, \${thing}!"
 
 // Private return types remain inferred.
 let plus(x: Int, y: Int) = x + y
