@@ -111,7 +111,7 @@ When the trigger fires (or at the deadline fixpoint), the receiver's head determ
 | **Primitive** (`Int`, `Float`, `Bool`, `String`, `Unit`, and compiler-known nominals like `Range`, `Seq`) | As the nominal case, with `CompanionOf` the fixed prelude companion (§4.3). No fields exist, so no collision surface. |
 | **Tuple** | `name` of the form `itemN` → the existing positional interpretation (Products §2.3) followed by a call, i.e. `(t.itemN)(args…)`; the component must be callable. Any other name → the existing tuple-dot errors. Tuples have no companions (§5); nothing new. |
 | **Function type** | Error: functions have no fields and no companion (§5). |
-| **Rigid (annotation-bound) type variable** | The fallback's row constraint cannot unify with a rigid variable; this failure gets the bespoke type-variable diagnostic (§9, row 6) rather than the raw unification error — see §7 for the `x.compare(y)` case it exists for. |
+| **Declared type variable** | The fallback's row constraint cannot unify with a declared type variable; this failure gets the bespoke type-variable diagnostic (§9, row 6) rather than the raw unification error — see §7 for the `x.compare(y)` case it exists for. |
 
 ### 3.5 The row fallback — semantics, not heuristic
 
@@ -235,7 +235,7 @@ box.size()
 
 `show`, `compare`, `equals`, `hash`, `add`, … are constraint members (Constraints §2.2), not companion operations, and dot syntax never reaches them. `x.show()` does not work and is not planned to:
 
-- On a **rigid type variable**, the fallback's row constraint fails against the rigid variable, and the diagnostic is a bespoke redirect. The governing sentence — sharper than "type variables have no companion operations," since a future instantiation of `a` may well have them — is: **companion dispatch cannot be selected through an abstract receiver type.** *(Formulation: Sol.)* Two variants, by whether the name matches a constraint member reachable from the variable's bounds (§9, rows 6–7): when it does (`fun f<a: Ord>(x: a) = x.compare(y)`), redirect to the direct call — *"`a` is an abstract type variable, so the compiler cannot select a companion operation; `compare` is a constraint member — call it directly: `compare(x, y)`"*; when it doesn't (`fun f<a>(x: a) = x.process()`), state the options — *"`a` is an abstract type variable, so the compiler cannot select a companion operation for `.process`; require a callable record field in the parameter's type, use a concrete nominal type, or call a qualified function."* Mechanically both are an ordinary rigid-unification failure wearing a better message.
+- On a **declared type variable**, the fallback's row constraint fails against the rigid annotation variable, and the diagnostic is a bespoke redirect. The governing sentence — sharper than "type variables have no companion operations," since a future instantiation of `a` may well have them — is: **companion dispatch cannot be selected through a declared receiver type variable.** *(Sol originated the redirect; the glossary ruling supplies its final vocabulary.)* Two variants, by whether the name matches a constraint member reachable from the variable's bounds (§9, rows 6–7): when it does (`fun f<a: Ord>(x: a) = x.compare(y)`), redirect to the direct call — *"`a` is a declared type variable, so the compiler cannot select a companion operation; `compare` is a constraint member — call it directly: `compare(x, y)`"*; when it doesn't (`fun f<a>(x: a) = x.process()`), state the options — *"`a` is a declared type variable, so the compiler cannot select a companion operation for `.process`; require a callable record field in the parameter's type, use a concrete nominal type, or call a qualified function."* Mechanically both are an ordinary rigid-unification failure wearing a better message.
 - On a **concrete receiver** (`3.show()`): resolution reaches `Int`'s companion; whether it finds `show` there depends on the stdlib listing (Modules §6.4 requires qualified homes for prelude names, and `String.show`-style per-type homes were its own example). **If** the companion exports a subject-first `show(x: Int): String`, then `3.show()` resolves as an ordinary companion call to *that monomorphic function* — legal, unremarkable, and involving no constraint dispatch whatsoever. This spec neither requires nor forbids such exports; it records that the *mechanism* stays clean either way: dot calls never consult instances, dictionaries, or constraint member names. The stdlib listing decides the inventory and inherits a note (§15).
 - Extending dot syntax to dispatch constraint members on unknown types is the road to extension-trait machinery and import-sensitive method sets — the exact Rust complexity this design exists to refuse. Pre-registered rejection, §11.7; revisit bar in §12.1.
 
@@ -280,8 +280,8 @@ Completion after `receiver.` must be driven by **the same resolution model**, at
 | 3 | Field resolved but not callable / wrong arity | ordinary type/arity errors phrased against the field: "field `at` has type `Int`, which is not a function" |
 | 4 | Nominal receiver, name is neither field nor companion op | "`Vector` has no field `at2` and module `Vector` exports no operation `at2`" + near-miss suggestions from both sets |
 | 5 | Companion op exists but first parameter is not `T`-headed | treated as row 4 (it is not in the operation set) — but if the name matches a non-subject-first export, hint: "`Vector.empty` does not take a `Vector` as its first argument; call it as `Vector.empty(…)`" |
-| 6 | Dot call on rigid type variable, name matches a reachable constraint member | "`a` is an abstract type variable, so the compiler cannot select a companion operation; `compare` is a constraint member — call it directly: `compare(x, y)`" (§7) |
-| 7 | Dot call on rigid type variable, no matching constraint member | "`a` is an abstract type variable, so the compiler cannot select a companion operation for `.process`; require a callable record field in the parameter's type, use a concrete nominal type, or call a qualified function" (§7) |
+| 6 | Dot call on declared type variable, name matches a reachable constraint member | "`a` is a declared type variable, so the compiler cannot select a companion operation; `compare` is a constraint member — call it directly: `compare(x, y)`" (§7) |
+| 7 | Dot call on declared type variable, no matching constraint member | "`a` is a declared type variable, so the compiler cannot select a companion operation for `.process`; require a callable record field in the parameter's type, use a concrete nominal type, or call a qualified function" (§7) |
 | 8 | Post-finalisation row-vs-nominal failure with matching companion op (any distance — same module or across the program) | the §3.6 enriched message — mandatory whenever the field name matches an exported companion operation of the failing nominal type. Same-region contradictions are unreachable under the receiver-level deadline (§3.6) |
 | 9 | Tuple receiver, non-`itemN` name | existing tuple-dot errors (Products §2.3), unchanged |
 | 10 | Function-typed receiver | "functions have no fields or companion operations" |
@@ -419,16 +419,16 @@ v.empty()                          -- ERROR (row 5): `Vector` has no field `empt
                                    --   `Vector.empty` does not take a `Vector` as its
                                    --   first argument; call it as `Vector.empty()`
 
--- (j) Rigid variable with a matching constraint member: the redirect
+-- (j) Declared type variable with a matching constraint member: the redirect
 fun cmp<a: Ord>(x: a, y: a) =
-    x.compare(y)                     -- ERROR (row 6): `a` is an abstract type variable,
+    x.compare(y)                     -- ERROR (row 6): `a` is a declared type variable,
                                    --   so the compiler cannot select a companion
                                    --   operation; `compare` is a constraint member —
                                    --   call it directly: `compare(x, y)`
 
--- (j2) Rigid variable, no matching member: the options message
+-- (j2) Declared type variable, no matching member: the options message
 fun go<a>(x: a) =
-    x.process()                      -- ERROR (row 7): `a` is an abstract type variable,
+    x.process()                      -- ERROR (row 7): `a` is a declared type variable,
                                    --   so the compiler cannot select a companion
                                    --   operation for `.process`; require a callable
                                    --   record field in the parameter's type, use a

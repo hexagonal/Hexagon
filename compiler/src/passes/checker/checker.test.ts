@@ -643,6 +643,93 @@ describe("check", () => {
     ]);
   });
 
+  test("keeps declared function type variables rigid while inferring their constraints", () => {
+    const rejected = checkSource(
+      "let takesInt(value: Int) = value\n" +
+        "let takesInts(values: Vector(Int)) = values\n" +
+        "let implicit(thing: a) = takesInt(thing)\n" +
+        "let explicit<a>(thing: a) = takesInt(thing)\n" +
+        "let nested(things: Vector(a)) = takesInts(things)\n" +
+        "let result(): a = takesInt(1)\n" +
+        "let same(left: a, right: b) = if true then left else right",
+    );
+
+    expect(rejected.diagnostics.map(({ message }) => message)).toEqual([
+      "`a` is a declared type variable, but the body requires `Int`; change the annotation to `Int`, or remove it to let the type be inferred",
+      "`a` is a declared type variable, but the body requires `Int`; change the annotation to `Int`, or remove it to let the type be inferred",
+      "`a` is a declared type variable, but the body requires `Int`; change the annotation to `Int`, or remove it to let the type be inferred",
+      "`a` is a declared type variable, but the body requires `Int`; change the annotation to `Int`, or remove it to let the type be inferred",
+      "`a` and `b` are distinct declared type variables, but the body requires them to be the same; use one type variable name in both annotations, or remove an annotation to let the type be inferred",
+    ]);
+
+    const accepted = checkSource(
+      'let numeric(thing: a) = thing + 1\n' +
+        'let display(thing: a) = "${thing}"\n' +
+        "let choose(thing: a, fallback) = if true then thing else fallback\n" +
+        "let takesInt(value: Int) = value\n" +
+        "let inferred(thing) = takesInt(thing)",
+    );
+
+    expect(letSymbol(accepted, "numeric").scheme).toMatchObject({
+      variables: [expect.any(Number)],
+      constraints: [{ name: "Num", type: { kind: "Variable" } }],
+      type: {
+        kind: "Function",
+        parameters: [{ kind: "Variable" }],
+        result: { kind: "Variable" },
+      },
+    });
+    expect(letSymbol(accepted, "display").scheme).toMatchObject({
+      variables: [expect.any(Number)],
+      constraints: [{ name: "Show", type: { kind: "Variable" } }],
+      type: {
+        kind: "Function",
+        parameters: [{ kind: "Variable" }],
+        result: { kind: "Primitive", name: "String" },
+      },
+    });
+    expect(letSymbol(accepted, "choose").scheme.type).toMatchObject({
+      kind: "Function",
+      parameters: [{ kind: "Variable" }, { kind: "Variable" }],
+      result: { kind: "Variable" },
+    });
+    expect(letSymbol(accepted, "inferred").scheme).toMatchObject({
+      variables: [],
+      constraints: [],
+      type: {
+        kind: "Function",
+        parameters: [{ kind: "Primitive", name: "Int" }],
+        result: { kind: "Primitive", name: "Int" },
+      },
+    });
+    expect(accepted.diagnostics).toEqual([]);
+  });
+
+  test("checks inferred demands against declared function constraints", () => {
+    const rejected = checkSource(
+      "export let fingerprint<a: Eq>(thing: a): Int = hash(thing)\n" +
+        "let numeric<a>(thing: a) = thing + 1",
+    );
+
+    expect(rejected.diagnostics.map(({ message }) => message)).toEqual([
+      "`a` is declared to honor `Eq`, but the body requires `Hash`; write `<a: Hash>`, or remove the constraint annotation to let it be inferred",
+      "`a` is declared without constraints, but the body requires `Num`; write `<a: Num>`, or remove the explicit type parameter to let it be inferred",
+    ]);
+
+    const accepted = checkSource(
+      "export let fingerprint<a: Hash>(thing: a): Int = hash(thing)\n" +
+        "export let same<a: Hash>(left: a, right: a): Bool = left == right",
+    );
+
+    expect(letSymbol(accepted, "fingerprint").scheme.constraints).toEqual([
+      expect.objectContaining({ name: "Hash" }),
+    ]);
+    expect(letSymbol(accepted, "same").scheme.constraints).toEqual([
+      expect.objectContaining({ name: "Hash" }),
+    ]);
+    expect(accepted.diagnostics).toEqual([]);
+  });
+
   test("checks explicit nullary, n-ary, tuple-domain, and higher-order function types", () => {
     const module = checkSource(
       "type Mapper(a, b) = a -> b\n" +

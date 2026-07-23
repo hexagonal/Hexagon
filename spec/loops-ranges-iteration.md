@@ -208,7 +208,7 @@ constraint Iterable<c> =
 - The table is **open to users in v1**: a user nominal type joins via a lawful `honor Iterable<T>` instance in one of its two legal homes (Collections Part 5 §7; orphan rule per Modules §7). The full resolution algorithm, failure taxonomy, table-opening rules, and finalized rows are owned by **Collections Part 5 §§2–4**.
 - The v1 restriction: `Iterable` is **projection-bearing** and therefore **cannot constrain a generic binder**, and `Item`/`Item(c)` cannot appear in source type expressions (Collections Part 2 §7.2–§7.3). Functions generic over "any iterable" are not writable in v1; the idiom is to **take a `Seq(a)` parameter** and let callers convert (`for x in xs` where `xs : Seq(a)` infers fine — `Seq`'s instance has a variable element).
 - Consequently `Iterable` never appears in inferred signatures, hovers, or unsatisfied-constraint errors in v1 — non-leakage holds **by construction** (no binder can introduce it), not by suppression (Collections Part 2 §8).
-- When the checker sees `for p in e` with `e : τ` and τ is an unsolved metavariable, the error is **annotation-required**; a rigid (binder-bound) variable instead gets the `Seq(a)` rewrite hint — the split diagnostics are Collections Part 5 §3.2 (§10.2 here summarizes).
+- When the checker sees `for p in e` with `e : τ` and τ is an unsolved inference variable, the error is **annotation-required**; a declared type variable instead gets the `Seq(a)` rewrite hint — the split diagnostics are Collections Part 5 §3.2 (§10.2 here summarizes).
 ### 7.2 The v2 remainder (implied types)
 
 The declaration, `Item` naming, `honor`-side `type Item = τ` bindings, and user instances are **v1** (Collections Part 2 §5–§8; Part 5). What remains v2 is the implied-types feature proper, owned by Collections Part 2 §11 / Part 1 §6.3:
@@ -273,7 +273,7 @@ Readable-JS doctrine: the general mechanism exists; the common case erases.
 | Loop body's final expression is non-`Unit` | "the final expression of the loop body produces a value that is discarded on every iteration; use `ignore(...)` if intended" — Statements §3.2 family, loop provenance |
 | `e` in `for p in e` has a concrete non-iterable type, not a user nominal | "`τ` is not iterable" (+ conversion hint where one exists, e.g. `toSeq`) |
 | `e`'s type is a user nominal with no instance | the two-legal-homes message: name the `honor Iterable<T>` home and the conversion/`Seq(a)` alternatives (Collections Part 5 §3.3) |
-| `e`'s type is an unsolved metavariable | "cannot determine what `e` iterates over; add a type annotation" (§7.1) |
+| `e`'s type is an unsolved inference variable | "cannot determine what `e` iterates over; add a type annotation" (§7.1) |
 | `e`'s type is a rigid (binder-bound) variable | "`e` has the generic type `c`, and `Iterable` cannot constrain a type variable in v1; take a `Seq(a)` parameter instead" (Collections Part 5 §3.2) |
 | Assignment to a loop binder | "`x` is a loop variable and cannot be assigned; declare a `var`" |
 | Refutable pattern in the loop head | the standard Pattern Matching §5 irrefutability error (loop heads are a binding position; no loop-specific dialect) |

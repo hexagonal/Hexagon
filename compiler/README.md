@@ -70,7 +70,10 @@ constraints, base constraints, inherited defaults, coherent ground and parameter
 instances, nominal derivation, concrete implied type substitution, the
 projection-bearing constraint binder ban, concrete exception payloads, guarded full-pattern
 exception handling, imported schemes, and nominal dot-call
-resolution. Exported signatures cannot expose private nominal or foreign types, and imported opaque
+resolution. Type variables written in function annotations are rigid during
+definition checking while still collecting inferred constraints; explicit
+constraint lists reject body demands they do not entail rather than silently
+strengthening. Exported signatures cannot expose private nominal or foreign types, and imported opaque
 records reject construction, field access, destructuring, and updates outside their home
 module. Extern signatures are monomorphic, annotation-driven, and checked for their
 implemented boundary adaptations. The public dictionary ABI and later FFI validation
@@ -78,6 +81,10 @@ remain future slices. Primitive annotations
 constrain inference and are erased after checking rather than leaking into Core.
 Direct recursion uses one monotype inside its own body and generalizes only after
 the recursive knot closes.
+
+Spec-linked semantic conformance tests live under `src/conformance`; the first
+Functions cases exercise rigid declared type variables and written-constraint
+completeness through the compiler's public pipeline.
 
 The initial elaborator receives pipes already rewritten to calls, removes grouping
 and overloadable operator syntax, turns

@@ -172,6 +172,20 @@ deliberately restrict a function, but they cannot promise behavior the definitio
 not support. Hexagon has no separate signature line that can drift away from the
 definition; the type belongs on the definition it describes.
 
+A written type variable is a real promise:
+
+```hexagon
+let takesInt(value: Int) = value
+let inferred(value) = takesInt(value)
+let rejected(value: a) = takesInt(value) // error: a cannot quietly become Int
+```
+
+The unannotated `inferred` parameter becomes `Int` because its body requires `Int`.
+The declared type variable in `rejected` says that the function is generic on purpose,
+so the checker holds the body to that contract. Such a variable may still acquire
+constraints from operations in the body; it simply cannot collapse to one concrete
+type.
+
 Explicit type variables use angle brackets:
 
 ```hexagon
