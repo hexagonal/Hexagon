@@ -38,7 +38,10 @@ export let multiply(left: Rat, right: Rat): Rat =
     create(left.top * right.top, left.bottom * right.bottom)
 
 export let divide(left: Rat, right: Rat): Rat =
-    create(left.top * right.bottom, left.bottom * right.top)
+    if right.top == 0 then
+        throw(DivideByZeroError("Rat.divide: divisor is zero"))
+    else
+        create(left.top * right.bottom, left.bottom * right.top)
 
 export let negate(value: Rat): Rat =
     Rat({top: -value.top, bottom: value.bottom})

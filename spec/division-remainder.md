@@ -169,5 +169,5 @@ isEven = n => Int.mod(n, 2) == 0    -- correct for negative n; with rem it would
 - **Operators §6.1:** "(floored, `DivideByZeroError` on zero divisor)" → "(Euclidean — see Division & Remainder spec; `DivideByZeroError` on zero divisor)"; extend the `intA / intB` diagnostic hint per §7 here.
 - **Operators §13 (`%` row):** "…`Int.mod` (floored) is the way" → "…`Int.mod` (Euclidean) and `Int.rem` (truncated) are the way — two conventions, two names."
 - **Primitive Types §2 (Division paragraph):** "deliberately chosen (floored) semantics" → "deliberately chosen **Euclidean** semantics"; add the `Int.quot`/`Int.rem` pair to the sentence.
-- **Exceptions spec (registry):** `DivideByZeroError` throwers now: `Int.div`, `Int.mod`, `Int.quot`, `Int.rem`, the four `BigInt` counterparts, and the Rat construction boundary reached by `Rat.create`, division, and reciprocal.
+- **Exceptions spec (registry):** `DivideByZeroError` throwers now: `Int.div`, `Int.mod`, `Int.quot`, `Int.rem`, the four `BigInt` counterparts, `Rat.divide`, and the Rat construction boundary reached by `Rat.create` and reciprocal.
 - **hexagon-for-typescript-coders Ch. 3.4:** optional one-liner when next touched: "`Int.mod` is always non-negative (unlike JS's `%`); `Int.rem` is JS's `%` under an honest name."

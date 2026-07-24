@@ -63,12 +63,14 @@ The v1 companion supplies `add`, `subtract`, `multiply`, `divide`, `negate`, and
 `reciprocal`. Every result passes through `create`; implementations may cancel
 common factors before multiplication as a transparent optimization.
 
-Division and `reciprocal(0)` throw `DivideByZeroError` through the same smart
-construction boundary. Addition and multiplication never round. `Num<Rat>` owns
-those operations and defines `fromNat(n)` as `n / 1`; `Signed<Rat>` adds subtraction,
-negation, and `fromInt(n)` as `n / 1`; `Frac<Rat>` owns exact division. Unlike
-`Frac<Float>`, it never rounds and has no IEEE infinity or `NaN` result: a zero divisor
-throws `DivideByZeroError`.
+Division checks its right operand explicitly and throws `DivideByZeroError` with
+the provenance-tagged message `Rat.divide: divisor is zero`. `reciprocal(0)`
+throws the same exception through the smart construction boundary. Addition and
+multiplication never round. `Num<Rat>` owns those operations and defines
+`fromNat(n)` as `n / 1`; `Signed<Rat>` adds subtraction, negation, and
+`fromInt(n)` as `n / 1`; `Frac<Rat>` owns exact division. Unlike `Frac<Float>`,
+it never rounds and has no IEEE infinity or `NaN` result: a zero divisor throws
+`DivideByZeroError`.
 
 ## 5. Constraints
 
@@ -113,7 +115,8 @@ those general mechanisms, not a privileged compiler type.
 
 - A zero bottom reports `DivideByZeroError` and rewrites toward a nonzero
   bottom or explicit validation before `Rat.create`.
-- Division by a zero `Rat` reports `DivideByZeroError` through `Rat.create`.
+- Division by a zero `Rat` reports `DivideByZeroError` at `Rat.divide` with
+  `Rat.divide: divisor is zero`.
 - Attempts to access fields outside Rat's home module receive the standard opaque
   record diagnostic and point to `Rat.top` / `Rat.bottom`.
 

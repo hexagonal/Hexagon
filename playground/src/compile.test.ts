@@ -291,7 +291,11 @@ describe("compileSource", () => {
       thrown = error;
     }
     expect(thrown).toBeInstanceOf(Error);
-    expect(thrown).toMatchObject({ name: "DivideByZeroError", $hex: true });
+    expect(thrown).toMatchObject({
+      name: "DivideByZeroError",
+      message: "Rat.divide: divisor is zero",
+      $hex: true,
+    });
   });
 
   test("lets a workspace Rat module occlude the fundamental companion", () => {
