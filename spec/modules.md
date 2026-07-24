@@ -85,6 +85,24 @@ The foreign counterpart is `extern import "telemetry/register"` (FFI Part 4 §8)
 
 There are **no default exports**. `export default` is a parse error ("Hexagon has named exports only"). Inside `extern from`, `export default fun`/`let` instead means “bind an incoming JavaScript default export, then expose it as an ordinary named Hexagon export”; it never creates a Hexagon default export (FFI Part 4 §6). Rejected with reasons §9.5.
 
+#### 4.1.1 Exported term signatures are complete
+
+Every exported term has a complete source signature. An exported value binding
+writes its type annotation. An exported function annotates every parameter and
+its result. If the function is constrained, it also writes every independent
+constraint in explicit type-parameter binders.
+
+Constraint lists are maximal under base-constraint entailment: they name the
+strongest required constraints and do not restate their transitive bases. Thus a
+function requiring `Hash` writes `<a: Hash>`, not `<a: (Eq, Hash)>`, because
+`Hash` already provides `Eq`. The compiler rejects missing value, parameter, or
+result annotations, inferred-but-unwritten public constraints, and redundant
+base constraints.
+
+This rule applies only to exports. The boundary-first convention for private
+module-level functions remains a style rule: annotate parameters, infer the
+result and constraints. Local functions and lambdas remain inference-friendly.
+
 ### 4.2 `export opaque`
 
 ```
@@ -271,6 +289,10 @@ Library versus application is therefore not a distinction in Hexagon module sema
 | Function-local binder occluding any in-scope name incl. prelude | existing Statements §5.1 error, unchanged |
 | `export honor` | "instances are always visible; `export` does not apply" |
 | `export default` | "Hexagon has named exports only" |
+| Exported value without an annotation | "exported value `answer` requires a type annotation" |
+| Exported function with missing parameter/result annotations | "exported function `f` requires a complete signature; add …" |
+| Exported function with inferred but unwritten constraints | "exported function `f` must declare every constraint in its signature; write `<a: C>`" |
+| Exported function restating an entailed base constraint | "exported function `f` must omit base constraint `Base` from `a`; `C` already provides it" |
 | `opaque` without `export` | "everything is already private; remove `opaque`" |
 | `opaque` on `type` | "aliases are transparent; make it a `record` or single-constructor `union`" |
 | `opaque` on `let`/`fun`/`constraint`/`exception` | parse error: "`opaque` applies to `record` and `union` declarations" |
@@ -384,6 +406,7 @@ Geo.area(2.0)
 | JS-verbatim imports: named, `as` aliases, `import * as`, effect imports; items import across all exported namespaces; record import = type + constructor; union constructors imported severally | §3 |
 | Module aliases: uppercase, not values; qualified access in term, type, and pattern position | §3.3 |
 | `export` = declaration prefix exporting everything introduced; no default exports; no re-exports (v1) | §4.1 |
+| Exported terms require complete annotations; constrained functions explicitly list maximal constraints and omit entailed bases; private module-level function guidance remains style | §4.1.1 |
 | `export opaque` on `record`/`union`: type name only; fields/constructors/matching private outside home; derives unaffected; home module unaffected | §4.2 |
 | Private-in-public: hard error for nominal types; transparent aliases exempt (expansion used) | §4.3 |
 | Fourth namespace (module aliases); position-based resolution; `Name.` checks modules first | §5.1 |

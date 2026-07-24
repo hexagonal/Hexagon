@@ -728,7 +728,7 @@ Hexagon's existing `export` is the sole foreign-export permission. Every exporte
 Representation-direct values and functions export directly with stable ESM identity. For example:
 
 ```hexagon
-export let version = "1.0"
+export let version: String = "1.0"
 export let double(x: Int): Int = x * 2
 ```
 

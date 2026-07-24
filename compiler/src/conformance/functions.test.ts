@@ -56,6 +56,21 @@ describe("Functions specification conformance", () => {
     ]);
     expect(accepted.diagnostics).toEqual([]);
   });
+
+  test("Modules §4.1.1 requires complete exported signatures with maximal constraints", () => {
+    const module = checkSource(
+      "export let answer = 42\n" +
+        "export let same(value: a): Bool = value == value\n" +
+        "export let hashed<a: (Eq, Hash)>(value: a): Int = hash(value)\n" +
+        "let private(value: a) = value == value",
+    );
+
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "exported value `answer` requires a type annotation",
+      "exported function `same` must declare every constraint in its signature; write `<a: Eq>`",
+      "exported function `hashed` must omit base constraint `Eq` from `a`; `Hash` already provides it",
+    ]);
+  });
 });
 
 function checkSource(text: string): Typed.Module {

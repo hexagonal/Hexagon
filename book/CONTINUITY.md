@@ -631,6 +631,9 @@ late pedagogy pass, not a commitment to the current order.
   type/constructor and its companion module because positions select namespaces.
 - `export opaque` is limited to nominal records and unions. It exports only the type,
   hiding record fields/constructor or union constructors outside the home module.
+- Exported terms require complete annotations. Constrained exported functions write
+  maximal constraint lists and omit entailed base constraints; private module-level
+  function annotation remains a style convention.
 - Private nominal types cannot appear in public signatures; private aliases expand.
 - Instances are global once their module enters the import graph and are never
   imported/exported as source names.

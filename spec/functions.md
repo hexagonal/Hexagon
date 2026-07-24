@@ -83,7 +83,9 @@ let plus = (x: Int, y: Int): Int => x + y
 
 - Parameter annotations: `name: Type` inside the parameter list.
 - Return annotation: **colon after the parameter list** — TypeScript/C#/Scala/Kotlin style. There is no `->` in definition headers; arrow notation is the canonical displayed type form (§5.1).
-- Any subset of annotations may be given; inference fills the rest.
+- Any subset of annotations may be given on private functions; inference fills
+  the rest. An exported function is the module-boundary exception: Modules
+  §4.1.1 requires every parameter and the result to be annotated.
 - **No standalone signature lines.** Types are written only on definitions.
 - **A type variable written in an annotation is rigid while that definition is
   checked.** Repeated `a` occurrences name the same type, but `a` cannot quietly
@@ -124,6 +126,11 @@ let plus = <a: Num>(x: a, y: a): a => x + y      -- equivalent, same AST node
   must not silently strengthen the list. Thus a body that uses `hash(value)`
   is rejected under `<a: Eq>` and accepted under `<a: Hash>`. Because `Hash`
   extends `Eq`, the latter also covers equality uses without restating `Eq`.
+- Exported functions must write their constraint binders. Their lists contain
+  every independent public constraint and omit constraints entailed as bases
+  of another listed constraint; Modules §4.1.1 owns the export rule. Private
+  module-level functions retain the boundary-first style convention: annotate
+  parameters, but infer constraints and results.
 - **Position restriction:** `<...>` type parameters are syntactically permitted only on lambdas in `let`/`fun` RHS position (equivalently, in header sugar). A `<...>`-annotated lambda anywhere else is a parse error. This prevents rank-2 types from being *expressed* here; rank-2 has its own annotation-gated pathway outside this spec's scope.
 
 Constraint semantics (what `Num` means, base constraints, `honor`) are the Constraints spec's business. This spec fixes only the syntax above.

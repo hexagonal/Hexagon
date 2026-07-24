@@ -73,7 +73,10 @@ exception handling, imported schemes, and nominal dot-call
 resolution. Type variables written in function annotations are rigid during
 definition checking while still collecting inferred constraints; explicit
 constraint lists reject body demands they do not entail rather than silently
-strengthening. Exported signatures cannot expose private nominal or foreign types, and imported opaque
+strengthening. Exported values require type annotations; exported functions
+require annotated parameters and results plus explicit maximal constraint lists,
+with entailed base constraints rejected as redundant. Exported signatures cannot
+expose private nominal or foreign types, and imported opaque
 records reject construction, field access, destructuring, and updates outside their home
 module. Extern signatures are monomorphic, annotation-driven, and checked for their
 implemented boundary adaptations. The public dictionary ABI and later FFI validation

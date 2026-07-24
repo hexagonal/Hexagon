@@ -27,7 +27,7 @@ describe("emitJavaScript", () => {
         "    let values: Seq(Int)\n" +
         "    fun report(message: String): Unit\n" +
         "extern import \"telemetry/register\"\n" +
-        "export let document = parse(version)",
+        "export let document: JsonValue = parse(version)",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -54,11 +54,11 @@ describe("emitJavaScript", () => {
   test("emits vectors, structural hashes, vector patterns, and one-based access", () => {
     const module = coreSource(
       "export let values: Vector(Int) = [10, 20, 30]\n" +
-        "export let second = values[2]\n" +
-        "export let window = values[2..99]\n" +
-        "export let letter = \"héllo\"[2]\n" +
-        "export let fingerprint = hash((values, {name: \"hex\"}))\n" +
-        "export let first = match values\n" +
+        "export let second: Int = values[2]\n" +
+        "export let window: Vector(Int) = values[2..99]\n" +
+        "export let letter: String = \"héllo\"[2]\n" +
+        "export let fingerprint: Int = hash((values, {name: \"hex\"}))\n" +
+        "export let first: Int = match values\n" +
         "    [head, ...rest] => head\n" +
         "    [] => 0",
     );
@@ -78,12 +78,12 @@ describe("emitJavaScript", () => {
   test("emits persistent Map and Set core operations with structural key equality", () => {
     const module = coreSource(
       "let emptyMap: Map((Int, Int), String) = Map.empty()\n" +
-        "export let names = Map.set(emptyMap, (1, 2), \"first\")\n" +
-        "export let replaced = Map.set(names, (1, 2), \"second\")\n" +
-        "export let hasPair = Map.containsKey(replaced, (1, 2))\n" +
+        "export let names: Map((Int, Int), String) = Map.set(emptyMap, (1, 2), \"first\")\n" +
+        "export let replaced: Map((Int, Int), String) = Map.set(names, (1, 2), \"second\")\n" +
+        "export let hasPair: Bool = Map.containsKey(replaced, (1, 2))\n" +
         "let emptySet: Set((Int, Int)) = Set.empty()\n" +
-        "export let pairs = Set.add(emptySet, (3, 4))\n" +
-        "export let hasPair2 = Set.contains(pairs, (3, 4))",
+        "export let pairs: Set((Int, Int)) = Set.add(emptySet, (3, 4))\n" +
+        "export let hasPair2: Bool = Set.contains(pairs, (3, 4))",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -268,7 +268,7 @@ describe("emitJavaScript", () => {
   test("emits aligned multiline Seq dot calls and pipelines through JavaScript generators", () => {
     const module = coreSource(
       "let numbers: Seq(Int) = Seq.iterate(1, number => number + 1)\n" +
-        "export let selected =\n" +
+        "export let selected: Seq(Int) =\n" +
         "    numbers\n" +
         "    .filter(number => number > 3)\n" +
         "    .map(number => number * 2)\n" +
@@ -494,7 +494,7 @@ describe("emitJavaScript", () => {
         "export fun unwrapOr(value: Option(a), fallback: a): a = match value\n" +
         "    Some(found) => found\n" +
         "    None => fallback\n" +
-        "export let answer = unwrapOr(Some(42), 0)",
+        "export let answer: Int = unwrapOr(Some(42), 0)",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -514,8 +514,8 @@ describe("emitJavaScript", () => {
     const module = coreSource(
       "export record Box(a) = {value: a}\n" +
         "export fun get(box: Box(a)): a = box.value\n" +
-        "export let answer = Box({value: 42})\n" +
-        "export let changed = {...answer, value: 43}\n" +
+        "export let answer: Box(Int) = Box({value: 42})\n" +
+        "export let changed: Box(Int) = {...answer, value: 43}\n" +
         "export fun expose(box: Box(Int)): {value: Int} = {...box}",
     );
 
@@ -623,7 +623,7 @@ describe("emitJavaScript", () => {
     const module = coreSource(
       "export record Point = {x: Int, y: Int}\n" +
         "fun translate(point: Point, dx: Int): Point = {...point, x: point.x + dx}\n" +
-        "export let shifted = Point({x: 1, y: 2}).translate(3)",
+        "export let shifted: Point = Point({x: 1, y: 2}).translate(3)",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -812,7 +812,7 @@ describe("emitJavaScript", () => {
   });
 
   test("emits annotated primitive exports without dictionary evidence", () => {
-    const module = coreSource("export let plus(x: Int, y) = x + y");
+    const module = coreSource("export let plus(x: Int, y: Int): Int = x + y");
     const javascript = emitJavaScript(module);
     const declarations = emitDeclarations(module);
 
@@ -1019,7 +1019,7 @@ describe("emitJavaScript", () => {
   test("widens Int call arguments before selecting a fundamental edition", () => {
     const output = emitJavaScript(
       coreSource(
-        "export let plus(x, y) = x + y\n" +
+        "export let plus<a: Num>(x: a, y: a): a = x + y\n" +
           "let count: Int = 3\n" +
           "let total = plus(count, 1.5)",
       ),
@@ -1236,7 +1236,7 @@ describe("emitJavaScript", () => {
   test("does not manufacture polymorphism solely to widen an Int", () => {
     const output = emitJavaScript(
       coreSource(
-        "export let plus(x, y) = x + y\n" +
+        "export let plus<a: Num>(x: a, y: a): a = x + y\n" +
           "let count: Int = 3\n" +
           "let exactCall = plus(count, 1)\n" +
           "let addCount = value => plus(count, value)",
@@ -1372,7 +1372,7 @@ describe("emitJavaScript", () => {
 
   test("calls an emitted fundamental edition at a concrete constrained call site", () => {
     const output = emitJavaScript(
-      coreSource("export let addOne = x => x + 1\naddOne(2)"),
+      coreSource("export let addOne<a: Num>(x: a): a = x + 1\naddOne(2)"),
     );
 
     expect(output.text).toContain("addOneInt(2);");
@@ -1450,7 +1450,7 @@ describe("emitJavaScript", () => {
         "honor Render<Point> =\n" +
         '    render(point) = "Point(${point.x})"\n' +
         "let display<a: Render>(value: a): String = render(value)\n" +
-        "export let text = display(Point({x: 3}))",
+        "export let text: String = display(Point({x: 3}))",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -1472,7 +1472,7 @@ describe("emitJavaScript", () => {
         "record Token = {value: Int}\n" +
         "honor Same<Token> =\n" +
         "    same(left, right) = left.value == right.value\n" +
-        "export let changed = different(Token({value: 1}), Token({value: 2}))",
+        "export let changed: Bool = different(Token({value: 1}), Token({value: 2}))",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -1499,7 +1499,7 @@ describe("emitJavaScript", () => {
         "honor Labeled<Token> =\n" +
         '    label(value) = "token"\n' +
         "fun agrees<a: Labeled>(left: a, right: a): Bool = same(left, right)\n" +
-        "export let yes = agrees(Token({value: 1}), Token({value: 1}))",
+        "export let yes: Bool = agrees(Token({value: 1}), Token({value: 1}))",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -1521,7 +1521,7 @@ describe("emitJavaScript", () => {
         "record Box(a) = {value: a}\n" +
         "honor<a: Render> Render<Box(a)> =\n" +
         '    render(box) = "Box(${render(box.value)})"\n' +
-        "export let text = render(Box({value: 42}))",
+        "export let text: String = render(Box({value: 42}))",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -1539,7 +1539,7 @@ describe("emitJavaScript", () => {
   test("expands derives headers into structural dictionaries", () => {
     const module = coreSource(
       "record Point derives Eq = {x: Int, y: Int}\n" +
-        "export let same = Point({x: 1, y: 2}) == Point({x: 1, y: 2})",
+        "export let same: Bool = Point({x: 1, y: 2}) == Point({x: 1, y: 2})",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -1554,8 +1554,8 @@ describe("emitJavaScript", () => {
   test("derives parameterized Eq, Ord, and Show dictionaries structurally", () => {
     const module = coreSource(
       "record Box(a) derives (Eq, Ord, Show) = {value: a}\n" +
-        "export let ordered = Box({value: 2}) < Box({value: 10})\n" +
-        'export let text = "${Box({value: 42})}"',
+        "export let ordered: Bool = Box({value: 2}) < Box({value: 10})\n" +
+        'export let text: String = "${Box({value: 42})}"',
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -1623,9 +1623,9 @@ describe("emitDeclarations", () => {
 
   test("emits exported primitive and polymorphic function types", () => {
     const module = coreSource(
-      "export let answer = 42\n" +
-        "export let identity = x => x\n" +
-        "export let noop = () => ()",
+      "export let answer: Int = 42\n" +
+        "export let identity<a>(x: a): a = x\n" +
+        "export let noop(): Unit = ()",
     );
     const javascript = emitJavaScript(module);
     const declarations = emitDeclarations(module);
@@ -1645,12 +1645,12 @@ describe("emitDeclarations", () => {
   test("maps every implemented primitive and nested function type honestly", () => {
     const declarations = emitDeclarations(
       coreSource(
-        "export let ratio = 1.5\n" +
-          "export let flag = true\n" +
-          'export let text = "hello"\n' +
-          "export let exact = 2n\n" +
-          "export let unit = ()\n" +
-          "export let apply = f => x => f(x)",
+        "export let ratio: Float = 1.5\n" +
+          "export let flag: Bool = true\n" +
+          'export let text: String = "hello"\n' +
+          "export let exact: BigInt = 2n\n" +
+          "export let unit: Unit = ()\n" +
+          "export let apply<a, b>(f: a -> b): a -> b = x => f(x)",
       ),
     );
 
@@ -1680,7 +1680,7 @@ describe("emitDeclarations", () => {
   });
 
   test("emits direct fundamental editions for an inferred Num export", () => {
-    const module = coreSource("export let plus(x, y) = x + y");
+    const module = coreSource("export let plus<a: Num>(x: a, y: a): a = x + y");
     const javascript = emitJavaScript(module);
     const declarations = emitDeclarations(module);
 
@@ -1723,7 +1723,7 @@ describe("emitDeclarations", () => {
   test("rejects a generated specialization colliding with an explicit export", () => {
     const module = coreSource(
       "export let plusInt(x: Int, y: Int): Int = x + y\n" +
-        "export let plus(x, y) = x + y",
+        "export let plus<a: Num>(x: a, y: a): a = x + y",
     );
     const output = emitJavaScript(module);
 
@@ -1734,10 +1734,10 @@ describe("emitDeclarations", () => {
 
   test("specializes constrained literals and equality with concrete semantics", () => {
     const increment = emitJavaScript(
-      coreSource("export let increment(x) = x + 1"),
+      coreSource("export let increment<a: Num>(x: a): a = x + 1"),
     );
     const equal = emitJavaScript(
-      coreSource("export let equal(left, right) = left == right"),
+      coreSource("export let equal<a: Eq>(left: a, right: a): Bool = left == right"),
     );
 
     expect(increment.text).toContain(

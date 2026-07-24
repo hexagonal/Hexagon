@@ -730,6 +730,36 @@ describe("check", () => {
     expect(accepted.diagnostics).toEqual([]);
   });
 
+  test("requires complete signatures on exported values and functions", () => {
+    const module = checkSource(
+      "export let answer = 42\n" +
+        "export let greet(name) = \"Hello, \" ++ name\n" +
+        "export fun choose<a>(left: a, right): a = left\n" +
+        "let privateAnswer = 42\n" +
+        "let privateGreeting(name) = \"Hello, \" ++ name",
+    );
+
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "exported value `answer` requires a type annotation",
+      "exported function `greet` requires a complete signature; add type for parameter `name` and a return type",
+      "exported function `choose` requires a complete signature; add type for parameter `right`",
+    ]);
+  });
+
+  test("requires explicit maximal constraints on exported function signatures", () => {
+    const module = checkSource(
+      "export let inferred(value: a): Bool = value == value\n" +
+        "export let redundant<a: (Eq, Hash)>(value: a): Int = hash(value)\n" +
+        "export let complete<a: Hash>(value: a): Bool = value == value\n" +
+        "let private(value: a) = value == value",
+    );
+
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "exported function `inferred` must declare every constraint in its signature; write `<a: Eq>`",
+      "exported function `redundant` must omit base constraint `Eq` from `a`; `Hash` already provides it",
+    ]);
+  });
+
   test("checks explicit nullary, n-ary, tuple-domain, and higher-order function types", () => {
     const module = checkSource(
       "type Mapper(a, b) = a -> b\n" +

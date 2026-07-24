@@ -24,7 +24,7 @@ test("compiles relative named, aliased, namespace, and effect imports", () => {
         'import * as Geo from "./geometry"\n' +
         'import "./telemetry"\n' +
         "export let point: Point = makePoint(3)\n" +
-        "export let answer = point.coordinate()",
+        "export let answer: Int = point.coordinate()",
     ),
   ]);
 
@@ -99,7 +99,7 @@ test("makes an imported module's coherent instances available to operators", () 
       Source.fileId(1),
       "/main.hex",
       'import * as Box from "./box"\n' +
-        "export let answer = Box.create(20) + Box.create(22)",
+        "export let answer: Box.Box = Box.create(20) + Box.create(22)",
     ),
   ]);
 
@@ -134,13 +134,14 @@ test("propagates coherent instances through the complete import graph", () => {
       Source.fileId(1),
       "/facade.hex",
       'import * as Box from "./box"\n' +
+        "export type Box = Box.Box\n" +
         "export let makeAnswer(): Box.Box = Box.create(20)",
     ),
     new Source.File(
       Source.fileId(2),
       "/main.hex",
       'import * as Facade from "./facade"\n' +
-        "export let answer = Facade.makeAnswer() + Facade.makeAnswer()",
+        "export let answer: Facade.Box = Facade.makeAnswer() + Facade.makeAnswer()",
     ),
   ]);
 
@@ -187,7 +188,8 @@ test("deduplicates one coherent instance reached through a diamond import", () =
       "/main.hex",
       'import * as Left from "./left"\n' +
         'import * as Right from "./right"\n' +
-        "export let answer = Left.left() + Right.right()",
+        'import { Box } from "./box"\n' +
+        "export let answer: Box = Left.left() + Right.right()",
     ),
   ]);
 
@@ -208,7 +210,7 @@ test("reports import cycles before project checking", () => {
 
 test("rejects extern linkage to a Hexagon source module", () => {
   const project = compileProject([
-    new Source.File(Source.fileId(0), "/library.hex", "export let answer = 42"),
+    new Source.File(Source.fileId(0), "/library.hex", "export let answer: Int = 42"),
     new Source.File(
       Source.fileId(1),
       "/main.hex",
@@ -226,7 +228,7 @@ test("links constrained Hexagon exports through private ESM plumbing", () => {
     new Source.File(
       Source.fileId(0),
       "/math.hex",
-      "export let plus(x, y) = x + y",
+      "export let plus<a: Num>(x: a, y: a): a = x + y",
     ),
     new Source.File(
       Source.fileId(1),
@@ -279,7 +281,7 @@ test("compiles Unicode module paths and cultural M namespace aliases", () => {
       Source.fileId(1),
       "/main.hex",
       'import * as Mगणित from "./गणित"\n' +
-        "export let उत्तर = Mगणित.जोड़(20, 22)",
+        "export let उत्तर: Int = Mगणित.जोड़(20, 22)",
     ),
   ]);
 
@@ -306,7 +308,7 @@ test("links exported aliases and enforces opaque module boundaries", () => {
       'import * as Vault from "./vault"\n' +
         "export let pair: Vault.Pair(Int) = (1, 2)\n" +
         "let token = Vault.issue(7)\n" +
-        "export let answer = Vault.reveal(token)",
+        "export let answer: Int = Vault.reveal(token)",
     ),
   ]);
 
