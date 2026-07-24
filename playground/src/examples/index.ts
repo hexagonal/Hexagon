@@ -9,6 +9,7 @@ import { rat } from "./rat";
 import { recursion } from "./recursion";
 import { sequences } from "./sequences";
 import { specializations } from "./specializations";
+import { vectors } from "./vectors";
 
 export const playgroundExamples: readonly PlaygroundExample[] = [
   helloWorld,
@@ -18,6 +19,7 @@ export const playgroundExamples: readonly PlaygroundExample[] = [
   records,
   constraints,
   rat,
+  vectors,
   sequences,
   modules,
   specializations,

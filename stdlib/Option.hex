@@ -1,0 +1,4 @@
+// The canonical optional-value union used by total standard-library accessors.
+export union Option(a) derives (Eq, Show) =
+    | Some(value: a)
+    | None

@@ -25,7 +25,7 @@ union Shape =
     | Rect(width: Float, height: Float)
     | Point
 
-union Option(a) = Some(value: a) | None
+union Option(a) derives (Eq, Show) = Some(value: a) | None
 union Tree(a) = Leaf | Node(Tree(a), a, Tree(a))
 ```
 
@@ -221,7 +221,7 @@ Mirroring Products §2.5/§3.4 — the structural semantics, applied to the decl
 ## 8. Prelude: `Option` and `Result`
 
 ```
-union Option(a) = Some(value: a) | None
+union Option(a) derives (Eq, Show) = Some(value: a) | None
 union Result(a, e) = Ok(value: a) | Err(error: e)
 ```
 

@@ -121,6 +121,13 @@ The current compiler-owned surface yields this migration inventory:
 | Prelude constraint sources | declarations and primitive `honor` blocks | derivation, evidence selection, and specialization |
 | Prelude exception/function sources | public declarations and wrappers | JS `throw`, `Error` construction, hashing primitives, and other host operations |
 
+`stdlib/Vector.hex` now discharges the decided core companion surface from
+Collections Part 3, backed by the narrow representation operations listed in that
+spec. `stdlib/Option.hex` supplies the canonical `Option(a)` declaration required
+by its total accessors. The broader Vector combinator ship-list (`map`, `filter`,
+`fold`, `reverse`, `sort`, and the remaining listing candidates) remains a
+separate obligation of the listing session.
+
 The persistent HAMT implementation currently embedded as an emitted TypeScript
 string is especially misplaced: its structural core may remain a tuned runtime
 component, but Map/Set public operations and derivable algebra should not live in the

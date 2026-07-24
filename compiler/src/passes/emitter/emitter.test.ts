@@ -75,6 +75,45 @@ describe("emitJavaScript", () => {
     expect(output.diagnostics).toEqual([]);
   });
 
+  test("executes the Vector representation core without loading the HAMT runtime", () => {
+    const module = coreSource(
+      "let values = [10, 20, 30]\n" +
+        "let updated = Vector.set(values, 2, 25)\n" +
+        "let replayed = Vector.fromSeq(Vector.toSeq(updated))\n" +
+        "let joined = [1, 2] ++ [3, 4]\n" +
+        "let result = (values, updated, replayed, Vector.at(values, -1), joined)",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.text).not.toContain("const __hex_persistentCollections");
+    expect(output.text).toContain("function __hex_seq");
+    expect(output.text).toContain("Array.from(__hex_seq(updated))");
+    const execute = Function(`${output.text}\nreturn result;`) as () => readonly unknown[];
+    expect(execute()).toEqual([
+      [10, 20, 30],
+      [10, 25, 30],
+      [10, 25, 30],
+      30,
+      [1, 2, 3, 4],
+    ]);
+  });
+
+  test("brands Vector.at failures and preserves the caller's signed index", () => {
+    const module = coreSource("let impossible = Vector.at([10, 20], -3)");
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(() => Function(output.text)()).toThrowError(
+      expect.objectContaining({
+        name: "IndexError",
+        $hex: true,
+        index: -3,
+        size: 2,
+      }),
+    );
+  });
+
   test("emits persistent Map and Set core operations with structural key equality", () => {
     const module = coreSource(
       "let emptyMap: Map((Int, Int), String) = Map.empty()\n" +

@@ -1075,6 +1075,7 @@ class Resolver {
           if (
             expression.receiver.name.text === "Seq" &&
             scope.lookup("Seq") === undefined &&
+            !this.#moduleAliases.has("Seq") &&
             ["iterate", "map", "filter", "take"].includes(expression.field.text)
           ) {
             return {
@@ -1085,7 +1086,8 @@ class Resolver {
           }
           if (
             ["Map", "Set", "Vector"].includes(expression.receiver.name.text) &&
-            scope.lookup(expression.receiver.name.text) === undefined
+            scope.lookup(expression.receiver.name.text) === undefined &&
+            !this.#moduleAliases.has(expression.receiver.name.text)
           ) {
             return {
               kind: "CollectionOperation",
@@ -1097,6 +1099,7 @@ class Resolver {
           if (
             ["Int", "BigInt", "Float"].includes(expression.receiver.name.text) &&
             scope.lookup(expression.receiver.name.text) === undefined &&
+            !this.#moduleAliases.has(expression.receiver.name.text) &&
             ["div", "mod", "quot", "rem", "gcd", "lcm"].includes(expression.field.text)
           ) {
             return {

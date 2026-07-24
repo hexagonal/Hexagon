@@ -147,7 +147,9 @@ Vector.at : (Vector(a), Int) -> a
 
 ### 5.5 The `IndexError` declaration
 
-Declared here, housed in the prelude (edit note to Exceptions, §13):
+Declared here and canonically exported by `stdlib/Vector.hex`. The complete
+package/prelude loader may additionally promote the constructor into the prelude;
+until then its explicit source spelling is `Vector.IndexError`:
 
 ```
 exception IndexError(index: Int, size: Int)
@@ -187,7 +189,9 @@ The forced corner: `Range` is first-class and opaque with a hidden direction (Lo
 
 Doctrine (the design's story, stated in the doc): **ranges are for iterating; slices are windows, and windows have no direction.** An empty window is a valid answer — that is what clamping honors. A *directed* window is a category error — the caller has confused traversal with windowing — and category errors fail loudly. Reversal is explicit: `Vector.reverse(xs[2..5])` (`reverse` owed to the stdlib listing).
 
-The exception, declared here, housed in the prelude (edit note to Exceptions, §13):
+The exception is canonically exported by `stdlib/Vector.hex`. The complete
+package/prelude loader may additionally promote the constructor into the prelude;
+until then its explicit source spelling is `Vector.SliceError`:
 
 ```
 exception SliceError(start: Int, end: Int)
@@ -222,6 +226,14 @@ The core surface, under the Part 1 §3 naming doctrine (subject-first, `Vector.`
 | `set` | `(Vector(a), Int, a) -> Vector(a)` | §5.4, throws |
 | `toSeq` / `fromSeq` | `Vector(a) -> Seq(a)` / `Seq(a) -> Vector(a)` | §7.2 |
 | `of`-style construction | — | the literal is the constructor; no public variadic `of` (emission detail, §2) |
+
+This surface is implemented by the canonical `stdlib/Vector.hex` module.
+Hexagon source owns `empty`, `singleton`, the total accessors, the forgiving drop
+family, and the public wrappers. Representation-sensitive size and end updates,
+signed indexed access, persistent indexed update, and the eager/lazy bridge used
+by `toSeq` and `fromSeq` cross the narrow compiler/runtime boundary. An imported
+`Vector` module alias occludes the provisional compiler companion, so user calls
+and dot-call rewrites reach this source module rather than bypassing it.
 
 ### 7.1 `dropFirst`/`dropLast` on empty: total
 
@@ -326,7 +338,7 @@ Part 1's rejections; listed to keep this doc's rejection index complete. Do not 
 | Doc | Edit |
 |---|---|
 | **operators-logic-precedence.md** | §7 still says "`List(a)` instance owed to the collections spec" — the instance is `Concat<Vector(a)>`, specified here §8; the fusion note is confirmed as emitter freedom. §10/§14 still defer indexing/slicing semantics as "that spec's open question" — now fixed: indexing throws `IndexError`, slicing clamps by magnitude / throws `SliceError` on direction (§5/§6 here); retire the deferral language. |
-| **exceptions.md** | Prelude exceptions still lack **`IndexError(index: Int, size: Int)`** and **`SliceError(start: Int, end: Int)`** (declared here §5.5/§6.3); add on next touch. |
+| **exceptions.md** | Prelude promotion still lacks **`IndexError(index: Int, size: Int)`** and **`SliceError(start: Int, end: Int)`**; their canonical source declarations now live in `stdlib/Vector.hex` (§5.5/§6.3). |
 | **collections-part1-decisions.md** | §2 complexity table still lacks the **slice row** (O(log₃₂ n); end-slice note — §4 here); add on next touch. |
 | **primitive-types.md** | Still says 1-based indexing is covered by a "forthcoming spec" (header not-in-scope line; §5.1 area) — String indexing is realized here via `[]`/`at`/`get` (§9); repoint and echo the O(n) cost note. |
 
