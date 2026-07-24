@@ -1,0 +1,51 @@
+// The public Vector companion over the compiler's representation core.
+import { Option, Some, None } from "./Option"
+
+export exception IndexError(index: Int, size: Int)
+export exception SliceError(start: Int, end: Int)
+
+export let empty: Vector(a) = []
+
+export fun singleton<a>(value: a): Vector(a) = [value]
+
+export fun isEmpty<a>(values: Vector(a)): Bool = Vector.size(values) == 0
+
+export fun size<a>(values: Vector(a)): Int = Vector.size(values)
+
+export fun append<a>(values: Vector(a), value: a): Vector(a) =
+    Vector.append(values, value)
+
+export fun prepend<a>(values: Vector(a), value: a): Vector(a) =
+    Vector.prepend(values, value)
+
+export fun first<a>(values: Vector(a)): Option(a) = match values
+    [] => None
+    [value, ...] => Some(value)
+
+export fun last<a>(values: Vector(a)): Option(a) = match values
+    [] => None
+    [..., value] => Some(value)
+
+export fun dropFirst<a>(values: Vector(a)): Vector(a) = match values
+    [] => []
+    [_, ...rest] => rest
+
+export fun dropLast<a>(values: Vector(a)): Vector(a) = match values
+    [] => []
+    [...rest, _] => rest
+
+export fun get<a>(values: Vector(a), index: Int): Option(a) =
+    if index < 1 or index > Vector.size(values) then
+        None
+    else
+        Some(values[index])
+
+export fun at<a>(values: Vector(a), index: Int): a = Vector.at(values, index)
+
+export fun set<a>(values: Vector(a), index: Int, value: a): Vector(a) =
+    Vector.set(values, index, value)
+
+export fun toSeq<a>(values: Vector(a)): Seq(a) = Vector.toSeq(values)
+
+// Eager by design: converting an infinite Seq does not terminate.
+export fun fromSeq<a>(values: Seq(a)): Vector(a) = Vector.fromSeq(values)

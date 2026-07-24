@@ -689,16 +689,23 @@ class JavaScriptEmitter {
             ? "seqFilter"
             : "seqTake",
         );
-      case "CollectionOperation":
+      case "CollectionOperation": {
+        const needsPersistentRuntime = expression.collection !== "Vector";
+        const needsSeq =
+          expression.operation === "toSeq" ||
+          expression.operation === "fromSeq" ||
+          (expression.collection === "Map" &&
+            ["keys", "values", "entries", "fromEntries"].includes(expression.operation));
         return collectionOperation(
           expression.collection,
           expression.operation,
-          this.#useHelper("persistentCollections"),
+          needsPersistentRuntime ? this.#useHelper("persistentCollections") : "",
           expression.hashEvidence === undefined
             ? undefined
             : this.#emitEvidence(expression.hashEvidence, "Hash", expression.span, evidenceNames),
-          this.#useHelper("seq"),
+          needsSeq ? this.#useHelper("seq") : undefined,
         );
+      }
       case "PrimitiveOperation":
         return this.#useHelper(primitiveOperationHelper(expression.primitive, expression.operation));
       case "Unit":
@@ -1027,6 +1034,36 @@ class JavaScriptEmitter {
     depth: number,
     evidenceNames: EvidenceNames,
   ): string {
+    if (
+      expression.callee.kind === "CollectionOperation" &&
+      expression.callee.collection === "Vector"
+    ) {
+      const arguments_ = expression.arguments.map((argument) =>
+        this.#emitExpr(argument, depth, evidenceNames)
+      );
+      const [values = "undefined", argument = "undefined", value = "undefined"] =
+        arguments_;
+      switch (expression.callee.operation) {
+        case "empty":
+          return "[]";
+        case "size":
+          return `(${values}).length`;
+        case "isEmpty":
+          return `(${values}).length === 0`;
+        case "append":
+          return `[...${values}, ${argument}]`;
+        case "prepend":
+          return `[${argument}, ...${values}]`;
+        case "at":
+          return `${this.#useHelper("vectorAt")}(${values}, ${argument})`;
+        case "set":
+          return `${this.#useHelper("vectorSet")}(${values}, ${argument}, ${value})`;
+        case "toSeq":
+          return `${this.#useHelper("seq")}(${values})`;
+        case "fromSeq":
+          return `Array.from(${values})`;
+      }
+    }
     const specialization = this.#callSpecialization(expression);
     const emittedCallee = specialization?.name ??
       this.#emitExpr(expression.callee, depth, evidenceNames);
@@ -2166,6 +2203,9 @@ class JavaScriptEmitter {
       if (constraint === "Show") {
         return `({ show: __hex_value => ${this.#derivedShow(evidence.type, "__hex_value", evidenceNames)} })`;
       }
+      if (constraint === "Concat" && evidence.type.kind === "Vector") {
+        return "({ concat: (__hex_left, __hex_right) => [...__hex_left, ...__hex_right] })";
+      }
       return "({})";
     }
     if (evidence.kind === "Instance") {
@@ -2839,7 +2879,9 @@ type Helper =
   | "seqIterate"
   | "seqMap"
   | "seqTake"
+  | "vectorAt"
   | "vectorIndex"
+  | "vectorSet"
   | "vectorSlice"
   | "stringIndex"
   | "stringSlice"
@@ -3136,14 +3178,31 @@ function renderHelper(
     case "vectorIndex":
       return [
         `function ${name}(__hex_values, __hex_index) {`,
-        "  if (__hex_index < 1 || __hex_index > __hex_values.length) { const __hex_error = new RangeError(`index ${__hex_index} out of bounds for size ${__hex_values.length}`); __hex_error.name = \"IndexError\"; __hex_error.index = __hex_index; __hex_error.size = __hex_values.length; throw __hex_error; }",
+        "  if (__hex_index < 1 || __hex_index > __hex_values.length) { const __hex_error = new RangeError(`index ${__hex_index} out of bounds for size ${__hex_values.length}`); __hex_error.name = \"IndexError\"; __hex_error.$hex = true; __hex_error.index = __hex_index; __hex_error.size = __hex_values.length; throw __hex_error; }",
         "  return __hex_values[__hex_index - 1];",
+        "}",
+      ];
+    case "vectorAt":
+      return [
+        `function ${name}(__hex_values, __hex_index) {`,
+        "  const __hex_position = __hex_index < 0 ? __hex_values.length + __hex_index + 1 : __hex_index;",
+        "  if (__hex_position < 1 || __hex_position > __hex_values.length) { const __hex_error = new RangeError(`index ${__hex_index} out of bounds for size ${__hex_values.length}`); __hex_error.name = \"IndexError\"; __hex_error.$hex = true; __hex_error.index = __hex_index; __hex_error.size = __hex_values.length; throw __hex_error; }",
+        "  return __hex_values[__hex_position - 1];",
+        "}",
+      ];
+    case "vectorSet":
+      return [
+        `function ${name}(__hex_values, __hex_index, __hex_value) {`,
+        "  if (__hex_index < 1 || __hex_index > __hex_values.length) { const __hex_error = new RangeError(`index ${__hex_index} out of bounds for size ${__hex_values.length}`); __hex_error.name = \"IndexError\"; __hex_error.$hex = true; __hex_error.index = __hex_index; __hex_error.size = __hex_values.length; throw __hex_error; }",
+        "  const __hex_updated = __hex_values.slice();",
+        "  __hex_updated[__hex_index - 1] = __hex_value;",
+        "  return __hex_updated;",
         "}",
       ];
     case "vectorSlice":
       return [
         `function ${name}(__hex_values, __hex_range) {`,
-        "  if (__hex_range.descending) { const __hex_error = new RangeError(\"a slice window cannot descend\"); __hex_error.name = \"SliceError\"; __hex_error.start = __hex_range.start; __hex_error.end = __hex_range.end; throw __hex_error; }",
+        "  if (__hex_range.descending) { const __hex_error = new RangeError(\"a slice window cannot descend\"); __hex_error.name = \"SliceError\"; __hex_error.$hex = true; __hex_error.start = __hex_range.start; __hex_error.end = __hex_range.end; throw __hex_error; }",
         "  return __hex_values.slice(Math.max(0, __hex_range.start - 1), Math.max(0, __hex_range.end));",
         "}",
       ];
@@ -3260,6 +3319,14 @@ function collectionOperation(
   if (operation === "isEmpty") return "__hex_vector => __hex_vector.length === 0";
   if (operation === "append") return "(__hex_vector, __hex_value) => [...__hex_vector, __hex_value]";
   if (operation === "prepend") return "(__hex_vector, __hex_value) => [__hex_value, ...__hex_vector]";
+  if (operation === "at") {
+    return "(__hex_vector, __hex_index) => { const __hex_position = __hex_index < 0 ? __hex_vector.length + __hex_index + 1 : __hex_index; if (__hex_position < 1 || __hex_position > __hex_vector.length) { const __hex_error = new RangeError(`index ${__hex_index} out of bounds for size ${__hex_vector.length}`); __hex_error.name = \"IndexError\"; __hex_error.$hex = true; __hex_error.index = __hex_index; __hex_error.size = __hex_vector.length; throw __hex_error; } return __hex_vector[__hex_position - 1]; }";
+  }
+  if (operation === "set") {
+    return "(__hex_vector, __hex_index, __hex_value) => { if (__hex_index < 1 || __hex_index > __hex_vector.length) { const __hex_error = new RangeError(`index ${__hex_index} out of bounds for size ${__hex_vector.length}`); __hex_error.name = \"IndexError\"; __hex_error.$hex = true; __hex_error.index = __hex_index; __hex_error.size = __hex_vector.length; throw __hex_error; } const __hex_updated = __hex_vector.slice(); __hex_updated[__hex_index - 1] = __hex_value; return __hex_updated; }";
+  }
+  if (operation === "toSeq") return `__hex_vector => ${seq}(__hex_vector)`;
+  if (operation === "fromSeq") return "__hex_values => Array.from(__hex_values)";
   return "() => undefined";
 }
 

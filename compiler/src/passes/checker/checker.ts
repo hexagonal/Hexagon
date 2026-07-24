@@ -1282,6 +1282,10 @@ class Checker {
       if (operation === "isEmpty") return { kind: "Function", parameters: [vector], result: primitive("Bool") };
       if (operation === "append") return { kind: "Function", parameters: [vector, element], result: vector };
       if (operation === "prepend") return { kind: "Function", parameters: [vector, element], result: vector };
+      if (operation === "at") return { kind: "Function", parameters: [vector, primitive("Int")], result: element };
+      if (operation === "set") return { kind: "Function", parameters: [vector, primitive("Int"), element], result: vector };
+      if (operation === "toSeq") return { kind: "Function", parameters: [vector], result: { kind: "Seq", element } };
+      if (operation === "fromSeq") return { kind: "Function", parameters: [{ kind: "Seq", element }], result: vector };
     }
     return this.#unsupported(span, `the companion of \`${collection}\` has no core operation \`${operation}\``);
   }
@@ -1899,7 +1903,12 @@ class Checker {
             type = result;
             break;
           }
-          const nominal = actual.kind === "NominalRecord" || actual.kind === "Union";
+          const nominal =
+            actual.kind === "NominalRecord" ||
+            actual.kind === "Union" ||
+            actual.kind === "Vector" ||
+            actual.kind === "Set" ||
+            actual.kind === "Map";
           const recordHasField = actual.kind === "NominalRecord" &&
             this.#recordRepresentationVisible(actual.record) &&
             this.#nominalRecordFields(actual).has(expression.callee.field.text);
@@ -1909,7 +1918,7 @@ class Checker {
             if (operation === undefined || scheme === undefined) {
               type = this.#unsupported(
                 expression.callee.field.span,
-                `the companion of \`${actual.name}\` has no operation \`${expression.callee.field.text}\`; call an available subject-first function explicitly`,
+                `the companion of \`${this.#display(actual)}\` has no operation \`${expression.callee.field.text}\`; call an available subject-first function explicitly`,
               );
               break;
             }
@@ -3295,6 +3304,10 @@ class Checker {
       for (const component of components) {
         this.#require(requirement.name, component, requirement.span);
       }
+      requirement.structural = true;
+      return;
+    }
+    if (requirement.name === "Concat" && type.kind === "Vector") {
       requirement.structural = true;
       return;
     }

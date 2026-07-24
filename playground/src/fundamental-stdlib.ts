@@ -1,4 +1,6 @@
 import ratSource from "../../stdlib/Rat.hex?raw";
+import optionSource from "../../stdlib/Option.hex?raw";
+import vectorSource from "../../stdlib/Vector.hex?raw";
 
 /**
  * The small, deliberately provisional stdlib foundation supplied by the
@@ -12,6 +14,16 @@ export interface FundamentalStdlibModule {
 }
 
 export const fundamentalStdlibModules: readonly FundamentalStdlibModule[] = [
+  {
+    companion: "Option",
+    path: "/stdlib/Option.hex",
+    source: optionSource,
+  },
+  {
+    companion: "Vector",
+    path: "/stdlib/Vector.hex",
+    source: vectorSource,
+  },
   {
     companion: "Rat",
     path: "/stdlib/Rat.hex",

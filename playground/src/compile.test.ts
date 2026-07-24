@@ -5,10 +5,121 @@ import { internationalIdentifiers } from "./examples/international-identifiers";
 import { payloadUnions } from "./examples/payload-unions";
 import { specializations } from "./examples/specializations";
 import { rat } from "./examples/rat";
+import { vectors } from "./examples/vectors";
 import { compileSource } from "./compile";
 import { linkModule } from "./module-execution";
 
 describe("compileSource", () => {
+  test("compiles the canonical Vector module surface", () => {
+    const response = compileSource(5, vectors.source);
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.javascript).toContain("Vector.append(numbers, 40)");
+    expect(response.javascript).toContain("Vector.set(extended, 2, 25)");
+    expect(response.javascript).toContain("Vector.at(updated, -1)");
+    expect(response.javascript).toContain("Vector.get(updated, 5)");
+    const vectorModule = response.executionModules.find(({ path }) =>
+      path === "/stdlib/Vector.hex"
+    );
+    expect(vectorModule?.javascript).not.toContain(
+      "const __hex_persistentCollections",
+    );
+    expect(vectorModule?.javascript).toContain(
+      'import { Some, None } from "./Option.js";',
+    );
+  });
+
+  test("executes the complete canonical Vector core API", async () => {
+    const response = compileSource(
+      5,
+      "let values = [10, 20, 30]\n" +
+        "let updated = Vector.set(values, 2, 25)\n" +
+        "console.log((\n" +
+        "    Vector.empty,\n" +
+        "    Vector.singleton(7),\n" +
+        "    Vector.isEmpty([]),\n" +
+        "    Vector.size(values),\n" +
+        "    Vector.append(values, 40),\n" +
+        "    Vector.prepend(values, 0),\n" +
+        "    Vector.first(values),\n" +
+        "    Vector.last(values),\n" +
+        "    Vector.dropFirst(values),\n" +
+        "    Vector.dropLast(values),\n" +
+        "    Vector.get(values, 2),\n" +
+        "    Vector.get(values, 9),\n" +
+        "    Vector.at(values, -1),\n" +
+        "    updated,\n" +
+        "    values,\n" +
+        "    Vector.fromSeq(Vector.toSeq(values))\n" +
+        "))\n",
+    );
+
+    expect(response.kind).toBe("compile-success");
+    if (response.kind !== "compile-success") return;
+    const moduleUrls = new Map<string, string>();
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      for (const module of response.executionModules) {
+        const linked = linkModule(module.javascript, module.path, moduleUrls);
+        moduleUrls.set(
+          module.path,
+          `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
+        );
+      }
+      await import(/* @vite-ignore */ moduleUrls.get(response.entryPath)!);
+      expect(log).toHaveBeenCalledWith([
+        [],
+        [7],
+        true,
+        3,
+        [10, 20, 30, 40],
+        [0, 10, 20, 30],
+        { tag: "Some", value: 10 },
+        { tag: "Some", value: 30 },
+        [20, 30],
+        [10, 20],
+        { tag: "Some", value: 20 },
+        { tag: "None" },
+        30,
+        [10, 25, 30],
+        [10, 20, 30],
+        [10, 20, 30],
+      ]);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  test("preserves the original signed index in Vector.at failures", async () => {
+    const response = compileSource(5, "let impossible = Vector.at([10, 20], -3)\n");
+
+    expect(response.kind).toBe("compile-success");
+    if (response.kind !== "compile-success") return;
+    const moduleUrls = new Map<string, string>();
+    for (const module of response.executionModules) {
+      const linked = linkModule(module.javascript, module.path, moduleUrls);
+      moduleUrls.set(
+        module.path,
+        `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
+      );
+    }
+    let thrown: unknown;
+    try {
+      await import(/* @vite-ignore */ moduleUrls.get(response.entryPath)!);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown).toMatchObject({
+      name: "IndexError",
+      message: "index -3 out of bounds for size 2",
+      $hex: true,
+      index: -3,
+      size: 2,
+    });
+  });
+
   test("shows idiomatic payload-union constructors in JavaScript output", () => {
     const response = compileSource(6, payloadUnions.source);
 
@@ -43,6 +154,8 @@ describe("compileSource", () => {
     expect(response.javascript).toContain("console.log(展示(用户,");
     expect(response.javascript).toContain("Mगणित.जोड़(20, 22)");
     expect(response.executionModules.map(({ path }) => path)).toEqual([
+      "/stdlib/Option.hex",
+      "/stdlib/Vector.hex",
       "/stdlib/Rat.hex",
       "/Mगणित.hex",
       "/main.hex",
@@ -203,10 +316,10 @@ describe("compileSource", () => {
     expect(response.diagnostics).toEqual([]);
     expect(response.javascript).toContain('import * as Rat from "./stdlib/Rat.js";');
     expect(response.javascript).toContain(
-      "const fiveSixths = __hex_imported_0___hex_instance_Num_Rat.add(half, third);",
+      "const fiveSixths = __hex_imported_2___hex_instance_Num_Rat.add(half, third);",
     );
     expect(response.javascript).toContain(
-      "const threeHalves = __hex_imported_0___hex_instance_Frac_Rat.divide(half, third);",
+      "const threeHalves = __hex_imported_2___hex_instance_Frac_Rat.divide(half, third);",
     );
     expect(response.javascript).toContain("const half = Rat.create(1n, 2n);");
     expect(response.javascript).toContain("const tenTwelfths = Rat.create(10n, 12n);");
@@ -274,7 +387,7 @@ describe("compileSource", () => {
     expect(response.kind).toBe("compile-success");
     if (response.kind !== "compile-success") return;
     expect(response.javascript).toContain(
-      "__hex_imported_0___hex_instance_Frac_Rat.divide(half, zero)",
+      "__hex_imported_2___hex_instance_Frac_Rat.divide(half, zero)",
     );
     const moduleUrls = new Map<string, string>();
     for (const module of response.executionModules) {
@@ -309,6 +422,8 @@ describe("compileSource", () => {
     expect(response.kind).toBe("compile-success");
     if (response.kind !== "compile-success") return;
     expect(response.executionModules.map(({ path }) => path)).toEqual([
+      "/stdlib/Option.hex",
+      "/stdlib/Vector.hex",
       "/Rat.hex",
       "/main.hex",
     ]);
