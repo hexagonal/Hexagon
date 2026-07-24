@@ -28,7 +28,7 @@ the declarations.
 `export` prefixes a module-level declaration:
 
 ```hexagon
-export let answer = 42
+export let answer: Int = 42
 export let double(x: Int): Int = x * 2
 export type Coordinates = (Float, Float)
 export record Point = {x: Float, y: Float}
@@ -197,6 +197,23 @@ abstraction is required, use a nominal record or union.
 
 ## Public signatures must remain usable
 
+Every exported term writes a complete signature. Values have a type annotation.
+Functions annotate every parameter and their result, and constrained functions
+write every independent constraint:
+
+```hexagon
+export let defaultLimit: Int = 100
+
+export let smaller<a: Ord>(left: a, right: a): a =
+    if left < right then left else right
+```
+
+Do not repeat base constraints. If `Hash` builds on `Eq`, write `<a: Hash>`,
+not `<a: (Eq, Hash)>`; the `Hash` evidence already carries equality. The compiler
+checks all of these boundary requirements. Private module-level functions keep
+their lighter annotation pattern as a style convention, with inferred results
+and constraints.
+
 An exported function cannot mention a private nominal type:
 
 ```hexagon
@@ -212,8 +229,9 @@ A private type alias is different. Since an alias is only another name for its
 expansion, the public signature may expose the underlying type instead of leaking the
 private alias.
 
-Module boundaries do not change polymorphism. A reusable module-level binding keeps
-the same inferred type scheme whether it is private, exported, or imported elsewhere.
+Module boundaries do not change polymorphism. The complete annotation pins an
+export's public contract, while checking still verifies it against the same
+polymorphic type system used for private bindings.
 
 ## Names remain predictable
 
@@ -289,7 +307,7 @@ One Hexagon file emits as one ESM file. The source:
 ```hexagon
 import { Point } from "./point"
 
-export let origin = Point({x: 0.0, y: 0.0})
+export let origin: Point = Point({x: 0.0, y: 0.0})
 let label = "origin"
 ```
 
@@ -317,6 +335,7 @@ The next chapter uses that fact to explain the convenient dot-call spelling.
 - module aliases are namespaces, not first-class values;
 - companion modules give subject-first operations a predictable qualified home;
 - `export opaque` hides a record's fields or a union's constructors outside its home;
+- exported terms have complete signatures with explicit maximal constraints;
 - public signatures cannot leak private nominal types;
 - instances are global over the imported program graph rather than exported names;
 - imports are acyclic and initialize dependencies before dependants;

@@ -89,7 +89,7 @@ export declare const between: (
 Inferred polymorphism becomes an ordinary generic signature:
 
 ```hexagon
-export let chooseFirst(first, second) = first
+export let chooseFirst<a>(first: a, second: a): a = first
 ```
 
 ```ts
@@ -119,7 +119,7 @@ export declare const dimensions: [number, number];
 A structural record becomes the object type a TypeScript author would expect:
 
 ```hexagon
-export let guest = {name: "Mira", seats: 3}
+export let guest: {name: String, seats: Int} = {name: "Mira", seats: 3}
 ```
 
 ```ts

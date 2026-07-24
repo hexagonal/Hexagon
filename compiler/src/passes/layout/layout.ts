@@ -245,9 +245,28 @@ function expectsBlock(item: readonly Lexed.Token[]): boolean {
     return false;
   }
 
-  const beginsFunction =
-    first?.kind === "NonUpperName" || first?.kind === "Let" || first?.kind === "Fun";
-  return beginsFunction && item.some(({ kind }) => kind === "LeftParen");
+  return hasBindingParameterList(item);
+}
+
+function hasBindingParameterList(item: readonly Lexed.Token[]): boolean {
+  let index = item[0]?.kind === "Export" ? 1 : 0;
+  const first = item[index];
+  if (first?.kind === "NonUpperName") {
+    return item[index + 1]?.kind === "LeftParen";
+  }
+  if (first?.kind !== "Let" && first?.kind !== "Fun") return false;
+
+  index += 2; // binding keyword and name
+  if (item[index]?.kind === "Less") {
+    let depth = 1;
+    index += 1;
+    while (index < item.length && depth > 0) {
+      if (item[index]?.kind === "Less") depth += 1;
+      else if (item[index]?.kind === "Greater") depth -= 1;
+      index += 1;
+    }
+  }
+  return item[index]?.kind === "LeftParen";
 }
 
 function lastControlHead(

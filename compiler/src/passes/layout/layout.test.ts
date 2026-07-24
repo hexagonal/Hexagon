@@ -50,6 +50,17 @@ describe("applyLayout", () => {
     expect(result.diagnostics).toEqual([]);
   });
 
+  test("does not mistake parentheses in an exported value type for function parameters", () => {
+    const result = layout(
+      "export let selected: Seq(Int) =\n" +
+        "    numbers\n" +
+        "    .take(5)",
+    );
+
+    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VClose"]);
+    expect(result.diagnostics).toEqual([]);
+  });
+
   test("opens extern module binding blocks", () => {
     const result = layout(
       "extern from \"tiny-json\"\n" +

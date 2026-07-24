@@ -22,7 +22,7 @@ Consequences, fixed here:
 Representation-direct values and functions export directly with **stable ESM identity**:
 
 ```hexagon
-export let version = "1.0"
+export let version: String = "1.0"
 export let double(x: Int): Int = x * 2
 ```
 
@@ -236,7 +236,7 @@ An exported constrained-polymorphic declaration is governed by **Part 8** (`ffi-
 
 ```hexagon
 -- (a) Direct value/function exports (§1)
-export let version = "1.0"                 -- export const version; const version: string
+export let version: String = "1.0"         -- export const version; const version: string
 export let double(x: Int): Int = x * 2     -- export function double; raw identity
 
 -- (b) Record: type + identity-permitted constructor (§3)

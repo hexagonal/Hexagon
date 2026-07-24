@@ -3916,6 +3916,9 @@ class Checker {
       return found;
     };
     for (const item of items) {
+      if ((item.kind === "Let" || item.kind === "Fun") && item.exported) {
+        this.#checkCompleteExportSignature(item);
+      }
       const bindings = item.kind === "ExternBlock"
         ? item.declarations.flatMap((declaration) =>
             declaration.kind !== "ExternType" && declaration.exported
@@ -3933,6 +3936,89 @@ class Checker {
           primary: binding.span,
         });
         }
+      }
+    }
+  }
+
+  #checkCompleteExportSignature(
+    item: Resolved.LetItem | Resolved.FunItem,
+  ): void {
+    let lambda: Resolved.LambdaExpr | undefined;
+    if (item.kind === "Fun") lambda = item.value;
+    else if (item.value.kind === "Lambda") lambda = item.value;
+    if (lambda === undefined) {
+      if (item.kind === "Let" && item.annotation === undefined) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `exported value \`${item.binding.name}\` requires a type annotation`,
+          primary: item.binding.span,
+        });
+      }
+      return;
+    }
+
+    const missingParameters = lambda.parameters
+      .filter((parameter) => parameter.annotation === undefined)
+      .map((parameter) => `\`${parameter.name}\``);
+    const missingReturn = lambda.returnAnnotation === undefined;
+    if (missingParameters.length > 0 || missingReturn) {
+      const missing = [
+        ...(missingParameters.length === 0
+          ? []
+          : [`type${missingParameters.length === 1 ? "" : "s"} for parameter${
+            missingParameters.length === 1 ? "" : "s"
+          } ${missingParameters.join(", ")}`]),
+        ...(missingReturn ? ["a return type"] : []),
+      ];
+      this.#diagnostics.add({
+        severity: "error",
+        message:
+          `exported function \`${item.binding.name}\` requires a complete signature; add ${
+            missing.join(" and ")
+          }`,
+        primary: item.binding.span,
+      });
+    }
+
+    const scheme = this.#scheme(item.binding.symbol);
+    scheme.variables.forEach((variable, index) => {
+      const required = this.#maximalConstraintNames(
+        variable.requirements
+          .filter((requirement) =>
+            requirement.evidenceConstraint === undefined ||
+            requirement.evidenceConstraint === requirement.name
+          )
+          .map(({ name }) => name),
+      );
+      if (required.length > 0 && variable.declaredConstraints === undefined) {
+        const constraintList = required.length === 1
+          ? required[0]!
+          : `(${required.join(", ")})`;
+        this.#diagnostics.add({
+          severity: "error",
+          message:
+            `exported function \`${item.binding.name}\` must declare every constraint in its signature; ` +
+            `write \`<${variable.rigidName ?? inferredTypeVariableName(index)}: ${constraintList}>\``,
+          primary: item.binding.span,
+        });
+      }
+    });
+
+    for (const parameter of lambda.typeParameters ?? []) {
+      const maximal = new Set(this.#maximalConstraintNames(parameter.constraints));
+      for (const constraint of parameter.constraints) {
+        if (maximal.has(constraint)) continue;
+        const provider = parameter.constraints.find((candidate) =>
+          candidate !== constraint &&
+          this.#baseConstraintPath(candidate, constraint) !== undefined
+        );
+        this.#diagnostics.add({
+          severity: "error",
+          message:
+            `exported function \`${item.binding.name}\` must omit base constraint \`${constraint}\` from ` +
+            `\`${parameter.name}\`; \`${provider ?? "another declared constraint"}\` already provides it`,
+          primary: parameter.span,
+        });
       }
     }
   }
@@ -5151,6 +5237,10 @@ function supports(
 
 function isConstraintName(name: string): name is Typed.ConstraintName {
   return ["Num", "Signed", "Frac", "Pow", "Concat", "Eq", "Ord", "Show", "Hash", "Iterable", "Integral"].includes(name);
+}
+
+function inferredTypeVariableName(index: number): string {
+  return index < 26 ? String.fromCharCode("a".charCodeAt(0) + index) : `t${index + 1}`;
 }
 
 /** Keeps the technical projection vocabulary out of source-facing diagnostics. */

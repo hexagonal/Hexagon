@@ -1,9 +1,10 @@
 # Hexagon canonical formatting plan
 
-**Status:** Planning note (July 2026). Boundary annotations are canonicalized in
-the Playground examples and `stdlib/Rat.hex`; mandatory-`then` conditional
-formatting is canonicalized across the live corpus. Apply the remaining phases
-gradually when their source is otherwise being touched.
+**Status:** Planning note (July 2026), revised after exported signatures became
+compiler-enforced. Exported value annotations, complete exported function
+annotations, explicit public constraints, and base-constraint omission are now
+language rules (Modules §4.1.1). The remaining private module-level function
+guidance is still style and may be applied gradually.
 
 ## 1. Boundary-first annotation doctrine
 
@@ -18,7 +19,8 @@ Annotations belong at declaration boundaries:
 - an exported signature names a type alias instead of spelling an inline
   structural type.
 
-This is a tooling and maintenance convention. A pinned receiver or scrutinee gives
+The exported subset is compiler-enforced; the private module-level subset remains
+a tooling and maintenance convention. A pinned receiver or scrutinee gives
 dot-dispatch and pattern completion a stable anchor; module boundaries form an
 error firewall; exported annotations stabilize generated TypeScript declarations;
 and the shape follows habits familiar to TypeScript programmers. It applies
