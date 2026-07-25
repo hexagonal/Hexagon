@@ -1,0 +1,60 @@
+// The persistent 32-way bit-partitioned trie backing `Vector(a)` (Collections
+// Part 3 §4), written over the hidden fixed-32 `Node` intrinsic. This is a
+// runtime-internal module: it is compiled only as a privileged runtime module,
+// and `Tree`, `Node`, and `TrieVector` never cross a module boundary — the
+// public face is `Vector(a)`, wired by the emitter (a later milestone). Index
+// math uses `Int.div`/`Int.mod` by the branch factor; Hexagon has no bitwise
+// operators, and none are needed.
+
+// A trie node is either a leaf holding up to 32 values, or a branch holding up
+// to 32 child subtrees. Both are 32-slot `Node`s; which slots are populated is
+// tracked by the enclosing `TrieVector`'s count, never by reading empty slots.
+union Tree(a) =
+    | Leaf(values: Node(a))
+    | Branch(children: Node(Tree(a)))
+
+// The Vector representation. `height` counts trie levels: 1 => `root` is a
+// `Leaf`, 2 => `root` is a `Branch` of leaves, and so on. `count` is the number
+// of elements. (The tail buffer and origin/capacity deque machinery of §4.1
+// arrive in later increments; this first slab is the read path over a plain,
+// left-packed, append-only trie.)
+record TrieVector(a) = { count: Int, height: Int, root: Tree(a) }
+
+// Signals a structurally malformed trie (a runtime bug, never a caller error).
+// Thrown only on paths a well-formed trie can never take.
+exception TrieCorruption(message: String)
+
+// The branch factor. A `Node` is always exactly this wide.
+let radix: Int = 32
+
+fun size<a>(trie: TrieVector(a)): Int = trie.count
+
+fun isEmpty<a>(trie: TrieVector(a)): Bool = trie.count == 0
+
+// The number of elements spanned by one child subtree at the root of a
+// height-`h` trie: radix^(h-1), computed without a power operator.
+fun rootSpan(height: Int): Int =
+    var span = 1
+    for level in 2..height
+        span := span * radix
+    span
+
+// Reads the element at 0-based `index`, descending one branch level per
+// iteration to the leaf that owns it, then selecting the low digit within it.
+// Callers guarantee `0 <= index < count`; a well-formed trie's slots are always
+// populated along the path, so no empty `Node` slot is ever read.
+fun get<a>(trie: TrieVector(a), index: Int): a =
+    var node = trie.root
+    var span = rootSpan(trie.height)
+    var remaining = index
+    // A height-`h` trie has `h - 1` branch levels above its leaves.
+    for level in 2..trie.height
+        node := match node
+            Branch(children) => Node.get(children, Int.div(remaining, span))
+            Leaf(_) => node
+        remaining := Int.mod(remaining, span)
+        span := Int.div(span, radix)
+    match node
+        Leaf(values) => Node.get(values, remaining)
+        // Unreachable for a well-formed trie (the loop always lands on a leaf).
+        Branch(_) => throw(TrieCorruption("get: descent did not reach a leaf"))
