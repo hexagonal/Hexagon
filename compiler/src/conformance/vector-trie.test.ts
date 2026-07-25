@@ -56,6 +56,12 @@ const BUILD =
   "    var acc: TrieVector(Int) = empty()\n" +
   "    for i in 1..n\n" +
   "        acc := prepend(acc, n - i + 1)\n" +
+  "    acc\n" +
+  // appendRange(v, lo, hi) appends lo, lo+1, ..., hi onto v.
+  "fun appendRange(v: TrieVector(Int), lo: Int, hi: Int): TrieVector(Int) =\n" +
+  "    var acc: TrieVector(Int) = v\n" +
+  "    for i in lo..hi\n" +
+  "        acc := append(acc, i)\n" +
   "    acc\n";
 
 describe("VectorTrie build path (append + tail flush + growth)", () => {
@@ -289,5 +295,50 @@ describe("VectorTrie slice (§6 windowing over the shared trie)", () => {
     expect(m.ts).toBe(550);
     expect(m.t0).toBe(501);
     expect(m.t549).toBe(1050);
+  });
+
+  test("append onto a slice shares and correctly overwrites the trie", async () => {
+    // A slice shares the original (untrimmed) tree; appending onto it must land
+    // disjoint values without ever reading a stale shared slot. Values 1000+ are
+    // disjoint from the 1..100 source so any mis-read shows.
+    const m = await runTrie(
+      BUILD +
+        // no flush: a couple of appends stay in the rebuilt tail
+        "let a = appendRange(slice(buildTo(100), 0, 50), 1000, 1001)\n" +
+        "export let as: Int = size(a)\n" +
+        "export let a49: Int = get(a, 49)\n" +
+        "export let a50: Int = get(a, 50)\n" +
+        "export let a51: Int = get(a, 51)\n" +
+        // 56 appends: cross tail flushes that rewrite shared tree slots 1 and 2
+        "let b = appendRange(slice(buildTo(100), 0, 50), 1000, 1055)\n" +
+        "export let bs: Int = size(b)\n" +
+        "export let b0: Int = get(b, 0)\n" +
+        "export let b49: Int = get(b, 49)\n" +
+        "export let b50: Int = get(b, 50)\n" +
+        "export let b70: Int = get(b, 70)\n" + // internal 70 -> a flush-rewritten slot
+        "export let b105: Int = get(b, 105)\n" +
+        // append onto an origin > 0 window
+        "let c = appendRange(slice(buildTo(100), 40, 90), 1000, 1030)\n" +
+        "export let cs: Int = size(c)\n" +
+        "export let c0: Int = get(c, 0)\n" +
+        "export let c49: Int = get(c, 49)\n" +
+        "export let c50: Int = get(c, 50)\n" +
+        "export let c80: Int = get(c, 80)\n",
+    );
+    expect(m.as).toBe(52);
+    expect(m.a49).toBe(50);
+    expect(m.a50).toBe(1000);
+    expect(m.a51).toBe(1001);
+    expect(m.bs).toBe(106);
+    expect(m.b0).toBe(1);
+    expect(m.b49).toBe(50);
+    expect(m.b50).toBe(1000);
+    expect(m.b70).toBe(1020);
+    expect(m.b105).toBe(1055);
+    expect(m.cs).toBe(81);
+    expect(m.c0).toBe(41);
+    expect(m.c49).toBe(90);
+    expect(m.c50).toBe(1000);
+    expect(m.c80).toBe(1030);
   });
 });
