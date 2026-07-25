@@ -3,7 +3,7 @@ import type { PlaygroundExample } from "./hello-world";
 export const rat: PlaygroundExample = {
   id: "rat",
   title: "Exact Fractions with Rat",
-  description: "Use the fundamental exact Rat module supplied by the Playground.",
+  description: "Use the exact Rat module supplied as Playground equipment.",
   source: `let half = Rat.create(1, 2)
 let third = Rat.create(1, 3)
 let fiveSixths = half + third

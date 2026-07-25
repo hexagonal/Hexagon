@@ -25,8 +25,10 @@ describe("compileSource", () => {
     expect(vectorModule?.javascript).not.toContain(
       "const __hex_persistentCollections",
     );
+    // `Option`/`Some`/`None` are implicit via the prelude; Vector imports only
+    // the constructors it uses, ordered by first reference.
     expect(vectorModule?.javascript).toContain(
-      'import { Some, None } from "./Option.js";',
+      'import { None, Some } from "./Option.js";',
     );
   });
 
@@ -153,7 +155,9 @@ describe("compileSource", () => {
     expect(response.javascript).toContain('import * as Mगणित from "./Mगणित.js";');
     expect(response.javascript).toContain("console.log(展示(用户,");
     expect(response.javascript).toContain("Mगणित.जोड़(20, 22)");
+    // `/Prelude.hex` is emitted because the always-supplied `Rat.hex` uses `Ordering`.
     expect(response.executionModules.map(({ path }) => path)).toEqual([
+      "/Prelude.hex",
       "/stdlib/Option.hex",
       "/stdlib/Vector.hex",
       "/stdlib/Rat.hex",

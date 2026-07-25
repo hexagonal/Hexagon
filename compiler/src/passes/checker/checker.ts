@@ -1048,6 +1048,25 @@ class Checker {
 
 
   /** Checks compiler-known prelude constraint members before a source prelude exists. */
+  /**
+   * The prelude `Ordering` union, which `Ord.compare` returns. Resolved from the
+   * registered unions (seeded from the prelude) rather than hardcoded, so the
+   * contract has a single source of truth in `stdlib/Prelude.hex`.
+   */
+  #orderingType(span: Source.Span): Mono {
+    for (const union of this.#unions.values()) {
+      if (union.name === "Ordering") {
+        return { kind: "Union", union: union.id, name: union.name, arguments: [] };
+      }
+    }
+    this.#diagnostics.add({
+      severity: "error",
+      message: "the prelude `Ordering` union is not in scope; `Ord.compare` cannot be typed",
+      primary: span,
+    });
+    return ERROR;
+  }
+
   #checkPreludeHonor(item: Resolved.HonorItem, level: number): boolean {
     const subject = this.#instanceSubjects.get(item) ?? ERROR;
     const members = new Map<string, { parameters: readonly Mono[]; result: Mono; optional?: boolean }>();
@@ -1060,7 +1079,7 @@ class Checker {
         optional: true,
       });
     } else if (item.constraint === "Ord") {
-      members.set("compare", { parameters: [subject, subject], result: primitive("Int") });
+      members.set("compare", { parameters: [subject, subject], result: this.#orderingType(item.span) });
     } else if (item.constraint === "Show") {
       members.set("show", { parameters: [subject], result: primitive("String") });
     } else if (item.constraint === "Num") {

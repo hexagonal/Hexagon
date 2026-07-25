@@ -31,12 +31,25 @@ export interface InstanceInterface {
   readonly span: Source.Span;
 }
 
+/** One prelude module made implicitly available, with the specifier this module imports it by. */
+export interface PreludeImport {
+  readonly interface: ModuleInterface;
+  readonly specifier: string;
+}
+
 export interface ResolveOptions {
   readonly imports?: ReadonlyMap<string, ModuleInterface>;
   readonly symbolBase?: number;
   readonly unionBase?: number;
   readonly recordBase?: number;
   readonly externTypeBase?: number;
+  /**
+   * The prelude modules, implicitly in scope in every non-prelude module. Their
+   * names are seeded into a shadowable fallback scope (local declarations win),
+   * and a used-names-only import is synthesized per prelude module that a module
+   * references, so emission stays free of unused prelude imports.
+   */
+  readonly prelude?: readonly PreludeImport[];
 }
 
 export function resolve(
@@ -155,6 +168,13 @@ class Resolver {
   readonly #externTypeDeclarations = new WeakMap<Parsed.ExternTypeDeclaration, Resolved.ExternTypeId>();
   readonly #resolvingAliases: string[] = [];
   readonly #imports: ReadonlyMap<string, ModuleInterface>;
+  readonly #preludeScope = new Scope();
+  readonly #preludeTerms = new Map<Resolved.SymbolId, Resolved.Symbol>();
+  readonly #preludeTypeNames = new Set<string>();
+  readonly #preludeSpecifierBySymbol = new Map<Resolved.SymbolId, string>();
+  readonly #preludeInterfaceBySpecifier = new Map<string, ModuleInterface>();
+  readonly #usedPreludeSymbols = new Set<Resolved.SymbolId>();
+  readonly #explicitlyImported = new Set<Resolved.SymbolId>();
   readonly #moduleAliases = new Map<string, ModuleInterface>();
   readonly #constraintNames = new Set<string>([
     "Num", "Signed", "Frac", "Pow", "Concat", "Eq", "Ord", "Show",
@@ -181,6 +201,56 @@ class Resolver {
     this.#nextUnion = options.unionBase ?? 0;
     this.#nextRecord = options.recordBase ?? 0;
     this.#nextExternType = options.externTypeBase ?? 0;
+    for (const preludeImport of options.prelude ?? []) {
+      this.#seedPrelude(preludeImport.interface, preludeImport.specifier);
+    }
+  }
+
+  /**
+   * Makes one prelude module's nominals implicitly available. Terms go into a
+   * fallback scope so a local declaration of the same name shadows the prelude;
+   * type identities are registered so annotations resolve and the checker sees
+   * them. The specifier is recorded per term so the synthesized import points at
+   * the module the name actually came from.
+   */
+  #seedPrelude(prelude: ModuleInterface, specifier: string): void {
+    this.#preludeInterfaceBySpecifier.set(specifier, prelude);
+    for (const [name, symbol] of prelude.terms) {
+      this.#preludeScope.define(name, symbol.id);
+      this.#preludeTerms.set(symbol.id, symbol);
+      this.#preludeSpecifierBySymbol.set(symbol.id, specifier);
+      // Registered eagerly so `#symbol` resolves prelude references during body
+      // resolution; unused entries never reach emission (the import lists only
+      // the terms actually referenced) and are excluded from id-base progression.
+      this.#importedSymbols.set(symbol.id, symbol);
+    }
+    for (const [name, union] of prelude.unions) {
+      this.#preludeTypeNames.add(name);
+      this.#unionNames.set(name, union.id);
+      this.#unionArities.set(name, union.parameters.length);
+      if (!this.#unions.some(({ id }) => id === union.id)) {
+        this.#unions.push({ ...union, representationVisible: false });
+      }
+    }
+    for (const [name, record] of prelude.records) {
+      this.#preludeTypeNames.add(name);
+      this.#recordNames.set(name, record.id);
+      this.#recordArities.set(name, record.parameters.length);
+      if (!this.#records.some(({ id }) => id === record.id)) {
+        this.#records.push({ ...record, representationVisible: false });
+      }
+    }
+    for (const [name, alias] of prelude.aliases) {
+      this.#preludeTypeNames.add(name);
+      this.#typeAliases.set(name, { ...alias, name });
+    }
+    for (const [name, externType] of prelude.externTypes) {
+      this.#preludeTypeNames.add(name);
+      this.#externTypeNames.set(name, externType.externType);
+      if (!this.#externTypes.some(({ externType: id }) => id === externType.externType)) {
+        this.#externTypes.push({ ...externType, localName: name });
+      }
+    }
   }
 
   resolve(module: Parsed.Module): Resolved.Module {
@@ -196,9 +266,10 @@ class Resolver {
         this.#impliedTypeOwners.set(impliedType.name.text, owners);
       }
     }
-    const scope = new Scope();
+    const scope = new Scope(this.#preludeScope);
     this.#predeclareExternTerms(module.items, scope);
-    const items = this.#resolveItems(module.items, scope);
+    const resolvedItems = this.#resolveItems(module.items, scope);
+    const items = [...this.#preludeImport(module.span), ...resolvedItems];
 
     return {
       kind: "Module",
@@ -408,12 +479,19 @@ class Resolver {
               }
               if (term !== undefined) {
                 const existing = scope.lookup(name.local.text);
-                if (existing !== undefined) this.#reportRebinding(name.local, existing);
-                else scope.define(name.local.text, term.id);
+                // A prelude name is a shadowable fallback: an explicit import of
+                // the same local name overrides it silently (and takes over its
+                // emission, so it is excluded from the synthesized prelude import).
+                if (existing !== undefined && !this.#preludeTerms.has(existing)) {
+                  this.#reportRebinding(name.local, existing);
+                } else {
+                  scope.define(name.local.text, term.id);
+                }
+                this.#explicitlyImported.add(term.id);
                 this.#importedSymbols.set(term.id, term);
               }
               if (union !== undefined) {
-                if (this.#unionNames.has(name.local.text) || this.#recordNames.has(name.local.text)) {
+                if ((this.#unionNames.has(name.local.text) || this.#recordNames.has(name.local.text)) && !this.#preludeTypeNames.has(name.local.text)) {
                   this.#diagnostics.add({
                     severity: "error",
                     message: `type \`${name.local.text}\` is already declared or imported`,
@@ -425,7 +503,7 @@ class Resolver {
                 if (!this.#unions.some(({ id }) => id === union.id)) this.#unions.push({ ...union, representationVisible: false });
               }
               if (record !== undefined) {
-                if (this.#unionNames.has(name.local.text) || this.#recordNames.has(name.local.text)) {
+                if ((this.#unionNames.has(name.local.text) || this.#recordNames.has(name.local.text)) && !this.#preludeTypeNames.has(name.local.text)) {
                   this.#diagnostics.add({
                     severity: "error",
                     message: `type \`${name.local.text}\` is already declared or imported`,
@@ -438,7 +516,7 @@ class Resolver {
                 if (!this.#records.some(({ id }) => id === record.id)) this.#records.push(importedRecord);
               }
               if (alias !== undefined) {
-                if (this.#typeAliases.has(name.local.text) || this.#unionNames.has(name.local.text) || this.#recordNames.has(name.local.text) || this.#externTypeNames.has(name.local.text)) {
+                if ((this.#typeAliases.has(name.local.text) || this.#unionNames.has(name.local.text) || this.#recordNames.has(name.local.text) || this.#externTypeNames.has(name.local.text)) && !this.#preludeTypeNames.has(name.local.text)) {
                   this.#diagnostics.add({
                     severity: "error",
                     message: `type \`${name.local.text}\` is already declared or imported`,
@@ -449,7 +527,7 @@ class Resolver {
                 }
               }
               if (externType !== undefined) {
-                if (this.#typeAliases.has(name.local.text) || this.#unionNames.has(name.local.text) || this.#recordNames.has(name.local.text) || this.#externTypeNames.has(name.local.text)) {
+                if ((this.#typeAliases.has(name.local.text) || this.#unionNames.has(name.local.text) || this.#recordNames.has(name.local.text) || this.#externTypeNames.has(name.local.text)) && !this.#preludeTypeNames.has(name.local.text)) {
                   this.#diagnostics.add({
                     severity: "error",
                     message: `type \`${name.local.text}\` is already declared or imported`,
@@ -1375,6 +1453,7 @@ class Resolver {
           labels: [{ span: this.#symbol(symbol).bindingSpan, message: "mutable binding declared here" }],
         });
       }
+      if (this.#preludeTerms.has(symbol)) this.#usedPreludeSymbols.add(symbol);
       return {
         kind: "Name",
         symbol,
@@ -1829,6 +1908,49 @@ class Resolver {
         });
       }
     }
+  }
+
+  /**
+   * Synthesized imports for the prelude terms this module actually references —
+   * one per prelude module, carrying exactly the used names and no more.
+   * Constructors matched in patterns compile to their string tags and need no
+   * import, so only value references (tracked in `#resolveName`) contribute here.
+   */
+  #preludeImport(span: Source.Span): readonly Resolved.Item[] {
+    const namesBySpecifier = new Map<string, Resolved.ImportName[]>();
+    for (const symbol of this.#usedPreludeSymbols) {
+      // An explicit import of the same name owns its emission; don't import twice.
+      if (this.#explicitlyImported.has(symbol)) continue;
+      const term = this.#preludeTerms.get(symbol);
+      const specifier = this.#preludeSpecifierBySymbol.get(symbol);
+      if (term === undefined || specifier === undefined) continue;
+      const names = namesBySpecifier.get(specifier) ?? [];
+      names.push({ imported: term.name, local: term.name, symbol, span });
+      namesBySpecifier.set(specifier, names);
+    }
+    return [...namesBySpecifier].map(([specifier, names]) => {
+      // Carry the prelude module's coherent instances (e.g. `Eq`/`Show<Option>`)
+      // the same way an explicit import would, so `a != None` and `show(x)` resolve.
+      const iface = this.#preludeInterfaceBySpecifier.get(specifier);
+      const instances = (iface?.instances ?? []).map((instance) => ({
+        identity: instance.identity,
+        constraint: instance.constraint,
+        typeParameters: instance.typeParameters,
+        subject: instance.subject,
+        impliedTypes: instance.impliedTypes,
+        importedDictionary: instance.dictionary,
+        localDictionary:
+          `__hex_imported_${Number(iface!.module.fileId)}_${instance.dictionary}`,
+        span,
+      }));
+      return {
+        kind: "Import" as const,
+        specifier,
+        form: { kind: "Named" as const, names },
+        instances,
+        span,
+      };
+    });
   }
 
   #findPending(

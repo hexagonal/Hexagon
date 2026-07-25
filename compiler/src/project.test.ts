@@ -333,3 +333,73 @@ test("links exported aliases and enforces opaque module boundaries", () => {
     "cannot access field `value` of opaque record `Token`; use an operation exported by its home module",
   );
 });
+
+test("the implicit prelude supplies Ordering to Ord instances", () => {
+  const project = compileProject([
+    new Source.File(
+      Source.fileId(0),
+      "/point.hex",
+      "export record Point derives (Eq) = {x: Int}\n" +
+        "honor Ord<Point> =\n" +
+        "    compare(left, right) =\n" +
+        "        if left.x < right.x then Less else if left.x > right.x then Greater else Equal",
+    ),
+  ]);
+
+  expect(project.diagnostics).toEqual([]);
+  const point = project.modules.find(({ source }) => source.path === "/point.hex")!;
+  expect(point.typed.diagnostics).toEqual([]);
+  // Only the referenced constructors are imported from the implicit prelude.
+  expect(point.javascript.text).toContain(
+    'import { Less, Greater, Equal } from "./Prelude.js";',
+  );
+  // The prelude module is emitted because a module imports from it.
+  expect(project.modules.map(({ source }) => source.path)).toContain("/Prelude.hex");
+});
+
+test("a project that never touches the prelude does not emit it", () => {
+  const project = compileProject([
+    new Source.File(Source.fileId(0), "/plain.hex", "export let answer: Int = 42"),
+  ]);
+
+  expect(project.diagnostics).toEqual([]);
+  expect(project.modules.map(({ source }) => source.path)).toEqual(["/plain.hex"]);
+});
+
+test("Ord.compare must return Ordering, not a bare Int", () => {
+  const project = compileProject([
+    new Source.File(
+      Source.fileId(0),
+      "/bad.hex",
+      "export record Point derives (Eq) = {x: Int}\n" +
+        "honor Ord<Point> =\n" +
+        "    compare(left, right) = 0",
+    ),
+  ]);
+
+  const bad = project.modules.find(({ source }) => source.path === "/bad.hex")!;
+  // `0` demands a `Num` instance for the now-`Ordering` result type, which it lacks.
+  expect(bad.typed.diagnostics.map(({ message }) => message)).toContain(
+    "type `Ordering` has no `Num` instance",
+  );
+});
+
+test("the implicit prelude supplies Option without an import", () => {
+  const project = compileProject([
+    new Source.File(
+      Source.fileId(0),
+      "/app.hex",
+      "export fun head<a>(xs: Vector(a)): Option(a) =\n" +
+        "    if Vector.size(xs) == 0 then None else Some(xs[0])\n",
+    ),
+  ]);
+
+  expect(project.diagnostics).toEqual([]);
+  const app = project.modules.find(({ source }) => source.path === "/app.hex")!;
+  expect(app.typed.diagnostics).toEqual([]);
+  expect(app.javascript.text).toContain('import { None, Some } from "./Option.js";');
+  // Each prelude module is emitted only when used: Option is, Ordering's home is not.
+  const paths = project.modules.map(({ source }) => source.path);
+  expect(paths).toContain("/Option.hex");
+  expect(paths).not.toContain("/Prelude.hex");
+});
