@@ -170,15 +170,43 @@ describe("Node intrinsic contract (leak-proof rejections)", () => {
     expect(messages.some((m) => m.includes("Node") && m.includes("no public form"))).toBe(true);
   });
 
-  test("`Node(a)` inside an exported nominal union is fine (Node is its private representation)", () => {
-    // The milestone-2 shape: an exported `Tree` may be built over `Node`; only a
-    // *bare* `Node` in the signature leaks. Tree's Node-valued fields are its
-    // representation, guarded like any other private field type.
+  test("an exported union with a `Node`-typed slot is rejected", () => {
+    // The exported constructor `Leaf` would be a JS-callable function taking a
+    // forgeable array, and `Node(a)` would render as `Array<a>` in the `.d.ts`.
+    // The blessed shape keeps `Tree` private (see below).
     const messages = diagnose(
       "export union Tree(a) =\n" +
         "    | Leaf(values: Node(a))\n" +
+        "    | Branch(children: Node(Tree(a)))\n",
+      { runtime: true },
+    );
+    expect(messages.some((m) => m.includes("union `Tree`") && m.includes("no public form"))).toBe(true);
+  });
+
+  test("an exported exception with a `Node`-typed slot is rejected", () => {
+    const messages = diagnose("export exception Corrupt(node: Node(Int))\n", { runtime: true });
+    expect(messages.some((m) => m.includes("exception `Corrupt`") && m.includes("no public form"))).toBe(true);
+  });
+
+  test("an extern declaration may not name `Node` (the foreign boundary)", () => {
+    const messages = diagnose(
+      "extern from \"host\"\n    fun sink(node: Node(Int)): Unit\n",
+      { runtime: true },
+    );
+    expect(messages.some((m) => m.includes("extern") && m.includes("Node"))).toBe(true);
+  });
+
+  test("the blessed shape: private `Tree`/`Node` internals behind public-typed exports", () => {
+    // What the real trie uses — `Tree` and `Node` live entirely inside the module;
+    // the exported signatures are public-typed (here `Int`, later `Vector`-shaped).
+    const messages = diagnose(
+      "union Tree(a) =\n" +
+        "    | Leaf(values: Node(a))\n" +
         "    | Branch(children: Node(Tree(a)))\n" +
-        "export fun leafOf<a>(value: a): Tree(a) = Leaf(Node.set(Node.empty(), 0, value))\n",
+        "fun leafHead(tree: Tree(Int)): Int = match tree\n" +
+        "    Leaf(values) => Node.get(values, 0)\n" +
+        "    Branch(_) => 0 - 1\n" +
+        "export fun demo(): Int = leafHead(Leaf(Node.set(Node.empty(), 0, 5)))\n",
       { runtime: true },
     );
     expect(messages).toEqual([]);

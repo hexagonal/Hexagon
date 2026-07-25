@@ -4034,6 +4034,61 @@ class Checker {
           });
         }
       }
+      // `Node` also has no public form when it hides in an *exported* algebraic
+      // type: the constructor of an exported union/record/exception becomes a
+      // JS-callable function (FFI Part 7), so a `Node`-typed slot both renders as
+      // a bogus `Array<..>` in the `.d.ts` and lets foreign code forge a node.
+      // Keep the type private and export functions over it instead.
+      const mentionsNodeSlot = (annotations: readonly Resolved.TypeAnnotation[]): boolean =>
+        annotations.some(annotationMentionsNode);
+      if (item.kind === "Union" && item.exported &&
+        mentionsNodeSlot(item.constructors.flatMap((constructor) => constructor.slots.map((slot) => slot.annotation)))) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `exported union \`${item.name}\` has a \`Node\`-typed slot; the hidden \`Node\` intrinsic has no public form — keep the union private and export functions over it instead`,
+          primary: item.span,
+        });
+      }
+      if (item.kind === "Exception" && item.exported &&
+        mentionsNodeSlot(item.slots.map((slot) => slot.annotation))) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `exported exception \`${item.binding.name}\` has a \`Node\`-typed slot; the hidden \`Node\` intrinsic has no public form — keep the exception private`,
+          primary: item.span,
+        });
+      }
+      if (item.kind === "RecordDeclaration" && item.exported) {
+        const record = this.#records.get(item.record);
+        if (record !== undefined && mentionsNodeSlot(record.fields.map((field) => field.annotation))) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `exported record \`${record.name}\` has a \`Node\`-typed field; the hidden \`Node\` intrinsic has no public form — keep the record private and export functions over it instead`,
+            primary: item.span,
+          });
+        }
+      }
+      // Extern is the foreign boundary; `Node` can never cross it, exported or not.
+      if (item.kind === "ExternBlock") {
+        for (const declaration of item.declarations) {
+          const annotations: readonly Resolved.TypeAnnotation[] = declaration.kind === "ExternFun"
+            ? [
+                ...declaration.parameters.flatMap((parameter) =>
+                  parameter.annotation === undefined ? [] : [parameter.annotation]
+                ),
+                declaration.returnAnnotation,
+              ]
+            : declaration.kind === "ExternLet"
+              ? [declaration.annotation]
+              : [];
+          if (mentionsNodeSlot(annotations)) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `extern declaration \`${declaration.localName}\` names the hidden \`Node\` intrinsic, which cannot cross the foreign boundary`,
+              primary: declaration.span,
+            });
+          }
+        }
+      }
     }
   }
 
@@ -5205,6 +5260,46 @@ function annotationHasTypeVariable(
     case "ExternType":
     case "Primitive":
     case "Range":
+    case "ImpliedType":
+    case "ErrorType":
+      return false;
+  }
+}
+
+/**
+ * Whether the hidden `Node` intrinsic appears anywhere in a resolved annotation.
+ * Aliases are inlined during resolution, so a `type X = Node(a)` smuggle is a
+ * plain `Node` node here. Used to keep `Node` out of every exported public form —
+ * a bare signature (via `#mentionsNode` on the Mono) and an exported
+ * union/record/exception slot or an extern boundary (via this walker).
+ */
+function annotationMentionsNode(annotation: Resolved.TypeAnnotation): boolean {
+  switch (annotation.kind) {
+    case "Node":
+      return true;
+    case "Seq":
+    case "Vector":
+    case "Set":
+    case "Array":
+      return annotationMentionsNode(annotation.element);
+    case "Nullable":
+      return annotationMentionsNode(annotation.value);
+    case "Map":
+      return annotationMentionsNode(annotation.key) || annotationMentionsNode(annotation.value);
+    case "Function":
+      return annotation.parameters.some(annotationMentionsNode) ||
+        annotationMentionsNode(annotation.result);
+    case "Tuple":
+      return annotation.elements.some(annotationMentionsNode);
+    case "Record":
+      return annotation.fields.some((field) => annotationMentionsNode(field.annotation));
+    case "Union":
+    case "RecordDeclaration":
+      return annotation.arguments.some(annotationMentionsNode);
+    case "Primitive":
+    case "Range":
+    case "ExternType":
+    case "TypeVariable":
     case "ImpliedType":
     case "ErrorType":
       return false;
