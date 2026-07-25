@@ -13,7 +13,7 @@ import type {
   TypeOccurrence,
   PlaygroundDiagnostic,
 } from "./protocol";
-import { fundamentalStdlibModules } from "./fundamental-stdlib";
+import { hostedModules, playgroundEquipment } from "./playground-equipment";
 import { parseWorkspaceSource } from "./workspace-source";
 
 /** Runs the platform-neutral compiler and adapts its result for the worker. */
@@ -35,15 +35,19 @@ function compileWorkspace(
   workspace: ReturnType<typeof parseWorkspaceSource>,
 ): CompilerResponse {
   const shadowedCompanions = new Set(workspace.modules.map(({ name }) => name));
-  const fundamentals = fundamentalStdlibModules.filter(
+  const hosted = hostedModules.filter(
     ({ companion }) => !shadowedCompanions.has(companion),
   );
-  const fundamentalPrefix = fundamentals.map(({ companion, path }) => {
-    const specifier = `.${path.slice(0, -".hex".length)}`;
-    return `import * as ${companion} from ${JSON.stringify(specifier)}`;
-  }).join("\n");
-  const mainPrefix = fundamentalPrefix.length === 0 ? "" : `${fundamentalPrefix}\n`;
-  const files = fundamentals.map(({ path, source }, index) =>
+  // Auto-import only the equipment subset; hosted prelude sources (Option) are
+  // supplied for resolution but stay implicit via the compiler's prelude.
+  const equipmentPrefix = hosted
+    .filter(({ companion }) => playgroundEquipment.includes(companion))
+    .map(({ companion, path }) => {
+      const specifier = `.${path.slice(0, -".hex".length)}`;
+      return `import * as ${companion} from ${JSON.stringify(specifier)}`;
+    }).join("\n");
+  const mainPrefix = equipmentPrefix.length === 0 ? "" : `${equipmentPrefix}\n`;
+  const files = hosted.map(({ path, source }, index) =>
     new Source.File(Source.fileId(index), path, source)
   );
   const workspaceFileBase = files.length;

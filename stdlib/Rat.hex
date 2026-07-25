@@ -53,12 +53,12 @@ honor Ord<Rat> =
         let leftProduct = left.top * right.bottom
         let rightProduct = right.top * left.bottom
         if leftProduct < rightProduct then
-            -1
+            Less
         else
             if leftProduct > rightProduct then
-                1
+                Greater
             else
-                0
+                Equal
 
 honor Show<Rat> =
     show(value) = "${value.top}/${value.bottom}"

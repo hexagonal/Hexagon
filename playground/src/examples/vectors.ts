@@ -12,7 +12,7 @@ let updated = extended.set(2, 25)
 console.log("numbers = \${numbers}")
 console.log("updated = \${updated}")
 console.log("last = \${updated.at(-1)}")
-console.log("has a fifth value? \${updated.get(5) != Option.None}")
+console.log("has a fifth value? \${updated.get(5) != None}")
 `,
   specificationReferences: [
     "spec/collections-part3-vector.md",

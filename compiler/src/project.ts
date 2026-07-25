@@ -14,6 +14,8 @@ import { moduleInterface, resolve } from "./passes/resolver/resolver.js";
 import { check } from "./passes/checker/checker.js";
 import { elaborate } from "./passes/elaborator/elaborator.js";
 import { emitDeclarations, emitJavaScript } from "./passes/emitter/emitter.js";
+import type { PreludeImport } from "./passes/resolver/resolver.js";
+import { PRELUDE_MODULES } from "./prelude.js";
 
 export interface CompiledModule {
   readonly source: Source.File;
@@ -34,6 +36,8 @@ export interface CompiledProject {
 export function compileProject(files: readonly Source.File[]): CompiledProject {
   const diagnostics = new Diagnostics.Bag();
   const sources = new Map(files.map((file) => [normalizePath(file.path), file]));
+  const preludePaths = injectPrelude(sources);
+  const preludeSet = new Set(preludePaths);
   const parsed = new Map<string, Parsed.Module>();
   for (const [path, file] of sources) {
     parsed.set(path, parse(applyLayout(lex(file))));
@@ -89,13 +93,25 @@ export function compileProject(files: readonly Source.File[]): CompiledProject {
     ordered.push(path);
   };
   for (const path of sources.keys()) visit(path);
+  // Prelude modules compile before their consumers, and their identities live in a
+  // reserved high range so consumer ids stay stable whether or not a prelude is present.
+  for (const path of preludePaths) {
+    const index = ordered.indexOf(path);
+    if (index >= 0) ordered.splice(index, 1);
+  }
+  ordered.unshift(...preludePaths);
 
   const compiled = new Map<string, CompiledModule>();
   let symbolBase = 0;
   let unionBase = 0;
   let recordBase = 0;
   let externTypeBase = 0;
+  let preludeSymbolBase = PRELUDE_ID_BASE;
+  let preludeUnionBase = PRELUDE_ID_BASE;
+  let preludeRecordBase = PRELUDE_ID_BASE;
+  let preludeExternTypeBase = PRELUDE_ID_BASE;
   for (const path of ordered) {
+    const isPrelude = preludeSet.has(path);
     const source = sources.get(path)!;
     const parsedModule = parsed.get(path)!;
     const imports = new Map<string, ReturnType<typeof moduleInterface>>();
@@ -109,20 +125,47 @@ export function compileProject(files: readonly Source.File[]): CompiledProject {
         importedSchemes.set(symbol.id, symbol.scheme);
       }
     }
+    // Consumers see every compiled prelude module; prelude modules see none (no
+    // self-injection, and they do not depend on one another).
+    const preludeImports: PreludeImport[] = isPrelude ? [] : preludePaths.flatMap((preludePath) => {
+      const preludeCompiled = compiled.get(preludePath);
+      if (preludeCompiled === undefined) return [];
+      for (const symbol of preludeCompiled.typed.symbols) {
+        importedSchemes.set(symbol.id, symbol.scheme);
+      }
+      return [{
+        interface: moduleInterface(preludeCompiled.resolved),
+        specifier: relativeSpecifier(path, preludePath),
+      }];
+    });
     const resolved = resolve(parsedModule, {
       imports,
-      symbolBase,
-      unionBase,
-      recordBase,
-      externTypeBase,
+      symbolBase: isPrelude ? preludeSymbolBase : symbolBase,
+      unionBase: isPrelude ? preludeUnionBase : unionBase,
+      recordBase: isPrelude ? preludeRecordBase : recordBase,
+      externTypeBase: isPrelude ? preludeExternTypeBase : externTypeBase,
+      ...(preludeImports.length === 0 ? {} : { prelude: preludeImports }),
     });
-    symbolBase = nextId(resolved.symbols.map(({ id }) => Number(id)), symbolBase);
-    unionBase = nextId(resolved.unions.map(({ id }) => Number(id)), unionBase);
-    recordBase = nextId(resolved.records.map(({ id }) => Number(id)), recordBase);
-    externTypeBase = nextId(
-      resolved.externTypes.map(({ externType }) => Number(externType)),
-      externTypeBase,
-    );
+    if (isPrelude) {
+      preludeSymbolBase = nextId(resolved.symbols.map(({ id }) => Number(id)), preludeSymbolBase);
+      preludeUnionBase = nextId(resolved.unions.map(({ id }) => Number(id)), preludeUnionBase);
+      preludeRecordBase = nextId(resolved.records.map(({ id }) => Number(id)), preludeRecordBase);
+      preludeExternTypeBase = nextId(
+        resolved.externTypes.map(({ externType }) => Number(externType)),
+        preludeExternTypeBase,
+      );
+    } else {
+      // Prelude identities are reserved above PRELUDE_ID_BASE; excluding them keeps
+      // each consumer's own id range identical to a prelude-free compilation.
+      const local = (id: number): boolean => id < PRELUDE_ID_BASE;
+      symbolBase = nextId(resolved.symbols.map(({ id }) => Number(id)).filter(local), symbolBase);
+      unionBase = nextId(resolved.unions.map(({ id }) => Number(id)).filter(local), unionBase);
+      recordBase = nextId(resolved.records.map(({ id }) => Number(id)).filter(local), recordBase);
+      externTypeBase = nextId(
+        resolved.externTypes.map(({ externType }) => Number(externType)).filter(local),
+        externTypeBase,
+      );
+    }
     const typed = check(resolved, { importedSchemes });
     const core = elaborate(typed);
     const result: CompiledModule = {
@@ -137,8 +180,18 @@ export function compileProject(files: readonly Source.File[]): CompiledProject {
     compiled.set(path, result);
   }
 
+  // Emit a prelude module only when some consumer imports from it, so a project
+  // that never touches its nominals is unchanged by the prelude's existence.
+  const preludeUsed = (preludePath: string): boolean => ordered.some((path) =>
+    !preludeSet.has(path) &&
+    (compiled.get(path)?.resolved.items ?? []).some((item) =>
+      item.kind === "Import" && resolveSpecifier(path, item.specifier) === preludePath
+    )
+  );
+
   return {
     modules: ordered.flatMap((path) => {
+      if (preludeSet.has(path) && !preludeUsed(path)) return [];
       const module = compiled.get(path);
       return module === undefined ? [] : [module];
     }),
@@ -146,8 +199,71 @@ export function compileProject(files: readonly Source.File[]): CompiledProject {
   };
 }
 
+/** Reserved id floor for prelude identities, above any realistic per-project count. */
+const PRELUDE_ID_BASE = 1_000_000;
+
 function nextId(ids: readonly number[], fallback: number): number {
   return ids.length === 0 ? fallback : Math.max(fallback, ...ids.map((id) => id + 1));
+}
+
+/**
+ * Injects each implicit prelude module at the common root of the project's
+ * sources, unless the project already supplies a file there (e.g. compiling the
+ * stdlib itself, where the on-disk copy wins). Returns the normalized prelude
+ * paths in compilation order; empty for an empty project.
+ */
+function injectPrelude(sources: Map<string, Source.File>): readonly string[] {
+  const paths = [...sources.keys()];
+  if (paths.length === 0) return [];
+  const root = commonRoot(paths);
+  // Prefer a project file that already provides a prelude module (by basename,
+  // wherever it lives — e.g. /stdlib/Option.hex), so the embedded fallback never
+  // creates a duplicate that would collide with the project's own declarations.
+  const existingByBasename = new Map<string, string>();
+  for (const path of paths) {
+    const basename = path.slice(path.lastIndexOf("/") + 1);
+    if (!existingByBasename.has(basename)) existingByBasename.set(basename, path);
+  }
+  let maxId = Math.max(-1, ...[...sources.values()].map((file) => Number(file.id)));
+  return PRELUDE_MODULES.map((module) => {
+    const existing = existingByBasename.get(module.basename);
+    if (existing !== undefined) return existing;
+    const path = normalizePath(`${root}/${module.basename}`);
+    maxId += 1;
+    sources.set(path, new Source.File(Source.fileId(maxId), path, module.source));
+    return path;
+  });
+}
+
+/** Longest shared directory prefix of the given file paths. */
+function commonRoot(paths: readonly string[]): string {
+  const directories = paths.map((path) => path.split("/").slice(0, -1));
+  let common = directories[0] ?? [];
+  for (const parts of directories.slice(1)) {
+    let index = 0;
+    while (index < common.length && index < parts.length && common[index] === parts[index]) {
+      index += 1;
+    }
+    common = common.slice(0, index);
+  }
+  return common.join("/");
+}
+
+/** A relative specifier `from` a module to the `to` path, inverse to resolveSpecifier. */
+function relativeSpecifier(from: string, to: string): string {
+  const fromDirectory = from.split("/").slice(0, -1).filter((part) => part !== "");
+  const toParts = to.replace(/\.hex$/, "").split("/").filter((part) => part !== "");
+  let index = 0;
+  while (
+    index < fromDirectory.length &&
+    index < toParts.length - 1 &&
+    fromDirectory[index] === toParts[index]
+  ) {
+    index += 1;
+  }
+  const up = fromDirectory.length - index;
+  const down = toParts.slice(index).join("/");
+  return up > 0 ? `${"../".repeat(up)}${down}` : `./${down}`;
 }
 
 function resolveSpecifier(importer: string, specifier: string): string {

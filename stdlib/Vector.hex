@@ -1,5 +1,5 @@
 // The public Vector companion over the compiler's representation core.
-import { Option, Some, None } from "./Option"
+// `Option`, `Some`, and `None` are implicitly in scope via the prelude.
 
 export exception IndexError(index: Int, size: Int)
 export exception SliceError(start: Int, end: Int)
