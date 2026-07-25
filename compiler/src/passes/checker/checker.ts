@@ -196,6 +196,11 @@ class Checker {
   readonly #matchUnions = new WeakMap<Resolved.MatchExpr, Resolved.UnionId>();
   readonly #iterations = new WeakMap<Resolved.ForExpr, Requirement>();
   readonly #schemes = new Map<Resolved.SymbolId, Scheme>();
+  // The enclosing definition's declared type variables, in scope while its body is
+  // checked, so a body-local `let`/`var` annotation naming `a` resolves to the same
+  // `a` as the signature (functions.md §4.1). `undefined` at module level, where each
+  // binding is its own definition and gets a fresh scope. Saved/restored per lambda.
+  #annotationVariableScope: Map<string, Variable> | undefined = undefined;
   readonly #unions = new Map<Resolved.UnionId, Resolved.Union>();
   readonly #constructorUnions = new Map<Resolved.SymbolId, Resolved.UnionId>();
   readonly #unionParameters = new Map<Resolved.UnionId, ReadonlyMap<string, Variable>>();
@@ -693,7 +698,9 @@ class Checker {
         const inferredValueType = this.#inferExpr(item.value, level + 1);
         let valueType = inferredValueType;
         if (item.annotation !== undefined) {
-          const annotationType = this.#annotationType(item.annotation, level + 1);
+          const annotationType = this.#annotationType(
+            item.annotation, level + 1, new Map(), this.#annotationVariableScope ?? new Map(),
+          );
           this.#unifyExpected(
             annotationType,
             inferredValueType,
@@ -910,7 +917,9 @@ class Checker {
         const inferredValueType = this.#inferExpr(item.value, level + 1);
         let valueType = inferredValueType;
         if (item.annotation !== undefined) {
-          const annotationType = this.#annotationType(item.annotation, level + 1);
+          const annotationType = this.#annotationType(
+            item.annotation, level + 1, new Map(), this.#annotationVariableScope ?? new Map(),
+          );
           this.#unifyExpected(
             annotationType,
             inferredValueType,
@@ -1491,7 +1500,10 @@ class Checker {
         break;
       case "Lambda": {
         const annotationTails = new Map<string, Variable>();
-        const annotationVariables = new Map<string, Variable>();
+        // Inherit the enclosing definition's type variables so a nested lambda's
+        // annotations may name them (lexical scoping); its own `<...>` binders below
+        // shadow by overwriting.
+        const annotationVariables = new Map<string, Variable>(this.#annotationVariableScope);
         for (const parameter of expression.typeParameters ?? []) {
           const declaredConstraints = parameter.constraints.filter((constraint) =>
             this.#constraintNames.has(constraint) &&
@@ -1544,7 +1556,10 @@ class Checker {
           });
           return parameterType;
         });
+        const savedVariableScope = this.#annotationVariableScope;
+        this.#annotationVariableScope = annotationVariables;
         const inferredResult = this.#inferExpr(expression.body, level + 1);
+        this.#annotationVariableScope = savedVariableScope;
         let result = inferredResult;
         if (expression.returnAnnotation !== undefined) {
           const annotationType = this.#annotationType(

@@ -57,6 +57,38 @@ describe("check", () => {
     });
   });
 
+  test("body-local annotations share the function's declared type variables (functions.md §4.1)", () => {
+    // A `let`/`var` annotation naming `a` is a repeated occurrence of the
+    // signature's `a` and must denote the same type — not a fresh one. Regression
+    // for #63 (the checker previously minted a distinct `a` and rejected these).
+    const module = checkSource(
+      "fun id<a>(x: a): a =\n" +
+        "    let y: a = x\n" +
+        "    y\n" +
+        "fun wrap<a>(x: a): Vector(a) =\n" +
+        "    var ys: Vector(a) = [x]\n" +
+        "    ys\n" +
+        "fun nested<a>(x: a): a =\n" +
+        "    let f = () =>\n" +
+        "        let y: a = x\n" +
+        "        y\n" +
+        "    f()\n",
+    );
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("a body-local annotation still holds a declared type variable rigid", () => {
+    // The scope fix must not weaken rigidity: forcing `a` to a concrete type in the
+    // body is still an error (functions.md §4.1 — the annotation is a contract).
+    const module = checkSource(
+      "fun f<a>(x: a): a =\n" +
+        "    let y: a = 5\n" +
+        "    x\n",
+    );
+    expect(module.diagnostics.length).toBeGreaterThan(0);
+    expect(module.diagnostics[0]!.message).toContain("declared");
+  });
+
   test("rejects recursive aliases, unused parameters, and private public types", () => {
     const module = checkSource(
       "type Loop = Loop\n" +
