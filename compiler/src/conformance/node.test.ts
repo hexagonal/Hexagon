@@ -34,6 +34,14 @@ async function runRuntime(source: string): Promise<Record<string, unknown>> {
   return (await import(/* @vite-ignore */ url)) as Record<string, unknown>;
 }
 
+/** The diagnostic messages a source produces, resolved with the given options. */
+function diagnose(source: string, options: { readonly runtime?: boolean } = {}): readonly string[] {
+  const file = new Source.File(Source.fileId(0), "/runtime.hex", source);
+  // The checker carries resolver diagnostics forward, so `typed.diagnostics` is
+  // the union of both phases.
+  return check(resolve(parse(applyLayout(lex(file))), options)).diagnostics.map((d) => d.message);
+}
+
 describe("Node intrinsic conformance", () => {
   test("§4 get reads back what set wrote, across the whole 0..31 range", async () => {
     const m = await runRuntime(
@@ -106,5 +114,58 @@ describe("Node intrinsic visibility gate", () => {
     const resolved = resolve(parse(applyLayout(lex(file))));
     expect(resolved.diagnostics.length).toBeGreaterThan(0);
     expect(resolved.diagnostics.some((d) => /Node/u.test(d.message))).toBe(true);
+  });
+});
+
+/**
+ * `Node` deliberately has no `Eq`/`Show`/`Hash`/`Iterable` instance and is
+ * unspellable in a type annotation, so a `Node` value can never reach the
+ * emitter's structural machinery or cross a module/export boundary. Those doors
+ * are the only guard: the derived-instance emitters fall back *silently* (hash
+ * to `0`, equals to `===`), so a future checker change that let a `Node` slip
+ * through would miscompile with no error. These cases pin every door shut, even
+ * inside a privileged runtime module where `Node` is otherwise in scope.
+ */
+describe("Node intrinsic contract (leak-proof rejections)", () => {
+  test("`Node` has no `Eq` instance", () => {
+    const messages = diagnose("export let leak: Bool = Node.empty() == Node.empty()\n", { runtime: true });
+    expect(messages.some((m) => m.includes("Node") && m.includes("`Eq` instance"))).toBe(true);
+  });
+
+  test("`Node` has no `Show` instance", () => {
+    const messages = diagnose('export let s: String = "${Node.empty()}"\n', { runtime: true });
+    expect(messages.some((m) => m.includes("Node") && m.includes("`Show` instance"))).toBe(true);
+  });
+
+  test("`Node` has no `Hash` instance", () => {
+    const messages = diagnose("export let h: Int = hash(Node.set(Node.empty(), 0, 1))\n", { runtime: true });
+    expect(messages.some((m) => m.includes("Node") && m.includes("`Hash` instance"))).toBe(true);
+  });
+
+  test("`Node` has no `Iterable` instance", () => {
+    const messages = diagnose(
+      "fun count(): Int =\n" +
+        "    var total = 0\n" +
+        "    for x in Node.empty()\n" +
+        "        total := total + 1\n" +
+        "    total\n" +
+        "export let z: Int = count()\n",
+      { runtime: true },
+    );
+    expect(messages.some((m) => m.includes("Node") && m.includes("`Iterable` instance"))).toBe(true);
+  });
+
+  test("a `Node` value cannot be exported: every export door needs a spellable type", () => {
+    const messages = diagnose("export let n = Node.set(Node.empty(), 0, 7)\n", { runtime: true });
+    expect(messages.some((m) => m.includes("requires a type annotation"))).toBe(true);
+  });
+
+  test("`Node` is unspellable in a type annotation, even in a runtime module", () => {
+    // The safety net for milestone 2: when `Node(a)` annotation syntax is wired,
+    // it must stay `runtime`-gated and excluded from exported signatures, or this
+    // — the last thing keeping a `Node` from crossing a boundary — comes undone.
+    const messages = diagnose("export fun f(n: Node(Int)): Int = Node.get(n, 0)\n", { runtime: true });
+    expect(messages.some((m) => m.includes("Node"))).toBe(true);
+    expect(messages.length).toBeGreaterThan(0);
   });
 });
