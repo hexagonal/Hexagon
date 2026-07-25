@@ -1,7 +1,7 @@
 # Hexagon Spec — Operators, Logic & Precedence
 
 **Status:** Decided (v1), except items explicitly marked deferred.
-**Scope:** The complete v1 operator inventory; the precedence and associativity table; word-based logical operators (`not`, `and`, `or`, `implies`, `iff`) and their desugarings; comparison operators, chaining, and the single-evaluation rule; arithmetic operators including `**`; the concatenation operator `++`; the pipe operator `|>`; the mandatory-keyword `if … then … else` expression; the grammatical placement of `..`, `:=`, `=>`, `[]`, `.`, and call syntax.
+**Scope:** The complete v1 operator inventory; the precedence and associativity table; word-based logical operators (`not`, `and`, `or`, `implies`, `iff`) and their desugarings; comparison operators, chaining, and the single-evaluation rule; arithmetic operators including `**`; the concatenation operator `++`; the pipe operator `|>`; the `if … then … else` expression (mandatory `then`; `else` omissible as `Unit` sugar, §11.2); the grammatical placement of `..`, `:=`, `=>`, `[]`, `.`, and call syntax.
 **Not in scope:** Semantics of indexing/slicing (`xs[i]`, `xs[lo..hi]`) beyond precedence — owed to the collections/indexing spec. Semantics of `Range` construction — Loops, Ranges & Iteration spec is authoritative; this spec only fixes `..`'s precedence. `match` — pattern-matching spec; referenced here only as a member of the eats-to-the-right family. Constraint mechanics (dictionary passing, coherence) — Constraints spec.
 **Companions:** Constraints (operator→member elaboration targets, prelude constraint listing), Primitive Types (per-type instance inventories, `Ord String`), Numeric Literals (literal elaboration under operators), Loops/Ranges/Iteration (`..` semantics, `while`/`for` condition grammar by reference), Statements/Blocks/Mutability (`:=` semantics, discard rule), Exceptions (edit note §14.2), Functions (`=>`, header sugar).
 
@@ -334,12 +334,26 @@ Bare expression, no required parentheses, must be `Bool` — no truthiness, and 
 if condition then trueExpression else falseExpression
 ```
 
-Both `then` and `else` are mandatory. An `if` without `then` is a parse error,
-including when an indented line follows the condition. An `if` without `else` is
-also a parse error: every conditional is an expression with a value on every path.
-Every compiler representation from Parsed onward therefore carries both branches;
-error recovery inserts an error expression rather than preserving an optional
-false branch.
+`then` is mandatory, always. An `if` without `then` is a parse error,
+including when an indented line follows the condition. An `if` without `else`
+is legal **sugar for `else ()`**: the parser inserts a unit false branch, so
+every compiler representation from Parsed onward still carries both branches —
+the sugar exists only in source text. The whole form then checks as usual,
+which forces the `then` branch to `Unit`. An else-less `if` whose `then`
+branch is not `Unit` is a type error with a mandatory fixit: *"an `if`
+without `else` produces `Unit`; its `then` branch is `String` — add an
+`else` branch to produce a value."* The doctrine is unchanged: every
+conditional is an expression with a value on every path — the omitted
+branch's value is `()`.
+
+Dangling `else` needs no new grammar: eats-to-the-right (§3.2) makes the
+inner conditional of `if c1 then if c2 then a else b` claim the `else`, so
+an `else` always attaches to the nearest unmatched `then`; parenthesize the
+inner conditional to override. The relaxation does not extend to `match` —
+there is no implicit `Unit` arm, and exhaustiveness is untouched. (Lineage:
+this is the F# rule for else-less `unit` conditionals, adopted July 2026 on
+re-examination of the original strict decision; Statements §10.3 records
+the reversal.)
 
 Eats to the right (§3.2): `expr2` extends as far as possible, so `1 + if c then a else b` is `1 + (if c then a else b)` and `if c then a else b + 1` is `if c then a else (b + 1)` — the `else` arm ate the `+ 1`. Chained: `if c1 then a else if c2 then b else c` nests rightward with no special grammar. Both arms resolve to one type: exact unification wins, followed by Numeric Literals §5.1's contextual widening: established `Nat` through `Num.fromNat`, or established `Int` through `Signed.fromInt`, when the other arm independently establishes the corresponding target. The whole form has the resulting type.
 
@@ -370,9 +384,21 @@ conditional; there is no dedicated construct. It may appear in a one-line condit
 when the whole expression fits. In canonical multiline formatting, the nested
 conditional is indented beneath `else` like every other false-branch expression.
 
+An effect-position conditional canonically uses the else-less form:
+
+```
+if delayed then
+    print("Order delayed")
+```
+
+Writing the desugared `else ()` explicitly is legal but not canonical — the
+sugar exists exactly so the unit ceremony is never written. A conditional
+that produces a value always writes both branches (its else-less spelling
+is a type error per §11.2, not a style choice).
+
 ### 11.4 Emission
 
-Value position: JS ternary `c ? a : b` when both arms are single expressions — the readable choice; statement-lift to `if/else` with a `let` when an arm contains statements. Statement/`Unit` position: plain JS `if`/`else if`/`else`. `iff`/`implies` inside conditions emit per §4.
+Value position: JS ternary `c ? a : b` when both arms are single expressions — the readable choice; statement-lift to `if/else` with a `let` when an arm contains statements. Statement/`Unit` position: plain JS `if`/`else if`/`else`; an else-less source conditional emits an else-less JS `if` — the inserted `()` branch is erased, never a synthetic `else`. `iff`/`implies` inside conditions emit per §4.
 
 ---
 
@@ -446,7 +472,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | `1..2..3` | "`..` does not chain; a range has exactly two endpoints" |
 | Eats-right form in non-final operand position | parse error + "parenthesize the `if` / lambda / `match`" |
 | `if` without `then` | parse error + "`if` requires `then`; write `if condition then` before the indented true branch" |
-| `if` without `else` | parse error + "`if` requires an `else`" |
+| Else-less `if` whose `then` branch is not `Unit` | type error + fixit "an `if` without `else` produces `Unit`; its `then` branch is `String` — add an `else` branch to produce a value" |
 | `x := y := z` | "`:=` does not chain; assignment produces `Unit`" |
 | `Int.pow` / `**` at `Int` with negative exponent | runtime `NegativeExponentError` |
 
@@ -474,7 +500,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | Pipe: F# token, ReScript first-arg semantics, pre-inference rewrite; bare `a \|> f` = `f(a)`; subject-first stdlib convention normative | §8 |
 | `..` level 6 (looser than arithmetic, tighter than comparison), non-assoc, non-chaining | §9 |
 | Postfix `.`/call/`[]` level 1; indexing/slicing semantics deferred to collections spec | §10 |
-| Every `if` requires `then` and `else`; canonical multiline form keeps `then` on the condition line and indents both branches; condition = bare `Bool` expr, inherited by `while` by reference | §11 |
+| Every `if` requires `then`; else-less `if` = sugar for `else ()` (forces `Unit` `then` branch; F# rule, adopted July 2026 reversing the original strict decision); canonical for effect conditionals; canonical multiline form keeps `then` on the condition line and indents branches; condition = bare `Bool` expr, inherited by `while` by reference | §11 |
 | `:=` loosest, non-associative, does not chain | §12 |
 
 ---

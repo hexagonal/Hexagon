@@ -139,8 +139,17 @@ program when its written boundary disagrees with what the body requires.
 
 ## 5. Conditionals
 
-Every conditional uses mandatory `then` and `else`. Keep a genuinely short
-conditional on one line:
+Every conditional uses mandatory `then`. A value-producing conditional writes
+both branches; an effect-position (`Unit`) conditional canonically omits
+`else` — the else-less form is sugar for `else ()` (Operators §11.2), and
+writing the unit branch explicitly is non-canonical ceremony:
+
+```
+if delayed then
+    print("Order delayed")
+```
+
+Keep a genuinely short conditional on one line:
 
 ```
 if isTall then 5 else 6

@@ -476,8 +476,10 @@ late pedagogy pass, not a commitment to the current order.
 - `and`, `or`, and `implies` short-circuit; `iff` evaluates both operands.
 - Teach `implies` through the promise `winGame implies getPizza`, not through the formal
   rewrite `not left or right`.
-- Every `if` requires both `then` and `else`; multiline conditionals keep `then`
-  on the condition line and indent both branches.
+- Every `if` requires `then`; an effect-only (`Unit`) conditional may omit
+  `else` (sugar for `else ()`), while a value-producing conditional states both
+  branches. Multiline conditionals keep `then` on the condition line and indent
+  each written branch.
 - Canonical pipe continuation:
   `subtotal |> applyDiscount(discount) |> orderTotal(delivery)`. Pipe means
   first-argument insertion and relies on the subject-first convention.
