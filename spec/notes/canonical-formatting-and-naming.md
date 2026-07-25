@@ -97,13 +97,16 @@ declarations through this list before considering the segment done.
 ## 4. Layout and conditionals
 
 - **F1 [canonical]** Four spaces per indentation level. (Lexer Layout §1)
-- **F2 [enforced]** Conditionals carry mandatory `then` and `else`; an `if`
-  without either is a parse error (every conditional is an expression with a
-  value on every path). (Operators §11.2; canonical-formatting-plan §5 restates)
-- **F3 [canonical]** A genuinely short conditional stays on one line;
+- **F2 [enforced]** Conditionals carry mandatory `then` (parse error without).
+  An else-less `if` is sugar for `else ()` and its `then` branch must be
+  `Unit`; an else-less `if` producing a value is a type error with the
+  add-an-else fixit. (Operators §11.2; canonical-formatting-plan §5 restates)
+- **F3 [canonical]** An effect-position (`Unit`) conditional omits `else`;
+  explicit `else ()` is non-canonical ceremony. A value-producing conditional
+  writes both branches. A genuinely short conditional stays on one line;
   otherwise the multiline form. A nested false-branch conditional indents
   beneath `else`; `else if` only for a complete one-line conditional.
-  (Operators §11.3; canonical-formatting-plan §5 restates)
+  (Operators §11.2–§11.3; canonical-formatting-plan §5 restates)
 
 ---
 

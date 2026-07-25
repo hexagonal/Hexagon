@@ -89,8 +89,11 @@ Emission: an applied `ignore(e)` emits the bare expression statement `e;` — st
 Nothing changes from the companions; recorded so this spec is self-contained:
 
 - `if`/`match`/`try` are expressions *containing* blocks. Each branch/arm block types per §3; the construct's type unifies all branch types as before. `if p then x := 1 else x := 2` is therefore an `if` expression of type `Unit` — both branch blocks end in a `Unit`-typed expression.
-- Every `if` requires both `then` and `else` (Operators §11), including conditionals
-  whose branches are `Unit`.
+- Every `if` requires `then`; an `if` may omit `else` as sugar for `else ()`,
+  which forces its `then` branch to `Unit` (Operators §11.2). A value-producing
+  conditional writes both branches. The imperative payoff lands here:
+  `if cond then x := "Finished"` is legal as written — the assignment is
+  `Unit`-typed, and the omitted branch's value is `()`.
 - A lambda whose body block ends in `x := e` is a function returning `Unit` — no ceremony, no trailing `()`. This is the ergonomic payoff of the F# model and one of this spec's acceptance tests (§9.1).
 
 ---
@@ -368,8 +371,12 @@ fun h() =
 
 1. **Cosmetic restriction on value-position `:=`.** `let y = (x := 6)` is legal and useless (§2). A parse-level restriction to statement-ish positions would cost a grammar wrinkle for zero semantic gain; left legal. Revisit only if it confuses real users.
 2. **Resolved anchor (not an open question).** Head Binder Shadowing vs module/prelude names is **decided by Modules §5.4** (module-level bindings may occlude the prelude; function-local binders occlude nothing; the interim rule here is retired). This entry keeps its number only because existing cross-references cite §10.2.
-3. **Resolved anchor (not an open question).** Every `if` requires both `then` and
-   `else`, including `Unit` conditionals, as decided by Operators §11. Number kept
+3. **Resolved anchor (not an open question), re-resolved.** Originally decided
+   strict: every `if` requires both `then` and `else`, including `Unit`
+   conditionals. **Reversed July 2026** (James, on the imperative-subset case
+   `if cond then x := e`): an else-less `if` is now sugar for `else ()`,
+   forcing its `then` branch to `Unit` — the F# rule. Operators §11.2 owns the
+   current rule; both rulings recorded here for honest history. Number kept
    for existing cross-references.
 4. **Over-broad `ignore` lint.** `ignore` can hide bugs exactly as it prevents them; a lint on suspicious discards was floated (same parking spot as the Exceptions §10.5 over-broad-catch lint). Linting policy remains out of spec scope.
 5. **Compound assignment** (`+=` etc.): rejected for v1 (§6.4); revisit with field evidence alongside the loops spec, where the itch would first appear.

@@ -72,5 +72,7 @@ Preview, but defer full treatment of:
 - Comparison chains evaluate each source operand once and reject mixed directions and
   chained `!=`.
 - Pipes insert as the first argument and disappear before type inference.
-- Every `if` requires both `then` and `else`; canonical multiline formatting keeps
-  `then` on the condition line and indents both branches.
+- Every `if` requires `then`; an effect-only (`Unit`) conditional may omit `else`
+  (sugar for `else ()`), while a value-producing conditional states both branches;
+  canonical multiline formatting keeps `then` on the condition line and indents
+  each written branch.

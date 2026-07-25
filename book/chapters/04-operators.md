@@ -212,9 +212,10 @@ let shippingLabel =
     if international then "International" else "Domestic"
 ```
 
-The condition must be `Bool`, and both branches must produce the same type. There is
-no `if` without `then` or `else`: a value-producing expression must say what it
-produces on every path.
+The condition must be `Bool`, and both branches must produce the same type. A
+value-producing conditional states both paths: there is no `then`-less `if`, and
+no value-producing `if` without `else` — an expression must say what it produces
+on every path.
 
 Longer branches keep `then` on the condition line and use layout for both branches:
 
@@ -231,17 +232,18 @@ Each branch is a block, so the final-expression rule from the first chapter appl
 The first branch ends in a `String`, the second branch is a one-expression block, and
 the whole `if` produces `String`.
 
-Conditionals that exist only for an effect still state both paths:
+Conditionals that exist only for an effect may leave the false path unwritten:
 
 ```hexagon
 if delayed then
     print("Order delayed")
-else
-    ()
 ```
 
-Both branches produce `Unit`. This is not a special statement form; it is the same
-expression and block model returning to solve another problem.
+The missing branch is `()`, the unit value — the compiler supplies it. This is not
+a special statement form; it is the same expression model: the conditional produces
+`Unit` on both paths, one of them written for you. It also means an else-less `if`
+can only produce `Unit` — if the `then` branch produces anything else, the compiler
+asks for an explicit `else` branch to say what the false path produces.
 
 ## Pipes show the flow of values
 
