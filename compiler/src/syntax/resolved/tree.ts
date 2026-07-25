@@ -736,6 +736,8 @@ export interface IfExpr {
   readonly condition: Expr;
   readonly consequence: Expr;
   readonly alternative: Expr;
+  // See Parsed.IfExpr: set when the source omitted `else` (`else ()` sugar).
+  readonly elseless?: boolean;
   readonly span: Source.Span;
 }
 

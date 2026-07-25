@@ -1751,17 +1751,21 @@ class Parser {
 
     let consequence: Parsed.Expr;
     let alternative: Parsed.Expr;
+    // Set when `else` is omitted: the alternative is a synthesized `Unit`
+    // (`else ()` sugar, Operators §11.2). The checker forces the `then`
+    // branch to `Unit`; the AST always carries both branches.
+    let elseless = false;
     if (this.#at("Then")) {
       this.#advance();
       consequence = this.#parseBodyExpression(withStops(outerStops, "Else"));
-      if (
-        this.#expect("Else", "`if` requires an `else`") !== undefined
-      ) {
+      if (this.#at("Else")) {
+        this.#advance();
         alternative = this.#at("If")
           ? this.#parseIf(outerStops)
           : this.#parseBodyExpression(outerStops);
       } else {
-        alternative = { kind: "ErrorExpr", span: this.#current().span };
+        alternative = { kind: "Unit", span: this.#current().span };
+        elseless = true;
       }
     } else if (this.#at("VOpen")) {
       this.#errorAt(
@@ -1775,8 +1779,8 @@ class Parser {
           ? this.#parseIf(outerStops)
           : this.#parseBodyExpression(outerStops);
       } else {
-        this.#errorAt(start.span, "`if` requires an `else`");
-        alternative = { kind: "ErrorExpr", span: this.#current().span };
+        alternative = { kind: "Unit", span: this.#current().span };
+        elseless = true;
       }
     } else {
       this.#error("expected `then` after `if` condition");
@@ -1789,6 +1793,7 @@ class Parser {
       condition,
       consequence,
       alternative,
+      elseless,
       span: spanFrom(start.span, alternative.span),
     };
   }

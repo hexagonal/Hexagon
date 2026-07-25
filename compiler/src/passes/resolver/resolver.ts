@@ -1030,6 +1030,7 @@ class Resolver {
           condition: this.#resolveExpr(expression.condition, scope),
           consequence: this.#resolveExpr(expression.consequence, scope),
           alternative: this.#resolveExpr(expression.alternative, scope),
+          ...(expression.elseless ? { elseless: true } : {}),
           span: expression.span,
         };
       case "While":

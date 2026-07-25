@@ -1116,6 +1116,26 @@ describe("check", () => {
     );
   });
 
+  test("accepts an else-less `if` with a Unit then-branch (`else ()` sugar)", () => {
+    const module = checkSource(
+      "let update(cond: Bool): Unit =\n" +
+        "    var status = \"waiting\"\n" +
+        "    if cond then\n" +
+        "        status := \"finished\"",
+    );
+    expect(module.diagnostics).toEqual([]);
+
+    const invalid = checkSource(
+      "let pick(cond: Bool): String =\n" +
+        "    if cond then\n" +
+        "        \"yes\"",
+    );
+    expect(invalid.diagnostics.map(({ message }) => message)).toContain(
+      "an `if` without `else` produces `Unit`; its `then` branch is " +
+        "`String` — add an `else` branch to produce a value",
+    );
+  });
+
   test("checks Range and String for loops with their concrete item types", () => {
     const module = checkSource(
       "fun visit(): Unit =\n" +

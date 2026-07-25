@@ -538,6 +538,9 @@ export interface IfExpr {
   readonly condition: Expr;
   readonly consequence: Expr;
   readonly alternative: Expr;
+  // Set when the source omitted `else`: `alternative` is a synthesized `Unit`
+  // (`else ()` sugar, Operators §11.2). The AST always carries both branches.
+  readonly elseless?: boolean;
   readonly span: Source.Span;
 }
 
