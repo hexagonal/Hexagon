@@ -1720,6 +1720,21 @@ class Resolver {
       };
     }
     if (annotation.kind === "AppliedType") {
+      if (this.#runtime && name === "Node") {
+        // `Node(a)` is spellable only inside a runtime module; elsewhere it falls
+        // through to the unknown-generic-type path, keeping the intrinsic hidden.
+        if (annotation.arguments.length !== 1) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `type \`Node\` expects 1 argument, but ${annotation.arguments.length} were provided`,
+            primary: annotation.span,
+          });
+        }
+        const element = annotation.arguments[0] === undefined
+          ? { kind: "ErrorType" as const, span: annotation.span }
+          : this.#resolveTypeAnnotation(annotation.arguments[0], typeParameters, impliedContext, substitutions);
+        return { kind: "Node", element, span: annotation.span };
+      }
       if (name === "Seq" || name === "Vector" || name === "Set" || name === "Array" || name === "Nullable") {
         if (annotation.arguments.length !== 1) {
           this.#diagnostics.add({
@@ -2103,6 +2118,7 @@ function annotationHeadName(annotation: Resolved.TypeAnnotation): string {
     case "Map": return "Map";
     case "Set": return "Set";
     case "Array": return "Array";
+    case "Node": return "Node";
     case "Nullable": return "Nullable";
     case "Function": return "Function";
     case "Union": return annotation.name;
@@ -2123,6 +2139,7 @@ function annotationTypeVariables(annotation: Resolved.TypeAnnotation): readonly 
     case "Vector": return annotationTypeVariables(annotation.element);
     case "Set": return annotationTypeVariables(annotation.element);
     case "Array": return annotationTypeVariables(annotation.element);
+    case "Node": return annotationTypeVariables(annotation.element);
     case "Nullable": return annotationTypeVariables(annotation.value);
     case "Map": return [
       ...annotationTypeVariables(annotation.key),

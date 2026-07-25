@@ -160,12 +160,92 @@ describe("Node intrinsic contract (leak-proof rejections)", () => {
     expect(messages.some((m) => m.includes("requires a type annotation"))).toBe(true);
   });
 
-  test("`Node` is unspellable in a type annotation, even in a runtime module", () => {
-    // The safety net for milestone 2: when `Node(a)` annotation syntax is wired,
-    // it must stay `runtime`-gated and excluded from exported signatures, or this
-    // — the last thing keeping a `Node` from crossing a boundary — comes undone.
+  test("`Node(a)` is unspellable in ordinary (non-runtime) modules", () => {
+    const messages = diagnose("fun f(n: Node(Int)): Int = 0\n");
+    expect(messages.some((m) => m.includes("unknown generic type") && m.includes("Node"))).toBe(true);
+  });
+
+  test("an exported signature may not name `Node`, even in a runtime module", () => {
     const messages = diagnose("export fun f(n: Node(Int)): Int = Node.get(n, 0)\n", { runtime: true });
-    expect(messages.some((m) => m.includes("Node"))).toBe(true);
-    expect(messages.length).toBeGreaterThan(0);
+    expect(messages.some((m) => m.includes("Node") && m.includes("no public form"))).toBe(true);
+  });
+
+  test("an exported union with a `Node`-typed slot is rejected", () => {
+    // The exported constructor `Leaf` would be a JS-callable function taking a
+    // forgeable array, and `Node(a)` would render as `Array<a>` in the `.d.ts`.
+    // The blessed shape keeps `Tree` private (see below).
+    const messages = diagnose(
+      "export union Tree(a) =\n" +
+        "    | Leaf(values: Node(a))\n" +
+        "    | Branch(children: Node(Tree(a)))\n",
+      { runtime: true },
+    );
+    expect(messages.some((m) => m.includes("union `Tree`") && m.includes("no public form"))).toBe(true);
+  });
+
+  test("an exported exception with a `Node`-typed slot is rejected", () => {
+    const messages = diagnose("export exception Corrupt(node: Node(Int))\n", { runtime: true });
+    expect(messages.some((m) => m.includes("exception `Corrupt`") && m.includes("no public form"))).toBe(true);
+  });
+
+  test("an exported type alias may not name `Node`, but a private one is fine", () => {
+    const exported = diagnose("export type Slots = Node(Int)\n", { runtime: true });
+    expect(exported.some((m) => m.includes("type alias `Slots`") && m.includes("no public form"))).toBe(true);
+    // A private alias is useful internal shorthand for the trie; every leak path
+    // *from* it (a slot or a signature that uses it) is caught after inlining.
+    const private_ = diagnose(
+      "type IntSlots = Node(Int)\n" +
+        "fun firstSlot(node: IntSlots): Int = Node.get(node, 0)\n" +
+        "export let first: Int = firstSlot(Node.set(Node.empty(), 0, 5))\n",
+      { runtime: true },
+    );
+    expect(private_).toEqual([]);
+  });
+
+  test("an extern declaration may not name `Node` (the foreign boundary)", () => {
+    const messages = diagnose(
+      "extern from \"host\"\n    fun sink(node: Node(Int)): Unit\n",
+      { runtime: true },
+    );
+    expect(messages.some((m) => m.includes("extern") && m.includes("Node"))).toBe(true);
+  });
+
+  test("the blessed shape: private `Tree`/`Node` internals behind public-typed exports", () => {
+    // What the real trie uses — `Tree` and `Node` live entirely inside the module;
+    // the exported signatures are public-typed (here `Int`, later `Vector`-shaped).
+    const messages = diagnose(
+      "union Tree(a) =\n" +
+        "    | Leaf(values: Node(a))\n" +
+        "    | Branch(children: Node(Tree(a)))\n" +
+        "fun leafHead(tree: Tree(Int)): Int = match tree\n" +
+        "    Leaf(values) => Node.get(values, 0)\n" +
+        "    Branch(_) => 0 - 1\n" +
+        "export fun demo(): Int = leafHead(Leaf(Node.set(Node.empty(), 0, 5)))\n",
+      { runtime: true },
+    );
+    expect(messages).toEqual([]);
+  });
+});
+
+describe("Node annotations enable the recursive trie shape", () => {
+  test("§4 a `Tree(a) = Leaf(Node(a)) | Branch(Node(Tree(a)))` union round-trips a value", async () => {
+    const m = await runRuntime(
+      "union Tree(a) =\n" +
+        "    | Leaf(values: Node(a))\n" +
+        "    | Branch(children: Node(Tree(a)))\n" +
+        "fun leafValue(tree: Tree(Int), slot: Int): Int = match tree\n" +
+        "    Leaf(values) => Node.get(values, slot)\n" +
+        "    Branch(_) => 0 - 1\n" +
+        "fun buildLeaf(): Tree(Int) = Leaf(Node.set(Node.set(Node.empty(), 0, 10), 1, 20))\n" +
+        "fun buildBranch(): Tree(Int) = Branch(Node.set(Node.empty(), 0, buildLeaf()))\n" +
+        "export let leaf0: Int = leafValue(buildLeaf(), 0)\n" +
+        "export let leaf1: Int = leafValue(buildLeaf(), 1)\n" +
+        "export let nested: Int = match buildBranch()\n" +
+        "    Branch(children) => leafValue(Node.get(children, 0), 1)\n" +
+        "    Leaf(_) => 0 - 1\n",
+    );
+    expect(m.leaf0).toBe(10);
+    expect(m.leaf1).toBe(20);
+    expect(m.nested).toBe(20);
   });
 });

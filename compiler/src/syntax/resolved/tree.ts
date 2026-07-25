@@ -51,6 +51,7 @@ export type TypeAnnotation =
   | MapTypeAnnotation
   | SetTypeAnnotation
   | ArrayTypeAnnotation
+  | NodeTypeAnnotation
   | NullableTypeAnnotation
   | FunctionTypeAnnotation
   | TypeVariableAnnotation
@@ -95,6 +96,17 @@ export interface SetTypeAnnotation {
 
 export interface ArrayTypeAnnotation {
   readonly kind: "Array";
+  readonly element: TypeAnnotation;
+  readonly span: Source.Span;
+}
+
+/**
+ * `Node(a)` — the hidden fixed-32 trie node. Resolved only inside a privileged
+ * runtime module (the resolver rejects it as an unknown generic type elsewhere),
+ * and the checker forbids it from crossing an exported signature.
+ */
+export interface NodeTypeAnnotation {
+  readonly kind: "Node";
   readonly element: TypeAnnotation;
   readonly span: Source.Span;
 }

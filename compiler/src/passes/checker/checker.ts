@@ -3726,6 +3726,7 @@ class Checker {
       return { kind: "Set", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes) };
     }
     if (annotation.kind === "Array") return { kind: "Array", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes) };
+    if (annotation.kind === "Node") return { kind: "Node", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes) };
     if (annotation.kind === "Nullable") return { kind: "Nullable", value: this.#annotationType(annotation.value, level, namedTails, typeParameters, impliedTypes) };
     if (annotation.kind === "Map") {
       return {
@@ -3944,6 +3945,32 @@ class Checker {
     return this.#records.get(record)?.representationVisible ?? true;
   }
 
+  /** Whether the hidden `Node` intrinsic appears directly in a (signature) type. */
+  #mentionsNode(type: Mono): boolean {
+    const actual = this.#prune(type);
+    switch (actual.kind) {
+      case "Node": return true;
+      case "Function":
+        return actual.parameters.some((parameter) => this.#mentionsNode(parameter)) ||
+          this.#mentionsNode(actual.result);
+      case "Tuple": return actual.elements.some((element) => this.#mentionsNode(element));
+      case "Record":
+        return [...actual.fields.values()].some((field) => this.#mentionsNode(field)) ||
+          (actual.tail !== undefined && this.#mentionsNode(actual.tail));
+      case "Seq":
+      case "Vector":
+      case "Set":
+      case "Array":
+        return this.#mentionsNode(actual.element);
+      case "Nullable": return this.#mentionsNode(actual.value);
+      case "Map": return this.#mentionsNode(actual.key) || this.#mentionsNode(actual.value);
+      case "Union":
+      case "NominalRecord":
+        return actual.arguments.some((argument) => this.#mentionsNode(argument));
+      default: return false;
+    }
+  }
+
   #checkPublicSignatures(items: readonly Resolved.Item[]): void {
     const publicUnions = new Set(items.flatMap((item) => item.kind === "Union" && item.exported ? [item.union] : []));
     const publicRecords = new Set(items.flatMap((item) => item.kind === "RecordDeclaration" && item.exported ? [item.record] : []));
@@ -3986,12 +4013,87 @@ class Checker {
           ? [item.binding]
           : [];
       for (const binding of bindings) {
-        for (const name of visit(this.#scheme(binding.symbol).type)) {
+        const signature = this.#scheme(binding.symbol).type;
+        for (const name of visit(signature)) {
         this.#diagnostics.add({
           severity: "error",
           message: `exported binding \`${binding.name}\` exposes private type \`${name}\`; export the type, perhaps opaquely, or keep the binding private`,
           primary: binding.span,
         });
+        }
+        // The hidden `Node` intrinsic has no public form: a runtime module may
+        // build with it, but never hand one across a module boundary. This is the
+        // load-bearing half of Node's visibility — with `Node(a)` now spellable in
+        // a runtime module's annotations, this check keeps it from leaking into a
+        // `.d.ts` or a consumer's inference.
+        if (this.#mentionsNode(signature)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `exported binding \`${binding.name}\` exposes the hidden \`Node\` intrinsic, which has no public form; keep the binding private`,
+            primary: binding.span,
+          });
+        }
+      }
+      // `Node` also has no public form when it hides in an *exported* algebraic
+      // type: the constructor of an exported union/record/exception becomes a
+      // JS-callable function (FFI Part 7), so a `Node`-typed slot both renders as
+      // a bogus `Array<..>` in the `.d.ts` and lets foreign code forge a node.
+      // Keep the type private and export functions over it instead.
+      const mentionsNodeSlot = (annotations: readonly Resolved.TypeAnnotation[]): boolean =>
+        annotations.some(annotationMentionsNode);
+      if (item.kind === "Union" && item.exported &&
+        mentionsNodeSlot(item.constructors.flatMap((constructor) => constructor.slots.map((slot) => slot.annotation)))) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `exported union \`${item.name}\` has a \`Node\`-typed slot; the hidden \`Node\` intrinsic has no public form — keep the union private and export functions over it instead`,
+          primary: item.span,
+        });
+      }
+      if (item.kind === "Exception" && item.exported &&
+        mentionsNodeSlot(item.slots.map((slot) => slot.annotation))) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `exported exception \`${item.binding.name}\` has a \`Node\`-typed slot; the hidden \`Node\` intrinsic has no public form — keep the exception private`,
+          primary: item.span,
+        });
+      }
+      if (item.kind === "TypeAlias" && item.exported && annotationMentionsNode(item.annotation)) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `exported type alias \`${item.name}\` names the hidden \`Node\` intrinsic, which has no public form; keep the alias private`,
+          primary: item.span,
+        });
+      }
+      if (item.kind === "RecordDeclaration" && item.exported) {
+        const record = this.#records.get(item.record);
+        if (record !== undefined && mentionsNodeSlot(record.fields.map((field) => field.annotation))) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `exported record \`${record.name}\` has a \`Node\`-typed field; the hidden \`Node\` intrinsic has no public form — keep the record private and export functions over it instead`,
+            primary: item.span,
+          });
+        }
+      }
+      // Extern is the foreign boundary; `Node` can never cross it, exported or not.
+      if (item.kind === "ExternBlock") {
+        for (const declaration of item.declarations) {
+          const annotations: readonly Resolved.TypeAnnotation[] = declaration.kind === "ExternFun"
+            ? [
+                ...declaration.parameters.flatMap((parameter) =>
+                  parameter.annotation === undefined ? [] : [parameter.annotation]
+                ),
+                declaration.returnAnnotation,
+              ]
+            : declaration.kind === "ExternLet"
+              ? [declaration.annotation]
+              : [];
+          if (mentionsNodeSlot(annotations)) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `extern declaration \`${declaration.localName}\` names the hidden \`Node\` intrinsic, which cannot cross the foreign boundary`,
+              primary: declaration.span,
+            });
+          }
         }
       }
     }
@@ -5146,6 +5248,7 @@ function annotationHasTypeVariable(
     case "Vector":
     case "Set":
     case "Array":
+    case "Node":
       return annotationHasTypeVariable(annotation.element);
     case "Nullable":
       return annotationHasTypeVariable(annotation.value);
@@ -5164,6 +5267,46 @@ function annotationHasTypeVariable(
     case "ExternType":
     case "Primitive":
     case "Range":
+    case "ImpliedType":
+    case "ErrorType":
+      return false;
+  }
+}
+
+/**
+ * Whether the hidden `Node` intrinsic appears anywhere in a resolved annotation.
+ * Aliases are inlined during resolution, so a `type X = Node(a)` smuggle is a
+ * plain `Node` node here. Used to keep `Node` out of every exported public form —
+ * a bare signature (via `#mentionsNode` on the Mono) and an exported
+ * union/record/exception slot or an extern boundary (via this walker).
+ */
+function annotationMentionsNode(annotation: Resolved.TypeAnnotation): boolean {
+  switch (annotation.kind) {
+    case "Node":
+      return true;
+    case "Seq":
+    case "Vector":
+    case "Set":
+    case "Array":
+      return annotationMentionsNode(annotation.element);
+    case "Nullable":
+      return annotationMentionsNode(annotation.value);
+    case "Map":
+      return annotationMentionsNode(annotation.key) || annotationMentionsNode(annotation.value);
+    case "Function":
+      return annotation.parameters.some(annotationMentionsNode) ||
+        annotationMentionsNode(annotation.result);
+    case "Tuple":
+      return annotation.elements.some(annotationMentionsNode);
+    case "Record":
+      return annotation.fields.some((field) => annotationMentionsNode(field.annotation));
+    case "Union":
+    case "RecordDeclaration":
+      return annotation.arguments.some(annotationMentionsNode);
+    case "Primitive":
+    case "Range":
+    case "ExternType":
+    case "TypeVariable":
     case "ImpliedType":
     case "ErrorType":
       return false;
@@ -5198,7 +5341,8 @@ function nestedAdapterType(
   } else if (
     annotation.kind === "Vector" ||
     annotation.kind === "Set" ||
-    annotation.kind === "Array"
+    annotation.kind === "Array" ||
+    annotation.kind === "Node"
   ) {
     return nestedAdapterType(annotation.element, true);
   } else if (annotation.kind === "Nullable") {
