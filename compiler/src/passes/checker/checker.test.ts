@@ -89,6 +89,44 @@ describe("check", () => {
     expect(module.diagnostics[0]!.message).toContain("declared");
   });
 
+  test("generic functions compose across call sites via let-generalization (functions.md §4.2, #66)", () => {
+    // A generic function used from another function's body is generalized before
+    // its callers are checked (dependency order), so each use instantiates fresh —
+    // whether the type variable is declared or inferred, and at differing types.
+    const module = checkSource(
+      "fun wrap<a>(x: a): Vector(a) = [x]\n" +
+        "fun rewrap<a>(x: a): Vector(a) = wrap(x)\n" +
+        "fun useInt(): Vector(Int) = wrap(1)\n" +
+        "fun useText(): Vector(String) = wrap(\"s\")\n" +
+        "fun idThrough(x) = through(x)\n" +
+        "fun through(x) = x\n", // forward reference, inferred generic
+    );
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("genuine mutual recursion still shares one monomorphic group", () => {
+    const module = checkSource(
+      "fun even(n: Int): Bool = if n == 0 then true else odd(n - 1)\n" +
+        "fun odd(n: Int): Bool = if n == 0 then false else even(n - 1)\n",
+    );
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("known limitation: a mutually recursive pair with declared type variables is rejected", () => {
+    // Within one strongly-connected component the shared type is monomorphic
+    // (standard HM); annotated distinct type variables then clash. Documented in
+    // #66 — annotation-first schemes are the eventual fix. Pinned so the behavior
+    // change would be a deliberate one, not a silent regression.
+    const module = checkSource(
+      "fun f<a>(x: a): a = g(x)\n" +
+        "fun g<a>(x: a): a = f(x)\n",
+    );
+    expect(module.diagnostics.map(({ message }) => message)).toContain(
+      "`a` and `a` are distinct declared type variables, but the body requires them to be the same; " +
+        "use one type variable name in both annotations, or remove an annotation to let the type be inferred",
+    );
+  });
+
   test("rejects recursive aliases, unused parameters, and private public types", () => {
     const module = checkSource(
       "type Loop = Loop\n" +
