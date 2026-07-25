@@ -409,16 +409,95 @@ describe("parse", () => {
     );
   });
 
-  test("requires an else for every conditional", () => {
+  test("accepts an else-less conditional as `else ()` sugar", () => {
     const module = parseSource(
       "let act(ready: Bool) =\n" +
         "    if ready then\n" +
         "        print(\"ready\")",
     );
 
-    expect(module.diagnostics.map(({ message }) => message)).toContain(
-      "`if` requires an `else`",
+    expect(module.diagnostics).toEqual([]);
+    expect(module.items[0]).toMatchObject({
+      kind: "Let",
+      value: {
+        kind: "Lambda",
+        body: {
+          kind: "Block",
+          items: [
+            {
+              kind: "ExprItem",
+              expression: {
+                kind: "If",
+                consequence: { kind: "Block" },
+                alternative: { kind: "Unit" },
+                elseless: true,
+              },
+            },
+          ],
+        },
+      },
+    });
+  });
+
+  test("dangling else binds to the inner conditional (Operators §11.2)", () => {
+    // `if c1 then if c2 then a else b`: the inner `if` claims the `else`
+    // (eats-to-the-right); the outer becomes the `else ()` sugar. Pinned so a
+    // parser refactor cannot silently flip the binding.
+    const module = parseSource("let pick(c1: Bool, c2: Bool) = if c1 then if c2 then 1 else 2");
+
+    expect(module.diagnostics).toEqual([]);
+    expect(module.items[0]).toMatchObject({
+      kind: "Let",
+      value: {
+        kind: "Lambda",
+        body: {
+          kind: "If",
+          elseless: true,
+          alternative: { kind: "Unit" },
+          consequence: {
+            kind: "If",
+            elseless: false,
+            consequence: { kind: "Integer" },
+            alternative: { kind: "Integer" },
+          },
+        },
+      },
+    });
+  });
+
+  test("an else-if chain may omit the final else", () => {
+    // `if a then x else if b then y` nests as
+    // `if a then x else (if b then y else ())`: only the innermost
+    // conditional is else-less.
+    const module = parseSource(
+      "let act(a: Bool, b: Bool) =\n" +
+        "    if a then console.log(\"x\") else if b then console.log(\"y\")",
     );
+
+    expect(module.diagnostics).toEqual([]);
+    expect(module.items[0]).toMatchObject({
+      kind: "Let",
+      value: {
+        kind: "Lambda",
+        body: {
+          kind: "Block",
+          items: [
+            {
+              kind: "ExprItem",
+              expression: {
+                kind: "If",
+                elseless: false,
+                alternative: {
+                  kind: "If",
+                  elseless: true,
+                  alternative: { kind: "Unit" },
+                },
+              },
+            },
+          ],
+        },
+      },
+    });
   });
 
   test("parses the canonical multiline conditional", () => {

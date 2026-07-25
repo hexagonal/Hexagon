@@ -1610,7 +1610,21 @@ class Checker {
         this.#unify(condition, primitive("Bool"), expression.condition.span);
         const consequence = this.#inferExpr(expression.consequence, level);
         const alternative = this.#inferExpr(expression.alternative, level);
-        if (
+        if (expression.elseless) {
+          // `else`-less: the false branch is the synthesized `Unit`, so the
+          // `then` branch must be `Unit` (Operators §11.2). No numeric
+          // widening — a unit branch never widens.
+          this.#unify(
+            consequence,
+            alternative,
+            expression.consequence.span,
+            () =>
+              "an `if` without `else` produces `Unit`; its `then` branch is " +
+              `\`${this.#display(consequence)}\` — add an \`else\` branch to ` +
+              "produce a value",
+          );
+          type = alternative;
+        } else if (
           this.#tryWidenNumeric(
             expression.consequence,
             consequence,
