@@ -50,6 +50,14 @@ export interface ResolveOptions {
    * references, so emission stays free of unused prelude imports.
    */
   readonly prelude?: readonly PreludeImport[];
+  /**
+   * Whether this module is a privileged runtime module. Only runtime modules may
+   * name the hidden `Node` trie intrinsic (`Node.empty/get/set/copy`); in user
+   * code `Node` resolves as an ordinary — and therefore unknown — name, so the
+   * intrinsic stays unimportable and invisible. See the persistent-collections
+   * design note §5.2.
+   */
+  readonly runtime?: boolean;
 }
 
 export function resolve(
@@ -168,6 +176,7 @@ class Resolver {
   readonly #externTypeDeclarations = new WeakMap<Parsed.ExternTypeDeclaration, Resolved.ExternTypeId>();
   readonly #resolvingAliases: string[] = [];
   readonly #imports: ReadonlyMap<string, ModuleInterface>;
+  readonly #runtime: boolean;
   readonly #preludeScope = new Scope();
   readonly #preludeTerms = new Map<Resolved.SymbolId, Resolved.Symbol>();
   readonly #preludeTypeNames = new Set<string>();
@@ -197,6 +206,7 @@ class Resolver {
   constructor(diagnostics: Diagnostics.Bag, options: ResolveOptions) {
     this.#diagnostics = diagnostics;
     this.#imports = options.imports ?? new Map();
+    this.#runtime = options.runtime ?? false;
     this.#nextSymbol = options.symbolBase ?? 0;
     this.#nextUnion = options.unionBase ?? 0;
     this.#nextRecord = options.recordBase ?? 0;
@@ -1170,6 +1180,20 @@ class Resolver {
             return {
               kind: "CollectionOperation",
               collection: expression.receiver.name.text as "Map" | "Set" | "Vector",
+              operation: expression.field.text,
+              span: expression.span,
+            };
+          }
+          if (
+            this.#runtime &&
+            expression.receiver.name.text === "Node" &&
+            ["empty", "get", "set", "copy"].includes(expression.field.text) &&
+            scope.lookup("Node") === undefined &&
+            !this.#moduleAliases.has("Node")
+          ) {
+            return {
+              kind: "CollectionOperation",
+              collection: "Node",
               operation: expression.field.text,
               span: expression.span,
             };

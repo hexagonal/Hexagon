@@ -430,6 +430,7 @@ function evidence(requirement: Typed.Constraint | undefined): Core.Evidence {
     case "Map":
     case "Set":
     case "Array":
+    case "Node":
     case "Nullable":
     case "Union":
     case "NominalRecord":

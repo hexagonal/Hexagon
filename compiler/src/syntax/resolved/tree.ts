@@ -805,7 +805,7 @@ export interface HashExpr {
 
 export interface CollectionOperationExpr {
   readonly kind: "CollectionOperation";
-  readonly collection: "Map" | "Set" | "Vector";
+  readonly collection: "Map" | "Set" | "Vector" | "Node";
   readonly operation: string;
   readonly span: Source.Span;
 }
