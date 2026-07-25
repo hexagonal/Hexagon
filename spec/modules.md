@@ -99,6 +99,12 @@ function requiring `Hash` writes `<a: Hash>`, not `<a: (Eq, Hash)>`, because
 result annotations, inferred-but-unwritten public constraints, and redundant
 base constraints.
 
+"Every independent constraint" quantifies over constraints, not type variables.
+An unconstrained type variable requires no binder: `export let id(x: a): a = x`
+is a complete exported signature as written. A bare `<a>` binder remains legal
+(Constraints §1) but is inert and not canonical; Functions §4.2.1 gives the full
+decision procedure.
+
 This rule applies only to exports. The boundary-first convention for private
 module-level functions remains a style rule: annotate parameters, infer the
 result and constraints. Local functions and lambdas remain inference-friendly.

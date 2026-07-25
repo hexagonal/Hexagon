@@ -6,6 +6,10 @@ annotations, explicit public constraints, and base-constraint omission are now
 language rules (Modules §4.1.1). The remaining private module-level function
 guidance is still style and may be applied gradually.
 
+**Companion:** `canonical-formatting-and-naming.md` — the distilled
+end-of-segment review package (this doctrine plus the global naming checks,
+each item citing its normative owner).
+
 ## 1. Boundary-first annotation doctrine
 
 Annotations belong at declaration boundaries:
@@ -61,6 +65,10 @@ Constraints follow the output side of the boundary doctrine:
   its body would infer them;
 - the published list contains only the strongest constraints: omit any
   constraint entailed by another constraint already listed;
+- no function header, exported or private, writes a bare `<a>` binder: the
+  binder exists to attach constraints, and a variable with nothing to publish
+  is introduced by its parameter or return annotation alone
+  (`export let id(x: a): a = x`, never `export let id<a>(x: a): a = x`);
 - a non-exported module-level function omits its constraint binders and lets its
   body infer the minimal principal constraint set;
 - its parameter types remain annotated, including generic structure such as

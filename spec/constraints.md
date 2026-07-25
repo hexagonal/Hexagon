@@ -13,7 +13,7 @@
 
 - **Constraints are the type of a type.** The angle-bracket binder `<a: Signed>` reads uniformly everywhere it appears: "a type variable, with obligations." Scala's context bounds (`[A: Signed]`) and Rust's trait bounds (`fn f<T: Signed>`) are the acknowledged lineage; Hexagon follows the **Rust** reading — the dictionary is compiler plumbing, never a user-nameable or user-passable value. Scala's "reach in and grab the implicit" power is deliberately absent: it is the door to incoherence.
 - **A constraint states an obligation; an `honor` declaration discharges it.** The keyword pair is a matched semantic pair, deliberately: `honor` (in its performative, commercial sense — one honors a warranty by paying out) names the constructive act of supplying the members, and every use of the keyword points the reader back at the constraint it answers. See §11 for the full naming record.
-- **One grammar for binders.** `constraint`, `honor`, and function definitions all introduce type variables with the same `<var: constraintList>` form from Functions §4.2 — a single constraint, or a parenthesized conjunction `(C1, C2)`. Bare `<a>` is the unconstrained case; legal everywhere, *required* in `constraint` heads (§2), never required on functions.
+- **One grammar for binders.** `constraint`, `honor`, and function definitions all introduce type variables with the same `<var: constraintList>` form from Functions §4.2 — a single constraint, or a parenthesized conjunction `(C1, C2)`. Bare `<a>` is the unconstrained case; legal everywhere, *required* in `constraint` heads (§2), never required on functions — nor canonical there (Functions §4.2.1).
 - **Extension reads left to right.** `constraint Ord<a: Eq>` means “Ord extends Eq.” No Haskell-style `Eq a => Ord a` with its backwards arrow, and no third meaning for `=>` (which is already the lambda and match-arm arrow).
 - **Coherence is global and non-negotiable** (§5). One instance per (constraint, type constructor), enforced by an orphan rule. This is what keeps `Ord`-backed collections sound and monomorphic code dictionary-free — the readable-JS goal is downstream of coherence.
 - **Angle brackets vs. parens encode a kind distinction.** Parens after an uppercase-start name are type parameters of a type constructor (`Option(a)`); angle brackets are constrained/introduced type variables. A constraint's subject is not a type parameter — `Ord` is not a type — so it is `Ord<a>`, never `Ord(a)`.
@@ -96,7 +96,7 @@ let plus<a: Num>(x: a, y: a): a = add(x, y)
 let member<a: (Eq, Show)>(xs: Vector(a), x: a): Bool = ...
 ```
 
-Inference attaches constraints without annotation (`fun plus(x, y) = add(x, y)` infers the `Num` constraint from `add`'s type); the explicit `<...>` form names variables and attaches constraints for documentation and restriction. Generalisation of constrained type variables follows Functions §8 plus the Numeric Literals §4 defaulting rule, both unchanged by this spec.
+Inference attaches constraints without annotation (`fun plus(x, y) = add(x, y)` infers the `Num` constraint from `add`'s type); the explicit `<...>` form attaches those constraints for documentation and restriction. It does not exist to name the variables — the lowercase spelling already does that, so an unconstrained binder is never written on a function (Functions §4.2.1). Generalisation of constrained type variables follows Functions §8 plus the Numeric Literals §4 defaulting rule, both unchanged by this spec.
 
 ---
 
