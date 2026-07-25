@@ -660,34 +660,59 @@ class Checker {
   ): Mono {
     const sequentialPlaceholders = new Map<Resolved.SymbolId, Variable>();
     const recursiveTypes = new Map<Resolved.SymbolId, Variable>();
-    const capturedSequential = new Set(
-      items.flatMap((item) => item.kind === "Fun" ? [...referencedSymbols(item.value)] : []),
+
+    // The symbols each function references, computed once and reused for both
+    // captured-binding detection and the function dependency graph.
+    const funItems = items.filter((item): item is Resolved.FunItem => item.kind === "Fun");
+    const funReferences = new Map<Resolved.SymbolId, ReadonlySet<Resolved.SymbolId>>(
+      funItems.map((item) => [item.binding.symbol, referencedSymbols(item.value)]),
     );
+    const funBySymbol = new Map(funItems.map((item) => [item.binding.symbol, item]));
+    const funSymbols = new Set(funBySymbol.keys());
+
+    // A `let`/`var` captured by some function is installed as a monomorphic
+    // placeholder before any function body is checked, so bodies can refer to it.
+    const capturedSequential = new Set<Resolved.SymbolId>();
+    for (const references of funReferences.values()) {
+      for (const symbol of references) capturedSequential.add(symbol);
+    }
     for (const item of items) {
       if ((item.kind === "Let" || item.kind === "Var") && capturedSequential.has(item.binding.symbol)) {
         const placeholder = this.#fresh(level + 1, false);
         sequentialPlaceholders.set(item.binding.symbol, placeholder);
         this.#schemes.set(item.binding.symbol, { variables: [], type: placeholder });
-      } else if (item.kind === "Fun") {
-        const recursiveType = this.#fresh(level + 1, false);
-        recursiveTypes.set(item.binding.symbol, recursiveType);
-        this.#schemes.set(item.binding.symbol, { variables: [], type: recursiveType });
       }
     }
-    // All functions in one lexical block form a recursive group. Their
-    // provisional monotypes are installed together before any body is checked.
-    for (const item of items) {
-      if (item.kind !== "Fun") continue;
-      const recursiveType = recursiveTypes.get(item.binding.symbol)!;
-      const valueType = this.#inferExpr(item.value, level + 1);
-      this.#unify(recursiveType, valueType, item.span);
-    }
-    for (const item of items) {
-      if (item.kind !== "Fun") continue;
-      this.#schemes.set(
-        item.binding.symbol,
-        this.#generalize(recursiveTypes.get(item.binding.symbol)!, level, true),
-      );
+
+    // Functions are checked in dependency order — the strongly-connected
+    // components of the function-reference graph, dependencies before dependents
+    // (issue #66, functions.md §4.1/§4.2). A reference to a function *outside* the
+    // current component resolves to an already-generalized scheme and is
+    // instantiated fresh per use (let-polymorphism); only genuine mutual recursion
+    // shares a monomorphic component, whose members' provisional monotypes are
+    // installed together before any of their bodies is checked.
+    const sourceIndex = new Map(funItems.map((item, index) => [item.binding.symbol, index]));
+    const bySource = (a: Resolved.SymbolId, b: Resolved.SymbolId): number =>
+      sourceIndex.get(a)! - sourceIndex.get(b)!;
+    const components = stronglyConnectedComponents(
+      funItems.map((item) => item.binding.symbol),
+      (symbol) => [...(funReferences.get(symbol) ?? [])].filter((referenced) => funSymbols.has(referenced)),
+    );
+    for (const component of components) {
+      const ordered = [...component].sort(bySource);
+      for (const symbol of ordered) {
+        const recursiveType = this.#fresh(level + 1, false);
+        recursiveTypes.set(symbol, recursiveType);
+        this.#schemes.set(symbol, { variables: [], type: recursiveType });
+      }
+      for (const symbol of ordered) {
+        const item = funBySymbol.get(symbol)!;
+        const valueType = this.#inferExpr(item.value, level + 1);
+        this.#unify(recursiveTypes.get(symbol)!, valueType, item.span);
+      }
+      for (const symbol of ordered) {
+        this.#schemes.set(symbol, this.#generalize(recursiveTypes.get(symbol)!, level, true));
+      }
     }
 
     for (let index = 0; index < items.length; index += 1) {
@@ -5220,6 +5245,57 @@ function renderLiteralPatternKey(
 
 function unwrapAsPattern(pattern: Resolved.Pattern): Resolved.Pattern {
   return pattern.kind === "As" ? unwrapAsPattern(pattern.pattern) : pattern;
+}
+
+/**
+ * Tarjan's strongly-connected-components algorithm over the given nodes. Returns
+ * the components in reverse-topological order — every component is emitted after
+ * all components it depends on (via `successors` edges) — so processing them in
+ * order visits callees before callers. A node with a self-edge forms its own
+ * one-member component (its self-reference is still cyclic). Deterministic given
+ * the node and successor order supplied by the caller.
+ */
+function stronglyConnectedComponents(
+  nodes: readonly Resolved.SymbolId[],
+  successors: (node: Resolved.SymbolId) => readonly Resolved.SymbolId[],
+): Resolved.SymbolId[][] {
+  const nodeSet = new Set(nodes);
+  const index = new Map<Resolved.SymbolId, number>();
+  const lowlink = new Map<Resolved.SymbolId, number>();
+  const onStack = new Set<Resolved.SymbolId>();
+  const stack: Resolved.SymbolId[] = [];
+  const components: Resolved.SymbolId[][] = [];
+  let counter = 0;
+  const connect = (v: Resolved.SymbolId): void => {
+    index.set(v, counter);
+    lowlink.set(v, counter);
+    counter += 1;
+    stack.push(v);
+    onStack.add(v);
+    for (const w of successors(v)) {
+      if (!nodeSet.has(w)) continue;
+      if (!index.has(w)) {
+        connect(w);
+        lowlink.set(v, Math.min(lowlink.get(v)!, lowlink.get(w)!));
+      } else if (onStack.has(w)) {
+        lowlink.set(v, Math.min(lowlink.get(v)!, index.get(w)!));
+      }
+    }
+    if (lowlink.get(v) === index.get(v)) {
+      const component: Resolved.SymbolId[] = [];
+      let w: Resolved.SymbolId;
+      do {
+        w = stack.pop()!;
+        onStack.delete(w);
+        component.push(w);
+      } while (w !== v);
+      components.push(component);
+    }
+  };
+  for (const node of nodes) {
+    if (!index.has(node)) connect(node);
+  }
+  return components;
 }
 
 function referencedSymbols(root: object): ReadonlySet<Resolved.SymbolId> {
