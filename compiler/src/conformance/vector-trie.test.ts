@@ -62,6 +62,13 @@ const BUILD =
   "    var acc: TrieVector(Int) = v\n" +
   "    for i in lo..hi\n" +
   "        acc := append(acc, i)\n" +
+  "    acc\n" +
+  // prependN(v, n) prepends n elements (values 1999, 1998, ..., 2000 - n) onto v,
+  // so the final front is 2000 - n; disjoint from any 1..k source.
+  "fun prependN(v: TrieVector(Int), n: Int): TrieVector(Int) =\n" +
+  "    var acc: TrieVector(Int) = v\n" +
+  "    for i in 1..n\n" +
+  "        acc := prepend(acc, 2000 - i)\n" +
   "    acc\n";
 
 describe("VectorTrie build path (append + tail flush + growth)", () => {
@@ -240,6 +247,32 @@ describe("VectorTrie set (§5.4 persistent overwrite)", () => {
     expect(m.at99).toBe(777);
     expect(m.at98).toBe(99);
   });
+
+  test("update on origin > 0 vectors (sliced window and prepend-built trie)", async () => {
+    // set is otherwise only exercised at origin 0; a sliced window has a nonzero
+    // origin and a rebuilt tail, and a prepend-built trie has a large origin.
+    const m = await runTrie(
+      BUILD +
+        "let w = set(set(slice(buildTo(100), 40, 90), 0, 111), 49, 222)\n" + // window 41..90; idx 0 tree, 49 tail
+        "export let ws: Int = size(w)\n" +
+        "export let w0: Int = get(w, 0)\n" +
+        "export let w1: Int = get(w, 1)\n" +
+        "export let w48: Int = get(w, 48)\n" +
+        "export let w49: Int = get(w, 49)\n" +
+        "let p = set(buildDown(100), 3, 555)\n" +
+        "export let p2: Int = get(p, 2)\n" +
+        "export let p3: Int = get(p, 3)\n" +
+        "export let p4: Int = get(p, 4)\n",
+    );
+    expect(m.ws).toBe(50);
+    expect(m.w0).toBe(111);
+    expect(m.w1).toBe(42);
+    expect(m.w48).toBe(89);
+    expect(m.w49).toBe(222);
+    expect(m.p2).toBe(3);
+    expect(m.p3).toBe(555);
+    expect(m.p4).toBe(5);
+  });
 });
 
 describe("VectorTrie slice (§6 windowing over the shared trie)", () => {
@@ -340,5 +373,75 @@ describe("VectorTrie slice (§6 windowing over the shared trie)", () => {
     expect(m.c49).toBe(90);
     expect(m.c50).toBe(1000);
     expect(m.c80).toBe(1030);
+  });
+});
+
+describe("VectorTrie prepend after slice (§4 states only slice can reach)", () => {
+  // prepend's tail branch (origin > tailOffset) and, more generally, prepend onto
+  // a nonzero origin, are unreachable by building alone: appends hold origin
+  // fixed, prepends drive it below the tail offset, tail-only vectors have offset
+  // 0. Only a slice leaves the live range wholly tail-resident, so these cases
+  // exercise state families the build/update paths never produce.
+  test("§4 the tail branch of prepend (a window with origin > tailOffset)", async () => {
+    // slice(buildTo(100), 50, 55): origin 50 > tailOffset 32, so the whole window
+    // lives in the tail; prepend writes into the rebuilt tail, not the tree.
+    const m = await runTrie(
+      BUILD +
+        "let v = prepend(slice(buildTo(100), 50, 55), 999)\n" +
+        "export let s: Int = size(v)\n" +
+        "export let e0: Int = get(v, 0)\n" +
+        "export let e1: Int = get(v, 1)\n" +
+        "export let e5: Int = get(v, 5)\n",
+    );
+    expect(m.s).toBe(6);
+    expect(m.e0).toBe(999);
+    expect(m.e1).toBe(51);
+    expect(m.e5).toBe(55);
+  });
+
+  test("§4 prepends walk from the tail region across the offset into the tree", async () => {
+    // 20 prepends take origin from 50 down to 30, crossing tailOffset 32; the tree
+    // writes discard the stale shared leaf 0 (below the window) and fill downward.
+    const m = await runTrie(
+      BUILD +
+        "let v = prependN(slice(buildTo(100), 50, 55), 20)\n" +
+        "export let s: Int = size(v)\n" +
+        "export let e0: Int = get(v, 0)\n" + // final front = 2000 - 20
+        "export let e19: Int = get(v, 19)\n" +
+        "export let e20: Int = get(v, 20)\n" + // start of the original window
+        "export let e24: Int = get(v, 24)\n",
+    );
+    expect(m.s).toBe(25);
+    expect(m.e0).toBe(1980);
+    expect(m.e19).toBe(1999);
+    expect(m.e20).toBe(51);
+    expect(m.e24).toBe(55);
+  });
+
+  test("§4 tail-resident boundary slices of a prepend-built height-3 trie", async () => {
+    // buildDown(60) is height 3 with a partially-populated left child. Window
+    // [27,40) has origin == tailOffset (1024): prepend writes at root childPos =
+    // span-1 -> fresh spine, discarding the stale partial child. Window [59,60)
+    // has origin == tailOffset (1056): prepend writes at root childPos = 31 !=
+    // span-1 -> it must READ child 1 (an absent-child read would crash).
+    const m = await runTrie(
+      BUILD +
+        "let c = prepend(slice(buildDown(60), 27, 40), 888)\n" + // window 28..40
+        "export let cs: Int = size(c)\n" +
+        "export let c0: Int = get(c, 0)\n" +
+        "export let c1: Int = get(c, 1)\n" +
+        "export let c13: Int = get(c, 13)\n" +
+        "let d = prepend(slice(buildDown(60), 59, 60), 777)\n" + // window [60]
+        "export let ds: Int = size(d)\n" +
+        "export let d0: Int = get(d, 0)\n" +
+        "export let d1: Int = get(d, 1)\n",
+    );
+    expect(m.cs).toBe(14);
+    expect(m.c0).toBe(888);
+    expect(m.c1).toBe(28);
+    expect(m.c13).toBe(40);
+    expect(m.ds).toBe(2);
+    expect(m.d0).toBe(777);
+    expect(m.d1).toBe(60);
   });
 });
