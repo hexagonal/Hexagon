@@ -33,6 +33,8 @@ function displayType(
       return `Map(${displayType(type.key, variables)}, ${displayType(type.value, variables)})`;
     case "Array":
       return `Array(${displayType(type.element, variables)})`;
+    case "Node":
+      return `Node(${displayType(type.element, variables)})`;
     case "Nullable":
       return `Nullable(${displayType(type.value, variables)})`;
     case "Variable":

@@ -1036,6 +1036,28 @@ class JavaScriptEmitter {
   ): string {
     if (
       expression.callee.kind === "CollectionOperation" &&
+      expression.callee.collection === "Node"
+    ) {
+      // The hidden fixed-32 trie node lowers to raw JS array operations, addressed
+      // 0..31. `set`/`copy` are immutable (copy-on-write); the runtime trie code
+      // that emits this is responsible for the unshared-node invariant. §4/§5.1.
+      const arguments_ = expression.arguments.map((argument) =>
+        this.#emitExpr(argument, depth, evidenceNames)
+      );
+      const [node = "undefined", index = "undefined", value = "undefined"] = arguments_;
+      switch (expression.callee.operation) {
+        case "empty":
+          return "new Array(32)";
+        case "get":
+          return `(${node})[${index}]`;
+        case "set":
+          return `${this.#useHelper("nodeSet")}(${node}, ${index}, ${value})`;
+        case "copy":
+          return `(${node}).slice()`;
+      }
+    }
+    if (
+      expression.callee.kind === "CollectionOperation" &&
       expression.callee.collection === "Vector"
     ) {
       const arguments_ = expression.arguments.map((argument) =>
@@ -2879,6 +2901,7 @@ type Helper =
   | "seqIterate"
   | "seqMap"
   | "seqTake"
+  | "nodeSet"
   | "vectorAt"
   | "vectorIndex"
   | "vectorSet"
@@ -3190,6 +3213,16 @@ function renderHelper(
         "  return __hex_values[__hex_position - 1];",
         "}",
       ];
+    case "nodeSet":
+      // Copy-on-write a fixed-32 trie node; slots are raw (0-based, no bounds
+      // check) because only trusted runtime trie code ever emits this.
+      return [
+        `function ${name}(__hex_node, __hex_index, __hex_value) {`,
+        "  const __hex_updated = __hex_node.slice();",
+        "  __hex_updated[__hex_index] = __hex_value;",
+        "  return __hex_updated;",
+        "}",
+      ];
     case "vectorSet":
       return [
         `function ${name}(__hex_values, __hex_index, __hex_value) {`,
@@ -3461,6 +3494,9 @@ function substituteType(
   if (type.kind === "Vector") {
     return { kind: "Vector", element: substituteType(type.element, replacements) };
   }
+  if (type.kind === "Node") {
+    return { kind: "Node", element: substituteType(type.element, replacements) };
+  }
   if (type.kind === "Record") {
     return {
       ...type,
@@ -3712,6 +3748,10 @@ function renderType(
     case "Map":
       return `ReadonlyMap<${renderType(type.key, variables, false)}, ${renderType(type.value, variables, false)}>`;
     case "Array":
+      return `Array<${renderType(type.element, variables, false)}>`;
+    case "Node":
+      // The hidden trie node never appears in a public `.d.ts`; its honest JS
+      // shape is a fixed-length mutable array of the slot type.
       return `Array<${renderType(type.element, variables, false)}>`;
     case "Nullable":
       return `${renderType(type.value, variables, false)} | null | undefined`;

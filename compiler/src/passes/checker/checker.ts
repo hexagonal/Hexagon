@@ -36,6 +36,7 @@ type Mono =
   | MapMono
   | SetMono
   | ArrayMono
+  | NodeMono
   | NullableMono
   | UnionMono
   | NominalRecordMono
@@ -104,6 +105,12 @@ interface SetMono {
 
 interface ArrayMono {
   readonly kind: "Array";
+  readonly element: Mono;
+}
+
+/** The hidden fixed-32 runtime trie node; see the persistent-collections note §4. */
+interface NodeMono {
+  readonly kind: "Node";
   readonly element: Mono;
 }
 
@@ -1293,6 +1300,15 @@ class Checker {
       if (operation === "toSeq") return { kind: "Function", parameters: [set], result: { kind: "Seq", element } };
       if (operation === "fromVector") return { kind: "Function", parameters: [{ kind: "Vector", element }], result: set };
       if (operation === "fromSeq") return { kind: "Function", parameters: [{ kind: "Seq", element }], result: set };
+    } else if (collection === "Node") {
+      // The hidden fixed-32 trie node: 32 slots of `element`, addressed 0..31.
+      // `set`/`copy` are immutable (return a fresh node); see the design note §4.
+      const element = this.#fresh(level, false);
+      const node: NodeMono = { kind: "Node", element };
+      if (operation === "empty") return { kind: "Function", parameters: [], result: node };
+      if (operation === "get") return { kind: "Function", parameters: [node, primitive("Int")], result: element };
+      if (operation === "set") return { kind: "Function", parameters: [node, primitive("Int"), element], result: node };
+      if (operation === "copy") return { kind: "Function", parameters: [node], result: node };
     } else {
       const element = this.#fresh(level, false);
       const vector: VectorMono = { kind: "Vector", element };
@@ -2902,6 +2918,9 @@ class Checker {
     } else if (actualLeft.kind === "Array" && actualRight.kind === "Array") {
       this.#unify(actualLeft.element, actualRight.element, span);
       return;
+    } else if (actualLeft.kind === "Node" && actualRight.kind === "Node") {
+      this.#unify(actualLeft.element, actualRight.element, span);
+      return;
     } else if (actualLeft.kind === "Nullable" && actualRight.kind === "Nullable") {
       this.#unify(actualLeft.value, actualRight.value, span);
       return;
@@ -3068,6 +3087,7 @@ class Checker {
     if (actual.kind === "Vector") return this.#occurs(variable, actual.element);
     if (actual.kind === "Set") return this.#occurs(variable, actual.element);
     if (actual.kind === "Array") return this.#occurs(variable, actual.element);
+    if (actual.kind === "Node") return this.#occurs(variable, actual.element);
     if (actual.kind === "Nullable") return this.#occurs(variable, actual.value);
     if (actual.kind === "Map") return this.#occurs(variable, actual.key) || this.#occurs(variable, actual.value);
     return false;
@@ -3467,6 +3487,7 @@ class Checker {
       return { kind: "Set", element: this.#replaceVariables(actual.element, replacements) };
     }
     if (actual.kind === "Array") return { kind: "Array", element: this.#replaceVariables(actual.element, replacements) };
+    if (actual.kind === "Node") return { kind: "Node", element: this.#replaceVariables(actual.element, replacements) };
     if (actual.kind === "Nullable") return { kind: "Nullable", value: this.#replaceVariables(actual.value, replacements) };
     if (actual.kind === "Map") {
       return {
@@ -3587,6 +3608,7 @@ class Checker {
     if (actual.kind === "Vector") this.#collectVariables(actual.element, found);
     if (actual.kind === "Set") this.#collectVariables(actual.element, found);
     if (actual.kind === "Array") this.#collectVariables(actual.element, found);
+    if (actual.kind === "Node") this.#collectVariables(actual.element, found);
     if (actual.kind === "Nullable") this.#collectVariables(actual.value, found);
     if (actual.kind === "Map") {
       this.#collectVariables(actual.key, found);
@@ -3652,6 +3674,7 @@ class Checker {
       if (actual.kind === "Vector") return { kind: "Vector", element: copy(actual.element) };
       if (actual.kind === "Set") return { kind: "Set", element: copy(actual.element) };
       if (actual.kind === "Array") return { kind: "Array", element: copy(actual.element) };
+      if (actual.kind === "Node") return { kind: "Node", element: copy(actual.element) };
       if (actual.kind === "Nullable") return { kind: "Nullable", value: copy(actual.value) };
       if (actual.kind === "Map") return { kind: "Map", key: copy(actual.key), value: copy(actual.value) };
       if (actual.kind === "Record") {
@@ -3842,6 +3865,7 @@ class Checker {
         case "Vector": return { kind: "Vector", element: copy(type.element) };
         case "Set": return { kind: "Set", element: copy(type.element) };
         case "Array": return { kind: "Array", element: copy(type.element) };
+        case "Node": return { kind: "Node", element: copy(type.element) };
         case "Nullable": return { kind: "Nullable", value: copy(type.value) };
         case "Map": return { kind: "Map", key: copy(type.key), value: copy(type.value) };
         case "Variable": {
@@ -3899,6 +3923,7 @@ class Checker {
       if (actual.kind === "Vector") return { kind: "Vector", element: copy(actual.element) };
       if (actual.kind === "Set") return { kind: "Set", element: copy(actual.element) };
       if (actual.kind === "Array") return { kind: "Array", element: copy(actual.element) };
+      if (actual.kind === "Node") return { kind: "Node", element: copy(actual.element) };
       if (actual.kind === "Nullable") return { kind: "Nullable", value: copy(actual.value) };
       if (actual.kind === "Map") return { kind: "Map", key: copy(actual.key), value: copy(actual.value) };
       if (actual.kind === "Function") {
@@ -3942,7 +3967,7 @@ class Checker {
         visit(actual.result, found);
       } else if (actual.kind === "Tuple") actual.elements.forEach((element) => visit(element, found));
       else if (actual.kind === "Record") actual.fields.forEach((field) => visit(field, found));
-      else if (actual.kind === "Seq" || actual.kind === "Vector" || actual.kind === "Set" || actual.kind === "Array") visit(actual.element, found);
+      else if (actual.kind === "Seq" || actual.kind === "Vector" || actual.kind === "Set" || actual.kind === "Array" || actual.kind === "Node") visit(actual.element, found);
       else if (actual.kind === "Nullable") visit(actual.value, found);
       else if (actual.kind === "Map") { visit(actual.key, found); visit(actual.value, found); }
       return found;
@@ -4156,6 +4181,7 @@ class Checker {
     }
     if (actual.kind === "Set") return { kind: "Set", element: this.#publicType(actual.element, seen) };
     if (actual.kind === "Array") return { kind: "Array", element: this.#publicType(actual.element, seen) };
+    if (actual.kind === "Node") return { kind: "Node", element: this.#publicType(actual.element, seen) };
     if (actual.kind === "Nullable") return { kind: "Nullable", value: this.#publicType(actual.value, seen) };
     if (actual.kind === "Map") {
       return { kind: "Map", key: this.#publicType(actual.key, seen), value: this.#publicType(actual.value, seen) };
@@ -5030,6 +5056,7 @@ class Checker {
     if (actual.kind === "Vector") return `Vector(${this.#display(actual.element)})`;
     if (actual.kind === "Set") return `Set(${this.#display(actual.element)})`;
     if (actual.kind === "Array") return `Array(${this.#display(actual.element)})`;
+    if (actual.kind === "Node") return `Node(${this.#display(actual.element)})`;
     if (actual.kind === "Nullable") return `Nullable(${this.#display(actual.value)})`;
     if (actual.kind === "Map") return `Map(${this.#display(actual.key)}, ${this.#display(actual.value)})`;
     if (actual.kind === "Record") {

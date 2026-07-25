@@ -202,6 +202,8 @@ function substituteType(
       };
     case "Array":
       return { ...type, element: substituteType(type.element, substitutions) };
+    case "Node":
+      return { ...type, element: substituteType(type.element, substitutions) };
     case "Nullable":
       return { ...type, value: substituteType(type.value, substitutions) };
     case "Seq":

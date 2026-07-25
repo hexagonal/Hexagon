@@ -32,6 +32,7 @@ export type Type =
   | MapType
   | SetType
   | ArrayType
+  | NodeType
   | NullableType
   | VariableType
   | TupleType
@@ -74,6 +75,16 @@ export interface SetType {
 
 export interface ArrayType {
   readonly kind: "Array";
+  readonly element: Type;
+}
+
+/**
+ * The hidden, fixed-32, immutable runtime trie node (persistent-collections
+ * design note §4). Not a user-facing type: it has no annotation syntax and only
+ * appears inside runtime modules that build `Vector`/`Map`/`Set` over it.
+ */
+export interface NodeType {
+  readonly kind: "Node";
   readonly element: Type;
 }
 
@@ -750,7 +761,7 @@ export interface HashExpr extends ExpressionFields {
 
 export interface CollectionOperationExpr extends ExpressionFields {
   readonly kind: "CollectionOperation";
-  readonly collection: "Map" | "Set" | "Vector";
+  readonly collection: "Map" | "Set" | "Vector" | "Node";
   readonly operation: string;
   readonly requirements: readonly Constraint[];
 }
