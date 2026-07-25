@@ -13,20 +13,28 @@ union Tree(a) =
     | Leaf(values: Node(a))
     | Branch(children: Node(Tree(a)))
 
-// The Vector representation, following Immutable.js's List. `root` is a fully
-// packed trie holding the leading `count - tailLen` elements (always a multiple
-// of 32); `tail` is the trailing append buffer holding the final `tailLen`
-// elements (1..32, or 0 only for the empty vector). Appends land in the tail for
-// amortized O(1); when the tail fills it is flushed into `root` as one leaf.
+// The Vector representation, following Immutable.js's List. Elements live in a
+// virtual internal index space; `origin` is the internal index of logical
+// element 0 and `capacity` the internal index just past the last, so the logical
+// size is `capacity - origin`. `root` addresses the internal range `[0, radix^height)`;
+// the `tail` buffer holds the internal range `[tailOffset(capacity), capacity)`
+// (its final up-to-32 elements), and the tree holds `[0, tailOffset(capacity))`.
 // `height` counts `root`'s levels: 1 => a `Leaf`, 2 => a `Branch` of leaves.
-// (The origin/capacity machinery for O(1) *prepend* — §4.1's other end — is a
-// later increment; this slab appends only.)
+//
+// The two ends are NOT symmetric. `append` is favoured: it lands elements in the
+// tail at the high end, packed left-to-right, exactly as a plain append-only trie
+// would. `prepend` walks `origin` downward through the headroom below the live
+// range and, when it runs out, grows a fresh level at the *left* (the old root
+// dropped into a non-zero child slot), rebasing `origin`/`capacity` by that
+// level's span — so a non-zero `origin` can leave the tree's left edge only
+// partially populated. Every lookup addresses by `index + origin`, which is what
+// lets both ends stay amortized O(1) over one shared trie.
 record TrieVector(a) = {
-    count: Int,
+    origin: Int,
+    capacity: Int,
     height: Int,
     root: Tree(a),
     tail: Node(a),
-    tailLen: Int,
 }
 
 // Signals a structurally malformed trie (a runtime bug, never a caller error).
@@ -38,16 +46,26 @@ let radix: Int = 32
 
 fun empty<a>(): TrieVector(a) =
     TrieVector({
-        count: 0,
+        origin: 0,
+        capacity: 0,
         height: 1,
         root: Leaf(Node.empty()),
         tail: Node.empty(),
-        tailLen: 0,
     })
 
-fun size<a>(trie: TrieVector(a)): Int = trie.count
+fun size<a>(trie: TrieVector(a)): Int = trie.capacity - trie.origin
 
-fun isEmpty<a>(trie: TrieVector(a)): Bool = trie.count == 0
+fun isEmpty<a>(trie: TrieVector(a)): Bool = trie.capacity == trie.origin
+
+// The internal index at which the `tail` begins: the largest multiple of `radix`
+// not exceeding the last populated internal index. The tree holds `[0, tailOffset)`
+// and the tail holds `[tailOffset, capacity)`, so `capacity - tailOffset` (the
+// tail length) is always 1..32, or 0 only when the whole vector is empty.
+fun tailOffset(capacity: Int): Int =
+    if capacity == 0 then
+        0
+    else
+        Int.div(capacity - 1, radix) * radix
 
 // `radix` raised to `exponent` (exponent >= 0), computed without a power
 // operator. `leafCapacity(height) = pow32(height - 1)` is the number of leaves a
@@ -58,19 +76,17 @@ fun pow32(exponent: Int): Int =
         result := result * radix
     result
 
-// Reads the element at 0-based `index`. The trailing `tailLen` elements live in
-// the tail; the rest are found by descending `root` one branch level per
-// iteration to the owning leaf, then selecting the low digit within it. Callers
-// guarantee `0 <= index < count`; a packed trie's slots are always populated
-// along the path, so no empty `Node` slot is ever read.
-fun get<a>(trie: TrieVector(a), index: Int): a =
-    let rootCount = trie.count - trie.tailLen
-    if index >= rootCount then
-        Node.get(trie.tail, index - rootCount)
+// Reads the element at an absolute `internal` index. Indices at or beyond
+// `tailOffset` live in the tail; the rest descend `root` one branch level per
+// iteration to the owning leaf, then select the low digit within it. Callers
+// guarantee the index is populated, so no empty `Node` slot is ever read.
+fun readInternal<a>(trie: TrieVector(a), internal: Int): a =
+    if internal >= tailOffset(trie.capacity) then
+        Node.get(trie.tail, internal - tailOffset(trie.capacity))
     else
         var node: Tree(a) = trie.root
         var span = pow32(trie.height - 1)
-        var remaining = index
+        var remaining = internal
         // A height-`h` trie has `h - 1` branch levels above its leaves.
         for level in 2..trie.height
             node := match node
@@ -80,8 +96,13 @@ fun get<a>(trie: TrieVector(a), index: Int): a =
             span := Int.div(span, radix)
         match node
             Leaf(values) => Node.get(values, remaining)
-            // Unreachable for a packed trie (the loop always lands on a leaf).
-            Branch(_) => throw(TrieCorruption("get: descent did not reach a leaf"))
+            // Unreachable for a populated path (the loop always lands on a leaf).
+            Branch(_) => throw(TrieCorruption("readInternal: descent did not reach a leaf"))
+
+// Reads the element at 0-based logical `index`; the internal index is
+// `index + origin`. Callers guarantee `0 <= index < size`.
+fun get<a>(trie: TrieVector(a), index: Int): a =
+    readInternal(trie, index + trie.origin)
 
 // Wraps `leaf` in `levels` fresh branch nodes, forming the left spine of a new
 // subtree. `newPath(0, leaf) = leaf`.
@@ -111,10 +132,11 @@ fun insertLeaf<a>(node: Tree(a), height: Int, p: Int, leaf: Tree(a)): Tree(a) =
                 Branch(Node.set(children, childIndex, insertLeaf(child, height - 1, childPos, leaf)))
 
 // Flushes a full tail (as `Leaf(tail)`) into `root`, returning the new root and
-// its height. `rootCount` is the element count already in `root` (a multiple of
-// 32). When `root` is full at its height, the trie grows one level.
-fun flushLeaf<a>(root: Tree(a), height: Int, rootCount: Int, leaf: Tree(a)): (Tree(a), Int) =
-    let leafPos = Int.div(rootCount, radix)
+// its height. `treeExtent` is the internal extent already held by `root` (a
+// multiple of 32 — the internal index where the flushed leaf lands). When `root`
+// is full at its height, the trie grows one level at the right (append's end).
+fun flushLeaf<a>(root: Tree(a), height: Int, treeExtent: Int, leaf: Tree(a)): (Tree(a), Int) =
+    let leafPos = Int.div(treeExtent, radix)
     let capacity = pow32(height - 1)
     if leafPos == capacity then
         // Root is full: a new level whose slot 0 is the old root and slot 1 is a
@@ -125,22 +147,183 @@ fun flushLeaf<a>(root: Tree(a), height: Int, rootCount: Int, leaf: Tree(a)): (Tr
         (insertLeaf(root, height, leafPos, leaf), height)
 
 fun append<a>(trie: TrieVector(a), value: a): TrieVector(a) =
-    if trie.tailLen < radix then
+    let cap = trie.capacity
+    let off = tailOffset(cap)
+    let tailLen = cap - off
+    if tailLen < radix then
         TrieVector({
-            count: trie.count + 1,
+            origin: trie.origin,
+            capacity: cap + 1,
             height: trie.height,
             root: trie.root,
-            tail: Node.set(trie.tail, trie.tailLen, value),
-            tailLen: trie.tailLen + 1,
+            tail: Node.set(trie.tail, tailLen, value),
         })
     else
-        // Tail is full: flush it as one leaf, then start a fresh tail.
-        let rootCount = trie.count - trie.tailLen
-        let (newRoot, newHeight) = flushLeaf(trie.root, trie.height, rootCount, Leaf(trie.tail))
+        // Tail is full: flush it as one leaf at internal index `off`, then start a
+        // fresh tail holding the new value.
+        let (newRoot, newHeight) = flushLeaf(trie.root, trie.height, off, Leaf(trie.tail))
         TrieVector({
-            count: trie.count + 1,
+            origin: trie.origin,
+            capacity: cap + 1,
             height: newHeight,
             root: newRoot,
             tail: Node.set(Node.empty(), 0, value),
-            tailLen: 1,
         })
+
+// A fresh, empty subtree of the given height, ready to be filled: a `Leaf` at
+// height 1, a `Branch` at any greater height.
+fun freshSubtree<a>(height: Int): Tree(a) =
+    if height == 1 then
+        Leaf(Node.empty())
+    else
+        Branch(Node.empty())
+
+// Writes `value` at internal `index` into a copy of `node` (a height-`h`
+// subtree), creating any missing nodes along the path. Prepend fills the headroom
+// below `origin` strictly downward, so the *first* write into a child always
+// lands at that child's top slot (`childPos == span - 1`) — the signal that the
+// child is fresh; every lower position reuses the child a previous prepend made.
+// Recursion depth is bounded by `h`, so this is stack-safe.
+fun writeValue<a>(node: Tree(a), height: Int, index: Int, value: a): Tree(a) =
+    match node
+        // Height 1: `index` selects the slot within the leaf directly.
+        Leaf(values) => Leaf(Node.set(values, index, value))
+        Branch(children) =>
+            let span = pow32(height - 1)
+            let childIndex = Int.div(index, span)
+            let childPos = Int.mod(index, span)
+            if childPos == span - 1 then
+                // First write into this child: it is fresh.
+                Branch(Node.set(children, childIndex, writeValue(freshSubtree(height - 1), height - 1, childPos, value)))
+            else
+                let child = Node.get(children, childIndex)
+                Branch(Node.set(children, childIndex, writeValue(child, height - 1, childPos, value)))
+
+fun prepend<a>(trie: TrieVector(a), value: a): TrieVector(a) =
+    if trie.capacity == trie.origin then
+        // Empty: the sole element is both front and back, so it lands in the tail
+        // (the favoured end) as a singleton — growing a tree here would leave
+        // `tailOffset(capacity)` at 0 and mask the write.
+        TrieVector({
+            origin: 0,
+            capacity: 1,
+            height: 1,
+            root: Leaf(Node.empty()),
+            tail: Node.set(Node.empty(), 0, value),
+        })
+    else if trie.origin > 0 then
+        // Headroom remains below the live range: write at internal `origin - 1`.
+        // If the entire live range is tail-resident (a small window), that index
+        // falls in the tail; otherwise it descends the tree.
+        let newOrigin = trie.origin - 1
+        let off = tailOffset(trie.capacity)
+        if newOrigin >= off then
+            TrieVector({
+                origin: newOrigin,
+                capacity: trie.capacity,
+                height: trie.height,
+                root: trie.root,
+                tail: Node.set(trie.tail, newOrigin - off, value),
+            })
+        else
+            TrieVector({
+                origin: newOrigin,
+                capacity: trie.capacity,
+                height: trie.height,
+                root: writeValue(trie.root, trie.height, newOrigin, value),
+                tail: trie.tail,
+            })
+    else
+        // No headroom (origin == 0, non-empty): grow a level at the left. The old
+        // root drops into slot 1 of a fresh branch, leaving slot 0's whole span
+        // (`radix^height`) as new headroom; `origin`/`capacity` rebase by that span
+        // (a multiple of `radix`, so the tail's slots are unmoved). The new front
+        // is `span - 1`, which is below the shifted `tailOffset`, so it descends
+        // the tree. (For a tail-only vector the old empty root sits unread in slot
+        // 1 and the tree fills slot 0.)
+        let span = pow32(trie.height)
+        let grown: Tree(a) = Branch(Node.set(Node.empty(), 1, trie.root))
+        let newHeight = trie.height + 1
+        let newOrigin = span - 1
+        TrieVector({
+            origin: newOrigin,
+            capacity: trie.capacity + span,
+            height: newHeight,
+            root: writeValue(grown, newHeight, newOrigin, value),
+            tail: trie.tail,
+        })
+
+// Replaces the element at internal `index` (a populated position) in a copy of
+// `node`, descending to its leaf. Unlike `writeValue` every node on the path
+// already exists, so no slot is created — a persistent overwrite.
+fun updateAt<a>(node: Tree(a), height: Int, index: Int, value: a): Tree(a) =
+    match node
+        Leaf(values) => Leaf(Node.set(values, index, value))
+        Branch(children) =>
+            let span = pow32(height - 1)
+            let childIndex = Int.div(index, span)
+            let childPos = Int.mod(index, span)
+            Branch(Node.set(children, childIndex, updateAt(Node.get(children, childIndex), height - 1, childPos, value)))
+
+// Persistent update at 0-based logical `index` (caller guarantees it is in range;
+// the public `Vector.set` owns the `IndexError` bounds assertion). A tail slot is
+// rewritten directly; a tree position descends via `updateAt`.
+fun set<a>(trie: TrieVector(a), index: Int, value: a): TrieVector(a) =
+    let internal = index + trie.origin
+    let off = tailOffset(trie.capacity)
+    if internal >= off then
+        TrieVector({
+            origin: trie.origin,
+            capacity: trie.capacity,
+            height: trie.height,
+            root: trie.root,
+            tail: Node.set(trie.tail, internal - off, value),
+        })
+    else
+        TrieVector({
+            origin: trie.origin,
+            capacity: trie.capacity,
+            height: trie.height,
+            root: updateAt(trie.root, trie.height, internal, value),
+            tail: trie.tail,
+        })
+
+// Returns the sub-vector over 0-based half-open logical window `[begin, end)`
+// (caller guarantees `0 <= begin <= end <= size`; the public `Vector` bracket
+// owns clamping and the descending-range `SliceError`). The window becomes a new
+// `origin`/`capacity` over the *same* trie, so any window whose tail region is a
+// prefix of the current one — end slices, `dropFirst`/`dropLast` — is O(1). When
+// the new capacity lands the tail elsewhere, only the tail (<= 32 elements) is
+// rebuilt from their current positions; the tree is shared untouched.
+fun slice<a>(trie: TrieVector(a), begin: Int, end: Int): TrieVector(a) =
+    if begin >= end then
+        empty()
+    else
+        let newOrigin = trie.origin + begin
+        let newCapacity = trie.origin + end
+        let newOff = tailOffset(newCapacity)
+        if newOff == tailOffset(trie.capacity) and newCapacity <= trie.capacity then
+            // The new tail is a prefix of the current one: reuse both fields as-is
+            // (any tail slots past the new capacity are simply never addressed).
+            TrieVector({
+                origin: newOrigin,
+                capacity: newCapacity,
+                height: trie.height,
+                root: trie.root,
+                tail: trie.tail,
+            })
+        else
+            // Rebuild the tail from internal `[liveStart, newCapacity)`. When the
+            // window is shorter than a full tail, `newOff` sits below `newOrigin`;
+            // the tail slots beneath the origin stay empty and are never read.
+            let liveStart = if newOrigin > newOff then newOrigin else newOff
+            var newTail: Node(a) = Node.empty()
+            for internal in liveStart..(newCapacity - 1)
+                newTail := Node.set(newTail, internal - newOff, readInternal(trie, internal))
+            TrieVector({
+                origin: newOrigin,
+                capacity: newCapacity,
+                height: trie.height,
+                root: trie.root,
+                tail: newTail,
+            })
