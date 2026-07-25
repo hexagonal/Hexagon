@@ -118,9 +118,9 @@ let plus = <a: Num>(x: a, y: a): a => x + y      -- equivalent, same AST node
 
 - Form: `<typevar: constraintList>` where `constraintList` is a single constraint or a parenthesized list `(C1, C2, ...)` meaning *all* listed constraints hold. The tuple notation is suggestive (conjunction is a product); it is not a real tuple. Example: `<a: (Eq, Show)>`.
 - Multiple type variables: `<a: Num, b: Show>` etc.
-- An unconstrained variable may be written bare: `<a>`.
+- An unconstrained variable may be written bare: `<a>` (legal; never canonical on functions — §4.2.1).
 - Type variables are non-uppercase-start; lowercase `a`, `b`, `k`, and `v` remain the ML-family cultural convention.
-- **Explicit type parameters do not create polymorphism** — inference generalizes anyway (§8). They (a) name the variables for documentation and (b) attach constraints. If the declared type is *less* general than the body supports, the declaration wins (the function is deliberately restricted). If it is *more* general than the body supports, that is a type error.
+- **Explicit type parameters do not create polymorphism** — inference generalizes anyway (§8). Their one added power over the bare lowercase spelling is to attach constraints; they do not name the variables into existence, since the lowercase case already classifies them as variables (§4.2.1). If the declared type is *less* general than the body supports, the declaration wins (the function is deliberately restricted). If it is *more* general than the body supports, that is a type error.
 - A written constraint list is also checked as a contract. Every constraint
   demanded by the body must be entailed by a declared constraint; the checker
   must not silently strengthen the list. Thus a body that uses `hash(value)`
@@ -128,10 +128,63 @@ let plus = <a: Num>(x: a, y: a): a => x + y      -- equivalent, same AST node
   extends `Eq`, the latter also covers equality uses without restating `Eq`.
 - Exported functions must write their constraint binders. Their lists contain
   every independent public constraint and omit constraints entailed as bases
-  of another listed constraint; Modules §4.1.1 owns the export rule. Private
-  module-level functions retain the boundary-first style convention: annotate
-  parameters, but infer constraints and results.
+  of another listed constraint; Modules §4.1.1 owns the export rule, and
+  §4.2.1 below gives the complete decision procedure for when a binder is
+  written at all. Private module-level functions retain the boundary-first
+  style convention: annotate parameters, but infer constraints and results.
 - **Position restriction:** `<...>` type parameters are syntactically permitted only on lambdas in `let`/`fun` RHS position (equivalently, in header sugar). A `<...>`-annotated lambda anywhere else is a parse error. This prevents rank-2 types from being *expressed* here; rank-2 has its own annotation-gated pathway outside this spec's scope.
+
+#### 4.2.1 When to write constraint binders
+
+The binder exists to attach constraints, not to introduce names. What a
+bare `<a>` would announce — that `a` is a type variable and not a concrete
+type — is already carried by the identifier's *case*. Lexer §3 assigns
+uppercase-start names the type, union-case, constraint, implied-type,
+exception, and module-alias roles and non-uppercase-start names the term
+and binder roles; in type position, then, a non-uppercase-start name can
+only be a type variable. So `x: a` already says everything `<a>` would,
+unambiguously and at the use site; the binder repeats information the
+reader already has.
+It earns its place only when it carries a constraint — `<a: Ord>` — which
+the lexical form cannot express. A type variable is therefore introduced by
+its first appearance in a parameter or return annotation (§4.1) and
+generalized by inference (§8); a bare `<a>` header adds nothing. Bare `<a>`
+remains grammatically legal on functions (Constraints §1) but is never
+canonical there — its one load-bearing position is a `constraint` head
+(Constraints §2), where no annotation precedes the binder to introduce the
+subject.
+
+The decision procedure, in full:
+
+- **Exported function, constrained variable:** write the binder. Its
+  content is fixed by Modules §4.1.1 — every independent public constraint,
+  maximal under base-constraint entailment, no restated bases.
+- **Exported function, unconstrained variable:** write no binder. "Every
+  independent constraint" quantifies over *constraints*, not type
+  variables; a variable with nothing to publish publishes nothing.
+- **Private module-level function:** write no binders at all; the body
+  infers the minimal principal constraint set (style, not enforced —
+  boundary-first convention, §4.1).
+
+The worked contrast:
+
+```
+export let id(x: a): a = x                       -- complete; no binder to write
+export let max<a: Ord>(x: a, y: a): a =
+    if x >= y then x else y                      -- binder, because Ord is published
+```
+
+`id` is a complete exported signature as written: `a` is introduced by
+`x: a`, rigid while the definition is checked (§4.1), and generalized at
+the binding (§8). Adding `<a>` would be legal and inert. `max` writes
+`<a: Ord>` because there is a constraint to publish — and writes only
+`Ord`, since any base constraints ride along by entailment.
+
+Rigidity is independent of the binder: an annotation variable is rigid
+whether or not a `<...>` binder names it (§4.1). The binder changes what
+is *published*, never how the body is *checked* — with the one §4.2
+exception that a written constraint list is itself a contract the body
+must not exceed.
 
 Constraint semantics (what `Num` means, base constraints, `honor`) are the Constraints spec's business. This spec fixes only the syntax above.
 
