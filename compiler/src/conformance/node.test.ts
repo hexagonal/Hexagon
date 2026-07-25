@@ -160,12 +160,50 @@ describe("Node intrinsic contract (leak-proof rejections)", () => {
     expect(messages.some((m) => m.includes("requires a type annotation"))).toBe(true);
   });
 
-  test("`Node` is unspellable in a type annotation, even in a runtime module", () => {
-    // The safety net for milestone 2: when `Node(a)` annotation syntax is wired,
-    // it must stay `runtime`-gated and excluded from exported signatures, or this
-    // — the last thing keeping a `Node` from crossing a boundary — comes undone.
+  test("`Node(a)` is unspellable in ordinary (non-runtime) modules", () => {
+    const messages = diagnose("fun f(n: Node(Int)): Int = 0\n");
+    expect(messages.some((m) => m.includes("unknown generic type") && m.includes("Node"))).toBe(true);
+  });
+
+  test("an exported signature may not name `Node`, even in a runtime module", () => {
     const messages = diagnose("export fun f(n: Node(Int)): Int = Node.get(n, 0)\n", { runtime: true });
-    expect(messages.some((m) => m.includes("Node"))).toBe(true);
-    expect(messages.length).toBeGreaterThan(0);
+    expect(messages.some((m) => m.includes("Node") && m.includes("no public form"))).toBe(true);
+  });
+
+  test("`Node(a)` inside an exported nominal union is fine (Node is its private representation)", () => {
+    // The milestone-2 shape: an exported `Tree` may be built over `Node`; only a
+    // *bare* `Node` in the signature leaks. Tree's Node-valued fields are its
+    // representation, guarded like any other private field type.
+    const messages = diagnose(
+      "export union Tree(a) =\n" +
+        "    | Leaf(values: Node(a))\n" +
+        "    | Branch(children: Node(Tree(a)))\n" +
+        "export fun leafOf<a>(value: a): Tree(a) = Leaf(Node.set(Node.empty(), 0, value))\n",
+      { runtime: true },
+    );
+    expect(messages).toEqual([]);
+  });
+});
+
+describe("Node annotations enable the recursive trie shape", () => {
+  test("§4 a `Tree(a) = Leaf(Node(a)) | Branch(Node(Tree(a)))` union round-trips a value", async () => {
+    const m = await runRuntime(
+      "union Tree(a) =\n" +
+        "    | Leaf(values: Node(a))\n" +
+        "    | Branch(children: Node(Tree(a)))\n" +
+        "fun leafValue(tree: Tree(Int), slot: Int): Int = match tree\n" +
+        "    Leaf(values) => Node.get(values, slot)\n" +
+        "    Branch(_) => 0 - 1\n" +
+        "fun buildLeaf(): Tree(Int) = Leaf(Node.set(Node.set(Node.empty(), 0, 10), 1, 20))\n" +
+        "fun buildBranch(): Tree(Int) = Branch(Node.set(Node.empty(), 0, buildLeaf()))\n" +
+        "export let leaf0: Int = leafValue(buildLeaf(), 0)\n" +
+        "export let leaf1: Int = leafValue(buildLeaf(), 1)\n" +
+        "export let nested: Int = match buildBranch()\n" +
+        "    Branch(children) => leafValue(Node.get(children, 0), 1)\n" +
+        "    Leaf(_) => 0 - 1\n",
+    );
+    expect(m.leaf0).toBe(10);
+    expect(m.leaf1).toBe(20);
+    expect(m.nested).toBe(20);
   });
 });
