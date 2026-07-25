@@ -188,6 +188,20 @@ describe("Node intrinsic contract (leak-proof rejections)", () => {
     expect(messages.some((m) => m.includes("exception `Corrupt`") && m.includes("no public form"))).toBe(true);
   });
 
+  test("an exported type alias may not name `Node`, but a private one is fine", () => {
+    const exported = diagnose("export type Slots = Node(Int)\n", { runtime: true });
+    expect(exported.some((m) => m.includes("type alias `Slots`") && m.includes("no public form"))).toBe(true);
+    // A private alias is useful internal shorthand for the trie; every leak path
+    // *from* it (a slot or a signature that uses it) is caught after inlining.
+    const private_ = diagnose(
+      "type IntSlots = Node(Int)\n" +
+        "fun firstSlot(node: IntSlots): Int = Node.get(node, 0)\n" +
+        "export let first: Int = firstSlot(Node.set(Node.empty(), 0, 5))\n",
+      { runtime: true },
+    );
+    expect(private_).toEqual([]);
+  });
+
   test("an extern declaration may not name `Node` (the foreign boundary)", () => {
     const messages = diagnose(
       "extern from \"host\"\n    fun sink(node: Node(Int)): Unit\n",

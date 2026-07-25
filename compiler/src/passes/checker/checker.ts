@@ -4057,6 +4057,13 @@ class Checker {
           primary: item.span,
         });
       }
+      if (item.kind === "TypeAlias" && item.exported && annotationMentionsNode(item.annotation)) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `exported type alias \`${item.name}\` names the hidden \`Node\` intrinsic, which has no public form; keep the alias private`,
+          primary: item.span,
+        });
+      }
       if (item.kind === "RecordDeclaration" && item.exported) {
         const record = this.#records.get(item.record);
         if (record !== undefined && mentionsNodeSlot(record.fields.map((field) => field.annotation))) {
