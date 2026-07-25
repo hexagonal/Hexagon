@@ -101,21 +101,35 @@ describe("VectorTrie build path (append + tail flush + growth)", () => {
   });
 
   test("§4 growth past 32² = 1024 builds a height-3 trie", async () => {
+    // Growth to height 3 is flush #33, which fires on the 1057th append (a flush
+    // fires at element 32k+1); flush #34, at element 1089, is the first to take
+    // insertLeaf's recursive arm (leaf 33 -> root child 1, childPos != 0). So
+    // buildTo(1100) is the shallowest build that lands a fully-formed height-3
+    // trie: root holds indices 0..1087 (34 leaves), the tail holds 1088..1099.
+    // The probes straddle every region — the original subtree under the root's
+    // first child, the growth spine and the recursed leaf under its second, and
+    // the tail.
     const m = await runTrie(
       BUILD +
-        "let big = buildTo(1056)\n" +
-        "export let s1056: Int = size(big)\n" +
-        "export let b0: Int = get(big, 0)\n" +
-        "export let b1000: Int = get(big, 1000)\n" +
-        "export let b1023: Int = get(big, 1023)\n" + // last of the height-2 fill
-        "export let b1024: Int = get(big, 1024)\n" + // first after growth to height 3
-        "export let b1055: Int = get(big, 1055)\n", // final element (in the tail)
+        "let big = buildTo(1100)\n" +
+        "export let s1100: Int = size(big)\n" +
+        "export let b0: Int = get(big, 0)\n" + // deep under old root, now root child 0
+        "export let b1023: Int = get(big, 1023)\n" + // last leaf under root child 0
+        "export let b1024: Int = get(big, 1024)\n" + // first under root child 1 (growth spine)
+        "export let b1055: Int = get(big, 1055)\n" + // last of the spine's leaf
+        "export let b1056: Int = get(big, 1056)\n" + // first of the recursed leaf (flush #34)
+        "export let b1087: Int = get(big, 1087)\n" + // last element in the trie
+        "export let b1088: Int = get(big, 1088)\n" + // first tail element
+        "export let b1099: Int = get(big, 1099)\n", // final element (in the tail)
     );
-    expect(m.s1056).toBe(1056);
+    expect(m.s1100).toBe(1100);
     expect(m.b0).toBe(1);
-    expect(m.b1000).toBe(1001);
     expect(m.b1023).toBe(1024);
     expect(m.b1024).toBe(1025);
     expect(m.b1055).toBe(1056);
+    expect(m.b1056).toBe(1057);
+    expect(m.b1087).toBe(1088);
+    expect(m.b1088).toBe(1089);
+    expect(m.b1099).toBe(1100);
   });
 });
