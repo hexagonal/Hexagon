@@ -269,6 +269,39 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   of "the unification"; the checker half is repointing the intrinsic `Seq`
   producers at the prelude declaration. The full sequencing is owned by
   `seq-deintrinsification-plan.md`.
+- **Correction applied (2026-07-26, plan Phase 2).** The record table moved up
+  beside the alias, extern-type, and union tables, above the intrinsic branch,
+  and the two later record lookups it superseded were deleted — one lookup now
+  serves the applied and nullary forms alike, so the asymmetry cannot come back
+  by halves. Membership of the fallback is unchanged this phase:
+  `Seq`/`Vector`/`Set`/`Map` are still in it, and `Seq` leaves only at Phase 4.
+- **Confirmed empirically before the fix, and the fix's own signature.** The
+  defect's tell is a diagnostic naming the same type on both sides —
+  `type mismatch: expected Vector(Int), found Vector(Int)` — with the
+  `union Vector(a)` control clean beside it, which is the asymmetry stated as an
+  experiment. A second, quieter consequence surfaced only under probing: a user
+  record whose *arity* differs from the intrinsic's got no arity diagnostic at
+  all, because the annotation never reached the declaration; the mismatch
+  appeared later as an unreadable `Vector(Int)` / `Vector(?, ?)`. The corrected
+  resolver reports `type \`Vector\` expects 2 arguments, but 1 were provided`.
+- **Executable conformance:** `compiler/src/conformance/resolution-order.test.ts`
+  — occlusion coherence for a user `record Vector(a)` across annotation,
+  constructor, field read, same-module and imported-home companion dispatch, and
+  a runtime round-trip; the arity discriminator; `Map(k, v)` and `Seq(a)` forms;
+  the `union` control pinned against regression; `Array`, `Nullable`, and
+  runtime-private `Node` still resolving uncontested (and `Node` still hidden
+  outside a runtime module, and outranked by a runtime `record Node(a)`);
+  `Vector`/`Set`/`Map`/`Seq` intrinsics still working; the `for ... in`
+  desugaring unaffected; and the term-level yield pinned in the positive
+  direction, via module aliases named `Seq` and `Vector`. Sensitivity verified by
+  blinding, not assumed: with the resolver change reverted, 10 of the 22 go red.
+- **Known residue, pinned deliberately.** Occluding `Vector` does not redirect
+  the `[...]` **literal**, which is dedicated syntax wired to the intrinsic — so
+  `fun lit(): Vector(Int) = [1, 2, 3]` still yields the same-name mismatch, now
+  confined to the literal. That is `Vector`'s own arc (plan Phase 5, item 11,
+  whose named weight is exactly this syntax surface), not this defect's; `Seq`
+  has no literal form, so Phase 4 is unaffected. Pinned so the later arc starts
+  from an assertion rather than a surprise.
 
 ### 7. A sequential placeholder could be generalized over
 
