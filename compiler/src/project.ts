@@ -189,6 +189,7 @@ export function compileProject(files: readonly Source.File[]): CompiledProject {
     if (module === undefined) continue;
     for (const diagnostic of module.typed.diagnostics) diagnostics.add(diagnostic);
     for (const diagnostic of module.javascript.diagnostics) diagnostics.add(diagnostic);
+    for (const diagnostic of module.declarations.diagnostics) diagnostics.add(diagnostic);
   }
 
   // Emit a prelude module only when some consumer imports from it, so a project

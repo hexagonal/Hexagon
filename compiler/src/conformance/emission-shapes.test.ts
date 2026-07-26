@@ -27,6 +27,13 @@ async function run(source: string): Promise<Record<string, unknown>> {
   return (await import(/* @vite-ignore */ url)) as Record<string, unknown>;
 }
 
+// Proves this file's harness can observe a failure: a harness that silently
+// swallowed diagnostics would report every case below as green regardless of
+// what the compiler did.
+test("the harness reports a broken module rather than passing it", async () => {
+  await expect(run("export let broken: Int = missing(1)\n")).rejects.toThrow();
+});
+
 describe("concise arrow bodies", () => {
   test("a lambda returning a record returns the record, not undefined", async () => {
     // A record construction inlines to its literal (the constructor is the
