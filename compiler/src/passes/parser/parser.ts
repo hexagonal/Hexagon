@@ -10,6 +10,7 @@
 
 import * as Diagnostics from "../../support/diagnostics.js";
 import type * as Source from "../../support/source.js";
+import { syntheticParameterName } from "../../support/synthetic.js";
 import type * as LaidOut from "../../syntax/laid-out/index.js";
 import type * as Lexed from "../../syntax/lexed/index.js";
 import type * as Parsed from "../../syntax/parsed/index.js";
@@ -467,7 +468,6 @@ class Parser {
         `extern callable declarations use \`fun\`; write \`fun ${localName.text}(...)\` with explicit parameters`,
       );
       this.#parseParameters();
-      void 0;
     }
     this.#expect("Colon", "extern values require a type annotation");
     const annotation = this.#parseTypeAnnotation() ?? invalidType(localName);
@@ -2057,7 +2057,7 @@ class Parser {
 
   /** The binder a pattern parameter destructures from; not writable in source. */
   #freshParameterName(span: Source.Span, index: number): Parsed.Name {
-    return { text: `__hex_parameter${index}`, startClass: "non-upper", span };
+    return { text: syntheticParameterName(index), startClass: "non-upper", span };
   }
 
   /**

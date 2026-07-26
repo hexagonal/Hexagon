@@ -5,6 +5,7 @@
 
 import * as Diagnostics from "../../support/diagnostics.js";
 import type * as Source from "../../support/source.js";
+import { isSyntheticParameterName } from "../../support/synthetic.js";
 import type * as Core from "../../syntax/core/index.js";
 import type * as Emitted from "../../emission/index.js";
 import type * as Resolved from "../../syntax/resolved/index.js";
@@ -3695,8 +3696,10 @@ function renderExternFunctionDeclaration(
   declaration: Core.ExternBlockItem["declarations"][number] & { readonly kind: "ExternFun" },
   exported: boolean,
 ): readonly string[] {
-  const parameters = declaration.parameters.map((parameter) =>
-    `${parameter.name}: ${renderType(parameter.scheme.type, new Map(), false)}`
+  const parameters = declaration.parameters.map((parameter, index) =>
+    `${declarationParameterName(parameter, index)}: ${
+      renderType(parameter.scheme.type, new Map(), false)
+    }`
   );
   const result = renderType(declaration.result, new Map(), true);
   const safe = isSafeIdentifier(declaration.localName);
@@ -3841,7 +3844,11 @@ function declarationParameterName(
   binding: Core.Binding | undefined,
   index: number,
 ): string {
-  if (binding === undefined) return `arg${index}`;
+  // A pattern parameter's binder is compiler-minted and unwritable in source,
+  // so it renders like any other unnamed parameter rather than leaking.
+  if (binding === undefined || isSyntheticParameterName(binding.name)) {
+    return `arg${index}`;
+  }
   return isSafeIdentifier(binding.name)
     ? binding.name
     : `__hex_binding${Number(binding.symbol)}`;

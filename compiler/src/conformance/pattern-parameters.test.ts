@@ -15,13 +15,21 @@ import { parse } from "../passes/parser/parser.js";
 import { resolve } from "../passes/resolver/resolver.js";
 import { check } from "../passes/checker/checker.js";
 import { elaborate } from "../passes/elaborator/elaborator.js";
-import { emitJavaScript } from "../passes/emitter/emitter.js";
+import { emitDeclarations, emitJavaScript } from "../passes/emitter/emitter.js";
 
 function diagnostics(source: string): string[] {
   const file = new Source.File(Source.fileId(0), "/probe.hex", source);
   const resolved = resolve(parse(applyLayout(lex(file))), {});
   const typed = check(resolved);
   return [...resolved.diagnostics, ...typed.diagnostics].map(({ message }) => message);
+}
+
+function declarations(source: string): string {
+  const file = new Source.File(Source.fileId(0), "/probe.hex", source);
+  const resolved = resolve(parse(applyLayout(lex(file))), {});
+  const typed = check(resolved);
+  expect([...resolved.diagnostics, ...typed.diagnostics]).toEqual([]);
+  return emitDeclarations(elaborate(typed)).text;
 }
 
 async function run(source: string): Promise<Record<string, unknown>> {
@@ -117,5 +125,53 @@ describe("the depth rule and the irrefutability gate", () => {
   test("a plain name parameter is unchanged", async () => {
     const m = await run("let f(value) = value\nexport let out: Int = f(7)\n");
     expect(m.out).toBe(7);
+  });
+});
+
+describe("signature positions have no body to destructure into", () => {
+  test("an extern function rejects a pattern parameter", () => {
+    expect(
+      diagnostics('extern from "m"\n    fun f((x, y): (Int, Int)): Int\n'),
+    ).toContain("extern functions take plain parameter names, not patterns");
+  });
+
+  test("a constraint member rejects a pattern parameter", () => {
+    expect(
+      diagnostics("constraint Sized<a> =\n    size((x, y): (a, a)): Int\n"),
+    ).toContain("constraint members take plain parameter names, not patterns");
+  });
+
+  test("a wildcard is accepted there: it binds nothing, so nothing is destructured", () => {
+    expect(diagnostics('extern from "m"\n    fun f(_: Int): Int\n')).toEqual([]);
+  });
+});
+
+describe("the synthetic binder never reaches the reader", () => {
+  // The lexer reserves `__hex_`, so a diagnostic naming a synthetic binder
+  // would tell the reader to write an identifier the lexer refuses — a Rewrite
+  // Rule breach (Declarations Preamble §1.1).
+  test("the incomplete-signature diagnostic names `_`, not the minted binder", () => {
+    const messages = diagnostics("export let f(((a, b), c)) = a + b + c\n");
+    expect(messages.some((m) => m.includes("add type for parameter `_`"))).toBe(true);
+    expect(messages.some((m) => m.includes("__hex_"))).toBe(false);
+  });
+
+  test("emitted declarations do not publish the minted binder", () => {
+    const text = declarations(
+      "export let f(_: Int): Int = 1\n" +
+        "export let g(((a, b), c): ((Int, Int), Int)): Int = a + b + c\n",
+    );
+    expect(text).not.toContain("__hex_");
+  });
+
+  test("an extern signature does not publish the minted binder", () => {
+    const text = declarations('extern from "m"\n    export fun f(_: Int): Int\n');
+    expect(text).not.toContain("__hex_");
+  });
+
+  test("two synthetic parameters render distinctly, keeping the output valid", () => {
+    const text = declarations("export let f(_: Int, _: Int): Int = 1\n");
+    expect(text).toContain("arg0");
+    expect(text).toContain("arg1");
   });
 });

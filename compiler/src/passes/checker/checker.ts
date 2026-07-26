@@ -9,6 +9,7 @@
 
 import * as Diagnostics from "../../support/diagnostics.js";
 import type * as Source from "../../support/source.js";
+import { displayParameterName } from "../../support/synthetic.js";
 import * as Resolved from "../../syntax/resolved/index.js";
 import * as Typed from "../../syntax/typed/index.js";
 
@@ -4214,7 +4215,7 @@ class Checker {
 
     const missingParameters = lambda.parameters
       .filter((parameter) => parameter.annotation === undefined)
-      .map((parameter) => `\`${parameter.name}\``);
+      .map((parameter) => `\`${displayParameterName(parameter.name)}\``);
     const missingReturn = lambda.returnAnnotation === undefined;
     if (missingParameters.length > 0 || missingReturn) {
       const missing = [
