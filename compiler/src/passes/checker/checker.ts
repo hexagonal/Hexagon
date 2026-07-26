@@ -180,6 +180,8 @@ class Checker {
   /** Exact Int expressions that checking injects into an independently known Signed target. */
   readonly #intWidenings = new WeakMap<Resolved.Expr, Requirement>();
   readonly #nameRequirements = new WeakMap<Resolved.NameExpr, readonly Requirement[]>();
+  /** Name references serving as a call callee, whose evidence the call supplies. */
+  readonly #calleeNames = new WeakSet<Resolved.NameExpr>();
   readonly #callRequirements = new WeakMap<Resolved.CallExpr, readonly Requirement[]>();
   readonly #pipeCalls = new WeakMap<Resolved.BinaryExpr, Resolved.CallExpr>();
   readonly #dotCalls = new WeakMap<Resolved.CallExpr, {
@@ -2123,6 +2125,9 @@ class Checker {
           type = result;
         }
         if (expression.callee.kind === "Name") {
+          // The call owns this reference's evidence, so the reference itself
+          // must not also carry it — that would apply it twice.
+          this.#calleeNames.add(expression.callee);
           this.#callRequirements.set(
             expression,
             this.#nameRequirements.get(expression.callee) ?? [],
@@ -4475,6 +4480,46 @@ class Checker {
     };
   }
 
+  /**
+   * The evidence a constrained binding's **ABI** expects, for one reference to
+   * it: one argument per constraint the callee's scheme declares, in order.
+   *
+   * **Maximal constraints per variable** (FFI Part 9 §13, which states this is
+   * the same rule internally and publicly). Instantiating a scheme yields every
+   * requirement the body accumulated, including ones a *sibling* requirement on
+   * the same type already implies — `Num` beside `Signed` on one variable. The
+   * definition declares a parameter only for the maximal ones, so a reference
+   * must supply only those: passing both handed the `Num` dictionary to the
+   * `Signed` slot and crashed at the first `.subtract` (defect 16).
+   *
+   * Deliberately *not* the `evidenceConstraint` test `#publicScheme` uses. That
+   * test cannot tell a redundant sibling from a **projection** — `Same` reached
+   * as `__hex_dictLabeled.same` from an enclosing dictionary also carries an
+   * `evidenceConstraint` of another name, and it is the callee's one real
+   * argument. Elimination has to be decided among siblings, not per requirement.
+   */
+  #evidenceRequirements(requirements: readonly Requirement[]): readonly Typed.Constraint[] {
+    const namesByType = new Map<string, Set<string>>();
+    const identify = (requirement: Requirement): string => {
+      const type = this.#prune(requirement.type);
+      return type.kind === "Variable" ? `v${type.id}` : this.#display(type);
+    };
+    for (const requirement of requirements) {
+      const identity = identify(requirement);
+      const names = namesByType.get(identity) ?? new Set<string>();
+      names.add(requirement.name);
+      namesByType.set(identity, names);
+    }
+    return this.#publicRequirements(requirements.filter((requirement) => {
+      const siblings = namesByType.get(identify(requirement)) ?? new Set<string>();
+      for (const sibling of siblings) {
+        if (sibling === requirement.name) continue;
+        if (this.#baseConstraintPath(sibling, requirement.name) !== undefined) return false;
+      }
+      return true;
+    }));
+  }
+
   #publicRequirements(requirements: readonly Requirement[]): readonly Typed.Constraint[] {
     const unique = new Map<string, Typed.Constraint>();
     for (const requirement of requirements) {
@@ -4894,7 +4939,18 @@ class Checker {
   #materializeUnwidenedExpr(expression: Resolved.Expr): Typed.Expr {
     const type = this.#publicType(this.#typeOf(expression));
     switch (expression.kind) {
-      case "Name":
+      case "Name": {
+        // A reference in *value* position carries the constraints it resolved,
+        // so emission can close over the evidence (defect 4). A callee
+        // reference carries none: the enclosing `Call` supplies it, and doing
+        // both would apply it twice.
+        const requirements = this.#calleeNames.has(expression)
+          ? []
+          : this.#evidenceRequirements(this.#nameRequirements.get(expression) ?? []);
+        return requirements.length === 0
+          ? { ...expression, type }
+          : { ...expression, type, requirements };
+      }
       case "CollectionOperation":
       case "PrimitiveOperation":
       case "Unit":
@@ -5064,7 +5120,7 @@ class Checker {
           type,
           callee: this.#materializeExpr(expression.callee),
           arguments: expression.arguments.map((argument) => this.#materializeExpr(argument)),
-          requirements: this.#publicRequirements(
+          requirements: this.#evidenceRequirements(
             this.#callRequirements.get(expression) ?? [],
           ),
         };

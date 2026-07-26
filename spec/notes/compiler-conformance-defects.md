@@ -225,6 +225,37 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   higher-order combinator. Annotating the parameter fixes it.
 - **Severity:** the silent path is the concerning one — clean compile, runtime
   crash.
+- **Diagnosis (2026-07-26).** Not "no evidence is computed" — the evidence is
+  computed and then dropped. A constrained generic compiles to a function taking
+  a trailing evidence dictionary, and evidence is attached to **call sites**:
+  the checker records a requirement list for every `Name` reference but
+  transfers it to the typed tree only when that name is a call *callee*. A
+  reference in **value position** — passed as an argument, bound to an annotated
+  `let`, returned, stored in a collection, imported and passed on — kept the
+  raw arity-`n + k` binding, so a consumer calling it with `n` arguments left the
+  dictionary `undefined` and the first operation through it crashed.
+- **Newly reachable through ordinary code.** `Seq.map` was a compiler intrinsic
+  until the Phase 4 unification, so `Seq.map(values, double)` with an unannotated
+  `double` could not be written at all. It can now, and it crashed.
+- **Correction applied (2026-07-26).** A value reference carries its own
+  resolved constraints (`Typed.NameExpr.requirements`, `Core.NameExpr.evidence`),
+  and emission eta-expands it to the arity the reference claims, closing over the
+  dictionaries: `plus` becomes `(a0, a1) => plus(a0, a1, <dict>)`. Callee
+  references carry none — the enclosing `Call` still owns that evidence, and
+  doing both would apply it twice, so the checker marks callee names explicitly.
+  Only references that actually carry evidence are wrapped: wrapping every value
+  reference would cost an allocation per mention and break function identity,
+  which FFI Part 6 §1 is explicit about. The exported binding is untouched — the
+  raw function is what leaves the module, and its specializations are unaffected.
+- **Executable conformance:**
+  `compiler/src/conformance/constrained-value-evidence.test.ts`, all executing
+  the emitted module, because the diagnostic channel says nothing about this
+  defect. Eight value positions, including the imported case (which reaches the
+  emitter by a different path) and two references at *different* types, which
+  forbids one shared wrapper. Three guards: a direct call still passes evidence
+  at the call site, an unconstrained function is still passed by identity, and an
+  annotated monomorphic function needs no evidence at all. Verified sensitive by
+  blinding — the eight redden, the guards stay green.
 
 ### 5. A multi-line `match` cannot be a record-field value (layout)
 
@@ -809,3 +840,45 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
 - **Shape of the fix:** the spine's memo cell needs a third state beside
   *unforced* and *forced* — *failed, with the thrown value* — replayed on every
   subsequent force of that position. It is a change to the one helper.
+
+### 16. A call could pass more evidence than the callee's scheme declares
+
+- **Classification:** compiler defect against specification. **Pre-existing**
+  (reproduced on merged `main` at 8d759a0 in a detached worktree), found while
+  fixing defect 4 — the first defect-4 repair was blocked by it.
+- **Authority:** FFI Part 9 §13 — duplicate-evidence elimination is **maximal
+  constraints per variable, eliminated before ordering, and the same rule
+  internally and publicly**. Constraints §6.1 fixes the trailing-evidence ABI:
+  one argument per constraint the callee's scheme declares, positionally.
+- **Reproduction (clean compile, runtime crash), no value position involved:**
+
+  ```
+  let negate(a) = 0 - a
+  export let out: Int = negate(5)
+  ```
+
+  `TypeError: Cannot read properties of undefined (reading 'fromNat')`. Writing
+  the signature — `let negate<a: Signed>(x: a): a = 0 - x` — works, and that
+  discriminating pair is what located it.
+- **Defect origin:** the two sides of the ABI were built by different rules.
+  `#publicScheme` (the definition) declares a parameter only for constraints not
+  discharged through another's evidence, so `negate` took one `Signed`
+  dictionary. `#publicRequirements` (the call) kept every requirement
+  instantiation produced — `Num` *and* `Signed` — so the call passed two. The
+  `Num` dictionary landed in the `Signed` slot; `.subtract` was `undefined`.
+- **Correction applied (2026-07-26).** Call and value references both go through
+  one rule that mirrors the definition: among requirements on the **same type**,
+  drop any that a sibling constraint implies. That is §13's wording exactly.
+- **The first attempt was wrong, and the way it was wrong is the lesson.**
+  Filtering per requirement on "its `evidenceConstraint` names another
+  constraint" — the test `#publicScheme` uses — looks equivalent and is not. A
+  **projection** carries the same marking: `Same` reached as
+  `__hex_dictLabeled.same` from an enclosing dictionary names another constraint
+  too, and it is the callee's one real argument. That filter dropped it, and an
+  existing emitter test caught it. Redundancy is a property of a requirement
+  *relative to its siblings*, not of a requirement alone.
+- **Executable conformance:** in the same file — a direct call supplying only
+  the maximal constraint, the annotated spelling pinned as the control that the
+  two must agree, and the projection case that forbids the per-requirement
+  filter. Verified sensitive by blinding the elimination independently of
+  defect 4's fix: exactly two tests redden, and they are the two about arity.

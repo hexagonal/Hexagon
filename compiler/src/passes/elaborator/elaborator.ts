@@ -73,7 +73,17 @@ function elaborateItem(item: Typed.Item): Core.Item {
 
 function elaborateExpr(expression: Typed.Expr): Core.Expr {
   switch (expression.kind) {
-    case "Name":
+    case "Name": {
+      const { requirements = [], ...name } = expression;
+      if (requirements.length === 0) return name;
+      return {
+        ...name,
+        evidence: requirements.map((requirement) => ({
+          constraint: requirement.name,
+          value: evidence(requirement),
+        })),
+      };
+    }
     case "PrimitiveOperation":
     case "Unit":
     case "Boolean":
