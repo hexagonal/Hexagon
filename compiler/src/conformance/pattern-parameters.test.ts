@@ -24,6 +24,13 @@ function diagnostics(source: string): string[] {
   return [...resolved.diagnostics, ...typed.diagnostics].map(({ message }) => message);
 }
 
+/** The parameter names of the sole declaration `source` emits, in order. */
+function renderedParameterNames(source: string): string[] {
+  const signature = /\((.*)\) =>/.exec(declarations(source));
+  expect(signature).not.toBeNull();
+  return signature![1]!.split(", ").map((parameter) => parameter.split(":")[0]!.trim());
+}
+
 function declarations(source: string): string {
   const file = new Source.File(Source.fileId(0), "/probe.hex", source);
   const resolved = resolve(parse(applyLayout(lex(file))), {});
@@ -173,5 +180,27 @@ describe("the synthetic binder never reaches the reader", () => {
     const text = declarations("export let f(_: Int, _: Int): Int = 1\n");
     expect(text).toContain("arg0");
     expect(text).toContain("arg1");
+  });
+
+  // TypeScript rejects a duplicate parameter name, so a module that checks
+  // clean must not emit declarations that do not. `argN` is itself writable,
+  // so the generated name yields; the user's is never renamed.
+  test("a user parameter already spelt `arg0` pushes the generated name aside", () => {
+    expect(renderedParameterNames("export let f(_: Int, arg0: Int): Int = arg0\n"))
+      .toEqual(["arg1", "arg0"]);
+  });
+
+  test("the same collision at the generated name's own index", () => {
+    expect(renderedParameterNames("export let g(arg1: Int, _: Int): Int = arg1\n"))
+      .toEqual(["arg1", "arg2"]);
+  });
+
+  test("every rendered signature names its parameters distinctly", () => {
+    const names = renderedParameterNames(
+      "export let h(_: Int, arg0: Int, _: Int, arg1: Int, _: Int): Int = arg0\n",
+    );
+    expect(new Set(names).size).toBe(names.length);
+    expect(names).toContain("arg0");
+    expect(names).toContain("arg1");
   });
 });
