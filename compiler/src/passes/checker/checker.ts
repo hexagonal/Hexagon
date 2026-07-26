@@ -2056,11 +2056,17 @@ class Checker {
           knownCallee.kind === "Function" &&
           knownCallee.parameters.length !== arguments_.length
         ) {
+          const unitCall = knownCallee.parameters.length === 1 &&
+              arguments_.length === 0 && this.#solvesToUnit(knownCallee.parameters[0])
+            ? "this function takes one unit argument; write `f(())`"
+            : knownCallee.parameters.length === 0 && arguments_.length === 1
+              ? "this function takes no arguments; write `f()`"
+              : undefined;
           this.#diagnostics.add({
             severity: "error",
-            message:
+            message: unitCall ??
               `function expects ${knownCallee.parameters.length} arguments, got ` +
-              `${arguments_.length}`,
+                `${arguments_.length}`,
             primary: expression.span,
           });
           type = ERROR;
@@ -2867,6 +2873,42 @@ class Checker {
     return variable;
   }
 
+  /** Whether a type is known to be `Unit` — an unsolved variable is not. */
+  #solvesToUnit(type: Mono | undefined): boolean {
+    if (type === undefined) return false;
+    const solved = this.#prune(type);
+    return solved.kind === "Constructor" && solved.name === "Unit";
+  }
+
+  /**
+   * A zero-against-one arity mismatch, which otherwise surfaces as a bare
+   * `0 and 1` naming neither the cause nor the fix (Functions §5.3). `left` is
+   * the expected type and `right` the actual.
+   *
+   * When the one-parameter side's parameter genuinely solves to `Unit` this is
+   * the `() -> T` versus `Unit -> T` confusion and is named as such. When that
+   * parameter is still unsolved, `Unit` is not claimed — but the zero-parameter
+   * side is concrete either way, so the message still says what is provable and
+   * carries the fix.
+   */
+  #nullaryArityMessage(left: Mono, right: Mono): string | undefined {
+    if (left.kind !== "Function" || right.kind !== "Function") return undefined;
+    const expectedNullary = left.parameters.length === 0 && right.parameters.length === 1;
+    const actualNullary = left.parameters.length === 1 && right.parameters.length === 0;
+    if (!expectedNullary && !actualNullary) return undefined;
+
+    const soleParameter = expectedNullary ? right.parameters[0] : left.parameters[0];
+    if (this.#solvesToUnit(soleParameter)) {
+      return "`Unit -> T` takes a unit value, so it is a one-parameter function; " +
+        "for a zero-parameter function write `() -> T`";
+    }
+    return expectedNullary
+      ? "expected a zero-parameter function, but this one takes a parameter; " +
+        "write `() => ...`"
+      : "a zero-parameter function cannot be passed where a one-parameter function " +
+        "is expected; generics do not abstract over arity, so wrap it: `_ => thunk()`";
+  }
+
   #prune(type: Mono): Mono {
     if (type.kind !== "Variable" || type.instance === undefined) return type;
     type.instance = this.#prune(type.instance);
@@ -2903,9 +2945,9 @@ class Checker {
       if (actualLeft.parameters.length !== actualRight.parameters.length) {
         this.#diagnostics.add({
           severity: "error",
-          message:
+          message: this.#nullaryArityMessage(actualLeft, actualRight) ??
             `function arity mismatch: ${actualLeft.parameters.length} and ` +
-            `${actualRight.parameters.length}`,
+              `${actualRight.parameters.length}`,
           primary: span,
         });
         return;

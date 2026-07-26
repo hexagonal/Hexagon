@@ -227,14 +227,57 @@ apply   : (String -> String) -> String
 
 The internal representation remains genuinely n-ary: `TFun([], R)`, `TFun([A], R)`, and `TFun([A, B], R)`. This display rule does not encode unary functions as a special semantic form.
 
-### 5.2 The SML reading (pedagogy only)
+### 5.2 The SML reading (rejected — do not re-litigate)
 
-The informal model "every function takes one thing — a single value, a tuple-shaped list of values, or nothing (`()`)" is a legitimate way to *teach* the syntax, and Primitive Types §9's remarks about `()` are consistent with it. But the implementer must not encode it: function types are n-ary, calls are checked by arity, and no unit value is passed to `f()`.
+The natural wrong answer, reached independently by readers who know ML: *"a
+function is a machine from input to output, so it cannot take nothing; a
+nullary function must take `unit`."* F# and OCaml do spell nullary as
+`unit -> T`, because ML has no true zero-ary functions. **Hexagon departed
+deliberately, and the departure is load-bearing** — it is what buys n-ary
+JS-native emission.
+
+The two are distinct types with distinct calling conventions, visible in the
+emitted JavaScript:
+
+```
+let thunk: () -> Int = () => 5          -- emits `() => 5`;  called `thunk()`
+let taking: Unit -> Int = value => 5    -- emits `value => 5`; called `taking(())`, i.e. `taking(undefined)`
+```
+
+So the model is a legitimate way to *teach* the surface syntax — `()` for the
+nullary case, no 1-tuples, tuple-shaped parameter lists (§1) — and Primitive
+Types §9's remarks about `()` are consistent with it. It must not be encoded:
+function types are n-ary, calls are checked by arity, and no unit value is
+passed to `f()`. §5.3 states the law and the diagnostics that enforce it.
+
+Blessing an equivalence between the two is **rejected**: it would require
+hidden adapters wherever one flows into the other, breaching §5's
+arity-checked-first rule, the readable-JS goal, and FFI Part 6's identity
+calling convention — and it would be the language's only implicit conversion
+between distinct types.
 
 ### 5.3 Nullary functions and `Unit`
 
 - `() => body` is a **zero-parameter function**. No argument (unit or otherwise) is passed; emitted JS takes no parameters.
-- `Unit` appears in this spec only as a **return type** for effect-only functions: `let log(msg: String): Unit = ...`. Its literal `()`, JS representation (`undefined`), and constraint memberships are fixed in Primitive Types §9.
+- **A thunk's type is written `() -> T`, never `Unit -> T`.** The two are
+  different types: `() -> T` takes no argument, `Unit -> T` takes one argument
+  whose type happens to be `Unit`. Writing `Unit` in parameter position is legal
+  but never canonical (`canonical-formatting-and-naming.md` S10).
+- `Unit` appears in this spec only as a **return type** for effect-only functions: `let log(msg: String): Unit = ...`. Its literal `()`, JS representation (`undefined`), and constraint memberships are fixed in Primitive Types §9. A `Unit`-typed *parameter* is not written by hand; it arises from instantiating a generic at `Unit`.
+- **Generics cannot abstract over arity.** A type variable ranges over types, and
+  a zero-ary domain is not a type, so `a -> b` never unifies with `() -> b`. A
+  thunk therefore cannot be passed where `a -> b` is expected; the bridge is an
+  eta-wrap that gives the callee its one argument:
+
+  ```
+  let apply(transform: a -> b, value: a): b = transform(value)
+  let five(): Int = 5
+  let result = apply(_ => five(), ())     -- not `apply(five, ())`
+  ```
+
+  This seam is narrow — it appears only where a thunk meets a fully generic
+  function slot — but it is a real cost of n-ary functions and is stated rather
+  than left to be discovered.
 - The parser must keep `()` (unit literal / nullary call syntax) unambiguous against grouping parens; coordinate with the Products spec rather than special-casing.
 
 ### 5.4 Parameter order convention
@@ -387,6 +430,10 @@ Diagnostics obey the Rewrite Rule (Declarations Preamble §1.1): where a legal s
 | Lambda (hence any `fun` body) **assigns** an outer `var` | Statements §6.2/§9.3 own it — "…cannot be updated inside a lambda; use a `for` loop for mutable iteration, or have the lambda return the updated value and assign it outside" |
 | Call with wrong number of arguments | "`f` expects N arguments, got M" (§5) |
 | Passing a tuple where multiple arguments are expected | arity error (§5); consider a hint suggesting destructuring |
+| `() =>` meets a `Unit -> T` annotation, or a unit-typed parameter meets `() -> T` | "`Unit -> T` takes a unit *value*; a zero-parameter function is `() -> T`" + the corrected annotation (§5.3) |
+| A zero/one arity mismatch where the parameter is not known to be `Unit` | say what is provable without claiming `Unit`: "expected a zero-parameter function, but this one takes a parameter; write `() => ...`", or the eta-wrap row below (§5.3) |
+| `f()` where `f: Unit -> T`, or `f(())` where `f: () -> T` | "`f` takes one unit argument; write `f(())`" / "`f` takes no arguments; write `f()`" (§5.3) |
+| A thunk passed where `a -> b` is expected | "a zero-parameter function cannot be passed where a one-parameter function is expected; generics do not abstract over arity, so wrap it: `_ => thunk()`" (§5.3) |
 | `((x, y)) => e` written meaning two parameters | Pattern Matching §6.5 owns it — "one parameter destructuring a tuple; remove the outer parentheses for two parameters" |
 | Polymorphic recursion | ordinary unification failure at the recursive call site (§7.4); consider a hint when the failing call is a self/SCC reference |
 | Lambda parameter used at two types | unification failure (§8.5); diagnostic should distinguish this from other type errors if feasible |
