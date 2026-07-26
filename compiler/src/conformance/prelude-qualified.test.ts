@@ -225,3 +225,97 @@ describe("the qualified spelling runs (PR #90 finding F1)", () => {
     expect(module["same"]).toBe(true);
   });
 });
+
+describe("the synthesized import dodges every module-level binding (PR #91 finding F1)", () => {
+  /**
+   * The dodge is what makes §6.4 usable, and it was written against a *list* of
+   * binder forms — `let`, `fun`, `var` — rather than against the module. Every
+   * other way to bind a module-level name collided, and the collision is the
+   * silent kind: a clean compile whose emitted JavaScript redeclares an
+   * identifier and dies with a `SyntaxError` on load.
+   *
+   * Unreachable before `Seq.hex` joined the prelude, because no prelude module
+   * exported a single lowercase term for a local name to collide with. It became
+   * reachable on some twenty-five common identifiers at once.
+   *
+   * The rule these pin is "dodge everything the emitted module already binds",
+   * so they are deliberately *not* about `Seq` — the mechanism is general and the
+   * next prelude member inherits it.
+   */
+
+  test("an explicit named import does not collide with a qualified prelude term", async () => {
+    const module = await run([
+      ["/lib.hex", "export let take(value: Int): Int = value + 1\n"],
+      ["/main.hex",
+        "import { take } from \"./lib\"\n" +
+        "let source: Seq(Int) = Seq.iterate(1, x => x + 1)\n" +
+        "export let mine: Int = take(1)\n" +
+        "export let theirs: Vector(Int) = Vector.fromSeq(Seq.take(source, 2))\n"],
+    ]);
+    expect(module["mine"]).toBe(2);
+    expect(module["theirs"]).toEqual([1, 2]);
+  });
+
+  test("a constraint member does not collide with a companion candidate", async () => {
+    // Reaches the collision with no prelude spelling anywhere in the source: the
+    // *field call* alone registers the candidate, because resolution cannot yet
+    // tell a companion dispatch from a call of a function-valued field.
+    const module = await run([
+      ["/main.hex",
+        "constraint Mappable<c> =\n" +
+        "    map(value: c, transform: Int -> Int): c\n" +
+        "record Holder = { map: Int -> Int }\n" +
+        "let holder = Holder({ map: value => value * 2 })\n" +
+        "export let out: Int = holder.map(3)\n"],
+    ]);
+    expect(module["out"]).toBe(6);
+  });
+
+  test("a module-level let-pattern occludes, and does not collide", async () => {
+    // Two halves at once. The pattern binder is a module-level `let` (§5.4), so
+    // it may occlude the prelude's `take` — the fourth binder form of defect
+    // 11's family — and the qualified spelling must still reach past it.
+    const module = await run([
+      ["/main.hex",
+        "let (take, keep) = (10, 2)\n" +
+        "let source: Seq(Int) = Seq.iterate(1, x => x + 1)\n" +
+        "export let mine: Int = take + keep\n" +
+        "export let theirs: Vector(Int) = Vector.fromSeq(Seq.take(source, 2))\n"],
+    ]);
+    expect(module["mine"]).toBe(12);
+    expect(module["theirs"]).toEqual([1, 2]);
+  });
+
+  test("an extern binding does not collide with a qualified prelude term", async () => {
+    // Compiled, not run: the foreign module is not linkable here. The assertion
+    // is that the emitted top level declares each name once.
+    const project = compileProject([
+      new Source.File(Source.fileId(0), "/main.hex",
+        "extern from \"lib\"\n" +
+        "    fun fold(value: Int): Int\n" +
+        "export let mine: Int = fold(1)\n" +
+        "export let theirs: Int = Seq.length(Vector.toSeq([1, 2]))\n"),
+    ]);
+    expect(project.diagnostics).toEqual([]);
+    const javascript = project.modules
+      .find((module) => module.source.path === "/main.hex")!.javascript.text;
+    expect(topLevelBindings(javascript).filter((name) => name === "fold")).toHaveLength(1);
+  });
+});
+
+/** Every identifier the emitted module binds at top level, imports included. */
+function topLevelBindings(javascript: string): readonly string[] {
+  const bound: string[] = [];
+  for (const line of javascript.split("\n")) {
+    for (const match of line.matchAll(/^import \{([^}]*)\} from/gu)) {
+      for (const piece of match[1]!.split(",")) {
+        const parts = piece.trim().split(/\s+as\s+/u);
+        const local = parts[parts.length - 1]!.trim();
+        if (local !== "") bound.push(local);
+      }
+    }
+    const declared = line.match(/^(?:const|let|var|function\*?) (\w+)/u);
+    if (declared !== null) bound.push(declared[1]!);
+  }
+  return bound;
+}

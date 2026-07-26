@@ -48,17 +48,33 @@ function link(
   );
 }
 
-/** Compiles a project and executes it, returning `/main.hex`'s exports. */
+/**
+ * Compiles a project and executes it, returning `/main.hex`'s exports.
+ *
+ * `foreign` supplies genuine JavaScript modules by specifier, so an `extern`
+ * boundary can actually be crossed at runtime rather than only typechecked.
+ */
 async function run(
   files: readonly (readonly [string, string])[],
+  foreign: Readonly<Record<string, string>> = {},
 ): Promise<Record<string, unknown>> {
   const project = compileProject(
     files.map(([path, text], index) => new Source.File(Source.fileId(index), path, text)),
   );
   expect(project.diagnostics).toEqual([]);
   const moduleUrls = new Map<string, string>();
+  for (const [specifier, source] of Object.entries(foreign)) {
+    moduleUrls.set(specifier, `data:text/javascript;charset=utf-8,${encodeURIComponent(source)}`);
+  }
   for (const module of project.modules) {
-    const linked = link(module.javascript.text, module.source.path, moduleUrls);
+    const linked = link(module.javascript.text, module.source.path, moduleUrls)
+      .replace(
+        /^(\s*import(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
+        (statement, prefix: string, _quote: string, specifier: string) => {
+          const url = moduleUrls.get(specifier);
+          return url === undefined ? statement : `${prefix}${JSON.stringify(url)};`;
+        },
+      );
     moduleUrls.set(
       module.source.path,
       `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
@@ -305,6 +321,35 @@ describe("the boundary face (FFI Part 3)", () => {
    * Pinned as behaviour rather than left absent, so the ruling lands against a
    * test that already fails loudly when it changes.
    */
+  test("an exported function's Seq positions face JavaScript as the record too", async () => {
+    // The half defect 12's first statement omitted (PR #91 finding F2, Fable).
+    // FFI Part 7 §7 **occasion 1** — a stable wrapper adapting an incoming
+    // `Iterable(a)` parameter declared `Seq(a)` — is decided spec, unimplemented
+    // here: a JS caller following the published face passes an array and the
+    // body drives `.pull` on it. Result positions have the mirror problem.
+    // Pinned so the ruling lands against the whole statement, not half of it.
+    const project = compileProject([
+      new Source.File(
+        Source.fileId(0),
+        "/main.hex",
+        "export let total(values: Seq(Int)): Int = Seq.fold(values, 0, (a, b) => a + b)\n" +
+        "export let upTo(count: Int): Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), count)\n",
+      ),
+    ]);
+    expect(project.diagnostics).toEqual([]);
+    const compiled = project.modules.find((module) => module.source.path === "/main.hex")!;
+    // The published face, in both positions.
+    expect(compiled.declarations.text).toContain(
+      "export declare const total: (values: Iterable<number>) => number;",
+    );
+    expect(compiled.declarations.text).toContain(
+      "export declare const upTo: (count: number) => Iterable<number>;",
+    );
+    // And no boundary wrapper stands behind either one.
+    expect(compiled.javascript.text).toContain("const total = values => fold(values, 0,");
+    expect(compiled.javascript.text).not.toContain("__hex_seqFromIterable");
+  });
+
   test("an exported Seq faces JavaScript as the record, not yet as an Iterable", async () => {
     const exports = await main(
       "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n",
@@ -346,5 +391,114 @@ describe("the boundary face (FFI Part 3)", () => {
     // The declared result is a `Seq`, so the raw foreign iterable is adapted
     // rather than handed to `.hex` code that would try to read `pull` off it.
     expect(javascript).toMatch(/__hex_seqFromIterable\(__hex_counterForeign\d*\(\)\)/u);
+  });
+});
+
+describe("the inbound adapter's protocol access order (FFI Part 3 §7.2)", () => {
+  /**
+   * §7.2 fixes the order exactly, because `done` and `value` may be effectful
+   * getters: call `next()` once, require an object, read `done` once and
+   * **boolean-coerce** it, read `value` once and only when not done.
+   *
+   * The coercion is the part that is easy to get wrong. `done === true` is not
+   * boolean coercion, and a foreign iterator yielding `{ done: 1 }` terminates
+   * under native `for...of` while looping forever under a strict-equality check
+   * (PR #91 finding F3, Fable).
+   */
+
+  test("a truthy non-boolean `done` terminates, as native iteration does", async () => {
+    const exports = await run(
+      [["/main.hex",
+        "extern from \"numbers\"\n" +
+        "    fun counter(): Seq(Int)\n" +
+        "\n" +
+        "export let collected: Vector(Int) = Vector.fromSeq(counter())\n"]],
+      {
+        numbers: [
+          "export function counter() {",
+          "  let index = 0;",
+          "  return { [Symbol.iterator]() {",
+          "    return { next() {",
+          "      index += 1;",
+          "      return index <= 2 ? { done: 0, value: index } : { done: 1 };",
+          "    } };",
+          "  } };",
+          "}",
+        ].join("\n"),
+      },
+    );
+    expect(exports["collected"]).toEqual([1, 2]);
+  });
+
+  test("`value` is not read when the step is done", async () => {
+    const exports = await run(
+      [["/main.hex",
+        "extern from \"numbers\"\n" +
+        "    fun counter(): Seq(Int)\n" +
+        "    fun valueReads(): Int\n" +
+        "\n" +
+        "export let collected: Vector(Int) = Vector.fromSeq(counter())\n" +
+        "export let reads: Int = valueReads()\n"]],
+      {
+        numbers: [
+          "let reads = 0;",
+          "export function valueReads() { return reads; }",
+          "export function counter() {",
+          "  let index = 0;",
+          "  return { [Symbol.iterator]() {",
+          "    return { next() {",
+          "      index += 1;",
+          "      const done = index > 2;",
+          "      return { done, get value() { reads += 1; return index; } };",
+          "    } };",
+          "  } };",
+          "}",
+        ].join("\n"),
+      },
+    );
+    expect(exports["collected"]).toEqual([1, 2]);
+    // Two reads, not three: the terminating step must not touch `value`.
+    expect(exports["reads"]).toBe(2);
+  });
+
+  test("a malformed iterator result is a TypeError, as native iteration gives", async () => {
+    await expect(run(
+      [["/main.hex",
+        "extern from \"numbers\"\n" +
+        "    fun counter(): Seq(Int)\n" +
+        "\n" +
+        "export let collected: Vector(Int) = Vector.fromSeq(counter())\n"]],
+      {
+        numbers: [
+          "export function counter() {",
+          "  return { [Symbol.iterator]() { return { next() { return 5; } }; } };",
+          "}",
+        ].join("\n"),
+      },
+    )).rejects.toThrow(TypeError);
+  });
+
+  test("the source is not acquired before the first pull (§3)", async () => {
+    // §3 forbids speculative `[Symbol.iterator]()` and forbids restarting
+    // foreign computation to discover what kind of iterable is held.
+    const exports = await run(
+      [["/main.hex",
+        "extern from \"numbers\"\n" +
+        "    fun counter(): Seq(Int)\n" +
+        "    fun acquisitions(): Int\n" +
+        "\n" +
+        "let unused: Seq(Int) = counter()\n" +
+        "export let before: Int = acquisitions()\n"]],
+      {
+        numbers: [
+          "let acquired = 0;",
+          "export function acquisitions() { return acquired; }",
+          "export function counter() {",
+          "  return { [Symbol.iterator]() { acquired += 1; return { next: () => ({ done: true }) }; } };",
+          "}",
+        ].join("\n"),
+      },
+    );
+    expect(exports["before"]).toBe(0);
   });
 });

@@ -182,7 +182,26 @@ only as a declaration: the resolver's intrinsic fallback list is
   short-circuiting, boundaries, the 50k constant-stack run, and persistence all
   hold against the prelude record.
 
-**Two findings, both logged.** Defect 11 — a **constraint member** could not
+**Review corrections (Fable, PR #91).** Three landed in the PR. **Defect 14
+(F1, blocking):** the synthesized prelude import chose its local against a
+*list* of binder forms, so a named import, a constraint member, an extern
+declaration, or a pattern binder of the same name redeclared the identifier —
+clean compile, `SyntaxError` at load, and reachable from a bare field call with
+no prelude spelling in the source. The local is now chosen in `#preludeImport`,
+after resolution, against a set closed by construction (every name `#declare`
+produced, plus every import local). **Defect 12 widened (F2):** the divergence
+covers parameter and result positions of exported functions too, and Part 7 §7
+occasion 1 makes the parameter wrapper *decided* spec rather than merely
+undelivered — so the ruling now has a larger, more constrained statement to
+answer. **F3:** the adapter's `done` check was strict equality, not §7.2's
+boolean coercion; `{ done: 1 }` terminates native iteration and looped here. The
+adjacent object-result check §7.2 requires in the same sentence landed with it,
+and §3's no-speculative-acquisition guarantee is now stated in the helper.
+**Defect 15 (F4, logged not fixed):** the adapter does not memoize a forcing
+failure, against §7.1 — pre-existing in the intrinsic helper, carried into the
+R1 pair.
+
+**Two findings from the implementation, both logged.** Defect 11 — a **constraint member** could not
 occlude a prelude value, the same asymmetry defect 9 fixed for `let`, at a binder
 form that fix did not reach; fixed here. Defect 13 — an unsupported companion
 operation with a literal argument **crashes the compiler**; pre-existing on

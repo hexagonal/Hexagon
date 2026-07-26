@@ -56,6 +56,8 @@ class JavaScriptEmitter {
   readonly #constraints = new Map<string, Core.ConstraintItem>();
   readonly #nullaryExceptions = new Set<Resolved.SymbolId>();
   readonly #generatedNames: GeneratedNames;
+  /** Local each imported symbol is bound under, by the module's own imports. */
+  readonly #importLocals = new Map<Resolved.SymbolId, string>();
   /**
    * The prelude `Seq` (Loops §6.6). The emitter knows this identity for exactly
    * three jobs, all of them the FFI Part 3 boundary in ruling R1's sense: wrap a
@@ -80,6 +82,14 @@ class JavaScriptEmitter {
     this.#seqRecord = module.preludeRecords.get("Seq");
     this.#exportInstanceEvidence = options.exportInstanceEvidence ?? false;
     this.#generatedNames = new GeneratedNames(module.symbols.map(({ name }) => name));
+    for (const item of module.items) {
+      if (item.kind !== "Import" || item.form.kind === "Effect") continue;
+      // Namespace members are reached as `Alias.member` and never by bare local.
+      if (item.form.kind === "Namespace") continue;
+      for (const name of item.form.names) {
+        if (name.symbol !== undefined) this.#importLocals.set(name.symbol, name.local);
+      }
+    }
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
     for (const symbol of module.symbols) this.#symbols.set(symbol.id, symbol);
     for (const union of module.unions) {
@@ -706,7 +716,13 @@ class JavaScriptEmitter {
           return this.#constrainedImports.get(expression.symbol)!;
         }
         if (expression.text.includes(".")) return expression.text;
-        const name = this.#identifier(expression.symbol, expression.text);
+        // An imported symbol is spelled by the local its import binds, which is
+        // not always the name the reference carries: the synthesized prelude
+        // import may bind a term under a distinguished local to clear a
+        // module-level binding of the same name (Modules §6.4). Consulted before
+        // `#identifier`, which sees only text and so cannot know.
+        const importLocal = this.#importLocals.get(expression.symbol);
+        const name = importLocal ?? this.#identifier(expression.symbol, expression.text);
         return this.#nullaryExceptions.has(expression.symbol) ? `${name}()` : name;
       case "CollectionOperation": {
         const needsPersistentRuntime = expression.collection !== "Vector";
@@ -3349,6 +3365,14 @@ function renderHelper(
       // buffered values and the source advances only when a traversal reaches
       // the frontier. This is what FFI Part 3 §9.1 requires of an exported or
       // imported sequence, and Loops §6.4 names it as the boundary's spine.
+      //
+      // `[Symbol.iterator]()` is called at the first *pull*, not when the
+      // adapter is built: §3 forbids speculative acquisition and forbids
+      // restarting foreign computation to discover what kind of iterable this
+      // is. Forcing a node then follows §7.2's protocol access order exactly —
+      // `next()` once, require an object, read `done` once and **boolean-coerce**
+      // it (a `{ done: 1 }` result terminates native iteration and must
+      // terminate this), read `value` once and only when not done.
       return [
         `function ${name}(__hex_source) {`,
         "  const __hex_values = [];",
@@ -3359,7 +3383,10 @@ function renderHelper(
         "      if (__hex_index === __hex_values.length && !__hex_done) {",
         "        if (__hex_iterator === undefined) __hex_iterator = __hex_source[Symbol.iterator]();",
         "        const __hex_next = __hex_iterator.next();",
-        "        __hex_done = __hex_next.done === true;",
+        '        if (__hex_next === null || (typeof __hex_next !== "object" && typeof __hex_next !== "function")) {',
+        '          throw new TypeError("Iterator result " + String(__hex_next) + " is not an object");',
+        "        }",
+        "        __hex_done = Boolean(__hex_next.done);",
         "        if (!__hex_done) __hex_values.push(__hex_next.value);",
         "      }",
         '      if (__hex_index >= __hex_values.length) return { tag: "None" };',

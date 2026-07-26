@@ -191,11 +191,6 @@ class Resolver {
   /** Prelude members addressable by name — a fallback layer, so an explicit
    *  `import * as` of the same name is a module-level binding and wins (§5.4). */
   readonly #preludeModuleAliases = new Map<string, ModuleInterface>();
-  /** Every name bound at module level, so a qualified prelude reference can be
-   *  imported under a name that cannot collide with one of them. */
-  readonly #moduleLevelNames = new Set<string>();
-  /** Local name to import a prelude term under when it is reached *qualified*. */
-  readonly #preludeQualifiedLocals = new Map<Resolved.SymbolId, string>();
   readonly #constraintNames = new Set<string>([
     "Num", "Signed", "Frac", "Pow", "Concat", "Eq", "Ord", "Show",
   ]);
@@ -237,8 +232,8 @@ class Resolver {
   }
 
   /**
-   * Makes a prelude term reachable from emitted code, returning the local name
-   * to spell it as, or `undefined` if the symbol is not a prelude term.
+   * Makes a prelude term reachable from emitted code, returning the name to
+   * spell it by, or `undefined` if the symbol is not a prelude term.
    *
    * A prelude member has no namespace object to dot into — unlike an explicit
    * `import * as`, nothing declares one. So the reference compiles to a plain
@@ -246,21 +241,16 @@ class Resolver {
    * uses, and the symbol has to join that set or the emitted module references
    * nothing.
    *
-   * The local name must dodge every module-level binding: reaching
-   * `Result.tally` from a module that itself binds `tally` is exactly what §6.4
-   * exists for, and importing it as `tally` would collide with the binding it is
-   * there to see past.
+   * The *local* the import binds it under is decided later, in `#preludeImport`,
+   * because choosing it here would mean guessing which names the module will go
+   * on to bind (PR #91 finding F1). The reference carries the term's own name;
+   * emission substitutes the import's local.
    */
   #reachPreludeTerm(symbol: Resolved.SymbolId): string | undefined {
     const term = this.#preludeTerms.get(symbol);
     if (term === undefined) return undefined;
-    const local = this.#preludeQualifiedLocals.get(symbol)
-      ?? (this.#moduleLevelNames.has(term.name)
-        ? `__hex_prelude_${term.name}`
-        : term.name);
-    this.#preludeQualifiedLocals.set(symbol, local);
     this.#usedPreludeSymbols.add(symbol);
-    return local;
+    return term.name;
   }
 
   /**
@@ -361,14 +351,12 @@ class Resolver {
     // `let` runs at lambda depth 0 but is an inner layer, where the ban is
     // absolute.
     this.#moduleScope = scope;
-    for (const item of module.items) {
-      if (item.kind === "Fun" || item.kind === "Let" || item.kind === "Var") {
-        this.#moduleLevelNames.add(item.name.text);
-      }
-    }
     this.#predeclareExternTerms(module.items, scope);
     const resolvedItems = this.#resolveItems(module.items, scope);
-    const items = [...this.#preludeImport(module.span), ...resolvedItems];
+    // After resolution, never before: the synthesized import's local names have
+    // to dodge every name the emitted module binds, and that set is only closed
+    // once every declaration has been through `#declare` (PR #91 finding F1).
+    const items = [...this.#preludeImport(module.span, resolvedItems), ...resolvedItems];
 
     return {
       kind: "Module",
@@ -1540,7 +1528,13 @@ class Resolver {
       };
     }
 
-    const existing = scope.lookup(pattern.name.text);
+    // A binding pattern at module level is a module-level `let` (§5.4), so it may
+    // occlude a prelude name on the same scope-identity test `let`, `fun`, and
+    // constraint members use. The fourth binder form of defect 11's family;
+    // nested binders keep the full walk, where the ban is absolute.
+    const existing = scope === this.#moduleScope
+      ? scope.lookupLocal(pattern.name.text)
+      : scope.lookup(pattern.name.text);
     const duplicate = seen.get(pattern.name.text);
     if (duplicate !== undefined) {
       this.#diagnostics.add({
@@ -2071,7 +2065,41 @@ class Resolver {
    * Constructors matched in patterns compile to their string tags and need no
    * import, so only value references (tracked in `#resolveName`) contribute here.
    */
-  #preludeImport(span: Source.Span): readonly Resolved.Item[] {
+  /**
+   * Every identifier the emitted module already binds at its top level.
+   *
+   * Deliberately **not** a list of binder forms. The first version of this dodge
+   * enumerated `let`/`fun`/`var` and silently missed named imports, extern
+   * declarations, let-patterns, and constraint members — the same mistake as
+   * defect 11, where a rule stated over "module-level binders" was fixed at the
+   * two forms that happened to be in front of me. Two structural sources close
+   * the set instead:
+   *
+   * 1. **every symbol this module declared.** `#declare` is the single funnel
+   *    for all of them, so no binder form — present or future — can escape it.
+   *    It is broader than "top level" (parameters and body locals are in there
+   *    too), and being broader is the safe direction: a spare distinguished
+   *    local costs nothing, a missed one is a `SyntaxError` at load.
+   * 2. **every local an import introduces**, which are bindings this module owns
+   *    without declaring.
+   */
+  #emittedTopLevelNames(resolvedItems: readonly Resolved.Item[]): Set<string> {
+    const names = new Set<string>();
+    for (const symbol of this.#symbols.values()) names.add(symbol.name);
+    for (const item of resolvedItems) {
+      if (item.kind !== "Import") continue;
+      if (item.form.kind === "Namespace") names.add(item.form.alias);
+      if (item.form.kind === "Effect") continue;
+      for (const name of item.form.names) names.add(name.local);
+    }
+    return names;
+  }
+
+  #preludeImport(
+    span: Source.Span,
+    resolvedItems: readonly Resolved.Item[],
+  ): readonly Resolved.Item[] {
+    const taken = this.#emittedTopLevelNames(resolvedItems);
     const namesBySpecifier = new Map<string, Resolved.ImportName[]>();
     for (const symbol of this.#usedPreludeSymbols) {
       // An explicit import of the same name owns its emission; don't import twice.
@@ -2080,7 +2108,15 @@ class Resolver {
       const specifier = this.#preludeSpecifierBySymbol.get(symbol);
       if (term === undefined || specifier === undefined) continue;
       const names = namesBySpecifier.get(specifier) ?? [];
-      const local = this.#preludeQualifiedLocals.get(symbol) ?? term.name;
+      // Reaching `Result.tally` from a module that itself binds `tally` is
+      // exactly what §6.4 exists for, so importing it *as* `tally` would collide
+      // with the binding it is there to see past — and a redeclared identifier
+      // is a `SyntaxError` at load, after a clean compile.
+      let local = term.name;
+      for (let attempt = 0; taken.has(local); attempt += 1) {
+        local = `__hex_prelude_${term.name}${attempt === 0 ? "" : attempt}`;
+      }
+      taken.add(local);
       names.push({ imported: term.name, local, symbol, span });
       namesBySpecifier.set(specifier, names);
     }
