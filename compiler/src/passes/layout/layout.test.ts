@@ -50,14 +50,27 @@ describe("applyLayout", () => {
     expect(result.diagnostics).toEqual([]);
   });
 
-  test("does not mistake parentheses in an exported value type for function parameters", () => {
+  test("keeps an aligned multiline chain in a value binding's block one item", () => {
+    // The RHS opens a block, but `.take(5)` at the block's own indentation can
+    // only continue an expression, so it receives no VSEP.
     const result = layout(
       "export let selected: Seq(Int) =\n" +
         "    numbers\n" +
         "    .take(5)",
     );
 
-    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VClose"]);
+    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VOpen", "VClose", "VClose"]);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  test("opens a block for a value binding whose body is a sequence of items", () => {
+    const result = layout(
+      "let x =\n" +
+        "    let y = 40\n" +
+        "    y + 2",
+    );
+
+    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VOpen", "VSep", "VClose", "VClose"]);
     expect(result.diagnostics).toEqual([]);
   });
 
