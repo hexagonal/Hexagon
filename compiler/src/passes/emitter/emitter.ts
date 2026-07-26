@@ -912,7 +912,7 @@ class JavaScriptEmitter {
         );
         return `${head} {\n${lines.join("\n")}\n${indent(depth)}}`;
       }
-      return `${head} ${this.#emitExpr(expression.body, depth, evidenceNames)}`;
+      return `${head} ${arrowBody(this.#emitExpr(expression.body, depth, evidenceNames))}`;
     }
 
     const lines = this.#emitBlockItems(
@@ -1255,7 +1255,7 @@ class JavaScriptEmitter {
             lines.push(`${bodyIndent}const ${destructuring} = ${matchName}.${field};`);
           }
         });
-        lines.push(...this.#emitReturn(arm.body, bodyDepth, evidenceNames));
+        lines.push(...this.#emitArmBody(arm.body, bodyDepth, bodyIndent, evidenceNames));
       } else {
         lines.push(`${armIndent}default:`);
         if (pattern.kind === "Binding") {
@@ -1265,7 +1265,7 @@ class JavaScriptEmitter {
           );
           lines.push(`${bodyIndent}const ${name} = ${matchName};`);
         }
-        lines.push(...this.#emitReturn(arm.body, bodyDepth, evidenceNames));
+        lines.push(...this.#emitArmBody(arm.body, bodyDepth, bodyIndent, evidenceNames));
       }
     }
     if (expression.arms.every((arm) => arm.pattern.kind === "Constructor")) {
@@ -1276,6 +1276,22 @@ class JavaScriptEmitter {
     }
     lines.push(`${prefix}}`);
     return lines;
+  }
+
+  /**
+   * A switch arm's body, followed by `break;` unless the body already exits.
+   * An arm whose value is `Unit` — an assignment, a loop — emits statements
+   * rather than a `return`, so without the `break` control would fall through
+   * into the next arm's destructuring and then the exhaustiveness backstop.
+   */
+  #emitArmBody(
+    body: Core.Expr,
+    depth: number,
+    bodyIndent: string,
+    evidenceNames: EvidenceNames,
+  ): string[] {
+    const lines = this.#emitReturn(body, depth, evidenceNames);
+    return exits(lines) ? lines : [...lines, `${bodyIndent}break;`];
   }
 
   #emitConditionalMatch(
@@ -2882,6 +2898,28 @@ function arrowParameters(parameters: readonly string[]): string {
   return parameters.length === 1
     ? parameters[0]!
     : `(${parameters.join(", ")})`;
+}
+
+/**
+ * Whether emitted statements end in an unconditional exit, so that appending a
+ * `break` would be unreachable. Conservative: anything else is treated as
+ * falling through.
+ */
+function exits(lines: readonly string[]): boolean {
+  const last = lines.at(-1)?.trim() ?? "";
+  return last.startsWith("return ") || last.startsWith("return;") ||
+    last.startsWith("throw ") || last.startsWith("break;") ||
+    last.startsWith("continue;");
+}
+
+/**
+ * Parenthesizes a concise arrow body that starts with `{`, which JavaScript
+ * would otherwise read as a block rather than an object literal. Reached
+ * whenever a lambda's body emits a record — a record construction inlines to its
+ * literal, since the constructor is the identity function.
+ */
+function arrowBody(text: string): string {
+  return text.startsWith("{") ? `(${text})` : text;
 }
 
 /** Uses object-property shorthand whenever the emitted key and value coincide. */
