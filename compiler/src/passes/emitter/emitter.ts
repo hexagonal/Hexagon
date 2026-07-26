@@ -5,6 +5,7 @@
 
 import * as Diagnostics from "../../support/diagnostics.js";
 import type * as Source from "../../support/source.js";
+import { isSyntheticParameterName } from "../../support/synthetic.js";
 import type * as Core from "../../syntax/core/index.js";
 import type * as Emitted from "../../emission/index.js";
 import type * as Resolved from "../../syntax/resolved/index.js";
@@ -3680,10 +3681,9 @@ function renderScheme(scheme: Typed.Scheme, value?: Core.Expr): string {
   const generics = genericNames.length === 0
     ? ""
     : `<${genericNames.join(", ")}>`;
+  const names = declarationParameterNames(lambda?.parameters ?? [], type.parameters.length);
   const parameters = type.parameters.map(
-    (parameter, index) =>
-      `${declarationParameterName(lambda?.parameters[index], index)}: ` +
-      renderType(parameter, variables, false),
+    (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, false),
   );
   return (
     `${generics}(${parameters.join(", ")}) => ` +
@@ -3695,8 +3695,12 @@ function renderExternFunctionDeclaration(
   declaration: Core.ExternBlockItem["declarations"][number] & { readonly kind: "ExternFun" },
   exported: boolean,
 ): readonly string[] {
-  const parameters = declaration.parameters.map((parameter) =>
-    `${parameter.name}: ${renderType(parameter.scheme.type, new Map(), false)}`
+  const names = declarationParameterNames(
+    declaration.parameters,
+    declaration.parameters.length,
+  );
+  const parameters = declaration.parameters.map((parameter, index) =>
+    `${names[index]}: ${renderType(parameter.scheme.type, new Map(), false)}`
   );
   const result = renderType(declaration.result, new Map(), true);
   const safe = isSafeIdentifier(declaration.localName);
@@ -3731,10 +3735,9 @@ function renderFunctionDeclaration(
   const generics = genericNames.length === 0
     ? ""
     : `<${genericNames.join(", ")}>`;
+  const names = declarationParameterNames(value.parameters, scheme.type.parameters.length);
   const parameters = scheme.type.parameters.map(
-    (parameter, index) =>
-      `${declarationParameterName(value.parameters[index], index)}: ` +
-      renderType(parameter, variables, false),
+    (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, false),
   );
   const result = renderType(
     scheme.type.result,
@@ -3822,10 +3825,12 @@ function renderType(
         : `(${record} & ${variables.get(type.tail) ?? "object"})`;
     case "Function": {
       const lambda = value?.kind === "Lambda" ? value : undefined;
+      const names = declarationParameterNames(
+        lambda?.parameters ?? [],
+        type.parameters.length,
+      );
       const parameters = type.parameters.map(
-        (parameter, index) =>
-          `${declarationParameterName(lambda?.parameters[index], index)}: ` +
-          renderType(parameter, variables, false),
+        (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, false),
       );
       return (
         `(${parameters.join(", ")}) => ` +
@@ -3837,14 +3842,41 @@ function renderType(
   }
 }
 
-function declarationParameterName(
-  binding: Core.Binding | undefined,
-  index: number,
-): string {
-  if (binding === undefined) return `arg${index}`;
-  return isSafeIdentifier(binding.name)
-    ? binding.name
-    : `__hex_binding${Number(binding.symbol)}`;
+/**
+ * Names every parameter of one signature. A binder that is absent or
+ * compiler-minted — a pattern parameter's, unwritable in source — has no name
+ * to show, so it takes `argN`. That spelling *is* writable, so it is probed
+ * upward past any parameter the source already spells that way: TypeScript
+ * rejects a duplicate parameter name outright, and a module that checks clean
+ * must not emit declarations that do not. Only generated names move; a
+ * user-written one is never renamed (FFI Part 12 §11.1 settles the `Hex` alias
+ * the same way).
+ */
+function declarationParameterNames(
+  bindings: readonly (Core.Binding | undefined)[],
+  count: number,
+): readonly string[] {
+  const written: (string | undefined)[] = [];
+  const taken = new Set<string>();
+  for (let index = 0; index < count; index += 1) {
+    const binding = bindings[index];
+    if (binding === undefined || isSyntheticParameterName(binding.name)) {
+      written.push(undefined);
+      continue;
+    }
+    const name = isSafeIdentifier(binding.name)
+      ? binding.name
+      : `__hex_binding${Number(binding.symbol)}`;
+    written.push(name);
+    taken.add(name);
+  }
+  return written.map((name, index) => {
+    if (name !== undefined) return name;
+    let suffix = index;
+    while (taken.has(`arg${suffix}`)) suffix += 1;
+    taken.add(`arg${suffix}`);
+    return `arg${suffix}`;
+  });
 }
 
 function renderUnionDeclaration(

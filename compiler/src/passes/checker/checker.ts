@@ -9,6 +9,7 @@
 
 import * as Diagnostics from "../../support/diagnostics.js";
 import type * as Source from "../../support/source.js";
+import { displayParameterName } from "../../support/synthetic.js";
 import * as Resolved from "../../syntax/resolved/index.js";
 import * as Typed from "../../syntax/typed/index.js";
 
@@ -2364,7 +2365,7 @@ class Checker {
       if (!this.#isIrrefutablePattern(pattern, expected)) {
         this.#diagnostics.add({
           severity: "error",
-          message: "this or-pattern does not cover every possible value and cannot be used in `let`; use `match`",
+          message: "this or-pattern does not cover every possible value and cannot be used in a binding position; use `match`",
           primary: pattern.span,
         });
       }
@@ -2376,7 +2377,7 @@ class Checker {
       if (union === undefined || union.constructors.length !== 1) {
         this.#diagnostics.add({
           severity: "error",
-          message: "a constructor pattern is refutable and cannot be used in `let`",
+          message: "a constructor pattern is refutable and cannot be used in a binding position; use `match`",
           primary: pattern.span,
         });
         return;
@@ -2413,7 +2414,7 @@ class Checker {
     ) {
       this.#diagnostics.add({
         severity: "error",
-        message: "a literal pattern is refutable and cannot be used in `let`",
+        message: "a literal pattern is refutable and cannot be used in a binding position; use `match`",
         primary: pattern.span,
       });
       return;
@@ -4214,7 +4215,7 @@ class Checker {
 
     const missingParameters = lambda.parameters
       .filter((parameter) => parameter.annotation === undefined)
-      .map((parameter) => `\`${parameter.name}\``);
+      .map((parameter) => `\`${displayParameterName(parameter.name)}\``);
     const missingReturn = lambda.returnAnnotation === undefined;
     if (missingParameters.length > 0 || missingReturn) {
       const missing = [
