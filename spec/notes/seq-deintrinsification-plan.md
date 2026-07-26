@@ -101,6 +101,32 @@ defect log pinned as a conformance test, plus the Seq-shaped cases.
 6. **Drift guard.** The embedded-copy-matches-`stdlib/` test extends to
    `Seq.hex` when it joins the set.
 
+   *(Landed 2026-07-26.)* Item 5 is a two-line change in `project.ts` —
+   `preludePaths.slice(0, indexOf(path))` for a prelude module, the whole list
+   for a consumer. **It activates a latent emission bug, and that was the real
+   work of this phase.** Prelude modules were emitted only when a *non-prelude*
+   consumer imported them; once members can import each other, a member reachable
+   only through another prelude module was dropped while the importer's emitted
+   JavaScript still named it — and the project compiled clean, so the failure was
+   silent, in exactly the class the poison test exists to catch. Emission is now
+   reachability from the non-prelude modules, and a general invariant is pinned:
+   every relative import in the emitted output names an emitted module. Phase 4
+   would have hit this the moment `Seq.hex` used `Option`.
+
+   Item 6 needed writing, not extending: **the drift test did not exist**, though
+   `prelude.ts`'s header has always claimed "a test asserts the two never drift".
+   The three embedded copies had not in fact drifted. It is now written
+   generically over `PRELUDE_MODULES` rather than over three names, so `Seq.hex`
+   is covered the moment it joins the set with no edit here — which is what this
+   item asks for. It also asserts every member *has* a canonical `stdlib/`
+   original, so a member embedded without one fails rather than passing vacuously.
+
+   Not done, deliberately: §5.5's "no `import` lines in prelude source" is
+   unenforced. The section justifies it pedagogically and specifies no
+   diagnostic, and whether it is an error or a lint is a real question rather
+   than an oversight — raising it rather than silently deciding it. Coverage in
+   `compiler/src/conformance/prelude-mechanism.test.ts`.
+
 ## Phase 4 — `Seq.hex` and the unification
 
 7. **Write `stdlib/Seq.hex`** from `runtime/SeqCore.hex`: rename
