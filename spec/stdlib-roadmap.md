@@ -19,7 +19,7 @@
 | `Option`/`Result` failure-type boundary: membership projections may be `Option`; structured decoding is `Result(_, JsConversionError)`; owned per spec | `ffi.md` §11.2 |
 | Rewrite Rule applies to any listing-introduced diagnostics | `decisions-sol-review-2026-07.md` §E |
 
-## 2. V1 obligations (18)
+## 2. V1 obligations (19)
 
 | Surface / question | Origin | Fixed semantics | Revisit bar | Discharge |
 |---|---|---|---|---|
@@ -36,6 +36,7 @@
 | Composable `JsValue` decoder family: field/record traversal, element-wise decoders, `nullable`/`oneOf`/defaults, map/set decoders | `ffi.md` §9.1.1; `ffi-part11-js-value-errors.md` §9.1/§13.2 | built over Part 11's primitives, `JsConversionError` structure, closed 5-segment path vocabulary; `Err` vs `JsError` channel doctrine | — | listing: FFI/decoding |
 | Qualified companion homes for `NullableCase.Undefined/Null/Value` and all ten `JsKind.*` constructors | `ffi.md` §9.1.2/§12 | qualified-only exposure; representations unchanged; ordinary companion qualification | — | listing: prelude inventory |
 | Combinator families for `Vector`/`Map`/`Set`/`Seq` — **producing the v1 ship-list is the obligation; individual combinators remain listing decisions** | `collections-part5-iterable.md` §10; `collections-part3-vector.md` §12.2 (`reverse` needed by §6.3 idiom; `sort` referenced by `collections-part4-map-set.md` §7.1 guidance) | subject-first; complexity contracts per owning collection specs; `Seq`-consuming combinators constant-stack (`loops-ranges-iteration.md` §6; `ffi-part3-seq.md` §6) | — | listing: collections combinators |
+| `Seq.hex` as a **prelude module declaring the type** — `export opaque record Seq(a)` + `next` + combinator core in one module, joining the prelude set after `Option.hex`; includes the explicit `memoize` opt-in (re-derivation default per Loops §6.4); **`Seq` de-intrinsifies before `Vector` and pilots the pattern `Vector`/`Set`/`Map` inherit** (decided 2026-07-26) | `loops-ranges-iteration.md` §6.1/§6.4/§6.6; `modules.md` §5.5; rationale `spec/notes/seq-core-representation.md` | opacity load-bearing (`pull` private to home); no `import` lines in prelude source (Modules §5.5); export boundary memoizes regardless of internal default (`ffi-part3-seq.md` §9.1) | — | migration plan: `spec/notes/seq-deintrinsification-plan.md` |
 | `iterate` qualified home (`Iterable.iterate` or equivalent) | `collections-part5-iterable.md` §2.3/§4 (via `modules.md` §6.4 invariant) | `iterate` is an ordinary prelude term; member of `Iterable` | — | listing: prelude inventory |
 | Companion inventories for `Range`, `Seq`, the primitives, and the prelude nominals `Option`/`Result`/`Ordering` (what exists to dot-call; membership of each inventory remains a listing decision) | `method-syntax.md` §12.3 (+§14(k) `Option.getOrElse` as the worked companion example); `collections-part5-iterable.md` §4; `unions.md` §8 | dot-callability mechanism fixed (§1); `Range` iteration semantics per `loops-ranges-iteration.md` §3/§5; `Option`/`Result` declarations fixed by `unions.md` §8 | — | listing: per-type companions |
 | Wrapper-key pattern's first customer (`CiString`) | `collections-part2-hash-and-type-members.md` §4.5 ("first customer owed"); §12.1 | wrapper-key mechanism fixed (compiler-provided `Hash`/`Eq` via `derives`); **folding semantics undecided** (full case fold vs `toLowerCase`-family — §12.1, decided at the listing) | — | listing: string/key types |
@@ -113,7 +114,7 @@ The current compiler-owned surface yields this migration inventory:
 | `Int.hex` | Euclidean family, `gcd`, checked arithmetic, public instances | native remainder/truncation and representation-sensitive operations |
 | `Float.hex` | public wrappers and instances | IEEE/NaN and selected `Math` primitives |
 | `String.hex` | companion algorithms and public instances | efficient JS UTF-16/codepoint bridge primitives |
-| `Seq.hex` | `iterate`, `map`, `filter`, `take`, and later combinators | memoized lazy spine and generator/iterator bridge |
+| `Seq.hex` | **the `Seq(a)` declaration itself** (`export opaque record`, Loops §6.6) plus `next` and the combinator core (`iterate`, `map`, `filter`, `take`, `fold`, and the ship-list) | memoizing spine (`memoize`'s buffer + the FFI Part 3 inbound adapter) and the `toJsIterable` bridge |
 | `Vector.hex` | companion API and combinators | persistent-vector representation core |
 | `Map.hex` / `Set.hex` | algebra, conversions, projections, and combinators | HAMT lookup/insertion/removal and representation core |
 | `Range.hex` | public constructors and companion functions | iterator bridge; counting-loop erasure remains a compiler transformation |
@@ -167,7 +168,7 @@ Proceed a piece at a time:
 After the BigInt worked example, the preferred order is:
 
 1. primitive constraint declarations and their canonical instances;
-2. `Seq.hex`, retaining only the lazy-spine/iterator bridge;
+2. `Seq.hex`, retaining only the memoizing spine and iterator bridge — **advanced from preference to decided obligation (2026-07-26): `Seq.hex` declares the type itself and joins the prelude set, before and as the pilot for `Vector`/`Set`/`Map`; see the §2 obligation row and `spec/notes/seq-deintrinsification-plan.md`**;
 3. Map/Set algebra over a retained tuned HAMT core;
 4. `Option.hex` and `Result.hex`; and
 5. the remaining primitive and collection companions, one bounded slice at a time.

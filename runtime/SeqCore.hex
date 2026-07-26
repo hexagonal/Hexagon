@@ -1,0 +1,312 @@
+// The pure `.hex` core behind `Seq(a)` (Loops §6, spec/notes/seq-core-representation.md).
+//
+// This is a runtime-internal module, the same shape `VectorTrie.hex` takes over
+// the `Node` intrinsic: `SeqCore(a)` is the representation, `Seq(a)` is the
+// public face, and the emitter wires one to the other at a later milestone. The
+// core cannot be *named* `Seq` today — `Seq` is an intrinsic type constructor the
+// resolver claims ahead of any user record, so a `record Seq(a)` declaration
+// compiles while every `Seq(a)` annotation still resolves to the intrinsic, and
+// the two never unify.
+//
+// A `Seq` is a record carrying its own deferred pull thunk (OCaml's
+// `unit -> node`). The thunk is what defers: constructing a combinator runs
+// nothing, so an infinite `Seq` is a finite value and driving one step is O(1).
+//
+// Why a record-of-closure and not a union of cases: a defunctionalized
+// `union Seq(a) = Mapped(source: Seq(b), f: b -> a) | ...` cannot be written,
+// because `b` would be an existential in the union and Hexagon's HM does not
+// express that. Hiding the source and transform *inside a closure* keeps that
+// type from escaping into `Seq(a)`. This is the load-bearing decision.
+//
+// Persistence here is by **re-derivation**, not memoization: re-driving a `Seq`
+// recomputes it, and therefore *replays any effects* its steps perform. Loops
+// §6.5 permits either policy; which is the default is the open question the
+// design note delegates. Neither the memoizing spine, the opt-in `memoize`, nor
+// the two foreign shims (`fromJsIterator`, `toJsIterable`) can live in this file:
+// all of them need a mutable buffer, and Statements §6.2 forbids mutable capture
+// in closures. They are compiler/runtime-provided at the FFI Part 3 boundary.
+export record SeqCore(a) = { pull: () -> Option((a, SeqCore(a))) }
+
+// The Loops §6.2 protocol, thin over the field. Not recursive, so `let` (N6).
+// The field is named `pull`, not `next`, so the field access never shadows the
+// protocol; the call is written `(source.pull)()` because a bare
+// `source.pull(...)` on a nominal head is a companion dispatch, not a field read
+// (Products §3.2).
+//
+// Note for readers of the combinators below: the *recursive* ones drive the
+// thunk inline as `(source.pull)()` rather than calling `next(source)`. That is
+// not a style choice. A recursive function that calls any generic annotated
+// function currently fails to instantiate the callee's scheme, unifying the
+// callee's declared type variable with the caller's instead — see the checker
+// bug filed alongside this module. `next` is the protocol for consumers; inside
+// the recursive core it is inlined until that bug is fixed, at which point every
+// `(x.pull)()` here should become `next(x)`.
+export let next(source: SeqCore(a)): Option((a, SeqCore(a))) = (source.pull)()
+
+// A second workaround runs through every `match` below. The natural arm is
+// `Some((value, rest)) =>`, but a tuple pattern nested directly inside a
+// constructor pattern is not recognised as covering its case: the checker
+// reports `match is missing cases: Some`. So each arm binds the payload whole
+// and destructures it with a `let` on the next line.
+
+// ---------------------------------------------------------------------------
+// 1. One-step `pull`: one input element yields one output element.
+// ---------------------------------------------------------------------------
+
+// `empty` is split in two, and the split is forced by the language. An explicit
+// `SeqCore(a)` annotation introduces a *rigid* `a` rather than a generalized one:
+// the first use fixes the element type and every later use at a different type is
+// rejected. Inference gives the general scheme the annotation cannot — but an
+// exported value must be annotated. So the generalized binding stays private and
+// carries every internal use, and the export is a thin annotated alias,
+// instantiated freshly by each consumer.
+let emptyCore = SeqCore({ pull: () => None })
+
+export let empty: SeqCore(a) = emptyCore
+
+export let singleton(value: a): SeqCore(a) = SeqCore({ pull: () => Some((value, emptyCore)) })
+
+export let cons(value: a, rest: SeqCore(a)): SeqCore(a) = SeqCore({ pull: () => Some((value, rest)) })
+
+export fun iterate(seed: a, step: a -> a): SeqCore(a) =
+    SeqCore({ pull: () => Some((seed, iterate(step(seed), step))) })
+
+// Each combinator binds its pull step as a local lambda and then wraps it. The
+// step cannot be written inline as the record-field value: a multi-line `match`
+// there makes the layout algorithm close the record literal at the first arm.
+export fun map(source: SeqCore(a), transform: a -> b): SeqCore(b) =
+    let step = () =>
+        match (source.pull)()
+            None => None
+            Some(pulled) =>
+                let (value, rest) = pulled
+                Some((transform(value), map(rest, transform)))
+    SeqCore({ pull: step })
+
+export fun take(source: SeqCore(a), count: Int): SeqCore(a) =
+    if count <= 0 then
+        emptyCore
+    else
+        let step = () =>
+            match (source.pull)()
+                None => None
+                Some(pulled) =>
+                    let (value, rest) = pulled
+                    Some((value, take(rest, count - 1)))
+        SeqCore({ pull: step })
+
+export fun takeWhile(source: SeqCore(a), keep: a -> Bool): SeqCore(a) =
+    let step = () =>
+        match (source.pull)()
+            None => None
+            Some(pulled) =>
+                let (value, rest) = pulled
+                if keep(value) then
+                    Some((value, takeWhile(rest, keep)))
+                else
+                    None
+    SeqCore({ pull: step })
+
+export fun unfold(seed: b, produce: b -> Option((a, b))): SeqCore(a) =
+    let step = () =>
+        match produce(seed)
+            None => None
+            Some(produced) =>
+                let (value, nextSeed) = produced
+                Some((value, unfold(nextSeed, produce)))
+    SeqCore({ pull: step })
+
+export fun zipWith(left: SeqCore(a), right: SeqCore(b), combine: (a, b) -> c): SeqCore(c) =
+    let step = () =>
+        match (left.pull)()
+            None => None
+            Some(leftPulled) =>
+                let (leftValue, leftRest) = leftPulled
+                match (right.pull)()
+                    None => None
+                    Some(rightPulled) =>
+                        let (rightValue, rightRest) = rightPulled
+                        Some((combine(leftValue, rightValue), zipWith(leftRest, rightRest, combine)))
+    SeqCore({ pull: step })
+
+export let zip(left: SeqCore(a), right: SeqCore(b)): SeqCore((a, b)) =
+    zipWith(left, right, (leftValue, rightValue) => (leftValue, rightValue))
+
+// `concat`'s exhaust-then-switch is one bounded extra pull, not a skip loop:
+// when the first sequence is spent it hands straight to the second's thunk.
+export fun concat(first: SeqCore(a), second: SeqCore(a)): SeqCore(a) =
+    let step = () =>
+        match (first.pull)()
+            None => (second.pull)()
+            Some(pulled) =>
+                let (value, rest) = pulled
+                Some((value, concat(rest, second)))
+    SeqCore({ pull: step })
+
+// ---------------------------------------------------------------------------
+// 2. `pull` needs a constant-stack `while`: many input elements per output.
+// ---------------------------------------------------------------------------
+//
+// When a combinator may consume many source elements to yield one, its step is a
+// `while` loop threading a `var` cursor — never self-recursion, because Loops
+// §6.5 promises no TCO and a long run of skipped elements would otherwise grow
+// the stack. The sentinel `var searching` stands in for the absent `break`
+// (Loops §9.4).
+
+export fun filter(source: SeqCore(a), keep: a -> Bool): SeqCore(a) =
+    let step = () =>
+        var current = source
+        var result = None
+        var searching = true
+        while searching
+            match (current.pull)()
+                None => searching := false
+                Some(pulled) =>
+                    let (value, rest) = pulled
+                    if keep(value) then
+                        result := Some((value, filter(rest, keep)))
+                        searching := false
+                    else
+                        current := rest
+        result
+    SeqCore({ pull: step })
+
+// `drop` and `dropWhile` need no self-reference: they skip a run of elements and
+// then hand back the underlying pull, so both are `let` (N6) — and being
+// non-recursive they may call `next` directly.
+export let drop(source: SeqCore(a), count: Int): SeqCore(a) =
+    let step = () =>
+        var current = source
+        var remaining = count
+        var result = None
+        var running = true
+        while running
+            if remaining <= 0 then
+                result := next(current)
+                running := false
+            else
+                match next(current)
+                    None => running := false
+                    Some(pulled) =>
+                        let (_, rest) = pulled
+                        current := rest
+                        remaining := remaining - 1
+        result
+    SeqCore({ pull: step })
+
+export let dropWhile(source: SeqCore(a), discard: a -> Bool): SeqCore(a) =
+    let step = () =>
+        var current = source
+        var result = None
+        var searching = true
+        while searching
+            match next(current)
+                None => searching := false
+                Some(pulled) =>
+                    let (value, rest) = pulled
+                    if discard(value) then
+                        current := rest
+                    else
+                        result := Some((value, rest))
+                        searching := false
+        result
+    SeqCore({ pull: step })
+
+// `flatMap` is the hardest of these: draining empty sub-sequences to reach the
+// next element is still one `while`, never a stack. `pending` is the partially
+// consumed inner sequence carried between pulls, which is why the recursive knot
+// is tied through `flatMapWith` rather than through `flatMap` itself.
+// Private: `pending` is recursion plumbing, not public surface. `flatMap` below
+// is the entire exported face of this pair.
+fun flatMapWith(source: SeqCore(a), transform: a -> SeqCore(b), pending: SeqCore(b)): SeqCore(b) =
+    let step = () =>
+        var outer = source
+        var inner = pending
+        var result = None
+        var searching = true
+        while searching
+            match (inner.pull)()
+                Some(pulled) =>
+                    let (value, rest) = pulled
+                    result := Some((value, flatMapWith(outer, transform, rest)))
+                    searching := false
+                None =>
+                    match (outer.pull)()
+                        None => searching := false
+                        Some(outerPulled) =>
+                            let (outerValue, outerRest) = outerPulled
+                            outer := outerRest
+                            inner := transform(outerValue)
+        result
+    SeqCore({ pull: step })
+
+export let flatMap(source: SeqCore(a), transform: a -> SeqCore(b)): SeqCore(b) =
+    flatMapWith(source, transform, emptyCore)
+
+// ---------------------------------------------------------------------------
+// 3. Consumers: drive a `Seq` to a value.
+// ---------------------------------------------------------------------------
+//
+// The Loops §6.3 "external iteration" idiom. All are `let`: the loop, not
+// recursion, does the driving — so all may call `next` directly.
+
+export let fold(source: SeqCore(a), initial: b, combine: (b, a) -> b): b =
+    var accumulator = initial
+    var current = source
+    var running = true
+    while running
+        match next(current)
+            None => running := false
+            Some(pulled) =>
+                let (value, rest) = pulled
+                accumulator := combine(accumulator, value)
+                current := rest
+    accumulator
+
+export let length(source: SeqCore(a)): Int =
+    var total = 0
+    var current = source
+    var running = true
+    while running
+        match next(current)
+            None => running := false
+            Some(pulled) =>
+                let (_, rest) = pulled
+                total := total + 1
+                current := rest
+    total
+
+export let forEach(source: SeqCore(a), action: a -> Unit): Unit =
+    var current = source
+    var running = true
+    while running
+        match next(current)
+            None => running := false
+            Some(pulled) =>
+                let (value, rest) = pulled
+                action(value)
+                current := rest
+
+export let find(source: SeqCore(a), matches: a -> Bool): Option(a) =
+    var current = source
+    var result = None
+    var searching = true
+    while searching
+        match next(current)
+            None => searching := false
+            Some(pulled) =>
+                let (value, rest) = pulled
+                if matches(value) then
+                    result := Some(value)
+                    searching := false
+                else
+                    current := rest
+    result
+
+export let any(source: SeqCore(a), matches: a -> Bool): Bool =
+    match find(source, matches)
+        None => false
+        Some(_) => true
+
+export let all(source: SeqCore(a), matches: a -> Bool): Bool =
+    not any(source, value => not matches(value))
