@@ -85,14 +85,11 @@ describe("the two thunk-shaped types", () => {
   });
 
   test("§5.3 the eta-wrap bridges a thunk into a generic slot", () => {
-    // Spelt with a named parameter because the parser does not yet accept
-    // wildcard parameters (#79); §5.3 and S10 write the specified `_ => ...`,
-    // and this test should follow once #79 lands.
     expect(
       diagnostics(
         "let apply(transform: a -> b, value: a): b = transform(value)\n" +
           "let five(): Int = 5\n" +
-          "let v: Int = apply(ignored => five(), ())\n",
+          "let v: Int = apply(_ => five(), ())\n",
       ),
     ).toEqual([]);
   });

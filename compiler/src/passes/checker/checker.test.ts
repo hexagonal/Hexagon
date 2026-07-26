@@ -194,7 +194,7 @@ describe("check", () => {
 
     const incomplete = checkSource("let true | true = false");
     expect(incomplete.diagnostics.map(({ message }) => message)).toContain(
-      "this or-pattern does not cover every possible value and cannot be used in `let`; use `match`",
+      "this or-pattern does not cover every possible value and cannot be used in a binding position; use `match`",
     );
   });
 
@@ -247,7 +247,7 @@ describe("check", () => {
         "let Some(value) = Some(42)",
     );
     expect(refutable.diagnostics.map(({ message }) => message)).toContain(
-      "a constructor pattern is refutable and cannot be used in `let`",
+      "a constructor pattern is refutable and cannot be used in a binding position; use `match`",
     );
   });
 

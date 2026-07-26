@@ -2364,7 +2364,7 @@ class Checker {
       if (!this.#isIrrefutablePattern(pattern, expected)) {
         this.#diagnostics.add({
           severity: "error",
-          message: "this or-pattern does not cover every possible value and cannot be used in `let`; use `match`",
+          message: "this or-pattern does not cover every possible value and cannot be used in a binding position; use `match`",
           primary: pattern.span,
         });
       }
@@ -2376,7 +2376,7 @@ class Checker {
       if (union === undefined || union.constructors.length !== 1) {
         this.#diagnostics.add({
           severity: "error",
-          message: "a constructor pattern is refutable and cannot be used in `let`",
+          message: "a constructor pattern is refutable and cannot be used in a binding position; use `match`",
           primary: pattern.span,
         });
         return;
@@ -2413,7 +2413,7 @@ class Checker {
     ) {
       this.#diagnostics.add({
         severity: "error",
-        message: "a literal pattern is refutable and cannot be used in `let`",
+        message: "a literal pattern is refutable and cannot be used in a binding position; use `match`",
         primary: pattern.span,
       });
       return;

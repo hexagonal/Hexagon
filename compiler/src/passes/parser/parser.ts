@@ -47,6 +47,18 @@ const infix = new Map<TokenKind, Infix>([
 ]);
 
 const itemEnds = new Set<TokenKind>(["VSep", "Semicolon", "VClose", "Eof"]);
+
+/** A pattern parameter's binder, paired with the pattern it destructures. */
+interface Destructuring {
+  readonly pattern: Parsed.Pattern;
+  readonly name: Parsed.Name;
+  readonly span: Source.Span;
+}
+
+interface ParsedParameters {
+  readonly parameters: readonly Parsed.Parameter[];
+  readonly destructurings: readonly Destructuring[];
+}
 const structuralEnds: readonly TokenKind[] = ["VSep", "Semicolon", "VClose", "Eof"];
 /** Parses one layout-aware file and retains diagnostics from earlier passes. */
 export function parse(file: LaidOut.File): Parsed.Module {
@@ -425,7 +437,11 @@ class Parser {
           `extern \`fun\` declares a callable and requires a parameter list; for a foreign value, write \`let ${localName.text}: Type\``,
         );
       }
-      const parameters = this.#at("LeftParen") ? this.#parseParameters() : [];
+      const parsedParameters = this.#at("LeftParen")
+        ? this.#parseParameters()
+        : { parameters: [], destructurings: [] };
+      const parameters = parsedParameters.parameters;
+      this.#rejectDestructurings(parsedParameters.destructurings, "extern functions");
       for (const parameter of parameters) {
         if (parameter.annotation === undefined) {
           this.#errorAt(parameter.span, "extern function parameters require type annotations");
@@ -451,6 +467,7 @@ class Parser {
         `extern callable declarations use \`fun\`; write \`fun ${localName.text}(...)\` with explicit parameters`,
       );
       this.#parseParameters();
+      void 0;
     }
     this.#expect("Colon", "extern values require a type annotation");
     const annotation = this.#parseTypeAnnotation() ?? invalidType(localName);
@@ -521,7 +538,9 @@ class Parser {
         this.#skipSeparators();
         continue;
       }
-      const parameters = this.#parseParameters();
+      const memberParameters = this.#parseParameters();
+      const parameters = memberParameters.parameters;
+      this.#rejectDestructurings(memberParameters.destructurings, "constraint members");
       for (const parameter of parameters) {
         if (parameter.annotation === undefined) {
           this.#errorAt(parameter.span, "constraint member parameters require type annotations");
@@ -622,9 +641,12 @@ class Parser {
         this.#skipSeparators();
         continue;
       }
-      const parameters = this.#parseParameters();
+      const { parameters, destructurings } = this.#parseParameters();
       this.#expect("Equal", "expected `=` in instance member");
-      const body = this.#parseBodyExpression(new Set(["VSep", "VClose", "Eof"]));
+      const body = this.#withDestructurings(
+        this.#parseBodyExpression(new Set(["VSep", "VClose", "Eof"])),
+        destructurings,
+      );
       const name = parsedName(memberToken);
       members.push({
         name,
@@ -732,9 +754,10 @@ class Parser {
     if (this.#at("Less")) {
       typeParameters = this.#parseTypeParameters();
     }
+    let destructurings: readonly Destructuring[] = [];
     if (this.#at("LeftParen")) {
       parameterStartSpan = this.#current().span;
-      parameters = this.#parseParameters();
+      ({ parameters, destructurings } = this.#parseParameters());
       if (this.#at("Colon")) {
         this.#advance();
         returnAnnotation = this.#parseTypeAnnotation();
@@ -752,7 +775,10 @@ class Parser {
       return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
     }
 
-    const body: Parsed.Expr = this.#parseBodyExpression();
+    const body: Parsed.Expr = this.#withDestructurings(
+      this.#parseBodyExpression(),
+      destructurings,
+    );
     const value: Parsed.Expr = parameters === undefined
       ? body
       : {
@@ -1444,6 +1470,21 @@ class Parser {
   }
 
   #parsePrefix(stops: ReadonlySet<TokenKind>): Parsed.Expr {
+    // `_ => body`: a single parameter whose pattern ignores it. The parameter
+    // is real (arity one) — the wildcard only declines to bind it.
+    if (this.#at("Wildcard") && this.#peek(1).kind === "FatArrow") {
+      const wildcard = this.#advance();
+      this.#advance();
+      const body = this.#parseBodyExpression(stops);
+      return {
+        kind: "Lambda",
+        parameters: [
+          { name: this.#freshParameterName(wildcard.span, 0), span: wildcard.span },
+        ],
+        body,
+        span: spanFrom(wildcard.span, body.span),
+      };
+    }
     if (this.#at("NonUpperName") && this.#peek(1).kind === "FatArrow") {
       const parameter = this.#current() as Lexed.NameToken;
       this.#advance();
@@ -1460,14 +1501,14 @@ class Parser {
     }
     if (this.#isParenthesizedLambda()) {
       const start = this.#current();
-      const parameters = this.#parseParameters();
+      const { parameters, destructurings } = this.#parseParameters();
       let returnAnnotation: Parsed.TypeAnnotation | undefined;
       if (this.#at("Colon")) {
         this.#advance();
         returnAnnotation = this.#parseTypeAnnotation();
       }
       this.#expect("FatArrow", "expected `=>` after lambda parameters");
-      const body = this.#parseBodyExpression(stops);
+      const body = this.#withDestructurings(this.#parseBodyExpression(stops), destructurings);
       return {
         kind: "Lambda",
         parameters,
@@ -1960,26 +2001,49 @@ class Parser {
     return { kind: "Block", items, span: spanFrom(opening.span, last.span) };
   }
 
-  #parseParameters(): readonly Parsed.Parameter[] {
+  /**
+   * A parameter list. Each parameter is a full irrefutable pattern (Functions
+   * §3.1, Pattern Matching §6.5): the outer parentheses are the list and
+   * top-level commas separate parameters, so anything nested is pattern syntax.
+   *
+   * A parameter that is a plain name is a parameter directly. Any other pattern
+   * binds a fresh parameter and yields a *destructuring* the caller prepends to
+   * the body, which is how a pattern parameter inherits the `let` position's
+   * behaviour verbatim — including its irrefutability gate.
+   */
+  #parseParameters(): ParsedParameters {
     this.#expect("LeftParen", "expected `(` before parameters");
     const parameters: Parsed.Parameter[] = [];
+    const destructurings: Destructuring[] = [];
 
     while (!this.#at("RightParen") && !this.#at("Eof")) {
-      const name = this.#takeName(
-        "NonUpperName",
-        "function parameters must be non-uppercase-start names",
-      );
-      if (name !== undefined) {
+      const pattern = this.#parsePattern();
+      if (pattern !== undefined) {
         let annotation: Parsed.TypeAnnotation | undefined;
         if (this.#at("Colon")) {
           this.#advance();
           annotation = this.#parseTypeAnnotation();
         }
-        parameters.push({
-          name: parsedName(name),
-          ...(annotation === undefined ? {} : { annotation }),
-          span: spanFrom(name.span, annotation?.span ?? name.span),
-        });
+        const span = spanFrom(pattern.span, annotation?.span ?? pattern.span);
+        if (pattern.kind === "Binding") {
+          parameters.push({
+            name: pattern.name,
+            ...(annotation === undefined ? {} : { annotation }),
+            span,
+          });
+        } else {
+          const name = this.#freshParameterName(pattern.span, parameters.length);
+          parameters.push({
+            name,
+            ...(annotation === undefined ? {} : { annotation }),
+            span,
+          });
+          // A wildcard binds nothing, so it needs no destructuring at all —
+          // the fresh parameter simply goes unused.
+          if (pattern.kind !== "Wildcard") {
+            destructurings.push({ pattern, name, span: pattern.span });
+          }
+        }
       }
       if (!this.#at("Comma")) {
         break;
@@ -1988,7 +2052,44 @@ class Parser {
     }
 
     this.#expect("RightParen", "expected `)` after parameters");
-    return parameters;
+    return { parameters, destructurings };
+  }
+
+  /** The binder a pattern parameter destructures from; not writable in source. */
+  #freshParameterName(span: Source.Span, index: number): Parsed.Name {
+    return { text: `__hex_parameter${index}`, startClass: "non-upper", span };
+  }
+
+  /**
+   * Prepends each destructuring to a body as a `let` pattern binding, so the
+   * pattern's binders scope over the body exactly as a written `let` would.
+   */
+  #withDestructurings(
+    body: Parsed.Expr,
+    destructurings: readonly Destructuring[],
+  ): Parsed.Expr {
+    if (destructurings.length === 0) return body;
+    const bindings: Parsed.Item[] = destructurings.map(({ pattern, name, span }) => ({
+      kind: "LetPattern",
+      exported: false,
+      pattern,
+      value: { kind: "Name", name, span },
+      span,
+    }));
+    const items: Parsed.Item[] = body.kind === "Block"
+      ? [...bindings, ...body.items]
+      : [...bindings, { kind: "ExprItem", expression: body, span: body.span }];
+    return { kind: "Block", items, span: body.span };
+  }
+
+  /** Rejects pattern parameters where no body exists to destructure into. */
+  #rejectDestructurings(
+    destructurings: readonly Destructuring[],
+    what: string,
+  ): void {
+    for (const { span } of destructurings) {
+      this.#errorAt(span, `${what} take plain parameter names, not patterns`);
+    }
   }
 
   #isParenthesizedLambda(): boolean {
