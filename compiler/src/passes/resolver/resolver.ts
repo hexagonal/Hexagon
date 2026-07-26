@@ -186,6 +186,9 @@ class Resolver {
   readonly #usedPreludeSymbols = new Set<Resolved.SymbolId>();
   readonly #explicitlyImported = new Set<Resolved.SymbolId>();
   readonly #moduleAliases = new Map<string, ModuleInterface>();
+  /** Prelude members addressable by name — a fallback layer, so an explicit
+   *  `import * as` of the same name is a module-level binding and wins (§5.4). */
+  readonly #preludeModuleAliases = new Map<string, ModuleInterface>();
   readonly #constraintNames = new Set<string>([
     "Num", "Signed", "Frac", "Pow", "Concat", "Eq", "Ord", "Show",
   ]);
@@ -218,6 +221,15 @@ class Resolver {
   }
 
   /**
+   * A module addressable by name: an explicit `import * as` alias first, then the
+   * prelude layer. Modules §6.4 requires every prelude name to have a qualified
+   * home; §5.4 makes an explicit alias a module-level binding, so it wins.
+   */
+  #namedModule(name: string): ModuleInterface | undefined {
+    return this.#moduleAliases.get(name) ?? this.#preludeModuleAliases.get(name);
+  }
+
+  /**
    * Makes one prelude module's nominals implicitly available. Terms go into a
    * fallback scope so a local declaration of the same name shadows the prelude;
    * type identities are registered so annotations resolve and the checker sees
@@ -226,6 +238,13 @@ class Resolver {
    */
   #seedPrelude(prelude: ModuleInterface, specifier: string): void {
     this.#preludeInterfaceBySpecifier.set(specifier, prelude);
+    // Modules §6.4: the occlusion rule's "the prelude version stays reachable
+    // qualified" only works if the member can be *named*. Registering it under
+    // its own basename gives every prelude name the qualified home §6.4 requires,
+    // the same way an explicit `import * as` alias would. An explicit alias of
+    // the same name is a module-level binding and wins, per §5.4.
+    const moduleName = specifier.slice(specifier.lastIndexOf("/") + 1).replace(/\.js$/u, "");
+    if (moduleName !== "") this.#preludeModuleAliases.set(moduleName, prelude);
     for (const [name, symbol] of prelude.terms) {
       this.#preludeScope.define(name, symbol.id);
       this.#preludeTerms.set(symbol.id, symbol);
@@ -1233,7 +1252,7 @@ class Resolver {
               span: expression.span,
             };
           }
-          const importedModule = this.#moduleAliases.get(expression.receiver.name.text);
+          const importedModule = this.#namedModule(expression.receiver.name.text);
           if (importedModule !== undefined) {
             const symbol = importedModule.terms.get(expression.field.text);
             if (symbol === undefined) {
@@ -1641,7 +1660,7 @@ class Resolver {
       ? annotation.constructor.text
       : annotation.name.text;
     if (annotation.qualifier !== undefined) {
-      const imported = this.#moduleAliases.get(annotation.qualifier.text);
+      const imported = this.#namedModule(annotation.qualifier.text);
       if (imported === undefined) {
         this.#diagnostics.add({
           severity: "error",

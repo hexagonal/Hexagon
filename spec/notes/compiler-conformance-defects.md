@@ -498,3 +498,72 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   conjunction, not either group alone, is what states the rule. Blinding
   discriminates the two states separately: reverting to the depth gate reddens
   only the F1 pins, reverting to `lookup` reddens only the occlusion tests.
+
+### 10. A prelude name is not reachable qualified
+
+- **Classification:** compiler defect against specification; no design change.
+  **Pre-existing and general** — it is not about `Seq`. Found while preparing
+  Phase 4 step 8.
+- **Authority:** Modules §6.4, which exists to underwrite §5.4: "The occlusion
+  rule's *prelude version stays reachable qualified* only works if **every
+  prelude name has a qualified home** — a companion module it also lives in." §5.4
+  states the consequence it depends on: after a module occludes `show`, "the
+  prelude's version remains reachable qualified (`String.show` etc.)."
+- **Defect origin:** the prelude is seeded as *bare* names only. `#seedPrelude`
+  defines each member's terms in a fallback scope and registers its type names,
+  but registers no module alias, so the module itself cannot be named. There is
+  no path by which `Seq.next`, `Option.Some`, or `Result.Ok` resolves.
+- **Reproduction:** every one of these reports `unknown name` for the qualifier,
+  with no import line present:
+
+  ```
+  export let a: Option(Int) = Option.Some(1)
+  export let b: Result(Int, Int) = Result.Ok(1)
+  export let c: Seq(Int) = Seq.singleton(1)
+  ```
+
+  The bare spellings all compile. So the *unqualified* half of the prelude works
+  and the *qualified* half does not exist.
+- **Why it surfaces now.** Nothing depended on it before. While a module-level
+  binder could not occlude a prelude value at all (defect 9), "the prelude's
+  version remains reachable qualified" had nothing to protect: no program could
+  shadow `Some`. Fixing defect 9 makes occlusion real, and `stdlib/Seq.hex`
+  supplies twenty-odd occludable lowercase names — so the escape hatch §5.4
+  promises is now load-bearing and missing.
+- **Blocking relation to Phase 4 step 8.** The work order's F1 amendment requires
+  that `Seq.iterate`/`map`/`filter`/`take` "keep compiling with identical types
+  through the ordinary companion-dispatch path" *before* the compiler-known
+  `SeqOperation` family is deleted. They cannot: `Seq.iterate` today still
+  resolves to the intrinsic special case precisely *because* the qualifier does
+  not resolve — the special case is guarded on `Seq` being unbound, and it is.
+  Fixing this defect is expected to satisfy that guard as a side effect, since a
+  registered prelude alias makes the guard false and routes the spelling to the
+  prelude module. The deletion is not attemptable until then.
+- **Correction applied (2026-07-26).** Each prelude member is registered under
+  its basename, and qualified term and type lookups consult that registry after
+  the explicit-alias map. The layering is the point and the first attempt got it
+  wrong: registering members in the *same* map as `import * as` aliases made an
+  explicit `import * as Seq from "./SeqCore"` collide with the prelude member and
+  reddened 23 tests. §5.4 settles it — explicit imports are module-level
+  bindings, prelude entries are the outer layer — so the members live in a
+  fallback map and an explicit alias of the same name simply wins.
+- **Executable conformance:** `compiler/src/conformance/prelude-qualified.test.ts`
+  — qualified terms (`Option.Some`, `Result.Ok`, `Prelude.Less`) and qualified
+  types (`Option.Option(Int)`); the bare spellings unchanged; a member that does
+  not export the name reporting *that* rather than `unknown name`; **the §5.4 +
+  §6.4 pairing itself** — a module that occludes a prelude value still reaching
+  the prelude's version qualified, which is the guarantee the two sections make
+  together; and two tests that an explicit alias of a prelude member's name wins
+  without colliding. Blinding reddens 4 of the 7, and the 3 that stay green are
+  the behaviours that already worked.
+- **Still open (Phase 4 step 8):** the compiler-known operation guards
+  (`Seq.iterate`/`map`/`filter`/`take`, and the `Map`/`Set`/`Vector`/`Node`
+  families) test the *explicit* alias map only, so a prelude member does not yet
+  outrank them. Closing that is what routes those spellings to companion
+  dispatch, and it is only exercisable once `Seq.hex` joins the set — so it lands
+  with the producer retyping rather than here.
+- **Credit:** found by probing what `Seq.iterate` actually resolves to after
+  `Seq.hex` joined the prelude, rather than assuming the term-level yield would
+  hand it to companion dispatch. The intrinsic and the record print identically,
+  so the discriminator was whether `next` — which only accepts the record —
+  would take the result.
