@@ -50,6 +50,13 @@ interface Variable {
   readonly id: number;
   readonly rigidName?: string;
   readonly declaredConstraints?: readonly Typed.ConstraintName[];
+  /**
+   * Set on the stand-in for a module-level `let`/`var` that a function captures
+   * before the binding itself is checked. It denotes one binding's single type,
+   * so it must neither be quantified by a sibling's generalization (kept out by
+   * its level) nor absorbed by a declared type variable (rejected in `#bind`).
+   */
+  placeholder?: boolean;
   level: number;
   instance?: Mono;
   literalOnly: boolean;
@@ -713,7 +720,17 @@ class Checker {
         capturedSequential.has(item.binding.symbol) &&
         !promotedLets.has(item.binding.symbol)
       ) {
-        const placeholder = this.#fresh(level + 1, false);
+        // At `level`, not `level + 1`. A placeholder stands for one binding
+        // holding one value of one type, and `#generalize` quantifies exactly the
+        // variables above the level it generalizes at — so a placeholder one level
+        // deeper would be quantified into any sibling's scheme that mentions it.
+        // Each consumer would then instantiate a fresh copy and the single runtime
+        // value would be handed out at two types, with two evidence dictionaries at
+        // constrained types. A placeholder sits *at* the generalization boundary,
+        // so nothing quantifies it and the value restriction survives being read
+        // through an intermediary.
+        const placeholder = this.#fresh(level, false);
+        placeholder.placeholder = true;
         sequentialPlaceholders.set(item.binding.symbol, placeholder);
         this.#schemes.set(item.binding.symbol, { variables: [], type: placeholder });
       }
@@ -3167,6 +3184,23 @@ class Checker {
     return { kind: "Record", fields };
   }
 
+  /**
+   * A declared type variable tried to stand for a captured module-level binding
+   * whose type the value restriction pinned. Leads with the canonical repair
+   * (Rewrite Rule), then the inference-revealing alternative.
+   */
+  #placeholderEscape(rigidName: string, span: Source.Span): void {
+    this.#diagnostics.add({
+      severity: "error",
+      message:
+        `\`${rigidName}\` is a declared type variable, but the body requires the single ` +
+        "type of a module-level binding that is not generalized; name that concrete type " +
+        `instead of \`${rigidName}\`, or make the binding generalizable by defining it as a ` +
+        "function",
+      primary: span,
+    });
+  }
+
   #recordMismatch(fields: readonly string[], span: Source.Span): void {
     this.#diagnostics.add({
       severity: "error",
@@ -3176,8 +3210,31 @@ class Checker {
   }
 
   #bind(variable: Variable, type: Mono, span: Source.Span): void {
+    // The placeholder may also be the one being bound, to a type that *mentions*
+    // a declared variable (`fun reuse(): Vector(a) = shared`). Binding it would
+    // let `a` be quantified while standing for the pinned binding's element type,
+    // which is the same escape seen from the other direction below.
+    if (variable.placeholder === true) {
+      const declared = this.#collectVariables(type).find(
+        (candidate) => candidate.rigidName !== undefined,
+      );
+      if (declared !== undefined) {
+        this.#placeholderEscape(declared.rigidName!, span);
+        variable.instance = ERROR;
+        return;
+      }
+    }
     if (variable.rigidName !== undefined) {
       if (type.kind === "Variable" && type.rigidName === undefined) {
+        // A placeholder is one binding's single type, so a declared type variable
+        // cannot stand for it: absorbing it would let the annotation generalize
+        // over a value the value restriction pinned, and each caller would receive
+        // a fresh instantiation of one runtime value.
+        if (type.placeholder === true) {
+          this.#placeholderEscape(variable.rigidName, span);
+          variable.instance = ERROR;
+          return;
+        }
         this.#bind(type, variable, span);
         return;
       }

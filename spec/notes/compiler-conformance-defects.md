@@ -269,3 +269,55 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   of "the unification"; the checker half is repointing the intrinsic `Seq`
   producers at the prelude declaration. The full sequencing is owned by
   `seq-deintrinsification-plan.md`.
+
+### 7. A sequential placeholder could be generalized over
+
+- **Classification:** compiler defect against specification; no design change.
+  Found by Fable reviewing PR #86; **pre-existing on the `fun` path**, and
+  widened to the captured-`let` path by entry 1's fix before being closed here.
+- **Authority:** Functions §8, the value restriction — a `let` whose RHS is not
+  a syntactic value is pinned to one type — together with the 2026-07-24 rule
+  that a declared type more general than the body supports is an error.
+- **Defect origin:** a module-level `let`/`var` captured by a function is
+  installed as a monomorphic *placeholder* so bodies can refer to it before it is
+  checked. That placeholder denotes one binding holding one value of one type,
+  but it escaped through two doors:
+  1. It was created at `level + 1`, and `#generalize` quantifies exactly the
+     variables above the level it generalizes at — so any sibling generalizing at
+     `level` quantified the placeholder into its own scheme.
+  2. A declared (rigid) type variable could absorb it, directly or by being
+     mentioned in a type the placeholder was bound to.
+
+  Either way each consumer instantiated a fresh copy, so **one runtime value was
+  handed out at two types** — and at constrained types with two different
+  evidence dictionaries, which is a wrong-code channel, not mere permissiveness.
+- **Reproduction:** `shared` is a function *call*, so it cannot generalize; an
+  intermediary laundered that away.
+
+  ```
+  let makeEmpty() = []
+  let shared = makeEmpty()
+  let reuse = () => shared            -- or `fun reuse(): Vector(a) = shared`
+                                      -- or `fun reuse() = shared`
+  export fun useInt(values: Vector(Int)): Bool = reuse() == values
+  export fun useText(values: Vector(String)): Bool = reuse() == values
+  ```
+
+  Direct consumption of `shared` was always correctly rejected; only the
+  intermediary forms leaked.
+- **Correction:** placeholders are created **at `level`**, so they sit at the
+  generalization boundary and nothing quantifies them; and they are marked, so
+  `#bind` rejects any attempt by a declared type variable to stand for one —
+  from either direction, including when the declared variable merely occurs
+  inside the bound type. The diagnostic leads with the canonical repair (name the
+  concrete type) and offers the generalizing alternative (make the binding a
+  function).
+- **Executable conformance:**
+  `compiler/src/conformance/sequential-placeholder-scope.test.ts` — all three
+  intermediary forms rejected, the direct baseline rejected, and three guards
+  that legitimate generalization is untouched (a generic captured `let` helper
+  and a generic `fun` helper each still serve two types; a monomorphic captured
+  binding is still usable repeatedly at its one type).
+- **Credit:** Fable, from a discriminating probe run against both `main` and the
+  branch — the table separating regression from pre-existing hole is what
+  identified the shared mechanism rather than a fix-local slip.
