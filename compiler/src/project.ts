@@ -125,9 +125,15 @@ export function compileProject(files: readonly Source.File[]): CompiledProject {
         importedSchemes.set(symbol.id, symbol.scheme);
       }
     }
-    // Consumers see every compiled prelude module; prelude modules see none (no
-    // self-injection, and they do not depend on one another).
-    const preludeImports: PreludeImport[] = isPrelude ? [] : preludePaths.flatMap((preludePath) => {
+    // Consumers see every prelude module; a prelude module sees the members
+    // *before it* in the list, and only those (Modules §5.5). Ordering the set
+    // this way is what makes cycles impossible by construction, and it is why the
+    // list order is normative rather than incidental. A prelude module never sees
+    // itself or anything later, so the first member sees nothing.
+    const preludeVisible = isPrelude
+      ? preludePaths.slice(0, preludePaths.indexOf(path))
+      : preludePaths;
+    const preludeImports: PreludeImport[] = preludeVisible.flatMap((preludePath) => {
       const preludeCompiled = compiled.get(preludePath);
       if (preludeCompiled === undefined) return [];
       for (const symbol of preludeCompiled.typed.symbols) {
@@ -202,18 +208,30 @@ export function compileProject(files: readonly Source.File[]): CompiledProject {
     }
   }
 
-  // Emit a prelude module only when some consumer imports from it, so a project
+  // Emit a prelude module only when something emitted imports it, so a project
   // that never touches its nominals is unchanged by the prelude's existence.
-  const preludeUsed = (preludePath: string): boolean => ordered.some((path) =>
-    !preludeSet.has(path) &&
-    (compiled.get(path)?.resolved.items ?? []).some((item) =>
-      item.kind === "Import" && resolveSpecifier(path, item.specifier) === preludePath
-    )
-  );
+  // Since §5.5 lets prelude modules import each other, this is reachability
+  // rather than a single hop: a module imported *only* by another prelude module
+  // must still be emitted, or the emitted JavaScript carries an import of a file
+  // that was never written — and that failure is silent, because the project
+  // compiles clean.
+  const importsOf = (path: string): readonly string[] =>
+    (compiled.get(path)?.resolved.items ?? []).flatMap((item) =>
+      item.kind === "Import" ? [resolveSpecifier(path, item.specifier)] : []
+    );
+  const emitted = new Set(ordered.filter((path) => !preludeSet.has(path)));
+  const pending = [...emitted];
+  for (let path = pending.pop(); path !== undefined; path = pending.pop()) {
+    for (const target of importsOf(path)) {
+      if (emitted.has(target)) continue;
+      emitted.add(target);
+      pending.push(target);
+    }
+  }
 
   return {
     modules: ordered.flatMap((path) => {
-      if (preludeSet.has(path) && !preludeUsed(path)) return [];
+      if (!emitted.has(path)) return [];
       const module = compiled.get(path);
       return module === undefined ? [] : [module];
     }),

@@ -40,9 +40,14 @@ const RESULT_SOURCE =
   "    | Err(error: e)\n";
 
 /**
- * The prelude module set, in compilation order. Every module here is implicitly
- * in scope in every non-prelude module; a consumer imports only the names it
- * actually references, and a module the project never touches is not emitted.
+ * The prelude module set (Modules §5.5). **This order is normative, not
+ * incidental.** Every module here is implicitly in scope in every non-prelude
+ * module, and in the prelude modules *after* it — each member sees the members
+ * before it, and only those, which is what makes cycles impossible by
+ * construction. Adding a member means placing it after everything it uses.
+ *
+ * A consumer imports only the names it actually references, and a module nothing
+ * reachable touches is not emitted.
  */
 export const PRELUDE_MODULES: readonly PreludeModule[] = [
   { basename: "Prelude.hex", source: PRELUDE_SOURCE },
