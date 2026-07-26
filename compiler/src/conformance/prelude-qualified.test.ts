@@ -2,6 +2,53 @@ import { describe, expect, test } from "vitest";
 
 import { compileProject, Source } from "../index";
 
+/** Minimal ESM linker: rewrite compiler-owned relative imports to data-URL modules. */
+function resolveModulePath(importer: string, specifier: string): string | undefined {
+  if (!specifier.startsWith("./") && !specifier.startsWith("../")) return undefined;
+  const directory = importer.slice(0, Math.max(0, importer.lastIndexOf("/")));
+  const parts: string[] = [];
+  for (const part of `${directory}/${specifier}`.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  const path = `/${parts.join("/")}`;
+  return path.endsWith(".js") ? `${path.slice(0, -3)}.hex` : path;
+}
+
+function link(
+  javascript: string,
+  importerPath: string,
+  moduleUrls: ReadonlyMap<string, string>,
+): string {
+  return javascript.replace(
+    /^(\s*import(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
+    (statement, prefix: string, _quote: string, specifier: string) => {
+      const target = resolveModulePath(importerPath, specifier);
+      const url = target === undefined ? undefined : moduleUrls.get(target);
+      return url === undefined ? statement : `${prefix}${JSON.stringify(url)};`;
+    },
+  );
+}
+
+/** Compiles a project and executes it, returning `/main.hex`'s exports. */
+async function run(files: readonly (readonly [string, string])[]): Promise<Record<string, unknown>> {
+  const project = compileProject(
+    files.map(([path, text], index) => new Source.File(Source.fileId(index), path, text)),
+  );
+  expect(project.diagnostics).toEqual([]);
+  const moduleUrls = new Map<string, string>();
+  for (const module of project.modules) {
+    const linked = link(module.javascript.text, module.source.path, moduleUrls);
+    moduleUrls.set(
+      module.source.path,
+      `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
+    );
+  }
+  // By path, never `modules[0]`: the prelude members share the project.
+  return (await import(/* @vite-ignore */ moduleUrls.get("/main.hex")!)) as Record<string, unknown>;
+}
+
 /**
  * Conformance for the qualified reachability of prelude names (Modules §6.4;
  * `spec/notes/compiler-conformance-defects.md` defect 10).
@@ -108,5 +155,73 @@ describe("an explicit alias is a module-level binding and wins", () => {
       "export let a: Option(Int) = Some(1)\n" +
       "export let b: String = Option.greet(\"x\")\n",
     )).toEqual([]);
+  });
+});
+
+describe("the qualified spelling runs (PR #90 finding F1)", () => {
+  // Resolving the name is half the job. A prelude member has no namespace object
+  // to dot into — unlike an explicit `import * as`, nothing declares one — so the
+  // first fix emitted a bare `Option.Some(1)` with no import at all: a clean
+  // compile and a `ReferenceError` on load. These assertions are on *values*
+  // produced by executing the emitted module, which is the only level at which
+  // that failure is visible.
+
+  test("a qualified constructor produces the value", async () => {
+    const module = await run([[
+      "/main.hex",
+      "export let wrapped: Option(Int) = Option.Some(41)\n" +
+      "export let unwrapped: Int = match wrapped\n" +
+      "    None => 0\n" +
+      "    Some(value) => value + 1\n",
+    ]]);
+    expect(module["unwrapped"]).toBe(42);
+  });
+
+  test("a qualified nullary constructor produces the value", async () => {
+    const module = await run([[
+      "/main.hex",
+      "export let nothing: Option(Int) = Option.None\n" +
+      "export let isNothing: Bool = nothing == None\n",
+    ]]);
+    expect(module["isNothing"]).toBe(true);
+  });
+
+  test("a qualified value from a second member produces the value", async () => {
+    const module = await run([[
+      "/main.hex",
+      "export let ordered: Ordering = Prelude.Less\n" +
+      "export let isLess: Bool = ordered == Less\n",
+    ]]);
+    expect(module["isLess"]).toBe(true);
+  });
+
+  test("the occluding module gets BOTH values, distinct", async () => {
+    // The case that forbids the lazy fix. Importing the prelude's `tally` under
+    // its own name would collide with the module-level binding that occludes it —
+    // the very binding the qualified spelling exists to see past. Both values
+    // have to survive to runtime, and be different.
+    const module = await run([
+      ["/Result.hex",
+        "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
+        "export let tally: Int = 7\n"],
+      ["/main.hex",
+        "export let tally: Int = 1\n" +
+        "export let mine: Int = tally\n" +
+        "export let theirs: Int = Result.tally\n"],
+    ]);
+    expect(module["mine"]).toBe(1);
+    expect(module["theirs"]).toBe(7);
+  });
+
+  test("a qualified reference and a bare one share one import", async () => {
+    // No occlusion here, so both spellings denote the same symbol and must not
+    // produce two conflicting local bindings.
+    const module = await run([[
+      "/main.hex",
+      "export let viaBare: Option(Int) = Some(1)\n" +
+      "export let viaQualified: Option(Int) = Option.Some(2)\n" +
+      "export let same: Bool = viaBare != viaQualified\n",
+    ]]);
+    expect(module["same"]).toBe(true);
   });
 });

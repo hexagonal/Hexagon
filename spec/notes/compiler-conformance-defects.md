@@ -556,6 +556,37 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   together; and two tests that an explicit alias of a prelude member's name wins
   without colliding. Blinding reddens 4 of the 7, and the 3 that stay green are
   the behaviours that already worked.
+- **Correction to the correction (PR #90 finding F1, Fable).** The first fix
+  resolved the name and stopped there, and the defect lives one level below
+  resolution. A prelude member has **no namespace object to dot into** — unlike
+  an explicit `import * as`, nothing declares one — so the qualified reference
+  emitted as literal dotted text with no import synthesized:
+
+  ```js
+  const a = Option.Some(1);   // clean compile; ReferenceError on load
+  export { a };
+  ```
+
+  Two halves of the emission contract were missed: the reference must compile to
+  a plain name, and the symbol must join `#usedPreludeSymbols` so the
+  used-names-only prelude import actually carries it.
+- **The local name has to dodge the module's own bindings.** Importing the
+  prelude's `tally` *as* `tally` collides with the module-level binding that
+  occludes it — the very binding the qualified spelling exists to see past. So a
+  prelude term reached qualified is imported under a distinguished local when the
+  module binds that name, and under its own name otherwise.
+- **The pin is a runtime round-trip, not a diagnostic.** The suite now executes
+  the emitted module: a qualified constructor, a qualified nullary constructor, a
+  second member's value, a bare and a qualified reference sharing one import,
+  and — the case that forbids the lazy fix — an occluding module receiving
+  **both** values, distinct. Blinding discriminates the two layers separately:
+  against `main` 9 of the 12 redden, against the resolution-only parent 5 do, and
+  those 5 are exactly the round-trips.
+- **The reusable part:** this is the third silent-wrong-output finding of the arc
+  (entries 8, 10, and #88's F1). The common shape is a *resolution* change whose
+  test asks the *diagnostic* channel whether it worked. A clean compile is not
+  evidence that a name resolves to anything at runtime; only running the emitted
+  module is.
 - **Still open (Phase 4 step 8):** the compiler-known operation guards
   (`Seq.iterate`/`map`/`filter`/`take`, and the `Map`/`Set`/`Vector`/`Node`
   families) test the *explicit* alias map only, so a prelude member does not yet

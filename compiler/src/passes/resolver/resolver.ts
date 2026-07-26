@@ -189,6 +189,11 @@ class Resolver {
   /** Prelude members addressable by name — a fallback layer, so an explicit
    *  `import * as` of the same name is a module-level binding and wins (§5.4). */
   readonly #preludeModuleAliases = new Map<string, ModuleInterface>();
+  /** Every name bound at module level, so a qualified prelude reference can be
+   *  imported under a name that cannot collide with one of them. */
+  readonly #moduleLevelNames = new Set<string>();
+  /** Local name to import a prelude term under when it is reached *qualified*. */
+  readonly #preludeQualifiedLocals = new Map<Resolved.SymbolId, string>();
   readonly #constraintNames = new Set<string>([
     "Num", "Signed", "Frac", "Pow", "Concat", "Eq", "Ord", "Show",
   ]);
@@ -303,6 +308,11 @@ class Resolver {
     // `let` runs at lambda depth 0 but is an inner layer, where the ban is
     // absolute.
     this.#moduleScope = scope;
+    for (const item of module.items) {
+      if (item.kind === "Fun" || item.kind === "Let" || item.kind === "Var") {
+        this.#moduleLevelNames.add(item.name.text);
+      }
+    }
     this.#predeclareExternTerms(module.items, scope);
     const resolvedItems = this.#resolveItems(module.items, scope);
     const items = [...this.#preludeImport(module.span), ...resolvedItems];
@@ -1264,6 +1274,25 @@ class Resolver {
               return { kind: "ErrorExpr", span: expression.span };
             }
             this.#importedSymbols.set(symbol.id, symbol);
+            if (this.#preludeTerms.has(symbol.id)) {
+              // A prelude member has no namespace object to dot into — unlike an
+              // explicit `import * as`, nothing declares one. So the reference
+              // compiles to a plain name backed by the same synthesized
+              // used-names-only import the bare spelling uses, and the symbol has
+              // to join that set or the emitted module references nothing.
+              //
+              // The local name must dodge every module-level binding: reaching
+              // `Result.tally` from a module that itself binds `tally` is exactly
+              // what §6.4 exists for, and importing it as `tally` would collide
+              // with the binding it is there to see past.
+              const local = this.#preludeQualifiedLocals.get(symbol.id)
+                ?? (this.#moduleLevelNames.has(symbol.name)
+                  ? `__hex_prelude_${symbol.name}`
+                  : symbol.name);
+              this.#preludeQualifiedLocals.set(symbol.id, local);
+              this.#usedPreludeSymbols.add(symbol.id);
+              return { kind: "Name", symbol: symbol.id, text: local, span: expression.span };
+            }
             return {
               kind: "Name",
               symbol: symbol.id,
@@ -2001,7 +2030,8 @@ class Resolver {
       const specifier = this.#preludeSpecifierBySymbol.get(symbol);
       if (term === undefined || specifier === undefined) continue;
       const names = namesBySpecifier.get(specifier) ?? [];
-      names.push({ imported: term.name, local: term.name, symbol, span });
+      const local = this.#preludeQualifiedLocals.get(symbol) ?? term.name;
+      names.push({ imported: term.name, local, symbol, span });
       namesBySpecifier.set(specifier, names);
     }
     return [...namesBySpecifier].map(([specifier, names]) => {
