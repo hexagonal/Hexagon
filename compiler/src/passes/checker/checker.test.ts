@@ -7,6 +7,7 @@ import { applyLayout } from "../layout/layout.js";
 import { lex } from "../lexer/lexer.js";
 import { parse } from "../parser/parser.js";
 import { resolve } from "../resolver/resolver.js";
+import { compileProject } from "../../project.js";
 import { check } from "./checker.js";
 
 describe("check", () => {
@@ -27,7 +28,7 @@ describe("check", () => {
   });
 
   test("rejects generic externs and adapter-requiring nested positions", () => {
-    const module = checkSource(
+    const module = checkProject(
       "extern from \"streams\"\n" +
         "    fun generic(value: a): a\n" +
         "    fun nested(): Array(Seq(Int))\n" +
@@ -1182,6 +1183,16 @@ describe("check", () => {
 function checkSource(text: string): Typed.Module {
   const source = new Source.File(Source.fileId(0), "test.hex", text);
   return check(resolve(parse(applyLayout(lex(source)))));
+}
+
+/**
+ * The same, through `compileProject`, so the prelude is present. `Seq(a)` is a
+ * prelude declaration (Loops §6.6), so a module assembled by calling the passes
+ * directly cannot name it.
+ */
+function checkProject(text: string): Typed.Module {
+  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", text)]);
+  return project.modules.find((module) => module.source.path === "/main.hex")!.typed;
 }
 
 function expression(module: Typed.Module): Typed.Expr {

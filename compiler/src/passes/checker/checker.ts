@@ -32,7 +32,6 @@ type Mono =
   | TupleMono
   | RecordMono
   | RangeMono
-  | SeqMono
   | VectorMono
   | MapMono
   | SetMono
@@ -88,11 +87,6 @@ interface RecordMono {
 
 interface RangeMono {
   readonly kind: "Range";
-}
-
-interface SeqMono {
-  readonly kind: "Seq";
-  readonly element: Mono;
 }
 
 interface VectorMono {
@@ -193,11 +187,6 @@ class Checker {
     readonly callee: Mono;
     readonly receiver: Resolved.Expr;
   }>();
-  readonly #seqDotCalls = new WeakMap<Resolved.CallExpr, {
-    readonly operation: "map" | "filter" | "take";
-    readonly callee: Mono;
-    readonly receiver: Resolved.Expr;
-  }>();
   readonly #tupleAccesses = new WeakMap<Resolved.AccessExpr, number>();
   readonly #recordAccesses = new WeakMap<Resolved.AccessExpr, string>();
   readonly #indexOperations = new WeakMap<Resolved.IndexExpr, NonNullable<Typed.IndexExpr["operation"]>>();
@@ -213,6 +202,16 @@ class Checker {
   readonly #constructorUnions = new Map<Resolved.SymbolId, Resolved.UnionId>();
   readonly #unionParameters = new Map<Resolved.UnionId, ReadonlyMap<string, Variable>>();
   readonly #records = new Map<Resolved.RecordId, Resolved.RecordDeclaration>();
+  /**
+   * The prelude `Seq` record's identity (Loops §6.6). `Seq(a)` is a declared
+   * type, not a compiler intrinsic, so every compiler-side producer —
+   * `Map.keys`, `Set.toSeq`, `Vector.toSeq`/`fromSeq`, `for x in` — has to name
+   * *this* declaration rather than mint a structural type of its own, or the two
+   * coexist under one name and nothing a user writes will unify with either.
+   * Absent only in a module the prelude `Seq` cannot reach: the earlier prelude
+   * members, and `Seq.hex` itself.
+   */
+  #seqRecord: Resolved.RecordId | undefined;
   readonly #externTypes = new Map<Resolved.ExternTypeId, Resolved.ExternTypeDeclaration>();
   readonly #recordParameters = new Map<Resolved.RecordId, ReadonlyMap<string, Variable>>();
   readonly #recordFields = new Map<Resolved.RecordId, ReadonlyMap<string, Mono>>();
@@ -252,11 +251,17 @@ class Checker {
   }
 
   check(module: Resolved.Module): Typed.Module {
+    this.#seqRecord = module.preludeRecords.get("Seq");
     for (const externType of module.externTypes) {
       this.#externTypes.set(externType.externType, externType);
     }
+    // Every import form, not just `import * as`: a companion dot call emits the
+    // *local* spelling, and a named import — including the synthesized prelude
+    // one — may bind a symbol under a dodging local (`__hex_prelude_map`) to
+    // clear a module-level binding of the same name. Reading only namespace
+    // forms here emitted the source name and referenced nothing.
     for (const item of module.items) {
-      if (item.kind !== "Import" || item.form.kind !== "Namespace") continue;
+      if (item.kind !== "Import" || item.form.kind === "Effect") continue;
       for (const name of item.form.names) {
         if (name.symbol !== undefined) this.#operationSpellings.set(name.symbol, name.local);
       }
@@ -502,7 +507,7 @@ class Checker {
           });
         }
         for (const annotation of annotations) {
-          const nested = nestedAdapterType(annotation);
+          const nested = nestedAdapterType(annotation, this.#seqRecord);
           if (nested !== undefined) {
             this.#diagnostics.add({
               severity: "error",
@@ -603,6 +608,7 @@ class Checker {
       symbols,
       unions: module.unions.map((union) => this.#materializeUnion(union)),
       records: module.records.map((record) => this.#materializeRecord(record)),
+      preludeRecords: module.preludeRecords,
       externTypes: module.externTypes,
       comments: module.comments,
       span: module.span,
@@ -1331,43 +1337,31 @@ class Checker {
     for (const name of this.#constraintDeclarations.keys()) visit(name, []);
   }
 
-  /** Gives qualified and dot-call Seq operations one shared polymorphic shape. */
-  #seqOperationType(
-    operation: Resolved.SeqOperationExpr["operation"],
-    level: number,
-  ): FunctionMono {
-    const element = this.#fresh(level, false);
-    const result = this.#fresh(level, false);
-    const sequence: SeqMono = { kind: "Seq", element };
-    if (operation === "iterate") {
-      return {
-        kind: "Function",
-        parameters: [element, { kind: "Function", parameters: [element], result: element }],
-        result: sequence,
-      };
-    }
-    if (operation === "map") {
-      return {
-        kind: "Function",
-        parameters: [sequence, { kind: "Function", parameters: [element], result }],
-        result: { kind: "Seq", element: result },
-      };
-    }
-    if (operation === "filter") {
-      return {
-        kind: "Function",
-        parameters: [
-          sequence,
-          { kind: "Function", parameters: [element], result: primitive("Bool") },
-        ],
-        result: sequence,
-      };
+  /**
+   * `Seq(a)` as the compiler's own producers must speak it: the prelude
+   * record's identity. Occlusion cannot move it — a module that declares its own
+   * `record Seq(a)` shadows the *name* (§5.4) without redirecting `Map.keys`.
+   */
+  #sequence(element: Mono, span: Source.Span): Mono {
+    if (this.#seqRecord === undefined) {
+      return this.#unsupported(
+        span,
+        "`Seq(a)` is not available here; the prelude `Seq` module is not in scope",
+      );
     }
     return {
-      kind: "Function",
-      parameters: [sequence, primitive("Int")],
-      result: sequence,
+      kind: "NominalRecord",
+      record: this.#seqRecord,
+      name: "Seq",
+      arguments: [element],
     };
+  }
+
+  /** The prelude `Seq(a)` this type is, or `undefined` if it is not one. */
+  #asSequence(actual: Mono): Mono | undefined {
+    if (this.#seqRecord === undefined) return undefined;
+    if (actual.kind !== "NominalRecord" || actual.record !== this.#seqRecord) return undefined;
+    return actual.arguments[0] ?? ERROR;
   }
 
   /** Gives compiler-known persistent collection operations their ordinary function types. */
@@ -1394,11 +1388,12 @@ class Checker {
       if (operation === "containsKey") return { kind: "Function", parameters: [map, key], result: primitive("Bool") };
       if (operation === "size") return { kind: "Function", parameters: [map], result: primitive("Int") };
       if (operation === "isEmpty") return { kind: "Function", parameters: [map], result: primitive("Bool") };
-      if (operation === "keys") return { kind: "Function", parameters: [map], result: { kind: "Seq", element: key } };
-      if (operation === "values") return { kind: "Function", parameters: [map], result: { kind: "Seq", element: value } };
-      if (operation === "entries" || operation === "toSeq") return { kind: "Function", parameters: [map], result: { kind: "Seq", element: { kind: "Tuple", elements: [key, value] } } };
-      if (operation === "fromVector") return { kind: "Function", parameters: [{ kind: "Vector", element: { kind: "Tuple", elements: [key, value] } }], result: map };
-      if (operation === "fromSeq" || operation === "fromEntries") return { kind: "Function", parameters: [{ kind: "Seq", element: { kind: "Tuple", elements: [key, value] } }], result: map };
+      const entry: Mono = { kind: "Tuple", elements: [key, value] };
+      if (operation === "keys") return { kind: "Function", parameters: [map], result: this.#sequence(key, span) };
+      if (operation === "values") return { kind: "Function", parameters: [map], result: this.#sequence(value, span) };
+      if (operation === "entries" || operation === "toSeq") return { kind: "Function", parameters: [map], result: this.#sequence(entry, span) };
+      if (operation === "fromVector") return { kind: "Function", parameters: [{ kind: "Vector", element: entry }], result: map };
+      if (operation === "fromSeq" || operation === "fromEntries") return { kind: "Function", parameters: [this.#sequence(entry, span)], result: map };
     } else if (collection === "Set") {
       const element = this.#fresh(level, false);
       const set: SetMono = { kind: "Set", element };
@@ -1412,9 +1407,9 @@ class Checker {
       if (operation === "isSubsetOf") return { kind: "Function", parameters: [set, set], result: primitive("Bool") };
       if (operation === "size") return { kind: "Function", parameters: [set], result: primitive("Int") };
       if (operation === "isEmpty") return { kind: "Function", parameters: [set], result: primitive("Bool") };
-      if (operation === "toSeq") return { kind: "Function", parameters: [set], result: { kind: "Seq", element } };
+      if (operation === "toSeq") return { kind: "Function", parameters: [set], result: this.#sequence(element, span) };
       if (operation === "fromVector") return { kind: "Function", parameters: [{ kind: "Vector", element }], result: set };
-      if (operation === "fromSeq") return { kind: "Function", parameters: [{ kind: "Seq", element }], result: set };
+      if (operation === "fromSeq") return { kind: "Function", parameters: [this.#sequence(element, span)], result: set };
     } else if (collection === "Node") {
       // The hidden fixed-32 trie node: 32 slots of `element`, addressed 0..31.
       // `set`/`copy` are immutable (return a fresh node); see the design note §4.
@@ -1434,8 +1429,8 @@ class Checker {
       if (operation === "prepend") return { kind: "Function", parameters: [vector, element], result: vector };
       if (operation === "at") return { kind: "Function", parameters: [vector, primitive("Int")], result: element };
       if (operation === "set") return { kind: "Function", parameters: [vector, primitive("Int"), element], result: vector };
-      if (operation === "toSeq") return { kind: "Function", parameters: [vector], result: { kind: "Seq", element } };
-      if (operation === "fromSeq") return { kind: "Function", parameters: [{ kind: "Seq", element }], result: vector };
+      if (operation === "toSeq") return { kind: "Function", parameters: [vector], result: this.#sequence(element, span) };
+      if (operation === "fromSeq") return { kind: "Function", parameters: [this.#sequence(element, span)], result: vector };
     }
     return this.#unsupported(span, `the companion of \`${collection}\` has no core operation \`${operation}\``);
   }
@@ -1443,10 +1438,6 @@ class Checker {
   #inferExpr(expression: Resolved.Expr, level: number): Mono {
     let type: Mono;
     switch (expression.kind) {
-      case "SeqOperation": {
-        type = this.#seqOperationType(expression.operation, level);
-        break;
-      }
       case "CollectionOperation":
         const collectionRequirements: Requirement[] = [];
         type = this.#collectionOperationType(
@@ -1750,10 +1741,15 @@ class Checker {
           actual = this.#prune(iterable);
         }
         let element: Mono = ERROR;
+        // `for x in` stays compiler-owned over a `Seq` (ruling R3): it is the
+        // emitter's constant-stack `next` loop, not an `Iterable` instance, so
+        // the prelude record is recognized here rather than falling through to
+        // the constraint path — which would report no instance for it.
+        const sequenceElement = this.#asSequence(actual);
         if (actual.kind === "Range") {
           element = primitive("Int");
-        } else if (actual.kind === "Seq") {
-          element = actual.element;
+        } else if (sequenceElement !== undefined) {
+          element = sequenceElement;
         } else if (actual.kind === "Vector" || actual.kind === "Set" || actual.kind === "Array") {
           element = actual.element;
         } else if (actual.kind === "Map") {
@@ -2029,50 +2025,9 @@ class Checker {
         if (expression.callee.kind === "Access") {
           const receiver = this.#inferExpr(expression.callee.receiver, level);
           const actual = this.#prune(receiver);
-          if (actual.kind === "Seq") {
-            const field = expression.callee.field.text;
-            if (field !== "map" && field !== "filter" && field !== "take") {
-              type = this.#unsupported(
-                expression.callee.field.span,
-                `the companion of \`Seq\` has no subject-first operation \`${field}\``,
-              );
-              break;
-            }
-            const callee = this.#seqOperationType(field, level);
-            const arguments_ = [
-              receiver,
-              ...expression.arguments.map((argument) => this.#inferExpr(argument, level)),
-            ];
-            const callExpressions = [
-              expression.callee.receiver,
-              ...expression.arguments,
-            ];
-            const knownOperation = this.#prune(callee);
-            const result = knownOperation.kind === "Function"
-              ? knownOperation.result
-              : this.#fresh(level, false);
-            if (knownOperation.kind === "Function") {
-              this.#checkCallArguments(
-                knownOperation.parameters,
-                arguments_,
-                callExpressions,
-                expression.span,
-              );
-            } else {
-              this.#unify(
-                callee,
-                { kind: "Function", parameters: arguments_, result },
-                expression.span,
-              );
-            }
-            this.#seqDotCalls.set(expression, {
-              operation: field,
-              callee,
-              receiver: expression.callee.receiver,
-            });
-            type = result;
-            break;
-          }
+          // `Seq` is a nominal record like any other, so `source.map(f)` is
+          // ordinary companion dispatch (Products §3.2) against prelude
+          // `Seq.hex` — no dedicated dot-call path, and no fixed operation list.
           const nominal =
             actual.kind === "NominalRecord" ||
             actual.kind === "Union" ||
@@ -3092,9 +3047,6 @@ class Checker {
       if (actualLeft.externType === actualRight.externType) return;
     } else if (actualLeft.kind === "Range" && actualRight.kind === "Range") {
       return;
-    } else if (actualLeft.kind === "Seq" && actualRight.kind === "Seq") {
-      this.#unify(actualLeft.element, actualRight.element, span);
-      return;
     } else if (actualLeft.kind === "Vector" && actualRight.kind === "Vector") {
       this.#unify(actualLeft.element, actualRight.element, span);
       return;
@@ -3309,7 +3261,6 @@ class Checker {
     if (actual.kind === "NominalRecord") {
       return actual.arguments.some((argument) => this.#occurs(variable, argument));
     }
-    if (actual.kind === "Seq") return this.#occurs(variable, actual.element);
     if (actual.kind === "Vector") return this.#occurs(variable, actual.element);
     if (actual.kind === "Set") return this.#occurs(variable, actual.element);
     if (actual.kind === "Array") return this.#occurs(variable, actual.element);
@@ -3703,9 +3654,6 @@ class Checker {
         ),
       };
     }
-    if (actual.kind === "Seq") {
-      return { kind: "Seq", element: this.#replaceVariables(actual.element, replacements) };
-    }
     if (actual.kind === "Vector") {
       return { kind: "Vector", element: this.#replaceVariables(actual.element, replacements) };
     }
@@ -3830,7 +3778,6 @@ class Checker {
     if (actual.kind === "NominalRecord") {
       for (const argument of actual.arguments) this.#collectVariables(argument, found);
     }
-    if (actual.kind === "Seq") this.#collectVariables(actual.element, found);
     if (actual.kind === "Vector") this.#collectVariables(actual.element, found);
     if (actual.kind === "Set") this.#collectVariables(actual.element, found);
     if (actual.kind === "Array") this.#collectVariables(actual.element, found);
@@ -3896,7 +3843,6 @@ class Checker {
       if (actual.kind === "NominalRecord") {
         return { ...actual, arguments: actual.arguments.map(copy) };
       }
-      if (actual.kind === "Seq") return { kind: "Seq", element: copy(actual.element) };
       if (actual.kind === "Vector") return { kind: "Vector", element: copy(actual.element) };
       if (actual.kind === "Set") return { kind: "Set", element: copy(actual.element) };
       if (actual.kind === "Array") return { kind: "Array", element: copy(actual.element) };
@@ -3930,18 +3876,6 @@ class Checker {
   ): Mono {
     if (annotation.kind === "Primitive") return primitive(annotation.name);
     if (annotation.kind === "Range") return { kind: "Range" };
-    if (annotation.kind === "Seq") {
-      return {
-        kind: "Seq",
-        element: this.#annotationType(
-          annotation.element,
-          level,
-          namedTails,
-          typeParameters,
-          impliedTypes,
-        ),
-      };
-    }
     if (annotation.kind === "Vector") {
       return {
         kind: "Vector",
@@ -4088,7 +4022,6 @@ class Checker {
       switch (type.kind) {
         case "Primitive": return primitive(type.name);
         case "Range": return { kind: "Range" };
-        case "Seq": return { kind: "Seq", element: copy(type.element) };
         case "Vector": return { kind: "Vector", element: copy(type.element) };
         case "Set": return { kind: "Set", element: copy(type.element) };
         case "Array": return { kind: "Array", element: copy(type.element) };
@@ -4146,7 +4079,6 @@ class Checker {
       }
       if (actual.kind === "Union") return { ...actual, arguments: actual.arguments.map(copy) };
       if (actual.kind === "NominalRecord") return { ...actual, arguments: actual.arguments.map(copy) };
-      if (actual.kind === "Seq") return { kind: "Seq", element: copy(actual.element) };
       if (actual.kind === "Vector") return { kind: "Vector", element: copy(actual.element) };
       if (actual.kind === "Set") return { kind: "Set", element: copy(actual.element) };
       if (actual.kind === "Array") return { kind: "Array", element: copy(actual.element) };
@@ -4183,7 +4115,6 @@ class Checker {
       case "Record":
         return [...actual.fields.values()].some((field) => this.#mentionsNode(field)) ||
           (actual.tail !== undefined && this.#mentionsNode(actual.tail));
-      case "Seq":
       case "Vector":
       case "Set":
       case "Array":
@@ -4220,7 +4151,7 @@ class Checker {
         visit(actual.result, found);
       } else if (actual.kind === "Tuple") actual.elements.forEach((element) => visit(element, found));
       else if (actual.kind === "Record") actual.fields.forEach((field) => visit(field, found));
-      else if (actual.kind === "Seq" || actual.kind === "Vector" || actual.kind === "Set" || actual.kind === "Array" || actual.kind === "Node") visit(actual.element, found);
+      else if (actual.kind === "Vector" || actual.kind === "Set" || actual.kind === "Array" || actual.kind === "Node") visit(actual.element, found);
       else if (actual.kind === "Nullable") visit(actual.value, found);
       else if (actual.kind === "Map") { visit(actual.key, found); visit(actual.value, found); }
       return found;
@@ -4501,9 +4432,6 @@ class Checker {
       };
     }
     if (actual.kind === "Range") return { kind: "Range" };
-    if (actual.kind === "Seq") {
-      return { kind: "Seq", element: this.#publicType(actual.element, seen) };
-    }
     if (actual.kind === "Vector") {
       return { kind: "Vector", element: this.#publicType(actual.element, seen) };
     }
@@ -4967,7 +4895,6 @@ class Checker {
     const type = this.#publicType(this.#typeOf(expression));
     switch (expression.kind) {
       case "Name":
-      case "SeqOperation":
       case "CollectionOperation":
       case "PrimitiveOperation":
       case "Unit":
@@ -5109,28 +5036,6 @@ class Checker {
           span: expression.span,
         };
       case "Call":
-        const seqDotCall = this.#seqDotCalls.get(expression);
-        if (seqDotCall !== undefined) {
-          return {
-            kind: "Call",
-            callee: {
-              kind: "SeqOperation",
-              operation: seqDotCall.operation,
-              type: this.#publicType(seqDotCall.callee),
-              receiverBound: true,
-              span: expression.callee.kind === "Access"
-                ? expression.callee.field.span
-                : expression.callee.span,
-            },
-            arguments: [
-              this.#materializeExpr(seqDotCall.receiver),
-              ...expression.arguments.map((argument) => this.#materializeExpr(argument)),
-            ],
-            requirements: [],
-            type,
-            span: expression.span,
-          };
-        }
         const dotCall = this.#dotCalls.get(expression);
         if (dotCall !== undefined) {
           return {
@@ -5380,7 +5285,6 @@ class Checker {
     }
     if (actual.kind === "ExternType") return actual.name;
     if (actual.kind === "Range") return "Range";
-    if (actual.kind === "Seq") return `Seq(${this.#display(actual.element)})`;
     if (actual.kind === "Vector") return `Vector(${this.#display(actual.element)})`;
     if (actual.kind === "Set") return `Set(${this.#display(actual.element)})`;
     if (actual.kind === "Array") return `Array(${this.#display(actual.element)})`;
@@ -5521,7 +5425,6 @@ function annotationHasTypeVariable(
     case "Function":
       return annotation.parameters.some(annotationHasTypeVariable) ||
         annotationHasTypeVariable(annotation.result);
-    case "Seq":
     case "Vector":
     case "Set":
     case "Array":
@@ -5561,7 +5464,6 @@ function annotationMentionsNode(annotation: Resolved.TypeAnnotation): boolean {
   switch (annotation.kind) {
     case "Node":
       return true;
-    case "Seq":
     case "Vector":
     case "Set":
     case "Array":
@@ -5590,29 +5492,45 @@ function annotationMentionsNode(annotation: Resolved.TypeAnnotation): boolean {
   }
 }
 
+/**
+ * The adapter type (`Seq`) found *nested* inside a direct extern value, if any.
+ * `Seq` crosses the FFI boundary only at the top of a declaration, where the
+ * bridges wrap it; buried in a tuple or record there is nothing to wrap.
+ *
+ * `Seq` is now the prelude's record rather than an intrinsic annotation kind, so
+ * the identity is passed in: a *user* record spelled `Seq` is an ordinary value
+ * and must not be flagged here.
+ */
 function nestedAdapterType(
   annotation: Resolved.TypeAnnotation,
+  seqRecord: Resolved.RecordId | undefined,
   nested = false,
 ): string | undefined {
-  if (annotation.kind === "Seq") {
+  const recurse = (inner: Resolved.TypeAnnotation): string | undefined =>
+    nestedAdapterType(inner, seqRecord, true);
+  if (
+    annotation.kind === "RecordDeclaration" &&
+    seqRecord !== undefined &&
+    annotation.record === seqRecord
+  ) {
     if (nested) return "Seq";
-    return nestedAdapterType(annotation.element, true);
+    return annotation.arguments.map(recurse).find((found) => found !== undefined);
   }
   if (annotation.kind === "Function") {
     for (const parameter of annotation.parameters) {
-      const found = nestedAdapterType(parameter, true);
+      const found = recurse(parameter);
       if (found !== undefined) return found;
     }
-    return nestedAdapterType(annotation.result, true);
+    return recurse(annotation.result);
   }
   if (annotation.kind === "Tuple") {
     for (const element of annotation.elements) {
-      const found = nestedAdapterType(element, true);
+      const found = recurse(element);
       if (found !== undefined) return found;
     }
   } else if (annotation.kind === "Record") {
     for (const field of annotation.fields) {
-      const found = nestedAdapterType(field.annotation, true);
+      const found = recurse(field.annotation);
       if (found !== undefined) return found;
     }
   } else if (
@@ -5621,15 +5539,14 @@ function nestedAdapterType(
     annotation.kind === "Array" ||
     annotation.kind === "Node"
   ) {
-    return nestedAdapterType(annotation.element, true);
+    return recurse(annotation.element);
   } else if (annotation.kind === "Nullable") {
-    return nestedAdapterType(annotation.value, true);
+    return recurse(annotation.value);
   } else if (annotation.kind === "Map") {
-    return nestedAdapterType(annotation.key, true) ??
-      nestedAdapterType(annotation.value, true);
+    return recurse(annotation.key) ?? recurse(annotation.value);
   } else if (annotation.kind === "Union" || annotation.kind === "RecordDeclaration") {
     for (const argument of annotation.arguments) {
-      const found = nestedAdapterType(argument, true);
+      const found = recurse(argument);
       if (found !== undefined) return found;
     }
   }

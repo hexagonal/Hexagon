@@ -56,6 +56,15 @@ class JavaScriptEmitter {
   readonly #constraints = new Map<string, Core.ConstraintItem>();
   readonly #nullaryExceptions = new Set<Resolved.SymbolId>();
   readonly #generatedNames: GeneratedNames;
+  /** Local each imported symbol is bound under, by the module's own imports. */
+  readonly #importLocals = new Map<Resolved.SymbolId, string>();
+  /**
+   * The prelude `Seq` (Loops §6.6). The emitter knows this identity for exactly
+   * three jobs, all of them the FFI Part 3 boundary in ruling R1's sense: wrap a
+   * foreign value entering as a `Seq`, drive a `Seq` leaving for JavaScript, and
+   * lower `for x in` over one. Nothing else here may know the representation.
+   */
+  readonly #seqRecord: Resolved.RecordId | undefined;
   readonly #helpers = new Set<Helper>();
   readonly #helperNames = new Map<Helper, string>();
   readonly #exports: string[] = [];
@@ -70,8 +79,17 @@ class JavaScriptEmitter {
 
   constructor(module: Core.Module, options: JavaScriptEmissionOptions) {
     this.#module = module;
+    this.#seqRecord = module.preludeRecords.get("Seq");
     this.#exportInstanceEvidence = options.exportInstanceEvidence ?? false;
     this.#generatedNames = new GeneratedNames(module.symbols.map(({ name }) => name));
+    for (const item of module.items) {
+      if (item.kind !== "Import" || item.form.kind === "Effect") continue;
+      // Namespace members are reached as `Alias.member` and never by bare local.
+      if (item.form.kind === "Namespace") continue;
+      for (const name of item.form.names) {
+        if (name.symbol !== undefined) this.#importLocals.set(name.symbol, name.local);
+      }
+    }
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
     for (const symbol of module.symbols) this.#symbols.set(symbol.id, symbol);
     for (const union of module.unions) {
@@ -225,10 +243,20 @@ class JavaScriptEmitter {
           declaration.binding.symbol,
           declaration.localName,
         );
+        // A `Seq` faces JavaScript as `Iterable<a>` and is a record inside, so
+        // both directions need a bridge: a foreign result is adapted in, and a
+        // `Seq` argument is driven out. Without the argument half a foreign
+        // function would be handed the bare record and iterate nothing.
+        const sequenceParameters = declaration.kind === "ExternFun"
+          ? declaration.parameters.filter((parameter) =>
+            this.#isSequence(parameter.scheme.type)
+          )
+          : [];
         const wrapper = declaration.kind === "ExternFun"
-          ? declaration.result.kind === "Seq" ||
+          ? this.#isSequence(declaration.result) ||
+            sequenceParameters.length > 0 ||
             (declaration.result.kind === "Primitive" && declaration.result.name === "Unit")
-          : declaration.type.kind === "Seq";
+          : this.#isSequence(declaration.type);
         if (!wrapper) {
           if (declaration.default) {
             lines.push(`${prefix}import ${local} from ${specifier};`);
@@ -248,16 +276,27 @@ class JavaScriptEmitter {
           );
           if (declaration.kind === "ExternLet") {
             lines.push(
-              `${prefix}const ${local} = ${this.#useHelper("seq")}(${imported});`,
+              `${prefix}const ${local} = ${this.#useHelper("seqFromIterable")}(${imported});`,
             );
           } else {
             const parameters = declaration.parameters.map((parameter) =>
               this.#identifier(parameter.symbol, parameter.name)
             );
-            const call = `${imported}(${parameters.join(", ")})`;
-            const value = declaration.result.kind === "Seq"
-              ? `${this.#useHelper("seq")}(${call})`
-              : `{ ${call}; }`;
+            const sequenceNames = new Set(
+              sequenceParameters.map((parameter) =>
+                this.#identifier(parameter.symbol, parameter.name)
+              ),
+            );
+            const call = `${imported}(${parameters.map((parameter) =>
+              sequenceNames.has(parameter)
+                ? `${this.#useHelper("seqToIterable")}(${parameter})`
+                : parameter
+            ).join(", ")})`;
+            const value = this.#isSequence(declaration.result)
+              ? `${this.#useHelper("seqFromIterable")}(${call})`
+              : declaration.result.kind === "Primitive" && declaration.result.name === "Unit"
+              ? `{ ${call}; }`
+              : call;
             lines.push(`${prefix}const ${local} = ${arrowParameters(parameters)} => ${value};`);
           }
         }
@@ -677,26 +716,27 @@ class JavaScriptEmitter {
           return this.#constrainedImports.get(expression.symbol)!;
         }
         if (expression.text.includes(".")) return expression.text;
-        const name = this.#identifier(expression.symbol, expression.text);
+        // An imported symbol is spelled by the local its import binds, which is
+        // not always the name the reference carries: the synthesized prelude
+        // import may bind a term under a distinguished local to clear a
+        // module-level binding of the same name (Modules §6.4). Consulted before
+        // `#identifier`, which sees only text and so cannot know.
+        const importLocal = this.#importLocals.get(expression.symbol);
+        const name = importLocal ?? this.#identifier(expression.symbol, expression.text);
         return this.#nullaryExceptions.has(expression.symbol) ? `${name}()` : name;
-      case "SeqOperation":
-        this.#useHelper("seq");
-        return this.#useHelper(
-          expression.operation === "iterate"
-            ? "seqIterate"
-            : expression.operation === "map"
-            ? "seqMap"
-            : expression.operation === "filter"
-            ? "seqFilter"
-            : "seqTake",
-        );
       case "CollectionOperation": {
         const needsPersistentRuntime = expression.collection !== "Vector";
-        const needsSeq =
-          expression.operation === "toSeq" ||
-          expression.operation === "fromSeq" ||
+        // The producing rows hand their traversal to the inbound adapter; the
+        // consuming rows drive their argument through the outbound one. HAMT
+        // traversal stays runtime-owned and composes with the pair: for an
+        // effect-free source, memoizing and re-deriving are observationally
+        // equivalent, so §6.4's re-derivation default for user-built sequences
+        // is untouched by the boundary's memoization.
+        const produces = expression.operation === "toSeq" ||
           (expression.collection === "Map" &&
-            ["keys", "values", "entries", "fromEntries"].includes(expression.operation));
+            ["keys", "values", "entries"].includes(expression.operation));
+        const consumes = expression.operation === "fromSeq" ||
+          expression.operation === "fromEntries";
         return collectionOperation(
           expression.collection,
           expression.operation,
@@ -704,7 +744,8 @@ class JavaScriptEmitter {
           expression.hashEvidence === undefined
             ? undefined
             : this.#emitEvidence(expression.hashEvidence, "Hash", expression.span, evidenceNames),
-          needsSeq ? this.#useHelper("seq") : undefined,
+          produces ? this.#useHelper("seqFromIterable") : undefined,
+          consumes ? this.#useHelper("seqToIterable") : undefined,
         );
       }
       case "PrimitiveOperation":
@@ -996,7 +1037,13 @@ class JavaScriptEmitter {
   ): string[] {
     const prefix = indent(depth);
     const source = this.#emitExpr(expression.iterable, depth, evidenceNames);
-    const iterable = expression.iteration === undefined
+    // `for x in` over a `Seq` is compiler-owned (ruling R3) and lowers through
+    // the outbound driver — a `while` over `pull`, so a long sequence runs in
+    // constant stack (Loops §6.5 promises no tail-call elimination). It is not
+    // an `Iterable` instance and never asks for evidence.
+    const iterable = this.#isSequence(expression.iterable.type)
+      ? `${this.#useHelper("seqToIterable")}(${source})`
+      : expression.iteration === undefined
       ? source
       : `${this.#emitEvidence(expression.iteration, "Iterable", expression.span, evidenceNames)}.iterate(${source})`;
     if (expression.pattern.kind === "Binding") {
@@ -1082,9 +1129,9 @@ class JavaScriptEmitter {
         case "set":
           return `${this.#useHelper("vectorSet")}(${values}, ${argument}, ${value})`;
         case "toSeq":
-          return `${this.#useHelper("seq")}(${values})`;
+          return `${this.#useHelper("seqFromIterable")}(${values})`;
         case "fromSeq":
-          return `Array.from(${values})`;
+          return `Array.from(${this.#useHelper("seqToIterable")}(${values}))`;
       }
     }
     const specialization = this.#callSpecialization(expression);
@@ -1092,7 +1139,6 @@ class JavaScriptEmitter {
       this.#emitExpr(expression.callee, depth, evidenceNames);
     const callee =
       expression.callee.kind === "Name" ||
-        expression.callee.kind === "SeqOperation" ||
         expression.callee.kind === "Call"
         ? emittedCallee
         : `(${emittedCallee})`;
@@ -2273,6 +2319,17 @@ class JavaScriptEmitter {
     this.#exports.push(`export { ${dictionary} };`);
   }
 
+  /**
+   * Whether this is the prelude `Seq` — the one type the emitter bridges at the
+   * boundary. A record a *user* declares as `Seq` is an ordinary value and is
+   * deliberately not matched: identity, never the spelling.
+   */
+  #isSequence(type: Typed.Type): boolean {
+    return this.#seqRecord !== undefined &&
+      type.kind === "NominalRecord" &&
+      type.record === this.#seqRecord;
+  }
+
   #useHelper(helper: Helper): string {
     this.#helpers.add(helper);
     if (helper === "stringIndex") this.#helpers.add("vectorIndex");
@@ -2294,10 +2351,13 @@ class DeclarationEmitter {
   readonly #module: Core.Module;
   readonly #specializations: readonly FundamentalSpecialization[];
   readonly #opaqueBrands: ReadonlyMap<string, string>;
+  /** The prelude `Seq` this module's `.d.ts` face renders as `Iterable<a>`. */
+  readonly #seqRecord: Resolved.RecordId | undefined;
 
   constructor(module: Core.Module) {
     this.#module = module;
     this.#opaqueBrands = opaqueBrandNames(module);
+    this.#seqRecord = module.preludeRecords.get("Seq");
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
     const plan = planFundamentalSpecializations(module);
     this.#specializations = plan.specializations;
@@ -2331,10 +2391,10 @@ class DeclarationEmitter {
             declarations.push(`declare const ${brand}: unique symbol;`);
             declarations.push(`export type ${declaration.localName} = { readonly [${brand}]: never };`);
           } else if (declaration.kind === "ExternFun") {
-            declarations.push(...renderExternFunctionDeclaration(declaration, true));
+            declarations.push(...renderExternFunctionDeclaration(declaration, true, this.#seqRecord));
           } else {
             declarations.push(
-              `export declare const ${declaration.localName}: ${renderType(declaration.type, new Map(), false)};`,
+              `export declare const ${declaration.localName}: ${renderType(declaration.type, new Map(), this.#seqRecord, false)};`,
             );
           }
           isExternalModule = true;
@@ -2347,7 +2407,7 @@ class DeclarationEmitter {
         const variables = typeVariableNames(item.parameters);
         const names = item.parameters.map((parameter) => variables.get(parameter)!);
         const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
-        declarations.push(`export type ${item.name}${generics} = ${renderType(item.type, variables, false)};`);
+        declarations.push(`export type ${item.name}${generics} = ${renderType(item.type, variables, this.#seqRecord, false)};`);
         isExternalModule = true;
         continue;
       }
@@ -2362,7 +2422,7 @@ class DeclarationEmitter {
           isExternalModule = true;
           continue;
         }
-        declarations.push(renderUnionDeclaration(item, item.exported));
+        declarations.push(renderUnionDeclaration(item, item.exported, this.#seqRecord));
         if (item.exported) {
           isExternalModule = true;
           const variables = typeVariableNames(item.parameters);
@@ -2378,7 +2438,7 @@ class DeclarationEmitter {
               ? item.parameters.length === 0
                 ? item.name
                 : `${item.name}<${item.parameters.map(() => "never").join(", ")}>`
-              : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, false)}`).join(", ")}) => ${result}`;
+              : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, this.#seqRecord, false)}`).join(", ")}) => ${result}`;
             declarations.push(
               `export declare const ${constructor.name}: ${type};`,
             );
@@ -2399,7 +2459,7 @@ class DeclarationEmitter {
           continue;
         }
         const recordType = `{ ${item.fields.map((field) =>
-          `${field.name}: ${renderType(field.type, variables, false)}`
+          `${field.name}: ${renderType(field.type, variables, this.#seqRecord, false)}`
         ).join("; ")} }`;
         const result = names.length === 0 ? item.name : `${item.name}<${names.join(", ")}>`;
         declarations.push(`export type ${item.name}${generics} = ${recordType};`);
@@ -2409,11 +2469,11 @@ class DeclarationEmitter {
       }
       if (item.kind === "Exception") {
         if (!item.exported) continue;
-        const face = `Error & { readonly $hex: true; readonly name: ${JSON.stringify(item.binding.name)}${item.slots.map((slot) => `; readonly ${slot.field}: ${renderType(slot.type, new Map(), false)}`).join("")} }`;
+        const face = `Error & { readonly $hex: true; readonly name: ${JSON.stringify(item.binding.name)}${item.slots.map((slot) => `; readonly ${slot.field}: ${renderType(slot.type, new Map(), this.#seqRecord, false)}`).join("")} }`;
         declarations.push(`export type ${item.binding.name} = ${face};`);
         const constructor = item.slots.length === 0
           ? `() => ${item.binding.name}`
-          : `(${item.slots.map((slot) => `${slot.field}: ${renderType(slot.type, new Map(), false)}`).join(", ")}) => ${item.binding.name}`;
+          : `(${item.slots.map((slot) => `${slot.field}: ${renderType(slot.type, new Map(), this.#seqRecord, false)}`).join(", ")}) => ${item.binding.name}`;
         declarations.push(`export declare const ${item.binding.name}: ${constructor};`);
         isExternalModule = true;
         continue;
@@ -2434,6 +2494,7 @@ class DeclarationEmitter {
               specialized.binding.scheme,
               specialized.value as Core.LambdaExpr,
               true,
+              this.#seqRecord,
             ),
           );
         }
@@ -2448,16 +2509,16 @@ class DeclarationEmitter {
         : `__hex_binding${Number(item.binding.symbol)}`;
       if (item.kind === "Fun") {
         declarations.push(
-          renderFunctionDeclaration(local, item.binding.scheme, item.value, safeName),
+          renderFunctionDeclaration(local, item.binding.scheme, item.value, safeName, this.#seqRecord),
         );
         if (!safeName) {
           declarations.push(`export { ${local} as ${item.binding.name} };`);
         }
       } else if (safeName) {
-        const type = renderScheme(item.binding.scheme, item.value);
+        const type = renderScheme(item.binding.scheme, this.#seqRecord, item.value);
         declarations.push(`export declare const ${item.binding.name}: ${type};`);
       } else {
-        const type = renderScheme(item.binding.scheme, item.value);
+        const type = renderScheme(item.binding.scheme, this.#seqRecord, item.value);
         declarations.push(`declare const ${local}: ${type};`);
         declarations.push(`export { ${local} as ${item.binding.name} };`);
       }
@@ -2478,10 +2539,13 @@ class TypeScriptPreviewEmitter {
   readonly #module: Core.Module;
   readonly #specializations: readonly FundamentalSpecialization[];
   readonly #opaqueBrands: ReadonlyMap<string, string>;
+  /** The prelude `Seq` this module's `.d.ts` face renders as `Iterable<a>`. */
+  readonly #seqRecord: Resolved.RecordId | undefined;
 
   constructor(module: Core.Module) {
     this.#module = module;
     this.#opaqueBrands = opaqueBrandNames(module);
+    this.#seqRecord = module.preludeRecords.get("Seq");
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
     const plan = planFundamentalSpecializations(module, true);
     this.#specializations = plan.specializations;
@@ -2516,10 +2580,10 @@ class TypeScriptPreviewEmitter {
             declarations.push(`declare const ${brand}: unique symbol;`);
             declarations.push(`${prefix}type ${declaration.localName} = { readonly [${brand}]: never };`);
           } else if (declaration.kind === "ExternFun") {
-            declarations.push(...renderExternFunctionDeclaration(declaration, declaration.exported));
+            declarations.push(...renderExternFunctionDeclaration(declaration, declaration.exported, this.#seqRecord));
           } else {
             declarations.push(
-              `${prefix}declare const ${declaration.localName}: ${renderType(declaration.type, new Map(), false)};`,
+              `${prefix}declare const ${declaration.localName}: ${renderType(declaration.type, new Map(), this.#seqRecord, false)};`,
             );
           }
           isExternalModule ||= declaration.exported;
@@ -2532,7 +2596,7 @@ class TypeScriptPreviewEmitter {
         const variables = typeVariableNames(item.parameters);
         const names = item.parameters.map((parameter) => variables.get(parameter)!);
         const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
-        declarations.push(`${prefix}type ${item.name}${generics} = ${renderType(item.type, variables, false)};`);
+        declarations.push(`${prefix}type ${item.name}${generics} = ${renderType(item.type, variables, this.#seqRecord, false)};`);
         isExternalModule ||= item.exported;
         continue;
       }
@@ -2548,7 +2612,7 @@ class TypeScriptPreviewEmitter {
           isExternalModule ||= item.exported;
           continue;
         }
-        declarations.push(renderUnionDeclaration(item, item.exported));
+        declarations.push(renderUnionDeclaration(item, item.exported, this.#seqRecord));
         const variables = typeVariableNames(item.parameters);
         const genericNames = item.parameters.map((parameter) => variables.get(parameter)!);
         const generics = genericNames.length === 0 ? "" : `<${genericNames.join(", ")}>`;
@@ -2561,7 +2625,7 @@ class TypeScriptPreviewEmitter {
             ? item.parameters.length === 0
               ? item.name
               : `${item.name}<${item.parameters.map(() => "never").join(", ")}>`
-            : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, false)}`).join(", ")}) => ${result}`;
+            : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, this.#seqRecord, false)}`).join(", ")}) => ${result}`;
           declarations.push(
             `${prefix}declare const ${constructor.name}: ${type};`,
           );
@@ -2582,7 +2646,7 @@ class TypeScriptPreviewEmitter {
           continue;
         }
         const recordType = `{ ${item.fields.map((field) =>
-          `${field.name}: ${renderType(field.type, variables, false)}`
+          `${field.name}: ${renderType(field.type, variables, this.#seqRecord, false)}`
         ).join("; ")} }`;
         const result = names.length === 0 ? item.name : `${item.name}<${names.join(", ")}>`;
         declarations.push(`${prefix}type ${item.name}${generics} = ${recordType};`);
@@ -2592,11 +2656,11 @@ class TypeScriptPreviewEmitter {
       }
       if (item.kind === "Exception") {
         const prefix = item.exported ? "export " : "";
-        const face = `Error & { readonly $hex: true; readonly name: ${JSON.stringify(item.binding.name)}${item.slots.map((slot) => `; readonly ${slot.field}: ${renderType(slot.type, new Map(), false)}`).join("")} }`;
+        const face = `Error & { readonly $hex: true; readonly name: ${JSON.stringify(item.binding.name)}${item.slots.map((slot) => `; readonly ${slot.field}: ${renderType(slot.type, new Map(), this.#seqRecord, false)}`).join("")} }`;
         declarations.push(`${prefix}type ${item.binding.name} = ${face};`);
         const constructor = item.slots.length === 0
           ? `() => ${item.binding.name}`
-          : `(${item.slots.map((slot) => `${slot.field}: ${renderType(slot.type, new Map(), false)}`).join(", ")}) => ${item.binding.name}`;
+          : `(${item.slots.map((slot) => `${slot.field}: ${renderType(slot.type, new Map(), this.#seqRecord, false)}`).join(", ")}) => ${item.binding.name}`;
         declarations.push(`${prefix}declare const ${item.binding.name}: ${constructor};`);
         isExternalModule ||= item.exported;
         continue;
@@ -2607,7 +2671,7 @@ class TypeScriptPreviewEmitter {
             ? binding.name
             : `__hex_binding${Number(binding.symbol)}`;
           declarations.push(
-            `declare const ${name}: ${renderScheme(binding.scheme)};`,
+            `declare const ${name}: ${renderScheme(binding.scheme, this.#seqRecord)};`,
           );
         }
         continue;
@@ -2626,6 +2690,7 @@ class TypeScriptPreviewEmitter {
               specialized.binding.scheme,
               specialized.value as Core.LambdaExpr,
               item.exported,
+              this.#seqRecord,
             ),
           );
         }
@@ -2644,6 +2709,7 @@ class TypeScriptPreviewEmitter {
               item.binding.scheme,
               item.value,
               isSafeIdentifier(item.binding.name),
+              this.#seqRecord,
             ),
           );
           if (!isSafeIdentifier(item.binding.name)) {
@@ -2651,31 +2717,22 @@ class TypeScriptPreviewEmitter {
           }
         } else if (isSafeIdentifier(item.binding.name)) {
           declarations.push(
-            `export declare const ${name}: ${renderScheme(
-              item.binding.scheme,
-              item.value,
-            )};`,
+            `export declare const ${name}: ${renderScheme(item.binding.scheme, this.#seqRecord, item.value)};`,
           );
         } else {
           declarations.push(
-            `declare const ${name}: ${renderScheme(
-              item.binding.scheme,
-              item.value,
-            )};`,
+            `declare const ${name}: ${renderScheme(item.binding.scheme, this.#seqRecord, item.value)};`,
           );
           declarations.push(`export { ${name} as ${item.binding.name} };`);
         }
         isExternalModule = true;
       } else if (item.kind === "Fun") {
         declarations.push(
-          renderFunctionDeclaration(name, item.binding.scheme, item.value, false),
+          renderFunctionDeclaration(name, item.binding.scheme, item.value, false, this.#seqRecord),
         );
       } else {
         declarations.push(
-          `declare const ${name}: ${renderScheme(
-            item.binding.scheme,
-            item.value,
-          )};`,
+          `declare const ${name}: ${renderScheme(item.binding.scheme, this.#seqRecord, item.value)};`,
         );
       }
     }
@@ -2935,11 +2992,8 @@ type Helper =
   | "exception"
   | "floatEquals"
   | "range"
-  | "seq"
-  | "seqFilter"
-  | "seqIterate"
-  | "seqMap"
-  | "seqTake"
+  | "seqFromIterable"
+  | "seqToIterable"
   | "nodeSet"
   | "vectorAt"
   | "vectorIndex"
@@ -3046,7 +3100,6 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
         ? expressionPrecedence(expression.value)
         : Precedence.Call;
     case "Name":
-    case "SeqOperation":
     case "CollectionOperation":
     case "PrimitiveOperation":
     case "Unit":
@@ -3291,66 +3344,76 @@ function renderHelper(
         `  return ${dependencyName("vectorSlice")}(Array.from(__hex_text), __hex_range).join("");`,
         "}",
       ];
-    case "seq":
-      // Every traversal replays the same memoized spine. The source generator
-      // advances only when a traversal reaches the current frontier.
+    // ---------------------------------------------------------------------
+    // The FFI Part 3 bridge pair (ruling R1). Together these are the *entire*
+    // compiler-side knowledge of how a `Seq` is represented: `seqFromIterable`
+    // is the only place the compiler constructs one, `seqToIterable` the only
+    // place it drives one. Everything else — every combinator, `next`, the
+    // whole public face — lives in prelude `stdlib/Seq.hex`.
+    //
+    // They are the one sanctioned exception to "nothing outside `.hex` knows
+    // `Option`'s or the record's emitted shape", so both shapes are written
+    // literally below rather than imported: a record emits as a plain object
+    // and a tagged constructor as `{ tag, ...slots }`. Conformance round-trips
+    // execute these against `.hex`-side destructuring precisely so a change to
+    // either emission breaks loudly here (R5) instead of silently yielding a
+    // `Seq` no Hexagon code can pull.
+    // ---------------------------------------------------------------------
+    case "seqFromIterable":
+      // Bridge IN. A foreign iterable is single-shot and mutable; a `Seq` is
+      // persistent, so the spine memoizes: every traversal replays the same
+      // buffered values and the source advances only when a traversal reaches
+      // the frontier. This is what FFI Part 3 §9.1 requires of an exported or
+      // imported sequence, and Loops §6.4 names it as the boundary's spine.
+      //
+      // `[Symbol.iterator]()` is called at the first *pull*, not when the
+      // adapter is built: §3 forbids speculative acquisition and forbids
+      // restarting foreign computation to discover what kind of iterable this
+      // is. Forcing a node then follows §7.2's protocol access order exactly —
+      // `next()` once, require an object, read `done` once and **boolean-coerce**
+      // it (a `{ done: 1 }` result terminates native iteration and must
+      // terminate this), read `value` once and only when not done.
       return [
         `function ${name}(__hex_source) {`,
         "  const __hex_values = [];",
-        "  const __hex_iterator = __hex_source[Symbol.iterator]();",
+        "  let __hex_iterator = undefined;",
         "  let __hex_done = false;",
+        "  const __hex_node = (__hex_index) => ({",
+        "    pull: () => {",
+        "      if (__hex_index === __hex_values.length && !__hex_done) {",
+        "        if (__hex_iterator === undefined) __hex_iterator = __hex_source[Symbol.iterator]();",
+        "        const __hex_next = __hex_iterator.next();",
+        '        if (__hex_next === null || (typeof __hex_next !== "object" && typeof __hex_next !== "function")) {',
+        '          throw new TypeError("Iterator result " + String(__hex_next) + " is not an object");',
+        "        }",
+        "        __hex_done = Boolean(__hex_next.done);",
+        "        if (!__hex_done) __hex_values.push(__hex_next.value);",
+        "      }",
+        '      if (__hex_index >= __hex_values.length) return { tag: "None" };',
+        '      return { tag: "Some", value: [__hex_values[__hex_index], __hex_node(__hex_index + 1)] };',
+        "    },",
+        "  });",
+        "  return __hex_node(0);",
+        "}",
+      ];
+    case "seqToIterable":
+      // Bridge OUT. A `while` loop over `pull`, never recursion: Loops §6.5
+      // promises no tail-call elimination, so driving a long `Seq` recursively
+      // would grow the stack. Re-iterating restarts from the head, which is
+      // persistence, not memoization — the `Seq` handed in is unconsumed.
+      return [
+        `function ${name}(__hex_sequence) {`,
         "  return {",
         "    *[Symbol.iterator]() {",
-        "      for (let __hex_index = 0; ; __hex_index += 1) {",
-        "        if (__hex_index === __hex_values.length && !__hex_done) {",
-        "          const __hex_next = __hex_iterator.next();",
-        "          __hex_done = __hex_next.done;",
-        "          if (!__hex_done) __hex_values.push(__hex_next.value);",
-        "        }",
-        "        if (__hex_index >= __hex_values.length) return;",
-        "        yield __hex_values[__hex_index];",
+        "      let __hex_current = __hex_sequence;",
+        "      while (true) {",
+        "        const __hex_step = (__hex_current.pull)();",
+        '        if (__hex_step.tag !== "Some") return;',
+        "        yield __hex_step.value[0];",
+        "        __hex_current = __hex_step.value[1];",
         "      }",
         "    },",
         "  };",
-        "}",
-      ];
-    case "seqIterate":
-      return [
-        `function ${name}(__hex_seed, __hex_next) {`,
-        `  return ${dependencyName("seq")}((function* () {`,
-        "    let __hex_value = __hex_seed;",
-        "    while (true) { yield __hex_value; __hex_value = __hex_next(__hex_value); }",
-        "  })());",
-        "}",
-      ];
-    case "seqMap":
-      return [
-        `function ${name}(__hex_values, __hex_transform) {`,
-        `  return ${dependencyName("seq")}((function* () {`,
-        "    for (const __hex_value of __hex_values) yield __hex_transform(__hex_value);",
-        "  })());",
-        "}",
-      ];
-    case "seqFilter":
-      return [
-        `function ${name}(__hex_values, __hex_keep) {`,
-        `  return ${dependencyName("seq")}((function* () {`,
-        "    for (const __hex_value of __hex_values) if (__hex_keep(__hex_value)) yield __hex_value;",
-        "  })());",
-        "}",
-      ];
-    case "seqTake":
-      return [
-        `function ${name}(__hex_values, __hex_count) {`,
-        `  return ${dependencyName("seq")}((function* () {`,
-        "    if (__hex_count <= 0) return;",
-        "    let __hex_seen = 0;",
-        "    for (const __hex_value of __hex_values) {",
-        "      yield __hex_value;",
-        "      __hex_seen += 1;",
-        "      if (__hex_seen >= __hex_count) return;",
-        "    }",
-        "  })());",
         "}",
       ];
   }
@@ -3362,7 +3425,10 @@ function collectionOperation(
   operation: string,
   runtime: string,
   hash?: string,
-  seq?: string,
+  /** The inbound adapter, for the rows that produce a `Seq` (ruling R1). */
+  seqFrom?: string,
+  /** The outbound driver, for the rows that consume one. */
+  seqTo?: string,
 ): string {
   const dictionaries = `${hash}`;
   if (collection === "Map") {
@@ -3372,9 +3438,10 @@ function collectionOperation(
     }
     if (operation === "size") return `${runtime}.size`;
     if (operation === "isEmpty") return `${runtime}.isEmpty`;
-    if (["keys", "values", "entries"].includes(operation)) return `__hex_map => ${seq}(${runtime}.map${operation[0]!.toUpperCase()}${operation.slice(1)}(__hex_map))`;
-    if (operation === "toSeq") return `__hex_map => ${seq}(${runtime}.mapEntries(__hex_map))`;
-    if (["fromVector", "fromSeq", "fromEntries"].includes(operation)) return `${runtime}.mapFrom(${dictionaries})`;
+    if (["keys", "values", "entries"].includes(operation)) return `__hex_map => ${seqFrom}(${runtime}.map${operation[0]!.toUpperCase()}${operation.slice(1)}(__hex_map))`;
+    if (operation === "toSeq") return `__hex_map => ${seqFrom}(${runtime}.mapEntries(__hex_map))`;
+    if (operation === "fromVector") return `${runtime}.mapFrom(${dictionaries})`;
+    if (operation === "fromSeq" || operation === "fromEntries") return `__hex_entries => ${runtime}.mapFrom(${dictionaries})(${seqTo}(__hex_entries))`;
   }
   if (collection === "Set") {
     if (operation === "empty") return `${runtime}.emptySet`;
@@ -3383,8 +3450,9 @@ function collectionOperation(
     }
     if (operation === "size") return `${runtime}.size`;
     if (operation === "isEmpty") return `${runtime}.isEmpty`;
-    if (operation === "toSeq") return `__hex_set => ${seq}(__hex_set)`;
-    if (operation === "fromVector" || operation === "fromSeq") return `${runtime}.setFrom(${dictionaries})`;
+    if (operation === "toSeq") return `__hex_set => ${seqFrom}(__hex_set)`;
+    if (operation === "fromVector") return `${runtime}.setFrom(${dictionaries})`;
+    if (operation === "fromSeq") return `__hex_values => ${runtime}.setFrom(${dictionaries})(${seqTo}(__hex_values))`;
   }
   if (operation === "empty") return "() => []";
   if (operation === "size") return "__hex_vector => __hex_vector.length";
@@ -3397,8 +3465,8 @@ function collectionOperation(
   if (operation === "set") {
     return "(__hex_vector, __hex_index, __hex_value) => { if (__hex_index < 1 || __hex_index > __hex_vector.length) { const __hex_error = new RangeError(`index ${__hex_index} out of bounds for size ${__hex_vector.length}`); __hex_error.name = \"IndexError\"; __hex_error.$hex = true; __hex_error.index = __hex_index; __hex_error.size = __hex_vector.length; throw __hex_error; } const __hex_updated = __hex_vector.slice(); __hex_updated[__hex_index - 1] = __hex_value; return __hex_updated; }";
   }
-  if (operation === "toSeq") return `__hex_vector => ${seq}(__hex_vector)`;
-  if (operation === "fromSeq") return "__hex_values => Array.from(__hex_values)";
+  if (operation === "toSeq") return `__hex_vector => ${seqFrom}(__hex_vector)`;
+  if (operation === "fromSeq") return `__hex_values => Array.from(${seqTo}(__hex_values))`;
   return "() => undefined";
 }
 
@@ -3671,10 +3739,14 @@ function comparisonOperator(
   }
 }
 
-function renderScheme(scheme: Typed.Scheme, value?: Core.Expr): string {
+function renderScheme(
+  scheme: Typed.Scheme,
+  seqRecord: Resolved.RecordId | undefined,
+  value?: Core.Expr,
+): string {
   const variables = typeVariableNames(scheme.variables);
   const type = scheme.type;
-  if (type.kind !== "Function") return renderType(type, variables, false);
+  if (type.kind !== "Function") return renderType(type, variables, seqRecord, false);
   const lambda = value?.kind === "Lambda" ? value : undefined;
 
   const genericNames = scheme.variables.map((variable) => variables.get(variable)!);
@@ -3683,26 +3755,27 @@ function renderScheme(scheme: Typed.Scheme, value?: Core.Expr): string {
     : `<${genericNames.join(", ")}>`;
   const names = declarationParameterNames(lambda?.parameters ?? [], type.parameters.length);
   const parameters = type.parameters.map(
-    (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, false),
+    (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, seqRecord, false),
   );
   return (
     `${generics}(${parameters.join(", ")}) => ` +
-    renderType(type.result, variables, true, lambda?.body)
+    renderType(type.result, variables, seqRecord, true, lambda?.body)
   );
 }
 
 function renderExternFunctionDeclaration(
   declaration: Core.ExternBlockItem["declarations"][number] & { readonly kind: "ExternFun" },
   exported: boolean,
+  seqRecord: Resolved.RecordId | undefined,
 ): readonly string[] {
   const names = declarationParameterNames(
     declaration.parameters,
     declaration.parameters.length,
   );
   const parameters = declaration.parameters.map((parameter, index) =>
-    `${names[index]}: ${renderType(parameter.scheme.type, new Map(), false)}`
+    `${names[index]}: ${renderType(parameter.scheme.type, new Map(), seqRecord, false)}`
   );
-  const result = renderType(declaration.result, new Map(), true);
+  const result = renderType(declaration.result, new Map(), seqRecord, true);
   const safe = isSafeIdentifier(declaration.localName);
   const local = safe
     ? declaration.localName
@@ -3724,10 +3797,11 @@ function renderFunctionDeclaration(
   scheme: Typed.Scheme,
   value: Core.LambdaExpr,
   exported: boolean,
+  seqRecord: Resolved.RecordId | undefined,
 ): string {
   if (scheme.type.kind !== "Function") {
     const prefix = exported ? "export " : "";
-    return `${prefix}declare const ${name}: ${renderScheme(scheme, value)};`;
+    return `${prefix}declare const ${name}: ${renderScheme(scheme, seqRecord, value)};`;
   }
 
   const variables = typeVariableNames(scheme.variables);
@@ -3737,11 +3811,9 @@ function renderFunctionDeclaration(
     : `<${genericNames.join(", ")}>`;
   const names = declarationParameterNames(value.parameters, scheme.type.parameters.length);
   const parameters = scheme.type.parameters.map(
-    (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, false),
+    (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, seqRecord, false),
   );
-  const result = renderType(
-    scheme.type.result,
-    variables,
+  const result = renderType(scheme.type.result, variables, seqRecord,
     true,
     value.body,
   );
@@ -3755,6 +3827,7 @@ function renderFunctionDeclaration(
 function renderType(
   type: Typed.Type,
   variables: ReadonlyMap<Typed.TypeVariableId, string>,
+  seqRecord: Resolved.RecordId | undefined,
   returnPosition: boolean,
   value?: Core.Expr,
 ): string {
@@ -3780,45 +3853,51 @@ function renderType(
       return variables.get(type.id) ?? "unknown";
     case "Range":
       return "Iterable<number>";
-    case "Seq":
-      return `Iterable<${renderType(type.element, variables, false)}>`;
     case "Vector":
-      return `ReadonlyArray<${renderType(type.element, variables, false)}>`;
+      return `ReadonlyArray<${renderType(type.element, variables, seqRecord, false)}>`;
     case "Set":
-      return `ReadonlySet<${renderType(type.element, variables, false)}>`;
+      return `ReadonlySet<${renderType(type.element, variables, seqRecord, false)}>`;
     case "Map":
-      return `ReadonlyMap<${renderType(type.key, variables, false)}, ${renderType(type.value, variables, false)}>`;
+      return `ReadonlyMap<${renderType(type.key, variables, seqRecord, false)}, ${renderType(type.value, variables, seqRecord, false)}>`;
     case "Array":
-      return `Array<${renderType(type.element, variables, false)}>`;
+      return `Array<${renderType(type.element, variables, seqRecord, false)}>`;
     case "Node":
       // The hidden trie node never appears in a public `.d.ts`; its honest JS
       // shape is a fixed-length mutable array of the slot type.
-      return `Array<${renderType(type.element, variables, false)}>`;
+      return `Array<${renderType(type.element, variables, seqRecord, false)}>`;
     case "Nullable":
-      return `${renderType(type.value, variables, false)} | null | undefined`;
+      return `${renderType(type.value, variables, seqRecord, false)} | null | undefined`;
     case "Union":
       return type.arguments.length === 0
         ? type.name
         : `${type.name}<${type.arguments.map((argument) =>
-          renderType(argument, variables, false)
+          renderType(argument, variables, seqRecord, false)
         ).join(", ")}>`;
     case "NominalRecord":
+      // FFI Part 3: `Seq(a)` faces JavaScript as `Iterable<a>`, whatever it is
+      // internally. Internal opacity and the boundary face are independent, and
+      // both are decided — the bridge pair is what makes the face honest. Only
+      // the *prelude's* `Seq` gets this; a user record spelled `Seq` is an
+      // ordinary nominal type.
+      if (seqRecord !== undefined && type.record === seqRecord) {
+        return `Iterable<${renderType(type.arguments[0] ?? { kind: "Error" }, variables, seqRecord, false)}>`;
+      }
       return type.arguments.length === 0
         ? type.name
         : `${type.name}<${type.arguments.map((argument) =>
-          renderType(argument, variables, false)
+          renderType(argument, variables, seqRecord, false)
         ).join(", ")}>`;
     case "ExternType":
       return type.name;
     case "Tuple":
       return (
         `[${type.elements.map((element) =>
-          renderType(element, variables, false)
+          renderType(element, variables, seqRecord, false)
         ).join(", ")}]`
       );
     case "Record":
       const record = `{ ${type.fields.map(({ name, type: field }) =>
-        `${name}: ${renderType(field, variables, false)}`
+        `${name}: ${renderType(field, variables, seqRecord, false)}`
       ).join("; ")} }`;
       return type.tail === undefined
         ? record
@@ -3830,11 +3909,11 @@ function renderType(
         type.parameters.length,
       );
       const parameters = type.parameters.map(
-        (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, false),
+        (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, seqRecord, false),
       );
       return (
         `(${parameters.join(", ")}) => ` +
-        renderType(type.result, variables, true, lambda?.body)
+        renderType(type.result, variables, seqRecord, true, lambda?.body)
       );
     }
     case "Error":
@@ -3882,6 +3961,7 @@ function declarationParameterNames(
 function renderUnionDeclaration(
   item: Core.UnionItem,
   exported: boolean,
+  seqRecord: Resolved.RecordId | undefined,
 ): string {
   const prefix = exported ? "export " : "";
   const variables = typeVariableNames(item.parameters);
@@ -3890,7 +3970,7 @@ function renderUnionDeclaration(
   const tagged = item.constructors.some(({ slots }) => slots.length > 0);
   const alternatives = item.constructors
     .map(({ name, slots }) => tagged
-      ? `{ tag: ${JSON.stringify(name)}${slots.map(({ field, type }) => `; ${field}: ${renderType(type, variables, false)}`).join("")} }`
+      ? `{ tag: ${JSON.stringify(name)}${slots.map(({ field, type }) => `; ${field}: ${renderType(type, variables, seqRecord, false)}`).join("")} }`
       : JSON.stringify(name))
     .join(" | ");
   return `${prefix}type ${item.name}${generics} = ${alternatives};`;

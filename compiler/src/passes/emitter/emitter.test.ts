@@ -9,6 +9,7 @@ import { applyLayout } from "../layout/layout.js";
 import { lex } from "../lexer/lexer.js";
 import { parse } from "../parser/parser.js";
 import { resolve } from "../resolver/resolver.js";
+import { compileProject } from "../../project.js";
 import {
   emitDeclarations,
   emitJavaScript,
@@ -17,7 +18,7 @@ import {
 
 describe("emitJavaScript", () => {
   test("emits readable extern ESM bindings, stable adapters, and opaque declarations", () => {
-    const module = coreSource(
+    const module = preludeSource(
       "extern from \"tiny-json\"\n" +
         "    export type JsonValue\n" +
         "    export fun parse(text: String): JsonValue\n" +
@@ -36,8 +37,8 @@ describe("emitJavaScript", () => {
     expect(output.text).toContain('import { VERSION as version } from "tiny-json";');
     expect(output.text).toContain('import createClient from "tiny-json";');
     expect(output.text).toMatch(/import \{ stream as \w+ \} from "tiny-json";/u);
-    expect(output.text).toMatch(/const stream = \(\) => __hex_seq\(\w+\(\)\);/u);
-    expect(output.text).toMatch(/const values = __hex_seq\(\w+\);/u);
+    expect(output.text).toMatch(/const stream = \(\) => __hex_seqFromIterable\(\w+\(\)\);/u);
+    expect(output.text).toMatch(/const values = __hex_seqFromIterable\(\w+\);/u);
     expect(output.text).toMatch(/const report = message => \{ \w+\(message\); \};/u);
     expect(output.text).toContain('import "telemetry/register";');
     expect(output.text).toContain("export { parse };");
@@ -76,7 +77,7 @@ describe("emitJavaScript", () => {
   });
 
   test("executes the Vector representation core without loading the HAMT runtime", () => {
-    const module = coreSource(
+    const module = preludeSource(
       "let values = [10, 20, 30]\n" +
         "let updated = Vector.set(values, 2, 25)\n" +
         "let replayed = Vector.fromSeq(Vector.toSeq(updated))\n" +
@@ -87,8 +88,13 @@ describe("emitJavaScript", () => {
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
     expect(output.text).not.toContain("const __hex_persistentCollections");
-    expect(output.text).toContain("function __hex_seq");
-    expect(output.text).toContain("Array.from(__hex_seq(updated))");
+    // `Vector.toSeq` produces through the inbound adapter and `Vector.fromSeq`
+    // consumes through the outbound driver; the round trip names both.
+    expect(output.text).toContain("function __hex_seqFromIterable");
+    expect(output.text).toContain("function __hex_seqToIterable");
+    expect(output.text).toContain(
+      "Array.from(__hex_seqToIterable(__hex_seqFromIterable(updated)))",
+    );
     const execute = Function(`${output.text}\nreturn result;`) as () => readonly unknown[];
     expect(execute()).toEqual([
       [10, 20, 30],
@@ -167,7 +173,7 @@ describe("emitJavaScript", () => {
   });
 
   test("provides extensional Map and Set instances and the core algebra", () => {
-    const module = coreSource(
+    const module = preludeSource(
       "let left = Map.fromVector([(1, \"one\"), (2, \"two\")])\n" +
         "let right = Map.fromVector([(2, \"two\"), (1, \"one\")])\n" +
         "fun mapFacts<k: Hash, v: Hash>(a: Map(k, v), b: Map(k, v)) = (a == b, hash(a) == hash(b))\n" +
@@ -178,7 +184,7 @@ describe("emitJavaScript", () => {
         "let common = Set.intersect(first, second)\n" +
         "let rest = Set.difference(first, second)\n" +
         "let subset = Set.isSubsetOf(common, first)\n" +
-        "let keys = Map.keys(left)\n" +
+        "let keys = Vector.fromSeq(Map.keys(left))\n" +
         "let mapEvidence = mapFacts(left, right)\n" +
         "let setEvidence = setFacts(first, Set.fromVector([3, 2, 1]))\n" +
         "let result = (left == right, hash(left) == hash(right), Set.size(combined), Set.size(common), Set.size(rest), subset, keys, \"${first}\", \"${left}\", mapEvidence, setEvidence)",
@@ -188,7 +194,10 @@ describe("emitJavaScript", () => {
     const output = emitJavaScript(module);
     const execute = Function(`${output.text}\nreturn result;`) as () => unknown;
     const result = execute() as unknown[];
-    expect([...result[6] as Iterable<unknown>]).toEqual([1, 2]);
+    // `Map.keys` yields the prelude `Seq` record, so the test converts through
+    // `Vector.fromSeq` rather than spreading it — a `Seq` is not itself a JS
+    // iterable (see the exported-face note in `seq-unification.test.ts`).
+    expect(result[6]).toEqual([1, 2]);
     expect([...result.slice(0, 6), ...result.slice(7)]).toEqual([
       true,
       true,
@@ -204,7 +213,7 @@ describe("emitJavaScript", () => {
   });
 
   test("iterates provided collections and concrete user Iterable instances", () => {
-    const module = coreSource(
+    const module = preludeSource(
       "constraint Iterable<c> =\n" +
         "    type Item\n" +
         "    iterate(value: c): Seq(Item)\n" +
@@ -212,7 +221,7 @@ describe("emitJavaScript", () => {
         "honor Iterable<Bag> =\n" +
         "    type Item = Int\n" +
         "    iterate(bag) = bag.items\n" +
-        "let bag = Bag({items: Seq.iterate(1, x => x + 1).take(2)})\n" +
+        "let bag = Bag({items: Seq.take(Seq.iterate(1, x => x + 1), 2)})\n" +
         "for value in bag\n" +
         "    console.log(value)\n" +
         "for value in [1, 2]\n" +
@@ -304,8 +313,12 @@ describe("emitJavaScript", () => {
     expect(javascript).not.toContain("__hex_item");
   });
 
-  test("emits aligned multiline Seq dot calls and pipelines through JavaScript generators", () => {
-    const module = coreSource(
+  test("lowers Seq dot calls and pipelines through prelude companion dispatch", () => {
+    // The `SeqOperation` family is deleted, not repointed (PR #85 finding F1).
+    // These spellings must keep compiling with identical types through ordinary
+    // companion dispatch against prelude `Seq.hex` — dot call, qualified call,
+    // and pipeline all reaching the *same* imported functions.
+    const module = preludeSource(
       "let numbers: Seq(Int) = Seq.iterate(1, number => number + 1)\n" +
         "export let selected: Seq(Int) =\n" +
         "    numbers\n" +
@@ -317,14 +330,22 @@ describe("emitJavaScript", () => {
         "    console.log(number)",
     );
 
-    expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
-    expect(output.text).toContain("function* ()");
-    expect(output.text).toContain("*[Symbol.iterator]()");
-    expect(output.text).toContain("const numbers = __hex_seqIterate(1, number => number + 1);");
-    expect(output.text).toContain("__hex_seqTake(__hex_seqMap(__hex_seqFilter(numbers,");
-    expect(output.text.match(/__hex_seqTake\(__hex_seqMap\(__hex_seqFilter\(numbers,/gu)).toHaveLength(2);
-    expect(output.text).toContain("for (const number of selected) {");
+    // Every operation is an imported prelude function, and the module imports
+    // each one it names: emitting a call to a name that was never imported is
+    // the silent failure this whole suite exists to catch.
+    const imported = output.text.match(/^import \{([^}]*)\} from "\.\/Seq\.js";$/mu)?.[1] ?? "";
+    for (const operation of ["iterate", "filter", "map", "take"]) {
+      expect(imported.split(/[,\s]+/u)).toContain(operation);
+    }
+    expect(output.text).toContain("const numbers = iterate(1, number => number + 1);");
+    expect(output.text).toContain("take(map(filter(numbers,");
+    expect(output.text.match(/take\(map\(filter\(numbers,/gu)).toHaveLength(2);
+    // No compiler-owned generator remains for these; the only Seq machinery in
+    // the module is the outbound driver `for x in` needs (ruling R3).
+    expect(output.text).not.toContain("__hex_seqIterate");
+    expect(output.text).not.toContain("__hex_seqMap");
+    expect(output.text).toContain("for (const number of __hex_seqToIterable(selected)) {");
     expect(output.text).not.toContain("__hex_item");
     expect(emitDeclarations(module).text).toContain(
       "export declare const selected: Iterable<number>;",
@@ -332,19 +353,20 @@ describe("emitJavaScript", () => {
     expect(output.diagnostics).toEqual([]);
   });
 
-  test("probes Seq helper names consistently on a user-name collision", () => {
-    const module = coreSource("let seed = 1\nlet numbers = Seq.iterate(seed, number => number + 1)");
+  test("keeps bridge helper names clear of a user-name collision", () => {
+    const module = preludeSource(
+      "let values: Vector(Int) = Vector.fromSeq(Vector.toSeq([1, 2]))\n",
+    );
     const seeded: Core.Module = {
       ...module,
       symbols: module.symbols.map((symbol, index) =>
-        index === 0 ? { ...symbol, name: "__hex_seq" } : symbol
+        index === 0 ? { ...symbol, name: "__hex_seqFromIterable" } : symbol
       ),
     };
 
-    expect(module.diagnostics).toEqual([]);
     const javascript = emitJavaScript(seeded).text;
-    expect(javascript).toContain("function __hex_seq1(__hex_source)");
-    expect(javascript).toContain("return __hex_seq1((function* () {");
+    expect(javascript).toContain("function __hex_seqFromIterable1(__hex_source)");
+    expect(javascript).toContain("__hex_seqToIterable(__hex_seqFromIterable1(");
   });
 
   test("expands nested or-patterns and emits exhaustive or-pattern bindings", () => {
@@ -1857,4 +1879,18 @@ describe("emitTypeScriptPreview", () => {
 function coreSource(text: string): Core.Module {
   const source = new Source.File(Source.fileId(0), "test.hex", text);
   return elaborate(check(resolve(parse(applyLayout(lex(source))))));
+}
+
+/**
+ * The same, but through `compileProject`, so the prelude is present.
+ *
+ * `Seq(a)` is a prelude *declaration* now, not a compiler intrinsic (Loops
+ * §6.6), so a module assembled by calling the passes directly cannot see it —
+ * the `unknown generic type \`Seq\`` such a module reports is correct, not a
+ * regression. Every test that mentions `Seq` uses this instead.
+ */
+function preludeSource(text: string): Core.Module {
+  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", text)]);
+  expect(project.diagnostics).toEqual([]);
+  return project.modules.find((module) => module.source.path === "/main.hex")!.core;
 }

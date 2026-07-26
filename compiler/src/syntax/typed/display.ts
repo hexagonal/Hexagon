@@ -23,8 +23,6 @@ function displayType(
       return type.name;
     case "Range":
       return "Range";
-    case "Seq":
-      return `Seq(${displayType(type.element, variables)})`;
     case "Vector":
       return `Vector(${displayType(type.element, variables)})`;
     case "Set":

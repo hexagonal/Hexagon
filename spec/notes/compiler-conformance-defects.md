@@ -598,3 +598,214 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   hand it to companion dispatch. The intrinsic and the record print identically,
   so the discriminator was whether `next` — which only accepts the record —
   would take the result.
+
+### 11. A constraint member could not occlude a prelude value
+
+- **Classification:** compiler defect against specification; no design change.
+  Found while landing Phase 4 steps 8–9, by an existing emitter test that
+  declares `constraint Iterable<c>` with a member named `iterate`.
+- **Authority:** Modules §5.4, exactly as for defect 9. A constraint member binds
+  at module level, so the occlusion half applies to it: it may occlude a prelude
+  name, and it may not collide with a sibling in its own layer.
+- **Defect origin:** the same one-word asymmetry defect 9 fixed for `let`, at a
+  binder form that fix did not reach. The constraint-member path tested
+  `scope.lookup`, which walks out through the prelude layer.
+- **Why it surfaces now:** for the same reason defect 9 did, one step later.
+  `stdlib/Seq.hex` is the first prelude module to export lowercase *operation*
+  names, and `iterate`, `map`, `filter`, and `fold` are all plausible constraint
+  members. Until `Seq.hex` actually joined the set, nothing could collide.
+- **Reproduction:** with `Seq.hex` in the prelude,
+  ``constraint Walkable<c> = ... iterate(value: c): Int`` reports ``\`iterate\` is
+  already bound``, naming a line in `Seq.hex`.
+- **Correction applied (2026-07-26).** The same scope-identity test defect 9's
+  correction settled on: `lookupLocal` when the binder is in the module scope,
+  the full `lookup` walk otherwise. Scope identity rather than nesting depth, per
+  PR #89 finding F1.
+- **Executable conformance:** `compiler/src/conformance/prelude-occlusion.test.ts`
+  — a constraint member occluding a prelude value, plus two guards that the
+  fix does not weaken the layer: two members of one name still collide, and a
+  member colliding with a module-level `let` still collides. Verified sensitive:
+  the occlusion test is red before the fix and the two guards are green both
+  ways, so the fix is not simply disabling the check.
+- **A fourth form, found while fixing PR #91's F1:** a module-level **binding
+  pattern** (`let (take, keep) = (1, 2)`) tested `scope.lookup` too, so it could
+  not occlude either. Same correction. That makes four forms — `let`, `fun`,
+  constraint members, pattern binders — and finding the fourth *while fixing the
+  consequences of having missed the third* is the strongest available evidence
+  for the lesson below.
+- **The reusable part:** defect 9's correction was applied where the defect was
+  *found* rather than everywhere the rule holds, and each subsequent form was
+  then found one at a time, by accident, at the cost of a defect each. A rule
+  stated over "module-level binders" cannot be discharged by patching the forms
+  that happen to be in front of you. Where the rule admits it, derive the answer
+  from a structure that is closed by construction — as PR #91's F1 fix does, by
+  taking every name `#declare` ever produced instead of listing binder syntax.
+
+### 12. An exported `Seq` no longer faces JavaScript as an `Iterable` (open)
+
+- **Classification:** **open question for ruling, not a defect with a known
+  fix.** A capability regression introduced by Phase 4 steps 8–9 and pinned
+  rather than left silent.
+- **Authority in tension.** Three decided rules now disagree for `Seq`:
+  - **FFI Part 3 §9.1** — an exported Hexagon `Seq` is a replayable JavaScript
+    iterable: each `[Symbol.iterator]()` opens an independent cursor over the
+    *same memoized* sequence. Its `.d.ts` face is `Iterable<a>`, and the exported
+    value is "stronger than the face promises".
+  - **FFI Part 7 §6** — an `export opaque` type's face is a TypeScript-only
+    brand, and "the existing erased runtime value crosses out and back **by
+    identity**". `Seq` became an `export opaque record` in this very arc.
+  - **Ruling R1** — the memoizing inbound adapter is "the sole compiler-side
+    constructor of `Seq` records".
+- **What is true after this arc:** the `.d.ts` face is `Iterable<a>`, as Part 3
+  and Part 7 §6.8 both say. The exported *value* is the record, which has no
+  `[Symbol.iterator]`. Under the intrinsic the property held for free, because a
+  `Seq` **was** a JS iterable; nothing replaced it.
+- **It is not only exported values (PR #91 finding F2, Fable).** Every `Seq`
+  position on an exported *function* has the same divergence, in both
+  directions:
+
+  ```
+  export let total(values: Seq(Int)): Int = Seq.fold(values, 0, (a, b) => a + b)
+  export let upTo(count: Int): Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), count)
+  ```
+
+  publish `(values: Iterable<number>) => number` and
+  `(count: number) => Iterable<number>`, while `total`'s body drives `.pull` on
+  whatever it is handed and `upTo` returns a record. **The parameter half is not
+  merely undelivered, it is decided:** FFI Part 7 §7 *occasion 1* names "an
+  incoming `Iterable<a>` parameter declared as `Seq(a)`" as the first of exactly
+  three occasions requiring a stable module-level boundary wrapper, with a fresh
+  per-value adapter per call (Part 3 §2.1). No such wrapper is generated. Any
+  candidate answer must therefore cover value, parameter, and result positions
+  uniformly — which constrains the answer space more than the value-only framing
+  admitted, and is why occasion 1 being already-decided matters to the ruling.
+- **Why it is not a one-line fix.** An emitted ESM binding is simultaneously the
+  Hexagon interface and the JavaScript interface. Part 7 §7's mechanism — a
+  stable module-level export wrapper — would therefore hand *Hexagon* importers
+  the wrapped value, breaking `Seq.map` for every consumer. The three candidate
+  answers each pay a different price:
+  1. **a per-value `[Symbol.iterator]`** on the record (one shared method, so no
+     closure per value) makes the face honest at every position including nested
+     ones, but adds a property to the hottest allocation in the lazy-sequence
+     core and puts representation knowledge at the record's own constructor,
+     against R1's "sole constructor" clause — and still gives re-derivation, not
+     §9.1's memoization, for a `.hex`-built `Seq`;
+  2. **a dual-binding export protocol** (raw binding for Hexagon importers,
+     wrapped binding for JavaScript) satisfies both faces, and is a change to the
+     module emission contract for every module, not just `Seq`;
+  3. **changing the face** to Part 7 §6's opaque brand makes the `.d.ts` match
+     the value and drops §9.1's promise outright.
+- **Why it is left open rather than chosen.** `Seq` is the pilot that `Vector`,
+  `Set`, and `Map` inherit (ledger §5.2). A guess here is inherited three more
+  times, which is the failure mode step 7's note names. The choice trades decided
+  spec clauses against each other and against per-step cost — Fable's call.
+- **Pinned, not absent:** `compiler/src/conformance/seq-unification.test.ts`
+  asserts the current behaviour on both surfaces — the exported value *is* the
+  record with a `pull` and no `[Symbol.iterator]`; an exported function publishes
+  `Iterable<number>` in parameter and result position with no wrapper behind
+  either; and the emitted `.d.ts` *does* say `Iterable<number>` throughout.
+  Whichever answer lands, those tests fail and have to be rewritten deliberately.
+
+### 13. An unsupported companion operation crashes on a literal argument (pre-existing)
+
+- **Classification:** compiler crash, **pre-existing on `main`**, unrelated to
+  this arc. Found by probing, not by a test; logged rather than fixed, to keep
+  the unification reviewable.
+- **Reproduction (reproduces on `main` at 4a95858):**
+
+  ```
+  let numbers: Vector(Int) = [1, 2]
+  let extended = numbers.append(40)
+  ```
+
+  `compileProject` throws `TypeError: Cannot read properties of undefined`.
+  Replacing `40` with a named binding produces the correct diagnostic instead —
+  ``the companion of `Vector(Int)` has no operation `append` `` — which is what
+  isolates it.
+- **Defect origin:** the companion-dispatch path reports `#unsupported` and
+  `break`s **without inferring the argument expressions**. An integer literal's
+  `FromNat` requirement is recorded during inference, so materialization then
+  dereferences a requirement list that was never filled.
+- **Shape:** a diagnostic path that abandons a subtree it is still going to
+  materialize. Any error path that returns early from inference is a candidate.
+
+### 14. The synthesized prelude import could redeclare a module-level name
+
+- **Classification:** compiler defect against specification; no design change.
+  Found by Fable reviewing PR #91 (finding F1), by probing the *new surface* the
+  PR created rather than by re-reading the self-report.
+- **Authority:** Modules §6.4, the same rule defect 10 landed. A prelude term
+  reached qualified — or by companion dispatch — is imported under a local that
+  must clear the module's own bindings, because reaching `Result.tally` from a
+  module that itself binds `tally` is precisely what §6.4 exists for.
+- **Defect origin:** defect 10's fix chose that local against `#moduleLevelNames`,
+  a set populated from `Fun`/`Let`/`Var` items only. Every other way to bind a
+  module-level name was missed: named imports, extern declarations, constraint
+  members, pattern binders. **The same enumerate-the-binder-forms mistake as
+  defects 9 and 11**, one layer over.
+- **Reproduction (both clean compile → `SyntaxError` on load):**
+
+  ```
+  import { take } from "./lib"
+  let source: Seq(Int) = Seq.iterate(1, x => x + 1)
+  export let out: Vector(Int) = Vector.fromSeq(Seq.take(source, 2))
+  ```
+
+  ```
+  constraint Mappable<c> =
+      map(value: c, transform: Int -> Int): c
+  record Holder = { map: Int -> Int }
+  let holder = Holder({ map: value => value * 2 })
+  export let out: Int = holder.map(3)
+  ```
+
+  The second reaches it with **no prelude spelling in the source at all** — the
+  field call alone registers a companion candidate.
+- **Why it surfaces now.** The mechanism is defect 10's, but on `main` no prelude
+  module exported a single lowercase term (checked, not assumed:
+  `git show main:stdlib/*.hex`), so no local name could collide with one.
+  `Seq.hex` supplies roughly twenty-five at once, and the companion-candidate
+  mechanism triggers the collision from an ordinary field-call spelling. The
+  exposure belongs to the PR that joined `Seq.hex`.
+- **Correction applied (2026-07-26).** The local is no longer chosen at
+  reference time — it cannot be, because the names to dodge are not yet known.
+  Resolution records only *that* a prelude term is used and spells the reference
+  by the term's own name; `#preludeImport`, which runs after every declaration
+  has been resolved, chooses each local against a set that is **closed by
+  construction** rather than enumerated: every name `#declare` ever produced
+  (the single funnel for all binder forms, present and future) plus every local
+  an import introduces. Free-name probing covers a collision with the
+  distinguished form itself. Emission substitutes the import's local for the
+  symbol, since the reference no longer carries it.
+- **Executable conformance:** `compiler/src/conformance/prelude-qualified.test.ts`
+  — a named import, a constraint member reached only through a field call, a
+  module-level pattern binder, and an extern declaration, each against a prelude
+  term of the same name. Three are runtime round-trips; the extern case asserts
+  the emitted top level declares the name once. All four are red before the fix.
+- **The reusable part:** the fix that "enumerates a bit more" is the fix that
+  fails again. Deriving the set from `#declare` is safe in the broad direction —
+  it includes parameters and body locals, so it distinguishes more locals than
+  strictly needed — and a spare distinguished local costs nothing while a missed
+  one is unloadable output.
+
+### 15. The inbound adapter does not memoize a forcing failure (open, pre-existing)
+
+- **Classification:** compiler defect against specification. **Pre-existing** —
+  carried unchanged from the intrinsic `seq` helper into the FFI Part 3 bridge
+  pair. Recorded by Fable on PR #91 (finding F4) as a log entry rather than a fix,
+  since the unification neither introduced nor worsened it.
+- **Authority:** FFI Part 3 §7.1 — "**If forcing a sequence node fails, that node
+  remembers the failure**: forcing the same persistent position again must not
+  advance the iterator and must not repeat the foreign operation." §7.2 step 6
+  repeats it: a throw at any step is memoized as that node's failure outcome.
+- **What happens instead:** a throw from `next()`, from a `done`/`value` getter,
+  or from the malformed-result check propagates without being recorded. Forcing
+  the same position again calls `next()` again, advancing the foreign iterator —
+  exactly what §7.1 forbids, and observable as skipped elements after a caught
+  failure.
+- **Why it matters more now than it did:** the adapter is no longer scaffolding.
+  It is one of the two pieces ruling R1 retains permanently, and `Seq` is the
+  pilot `Vector`/`Set`/`Map` inherit, so the omission would be inherited.
+- **Shape of the fix:** the spine's memo cell needs a third state beside
+  *unforced* and *forced* — *failed, with the thrown value* — replayed on every
+  subsequent force of that position. It is a change to the one helper.

@@ -27,12 +27,11 @@ export interface PreludeModule {
  * module, and in the prelude modules *after* it — each member sees the members
  * before it, and only those, which is what makes cycles impossible by
  * construction. Adding a member means placing it after everything it uses —
- * `Seq.hex` will slot in after `Option.hex`, because a pull step returns an
- * `Option` (plan Phase 4; it joins once the intrinsic `Seq` producers are
- * repointed, not before).
+ * `Seq.hex` sits after `Option.hex` because a pull step returns an `Option`.
  */
 export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Prelude.hex",
   "Option.hex",
+  "Seq.hex",
   "Result.hex",
 ].map((basename) => ({ basename, source: PRELUDE_SOURCES[basename]! }));

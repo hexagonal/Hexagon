@@ -27,7 +27,6 @@ export type PrimitiveName =
 export type Type =
   | PrimitiveType
   | RangeType
-  | SeqType
   | VectorType
   | MapType
   | SetType
@@ -50,11 +49,6 @@ export interface PrimitiveType {
 
 export interface RangeType {
   readonly kind: "Range";
-}
-
-export interface SeqType {
-  readonly kind: "Seq";
-  readonly element: Type;
 }
 
 export interface VectorType {
@@ -186,6 +180,8 @@ export interface Module {
   readonly symbols: readonly Symbol[];
   readonly unions: readonly Union[];
   readonly records: readonly RecordDeclaration[];
+  /** Prelude-supplied record identities by name; see `Resolved.Module`. */
+  readonly preludeRecords: ReadonlyMap<string, Resolved.RecordId>;
   readonly externTypes: readonly ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
   readonly span: Source.Span;
@@ -544,7 +540,6 @@ export type Expr =
   | CallExpr
   | ConsoleLogExpr
   | AccessExpr
-  | SeqOperationExpr
   | IndexExpr
   | HashExpr
   | CollectionOperationExpr
@@ -561,13 +556,6 @@ export interface NameExpr extends ExpressionFields {
   readonly kind: "Name";
   readonly symbol: Resolved.SymbolId;
   readonly text: string;
-  /** Companion dot calls consume their subject before presenting this callable. */
-  readonly receiverBound?: boolean;
-}
-
-export interface SeqOperationExpr extends ExpressionFields {
-  readonly kind: "SeqOperation";
-  readonly operation: "iterate" | "map" | "filter" | "take";
   /** Companion dot calls consume their subject before presenting this callable. */
   readonly receiverBound?: boolean;
 }

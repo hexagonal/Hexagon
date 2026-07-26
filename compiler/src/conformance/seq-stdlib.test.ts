@@ -4,30 +4,30 @@ import { compileProject, Source } from "../index";
 import seqSource from "../../../stdlib/Seq.hex?raw";
 
 /**
- * `stdlib/Seq.hex` as written, ahead of joining the prelude
- * (`spec/notes/seq-deintrinsification-plan.md` Phase 4, step 7).
+ * `stdlib/Seq.hex` as written — the de-intrinsified `Seq`: `export opaque record
+ * Seq(a)` plus the §6.2 protocol and the combinator core, per Loops §6.6.
  *
- * The file is the de-intrinsified `Seq`: `export opaque record Seq(a)` plus the
- * §6.2 protocol and the combinator core, per Loops §6.6. It is mounted here as
- * an ordinary module because joining `PRELUDE_MODULES` requires step 8 — the
- * intrinsic `Seq` producers must be repointed first, or the record and the
- * intrinsic coexist under one name and never unify (Phase 2's carry-forward).
+ * It is a prelude member now (plan Phase 4 step 8), and the behavioural
+ * conformance for these combinators lives in `seq.test.ts`, driven through the
+ * prelude with no import at all. This file keeps a different job: it asserts
+ * properties of the **source text** that would silently regress if someone
+ * "tidied" the file back toward a workaround for a defect that is fixed —
  *
- * What this file pins is that the *source* is ready: it compiles, and the three
- * things step 7 asks for are all real rather than assumed —
- *
- * 1. the `emptyCore`/`empty` split is gone (PR #86's amendment predicted this
- *    once defect 7 was fixed; a single annotated `export let empty: Seq(a)`
- *    generalizes and serves `singleton`, `take`, and `flatMap`);
+ * 1. the `emptyCore`/`empty` split is gone (a single annotated
+ *    `export let empty: Seq(a)` generalizes and serves `singleton`, `take`, and
+ *    `flatMap`);
  * 2. the defect-1 workaround is reverted — recursive bodies call `next(source)`
  *    rather than driving `(source.pull)()` inline;
  * 3. the defect-2 workaround is reverted — arms are written `Some((value, rest))`
  *    rather than binding the payload whole and destructuring on the next line.
  *
- * The behavioural conformance for these combinators lives in `seq.test.ts` and
- * is deliberately representation-blind; step 9 repoints it at the prelude `Seq`
- * wholesale. Rather than duplicate it, this file asserts the properties that
- * would silently regress if someone "tidied" the source back toward a workaround.
+ * The prelude is exemplary code and must not carry a workaround for a fixed bug.
+ *
+ * The module is still mounted explicitly at `/Seq.hex` and imported by name.
+ * That is not redundant with the prelude: a project file at a prelude basename
+ * *is* the member (the embedded fallback stands down), so this also pins that an
+ * explicit `import * as Seq` of a prelude module still works — the qualified
+ * path Modules §5.4 depends on, exercised against a real one.
  */
 
 function diagnostics(entry: string): readonly string[] {
@@ -107,8 +107,7 @@ describe("the step-7 reverts are in the source, not merely intended", () => {
   });
 
   test("no `import` lines — prelude source uses the header-comment convention", () => {
-    // Modules §5.5. Checked now so the file is already conformant on the day it
-    // joins the set.
+    // Modules §5.5.
     expect(seqSource).not.toMatch(/^import /mu);
     expect(seqSource).toContain("implicitly in scope via the prelude");
   });
