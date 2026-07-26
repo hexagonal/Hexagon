@@ -22,7 +22,8 @@ let selected2 =
     |> Seq.map(number => number * 10)
     |> Seq.take(5)
 
-// Open the complete JS view: Seq is implemented by a replayable function* generator.
+// Open the complete JS view: Seq is an ordinary Hexagon record of a pull thunk,
+// declared in stdlib/Seq.hex — the combinators above are plain Hexagon functions.
 for number in selected
     console.log(number)
 `,

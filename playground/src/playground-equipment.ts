@@ -16,7 +16,10 @@ export interface HostedModule {
 export const hostedModules: readonly HostedModule[] = [
   // A prelude nominal: hosted at /stdlib so the compiler's prelude uses this
   // canonical copy (by basename), but never auto-imported — `Option`/`Some`/
-  // `None` are implicitly in scope everywhere.
+  // `None` are implicitly in scope everywhere. `Prelude`, `Result`, and `Seq`
+  // are prelude members too and are deliberately *not* hosted: the compiler's
+  // embedded copies serve them, and a conformance test asserts those never
+  // drift from `stdlib/`.
   { companion: "Option", path: "/stdlib/Option.hex", source: optionSource },
   { companion: "Vector", path: "/stdlib/Vector.hex", source: vectorSource },
   { companion: "Rat", path: "/stdlib/Rat.hex", source: ratSource },

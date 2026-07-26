@@ -127,15 +127,6 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
           expression.receiverBound,
         );
         return;
-      case "SeqOperation":
-        publish(
-          expression.operation,
-          expression.receiverBound
-            ? receiverBoundScheme(schemeForType(expression.type))
-            : schemeForType(expression.type),
-          spanForIdentifier(expression.span, expression.operation),
-        );
-        return;
       case "String":
         for (const part of expression.parts) {
           if (part.kind === "Interpolation") visitExpr(part.expression);

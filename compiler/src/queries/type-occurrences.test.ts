@@ -6,6 +6,7 @@ import { lex } from "../passes/lexer/lexer.js";
 import { parse } from "../passes/parser/parser.js";
 import { resolve } from "../passes/resolver/resolver.js";
 import { check } from "../passes/checker/checker.js";
+import { compileProject } from "../project.js";
 import { collectTypeOccurrences } from "./type-occurrences.js";
 
 describe("collectTypeOccurrences", () => {
@@ -21,10 +22,12 @@ describe("collectTypeOccurrences", () => {
       "let selected = numbers.map(number => number + 1)\n" +
       "for item in selected\n" +
       "    console.log(item)\n";
-    const source = new Source.File(Source.fileId(0), "hover.hex", text);
-    const module = check(resolve(parse(applyLayout(lex(source)))));
+    // Through `compileProject`, because `Seq(a)` is a prelude declaration now
+    // (Loops §6.6) and the passes called directly cannot see the prelude.
+    const project = compileProject([new Source.File(Source.fileId(0), "/hover.hex", text)]);
+    const module = project.modules.find(({ source }) => source.path === "/hover.hex")!.typed;
 
-    expect(module.diagnostics).toEqual([]);
+    expect(project.diagnostics).toEqual([]);
     const occurrences = collectTypeOccurrences(module);
     const at = (spelling: string, offset: number) =>
       occurrences.find(({ name, span }) => name === spelling && span.start.offset === offset);
@@ -43,8 +46,13 @@ describe("collectTypeOccurrences", () => {
     expect(at("age", text.indexOf("age"))?.displayedType).toBe("Int");
     expect(at("show", text.indexOf("show"))?.displayedType).toBe("Person -> String");
     expect(at("age", text.lastIndexOf("age"))?.displayedType).toBe("Int");
+    // `Seq.map` is an ordinary prelude function reached by companion dispatch,
+    // so hover reports its scheme with the subject consumed — the same thing
+    // `identity` reports above. The compiler-known `SeqOperation` family it
+    // replaced published the instantiated type at each use instead; that
+    // inconsistency went with it.
     expect(at("map", text.indexOf("map"))?.displayedType).toBe(
-      "(Int -> Int) -> Seq(Int)",
+      "(a -> b) -> Seq(b)",
     );
     expect(at("number", text.indexOf("number =>"))?.displayedType).toBe("Int");
     expect(at("item", text.indexOf("item"))?.displayedType).toBe("Int");

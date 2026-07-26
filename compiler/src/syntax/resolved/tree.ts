@@ -46,7 +46,6 @@ export type TypeAnnotation =
   | UnionTypeAnnotation
   | RecordDeclarationTypeAnnotation
   | ExternTypeAnnotation
-  | SeqTypeAnnotation
   | VectorTypeAnnotation
   | MapTypeAnnotation
   | SetTypeAnnotation
@@ -66,12 +65,6 @@ export interface PrimitiveTypeAnnotation {
 
 export interface RangeTypeAnnotation {
   readonly kind: "Range";
-  readonly span: Source.Span;
-}
-
-export interface SeqTypeAnnotation {
-  readonly kind: "Seq";
-  readonly element: TypeAnnotation;
   readonly span: Source.Span;
 }
 
@@ -215,6 +208,14 @@ export interface Module {
   readonly symbols: readonly Symbol[];
   readonly unions: readonly Union[];
   readonly records: readonly RecordDeclaration[];
+  /**
+   * Record identities the prelude supplies, by name (Modules §5.5). Separate
+   * from `records` because a module may occlude a prelude name (§5.4) while the
+   * compiler's own producers — `Vector.toSeq`, `Map.keys`, `for x in` — must
+   * still reach the prelude's declaration. This is how a later stage names a
+   * prelude type without spelling it.
+   */
+  readonly preludeRecords: ReadonlyMap<string, RecordId>;
   readonly externTypes: readonly ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
   readonly span: Source.Span;
@@ -604,7 +605,6 @@ export type Expr =
   | CallExpr
   | ConsoleLogExpr
   | AccessExpr
-  | SeqOperationExpr
   | IndexExpr
   | HashExpr
   | CollectionOperationExpr
@@ -619,12 +619,6 @@ export interface NameExpr {
   readonly kind: "Name";
   readonly symbol: SymbolId;
   readonly text: string;
-  readonly span: Source.Span;
-}
-
-export interface SeqOperationExpr {
-  readonly kind: "SeqOperation";
-  readonly operation: "iterate" | "map" | "filter" | "take";
   readonly span: Source.Span;
 }
 

@@ -139,42 +139,69 @@ defect log pinned as a conformance test, plus the Seq-shaped cases.
 
 ## Phase 4 — `Seq.hex` and the unification
 
-*(Step 7 landed 2026-07-26. Step 8 is open; two prerequisites found while
-attempting it are fixed, and the remainder is a single coupled change.)*
+*(Steps 8 and 9 landed 2026-07-26, as one coupled change. Phase 4 is complete;
+what remains of the arc is Phase 5. Two prerequisites found while attempting
+step 8 — defects 9 and 10 — landed ahead of it in PRs #89 and #90.)*
 
-**What attempting step 8 established.** Joining `Seq.hex` to `PRELUDE_MODULES`
-was tried end to end. With defects 9 and 10 fixed, the join plus converting
-`stdlib/Vector.hex`'s `toSeq`/`fromSeq` to ordinary `.hex` (ruling R4) leaves the
-compiler suite green — but breaks the shipped `vectors` playground example and
-`vector.test.ts`'s specification group, both of which use the **bare intrinsic**
-`Vector.fromSeq` against a now-record `Seq`. That is not a gap to paper over: R4
-retypes those bare rows to the record's identity and re-emits them through the R1
-pair, so **the join, the retyping, and the adapter pair are one coupled change**
-that must land together. The experiment was reverted; the prerequisite it found
-is what landed.
+**What landed.** `stdlib/Seq.hex` is `PRELUDE_MODULES[2]`, after `Option.hex`.
+The intrinsic `Seq` type-kind, the `SeqOperation` expression family across all
+four trees, and `runtime/SeqCore.hex` are **deleted**. `Seq(a)` is now reached
+only as a declaration: the resolver's intrinsic fallback list is
+`Vector`/`Set`/`Array`/`Nullable`, and `Seq` is not in it.
 
-**Defect 10 (fixed): a prelude name was not reachable qualified.** Pre-existing
-and general — `Option.Some`, `Result.Ok`, and `Prelude.Less` all reported
-`unknown name` for the qualifier. Modules §6.4 requires the qualified home to
-exist and §5.4 depends on it: once a module occludes a prelude name, qualified
-access is the only way back to the prelude's version. Nothing depended on it
-while defect 9 made occlusion impossible; fixing defect 9 made it load-bearing.
+- **Naming a prelude declaration's identity** — the plumbing step 8 called "the
+  substance of the work" — is `preludeRecords` on the resolved, typed, and core
+  modules: prelude record identities by name, kept *separate* from the record
+  table a module may occlude (§5.4). A module that declares its own
+  `record Seq(a)` shadows the name without redirecting `Map.keys`. Every
+  compiler-side producer (`Map.keys`/`values`/`entries`/`toSeq`, `Set.toSeq`,
+  `Vector.toSeq`/`fromSeq`) and consumer (`Map.fromSeq`/`fromEntries`,
+  `Set.fromSeq`, `Vector.fromSeq`) is typed against that identity.
+- **The R1 pair** is `seqFromIterable` (memoizing inbound adapter, the sole
+  compiler-side constructor of `Seq` records) and `seqToIterable` (outbound
+  driver — a `while` over `pull`, never recursion, per Loops §6.5). Producing
+  rows go through the first, consuming rows and `for x in` (R3) and extern
+  boundaries in both directions through the second. HAMT traversal stays
+  runtime-owned and composes with the pair, as R1 says.
+- **The compiler-known operation family is deleted, not repointed** (PR #85
+  finding F1). `Seq.iterate`/`map`/`filter`/`take` are ordinary qualified
+  references to prelude functions; `source.map(f)` is ordinary companion
+  dispatch on a nominal record. The remaining guards (`Map`/`Set`/`Vector`/
+  `Node`/`Int`/`BigInt`/`Float`) now test `#namedModule`, so a prelude member
+  outranks the compiler's own machinery at every one of them, not just `Seq`'s.
+- **`stdlib/Vector.hex` is unchanged.** R4 retypes the bare rows rather than
+  converting the wrappers, so `toSeq`/`fromSeq` keep delegating to operations
+  that now yield and accept the record. The blind spot the experiment found — a
+  bare `Vector.fromSeq` against a `Seq.iterate` — is pinned as a runtime
+  round-trip, and the two shipped playground examples that first caught it are
+  now *executed* by `playground/src/examples/examples.test.ts`, not merely
+  compiled.
+- **Step 9's behavioural suite passes textually unedited.** `seq.test.ts` was
+  written representation-blind for this moment; retiring `runtime/SeqCore.hex`
+  emptied its `CORE`/`IMPORT` constants and changed nothing else. Laziness,
+  short-circuiting, boundaries, the 50k constant-stack run, and persistence all
+  hold against the prelude record.
 
-**The remaining step-8 work, in dependency order:**
+**Two findings, both logged.** Defect 11 — a **constraint member** could not
+occlude a prelude value, the same asymmetry defect 9 fixed for `let`, at a binder
+form that fix did not reach; fixed here. Defect 13 — an unsupported companion
+operation with a literal argument **crashes the compiler**; pre-existing on
+`main`, unrelated, logged not fixed.
 
-1. Close the compiler-known operation guards over prelude members, so
-   `Seq.iterate`/`map`/`filter`/`take` route to companion dispatch. This is the
-   pin the work order requires *before* deleting the `SeqOperation` family, and
-   it is only exercisable once `Seq.hex` is a member — it was implemented during
-   the experiment and reverted with it.
-2. Retype the `Seq`-producing collection operations to the prelude record's
-   identity. The checker has no way to name a prelude declaration's identity
-   today; that plumbing is the substance of the work.
-3. Build the R1 pair — memoizing inbound adapter and outbound driver — and emit
-   the retyped rows through it, with R5's round-trips pinning the representation
-   coupling.
-4. `for x in` over a `Seq` (R3), which currently reports no `Iterable` instance.
-5. Then delete the `SeqOperation` family, and step 9's intrinsic removal.
+**One thing deliberately not delivered, and it needs a ruling: defect 12.** FFI
+Part 3 §9.1 says an exported Hexagon `Seq` is a replayable JavaScript iterable.
+Under the intrinsic that held for free because a `Seq` *was* an iterable; it is a
+record now and nothing replaced it, while the `.d.ts` face is still
+`Iterable<a>`. It is not a one-line fix: an emitted ESM binding is
+simultaneously the Hexagon and the JavaScript interface, so Part 7 §7's
+export-wrapper mechanism would break Hexagon importers of `Seq.map`. The three
+candidate answers trade FFI Part 3 §9.1, Part 7 §6, ruling R1's "sole
+constructor" clause, and per-step allocation cost against each other. `Seq` is
+the pilot `Vector`/`Set`/`Map` inherit, so the guess would be inherited three
+more times. Current behaviour is pinned in both halves so any answer breaks the
+test deliberately. See defect 12 for the full statement.
+
+*(Step 8's original entry follows.)*
 
 *(Step 7's original entry follows.)*
 `stdlib/Seq.hex` is written and validated, and a **prerequisite defect found by

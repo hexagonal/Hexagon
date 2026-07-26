@@ -138,3 +138,38 @@ describe("`module level` is scope identity, not nesting depth (PR #89 finding F1
     )).toEqual([]);
   });
 });
+
+describe("every module-level binder form may occlude, not just `let`/`fun`", () => {
+  /**
+   * Defect 9 was fixed for `let`. A **constraint member** binds at module level
+   * too and kept the unconditional `scope.lookup`, so declaring
+   * `constraint Walkable<c> = ... iterate(...)` reported `\`iterate\` is already
+   * bound` against the prelude's — §5.4's guarantee failing at a binder form the
+   * first fix did not reach.
+   *
+   * Reachable only once a prelude module exports lowercase operation names,
+   * which `Seq.hex` is the first to do: `iterate`, `map`, `filter`, `fold`.
+   */
+  test("a constraint member may occlude a prelude value", () => {
+    expect(diagnostics(
+      "constraint Walkable<c> =\n" +
+      "    combine(value: c, other: c): c\n",
+    )).toEqual([]);
+  });
+
+  test("it still rejects two constraint members of one name", () => {
+    expect(diagnostics(
+      "constraint Walkable<c> =\n" +
+      "    combine(value: c, other: c): c\n" +
+      "    combine(value: c): c\n",
+    )).not.toEqual([]);
+  });
+
+  test("it still rejects a constraint member colliding with a module binding", () => {
+    expect(diagnostics(
+      "let mine: Int = 1\n" +
+      "constraint Walkable<c> =\n" +
+      "    mine(value: c): c\n",
+    )).not.toEqual([]);
+  });
+});

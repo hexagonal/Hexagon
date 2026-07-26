@@ -168,6 +168,8 @@ class Resolver {
   readonly #unionNames = new Map<string, Resolved.UnionId>();
   readonly #unionArities = new Map<string, number>();
   readonly #recordNames = new Map<string, Resolved.RecordId>();
+  /** Record identities the prelude supplies, by name, immune to local occlusion. */
+  readonly #preludeRecords = new Map<string, Resolved.RecordId>();
   readonly #recordArities = new Map<string, number>();
   readonly #externTypeNames = new Map<string, Resolved.ExternTypeId>();
   readonly #typeAliases = new Map<string, Parsed.TypeAliasItem | Resolved.TypeAliasItem>();
@@ -235,6 +237,52 @@ class Resolver {
   }
 
   /**
+   * Makes a prelude term reachable from emitted code, returning the local name
+   * to spell it as, or `undefined` if the symbol is not a prelude term.
+   *
+   * A prelude member has no namespace object to dot into — unlike an explicit
+   * `import * as`, nothing declares one. So the reference compiles to a plain
+   * name backed by the same synthesized used-names-only import the bare spelling
+   * uses, and the symbol has to join that set or the emitted module references
+   * nothing.
+   *
+   * The local name must dodge every module-level binding: reaching
+   * `Result.tally` from a module that itself binds `tally` is exactly what §6.4
+   * exists for, and importing it as `tally` would collide with the binding it is
+   * there to see past.
+   */
+  #reachPreludeTerm(symbol: Resolved.SymbolId): string | undefined {
+    const term = this.#preludeTerms.get(symbol);
+    if (term === undefined) return undefined;
+    const local = this.#preludeQualifiedLocals.get(symbol)
+      ?? (this.#moduleLevelNames.has(term.name)
+        ? `__hex_prelude_${term.name}`
+        : term.name);
+    this.#preludeQualifiedLocals.set(symbol, local);
+    this.#usedPreludeSymbols.add(symbol);
+    return local;
+  }
+
+  /**
+   * Marks a prelude term that *companion dispatch* might reach through this
+   * field name. `source.map(f)` names no module, and whether it is a dispatch or
+   * a call of a function-valued field depends on the receiver's **type** — which
+   * the checker decides, long after the synthesized prelude import is built. So
+   * the candidate is registered here, from the one syntactic form dispatch can
+   * take. It is conservative in one direction only: at worst a spare named
+   * import of a name the prelude really exports, never a missing one.
+   *
+   * The failure this prevents is the silent kind (defect log entries 8 and 10):
+   * the module compiles clean and its emitted JavaScript calls a name it never
+   * imported. `Seq.hex` is the first prelude module to export dispatchable
+   * lowercase operations, so nothing exercised this before.
+   */
+  #noteCompanionCandidate(field: string): void {
+    const symbol = this.#preludeScope.lookupLocal(field);
+    if (symbol !== undefined) this.#reachPreludeTerm(symbol);
+  }
+
+  /**
    * Makes one prelude module's nominals implicitly available. Terms go into a
    * fallback scope so a local declaration of the same name shadows the prelude;
    * type identities are registered so annotations resolve and the checker sees
@@ -269,6 +317,11 @@ class Resolver {
     }
     for (const [name, record] of prelude.records) {
       this.#preludeTypeNames.add(name);
+      // Kept separately from `#recordNames`, which a local declaration may
+      // occlude (§5.4). The compiler's own producers must reach the *prelude's*
+      // `Seq`, not whatever record a module happens to name `Seq`, so they need
+      // an identity that occlusion cannot move.
+      this.#preludeRecords.set(name, record.id);
       this.#recordNames.set(name, record.id);
       this.#recordArities.set(name, record.parameters.length);
       if (!this.#records.some(({ id }) => id === record.id)) {
@@ -324,6 +377,7 @@ class Resolver {
       symbols: [...this.#importedSymbols.values(), ...this.#symbols.values()],
       unions: this.#unions,
       records: this.#records,
+      preludeRecords: this.#preludeRecords,
       externTypes: this.#externTypes,
       comments: module.comments,
       span: module.span,
@@ -702,7 +756,14 @@ class Resolver {
         const impliedTypes = new Set(item.impliedTypes.map(({ name }) => name.text));
         const impliedContext = { owner: item.name.text, names: impliedTypes };
         const memberBindings = item.members.map((member) => {
-          const existing = scope.lookup(member.name.text);
+          // A constraint member binds at module level, so §5.4's occlusion rule
+          // applies to it exactly as it does to `let` and `fun` (defect 9): it
+          // may occlude a prelude name and may not collide with a sibling in its
+          // own layer. Same scope-identity test, same reason — a depth test
+          // would license shadowing in inner layers (PR #89 finding F1).
+          const existing = scope === this.#moduleScope
+            ? scope.lookupLocal(member.name.text)
+            : scope.lookup(member.name.text);
           if (existing !== undefined) this.#reportRebinding(member.name, existing);
           const binding = this.#declare(member.name, "constraint-member");
           if (existing === undefined) scope.define(member.name.text, binding.symbol);
@@ -1202,6 +1263,13 @@ class Resolver {
             span: expression.span,
           };
         }
+        if (
+          expression.callee.kind === "Access" &&
+          !(expression.callee.receiver.kind === "Name" &&
+            this.#namedModule(expression.callee.receiver.name.text) !== undefined)
+        ) {
+          this.#noteCompanionCandidate(expression.callee.field.text);
+        }
         return {
           ...expression,
           callee: this.#resolveExpr(expression.callee, scope),
@@ -1211,22 +1279,17 @@ class Resolver {
         };
       case "Access":
         if (expression.receiver.kind === "Name") {
-          if (
-            expression.receiver.name.text === "Seq" &&
-            scope.lookup("Seq") === undefined &&
-            !this.#moduleAliases.has("Seq") &&
-            ["iterate", "map", "filter", "take"].includes(expression.field.text)
-          ) {
-            return {
-              kind: "SeqOperation",
-              operation: expression.field.text as "iterate" | "map" | "filter" | "take",
-              span: expression.span,
-            };
-          }
+          // Each guard below asks whether a *declaration* claims the qualifier,
+          // and a prelude module is one: `#namedModule` covers the explicit
+          // `import * as` alias and the implicit prelude home alike (Modules
+          // §6.4). Testing `#moduleAliases` alone would let the compiler's own
+          // machinery outrank a prelude member, which is exactly the resolution
+          // order Modules §5.5 forbids — and it is what kept `Seq.map` bound to
+          // the intrinsic family after `Seq.hex` joined the set.
           if (
             ["Map", "Set", "Vector"].includes(expression.receiver.name.text) &&
             scope.lookup(expression.receiver.name.text) === undefined &&
-            !this.#moduleAliases.has(expression.receiver.name.text)
+            this.#namedModule(expression.receiver.name.text) === undefined
           ) {
             return {
               kind: "CollectionOperation",
@@ -1240,7 +1303,7 @@ class Resolver {
             expression.receiver.name.text === "Node" &&
             ["empty", "get", "set", "copy"].includes(expression.field.text) &&
             scope.lookup("Node") === undefined &&
-            !this.#moduleAliases.has("Node")
+            this.#namedModule("Node") === undefined
           ) {
             return {
               kind: "CollectionOperation",
@@ -1252,7 +1315,7 @@ class Resolver {
           if (
             ["Int", "BigInt", "Float"].includes(expression.receiver.name.text) &&
             scope.lookup(expression.receiver.name.text) === undefined &&
-            !this.#moduleAliases.has(expression.receiver.name.text) &&
+            this.#namedModule(expression.receiver.name.text) === undefined &&
             ["div", "mod", "quot", "rem", "gcd", "lcm"].includes(expression.field.text)
           ) {
             return {
@@ -1274,24 +1337,9 @@ class Resolver {
               return { kind: "ErrorExpr", span: expression.span };
             }
             this.#importedSymbols.set(symbol.id, symbol);
-            if (this.#preludeTerms.has(symbol.id)) {
-              // A prelude member has no namespace object to dot into — unlike an
-              // explicit `import * as`, nothing declares one. So the reference
-              // compiles to a plain name backed by the same synthesized
-              // used-names-only import the bare spelling uses, and the symbol has
-              // to join that set or the emitted module references nothing.
-              //
-              // The local name must dodge every module-level binding: reaching
-              // `Result.tally` from a module that itself binds `tally` is exactly
-              // what §6.4 exists for, and importing it as `tally` would collide
-              // with the binding it is there to see past.
-              const local = this.#preludeQualifiedLocals.get(symbol.id)
-                ?? (this.#moduleLevelNames.has(symbol.name)
-                  ? `__hex_prelude_${symbol.name}`
-                  : symbol.name);
-              this.#preludeQualifiedLocals.set(symbol.id, local);
-              this.#usedPreludeSymbols.add(symbol.id);
-              return { kind: "Name", symbol: symbol.id, text: local, span: expression.span };
+            const preludeLocal = this.#reachPreludeTerm(symbol.id);
+            if (preludeLocal !== undefined) {
+              return { kind: "Name", symbol: symbol.id, text: preludeLocal, span: expression.span };
             }
             return {
               kind: "Name",
@@ -1828,7 +1876,10 @@ class Resolver {
           : this.#resolveTypeAnnotation(annotation.arguments[0], typeParameters, impliedContext, substitutions);
         return { kind: "Node", element, span: annotation.span };
       }
-      if (name === "Seq" || name === "Vector" || name === "Set" || name === "Array" || name === "Nullable") {
+      // `Seq` is gone from this list: it is a prelude *declaration* now (Loops
+      // §6.6), reached through the record table above. The names left are the
+      // boundary intrinsics that no `.hex` module declares.
+      if (name === "Vector" || name === "Set" || name === "Array" || name === "Nullable") {
         if (annotation.arguments.length !== 1) {
           this.#diagnostics.add({
             severity: "error",
@@ -1840,7 +1891,6 @@ class Resolver {
           ? { kind: "ErrorType" as const, span: annotation.span }
           : this.#resolveTypeAnnotation(annotation.arguments[0], typeParameters, impliedContext, substitutions);
         if (name === "Nullable") return { kind: "Nullable", value: argument, span: annotation.span };
-        if (name === "Seq") return { kind: "Seq", element: argument, span: annotation.span };
         if (name === "Vector") return { kind: "Vector", element: argument, span: annotation.span };
         if (name === "Set") return { kind: "Set", element: argument, span: annotation.span };
         return { kind: "Array", element: argument, span: annotation.span };
@@ -2180,7 +2230,6 @@ function annotationHeadName(annotation: Resolved.TypeAnnotation): string {
   switch (annotation.kind) {
     case "Primitive": return annotation.name;
     case "Range": return "Range";
-    case "Seq": return "Seq";
     case "Vector": return "Vector";
     case "Map": return "Map";
     case "Set": return "Set";
@@ -2202,7 +2251,6 @@ function annotationHeadName(annotation: Resolved.TypeAnnotation): string {
 function annotationTypeVariables(annotation: Resolved.TypeAnnotation): readonly string[] {
   switch (annotation.kind) {
     case "TypeVariable": return [annotation.name];
-    case "Seq": return annotationTypeVariables(annotation.element);
     case "Vector": return annotationTypeVariables(annotation.element);
     case "Set": return annotationTypeVariables(annotation.element);
     case "Array": return annotationTypeVariables(annotation.element);
@@ -2264,7 +2312,7 @@ function substituteResolvedType(
     fields: type.fields.map((field) => ({ ...field, annotation: substituteResolvedType(field.annotation, replacements) })),
     span,
   };
-  if (type.kind === "Seq" || type.kind === "Vector" || type.kind === "Set" || type.kind === "Array") {
+  if (type.kind === "Vector" || type.kind === "Set" || type.kind === "Array") {
     return { ...type, element: substituteResolvedType(type.element, replacements), span };
   }
   if (type.kind === "Nullable") return { ...type, value: substituteResolvedType(type.value, replacements), span };
@@ -2297,7 +2345,7 @@ function itemNameReferences(item: Resolved.Item): readonly Resolved.NameExpr[] {
 
 function expressionNames(expression: Resolved.Expr): Resolved.NameExpr[] {
   if (expression.kind === "Name") return [expression];
-  if (expression.kind === "Unit" || expression.kind === "Boolean" || expression.kind === "Integer" || expression.kind === "BigInt" || expression.kind === "Float" || expression.kind === "ErrorExpr" || expression.kind === "SeqOperation" || expression.kind === "CollectionOperation" || expression.kind === "PrimitiveOperation") return [];
+  if (expression.kind === "Unit" || expression.kind === "Boolean" || expression.kind === "Integer" || expression.kind === "BigInt" || expression.kind === "Float" || expression.kind === "ErrorExpr" || expression.kind === "CollectionOperation" || expression.kind === "PrimitiveOperation") return [];
   if (expression.kind === "String") return expression.parts.flatMap((part) => part.kind === "Interpolation" ? expressionNames(part.expression) : []);
   if (expression.kind === "Tuple" || expression.kind === "Vector") return expression.elements.flatMap(expressionNames);
   if (expression.kind === "Record") return [...(expression.spread === undefined ? [] : expressionNames(expression.spread)), ...expression.fields.flatMap((field) => expressionNames(field.value))];

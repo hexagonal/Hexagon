@@ -15,6 +15,7 @@ export function elaborate(module: Typed.Module): Core.Module {
     symbols: module.symbols,
     unions: module.unions,
     records: module.records,
+    preludeRecords: module.preludeRecords,
     externTypes: module.externTypes,
     comments: module.comments,
     span: module.span,
@@ -73,7 +74,6 @@ function elaborateItem(item: Typed.Item): Core.Item {
 function elaborateExpr(expression: Typed.Expr): Core.Expr {
   switch (expression.kind) {
     case "Name":
-    case "SeqOperation":
     case "PrimitiveOperation":
     case "Unit":
     case "Boolean":
@@ -425,7 +425,6 @@ function evidence(requirement: Typed.Constraint | undefined): Core.Evidence {
     case "Tuple":
     case "Record":
     case "Range":
-    case "Seq":
     case "Vector":
     case "Map":
     case "Set":

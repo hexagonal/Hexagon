@@ -206,8 +206,6 @@ function substituteType(
       return { ...type, element: substituteType(type.element, substitutions) };
     case "Nullable":
       return { ...type, value: substituteType(type.value, substitutions) };
-    case "Seq":
-      return { ...type, element: substituteType(type.element, substitutions) };
     case "Record":
       return {
         ...type,

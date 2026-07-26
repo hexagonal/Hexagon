@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 
 import { compileProject, Source } from "../index";
-import seqCoreSource from "../../../runtime/SeqCore.hex?raw";
 
 /**
  * Behavioural conformance for the `Seq(a)` core (Loops §6, spec/notes/seq-core-representation.md).
@@ -111,17 +110,22 @@ describe("harness honesty (poison test)", () => {
   });
 });
 
-// The core module itself (runtime/SeqCore.hex, loaded via ?raw), mounted at
-// /SeqCore.hex and driven from an entry module. Assertions are on *results*, never
-// on the representation, so they survive the emitter rewiring `Seq(a)` onto this
-// core at milestone 3.
-const CORE: readonly (readonly [string, string])[] = [["/SeqCore.hex", seqCoreSource]];
-const IMPORT = 'import * as Seq from "./SeqCore"\n';
+// `Seq` is a prelude module now (plan Phase 4 step 9), so there is nothing to
+// mount and nothing to import: the entry reaches it qualified, which Modules
+// §6.4 guarantees for every prelude name. `CORE` and `IMPORT` stay as empty
+// constants rather than being inlined away, so the diff that retired
+// `runtime/SeqCore.hex` leaves every behavioural assertion below **textually
+// unchanged** — laziness, short-circuiting, boundaries, the 50k constant-stack
+// run, persistence. They were written representation-blind for this moment, and
+// their passing unedited is the evidence that the record and the intrinsic
+// behave identically.
+const CORE: readonly (readonly [string, string])[] = [];
+const IMPORT = "";
 
 /** `1, 2, 3, ...` — infinite, so any test using it also proves laziness. */
 const NATURALS = "let naturals = Seq.iterate(1, x => x + 1)\n";
 
-describe("SeqCore construction and the §6.2 protocol", () => {
+describe("Seq construction and the §6.2 protocol", () => {
   test("empty pulls None; singleton and cons pull one element then empty", async () => {
     const m = await run(
       IMPORT +
@@ -165,7 +169,7 @@ describe("SeqCore construction and the §6.2 protocol", () => {
   });
 });
 
-describe("SeqCore one-step combinators", () => {
+describe("Seq one-step combinators", () => {
   test("map, take, takeWhile, and unfold", async () => {
     const m = await run(
       IMPORT +
@@ -223,7 +227,7 @@ describe("SeqCore one-step combinators", () => {
   });
 });
 
-describe("SeqCore while-pull combinators", () => {
+describe("Seq while-pull combinators", () => {
   test("filter, drop, dropWhile, and flatMap", async () => {
     const m = await run(
       IMPORT +
@@ -287,7 +291,7 @@ describe("SeqCore while-pull combinators", () => {
   });
 });
 
-describe("SeqCore consumers", () => {
+describe("Seq consumers", () => {
   test("fold, length, find, any, and all", async () => {
     const m = await run(
       IMPORT +
@@ -340,7 +344,7 @@ describe("SeqCore consumers", () => {
   });
 });
 
-describe("SeqCore persistence", () => {
+describe("Seq persistence", () => {
   test("§6.5 driving a Seq never consumes it: re-driving replays from the start", async () => {
     // Re-derivation, not memoization. Whichever policy is chosen, the *observable*
     // contract is the same: a `Seq` is a value, and driving it leaves it intact.

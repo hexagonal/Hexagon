@@ -65,6 +65,8 @@ export interface Module {
   readonly symbols: readonly Symbol[];
   readonly unions: readonly Union[];
   readonly records: readonly RecordDeclaration[];
+  /** Prelude-supplied record identities by name; see `Resolved.Module`. */
+  readonly preludeRecords: ReadonlyMap<string, Resolved.RecordId>;
   readonly externTypes: readonly Typed.ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
   readonly span: Source.Span;
@@ -298,7 +300,6 @@ interface ExpressionFields {
 
 export type Expr =
   | NameExpr
-  | SeqOperationExpr
   | UnitExpr
   | BooleanExpr
   | NumberExpr
@@ -339,11 +340,6 @@ export interface NameExpr extends ExpressionFields {
   readonly kind: "Name";
   readonly symbol: Resolved.SymbolId;
   readonly text: string;
-}
-
-export interface SeqOperationExpr extends ExpressionFields {
-  readonly kind: "SeqOperation";
-  readonly operation: "iterate" | "map" | "filter" | "take";
 }
 
 export interface UnitExpr extends ExpressionFields {

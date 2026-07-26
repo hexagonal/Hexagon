@@ -598,3 +598,104 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   hand it to companion dispatch. The intrinsic and the record print identically,
   so the discriminator was whether `next` — which only accepts the record —
   would take the result.
+
+### 11. A constraint member could not occlude a prelude value
+
+- **Classification:** compiler defect against specification; no design change.
+  Found while landing Phase 4 steps 8–9, by an existing emitter test that
+  declares `constraint Iterable<c>` with a member named `iterate`.
+- **Authority:** Modules §5.4, exactly as for defect 9. A constraint member binds
+  at module level, so the occlusion half applies to it: it may occlude a prelude
+  name, and it may not collide with a sibling in its own layer.
+- **Defect origin:** the same one-word asymmetry defect 9 fixed for `let`, at a
+  binder form that fix did not reach. The constraint-member path tested
+  `scope.lookup`, which walks out through the prelude layer.
+- **Why it surfaces now:** for the same reason defect 9 did, one step later.
+  `stdlib/Seq.hex` is the first prelude module to export lowercase *operation*
+  names, and `iterate`, `map`, `filter`, and `fold` are all plausible constraint
+  members. Until `Seq.hex` actually joined the set, nothing could collide.
+- **Reproduction:** with `Seq.hex` in the prelude,
+  ``constraint Walkable<c> = ... iterate(value: c): Int`` reports ``\`iterate\` is
+  already bound``, naming a line in `Seq.hex`.
+- **Correction applied (2026-07-26).** The same scope-identity test defect 9's
+  correction settled on: `lookupLocal` when the binder is in the module scope,
+  the full `lookup` walk otherwise. Scope identity rather than nesting depth, per
+  PR #89 finding F1.
+- **Executable conformance:** `compiler/src/conformance/prelude-occlusion.test.ts`
+  — a constraint member occluding a prelude value, plus two guards that the
+  fix does not weaken the layer: two members of one name still collide, and a
+  member colliding with a module-level `let` still collides. Verified sensitive:
+  the occlusion test is red before the fix and the two guards are green both
+  ways, so the fix is not simply disabling the check.
+- **The reusable part:** defect 9's correction was applied where the defect was
+  *found* rather than everywhere the rule holds. Three module-level binder forms
+  exist — `let`, `fun`, and constraint members — and the audit stopped at two.
+  A rule stated over "module-level binders" should be fixed by enumerating them.
+
+### 12. An exported `Seq` no longer faces JavaScript as an `Iterable` (open)
+
+- **Classification:** **open question for ruling, not a defect with a known
+  fix.** A capability regression introduced by Phase 4 steps 8–9 and pinned
+  rather than left silent.
+- **Authority in tension.** Three decided rules now disagree for `Seq`:
+  - **FFI Part 3 §9.1** — an exported Hexagon `Seq` is a replayable JavaScript
+    iterable: each `[Symbol.iterator]()` opens an independent cursor over the
+    *same memoized* sequence. Its `.d.ts` face is `Iterable<a>`, and the exported
+    value is "stronger than the face promises".
+  - **FFI Part 7 §6** — an `export opaque` type's face is a TypeScript-only
+    brand, and "the existing erased runtime value crosses out and back **by
+    identity**". `Seq` became an `export opaque record` in this very arc.
+  - **Ruling R1** — the memoizing inbound adapter is "the sole compiler-side
+    constructor of `Seq` records".
+- **What is true after this arc:** the `.d.ts` face is `Iterable<a>`, as Part 3
+  and Part 7 §6.8 both say. The exported *value* is the record, which has no
+  `[Symbol.iterator]`. Under the intrinsic the property held for free, because a
+  `Seq` **was** a JS iterable; nothing replaced it.
+- **Why it is not a one-line fix.** An emitted ESM binding is simultaneously the
+  Hexagon interface and the JavaScript interface. Part 7 §7's mechanism — a
+  stable module-level export wrapper — would therefore hand *Hexagon* importers
+  the wrapped value, breaking `Seq.map` for every consumer. The three candidate
+  answers each pay a different price:
+  1. **a per-value `[Symbol.iterator]`** on the record (one shared method, so no
+     closure per value) makes the face honest at every position including nested
+     ones, but adds a property to the hottest allocation in the lazy-sequence
+     core and puts representation knowledge at the record's own constructor,
+     against R1's "sole constructor" clause — and still gives re-derivation, not
+     §9.1's memoization, for a `.hex`-built `Seq`;
+  2. **a dual-binding export protocol** (raw binding for Hexagon importers,
+     wrapped binding for JavaScript) satisfies both faces, and is a change to the
+     module emission contract for every module, not just `Seq`;
+  3. **changing the face** to Part 7 §6's opaque brand makes the `.d.ts` match
+     the value and drops §9.1's promise outright.
+- **Why it is left open rather than chosen.** `Seq` is the pilot that `Vector`,
+  `Set`, and `Map` inherit (ledger §5.2). A guess here is inherited three more
+  times, which is the failure mode step 7's note names. The choice trades decided
+  spec clauses against each other and against per-step cost — Fable's call.
+- **Pinned, not absent:** `compiler/src/conformance/seq-unification.test.ts`
+  asserts the current behaviour in both halves — the exported value *is* the
+  record with a `pull` and no `[Symbol.iterator]`, and the emitted `.d.ts` *does*
+  say `Iterable<number>`. Whichever answer lands, that test fails and has to be
+  rewritten deliberately.
+
+### 13. An unsupported companion operation crashes on a literal argument (pre-existing)
+
+- **Classification:** compiler crash, **pre-existing on `main`**, unrelated to
+  this arc. Found by probing, not by a test; logged rather than fixed, to keep
+  the unification reviewable.
+- **Reproduction (reproduces on `main` at 4a95858):**
+
+  ```
+  let numbers: Vector(Int) = [1, 2]
+  let extended = numbers.append(40)
+  ```
+
+  `compileProject` throws `TypeError: Cannot read properties of undefined`.
+  Replacing `40` with a named binding produces the correct diagnostic instead —
+  ``the companion of `Vector(Int)` has no operation `append` `` — which is what
+  isolates it.
+- **Defect origin:** the companion-dispatch path reports `#unsupported` and
+  `break`s **without inferring the argument expressions**. An integer literal's
+  `FromNat` requirement is recorded during inference, so materialization then
+  dereferences a requirement list that was never filled.
+- **Shape:** a diagnostic path that abandons a subtree it is still going to
+  materialize. Any error path that returns early from inference is a candidate.
