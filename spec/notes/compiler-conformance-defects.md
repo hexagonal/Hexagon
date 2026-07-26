@@ -362,3 +362,63 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
 - **Credit:** Fable, from a discriminating probe run against both `main` and the
   branch — the table separating regression from pre-existing hole is what
   identified the shared mechanism rather than a fix-local slip.
+
+### 8. A prelude module reachable only through another was dropped from emission
+
+- **Classification:** compiler defect; silent wrong output. Found by Fable
+  reviewing PR #88, **against my classification** — I reported it as latent, on
+  the reasoning that the same commit both enabled prelude-to-prelude references
+  and fixed the emission. That was wrong: the defect did not need the Phase 3
+  visibility change to be reachable, only an explicit `import` line, which was
+  always legal.
+- **Authority:** Modules §11 — emission is 1:1 ESM. An emitted module importing a
+  module that was never emitted is not a 1:1 correspondence with anything; it is
+  a broken artifact. The project channel must also be honest (the standing
+  poison-test rule): a project that produces unloadable output must not report
+  success.
+- **Defect origin:** prelude modules are emitted conditionally, so a project that
+  never touches the prelude is unchanged by its existence. The predicate asked
+  whether some **non-prelude** module imported the member. That was sufficient
+  while prelude members could not reference one another, and it ignored
+  prelude-to-prelude importers *whatever the origin of the import* — synthesized
+  or written. A member imported only by another prelude member was therefore
+  dropped while the importer's emitted JavaScript still named it.
+- **Reproduction (on `main`, no Phase 3 machinery).** `injectPrelude` prefers a
+  project's own file at a prelude basename over the embedded fallback — the
+  documented path for compiling the stdlib itself. Supply `/Prelude.hex`,
+  `/Option.hex`, and a `/Result.hex` carrying an **explicit** import line:
+
+  ```
+  import * as O from "./Option"
+  export union Result(a, e) = Ok(value: a) | Err(error: e)
+  export fun toOption(result: Result(a, e)): O.Option(a) = ...
+  ```
+
+  with a `/main.hex` that imports only `./Result`. Result on `main`:
+  `diagnostics: []`, emitted modules `["/Result.hex", "/main.hex"]`, and
+  `Result.js` containing `import { ... } from "./Option.js"`. Clean compile,
+  unloadable output. The shipped `stdlib/` does not currently contain such an
+  import, so the defect was reachable rather than occurring.
+- **Correction applied (2026-07-26, plan Phase 3).** Emission is now reachability
+  from the non-prelude modules rather than a single hop: a worklist adds any
+  imported module to the emitted set, reading the same `resolved.items` channel
+  the old predicate read, so written and synthesized imports are treated
+  identically. Prelude modules nothing reaches are still dropped, so the economy
+  the predicate existed for is intact.
+- **Executable conformance:**
+  `compiler/src/conformance/prelude-mechanism.test.ts` — the synthesized-import
+  case (a member visible to a later member under §5.5), **this entry's explicit-
+  import reproduction as a distinct channel**, the untouched-prelude control, and
+  the general invariant the specific cases belong to: every relative import in
+  the emitted output names an emitted module. Verified sensitive by blinding the
+  reachability walk while keeping the visibility change, which reddens the
+  emission tests alone.
+- **Dating the reproduction.** The explicit-import channel depends on Modules
+  §5.5's "no `import` lines in prelude source" being a stated convention with no
+  diagnostic behind it. Should that become an error, this repro stops being
+  well-formed and the synthesized channel becomes the only one — the correction
+  and the invariant are unaffected either way.
+- **Credit:** Fable, from a probe run against both `main` and the branch. The
+  ruling is the finding here: I had reasoned from *when the code changed* rather
+  than testing *what the old code accepted*, and the probe is what separated
+  them.
