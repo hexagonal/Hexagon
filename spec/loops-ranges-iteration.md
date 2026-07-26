@@ -160,6 +160,8 @@ User nominal types may join the table with lawful `honor Iterable<T>` instances 
 
 `Seq(a)` is a **concrete stdlib type** in v1: an immutable, lazy sequence of `a`s, possibly infinite. It is the F# `seq<'T>` role (the one common-currency sequence abstraction everything can convert into) realized with OCaml `Seq`'s pure representation instead of .NET's mutable enumerator.
 
+*(Decided 2026-07-26.)* `Seq(a)` is a **declared type, not a compiler intrinsic**: an `export opaque record` in the prelude module `stdlib/Seq.hex` (representation in §6.6), which also holds `next` and the combinator companions — one module, per Method Syntax's home rule. As a declaration in the prelude layer it obeys the standard occlusion rule (Modules §5.4) like any other prelude name; the compiler has no private resolution claim on the name `Seq`. Compiler knowledge of `Seq` — the `for..in` desugaring (§6.5) and the producer types on other collections (`Map.keys`, `Set.toSeq`, `Vector.toSeq`, …) — refers to this declaration.
+
 ### 6.2 The functional cursor
 
 The core protocol is one function:
@@ -180,11 +182,32 @@ A fold/`walk`-based ("internal iteration") protocol cannot back `for..in`: it wo
 
 A `Seq` may be backed by deferred computation (a mapping combinator applies its function on demand). This spec fixes only the protocol (§6.2) and the type's existence; the v1 `Seq` combinator ship-list is owed to **`stdlib-roadmap.md`**, decided there under the collections naming doctrine. **No `seq { yield }` comprehension syntax** in v1 (§11.3) — `Seq` needs none of it.
 
+**Persistence policy** *(decided 2026-07-26, closing the delegated question of `spec/notes/seq-core-representation.md` §6)*:
+
+- **Re-derivation is the internal default.** A pure `Seq` is persistent because re-driving it recomputes it; there is no hidden buffer under `map`/`filter`/`iterate` pipelines. **Consequence, stated here because this is the effects section: re-driving a `Seq` replays any effects its steps perform.** A `Seq` whose steps are effectful and which will be traversed more than once is the caller's cue to memoize explicitly.
+- **`memoize : Seq(a) -> Seq(a)` is the explicit opt-in** — it wraps any `Seq` in the runtime's memoizing spine (the same mechanism as FFI Part 3's inbound adapter), making replay O(1) per cached element at the cost of retention. Ship-list entry owed to `stdlib-roadmap.md`; the spine is runtime-provided, not `.hex` (a mutable buffer cannot be written under Statements §6.2).
+- **The export boundary memoizes unconditionally.** FFI Part 3 §9.1 already fixes this: repeated JavaScript traversals of an exported `Seq` observe the same memoized sequence and never re-run its computation or effects. The internal default therefore never leaks re-derivation across the boundary; nothing in Part 3 changes.
+
 ### 6.5 Emission
 
-`Seq(a)` is emitted onto **JS's native iterable/iterator protocol** — a `Seq` value is (or wraps) a JS iterable, so `for (const x of s)` is directly valid on the JS side, `Seq` pipelines read like the generator-library code a JS developer already knows, and the `.d.ts` face is `Iterable<a>`. The precise representation (plain iterable-of-`[Symbol.iterator]`, or a small wrapper preserving persistence of `next`) is an implementation choice constrained by §6.2's semantics: `Seq.next(s)` must not consume `s` from the caller's perspective. Implementers: JS iterators are single-shot and mutable; the wrapper must memoize or re-derive to honor persistence. This is the one place the pure protocol costs something; monomorphic loops avoid the machinery entirely (§8). `for..in`, `while`-based cursor consumption, and `Seq`-consuming combinators must use constant-stack iteration in emitted JS — Hexagon does not promise tail-call optimization (FFI Part 3 §6).
+`Seq(a)` is emitted onto **JS's native iterable/iterator protocol** — `for (const x of s)` is directly valid on the JS side, `Seq` pipelines read like the generator-library code a JS developer already knows, and the `.d.ts` face is `Iterable<a>`. *(Decided 2026-07-26:)* the representation is **the wrapper preserving persistence of `next`** — the §6.6 record — with the boundary bridges (FFI Part 3) supplying the iterable face; the previously recorded alternative (plain iterable-of-`[Symbol.iterator]`) is closed. §6.2's semantics were always the constraint: `Seq.next(s)` must not consume `s` from the caller's perspective; persistence is by re-derivation with explicit memoization (§6.4). This is the one place the pure protocol costs something; monomorphic loops avoid the machinery entirely (§8). `for..in`, `while`-based cursor consumption, and `Seq`-consuming combinators must use constant-stack iteration in emitted JS — Hexagon does not promise tail-call optimization (FFI Part 3 §6).
 
 Boundary crossing — what a foreign iterable becomes in Hexagon, and what an exported Hexagon sequence is to JavaScript (adapter identity, memoization spine, retention, foreign throws) — is owned by **FFI Part 3** and not restated here.
+
+### 6.6 The representation (decided 2026-07-26)
+
+```
+export opaque record Seq(a) = { pull: () -> Option((a, Seq(a))) }
+
+export let next(source: Seq(a)): Option((a, Seq(a))) = (source.pull)()
+```
+
+- The record carries its own deferred pull thunk (OCaml `Seq`'s `unit -> node`). The thunk is what defers: constructing a combinator runs nothing, an infinite `Seq` is a finite value, and driving one step is O(1).
+- `next` (§6.2) is thin over the field. The field is named `pull`, not `next`, so field access never shadows the protocol; inside the home module the call is written `(source.pull)()` because a bare `source.pull(...)` on a nominal head is companion dispatch, not a field read (Products §3.2).
+- **Opacity is load-bearing:** `pull` is private to `stdlib/Seq.hex`. Outside it, the §6.2 protocol — `next` plus `Option` destructuring — is the *only* access. Opacity hides structure, not capabilities (Modules §4.2): the `Iterable` instance and `for x in` work unchanged.
+- **Why a record-of-closure, not a defunctionalized union:** `union Seq(a) = Mapped(source: Seq(b), f: b -> a) | ...` cannot be written — `b` would be an existential in the union, which Hexagon's HM does not express. Hiding source and transform inside a closure keeps that type from escaping into `Seq(a)`.
+- Combinators that may consume many source elements to yield one (`filter`, `drop`, `flatMap`) step with a constant-stack `while` threading a `var` cursor, never self-recursion — §6.5's no-TCO rule applies inside the library too.
+- **Migration order:** `Seq` de-intrinsifies first and is the pilot; `Vector`, `Set`, and `Map` follow the proven shape (stdlib-roadmap.md §5). Design rationale and the review record: `spec/notes/seq-core-representation.md`.
 
 ---
 

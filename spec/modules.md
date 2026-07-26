@@ -187,6 +187,16 @@ The prelude enters every module's scope as a **distinct outermost layer**. The H
 
 This section owns the module/prelude boundary referenced by Statements §5.2/§10.2. Without occlusion, every addition to the prelude in a future release would break any program already using that name — untenable with no warning tier to soften it.
 
+### 5.5 The prelude is ordinary modules, in an ordered set *(added 2026-07-26)*
+
+The prelude is a **fixed, ordered list of ordinary `.hex` modules** (canonical source under `stdlib/`), compiled like any project module and injected into the outermost scope layer of §5.4. Three rules make it a set rather than a heap:
+
+- **Ordered intra-prelude visibility.** Each prelude module implicitly sees the prelude modules **before it in the list, and only those**. Cycles are impossible by construction; the list order is normative (`Option` precedes `Seq`; `Seq` precedes the collection modules that convert to it).
+- **No `import` lines in prelude source.** Prelude modules use earlier prelude names implicitly, exactly as user code does. This is deliberate pedagogy: the stdlib is read as exemplary source, and an `import * as Option from "./Option"` line at the top of a prelude module would teach every reader a false lesson about the language. The house form is a **header comment** noting the implicit scope (`// \`Option\`, \`Some\`, and \`None\` are implicitly in scope via the prelude.`), already modeled by `stdlib/Vector.hex`.
+- **Type-declaring prelude modules are nothing special.** A prelude module may declare nominal types (`Option.hex` declares `union Option(a)`; `Seq.hex` declares `opaque record Seq(a)`, Loops §6.6). Such a declaration is an **ordinary declaration in the outermost layer**, subject to §5.4's occlusion rule like any other prelude name. **The compiler holds no resolution claim that outranks user declarations** — a name resolving to compiler-internal machinery *ahead of* a user's module-level declaration is a conformance defect against this section, not a feature. (Compiler-owned types that are deliberately *not* prelude-declared — the FFI boundary types `Array`, `Nullable`, and the hidden runtime `Node` — resolve as a fallback *after* declarations, never before.)
+
+The prelude's *inventory* remains owed to the stdlib listing (§6.4's qualified-home invariant applies to every member); this section owns only the mechanism.
+
 ---
 
 ## 6. What crosses a module boundary
@@ -418,6 +428,7 @@ Geo.area(2.0)
 | Fourth namespace (module aliases); position-based resolution; `Name.` checks modules first | §5.1 |
 | Collisions: duplicate module aliases error; alias-vs-type/constructor legal (companion idiom blessed); named-import same-namespace collisions error; Elm-strict restriction = v2 candidate | §5.2, §12.3 |
 | Prelude occlusion: module-level bindings may occlude prelude; function-local occludes nothing; explicit imports fight; Head Binder rule untouched in statement | §5.4 |
+| Prelude = ordered set of ordinary `.hex` modules; each sees only earlier members; no `import` lines in prelude source (header-comment convention); type-declaring members ordinary; compiler resolution never outranks declarations (boundary intrinsics = fallback only) | §5.5 |
 | Every prelude name must have a qualified home (stdlib invariant, pre-registered) | §6.4 |
 | Instances never exported/imported/hidden; home module = containing file; cross-module duplicates reported at whole-program check naming both sites; instances on private types legal; whole-program coherence cost acknowledged | §7 |
 | Discoverability: ordinary `C<T>` use brings both legal homes into the graph; residue = inferred-never-named types and isolated-file checking; missing-instance diagnostics name the legal homes; pre-1.0 LSP names the activating import; effect-import nearly vestigial; packages/re-exports widen the residue | §7.6 |
