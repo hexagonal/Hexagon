@@ -2881,21 +2881,32 @@ class Checker {
   }
 
   /**
-   * The `() -> T` versus `Unit -> T` confusion, which otherwise surfaces as a
-   * bare 1-and-0 arity mismatch naming neither the cause nor the fix. Only
-   * claimed when the one-parameter side's parameter genuinely solves to `Unit`;
-   * an unsolved variable keeps the general message (Functions §5.3).
+   * A zero-against-one arity mismatch, which otherwise surfaces as a bare
+   * `0 and 1` naming neither the cause nor the fix (Functions §5.3). `left` is
+   * the expected type and `right` the actual.
+   *
+   * When the one-parameter side's parameter genuinely solves to `Unit` this is
+   * the `() -> T` versus `Unit -> T` confusion and is named as such. When that
+   * parameter is still unsolved, `Unit` is not claimed — but the zero-parameter
+   * side is concrete either way, so the message still says what is provable and
+   * carries the fix.
    */
-  #nullaryUnitConfusion(left: Mono, right: Mono): string | undefined {
+  #nullaryArityMessage(left: Mono, right: Mono): string | undefined {
     if (left.kind !== "Function" || right.kind !== "Function") return undefined;
-    const [nullary, unary] = left.parameters.length === 0
-      ? [left, right]
-      : [right, left];
-    if (nullary.kind !== "Function" || unary.kind !== "Function") return undefined;
-    if (nullary.parameters.length !== 0 || unary.parameters.length !== 1) return undefined;
-    if (!this.#solvesToUnit(unary.parameters[0])) return undefined;
-    return "`Unit -> T` takes a unit value, so it is a one-parameter function; " +
-      "for a zero-parameter function write `() -> T`";
+    const expectedNullary = left.parameters.length === 0 && right.parameters.length === 1;
+    const actualNullary = left.parameters.length === 1 && right.parameters.length === 0;
+    if (!expectedNullary && !actualNullary) return undefined;
+
+    const soleParameter = expectedNullary ? right.parameters[0] : left.parameters[0];
+    if (this.#solvesToUnit(soleParameter)) {
+      return "`Unit -> T` takes a unit value, so it is a one-parameter function; " +
+        "for a zero-parameter function write `() -> T`";
+    }
+    return expectedNullary
+      ? "expected a zero-parameter function, but this one takes a parameter; " +
+        "write `() => ...`"
+      : "a zero-parameter function cannot be passed where a one-parameter function " +
+        "is expected; generics do not abstract over arity, so wrap it: `_ => thunk()`";
   }
 
   #prune(type: Mono): Mono {
@@ -2934,7 +2945,7 @@ class Checker {
       if (actualLeft.parameters.length !== actualRight.parameters.length) {
         this.#diagnostics.add({
           severity: "error",
-          message: this.#nullaryUnitConfusion(actualLeft, actualRight) ??
+          message: this.#nullaryArityMessage(actualLeft, actualRight) ??
             `function arity mismatch: ${actualLeft.parameters.length} and ` +
               `${actualRight.parameters.length}`,
           primary: span,

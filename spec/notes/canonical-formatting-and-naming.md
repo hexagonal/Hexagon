@@ -86,8 +86,8 @@ declarations through this list before considering the segment done.
   type is `() -> T`, never `Unit -> T` — the two differ, and only the first is
   zero-parameter. A `Unit`-typed parameter is legitimate when it *arises* from
   instantiating a generic at `Unit`; it is not written by hand. Where a thunk
-  must reach a generic `a -> b` slot, the bridge is an eta-wrap
-  (`ignored => thunk()`).
+  must reach a generic `a -> b` slot, the bridge is the eta-wrap
+  `_ => thunk()`.
   (Functions §5.3)
 
 ## 3. Literals

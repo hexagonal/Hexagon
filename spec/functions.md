@@ -272,7 +272,7 @@ between distinct types.
   ```
   let apply(transform: a -> b, value: a): b = transform(value)
   let five(): Int = 5
-  let result = apply(ignored => five(), ())    -- not `apply(five, ())`
+  let result = apply(_ => five(), ())     -- not `apply(five, ())`
   ```
 
   This seam is narrow — it appears only where a thunk meets a fully generic
@@ -430,9 +430,10 @@ Diagnostics obey the Rewrite Rule (Declarations Preamble §1.1): where a legal s
 | Lambda (hence any `fun` body) **assigns** an outer `var` | Statements §6.2/§9.3 own it — "…cannot be updated inside a lambda; use a `for` loop for mutable iteration, or have the lambda return the updated value and assign it outside" |
 | Call with wrong number of arguments | "`f` expects N arguments, got M" (§5) |
 | Passing a tuple where multiple arguments are expected | arity error (§5); consider a hint suggesting destructuring |
-| `() =>` meets a `Unit -> T` annotation, or `value =>` meets `() -> T` | "`Unit -> T` takes a unit *value*; a zero-parameter function is `() -> T`" + the corrected annotation (§5.3) |
+| `() =>` meets a `Unit -> T` annotation, or a unit-typed parameter meets `() -> T` | "`Unit -> T` takes a unit *value*; a zero-parameter function is `() -> T`" + the corrected annotation (§5.3) |
+| A zero/one arity mismatch where the parameter is not known to be `Unit` | say what is provable without claiming `Unit`: "expected a zero-parameter function, but this one takes a parameter; write `() => ...`", or the eta-wrap row below (§5.3) |
 | `f()` where `f: Unit -> T`, or `f(())` where `f: () -> T` | "`f` takes one unit argument; write `f(())`" / "`f` takes no arguments; write `f()`" (§5.3) |
-| A thunk passed where `a -> b` is expected | ordinary arity error; the fix is the eta-wrap `_ => thunk()` (§5.3), since generics cannot abstract over arity |
+| A thunk passed where `a -> b` is expected | "a zero-parameter function cannot be passed where a one-parameter function is expected; generics do not abstract over arity, so wrap it: `_ => thunk()`" (§5.3) |
 | `((x, y)) => e` written meaning two parameters | Pattern Matching §6.5 owns it — "one parameter destructuring a tuple; remove the outer parentheses for two parameters" |
 | Polymorphic recursion | ordinary unification failure at the recursive call site (§7.4); consider a hint when the failing call is a self/SCC reference |
 | Lambda parameter used at two types | unification failure (§8.5); diagnostic should distinguish this from other type errors if feasible |

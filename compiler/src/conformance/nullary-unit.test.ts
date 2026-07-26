@@ -43,12 +43,14 @@ describe("the two thunk-shaped types", () => {
     expect(messages[0]).toContain("for a zero-parameter function write `() -> T`");
   });
 
-  test("§5.3 an unannotated lambda parameter keeps the general message", () => {
-    // Nothing proves the parameter is `Unit`, so the specialized message would
-    // be an unproven claim.
+  test("§5.3 an unannotated parameter says what is provable without claiming Unit", () => {
+    // Nothing proves the parameter is `Unit` — but the expected type is
+    // concretely zero-parameter, so the fix is still nameable.
     const messages = diagnostics("let thunk: () -> Int = value => 5\n");
-    expect(messages.length).toBeGreaterThan(0);
-    expect(messages.every((m) => !m.includes("zero-parameter function"))).toBe(true);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain("expected a zero-parameter function");
+    expect(messages[0]).toContain("write `() => ...`");
+    expect(messages[0]).not.toContain("Unit");
   });
 
   test("§5.3 calling a `Unit -> T` with no arguments names the fix", () => {
@@ -61,19 +63,31 @@ describe("the two thunk-shaped types", () => {
     expect(messages.some((m) => m.includes("takes no arguments; write `f()`"))).toBe(true);
   });
 
-  test("§5.3 an unsolved parameter keeps the general message", () => {
+  test("§5.3 a thunk in a generic slot is taught the eta-wrap, without claiming Unit", () => {
     // The generic slot's parameter is a variable, not `Unit`: claiming `Unit`
-    // here would be unproven. The honest fix is the eta-wrap.
+    // would be unproven. The zero-parameter side is concrete either way, so the
+    // message still carries the fix.
     const messages = diagnostics(
       "let apply(transform: a -> b, value: a): b = transform(value)\n" +
         "let five(): Int = 5\n" +
         "let v: Int = apply(five, ())\n",
     );
-    expect(messages.length).toBeGreaterThan(0);
-    expect(messages.every((m) => !m.includes("zero-parameter function"))).toBe(true);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain("generics do not abstract over arity");
+    expect(messages[0]).toContain("_ => thunk()");
+    expect(messages[0]).not.toContain("Unit");
+  });
+
+  test("§5.3 a wider arity mismatch keeps the general message", () => {
+    const messages = diagnostics("let f: (Int, Int) -> Int = value => value\n");
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain("arity mismatch");
   });
 
   test("§5.3 the eta-wrap bridges a thunk into a generic slot", () => {
+    // Spelt with a named parameter because the parser does not yet accept
+    // wildcard parameters (#79); §5.3 and S10 write the specified `_ => ...`,
+    // and this test should follow once #79 lands.
     expect(
       diagnostics(
         "let apply(transform: a -> b, value: a): b = transform(value)\n" +
