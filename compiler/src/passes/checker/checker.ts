@@ -50,6 +50,13 @@ interface Variable {
   readonly id: number;
   readonly rigidName?: string;
   readonly declaredConstraints?: readonly Typed.ConstraintName[];
+  /**
+   * Set on the stand-in for a module-level `let`/`var` that a function captures
+   * before the binding itself is checked. It denotes one binding's single type,
+   * so it must neither be quantified by a sibling's generalization (kept out by
+   * its level) nor absorbed by a declared type variable (rejected in `#bind`).
+   */
+  placeholder?: boolean;
   level: number;
   instance?: Mono;
   literalOnly: boolean;
@@ -677,9 +684,53 @@ class Checker {
     for (const references of funReferences.values()) {
       for (const symbol of references) capturedSequential.add(symbol);
     }
+
+    // ...except when the `let`'s value is a syntactic value, which generalizes
+    // (Functions §8, the value restriction). Being captured must not cost it that:
+    // a monomorphic placeholder fuses every caller's use into one type, so a
+    // generic `let helper` called from two functions at two element types — or
+    // from one function under a declared type variable — collapses. Such bindings
+    // join the dependency-ordered pass below instead, generalized before the
+    // bodies that use them. Non-value bindings and every `var` keep the
+    // placeholder: for them monomorphism is the correct answer, not a limitation.
+    const letBySymbol = new Map(
+      items.flatMap((item) => (item.kind === "Let" ? [[item.binding.symbol, item] as const] : [])),
+    );
+    const promotedLets = new Map<Resolved.SymbolId, Resolved.LetItem>();
+    for (let growing = true; growing;) {
+      growing = false;
+      for (const [symbol, item] of letBySymbol) {
+        if (promotedLets.has(symbol)) continue;
+        if (!capturedSequential.has(symbol) || !this.#isValue(item.value)) continue;
+        promotedLets.set(symbol, item);
+        // Whatever the promoted binding itself references is now needed before the
+        // graph runs, so it must be placeheld (or promoted) in turn.
+        for (const referenced of referencedSymbols(item.value)) {
+          if (!capturedSequential.has(referenced)) {
+            capturedSequential.add(referenced);
+            growing = true;
+          }
+        }
+      }
+    }
+
     for (const item of items) {
-      if ((item.kind === "Let" || item.kind === "Var") && capturedSequential.has(item.binding.symbol)) {
-        const placeholder = this.#fresh(level + 1, false);
+      if (
+        (item.kind === "Let" || item.kind === "Var") &&
+        capturedSequential.has(item.binding.symbol) &&
+        !promotedLets.has(item.binding.symbol)
+      ) {
+        // At `level`, not `level + 1`. A placeholder stands for one binding
+        // holding one value of one type, and `#generalize` quantifies exactly the
+        // variables above the level it generalizes at — so a placeholder one level
+        // deeper would be quantified into any sibling's scheme that mentions it.
+        // Each consumer would then instantiate a fresh copy and the single runtime
+        // value would be handed out at two types, with two evidence dictionaries at
+        // constrained types. A placeholder sits *at* the generalization boundary,
+        // so nothing quantifies it and the value restriction survives being read
+        // through an intermediary.
+        const placeholder = this.#fresh(level, false);
+        placeholder.placeholder = true;
         sequentialPlaceholders.set(item.binding.symbol, placeholder);
         this.#schemes.set(item.binding.symbol, { variables: [], type: placeholder });
       }
@@ -692,12 +743,24 @@ class Checker {
     // instantiated fresh per use (let-polymorphism); only genuine mutual recursion
     // shares a monomorphic component, whose members' provisional monotypes are
     // installed together before any of their bodies is checked.
-    const sourceIndex = new Map(funItems.map((item, index) => [item.binding.symbol, index]));
+    // The graph carries promoted `let`s alongside the `fun`s, so a generic helper
+    // is generalized before whatever uses it regardless of which keyword declared it.
+    const graphItems: readonly (Resolved.FunItem | Resolved.LetItem)[] = items.flatMap((item) =>
+      item.kind === "Fun" || (item.kind === "Let" && promotedLets.has(item.binding.symbol))
+        ? [item as Resolved.FunItem | Resolved.LetItem]
+        : []
+    );
+    const graphBySymbol = new Map(graphItems.map((item) => [item.binding.symbol, item]));
+    const graphSymbols = new Set(graphBySymbol.keys());
+    const graphReferences = new Map(
+      graphItems.map((item) => [item.binding.symbol, referencedSymbols(item.value)]),
+    );
+    const sourceIndex = new Map(graphItems.map((item, index) => [item.binding.symbol, index]));
     const bySource = (a: Resolved.SymbolId, b: Resolved.SymbolId): number =>
       sourceIndex.get(a)! - sourceIndex.get(b)!;
     const components = stronglyConnectedComponents(
-      funItems.map((item) => item.binding.symbol),
-      (symbol) => [...(funReferences.get(symbol) ?? [])].filter((referenced) => funSymbols.has(referenced)),
+      graphItems.map((item) => item.binding.symbol),
+      (symbol) => [...(graphReferences.get(symbol) ?? [])].filter((referenced) => graphSymbols.has(referenced)),
     );
     for (const component of components) {
       const ordered = [...component].sort(bySource);
@@ -707,12 +770,27 @@ class Checker {
         this.#schemes.set(symbol, { variables: [], type: recursiveType });
       }
       for (const symbol of ordered) {
-        const item = funBySymbol.get(symbol)!;
-        const valueType = this.#inferExpr(item.value, level + 1);
+        const item = graphBySymbol.get(symbol)!;
+        let valueType = this.#inferExpr(item.value, level + 1);
+        if (item.kind === "Let" && item.annotation !== undefined) {
+          const annotationType = this.#annotationType(
+            item.annotation, level + 1, new Map(), this.#annotationVariableScope ?? new Map(),
+          );
+          this.#unifyExpected(annotationType, valueType, item.value, item.annotation.span, true);
+          if (this.#hasNumericWidening(item.value)) valueType = annotationType;
+        }
         this.#unify(recursiveTypes.get(symbol)!, valueType, item.span);
       }
       for (const symbol of ordered) {
-        this.#schemes.set(symbol, this.#generalize(recursiveTypes.get(symbol)!, level, true));
+        const item = graphBySymbol.get(symbol)!;
+        this.#schemes.set(
+          symbol,
+          this.#generalize(
+            recursiveTypes.get(symbol)!,
+            level,
+            item.kind === "Fun" ? true : this.#isValue(item.value),
+          ),
+        );
       }
     }
 
@@ -721,6 +799,8 @@ class Checker {
       if (item === undefined) continue;
 
       if (item.kind === "Let") {
+        // Promoted bindings were inferred and generalized with the graph above.
+        if (promotedLets.has(item.binding.symbol)) continue;
         const inferredValueType = this.#inferExpr(item.value, level + 1);
         let valueType = inferredValueType;
         if (item.annotation !== undefined) {
@@ -2640,6 +2720,15 @@ class Checker {
       return this.#isIrrefutablePattern(pattern.pattern, expected);
     }
     const actual = this.#prune(expected);
+    // Constructor slots are typed by the *declaration*, so a slot declared with
+    // the union's own parameter (`Some(value: a)`) arrives here as a bare
+    // variable, carrying no structure to compare a `Tuple`/`Record`/`Vector`
+    // pattern against. Decide those structurally instead of defaulting to
+    // refutable: the pattern has already been checked against the real scrutinee
+    // type by `#inferMatchPattern`, so if it typechecks at all, the slot has the
+    // shape the pattern destructures, and irrefutability turns only on whether
+    // every component pattern is itself irrefutable.
+    if (actual.kind === "Variable") return isStructurallyIrrefutablePattern(pattern);
     if (pattern.kind === "Or") {
       if (pattern.alternatives.some((alternative) =>
         this.#isIrrefutablePattern(alternative, actual)
@@ -3095,6 +3184,23 @@ class Checker {
     return { kind: "Record", fields };
   }
 
+  /**
+   * A declared type variable tried to stand for a captured module-level binding
+   * whose type the value restriction pinned. Leads with the canonical repair
+   * (Rewrite Rule), then the inference-revealing alternative.
+   */
+  #placeholderEscape(rigidName: string, span: Source.Span): void {
+    this.#diagnostics.add({
+      severity: "error",
+      message:
+        `\`${rigidName}\` is a declared type variable, but the body requires the single ` +
+        "type of a module-level binding that is not generalized; name that concrete type " +
+        `instead of \`${rigidName}\`, or make the binding generalizable by defining it as a ` +
+        "function",
+      primary: span,
+    });
+  }
+
   #recordMismatch(fields: readonly string[], span: Source.Span): void {
     this.#diagnostics.add({
       severity: "error",
@@ -3104,8 +3210,31 @@ class Checker {
   }
 
   #bind(variable: Variable, type: Mono, span: Source.Span): void {
+    // The placeholder may also be the one being bound, to a type that *mentions*
+    // a declared variable (`fun reuse(): Vector(a) = shared`). Binding it would
+    // let `a` be quantified while standing for the pinned binding's element type,
+    // which is the same escape seen from the other direction below.
+    if (variable.placeholder === true) {
+      const declared = this.#collectVariables(type).find(
+        (candidate) => candidate.rigidName !== undefined,
+      );
+      if (declared !== undefined) {
+        this.#placeholderEscape(declared.rigidName!, span);
+        variable.instance = ERROR;
+        return;
+      }
+    }
     if (variable.rigidName !== undefined) {
       if (type.kind === "Variable" && type.rigidName === undefined) {
+        // A placeholder is one binding's single type, so a declared type variable
+        // cannot stand for it: absorbing it would let the annotation generalize
+        // over a value the value restriction pinned, and each caller would receive
+        // a fresh instantiation of one runtime value.
+        if (type.placeholder === true) {
+          this.#placeholderEscape(variable.rigidName, span);
+          variable.instance = ERROR;
+          return;
+        }
         this.#bind(type, variable, span);
         return;
       }

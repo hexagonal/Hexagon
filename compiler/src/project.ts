@@ -184,12 +184,22 @@ export function compileProject(files: readonly Source.File[]): CompiledProject {
   // the lexing, layout, parsing, resolution, and checking stages; emission adds
   // its own. Without this a module that fails to compile reports success and
   // its broken JavaScript is handed back silently.
+  // Each emission stage seeds its own bag with the diagnostics it was handed, so
+  // `javascript` and `declarations` both re-carry everything `typed` produced and
+  // a naive fold reports each one three times. The stages share diagnostic
+  // *identity*, so a seen-set collapses the repeats without suppressing genuinely
+  // distinct diagnostics that happen to read alike.
+  const surfaced = new Set<Diagnostics.Diagnostic>();
   for (const path of ordered) {
     const module = compiled.get(path);
     if (module === undefined) continue;
-    for (const diagnostic of module.typed.diagnostics) diagnostics.add(diagnostic);
-    for (const diagnostic of module.javascript.diagnostics) diagnostics.add(diagnostic);
-    for (const diagnostic of module.declarations.diagnostics) diagnostics.add(diagnostic);
+    for (const stage of [module.typed, module.javascript, module.declarations]) {
+      for (const diagnostic of stage.diagnostics) {
+        if (surfaced.has(diagnostic)) continue;
+        surfaced.add(diagnostic);
+        diagnostics.add(diagnostic);
+      }
+    }
   }
 
   // Emit a prelude module only when some consumer imports from it, so a project

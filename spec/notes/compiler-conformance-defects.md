@@ -98,6 +98,41 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   inside recursive bodies. `next` remains the §6.2 protocol for consumers, and
   the non-recursive consumers do call it. When this is fixed, every `(x.pull)()`
   in `SeqCore.hex` should become `next(x)`.
+- **CORRECTION (2026-07-26, on fixing — this entry's diagnosis above was wrong).**
+  The heading and "Defect origin" are preserved as written for the record, but
+  **both halves of that characterisation are false**, and the minimal
+  reproduction survives only by accident. Discriminating cases:
+  - Making the caller **non-recursive** does *not* remove the error
+    (`export fun once(value: a): a = ident(value)` fails identically), so
+    recursion was never the trigger.
+  - Removing the **annotations** does not remove it either: an unannotated
+    `let ident(value) = value` used at two types inside one `fun` fails just as
+    hard. So it is not about rigid variables; that diagnostic was the loudest
+    *symptom*, not the fault.
+  - Declaring the callee `fun` instead of `let` makes every case pass.
+
+  **Actual defect origin:** `#inferItems` installed **every `let` captured by a
+  function as a monomorphic placeholder** before checking any function body. That
+  discards the binding's generalization, fusing all of its uses into one type.
+  The `let`/`fun` asymmetry is the whole fault: `fun` items were already checked
+  in dependency order and generalized per component (issue #66), while captured
+  `let`s were pinned regardless of whether their value was a syntactic value.
+- **Authority (restated):** Functions §8 and the value restriction — a `let`
+  whose RHS is a syntactic value generalizes. `#isValue` already implemented
+  this; the captured-`let` path simply ran too late to use it. The 2026-07-24
+  rigid-type-variable rule is **not** implicated and is unchanged.
+- **Correction applied:** promoted `let`s — captured, and a syntactic value —
+  join the dependency-ordered component pass alongside `fun`s, so they are
+  generalized before the bodies that use them. Non-value bindings and every
+  `var` keep the monomorphic placeholder, which for them is correct.
+- **Executable conformance:** `compiler/src/conformance/generalized-captured-lets.test.ts`
+  — the reproduction; the non-recursive and unannotated discriminators; two
+  functions sharing one helper at different types; promoted-to-promoted and
+  promoted-to-`fun` dependency edges; the function-body (block) path; a runtime
+  execution check; and three guards that what must stay monomorphic still does,
+  including a non-value `let` that must still be rejected at a second type.
+  Verified end-to-end: `SeqCore.hex` with **every** `(x.pull)()` reverted to
+  `next(x)` now compiles clean.
 
 ### 2. A tuple pattern inside a constructor pattern is not seen as covering
 
@@ -125,6 +160,37 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
 - **Impact on the `Seq` core:** every `match` on the `Option((a, Seq(a)))`
   protocol. The workaround is to bind the payload whole and destructure on the
   next line with `let (value, rest) = pulled`.
+- **Root cause (2026-07-26, on fixing).** The diagnosis above was right; this is
+  the mechanism. Exhaustiveness asks `#isIrrefutablePattern(argument, slotType)`
+  where `slotType` comes from the constructor's *declaration* — for
+  `Some(value: a)` that is the union's own parameter `a`, which arrives as a bare
+  type variable carrying no structure. The `Tuple` branch accepted a tuple
+  pattern only when the expected type was already known to be a `Tuple`, so
+  against a variable it fell through to "refutable" and the arm never counted as
+  covering. Nothing was wrong with the *pattern* machinery; the slot type simply
+  was not instantiated at that point.
+- **Correction:** when the expected type prunes to a variable,
+  `#isIrrefutablePattern` decides structurally
+  (`isStructurallyIrrefutablePattern`, which already existed and already handled
+  tuples, records, and `[...rest]` correctly). This is sound because
+  `#inferMatchPattern` has separately checked the pattern against the real
+  scrutinee type: if a tuple pattern typechecks there, the slot *is* a tuple, and
+  irrefutability then turns only on whether each component pattern is
+  irrefutable. Uniform across `Tuple`, `Record`, and `Vector` patterns.
+- **Executable conformance:** `compiler/src/conformance/constructor-tuple-patterns.test.ts`
+  — `Option`, `Result`, and a user union carrying tuples; a doubly-nested tuple;
+  a structural record payload; a runtime check that both components bind; plus
+  three guards that exhaustiveness still rejects what it should — a genuinely
+  missing constructor, a *refutable* tuple element (`Some((1, right))` must not
+  count as covering), and the untouched arity diagnostic.
+- **Not covered, and why:** the nominal-record spelling
+  (`Some(Point({ x, y }))`) is not writable at all yet — that is **#83**
+  (paren-free `{a, b}` / `UserId(n)` patterns, pinned by PM §6.5 and
+  unimplemented), independent of this defect. The structural-record test stands
+  in; add the nominal case when #83 lands.
+- **Verified end-to-end with defect 1:** `SeqCore.hex` with *both* Phase-1
+  workarounds reverted — every `(x.pull)()` back to `next(x)` and every
+  payload-then-`let` back to `Some((value, rest))` — compiles clean.
 
 ### 3. `project.diagnostics` reports each diagnostic three times
 
@@ -135,6 +201,16 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
 - **Impact:** the channel is honest — nothing is hidden, which is what the poison
   test guards — but diagnostic counts are meaningless and output is noisy. A
   single ill-typed binding reports 3 errors; a parse failure reports 3 of each.
+- **Root cause and correction (2026-07-26, on fixing).** Each emission stage
+  seeds its own bag with the diagnostics it was handed (`emitter.ts`), so
+  `javascript` and `declarations` both re-carry everything `typed` produced. The
+  stages share diagnostic *identity*, so `compileProject` now folds through a
+  seen-set: repeats collapse, and genuinely distinct diagnostics that happen to
+  read alike are still reported separately. Pinned by a conformance test that one
+  error reports once and two distinct errors report twice.
+- **Poison-test sensitivity re-verified after the change, not assumed:** blinding
+  the aggregation again turns both poison tests red while the sound-module
+  control stays green.
 
 ### 4. Missing `Num` evidence can reach runtime as `undefined`
 
@@ -193,3 +269,55 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   of "the unification"; the checker half is repointing the intrinsic `Seq`
   producers at the prelude declaration. The full sequencing is owned by
   `seq-deintrinsification-plan.md`.
+
+### 7. A sequential placeholder could be generalized over
+
+- **Classification:** compiler defect against specification; no design change.
+  Found by Fable reviewing PR #86; **pre-existing on the `fun` path**, and
+  widened to the captured-`let` path by entry 1's fix before being closed here.
+- **Authority:** Functions §8, the value restriction — a `let` whose RHS is not
+  a syntactic value is pinned to one type — together with the 2026-07-24 rule
+  that a declared type more general than the body supports is an error.
+- **Defect origin:** a module-level `let`/`var` captured by a function is
+  installed as a monomorphic *placeholder* so bodies can refer to it before it is
+  checked. That placeholder denotes one binding holding one value of one type,
+  but it escaped through two doors:
+  1. It was created at `level + 1`, and `#generalize` quantifies exactly the
+     variables above the level it generalizes at — so any sibling generalizing at
+     `level` quantified the placeholder into its own scheme.
+  2. A declared (rigid) type variable could absorb it, directly or by being
+     mentioned in a type the placeholder was bound to.
+
+  Either way each consumer instantiated a fresh copy, so **one runtime value was
+  handed out at two types** — and at constrained types with two different
+  evidence dictionaries, which is a wrong-code channel, not mere permissiveness.
+- **Reproduction:** `shared` is a function *call*, so it cannot generalize; an
+  intermediary laundered that away.
+
+  ```
+  let makeEmpty() = []
+  let shared = makeEmpty()
+  let reuse = () => shared            -- or `fun reuse(): Vector(a) = shared`
+                                      -- or `fun reuse() = shared`
+  export fun useInt(values: Vector(Int)): Bool = reuse() == values
+  export fun useText(values: Vector(String)): Bool = reuse() == values
+  ```
+
+  Direct consumption of `shared` was always correctly rejected; only the
+  intermediary forms leaked.
+- **Correction:** placeholders are created **at `level`**, so they sit at the
+  generalization boundary and nothing quantifies them; and they are marked, so
+  `#bind` rejects any attempt by a declared type variable to stand for one —
+  from either direction, including when the declared variable merely occurs
+  inside the bound type. The diagnostic leads with the canonical repair (name the
+  concrete type) and offers the generalizing alternative (make the binding a
+  function).
+- **Executable conformance:**
+  `compiler/src/conformance/sequential-placeholder-scope.test.ts` — all three
+  intermediary forms rejected, the direct baseline rejected, and three guards
+  that legitimate generalization is untouched (a generic captured `let` helper
+  and a generic `fun` helper each still serve two types; a monomorphic captured
+  binding is still usable repeatedly at its one type).
+- **Credit:** Fable, from a discriminating probe run against both `main` and the
+  branch — the table separating regression from pre-existing hole is what
+  identified the shared mechanism rather than a fix-local slip.
