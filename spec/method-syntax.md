@@ -375,7 +375,7 @@ v.map(x => x * 2).take(2).at(1)    -- OK : Int  (each goal's receiver head-known
 
 -- (c) Tier-0 preservation: unknown receiver is a field call, exactly as today
 fun f(r) = r.callback(3)           -- OK : {callback: Int -> a, ...} -> a
-f({callback: n => n + 1})          -- OK : Int
+f({callback = n => n + 1})          -- OK : Int
 
 -- (d) Same-region evidence counts, regardless of textual position (§3.1)
 fun g(v) =
@@ -404,7 +404,7 @@ let k(x) = x.at(3)                 -- OK, row-polymorphic (never infers Vector)
 -- (h) Collision, use-site, both fixits
 -- box.hex: export record Box = {size: Int}
 --          export fun size(b: Box): Int = b.size * 2
-let b = Box({size: 3})
+let b = Box({size = 3})
 b.size                             -- OK : Int      (bare dot = field, always)
 (b.size)                           -- OK : Int
 b.size()                           -- ERROR (row 1): ambiguous — field `size` /

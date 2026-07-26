@@ -116,7 +116,7 @@ The classification is **per-binder, not per-form**: `let f(x) = x + 1` binds `f`
 
 ### 5.1 The rules
 
-1. **A sequential binder may not reuse any name in scope** — whether the existing binding is itself sequential or a head binder, at any nesting depth, anywhere within the current function or its enclosing functions' local scopes. This applies to every name a `let` LHS pattern binds, punned record fields included: `let x = 10` followed by `let (x, y) = getPair()` is an error, as is `let name = currentUser()` followed by `let {name, total} = order`. Hard error at the second binding, naming the first: "`x` is already bound (line N); Hexagon does not allow rebinding — choose a different name." When the second binding is a destructuring pattern, the fixit is pattern-aware: discard with `_`, or rename the field — `{name: orderName}` (§9.3).
+1. **A sequential binder may not reuse any name in scope** — whether the existing binding is itself sequential or a head binder, at any nesting depth, anywhere within the current function or its enclosing functions' local scopes. This applies to every name a `let` LHS pattern binds, punned record fields included: `let x = 10` followed by `let (x, y) = getPair()` is an error, as is `let name = currentUser()` followed by `let {name, total} = order`. Hard error at the second binding, naming the first: "`x` is already bound (line N); Hexagon does not allow rebinding — choose a different name." When the second binding is a destructuring pattern, the fixit is pattern-aware: discard with `_`, or rename the field — `{name = orderName}` (§9.3).
 2. **A head binder may shadow anything**: a sequential binder (`let x = 1; xs |> map(x => ...)` — the motivating EF-query case), another head binder (nested lambdas both binding `x`), a `var`, a prelude name. The shadow fully eclipses the outer name for the binder's region; there is no way to reach the eclipsed name inside it.
 3. Same-block duplicate names are the degenerate case of rule 1 (`let x = 1; let x = 2` — error) and of the existing duplicate-binder rules for patterns (`Rect(w, w)` — error, Unions §4.2; those are *simultaneous* binders, not shadowing, and stay errors).
 
@@ -201,7 +201,7 @@ best := candidate
 ```
 
 - **`name := expr` is an expression of type `Unit`.** The RHS unifies with the `var`'s monotype — "cannot change type" is a *consequence* of unification against the binding's monotype, not a separate rule, and its failure is an ordinary type error phrased against the `var`: "`count` has type `Int`; cannot assign a `String`."
-- **Target grammar: a bare name, only.** Everything else is rejected with a targeted diagnostic (checklist §9.3): `p.x := e` (records are immutable — suggest `{...p, x: e}`), `t.item1 := e` (tuples are immutable), `f(x) := e` (parse error: assign to a name).
+- **Target grammar: a bare name, only.** Everything else is rejected with a targeted diagnostic (checklist §9.3): `p.x := e` (records are immutable — suggest `{...p, x = e}`), `t.item1 := e` (tuples are immutable), `f(x) := e` (parse error: assign to a name).
 - **Target must be `var`-bound.** `:=` to a `let`-bound name: "`y` was bound with `let`; declare it with `var` if you need to update it." To a head binder (parameter, pattern binder): "`x` is a parameter and cannot be assigned; declare a `var`." To an undeclared name: ordinary unbound-name error — **no** implicit declaration, ever (the JS `x = 5`-creates-a-global disease does not exist here, and the diagnostic should not suggest it).
 - Targets resolve uniquely by construction (§5.2). Assignment before the `var`'s declaration line is impossible for the same reason any use is: the name is not yet in scope (blocks are sequential; the pending-binder machinery already covers the RHS case).
 - `:=` respects the lambda boundary (§6.2): assignment from inside a nested lambda is the boundary error, reported as such (not as an unbound name).
@@ -314,7 +314,7 @@ let (x, y) = getPair()               -- ERROR: x is already bound (destructure w
                                      -- or fresh names)
 let name = currentUser()
 let {name, total} = order            -- ERROR: name is already bound; rename the
-                                     -- field: {name: orderName}
+                                     -- field: {name = orderName}
 match order
     {name, total} => use(name, total)  -- fine: match-arm binder is a head binder;
                                      -- same pattern, different position, different class
@@ -338,7 +338,7 @@ fun h() =
 5. **Pattern Matching** — companions line "head-binder status of *all* pattern binders" → "binder class is determined by position (Statements §5), not by pattern-ness." §6.3 (`let` patterns) gains: "names bound here are **sequential binders** (Statements §5.4) — they may not reuse any name in scope; the arm/lambda positions bind head binders as before." §14.4's discharge note re-worded: the no-third-class flag *is* discharged, but via the positional rule, not via blanket head-binder status. Decisions-log row "All pattern binders are head binders" → "Binder class is positional; `let`-pattern binders sequential (Statements §5.4)."
 6. **Products §2.4** — the destructuring binders' classification: strike any head-binder reference; cross-reference Statements §5/§5.4.
 7. **Modules §10** diagnostics table — new near-miss row: uppercase-start name in a binder-pattern position resolving to no constructor but matching an in-scope module alias → "`Json` is a module alias; binders are non-uppercase-start — did you mean `json`?" (resolution-time hint, same family as "`Shape` is a type, not a module," Modules §5.1).
-8. **hexagon-for-typescript-coders** — note for the destructuring chapter: TS muscle memory allows `const { name } = user` to shadow inside a braced block; Hexagon's `let {name} = user` is a rebinding error when `name` is in scope — rename with `{name: n}` or destructure in a `match`/lambda head where shadowing is legal.
+8. **hexagon-for-typescript-coders** — note for the destructuring chapter: TS muscle memory allows `const { name } = user` to shadow inside a braced block; Hexagon's `let {name} = user` is a rebinding error when `name` is in scope — rename with `{name = n}` or destructure in a `match`/lambda head where shadowing is legal.
 
 ### 9.3 Diagnostics checklist
 
@@ -349,13 +349,13 @@ fun h() =
 | `var` outside a function body | "`var` is only allowed inside a function; move mutable work into a function, or use `let` if the value does not change" (§6.1) |
 | `var (a, b) = t` | parse error: "`var` binds a single name; destructure with `let` and copy" (§6.1) |
 | `var` name reuses a name in scope / any sequential rebinding | "`x` is already bound (line N); Hexagon does not allow rebinding — choose a different name" (§5.1) |
-| `let`-pattern binds a name already in scope (incl. punned fields) | same "already bound" error, pattern-aware fixits: "discard it with `_`", "rename the field: `{name: orderName}`"; for the state-threading shape, suggest fresh names or a `for`/fold (§5.1, §5.4) |
+| `let`-pattern binds a name already in scope (incl. punned fields) | same "already bound" error, pattern-aware fixits: "discard it with `_`", "rename the field: `{name = orderName}`"; for the state-threading shape, suggest fresh names or a `for`/fold (§5.1, §5.4) |
 | Lambda reads an outer `var` | "`shift` is a `var` and cannot be used inside a lambda; copy it to a `let` first" (§6.2) |
 | Lambda assigns an outer `var` | "`total` is a `var` and cannot be updated inside a lambda; use a `for` loop for mutable iteration, or have the lambda return the updated value and assign it outside" (§6.2) |
 | `:=` to a `let`-bound name | "`y` was bound with `let`; declare it with `var` if you need to update it" (§6.3) |
 | `:=` to a parameter / pattern binder | "`x` is a parameter and cannot be assigned; declare a `var`" (§6.3) |
 | `:=` to an undeclared name | ordinary unbound-name error; never suggest implicit declaration (§6.3) |
-| `p.x := e` on a record | "records are immutable; build an updated copy: `{...p, x: e}`" (§6.3) |
+| `p.x := e` on a record | "records are immutable; build an updated copy: `{...p, x = e}`" (§6.3) |
 | `t.itemN := e` on a tuple | "tuples are immutable; construct a new tuple with the changed slot" (§6.3) |
 | Non-name `:=` target | parse error: "`:=` assigns to a `var` name" (§6.3) |
 | Assignment type mismatch | "`count` has type `Int`; cannot assign a `String`" — phrased against the `var`, not as generic unification (§6.3) |

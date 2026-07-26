@@ -265,7 +265,7 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
         "constraint Mappable<c> =\n" +
         "    map(value: c, transform: Int -> Int): c\n" +
         "record Holder = { map: Int -> Int }\n" +
-        "let holder = Holder({ map: value => value * 2 })\n" +
+        "let holder = Holder({ map = value => value * 2 })\n" +
         "export let out: Int = holder.map(3)\n"],
     ]);
     expect(module["out"]).toBe(6);

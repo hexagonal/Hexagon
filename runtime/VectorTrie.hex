@@ -46,11 +46,11 @@ let radix: Int = 32
 
 fun empty<a>(): TrieVector(a) =
     TrieVector({
-        origin: 0,
-        capacity: 0,
-        height: 1,
-        root: Leaf(Node.empty()),
-        tail: Node.empty(),
+        origin = 0,
+        capacity = 0,
+        height = 1,
+        root = Leaf(Node.empty()),
+        tail = Node.empty(),
     })
 
 fun size<a>(trie: TrieVector(a)): Int = trie.capacity - trie.origin
@@ -152,22 +152,22 @@ fun append<a>(trie: TrieVector(a), value: a): TrieVector(a) =
     let tailLen = cap - off
     if tailLen < radix then
         TrieVector({
-            origin: trie.origin,
-            capacity: cap + 1,
-            height: trie.height,
-            root: trie.root,
-            tail: Node.set(trie.tail, tailLen, value),
+            origin = trie.origin,
+            capacity = cap + 1,
+            height = trie.height,
+            root = trie.root,
+            tail = Node.set(trie.tail, tailLen, value),
         })
     else
         // Tail is full: flush it as one leaf at internal index `off`, then start a
         // fresh tail holding the new value.
         let (newRoot, newHeight) = flushLeaf(trie.root, trie.height, off, Leaf(trie.tail))
         TrieVector({
-            origin: trie.origin,
-            capacity: cap + 1,
-            height: newHeight,
-            root: newRoot,
-            tail: Node.set(Node.empty(), 0, value),
+            origin = trie.origin,
+            capacity = cap + 1,
+            height = newHeight,
+            root = newRoot,
+            tail = Node.set(Node.empty(), 0, value),
         })
 
 // A fresh, empty subtree of the given height, ready to be filled: a `Leaf` at
@@ -205,11 +205,11 @@ fun prepend<a>(trie: TrieVector(a), value: a): TrieVector(a) =
         // (the favoured end) as a singleton — growing a tree here would leave
         // `tailOffset(capacity)` at 0 and mask the write.
         TrieVector({
-            origin: 0,
-            capacity: 1,
-            height: 1,
-            root: Leaf(Node.empty()),
-            tail: Node.set(Node.empty(), 0, value),
+            origin = 0,
+            capacity = 1,
+            height = 1,
+            root = Leaf(Node.empty()),
+            tail = Node.set(Node.empty(), 0, value),
         })
     else if trie.origin > 0 then
         // Headroom remains below the live range: write at internal `origin - 1`.
@@ -219,19 +219,19 @@ fun prepend<a>(trie: TrieVector(a), value: a): TrieVector(a) =
         let off = tailOffset(trie.capacity)
         if newOrigin >= off then
             TrieVector({
-                origin: newOrigin,
-                capacity: trie.capacity,
-                height: trie.height,
-                root: trie.root,
-                tail: Node.set(trie.tail, newOrigin - off, value),
+                origin = newOrigin,
+                capacity = trie.capacity,
+                height = trie.height,
+                root = trie.root,
+                tail = Node.set(trie.tail, newOrigin - off, value),
             })
         else
             TrieVector({
-                origin: newOrigin,
-                capacity: trie.capacity,
-                height: trie.height,
-                root: writeValue(trie.root, trie.height, newOrigin, value),
-                tail: trie.tail,
+                origin = newOrigin,
+                capacity = trie.capacity,
+                height = trie.height,
+                root = writeValue(trie.root, trie.height, newOrigin, value),
+                tail = trie.tail,
             })
     else
         // No headroom (origin == 0, non-empty): grow a level at the left. The old
@@ -246,11 +246,11 @@ fun prepend<a>(trie: TrieVector(a), value: a): TrieVector(a) =
         let newHeight = trie.height + 1
         let newOrigin = span - 1
         TrieVector({
-            origin: newOrigin,
-            capacity: trie.capacity + span,
-            height: newHeight,
-            root: writeValue(grown, newHeight, newOrigin, value),
-            tail: trie.tail,
+            origin = newOrigin,
+            capacity = trie.capacity + span,
+            height = newHeight,
+            root = writeValue(grown, newHeight, newOrigin, value),
+            tail = trie.tail,
         })
 
 // Replaces the element at internal `index` (a populated position) in a copy of
@@ -273,19 +273,19 @@ fun set<a>(trie: TrieVector(a), index: Int, value: a): TrieVector(a) =
     let off = tailOffset(trie.capacity)
     if internal >= off then
         TrieVector({
-            origin: trie.origin,
-            capacity: trie.capacity,
-            height: trie.height,
-            root: trie.root,
-            tail: Node.set(trie.tail, internal - off, value),
+            origin = trie.origin,
+            capacity = trie.capacity,
+            height = trie.height,
+            root = trie.root,
+            tail = Node.set(trie.tail, internal - off, value),
         })
     else
         TrieVector({
-            origin: trie.origin,
-            capacity: trie.capacity,
-            height: trie.height,
-            root: updateAt(trie.root, trie.height, internal, value),
-            tail: trie.tail,
+            origin = trie.origin,
+            capacity = trie.capacity,
+            height = trie.height,
+            root = updateAt(trie.root, trie.height, internal, value),
+            tail = trie.tail,
         })
 
 // Returns the sub-vector over 0-based half-open logical window `[begin, end)`
@@ -306,11 +306,11 @@ fun slice<a>(trie: TrieVector(a), begin: Int, end: Int): TrieVector(a) =
             // The new tail is a prefix of the current one: reuse both fields as-is
             // (any tail slots past the new capacity are simply never addressed).
             TrieVector({
-                origin: newOrigin,
-                capacity: newCapacity,
-                height: trie.height,
-                root: trie.root,
-                tail: trie.tail,
+                origin = newOrigin,
+                capacity = newCapacity,
+                height = trie.height,
+                root = trie.root,
+                tail = trie.tail,
             })
         else
             // Rebuild the tail from internal `[liveStart, newCapacity)`. When the
@@ -321,9 +321,9 @@ fun slice<a>(trie: TrieVector(a), begin: Int, end: Int): TrieVector(a) =
             for internal in liveStart..(newCapacity - 1)
                 newTail := Node.set(newTail, internal - newOff, readInternal(trie, internal))
             TrieVector({
-                origin: newOrigin,
-                capacity: newCapacity,
-                height: trie.height,
-                root: trie.root,
-                tail: newTail,
+                origin = newOrigin,
+                capacity = newCapacity,
+                height = trie.height,
+                root = trie.root,
+                tail = newTail,
             })

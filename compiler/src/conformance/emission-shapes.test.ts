@@ -41,7 +41,7 @@ describe("concise arrow bodies", () => {
     // block.
     const m = await run(
       "record Box = { value: Int }\n" +
-        "let wrapper: Int -> Box = value => Box({ value: value })\n" +
+        "let wrapper: Int -> Box = value => Box({ value = value })\n" +
         "export let out: Int = (wrapper(7)).value\n",
     );
     expect(m.out).toBe(7);
@@ -51,7 +51,7 @@ describe("concise arrow bodies", () => {
     const m = await run(
       "record Box = { value: Int }\n" +
         "let apply(transform: Int -> Box, value: Int): Box = transform(value)\n" +
-        "export let out: Int = (apply(value => Box({ value: value }), 9)).value\n",
+        "export let out: Int = (apply(value => Box({ value = value }), 9)).value\n",
     );
     expect(m.out).toBe(9);
   });

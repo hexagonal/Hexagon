@@ -99,7 +99,7 @@ describe("the step-7 reverts are in the source, not merely intended", () => {
 
   test("the `emptyCore` split is gone from the source", () => {
     expect(seqSource).not.toContain("emptyCore");
-    expect(seqSource).toContain("export let empty: Seq(a) = Seq({ pull: () => None })");
+    expect(seqSource).toContain("export let empty: Seq(a) = Seq({ pull = () => None })");
   });
 
   test("the declaration is the opaque record Loops §6.6 specifies", () => {

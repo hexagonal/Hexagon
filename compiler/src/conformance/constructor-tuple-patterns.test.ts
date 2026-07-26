@@ -119,7 +119,7 @@ describe("a tuple pattern beneath a constructor covers its case", () => {
       "union Holder =\n" +
       "    | Nothing\n" +
       "    | Held(point: { x: Int, y: Int })\n" +
-      "let held: Holder = Held({ x: 1, y: 2 })\n" +
+      "let held: Holder = Held({ x = 1, y = 2 })\n" +
       "export let total: Int = match held\n" +
       "    Nothing => 0\n" +
       "    Held({ x, y }) => x + y\n",

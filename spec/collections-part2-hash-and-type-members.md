@@ -347,7 +347,7 @@ The v2 implied-types remainder is also routed here: deferred `Item(α)` goals, t
 ```
 -- (1) Derives Hash; usable as a key-shaped value
 record Point = {x: Float, y: Float} derives (Eq, Hash)
-let h = hash(Point {x: 1.0, y: 2.0})            -- OK : Int
+let h = hash(Point({x = 1.0, y = 2.0}))            -- OK : Int
 
 -- (2) Law-relevant Float normalisation
 hash(-0.0) == hash(0.0)                          -- true

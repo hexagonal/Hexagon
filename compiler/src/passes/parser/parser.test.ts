@@ -819,6 +819,82 @@ describe("parse", () => {
       { numRuns: 250 },
     );
   });
+
+  // Products §3.1/§6/§8, Pattern Matching §2.4/§12/§16: term-position record fields
+  // bind with `=`; `:` stays the type-position separator.
+  describe("term-position record fields bind with `=`", () => {
+    test("literals, update spreads, and patterns take `=`, and types keep `:`", () => {
+      const module = parseSource(
+        "record Point = {x: Float, y: Float}\n" +
+          "let p = {x = 1.0, y = 2.0}\n" +
+          "let q = {...p, x = 3.0}\n" +
+          "fun getX(r: {x: Float, ...}): Float = r.x\n" +
+          "let {x = first} = p\n",
+      );
+
+      expect(module.diagnostics).toEqual([]);
+    });
+
+    test("punning still needs no separator in either position", () => {
+      const module = parseSource("let x = 1\nlet r = {x}\nlet {x} = r\n");
+
+      expect(module.diagnostics).toEqual([]);
+    });
+
+    test("`:` in a literal is a parse error naming the `=` fixit", () => {
+      const module = parseSource("let p = {x: 1}");
+
+      expect(module.diagnostics).toMatchObject([
+        { severity: "error", message: "record fields bind with `=`: `{x = …}`; `:` gives a field its type in record types" },
+      ]);
+    });
+
+    test("`:` in a pattern reports once and still parses the sub-pattern", () => {
+      const module = parseSource("let {name: n} = user");
+
+      expect(module.diagnostics).toHaveLength(1);
+      expect(module.diagnostics[0]?.message).toContain("record fields bind with `=`");
+    });
+
+    test("an uppercase-start value in a pattern adds the annotate-outside hint (F4)", () => {
+      const module = parseSource("let {x: Float} = p");
+
+      expect(module.diagnostics[0]?.message).toContain(
+        "if you meant a type, patterns destructure values — annotate outside the pattern",
+      );
+    });
+
+    test("the annotate-outside hint is pattern-only, not offered for literals", () => {
+      const module = parseSource("let p = {x: Float}");
+
+      expect(module.diagnostics[0]?.message).not.toContain("annotate outside the pattern");
+    });
+
+    test("`:=` in a literal gets its own fixit", () => {
+      const module = parseSource("let p = {x := 1}");
+
+      expect(module.diagnostics).toMatchObject([
+        { severity: "error", message: "did you mean `=`? `:=` assigns to a `var`" },
+      ]);
+    });
+
+    test("`=>` in a literal gets the hash-rocket fixit", () => {
+      const module = parseSource("let p = {x => 1}");
+
+      expect(module.diagnostics).toMatchObject([
+        {
+          severity: "error",
+          message: "did you mean `=`? `=>` is the lambda arrow — a lambda-valued field is `{x = arg => …}`",
+        },
+      ]);
+    });
+
+    test("a near-miss separator yields exactly one diagnostic per field", () => {
+      const module = parseSource("let p = {x: 1, y: 2, z: 3}");
+
+      expect(module.diagnostics).toHaveLength(3);
+    });
+  });
 });
 
 function parseSource(text: string): Parsed.Module {
