@@ -2,11 +2,19 @@
 //
 // This is a runtime-internal module, the same shape `VectorTrie.hex` takes over
 // the `Node` intrinsic: `SeqCore(a)` is the representation, `Seq(a)` is the
-// public face, and the emitter wires one to the other at a later milestone. The
-// core cannot be *named* `Seq` today — `Seq` is an intrinsic type constructor the
-// resolver claims ahead of any user record, so a `record Seq(a)` declaration
-// compiles while every `Seq(a)` annotation still resolves to the intrinsic, and
-// the two never unify.
+// public face, and the emitter wires one to the other at a later milestone.
+//
+// The core is still *named* `SeqCore` rather than `Seq`, but no longer because
+// the name is unavailable: the resolution-order defect that made it so — every
+// `Seq(a)` annotation reaching the intrinsic while a `record Seq(a)` declared
+// successfully beside it — is fixed, and declarations now outrank the compiler's
+// own type machinery (Modules §5.5, defect log entry 6). What remains is the
+// other half of the unification: the intrinsic `Seq` type-kind still exists and
+// its producers (`Map.keys`, `Vector.toSeq`, the `for ... in` desugaring, the
+// compiler-known `Seq.iterate` family) still yield it, so a record named `Seq`
+// here would not unify with what they produce. This file is renamed and merged
+// into `stdlib/Seq.hex` when those producers are repointed
+// (`seq-deintrinsification-plan.md` Phase 4).
 //
 // A `Seq` is a record carrying its own deferred pull thunk (OCaml's
 // `unit -> node`). The thunk is what defers: constructing a combinator runs

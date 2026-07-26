@@ -72,6 +72,25 @@ defect log pinned as a conformance test, plus the Seq-shaped cases.
    (resolver.ts:1165 behavior) pinned; boundary intrinsics (`Array`,
    `Nullable`) still resolve when no declaration competes.
 
+   *(Landed 2026-07-26.)* The record table moved up beside the alias, extern, and
+   union tables; the two later record lookups it superseded are gone, so one
+   lookup now serves the applied and nullary forms and the asymmetry cannot
+   return by halves. Coverage in
+   `compiler/src/conformance/resolution-order.test.ts`; sensitivity verified by
+   blinding (10 of 22 red without the resolver change). Two things a later phase
+   should know. **Phase 4 is unblocked but not pre-empted:** `Seq` the *name* is
+   now available to a declaration, yet the intrinsic type-kind and its producers
+   are untouched, so a `record Seq(a)` still would not unify with what
+   `Map.keys`/`Vector.toSeq`/`for ... in`/`Seq.iterate` yield — step 8 is still
+   the whole job. `runtime/SeqCore.hex`'s header, which asserted the defect as a
+   fact of the language, has been corrected to say this. **A residue belongs to
+   `Vector`, not here:** occluding `Vector` cannot redirect the `[...]` literal,
+   which is dedicated syntax wired to the intrinsic, so a literal under a user
+   `record Vector(a)` still gives the same-name mismatch. That is exactly the
+   syntax surface Phase 5 item 11 already names as `Vector`'s extra weight; it is
+   pinned as known residue so that arc begins from an assertion. `Seq` has no
+   literal form, so nothing here reaches Phase 4.
+
 ## Phase 3 — prelude mechanism (Modules §5.5)
 
 5. **Ordered intra-prelude visibility.** Today prelude scope reaches only
