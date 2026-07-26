@@ -466,3 +466,35 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   Phase 1's defects were — `Seq.hex` cannot join the prelude until a program may
   legally define its own `map` or `empty`. It is also the third `let`/`fun`
   asymmetry this arc has turned up (entry 1, entry 7, this one).
+- **Correction to the correction (PR #89 finding F1, Fable).** The first fix
+  gated on `#lambdaDepth === 0`, and that predicate is wrong: the block body of a
+  *module-level* `let` runs at lambda depth 0 while being an inner layer. It
+  therefore licensed exactly what §5.4's second half forbids, silently, and as a
+  **regression** — the pre-fix compiler rejected both of these, the fixed one
+  accepted them:
+
+  ```
+  let mine: Int = 1
+  export let use: Int =
+      let mine = 2          -- inner layer: must stay a hard error
+      mine
+  ```
+
+  ```
+  export let use: Int =
+      let tally = 2         -- prelude value, inner layer: likewise
+      tally
+  ```
+
+  The predicate is **scope identity, not nesting depth**: the module scope is the
+  one constructed with the prelude layer as its parent, and it is now held in a
+  field and compared directly. "Module level" is a fact about *which scope object
+  this is*, and depth was only ever a proxy for it — one that happens to coincide
+  everywhere except the case above.
+- **The reusable part:** closing a hole by widening a permission is the shape that
+  invites this. The first fix loosened a check and reasoned about *when* the
+  loosened branch would be taken, rather than testing what it newly admitted. The
+  three F1 pins and the three §5.4-ban guards must pass **together** — that
+  conjunction, not either group alone, is what states the rule. Blinding
+  discriminates the two states separately: reverting to the depth gate reddens
+  only the F1 pins, reverting to `lookup` reddens only the occlusion tests.

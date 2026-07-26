@@ -178,6 +178,7 @@ class Resolver {
   readonly #imports: ReadonlyMap<string, ModuleInterface>;
   readonly #runtime: boolean;
   readonly #preludeScope = new Scope();
+  #moduleScope: Scope | undefined;
   readonly #preludeTerms = new Map<Resolved.SymbolId, Resolved.Symbol>();
   readonly #preludeTypeNames = new Set<string>();
   readonly #preludeSpecifierBySymbol = new Map<Resolved.SymbolId, string>();
@@ -277,6 +278,12 @@ class Resolver {
       }
     }
     const scope = new Scope(this.#preludeScope);
+    // The one scope whose parent is the prelude layer, and so the only one where
+    // Modules §5.4 permits occlusion. Held rather than inferred: "module level"
+    // is scope identity, not nesting depth — a block body of a module-level
+    // `let` runs at lambda depth 0 but is an inner layer, where the ban is
+    // absolute.
+    this.#moduleScope = scope;
     this.#predeclareExternTerms(module.items, scope);
     const resolvedItems = this.#resolveItems(module.items, scope);
     const items = [...this.#preludeImport(module.span), ...resolvedItems];
@@ -741,14 +748,19 @@ class Resolver {
         };
       }
       case "Let": {
-        // Modules §5.4 is layered: a *module-level* binder may occlude a prelude
-        // name (the local one wins unqualified, the prelude's stays reachable
-        // qualified), while a *function-local* binder may occlude nothing,
-        // prelude included. `lookupLocal` stops at this module's own layer;
-        // `lookup` walks out through the prelude layer. `fun` already drew this
-        // distinction in the predeclare pass — `let` did not, which is why the
-        // rule went untested until the prelude first exported a lowercase name.
-        const existing = this.#lambdaDepth === 0
+        // Modules §5.4 is layered: a binder in the *module's own scope* may
+        // occlude a prelude name (the local one wins unqualified, the prelude's
+        // stays reachable qualified), while any binder in an inner layer may
+        // occlude nothing — prelude included, and layer-blind. `lookupLocal`
+        // stops at this module's layer; `lookup` walks out through the prelude.
+        // `fun` already drew this distinction in the predeclare pass; `let` did
+        // not, which is why the rule went untested until the prelude first
+        // exported a lowercase name.
+        //
+        // The test is scope *identity*, not nesting depth: the block body of a
+        // module-level `let` runs at lambda depth 0 yet is an inner layer, so a
+        // depth test would quietly license shadowing there (PR #89 finding F1).
+        const existing = scope === this.#moduleScope
           ? scope.lookupLocal(item.name.text)
           : scope.lookup(item.name.text);
         if (existing !== undefined) this.#reportRebinding(item.name, existing);

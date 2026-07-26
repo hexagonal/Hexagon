@@ -104,3 +104,37 @@ describe("a function-local binder may occlude nothing", () => {
     )).not.toEqual([]);
   });
 });
+
+describe("`module level` is scope identity, not nesting depth (PR #89 finding F1)", () => {
+  // The first fix gated on lambda depth. A block body of a module-level `let`
+  // runs at depth 0 and yet is an inner layer, so that gate licensed shadowing
+  // there — silently, and as a regression against the pre-fix compiler, which
+  // rejected both of these. The predicate is now the identity of the one scope
+  // whose parent is the prelude layer.
+
+  test("a block at module init may not shadow a module binding", () => {
+    expect(diagnostics(
+      "let mine: Int = 1\n" +
+      "export let use: Int =\n" +
+      "    let mine = 2\n" +
+      "    mine\n",
+    )).not.toEqual([]);
+  });
+
+  test("a block at module init may not shadow a prelude value", () => {
+    expect(diagnostics(
+      "export let use: Int =\n" +
+      "    let tally = 2\n" +
+      "    tally\n",
+    )).not.toEqual([]);
+  });
+
+  test("the module-level occlusion it must not disturb still works", () => {
+    // Guards the trade the first fix made: closing the hole must not reopen
+    // defect 9. This and the two above have to pass *together*.
+    expect(diagnostics(
+      "export let tally: String = \"mine\"\n" +
+      "export let use: String = tally\n",
+    )).toEqual([]);
+  });
+});
