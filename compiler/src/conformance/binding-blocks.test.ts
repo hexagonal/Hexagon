@@ -39,6 +39,12 @@ async function run(source: string): Promise<Record<string, unknown>> {
   return (await import(/* @vite-ignore */ url)) as Record<string, unknown>;
 }
 
+// Proves this file's harness can observe a failure (see emission-shapes).
+test("the harness reports a broken module rather than passing it", async () => {
+  await expect(run("export let broken: Int = missing(1)\n")).rejects.toThrow();
+  expect(diagnostics("export let broken: Int = missing(1)\n").length).toBeGreaterThan(0);
+});
+
 describe("term-binding body blocks", () => {
   test("§2.1 a value binding's block yields its final expression", async () => {
     const m = await run(
