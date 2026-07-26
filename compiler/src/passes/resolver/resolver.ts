@@ -1720,6 +1720,29 @@ class Resolver {
         span: annotation.span,
       };
     }
+    // Declarations outrank the compiler's own type machinery (Modules §5.5): the
+    // record table is consulted here, alongside the alias/extern/union tables
+    // above, so the intrinsic branch below is reached only when no declaration
+    // claims the name. Records were once tested *after* the intrinsics while
+    // unions were tested before them; that asymmetry was the resolution-order
+    // defect (defect log entry 6), not a rule.
+    const declaredRecord = this.#recordNames.get(name);
+    if (declaredRecord !== undefined) {
+      const arguments_ = annotation.kind === "AppliedType"
+        ? annotation.arguments.map((argument) =>
+          this.#resolveTypeAnnotation(argument, typeParameters, impliedContext, substitutions)
+        )
+        : [];
+      const expected = this.#recordArities.get(name) ?? 0;
+      if (arguments_.length !== expected) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `type \`${name}\` expects ${expected} argument${expected === 1 ? "" : "s"}, but ${arguments_.length} were provided`,
+          primary: annotation.span,
+        });
+      }
+      return { kind: "RecordDeclaration", record: declaredRecord, name, arguments: arguments_, span: annotation.span };
+    }
     if (annotation.kind === "AppliedType") {
       if (this.#runtime && name === "Node") {
         // `Node(a)` is spellable only inside a runtime module; elsewhere it falls
@@ -1772,39 +1795,12 @@ class Resolver {
           span: annotation.span,
         };
       }
-      const record = this.#recordNames.get(name);
-      if (record !== undefined) {
-        const arguments_ = annotation.arguments.map((argument) =>
-          this.#resolveTypeAnnotation(argument, typeParameters, impliedContext, substitutions)
-        );
-        const expected = this.#recordArities.get(name) ?? 0;
-        if (arguments_.length !== expected) {
-          this.#diagnostics.add({
-            severity: "error",
-            message: `type \`${name}\` expects ${expected} argument${expected === 1 ? "" : "s"}, but ${arguments_.length} were provided`,
-            primary: annotation.span,
-          });
-        }
-        return { kind: "RecordDeclaration", record, name, arguments: arguments_, span: annotation.span };
-      }
       this.#diagnostics.add({
         severity: "error",
         message: `unknown generic type \`${name}\``,
         primary: annotation.span,
       });
       return { kind: "ErrorType", span: annotation.span };
-    }
-    const record = this.#recordNames.get(name);
-    if (record !== undefined) {
-      const expected = this.#recordArities.get(name) ?? 0;
-      if (expected !== 0) {
-        this.#diagnostics.add({
-          severity: "error",
-          message: `type \`${name}\` expects ${expected} argument${expected === 1 ? "" : "s"}, but 0 were provided`,
-          primary: annotation.span,
-        });
-      }
-      return { kind: "RecordDeclaration", record, name, arguments: [], span: annotation.span };
     }
     if (isPrimitiveName(annotation.name.text)) {
       return {
