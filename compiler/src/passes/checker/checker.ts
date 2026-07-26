@@ -2703,6 +2703,15 @@ class Checker {
       return this.#isIrrefutablePattern(pattern.pattern, expected);
     }
     const actual = this.#prune(expected);
+    // Constructor slots are typed by the *declaration*, so a slot declared with
+    // the union's own parameter (`Some(value: a)`) arrives here as a bare
+    // variable, carrying no structure to compare a `Tuple`/`Record`/`Vector`
+    // pattern against. Decide those structurally instead of defaulting to
+    // refutable: the pattern has already been checked against the real scrutinee
+    // type by `#inferMatchPattern`, so if it typechecks at all, the slot has the
+    // shape the pattern destructures, and irrefutability turns only on whether
+    // every component pattern is itself irrefutable.
+    if (actual.kind === "Variable") return isStructurallyIrrefutablePattern(pattern);
     if (pattern.kind === "Or") {
       if (pattern.alternatives.some((alternative) =>
         this.#isIrrefutablePattern(alternative, actual)

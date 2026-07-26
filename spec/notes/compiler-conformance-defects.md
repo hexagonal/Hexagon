@@ -160,6 +160,37 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
 - **Impact on the `Seq` core:** every `match` on the `Option((a, Seq(a)))`
   protocol. The workaround is to bind the payload whole and destructure on the
   next line with `let (value, rest) = pulled`.
+- **Root cause (2026-07-26, on fixing).** The diagnosis above was right; this is
+  the mechanism. Exhaustiveness asks `#isIrrefutablePattern(argument, slotType)`
+  where `slotType` comes from the constructor's *declaration* — for
+  `Some(value: a)` that is the union's own parameter `a`, which arrives as a bare
+  type variable carrying no structure. The `Tuple` branch accepted a tuple
+  pattern only when the expected type was already known to be a `Tuple`, so
+  against a variable it fell through to "refutable" and the arm never counted as
+  covering. Nothing was wrong with the *pattern* machinery; the slot type simply
+  was not instantiated at that point.
+- **Correction:** when the expected type prunes to a variable,
+  `#isIrrefutablePattern` decides structurally
+  (`isStructurallyIrrefutablePattern`, which already existed and already handled
+  tuples, records, and `[...rest]` correctly). This is sound because
+  `#inferMatchPattern` has separately checked the pattern against the real
+  scrutinee type: if a tuple pattern typechecks there, the slot *is* a tuple, and
+  irrefutability then turns only on whether each component pattern is
+  irrefutable. Uniform across `Tuple`, `Record`, and `Vector` patterns.
+- **Executable conformance:** `compiler/src/conformance/constructor-tuple-patterns.test.ts`
+  — `Option`, `Result`, and a user union carrying tuples; a doubly-nested tuple;
+  a structural record payload; a runtime check that both components bind; plus
+  three guards that exhaustiveness still rejects what it should — a genuinely
+  missing constructor, a *refutable* tuple element (`Some((1, right))` must not
+  count as covering), and the untouched arity diagnostic.
+- **Not covered, and why:** the nominal-record spelling
+  (`Some(Point({ x, y }))`) is not writable at all yet — that is **#83**
+  (paren-free `{a, b}` / `UserId(n)` patterns, pinned by PM §6.5 and
+  unimplemented), independent of this defect. The structural-record test stands
+  in; add the nominal case when #83 lands.
+- **Verified end-to-end with defect 1:** `SeqCore.hex` with *both* Phase-1
+  workarounds reverted — every `(x.pull)()` back to `next(x)` and every
+  payload-then-`let` back to `Some((value, rest))` — compiles clean.
 
 ### 3. `project.diagnostics` reports each diagnostic three times
 

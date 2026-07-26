@@ -26,14 +26,52 @@ function diagnostics(source: string): readonly string[] {
   return project.diagnostics.map((diagnostic) => diagnostic.message);
 }
 
-/** Compiles a program and returns its exports. */
+/** Minimal ESM linker: rewrite compiler-owned relative imports to data-URL modules. */
+function resolveModulePath(importer: string, specifier: string): string | undefined {
+  if (!specifier.startsWith("./") && !specifier.startsWith("../")) return undefined;
+  const directory = importer.slice(0, Math.max(0, importer.lastIndexOf("/")));
+  const parts: string[] = [];
+  for (const part of `${directory}/${specifier}`.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  const path = `/${parts.join("/")}`;
+  return path.endsWith(".js") ? `${path.slice(0, -3)}.hex` : path;
+}
+
+function link(
+  javascript: string,
+  importerPath: string,
+  moduleUrls: ReadonlyMap<string, string>,
+): string {
+  return javascript.replace(
+    /^(\s*import(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
+    (statement, prefix: string, _quote: string, specifier: string) => {
+      const target = resolveModulePath(importerPath, specifier);
+      const url = target === undefined ? undefined : moduleUrls.get(target);
+      return url === undefined ? statement : `${prefix}${JSON.stringify(url)};`;
+    },
+  );
+}
+
+/**
+ * Compiles and returns `/main.hex`'s exports. The entry is selected by path, never
+ * by position: once a program touches a prelude nominal, prelude modules are
+ * emitted too and `modules[0]` is one of them, not the entry.
+ */
 async function run(source: string): Promise<Record<string, unknown>> {
   const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", source)]);
   expect(project.diagnostics).toEqual([]);
-  const url = `data:text/javascript;charset=utf-8,${
-    encodeURIComponent(project.modules[0]!.javascript.text)
-  }`;
-  return (await import(/* @vite-ignore */ url)) as Record<string, unknown>;
+  const moduleUrls = new Map<string, string>();
+  for (const module of project.modules) {
+    const linked = link(module.javascript.text, module.source.path, moduleUrls);
+    moduleUrls.set(
+      module.source.path,
+      `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
+    );
+  }
+  return (await import(/* @vite-ignore */ moduleUrls.get("/main.hex")!)) as Record<string, unknown>;
 }
 
 describe("a captured `let` keeps its generalization", () => {
