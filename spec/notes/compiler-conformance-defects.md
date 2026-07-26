@@ -162,3 +162,34 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
 - **Impact on the `Seq` core:** each combinator binds its step to a local `let`
   and then wraps it, which reads well enough that this may simply be the house
   form rather than something to fix.
+
+### 6. Type-annotation resolution consults intrinsics before user declarations
+
+- **Classification:** compiler defect against specification; no design change.
+  *(Reclassified 2026-07-26 during Fable review: the "the type cannot be named
+  `Seq`" finding above treated this as a fact of the language. It is not.)*
+- **Authority:** Modules §5.4 — the prelude enters scope as a *distinct outermost
+  layer*, and a module-level declaration **may occlude a prelude name**. Nothing
+  in the corpus grants compiler-internal type machinery a resolution claim that
+  outranks user declarations; §5.5 (added 2026-07-26) now states the consequence
+  explicitly: compiler resolution never outranks declarations, and the retained
+  boundary intrinsics (`Array`, `Nullable`, `Node`) are a fallback consulted
+  *after* declarations.
+- **Defect origin:** the resolver's type-annotation path consults the intrinsic
+  branch (`Seq`/`Vector`/`Set`/`Array`/`Nullable`, resolver.ts:1739) *before*
+  the user-record table (resolver.ts:1775) — but *after* the union table
+  (resolver.ts:1700). Three consequences: a user `record Seq(a)` declares
+  successfully yet no `Seq(a)` annotation can ever reach it (annotation resolves
+  to the intrinsic; constructor builds the record; the two never unify); a user
+  `union Seq(a)` *would* occlude the intrinsic, so the order is accidental, not
+  doctrine; and the term namespace already yields to user bindings
+  (resolver.ts:1165–1167) while the type namespace does not.
+- **Correction:** declarations (records, unions, aliases, extern types — user
+  and prelude alike) are consulted first; the surviving boundary intrinsics
+  resolve as a fallback only. With `Seq` declared in the prelude
+  (`stdlib/Seq.hex`, Loops §6.6), the name `Seq` then behaves exactly as
+  Modules §5.4 always specified.
+- **Relation to the priority framing above:** this defect *is* the resolver half
+  of "the unification"; the checker half is repointing the intrinsic `Seq`
+  producers at the prelude declaration. The full sequencing is owned by
+  `seq-deintrinsification-plan.md`.

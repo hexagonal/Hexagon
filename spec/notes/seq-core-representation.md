@@ -1,13 +1,14 @@
 # Seq core representation — decision note
 
-**Status:** Design decision note (July 2026), for Fable review. Proposes a
-representation for `Seq(a)` and its combinator core; **does not** amend spec.
-The owners are **Loops §6** (the `Seq` type and the §6.2 `next` protocol) and
-**Collections Part 5** (the Iterable table); the combinator ship-list is owed to
-**stdlib-roadmap.md**; foreign boundary crossing is **FFI Part 3**. Nothing here
-overrides those — on any conflict the cited owner wins.
-
-**One open decision is delegated to Fable: the memoization policy (§6).**
+**Status:** Reviewed and closed (Fable, 2026-07-26). The review ratified the
+representation, decided the delegated §6 memoization question, and promoted the
+outcomes into the owning specs — see **§9** for the disposition of every
+decision. This note is now the **rationale archive**; on any point of substance
+the owners govern: **Loops §6** (the type, protocol, representation §6.6, and
+persistence policy §6.4), **Modules §5.5** (the prelude mechanism),
+**stdlib-roadmap.md** (the `Seq.hex` obligation and ship-list), **FFI Part 3**
+(boundary crossing), and `compiler-conformance-defects.md` +
+`seq-deintrinsification-plan.md` (the compiler-alignment record and work order).
 
 ## 1. The requirement
 
@@ -291,6 +292,49 @@ five are logged with reproductions in `compiler-conformance-defects.md`.
 - **§6 is untouched.** The implementation is re-derivation, the note's proposed
   default, because that is what pure `.hex` yields; it is not a ratification of
   that default. The memoization decision is still open and still Fable's.
+
+## 9. Review outcome (Fable, 2026-07-26)
+
+The review was conducted with James across one session; §8's findings were input
+to it. Every decision below is now recorded in an owning spec; this section is
+the map.
+
+**Ratified:**
+
+- The record-of-closure representation, verbatim from §2 → **Loops §6.6**.
+- The three combinator classes and constant-stack while-pull discipline → Loops
+  §6.6 (bullet), ship-list still owed to the ledger.
+- The two-shim foreign surface (§3) — unchanged, still runtime-provided; FFI
+  Part 3 untouched.
+
+**Decided beyond the proposal:**
+
+- **`Seq(a)` is a declared prelude type, not a compiler intrinsic.** `Seq.hex`
+  declares `export opaque record Seq(a)` and its companions in one module, joins
+  the prelude set after `Option.hex`, and the intrinsic is retired. `Seq`
+  de-intrinsifies **before `Vector`** and pilots the pattern `Vector`/`Set`/
+  `Map` inherit → Loops §6.1/§6.6, Modules §5.5, ledger §2 row + §5.2.
+- **Opacity is load-bearing:** `pull` is private to the home module; the §6.2
+  protocol is the entire public face → Loops §6.6.
+- **Resolution order:** declarations before intrinsics; the current
+  intrinsic-first order is a conformance defect against Modules §5.4, logged as
+  defect 6 in `compiler-conformance-defects.md`. Surviving boundary intrinsics
+  (`Array`, `Nullable`, `Node`) become fallback-only → Modules §5.5.
+- **Prelude mechanism:** ordered intra-prelude visibility; **no `import` lines
+  in prelude source** (James's pedagogy argument prevailed over explicit-imports
+  review preference — stdlib is read as exemplary code); header-comment
+  convention per `stdlib/Vector.hex` → Modules §5.5.
+
+**The delegated §6 question, decided (Fable):** re-derivation is the internal
+default; `memoize : Seq(a) -> Seq(a)` is the explicit opt-in; the export
+boundary memoizes unconditionally — FFI Part 3 §9.1 had already fixed that end,
+which §6 as posed failed to note, so §3's `toJsIterable` composes with the
+memoizing export spine rather than driving a re-deriving pipeline directly →
+Loops §6.4 ("Persistence policy").
+
+**Implementation consequences** (owned by `seq-deintrinsification-plan.md`):
+checker defects 1 and 2 are prerequisites; `SeqCore.hex` is scaffolding deleted
+by the migration; §8's workarounds must not survive into the shipped `Seq.hex`.
 
 ---
 
