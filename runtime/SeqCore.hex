@@ -216,7 +216,9 @@ export let dropWhile(source: SeqCore(a), discard: a -> Bool): SeqCore(a) =
 // next element is still one `while`, never a stack. `pending` is the partially
 // consumed inner sequence carried between pulls, which is why the recursive knot
 // is tied through `flatMapWith` rather than through `flatMap` itself.
-export fun flatMapWith(source: SeqCore(a), transform: a -> SeqCore(b), pending: SeqCore(b)): SeqCore(b) =
+// Private: `pending` is recursion plumbing, not public surface. `flatMap` below
+// is the entire exported face of this pair.
+fun flatMapWith(source: SeqCore(a), transform: a -> SeqCore(b), pending: SeqCore(b)): SeqCore(b) =
     let step = () =>
         var outer = source
         var inner = pending

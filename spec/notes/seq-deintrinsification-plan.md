@@ -102,6 +102,16 @@ defect log pinned as a conformance test, plus the Seq-shaped cases.
    or consume the record via the runtime bridges; the `.d.ts` face of `Seq(a)`
    stays `Iterable<a>` at boundary positions (FFI Part 3 — the bridges own it;
    internal opacity and the boundary face are independent, both decided).
+
+   *(Amendment, Fable, PR #85 review finding F1.)* Beyond the producers, the
+   **compiler-known operation family is deleted, not repointed**: the resolver's
+   `SeqOperation` special case (`Seq.iterate`/`map`/`filter`/`take` when `Seq`
+   is unbound, resolver.ts:1165), the checker's `#seqOperationType` shape and
+   the `#seqDotCalls` dot-call path (checker.ts:190/:1254), and the emitter's
+   `SeqOperation` lowerings. The same source spellings must keep compiling with
+   identical types through the ordinary companion-dispatch path against prelude
+   `Seq.hex` — pin them with conformance tests *before* deleting the special
+   case.
 9. **Delete** the intrinsic `Seq` type-kind and `runtime/SeqCore.hex`; port the
    conformance suite from `SeqCore`-as-extra-module to prelude `Seq`; keep the
    poison test and the defect reproductions as permanent pins. The suite's
