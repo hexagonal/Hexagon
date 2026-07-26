@@ -221,6 +221,50 @@ explicit `memoize` is the right escape hatch either way.
 - Any change to the §6.2 protocol itself — this note *implements* it, it does not
   revise it.
 
+## 8. Implementation findings (added 2026-07-26)
+
+The core is now built as `runtime/SeqCore.hex`, with behavioural conformance in
+`compiler/src/conformance/seq.test.ts`. §§1–7 above are the design as proposed
+and are left unedited so the review has the original to judge; this section
+records where the implementation had to depart from them and why. Nothing here
+changes a design decision — every departure is a compiler limitation, and all
+five are logged with reproductions in `compiler-conformance-defects.md`.
+
+- **The type cannot be named `Seq`.** `Seq` is an intrinsic type constructor the
+  resolver claims ahead of any user record, so `record Seq(a)` declares a record
+  that no `Seq(a)` annotation can ever refer to — the annotation keeps resolving
+  to the intrinsic and the two never unify. The module follows the precedent §2
+  already invokes: `SeqCore(a)` is the representation and `Seq(a)` the public
+  face, exactly as `TrieVector` sits under `Vector`, with the emitter wiring them
+  at milestone 3.
+- **§4.1's inline `match` does not parse.** A multi-line `match` as a
+  record-field value makes layout close the record literal at the first arm.
+  Each combinator instead binds its step to a local `let` and wraps that.
+- **§4.2's annotated `...From` helpers do not typecheck.** Annotating both sides
+  of a mutually recursive pair introduces two rigid type variables the body then
+  requires to be equal. The helpers are gone entirely: binding the step locally
+  makes each combinator a single self-recursive `fun`, which is simpler than the
+  note proposed and sidesteps the problem rather than working around it.
+- **`Some((value, rest))` is rejected everywhere.** A tuple pattern directly
+  beneath a constructor pattern is not counted as covering its case. Every arm
+  binds the payload whole and destructures it on the next line.
+- **Recursive combinators cannot call `next`.** A recursive function does not
+  instantiate a generic annotated callee's scheme, so `next` inside `map` fuses
+  its `a` with `map`'s. Recursive bodies drive the thunk inline as
+  `(source.pull)()`; `next` stays the §6.2 protocol and the non-recursive
+  consumers do call it.
+- **`empty` is split in two.** An annotated `empty: SeqCore(a)` is rigid, not
+  generalized, so the first use fixes the element type. The generalized binding
+  is private and carries the internal uses; the export is a thin annotated alias.
+- **Scope actually delivered.** The pure core only: §4.1, §4.2, and §4.3, plus
+  `cons` and `zip`. The two §3 foreign shims and the §6 `memoize` are *not* in
+  `.hex` and cannot be — all three need a mutable buffer and Statements §6.2
+  forbids mutable capture in closures. They remain compiler/runtime-provided, as
+  §3 says. §5's Vector bridge waits on milestone 3.
+- **§6 is untouched.** The implementation is re-derivation, the note's proposed
+  default, because that is what pure `.hex` yields; it is not a ratification of
+  that default. The memoization decision is still open and still Fable's.
+
 ---
 
 *Canonical formatting pass applied to every example: `let`/`fun` split by
