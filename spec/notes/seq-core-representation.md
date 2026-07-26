@@ -230,13 +230,40 @@ records where the implementation had to depart from them and why. Nothing here
 changes a design decision — every departure is a compiler limitation, and all
 five are logged with reproductions in `compiler-conformance-defects.md`.
 
-- **The type cannot be named `Seq`.** `Seq` is an intrinsic type constructor the
-  resolver claims ahead of any user record, so `record Seq(a)` declares a record
-  that no `Seq(a)` annotation can ever refer to — the annotation keeps resolving
-  to the intrinsic and the two never unify. The module follows the precedent §2
-  already invokes: `SeqCore(a)` is the representation and `Seq(a)` the public
-  face, exactly as `TrieVector` sits under `Vector`, with the emitter wiring them
-  at milestone 3.
+- **The type cannot *yet* be named `Seq`, and `SeqCore` is a temporary name.**
+  `Seq` is an intrinsic type constructor the resolver claims ahead of any user
+  record, so `record Seq(a)` declares a record that no `Seq(a)` annotation can
+  ever refer to — the annotation keeps resolving to the intrinsic and the two
+  never unify. `SeqCore` is therefore scaffolding, not an architecture: the
+  decided direction (James, 2026-07-26) is that **this record becomes `Seq`** —
+  the intrinsic is retired and its producers (`Map.keys`/`values`/`entries`,
+  `Set.toSeq`, `Vector.toSeq`/`fromSeq`, and the `for x in` desugaring) are
+  rebased onto it. `SeqCore` and the workarounds below are deleted in that same
+  change.
+- **`Seq` de-intrinsifies before `Vector`, and is the pilot for it.** This
+  reverses the reading in an earlier draft of this section, which treated
+  `SeqCore`-under-`Seq` as following the `TrieVector`-under-`Vector` precedent.
+  It does not: `Vector` follows `Seq`. The ordering is deliberate — `Vector`
+  carries real compiler surface (literal syntax, bracket indexing, slicing, rest
+  patterns) while `Seq`'s is thin (essentially the `for x in` desugaring), so the
+  cheaper type proves the pattern that the expensive one then inherits. This is
+  also what §1's "`Seq` is more fundamental than `Array`" implies once taken
+  seriously.
+- **Because it is a pilot, the two blocking defects are prerequisites, not
+  follow-ups.** An opaque `Seq` is reachable *only* through `next` and through
+  destructuring `Option((a, Seq(a)))`. Inside this module both are dodged by
+  touching `pull` directly; no consumer of an opaque type can do that. Shipping
+  the unification before those two fixes would bake the workarounds into the
+  template `Vector` inherits.
+- **§3's `toJsIterable` conflicts with FFI Part 3 §9.1 under re-derivation.**
+  Part 3 §9.1 has already decided that an *exported* `Seq` memoizes: "repeated
+  JavaScript traversals observe the same memoized Hexagon sequence rather than
+  re-running its lazy computation and effects." §3 describes `toJsIterable` as a
+  generator driving `next`, which under a re-deriving `Seq` re-runs the pipeline
+  and replays effects on every `[Symbol.iterator]()` call — the thing §9.1
+  forbids. Either `toJsIterable` memoizes internally or export memoizes first.
+  This does not settle §6's *internal* default, but it does mean the export
+  boundary is already fixed as memoizing, which §6 should have said.
 - **§4.1's inline `match` does not parse.** A multi-line `match` as a
   record-field value makes layout close the record literal at the first arm.
   Each combinator instead binds its step to a local `let` and wraps that.

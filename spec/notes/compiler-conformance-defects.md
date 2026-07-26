@@ -52,9 +52,20 @@ specification was right all along.
 Five findings from implementing `runtime/SeqCore.hex` against
 `seq-core-representation.md`. Each was isolated to a minimal reproduction through
 the aggregated `compileProject` channel (whose honesty is itself now pinned by a
-poison test in `compiler/src/conformance/seq.test.ts`). The first two forced
-workarounds that are commented at their sites in `SeqCore.hex` and should be
-reverted when the defects are fixed.
+poison test in `compiler/src/conformance/seq.test.ts`).
+
+**Priority framing (James, 2026-07-26).** The objective these serve is retiring
+the `Seq` intrinsic so the `.hex` record *is* `Seq`, with `Seq` de-intrinsifying
+*before* `Vector` and serving as the pilot for it. Defects 1 and 2 are
+**prerequisites** for that objective rather than items competing with it: an
+opaque `Seq` is reachable only through `next` and through destructuring
+`Option((a, Seq(a)))`, and both are currently broken. `SeqCore.hex` dodges them
+by touching the `pull` field directly; no consumer of an opaque type can. Fixing
+them first keeps the workarounds out of the template `Vector` will inherit.
+Defect 4 is independent of the objective but is the most severe in absolute
+terms. Defects 3 and 5 are noise. Recommended order: **1 and 2, then the
+unification (deleting `SeqCore` and all four workarounds in that change), then
+4**.
 
 ### 1. Rigid annotation variables leak across a call into a recursive caller
 
