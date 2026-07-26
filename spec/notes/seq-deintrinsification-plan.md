@@ -139,7 +139,44 @@ defect log pinned as a conformance test, plus the Seq-shaped cases.
 
 ## Phase 4 — `Seq.hex` and the unification
 
-*(Step 7 landed 2026-07-26; steps 8–9 open, one question blocking.)*
+*(Step 7 landed 2026-07-26. Step 8 is open; two prerequisites found while
+attempting it are fixed, and the remainder is a single coupled change.)*
+
+**What attempting step 8 established.** Joining `Seq.hex` to `PRELUDE_MODULES`
+was tried end to end. With defects 9 and 10 fixed, the join plus converting
+`stdlib/Vector.hex`'s `toSeq`/`fromSeq` to ordinary `.hex` (ruling R4) leaves the
+compiler suite green — but breaks the shipped `vectors` playground example and
+`vector.test.ts`'s specification group, both of which use the **bare intrinsic**
+`Vector.fromSeq` against a now-record `Seq`. That is not a gap to paper over: R4
+retypes those bare rows to the record's identity and re-emits them through the R1
+pair, so **the join, the retyping, and the adapter pair are one coupled change**
+that must land together. The experiment was reverted; the prerequisite it found
+is what landed.
+
+**Defect 10 (fixed): a prelude name was not reachable qualified.** Pre-existing
+and general — `Option.Some`, `Result.Ok`, and `Prelude.Less` all reported
+`unknown name` for the qualifier. Modules §6.4 requires the qualified home to
+exist and §5.4 depends on it: once a module occludes a prelude name, qualified
+access is the only way back to the prelude's version. Nothing depended on it
+while defect 9 made occlusion impossible; fixing defect 9 made it load-bearing.
+
+**The remaining step-8 work, in dependency order:**
+
+1. Close the compiler-known operation guards over prelude members, so
+   `Seq.iterate`/`map`/`filter`/`take` route to companion dispatch. This is the
+   pin the work order requires *before* deleting the `SeqOperation` family, and
+   it is only exercisable once `Seq.hex` is a member — it was implemented during
+   the experiment and reverted with it.
+2. Retype the `Seq`-producing collection operations to the prelude record's
+   identity. The checker has no way to name a prelude declaration's identity
+   today; that plumbing is the substance of the work.
+3. Build the R1 pair — memoizing inbound adapter and outbound driver — and emit
+   the retyped rows through it, with R5's round-trips pinning the representation
+   coupling.
+4. `for x in` over a `Seq` (R3), which currently reports no `Iterable` instance.
+5. Then delete the `SeqOperation` family, and step 9's intrinsic removal.
+
+*(Step 7's original entry follows.)*
 `stdlib/Seq.hex` is written and validated, and a **prerequisite defect found by
 attempting the join is fixed** (defect 9: a module-level `let` could not occlude
 a prelude value — `Seq.hex` is the first prelude module to export lowercase
