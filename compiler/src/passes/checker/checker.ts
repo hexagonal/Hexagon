@@ -677,8 +677,42 @@ class Checker {
     for (const references of funReferences.values()) {
       for (const symbol of references) capturedSequential.add(symbol);
     }
+
+    // ...except when the `let`'s value is a syntactic value, which generalizes
+    // (Functions §8, the value restriction). Being captured must not cost it that:
+    // a monomorphic placeholder fuses every caller's use into one type, so a
+    // generic `let helper` called from two functions at two element types — or
+    // from one function under a declared type variable — collapses. Such bindings
+    // join the dependency-ordered pass below instead, generalized before the
+    // bodies that use them. Non-value bindings and every `var` keep the
+    // placeholder: for them monomorphism is the correct answer, not a limitation.
+    const letBySymbol = new Map(
+      items.flatMap((item) => (item.kind === "Let" ? [[item.binding.symbol, item] as const] : [])),
+    );
+    const promotedLets = new Map<Resolved.SymbolId, Resolved.LetItem>();
+    for (let growing = true; growing;) {
+      growing = false;
+      for (const [symbol, item] of letBySymbol) {
+        if (promotedLets.has(symbol)) continue;
+        if (!capturedSequential.has(symbol) || !this.#isValue(item.value)) continue;
+        promotedLets.set(symbol, item);
+        // Whatever the promoted binding itself references is now needed before the
+        // graph runs, so it must be placeheld (or promoted) in turn.
+        for (const referenced of referencedSymbols(item.value)) {
+          if (!capturedSequential.has(referenced)) {
+            capturedSequential.add(referenced);
+            growing = true;
+          }
+        }
+      }
+    }
+
     for (const item of items) {
-      if ((item.kind === "Let" || item.kind === "Var") && capturedSequential.has(item.binding.symbol)) {
+      if (
+        (item.kind === "Let" || item.kind === "Var") &&
+        capturedSequential.has(item.binding.symbol) &&
+        !promotedLets.has(item.binding.symbol)
+      ) {
         const placeholder = this.#fresh(level + 1, false);
         sequentialPlaceholders.set(item.binding.symbol, placeholder);
         this.#schemes.set(item.binding.symbol, { variables: [], type: placeholder });
@@ -692,12 +726,24 @@ class Checker {
     // instantiated fresh per use (let-polymorphism); only genuine mutual recursion
     // shares a monomorphic component, whose members' provisional monotypes are
     // installed together before any of their bodies is checked.
-    const sourceIndex = new Map(funItems.map((item, index) => [item.binding.symbol, index]));
+    // The graph carries promoted `let`s alongside the `fun`s, so a generic helper
+    // is generalized before whatever uses it regardless of which keyword declared it.
+    const graphItems: readonly (Resolved.FunItem | Resolved.LetItem)[] = items.flatMap((item) =>
+      item.kind === "Fun" || (item.kind === "Let" && promotedLets.has(item.binding.symbol))
+        ? [item as Resolved.FunItem | Resolved.LetItem]
+        : []
+    );
+    const graphBySymbol = new Map(graphItems.map((item) => [item.binding.symbol, item]));
+    const graphSymbols = new Set(graphBySymbol.keys());
+    const graphReferences = new Map(
+      graphItems.map((item) => [item.binding.symbol, referencedSymbols(item.value)]),
+    );
+    const sourceIndex = new Map(graphItems.map((item, index) => [item.binding.symbol, index]));
     const bySource = (a: Resolved.SymbolId, b: Resolved.SymbolId): number =>
       sourceIndex.get(a)! - sourceIndex.get(b)!;
     const components = stronglyConnectedComponents(
-      funItems.map((item) => item.binding.symbol),
-      (symbol) => [...(funReferences.get(symbol) ?? [])].filter((referenced) => funSymbols.has(referenced)),
+      graphItems.map((item) => item.binding.symbol),
+      (symbol) => [...(graphReferences.get(symbol) ?? [])].filter((referenced) => graphSymbols.has(referenced)),
     );
     for (const component of components) {
       const ordered = [...component].sort(bySource);
@@ -707,12 +753,27 @@ class Checker {
         this.#schemes.set(symbol, { variables: [], type: recursiveType });
       }
       for (const symbol of ordered) {
-        const item = funBySymbol.get(symbol)!;
-        const valueType = this.#inferExpr(item.value, level + 1);
+        const item = graphBySymbol.get(symbol)!;
+        let valueType = this.#inferExpr(item.value, level + 1);
+        if (item.kind === "Let" && item.annotation !== undefined) {
+          const annotationType = this.#annotationType(
+            item.annotation, level + 1, new Map(), this.#annotationVariableScope ?? new Map(),
+          );
+          this.#unifyExpected(annotationType, valueType, item.value, item.annotation.span, true);
+          if (this.#hasNumericWidening(item.value)) valueType = annotationType;
+        }
         this.#unify(recursiveTypes.get(symbol)!, valueType, item.span);
       }
       for (const symbol of ordered) {
-        this.#schemes.set(symbol, this.#generalize(recursiveTypes.get(symbol)!, level, true));
+        const item = graphBySymbol.get(symbol)!;
+        this.#schemes.set(
+          symbol,
+          this.#generalize(
+            recursiveTypes.get(symbol)!,
+            level,
+            item.kind === "Fun" ? true : this.#isValue(item.value),
+          ),
+        );
       }
     }
 
@@ -721,6 +782,8 @@ class Checker {
       if (item === undefined) continue;
 
       if (item.kind === "Let") {
+        // Promoted bindings were inferred and generalized with the graph above.
+        if (promotedLets.has(item.binding.symbol)) continue;
         const inferredValueType = this.#inferExpr(item.value, level + 1);
         let valueType = inferredValueType;
         if (item.annotation !== undefined) {

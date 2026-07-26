@@ -98,6 +98,41 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   inside recursive bodies. `next` remains the §6.2 protocol for consumers, and
   the non-recursive consumers do call it. When this is fixed, every `(x.pull)()`
   in `SeqCore.hex` should become `next(x)`.
+- **CORRECTION (2026-07-26, on fixing — this entry's diagnosis above was wrong).**
+  The heading and "Defect origin" are preserved as written for the record, but
+  **both halves of that characterisation are false**, and the minimal
+  reproduction survives only by accident. Discriminating cases:
+  - Making the caller **non-recursive** does *not* remove the error
+    (`export fun once(value: a): a = ident(value)` fails identically), so
+    recursion was never the trigger.
+  - Removing the **annotations** does not remove it either: an unannotated
+    `let ident(value) = value` used at two types inside one `fun` fails just as
+    hard. So it is not about rigid variables; that diagnostic was the loudest
+    *symptom*, not the fault.
+  - Declaring the callee `fun` instead of `let` makes every case pass.
+
+  **Actual defect origin:** `#inferItems` installed **every `let` captured by a
+  function as a monomorphic placeholder** before checking any function body. That
+  discards the binding's generalization, fusing all of its uses into one type.
+  The `let`/`fun` asymmetry is the whole fault: `fun` items were already checked
+  in dependency order and generalized per component (issue #66), while captured
+  `let`s were pinned regardless of whether their value was a syntactic value.
+- **Authority (restated):** Functions §8 and the value restriction — a `let`
+  whose RHS is a syntactic value generalizes. `#isValue` already implemented
+  this; the captured-`let` path simply ran too late to use it. The 2026-07-24
+  rigid-type-variable rule is **not** implicated and is unchanged.
+- **Correction applied:** promoted `let`s — captured, and a syntactic value —
+  join the dependency-ordered component pass alongside `fun`s, so they are
+  generalized before the bodies that use them. Non-value bindings and every
+  `var` keep the monomorphic placeholder, which for them is correct.
+- **Executable conformance:** `compiler/src/conformance/generalized-captured-lets.test.ts`
+  — the reproduction; the non-recursive and unannotated discriminators; two
+  functions sharing one helper at different types; promoted-to-promoted and
+  promoted-to-`fun` dependency edges; the function-body (block) path; a runtime
+  execution check; and three guards that what must stay monomorphic still does,
+  including a non-value `let` that must still be rejected at a second type.
+  Verified end-to-end: `SeqCore.hex` with **every** `(x.pull)()` reverted to
+  `next(x)` now compiles clean.
 
 ### 2. A tuple pattern inside a constructor pattern is not seen as covering
 
