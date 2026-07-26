@@ -256,6 +256,19 @@ arity-checked-first rule, the readable-JS goal, and FFI Part 6's identity
 calling convention — and it would be the language's only implicit conversion
 between distinct types.
 
+Making the empty domain a type of its own was considered and **deferred
+post-v1**. The unary reading is not a bolt-on: it is the keystone of a
+different design, in which every function takes exactly one thing and `unit`
+is the type invented so that "nothing" can be one. Buying its abstraction —
+`a -> b` ranging over thunks too — means buying its calling convention, which
+§1 declines. The form worth exploring instead is **polymorphism over parameter
+lists**, one feature serving both arity abstraction and the FFI variadics
+recorded as a post-v1 deferral (ffi.md §9.2); a pseudo-type for the zero case
+alone would be all of that machinery for the least valuable point on the curve.
+Revisit bar: demonstrated demand for generic thunk-accepting combinators, or
+FFI variadics landing — whichever comes first. Until then the seam is crossed
+by the eta-wrap (§5.3).
+
 ### 5.3 Nullary functions and `Unit`
 
 - `() => body` is a **zero-parameter function**. No argument (unit or otherwise) is passed; emitted JS takes no parameters.
@@ -449,6 +462,7 @@ Diagnostics obey the Rewrite Rule (Declarations Preamble §1.1): where a legal s
 - **Operators**, including `|>` first-argument insertion: Operators §8. This spec contributes only the subject-first parameter-order convention (§5.4). Note for reading the examples: Hexagon prefers English logical operators (`not`, `and`, `or`, `implies`, `iff`) and uses `if ... then ... else ...` as its conditional expression — there is no C-style `? :` ternary (Operators spec).
 - **Constraints** (`Num`, `Signed`, `honor`, base constraints): Constraints spec. This spec fixes only the `<a: C>` / `<a: (C1, C2)>` syntax (§4.2).
 - **FFI** (complete; `ffi.md` is the entry point): `Nullable(a)` and boundary conversions are FFI Part 2; extern functions and bindings are Part 4; the boundary calling convention for functions and callbacks (identity convention, exact arity, `Unit` discarding) is Part 6; optional/default parameters, rest/variadics, and overloads at the boundary are recorded post-v1 deferrals (ffi.md §9.2). Nothing there leaks into pure Hexagon function semantics.
+- **Polymorphism over parameter lists** (a type variable ranging over a *sequence* of parameter types, so one signature covers `() -> b`, `Int -> b`, and `(Int, String) -> b` alike): **post-v1**, recorded in §5.2. It is the form worth exploring for arity abstraction, and the same feature FFI variadics would need; a pseudo-type for the zero-ary domain alone is rejected in its favour. Until then, the seam is the eta-wrap (§5.3).
 - **Constraint display in tooling**: open at Constraints §9.4 (LSP display format). The function arrow shape itself is fixed here (§5.1).
 - **Type-system internals** (Algorithm J, levels, union-find, bidirectional checking for rank-2): compiler architecture, not additional language surface. §8 owns the observable rules.
 
