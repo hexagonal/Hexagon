@@ -90,11 +90,18 @@ defect log pinned as a conformance test, plus the Seq-shaped cases.
    where it is genuinely wanted, but the protocol call is the canonical form);
    **revert the defect-2 workaround** (restore `Some((value, rest))` arms);
    keep the local-`let` step form (the layout observation, finding 5, is
-   unruled — the local binding is acceptable house style meanwhile); keep the
-   `emptyCore`/`empty` split with its comment (that one is language semantics —
-   rigid annotated exports — not a defect); add the §5.5 header comment; no
-   import lines. Declaration becomes `export opaque record Seq(a)`.
-   Join `PRELUDE_MODULES` after `Option.hex`.
+   unruled — the local binding is acceptable house style meanwhile); add the
+   §5.5 header comment; no import lines. Declaration becomes
+   `export opaque record Seq(a)`. Join `PRELUDE_MODULES` after `Option.hex`.
+
+   *(Amended after PR #86.)* The `emptyCore`/`empty` split was forced by the
+   capture-penalty bug (defect 1) expressing through the annotation, not by
+   rigid-export semantics: defect 7's fix aligns captured with uncaptured, and an
+   annotated value-`let` generalizes in both. At Phase 4, first test whether a
+   single `export let empty: Seq(a) = Seq({ pull: () => None })` compiles and
+   serves every internal use; if it does, ship that and delete the split and its
+   comment — the prelude is exemplary code and must not carry a workaround for a
+   fixed bug.
 8. **Repoint the producers.** Checker: the intrinsic `kind: "Seq"` sites route
    to the prelude record's reserved identity — the producers are
    `Map.keys`/`values`/`entries`/`toSeq`, `Set.toSeq`, `Vector.toSeq`/`fromSeq`,
