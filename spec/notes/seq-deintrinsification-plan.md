@@ -103,15 +103,25 @@ defect log pinned as a conformance test, plus the Seq-shaped cases.
 
    *(Landed 2026-07-26.)* Item 5 is a two-line change in `project.ts` —
    `preludePaths.slice(0, indexOf(path))` for a prelude module, the whole list
-   for a consumer. **It activates a latent emission bug, and that was the real
-   work of this phase.** Prelude modules were emitted only when a *non-prelude*
-   consumer imported them; once members can import each other, a member reachable
-   only through another prelude module was dropped while the importer's emitted
-   JavaScript still named it — and the project compiled clean, so the failure was
-   silent, in exactly the class the poison test exists to catch. Emission is now
-   reachability from the non-prelude modules, and a general invariant is pinned:
-   every relative import in the emitted output names an emitted module. Phase 4
-   would have hit this the moment `Seq.hex` used `Option`.
+   for a consumer. **The emission bug it exposes was the real work of this
+   phase.** Prelude modules were emitted only when a *non-prelude* consumer
+   imported them, so a member reachable only through another prelude member was
+   dropped while the importer's emitted JavaScript still named it — a clean
+   compile producing unloadable output, exactly the class the poison test exists
+   to catch. Emission is now reachability from the non-prelude modules, and a
+   general invariant is pinned: every relative import in the emitted output names
+   an emitted module. Phase 4 would have hit this the moment `Seq.hex` used
+   `Option`.
+
+   *(Corrected after review.)* I first reported that bug as **latent** — enabled
+   and fixed by the same commit, so never a divergence. Fable tested the claim
+   instead of accepting it and it is false: the old predicate ignored
+   prelude-to-prelude importers *whatever the import's origin*, and an explicit
+   `import` line between project-supplied prelude-basename files needed no §5.5
+   visibility and was always legal. It reproduces on `main`. Logged as **defect
+   8**, with that reproduction pinned as a second entry channel alongside the
+   synthesized one. The reasoning error is worth keeping: I argued from *when the
+   code changed* rather than testing *what the old code accepted*.
 
    Item 6 needed writing, not extending: **the drift test did not exist**, though
    `prelude.ts`'s header has always claimed "a test asserts the two never drift".

@@ -35,6 +35,25 @@ function diagnostics(files: readonly (readonly [string, string])[]): readonly st
   return project(files).diagnostics.map((diagnostic) => diagnostic.message);
 }
 
+/**
+ * Relative imports in the emitted JavaScript that name a module the project did
+ * not emit — the general form of defect 8, and the invariant both its entry
+ * channels serve. Empty is the only acceptable value.
+ */
+function danglingImports(compiled: ReturnType<typeof project>): readonly string[] {
+  const emitted = new Set(compiled.modules.map(({ source }) => source.path));
+  const dangling: string[] = [];
+  for (const module of compiled.modules) {
+    for (const match of module.javascript.text.matchAll(/from\s+"(\.[^"]+)"/gu)) {
+      const specifier = match[1];
+      if (specifier === undefined) continue;
+      const target = `${specifier.replace(/\.js$/u, "")}.hex`.replace(/^\.\//u, "/");
+      if (!emitted.has(target)) dangling.push(`${module.source.path} -> ${specifier}`);
+    }
+  }
+  return dangling;
+}
+
 /** A stand-in prelude whose members are the project's own, in `PRELUDE_MODULES` order. */
 const ORDERING = ["/Prelude.hex", "export union Ordering = Less | Equal | Greater\n"] as const;
 const OPTION = ["/Option.hex", "export union Option(a) = Some(value: a) | None\n"] as const;
@@ -132,6 +151,28 @@ describe("emission follows the new dependency edge", () => {
     "export fun use(r: Result(Int, Int)): Option(Int) = R.toOption(r)\n",
   ] as const;
 
+  /**
+   * The same dependency written explicitly rather than left implicit. This is a
+   * *distinct entry channel* into the emission walk, and the one that makes
+   * defect 8 predate Phase 3: an import line between project-supplied
+   * prelude-basename files needs no §5.5 visibility, and was always legal.
+   *
+   * Its well-formedness is dated. §5.5's "no `import` lines in prelude source"
+   * is currently a convention with no diagnostic behind it; should that become
+   * an error, this configuration stops being writable and the synthesized
+   * channel above becomes the only one. The invariant both channels serve does
+   * not depend on the answer.
+   */
+  const RESULT_IMPORTING_OPTION = [
+    "/Result.hex",
+    "import * as O from \"./Option\"\n" +
+    "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
+    "export fun toOption(result: Result(a, e)): O.Option(a) =\n" +
+    "    match result\n" +
+    "        Ok(value) => O.Some(value)\n" +
+    "        Err(_) => O.None\n",
+  ] as const;
+
   test("a member imported only by another member is still emitted", () => {
     // Emitting a prelude module only when a *consumer* imports it was correct
     // while members could not reference each other. Once they can, dropping a
@@ -150,24 +191,28 @@ describe("emission follows the new dependency edge", () => {
   test("every import in the emitted output names an emitted module", () => {
     // The general form of the bug above, stated as an invariant over the whole
     // project rather than one path.
-    const compiled = project([ORDERING, OPTION, RESULT_USING_OPTION, USES_RESULT]);
-    const emitted = new Set(compiled.modules.map(({ source }) => source.path));
-    const dangling: string[] = [];
-    for (const module of compiled.modules) {
-      for (const match of module.javascript.text.matchAll(/from\s+"(\.[^"]+)"/gu)) {
-        const specifier = match[1];
-        if (specifier === undefined) continue;
-        const target = `${specifier.replace(/\.js$/u, "")}.hex`.replace(/^\.\//u, "/");
-        if (!emitted.has(target)) dangling.push(`${module.source.path} -> ${specifier}`);
-      }
-    }
-    expect(dangling).toEqual([]);
+    expect(danglingImports(project([ORDERING, OPTION, RESULT_USING_OPTION, USES_RESULT])))
+      .toEqual([]);
   });
 
   test("a project touching no prelude member emits none of them", () => {
     const compiled = project([ORDERING, OPTION, RESULT, ENTRY]);
     expect(compiled.diagnostics).toEqual([]);
     expect(compiled.modules.map(({ source }) => source.path)).toEqual(["/main.hex"]);
+  });
+
+  test("defect 8's reproduction: the dependency written as an explicit import", () => {
+    // On `main` this compiled clean, emitted ["/Result.hex", "/main.hex"], and
+    // wrote `import ... from "./Option.js"` into Result.js — unloadable output
+    // reported as success, with no Phase 3 machinery involved.
+    const compiled = project([ORDERING, OPTION, RESULT_IMPORTING_OPTION, USES_RESULT]);
+    expect(compiled.diagnostics).toEqual([]);
+    expect(compiled.modules.map(({ source }) => source.path)).toContain("/Option.hex");
+  });
+
+  test("the invariant holds on the explicit channel too", () => {
+    const compiled = project([ORDERING, OPTION, RESULT_IMPORTING_OPTION, USES_RESULT]);
+    expect(danglingImports(compiled)).toEqual([]);
   });
 });
 
