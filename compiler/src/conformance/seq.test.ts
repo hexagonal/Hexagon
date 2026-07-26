@@ -368,3 +368,15 @@ describe("SeqCore persistence", () => {
     expect(m.tailIndependent).toBe(true);
   });
 });
+
+describe("diagnostic aggregation reports each finding once", () => {
+  // Defect 3: `javascript` and `declarations` re-carry `typed`'s diagnostics, so a
+  // naive fold reported everything three times. Counts must be meaningful for the
+  // poison test's guarantee to be readable as well as true.
+  test("one error is reported once, and two distinct errors twice", () => {
+    expect(diagnose("export let bad: Int = \"not an Int\"\n")).toHaveLength(1);
+    expect(diagnose(
+      "export let a: Int = \"x\"\nexport let b: Int = \"y\"\n",
+    )).toHaveLength(2);
+  });
+});

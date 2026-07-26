@@ -201,6 +201,16 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
 - **Impact:** the channel is honest — nothing is hidden, which is what the poison
   test guards — but diagnostic counts are meaningless and output is noisy. A
   single ill-typed binding reports 3 errors; a parse failure reports 3 of each.
+- **Root cause and correction (2026-07-26, on fixing).** Each emission stage
+  seeds its own bag with the diagnostics it was handed (`emitter.ts`), so
+  `javascript` and `declarations` both re-carry everything `typed` produced. The
+  stages share diagnostic *identity*, so `compileProject` now folds through a
+  seen-set: repeats collapse, and genuinely distinct diagnostics that happen to
+  read alike are still reported separately. Pinned by a conformance test that one
+  error reports once and two distinct errors report twice.
+- **Poison-test sensitivity re-verified after the change, not assumed:** blinding
+  the aggregation again turns both poison tests red while the sound-module
+  control stays green.
 
 ### 4. Missing `Num` evidence can reach runtime as `undefined`
 
