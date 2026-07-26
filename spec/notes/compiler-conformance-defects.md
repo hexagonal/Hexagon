@@ -422,3 +422,79 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   ruling is the finding here: I had reasoned from *when the code changed* rather
   than testing *what the old code accepted*, and the probe is what separated
   them.
+
+### 9. A module-level `let` could not occlude a prelude value
+
+- **Classification:** compiler defect against specification; no design change.
+  Found while preparing Phase 4, by adding `stdlib/Seq.hex` to the prelude set.
+- **Authority:** Modules §5.4, both halves. A **module-level** `let`/`fun` **may
+  occlude a prelude name** — the local one wins unqualified module-wide and the
+  prelude's stays reachable qualified — while a **function-local** binder may
+  occlude **nothing**, prelude included. §5.4 states the stakes itself: "Without
+  occlusion, every addition to the prelude in a future release would break any
+  program already using that name — untenable with no warning tier to soften it."
+- **Defect origin:** a one-word asymmetry between the two module-level binder
+  paths. The `fun` predeclare pass tested `scope.lookupLocal`, which stops at the
+  module's own layer, so `fun` occluded correctly. The `let` path tested
+  `scope.lookup`, which walks out through the prelude layer, so a module-level
+  `let` over a prelude name was reported as a rebinding — and, the binding having
+  been refused, later references resolved to the prelude's value instead.
+- **Why it went unnoticed:** the shipped prelude exports `Ordering`, `Option`,
+  `Result` and their **capitalized** constructors only. No lowercase prelude
+  value existed for a module-level `let` to occlude, so §5.4's guarantee had
+  never been exercised for values at all. `stdlib/Seq.hex` is the first prelude
+  module that exports lowercase names (`empty`, `map`, `filter`, `fold`, …), and
+  it collided with `stdlib/Vector.hex`'s own `empty` immediately.
+- **Reproduction:** with any prelude module exporting a lowercase value `tally`,
+  a consumer writing `export let tally: String = "mine"` at module level reports
+  ``\`tally\` is already bound``. The same module written `export fun tally(...)`
+  compiles — that discriminating pair is what located the fix.
+- **Correction applied (2026-07-26).** The module-level `let` path consults
+  `lookupLocal`; nested binders keep the full `lookup` walk, because §5.4's
+  function-local ban is absolute and layer-blind. The fix narrows *which layer*
+  is consulted, not whether the ban applies within a layer.
+- **Executable conformance:** `compiler/src/conformance/prelude-occlusion.test.ts`
+  — module-level `let` and `fun` occluding; an occluding `let` winning *at its
+  own type* (the discriminator: if the prelude binding still won, the annotation
+  would fail); a non-occluding module still seeing the prelude value; and three
+  guards that the ban survives — a function-local `let` over a prelude name, a
+  function-local `let` over a module name, and two module-level bindings of one
+  name. The tests substitute their own prelude member rather than waiting for
+  `Seq` to join, so the rule is pinned independently of that migration. Verified
+  sensitive by blinding: 2 of the 7 go red, and they are the two `let` cases.
+- **Relation to the arc:** this is a Phase 4 *prerequisite* of the same kind
+  Phase 1's defects were — `Seq.hex` cannot join the prelude until a program may
+  legally define its own `map` or `empty`. It is also the third `let`/`fun`
+  asymmetry this arc has turned up (entry 1, entry 7, this one).
+- **Correction to the correction (PR #89 finding F1, Fable).** The first fix
+  gated on `#lambdaDepth === 0`, and that predicate is wrong: the block body of a
+  *module-level* `let` runs at lambda depth 0 while being an inner layer. It
+  therefore licensed exactly what §5.4's second half forbids, silently, and as a
+  **regression** — the pre-fix compiler rejected both of these, the fixed one
+  accepted them:
+
+  ```
+  let mine: Int = 1
+  export let use: Int =
+      let mine = 2          -- inner layer: must stay a hard error
+      mine
+  ```
+
+  ```
+  export let use: Int =
+      let tally = 2         -- prelude value, inner layer: likewise
+      tally
+  ```
+
+  The predicate is **scope identity, not nesting depth**: the module scope is the
+  one constructed with the prelude layer as its parent, and it is now held in a
+  field and compared directly. "Module level" is a fact about *which scope object
+  this is*, and depth was only ever a proxy for it — one that happens to coincide
+  everywhere except the case above.
+- **The reusable part:** closing a hole by widening a permission is the shape that
+  invites this. The first fix loosened a check and reasoned about *when* the
+  loosened branch would be taken, rather than testing what it newly admitted. The
+  three F1 pins and the three §5.4-ban guards must pass **together** — that
+  conjunction, not either group alone, is what states the rule. Blinding
+  discriminates the two states separately: reverting to the depth gate reddens
+  only the F1 pins, reverting to `lookup` reddens only the occlusion tests.

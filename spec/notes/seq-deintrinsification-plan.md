@@ -139,6 +139,40 @@ defect log pinned as a conformance test, plus the Seq-shaped cases.
 
 ## Phase 4 — `Seq.hex` and the unification
 
+*(Step 7 landed 2026-07-26; steps 8–9 open, one question blocking.)*
+`stdlib/Seq.hex` is written and validated, and a **prerequisite defect found by
+attempting the join is fixed** (defect 9: a module-level `let` could not occlude
+a prelude value — `Seq.hex` is the first prelude module to export lowercase
+names, so §5.4's guarantee had never been exercised for values). All three of
+step 7's asks were confirmed real rather than assumed: the `emptyCore`/`empty`
+split collapses, and both the defect-1 and defect-2 workarounds revert. The whole
+representation-blind behavioural suite passes against the new file unchanged.
+
+**`Seq.hex` has not joined `PRELUDE_MODULES` yet, deliberately.** Joining it was
+tried, and the result is informative: with defect 9 fixed, the entire suite
+passes except `stdlib/Vector.hex`'s `toSeq`/`fromSeq`, whose `Seq(a)` annotation
+now means the record while the intrinsic they delegate to still yields the
+intrinsic. That single failure is step 8 stated as a test. Joining before step 8
+would leave the two coexisting under one name — the half-unified state Phase 2's
+carry-forward warned about — so the membership commit belongs with the repointing.
+
+**The blocking question (for Fable).** Step 8 says the `toSeq`-family emissions
+"construct or consume the record via the runtime bridges". A record emits as a
+plain object, but `Option` emits as *constructors imported from `./Option.js`* —
+so such a bridge would hardcode the prelude's runtime representation into
+compiler-owned helper strings, which no helper does today. The alternative is
+that the expressible conversions become ordinary `.hex`: `toSeq` over
+`Seq.unfold`, `fromSeq` over `Seq.fold`, with no bridge at all. **Verified: that
+version typechecks.** stdlib-roadmap §5 item 6 appears to settle the direction —
+"public declarations and Hexagon-expressible behavior live in canonical `.hex`
+source; only irreducible operations cross the private boundary" — and §5.1's
+`Seq.hex` row names what is retained as exactly the memoizing spine, `memoize`'s
+buffer, and the FFI Part 3 / `toJsIterable` bridges. What still needs a ruling is
+where the line falls for the cases doctrine pulls the other way on: `Map`/`Set`
+traversal, which §5 item 3 keeps "over a retained tuned HAMT core", and the
+`for x in` desugaring, which §5's closing paragraph makes a compiler
+responsibility. Step 8's shape depends on that line.
+
 7. **Write `stdlib/Seq.hex`** from `runtime/SeqCore.hex`: rename
    `SeqCore`→`Seq`; **revert the defect-1 workaround** (`(source.pull)()` →
    `next(source)` in recursive bodies — home-module code may still use `pull`
