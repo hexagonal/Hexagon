@@ -43,6 +43,11 @@ const clauseContinuations = new Set<Lexed.Token["kind"]>([
  * preceding item instead of receiving a VSEP, so an aligned multiline chain
  * (`numbers` / `.filter(...)` / `.take(5)`) stays one expression while an
  * ordinary item on the next line still starts a new one.
+ *
+ * The set is closed against the current expression grammar: a token belongs only
+ * while it cannot begin an expression. `Minus` is absent because it is also
+ * unary negation. `Less` must be REMOVED when issue #65 lands the type-parameter
+ * lambda form (`<a: Ord>(x) => ...`), which makes `<` expression-initial.
  */
 const expressionContinuations = new Set<Lexed.Token["kind"]>([
   "Dot",

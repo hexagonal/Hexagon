@@ -105,6 +105,17 @@ negation, so a leading `-` begins a new item. A continuation wanting subtraction
 indents deeper or writes the operator at the end of the previous line. (F# and
 Scala 3 carry the same wart for the same reason.)
 
+The rule is uniform across every block, **including the module's own**: at column
+0, `let a = 1` followed by a line beginning `+ 2` continues the binding rather
+than starting a declaration, so `a` is `3`. This is the rule applied consistently,
+not an accident of the top level.
+
+The set is closed against the *current* expression grammar: a token belongs only
+while it cannot begin an expression. Any future syntax that makes a listed token
+expression-initial must remove it here in the same change — `<` is the live case,
+since the type-parameter lambda form of Functions §4.2 (unimplemented, tracked as
+issue #65) would make a line legitimately start with `<`.
+
 ### 2.2 Physical delimiters
 
 Ordinary newlines inside `()`, `[]`, and `{}` are continuation whitespace and
@@ -166,6 +177,7 @@ These are binding on the implementation, same status as the Functions spec's dia
 | `;` inside `()`/`{}`/`<>` argument, tuple, record, or type-parameter context | "did you mean `,`? `;` only separates statements." |
 | A `;`-sequence where a multi-statement lambda body was plausibly intended (lambda immediately preceding the `;` on the line) | append hint: "to give the lambda a multi-statement body, indent it on the following lines; `;` separates the *enclosing* block." |
 | Inconsistent dedent (line at a column matching no open block) | standard offside error, naming the candidate columns. |
+| A line beginning with an expression-continuation token (§2.3) that dedents past the item it would continue | append hint: "a leading operator continues the previous item only at that item's own indentation; indent it to the item's column, or end the previous line with the operator." (The bare "expected a newline or `;` between block items" is loud but unhelpful here.) |
 
 ## 6. Decisions log
 
