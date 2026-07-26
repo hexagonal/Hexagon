@@ -29,10 +29,12 @@ and VCLOSE immediately before EOF. Nested blocks use the same mechanics:
 - Each subsequent line beginning exactly at C: emit VSEP before its first token.
 - A line beginning at column < C: emit VCLOSE (popping repeatedly for multiple dedents), then resume comparison against the revealed enclosing context.
 - Same-line (single-expression) bodies involve no virtual tokens.
-- At an open block's indentation, a new logical item receives VSEP. Deeper
-  indentation is a continuation of the current logical item by default; it does
-  **not** open a block merely because it is deeper. This is what keeps a
-  multi-line declaration, operator expression, or argument list together.
+- At an open block's indentation, a new logical item receives VSEP — *unless* the
+  line begins with a token that can only continue an expression (§2.3), in which
+  case it continues the preceding item. Deeper indentation is a continuation of
+  the current logical item by default; it does **not** open a block merely because
+  it is deeper. This is what keeps a multi-line declaration, operator expression,
+  or argument list together.
 - `else` and `catch` at the enclosing indentation continue the preceding
   `if`/`try` item: any nested body is closed before the clause, but no VSEP is
   inserted between the body and its clause.
@@ -55,11 +57,64 @@ declaration head in the table without changing it.
 | Bare `try` | Try body |
 | `else` or `catch` with no same-line body | Clause body / arm block |
 | `constraint ... =` or `honor ... =` | Member block |
-| Function-header definition ending in `=` (`let f(...) =`, `fun f(...) =`, or a member header) | Function body block |
+| Term binding ending in `=` (`let x =`, `var x =`, `let f(...) =`, `fun f(...) =`, or a member header) | Binding body block |
 
-An ordinary binding RHS (`let x =`), and `record`, `union`, or `type` after
-`=`, are continuations rather than blocks. In particular, indented union
-alternatives receive no VOPEN. `finally` is reserved but is not a v1 block head.
+**Every term binding opens a block.** A binding's indented RHS is a block whose
+value is its final expression, exactly as for a function body — the parameter
+list is irrelevant, so `let x =` and `let f(...) =` behave alike:
+
+```
+let x =
+    let y = 40
+    y + 2        -- x is 42
+```
+
+A single wrapped expression is simply the one-item case, so the ordinary
+multi-line RHS is unaffected. Type declarations are *not* term bindings:
+`record`, `union`, and `type` after `=` remain continuations, which is what keeps
+indented union alternatives free of VOPEN. `finally` is reserved but is not a v1
+block head.
+
+### 2.3 Expression-continuation tokens
+
+Because a term binding's RHS is now a block, a line at that block's own
+indentation would ordinarily start a new item — which would break the aligned
+multiline chain, where every line sits at one column:
+
+```
+export let selected: Seq(Int) =
+    numbers
+    .filter(number => number > 3)
+    .take(5)
+```
+
+So a line beginning with a token that can only *continue* an expression, never
+begin one, continues the preceding item and receives no VSEP. The closed set is
+`.`, `|>`, the binary operators (`+`, `*`, `/`, `==`, `!=`, `<`, `>`, `<=`, `>=`,
+`..`, `->`, `and`, `or`), `,`, and the closing delimiters `)`, `]`, `}`. The same
+rule makes a leading-operator continuation read as one expression:
+
+```
+let total =
+    40
+    + 2          -- total is 42
+```
+
+**`-` is deliberately excluded**: it is both binary subtraction and unary
+negation, so a leading `-` begins a new item. A continuation wanting subtraction
+indents deeper or writes the operator at the end of the previous line. (F# and
+Scala 3 carry the same wart for the same reason.)
+
+The rule is uniform across every block, **including the module's own**: at column
+0, `let a = 1` followed by a line beginning `+ 2` continues the binding rather
+than starting a declaration, so `a` is `3`. This is the rule applied consistently,
+not an accident of the top level.
+
+The set is closed against the *current* expression grammar: a token belongs only
+while it cannot begin an expression. Any future syntax that makes a listed token
+expression-initial must remove it here in the same change — `<` is the live case,
+since the type-parameter lambda form of Functions §4.2 (unimplemented, tracked as
+issue #65) would make a line legitimately start with `<`.
 
 ### 2.2 Physical delimiters
 
@@ -122,6 +177,7 @@ These are binding on the implementation, same status as the Functions spec's dia
 | `;` inside `()`/`{}`/`<>` argument, tuple, record, or type-parameter context | "did you mean `,`? `;` only separates statements." |
 | A `;`-sequence where a multi-statement lambda body was plausibly intended (lambda immediately preceding the `;` on the line) | append hint: "to give the lambda a multi-statement body, indent it on the following lines; `;` separates the *enclosing* block." |
 | Inconsistent dedent (line at a column matching no open block) | standard offside error, naming the candidate columns. |
+| A line beginning with an expression-continuation token (§2.3) that dedents past the item it would continue | append hint: "a leading operator continues the previous item only at that item's own indentation; indent it to the item's column, or end the previous line with the operator." (The bare "expected a newline or `;` between block items" is loud but unhelpful here.) |
 
 ## 6. Decisions log
 
@@ -135,4 +191,6 @@ These are binding on the implementation, same status as the Functions spec's dia
 | `x => { ... }` and trailing-`;` diagnostics mandatory | §5 |
 | Tabs in leading whitespace are rejected before layout | §2; Physical Lexer §2.2 |
 | Deeper indentation is continuation by default; block heads are a closed inventory | §2–2.1 |
+| Every term binding opens a block (`let x =` alike to `let f(...) =`); type declarations stay continuations | §2.1 |
+| A line starting with an expression-continuation token continues the preceding item (leading `-` excluded) | §2.3 |
 | Module is an implicit block; clauses attach without VSEP | §2 |

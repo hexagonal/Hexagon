@@ -37,6 +37,40 @@ const clauseContinuations = new Set<Lexed.Token["kind"]>([
   "Finally",
 ]);
 
+/**
+ * Tokens that can only *continue* an expression, never begin a new item. A line
+ * at an open block's own indentation that starts with one of these continues the
+ * preceding item instead of receiving a VSEP, so an aligned multiline chain
+ * (`numbers` / `.filter(...)` / `.take(5)`) stays one expression while an
+ * ordinary item on the next line still starts a new one.
+ *
+ * The set is closed against the current expression grammar: a token belongs only
+ * while it cannot begin an expression. `Minus` is absent because it is also
+ * unary negation. `Less` must be REMOVED when issue #65 lands the type-parameter
+ * lambda form (`<a: Ord>(x) => ...`), which makes `<` expression-initial.
+ */
+const expressionContinuations = new Set<Lexed.Token["kind"]>([
+  "Dot",
+  "Pipe",
+  "Plus",
+  "Star",
+  "Slash",
+  "EqualEqual",
+  "NotEqual",
+  "LessEqual",
+  "GreaterEqual",
+  "Less",
+  "Greater",
+  "Range",
+  "Arrow",
+  "Comma",
+  "And",
+  "Or",
+  "RightParen",
+  "RightBracket",
+  "RightBrace",
+]);
+
 /** Makes the module block and every nested offside block explicit. */
 export function applyLayout(file: Lexed.File): LaidOut.File {
   const diagnostics = new Diagnostics.Bag();
@@ -184,7 +218,7 @@ function beginLine(
         primary: token.span,
       });
     }
-    if (block.hasContent) {
+    if (block.hasContent && !expressionContinuations.has(token.kind)) {
       output.push(virtual("VSep", token.span));
       block.item.length = 0;
       block.hasContent = false;
@@ -243,6 +277,13 @@ function expectsBlock(item: readonly Lexed.Token[]): boolean {
   }
   if (first?.kind === "Record" || first?.kind === "Union" || first?.kind === "Type") {
     return false;
+  }
+  // Every term binding opens a block: `let x =`, `var x =`, and `fun f(...) =`
+  // alike are followed by a block whose value is its final expression. (A single
+  // wrapped expression is the one-item case.) Type declarations above keep their
+  // continuation treatment — indented union alternatives receive no VOPEN.
+  if (first?.kind === "Let" || first?.kind === "Fun" || first?.kind === "Var") {
+    return true;
   }
 
   return hasBindingParameterList(item);
