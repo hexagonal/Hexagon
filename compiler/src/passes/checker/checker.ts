@@ -2056,11 +2056,17 @@ class Checker {
           knownCallee.kind === "Function" &&
           knownCallee.parameters.length !== arguments_.length
         ) {
+          const unitCall = knownCallee.parameters.length === 1 &&
+              arguments_.length === 0 && this.#solvesToUnit(knownCallee.parameters[0])
+            ? "this function takes one unit argument; write `f(())`"
+            : knownCallee.parameters.length === 0 && arguments_.length === 1
+              ? "this function takes no arguments; write `f()`"
+              : undefined;
           this.#diagnostics.add({
             severity: "error",
-            message:
+            message: unitCall ??
               `function expects ${knownCallee.parameters.length} arguments, got ` +
-              `${arguments_.length}`,
+                `${arguments_.length}`,
             primary: expression.span,
           });
           type = ERROR;
@@ -2867,6 +2873,31 @@ class Checker {
     return variable;
   }
 
+  /** Whether a type is known to be `Unit` — an unsolved variable is not. */
+  #solvesToUnit(type: Mono | undefined): boolean {
+    if (type === undefined) return false;
+    const solved = this.#prune(type);
+    return solved.kind === "Constructor" && solved.name === "Unit";
+  }
+
+  /**
+   * The `() -> T` versus `Unit -> T` confusion, which otherwise surfaces as a
+   * bare 1-and-0 arity mismatch naming neither the cause nor the fix. Only
+   * claimed when the one-parameter side's parameter genuinely solves to `Unit`;
+   * an unsolved variable keeps the general message (Functions §5.3).
+   */
+  #nullaryUnitConfusion(left: Mono, right: Mono): string | undefined {
+    if (left.kind !== "Function" || right.kind !== "Function") return undefined;
+    const [nullary, unary] = left.parameters.length === 0
+      ? [left, right]
+      : [right, left];
+    if (nullary.kind !== "Function" || unary.kind !== "Function") return undefined;
+    if (nullary.parameters.length !== 0 || unary.parameters.length !== 1) return undefined;
+    if (!this.#solvesToUnit(unary.parameters[0])) return undefined;
+    return "`Unit -> T` takes a unit value, so it is a one-parameter function; " +
+      "for a zero-parameter function write `() -> T`";
+  }
+
   #prune(type: Mono): Mono {
     if (type.kind !== "Variable" || type.instance === undefined) return type;
     type.instance = this.#prune(type.instance);
@@ -2903,9 +2934,9 @@ class Checker {
       if (actualLeft.parameters.length !== actualRight.parameters.length) {
         this.#diagnostics.add({
           severity: "error",
-          message:
+          message: this.#nullaryUnitConfusion(actualLeft, actualRight) ??
             `function arity mismatch: ${actualLeft.parameters.length} and ` +
-            `${actualRight.parameters.length}`,
+              `${actualRight.parameters.length}`,
           primary: span,
         });
         return;

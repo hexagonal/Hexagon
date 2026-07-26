@@ -82,6 +82,13 @@ declarations through this list before considering the segment done.
   (canonical-formatting-plan §1.1; Functions §4.1)
 - **S9 [enforced]** No standalone signature lines; types are written only on
   definitions. (Functions §4.1)
+- **S10 [canonical]** `Unit` is never written in parameter position. A thunk's
+  type is `() -> T`, never `Unit -> T` — the two differ, and only the first is
+  zero-parameter. A `Unit`-typed parameter is legitimate when it *arises* from
+  instantiating a generic at `Unit`; it is not written by hand. Where a thunk
+  must reach a generic `a -> b` slot, the bridge is an eta-wrap
+  (`ignored => thunk()`).
+  (Functions §5.3)
 
 ## 3. Literals
 
