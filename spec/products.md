@@ -14,6 +14,7 @@
 - **`record` is an erased nominal wrapper over a closed row.** Nominal at typecheck; the same POJO at runtime; structural at the `.d.ts` boundary (§5).
 - **The unifier never unfolds a nominal record name.** Nominal↔structural crossings are explicit terms: `{...p}` out, the constructor in (§5.3). This preserves principal types and keeps `honor` coherence anchored to names.
 - **Braces mean records, always** — type and term position, never blocks. Blocks are pure layout (Lexer & Layout spec).
+- **`:` types; `=` binds** (§8 correction record). A record *type* gives each field a type: `{x: Float}`. A record *term* — literal or pattern — binds each field: `{x = 1.0}`, `{x = p}`. This makes `:` *classify* everywhere in the language — "is of type" in annotations and record types, "with these obligations" in constraint binders (`<a: Ord>`, Constraints §1) — and `=` mean "binds" everywhere it appears (`let`, `fun`, `honor`, record fields); the token, not the position, tells the reader which kind of braces they are looking at.
 
 ---
 
@@ -36,7 +37,7 @@
 
 ### 2.2 No named elements (decided)
 
-C#-style `(x: 1, y: 2)` is a **parse error** with the hint: "tuples are positional; for named fields use a record: `{x: 1, y: 2}`." Rationale: records already are the anonymous named product; a second one with subtly different semantics is pure confusion surface.
+C#-style `(x: 1, y: 2)` is a **parse error** with the hint: "tuples are positional; for named fields use a record: `{x = 1, y = 2}`." Rationale: records already are the anonymous named product; a second one with subtly different semantics is pure confusion surface.
 
 ### 2.3 Positional access: `itemN`
 
@@ -94,15 +95,15 @@ Plain arrays, no wrapper, no tag. TS tuple types are exactly what a TS author wo
 
 ```
 {x: Float, y: Float}         -- type: closed row (exactly these fields)
-{x: 1.0, y: 2.0}             -- literal
+{x = 1.0, y = 2.0}           -- literal
 {}                           -- the empty record (type and value); never a block
 r.x                          -- field access
-{...r, x: 3.0}               -- functional update (§3.3)
+{...r, x = 3.0}              -- functional update (§3.3)
 ```
 
-- `name: Type` / `name: expr`, comma-separated, braces. Field names are non-uppercase-start identifiers (term-level names, Functions spec §2 case rule).
-- **Construction punning ships** (Pattern Matching §9): `{x, y}` in value position is `{x: x, y: y}`, and it composes with update spread — `{...p, x}` is `{...p, x: x}`. Term-level only; `{x}` in *type* position remains an error ("record types need field types"). The emitter uses JS shorthand whenever a field key and its emitted value are the same identifier, whether the Hexagon source used `{x}` or the equivalent `{x: x}`. **No** computed keys, methods, getters, or spreads-as-construction beyond §3.3.
-- **Tuple and record *literals* permit a trailing comma after the final element/field in an otherwise-valid literal** (`{x: 1, y: 2,}`, `(1, "a",)`) — Collections Part 3 §2/§13. Existing tuple arity and empty-record rules are unchanged. This is a term-literal rule; nothing is inferred for type syntax.
+- `name: Type` in type position / `name = expr` in term position, comma-separated, braces (§1 doctrine; §8 correction record). Field names are non-uppercase-start identifiers (term-level names, Functions spec §2 case rule).
+- **Construction punning ships** (Pattern Matching §9): `{x, y}` in value position is `{x = x, y = y}`, and it composes with update spread — `{...p, x}` is `{...p, x = x}`. Term-level only; `{x}` in *type* position remains an error ("record types need field types"). The emitter uses JS shorthand whenever a field key and its emitted value are the same identifier, whether the Hexagon source used `{x}` or the equivalent `{x = x}`. **No** computed keys, methods, getters, or spreads-as-construction beyond §3.3.
+- **Tuple and record *literals* permit a trailing comma after the final element/field in an otherwise-valid literal** (`{x = 1, y = 2,}`, `(1, "a",)`) — Collections Part 3 §2/§13. Existing tuple arity and empty-record rules are unchanged. This is a term-literal rule; nothing is inferred for type syntax.
 - Duplicate field names in one literal or type: compile error.
 - Field order is **not significant** to the type: `{x: Float, y: Float}` and `{y: Float, x: Float}` are the same type. (Emission order: as written in the constructing literal; see §3.5.)
 - Braces never mean blocks — see the Lexer & Layout spec for the `x => { ... }` diagnostic this requires.
@@ -120,17 +121,17 @@ r.x                          -- field access
 `{...p, overrides}`:
 
 - **Update semantics:** every overridden field must already exist in `p`'s type, at the same type (unifies with the declared field type). Field *addition* is a compile error: "record update cannot add fields; `p` has no field `z`". Result type = `p`'s type — structural in, same structural type out; nominal in, nominal out (§5.3).
-- **v1 shape restriction: exactly one spread, and it comes first.** `{x: 3, ...p}`, `{...a, ...b}` are parse errors. This dodges JS's later-spread-wins precedence entirely; may be relaxed later.
+- **v1 shape restriction: exactly one spread, and it comes first.** `{x = 3, ...p}`, `{...a, ...b}` are parse errors. This dodges JS's later-spread-wins precedence entirely; may be relaxed later.
 - **`{...p}` with no overrides is the nominal→structural eliminator** (§5.3). On an already-structural `p` it is a plain shallow copy of the same type (legal, occasionally useful, harmless).
-- **Emission: as itself.** `{...p, x: 3.0}` emits `{...p, x: 3.0}` — a shallow copy, which is exactly what the syntax means in JS. No lies in the output.
+- **Emission: same shape, JS separator.** `{...p, x = 3.0}` emits `{...p, x: 3.0}` — a shallow copy, which is exactly what the spread syntax means in JS. The `=`→`:` field-separator swap is the only distance between source and output (§3.5); the structure never lies.
 
 ### 3.4 Constraints
 
-Same structural derivation story as tuples (§2.5), fieldwise — automatic, compiler-derived, user-closed; `Hash` registered to Collections Part 2: `Eq`/`Ord`/`Show` defined iff every field's type has them. `Ord` over structural records is field-name-lexicographic then value-lexicographic; nominal records receive it only by explicit opt-in (Constraints §4.5). `show {x: 1, y: 2}` is `"{x: 1, y: 2}"`, fields in name order (deterministic regardless of construction order). This is the "derived structural show for records" that Primitive Types §7 promises.
+Same structural derivation story as tuples (§2.5), fieldwise — automatic, compiler-derived, user-closed; `Hash` registered to Collections Part 2: `Eq`/`Ord`/`Show` defined iff every field's type has them. `Ord` over structural records is field-name-lexicographic then value-lexicographic; nominal records receive it only by explicit opt-in (Constraints §4.5). `show {x = 1, y = 2}` is `"{x = 1, y = 2}"`, fields in name order (deterministic regardless of construction order) — `show` prints the literal a Hexagon author would write, so it follows the term separator (§8). This is the "derived structural show for records" that Primitive Types §7 promises.
 
 ### 3.5 Emission
 
-Records are **POJOs**: `{x: 1.0, y: 2.0}` emits itself. Field order in the emitted literal follows the source literal. `.d.ts`: an inline object type or a named `type`, structurally — `{ x: number; y: number }`.
+Records are **POJOs**: `{x = 1.0, y = 2.0}` emits `{x: 1.0, y: 2.0}` — same fields, same order, JS's `:` separator (the one token the emitter translates; §8). Field order in the emitted literal follows the source literal. `.d.ts`: an inline object type or a named `type`, structurally — `{ x: number; y: number }`.
 
 ---
 
@@ -142,9 +143,9 @@ Three tiers; the word "row" appears in none of them.
 
 ```
 fun getX(r) = r.x        -- inferred: works on any record with field x
-getX({x: 1.0, y: 2.0})   -- fine
-getX({x: 1.0})           -- fine
-getX({y: 2.0})           -- compile error: no field x
+getX({x = 1.0, y = 2.0}) -- fine
+getX({x = 1.0})          -- fine
+getX({y = 2.0})          -- compile error: no field x
 ```
 
 **Tier 1 — `...` in annotations: "and possibly more fields."**
@@ -153,13 +154,13 @@ getX({y: 2.0})           -- compile error: no field x
 fun getX(r: {x: Float, ...}): Float = r.x
 ```
 
-- An annotation **without** `...` is a **closed** row: exactly these fields. `fun f(r: {x: Float}) = ...` rejects `{x: 1.0, y: 2.0}` — error message must say the record has *extra* fields and suggest `...` if acceptance was intended.
+- An annotation **without** `...` is a **closed** row: exactly these fields. `fun f(r: {x: Float}) = ...` rejects `{x = 1.0, y = 2.0}` — error message must say the record has *extra* fields and suggest `...` if acceptance was intended.
 - Each bare `...` denotes its own fresh, anonymous tail.
 
 **Tier 2 — named tails `...r`: relating two rows.** Needed only to assert two record types share the same unknown remainder:
 
 ```
-fun touch(p: {x: Float, ...r}): {x: Float, ...r} = {...p, x: p.x + 1.0}
+fun touch(p: {x: Float, ...r}): {x: Float, ...r} = {...p, x = p.x + 1.0}
 ```
 
 Non-uppercase-start per the type-variable start-class rule; lowercase `a` remains the display convention. It is scoped like other type variables in the same signature. Rarely written; it exists because inferred types must be *displayable* — LSP hover on Tier-0 `getX` shows `{x: Float, ...} -> Float`, or `...a` when a tail is shared across positions. The pretty-printer's output is the ceiling of what a user ever sees.
@@ -198,8 +199,8 @@ For `p : Point` (all pure elaboration against the definition row — no row unif
 | Operation | Behaviour |
 |---|---|
 | `p.x` | checked against `Point`'s row; transparent |
-| `{...p, x: 3.0}` | overrides checked against the row; **result type `Point`** — nominal in, nominal out |
-| `Point({x: 1.0, y: 2.0})` | construction; ordinary call, closed-row literal check |
+| `{...p, x = 3.0}` | overrides checked against the row; **result type `Point`** — nominal in, nominal out |
+| `Point({x = 1.0, y = 2.0})` | construction; ordinary call, closed-row literal check |
 | `{...p}` (no overrides) | **the nominal→structural crossing**: type is the closed row `{x: Float, y: Float}`, which then row-unifies normally (e.g. with `{x: Float, ...}` parameters) |
 
 What does **not** work, by design: passing `p` directly where `{x: Float, ...}` is expected (type error; diagnostic must suggest `{...p}`), and unifying `Point` with any structural record type or other nominal name. The crossings are terms, not coercions.
@@ -209,7 +210,7 @@ What does **not** work, by design: passing `p` directly where `{x: Float, ...}` 
 ### 5.4 Emission
 
 - A `Point` **is** the POJO. No wrapper, no brand, no tag.
-- `Point({x: 1.0, y: 2.0})` **applied directly erases**: emits `{x: 1.0, y: 2.0}`.
+- `Point({x = 1.0, y = 2.0})` **applied directly erases**: emits `{x: 1.0, y: 2.0}`.
 - The constructor is first-class (`map(rows, Point)` is legal); when *referenced* rather than applied, the emitter materialises an identity function — `const Point = r => r;` — emitted on demand (or once per declaration, implementer's choice). **Export is a mandatory demand site**: `export record Point` emits one stable named ESM constructor for JavaScript consumers (FFI Part 7 §3). Direct applications still erase, including internal applications of an exported constructor.
 - `{...p}` emits `{...p}` (a real shallow copy — honest).
 - `.d.ts`: for an **ordinary exported record**, `type Point = { x: number; y: number };` — structural, because the TS boundary is structural regardless; nominality is a Hexagon-side compile-time discipline only, and the spec says so out loud rather than pretending otherwise. An **`export opaque record`** instead uses FFI Part 7 §5's brand-only face (one non-exported `unique symbol`; no fields exposed) — opacity, unlike ordinary nominality, *does* cross the boundary.
@@ -220,7 +221,10 @@ What does **not** work, by design: passing `p` directly where `{x: Float, ...}` 
 
 | Situation | Error / hint |
 |---|---|
-| Named tuple elements `(x: 1, y: 2)` | parse error; hint: use a record `{x: 1, y: 2}` (§2.2) |
+| Named tuple elements `(x: 1, y: 2)` | parse error; hint: use a record `{x = 1, y = 2}` (§2.2) |
+| `:` in a term-position record — `{x: 1}` as a literal | parse error; fixit: "record fields bind with `=`: `{x = 1}`; `:` gives a field its type in record *types*" (§8; the JS-muscle-memory near-miss, permanent diagnostic) |
+| `{x := 1}` in a literal | parse error; fixit: "did you mean `=`? `:=` assigns to a `var` (Statements §6)" (§8) |
+| `{x => e}` in a term brace | parse error; fixit: "did you mean `=`? `=>` is the lambda/arm arrow — a lambda-valued field is `{x = y => e}`" (§8; the hash-rocket habit, one character from `=`; distinct from Lexer & Layout §5's `x => { ... }` braces-as-block case) |
 | Tuple passed to n-ary function | arity error + destructuring hint (Functions spec §5; §2.1) |
 | `t.item0` / `t.itemN` beyond arity | targeted messages (§2.3) |
 | Destructuring arity mismatch | tuple-arity error (§2.4) |
@@ -244,8 +248,9 @@ What does **not** work, by design: passing `p` directly where `{x: Float, ...}` 
 | `t.itemN`, 1-based, type-directed, emits `t[N-1]`; not a row; unchanged in the dot-call resolution table | §2.3 |
 | Destructuring = the pattern grammar's degenerate case: nesting ships; lambda-head irrefutable patterns per the depth rule; `let`-pattern binders sequential | §2.4 |
 | Tuples = JS arrays, TS tuple types | §2.6 |
-| Record syntax `{name: Type}` / `{name: expr}`; construction punning ships (`{x, y}`, `{...p, x}`); trailing comma in term literals; `{}` = empty record | §3.1 |
-| Spread update `{...p, x: e}`; no field addition; one spread, first; emits itself | §3.3 |
+| Record syntax `{name: Type}` in types / `{name = expr}` in terms; construction punning ships (`{x, y}`, `{...p, x}`); trailing comma in term literals; `{}` = empty record | §3.1, §8 |
+| Spread update `{...p, x = e}`; no field addition; one spread, first; emits the JS spread | §3.3 |
+| Term-position field separator is `=`, type-position is `:` — `:` classifies language-wide, `=` means "binds"; patterns follow terms (Pattern Matching §16); `show` follows the literal; JS emission translates `=`→`:` | §8 |
 | Rows hidden: Tier 0 invisible / Tier 1 `...` / Tier 2 `...r`; closed-by-default annotations | §4 |
 | Row power = access + update only; no extension/deletion/concat; records only; no subtyping | §4 |
 | "Row" banned from diagnostics | §4 |
@@ -255,3 +260,48 @@ What does **not** work, by design: passing `p` directly where `{x: Float, ...}` 
 | `.d.ts` structural for ordinary exports; `export opaque record` = FFI Part 7 §5 brand-only face | §5.4 |
 | Structural Eq/Ord/Show/Hash: automatic, compiler-derived, **user-closed** (semantics §2.5/§3.4; `Hash` → Collections Part 2); nominal records derive only by explicit `derive`/`derives` (Constraints §4.5) | §2.5, §3.4, §5.2 |
 | Tier-0 row inference unchanged by dot calls; fused `r.name(args…)` = field access unless head-known nominal | §3.2 |
+
+---
+
+## 8. Correction record: term-position record fields bind with `=` (July 2026)
+
+This spec originally used `:` as the field separator in **both** positions: `{x: Float}` (type) and `{x: 1.0}` (literal), with record patterns following (`{x: p}`). Superseded, corpus-wide: **record types keep `:`; record terms — literals and patterns — use `=`.** The sections above are edited in place; this record preserves the decision trail.
+
+### 8.1 Rationale
+
+- **`:` classifies everywhere else in Hexagon** — "is of type" in `let x: Int`, parameter and return annotations, `record Point = {x: Float, y: Float}`; "with these obligations" in constraint binders `<a: Ord>` (Constraints §1). Term-position record literals were the sole place `:` sat between a name and a *value*, and because §1 commits to "braces mean records, always, in both positions," the classifying and binding readings occurred in visually identical contexts, distinguishable only by position. The token now disambiguates: `:` classifies, `=` binds.
+- **The operator family becomes uniform**: `=` binds (`let`, `fun`, `honor`, record fields), `:=` mutates, `:` types, `=>` maps (lambdas, arms). A field initializer *is* a binding; `=` is the semantically honest token.
+- **The confusion was observed, not hypothesized**: Pattern Matching had to legislate a dedicated diagnostic for `{x: Float}` in pattern position being misread as an annotation (its former §2.4 guard). Under `=` that misreading class is structurally impossible, and the guard becomes a crisper fixit (Pattern Matching §16).
+- **Precedent**: the ML family — Standard ML, OCaml, Haskell, F#, and **Elm**, whose record-type/record-value split (`{ x : Float }` / `{ x = 1 }`) is exactly this rule and whose row-polymorphism power level §4 already cites as the calibration point.
+- **No grammar cost.** `=` is not an expression operator (assignment is `:=`; equality is `==`), braces are never blocks, and bindings cannot appear inside braces — `{x = e}` has exactly one parse. The former `{x:= 1}` maximal-munch trap (`:` + `=` lexing as `:=`) disappears along with the `:` itself; a written `{x := 1}` now gets its own fixit (§6).
+
+### 8.2 Honest cost, recorded
+
+For JS-trained readers (the target audience), `{x: 1}` is muscle memory, and `{x = 1}` is a *false friend*: in JS destructuring it means a default value, and in JS literals it is a syntax error. Answered rather than dismissed: Hexagon already asks this audience to relearn `fun`, `:=`, `match`, and no-`return`; the permanent §6 fixit catches the literal habit on first contact; and the alternative was a permanent ambiguity inside the language's own annotation convention. Emission is unaffected — records are still POJOs, and the emitter's JS-shorthand rule keys on field name = emitted identifier, not on surface syntax.
+
+Pattern position carries its own, *larger* cost, recorded in Pattern Matching §16: there the old `:` matched JS destructuring's rename semantics exactly, so `=` gives up a true correspondence, not just a habit.
+
+### 8.3 Rejected alternative (do not re-litigate without new information)
+
+| Rejection | Reasoning |
+|---|---|
+| Keep `:` in term position (JS/TS/Rust style) | Overloads "is of type" in visually identical brace contexts; demonstrably confusing in pattern position (§8.1); breaks the `=`-binds family rule. JS familiarity genuinely argues for it — in pattern position the old `:` even matched JS destructuring's rename exactly (Pattern Matching §16) — but that cost is one-time, per-reader, and fixit-caught, while the annotation-convention overload is permanent and internal to the language. |
+| `=` in literals but `:` in patterns | Reintroduces the overload in the position where it was observed; breaks construction/destructuring symmetry (punning must read identically both ways); no precedent anywhere. |
+
+### 8.4 Scope of the token, precisely
+
+- **Unchanged, `:`** — record *types* (`{x: Float, ...}`), all annotations, the `record`/`type` declaration RHS (type position), everything in emitted JS and `.d.ts` (that's JavaScript's separator; the emitter translates), and JS/`.d.ts` example blocks throughout the corpus.
+- **Changed, `=`** — record literals, update spread overrides (`{...p, x = 3.0}`), record patterns (`{f = p}`, Pattern Matching §16), the derived `show` rendering (`"{x = 1, y = 2}"`), witness-pattern rendering in diagnostics (Pattern Matching §7.3).
+- **Punning is untouched** in both worlds: `{x, y}`, `{...p, x}`, pattern `{f}`.
+
+### 8.5 Edit notes to other specs (apply on next touch; until then this section governs the quoted text)
+
+1. **Statements/Blocks/Mutability §5.1, §6.3, §9.1–§9.3 (acceptance-test comment, book edit note, diagnostics checklist)** → the rename fixit `{name: orderName}` becomes `{name = orderName}` (four occurrences), and the record-immutability fixit's suggested copy `{...p, x: e}` becomes `{...p, x = e}` (two occurrences: §6.3 prose and the §9.3 checklist row).
+2. **Modules** (the `Point` examples: `make`, import examples) → `Point({x = x, y = y})`, `Point({x = 1.0, y = 2.0})`.
+3. **Method Syntax** (§3.4 examples) → `f({callback = n => n + 1})`, `Box({size = 3})`.
+4. **Collections Part 2** (the `hash(Point {x: 1.0, y: 2.0})` example) → `hash(Point({x = 1.0, y = 2.0}))` (also repairing the missing constructor-call parens in that line).
+5. **Collections Part 4** (the `Weird` example) → `Map.set(Map.empty, Weird({s = "K"}), 1)` (same paren repair).
+6. **Decisions Batch 2026-07** (nominal-Eq examples) → `Point({x = 1.0, y = 2.0})`, `Blob({x = 1.0})`.
+7. **Lexer & Layout** (the `x => { print(x) }` diagnostic) → "entries aren't `field = value`"; no new layout rules — the change is purely a parser-level token choice inside braces.
+8. **hexagon-for-typescript-coders** → the records chapter teaches the `:`/`=` split up front, names both JS false friends (`{x: 1}` literal habit → fixit; `{x = 1}` destructuring-default misreading), and shows the emitted JS is still `{x: 1}`. Its update section's "the spread syntax emits *itself* — no lies in the output" is now **false as stated** and takes §3.3's honest form instead: same shape, JS separator, the structure never lies.
+9. **The book (`book/`: the records chapter of the draft, its plan, and the continuity notes) and the working notes (`spec/notes/seq-core-representation.md`, `seq-deintrinsification-plan.md`, `compiler-conformance-defects.md`)** carry a further ~25 term literals — the reservation/`Point` examples and the `Seq({ pull: ... })` family. **Deliberately deferred to the implementation PR**, which updates prose and the code it quotes together; until then this section governs their quoted syntax too, same as the specs above.
