@@ -403,3 +403,33 @@ test("the implicit prelude supplies Option without an import", () => {
   expect(paths).toContain("/Option.hex");
   expect(paths).not.toContain("/Prelude.hex");
 });
+
+test("reports each module's own diagnostics on the project", () => {
+  const project = compileProject([
+    new Source.File(
+      Source.fileId(0),
+      "/app/main.hex",
+      "export let broken: Int = missing(1)\n",
+    ),
+  ]);
+
+  // Without aggregation a failing module reports success and hands back broken
+  // JavaScript; the project's diagnostics must carry what the module found.
+  const moduleDiagnostics = project.modules.flatMap(({ typed }) => typed.diagnostics);
+  expect(moduleDiagnostics.length).toBeGreaterThan(0);
+  expect(project.diagnostics.map(({ message }) => message)).toEqual(
+    expect.arrayContaining(moduleDiagnostics.map(({ message }) => message)),
+  );
+});
+
+test("reports a type error found only by the checker", () => {
+  const project = compileProject([
+    new Source.File(
+      Source.fileId(0),
+      "/app/main.hex",
+      "let identity(value: Int): Int = value\nexport let out: Int = identity(\"text\")\n",
+    ),
+  ]);
+
+  expect(project.diagnostics.length).toBeGreaterThan(0);
+});
