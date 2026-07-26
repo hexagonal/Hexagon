@@ -741,7 +741,16 @@ class Resolver {
         };
       }
       case "Let": {
-        const existing = scope.lookup(item.name.text);
+        // Modules §5.4 is layered: a *module-level* binder may occlude a prelude
+        // name (the local one wins unqualified, the prelude's stays reachable
+        // qualified), while a *function-local* binder may occlude nothing,
+        // prelude included. `lookupLocal` stops at this module's own layer;
+        // `lookup` walks out through the prelude layer. `fun` already drew this
+        // distinction in the predeclare pass — `let` did not, which is why the
+        // rule went untested until the prelude first exported a lowercase name.
+        const existing = this.#lambdaDepth === 0
+          ? scope.lookupLocal(item.name.text)
+          : scope.lookup(item.name.text);
         if (existing !== undefined) this.#reportRebinding(item.name, existing);
 
         const binding = this.#predeclaredBindings.get(item) ?? this.#declare(item.name, "let");
