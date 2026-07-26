@@ -175,7 +175,11 @@ describe("a user record occludes a same-named intrinsic, coherently", () => {
   });
 });
 
-describe("boundary intrinsics still resolve when no declaration competes", () => {
+describe("the boundary intrinsics are a fallback in both directions", () => {
+  // Modules §5.5 names `Array`, `Nullable`, and the runtime-private `Node`
+  // explicitly: deliberately *not* prelude-declared, and resolved after
+  // declarations, never before. Both halves of that need pinning — that they
+  // still resolve when nothing competes, and that they yield when something does.
   test("`Array` at an extern boundary", () => {
     expect(diagnostics(
       "extern from \"host\"\n    fun sink(values: Array(Int)): Unit\n",
@@ -209,6 +213,34 @@ describe("boundary intrinsics still resolve when no declaration competes", () =>
     expect(runtimeDiagnostics(
       "export record Node(a) = { item: a }\n" +
       "export fun make(item: Int): Node(Int) = Node({ item: item })\n", { runtime: true },
+    )).toEqual([]);
+  });
+
+  test("a user `record Array(a)` outranks the boundary intrinsic", () => {
+    expect(diagnostics(
+      "export record Array(a) = { item: a }\n" +
+      "export fun wrap(item: Int): Array(Int) = Array({ item: item })\n",
+    )).toEqual([]);
+  });
+
+  test("a user `record Nullable(a)` outranks the boundary intrinsic", () => {
+    expect(diagnostics(
+      "export record Nullable(a) = { item: a }\n" +
+      "export fun wrap(item: Int): Nullable(Int) = Nullable({ item: item })\n",
+    )).toEqual([]);
+  });
+
+  test("the occlusion reaches into extern signatures too", () => {
+    // §5.5 grants no carve-out for extern positions, so an occluding declaration
+    // wins there as well: `sink` takes the *record*. The call is the discriminator
+    // — `Array({ item: ... })` can only be the record's constructor, so if the
+    // extern's parameter had stayed the intrinsic this would not typecheck.
+    // Recorded because it is the consequence a later reader of FFI Part 3 is most
+    // likely to be surprised by, and it is a consequence of the spec as written.
+    expect(diagnostics(
+      "export record Array(a) = { item: a }\n" +
+      "extern from \"host\"\n    fun sink(values: Array(Int)): Unit\n" +
+      "export fun use(item: Int): Unit = sink(Array({ item: item }))\n",
     )).toEqual([]);
   });
 });

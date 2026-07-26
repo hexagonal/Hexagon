@@ -288,13 +288,21 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   — occlusion coherence for a user `record Vector(a)` across annotation,
   constructor, field read, same-module and imported-home companion dispatch, and
   a runtime round-trip; the arity discriminator; `Map(k, v)` and `Seq(a)` forms;
-  the `union` control pinned against regression; `Array`, `Nullable`, and
-  runtime-private `Node` still resolving uncontested (and `Node` still hidden
-  outside a runtime module, and outranked by a runtime `record Node(a)`);
+  the `union` control pinned against regression; the boundary intrinsics pinned
+  in **both** directions — `Array`, `Nullable`, and runtime-private `Node` still
+  resolving uncontested, `Node` still hidden outside a runtime module, and each
+  of the three outranked by a same-named user record;
   `Vector`/`Set`/`Map`/`Seq` intrinsics still working; the `for ... in`
   desugaring unaffected; and the term-level yield pinned in the positive
   direction, via module aliases named `Seq` and `Vector`. Sensitivity verified by
-  blinding, not assumed: with the resolver change reverted, 10 of the 22 go red.
+  blinding, not assumed: with the resolver change reverted, 13 of the 25 go red.
+- **Occlusion reaches extern signatures.** §5.5 grants no carve-out for extern
+  positions, so a user `record Array(a)` is what an `extern fun sink(values:
+  Array(Int))` in that module takes — pinned, with the constructor call as the
+  discriminator. Noted because it is the consequence a later reader of FFI Part 3
+  is most likely to be surprised by, and it follows from the spec as written
+  rather than from an implementation choice. (Found by Fable probing PR #87
+  beyond the suite; the two boundary-occlusion tests are Fable's finding F1.)
 - **Known residue, pinned deliberately.** Occluding `Vector` does not redirect
   the `[...]` **literal**, which is dedicated syntax wired to the intrinsic — so
   `fun lit(): Vector(Int) = [1, 2, 3]` still yields the same-name mismatch, now
