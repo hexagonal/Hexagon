@@ -14,7 +14,7 @@
 - **`record` is an erased nominal wrapper over a closed row.** Nominal at typecheck; the same POJO at runtime; structural at the `.d.ts` boundary (§5).
 - **The unifier never unfolds a nominal record name.** Nominal↔structural crossings are explicit terms: `{...p}` out, the constructor in (§5.3). This preserves principal types and keeps `honor` coherence anchored to names.
 - **Braces mean records, always** — type and term position, never blocks. Blocks are pure layout (Lexer & Layout spec).
-- **`:` types; `=` binds** (§8 correction record). A record *type* gives each field a type: `{x: Float}`. A record *term* — literal or pattern — binds each field: `{x = 1.0}`, `{x = p}`. This makes `:` mean "is of type" everywhere in the language and `=` mean "binds" everywhere it appears (`let`, `fun`, `honor`, record fields); the token, not the position, tells the reader which kind of braces they are looking at.
+- **`:` types; `=` binds** (§8 correction record). A record *type* gives each field a type: `{x: Float}`. A record *term* — literal or pattern — binds each field: `{x = 1.0}`, `{x = p}`. This makes `:` *classify* everywhere in the language — "is of type" in annotations and record types, "with these obligations" in constraint binders (`<a: Ord>`, Constraints §1) — and `=` mean "binds" everywhere it appears (`let`, `fun`, `honor`, record fields); the token, not the position, tells the reader which kind of braces they are looking at.
 
 ---
 
@@ -224,6 +224,7 @@ What does **not** work, by design: passing `p` directly where `{x: Float, ...}` 
 | Named tuple elements `(x: 1, y: 2)` | parse error; hint: use a record `{x = 1, y = 2}` (§2.2) |
 | `:` in a term-position record — `{x: 1}` as a literal | parse error; fixit: "record fields bind with `=`: `{x = 1}`; `:` gives a field its type in record *types*" (§8; the JS-muscle-memory near-miss, permanent diagnostic) |
 | `{x := 1}` in a literal | parse error; fixit: "did you mean `=`? `:=` assigns to a `var` (Statements §6)" (§8) |
+| `{x => e}` in a term brace | parse error; fixit: "did you mean `=`? `=>` is the lambda/arm arrow — a lambda-valued field is `{x = y => e}`" (§8; the hash-rocket habit, one character from `=`; distinct from Lexer & Layout §5's `x => { ... }` braces-as-block case) |
 | Tuple passed to n-ary function | arity error + destructuring hint (Functions spec §5; §2.1) |
 | `t.item0` / `t.itemN` beyond arity | targeted messages (§2.3) |
 | Destructuring arity mismatch | tuple-arity error (§2.4) |
@@ -249,7 +250,7 @@ What does **not** work, by design: passing `p` directly where `{x: Float, ...}` 
 | Tuples = JS arrays, TS tuple types | §2.6 |
 | Record syntax `{name: Type}` in types / `{name = expr}` in terms; construction punning ships (`{x, y}`, `{...p, x}`); trailing comma in term literals; `{}` = empty record | §3.1, §8 |
 | Spread update `{...p, x = e}`; no field addition; one spread, first; emits the JS spread | §3.3 |
-| Term-position field separator is `=`, type-position is `:` — `:` means "is of type" language-wide, `=` means "binds"; patterns follow terms (Pattern Matching §16); `show` follows the literal; JS emission translates `=`→`:` | §8 |
+| Term-position field separator is `=`, type-position is `:` — `:` classifies language-wide, `=` means "binds"; patterns follow terms (Pattern Matching §16); `show` follows the literal; JS emission translates `=`→`:` | §8 |
 | Rows hidden: Tier 0 invisible / Tier 1 `...` / Tier 2 `...r`; closed-by-default annotations | §4 |
 | Row power = access + update only; no extension/deletion/concat; records only; no subtyping | §4 |
 | "Row" banned from diagnostics | §4 |
@@ -268,7 +269,7 @@ This spec originally used `:` as the field separator in **both** positions: `{x:
 
 ### 8.1 Rationale
 
-- **`:` means "is of type" everywhere else in Hexagon** — `let x: Int`, parameter and return annotations, `record Point = {x: Float, y: Float}`. Term-position record literals were the sole exception, and because §1 commits to "braces mean records, always, in both positions," the two readings of `:` occurred in visually identical contexts, distinguishable only by position. The token now disambiguates: `:` types, `=` binds.
+- **`:` classifies everywhere else in Hexagon** — "is of type" in `let x: Int`, parameter and return annotations, `record Point = {x: Float, y: Float}`; "with these obligations" in constraint binders `<a: Ord>` (Constraints §1). Term-position record literals were the sole place `:` sat between a name and a *value*, and because §1 commits to "braces mean records, always, in both positions," the classifying and binding readings occurred in visually identical contexts, distinguishable only by position. The token now disambiguates: `:` classifies, `=` binds.
 - **The operator family becomes uniform**: `=` binds (`let`, `fun`, `honor`, record fields), `:=` mutates, `:` types, `=>` maps (lambdas, arms). A field initializer *is* a binding; `=` is the semantically honest token.
 - **The confusion was observed, not hypothesized**: Pattern Matching had to legislate a dedicated diagnostic for `{x: Float}` in pattern position being misread as an annotation (its former §2.4 guard). Under `=` that misreading class is structurally impossible, and the guard becomes a crisper fixit (Pattern Matching §16).
 - **Precedent**: the ML family — Standard ML, OCaml, Haskell, F#, and **Elm**, whose record-type/record-value split (`{ x : Float }` / `{ x = 1 }`) is exactly this rule and whose row-polymorphism power level §4 already cites as the calibration point.
@@ -278,11 +279,13 @@ This spec originally used `:` as the field separator in **both** positions: `{x:
 
 For JS-trained readers (the target audience), `{x: 1}` is muscle memory, and `{x = 1}` is a *false friend*: in JS destructuring it means a default value, and in JS literals it is a syntax error. Answered rather than dismissed: Hexagon already asks this audience to relearn `fun`, `:=`, `match`, and no-`return`; the permanent §6 fixit catches the literal habit on first contact; and the alternative was a permanent ambiguity inside the language's own annotation convention. Emission is unaffected — records are still POJOs, and the emitter's JS-shorthand rule keys on field name = emitted identifier, not on surface syntax.
 
+Pattern position carries its own, *larger* cost, recorded in Pattern Matching §16: there the old `:` matched JS destructuring's rename semantics exactly, so `=` gives up a true correspondence, not just a habit.
+
 ### 8.3 Rejected alternative (do not re-litigate without new information)
 
 | Rejection | Reasoning |
 |---|---|
-| Keep `:` in term position (JS/TS/Rust style) | Overloads "is of type" in visually identical brace contexts; demonstrably confusing in pattern position (§8.1); breaks the `=`-binds family rule. JS familiarity argues for it, but the familiarity is partial — JS gives the *same* token a *third* meaning (destructuring default) — so neither choice preserves JS semantics, and only `=` preserves Hexagon's. |
+| Keep `:` in term position (JS/TS/Rust style) | Overloads "is of type" in visually identical brace contexts; demonstrably confusing in pattern position (§8.1); breaks the `=`-binds family rule. JS familiarity genuinely argues for it — in pattern position the old `:` even matched JS destructuring's rename exactly (Pattern Matching §16) — but that cost is one-time, per-reader, and fixit-caught, while the annotation-convention overload is permanent and internal to the language. |
 | `=` in literals but `:` in patterns | Reintroduces the overload in the position where it was observed; breaks construction/destructuring symmetry (punning must read identically both ways); no precedent anywhere. |
 
 ### 8.4 Scope of the token, precisely
@@ -293,11 +296,12 @@ For JS-trained readers (the target audience), `{x: 1}` is muscle memory, and `{x
 
 ### 8.5 Edit notes to other specs (apply on next touch; until then this section governs the quoted text)
 
-1. **Statements/Blocks/Mutability §5.1, §9.1–§9.3 (acceptance-test comment, book edit note, diagnostics checklist)** → the rename fixit `{name: orderName}` becomes `{name = orderName}` (four occurrences).
+1. **Statements/Blocks/Mutability §5.1, §6.3, §9.1–§9.3 (acceptance-test comment, book edit note, diagnostics checklist)** → the rename fixit `{name: orderName}` becomes `{name = orderName}` (four occurrences), and the record-immutability fixit's suggested copy `{...p, x: e}` becomes `{...p, x = e}` (two occurrences: §6.3 prose and the §9.3 checklist row).
 2. **Modules** (the `Point` examples: `make`, import examples) → `Point({x = x, y = y})`, `Point({x = 1.0, y = 2.0})`.
 3. **Method Syntax** (§3.4 examples) → `f({callback = n => n + 1})`, `Box({size = 3})`.
 4. **Collections Part 2** (the `hash(Point {x: 1.0, y: 2.0})` example) → `hash(Point({x = 1.0, y = 2.0}))` (also repairing the missing constructor-call parens in that line).
 5. **Collections Part 4** (the `Weird` example) → `Map.set(Map.empty, Weird({s = "K"}), 1)` (same paren repair).
 6. **Decisions Batch 2026-07** (nominal-Eq examples) → `Point({x = 1.0, y = 2.0})`, `Blob({x = 1.0})`.
 7. **Lexer & Layout** (the `x => { print(x) }` diagnostic) → "entries aren't `field = value`"; no new layout rules — the change is purely a parser-level token choice inside braces.
-8. **hexagon-for-typescript-coders** → the records chapter teaches the `:`/`=` split up front, names both JS false friends (`{x: 1}` literal habit → fixit; `{x = 1}` destructuring-default misreading), and shows the emitted JS is still `{x: 1}`.
+8. **hexagon-for-typescript-coders** → the records chapter teaches the `:`/`=` split up front, names both JS false friends (`{x: 1}` literal habit → fixit; `{x = 1}` destructuring-default misreading), and shows the emitted JS is still `{x: 1}`. Its update section's "the spread syntax emits *itself* — no lies in the output" is now **false as stated** and takes §3.3's honest form instead: same shape, JS separator, the structure never lies.
+9. **The book (`book/`: the records chapter of the draft, its plan, and the continuity notes) and the working notes (`spec/notes/seq-core-representation.md`, `seq-deintrinsification-plan.md`, `compiler-conformance-defects.md`)** carry a further ~25 term literals — the reservation/`Point` examples and the `Seq({ pull: ... })` family. **Deliberately deferred to the implementation PR**, which updates prose and the code it quotes together; until then this section governs their quoted syntax too, same as the specs above.
