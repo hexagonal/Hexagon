@@ -58,7 +58,7 @@ describe("emitJavaScript", () => {
         "export let second: Int = values[2]\n" +
         "export let window: Vector(Int) = values[2..99]\n" +
         "export let letter: String = \"héllo\"[2]\n" +
-        "export let fingerprint: Int = hash((values, {name: \"hex\"}))\n" +
+        "export let fingerprint: Int = hash((values, {name = \"hex\"}))\n" +
         "export let first: Int = match values\n" +
         "    [head, ...rest] => head\n" +
         "    [] => 0",
@@ -221,7 +221,7 @@ describe("emitJavaScript", () => {
         "honor Iterable<Bag> =\n" +
         "    type Item = Int\n" +
         "    iterate(bag) = bag.items\n" +
-        "let bag = Bag({items: Seq.take(Seq.iterate(1, x => x + 1), 2)})\n" +
+        "let bag = Bag({items = Seq.take(Seq.iterate(1, x => x + 1), 2)})\n" +
         "for value in bag\n" +
         "    console.log(value)\n" +
         "for value in [1, 2]\n" +
@@ -432,7 +432,7 @@ describe("emitJavaScript", () => {
         '    (true, count) => "active"\n' +
         '    (_, _) => "inactive"\n' +
         'fun recordName(user: {name: String, active: Bool}): String = match user\n' +
-        '    {active: true, name} => name\n' +
+        '    {active = true, name} => name\n' +
         '    {name} => name',
     )).text;
     expect(structural).toContain("if (__hex_match0[0] === true)");
@@ -443,7 +443,7 @@ describe("emitJavaScript", () => {
 
   test("emits matching record fields as JavaScript shorthand", () => {
     const module = coreSource(
-      'let guest = "Mira"\nlet seats = 3\nlet reservation = {guest, seats: seats}',
+      'let guest = "Mira"\nlet seats = 3\nlet reservation = {guest, seats = seats}',
     );
     expect(module.diagnostics).toEqual([]);
     expect(emitJavaScript(module).text).toContain(
@@ -482,7 +482,7 @@ describe("emitJavaScript", () => {
       "export union Result = Ok(value: (String, Int)) | Err(error: {context: {message: String}, code: Int})\n" +
         "export fun describe(result: Result): String = match result\n" +
         "    Ok((name, _)) => name\n" +
-        "    Err({context: {message: reason}}) => reason",
+        "    Err({context = {message = reason}}) => reason",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -495,7 +495,7 @@ describe("emitJavaScript", () => {
 
   test("renders shared named record tails in TypeScript declarations", () => {
     const module = coreSource(
-      'export fun rename(r: {guest: String, ...rest}): {guest: String, ...rest} = {...r, guest: "Renamed"}',
+      'export fun rename(r: {guest: String, ...rest}): {guest: String, ...rest} = {...r, guest = "Renamed"}',
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -506,8 +506,8 @@ describe("emitJavaScript", () => {
 
   test("emits annotated record updates and open record destructuring readably", () => {
     const module = coreSource(
-      "export let origin: {x: Float, y: Float} = {x: 0.0, y: 0.0}\n" +
-        "fun move(p: {x: Float, y: Float}): {x: Float, y: Float} = {...p, x: p.x + 1.0}\n" +
+      "export let origin: {x: Float, y: Float} = {x = 0.0, y = 0.0}\n" +
+        "fun move(p: {x: Float, y: Float}): {x: Float, y: Float} = {...p, x = p.x + 1.0}\n" +
         "let moved = move(origin)\n" +
         "let {x, y} = moved",
     );
@@ -531,7 +531,7 @@ describe("emitJavaScript", () => {
     const module = coreSource(
       "export union Shape = Circle(radius: Float) | Point\n" +
         "fun xOf(r) = r.x\n" +
-        "let point = {x: 3, y: 4}\n" +
+        "let point = {x = 3, y = 4}\n" +
         "let x = xOf(point)\n" +
         "export fun radius(shape: Shape): Float = match shape\n" +
         "    Circle(value) => value\n" +
@@ -575,8 +575,8 @@ describe("emitJavaScript", () => {
     const module = coreSource(
       "export record Box(a) = {value: a}\n" +
         "export fun get(box: Box(a)): a = box.value\n" +
-        "export let answer: Box(Int) = Box({value: 42})\n" +
-        "export let changed: Box(Int) = {...answer, value: 43}\n" +
+        "export let answer: Box(Int) = Box({value = 42})\n" +
+        "export let changed: Box(Int) = {...answer, value = 43}\n" +
         "export fun expose(box: Box(Int)): {value: Int} = {...box}",
     );
 
@@ -683,8 +683,8 @@ describe("emitJavaScript", () => {
   test("resolves nominal dot calls to subject-first companion operations", () => {
     const module = coreSource(
       "export record Point = {x: Int, y: Int}\n" +
-        "fun translate(point: Point, dx: Int): Point = {...point, x: point.x + dx}\n" +
-        "export let shifted: Point = Point({x: 1, y: 2}).translate(3)",
+        "fun translate(point: Point, dx: Int): Point = {...point, x = point.x + dx}\n" +
+        "export let shifted: Point = Point({x = 1, y = 2}).translate(3)",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -1222,9 +1222,9 @@ describe("emitJavaScript", () => {
           "        let reducedTop = BigInt.quot(top, divisor)\n" +
           "        let reducedBottom = BigInt.quot(bottom, divisor)\n" +
           "        if reducedBottom < 0n then\n" +
-          "            Rat({top: -reducedTop, bottom: -reducedBottom})\n" +
+          "            Rat({top = -reducedTop, bottom = -reducedBottom})\n" +
           "        else\n" +
-          "            Rat({top: reducedTop, bottom: reducedBottom})\n" +
+          "            Rat({top = reducedTop, bottom = reducedBottom})\n" +
           "let add(left: Rat, right: Rat): Rat =\n" +
           "    create(left.top * right.bottom + right.top * left.bottom, left.bottom * right.bottom)\n" +
           "let half = create(1n, 2n)\n" +
@@ -1275,15 +1275,15 @@ describe("emitJavaScript", () => {
         "record Box = {value: Int}\n" +
           "let create(value: Int): Box = Box({value})\n" +
           "honor Num<Box> =\n" +
-          "    add(left, right) = Box({value: left.value + right.value})\n" +
-          "    multiply(left, right) = Box({value: left.value * right.value})\n" +
+          "    add(left, right) = Box({value = left.value + right.value})\n" +
+          "    multiply(left, right) = Box({value = left.value * right.value})\n" +
           "    fromNat(value) = create(value)\n" +
           "honor Signed<Box> =\n" +
-          "    subtract(left, right) = Box({value: left.value - right.value})\n" +
-          "    negate(box) = Box({value: -box.value})\n" +
+          "    subtract(left, right) = Box({value = left.value - right.value})\n" +
+          "    negate(box) = Box({value = -box.value})\n" +
           "    fromInt(value) = Box({value})\n" +
           "let count: Int = 3\n" +
-          "let box = Box({value: 2})\n" +
+          "let box = Box({value = 2})\n" +
           "let combined = count + box",
       ),
     );
@@ -1511,7 +1511,7 @@ describe("emitJavaScript", () => {
         "honor Render<Point> =\n" +
         '    render(point) = "Point(${point.x})"\n' +
         "let display<a: Render>(value: a): String = render(value)\n" +
-        "export let text: String = display(Point({x: 3}))",
+        "export let text: String = display(Point({x = 3}))",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -1533,7 +1533,7 @@ describe("emitJavaScript", () => {
         "record Token = {value: Int}\n" +
         "honor Same<Token> =\n" +
         "    same(left, right) = left.value == right.value\n" +
-        "export let changed: Bool = different(Token({value: 1}), Token({value: 2}))",
+        "export let changed: Bool = different(Token({value = 1}), Token({value = 2}))",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -1560,7 +1560,7 @@ describe("emitJavaScript", () => {
         "honor Labeled<Token> =\n" +
         '    label(value) = "token"\n' +
         "fun agrees<a: Labeled>(left: a, right: a): Bool = same(left, right)\n" +
-        "export let yes: Bool = agrees(Token({value: 1}), Token({value: 1}))",
+        "export let yes: Bool = agrees(Token({value = 1}), Token({value = 1}))",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -1582,7 +1582,7 @@ describe("emitJavaScript", () => {
         "record Box(a) = {value: a}\n" +
         "honor<a: Render> Render<Box(a)> =\n" +
         '    render(box) = "Box(${render(box.value)})"\n' +
-        "export let text: String = render(Box({value: 42}))",
+        "export let text: String = render(Box({value = 42}))",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -1600,7 +1600,7 @@ describe("emitJavaScript", () => {
   test("expands derives headers into structural dictionaries", () => {
     const module = coreSource(
       "record Point derives Eq = {x: Int, y: Int}\n" +
-        "export let same: Bool = Point({x: 1, y: 2}) == Point({x: 1, y: 2})",
+        "export let same: Bool = Point({x = 1, y = 2}) == Point({x = 1, y = 2})",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -1615,8 +1615,8 @@ describe("emitJavaScript", () => {
   test("derives parameterized Eq, Ord, and Show dictionaries structurally", () => {
     const module = coreSource(
       "record Box(a) derives (Eq, Ord, Show) = {value: a}\n" +
-        "export let ordered: Bool = Box({value: 2}) < Box({value: 10})\n" +
-        'export let text: String = "${Box({value: 42})}"',
+        "export let ordered: Bool = Box({value = 2}) < Box({value = 10})\n" +
+        'export let text: String = "${Box({value = 42})}"',
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -1624,7 +1624,7 @@ describe("emitJavaScript", () => {
     expect(output.text).toMatch(/const __hex_instance_Eq_Box = __hex_dictEq_\d+ => \{/u);
     expect(output.text).toMatch(/const __hex_instance_Ord_Box = __hex_dictOrd_\d+ => \{/u);
     expect(output.text).toContain("__hex_left.value");
-    expect(output.text).toContain('"{" + "value: " +');
+    expect(output.text).toContain('"{" + "value = " +');
     expect(output.diagnostics).toEqual([]);
   });
 
@@ -1637,7 +1637,7 @@ describe("emitJavaScript", () => {
         "honor Source<Box> =\n" +
         "    type Item = Int\n" +
         "    get(box) = box.value\n" +
-        "export let answer: Int = get(Box({value: 42}))",
+        "export let answer: Int = get(Box({value = 42}))",
     );
 
     expect(module.diagnostics).toEqual([]);

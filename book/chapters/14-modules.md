@@ -16,7 +16,7 @@ export record Point = {x: Float, y: Float}
 export let distanceFromOrigin(point: Point): Float =
     (point.x ** 2.0 + point.y ** 2.0) ** 0.5
 
-let origin = Point({x: 0.0, y: 0.0})
+let origin = Point({x = 0.0, y = 0.0})
 ```
 
 `Point` and `distanceFromOrigin` are public. `origin` is private to this file. Privacy
@@ -66,7 +66,7 @@ brings both the type and its constructor because the record declaration introduc
 both:
 
 ```hexagon
-let point: Point = Point({x: 3.0, y: 4.0})
+let point: Point = Point({x = 3.0, y = 4.0})
 let distance = distanceFromOrigin(point)
 ```
 
@@ -89,7 +89,7 @@ For sustained qualified use, bind a module alias:
 ```hexagon
 import * as Geo from "./geometry"
 
-let point = Geo.Point({x: 3.0, y: 4.0})
+let point = Geo.Point({x = 3.0, y = 4.0})
 let distance = Geo.distanceFromOrigin(point)
 ```
 
@@ -137,7 +137,7 @@ A user-defined type can follow the same pattern. In `point.hex`:
 export record Point = {x: Float, y: Float}
 
 export let translate(point: Point, dx: Float, dy: Float): Point =
-    {...point, x: point.x + dx, y: point.y + dy}
+    {...point, x = point.x + dx, y = point.y + dy}
 ```
 
 A consumer may import the type and give the module the same name:
@@ -146,7 +146,7 @@ A consumer may import the type and give the module the same name:
 import { Point } from "./point"
 import * as Point from "./point"
 
-let start: Point = Point({x: 1.0, y: 2.0})
+let start: Point = Point({x = 1.0, y = 2.0})
 let moved = Point.translate(start, 3.0, 4.0)
 ```
 
@@ -307,7 +307,7 @@ One Hexagon file emits as one ESM file. The source:
 ```hexagon
 import { Point } from "./point"
 
-export let origin: Point = Point({x: 0.0, y: 0.0})
+export let origin: Point = Point({x = 0.0, y = 0.0})
 let label = "origin"
 ```
 

@@ -36,14 +36,14 @@ export let next(source: Seq(a)): Option((a, Seq(a))) = (source.pull)()
 // 1. One-step `pull`: one input element yields one output element.
 // ---------------------------------------------------------------------------
 
-export let empty: Seq(a) = Seq({ pull: () => None })
+export let empty: Seq(a) = Seq({ pull = () => None })
 
-export let singleton(value: a): Seq(a) = Seq({ pull: () => Some((value, empty)) })
+export let singleton(value: a): Seq(a) = Seq({ pull = () => Some((value, empty)) })
 
-export let cons(value: a, rest: Seq(a)): Seq(a) = Seq({ pull: () => Some((value, rest)) })
+export let cons(value: a, rest: Seq(a)): Seq(a) = Seq({ pull = () => Some((value, rest)) })
 
 export fun iterate(seed: a, step: a -> a): Seq(a) =
-    Seq({ pull: () => Some((seed, iterate(step(seed), step))) })
+    Seq({ pull = () => Some((seed, iterate(step(seed), step))) })
 
 // Each combinator binds its pull step as a local lambda and then wraps it. The
 // step cannot be written inline as the record-field value: a multi-line `match`
@@ -53,7 +53,7 @@ export fun map(source: Seq(a), transform: a -> b): Seq(b) =
         match next(source)
             None => None
             Some((value, rest)) => Some((transform(value), map(rest, transform)))
-    Seq({ pull: step })
+    Seq({ pull = step })
 
 export fun take(source: Seq(a), count: Int): Seq(a) =
     if count <= 0 then
@@ -63,7 +63,7 @@ export fun take(source: Seq(a), count: Int): Seq(a) =
             match next(source)
                 None => None
                 Some((value, rest)) => Some((value, take(rest, count - 1)))
-        Seq({ pull: step })
+        Seq({ pull = step })
 
 export fun takeWhile(source: Seq(a), keep: a -> Bool): Seq(a) =
     let step = () =>
@@ -74,14 +74,14 @@ export fun takeWhile(source: Seq(a), keep: a -> Bool): Seq(a) =
                     Some((value, takeWhile(rest, keep)))
                 else
                     None
-    Seq({ pull: step })
+    Seq({ pull = step })
 
 export fun unfold(seed: b, produce: b -> Option((a, b))): Seq(a) =
     let step = () =>
         match produce(seed)
             None => None
             Some((value, nextSeed)) => Some((value, unfold(nextSeed, produce)))
-    Seq({ pull: step })
+    Seq({ pull = step })
 
 export fun zipWith(left: Seq(a), right: Seq(b), combine: (a, b) -> c): Seq(c) =
     let step = () =>
@@ -92,7 +92,7 @@ export fun zipWith(left: Seq(a), right: Seq(b), combine: (a, b) -> c): Seq(c) =
                     None => None
                     Some((rightValue, rightRest)) =>
                         Some((combine(leftValue, rightValue), zipWith(leftRest, rightRest, combine)))
-    Seq({ pull: step })
+    Seq({ pull = step })
 
 export let zip(left: Seq(a), right: Seq(b)): Seq((a, b)) =
     zipWith(left, right, (leftValue, rightValue) => (leftValue, rightValue))
@@ -104,7 +104,7 @@ export fun concat(first: Seq(a), second: Seq(a)): Seq(a) =
         match next(first)
             None => next(second)
             Some((value, rest)) => Some((value, concat(rest, second)))
-    Seq({ pull: step })
+    Seq({ pull = step })
 
 // ---------------------------------------------------------------------------
 // 2. `pull` needs a constant-stack `while`: many input elements per output.
@@ -131,7 +131,7 @@ export fun filter(source: Seq(a), keep: a -> Bool): Seq(a) =
                     else
                         current := rest
         result
-    Seq({ pull: step })
+    Seq({ pull = step })
 
 // `drop` and `dropWhile` need no self-reference: they skip a run of elements and
 // then hand back the underlying pull, so both are `let` (N6).
@@ -152,7 +152,7 @@ export let drop(source: Seq(a), count: Int): Seq(a) =
                         current := rest
                         remaining := remaining - 1
         result
-    Seq({ pull: step })
+    Seq({ pull = step })
 
 export let dropWhile(source: Seq(a), discard: a -> Bool): Seq(a) =
     let step = () =>
@@ -169,7 +169,7 @@ export let dropWhile(source: Seq(a), discard: a -> Bool): Seq(a) =
                         result := Some((value, rest))
                         searching := false
         result
-    Seq({ pull: step })
+    Seq({ pull = step })
 
 // `flatMap` is the hardest of these: draining empty sub-sequences to reach the
 // next element is still one `while`, never a stack. `pending` is the partially
@@ -195,7 +195,7 @@ fun flatMapWith(source: Seq(a), transform: a -> Seq(b), pending: Seq(b)): Seq(b)
                             outer := outerRest
                             inner := transform(outerValue)
         result
-    Seq({ pull: step })
+    Seq({ pull = step })
 
 export let flatMap(source: Seq(a), transform: a -> Seq(b)): Seq(b) =
     flatMapWith(source, transform, empty)

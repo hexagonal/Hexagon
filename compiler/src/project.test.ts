@@ -9,7 +9,7 @@ test("compiles relative named, aliased, namespace, and effect imports", () => {
       Source.fileId(0),
       "/app/geometry.hex",
       "export record Point = {x: Int}\n" +
-        "export fun make(x: Int): Point = Point({x: x})\n" +
+        "export fun make(x: Int): Point = Point({x = x})\n" +
         "export fun coordinate(point: Point): Int = point.x",
     ),
     new Source.File(
@@ -299,7 +299,7 @@ test("links exported aliases and enforces opaque module boundaries", () => {
       "/vault.hex",
       "export type Pair(a) = (a, a)\n" +
         "export opaque record Token = {value: Int}\n" +
-        "export fun issue(value: Int): Token = Token({value: value})\n" +
+        "export fun issue(value: Int): Token = Token({value = value})\n" +
         "export fun reveal(token: Token): Int = token.value",
     ),
     new Source.File(

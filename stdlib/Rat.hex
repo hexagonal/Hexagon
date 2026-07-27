@@ -15,9 +15,9 @@ export let create(top: BigInt, bottom: BigInt): Rat =
         let reducedTop = BigInt.quot(top, divisor)
         let reducedBottom = BigInt.quot(bottom, divisor)
         if reducedBottom < 0 then
-            Rat({top: -reducedTop, bottom: -reducedBottom})
+            Rat({top = -reducedTop, bottom = -reducedBottom})
         else
-            Rat({top: reducedTop, bottom: reducedBottom})
+            Rat({top = reducedTop, bottom = reducedBottom})
 
 export let top(value: Rat): BigInt = value.top
 export let bottom(value: Rat): BigInt = value.bottom
@@ -44,7 +44,7 @@ export let divide(left: Rat, right: Rat): Rat =
         create(left.top * right.bottom, left.bottom * right.top)
 
 export let negate(value: Rat): Rat =
-    Rat({top: -value.top, bottom: value.bottom})
+    Rat({top = -value.top, bottom = value.bottom})
 
 export let reciprocal(value: Rat): Rat = create(value.bottom, value.top)
 

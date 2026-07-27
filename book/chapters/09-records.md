@@ -5,9 +5,9 @@ grows, names become more valuable than brevity:
 
 ```hexagon
 let reservation = {
-    guest: "Mira",
-    seats: 3,
-    confirmed: false
+    guest = "Mira",
+    seats = 3,
+    confirmed = false
 }
 ```
 
@@ -23,11 +23,23 @@ Use a tuple when positions tell the story. Use a record when names do.
 
 ## Fields define the structure
 
-A record literal uses `name: expression`; a record type uses `name: Type`:
+A record type gives each field a type with `:`; a record literal binds each field with
+`=`:
 
 ```hexagon
-let origin: {x: Float, y: Float} = {x: 0.0, y: 0.0}
+let origin: {x: Float, y: Float} = {x = 0.0, y = 0.0}
 ```
+
+One line, both tokens: `:` on the left says "is of type", `=` on the right says "binds".
+That split runs through the whole language — `:` classifies, `=` binds, `:=` assigns,
+`=>` maps — so the token alone tells you which kind of braces you are reading, without
+checking where you are.
+
+JavaScript spells its object literals the other way, and the habit is worth naming
+early. `{x: 1}` is a parse error in Hexagon, with a fixit pointing at `=`. In the other
+direction, `{x = 1}` is a JavaScript *destructuring default*, so a reader arriving from
+JavaScript should read Hexagon's `=` as a binding, not a fallback. The emitted
+JavaScript is unaffected: it is still `{x: 1}`, because that is JavaScript's separator.
 
 Field order does not change the type. `{x: Float, y: Float}` and
 `{y: Float, x: Float}` describe the same structure, although emitted JavaScript keeps
@@ -53,8 +65,8 @@ An unannotated function may infer a flexible record requirement:
 ```hexagon
 let guestName(reservation) = reservation.guest
 
-let first = guestName({guest: "Mira", seats: 3})
-let second = guestName({guest: "Noah", confirmed: true})
+let first = guestName({guest = "Mira", seats = 3})
+let second = guestName({guest = "Noah", confirmed = true})
 ```
 
 Both calls work. `guestName` requires a record containing a `guest` field of one
@@ -85,7 +97,7 @@ Without `...`, the annotation is exact:
 let exactGuest(reservation: {guest: String}): String =
     reservation.guest
 
-exactGuest({guest: "Mira", seats: 3}) // error: extra field seats
+exactGuest({guest = "Mira", seats = 3}) // error: extra field seats
 ```
 
 The compiler can suggest `...` when the extra fields were probably intentional.
@@ -98,7 +110,7 @@ let renameGuest(
     reservation: {guest: String, ...r},
     guest: String
 ): {guest: String, ...r} =
-    {...reservation, guest: guest}
+    {...reservation, guest = guest}
 ```
 
 The `r` means that every additional input field is also present in the result. Most
@@ -110,15 +122,15 @@ Records are immutable. A spread update makes a shallow copy and replaces selecte
 fields:
 
 ```hexagon
-let confirmedReservation = {...reservation, confirmed: true}
+let confirmedReservation = {...reservation, confirmed = true}
 ```
 
 Exactly one spread is permitted, and it must come first. Every overridden field must
 already exist and keep its field type:
 
 ```hexagon
-{...reservation, seats: 4}          // same record type
-{...reservation, table: "window"} // error: update cannot add a field
+{...reservation, seats = 4}          // same record type
+{...reservation, table = "window"} // error: update cannot add a field
 ```
 
 This is deliberately an update operation, not unrestricted object merging. The result
@@ -136,11 +148,12 @@ When a field and its source binding share a name, the shorter form is available:
 ```hexagon
 let guest = "Ari"
 let seats = 2
-let reservation = {guest, seats, confirmed: false}
+let reservation = {guest, seats, confirmed = false}
 ```
 
-Here `{guest, seats}` means `{guest: guest, seats: seats}`, matching JavaScript's
-object shorthand exactly. The explicit form remains useful when the names differ.
+Here `{guest, seats}` means `{guest = guest, seats = seats}`. The punned form is spelled
+exactly like JavaScript's object shorthand; only the expansion differs. The explicit
+form remains useful when the names differ.
 
 A simple record pattern uses the same visual idea to bind fields:
 
@@ -157,7 +170,7 @@ literals, and guards.
 Structural records require no wrapper:
 
 ```hexagon
-export let origin: {x: Float, y: Float} = {x: 0.0, y: 0.0}
+export let origin: {x: Float, y: Float} = {x = 0.0, y = 0.0}
 ```
 
 ```js
@@ -200,7 +213,7 @@ Construct a nominal record by calling its uppercase constructor with the exact
 structural record it declares:
 
 ```hexagon
-let userId = UserId({value: 42})
+let userId = UserId({value = 42})
 ```
 
 The constructor is an ordinary one-argument function. All declared fields are
@@ -211,7 +224,7 @@ Once constructed, ordinary record operations remain available:
 
 ```hexagon
 let rawValue = userId.value
-let nextUserId = {...userId, value: userId.value + 1}
+let nextUserId = {...userId, value = userId.value + 1}
 ```
 
 The update preserves nominal identity: `nextUserId` is still `UserId`. The compiler
@@ -227,7 +240,7 @@ has the required fields:
 record Point = {x: Float, y: Float}
 
 let xCoordinate(point: {x: Float, ...}): Float = point.x
-let point = Point({x: 3.0, y: 4.0})
+let point = Point({x = 3.0, y = 4.0})
 
 xCoordinate(point)      // error: Point is nominal
 xCoordinate({...point}) // accepted
@@ -248,8 +261,8 @@ structural record --Point(...)--> Point --{...point}--> structural record
 ```hexagon
 record Box(a) = {value: a}
 
-let numberBox = Box({value: 42})
-let wordBox = Box({value: "hello"})
+let numberBox = Box({value = 42})
+let wordBox = Box({value = "hello"})
 ```
 
 The inferred types are `Box(Int)` and `Box(String)`. `Box(a)` remains nominal: it does
@@ -282,7 +295,7 @@ keeping the external representation honest.
 - row polymorphism is the name for flexibility over unmentioned fields;
 - record annotations are closed unless they contain `...`;
 - spread updates replace existing fields and produce a new record;
-- `{field}` is shorthand for `{field: field}` in value and pattern positions;
+- `{field}` is shorthand for `{field = field}` in value and pattern positions;
 - `record` creates a nominal type with an uppercase constructor;
 - nominal-record updates preserve identity, while `{...value}` explicitly crosses to
   a structural record; and

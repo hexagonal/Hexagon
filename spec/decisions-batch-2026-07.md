@@ -276,9 +276,9 @@ Map.get(m, nan())              -- Some("a"); agrees with (b): keys that are
 
 -- (e) Opt-in derivation
 record Point = {x: Float, y: Float} derives (Eq, Show)
-Point({x: 1.0, y: 2.0}) == Point({x: 1.0, y: 2.0})   -- true
+Point({x = 1.0, y = 2.0}) == Point({x = 1.0, y = 2.0})   -- true
 record Blob = {x: Float}
-Blob({x: 1.0}) == Blob({x: 1.0})
+Blob({x = 1.0}) == Blob({x = 1.0})
    -- ERROR: `Blob` has no `Eq` instance
    --        hint: add `derives Eq` to the declaration of `Blob`
 

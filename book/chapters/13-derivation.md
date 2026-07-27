@@ -49,7 +49,7 @@ behavior automatically when all their components support the requested capabilit
 
 ```hexagon
 let samePosition = (3, 4) == (3, 4)
-let sameGuest = {name: "Mira", seats: 2} == {seats: 2, name: "Mira"}
+let sameGuest = {name = "Mira", seats = 2} == {seats = 2, name = "Mira"}
 ```
 
 Neither value declares a new identity. Its type is its structure, so structural

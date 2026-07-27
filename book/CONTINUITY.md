@@ -537,14 +537,14 @@ late pedagogy pass, not a commitment to the current order.
 
 ### Records
 
-- `reservation = {guest: "Mira", seats: 3, confirmed: false}` is the first structural
+- `reservation = {guest = "Mira", seats = 3, confirmed = false}` is the first structural
   record and grows naturally from Chapter 7's tuple example.
 - Core reader rule: a function that reads particular fields can accept records
   containing at least those fields.
 - **Row polymorphism** names that inferred flexibility only after the behavior is
   concrete. An annotation without `...` is closed; `...` permits additional fields.
-- `{...record, field: value}` is an update, not field addition. One spread comes first.
-- Construction and pattern punning use `{field}` for `{field: field}`.
+- `{...record, field = value}` is an update, not field addition. One spread comes first.
+- Construction and pattern punning use `{field}` for `{field = field}`.
 - Core contrast: `type` gives a shape another name; `record` creates a distinct
   identity.
 - `UserId`/`OrderId` demonstrate nominal separation; `Point` demonstrates the explicit
