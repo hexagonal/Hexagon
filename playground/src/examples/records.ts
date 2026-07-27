@@ -7,7 +7,7 @@ export const records: PlaygroundExample = {
   source: `fun guestName(reservation: {guest: String, ...}) = reservation.guest
 
 fun renameGuest(reservation: {guest: String, ...rest}, guest: String) =
-    {...reservation, guest = guest}
+    {reservation with guest = guest}
 
 fun confirmedGuest(reservation: {guest: String, confirmed: Bool}) = match reservation
     {confirmed = true, guest} => guest
@@ -18,7 +18,7 @@ let lunch = {guest = "Grace", vegetarian = true, seats = 1}
 let note = "window table"
 let preference = {note}
 let renamedDinner = renameGuest(dinner, "Augusta")
-let updatedDinner = {...renamedDinner, seats = 3}
+let updatedDinner = {renamedDinner with seats = 3}
 let {guest, seats} = updatedDinner
 
 console.log(guest, "now has", seats, "seats")

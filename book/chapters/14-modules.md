@@ -137,7 +137,7 @@ A user-defined type can follow the same pattern. In `point.hex`:
 export record Point = {x: Float, y: Float}
 
 export let translate(point: Point, dx: Float, dy: Float): Point =
-    {...point, x = point.x + dx, y = point.y + dy}
+    {point with x = point.x + dx, y = point.y + dy}
 ```
 
 A consumer may import the type and give the module the same name:

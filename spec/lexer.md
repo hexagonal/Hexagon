@@ -194,6 +194,7 @@ listed positions:
 | `from` | an `import` clause or `extern from` declaration |
 | `opaque` | immediately after `export` on `record` or `union` |
 | `when` | between an arm pattern and `=>` |
+| `with` | between a record-update head and its overrides (Products §3.3) |
 | `enum` | a foreign enum declaration inside `extern from` |
 | `class` | foreign class description; syntax completed by the FFI spec |
 | `method` | foreign member description; syntax completed by the FFI spec |
@@ -204,7 +205,8 @@ listed positions:
 | `default` | foreign default-import position; syntax completed by the FFI spec |
 
 Contextual status is observable: `let when = true` is legal, while the same spelling
-after an arm pattern introduces its guard. A parser must test both spelling and
+after an arm pattern introduces its guard. Likewise `{with = 3}` is a field and `{with}`
+a pun, while `{p with x = 3}` is an update. A parser must test both spelling and
 position; the lexer does not emit contextual-keyword token kinds.
 
 ### 4.3 Words that are not keywords

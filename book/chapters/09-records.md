@@ -110,7 +110,7 @@ let renameGuest(
     reservation: {guest: String, ...r},
     guest: String
 ): {guest: String, ...r} =
-    {...reservation, guest = guest}
+    {reservation with guest = guest}
 ```
 
 The `r` means that every additional input field is also present in the result. Most
@@ -118,28 +118,67 @@ code lets inference discover this relationship and never writes a named tail.
 
 ## Updates create a new record
 
-Records are immutable. A spread update makes a shallow copy and replaces selected
-fields:
+Records are immutable. An update makes a shallow copy and replaces selected fields,
+naming the record it starts from and then the overrides:
 
 ```hexagon
-let confirmedReservation = {...reservation, confirmed = true}
+let confirmedReservation = {reservation with confirmed = true}
 ```
 
-Exactly one spread is permitted, and it must come first. Every overridden field must
-already exist and keep its field type:
+Every overridden field must already exist and keep its field type:
 
 ```hexagon
-{...reservation, seats = 4}          // same record type
-{...reservation, table = "window"} // error: update cannot add a field
+{reservation with seats = 4}         // same record type
+{reservation with table = "window"} // error: update cannot add a field
 ```
 
-This is deliberately an update operation, not unrestricted object merging. The result
-has the same type as the input, and the source emits as the same readable JavaScript
-spread.
+That last error is the point of the spelling. This is deliberately an update
+operation, not unrestricted object merging: the result has the same type as the
+input, and no override can introduce a field the input did not have. The word `with`
+promises exactly that, so the rule reads as a confirmation rather than a surprise.
 
-`{...reservation}` with no overrides is also legal. For a structural record it is an
-ordinary shallow copy; later in this chapter, the same spelling gains an additional
-role for nominal records.
+At least one override is required, and the record being updated must be named — a
+plain name, or a dotted path like `p.position` or `Config.default`. If the record you
+want comes out of a call, bind it first:
+
+```hexagon
+let base = defaultReservation(party)
+let booked = {base with seats = 4}
+```
+
+A dotted head updates the record it names, and nothing else. `{p.position with x = 3.0}`
+builds a new *position*; there is no form that reaches into a nested field and hands
+back a new `p`.
+
+`with` is a contextual word rather than a reserved one, so nothing becomes
+unspellable: a field may be called `with`, and so may a binding. `{with = 3}` is a
+field, `{with}` is a pun, and `{with with x = 3}` is an update whose record happens to
+be named `with`.
+
+## Copying without changing anything
+
+`{...reservation}` — spread, no overrides — is the shallow copy. For a structural
+record it is exactly that and nothing more; later in this chapter, the same spelling
+gains an additional role for nominal records.
+
+The copy keeps JavaScript's spelling on purpose, and the update does not, and the same
+rule decides both: **borrow JavaScript's spelling only where JavaScript's meaning holds
+exactly.** In JavaScript, `{...p}` *is* a shallow copy, so that borrow tells the truth.
+But `{...p, x: 3.0}` in JavaScript means merge — later wins, new fields welcome — which
+is precisely what a Hexagon update refuses to do. A spelling that promised merge would
+have to be walked back by the rules around it, so update took a spelling that promises
+update instead. Writing the JavaScript shape gets you a compile error pointing at
+`with`:
+
+```hexagon
+{...reservation, seats = 4} // error: records update with `with`
+{...a, ...b}                // error: Hexagon has no record merge
+```
+
+The emitted JavaScript is unaffected either way. An update compiles to the same spread
+you would have written by hand — `{...reservation, seats: 4}` — because that is the
+JavaScript idiom for this operation. The emitter translates idioms; it never changes
+the shape of the work.
 
 ## Punning removes repeated names
 
@@ -154,6 +193,15 @@ let reservation = {guest, seats, confirmed = false}
 Here `{guest, seats}` means `{guest = guest, seats = seats}`. The punned form is spelled
 exactly like JavaScript's object shorthand; only the expansion differs. The explicit
 form remains useful when the names differ.
+
+Punning composes with update, where it is at its most useful — rebuilding a record
+around a binding that already carries the field's name:
+
+```hexagon
+let reseat(reservation, seats) = {reservation with seats}
+```
+
+`{reservation with seats}` means `{reservation with seats = seats}`.
 
 A simple record pattern uses the same visual idea to bind fields:
 
@@ -224,7 +272,7 @@ Once constructed, ordinary record operations remain available:
 
 ```hexagon
 let rawValue = userId.value
-let nextUserId = {...userId, value = userId.value + 1}
+let nextUserId = {userId with value = userId.value + 1}
 ```
 
 The update preserves nominal identity: `nextUserId` is still `UserId`. The compiler

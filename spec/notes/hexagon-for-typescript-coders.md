@@ -536,15 +536,22 @@ You met records in Chapter 2. The short version:
 **The separator is the one thing to relearn.** A record *type* classifies its fields with `:`; a record *term* — literal, update, or pattern — binds them with `=`. Both false friends are worth meeting deliberately: `{x: 1}` is the JavaScript literal habit and is a parse error here (the compiler's fixit points at `=`), while `{x = 1}` is JavaScript *destructuring-default* syntax and must be read as a plain binding instead. The emitted JavaScript is still `{x: 1}` — the emitter translates that one token, and nothing else about the shape changes.
 
 ```hexagon
-{x = 1.0, y = 2.0}          // a record; compiles to the same object literal
-let p2 = {...p, x = 3.0}    // non-destructive update; compiles to {...p, x: 3.0}
-p.x                        // field access
+{x = 1.0, y = 2.0}            // a record; compiles to the same object literal
+let p2 = {p with x = 3.0}     // non-destructive update; compiles to {...p, x: 3.0}
+let p3 = {...p}               // a shallow copy — the one place `...` survives
+p.x                          // field access
 
-(1, "a")                   // a tuple; compiles to [1, "a"]
-let (lo, hi) = bounds      // destructuring
+(1, "a")                     // a tuple; compiles to [1, "a"]
+let (lo, hi) = bounds        // destructuring
 ```
 
-Records are immutable plain objects; update is spread-copy, and the emitted spread has the same shape as the source — only the field separator changes, `=` in Hexagon to JavaScript's `:`. The structure never lies. One safety upgrade over JS spread: `{...p, z = 3.0}` where `p` has no field `z` is a compile error ("record update cannot add fields") rather than a silent widening. Updates update; they don't quietly grow new fields from a typo.
+**Update is `with`, not spread — and here is the rule behind that.** Hexagon borrows a JavaScript spelling only where JavaScript's semantics hold exactly. `{...p}` on its own stays, because in JS that *is* a shallow copy: an honest borrow. But `{...p, x: 3.0}` in JS means unrestricted merge — later wins, new fields welcome — and Hexagon's update is neither of those things. So update takes OCaml's and F#'s spelling instead, `{p with x = 3.0}`, and the spread-with-overrides shape is a parse error with a fixit pointing at `with`. (`{...a, ...b}`, the merge idiom, gets its own fixit: Hexagon has no record merge.)
+
+That rule names your actual situation as a JS reader: the constructs that look familiar here *are* familiar, and the ones that would have lied to you look foreign on purpose.
+
+Records are immutable plain objects. What the emitter guarantees is that it translates *idioms*, never structure: `{p with x = 3.0}` becomes `{...p, x: 3.0}` — the JS spelling of exactly this operation, head to spread, overrides to fields, order preserved. Different spelling, same shape, no hidden work. And one safety upgrade over the JS spread you're replacing: `{p with z = 3.0}` where `p` has no field `z` is a compile error ("record update cannot add fields") rather than a silent widening. Updates update; they don't quietly grow new fields from a typo.
+
+One more thing `with` costs you: nothing. It is a *contextual* keyword, so `with` remains an ordinary name — a field can be called `with`, and so can a binding, which matters at the FFI boundary where ES2023's real `Array.prototype.with` has to stay spellable.
 
 When you want a *named* type, `record Point = {x: Float, y: Float}` gives you a nominal wrapper: `Point` and a structurally identical anonymous record are different types to the compiler (goodbye, "accidentally passed a `UserId` where an `OrderId` was expected" — the structural-typing hole TS brands can only paper over). At runtime a `Point` is just the plain object; the nominal wall exists only at compile time, which is the only place it needs to exist.
 
@@ -581,7 +588,8 @@ A closing gallery, because "compiles to readable JavaScript" is a claim best pro
 | `for i in 1..n` | `for (let i = 1; i <= n; i++)` |
 | `for x in xs` | `for (const x of xs)` |
 | `{x = 1.0, y = 2.0}` | `{x: 1.0, y: 2.0}` |
-| `{...p, x = 3.0}` | `{...p, x: 3.0}` |
+| `{p with x = 3.0}` | `{...p, x: 3.0}` |
+| `{...p}` | `{...p}` |
 | `(1, "a")` | `[1, "a"]` |
 | `Circle(2.0)` | `{tag: "Circle", radius: 2.0}` |
 | `match s` … | `switch (s.tag) { … }` |
