@@ -3753,12 +3753,23 @@ class Checker {
 
   #defaultDiscardedLiteral(type: Mono, span: Source.Span): void {
     const actual = this.#prune(type);
-    if (
-      actual.kind === "Variable" &&
-      this.#canDefaultToInt(actual) &&
-      actual.requirements.some(({ name }) => !supports("Unit", name))
-    ) {
-      this.#bind(actual, primitive("Int"), span);
+    if (actual.kind === "Variable") {
+      if (
+        this.#canDefaultToInt(actual) &&
+        actual.requirements.some(({ name }) => !supports("Unit", name))
+      ) {
+        this.#bind(actual, primitive("Int"), span);
+      }
+      return;
+    }
+    // A structured branch (`(1, 2)`, `[1, 2]`) can never be the demanded
+    // `Unit`, so the report is already certain; its literals would otherwise
+    // reach the message as raw variables — `(?0, ?1)` — inside a mandatory
+    // fixit. Settle them to the `Int` they default to anyway (§4).
+    for (const variable of this.#collectVariables(actual)) {
+      if (this.#canDefaultToInt(variable)) {
+        this.#bind(variable, primitive("Int"), span);
+      }
     }
   }
 

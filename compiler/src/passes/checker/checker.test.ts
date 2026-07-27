@@ -1204,8 +1204,9 @@ describe("check", () => {
 
   test("reports the else-less fixit for a numeric-literal then-branch", () => {
     // A polymorphic literal would unify with the synthesized `Unit`
-    // structurally and only fail later as an unresolved `Num Unit`; the
-    // then-branch defaults to `Int` first so §11.2's fixit fires instead.
+    // structurally and succeed, leaving the literal's own `Num` failure to
+    // report `integer literal cannot have type `Unit`` at that binding; the
+    // then-branch settles to `Int` first so §11.2's fixit fires instead.
     for (
       const text of [
         "let y(c: Bool) = if c then 5",
@@ -1213,6 +1214,17 @@ describe("check", () => {
         "fun y(c: Bool): Unit =\n" +
           "    if c then\n" +
           "        5",
+        // Statement position: the `if` is a non-final block item.
+        "fun y(c: Bool): Unit =\n" +
+          "    if c then\n" +
+          "        5\n" +
+          "    ()",
+        // The literal's variable is shared with a binder outside the `if`.
+        "let y(c: Bool) = x => if c then x + 1",
+        "let y(c: Bool) =\n" +
+          "    let n = 1\n" +
+          "    if c then\n" +
+          "        n",
       ]
     ) {
       expect(checkSource(text).diagnostics.map(({ message }) => message))
@@ -1221,6 +1233,32 @@ describe("check", () => {
             "`Int` — add an `else` branch to produce a value",
         ]);
     }
+  });
+
+  test("names concrete types when a discarded branch is structured", () => {
+    // A structured branch can never be the demanded `Unit`, so its literals
+    // would otherwise reach a mandatory fixit as raw variables — `(?0, ?1)`.
+    expect(
+      checkSource("let y(c: Bool) = if c then (1, 2)").diagnostics
+        .map(({ message }) => message),
+    ).toEqual([
+      "an `if` without `else` produces `Unit`; its `then` branch is " +
+        "`(Int, Int)` — add an `else` branch to produce a value",
+    ]);
+    expect(
+      checkSource("let y(c: Bool) = if c then [1, 2]").diagnostics
+        .map(({ message }) => message),
+    ).toEqual([
+      "an `if` without `else` produces `Unit`; its `then` branch is " +
+        "`Vector(Int)` — add an `else` branch to produce a value",
+    ]);
+    expect(
+      checkSource("fun y(): Unit =\n    (1, 2)\n    ()").diagnostics
+        .map(({ message }) => message),
+    ).toEqual([
+      "this expression's value is discarded — its type is (Int, Int); " +
+        "wrap it in `ignore(...)` if discarding is intentional",
+    ]);
   });
 
   test("checks Range and String for loops with their concrete item types", () => {

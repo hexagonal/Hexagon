@@ -888,3 +888,36 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   two must agree, and the projection case that forbids the per-requirement
   filter. Verified sensitive by blinding the elimination independently of
   defect 4's fix: exactly two tests redden, and they are the two about arity.
+
+## 2026-07-27 — demand-site settling consults only builtin `Unit` instances (open)
+
+- **Classification:** compiler defect against specification; no design change.
+  **Open** — logged alongside the spec note that makes it stateable (Numeric
+  Literals §6, settling at synthesized `Unit` obligations; the #76 arc), not
+  fixed here. Pre-existing on `main` at the two older settling sites (discarded
+  non-final items, loop bodies); the #76 fix extends the same helper to the
+  else-less `then` branch.
+- **Authority:** Numeric Literals §6 — settling requires that at least one
+  constraint on the variable has no `Unit` instance, user `honor` instances
+  included. A variable every one of whose constraints `Unit` satisfies is left
+  alone, unifies with the synthesized `Unit`, and the program is accepted; the
+  guard is what confines settling to diagnostic routing.
+- **Defect origin:** the guard's two sides consult different evidence.
+  `#defaultDiscardedLiteral` (checker.ts:3754) tests the `Unit` side against
+  the builtin `supports` table only, while its companion `#canDefaultToInt`
+  consults user instances on the `Int` side. A constraint satisfied at `Unit`
+  only by a user `honor` is therefore treated as unsatisfiable at `Unit`: the
+  variable settles to `Int`, the demand-site unification fails, and a program
+  the specification accepts is rejected.
+- **Reach:** all three settling sites. The discriminating case is a discarded
+  expression whose type variable carries only user constraints honored at both
+  `Unit` and `Int` — exotic, but a wrong rejection, not a message defect, which
+  is why the spec states the symmetric guard rather than the implemented one.
+- **Shape of the fix:** consult instances symmetrically — the `Unit`-side test
+  becomes builtin `supports` *or* instance lookup at `Unit`, mirroring
+  `#canDefaultToInt`'s two-branch test. Conformance needs the discriminating
+  acceptance case above plus a guard that a bare `Num`-only literal still
+  settles at all three sites.
+- **Credit:** surfaced reviewing the Numeric Literals §6 note for the #76 arc:
+  the note's guard was checked against the helper it describes, and the
+  asymmetry fell out of the comparison.
