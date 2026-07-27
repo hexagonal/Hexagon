@@ -1075,7 +1075,7 @@ class Checker {
             item.expression.span,
             () =>
               `this expression's value is discarded — its type is ` +
-              `${this.#display(expressionType)}; wrap it in \`ignore(...)\` if ` +
+              `\`${this.#display(expressionType)}\`; wrap it in \`ignore(...)\` if ` +
               "discarding is intentional",
           );
         }

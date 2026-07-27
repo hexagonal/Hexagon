@@ -1082,7 +1082,7 @@ describe("check", () => {
     );
 
     expect(module.diagnostics.map(({ message }) => message)).toEqual([
-      "this expression's value is discarded — its type is Int; wrap it in `ignore(...)` if discarding is intentional",
+      "this expression's value is discarded — its type is `Int`; wrap it in `ignore(...)` if discarding is intentional",
       "a block cannot end with a `let`; did you mean to return `answer`?",
     ]);
   });
@@ -1325,7 +1325,7 @@ describe("check", () => {
       checkSource("fun y(): Unit =\n    (1, 2)\n    ()").diagnostics
         .map(({ message }) => message),
     ).toEqual([
-      "this expression's value is discarded — its type is (Int, Int); " +
+      "this expression's value is discarded — its type is `(Int, Int)`; " +
         "wrap it in `ignore(...)` if discarding is intentional",
     ]);
   });
