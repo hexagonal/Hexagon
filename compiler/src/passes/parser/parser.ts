@@ -50,11 +50,7 @@ const infix = new Map<TokenKind, Infix>([
 const itemEnds = new Set<TokenKind>(["VSep", "Semicolon", "VClose", "Eof"]);
 
 /** A pattern parameter's binder, paired with the pattern it destructures. */
-interface Destructuring {
-  readonly pattern: Parsed.Pattern;
-  readonly name: Parsed.Name;
-  readonly span: Source.Span;
-}
+type Destructuring = Parsed.ParameterDestructuring;
 
 interface ParsedParameters {
   readonly parameters: readonly Parsed.Parameter[];
@@ -699,16 +695,14 @@ class Parser {
       }
       const { parameters, destructurings } = this.#parseParameters();
       this.#expect("Equal", "expected `=` in instance member");
-      const body = this.#withDestructurings(
-        this.#parseBodyExpression(new Set(["VSep", "VClose", "Eof"])),
-        destructurings,
-      );
+      const body = this.#parseBodyExpression(new Set(["VSep", "VClose", "Eof"]));
       const name = parsedName(memberToken);
       members.push({
         name,
         value: {
           kind: "Lambda",
           parameters,
+          ...this.#lambdaDestructurings(destructurings),
           body,
           span: spanFrom(name.span, body.span),
         },
@@ -831,10 +825,7 @@ class Parser {
       return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
     }
 
-    const body: Parsed.Expr = this.#withDestructurings(
-      this.#parseBodyExpression(),
-      destructurings,
-    );
+    const body: Parsed.Expr = this.#parseBodyExpression();
     // This is the one position Functions §4.2 permits `<...>` on a lambda, so a lambda
     // arriving here has its restriction satisfied. A header form (`parameters` present)
     // has its own binders already and never reaches the pending set.
@@ -846,6 +837,7 @@ class Parser {
           parameters,
           ...(typeParameters === undefined ? {} : { typeParameters }),
           ...(returnAnnotation === undefined ? {} : { returnAnnotation }),
+          ...this.#lambdaDestructurings(destructurings),
           body,
           span: spanFrom(parameterStartSpan ?? nameToken.span, body.span),
         };
@@ -2120,9 +2112,10 @@ class Parser {
    * top-level commas separate parameters, so anything nested is pattern syntax.
    *
    * A parameter that is a plain name is a parameter directly. Any other pattern
-   * binds a fresh parameter and yields a *destructuring* the caller prepends to
-   * the body, which is how a pattern parameter inherits the `let` position's
-   * behaviour verbatim — including its irrefutability gate.
+   * binds a fresh parameter and yields a *destructuring* the caller hangs on the
+   * lambda head, which the resolver opens the body with — so a pattern parameter
+   * inherits the `let` position's checking verbatim, including its
+   * irrefutability gate, without inheriting its binder class (Statements §5).
    */
   #parseParameters(): ParsedParameters {
     this.#expect("LeftParen", "expected `(` before parameters");
@@ -2161,25 +2154,16 @@ class Parser {
   }
 
   /**
-   * Prepends each destructuring to a body as a `let` pattern binding, so the
-   * pattern's binders scope over the body exactly as a written `let` would.
+   * The destructurings a lambda carries, as a field to spread into it. They stay
+   * on the head rather than being prepended to the body here: their binders are
+   * head binders (Statements §5), and a body-level `let` is the one shape that
+   * cannot say so — the resolver opens the body with the equivalent `let` once
+   * it has the lambda's own scope to bind them in.
    */
-  #withDestructurings(
-    body: Parsed.Expr,
+  #lambdaDestructurings(
     destructurings: readonly Destructuring[],
-  ): Parsed.Expr {
-    if (destructurings.length === 0) return body;
-    const bindings: Parsed.Item[] = destructurings.map(({ pattern, name, span }) => ({
-      kind: "LetPattern",
-      exported: false,
-      pattern,
-      value: { kind: "Name", name, span },
-      span,
-    }));
-    const items: Parsed.Item[] = body.kind === "Block"
-      ? [...bindings, ...body.items]
-      : [...bindings, { kind: "ExprItem", expression: body, span: body.span }];
-    return { kind: "Block", items, span: body.span };
+  ): { readonly destructurings?: readonly Destructuring[] } {
+    return destructurings.length === 0 ? {} : { destructurings };
   }
 
   /** Rejects pattern parameters where no body exists to destructure into. */
@@ -2290,13 +2274,11 @@ class Parser {
     }
     const { parameter, destructuring } = this.#parameterFromPattern(pattern, 0);
     this.#expect("FatArrow", "expected `=>` after the lambda parameter");
-    const body = this.#withDestructurings(
-      this.#parseBodyExpression(stops),
-      destructuring === undefined ? [] : [destructuring],
-    );
+    const body = this.#parseBodyExpression(stops);
     return {
       kind: "Lambda",
       parameters: [parameter],
+      ...this.#lambdaDestructurings(destructuring === undefined ? [] : [destructuring]),
       body,
       span: spanFrom(start, body.span),
     };
@@ -2304,8 +2286,8 @@ class Parser {
 
   /**
    * One parameter from one pattern. A plain name *is* the parameter; every other pattern
-   * becomes a fresh binder plus a destructuring the body opens with, so a pattern parameter
-   * binds the same whichever spelling introduced it.
+   * becomes a fresh binder plus a destructuring hung on the lambda head, so a pattern
+   * parameter binds the same whichever spelling introduced it.
    */
   #parameterFromPattern(
     pattern: Parsed.Pattern,
@@ -2353,12 +2335,13 @@ class Parser {
       returnAnnotation = this.#parseTypeAnnotation();
     }
     this.#expect("FatArrow", "expected `=>` after lambda parameters");
-    const body = this.#withDestructurings(this.#parseBodyExpression(stops), destructurings);
+    const body = this.#parseBodyExpression(stops);
     return {
       kind: "Lambda",
       parameters,
       ...(typeParameters === undefined ? {} : { typeParameters }),
       ...(returnAnnotation === undefined ? {} : { returnAnnotation }),
+      ...this.#lambdaDestructurings(destructurings),
       body,
       span: spanFrom(from, body.span),
     };

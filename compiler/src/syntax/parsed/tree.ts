@@ -523,7 +523,23 @@ export interface LambdaExpr {
   readonly parameters: readonly Parameter[];
   readonly typeParameters?: readonly TypeParameter[];
   readonly returnAnnotation?: TypeAnnotation;
+  readonly destructurings?: readonly ParameterDestructuring[];
   readonly body: Expr;
+  readonly span: Source.Span;
+}
+
+/**
+ * A pattern parameter: the fresh binder the caller's argument lands in, paired
+ * with the pattern that takes it apart. It stays on the *head* rather than
+ * being desugared into the body by the parser, because the binders it
+ * contributes are head binders (Statements §5, Pattern Matching §6.5) and only
+ * the resolver knows the lambda's own scope — the one place where "head binder"
+ * is expressible. The resolver opens the body with the equivalent `let` once
+ * the binders are classified.
+ */
+export interface ParameterDestructuring {
+  readonly pattern: Pattern;
+  readonly name: Name;
   readonly span: Source.Span;
 }
 

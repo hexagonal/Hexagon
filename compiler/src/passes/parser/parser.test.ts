@@ -1160,18 +1160,16 @@ describe("parse", () => {
       const bare = parseSource("let f = {x} => x");
       const parenthesized = parseSource("let f = ({x}) => x");
 
-      // One synthetic parameter, and the body opens with the destructuring `let`.
+      // One synthetic parameter, and the pattern hangs on the head beside it —
+      // the resolver opens the body with it, once the binders are classified.
       const shape = {
         value: {
           kind: "Lambda",
           parameters: [{ name: { text: "__hex_parameter0" } }],
-          body: {
-            kind: "Block",
-            items: [
-              { kind: "LetPattern", pattern: { kind: "Record" } },
-              { kind: "ExprItem" },
-            ],
-          },
+          destructurings: [
+            { name: { text: "__hex_parameter0" }, pattern: { kind: "Record" } },
+          ],
+          body: { kind: "Name" },
         },
       };
 
