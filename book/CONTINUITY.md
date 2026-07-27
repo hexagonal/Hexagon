@@ -543,7 +543,10 @@ late pedagogy pass, not a commitment to the current order.
   containing at least those fields.
 - **Row polymorphism** names that inferred flexibility only after the behavior is
   concrete. An annotation without `...` is closed; `...` permits additional fields.
-- `{...record, field = value}` is an update, not field addition. One spread comes first.
+- `{record with field = value}` is an update, not field addition; `with` is contextual, at
+  least one override is required, and the head is a name or dotted path. `{...record}` is
+  the bare shallow copy — the only surviving spread — and a spread carrying overrides, or
+  two spreads, is a parse error with its own fixit.
 - Construction and pattern punning use `{field}` for `{field = field}`.
 - Core contrast: `type` gives a shape another name; `record` creates a distinct
   identity.

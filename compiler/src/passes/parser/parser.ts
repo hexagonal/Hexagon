@@ -61,6 +61,29 @@ interface ParsedParameters {
   readonly destructurings: readonly Destructuring[];
 }
 const structuralEnds: readonly TokenKind[] = ["VSep", "Semicolon", "VClose", "Eof"];
+
+/** Nesting bracketry, so the record-update scan reads only its own brace's depth. */
+const opensNesting = new Set<TokenKind>(["LeftParen", "LeftBracket", "LeftBrace", "VOpen"]);
+const closesNesting = new Set<TokenKind>(["RightParen", "RightBracket", "RightBrace", "VClose"]);
+
+/**
+ * Token kinds that can end an expression. A contextual `with` opens a record update only
+ * when one of these precedes it; otherwise `with` is the field name or the value it looks
+ * like (Products §3.3).
+ */
+const endsExpression = new Set<TokenKind>([
+  "NonUpperName",
+  "UpperName",
+  "RightParen",
+  "RightBracket",
+  "RightBrace",
+  "Integer",
+  "BigInt",
+  "Float",
+  "String",
+  "True",
+  "False",
+]);
 /** Parses one layout-aware file and retains diagnostics from earlier passes. */
 export function parse(file: LaidOut.File): Parsed.Module {
   const diagnostics = new Diagnostics.Bag();
@@ -1622,21 +1645,57 @@ class Parser {
     };
   }
 
+  /**
+   * Term braces hold three forms (Products §3.3/§9): the literal `{x = e}`, the bare copy
+   * `{...p}`, and the functional update `{p with x = e}`. Update and copy share one AST
+   * node — the head becomes `spread`, which is exactly what both emit — so only the
+   * surface grammar distinguishes them. The retired JS idioms (`{...p, x = e}` and
+   * `{...a, ...b}`) parse on after their permanent §6 fixit, so one habit yields one error.
+   */
   #parseRecord(stops: ReadonlySet<TokenKind>): Parsed.Expr {
     const opening = this.#advance();
+    const innerStops = withStops(stops, "Comma", "RightBrace");
     let spread: Parsed.Expr | undefined;
+    let update = false;
+    let retiredSpread = false;
     const fields: Parsed.RecordField[] = [];
     const names = new Set<string>();
-    if (this.#at("Spread")) {
+    if (this.#atRecordUpdate()) {
+      const head = this.#parseExpression(0, innerStops);
+      if (!isDottedPath(head)) {
+        this.#errorAt(
+          head.span,
+          "a record update head must be a name or a dotted path; bind the base first: `let base = f(x)`",
+        );
+      }
+      // The head expression may have stopped short of the `with` the scan found; skipping
+      // to it keeps the overrides parsing under the one error already reported.
+      while (!this.#atContextual("with") && !this.#at("RightBrace") && !this.#at("Eof")) {
+        this.#advance();
+      }
+      if (this.#atContextual("with")) this.#advance();
+      spread = head;
+      update = true;
+    } else if (this.#at("Spread")) {
       this.#advance();
-      spread = this.#parseExpression(0, withStops(stops, "Comma", "RightBrace"));
+      spread = this.#parseExpression(0, innerStops);
       if (this.#at("Comma")) this.#advance();
+      if (!this.#at("RightBrace") && !this.#at("Eof")) {
+        this.#reportRetiredSpread(this.#at("Spread"));
+        retiredSpread = true;
+        update = true;
+      }
     }
     while (!this.#at("RightBrace") && !this.#at("Eof")) {
       if (this.#at("Spread")) {
-        this.#error("a record update permits exactly one spread, and it must come first");
+        // A spread reached from the field loop is the same retired habit; report it once
+        // per brace, then consume it so the surrounding fields still parse.
+        if (!retiredSpread) {
+          this.#reportRetiredSpread(spread !== undefined);
+          retiredSpread = true;
+        }
         this.#advance();
-        this.#parseExpression(0, withStops(stops, "Comma", "RightBrace"));
+        this.#parseExpression(0, innerStops);
         if (this.#at("Comma")) this.#advance();
         continue;
       }
@@ -1658,12 +1717,60 @@ class Parser {
       this.#advance();
     }
     const closing = this.#expect("RightBrace", "expected `}` after record fields");
+    const span = spanFrom(opening.span, closing?.span ?? fields.at(-1)?.span ?? opening.span);
+    if (update && fields.length === 0 && !retiredSpread) {
+      this.#errorAt(span, "a record update needs at least one override; the no-override copy is `{...p}`");
+    }
     return {
       kind: "Record",
       ...(spread === undefined ? {} : { spread }),
       fields,
-      span: spanFrom(opening.span, closing?.span ?? fields.at(-1)?.span ?? opening.span),
+      span,
     };
+  }
+
+  /**
+   * The two retired spread idioms (Products §6). Two spreads in one brace is JS's merge;
+   * anything else a spread carries is the spread-spelled update. Both are permanent
+   * diagnostics — the habits outlive the syntax that once accepted them.
+   */
+  #reportRetiredSpread(merge: boolean): void {
+    this.#error(
+      merge
+        ? "Hexagon has no record merge; `{...p}` copies, `{p with f = e}` updates"
+        : "records update with `with`: `{p with x = 3.0}`; `{...p}` alone is the copy/crossing",
+    );
+  }
+
+  /**
+   * Products §3.3: a term brace is an update when the contextual word `with` stands at the
+   * brace's own nesting depth, after a head and before its overrides — the decision is one
+   * token past the head path. `with` is contextual, never reserved: it is a *field* when
+   * `=`, `,`, or `}` follows (`{with = 3}`, `{with}`), and a *value* when the token before
+   * it cannot end an expression (`{x = with}`). A `with` inside a nested literal belongs to
+   * that literal, and the scan stops at the first override separator, so a later field's
+   * `with` is never mistaken for this brace's.
+   */
+  #atRecordUpdate(): boolean {
+    let depth = 0;
+    for (let distance = 0; ; distance += 1) {
+      const token = this.#peek(distance);
+      if (token.kind === "Eof") return false;
+      if (opensNesting.has(token.kind)) depth += 1;
+      else if (closesNesting.has(token.kind)) {
+        if (depth === 0) return false; // this brace's own `}`
+        depth -= 1;
+      } else if (depth === 0) {
+        if (token.kind === "Comma") return false;
+        if (distance > 0 && token.kind === "NonUpperName" && token.text === "with") {
+          const before = this.#peek(distance - 1).kind;
+          const after = this.#peek(distance + 1).kind;
+          if (endsExpression.has(before) && (after === "NonUpperName" || after === "RightBrace")) {
+            return true;
+          }
+        }
+      }
+    }
   }
 
   #parseString(token: Lexed.StringToken): Parsed.StringExpr {
@@ -2397,6 +2504,12 @@ function parsedName(token: Lexed.NameToken): Parsed.Name {
     startClass: token.kind === "NonUpperName" ? "non-upper" : "upper",
     span: token.span,
   };
+}
+
+/** Products §3.3's v1 update head: a bare name, or a dot-separated path from one. */
+function isDottedPath(expression: Parsed.Expr): boolean {
+  if (expression.kind === "Name") return true;
+  return expression.kind === "Access" && isDottedPath(expression.receiver);
 }
 
 function invalidType(name: Parsed.Name): Parsed.NamedType {

@@ -201,7 +201,7 @@ best := candidate
 ```
 
 - **`name := expr` is an expression of type `Unit`.** The RHS unifies with the `var`'s monotype — "cannot change type" is a *consequence* of unification against the binding's monotype, not a separate rule, and its failure is an ordinary type error phrased against the `var`: "`count` has type `Int`; cannot assign a `String`."
-- **Target grammar: a bare name, only.** Everything else is rejected with a targeted diagnostic (checklist §9.3): `p.x := e` (records are immutable — suggest `{...p, x = e}`), `t.item1 := e` (tuples are immutable), `f(x) := e` (parse error: assign to a name).
+- **Target grammar: a bare name, only.** Everything else is rejected with a targeted diagnostic (checklist §9.3): `p.x := e` (records are immutable — suggest `{p with x = e}`), `t.item1 := e` (tuples are immutable), `f(x) := e` (parse error: assign to a name).
 - **Target must be `var`-bound.** `:=` to a `let`-bound name: "`y` was bound with `let`; declare it with `var` if you need to update it." To a head binder (parameter, pattern binder): "`x` is a parameter and cannot be assigned; declare a `var`." To an undeclared name: ordinary unbound-name error — **no** implicit declaration, ever (the JS `x = 5`-creates-a-global disease does not exist here, and the diagnostic should not suggest it).
 - Targets resolve uniquely by construction (§5.2). Assignment before the `var`'s declaration line is impossible for the same reason any use is: the name is not yet in scope (blocks are sequential; the pending-binder machinery already covers the RHS case).
 - `:=` respects the lambda boundary (§6.2): assignment from inside a nested lambda is the boundary error, reported as such (not as an unbound name).
@@ -355,7 +355,7 @@ fun h() =
 | `:=` to a `let`-bound name | "`y` was bound with `let`; declare it with `var` if you need to update it" (§6.3) |
 | `:=` to a parameter / pattern binder | "`x` is a parameter and cannot be assigned; declare a `var`" (§6.3) |
 | `:=` to an undeclared name | ordinary unbound-name error; never suggest implicit declaration (§6.3) |
-| `p.x := e` on a record | "records are immutable; build an updated copy: `{...p, x = e}`" (§6.3) |
+| `p.x := e` on a record | "records are immutable; build an updated copy: `{p with x = e}`" (§6.3) |
 | `t.itemN := e` on a tuple | "tuples are immutable; construct a new tuple with the changed slot" (§6.3) |
 | Non-name `:=` target | parse error: "`:=` assigns to a `var` name" (§6.3) |
 | Assignment type mismatch | "`count` has type `Int`; cannot assign a `String`" — phrased against the `var`, not as generic unification (§6.3) |

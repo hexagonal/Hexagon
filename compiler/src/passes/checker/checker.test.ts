@@ -356,7 +356,7 @@ describe("check", () => {
 
   test("preserves a named record tail between parameter and result annotations", () => {
     const module = checkSource(
-      'fun rename(r: {guest: String, ...rest}): {guest: String, ...rest} = {...r, guest = "Renamed"}\n' +
+      'fun rename(r: {guest: String, ...rest}): {guest: String, ...rest} = {r with guest = "Renamed"}\n' +
         'let updated = rename({guest = "Mira", seats = 3})\n' +
         "let seats = updated.seats",
     );
@@ -397,7 +397,7 @@ describe("check", () => {
   test("checks immutable record updates without permitting field addition", () => {
     const valid = checkSource(
       "let point = {x = 1.0, y = 2.0}\n" +
-        "let moved = {...point, x = 3.0}\n" +
+        "let moved = {point with x = 3.0}\n" +
         "let copied = {...moved}",
     );
     expect(valid.diagnostics).toEqual([]);
@@ -410,7 +410,7 @@ describe("check", () => {
     });
 
     const invalid = checkSource(
-      "let point = {x = 1}\nlet moved = {...point, y = 2}",
+      "let point = {x = 1}\nlet moved = {point with y = 2}",
     );
     expect(invalid.diagnostics.map(({ message }) => message)).toContain(
       "record update cannot add fields; the input has no field `y`",

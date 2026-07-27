@@ -495,7 +495,7 @@ describe("emitJavaScript", () => {
 
   test("renders shared named record tails in TypeScript declarations", () => {
     const module = coreSource(
-      'export fun rename(r: {guest: String, ...rest}): {guest: String, ...rest} = {...r, guest = "Renamed"}',
+      'export fun rename(r: {guest: String, ...rest}): {guest: String, ...rest} = {r with guest = "Renamed"}',
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -504,10 +504,12 @@ describe("emitJavaScript", () => {
     );
   });
 
+  // Products §9.2/§9.5: `{p with x = e}` emits the same spread the retired spelling did —
+  // the emitter translates the idiom, so the JavaScript is byte-identical to before.
   test("emits annotated record updates and open record destructuring readably", () => {
     const module = coreSource(
       "export let origin: {x: Float, y: Float} = {x = 0.0, y = 0.0}\n" +
-        "fun move(p: {x: Float, y: Float}): {x: Float, y: Float} = {...p, x = p.x + 1.0}\n" +
+        "fun move(p: {x: Float, y: Float}): {x: Float, y: Float} = {p with x = p.x + 1.0}\n" +
         "let moved = move(origin)\n" +
         "let {x, y} = moved",
     );
@@ -576,7 +578,7 @@ describe("emitJavaScript", () => {
       "export record Box(a) = {value: a}\n" +
         "export fun get(box: Box(a)): a = box.value\n" +
         "export let answer: Box(Int) = Box({value = 42})\n" +
-        "export let changed: Box(Int) = {...answer, value = 43}\n" +
+        "export let changed: Box(Int) = {answer with value = 43}\n" +
         "export fun expose(box: Box(Int)): {value: Int} = {...box}",
     );
 
@@ -683,7 +685,7 @@ describe("emitJavaScript", () => {
   test("resolves nominal dot calls to subject-first companion operations", () => {
     const module = coreSource(
       "export record Point = {x: Int, y: Int}\n" +
-        "fun translate(point: Point, dx: Int): Point = {...point, x = point.x + dx}\n" +
+        "fun translate(point: Point, dx: Int): Point = {point with x = point.x + dx}\n" +
         "export let shifted: Point = Point({x = 1, y = 2}).translate(3)",
     );
 

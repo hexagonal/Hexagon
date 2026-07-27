@@ -827,7 +827,7 @@ describe("parse", () => {
       const module = parseSource(
         "record Point = {x: Float, y: Float}\n" +
           "let p = {x = 1.0, y = 2.0}\n" +
-          "let q = {...p, x = 3.0}\n" +
+          "let q = {p with x = 3.0}\n" +
           "fun getX(r: {x: Float, ...}): Float = r.x\n" +
           "let {x = first} = p\n",
       );
@@ -893,6 +893,142 @@ describe("parse", () => {
       const module = parseSource("let p = {x: 1, y: 2, z: 3}");
 
       expect(module.diagnostics).toHaveLength(3);
+    });
+  });
+
+  // Products §3.3/§6/§9: functional update is `{p with x = e}`; `{...p}` stays the bare
+  // copy; the retired spread idioms keep permanent fixits.
+  describe("functional update `{p with x = e}`", () => {
+    test("parses the update, its dotted heads, and its punning composition", () => {
+      const module = parseSource(
+        "let a = {p with x = 3.0}\n" +
+          'let b = {settings with port = 8080, host = "::1"}\n' +
+          "let c = {p.position with x = 3.0}\n" +
+          "let d = {Config.default with port = 8080}\n" +
+          "let e = {p with x}\n",
+      );
+
+      expect(module.diagnostics).toEqual([]);
+    });
+
+    test("the head becomes the emitted spread, so copy and update share one node", () => {
+      const update = expression(parseSource("{p with x = 3.0}"));
+      const copy = expression(parseSource("{...p}"));
+
+      expect(update).toMatchObject({
+        kind: "Record",
+        spread: { kind: "Name", name: { text: "p" } },
+        fields: [{ name: { text: "x" }, punned: false }],
+      });
+      expect(copy).toMatchObject({ kind: "Record", spread: { kind: "Name" }, fields: [] });
+    });
+
+    test("`{p with x}` expands to `{p with x = x}` through ordinary punning", () => {
+      expect(expression(parseSource("{p with x}"))).toMatchObject({
+        fields: [{ name: { text: "x" }, punned: true, value: { kind: "Name", name: { text: "x" } } }],
+      });
+    });
+
+    // Products §3.3/§9.3: `with` is contextual, not reserved — the ES2023
+    // `Array.prototype.with` case depends on it staying an ordinary name.
+    test("`with` stays an ordinary name in every position that is not an update", () => {
+      const module = parseSource(
+        "let with = 3\n" +
+          "let field = {with = 3}\n" +
+          "let punned = {with}\n" +
+          "let value = {x = with}\n" +
+          "let trailing = {a = 1, with}\n",
+      );
+
+      expect(module.diagnostics).toEqual([]);
+      expect(expression(parseSource("{with = 3}"))).toMatchObject({
+        kind: "Record",
+        fields: [{ name: { text: "with" }, punned: false }],
+      });
+    });
+
+    test("a head named `with` still parses as an update", () => {
+      const module = parseSource("let q = {with with x = 3}");
+
+      expect(module.diagnostics).toEqual([]);
+      expect(expression(parseSource("{with with x = 3}"))).toMatchObject({
+        kind: "Record",
+        spread: { kind: "Name", name: { text: "with" } },
+        fields: [{ name: { text: "x" } }],
+      });
+    });
+
+    test("a nested update's `with` belongs to its own brace", () => {
+      const module = parseSource(
+        "let a = {outer = {p with x = 1}, z = 2}\n" +
+          "let b = {p with x = {inner with y = 1}}\n",
+      );
+
+      expect(module.diagnostics).toEqual([]);
+    });
+
+    test("spread-spelled update keeps its permanent fixit and parses on", () => {
+      const module = parseSource("let q = {...p, x = 3.0}");
+
+      expect(module.diagnostics).toMatchObject([
+        {
+          severity: "error",
+          message: "records update with `with`: `{p with x = 3.0}`; `{...p}` alone is the copy/crossing",
+        },
+      ]);
+      expect(expression(parseSource("{...p, x = 3.0}"))).toMatchObject({
+        kind: "Record",
+        spread: { kind: "Name", name: { text: "p" } },
+        fields: [{ name: { text: "x" } }],
+      });
+    });
+
+    test("a late spread is the same habit and the same fixit", () => {
+      const module = parseSource("let q = {x = 1, ...b}");
+
+      expect(module.diagnostics).toMatchObject([
+        { message: "records update with `with`: `{p with x = 3.0}`; `{...p}` alone is the copy/crossing" },
+      ]);
+    });
+
+    test("`{...a, ...b}` gets the merge fixit, once, however many spreads follow", () => {
+      expect(parseSource("let q = {...a, ...b}").diagnostics).toMatchObject([
+        {
+          severity: "error",
+          message: "Hexagon has no record merge; `{...p}` copies, `{p with f = e}` updates",
+        },
+      ]);
+      expect(parseSource("let q = {...a, ...b, ...c}").diagnostics).toHaveLength(1);
+    });
+
+    test("a non-path head names the fixit and still parses its overrides", () => {
+      const module = parseSource("let q = {f(x) with y = 3}");
+
+      expect(module.diagnostics).toMatchObject([
+        {
+          severity: "error",
+          message: "a record update head must be a name or a dotted path; bind the base first: `let base = f(x)`",
+        },
+      ]);
+      expect(expression(parseSource("{f(x) with y = 3}"))).toMatchObject({
+        kind: "Record",
+        fields: [{ name: { text: "y" } }],
+      });
+    });
+
+    test("an empty override list points at the bare copy", () => {
+      const module = parseSource("let q = {p with}");
+
+      expect(module.diagnostics).toMatchObject([
+        {
+          severity: "error",
+          message: "a record update needs at least one override; the no-override copy is `{...p}`",
+        },
+      ]);
+    });
+
+    test("the bare copy stays exactly what it was", () => {
+      expect(parseSource("let q = {...p}").diagnostics).toEqual([]);
     });
   });
 });

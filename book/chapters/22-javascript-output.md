@@ -94,7 +94,7 @@ Tuples are ordinary arrays. Structural records are ordinary objects:
 
 ```hexagon
 let guest = {name = "Mira", seats = 3}
-let expanded = {...guest, seats = 4}
+let expanded = {guest with seats = 4}
 ```
 
 ```js

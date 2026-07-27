@@ -118,7 +118,7 @@ export opaque union Handle = FileHandle(fd: Int) | NetHandle(sock: Int)
 
 `export opaque` exports the **type name only**. Everything the body introduces stays private to the home module:
 
-- **Records:** the constructor is private (no construction outside), and — load-bearing — **fields are private too**: no `p.x`, no pattern destructuring, no `{...p, x = e}` update outside the home module. An opaque record without field privacy would be fake abstraction; outside its home module an opaque record is a black box.
+- **Records:** the constructor is private (no construction outside), and — load-bearing — **fields are private too**: no `p.x`, no pattern destructuring, no `{p with x = e}` update outside the home module. An opaque record without field privacy would be fake abstraction; outside its home module an opaque record is a black box.
 - **Unions:** all constructors private — no construction, no pattern matching outside. Exhaustiveness checking is unaffected (it is checked against the declaration, and matching is impossible outside anyway).
 - Inside the home module, `opaque` changes nothing: full construction, matching, field access. The home module exports smart constructors and accessors as ordinary functions — this is the intended idiom, and the companion-module pattern (§5.3) is its natural shape.
 - Derived instances are unaffected: `export opaque record Point derives (Eq, Show) = ...` works — derivation happens in the home module, where nothing is hidden, and the resulting instances are global like all instances (§7). This is deliberate: opacity hides *structure*, not *capabilities*.
