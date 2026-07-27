@@ -110,6 +110,120 @@ describe("destructuring parameters", () => {
   });
 });
 
+/**
+ * §6.5: "A single parameter without parens may be any paren-free pattern
+ * (`{a, b} =>`, `UserId(n) =>`, `x as v =>`)". These are the spellings that had to be
+ * told apart from the expressions they begin like — a record *pattern* from a record
+ * *literal*, a constructor *pattern* from a call.
+ */
+describe("paren-free single parameters", () => {
+  test("§6.5 a record-destructured sole parameter", async () => {
+    const m = await run(
+      "let f = {a, b} => a + b\nexport let out: Int = f({a = 3, b = 4})\n",
+    );
+    expect(m.out).toBe(7);
+  });
+
+  test("§6.5 a newtype-unwrapped sole parameter", async () => {
+    const m = await run(
+      "union UserId = UserId(value: Int)\n" +
+        "let f = UserId(n) => n\n" +
+        "export let out: Int = f(UserId(7))\n",
+    );
+    expect(m.out).toBe(7);
+  });
+
+  test("§6.5 `x as v =>` binds the whole value", async () => {
+    const m = await run(
+      "let f = {a} as whole => a + whole.b\n" +
+        "export let out: Int = f({a = 3, b = 4})\n",
+    );
+    expect(m.out).toBe(7);
+  });
+
+  test("§6.5 the parenthesized spelling means the same thing", async () => {
+    const bare = await run("let f = {a, b} => a + b\nexport let out: Int = f({a = 1, b = 2})\n");
+    const parenthesized = await run(
+      "let f = ({a, b}) => a + b\nexport let out: Int = f({a = 1, b = 2})\n",
+    );
+    expect(bare.out).toBe(parenthesized.out);
+  });
+
+  // §6.5's row pin: `{x} => e` constrains its parameter exactly as `p => p.x` does.
+  test("§6.5 a record parameter constrains row-polymorphically", async () => {
+    const m = await run(
+      "let getX = {x} => x\n" +
+        "export let narrow: Int = getX({x = 1})\n" +
+        "export let wide: Int = getX({x = 2, y = true})\n",
+    );
+    expect([m.narrow, m.wide]).toEqual([1, 2]);
+  });
+
+  test("§6.5 the gate still applies: a refutable paren-free parameter is rejected", () => {
+    const messages = diagnostics(
+      "union Maybe = Some(value: Int) | None\nlet f = Some(v) => v\n",
+    );
+    expect(messages.some((m) => m.includes("refutable"))).toBe(true);
+  });
+
+  // The arrow is the whole signal, so what merely starts like a pattern is untouched.
+  test("§6.5 a record literal is still a record literal", async () => {
+    const m = await run(
+      "let literal = {a = 1}\n" +
+        "let holdingALambda = {f = x => x}\n" +
+        "export let out: Int = literal.a + holdingALambda.f(2)\n",
+    );
+    expect(m.out).toBe(3);
+  });
+});
+
+/**
+ * §3's guard-termination pin: "a top-level `=>` after `when` always belongs to the arm,
+ * never to a lambda." The spec names the exact failure — `p when f => x` maximal-munching
+ * `f => x` as an eats-right lambda and never finding the arm's arrow — which is what the
+ * parser did until the paren-free forms landed.
+ */
+describe("guard termination", () => {
+  const union = "union Box = Wrap(v: Int) | Empty\n";
+  const rest = "        Wrap(_) => 9\n        Empty => 0\n";
+
+  test("§3 a bare boolean guard leaves the arm its arrow", async () => {
+    const m = await run(
+      `${union}fun f(b: Box, flag: Bool): Int =\n` +
+        "    match b\n" +
+        "        Wrap(x) when flag => x\n" +
+        rest +
+        "export let taken: Int = f(Wrap(5), true)\n" +
+        "export let skipped: Int = f(Wrap(5), false)\n",
+    );
+    expect([m.taken, m.skipped]).toEqual([5, 9]);
+  });
+
+  test("§3 the guard may still contain a lambda, inside brackets", async () => {
+    const m = await run(
+      `${union}fun apply(g: (Int) -> Bool, n: Int): Bool = g(n)\n` +
+        "fun f(b: Box): Int =\n" +
+        "    match b\n" +
+        "        Wrap(x) when apply(y => y > 0, x) => x\n" +
+        rest +
+        "export let positive: Int = f(Wrap(5))\n" +
+        "export let negative: Int = f(Wrap(-5))\n",
+    );
+    expect([m.positive, m.negative]).toEqual([5, 9]);
+  });
+
+  test("§3 an arm body may still be a lambda", async () => {
+    const m = await run(
+      `${union}fun f(b: Box): Int =\n` +
+        "    match b\n" +
+        "        Wrap(x) => (y => y + x)(1)\n" +
+        "        Empty => 0\n" +
+        "export let out: Int = f(Wrap(5))\n",
+    );
+    expect(m.out).toBe(6);
+  });
+});
+
 describe("the depth rule and the irrefutability gate", () => {
   test("§6.5 `(x, y)` is two parameters, `((x, y))` is one", () => {
     expect(

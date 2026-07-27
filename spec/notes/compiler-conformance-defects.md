@@ -184,10 +184,16 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   missing constructor, a *refutable* tuple element (`Some((1, right))` must not
   count as covering), and the untouched arity diagnostic.
 - **Not covered, and why:** the nominal-record spelling
-  (`Some(Point({ x, y }))`) is not writable at all yet — that is **#83**
-  (paren-free `{a, b}` / `UserId(n)` patterns, pinned by PM §6.5 and
-  unimplemented), independent of this defect. The structural-record test stands
-  in; add the nominal case when #83 lands.
+  (`Some(Point({ x, y }))`) is not writable at all yet. **The blocker was
+  misattributed to #83** (paren-free `{a, b}` / `UserId(n)` lambda-head
+  patterns). #83 has since landed and the spelling is still rejected, with
+  `unknown constructor \`Point\``: a nominal `record` declaration registers no
+  constructor *pattern*, so `Point({ x, y })` cannot be written in any pattern
+  position — `match` arm, `let`, or lambda head alike. That is **#84 item 1**
+  (nominal record patterns), and it was always the real blocker; #83 governed
+  only whether a paren-free pattern may head a lambda, which is a different
+  question that never applied to a nested pattern inside a `match` arm. The
+  structural-record test stands in; add the nominal case when #84 item 1 lands.
 - **Verified end-to-end with defect 1:** `SeqCore.hex` with *both* Phase-1
   workarounds reverted — every `(x.pull)()` back to `next(x)` and every
   payload-then-`let` back to `Some((value, rest))` — compiles clean.
