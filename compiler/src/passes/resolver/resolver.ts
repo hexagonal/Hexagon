@@ -53,6 +53,11 @@ function declaredKind(binderClass: BinderClass): Resolved.SymbolKind {
   return binderClass === "sequential" ? "let" : "pattern";
 }
 
+/** Two spans in the order a reader meets them, so a diagnostic can point in source order. */
+function orderedBySource(a: Source.Span, b: Source.Span): readonly [Source.Span, Source.Span] {
+  return a.start.offset <= b.start.offset ? [a, b] : [b, a];
+}
+
 /**
  * Opens a lambda body with the bindings its pattern parameters destructure
  * through, so everything downstream sees the shape a hand-written destructuring
@@ -1607,13 +1612,19 @@ class Resolver {
     if (binderClass === "parameter") {
       const sibling = scope.lookupLocal(name.text);
       if (sibling === undefined) return true;
+      // Order the pair by source position, not by which one resolved second.
+      // Every plain parameter binds before any pattern parameter is resolved, so
+      // a pattern binder is always the later claimant even when it was written
+      // first — reporting in claim order would label the *second* `p` of
+      // `f({p}, p)` as the first one. Two plain parameters have never had that
+      // problem, and this keeps the whole family reading the same way: the
+      // primary marks the repeat, the label marks what it repeats.
+      const [first, second] = orderedBySource(this.#symbol(sibling).bindingSpan, name.span);
       this.#diagnostics.add({
         severity: "error",
         message: `duplicate parameter \`${name.text}\``,
-        primary: name.span,
-        labels: [
-          { span: this.#symbol(sibling).bindingSpan, message: "first parameter is here" },
-        ],
+        primary: second,
+        labels: [{ span: first, message: "first parameter is here" }],
       });
       return false;
     }
