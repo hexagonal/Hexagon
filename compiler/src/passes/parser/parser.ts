@@ -13,7 +13,7 @@ import type * as Source from "../../support/source.js";
 import { syntheticParameterName } from "../../support/synthetic.js";
 import type * as LaidOut from "../../syntax/laid-out/index.js";
 import type * as Lexed from "../../syntax/lexed/index.js";
-import type * as Parsed from "../../syntax/parsed/index.js";
+import * as Parsed from "../../syntax/parsed/index.js";
 
 type TokenKind = LaidOut.Token["kind"];
 
@@ -2369,22 +2369,11 @@ class Parser {
    * a right-hand side spread across lines. A block with more than one item is deliberately
    * *not* discharged: there the lambda is the block's result rather than the binding's
    * right-hand side, and what `<a>` would scope over is a question this form should not
-   * answer by accident.
+   * answer by accident. Functions §8.2 has since ruled the parallel value-restriction
+   * question the same way, which is why the walk is now one shared helper.
    */
   #dischargeTypeParameterLambda(value: Parsed.Expr): void {
-    let lambda = value;
-    for (;;) {
-      if (lambda.kind === "Group") {
-        lambda = lambda.expression;
-        continue;
-      }
-      const only = lambda.kind === "Block" && lambda.items.length === 1
-        ? lambda.items[0]
-        : undefined;
-      if (only?.kind !== "ExprItem") break;
-      lambda = only.expression;
-    }
-    this.#pendingTypeParameterLambdas.delete(lambda);
+    this.#pendingTypeParameterLambdas.delete(Parsed.unwrapBindingValue(value));
   }
 
   #reportMisplacedTypeParameterLambdas(): void {
