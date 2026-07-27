@@ -8,7 +8,7 @@
 
 import * as Diagnostics from "../../support/diagnostics.js";
 import type * as Source from "../../support/source.js";
-import type * as Parsed from "../../syntax/parsed/index.js";
+import * as Parsed from "../../syntax/parsed/index.js";
 import * as Resolved from "../../syntax/resolved/index.js";
 
 export interface ModuleInterface {
@@ -889,7 +889,7 @@ class Resolver {
 
         const binding = this.#predeclaredBindings.get(item) ?? this.#declare(item.name, "let");
         this.#pending.push({ name: item.name, kind: "let" });
-        const value = this.#resolveExpr(item.value, scope);
+        const value = this.#resolveExpr(Parsed.unwrapBindingValue(item.value), scope);
         this.#pending.pop();
 
         // Preserve the first valid meaning after an error instead of allowing
@@ -946,7 +946,7 @@ class Resolver {
         const binding = this.#predeclaredBindings.get(item) ?? this.#declare(item.name, "var");
         this.#varOwners.set(binding.symbol, this.#lambdaDepth);
         this.#pending.push({ name: item.name, kind: "var" });
-        const value = this.#resolveExpr(item.value, scope);
+        const value = this.#resolveExpr(Parsed.unwrapBindingValue(item.value), scope);
         this.#pending.pop();
         if (existing === undefined) scope.define(item.name.text, binding.symbol);
         return {
@@ -964,7 +964,7 @@ class Resolver {
         this.#pending.push(
           ...names.map((name) => ({ name, kind: "let" as const })),
         );
-        const value = this.#resolveExpr(item.value, scope);
+        const value = this.#resolveExpr(Parsed.unwrapBindingValue(item.value), scope);
         this.#pending.splice(this.#pending.length - names.length, names.length);
         const seen = new Map<string, Resolved.Binding>();
         const pattern = this.#resolvePattern(item.pattern, scope, seen, "sequential");

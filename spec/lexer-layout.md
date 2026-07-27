@@ -70,7 +70,17 @@ let x =
 ```
 
 A single wrapped expression is simply the one-item case, so the ordinary
-multi-line RHS is unaffected. Type declarations are *not* term bindings:
+multi-line RHS is unaffected. "Unaffected" is load-bearing, and it binds every
+rule that reads what a right-hand side *means*, not just its value: the one-item
+block is peeled before the value restriction, the exported-signature check, or
+evidence threading sees it, so moving a RHS to the next line cannot change what
+the binding means (Functions §8.2, which also rules on the multi-item case).
+The one exception is Functions §7.1, which asks what a `fun`'s right-hand side
+**is** — a check on the written form, which is what hoisting's zero-evaluation
+guarantee rests on — and so refuses a lambda literal that arrives wrapped, in
+parentheses or on the next line alike.
+
+Type declarations are *not* term bindings:
 `record`, `union`, and `type` after `=` remain continuations, which is what keeps
 indented union alternatives free of VOPEN. `finally` is reserved but is not a v1
 block head.
