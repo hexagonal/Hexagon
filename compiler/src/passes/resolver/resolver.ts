@@ -31,6 +31,45 @@ export interface InstanceInterface {
   readonly span: Source.Span;
 }
 
+/**
+ * Which of Statements §5's two binder classes a pattern's binders take. The
+ * class comes from the binder's *position*, never from the pattern's grammar:
+ * the same `{name}` is sequential on a `let` LHS and a head binder in a lambda
+ * head or a match arm.
+ *
+ * - `"sequential"` — a `let` pattern. Scopes over the open-ended rest of its
+ *   block, so it may not reuse any name in scope (§5.1 rule 1).
+ * - `"head"` — a match arm, a catch arm, or a `for..in` binder. Governs a region
+ *   the construct delimits and owns a scope of its own, so it may shadow
+ *   anything (rule 2) with nothing to collide against.
+ * - `"parameter"` — a pattern parameter. A head binder as well, but one that
+ *   shares the lambda's scope with the parameters beside it, so the one name it
+ *   may not take is a sibling parameter's (rule 3).
+ */
+type BinderClass = "sequential" | "head" | "parameter";
+
+/** Sequential binders are `let`s; both head classes are pattern binders. */
+function declaredKind(binderClass: BinderClass): Resolved.SymbolKind {
+  return binderClass === "sequential" ? "let" : "pattern";
+}
+
+/**
+ * Opens a lambda body with the bindings its pattern parameters destructure
+ * through, so everything downstream sees the shape a hand-written destructuring
+ * `let` would have produced — the binders having already been classified in the
+ * head, where they belong.
+ */
+function openedWith(
+  bindings: readonly Resolved.LetPatternItem[],
+  body: Resolved.Expr,
+): Resolved.Expr {
+  if (bindings.length === 0) return body;
+  const items: readonly Resolved.Item[] = body.kind === "Block"
+    ? [...bindings, ...body.items]
+    : [...bindings, { kind: "ExprItem", expression: body, span: body.span }];
+  return { kind: "Block", items, span: body.span };
+}
+
 /** One prelude module made implicitly available, with the specifier this module imports it by. */
 export interface PreludeImport {
   readonly interface: ModuleInterface;
@@ -923,7 +962,7 @@ class Resolver {
         const value = this.#resolveExpr(item.value, scope);
         this.#pending.splice(this.#pending.length - names.length, names.length);
         const seen = new Map<string, Resolved.Binding>();
-        const pattern = this.#resolvePattern(item.pattern, scope, seen, false);
+        const pattern = this.#resolvePattern(item.pattern, scope, seen, "sequential");
         return {
           kind: "LetPattern",
           exported: false,
@@ -1145,7 +1184,7 @@ class Resolver {
           expression.pattern,
           loopScope,
           new Map(),
-          true,
+          "head",
         );
         return {
           kind: "For",
@@ -1165,7 +1204,7 @@ class Resolver {
               arm.pattern,
               armScope,
               new Map(),
-              true,
+              "head",
             );
             return {
               pattern,
@@ -1187,7 +1226,7 @@ class Resolver {
               arm.pattern,
               armScope,
               new Map(),
-              true,
+              "head",
             );
             return {
               pattern,
@@ -1390,7 +1429,7 @@ class Resolver {
     pattern: Parsed.Pattern,
     scope: Scope,
     seen: Map<string, Resolved.Binding>,
-    head: boolean,
+    binderClass: BinderClass,
     sharedBindings?: ReadonlyMap<string, Resolved.Binding>,
   ): Resolved.Pattern {
     if (
@@ -1425,16 +1464,15 @@ class Resolver {
       const shared = new Map(sharedBindings);
       for (const [text, name] of sourceNames) {
         if (shared.has(text)) continue;
-        const existing = scope.lookup(text);
-        if (!head && existing !== undefined) this.#reportRebinding(name, existing);
-        const binding = this.#declare(name, head ? "pattern" : "let");
+        const claimed = this.#claimBinder(name, scope, binderClass);
+        const binding = this.#declare(name, declaredKind(binderClass));
         shared.set(text, binding);
-        if (head || existing === undefined) scope.define(text, binding.symbol);
+        if (claimed) scope.define(text, binding.symbol);
       }
       return {
         kind: "Or",
         alternatives: pattern.alternatives.map((alternative) =>
-          this.#resolvePattern(alternative, scope, new Map(), head, shared)
+          this.#resolvePattern(alternative, scope, new Map(), binderClass, shared)
         ),
         span: pattern.span,
       };
@@ -1444,14 +1482,14 @@ class Resolver {
         pattern.pattern,
         scope,
         seen,
-        head,
+        binderClass,
         sharedBindings,
       );
       const binder = this.#resolvePattern(
         { kind: "Binding", name: pattern.name, span: pattern.name.span },
         scope,
         seen,
-        head,
+        binderClass,
         sharedBindings,
       );
       return {
@@ -1477,7 +1515,7 @@ class Resolver {
         text: pattern.name.text,
         nameSpan: pattern.name.span,
         arguments: pattern.arguments.map((argument) =>
-          this.#resolvePattern(argument, scope, seen, head, sharedBindings),
+          this.#resolvePattern(argument, scope, seen, binderClass, sharedBindings),
         ),
         span: pattern.span,
       };
@@ -1486,7 +1524,7 @@ class Resolver {
       return {
         ...pattern,
         elements: pattern.elements.map((element) =>
-          this.#resolvePattern(element, scope, seen, head, sharedBindings),
+          this.#resolvePattern(element, scope, seen, binderClass, sharedBindings),
         ),
       };
     }
@@ -1498,12 +1536,12 @@ class Resolver {
             span: pattern.rest.span,
             ...(pattern.rest.pattern === undefined
               ? {}
-              : { pattern: this.#resolvePattern(pattern.rest.pattern, scope, seen, head, sharedBindings) }),
+              : { pattern: this.#resolvePattern(pattern.rest.pattern, scope, seen, binderClass, sharedBindings) }),
           };
       return {
         kind: "Vector",
         elements: pattern.elements.map((element) =>
-          this.#resolvePattern(element, scope, seen, head, sharedBindings)
+          this.#resolvePattern(element, scope, seen, binderClass, sharedBindings)
         ),
         ...(resolvedRest === undefined ? {} : { rest: resolvedRest }),
         span: pattern.span,
@@ -1519,7 +1557,7 @@ class Resolver {
             field.pattern,
             scope,
             seen,
-            head,
+            binderClass,
             sharedBindings,
           ),
           span: field.span,
@@ -1528,13 +1566,10 @@ class Resolver {
       };
     }
 
-    // A binding pattern at module level is a module-level `let` (§5.4), so it may
-    // occlude a prelude name on the same scope-identity test `let`, `fun`, and
-    // constraint members use. The fourth binder form of defect 11's family;
-    // nested binders keep the full walk, where the ban is absolute.
-    const existing = scope === this.#moduleScope
-      ? scope.lookupLocal(pattern.name.text)
-      : scope.lookup(pattern.name.text);
+    // Binding twice within one pattern is simultaneous duplication, not
+    // shadowing (§5.1 rule 3): it is an error in every class, and it settles the
+    // name before the class ever gets a say. An or-pattern's alternatives share
+    // one binding per name (`sharedBindings`), already claimed above.
     const duplicate = seen.get(pattern.name.text);
     if (duplicate !== undefined) {
       this.#diagnostics.add({
@@ -1543,21 +1578,56 @@ class Resolver {
         primary: pattern.name.span,
         labels: [{ span: duplicate.span, message: "first binding is here" }],
       });
-    } else if (sharedBindings === undefined && !head && existing !== undefined) {
-      this.#reportRebinding(pattern.name, existing);
     }
+    const claimed = duplicate === undefined && sharedBindings === undefined &&
+      this.#claimBinder(pattern.name, scope, binderClass);
 
     const binding = sharedBindings?.get(pattern.name.text) ??
-      this.#declare(pattern.name, head ? "pattern" : "let");
+      this.#declare(pattern.name, declaredKind(binderClass));
     seen.set(pattern.name.text, binding);
-    if (
-      sharedBindings === undefined &&
-      duplicate === undefined &&
-      (head || existing === undefined)
-    ) {
-      scope.define(pattern.name.text, binding.symbol);
-    }
+    if (claimed) scope.define(pattern.name.text, binding.symbol);
     return { kind: "Binding", binding, span: pattern.span };
+  }
+
+  /**
+   * Settles one pattern binder against the names already in scope, per its
+   * Statements §5 class, and reports the conflict if it has one. Answers whether
+   * the binder may go on to own its name in `scope`; a rejected binder leaves the
+   * existing meaning in place, so the names after it still resolve to what they
+   * did before the error.
+   */
+  #claimBinder(name: Parsed.Name, scope: Scope, binderClass: BinderClass): boolean {
+    // Rule 2: a head binder may shadow anything, and it owns its scope outright.
+    if (binderClass === "head") return true;
+
+    // A pattern parameter is a head binder too, but it shares the lambda's scope
+    // with the parameters beside it, so a name already bound *there* is a second
+    // parameter of that name — duplication (rule 3), not shadowing. Everything
+    // further out it may shadow, exactly as a plain parameter does.
+    if (binderClass === "parameter") {
+      const sibling = scope.lookupLocal(name.text);
+      if (sibling === undefined) return true;
+      this.#diagnostics.add({
+        severity: "error",
+        message: `duplicate parameter \`${name.text}\``,
+        primary: name.span,
+        labels: [
+          { span: this.#symbol(sibling).bindingSpan, message: "first parameter is here" },
+        ],
+      });
+      return false;
+    }
+
+    // Rule 1, layered by Modules §5.4: a binder in the module's own scope may
+    // occlude a prelude name on the same scope-identity test `let`, `fun`, and
+    // constraint members use; in any inner layer the ban is absolute, so the
+    // lookup walks all the way out.
+    const existing = scope === this.#moduleScope
+      ? scope.lookupLocal(name.text)
+      : scope.lookup(name.text);
+    if (existing === undefined) return true;
+    this.#reportRebinding(name, existing);
+    return false;
   }
 
   #resolveName(expression: Parsed.NameExpr, scope: Scope): Resolved.Expr {
@@ -1653,6 +1723,34 @@ class Resolver {
       };
     });
 
+    // A pattern parameter's binders are head binders whichever spelling
+    // introduced them (Pattern Matching §6.5), so they bind here — in the
+    // lambda's own scope, beside the plain parameters and under the same rules —
+    // rather than in the body, where the surrounding `let`'s sequential class
+    // would be the only one on offer (Statements §5.2's pre-desugar warning).
+    // The equivalent `let` still opens the body, and is checked, typed, and
+    // emitted as a written one: only the classification happens up here.
+    const destructurings = (expression.destructurings ?? []).map(
+      (destructuring): Resolved.LetPatternItem => {
+        const value = this.#resolveExpr(
+          { kind: "Name", name: destructuring.name, span: destructuring.span },
+          lambdaScope,
+        );
+        return {
+          kind: "LetPattern",
+          exported: false,
+          pattern: this.#resolvePattern(
+            destructuring.pattern,
+            lambdaScope,
+            new Map(),
+            "parameter",
+          ),
+          value,
+          span: destructuring.span,
+        };
+      },
+    );
+
     const resolved: Resolved.LambdaExpr = {
       kind: "Lambda",
       parameters,
@@ -1668,7 +1766,7 @@ class Resolver {
       ...(expression.returnAnnotation === undefined
         ? {}
         : { returnAnnotation: this.#resolveTypeAnnotation(expression.returnAnnotation, new Set(), impliedContext) }),
-      body: this.#resolveExpr(expression.body, lambdaScope),
+      body: openedWith(destructurings, this.#resolveExpr(expression.body, lambdaScope)),
       span: expression.span,
     };
     this.#lambdaDepth -= 1;

@@ -318,3 +318,96 @@ describe("the synthetic binder never reaches the reader", () => {
     expect(names).toContain("arg1");
   });
 });
+
+/**
+ * Statements §5, issue #102. A pattern parameter's binders are head binders —
+ * "parameters are the same head binders whichever spelling introduces them"
+ * (Pattern Matching §6.5) — so rule 2 lets them shadow anything. The class is
+ * decided "by scope shape, not by whether the binding form is a pattern", and
+ * §5.2 pins the invariant these tests guard: an implementation that checks
+ * shadowing before desugaring "must treat header parameters identically to
+ * lambda parameters." Prepending a `let` to the body is such a desugaring, and
+ * it used to hand its own sequential class to the binders it carried.
+ */
+describe("pattern parameters are head binders", () => {
+  const shadowsOuter = "let x = 1\n";
+
+  test("§5 rule 2 a plain parameter shadows an outer binding — the baseline", () => {
+    expect(diagnostics(`${shadowsOuter}let f = x => x + 1\n`)).toEqual([]);
+  });
+
+  test("§5 rule 2 the lambda spelling of a pattern parameter shadows too", () => {
+    expect(diagnostics(`${shadowsOuter}let f = ({x}) => x\n`)).toEqual([]);
+  });
+
+  test("§6.5 the paren-free spelling shadows too", () => {
+    expect(diagnostics(`${shadowsOuter}let f = {x} => x\n`)).toEqual([]);
+  });
+
+  test("§5.2 the header spelling shadows identically to the lambda one", () => {
+    expect(diagnostics(`${shadowsOuter}fun f({x}) = x\n`)).toEqual([]);
+  });
+
+  test("§5.4 refactoring invariance: adding a second binder changes nothing", () => {
+    expect(diagnostics("let a = 1\nlet f = ((a, b)) => a + b\n")).toEqual([]);
+  });
+
+  test("§5 rule 2 a pattern parameter shadows an enclosing lambda's parameter", () => {
+    expect(diagnostics("let f = x => ({x}) => x\n")).toEqual([]);
+  });
+
+  // §5's motivating case, inverted by the defect: a plain binder was legal
+  // while the destructuring one was refused, and the fixit demanded renaming
+  // exactly the short conventional field names head binders exist to reuse.
+  test("§5 rule 2 the motivating pipeline case, with a destructuring parameter", async () => {
+    const m = await run(
+      "let total = 0\n" +
+        "fun apply(order, project) = project(order)\n" +
+        "export let out: Int = apply({total = 42}, {total} => total)\n",
+    );
+    expect(m.out).toBe(42);
+  });
+
+  test("§5 rule 2 the shadow eclipses the outer name and leaves it intact", async () => {
+    const m = await run(
+      "let x = 1\n" +
+        "let f = {x} => x\n" +
+        "export let inner: Int = f({x = 42})\n" +
+        "export let outer: Int = x\n",
+    );
+    expect(m.inner).toBe(42);
+    expect(m.outer).toBe(1);
+  });
+});
+
+/**
+ * The other side of the ruling: head-binder class buys shadowing of what is
+ * *outside* the lambda, and nothing else. Statements §5.2 — "a `let` inside a
+ * lambda may not reuse the lambda's own parameter name" — and §5.1 rule 3,
+ * where simultaneous binders stay errors (Unions §4.2).
+ */
+describe("pattern parameters are still binders you cannot collide with", () => {
+  test("§5.2 a later `let` in the body may not rebind a pattern parameter", () => {
+    expect(diagnostics("fun f({x}) =\n    let x = 2\n    x\n")).toContain(
+      "`x` is already bound (line 1); Hexagon does not allow rebinding — choose a different name.",
+    );
+  });
+
+  test("§5.2 exactly as it may not rebind a plain one", () => {
+    expect(diagnostics("fun f(x) =\n    let x = 2\n    x\n")).toContain(
+      "`x` is already bound (line 1); Hexagon does not allow rebinding — choose a different name.",
+    );
+  });
+
+  test("§5.1 rule 3 two pattern parameters may not bind the same name", () => {
+    expect(diagnostics("fun f({p}, (p, q)) = p\n")).toContain("duplicate parameter `p`");
+  });
+
+  test("§5.1 rule 3 nor may a pattern parameter collide with a plain one", () => {
+    expect(diagnostics("fun f(p, {p}) = p\n")).toContain("duplicate parameter `p`");
+  });
+
+  test("§4.2 one pattern binding a name twice stays the pattern-shaped error", () => {
+    expect(diagnostics("fun f((p, p)) = p\n")).toContain("`p` is bound twice in this pattern");
+  });
+});
