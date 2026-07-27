@@ -205,8 +205,8 @@ describe("one argument per scheme constraint (defect 16)", () => {
       "honor Labeled<Token> =\n" +
       "    label(value) = \"token\"\n" +
       "fun agrees<a: Labeled>(left: a, right: a): Bool = same(left, right)\n" +
-      "export let yes: Bool = agrees(Token({value: 1}), Token({value: 1}))\n" +
-      "export let no: Bool = agrees(Token({value: 1}), Token({value: 2}))\n",
+      "export let yes: Bool = agrees(Token({value = 1}), Token({value = 1}))\n" +
+      "export let no: Bool = agrees(Token({value = 1}), Token({value = 2}))\n",
     );
     expect(exports["yes"]).toBe(true);
     expect(exports["no"]).toBe(false);
