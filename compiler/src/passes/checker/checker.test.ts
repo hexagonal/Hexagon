@@ -1233,6 +1233,42 @@ describe("check", () => {
             "`Int` — add an `else` branch to produce a value",
         ]);
     }
+
+    // Monomorphic literals never had the defect — they elaborate concrete —
+    // but the fixit must still name them.
+    for (const [text, type] of [
+      ["let y(c: Bool) = if c then 5.5", "Float"],
+      ["let y(c: Bool) = if c then 5n", "BigInt"],
+      ["let y(c: Bool) = if c then -5", "Int"],
+    ] as const) {
+      expect(checkSource(text).diagnostics.map(({ message }) => message))
+        .toEqual([
+          "an `if` without `else` produces `Unit`; its `then` branch is " +
+            `\`${type}\` — add an \`else\` branch to produce a value`,
+        ]);
+    }
+  });
+
+  test("never settles a declared type variable at a `Unit` demand", () => {
+    // A declared variable is pinned by its annotation. Settling it would
+    // report the annotation as requiring the `Int` the settling itself
+    // invented — a mandatory fixit naming a rewrite that repairs nothing.
+    expect(
+      checkSource("fun f<a: Num>(c: Bool, x: a): Unit = if c then x").diagnostics
+        .map(({ message }) => message),
+    ).toEqual([
+      "`a` is a declared type variable, but the body requires `Unit`; " +
+        "change the annotation to `Unit`, or remove it to let the type be inferred",
+    ]);
+    // Structured too, where the settling is otherwise certain to fire — and
+    // the declared variable is named, not shown as an inference variable.
+    expect(
+      checkSource("fun f<a: Num>(c: Bool, x: a) = if c then (1, x)").diagnostics
+        .map(({ message }) => message),
+    ).toEqual([
+      "an `if` without `else` produces `Unit`; its `then` branch is " +
+        "`(Int, a)` — add an `else` branch to produce a value",
+    ]);
   });
 
   test("leaves a variable alone when its constraints are honored at `Unit`", () => {
@@ -1249,6 +1285,10 @@ describe("check", () => {
       .toEqual([]);
     expect(checkSource(honored + "fun y(): Unit =\n    make()\n    ()").diagnostics)
       .toEqual([]);
+    expect(
+      checkSource(honored + "fun y(c: Bool): Unit =\n    while c\n        make()")
+        .diagnostics,
+    ).toEqual([]);
 
     // Without the `Unit` instance the same shape still settles and reports.
     const intOnly = "constraint Conjure<a> =\n" +

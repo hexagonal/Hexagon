@@ -3764,7 +3764,7 @@ class Checker {
     // reach the message as raw variables — `(?0, ?1)` — inside a mandatory
     // fixit. Settle them to the `Int` they default to anyway (§4).
     for (const variable of this.#collectVariables(actual)) {
-      if (this.#canDefaultToInt(variable)) {
+      if (variable.rigidName === undefined && this.#canDefaultToInt(variable)) {
         this.#bind(variable, primitive("Int"), span);
       }
     }
@@ -3782,7 +3782,11 @@ class Checker {
    * instances consulted, §4 wants them ignored.
    */
   #settlesAtUnitDemand(variable: Variable): boolean {
-    return variable.requirements.length > 0 &&
+    // A declared variable is pinned by its annotation, not settleable: binding
+    // it to `Int` would report the annotation as requiring the `Int` settling
+    // just invented, naming a rewrite that repairs nothing.
+    return variable.rigidName === undefined &&
+      variable.requirements.length > 0 &&
       variable.requirements.every(({ name }) => this.#satisfiedAt(name, "Int")) &&
       variable.requirements.some(({ name }) => !this.#satisfiedAt(name, "Unit"));
   }
@@ -5362,7 +5366,10 @@ class Checker {
     const actual = this.#prune(type);
     if (actual.kind === "Error") return "<error>";
     if (actual.kind === "Constructor") return actual.name;
-    if (actual.kind === "Variable") return `?${actual.id}`;
+    // A declared variable has a name the user wrote; `?3` in its place is
+    // unreadable, and worse inside a diagnostic the Rewrite Rule makes
+    // mandatory.
+    if (actual.kind === "Variable") return actual.rigidName ?? `?${actual.id}`;
     if (actual.kind === "Tuple") {
       return `(${actual.elements.map((element) => this.#display(element)).join(", ")})`;
     }

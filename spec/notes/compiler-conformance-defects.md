@@ -924,10 +924,11 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   closed list — be corrected independently; it remains open as issue #109.
   Structural settling continues to ride on `#canDefaultToInt`, since the §6
   note routes it through §4's rule rather than the demand-site guard.
-- **Conformance:** `checker.test.ts` — a constraint honored at both `Int` and
-  `Unit` is accepted at the else-less and discarded-item sites; the same shape
-  honored at `Int` only still settles and reports; and bare `Num`-only literals
-  still settle at all three sites.
+- **Executable conformance:** `checker.test.ts` — a constraint honored at both `Int` and
+  `Unit` is accepted at all three sites; the same shape honored at `Int` only
+  still settles and reports; bare `Num`-only literals still settle at all three
+  sites; and a declared type variable is never settled, at either the plain or
+  the structured demand.
 - **Credit:** surfaced reviewing the Numeric Literals §6 note for the #76 arc:
   the note's guard was checked against the helper it describes, and the
   asymmetry fell out of the comparison.
