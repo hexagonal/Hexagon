@@ -426,7 +426,7 @@ Map.fromEntries(Vector.toSeq([(1, "old"), (1, "new")]))[1]
 record Weird = {s: String}
 honor Eq<Weird> =
     equals(a, b) = String.lower(a.s) == String.lower(b.s)
-let bad = Map.set(Map.empty, Weird {s: "K"}, 1)
+let bad = Map.set(Map.empty, Weird({s = "K"}), 1)
                                            -- ERROR: no Hash instance for Weird
                                            --   (and derives Hash is barred by the
                                            --    Eq-agreement rule, Part 2 §4.3;

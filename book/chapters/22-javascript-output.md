@@ -93,8 +93,8 @@ const position = [3.0, 4.0];
 Tuples are ordinary arrays. Structural records are ordinary objects:
 
 ```hexagon
-let guest = {name: "Mira", seats: 3}
-let expanded = {...guest, seats: 4}
+let guest = {name = "Mira", seats = 3}
+let expanded = {...guest, seats = 4}
 ```
 
 ```js
@@ -107,7 +107,7 @@ directly records a source-level identity but needs no wrapper:
 
 ```hexagon
 record Point = {x: Float, y: Float}
-let point = Point({x: 3.0, y: 4.0})
+let point = Point({x = 3.0, y = 4.0})
 ```
 
 ```js

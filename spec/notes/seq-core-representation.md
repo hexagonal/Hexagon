@@ -92,15 +92,15 @@ first (N5).
 ### 4.1 Pure `.hex`, one-step `pull` (one input → one output)
 
 ```
-let empty: Seq(a) = Seq({ pull: () => None })
+let empty: Seq(a) = Seq({ pull = () => None })
 
-let singleton(value: a): Seq(a) = Seq({ pull: () => Some((value, empty)) })
+let singleton(value: a): Seq(a) = Seq({ pull = () => Some((value, empty)) })
 
 fun iterate(seed: a, step: a -> a): Seq(a) =
-    Seq({ pull: () => Some((seed, iterate(step(seed), step))) })
+    Seq({ pull = () => Some((seed, iterate(step(seed), step))) })
 
 fun map(source: Seq(a), transform: a -> b): Seq(b) =
-    Seq({ pull: () => match next(source)
+    Seq({ pull = () => match next(source)
         None => None
         Some((value, rest)) => Some((transform(value), map(rest, transform))) })
 
@@ -108,7 +108,7 @@ fun take(source: Seq(a), count: Int): Seq(a) =
     if count <= 0 then
         empty
     else
-        Seq({ pull: () => match next(source)
+        Seq({ pull = () => match next(source)
             None => None
             Some((value, rest)) => Some((value, take(rest, count - 1))) })
 ```
@@ -140,7 +140,7 @@ fun filterFrom(source: Seq(a), keep: a -> Bool) =
     result
 
 fun filter(source: Seq(a), keep: a -> Bool): Seq(a) =
-    Seq({ pull: () => filterFrom(source, keep) })
+    Seq({ pull = () => filterFrom(source, keep) })
 ```
 
 (The sentinel `var searching` stands in for the absent `break`, Loops §9.4; the

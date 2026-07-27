@@ -104,7 +104,7 @@ describe("a user record occludes a same-named intrinsic, coherently", () => {
   test("annotation and constructor meet", () => {
     expect(diagnostics(
       "export record Vector(a) = { item: a }\n" +
-      "export fun wrap(item: Int): Vector(Int) = Vector({ item: item })\n",
+      "export fun wrap(item: Int): Vector(Int) = Vector({ item = item })\n",
     )).toEqual([]);
   });
 
@@ -136,7 +136,7 @@ describe("a user record occludes a same-named intrinsic, coherently", () => {
   test("the occluded record round-trips at runtime", async () => {
     const module = await run(
       "export record Vector(a) = { item: a }\n" +
-      "export fun wrap(item: Int): Vector(Int) = Vector({ item: item })\n" +
+      "export fun wrap(item: Int): Vector(Int) = Vector({ item = item })\n" +
       "export fun unwrap(box: Vector(Int)): Int = box.item\n" +
       "export let answer: Int = unwrap(wrap(42))\n",
     );
@@ -149,21 +149,21 @@ describe("a user record occludes a same-named intrinsic, coherently", () => {
     // up later as an unintelligible `Vector(Int)` / `Vector(?, ?)` mismatch.
     expect(diagnostics(
       "export record Vector(a, b) = { one: a, two: b }\n" +
-      "export fun make(): Vector(Int) = Vector({ one: 1, two: 2 })\n",
+      "export fun make(): Vector(Int) = Vector({ one = 1, two = 2 })\n",
     )).toEqual(["type `Vector` expects 2 arguments, but 1 were provided"]);
   });
 
   test("a multi-parameter intrinsic name is occluded too", () => {
     expect(diagnostics(
       "export record Map(k, v) = { key: k, value: v }\n" +
-      "export fun make(): Map(String, Int) = Map({ key: \"a\", value: 1 })\n",
+      "export fun make(): Map(String, Int) = Map({ key = \"a\", value = 1 })\n",
     )).toEqual([]);
   });
 
   test("`Seq` in particular — the name Phase 4 needs", () => {
     expect(diagnostics(
       "export record Seq(a) = { item: a }\n" +
-      "export fun wrap(item: Int): Seq(Int) = Seq({ item: item })\n",
+      "export fun wrap(item: Int): Seq(Int) = Seq({ item = item })\n",
     )).toEqual([]);
   });
 
@@ -212,21 +212,21 @@ describe("the boundary intrinsics are a fallback in both directions", () => {
     // export that the intrinsic forbids just above is unremarkable here.
     expect(runtimeDiagnostics(
       "export record Node(a) = { item: a }\n" +
-      "export fun make(item: Int): Node(Int) = Node({ item: item })\n", { runtime: true },
+      "export fun make(item: Int): Node(Int) = Node({ item = item })\n", { runtime: true },
     )).toEqual([]);
   });
 
   test("a user `record Array(a)` outranks the boundary intrinsic", () => {
     expect(diagnostics(
       "export record Array(a) = { item: a }\n" +
-      "export fun wrap(item: Int): Array(Int) = Array({ item: item })\n",
+      "export fun wrap(item: Int): Array(Int) = Array({ item = item })\n",
     )).toEqual([]);
   });
 
   test("a user `record Nullable(a)` outranks the boundary intrinsic", () => {
     expect(diagnostics(
       "export record Nullable(a) = { item: a }\n" +
-      "export fun wrap(item: Int): Nullable(Int) = Nullable({ item: item })\n",
+      "export fun wrap(item: Int): Nullable(Int) = Nullable({ item = item })\n",
     )).toEqual([]);
   });
 
@@ -240,7 +240,7 @@ describe("the boundary intrinsics are a fallback in both directions", () => {
     expect(diagnostics(
       "export record Array(a) = { item: a }\n" +
       "extern from \"host\"\n    fun sink(values: Array(Int)): Unit\n" +
-      "export fun use(item: Int): Unit = sink(Array({ item: item }))\n",
+      "export fun use(item: Int): Unit = sink(Array({ item = item }))\n",
     )).toEqual([]);
   });
 });

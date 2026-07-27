@@ -1336,8 +1336,7 @@ class Parser {
           name,
           span: name.span,
         };
-        if (this.#at("Colon")) {
-          this.#advance();
+        if (this.#recordFieldSeparator(name.text, true) !== undefined) {
           const nested = this.#parsePattern();
           if (nested === undefined) return undefined;
           pattern = nested;
@@ -1644,14 +1643,14 @@ class Parser {
       const token = this.#takeName("NonUpperName", "record fields must be non-uppercase-start names");
       if (token === undefined) break;
       const name = parsedName(token);
-      const punned = !this.#at("Colon");
+      const separator = this.#recordFieldSeparator(name.text, false);
       let value: Parsed.Expr;
-      if (punned) {
+      if (separator === undefined) {
         value = { kind: "Name", name, span: name.span };
       } else {
-        this.#advance();
         value = this.#parseExpression(0, withStops(stops, "Comma", "RightBrace"));
       }
+      const punned = separator === undefined;
       if (names.has(name.text)) this.#errorAt(name.span, `duplicate record field \`${name.text}\``);
       names.add(name.text);
       fields.push({ name, punned, value, span: spanFrom(name.span, value.span) });
@@ -2329,6 +2328,34 @@ class Parser {
       return undefined;
     }
     return this.#advance();
+  }
+
+  // Term-position record fields bind with `=`; `:` is the type-position separator
+  // (Products §3.1/§8, Pattern Matching §2.4/§16). Consumes the separator token and
+  // returns it, or `undefined` when the field is punned. The three near-miss tokens are
+  // diagnosed with their permanent fixits (Products §6) and then consumed anyway, so the
+  // field's value or sub-pattern still parses and one typo yields one error.
+  #recordFieldSeparator(field: string, pattern: boolean): LaidOut.Token | undefined {
+    if (this.#at("Equal")) return this.#advance();
+    if (this.#at("Colon")) {
+      const annotation = pattern && this.#peek(1).kind === "UpperName";
+      this.#error(
+        `record fields bind with \`=\`: \`{${field} = …}\`; \`:\` gives a field its type in record types` +
+          (annotation ? "; if you meant a type, patterns destructure values — annotate outside the pattern" : ""),
+      );
+      return this.#advance();
+    }
+    if (this.#at("Assign")) {
+      this.#error(`did you mean \`=\`? \`:=\` assigns to a \`var\``);
+      return this.#advance();
+    }
+    if (this.#at("FatArrow")) {
+      this.#error(
+        `did you mean \`=\`? \`=>\` is the lambda arrow — a lambda-valued field is \`{${field} = arg => …}\``,
+      );
+      return this.#advance();
+    }
+    return undefined;
   }
 
   #error(message: string): void {

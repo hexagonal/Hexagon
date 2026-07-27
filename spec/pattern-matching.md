@@ -1,7 +1,7 @@
 # Hexagon Spec: Pattern Matching
 
 **Status:** Decided (July 2026).
-**Scope:** The full pattern grammar — nested constructor patterns, tuple and record patterns, record punning, literal patterns, or-patterns, as-patterns, and (by reference) vector patterns; guards as arm syntax; the irrefutability judgment; the five pattern positions (`match` arms, `catch` arms, `let`, `for..in`, lambda parameters) and the generalized `match` scrutinee; exhaustiveness and reachability over the full grammar; emission. Rider decision: record **construction** punning (`{x}` ≡ `{x: x}` in value position) ships in v1 (§9).
+**Scope:** The full pattern grammar — nested constructor patterns, tuple and record patterns, record punning, literal patterns, or-patterns, as-patterns, and (by reference) vector patterns; guards as arm syntax; the irrefutability judgment; the five pattern positions (`match` arms, `catch` arms, `let`, `for..in`, lambda parameters) and the generalized `match` scrutinee; exhaustiveness and reachability over the full grammar; emission. Rider decision: record **construction** punning (`{x}` ≡ `{x = x}` in value position) ships in v1 (§9). Term-position field separator is `=` corpus-wide (Products §8; §16 here).
 **Not in scope:** the vector pattern's forms, typing, length-based exhaustiveness, irrefutability, rest spelling, and emission (Collections Part 3 §3 — the form joins this grammar, §2/§11.1; that spec owns its algorithm), range patterns (deferred, §11.2), active/view patterns (not planned, §10), the `match` keyword's precedence slot (Operators §3.2 already seats it among the eats-right forms), `Exn` matching (permanently excluded; Exceptions §3 is authoritative), string representation details behind `Eq<String>` (Primitive Types §5).
 **Companions:** Unions (flat constructor patterns as this grammar's degenerate case; exhaustiveness doctrine; `match` emission baseline), Products (flat `let`-destructuring as degenerate case; record openness vocabulary; tuple emission), Exceptions (catch arms; open-sum reachability model), Statements/Blocks/Mutability §5/§5.4 (binder class is positional; `let`-pattern binders sequential), Collections Part 3 §3 (vector patterns), Collections Part 4 §7.2 (`for (k, v) in map` iteration), Operators (Eq/Ord elaboration for literals; chained comparisons in guards; `match` eats right), Decisions Batch 2026-07 (`Eq<Float>` SameValueZero — the reason Float literals are banned from patterns), Declarations Preamble §1.1 (the Rewrite Rule, which this doc's diagnostics obey).
 
@@ -28,7 +28,7 @@ x                        -- variable: matches anything, binds x
 C(p1, ..., pn)           -- constructor pattern, sub-patterns nest freely
 C                        -- nullary constructor
 (p1, ..., pn)            -- tuple pattern, arity ≥ 2; (p) is grouping
-{f1: p1, f2, ...}        -- record pattern: open; {f} puns as {f: f}
+{f1 = p1, f2, ...}       -- record pattern: open; {f} puns as {f = f}
 0   "yes"   true         -- literal patterns: Int, String, Bool only
 p1 | p2                  -- or-pattern
 p as x                   -- as-pattern: match p, additionally bind the whole to x
@@ -41,7 +41,7 @@ Grammar, loosest to tightest: `as` binds looser than `|`; both bind looser than 
 
 ### 2.1 Wildcard and variable
 
-Unchanged from Unions §4.2 / Products §2.4: `_` binds nothing and may repeat; a non-uppercase-start name binds the matched value. **Duplicate binders anywhere within one whole pattern are a hard error** — `Rect(w, w)`, `{x: a, y: a}`, `(p, q) as p` — same message family as before ("`w` is bound twice in this pattern"). The check is over the entire pattern including `as` binders and through nesting; or-pattern alternatives are checked per-alternative (each alternative is a separate binding universe, then reconciled by §2.6's same-bindings rule).
+Unchanged from Unions §4.2 / Products §2.4: `_` binds nothing and may repeat; a non-uppercase-start name binds the matched value. **Duplicate binders anywhere within one whole pattern are a hard error** — `Rect(w, w)`, `{x = a, y = a}`, `(p, q) as p` — same message family as before ("`w` is bound twice in this pattern"). The check is over the entire pattern including `as` binders and through nesting; or-pattern alternatives are checked per-alternative (each alternative is a separate binding universe, then reconciled by §2.6's same-bindings rule).
 
 An uppercase-start name in any pattern position is a constructor reference, never a binder (the case rule). The v1 "nested patterns arrive with pattern matching" parse error is hereby retired: they have arrived.
 
@@ -69,19 +69,19 @@ Arity must equal the tuple's arity (Products §2.1 report shape). `(p)` is **gro
 ### 2.4 Record patterns — open, with punning
 
 ```
-{name, age}                      -- pun: {name: name, age: age}
-{name: n}                        -- rename: field name, binder n
-{port: 0}                        -- literal sub-pattern
-{mode: Verbose, port: p}         -- constructor sub-pattern + pun
-{customer: {name}, total}        -- nested, punned at two depths
+{name, age}                      -- pun: {name = name, age = age}
+{name = n}                       -- rename: field name, binder n
+{port = 0}                       -- literal sub-pattern
+{mode = Verbose, port = p}       -- constructor sub-pattern + rename
+{customer = {name}, total}       -- nested, punned at two depths
 ```
 
-- **`{f: p}` — the field slot holds a full sub-pattern.** When the sub-pattern is a bare non-uppercase-start name equal to the field name, the `: name` may be dropped: **`{f}` ≡ `{f: f}`.** That's the entire punning rule.
+- **`{f = p}` — the field slot holds a full sub-pattern.** When the sub-pattern is a bare non-uppercase-start name equal to the field name, the `= name` may be dropped: **`{f}` ≡ `{f = f}`.** That's the entire punning rule.
 - **Open by default, always, with no opt-out syntax.** A record pattern mentions any subset of the scrutinee's fields; unmentioned fields are neither bound nor constrained. There is no `...` in patterns and no closed-record pattern form in v1. This deliberately points the opposite way from *type annotations* (closed by default, Products §4): a pattern destructures a known-typed value; an annotation constrains an unknown one. The asymmetry is principled and must be documented, not smoothed over.
 - Duplicate field names in one record pattern: error. A field the scrutinee's type lacks: the standard missing-field error naming the known fields (Products §3.2 family).
 - Record patterns work on structural records and — through row polymorphism — on unannotated parameters, constraining them exactly as field access does (`fun getX({x}) = x` infers the row-polymorphic type; see §6.5).
 - Nominal records: a bare record pattern does **not** match a nominal-record-typed scrutinee (the unifier never unfolds nominal names — Products §5.1). Go through the constructor pattern: `Point({x, y})`. Diagnostic: "`Point` is a nominal record; destructure it with `Point({x, y})`."
-- Type-position confusion guard: `{x: Float}` in pattern position reads `Float` as a constructor sub-pattern. Since `Float` is a type, not a constructor, this errors as "`Float` is a type, not a constructor — patterns destructure values; did you mean a type annotation elsewhere?"
+- Separator near-miss: `:` inside a term-position record — pattern or literal — is a parse error with the Products §6/§8 fixit ("record fields bind with `=`; `:` gives a field its type in record *types*"). This retires the old type-position confusion guard: under `:`-in-terms, `{x: Float}` in a pattern parsed as a constructor sub-pattern and needed a bespoke "`Float` is a type, not a constructor" diagnostic; under `=` the misreading is caught at the token (§16). One refinement, because the old guard's actual customer *meant an annotation*: when the text after the `:` is uppercase-start (`{x: Float}`), the separator repair alone would be a wrong turn — `{x = Float}` just errors again below — so the fixit appends: "if you meant a type, patterns destructure values; annotate outside the pattern." The bespoke message survives only for the genuinely written `{x = Float}` — `Float` there *is* a constructor-position name, and the error stays "`Float` is a type, not a constructor — patterns destructure values."
 
 ### 2.5 Literal patterns — `Int`, `String`, `Bool`; never `Float`
 
@@ -107,7 +107,7 @@ match answer
 ```
 Circle(_) | Rect(_, _) => "has area"
 0 | 1 => "small"
-{status: Pending} | {status: Queued} => wait()
+{status = Pending} | {status = Queued} => wait()
 ```
 
 - Alternatives are tried left to right; first match wins (observable only through binding, since patterns are pure — guards live outside, §3).
@@ -188,7 +188,7 @@ Consequences, spelled out:
 |---|---|---|---|
 | `_`, `x` | any | irrefutable | match everything by definition |
 | `(p, q)` | tuple | irrefutable iff `p`, `q` are | tuples have one shape |
-| `{f: p, g}` | record | irrefutable iff sub-patterns are | records have one shape; openness only widens |
+| `{f = p, g}` | record | irrefutable iff sub-patterns are | records have one shape; openness only widens |
 | `()` | `Unit` | irrefutable | one value |
 | `p as x` | `T` | iff `p` is | `as` adds a binding, not a test |
 | `Some(x)` | `Option(a)` | **refutable** | `Option` has another constructor, `None` |
@@ -241,8 +241,8 @@ match point
     _      => "elsewhere"
 
 match user
-    {role: Admin}        => allowAll()
-    {role: _, verified: true} => allowSome()
+    {role = Admin}       => allowAll()
+    {role = _, verified = true} => allowSome()
     _                    => deny()
 
 match flag
@@ -273,7 +273,7 @@ let Some(v) = opt                -- HARD ERROR: refutable
 
 The LHS of `let` is now a full pattern, gated by irrefutability (§5). Products §2.4's flat-tuple form is the degenerate case; its "nested patterns arrive with pattern matching" error is retired. `let _ = e` remains a non-idiom — `_` alone binds nothing, and the discard spelling is `ignore` (Statements §3.3); a bare-`_` `let` is an error with the `ignore` fixit.
 
-**Every name a `let` pattern binds is a sequential binder** (Statements §5/§5.4): it may not reuse any name in scope, punned fields included — `let {name, total} = order` errors if `name` is bound, with the pattern-aware fixits Statements §9.3 owns (discard with `_`, or rename the field: `{name: orderName}`). The arm/lambda/loop positions bind head binders as before; same grammar, different class, decided by position.
+**Every name a `let` pattern binds is a sequential binder** (Statements §5/§5.4): it may not reuse any name in scope, punned fields included — `let {name, total} = order` errors if `name` is bound, with the pattern-aware fixits Statements §9.3 owns (discard with `_`, or rename the field: `{name = orderName}`). The arm/lambda/loop positions bind head binders as before; same grammar, different class, decided by position.
 
 ### 6.4 `for..in` loop variable
 
@@ -334,7 +334,7 @@ Both generalize from Unions §4.3. Both remain **hard errors**. Both remain **ex
 - Infinite domains (`Int`, `String`, `Float`) are never covered by literals; exactness there means: **a catch-all (`_` or bare variable, possibly under `as`/or-composition per §5.1's coverage semantics) is required.**
 - **Guarded arms contribute nothing** — including `when true`. Coverage is computed as if guarded arms were absent.
 - Record patterns: coverage is computed over the **mentioned fields only**. Sound because unmentioned fields are unconstrained in every arm — openness means they cannot distinguish arms. (If two arms mention different field sets, the matrix is built over the union of mentioned fields, absent mentions widening to `_`.)
-- Missing-case reporting must produce a **witness pattern**, rendered by §7.3: "match is missing cases: `(None, _)`", "match is missing cases: `{status: Queued}`". The Unions constructor-name listing is the degenerate rendering of this.
+- Missing-case reporting must produce a **witness pattern**, rendered by §7.3: "match is missing cases: `(None, _)`", "match is missing cases: `{status = Queued}`". The Unions constructor-name listing is the degenerate rendering of this.
 
 ### 7.2 Reachability
 
@@ -345,7 +345,7 @@ Both generalize from Unions §4.3. Both remain **hard errors**. Both remain **ex
 
 ### 7.3 Counterexample rendering (normative for diagnostics)
 
-Witnesses print as patterns: constructor names applied to `_` for unconstrained slots (`Node(_, _, _)`), tuples with `_` holes (`(None, _)`), records with only the discriminating fields (`{status: Queued}` — never invent mentions), literals for finite literal domains (`false`), and `_` where any value works. Prefer the shallowest witness that is genuinely missing. Multiple missing cases: list up to a small cap (say 3) then "…and N more".
+Witnesses print as patterns: constructor names applied to `_` for unconstrained slots (`Node(_, _, _)`), tuples with `_` holes (`(None, _)`), records with only the discriminating fields (`{status = Queued}` — never invent mentions), literals for finite literal domains (`false`), and `_` where any value works. Prefer the shallowest witness that is genuinely missing. Multiple missing cases: list up to a small cap (say 3) then "…and N more".
 
 ---
 
@@ -360,7 +360,7 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 
 ## 9. Rider decision: construction punning ships in v1
 
-`{x, y}` in **value** position is `{x: x, y: y}`; composes with update spread: `{...p, x}` is `{...p, x: x}`. Products §3.1's deferral is dissolved.
+`{x, y}` in **value** position is `{x = x, y = y}`; composes with update spread: `{...p, x}` is `{...p, x = x}`. Products §3.1's deferral is dissolved.
 
 - No ambiguity: braces are always records, never blocks; pattern vs value position is always syntactically determined; there is no competing single-field grouping form.
 - **The two positions read the same sugar with opposite openness** — a pattern `{x, y}` mentions a subset; a literal `{x, y}` is the complete record. Same asymmetry the explicit forms already have; inherited, documented, not smoothed.
@@ -417,7 +417,8 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 | `match` on `Exn` | "match requires a closed type; exceptions are inspected with `try`/`catch`" (§6.1) |
 | `match` on constraint-bounded abstract type | "cannot match on a value of abstract type `c`; use the operations its constraints provide" (§6.1) |
 | Bare record pattern on nominal-record scrutinee | "destructure it with `Point({x, y})`" (§2.4) |
-| Type name in constructor-pattern position (`{x: Float}`) | "`Float` is a type, not a constructor…" (§2.4) |
+| `:` in a term-position record (pattern or literal), e.g. `{x: p}` | Products §6/§8 fixit: "record fields bind with `=`; `:` gives a field its type in record *types*"; uppercase-start RHS (`{x: Float}`) appends "if you meant a type, patterns destructure values; annotate outside the pattern" (§2.4, §16) |
+| Type name in constructor-pattern position (`{x = Float}`) | "`Float` is a type, not a constructor…" (§2.4) |
 | `((x, y)) => e` written meaning two params | "one parameter destructuring a tuple; remove the outer parentheses for two parameters" (§6.5) |
 | `@` in a pattern | fixit: "Hexagon spells as-patterns with `as`" (§2.7) |
 | `let _ = e` | error + `ignore` fixit (§6.3) |
@@ -436,7 +437,8 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 | Irrefutability = single-row exhaustiveness; one algorithm for both; `true \| false` irrefutable | §5.1 |
 | `Some(n)` refutable / `UserId(n)` irrefutable — closed-union constructor count decides; flip-on-extension is a feature | §5.2 |
 | Nested patterns everywhere; positional constructor patterns stand; nominal records destructure via constructor pattern `Point({x, y})` | §2.2 |
-| Record patterns open by default, no `...`, punning `{f}` ≡ `{f: f}`; sub-pattern in field slot | §2.4 |
+| Record patterns open by default, no `...`, punning `{f}` ≡ `{f = f}`; sub-pattern in field slot | §2.4 |
+| Pattern field separator is `=`, matching literals (Products §8); the `{x: Float}` type-confusion guard is retired in favour of the token-level `:`-in-terms fixit | §2.4, §16 |
 | Literal patterns: `Int`/`String`/`Bool` via `Eq`; ordinary inference (`Num` + `Eq` constraints); `Float` permanently banned with guard fixit; no `Char` | §2.5 |
 | Or-patterns with F# same-bindings rule; spelling `\|` (C#'s `or` rejected: declaration/pattern coherence, predicate disanalogy, `and`/`not` pressure, lambda-head ambiguity) | §2.6, §10 |
 | Guard termination: top-level `=>` after `when` belongs to the arm; lambdas in guards must parenthesize | §3 |
@@ -504,11 +506,11 @@ Some(x) => x                        -- ERROR: refutable pattern in a binding pos
 
 -- (h) Record openness + punning + literal sub-pattern
 match user
-    {role: Admin} => allowAll()
-    {verified: true, name} => greet(name)
+    {role = Admin} => allowAll()
+    {verified = true, name} => greet(name)
     _ => deny()
 -- coverage computed over {role, verified, name}; witness rendering on removal of `_`:
---   match is missing cases: {role: Member, verified: false}   (or shallowest equivalent)
+--   match is missing cases: {role = Member, verified = false}   (or shallowest equivalent)
 
 -- (i) Guards never count
 match n
@@ -525,8 +527,8 @@ match n
 
 -- (j) Construction punning round trip
 let name = "Ada"
-let user = {name, verified: true}   -- {name: name, ...}; emits {name, verified: true}
-let {name: n} = user                -- n = "Ada"
+let user = {name, verified = true}  -- {name = name, ...}; emits {name, verified: true}
+let {name = n} = user               -- n = "Ada"
 
 -- (k) Float literal ban
 match temp
@@ -551,3 +553,18 @@ match shape
 -- emits an if/else-if cascade on shape.tag (guards preclude plain switch fall-through),
 -- OR switch with guard-carrying cases restructured; either accepted if a TS author would write it
 ```
+
+---
+
+## 16. Correction record: pattern fields bind with `=` (July 2026)
+
+Record patterns originally used `:` as the field separator (`{name: n}`), matching the then-current literal syntax. Superseded by **Products §8**, which is the governing record for the change and its rationale: term-position records — literals *and* patterns — use `=` (`{name = n}`); `:` is reserved for record types. The sections above are edited in place.
+
+Pattern-specific consequences, decided here:
+
+- **Patterns follow literals, necessarily.** Construction/destructuring symmetry is a design pillar of this spec (§9: "the two positions read the same sugar"); punning must expand identically in both positions (`{f}` ≡ `{f = f}`). A literal/pattern separator split was considered and rejected — Products §8.3.
+- **The §2.4 type-confusion guard is retired, upgraded.** The old diagnostic existed because `{x: Float}` in a pattern *parsed* (as a constructor sub-pattern) and had to be caught semantically. Under `=`, a `:` in any term-position record is caught at the token with the Products §6 fixit — earlier, and with the true cause named for the separator-habit case. The annotation-intent case — the old guard's actual customer — is served by the uppercase-start refinement in §2.4 (the fixit appends "annotate outside the pattern"), not by the separator repair alone. The "type, not a constructor" message survives only for an explicit `{x = Float}`.
+- **Witness rendering (§7.3) and the missing-case reporter (§7.1) print `=`** — witnesses are patterns, and diagnostics must print what the user can paste back in.
+- **Precedent for `=` in patterns**: OCaml and Haskell destructure with `{field = pattern}`; the same-token symmetry with construction is theirs too.
+- **Honest cost, pattern-specific — and larger than the literal's.** In pattern position the old `:` was a *true* friend to JS: Hexagon's `{name: n}` and JS destructuring's `{name: n}` both meant "field `name`, binder `n`" — an exact correspondence (the retired §2.4 line glossed it "rename," which is JS's word too). `=` is the diverging token here: a JS reader first parses `{name = n}` as a default value. Accepted with eyes open: construction/destructuring symmetry (§9; Products §8.3 rejects the split) outranks a position-local correspondence with JS, and the §2.4 fixit catches the habit at the token. Products §8.2 records the literal-position cost, where JS offers no true-friend option at all.
+- **No emission change**: patterns never emitted their surface syntax anyway (they compile to tag tests and `const` binders).

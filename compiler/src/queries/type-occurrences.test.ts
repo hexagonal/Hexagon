@@ -16,7 +16,7 @@ describe("collectTypeOccurrences", () => {
       "honor Show<Person> =\n" +
       "    show(person) = person.name\n" +
       "let identity(value) = value\n" +
-      "let ada = Person({name: \"Ada\", age: 36})\n" +
+      "let ada = Person({name = \"Ada\", age = 36})\n" +
       "let answer = identity(ada).age\n" +
       "let numbers: Seq(Int) = Seq.iterate(1, number => number + 1)\n" +
       "let selected = numbers.map(number => number + 1)\n" +

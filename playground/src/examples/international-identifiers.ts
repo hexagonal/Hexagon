@@ -24,7 +24,7 @@ honor C可显示<Tउपयोगकर्ता> =
     显示(उपयोगकर्ता) = उपयोगकर्ता.नाम ++ " · " ++ उपयोगकर्ता.城市
 
 let 展示(value: a) = 显示(value)
-let 用户 = Tउपयोगकर्ता({नाम: "अनाया", 城市: "上海"})
+let 用户 = Tउपयोगकर्ता({नाम = "अनाया", 城市 = "上海"})
 
 // JavaScript's $ and _ identifier starts are ordinary term bindings too.
 let $税率 = 0.10

@@ -46,7 +46,7 @@ describe("check", () => {
         "type Pair(a) = (a, a)\n" +
         "fun even(n: Int): Bool = if n == 0 then true else odd(n - 1)\n" +
         "fun odd(n: Int): Bool = if n == 0 then false else even(n - 1)\n" +
-        "let origin: Coordinates = Point({x: 0, y: 0})\n" +
+        "let origin: Coordinates = Point({x = 0, y = 0})\n" +
         "let flags: Pair(Bool) = (even(4), odd(3))",
     );
 
@@ -280,7 +280,7 @@ describe("check", () => {
         '    (true, count) => "active"\n' +
         '    (_, _) => "inactive"\n' +
         'fun recordName(user: {name: String, active: Bool}): String = match user\n' +
-        '    {active: true, name} => name\n' +
+        '    {active = true, name} => name\n' +
         '    {name} => name',
     );
 
@@ -356,8 +356,8 @@ describe("check", () => {
 
   test("preserves a named record tail between parameter and result annotations", () => {
     const module = checkSource(
-      'fun rename(r: {guest: String, ...rest}): {guest: String, ...rest} = {...r, guest: "Renamed"}\n' +
-        'let updated = rename({guest: "Mira", seats: 3})\n' +
+      'fun rename(r: {guest: String, ...rest}): {guest: String, ...rest} = {...r, guest = "Renamed"}\n' +
+        'let updated = rename({guest = "Mira", seats = 3})\n' +
         "let seats = updated.seats",
     );
 
@@ -370,7 +370,7 @@ describe("check", () => {
       "union Result = Ok(value: (String, Int)) | Err(error: {context: {message: String}, code: Int})\n" +
         "fun describe(result: Result): String = match result\n" +
         "    Ok((name, _)) => name\n" +
-        "    Err({context: {message: reason}}) => reason",
+        "    Err({context = {message = reason}}) => reason",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -380,14 +380,14 @@ describe("check", () => {
   test("checks closed and open structural record annotations", () => {
     const open = checkSource(
       "fun getX(r: {x: Int, ...}): Int = r.x\n" +
-        "let first = getX({x: 1})\n" +
-        "let second = getX({x: 2, y: true})",
+        "let first = getX({x = 1})\n" +
+        "let second = getX({x = 2, y = true})",
     );
     expect(open.diagnostics).toEqual([]);
 
     const closed = checkSource(
       "fun getX(r: {x: Int}): Int = r.x\n" +
-        "let extra = getX({x: 1, y: true})",
+        "let extra = getX({x = 1, y = true})",
     );
     expect(closed.diagnostics.map(({ message }) => message)).toContain(
       "record fields do not match; unexpected `y`",
@@ -396,8 +396,8 @@ describe("check", () => {
 
   test("checks immutable record updates without permitting field addition", () => {
     const valid = checkSource(
-      "let point = {x: 1.0, y: 2.0}\n" +
-        "let moved = {...point, x: 3.0}\n" +
+      "let point = {x = 1.0, y = 2.0}\n" +
+        "let moved = {...point, x = 3.0}\n" +
         "let copied = {...moved}",
     );
     expect(valid.diagnostics).toEqual([]);
@@ -410,7 +410,7 @@ describe("check", () => {
     });
 
     const invalid = checkSource(
-      "let point = {x: 1}\nlet moved = {...point, y: 2}",
+      "let point = {x = 1}\nlet moved = {...point, y = 2}",
     );
     expect(invalid.diagnostics.map(({ message }) => message)).toContain(
       "record update cannot add fields; the input has no field `y`",
@@ -419,7 +419,7 @@ describe("check", () => {
 
   test("binds fields from an open structural record pattern", () => {
     const module = checkSource(
-      'let reservation = {guest: "Mira", seats: 3, confirmed: true}\n' +
+      'let reservation = {guest = "Mira", seats = 3, confirmed = true}\n' +
         "let {guest, seats} = reservation\n" +
         "let label = guest\nlet count = seats",
     );
@@ -1062,7 +1062,7 @@ describe("check", () => {
         "honor Source<Box> =\n" +
         "    type Item = Int\n" +
         "    get(box: Box) = box.value\n" +
-        "let answer: Int = get(Box({value: 42}))",
+        "let answer: Int = get(Box({value = 42}))",
     );
 
     expect(module.diagnostics).toEqual([]);

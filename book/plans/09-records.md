@@ -38,7 +38,7 @@ can distinguish structural shape from nominal identity; can choose between `type
 
 - A `reservation` record grows from the tuple chapter's guest/seats example.
 - `guestName` accepts any record containing `guest`.
-- `confirm` uses `{...reservation, confirmed: true}`.
+- `confirm` uses `{...reservation, confirmed = true}`.
 - `record UserId = {value: Int}` provides the first nominal contrast.
 - `record Point = {x: Float, y: Float}` demonstrates structural crossing.
 
@@ -50,5 +50,5 @@ can distinguish structural shape from nominal identity; can choose between `type
 - Exactly one spread is permitted, and it appears first.
 - Do not expose row-unification internals or use “row” in diagnostics.
 - Nominal records never unify with structural records implicitly.
-- `{...p, x: value}` preserves nominal identity; `{...p}` crosses to structural.
+- `{...p, x = value}` preserves nominal identity; `{...p}` crosses to structural.
 - Opacity belongs in the modules chapter, covering records and unions together.

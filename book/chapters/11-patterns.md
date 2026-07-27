@@ -44,7 +44,7 @@ always open and mention only the fields they need.
 
 ```hexagon
 match reservation
-    {confirmed: true, guest} => "Confirmed for ${guest}"
+    {confirmed = true, guest} => "Confirmed for ${guest}"
     {guest} => "Awaiting confirmation for ${guest}"
 ```
 
@@ -52,11 +52,11 @@ The second arm does not say that `guest` is the record's only field. It binds `g
 and ignores every unmentioned field. Record patterns never write `...`; openness is
 automatic in pattern position.
 
-Punning remains the short form: `{guest}` means `{guest: guest}`. Rename a field by
+Punning remains the short form: `{guest}` means `{guest = guest}`. Rename a field by
 writing the full slot:
 
 ```hexagon
-{guest: name} => "Hello, ${name}"
+{guest = name} => "Hello, ${name}"
 ```
 
 A nominal record must cross through its constructor pattern:

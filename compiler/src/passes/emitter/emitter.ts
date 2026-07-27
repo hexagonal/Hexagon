@@ -2195,7 +2195,7 @@ class JavaScriptEmitter {
     }
     if (type.kind === "Record") {
       const fields = [...type.fields].sort((a, b) => a.name.localeCompare(b.name)).map((field) =>
-        `${JSON.stringify(`${field.name}: `)} + ${this.#derivedShow(
+        `${JSON.stringify(`${field.name} = `)} + ${this.#derivedShow(
           field.type,
           `${value}.${field.name}`,
           evidenceNames,
@@ -2211,7 +2211,7 @@ class JavaScriptEmitter {
           type.arguments[index] ?? { kind: "Error" as const },
         ]));
         const fields = [...record.fields].sort((a, b) => a.name.localeCompare(b.name)).map((field) =>
-          `${JSON.stringify(`${field.name}: `)} + ${this.#derivedShow(
+          `${JSON.stringify(`${field.name} = `)} + ${this.#derivedShow(
             substituteType(field.type, replacements),
             `${value}.${field.name}`,
             evidenceNames,

@@ -109,9 +109,9 @@ let getX(r) = r.x
 What's the type of `r`? TypeScript would need `r: { x: number }` or a generic with a constraint. Hexagon *infers* the requirement:
 
 ```hexagon
-getX({x: 1.0, y: 2.0})    // fine: has an x
-getX({x: 1.0})            // fine: has an x
-getX({y: 2.0})            // compile error: no field x
+getX({x = 1.0, y = 2.0})    // fine: has an x
+getX({x = 1.0})            // fine: has an x
+getX({y = 2.0})            // compile error: no field x
 ```
 
 The inferred type says, in effect, "any record that has at least a field `x`" — and the compiler figured that out from the body alone. (The machinery behind this is called row polymorphism; you will never need to know that, and Hexagon's error messages are forbidden from using the word.)
@@ -244,7 +244,7 @@ That emits `Rat.create(1n, 3n)`. Integer division by zero throws
 `==` in Hexagon is *structural* equality, and it's defined for tuples, records, and unions automatically:
 
 ```hexagon
-{x: 1, y: 2} == {x: 1, y: 2}      // true
+{x = 1, y = 2} == {x = 1, y = 2}      // true
 (1, "a") == (1, "a")              // true
 Some(3) == Some(3)                // true
 ```
@@ -533,16 +533,18 @@ Your Hexagon modules are first-class citizens of a TypeScript codebase. (One bon
 
 You met records in Chapter 2. The short version:
 
+**The separator is the one thing to relearn.** A record *type* classifies its fields with `:`; a record *term* — literal, update, or pattern — binds them with `=`. Both false friends are worth meeting deliberately: `{x: 1}` is the JavaScript literal habit and is a parse error here (the compiler's fixit points at `=`), while `{x = 1}` is JavaScript *destructuring-default* syntax and must be read as a plain binding instead. The emitted JavaScript is still `{x: 1}` — the emitter translates that one token, and nothing else about the shape changes.
+
 ```hexagon
-{x: 1.0, y: 2.0}          // a record; compiles to the same object literal
-let p2 = {...p, x: 3.0}    // non-destructive update; compiles to {...p, x: 3.0}
+{x = 1.0, y = 2.0}          // a record; compiles to the same object literal
+let p2 = {...p, x = 3.0}    // non-destructive update; compiles to {...p, x: 3.0}
 p.x                        // field access
 
 (1, "a")                   // a tuple; compiles to [1, "a"]
 let (lo, hi) = bounds      // destructuring
 ```
 
-Records are immutable plain objects; update is spread-copy, and the spread syntax emits *itself* — no lies in the output. One safety upgrade over JS spread: `{...p, z: 3.0}` where `p` has no field `z` is a compile error ("record update cannot add fields") rather than a silent widening. Updates update; they don't quietly grow new fields from a typo.
+Records are immutable plain objects; update is spread-copy, and the emitted spread has the same shape as the source — only the field separator changes, `=` in Hexagon to JavaScript's `:`. The structure never lies. One safety upgrade over JS spread: `{...p, z = 3.0}` where `p` has no field `z` is a compile error ("record update cannot add fields") rather than a silent widening. Updates update; they don't quietly grow new fields from a typo.
 
 When you want a *named* type, `record Point = {x: Float, y: Float}` gives you a nominal wrapper: `Point` and a structurally identical anonymous record are different types to the compiler (goodbye, "accidentally passed a `UserId` where an `OrderId` was expected" — the structural-typing hole TS brands can only paper over). At runtime a `Point` is just the plain object; the nominal wall exists only at compile time, which is the only place it needs to exist.
 
@@ -578,8 +580,8 @@ A closing gallery, because "compiles to readable JavaScript" is a claim best pro
 | `fun fib(n) = …` (recursive) | `function fib(n) { … }` |
 | `for i in 1..n` | `for (let i = 1; i <= n; i++)` |
 | `for x in xs` | `for (const x of xs)` |
-| `{x: 1.0, y: 2.0}` | `{x: 1.0, y: 2.0}` |
-| `{...p, x: 3.0}` | `{...p, x: 3.0}` |
+| `{x = 1.0, y = 2.0}` | `{x: 1.0, y: 2.0}` |
+| `{...p, x = 3.0}` | `{...p, x: 3.0}` |
 | `(1, "a")` | `[1, "a"]` |
 | `Circle(2.0)` | `{tag: "Circle", radius: 2.0}` |
 | `match s` … | `switch (s.tag) { … }` |

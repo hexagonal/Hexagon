@@ -263,7 +263,7 @@ honor<a> Iterable<Bag(a)> =
 Now ordinary loop syntax works:
 
 ```hexagon
-let bag = Bag({items: [2, 3, 3]})
+let bag = Bag({items = [2, 3, 3]})
 
 for number in bag
     print(number)

@@ -270,7 +270,7 @@ responsibility. Step 8's shape depends on that line.
    capture-penalty bug (defect 1) expressing through the annotation, not by
    rigid-export semantics: defect 7's fix aligns captured with uncaptured, and an
    annotated value-`let` generalizes in both. At Phase 4, first test whether a
-   single `export let empty: Seq(a) = Seq({ pull: () => None })` compiles and
+   single `export let empty: Seq(a) = Seq({ pull = () => None })` compiles and
    serves every internal use; if it does, ship that and delete the split and its
    comment — the prelude is exemplary code and must not carry a workaround for a
    fixed bug.

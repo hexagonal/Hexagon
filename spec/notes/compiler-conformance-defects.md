@@ -786,7 +786,7 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   constraint Mappable<c> =
       map(value: c, transform: Int -> Int): c
   record Holder = { map: Int -> Int }
-  let holder = Holder({ map: value => value * 2 })
+  let holder = Holder({ map = value => value * 2 })
   export let out: Int = holder.map(3)
   ```
 

@@ -15,7 +15,7 @@ honor Show<Person> =
 let describe(thing: a) =
     "Description: \${thing}"
 
-let ada = Person({name: "Ada", age: 36})
+let ada = Person({name = "Ada", age = 36})
 
 console.log(describe(ada))
 console.log(describe(5))

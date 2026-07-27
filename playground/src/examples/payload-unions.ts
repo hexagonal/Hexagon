@@ -28,7 +28,7 @@ union Reply =
 
 let describe(reply: Reply) = match reply
     Accepted((name, _)) => name
-    Rejected({message: reason}) => reason
+    Rejected({message = reason}) => reason
 
 console.log(describe(Accepted(("Ada", 2))))
 `,

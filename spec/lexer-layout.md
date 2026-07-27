@@ -171,7 +171,7 @@ These are binding on the implementation, same status as the Functions spec's dia
 
 | Situation | Message (shape) |
 |---|---|
-| `x => { print(x) }` — brace-block habit; body parses as a record literal and fails (entries aren't `field: value`) | "Braces are record literals in Hexagon, not blocks. Write the block body on an indented line:" + a two-line fixit. (Mirror image of JS's own `=> ({})` wart; one good encounter defuses it.) |
+| `x => { print(x) }` — brace-block habit; body parses as a record literal and fails (entries aren't `field = value`) | "Braces are record literals in Hexagon, not blocks. Write the block body on an indented line:" + a two-line fixit. (Mirror image of JS's own `=> ({})` wart; one good encounter defuses it.) |
 | Trailing `;` at end of line/statement | "`;` separates statements; Hexagon lines don't end with one." |
 | `;;` / leading `;` / empty statement | same family: "`;` must have a statement on both sides." |
 | `;` inside `()`/`{}`/`<>` argument, tuple, record, or type-parameter context | "did you mean `,`? `;` only separates statements." |
