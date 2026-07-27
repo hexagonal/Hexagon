@@ -3754,10 +3754,7 @@ class Checker {
   #defaultDiscardedLiteral(type: Mono, span: Source.Span): void {
     const actual = this.#prune(type);
     if (actual.kind === "Variable") {
-      if (
-        this.#canDefaultToInt(actual) &&
-        actual.requirements.some(({ name }) => !supports("Unit", name))
-      ) {
+      if (this.#settlesAtUnitDemand(actual)) {
         this.#bind(actual, primitive("Int"), span);
       }
       return;
@@ -3771,6 +3768,28 @@ class Checker {
         this.#bind(variable, primitive("Int"), span);
       }
     }
+  }
+
+  /**
+   * Demand-site settling (Numeric Literals §6) asks whether the variable can
+   * be `Int` and cannot be the demanded `Unit`. Both halves are semantic, so a
+   * user `honor` counts on both sides: a constraint honored at `Unit` leaves
+   * the variable alone, to unify with the synthesized `Unit` and be accepted.
+   *
+   * Deliberately not expressed through `#canDefaultToInt`, which answers §4's
+   * different, *policy* question — is the constraint in the closed defaultable
+   * list — for generalisation. One predicate cannot serve both: §6 wants user
+   * instances consulted, §4 wants them ignored.
+   */
+  #settlesAtUnitDemand(variable: Variable): boolean {
+    return variable.requirements.length > 0 &&
+      variable.requirements.every(({ name }) => this.#satisfiedAt(name, "Int")) &&
+      variable.requirements.some(({ name }) => !this.#satisfiedAt(name, "Unit"));
+  }
+
+  #satisfiedAt(name: Typed.ConstraintName, primitiveName: "Int" | "Unit"): boolean {
+    return supports(primitiveName, name) ||
+      this.#instances.has(this.#instanceKey(name, primitive(primitiveName)));
   }
 
   #canDefaultToInt(variable: Variable): boolean {

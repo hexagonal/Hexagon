@@ -1235,6 +1235,35 @@ describe("check", () => {
     }
   });
 
+  test("leaves a variable alone when its constraints are honored at `Unit`", () => {
+    // Settling asks whether the variable can be `Int` and cannot be the
+    // demanded `Unit`; both halves count user `honor` instances, so a
+    // constraint honored at `Unit` unifies and the program is accepted.
+    const honored = "constraint Conjure<a> =\n" +
+      "    make(): a\n" +
+      "honor Conjure<Int> =\n" +
+      "    make() = 1\n" +
+      "honor Conjure<Unit> =\n" +
+      "    make() = ()\n";
+    expect(checkSource(honored + "let y(c: Bool): Unit = if c then make()").diagnostics)
+      .toEqual([]);
+    expect(checkSource(honored + "fun y(): Unit =\n    make()\n    ()").diagnostics)
+      .toEqual([]);
+
+    // Without the `Unit` instance the same shape still settles and reports.
+    const intOnly = "constraint Conjure<a> =\n" +
+      "    make(): a\n" +
+      "honor Conjure<Int> =\n" +
+      "    make() = 1\n";
+    expect(
+      checkSource(intOnly + "let y(c: Bool): Unit = if c then make()").diagnostics
+        .map(({ message }) => message),
+    ).toEqual([
+      "an `if` without `else` produces `Unit`; its `then` branch is " +
+        "`Int` — add an `else` branch to produce a value",
+    ]);
+  });
+
   test("names concrete types when a discarded branch is structured", () => {
     // A structured branch can never be the demanded `Unit`, so its literals
     // would otherwise reach a mandatory fixit as raw variables — `(?0, ?1)`.

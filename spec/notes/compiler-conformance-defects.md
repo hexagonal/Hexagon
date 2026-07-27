@@ -889,14 +889,14 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   filter. Verified sensitive by blinding the elimination independently of
   defect 4's fix: exactly two tests redden, and they are the two about arity.
 
-## 2026-07-27 — demand-site settling consults only builtin `Unit` instances (open)
+## 2026-07-27 — demand-site settling consults only builtin `Unit` instances
 
 - **Classification:** compiler defect against specification; no design change.
-  **Open** — logged alongside the spec note that makes it stateable (Numeric
-  Literals §6, settling at synthesized `Unit` obligations; the #76 arc), not
-  fixed here. Pre-existing on `main` at the two older settling sites (discarded
-  non-final items, loop bodies); the #76 fix extends the same helper to the
-  else-less `then` branch.
+  Logged alongside the spec note that makes it stateable (Numeric Literals §6,
+  settling at synthesized `Unit` obligations; the #76 arc). Pre-existing on
+  `main` at the two older settling sites (discarded non-final items, loop
+  bodies); the #76 fix extended the same helper to the else-less `then` branch,
+  and corrects it here (issue #108).
 - **Authority:** Numeric Literals §6 — settling requires that at least one
   constraint on the variable has no `Unit` instance, user `honor` instances
   included. A variable every one of whose constraints `Unit` satisfies is left
@@ -913,11 +913,21 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   expression whose type variable carries only user constraints honored at both
   `Unit` and `Int` — exotic, but a wrong rejection, not a message defect, which
   is why the spec states the symmetric guard rather than the implemented one.
-- **Shape of the fix:** consult instances symmetrically — the `Unit`-side test
-  becomes builtin `supports` *or* instance lookup at `Unit`, mirroring
-  `#canDefaultToInt`'s two-branch test. Conformance needs the discriminating
-  acceptance case above plus a guard that a bare `Num`-only literal still
-  settles at all three sites.
+- **Correction:** demand-site settling gets its own predicate,
+  `#settlesAtUnitDemand`, consulting instances symmetrically — builtin
+  `supports` *or* instance lookup, on both the `Int` and the `Unit` side. It is
+  deliberately not expressed through `#canDefaultToInt`, which answers §4's
+  different *policy* question (is the constraint in the closed defaultable
+  list) for generalisation: §6 wants user instances consulted and §4 wants them
+  ignored, so one predicate cannot serve both. That separation is what lets the
+  §4 defect — generalisation defaulting is user-extensible, contradicting its
+  closed list — be corrected independently; it remains open as issue #109.
+  Structural settling continues to ride on `#canDefaultToInt`, since the §6
+  note routes it through §4's rule rather than the demand-site guard.
+- **Conformance:** `checker.test.ts` — a constraint honored at both `Int` and
+  `Unit` is accepted at the else-less and discarded-item sites; the same shape
+  honored at `Int` only still settles and reports; and bare `Num`-only literals
+  still settle at all three sites.
 - **Credit:** surfaced reviewing the Numeric Literals §6 note for the #76 arc:
   the note's guard was checked against the helper it describes, and the
   asymmetry fell out of the comparison.
