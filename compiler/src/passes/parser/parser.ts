@@ -2260,17 +2260,26 @@ class Parser {
 
   /**
    * Functions §4.2: `<...>` binders are permitted only on a lambda in `let`/`fun` RHS
-   * position. The binding discharges its own value — directly, or through the indented
-   * block that is the same right-hand side written across lines. A block with more than one
-   * item is deliberately *not* discharged: there the lambda is the block's result rather
-   * than the binding's right-hand side, and what `<a>` would scope over is a question this
-   * form should not answer by accident.
+   * position. The binding discharges its own value — directly, or through the wrappers that
+   * are the same right-hand side written differently: parentheses, and the indented block of
+   * a right-hand side spread across lines. A block with more than one item is deliberately
+   * *not* discharged: there the lambda is the block's result rather than the binding's
+   * right-hand side, and what `<a>` would scope over is a question this form should not
+   * answer by accident.
    */
   #dischargeTypeParameterLambda(value: Parsed.Expr): void {
-    const lambda = value.kind === "Block" && value.items.length === 1 &&
-        value.items[0]?.kind === "ExprItem"
-      ? value.items[0].expression
-      : value;
+    let lambda = value;
+    for (;;) {
+      if (lambda.kind === "Group") {
+        lambda = lambda.expression;
+        continue;
+      }
+      const only = lambda.kind === "Block" && lambda.items.length === 1
+        ? lambda.items[0]
+        : undefined;
+      if (only?.kind !== "ExprItem") break;
+      lambda = only.expression;
+    }
     this.#pendingTypeParameterLambdas.delete(lambda);
   }
 

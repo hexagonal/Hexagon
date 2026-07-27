@@ -1087,6 +1087,20 @@ describe("parse", () => {
       expect(module.diagnostics).toEqual([]);
     });
 
+    // Parentheses are pure grouping, so a parenthesized right-hand side is the same
+    // right-hand side and raises no question about what `<a>` scopes over.
+    test("are accepted when the right-hand side is parenthesized", () => {
+      const wrapped = [
+        "let f = (<a>(x: a): a => x)",
+        "let f = ((<a>(x: a): a => x))",
+        "let f =\n    (<a>(x: a): a => x)",
+      ];
+
+      for (const source of wrapped) {
+        expect(parseSource(source).diagnostics).toEqual([]);
+      }
+    });
+
     // Functions §4.2's position restriction — what keeps rank-2 types inexpressible.
     test("are a parse error anywhere but a `let`/`fun` right-hand side", () => {
       const misplaced = [
@@ -1096,6 +1110,13 @@ describe("parse", () => {
         "let r = [<a>(x: a) => x]",
         "<a>(x: a) => x",
         "fun f() =\n    var g = <a>(x: a) => x\n    g",
+        // The result of a header-form function, not its right-hand side: the rank-2
+        // return the position restriction exists to keep inexpressible. Parenthesizing
+        // it does not make it a right-hand side either.
+        "fun f() = <a>(x: a): a => x",
+        "fun f() = (<a>(x: a): a => x)",
+        // Immediately applied: the binding's value is the call, not the lambda.
+        "let r = (<a>(x: a): a => x)(1)",
       ];
 
       for (const source of misplaced) {
