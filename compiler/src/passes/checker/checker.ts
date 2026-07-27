@@ -1688,6 +1688,13 @@ class Checker {
           // `else`-less: the false branch is the synthesized `Unit`, so the
           // `then` branch must be `Unit` (Operators §11.2). No numeric
           // widening — a unit branch never widens.
+          //
+          // Default a still-polymorphic numeric literal first: it would
+          // otherwise unify with `Unit` structurally and succeed (Numeric
+          // Literals §1), hiding the §11.2 fixit behind a later unresolved
+          // `Num Unit`. Defaulting settles it to `Int` so the unification
+          // below fails and reports the add-an-`else` fixit instead.
+          this.#defaultDiscardedLiteral(consequence, expression.consequence.span);
           this.#unify(
             consequence,
             alternative,

@@ -1202,6 +1202,27 @@ describe("check", () => {
     );
   });
 
+  test("reports the else-less fixit for a numeric-literal then-branch", () => {
+    // A polymorphic literal would unify with the synthesized `Unit`
+    // structurally and only fail later as an unresolved `Num Unit`; the
+    // then-branch defaults to `Int` first so §11.2's fixit fires instead.
+    for (
+      const text of [
+        "let y(c: Bool) = if c then 5",
+        "let y(c: Bool): Unit = if c then 5",
+        "fun y(c: Bool): Unit =\n" +
+          "    if c then\n" +
+          "        5",
+      ]
+    ) {
+      expect(checkSource(text).diagnostics.map(({ message }) => message))
+        .toEqual([
+          "an `if` without `else` produces `Unit`; its `then` branch is " +
+            "`Int` — add an `else` branch to produce a value",
+        ]);
+    }
+  });
+
   test("checks Range and String for loops with their concrete item types", () => {
     const module = checkSource(
       "fun visit(): Unit =\n" +
