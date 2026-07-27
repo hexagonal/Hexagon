@@ -1151,6 +1151,155 @@ describe("parse", () => {
       expect(parseSource("let ok = 1 < 2\nlet also = a < b and b < c").diagnostics).toEqual([]);
     });
   });
+
+  // Pattern Matching §6.5, issue #83: a single parameter without parens may be any
+  // paren-free pattern. The parenthesized spellings already worked (#82); these are the
+  // forms that had to be told apart from the expressions they begin like.
+  describe("paren-free pattern parameters", () => {
+    test("bind exactly as the parenthesized spelling does", () => {
+      const bare = parseSource("let f = {x} => x");
+      const parenthesized = parseSource("let f = ({x}) => x");
+
+      // One synthetic parameter, and the body opens with the destructuring `let`.
+      const shape = {
+        value: {
+          kind: "Lambda",
+          parameters: [{ name: { text: "__hex_parameter0" } }],
+          body: {
+            kind: "Block",
+            items: [
+              { kind: "LetPattern", pattern: { kind: "Record" } },
+              { kind: "ExprItem" },
+            ],
+          },
+        },
+      };
+
+      expect(bare.items).toMatchObject([shape]);
+      expect(parenthesized.items).toMatchObject([shape]);
+      expect(bare.diagnostics).toEqual([]);
+      expect(parenthesized.diagnostics).toEqual([]);
+    });
+
+    test("accept every paren-free pattern §6.5 names", () => {
+      const sources = [
+        "let f = {a, b} => a",
+        "let f = UserId(n) => n",
+        "let f = x as v => v",
+        "let f = {x} as r => x",
+        "let f = _ as v => v",
+        "let f = [a, b] => a",
+        "let f = Wrap(_) | Empty => 1",
+        "let f = {u = UserId(n)} => n",
+      ];
+
+      for (const source of sources) {
+        expect(parseSource(source).diagnostics).toEqual([]);
+      }
+    });
+
+    test("leave the bare-name and wildcard forms alone", () => {
+      const module = parseSource("let f = x => x\nlet g = _ => 1\nlet h = () => 2");
+
+      expect(module.items).toMatchObject([
+        { value: { parameters: [{ name: { text: "x" } }] } },
+        { value: { parameters: [{ name: { text: "__hex_parameter0" } }] } },
+        { value: { parameters: [] } },
+      ]);
+      expect(module.diagnostics).toEqual([]);
+    });
+
+    // The arrow is the whole signal, so everything that merely *starts* like a pattern
+    // and is not followed by one stays the expression it was.
+    test("do not capture the expressions they begin like", () => {
+      const module = parseSource(
+        "let literal = {x = 1}\n" +
+          "let holdingALambda = {f = x => x}\n" +
+          "let punned = {x}\n" +
+          "let updated = {p with x = 3}\n" +
+          "let vector = [1, 2]\n" +
+          "let call = UserId(1)\n" +
+          "let sum = a + b\n" +
+          "let applied = g(1)\n",
+      );
+
+      expect(module.diagnostics).toEqual([]);
+      expect(module.items).toMatchObject([
+        { value: { kind: "Record" } },
+        { value: { kind: "Record" } },
+        { value: { kind: "Record" } },
+        { value: { kind: "Record", spread: { kind: "Name" } } },
+        { value: { kind: "Vector" } },
+        { value: { kind: "Call" } },
+        { value: { kind: "Binary" } },
+        { value: { kind: "Call" } },
+      ]);
+    });
+  });
+
+  // Pattern Matching §6.5's guard pin: a top-level `=>` after `when` always belongs to the
+  // arm, never to a lambda. Before #83 the most ordinary guard of all — a bare boolean
+  // name — was swallowed as a lambda parameter, stranding the arm without its arrow.
+  describe("guards keep their arrow", () => {
+    const union = "union Box = Wrap(v: Int) | Empty\n";
+    const rest = "        Wrap(_) => 9\n        Empty => 0\n";
+
+    test("whatever shape the guard takes", () => {
+      const guards = ["flag", "(flag)", "not flag", "x > 1", "flag and x > 0"];
+
+      for (const guard of guards) {
+        const module = parseSource(
+          `${union}fun f(b: Box, flag: Bool): Int =\n` +
+            "    match b\n" +
+            `        Wrap(x) when ${guard} => x\n` +
+            rest,
+        );
+
+        expect(module.diagnostics).toEqual([]);
+      }
+    });
+
+    test("in `catch` arms too", () => {
+      const module = parseSource(
+        "exception Bad\n" +
+          "fun f(flag: Bool): Int =\n" +
+          "    try\n" +
+          "        1\n" +
+          "    catch\n" +
+          "        Bad when flag => 2\n",
+      );
+
+      expect(module.diagnostics).toEqual([]);
+    });
+
+    // The claim is the arm's, and it does not reach inside a bracket: the bracket must
+    // close before the arm's arrow can arrive, so a lambda written in there is still legal.
+    test("without stopping lambdas nested inside the guard", () => {
+      const guards = ["apply(y => y > 0, x)", "any([y => y > 0])", "apply(({v} => v > 0), x)"];
+
+      for (const guard of guards) {
+        const module = parseSource(
+          `${union}fun f(b: Box): Int =\n` +
+            "    match b\n" +
+            `        Wrap(x) when ${guard} => x\n` +
+            rest,
+        );
+
+        expect(module.diagnostics).toEqual([]);
+      }
+    });
+
+    test("and an arm body may still be a lambda", () => {
+      const module = parseSource(
+        `${union}fun f(b: Box): Int =\n` +
+          "    match b\n" +
+          "        Wrap(x) => (y => y + x)(1)\n" +
+          "        Empty => 0\n",
+      );
+
+      expect(module.diagnostics).toEqual([]);
+    });
+  });
 });
 
 function parseSource(text: string): Parsed.Module {

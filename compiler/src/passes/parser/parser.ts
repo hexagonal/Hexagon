@@ -77,6 +77,20 @@ const opensNesting = new Set<TokenKind>(["LeftParen", "LeftBracket", "LeftBrace"
 const closesNesting = new Set<TokenKind>(["RightParen", "RightBracket", "RightBrace", "VClose"]);
 
 /**
+ * Tokens that can begin a paren-free pattern parameter (Pattern Matching §6.5). Literal
+ * patterns are deliberately absent: as a sole parameter they are refutable without
+ * exception, so reading one as a lambda head could only trade one error for another,
+ * and the tokens that begin them overwhelmingly begin ordinary expressions.
+ */
+const parenFreePatternStarts = new Set<TokenKind>([
+  "NonUpperName",
+  "Wildcard",
+  "UpperName",
+  "LeftBrace",
+  "LeftBracket",
+]);
+
+/**
  * Token kinds that can end an expression. A contextual `with` opens a record update only
  * when one of these precedes it; otherwise `with` is the field name or the value it looks
  * like (Products §3.3).
@@ -1515,44 +1529,22 @@ class Parser {
   }
 
   #parsePrefix(stops: ReadonlySet<TokenKind>): Parsed.Expr {
-    // `_ => body`: a single parameter whose pattern ignores it. The parameter
-    // is real (arity one) — the wildcard only declines to bind it.
-    if (this.#at("Wildcard") && this.#peek(1).kind === "FatArrow") {
-      const wildcard = this.#advance();
-      this.#advance();
-      const body = this.#parseBodyExpression(stops);
-      return {
-        kind: "Lambda",
-        parameters: [
-          { name: this.#freshParameterName(wildcard.span, 0), span: wildcard.span },
-        ],
-        body,
-        span: spanFrom(wildcard.span, body.span),
-      };
-    }
-    if (this.#at("NonUpperName") && this.#peek(1).kind === "FatArrow") {
-      const parameter = this.#current() as Lexed.NameToken;
-      this.#advance();
-      this.#advance();
-      const body = this.#parseBodyExpression(stops);
-      return {
-        kind: "Lambda",
-        parameters: [
-          { name: parsedName(parameter), span: parameter.span },
-        ],
-        body,
-        span: spanFrom(parameter.span, body.span),
-      };
-    }
-    if (this.#atTypeParameterLambda()) {
-      const start = this.#current().span;
-      const typeParameters = this.#parseTypeParameters();
-      const lambda = this.#parseLambda(stops, typeParameters, start);
-      this.#pendingTypeParameterLambdas.set(lambda, start);
-      return lambda;
-    }
-    if (this.#isParenthesizedLambda()) {
-      return this.#parseLambda(stops);
+    // No lambda may start where the next `=>` is already spoken for (§6.5's guard pin,
+    // `#arrowIsClaimed`) — it belongs to the arm, and eating it strands the arm.
+    if (!this.#arrowIsClaimed(stops)) {
+      if (this.#atPatternParameterLambda()) {
+        return this.#parsePatternParameterLambda(stops);
+      }
+      if (this.#atTypeParameterLambda()) {
+        const start = this.#current().span;
+        const typeParameters = this.#parseTypeParameters();
+        const lambda = this.#parseLambda(stops, typeParameters, start);
+        this.#pendingTypeParameterLambdas.set(lambda, start);
+        return lambda;
+      }
+      if (this.#isParenthesizedLambda()) {
+        return this.#parseLambda(stops);
+      }
     }
     if (this.#at("Minus")) {
       const start = this.#advance();
@@ -1648,7 +1640,7 @@ class Parser {
           "spread is vector-pattern syntax; use a named Vector operation to combine values",
         );
       }
-      elements.push(this.#parseExpression(0, withStops(stops, "Comma", "RightBracket")));
+      elements.push(this.#parseExpression(0, insideBrackets(stops, "Comma", "RightBracket")));
       if (!this.#at("Comma")) break;
       this.#advance();
     }
@@ -1669,7 +1661,7 @@ class Parser {
    */
   #parseRecord(stops: ReadonlySet<TokenKind>): Parsed.Expr {
     const opening = this.#advance();
-    const innerStops = withStops(stops, "Comma", "RightBrace");
+    const innerStops = insideBrackets(stops, "Comma", "RightBrace");
     let spread: Parsed.Expr | undefined;
     let update = false;
     let retiredSpread = false;
@@ -1722,7 +1714,7 @@ class Parser {
       if (separator === undefined) {
         value = { kind: "Name", name, span: name.span };
       } else {
-        value = this.#parseExpression(0, withStops(stops, "Comma", "RightBrace"));
+        value = this.#parseExpression(0, insideBrackets(stops, "Comma", "RightBrace"));
       }
       const punned = separator === undefined;
       if (names.has(name.text)) this.#errorAt(name.span, `duplicate record field \`${name.text}\``);
@@ -1809,7 +1801,7 @@ class Parser {
 
     const expression = this.#parseExpression(
       0,
-      withStops(stops, "Comma", "RightParen"),
+      insideBrackets(stops, "Comma", "RightParen"),
     );
     if (this.#at("Comma")) {
       const elements: Parsed.Expr[] = [expression];
@@ -1823,7 +1815,7 @@ class Parser {
         elements.push(
           this.#parseExpression(
             0,
-            withStops(stops, "Comma", "RightParen"),
+            insideBrackets(stops, "Comma", "RightParen"),
           ),
         );
       }
@@ -2145,26 +2137,13 @@ class Parser {
           this.#advance();
           annotation = this.#parseTypeAnnotation();
         }
-        const span = spanFrom(pattern.span, annotation?.span ?? pattern.span);
-        if (pattern.kind === "Binding") {
-          parameters.push({
-            name: pattern.name,
-            ...(annotation === undefined ? {} : { annotation }),
-            span,
-          });
-        } else {
-          const name = this.#freshParameterName(pattern.span, parameters.length);
-          parameters.push({
-            name,
-            ...(annotation === undefined ? {} : { annotation }),
-            span,
-          });
-          // A wildcard binds nothing, so it needs no destructuring at all —
-          // the fresh parameter simply goes unused.
-          if (pattern.kind !== "Wildcard") {
-            destructurings.push({ pattern, name, span: pattern.span });
-          }
-        }
+        const { parameter, destructuring } = this.#parameterFromPattern(
+          pattern,
+          parameters.length,
+          annotation,
+        );
+        parameters.push(parameter);
+        if (destructuring !== undefined) destructurings.push(destructuring);
       }
       if (!this.#at("Comma")) {
         break;
@@ -2211,6 +2190,148 @@ class Parser {
     for (const { span } of destructurings) {
       this.#errorAt(span, `${what} take plain parameter names, not patterns`);
     }
+  }
+
+  /**
+   * Pattern Matching §6.5's guard pin: a top-level `=>` after `when` always belongs to the
+   * arm, never to a lambda. A `match` or `catch` arm parses its guard with `FatArrow`
+   * stopping the expression, and that stop is the claim — where it holds, no lambda may
+   * start and swallow the arrow the arm is waiting for. The claim does not cross a bracket
+   * (`#insideBrackets`), because a `=>` in there is closed off from the arm by a bracket
+   * that must shut first, so guards may still contain lambdas.
+   */
+  #arrowIsClaimed(stops: ReadonlySet<TokenKind>): boolean {
+    return stops.has("FatArrow");
+  }
+
+  /**
+   * A sole parameter written without the parameter-list parens (Pattern Matching §6.5):
+   * a paren-free pattern, then `=>`. The arrow is the entire signal — `=>` never continues
+   * an expression, so an arrow standing immediately after a pattern-shaped run of tokens
+   * cannot belong to whatever those tokens would otherwise have been. That is what tells a
+   * record *pattern* from a record *literal* without inspecting anything between the braces.
+   *
+   * The lookahead walks the pattern grammar rather than hunting for an arrow, which keeps it
+   * both tight and cheap. Tight, because it commits only when the tokens genuinely form a
+   * paren-free pattern that the arrow immediately follows. Cheap, because it steps *over*
+   * bracket pairs and stops at the pattern's own end: a leading name is settled in one token,
+   * so an ordinary expression pays nothing for the possibility of a lambda. Scanning ahead
+   * for the arrow instead costs the length of the enclosing expression at every prefix
+   * position, which is quadratic on long ones (measured: 60× on a 2000-term sum).
+   */
+  #atPatternParameterLambda(): boolean {
+    if (!parenFreePatternStarts.has(this.#current().kind)) return false;
+    let index = this.#skipPattern(this.#index);
+    // Or-patterns are paren-free too; refutability, not the grammar, is what rejects them.
+    while (index >= 0 && this.#tokens[index]?.kind === "Bar") {
+      index = this.#skipPattern(index + 1);
+    }
+    if (index < 0) return false;
+    if (this.#isAsKeyword(index)) {
+      index += 1;
+      if (this.#tokens[index]?.kind !== "NonUpperName") return false;
+      index += 1;
+    }
+    return this.#tokens[index]?.kind === "FatArrow";
+  }
+
+  /** Steps over one paren-free pattern, or returns -1 if these tokens are not one. */
+  #skipPattern(index: number): number {
+    const kind = this.#tokens[index]?.kind;
+    if (kind === "NonUpperName") {
+      // A lowercase name binds; it never heads an argument list, and a leading `as` is
+      // the operator rather than a pattern of its own.
+      return this.#isAsKeyword(index) ? -1 : index + 1;
+    }
+    if (kind === "Wildcard") return index + 1;
+    if (kind === "UpperName") {
+      const next = index + 1;
+      return this.#tokens[next]?.kind === "LeftParen" ? this.#skipBracketed(next) : next;
+    }
+    if (kind === "LeftBrace" || kind === "LeftBracket") return this.#skipBracketed(index);
+    return -1;
+  }
+
+  /** Steps over a balanced bracket pair, or returns -1 if it never closes. */
+  #skipBracketed(index: number): number {
+    let depth = 0;
+    for (let scan = index; scan < this.#tokens.length; scan += 1) {
+      const kind = this.#tokens[scan]!.kind;
+      if (kind === "Eof") return -1;
+      if (opensNesting.has(kind)) depth += 1;
+      else if (closesNesting.has(kind)) {
+        depth -= 1;
+        if (depth === 0) return scan + 1;
+        if (depth < 0) return -1;
+      }
+    }
+    return -1;
+  }
+
+  #isAsKeyword(index: number): boolean {
+    const token = this.#tokens[index];
+    return token?.kind === "NonUpperName" && token.text === "as";
+  }
+
+  /**
+   * The §6.5 paren-free form. One pattern, one parameter — the same parameter the
+   * parenthesized spelling would have produced, through the same `#parameterFromPattern`,
+   * so `{x} => x` and `({x}) => x` bind identically and the irrefutability gate sees one
+   * shape rather than two.
+   */
+  #parsePatternParameterLambda(stops: ReadonlySet<TokenKind>): Parsed.Expr {
+    const start = this.#current().span;
+    const pattern = this.#parsePattern();
+    if (pattern === undefined) {
+      this.#synchronize(withStops(stops, "FatArrow"));
+      if (this.#at("FatArrow")) this.#advance();
+      const body = this.#parseBodyExpression(stops);
+      return { kind: "ErrorExpr", span: spanFrom(start, body.span) };
+    }
+    const { parameter, destructuring } = this.#parameterFromPattern(pattern, 0);
+    this.#expect("FatArrow", "expected `=>` after the lambda parameter");
+    const body = this.#withDestructurings(
+      this.#parseBodyExpression(stops),
+      destructuring === undefined ? [] : [destructuring],
+    );
+    return {
+      kind: "Lambda",
+      parameters: [parameter],
+      body,
+      span: spanFrom(start, body.span),
+    };
+  }
+
+  /**
+   * One parameter from one pattern. A plain name *is* the parameter; every other pattern
+   * becomes a fresh binder plus a destructuring the body opens with, so a pattern parameter
+   * binds the same whichever spelling introduced it.
+   */
+  #parameterFromPattern(
+    pattern: Parsed.Pattern,
+    index: number,
+    annotation?: Parsed.TypeAnnotation,
+  ): { parameter: Parsed.Parameter; destructuring?: Destructuring } {
+    const span = spanFrom(pattern.span, annotation?.span ?? pattern.span);
+    if (pattern.kind === "Binding") {
+      return {
+        parameter: {
+          name: pattern.name,
+          ...(annotation === undefined ? {} : { annotation }),
+          span,
+        },
+      };
+    }
+    const name = this.#freshParameterName(pattern.span, index);
+    const parameter: Parsed.Parameter = {
+      name,
+      ...(annotation === undefined ? {} : { annotation }),
+      span,
+    };
+    // A wildcard binds nothing, so it needs no destructuring at all —
+    // the fresh parameter simply goes unused.
+    if (pattern.kind === "Wildcard") return { parameter };
+    return { parameter, destructuring: { pattern, name, span: pattern.span } };
   }
 
   /**
@@ -2633,6 +2754,21 @@ function withStops(
   ...additional: readonly TokenKind[]
 ): ReadonlySet<TokenKind> {
   return new Set([...stops, ...additional]);
+}
+
+/**
+ * Stops for a bracketed sub-expression. Everything the surrounding expression stops at
+ * still applies, except a claimed `=>` (§6.5's guard pin, `#arrowIsClaimed`): the bracket
+ * must close before the arm's arrow can arrive, so an arrow written in here is a lambda's
+ * and the claim would only stop a lambda that is entirely legal.
+ */
+function insideBrackets(
+  stops: ReadonlySet<TokenKind>,
+  ...additional: readonly TokenKind[]
+): ReadonlySet<TokenKind> {
+  const inner = new Set([...stops, ...additional]);
+  inner.delete("FatArrow");
+  return inner;
 }
 
 function spanFrom(first: Source.Span, last: Source.Span): Source.Span {

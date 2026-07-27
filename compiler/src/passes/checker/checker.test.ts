@@ -276,6 +276,47 @@ describe("check", () => {
     );
   });
 
+  // Pattern Matching §6.5, issue #83. The paren-free spelling desugars to the same
+  // parameter the parenthesized one does, so it inherits the gate and the row rules
+  // rather than needing its own.
+  test("gates a paren-free pattern parameter for refutability", () => {
+    const irrefutable = checkSource(
+      "union UserId = UserId(value: Int)\n" +
+        "let unwrap = UserId(n) => n\n" +
+        "let answer = unwrap(UserId(42))",
+    );
+
+    expect(irrefutable.diagnostics).toEqual([]);
+    expect(letSymbol(irrefutable, "answer").scheme.type).toMatchObject({
+      kind: "Primitive",
+      name: "Int",
+    });
+
+    const refutable = checkSource(
+      "union Maybe = Some(value: Int) | None\n" +
+        "let unwrap = Some(value) => value",
+    );
+    expect(refutable.diagnostics.map(({ message }) => message)).toContain(
+      "a constructor pattern is refutable and cannot be used in a binding position; use `match`",
+    );
+  });
+
+  test("infers a paren-free record parameter row-polymorphically, exactly like `p.x`", () => {
+    // §6.5's row pin: `{x} => x` constrains its parameter the way field access does,
+    // so a wider record still fits.
+    const module = checkSource(
+      "let getX = {x} => x\n" +
+        "let first = getX({x = 1})\n" +
+        "let second = getX({x = 2, y = true})",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    expect(letSymbol(module, "first").scheme.type).toMatchObject({
+      kind: "Primitive",
+      name: "Int",
+    });
+  });
+
   test("checks Unit patterns as exhaustive and irrefutable", () => {
     const module = checkSource(
       'fun describe(value: Unit): String = match value\n    () => "unit"\n' +

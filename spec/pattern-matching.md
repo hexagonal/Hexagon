@@ -147,7 +147,8 @@ match shape
 
 - **`when` is arm syntax, not pattern syntax.** The grammar of a match/catch arm is `pattern [when expr] => body`. A guard therefore always covers the *entire* arm pattern — `A(x) | B(x) when g` guards both alternatives — and can never appear inside a nested pattern. This placement is decided; guards-in-patterns would wreck or-pattern factoring, the same-bindings check, and exhaustiveness locality, for no expressive gain.
 - The guard is an ordinary `Bool` expression with the pattern's binders in scope. Chained comparisons (`0 <= x < 100`) work exactly per Operators §5.3–5.4 and are the idiomatic guard spelling for ranges — this is the interaction that makes range *patterns* unnecessary in v1 (§11.2).
-- **Guard termination (grammar pin):** the guard expression is terminated by the arm's `=>` — a top-level `=>` after `when` always belongs to the arm, never to a lambda. Without this pin, `p when f => x` would maximal-munch `f => x` as an eats-right lambda (Operators §3.2) and never find the arm's arrow. A lambda operand inside a guard (bizarre, but expressible) must be parenthesized: `p when apply(f, (x => x > 0)) => body`. Same resolution as F#'s. Diagnostic: "`=>` ends the guard; parenthesize the lambda."
+- **Guard termination (grammar pin):** the guard expression is terminated by the arm's `=>` — a top-level `=>` after `when` always belongs to the arm, never to a lambda. Without this pin, `p when f => x` would maximal-munch `f => x` as an eats-right lambda (Operators §3.2) and never find the arm's arrow. Same resolution as F#'s. **The arm's claim on the arrow is dropped inside any bracket** — `(`, `[`, `{` — because a bracket must close before the arm's `=>` can arrive: `p when apply(f, x => x > 0) => body` is legal, and the parenthesized `(x => x > 0)` is a style choice, not a requirement (this sentence formerly read "must be parenthesized"; softened July 2026). Only a lambda written *bare at the guard's top level* is unavailable, and it is unavailable at no cost: a guard must be `Bool` and a lambda never is, so the claim can never suppress a well-typed program.
+- **The diagnostic "`=>` ends the guard; parenthesize the lambda" is retired** (July 2026), superseded by the pin it was written to repair. The parse it caught now succeeds — `p when f => x` reads as guard `f`, body `x`, which is exactly what the pin asks for — so the fixit has no trigger, and firing it would mean guessing that a user who wrote a valid guard meant a lambda. A bare lambda genuinely intended at guard top level surfaces as an honest type mismatch (`Bool` expected, function found), which names the real problem.
 - **Evaluation order is normative** (guards may be effectful): arms top to bottom; a guard is evaluated only after its arm's pattern has matched, at most once per `match` evaluation; if the guard is `false`, matching falls through to the next arm as if the pattern had failed.
 - **A guarded arm contributes nothing to exhaustiveness** (§7.1). The checker does not attempt to prove guards total — not even `when true`. A match whose domain is only covered by guarded arms is non-exhaustive: hard error. This bites harder than F#'s warning; that is the point and the house rule (no warning tier).
 - Guards appear only where arms appear: `match` and `catch`. There are no guards on `let`, `for..in`, or lambda parameters — those positions demand irrefutability, and a guard is the maximally refutable construct.
@@ -412,7 +413,6 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 | `let`-pattern name already in scope | Statements §5.1/§9.3's "already bound" error with the pattern-aware fixits (§6.3 here) |
 | `Float` literal pattern | permanent error + guard fixit (§2.5) |
 | Guard on `let`/`for..in`/lambda param | "guards are only legal on `match` and `catch` arms; use a `match`" (§3) |
-| Bare lambda intended inside a guard | "`=>` ends the guard; parenthesize the lambda" (§3) |
 | `when` inside a nested pattern | parse error, same message (§3) |
 | `match` on `Exn` | "match requires a closed type; exceptions are inspected with `try`/`catch`" (§6.1) |
 | `match` on constraint-bounded abstract type | "cannot match on a value of abstract type `c`; use the operations its constraints provide" (§6.1) |
@@ -441,7 +441,7 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 | Pattern field separator is `=`, matching literals (Products §8); the `{x: Float}` type-confusion guard is retired in favour of the token-level `:`-in-terms fixit | §2.4, §16 |
 | Literal patterns: `Int`/`String`/`Bool` via `Eq`; ordinary inference (`Num` + `Eq` constraints); `Float` permanently banned with guard fixit; no `Char` | §2.5 |
 | Or-patterns with F# same-bindings rule; spelling `\|` (C#'s `or` rejected: declaration/pattern coherence, predicate disanalogy, `and`/`not` pressure, lambda-head ambiguity) | §2.6, §10 |
-| Guard termination: top-level `=>` after `when` belongs to the arm; lambdas in guards must parenthesize | §3 |
+| Guard termination: top-level `=>` after `when` belongs to the arm; the claim is dropped inside any bracket, so a lambda in a guard needs no extra parens; the parenthesize fixit is retired | §3 |
 | `as` keyword; loosest pattern operator, looser than `\|`; refutability-transparent; zero-cost | §2.7 |
 | Guards: `when`, arm syntax only, whole-arm coverage, evaluated after pattern at most once, contribute nothing to exhaustiveness (incl. `when true`) | §3 |
 | `match` scrutinee generalized; `Exn` and constraint-bounded abstract types permanently excluded | §6.1 |
@@ -521,9 +521,10 @@ match n
 -- (i2) Guard termination: => after when belongs to the arm
 match n
     x when isPositive => "pos"       -- guard is the expression `isPositive`; => is the arm's
-    x when exists(preds, (p => p(x))) => "any"   -- lambda in a guard: parenthesized
+    x when exists(preds, p => p(x)) => "any"     -- lambda in a guard: the call's bracket
+                                                 -- drops the arm's claim; parens optional
     _ => "other"
--- `x when f => x` where a lambda guard was intended: error with parenthesize fixit
+-- `x when f => x` parses as guard `f`, body `x` — the pin, not an error (§3)
 
 -- (j) Construction punning round trip
 let name = "Ada"
