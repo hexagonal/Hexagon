@@ -524,14 +524,19 @@ export interface BlockExpr {
  * layout block whose one item is an expression, which only says the right-hand
  * side was written on the next line.
  *
- * Both wrappers are pure syntax, so every rule that reads a right-hand side —
- * the value restriction (Functions §8.2), the exported-signature check, the
- * evidence a constrained binding carries, its emitted shape — must read through
- * them, or the same program means two things depending on where it sits on the
- * page (issue #98). Peeling once at each binding site is how they are kept in
- * agreement; a *multi*-item block is left alone, because running its earlier
- * items is evaluation, and evaluation is exactly what the value restriction is
- * about.
+ * Both wrappers are pure syntax, so every rule that reads what a right-hand side
+ * *means* — the value restriction (Functions §8.2), the exported-signature
+ * check, the evidence a constrained binding carries, its emitted shape — must
+ * read through them, or the same program means two things depending on where it
+ * sits on the page (issue #98). Peeling once at each binding site is how they
+ * are kept in agreement; a *multi*-item block is left alone, because running its
+ * earlier items is evaluation, and evaluation is exactly what the value
+ * restriction is about.
+ *
+ * Not every rule asks what a right-hand side means. Functions §7.1 asks what a
+ * `fun`'s right-hand side *is*, because hoisting rests on the written form
+ * being a lambda literal; that check runs in the parser and this peel is
+ * deliberately kept away from it (issue #113 owns the diagnostic it leaves).
  */
 export function unwrapBindingValue(expression: Expr): Expr {
   let unwrapped = expression;

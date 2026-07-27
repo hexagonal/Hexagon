@@ -166,12 +166,42 @@ describe("a right-hand side means the same wherever it sits on the page", () => 
     expect(exports["fractional"]).toBe(3.75);
   });
 
-  test("an exported binding gets the same signature diagnostic either way", () => {
+  test("a pattern binding is peeled too, and its binders generalize", async () => {
+    // `LetPattern` is the third peeled position. One binder used at two types
+    // is what discriminates: on `main` the indented spelling monomorphizes the
+    // whole tuple, while the inline one is clean.
+    const exports = await run(
+      "let (identity, second) =\n" +
+      "    ((x) => x, (y) => y)\n" +
+      "export let whole: Int = identity(1)\n" +
+      "export let text: String = identity(\"s\")\n" +
+      "export let other: Int = second(2)\n",
+    );
+    expect(exports["whole"]).toBe(1);
+    expect(exports["text"]).toBe("s");
+    expect(exports["other"]).toBe(2);
+  });
+
+  test("an exported binding gets the same signature diagnostic every way", () => {
+    // The parenthesized spelling belongs here as much as the indented one: only
+    // `#isValue` had a `Group` case, so this check saw a non-lambda through
+    // parentheses too and asked for the wrong thing.
     const message =
       "exported function `identity` requires a complete signature; " +
       "add type for parameter `x` and a return type";
     expect(diagnostics("export let identity = (x) => x\n")).toEqual([message]);
     expect(diagnostics("export let identity =\n    (x) => x\n")).toEqual([message]);
+    expect(diagnostics("export let identity = ((x) => x)\n")).toEqual([message]);
+  });
+
+  test("a parenthesized exported constrained binding compiles and specializes", () => {
+    // Rejected outright on `main` — ``exported value `plus` requires a type
+    // annotation`` — for a binding whose signature is complete and written
+    // right there. The parenthesis half of the peel is load-bearing.
+    const project = compile("export let plus = (<a: Num>(x: a, y: a): a => x + y)\n");
+    expect(project.diagnostics).toEqual([]);
+    const module = project.modules.find(({ source }) => source.path === "/main.hex")!;
+    expect(module.declarations.text).toContain("export declare function plusInt(");
   });
 
   test("a captured `let` is still promoted, so two callers get two types", async () => {

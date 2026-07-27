@@ -960,6 +960,19 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   constrained one, once generalization was repaired, reached ``missing `Num`
   evidence during JavaScript emission`` (itself issue #100's internal invariant
   wearing a user diagnostic's clothes).
+
+  Two more faces surfaced in review, both silently corrected here. The
+  *parenthesized* spelling was broken wherever the reader was not `#isValue`:
+  ``export let plus = (<a: Num>(x: a, y: a): a => x + y)`` was rejected with
+  ``exported value `plus` requires a type annotation`` for a binding whose
+  signature is written out in full. And `#checkFunctionAvailability`, which
+  seeds each block's `available` set from that block's own items only, rejected
+  a `fun` used inside a one-item block against Functions §7.2 even where the
+  capture was textually initialized — the peel removes the block before that
+  inner walk exists, so this case converges on the inline spelling's answer.
+  The multi-item spelling of it still fails, on both trees: filed as issue #112,
+  since the layer-blind walk is a defect of its own and only its wrapper face
+  belongs here.
 - **Correction:** one peel, in the resolver, at the three binding-value
   positions (`Let`, `Var`, `LetPattern`). `Parsed.unwrapBindingValue` removes
   the wrappers that do not change what a right-hand side means — parentheses,
@@ -972,16 +985,20 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
 - **What is not peeled:** a multi-item block (Functions §8.2 now rules it not a
   value); a block whose one item is a binding rather than an expression
   (Statements §3.1 rejects it, unchanged); and `fun`'s right-hand side, whose
-  §7.1 lambda-literal check runs in the parser and still refuses both wrapper
-  spellings.
+  §7.1 lambda-literal check asks what the RHS *is* rather than what it means —
+  the one exception Lexer & Layout §2.1 now names, and whose diagnostic is
+  issue #113.
 - **Executable conformance:** `conformance/binding-value-wrappers.test.ts` — the
   spellings of one binding are executed and compared; a declared type variable
   survives the indented spelling at a single monomorphic call; an indented
   constrained binding runs at two element types (compiling is not enough, and
-  the entire suite passed while emission was broken); a captured `let` is still
-  promoted; an exported constrained binding emits byte-identical JavaScript and
-  `.d.ts` either way; and the five guards above are pinned. Nine of the ten
-  behavioural tests fail on `main`; the tenth is labelled as the control.
+  the entire suite passed while emission was broken); a pattern binding's
+  binders generalize, with one binder used at two types, which is what
+  discriminates; a captured `let` is still promoted; the parenthesized spelling
+  is pinned at both faces it was broken at; an exported constrained binding
+  emits byte-identical JavaScript and `.d.ts` either way; and the five guards
+  above are pinned. Eleven of the twelve behavioural tests fail on `main`; the
+  twelfth is labelled as the control.
 - **Blast radius:** none in-repo. No `.hex` source — `stdlib/` and
   `runtime/VectorTrie.hex` are all of them — writes a binding in the affected
   shape; every indented right-hand side there belongs to a function *header*,

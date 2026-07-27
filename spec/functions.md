@@ -399,7 +399,7 @@ The inference engine uses Algorithm J with union-find type variables and level-b
        (x) => x
    ```
 
-   are one binding written three ways, and all three generalize. Every other rule that reads a RHS reads it the same way: the exported-signature check (§4.1), the evidence a constrained binding carries (Constraints §6.1), and the emitted shape (§9). Layout is layout; it does not decide whether a binding is polymorphic.
+   are one binding written three ways, and all three generalize. Every other rule that reads what a RHS *means* reads it the same way: the exported-signature check (§4.1), the evidence a constrained binding carries (Constraints §6.1), and the emitted shape (§9). Layout is layout; it does not decide whether a binding is polymorphic. §7.1 is the one rule that does not read through, and it asks a different question — what a `fun`'s RHS *is*, on which hoisting depends — so it refuses a wrapped lambda literal in either spelling.
 
    **A block of more than one item is not read through**, and does not generalize even when its final expression is a lambda:
 
@@ -500,11 +500,12 @@ following line was not a syntactic value, did not generalize, was not an
 exported *function* for the §4.1 signature check, and — once generalized —
 carried no constraint evidence into emission. Whether a `let` was polymorphic
 depended on where it sat on the page. The implementation now peels the wrappers
-that do not change what a right-hand side means, once, before anything reads it.
-That much is a compiler defect correction. The one specification addition is
-§8.2's ruling that a **multi**-item block is not read through and does not
-generalize, which no document had decided. Implementation record and credit live
-in `notes/compiler-conformance-defects.md` (issue #98).
+that do not change what a right-hand side means, once, before any rule that
+reads its meaning sees it; §7.1, which reads the written form instead, keeps its
+own answer. That much is a compiler defect correction. The one specification
+addition is §8.2's ruling that a **multi**-item block is not read through and
+does not generalize, which no document had decided. Implementation record and
+credit live in `notes/compiler-conformance-defects.md` (issue #98).
 
 **2026-07-24 — implemented in conformance with the existing rule.** Section
 4.2 already required an error when a declared type was more general than its
