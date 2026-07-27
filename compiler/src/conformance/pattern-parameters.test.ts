@@ -24,6 +24,19 @@ function diagnostics(source: string): string[] {
   return [...resolved.diagnostics, ...typed.diagnostics].map(({ message }) => message);
 }
 
+/** Where a `duplicate parameter` diagnostic puts its two markers, as source offsets. */
+function duplicateParameterSpans(
+  source: string,
+): { readonly primary: number; readonly label: number } | undefined {
+  const file = new Source.File(Source.fileId(0), "/probe.hex", source);
+  const found = resolve(parse(applyLayout(lex(file))), {}).diagnostics.find(
+    ({ message }) => message.startsWith("duplicate parameter"),
+  );
+  const label = found?.labels?.[0];
+  if (found === undefined || label === undefined) return undefined;
+  return { primary: found.primary.start.offset, label: label.span.start.offset };
+}
+
 /** The parameter names of the sole declaration `source` emits, in order. */
 function renderedParameterNames(source: string): string[] {
   const signature = /\((.*)\) =>/.exec(declarations(source));
@@ -405,6 +418,28 @@ describe("pattern parameters are still binders you cannot collide with", () => {
 
   test("§5.1 rule 3 nor may a pattern parameter collide with a plain one", () => {
     expect(diagnostics("fun f(p, {p}) = p\n")).toContain("duplicate parameter `p`");
+  });
+
+  // Every plain parameter binds before any pattern parameter resolves, so the
+  // pattern binder is always the later *claimant* even when it is the earlier
+  // *text*. Reporting in claim order labelled the second `p` of `f({p}, p)` as
+  // the first one. Both orders must read the same way two plain parameters
+  // always have: primary on the repeat, label on what it repeats.
+  describe("the duplicate-parameter pair is reported in source order", () => {
+    for (
+      const [source, first, second] of [
+        ["fun f(p, {p}) = p\n", 6, 10],
+        ["fun f({p}, p) = p\n", 7, 11],
+        ["fun f(p, p) = p\n", 6, 9],
+      ] as const
+    ) {
+      test(`§5.1 rule 3 \`${source.trim()}\``, () => {
+        const found = duplicateParameterSpans(source);
+        expect(found).not.toBeUndefined();
+        expect(found!.label).toBe(first);
+        expect(found!.primary).toBe(second);
+      });
+    }
   });
 
   test("§4.2 one pattern binding a name twice stays the pattern-shaped error", () => {
