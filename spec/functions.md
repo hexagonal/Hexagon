@@ -389,6 +389,27 @@ The inference engine uses Algorithm J with union-find type variables and level-b
    let xs = makeEmpty()
    ```
    `xs` gets a monomorphic type `Vector<?1>` with `?1` unsolved; the first use fixes it, permanently. Rationale: soundness in the presence of mutation and effects — the classic ML hole is an effectfully produced mutable cell generalized to a polymorphic type. Hexagon's `var` (which never generalizes and interacts with unsolved variables exactly this way — Statements §6.1/§7.2) and effectful FFI calls occupy that territory, so the restriction is load-bearing, not precautionary. The workaround is the familiar ML one: call the producer where the element type is known, or annotate.
+
+   **The test reads through pure wrappers.** It asks what the RHS *means*, not what punctuation surrounds it. Parentheses only group, and a RHS written on the following line only opens a block holding that one expression (Lexer & Layout §2.1) — so
+
+   ```
+   let id = (x) => x
+   let id = ((x) => x)
+   let id =
+       (x) => x
+   ```
+
+   are one binding written three ways, and all three generalize. Every other rule that reads a RHS reads it the same way: the exported-signature check (§4.1), the evidence a constrained binding carries (Constraints §6.1), and the emitted shape (§9). Layout is layout; it does not decide whether a binding is polymorphic.
+
+   **A block of more than one item is not read through**, and does not generalize even when its final expression is a lambda:
+
+   ```
+   let lookup =
+       let table = load()
+       (key) => find(table, key)     -- monomorphic
+   ```
+
+   Its earlier items run when the binding is bound, and code that has already run is precisely what this restriction withholds generalization from — the symmetry with hoisting noted at the end of this section. The rewrite is the ML one again: lift the earlier items into the enclosing block, where they are bound once and what remains on the right-hand side is a lambda, hence a value.
 3. **`fun` generalizes exactly like `let`** — its RHS is always a lambda (§7.1), hence always a value, so `fun` bindings always generalize. Recursive uses are monomorphic per §7.4.
 4. **`var` never generalizes.** This is its own rule, independent of the value restriction — see the Statements, Blocks & Mutability spec for `var` in full.
 5. **Lambda parameters are monomorphic within their scope.** Inside `(f) => ...`, the parameter `f` has one type per instantiation of the enclosing function; it cannot be used at two different types. The classic demonstration:
@@ -469,6 +490,21 @@ Diagnostics obey the Rewrite Rule (Declarations Preamble §1.1): where a legal s
 ---
 
 ## 12. Conformance correction record
+
+**2026-07-28 — a right-hand side was read with its layout block attached.**
+Lexer & Layout §2.1 already gives every term binding a block and already says a
+single wrapped expression "is simply the one-item case, so the ordinary
+multi-line RHS is unaffected". The compiler did not read it that way: the block
+reached every rule that inspects a right-hand side, so a binding written on the
+following line was not a syntactic value, did not generalize, was not an
+exported *function* for the §4.1 signature check, and — once generalized —
+carried no constraint evidence into emission. Whether a `let` was polymorphic
+depended on where it sat on the page. The implementation now peels the wrappers
+that do not change what a right-hand side means, once, before anything reads it.
+That much is a compiler defect correction. The one specification addition is
+§8.2's ruling that a **multi**-item block is not read through and does not
+generalize, which no document had decided. Implementation record and credit live
+in `notes/compiler-conformance-defects.md` (issue #98).
 
 **2026-07-24 — implemented in conformance with the existing rule.** Section
 4.2 already required an error when a declared type was more general than its

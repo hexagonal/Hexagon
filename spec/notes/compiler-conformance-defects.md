@@ -932,3 +932,60 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
 - **Credit:** surfaced reviewing the Numeric Literals §6 note for the #76 arc:
   the note's guard was checked against the helper it describes, and the
   asymmetry fell out of the comparison.
+
+## 2026-07-28 — a binding's right-hand side was read with its layout block attached
+
+- **Classification:** compiler defect against specification, with one
+  accompanying specification addition (Functions §8.2's multi-item ruling, which
+  no document had decided). Issue #98; pre-existing on `main` since before the
+  #65 arc that surfaced it.
+- **Authority:** Lexer & Layout §2.1 — every term binding opens a block, and "a
+  single wrapped expression is simply the one-item case, so the ordinary
+  multi-line RHS is unaffected". Functions §8.2 fixes the value restriction over
+  what the right-hand side *is*.
+- **Defect origin:** the block was left in the tree, so every rule that inspects
+  a right-hand side inspected the wrapper instead. `#isValue` had a `Group` case
+  and no `Block` case, so an indented RHS was not a syntactic value and did not
+  generalize; `#checkCompleteExportSignature` saw a non-lambda and asked for a
+  type annotation instead of a complete signature; and the emitter's four
+  `value.kind === "Lambda"` sites, with the two in `specializations.ts`, skipped
+  the binding, so a constrained one that *did* generalize got no dictionary
+  parameter. Whether a `let` was polymorphic depended on where it sat on the
+  page.
+- **Reach:** three visible faces, and they are ordered by how loudly they fail.
+  An un-annotated indented binding was silently monomorphic and failed only on
+  reuse at a second type. With a declared type variable it failed on *every*
+  concrete call, including a single monomorphic one, reporting `Int` — a type
+  nobody wrote, produced by defaulting the un-generalized variable. A
+  constrained one, once generalization was repaired, reached ``missing `Num`
+  evidence during JavaScript emission`` (itself issue #100's internal invariant
+  wearing a user diagnostic's clothes).
+- **Correction:** one peel, in the resolver, at the three binding-value
+  positions (`Let`, `Var`, `LetPattern`). `Parsed.unwrapBindingValue` removes
+  the wrappers that do not change what a right-hand side means — parentheses,
+  and a block whose one item is an expression — and the parser's
+  `#dischargeTypeParameterLambda`, which had grown the same walk for issue #65's
+  F1, now shares it. Deliberately *not* fixed by adding a `Block` case to
+  `#isValue`, the repair the issue proposed: that fixes generalization alone and
+  leaves the other seven readers wrong. Deliberately not done in the parser
+  either, where it would have to answer §7.1's separate question about `fun`.
+- **What is not peeled:** a multi-item block (Functions §8.2 now rules it not a
+  value); a block whose one item is a binding rather than an expression
+  (Statements §3.1 rejects it, unchanged); and `fun`'s right-hand side, whose
+  §7.1 lambda-literal check runs in the parser and still refuses both wrapper
+  spellings.
+- **Executable conformance:** `conformance/binding-value-wrappers.test.ts` — the
+  spellings of one binding are executed and compared; a declared type variable
+  survives the indented spelling at a single monomorphic call; an indented
+  constrained binding runs at two element types (compiling is not enough, and
+  the entire suite passed while emission was broken); a captured `let` is still
+  promoted; an exported constrained binding emits byte-identical JavaScript and
+  `.d.ts` either way; and the five guards above are pinned. Nine of the ten
+  behavioural tests fail on `main`; the tenth is labelled as the control.
+- **Blast radius:** none in-repo. No `.hex` source — `stdlib/` and
+  `runtime/VectorTrie.hex` are all of them — writes a binding in the affected
+  shape; every indented right-hand side there belongs to a function *header*,
+  making it a body, which was never affected.
+- **Credit:** Opus filed the defect out of the #65 arc rather than fixing it
+  inside that PR; Fable's #99 review established that the narrow `#isValue` fix
+  was not extractable, which is what sent this fix upstream of the checker.

@@ -70,7 +70,13 @@ let x =
 ```
 
 A single wrapped expression is simply the one-item case, so the ordinary
-multi-line RHS is unaffected. Type declarations are *not* term bindings:
+multi-line RHS is unaffected. "Unaffected" is load-bearing and binds every rule
+that reads a right-hand side, not just its value: the one-item block is peeled
+before the value restriction, the exported-signature check, or evidence
+threading sees it, so moving a RHS to the next line cannot change what the
+binding means (Functions §8.2, which also rules on the multi-item case).
+
+Type declarations are *not* term bindings:
 `record`, `union`, and `type` after `=` remain continuations, which is what keeps
 indented union alternatives free of VOPEN. `finally` is reserved but is not a v1
 block head.
