@@ -360,7 +360,7 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 
 ## 9. Rider decision: construction punning ships in v1
 
-`{x, y}` in **value** position is `{x = x, y = y}`; composes with update spread: `{...p, x}` is `{...p, x = x}`. Products §3.1's deferral is dissolved.
+`{x, y}` in **value** position is `{x = x, y = y}`; composes with functional update: `{p with x}` is `{p with x = x}` (update re-spelled `with`, Products §9 — patterns themselves have no update form, so that change touches nothing else in this spec). Products §3.1's deferral is dissolved.
 
 - No ambiguity: braces are always records, never blocks; pattern vs value position is always syntactically determined; there is no competing single-field grouping form.
 - **The two positions read the same sugar with opposite openness** — a pattern `{x, y}` mentions a subset; a literal `{x, y}` is the complete record. Same asymmetry the explicit forms already have; inherited, documented, not smoothed.

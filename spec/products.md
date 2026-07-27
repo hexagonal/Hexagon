@@ -1,7 +1,7 @@
 # Hexagon Spec: Products
 
 **Status:** Decided (July 2026)
-**Scope:** Tuples, structural records, row polymorphism (as far as the user can see it), the nominal `record` declaration, field access, spread/update, construction punning, destructuring (as the pattern grammar's degenerate case), JS emission and `.d.ts` shapes.
+**Scope:** Tuples, structural records, row polymorphism (as far as the user can see it), the nominal `record` declaration, field access, the `with` update and the bare copy `{...p}`, construction punning, destructuring (as the pattern grammar's degenerate case), JS emission and `.d.ts` shapes.
 **Not in scope:** `union` (own spec), the full pattern grammar and binder rules (Pattern Matching; Statements §5 for binder class), the constraint mechanism and derivation invocation (Constraints §4.5; this doc fixes structural-instance *semantics*), `type` aliases and the shared declaration-header grammar (Declarations Preamble §§2–3), row-unification internals (this doc fixes observable behaviour), block/layout/`;` rules (Lexer & Layout spec).
 **Companions:** Functions spec (arity, `()`, no tuple↔args conversion), Primitive Types spec (§7 Show, §9 Unit), Pattern Matching (§6.3/§6.5/§9 — destructuring, lambda-head patterns, punning), Method Syntax (§3.4–§3.5 — `itemN` and fused dot calls in the resolution table), Collections Part 2 (`Hash`), Collections Part 3 §2/§13 (trailing-comma rule and directed edit note), FFI Part 7 (export faces).
 
@@ -15,6 +15,7 @@
 - **The unifier never unfolds a nominal record name.** Nominal↔structural crossings are explicit terms: `{...p}` out, the constructor in (§5.3). This preserves principal types and keeps `honor` coherence anchored to names.
 - **Braces mean records, always** — type and term position, never blocks. Blocks are pure layout (Lexer & Layout spec).
 - **`:` types; `=` binds** (§8 correction record). A record *type* gives each field a type: `{x: Float}`. A record *term* — literal or pattern — binds each field: `{x = 1.0}`, `{x = p}`. This makes `:` *classify* everywhere in the language — "is of type" in annotations and record types, "with these obligations" in constraint binders (`<a: Ord>`, Constraints §1) — and `=` mean "binds" everywhere it appears (`let`, `fun`, `honor`, record fields); the token, not the position, tells the reader which kind of braces they are looking at.
+- **`with` updates; `...` only where it tells the truth** (§9 correction record). Functional update is `{p with x = 3.0}` — OCaml's and F#'s spelling exactly. The bare copy and nominal→structural crossing keep `{...p}`, because JS's `{...p}` *is* a shallow copy: that borrow is honest. The governing doctrine, stated once and reused for future cases: **borrow JS spelling only where JS semantics hold exactly.**
 
 ---
 
@@ -98,11 +99,12 @@ Plain arrays, no wrapper, no tag. TS tuple types are exactly what a TS author wo
 {x = 1.0, y = 2.0}           -- literal
 {}                           -- the empty record (type and value); never a block
 r.x                          -- field access
-{...r, x = 3.0}              -- functional update (§3.3)
+{r with x = 3.0}             -- functional update (§3.3)
+{...r}                       -- bare shallow copy; the §5.3 crossing
 ```
 
 - `name: Type` in type position / `name = expr` in term position, comma-separated, braces (§1 doctrine; §8 correction record). Field names are non-uppercase-start identifiers (term-level names, Functions spec §2 case rule).
-- **Construction punning ships** (Pattern Matching §9): `{x, y}` in value position is `{x = x, y = y}`, and it composes with update spread — `{...p, x}` is `{...p, x = x}`. Term-level only; `{x}` in *type* position remains an error ("record types need field types"). The emitter uses JS shorthand whenever a field key and its emitted value are the same identifier, whether the Hexagon source used `{x}` or the equivalent `{x = x}`. **No** computed keys, methods, getters, or spreads-as-construction beyond §3.3.
+- **Construction punning ships** (Pattern Matching §9): `{x, y}` in value position is `{x = x, y = y}`, and it composes with update — `{p with x}` is `{p with x = x}` (legal OCaml, same expansion). Term-level only; `{x}` in *type* position remains an error ("record types need field types"). The emitter uses JS shorthand whenever a field key and its emitted value are the same identifier, whether the Hexagon source used `{x}` or the equivalent `{x = x}`. **No** computed keys, methods, getters, or spread forms in term braces beyond the bare copy `{...p}` (§3.3/§5.3).
 - **Tuple and record *literals* permit a trailing comma after the final element/field in an otherwise-valid literal** (`{x = 1, y = 2,}`, `(1, "a",)`) — Collections Part 3 §2/§13. Existing tuple arity and empty-record rules are unchanged. This is a term-literal rule; nothing is inferred for type syntax.
 - Duplicate field names in one literal or type: compile error.
 - Field order is **not significant** to the type: `{x: Float, y: Float}` and `{y: Float, x: Float}` are the same type. (Emission order: as written in the constructing literal; see §3.5.)
@@ -116,14 +118,17 @@ r.x                          -- field access
 - Unknown (`r` is a fresh tyvar, e.g. an unannotated parameter): access **constrains** `r`'s type to a record containing `x`, with a fresh hidden tail — this is where row polymorphism does its silent work. `fun getX(r) = r.x` infers the row-polymorphic type with no annotation (§4).
 - The **fused dot-call form** `r.name(args…)` defers through Method Syntax's DotCall goal and *means* field access whenever the receiver is not head-known-nominal — the row fallback is that form's defined meaning, so **Tier-0 row inference results are unchanged** by dot calls (Method Syntax §3.5). Bare `r.name` is field access always, by grammar.
 
-### 3.3 Spread update — and the crossing
+### 3.3 Functional update `with` — and the crossing
 
-`{...p, overrides}`:
+`{p with overrides}` — `{p with x = 3.0}`, `{settings with port = 8080, host = "::1"}` (§9 correction record; formerly spelled `{...p, x = 3.0}`):
 
-- **Update semantics:** every overridden field must already exist in `p`'s type, at the same type (unifies with the declared field type). Field *addition* is a compile error: "record update cannot add fields; `p` has no field `z`". Result type = `p`'s type — structural in, same structural type out; nominal in, nominal out (§5.3).
-- **v1 shape restriction: exactly one spread, and it comes first.** `{x = 3, ...p}`, `{...a, ...b}` are parse errors. This dodges JS's later-spread-wins precedence entirely; may be relaxed later.
-- **`{...p}` with no overrides is the nominal→structural eliminator** (§5.3). On an already-structural `p` it is a plain shallow copy of the same type (legal, occasionally useful, harmless).
-- **Emission: same shape, JS separator.** `{...p, x = 3.0}` emits `{...p, x: 3.0}` — a shallow copy, which is exactly what the spread syntax means in JS. The `=`→`:` field-separator swap is the only distance between source and output (§3.5); the structure never lies.
+- **Update semantics (unchanged by the re-spelling):** every overridden field must already exist in the head's type, at the same type (unifies with the declared field type). Field *addition* is a compile error: "record update cannot add fields; `p` has no field `z`". Result type = the head's type — structural in, same structural type out; nominal in, nominal out (§5.3). Duplicate override fields: the §3.1 duplicate-field error.
+- **Head, v1: a dotted path** — a bare name or a dot-separated path through modules or fields (`p`, `Config.default`, `p.position`). Any other head expression is a parse error with the fixit "bind the base first: `let base = f(x)`"; may be relaxed later. At least one override is required — `{p with}` is a parse error whose hint names the bare copy (`{...p}`) as the no-override spelling. A dotted head updates the record *it names*: `{p.position with x = 3.0}` builds a new *position* record — the head's type, never `p`'s — there is no nested-update form.
+- **`with` is a contextual keyword** (lexer spec §4.2, precedent `when`): it lexes as an ordinary `NonUpperName` and is recognized only between an update head and its overrides. Fields and bindings named `with` stay legal — `{with = 3}` is a field, `{with}` a pun, `{with with x = 3}` an update whose head is named `with`; all resolve at the same decision point — and, decisively, JS's real `with` members stay spellable at the FFI boundary (ES2023 `Array.prototype.with`, the same operation on arrays — a `method with(...)` in an extern class must remain writable).
+- **Parse: one token past the head path**, the same decision shape punning already needs. After `{`, a name (or dotted path) followed by `with` opens an update; a name followed by `=`, `,`, or `}` is a field or pun. Punning composes: `{p with x}` is `{p with x = x}` (§3.1).
+- **The bare copy `{...p}` keeps its spelling** — no longer update's degenerate case but its own form: the shallow copy and the nominal→structural eliminator (§5.3). Kept deliberately, not residually: JS's `{...p}` means exactly a shallow copy, so the borrow is honest — §9's doctrine. On an already-structural `p` it is a plain shallow copy of the same type (legal, occasionally useful, harmless).
+- **What no longer exists: spread-spelled update.** `{...p, x = 3.0}` is a parse error with a permanent fixit (§6). The former v1 shape restriction — "exactly one spread, and it comes first" — retires as legislation because the grammar can no longer express the violations: the restriction became the shape of the syntax. The *diagnostics* do not all retire with it: `{...a, ...b}` — JS's merge idiom, the spread habit most likely to be typed — keeps a targeted §6 row of its own rather than falling to a generic parse error.
+- **Emission: the idiom translates.** `{p with x = 3.0}` emits `{...p, x: 3.0}` — the JS spelling of exactly this operation, shallow copy with field replacement. Head → spread, overrides → fields, override order preserved; the structure is preserved even though the spelling is not (§3.5, §9.2).
 
 ### 3.4 Constraints
 
@@ -131,7 +136,7 @@ Same structural derivation story as tuples (§2.5), fieldwise — automatic, com
 
 ### 3.5 Emission
 
-Records are **POJOs**: `{x = 1.0, y = 2.0}` emits `{x: 1.0, y: 2.0}` — same fields, same order, JS's `:` separator (the one token the emitter translates; §8). Field order in the emitted literal follows the source literal. `.d.ts`: an inline object type or a named `type`, structurally — `{ x: number; y: number }`.
+Records are **POJOs**: `{x = 1.0, y = 2.0}` emits `{x: 1.0, y: 2.0}` — same fields, same order, JS's `:` separator. The governing rule is §9.2's: **the emitter translates idioms, never structure** — the `=`→`:` separator swap (§8) and the `with`→spread update idiom (§3.3, §9) are the complete list. Field order in the emitted literal follows the source literal. `.d.ts`: an inline object type or a named `type`, structurally — `{ x: number; y: number }`.
 
 ---
 
@@ -160,7 +165,7 @@ fun getX(r: {x: Float, ...}): Float = r.x
 **Tier 2 — named tails `...r`: relating two rows.** Needed only to assert two record types share the same unknown remainder:
 
 ```
-fun touch(p: {x: Float, ...r}): {x: Float, ...r} = {...p, x = p.x + 1.0}
+fun touch(p: {x: Float, ...r}): {x: Float, ...r} = {p with x = p.x + 1.0}
 ```
 
 Non-uppercase-start per the type-variable start-class rule; lowercase `a` remains the display convention. It is scoped like other type variables in the same signature. Rarely written; it exists because inferred types must be *displayable* — LSP hover on Tier-0 `getX` shows `{x: Float, ...} -> Float`, or `...a` when a tail is shared across positions. The pretty-printer's output is the ceiling of what a user ever sees.
@@ -199,7 +204,7 @@ For `p : Point` (all pure elaboration against the definition row — no row unif
 | Operation | Behaviour |
 |---|---|
 | `p.x` | checked against `Point`'s row; transparent |
-| `{...p, x = 3.0}` | overrides checked against the row; **result type `Point`** — nominal in, nominal out |
+| `{p with x = 3.0}` | overrides checked against the row; **result type `Point`** — nominal in, nominal out |
 | `Point({x = 1.0, y = 2.0})` | construction; ordinary call, closed-row literal check |
 | `{...p}` (no overrides) | **the nominal→structural crossing**: type is the closed row `{x: Float, y: Float}`, which then row-unifies normally (e.g. with `{x: Float, ...}` parameters) |
 
@@ -230,7 +235,10 @@ What does **not** work, by design: passing `p` directly where `{x: Float, ...}` 
 | Destructuring arity mismatch | tuple-arity error (§2.4) |
 | Refutable pattern at `let`/lambda param; `let`-pattern rebinding | Pattern Matching §5.3 and Statements §9.3 own the respective errors and fixits (§2.4 routes) |
 | Record update adds a field | "record update cannot add fields; `p` has no field `z`" (§3.3) |
-| Multiple/late spread | parse error, v1 shape restriction (§3.3) |
+| Spread-spelled update — `{...p, x = 3.0}`, any spread with overrides in any order or count | parse error; fixit: "records update with `with`: `{p with x = 3.0}`; `{...p}` alone is the copy/crossing" (§3.3, §9; the JS-idiom near-miss, permanent diagnostic) |
+| Update head not a dotted path — `{f(x) with y = 3}` | parse error; fixit: "bind the base first: `let base = f(x)`" (§3.3) |
+| `{p with}` — no overrides | parse error; hint: "the no-override copy is `{...p}`" (§3.3) |
+| Spread merge — `{...a, ...b}` | parse error; fixit: "Hexagon has no record merge; `{...p}` copies, `{p with f = e}` updates" (§3.3, §9; the JS merge habit — the most common spread idiom after copy — permanent diagnostic) |
 | Closed-row annotation rejects wider record | mention *extra* fields; suggest `...` (§4) |
 | Missing field on access | name the known fields (§3.2) |
 | Nominal `Point` where `{x: Float, ...}` expected | type error; suggest `{...p}` (§5.3) |
@@ -248,8 +256,9 @@ What does **not** work, by design: passing `p` directly where `{x: Float, ...}` 
 | `t.itemN`, 1-based, type-directed, emits `t[N-1]`; not a row; unchanged in the dot-call resolution table | §2.3 |
 | Destructuring = the pattern grammar's degenerate case: nesting ships; lambda-head irrefutable patterns per the depth rule; `let`-pattern binders sequential | §2.4 |
 | Tuples = JS arrays, TS tuple types | §2.6 |
-| Record syntax `{name: Type}` in types / `{name = expr}` in terms; construction punning ships (`{x, y}`, `{...p, x}`); trailing comma in term literals; `{}` = empty record | §3.1, §8 |
-| Spread update `{...p, x = e}`; no field addition; one spread, first; emits the JS spread | §3.3 |
+| Record syntax `{name: Type}` in types / `{name = expr}` in terms; construction punning ships (`{x, y}`, `{p with x}`); trailing comma in term literals; `{}` = empty record | §3.1, §8 |
+| Functional update `{p with x = e}` (OCaml/F# spelling); no field addition; head = dotted path in v1, ≥1 override; `with` contextual (lexer §4.2 — `Array.prototype.with` stays spellable); bare copy `{...p}` unchanged; emits the JS spread idiom | §3.3, §9 |
+| Update re-spelled `with` (July 2026): borrow JS spelling only where JS semantics hold exactly — `{...p}` is an honest copy and stays; spread-spelled update retired with a permanent fixit | §9 |
 | Term-position field separator is `=`, type-position is `:` — `:` classifies language-wide, `=` means "binds"; patterns follow terms (Pattern Matching §16); `show` follows the literal; JS emission translates `=`→`:` | §8 |
 | Rows hidden: Tier 0 invisible / Tier 1 `...` / Tier 2 `...r`; closed-by-default annotations | §4 |
 | Row power = access + update only; no extension/deletion/concat; records only; no subtyping | §4 |
@@ -291,8 +300,8 @@ Pattern position carries its own, *larger* cost, recorded in Pattern Matching §
 ### 8.4 Scope of the token, precisely
 
 - **Unchanged, `:`** — record *types* (`{x: Float, ...}`), all annotations, the `record`/`type` declaration RHS (type position), everything in emitted JS and `.d.ts` (that's JavaScript's separator; the emitter translates), and JS/`.d.ts` example blocks throughout the corpus.
-- **Changed, `=`** — record literals, update spread overrides (`{...p, x = 3.0}`), record patterns (`{f = p}`, Pattern Matching §16), the derived `show` rendering (`"{x = 1, y = 2}"`), witness-pattern rendering in diagnostics (Pattern Matching §7.3).
-- **Punning is untouched** in both worlds: `{x, y}`, `{...p, x}`, pattern `{f}`.
+- **Changed, `=`** — record literals, update overrides (spelled `{...p, x = 3.0}` at the time of this record; the update form itself was later re-spelled `{p with x = 3.0}` — §9), record patterns (`{f = p}`, Pattern Matching §16), the derived `show` rendering (`"{x = 1, y = 2}"`), witness-pattern rendering in diagnostics (Pattern Matching §7.3).
+- **Punning is untouched** in both worlds: `{x, y}`, `{...p, x}` (the update spelling at the time of this record; now `{p with x}` — §9), pattern `{f}`.
 
 ### 8.5 Edit notes to other specs — **all discharged** (implementation PR, July 2026)
 
@@ -308,3 +317,60 @@ Every edit below was applied in the implementation PR that landed this syntax in
 8. **hexagon-for-typescript-coders** → the records chapter teaches the `:`/`=` split up front, names both JS false friends (`{x: 1}` literal habit → fixit; `{x = 1}` destructuring-default misreading), and shows the emitted JS is still `{x: 1}`. Its update section's "the spread syntax emits *itself* — no lies in the output" is now **false as stated** and takes §3.3's honest form instead: same shape, JS separator, the structure never lies.
 9. **The book (`book/`) and the working notes (`spec/notes/`)** — the records chapter now teaches the `:`/`=` split and both JS false friends where it previously stated the old rule outright ("a record literal uses `name: expression`"); its punning expansions, the continuity notes, the chapter plan, and the `Seq({ pull = ... })` family in the working notes all moved with it.
 10. **Implementation, same PR** — parser (`=` accepted in literals, update overrides, and patterns; `:` in a term brace is a parse error), the three permanent §6 fixits, the derived `show` rendering, `stdlib/` + `runtime/VectorTrie.hex`, and the playground examples. Nothing in the emitted JavaScript or `.d.ts` changed: the emitter translates `=`→`:` and the output bytes are identical, which the emission tests pin.
+
+---
+
+## 9. Correction record: functional update is `{p with x = e}`; spread-spelled update retired (July 2026)
+
+§3.3 originally spelled functional update with JavaScript's spread — `{...p, x: 3.0}`, which §8 re-separated to `{...p, x = 3.0}` — governed by a v1 shape restriction ("exactly one spread, and it comes first") and a field-addition ban. Superseded: **functional update is `{p with x = 3.0}`** — OCaml's and F#'s spelling exactly — and no spread may carry overrides. **The bare copy `{...p}` is unchanged.** The sections above are edited in place; this record preserves the decision trail.
+
+Process note: James proposed and argued this change; Fable ruled on it and authored this spec edit; Opus reviews and implements. Unlike §8 (see #93's disclosure), proposer, author, and reviewer are three parties here.
+
+### 9.1 Rationale
+
+- **The re-litigation bar is met by new information §8 itself created.** Before §8, `{...p, x: 3.0}` was a JS-spelled construct in a JS-spelled family — internally consistent. After §8, `{...p, x = 3.0}` was the *only* term-brace construct still borrowing a JS token, sitting directly beside an ML one: JS's `...` and ML's `=` sharing one pair of braces, a spelling belonging to neither family. That hybrid did not predate the `=` decision; it was manufactured by it. §8.3's "do not re-litigate without new information" is satisfied on its own terms.
+- **The spread spelling was a false friend independent of the hybrid** — the same critique that carried §8. JS spread means *merge*: later wins, fields may be added. Hexagon's update refuses addition and pins the result type to the head's. The old §3.3 needed two rules and their diagnostics ("exactly one spread, and it comes first"; "update cannot add fields" against the expectation spread invites) to legislate away what the spelling promised. When a spec must repeatedly say "despite how this looks, it does not do what it looks like," the spelling is wrong, not the reader.
+- **Precedent is exact, not analogical**: OCaml `{ p with x = 3 }`, F# `{ p with X = 3 }` — the same calibration family §8.1 cited for `=`, letter for letter, punning composition included (`{p with x}` is legal OCaml).
+- **No grammar cost**: the update is recognized one token past the head path, the same decision shape punning already required — and `with` is a *contextual* keyword (lexer spec §4.2, precedent `when`), not a hard reservation. Nothing becomes unnameable: fields and bindings named `with` stay legal, and ES2023's `Array.prototype.with` — a real JS member naming the same operation on arrays — remains spellable as an extern-class `method with(...)` (FFI Part 5). `with` was verified unused as an identifier in every `.hex` source in the repo regardless.
+- **The shape restriction retires as legislation; the addition ban does not.** "Exactly one spread, and it comes first" stops existing as a rule to enforce — `{head with fields}` cannot express a late spread or a spread-with-overrides at all, so the restriction became the grammar's shape. The **field-addition ban stays** (§3.3 semantics, unchanged); what changes is that it stops being *surprising*: spread promised merge and the ban fought the spelling, while `with` promises update and the ban merely confirms it. And one diagnostic is deliberately reborn rather than retired: `{...a, ...b}` keeps a targeted merge fixit (§6) instead of degrading to a generic parse error.
+
+### 9.2 The governing doctrine — stated for reuse
+
+**Borrow JS spelling only where JS semantics hold exactly.**
+
+- `{...p}` (bare) stays: in JS it means precisely a shallow copy, which is precisely what Hexagon's copy/crossing does. An honest borrow, kept on merit — not residue.
+- `{...p, x = 3.0}` retired: in JS the shape means unrestricted merge, which Hexagon's update is not.
+- Every borrowed token in term braces is now individually honest. This rule — not "prefer ML" and not "prefer JS" — is what future syntax questions in this family should be tested against.
+
+Emission under this doctrine: `{p with x = 3.0}` emits `{...p, x: 3.0}`, the JS idiom for exactly this operation. §3.3's former sentence "the `=`→`:` swap is the only distance between source and output" is dead after one week, and this record owns that plainly: the honest successor is **the emitter translates idioms, never structure** — head → spread, overrides → fields, order preserved. The corpus already tolerates a larger such translation (`Point({x = 1.0})` erasing its constructor entirely, §5.4).
+
+### 9.3 Honest costs, recorded
+
+- **`with` becomes a *contextual* keyword** (review finding F1 — this record's first draft reserved it hard, which would have made ES2023's `Array.prototype.with` unspellable as an extern-class member; contextual costs nothing and forecloses nothing). It lexes as `NonUpperName` and is recognized only between an update head and its overrides — lexer spec §4.2's `when` row, structurally identical. Fields and bindings named `with` stay legal. What remains of the cost: one more row in the contextual table, and readers of `{p with x}` must know one more word. Edit note to the lexer spec below.
+- **Third relearn in this corner for the JS-trained audience** (after `fun`-family keywords and `=` fields). Answered the same way §8.2 answered: the foreign spelling *reduces* silent error — a JS reader seeing `{...p, x = 3}` may assume field addition works and learn otherwise at a distance; `{p with x = 3}` looks foreign enough to be checked on first contact. Foreign-and-checked beats familiar-and-wrong.
+- **Syntax churn twice in one month.** Accepted deliberately: pre-1.0 is exactly when a language should pay churn to make each token mean one thing. The test applied both times is that the change strengthens a single story — `:` classifies, `=` binds, `:=` mutates, `=>` maps, `with` updates, `...` appears only where it tells the truth — and no shipped user code exists to bear migration cost. Neither justification will survive 1.0; this door closes.
+
+### 9.4 Rejected alternatives (do not re-litigate without new information)
+
+| Rejection | Reasoning |
+|---|---|
+| Keep `{...p, x = e}` | The JS/ML hybrid (§9.1); merge-promising false friend needing two rules of legislation; the only term-brace construct in neither family. |
+| Elm's `{ p \| x = e }` | `\|` is or-patterns and union declarations; spends a sigil against Operators §1.2's words-only aesthetic; `with` has the larger precedent family anyway. |
+| Exterior `p with { x = e }` | No precedent in the cited family (OCaml/F# put `with` inside the braces); creates a new non-brace expression form; braces-mean-records (§1) argues the operation belong inside them. |
+| Migrating the bare copy `{...p}` to a `with`-family or other spelling | The one borrow where JS semantics hold exactly (§9.2); replacing it trades a true friend for ceremony and would reopen §5.3's crossing syntax for no gain. |
+| General expression heads in v1 (`{f(x) with …}`) | Parse cost and precedence questions for a rare shape with a one-line rewrite (`let base = f(x)`); same bounded-restriction philosophy as the rule this change retires; relaxable later without breakage. |
+
+### 9.5 Scope, precisely
+
+- **Changed** — the update form only: `{p with x = e}`, its punning composition `{p with x}`, its §6 diagnostics (spread-spelled update fixit and the `{...a, ...b}` merge fixit, both permanent; head restriction; empty override list), and one row in the lexer spec's contextual-keyword table.
+- **Unchanged** — record types and annotations (`:`, `...` tails), literals and their punning, the bare copy/crossing `{...p}` and all of §5.3, record patterns entirely (**patterns have no update form** — Pattern Matching's only touch is its §9 punning-composition line, edited in place with this change), `show`, `Eq`/`Ord`/`Hash`, emission of every non-update form, and the entire `.d.ts` story.
+- **Emitted JavaScript is byte-identical** for all existing constructs; the update form emits the same spread it always did.
+
+### 9.6 Edit notes to other specs (apply on next touch; until then this section governs the quoted text)
+
+1. **Statements/Blocks/Mutability §6.3, §9.3** → the record-immutability fixit's suggested copy `{...p, x = e}` becomes `{p with x = e}` (two occurrences: §6.3 prose, §9.3 checklist row).
+2. **Modules** (opaque-record field privacy, §on-opacity) → "no `{...p, x = e}` update outside the home module" becomes "no `{p with x = e}` update outside the home module".
+3. **Lexer spec §4.2** → `with` joins the *contextual* keyword table (not §4.1's hard inventory), row: "| `with` | between a record-update head and its overrides (Products §3.3) |". It lexes as `NonUpperName` everywhere; no layout consequences — the position is always inside braces.
+4. **hexagon-for-typescript-coders** → update example, prose, and the emission table re-spell the source side as `{p with x = 3.0}` (the emitted-JS side stays `{...p, x: 3.0}`); the guide should teach the §9.2 doctrine sentence — borrow JS only where exact — since it names the reader's actual situation.
+5. **The book** (records/modules/mutable-variables/JS-output chapters, continuity notes, records plan) and the **playground** records example → update sites re-spelled; construction and the bare copy untouched.
+6. **Implementation (Opus's PR, before Phase 5)** — `with` as a parser-recognized contextual word (no lexer token change), the head restriction with recognition one token past the head path, the four new §6 diagnostics (spread-update and merge fixits permanent), migration of the update sites above; stdlib and runtime carry **zero** update forms (verified at ruling time), so no `.hex` migration exists.
