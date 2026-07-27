@@ -558,6 +558,14 @@ export interface NameExpr extends ExpressionFields {
   readonly text: string;
   /** Companion dot calls consume their subject before presenting this callable. */
   readonly receiverBound?: boolean;
+  /**
+   * Constraints this *value* reference resolved, when the reference is not a
+   * call callee. A constrained generic function takes trailing evidence
+   * (Constraints §6.1), and a call site supplies it — but a reference in value
+   * position is handed on without one, so it must carry its own (defect 4).
+   * Absent on callee references, where the enclosing `Call` owns the evidence.
+   */
+  readonly requirements?: readonly Constraint[];
 }
 
 export interface UnitExpr extends ExpressionFields {

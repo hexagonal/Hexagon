@@ -713,7 +713,12 @@ class JavaScriptEmitter {
     switch (expression.kind) {
       case "Name":
         if (this.#constrainedImports.has(expression.symbol)) {
-          return this.#constrainedImports.get(expression.symbol)!;
+          const imported = this.#constrainedImports.get(expression.symbol)!;
+          // An imported constrained binding has the same trailing-evidence ABI
+          // as a local one, so a value reference to it needs the same wrapper.
+          return (expression.evidence?.length ?? 0) === 0
+            ? imported
+            : this.#emitConstrainedValue(expression, imported, evidenceNames);
         }
         if (expression.text.includes(".")) return expression.text;
         // An imported symbol is spelled by the local its import binds, which is
@@ -723,7 +728,10 @@ class JavaScriptEmitter {
         // `#identifier`, which sees only text and so cannot know.
         const importLocal = this.#importLocals.get(expression.symbol);
         const name = importLocal ?? this.#identifier(expression.symbol, expression.text);
-        return this.#nullaryExceptions.has(expression.symbol) ? `${name}()` : name;
+        if (this.#nullaryExceptions.has(expression.symbol)) return `${name}()`;
+        return (expression.evidence?.length ?? 0) === 0
+          ? name
+          : this.#emitConstrainedValue(expression, name, evidenceNames);
       case "CollectionOperation": {
         const needsPersistentRuntime = expression.collection !== "Vector";
         // The producing rows hand their traversal to the inbound adapter; the
@@ -1146,18 +1154,9 @@ class JavaScriptEmitter {
       this.#emitExpr(argument, depth, evidenceNames),
     );
     if (specialization === undefined) {
-      arguments_.push(...expression.evidence.map(({ constraint, value }) => {
-        if (value.kind === "Dictionary") {
-          return this.#dictionary(
-            value.variable,
-            value.constraint ?? constraint,
-            expression.span,
-            evidenceNames,
-            value.path,
-          );
-        }
-        return this.#emitEvidence(value, constraint, expression.span, evidenceNames);
-      }));
+      arguments_.push(
+        ...this.#evidenceArguments(expression.evidence, expression.span, evidenceNames),
+      );
     }
     return `${callee}(${arguments_.join(", ")})`;
   }
@@ -2328,6 +2327,67 @@ class JavaScriptEmitter {
     return this.#seqRecord !== undefined &&
       type.kind === "NominalRecord" &&
       type.record === this.#seqRecord;
+  }
+
+  /** The trailing evidence arguments a constrained callee expects (Constraints §6.1). */
+  #evidenceArguments(
+    evidence: readonly Core.CallEvidence[],
+    span: Source.Span,
+    evidenceNames: EvidenceNames,
+  ): readonly string[] {
+    return evidence.map(({ constraint, value }) => {
+      if (value.kind === "Dictionary") {
+        return this.#dictionary(
+          value.variable,
+          value.constraint ?? constraint,
+          span,
+          evidenceNames,
+          value.path,
+        );
+      }
+      return this.#emitEvidence(value, constraint, span, evidenceNames);
+    });
+  }
+
+  /**
+   * A constrained function referenced as a *value*, closed over its evidence.
+   *
+   * The trailing-evidence ABI means the raw binding is arity `n + k`, so handing
+   * it on unwrapped gives a consumer that calls it with `n` arguments an
+   * `undefined` dictionary and a crash at the first operation — clean compile,
+   * runtime `TypeError` (defect 4). Eta-expanding to arity `n` restores the type
+   * the reference actually claims.
+   *
+   * Only for references that carry evidence: wrapping every value reference
+   * would cost an allocation per mention and break function identity, which FFI
+   * Part 6 §1 is explicit about for exported callables.
+   */
+  #emitConstrainedValue(
+    expression: Core.NameExpr,
+    base: string,
+    evidenceNames: EvidenceNames,
+  ): string {
+    const dictionaries = this.#evidenceArguments(
+      expression.evidence ?? [],
+      expression.span,
+      evidenceNames,
+    );
+    if (expression.type.kind !== "Function") {
+      // Nothing to eta-expand: a constrained non-function value has no arity to
+      // wrap, and applying evidence eagerly would change when it is forced.
+      this.#diagnostics.add({
+        severity: "error",
+        message:
+          `\`${expression.text}\` needs constraint evidence in value position, ` +
+          "but is not a function; call it, or annotate the reference at a concrete type",
+        primary: expression.span,
+      });
+      return base;
+    }
+    const parameters = expression.type.parameters.map((_, index) =>
+      this.#generatedNames.fresh(`arg${index}`)
+    );
+    return `${arrowParameters(parameters)} => ${base}(${[...parameters, ...dictionaries].join(", ")})`;
   }
 
   #useHelper(helper: Helper): string {

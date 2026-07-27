@@ -303,6 +303,25 @@ responsibility. Step 8's shape depends on that line.
 10. **Defect 4** (missing `Num` evidence reaching runtime as `undefined`) —
     independent of this arc, most severe in absolute terms; next after the
     unification lands.
+
+    *(Landed 2026-07-26.)* The evidence was computed and then dropped: it is
+    attached to **call sites**, and a reference in *value* position — passed,
+    bound, returned, stored, imported and passed on — kept the raw
+    trailing-evidence arity, so the dictionary parameter stayed `undefined`. A
+    value reference now carries its own resolved constraints and emission
+    eta-expands it to the arity it claims. Callee references still carry none;
+    the enclosing call owns that evidence.
+
+    **The arc made it reachable through ordinary code**, which is worth
+    recording: `Seq.map(values, double)` with an unannotated `double` could not
+    be written while `Seq.map` was an intrinsic.
+
+    **Defect 16 fell out of it** and had to be fixed first — a pre-existing
+    mismatch where a *call* passed more dictionaries than the callee's scheme
+    declares (`Num` alongside `Signed`), shifting evidence into the wrong slot.
+    Both sides now apply FFI Part 9 §13's maximal-constraints-per-variable rule.
+    The first attempt filtered per requirement rather than among siblings and
+    dropped a legitimate **projection**; an existing emitter test caught it.
 11. **`Vector`, `Set`, `Map`** follow the proven template (ledger §5.2), each
     as its own arc. `Vector`'s extra weight is its syntax surface (literals,
     brackets, slicing, rest patterns). Not this work order.

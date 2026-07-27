@@ -340,6 +340,12 @@ export interface NameExpr extends ExpressionFields {
   readonly kind: "Name";
   readonly symbol: Resolved.SymbolId;
   readonly text: string;
+  /**
+   * Evidence this value reference must close over; see `Typed.NameExpr`. Present
+   * only on references that are *not* call callees, so emission can tell "apply
+   * evidence here" from "the enclosing call will".
+   */
+  readonly evidence?: readonly CallEvidence[];
 }
 
 export interface UnitExpr extends ExpressionFields {
