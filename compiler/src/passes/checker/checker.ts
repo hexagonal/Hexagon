@@ -1075,7 +1075,7 @@ class Checker {
             item.expression.span,
             () =>
               `this expression's value is discarded — its type is ` +
-              `${this.#display(expressionType)}; wrap it in \`ignore(...)\` if ` +
+              `\`${this.#display(expressionType)}\`; wrap it in \`ignore(...)\` if ` +
               "discarding is intentional",
           );
         }
@@ -1688,6 +1688,13 @@ class Checker {
           // `else`-less: the false branch is the synthesized `Unit`, so the
           // `then` branch must be `Unit` (Operators §11.2). No numeric
           // widening — a unit branch never widens.
+          //
+          // Default a still-polymorphic numeric literal first: it would
+          // otherwise unify with `Unit` structurally and succeed (Numeric
+          // Literals §1), hiding the §11.2 fixit behind a later unresolved
+          // `Num Unit`. Defaulting settles it to `Int` so the unification
+          // below fails and reports the add-an-`else` fixit instead.
+          this.#defaultDiscardedLiteral(consequence, expression.consequence.span);
           this.#unify(
             consequence,
             alternative,
@@ -3746,13 +3753,47 @@ class Checker {
 
   #defaultDiscardedLiteral(type: Mono, span: Source.Span): void {
     const actual = this.#prune(type);
-    if (
-      actual.kind === "Variable" &&
-      this.#canDefaultToInt(actual) &&
-      actual.requirements.some(({ name }) => !supports("Unit", name))
-    ) {
-      this.#bind(actual, primitive("Int"), span);
+    if (actual.kind === "Variable") {
+      if (this.#settlesAtUnitDemand(actual)) {
+        this.#bind(actual, primitive("Int"), span);
+      }
+      return;
     }
+    // A structured branch (`(1, 2)`, `[1, 2]`) can never be the demanded
+    // `Unit`, so the report is already certain; its literals would otherwise
+    // reach the message as raw variables — `(?0, ?1)` — inside a mandatory
+    // fixit. Settle them to the `Int` they default to anyway (§4).
+    for (const variable of this.#collectVariables(actual)) {
+      if (variable.rigidName === undefined && this.#canDefaultToInt(variable)) {
+        this.#bind(variable, primitive("Int"), span);
+      }
+    }
+  }
+
+  /**
+   * Demand-site settling (Numeric Literals §6) asks whether the variable can
+   * be `Int` and cannot be the demanded `Unit`. Both halves are semantic, so a
+   * user `honor` counts on both sides: a constraint honored at `Unit` leaves
+   * the variable alone, to unify with the synthesized `Unit` and be accepted.
+   *
+   * Deliberately not expressed through `#canDefaultToInt`, which answers §4's
+   * different, *policy* question — is the constraint in the closed defaultable
+   * list — for generalisation. One predicate cannot serve both: §6 wants user
+   * instances consulted, §4 wants them ignored.
+   */
+  #settlesAtUnitDemand(variable: Variable): boolean {
+    // A declared variable is pinned by its annotation, not settleable: binding
+    // it to `Int` would report the annotation as requiring the `Int` settling
+    // just invented, naming a rewrite that repairs nothing.
+    return variable.rigidName === undefined &&
+      variable.requirements.length > 0 &&
+      variable.requirements.every(({ name }) => this.#satisfiedAt(name, "Int")) &&
+      variable.requirements.some(({ name }) => !this.#satisfiedAt(name, "Unit"));
+  }
+
+  #satisfiedAt(name: Typed.ConstraintName, primitiveName: "Int" | "Unit"): boolean {
+    return supports(primitiveName, name) ||
+      this.#instances.has(this.#instanceKey(name, primitive(primitiveName)));
   }
 
   #canDefaultToInt(variable: Variable): boolean {
@@ -5325,7 +5366,10 @@ class Checker {
     const actual = this.#prune(type);
     if (actual.kind === "Error") return "<error>";
     if (actual.kind === "Constructor") return actual.name;
-    if (actual.kind === "Variable") return `?${actual.id}`;
+    // A declared variable has a name the user wrote; `?3` in its place is
+    // unreadable, and worse inside a diagnostic the Rewrite Rule makes
+    // mandatory.
+    if (actual.kind === "Variable") return actual.rigidName ?? `?${actual.id}`;
     if (actual.kind === "Tuple") {
       return `(${actual.elements.map((element) => this.#display(element)).join(", ")})`;
     }
