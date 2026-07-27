@@ -63,6 +63,31 @@ describe("applyLayout", () => {
     expect(result.diagnostics).toEqual([]);
   });
 
+  // Lexer & Layout §2.3: `<` left the continuation set when Functions §4.2's
+  // type-parameter lambda made it expression-initial (issue #65). A line starting
+  // with `<` at a block's own indentation must now start a new item.
+  test("starts a new item on a leading `<`, which can now begin an expression", () => {
+    const result = layout(
+      "fun f() =\n" +
+        "    let g = 1\n" +
+        "    <a>(x: a): a => x",
+    );
+
+    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VOpen", "VSep", "VClose", "VClose"]);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  test("keeps `>` a continuation — it closes a binder list but never opens one", () => {
+    const result = layout(
+      "let ok =\n" +
+        "    a\n" +
+        "    > b",
+    );
+
+    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VOpen", "VClose", "VClose"]);
+    expect(result.diagnostics).toEqual([]);
+  });
+
   test("opens a block for a value binding whose body is a sequence of items", () => {
     const result = layout(
       "let x =\n" +

@@ -62,6 +62,16 @@ interface ParsedParameters {
 }
 const structuralEnds: readonly TokenKind[] = ["VSep", "Semicolon", "VClose", "Eof"];
 
+/** Everything a `<...>` type-parameter list may contain, for the lambda-form lookahead. */
+const typeParameterListKinds = new Set<TokenKind>([
+  "NonUpperName",
+  "UpperName",
+  "Colon",
+  "Comma",
+  "LeftParen",
+  "RightParen",
+]);
+
 /** Nesting bracketry, so the record-update scan reads only its own brace's depth. */
 const opensNesting = new Set<TokenKind>(["LeftParen", "LeftBracket", "LeftBrace", "VOpen"]);
 const closesNesting = new Set<TokenKind>(["RightParen", "RightBracket", "RightBrace", "VClose"]);
@@ -101,6 +111,14 @@ class Parser {
   readonly #tokens: readonly LaidOut.Token[];
   readonly #diagnostics: Diagnostics.Bag;
   #index = 0;
+  /**
+   * Type-parameter lambdas awaiting their position check (Functions §4.2). The grammar
+   * parses `<a: Ord>(x: a) => …` wherever an expression may start, because a leading `<`
+   * has no other reading; the *restriction* to `let`/`fun` right-hand sides is enforced by
+   * `#parseBinding` discharging its own value here, and whatever is left over at the end of
+   * the module was written somewhere the restriction forbids.
+   */
+  readonly #pendingTypeParameterLambdas = new Map<Parsed.Expr, Source.Span>();
 
   constructor(tokens: readonly LaidOut.Token[], diagnostics: Diagnostics.Bag) {
     this.#tokens = tokens;
@@ -116,6 +134,7 @@ class Parser {
     const items = this.#parseItems(true);
     const closing = this.#expect("VClose", "expected the module layout block to close");
     const eof = this.#expect("Eof", "expected end of file");
+    this.#reportMisplacedTypeParameterLambdas();
     const first = opening ?? items[0] ?? closing ?? eof ?? this.#current();
     const last = eof ?? closing ?? items.at(-1) ?? first;
 
@@ -802,6 +821,10 @@ class Parser {
       this.#parseBodyExpression(),
       destructurings,
     );
+    // This is the one position Functions §4.2 permits `<...>` on a lambda, so a lambda
+    // arriving here has its restriction satisfied. A header form (`parameters` present)
+    // has its own binders already and never reaches the pending set.
+    if (parameters === undefined) this.#dischargeTypeParameterLambda(body);
     const value: Parsed.Expr = parameters === undefined
       ? body
       : {
@@ -1521,23 +1544,15 @@ class Parser {
         span: spanFrom(parameter.span, body.span),
       };
     }
+    if (this.#atTypeParameterLambda()) {
+      const start = this.#current().span;
+      const typeParameters = this.#parseTypeParameters();
+      const lambda = this.#parseLambda(stops, typeParameters, start);
+      this.#pendingTypeParameterLambdas.set(lambda, start);
+      return lambda;
+    }
     if (this.#isParenthesizedLambda()) {
-      const start = this.#current();
-      const { parameters, destructurings } = this.#parseParameters();
-      let returnAnnotation: Parsed.TypeAnnotation | undefined;
-      if (this.#at("Colon")) {
-        this.#advance();
-        returnAnnotation = this.#parseTypeAnnotation();
-      }
-      this.#expect("FatArrow", "expected `=>` after lambda parameters");
-      const body = this.#withDestructurings(this.#parseBodyExpression(stops), destructurings);
-      return {
-        kind: "Lambda",
-        parameters,
-        ...(returnAnnotation === undefined ? {} : { returnAnnotation }),
-        body,
-        span: spanFrom(start.span, body.span),
-      };
+      return this.#parseLambda(stops);
     }
     if (this.#at("Minus")) {
       const start = this.#advance();
@@ -2196,6 +2211,78 @@ class Parser {
     for (const { span } of destructurings) {
       this.#errorAt(span, `${what} take plain parameter names, not patterns`);
     }
+  }
+
+  /**
+   * A parenthesized lambda, optionally carrying the `<...>` binders its caller has already
+   * consumed. Functions §4.2 makes the header form `let f<a: Num>(x: a): a = …` and the
+   * lambda form `let f = <a: Num>(x: a): a => …` "equivalent, same AST node", so both build
+   * their `Lambda` here and the only difference is where the span starts.
+   */
+  #parseLambda(
+    stops: ReadonlySet<TokenKind>,
+    typeParameters?: readonly Parsed.TypeParameter[],
+    start?: Source.Span,
+  ): Parsed.Expr {
+    const from = start ?? this.#current().span;
+    const { parameters, destructurings } = this.#parseParameters();
+    let returnAnnotation: Parsed.TypeAnnotation | undefined;
+    if (this.#at("Colon")) {
+      this.#advance();
+      returnAnnotation = this.#parseTypeAnnotation();
+    }
+    this.#expect("FatArrow", "expected `=>` after lambda parameters");
+    const body = this.#withDestructurings(this.#parseBodyExpression(stops), destructurings);
+    return {
+      kind: "Lambda",
+      parameters,
+      ...(typeParameters === undefined ? {} : { typeParameters }),
+      ...(returnAnnotation === undefined ? {} : { returnAnnotation }),
+      body,
+      span: spanFrom(from, body.span),
+    };
+  }
+
+  /**
+   * `<` opens a type-parameter lambda when a binder list closes on a parameter list.
+   * At the start of an expression `<` has no other reading — it is otherwise only an infix
+   * comparison — so the scan need not be conservative, but keeping it tight means a
+   * malformed binder list still reports as itself rather than as a missing expression.
+   */
+  #atTypeParameterLambda(): boolean {
+    if (!this.#at("Less")) return false;
+    for (let distance = 1; ; distance += 1) {
+      const kind = this.#peek(distance).kind;
+      if (kind === "Greater") return this.#peek(distance + 1).kind === "LeftParen";
+      if (!typeParameterListKinds.has(kind)) return false;
+    }
+  }
+
+  /**
+   * Functions §4.2: `<...>` binders are permitted only on a lambda in `let`/`fun` RHS
+   * position. The binding discharges its own value — directly, or through the indented
+   * block that is the same right-hand side written across lines. A block with more than one
+   * item is deliberately *not* discharged: there the lambda is the block's result rather
+   * than the binding's right-hand side, and what `<a>` would scope over is a question this
+   * form should not answer by accident.
+   */
+  #dischargeTypeParameterLambda(value: Parsed.Expr): void {
+    const lambda = value.kind === "Block" && value.items.length === 1 &&
+        value.items[0]?.kind === "ExprItem"
+      ? value.items[0].expression
+      : value;
+    this.#pendingTypeParameterLambdas.delete(lambda);
+  }
+
+  #reportMisplacedTypeParameterLambdas(): void {
+    for (const span of this.#pendingTypeParameterLambdas.values()) {
+      this.#errorAt(
+        span,
+        "`<...>` type parameters are permitted only on a lambda bound by `let` or `fun`; " +
+          "bind this lambda to a name first",
+      );
+    }
+    this.#pendingTypeParameterLambdas.clear();
   }
 
   #isParenthesizedLambda(): boolean {

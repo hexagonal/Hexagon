@@ -1031,6 +1031,105 @@ describe("parse", () => {
       expect(parseSource("let q = {...p}").diagnostics).toEqual([]);
     });
   });
+
+  // Functions §4.2, issue #65: `let f = <a: Num>(x: a): a => …` is "equivalent, same AST
+  // node" as the header form `let f<a: Num>(x: a): a = …`.
+  describe("type-parameter lambdas", () => {
+    test("build the same node the header form builds", () => {
+      const lambda = parseSource("let plus = <a: Num>(x: a, y: a): a => x + y");
+      const header = parseSource("let plus<a: Num>(x: a, y: a): a = x + y");
+      const shape = {
+        kind: "Let",
+        name: { text: "plus" },
+        value: {
+          kind: "Lambda",
+          typeParameters: [{ name: { text: "a" }, constraints: [{ text: "Num" }] }],
+          parameters: [{ name: { text: "x" } }, { name: { text: "y" } }],
+          returnAnnotation: { kind: "TypeVariable", name: { text: "a" } },
+          body: { kind: "Binary", operator: "Add" },
+        },
+      };
+
+      expect(lambda.items).toMatchObject([shape]);
+      expect(header.items).toMatchObject([shape]);
+      expect(lambda.diagnostics).toEqual([]);
+      expect(header.diagnostics).toEqual([]);
+    });
+
+    test("accept bare, multiple, and parenthesized-list binders", () => {
+      const module = parseSource(
+        "let id = <a>(x: a): a => x\n" +
+          "let pair = <a, b>(x: a, y: b): (a, b) => (x, y)\n" +
+          "let both = <a: (Eq, Show)>(x: a): a => x\n" +
+          "let inferred = <a>(x: a) => x\n",
+      );
+
+      expect(module.diagnostics).toEqual([]);
+      expect(module.items).toMatchObject([
+        { value: { typeParameters: [{ constraints: [] }] } },
+        { value: { typeParameters: [{ name: { text: "a" } }, { name: { text: "b" } }] } },
+        {
+          value: {
+            typeParameters: [{ constraints: [{ text: "Eq" }, { text: "Show" }] }],
+          },
+        },
+        { value: { typeParameters: [{ name: { text: "a" } }] } },
+      ]);
+    });
+
+    test("are accepted on a `fun` right-hand side", () => {
+      expect(parseSource("fun id = <a>(x: a): a => x").diagnostics).toEqual([]);
+    });
+
+    test("are accepted when the right-hand side is written on its own line", () => {
+      const module = parseSource("let plus =\n    <a: Num>(x: a, y: a): a => x + y");
+
+      expect(module.diagnostics).toEqual([]);
+    });
+
+    // Functions §4.2's position restriction — what keeps rank-2 types inexpressible.
+    test("are a parse error anywhere but a `let`/`fun` right-hand side", () => {
+      const misplaced = [
+        "let r = apply(<a>(x: a) => x, 1)",
+        "let r = if c then <a>(x: a) => x else g",
+        "let r = {f = <a>(x: a) => x}",
+        "let r = [<a>(x: a) => x]",
+        "<a>(x: a) => x",
+        "fun f() =\n    var g = <a>(x: a) => x\n    g",
+      ];
+
+      for (const source of misplaced) {
+        expect(parseSource(source).diagnostics).toContainEqual(
+          expect.objectContaining({
+            severity: "error",
+            message:
+              "`<...>` type parameters are permitted only on a lambda bound by `let` or `fun`; " +
+              "bind this lambda to a name first",
+          }),
+        );
+      }
+    });
+
+    test("a multi-item block is the block's result, not the binding's right-hand side", () => {
+      const module = parseSource("let g =\n    let n = 1\n    <a>(x: a): a => x");
+
+      expect(module.diagnostics).toMatchObject([
+        { message: expect.stringContaining("`<...>` type parameters are permitted only") },
+      ]);
+    });
+
+    test("a leading `<` that is not a binder list still reports as itself", () => {
+      const module = parseSource("let g = <a: >(x) => x");
+
+      expect(module.diagnostics).toMatchObject([
+        { message: "expected a constraint name" },
+      ]);
+    });
+
+    test("comparison is untouched", () => {
+      expect(parseSource("let ok = 1 < 2\nlet also = a < b and b < c").diagnostics).toEqual([]);
+    });
+  });
 });
 
 function parseSource(text: string): Parsed.Module {

@@ -90,7 +90,7 @@ export let selected: Seq(Int) =
 
 So a line beginning with a token that can only *continue* an expression, never
 begin one, continues the preceding item and receives no VSEP. The closed set is
-`.`, `|>`, the binary operators (`+`, `*`, `/`, `==`, `!=`, `<`, `>`, `<=`, `>=`,
+`.`, `|>`, the binary operators (`+`, `*`, `/`, `==`, `!=`, `>`, `<=`, `>=`,
 `..`, `->`, `and`, `or`), `,`, and the closing delimiters `)`, `]`, `}`. The same
 rule makes a leading-operator continuation read as one expression:
 
@@ -105,6 +105,12 @@ negation, so a leading `-` begins a new item. A continuation wanting subtraction
 indents deeper or writes the operator at the end of the previous line. (F# and
 Scala 3 carry the same wart for the same reason.)
 
+**`<` is excluded for the same reason**: it is both the comparison operator and
+the opening of a type-parameter lambda's binder list (Functions §4.2), so a
+leading `<` begins a new item. A continuation wanting comparison takes the same
+two repairs as subtraction. `>` stays in the set — it closes a binder list but
+never opens one.
+
 The rule is uniform across every block, **including the module's own**: at column
 0, `let a = 1` followed by a line beginning `+ 2` continues the binding rather
 than starting a declaration, so `a` is `3`. This is the rule applied consistently,
@@ -112,9 +118,9 @@ not an accident of the top level.
 
 The set is closed against the *current* expression grammar: a token belongs only
 while it cannot begin an expression. Any future syntax that makes a listed token
-expression-initial must remove it here in the same change — `<` is the live case,
-since the type-parameter lambda form of Functions §4.2 (unimplemented, tracked as
-issue #65) would make a line legitimately start with `<`.
+expression-initial must remove it here in the same change. `<` was the live case
+and has now been discharged: landing Functions §4.2's type-parameter lambda form
+made `<` expression-initial, and it left this set in the same change.
 
 ### 2.2 Physical delimiters
 

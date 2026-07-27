@@ -78,6 +78,30 @@ describe("check", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  // Issue #65: the lambda form of Functions §4.2 makes lambda-side type-parameter
+  // shadowing reachable for the first time. The checker's nested-lambda seeding was
+  // already correct and waiting for it (noted while reviewing #64).
+  test("a type-parameter lambda shadows an enclosing declared type variable", () => {
+    const module = checkSource(
+      "fun outer<a: Ord>(x: a): a =\n" +
+        "    let inner = <a: Ord>(y: a): a => y\n" +
+        "    inner(x)\n",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("a type-parameter lambda carries its declared constraint into the body", () => {
+    const satisfied = checkSource("let least = <a: Ord>(x: a, y: a): a => if x > y then x else y");
+    expect(satisfied.diagnostics).toEqual([]);
+
+    // And the written list is still a contract, exactly as on the header form.
+    const unsatisfied = checkSource("let least = <a: Eq>(x: a, y: a): a => if x > y then x else y");
+    expect(unsatisfied.diagnostics.map(({ message }) => message).join(" ")).toContain(
+      "but the body requires `Ord`",
+    );
+  });
+
   test("a body-local annotation still holds a declared type variable rigid", () => {
     // The scope fix must not weaken rigidity: forcing `a` to a concrete type in the
     // body is still an error (functions.md §4.1 — the annotation is a contract).
