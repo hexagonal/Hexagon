@@ -73,14 +73,14 @@ The following instances are **compiler/runtime-provided** (§4.4 wording; no sou
 | `Hash<Nat>` | value-based; `Nat` is the non-negative refinement of `Int`'s f64-integer representation (Primitive Types §1), so the `Int` triviality carries over, and agreement with `Eq<Nat>` — plain-number SameValueZero on the same values — is trivial for the same reason *(row added 2026-07-28, #139 — record in §17)* |
 | `Hash<Int>` | value-based; the f64-integer-invariant makes this trivial |
 | `Hash<Float>` | §2.3: `-0` ≡ `+0`, all NaNs one value — SameValueZero-consistent |
-| `Hash<Bool>` | two values |
+| `Hash<Bool>` | **no longer provided here** — `Bool` is the prelude union `False \| True` declared in real prelude source, and its `Hash` arrives through the ordinary §4.3 derivation door (`derives (Eq, Ord, Show, Hash)`, `Eq` derived in the same header); agreement with `Eq<Bool>` is §4.3's by-construction guarantee, and the derived hash operates over the pinned `boolean` representation (Unions §6.2/§8) *(provenance corrected 2026-07-29, #147 — record in §17; row retained so this table stays the exhaustive map of core-type `Hash` status)* |
 | `Hash<String>` | agrees with `Eq<String>` (JS `===` string equality); algorithm unspecified (runtime-owned) |
 | `Hash<BigInt>` | folds the arbitrary-precision value into `Int`; collisions inevitable and lawful |
 | `Hash<Unit>` | constant |
 
 **Structural types** follow the `Eq` pattern exactly (Products §2.5/§3.4 family): tuples and structural records receive **automatic compiler-derived `Hash`**, conditional on every component/field type having `Hash`. Users cannot honor structural types (Constraints §9.3 presumption, unchanged); their `Hash`, like their `Eq`, is exclusively compiler-derived — and therefore mutually consistent by construction.
 
-**No other core instance is fixed by this section:** no `Hash<Exn>` (Exceptions §10's no-instances presumption, enforced by §4.2 here); function types have no `Eq`, so `Hash` cannot arise; `Seq` has no `Eq` and therefore no `Hash`. `Range` and prelude-union instances remain stdlib-listing decisions (§12.3). Collection instances live in their owning specs: `Hash<Vector(a)>` in Part 3 §8, and `Hash<Map(k, v)>`/`Hash<Set(a)>` in Part 4 §8.4.
+**No other core instance is fixed by this section:** no `Hash<Exn>` (Exceptions §10's no-instances presumption, enforced by §4.2 here); function types have no `Eq`, so `Hash` cannot arise; `Seq` has no `Eq` and therefore no `Hash`. `Range` and prelude-union instances remain stdlib-listing decisions (§12.3) — except `Bool`'s, decided by #147: derived in the prelude declaration itself, per the corrected row above. Collection instances live in their owning specs: `Hash<Vector(a)>` in Part 3 §8, and `Hash<Map(k, v)>`/`Hash<Set(a)>` in Part 4 §8.4.
 
 ---
 
@@ -441,3 +441,15 @@ Three notes complete the record:
 3. **This touch discharges Primitive Types §11's tracked exception.** That document recorded this gap under #139 so its ownership rule ("the owning spec wins") could not be misread as retracting `Hash<Nat>`, and the paragraph stated its own deletion condition — "it deletes on Part 2's next touch." This is that touch; the paragraph is deleted with this correction, and rule 1 there now stands with no known exception.
 
 §2.5 is the only inventory in this document that enumerates core types; no other section required a `Nat` touch (the v1.1 commit's only other mark here was §3.1's whitelist-diagnostic rewording).
+
+---
+
+## 18. Correction record — `Hash<Bool>` provenance (2026-07-29, #147)
+
+> **Correction (2026-07-29, #147).** Under the ML-dialect ruling (`decisions-ml-dialect-bool-2026-07.md`), `Bool` is the prelude union `union Bool derives (Eq, Ord, Show, Hash) = False | True`, declared in **real prelude source** (that ruling's §3.5 — James's call, on the `Seq.hex` model). §2.5's `Hash<Bool>` row therefore changes **provenance, not existence**: the instance is no longer compiler/runtime-provided with no source form (§4.4's category) but arrives through the ordinary §4.3 derivation door, which the declaration satisfies trivially (`Eq` derived in the same header). The row is corrected in place and retained, so the table remains the exhaustive map of core-type `Hash` status and the closing sentence stays simply true (the #139 record's note 1 posture, unchanged).
+
+Three notes complete the record:
+
+1. **§4.4 is demonstrated, not weakened.** The no-source-form rule governs *provided* instances and the smuggle ban stands verbatim: even the prelude obtains `Hash` only through the same derive door open to every user. `Bool` is now the rule's best exhibit — a stdlib type that could not hand-write its instances either.
+2. **The instance's behavior is unchanged.** Derived union `Hash` over the pinned `boolean` representation hashes two values, agreeing with the derived `Eq` by §4.3's construction — observationally identical to the row it replaces. No implementation ships differently because of this record; what changes is which rule makes the instance legal.
+3. **The dependent enumerations are change-controlled per Part 4 §18 note 4.** Collections Part 4 §10.1 and FFI Part 10 §4.3 state faithfulness over "every primitive, and exactly the `Hash`-bearing primitive inventory of Part 2 §2.5"; both qualifying clauses are stale for `Bool` after #147. Edit notes are filed in the ruling's ledger (its §6) following that procedure; the guarantee itself survives on new grounds (pin ⇒ derived `Eq<Bool>` is `===` on booleans ⇒ SameValueZero-faithful in both directions).

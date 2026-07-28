@@ -91,7 +91,7 @@ For each Hexagon type: its JavaScript runtime representation, its generated `.d.
 | Tuple | plain JS array | TS tuple type (`[number, string]`) | direct | trusted |
 | Structural record | POJO | structural object type | direct | trusted |
 | Nominal `record` (non-opaque) | POJO (structurally represented) | structural object type; constructor per Part 7 | direct | trusted |
-| `union` (all-nullary) | string literals | string-literal union | direct | trusted; representation cliff noted in Part 7 |
+| `union` (all-nullary) | string literals | string-literal union | direct | trusted; representation cliff noted in Part 7. **Exempt: the prelude `Bool`** — its own row above governs; representation pinned to `boolean` (Unions §6.2, #147) |
 | `union` (any payload) | string-tagged POJOs (Unions §6.1) | discriminated union on `tag` | direct | trusted |
 | `extern enum` | captured foreign enum-object values | per `ffi-foreign-enums.md` | direct | trusted; checked `fromJsT` for uncertain data |
 | `Option(a)` | its real union representation (`{tag:"Some"; value:a}` / shared `{tag:"None"}` constant) | the discriminated union — **never erased to nullability** | direct | trusted |
@@ -195,7 +195,7 @@ The primitive representation requirements (the trusted assertions behind the §4
 | `Int` | a `number` satisfying `Number.isSafeInteger(value)` |
 | `Float` | any `number`, including `NaN`, infinities, and `-0` |
 | `BigInt` | a `bigint` |
-| `Bool` | a `boolean` |
+| `Bool` | a `boolean` — *since #147 a prelude union with pinned representation (Unions §6.2); this row's requirement is unchanged and is the pin's boundary face* |
 | `String` | a `string` |
 
 Thus:

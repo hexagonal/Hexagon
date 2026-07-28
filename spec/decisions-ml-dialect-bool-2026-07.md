@@ -1,6 +1,6 @@
 # Hexagon Spec: Decisions — The ML-Dialect Pivot and `union Bool`
 
-**Status:** Decided (ruling on issue #147, 2026-07-29). The doctrine pivot (§1) is James's ruling, made in-session 2026-07-29 and recorded here; the Bool package (§2–§6) is Fable's spec ruling under that doctrine. Authoritative until consolidated into the host specs (README authority rule: decisions docs outrank older host-spec text they correct).
+**Status:** Decided (ruling on issue #147, 2026-07-29). The doctrine pivot (§1) is James's ruling, made in-session 2026-07-29 and recorded here; the Bool package (§2–§6) is Fable's spec ruling under that doctrine; §3.5's source-file ruling is James's, from the PR #148 review round. Authoritative until consolidated into the host specs, per README authority rule 3 — this document is added to rule 3's closure-document list in this same PR; the standing is conferred there, not claimed here.
 **Scope:** The design-doctrine pivot (§1); the reclassification of `Bool` from primitive to prelude union (§2); the representation pin (§3); what the reclassification deletes (§4); rejected alternatives (§5); the edit-notes ledger (§6); implementation notes for `hexc` (§7).
 **Not in scope:** Any other consequence of the pivot beyond Bool — the pivot licenses revisiting TS-author-justified rulings *on next touch* (§1.2), it does not reopen them here. FFI boundary semantics (unchanged — §3 explains why). The `Debug` constraint (still v2).
 **Companions:** Unions (host of §§2–3's normative text), Primitive Types (host of the correction records), Pattern Matching (host of §4's deletions), Lexer (host of the literal-word redirect), Declarations Preamble §1.1 (Rewrite Rule), Constraints (derivation mechanism), Collections Part 2 §2.5 (`Hash`).
@@ -38,7 +38,7 @@ union Bool derives (Eq, Ord, Show, Hash) = False | True
 `Bool` leaves the primitive set (Primitive Types §1's table drops to six primitives; correction record there) and joins `Option` and `Result` in the prelude (Unions §8). It is an ordinary all-nullary union in every semantic respect — declaration, constructors-as-values, `match`, exhaustiveness, derivation — with exactly one privilege: the representation pin (§3).
 
 - **Constructor order is `False | True`**, Haskell's order, so derived `Ord` (constructor declaration order, Unions §7) yields `False < True` — preserving the previously ruled ordering without a bespoke instance.
-- **The constraint rows are derived, not decreed.** `Eq` (same constructor), `Ord` (declaration order), `Show` (constructor name), `Hash` (Collections Part 2's union algorithm) all come from the standard derivations. Bool's row in the per-type inventories (#137) becomes a pointer to the derivation, not a fiat list. Still no `Num`, no `Signed`, no truthiness: conditions require `Bool`, no coercion from any other type — that sentence survives verbatim.
+- **The constraint rows are derived, not decreed.** `Eq` (same constructor), `Ord` (declaration order), `Show` (constructor name), `Hash` (Collections Part 2's union algorithm) all come from the standard derivations — and because the declaration lives in real prelude source (§3.5), they arrive through the **ordinary derivation door** (Collections Part 2 §4.3, trivially satisfied: `Eq` derived in the same header), not as compiler-provided instances. Bool's row in the per-type inventories (#137) becomes a pointer to the derivation, not a fiat list. Still no `Num`, no `Signed`, no truthiness: conditions require `Bool`, no coercion from any other type — that sentence survives verbatim.
 - **Nullary constructors are values** (Unions §2.2): `True : Bool`, used bare; `True()` is the standard "value, not a function" error.
 
 ### 2.2 Literals: `True` and `False` are the constructors
@@ -55,6 +55,8 @@ Keeping them reserved is load-bearing twice over: it makes the JS-trained user's
 
 `show True` is `"True"`; interpolation `"${flag}"` renders `True` or `False`. This is the standard derived union `Show` (Unions §7) and **supersedes** the lowercase JS-form ruling in Primitive Types §4/§7 (`String(x)`, `"true"`/`"false"`). Under the old doctrine the lowercase form was ruled *because* it was JS's; under §1 the constructor name is the display form, as it is for every other union. Correction records in Primitive Types §4 and §7.
 
+**Recorded with eyes open: this is the ruling's one silent behavior change.** Every other consequence surfaces as a hard error with a fixit; `show`/interpolation output flips from `"true"` to `"True"` in previously legal programs with no diagnostic, because nothing is wrong — the display form changed. §7's conformance list must include an interpolation test asserting the new output, so the flip is at least pinned by the suite.
+
 ### 2.4 Pattern matching: constructor patterns, ordinary exhaustiveness
 
 `True` and `False` in patterns are nullary constructor patterns (Pattern Matching §2.2), not literal patterns. A `match` covering both constructors is exhaustive by **closed-constructor union checking** (Unions §4.3), the same machinery as every union. §4 below itemizes the carve-outs this deletes.
@@ -67,7 +69,7 @@ Keeping them reserved is load-bearing twice over: it makes the JS-trained user's
 
 > The compiler pins `Bool`'s runtime representation to the JS `boolean`: `True` emits `true`, `False` emits `false`, and the `.d.ts` type of `Bool` is `boolean`. This is the **single exception** to the all-nullary string rule (Unions §6.2), granted to exactly one declaration: the prelude's `Bool`. It is a *representation commitment* recorded in the specs that own representation — **not** a use of the intrinsic door (`spec/intrinsics.md`), whose doctrine links *operations*, not representations. No user declaration can request a pin; there is no annotation, no syntax, no extension point.
 
-Precedent is OCaml exactly: `bool` is a genuine variant declared in the stdlib, and the compiler guarantees an immediate unboxed representation. The declaration owns the semantics; the representation is a compiler commitment, invisible from inside the language (`match` is the only eliminator, so Hexagon-side code cannot observe the difference between `"True"`-the-string and `true`-the-boolean).
+Precedent is OCaml exactly: `bool` is a genuine variant declared in the stdlib, and the compiler guarantees an immediate unboxed representation. The declaration owns the semantics; the representation is a compiler commitment, invisible from inside the language — no Hexagon program can distinguish `"True"`-the-string from `true`-the-boolean, because every eliminator of `Bool` (`match`, and the operator eliminators §3.4 names) is representation-blind at the source level. *(Corrected 2026-07-29, review of PR #148: an earlier draft of this sentence said "`match` is the only eliminator," which is false for `Bool` specifically — see §3.4.)*
 
 ### 3.2 Emission consequences
 
@@ -78,7 +80,17 @@ Precedent is OCaml exactly: `bool` is a genuine variant declared in the stdlib, 
 
 ### 3.3 FFI: nothing moves
 
-The boundary was `Bool ↔ boolean`, zero-cost, in both directions, before this ruling; the pin's entire purpose is that it still is. Extern declarations, callbacks, exports, `Nullable(Bool)` — all unchanged. FFI docs need only example-spelling updates (§6).
+The boundary was `Bool ↔ boolean`, zero-cost, in both directions, before this ruling; the pin's entire purpose is that it still is. Extern declarations, callbacks, exports, `Nullable(Bool)` — all unchanged. One FFI table needed a direct edit (Part 1 §4.1's all-nullary row now names its `Bool` exemption); the rest is example spelling (§6). `Bool` also **remains in the zero-cost fundamental set** (`ffi-zero-cost-fundamental-exports.md` §2.1): that set is a language category defined by enumeration, not an inference from type classification, so reclassification does not move it — Algorithm G's fundamental/non-fundamental split is unaffected.
+
+### 3.4 Bool is an eliminator exception, and the pin is what licenses it
+
+*(Added 2026-07-29 in response to PR #148 review finding 1.)* Unions §1 holds "`match` is the only eliminator." `Bool` is the **single exception**, and always was in substance: the five logic operators are structural forms monomorphic on `Bool` with **mandated native emission** — `and`/`or` to `&&`/`||`, `not` to `!`, `implies` to `!a || b`, `iff` to `a === b` (Operators §4) — and `if`/`while` conditions consume a `Bool` directly (Operators §11, Loops). Every one of those emissions is legal **only because of the §3.1 pin**: against the unpinned string representation, `&&` on `"False"` would be truthy nonsense. This dependency now runs in both directions on the record — Unions §1/§8 carve the exception, and the ledger's Operators row (§6) names the license — so a future session revisiting the pin knows exactly what breaks. Note that this is also the strongest §1.1-test argument *for* the pin: the operator eliminators are the JavaScript-specific fact that earns `boolean` its place.
+
+### 3.5 The declaration's home: privileged prelude source, not spec text
+
+*(Added 2026-07-29; James's ruling, resolving the review-round question "is the prelude Bool declaration spec text or a `.hex` source file?")* **It is a `.hex` source file** — real, compilable prelude source on the `Seq.hex` model: the natural home is the `Bool` companion module (Method Syntax §4's `CompanionOf` substrate), compiler-verified to contain exactly `union Bool derives (Eq, Ord, Show, Hash) = False | True` in that order, the way the intrinsic door verifies its inventory.
+
+This choice is load-bearing for instance provenance. In a source file, the `derives` clause is the **ordinary derivation door** — Collections Part 2 §4.3's rule is satisfied trivially (`Eq` derived in the same header), exactly as it would be for any user union. Nothing is smuggled: Part 2 §4.4's ban ("a future stdlib author cannot smuggle a `Hash` instance into a `.hex` source file any more than a user can") targets hand-written and spec-blessed instances, and `Bool` uses neither — even the prelude obtains `Hash` only through the door users use. `Bool` thereby becomes a demonstration of §4.4, not an exception to it. The consequence: **`Eq<Bool>`/`Ord<Bool>`/`Show<Bool>`/`Hash<Bool>` cease to be compiler/runtime-provided instances.** Part 2 §2.5's `Hash<Bool>` row changes provenance (direct edit, correction record §17 there), and the change is propagated to its two normative dependents per Part 4 §18 note 4's own procedure — edit notes against Collections Part 4 §10.1 and FFI Part 10 §4.3, ledger §6. The pin (§3.1) remains the declaration's **only** privilege, precisely as the intrinsic door is `Seq.hex`'s only privilege.
 
 ---
 
@@ -101,23 +113,29 @@ The witness-rendering rule (Pattern Matching: "literals for finite literal domai
 - **Lowercase constructors (`union Bool = false | true`, OCaml's spelling).** Rejected: it carves a two-name exception into the uppercase-constructor rule (Unions §2, Functions §2), which is the parse-level mechanism distinguishing constructors from binders in patterns — a load-bearing rule this spec corpus cites constantly. OCaml can afford lowercase constructors because its pattern grammar resolves them differently; Hexagon's case rule is structural, and exceptions to structural rules metastasize. The migration-comfort argument is served adequately by the §2.2 redirect diagnostic.
 - **`true`/`false` as alias literals for the constructors (both spellings legal).** Rejected: two spellings for the two most common values in the language is a permanent style war and a diff-noise generator; the corpus's own words-only doctrine (Operators §1.2) rejects duplicate spellings on exactly this ground. One spelling, one redirect.
 - **Pinning via the intrinsic door.** Rejected on the door's own doctrine (Intrinsics §1: linkage for *declared operations*); a representation is not an operation, and widening the door to carry representations would re-found it for one customer.
+- **A spec-text-only declaration (no source form).** Rejected (James, 2026-07-29 — §3.5): if `Bool`'s declaration were spec prose rather than compilable prelude source, its instances would have to be compiler-provided, colliding with Collections Part 2 §4.4's no-source-form doctrine for provided `Hash` — an exception where the source-file route needs none. The `Seq.hex` precedent decides it: privileged stdlib source with exactly one compiler-granted privilege is the established shape.
 - **Compiling `Bool` to the strings `"False"`/`"True"` (no pin — the uniform §6.2 representation).** Rejected: every `if` in emitted code would branch on a string, every extern boolean would need conversion, and the `.d.ts` for the language's most common type would be a two-string union. This is the JavaScript-specific fact (§1) that earns the pin its place.
 
 ---
 
 ## 6. Edit-notes ledger
 
-Applied in this ruling's PR (direct edits): **Primitive Types** (§1 table, §4, §7, §10 log, new §12 correction record), **Unions** (§6.2 pin exception, §8 prelude declaration, §10 log), **Lexer** (§4.1 literal-words group becomes the redirect group), **Pattern Matching** (§1 grammar comment, §2.2, §2.5, §7.1/§9 exhaustiveness listing, irrefutability table, witness example, guard-spelling examples).
+*(Rewritten 2026-07-29 in response to PR #148 review findings 1, 2, 4, 9 — the original ledger understated two normative dependencies as respellings, omitted FFI Part 10 entirely, and carried wrong §-references; this version is audited against the actual section map of each target.)*
+
+Applied in this ruling's PR (direct edits): **Primitive Types** (§1 table, §4, §7 rule + table row, §10 log, new §12 correction record), **Unions** (§1 doctrine carve, §6 lead-in, §6.2 pin exception, §8 prelude declaration, §10 log), **Lexer** (§4.1 redirect group + position-aware diagnostic, §10 required-diagnostics rows, §12 log), **Pattern Matching** (§2 grammar inventory comment, §2.5, §3 guard spellings, §5.1 irrefutability table, §6.1 examples, §7.1 exhaustiveness listing, §7.2, §7.3 witness rendering, §10 rejected-alternatives rows, §13 log, §15 acceptance tests), **Collections Part 2** (§2.5 `Hash<Bool>` provenance + closing sentence, §17 correction record), **FFI Part 1** (§4.1 all-nullary row exemption, §5 primitive-requirements note), **Operators & Logic** (§14.3a stale edit note against the deleted Primitive Types fiat list: discharged), **README** (rule 3 list, ownership map), **spec-roadmap** (§4 ripple registration).
 
 Owed, applied on next touch of the target doc (README authority rule 4):
 
 | Target | Note |
 |---|---|
-| Collections Part 2 §2.5 | `Hash<Bool>` row: derived union hash over the pinned representation (hash the boolean); no longer a primitive fiat row. |
-| Operators & Logic | `and`/`or`/`not`/`iff`/`implies` operate on `Bool` unchanged; example spellings `true`/`false` → `True`/`False`; §5.1's literal-pattern cross-reference no longer includes Bool. |
-| Collections Part 4 (Map/Set) | Predicate examples respell; `Hash<Bool>`/`Eq<Bool>` references now derived instances. |
-| FFI Part 1 / Part 2 / zero-cost exports | Boundary mapping `Bool ↔ boolean` unchanged (cite §3.3); example spellings respell. |
-| Type System Overview | Primitive enumeration drops Bool; Bool listed with prelude unions. |
+| Operators & Logic §4, §11 | **Normative dependency, not a respelling:** the native emission of the five logic operators (`&&`, `\|\|`, `!`, `!a \|\| b`, `===`) and of `if`/`while` conditions consuming `Bool` directly is **licensed by the §3 representation pin** (§3.4 here; Unions §8 carries the carve). State the license where the emission is mandated. Example spellings respell. |
+| Collections Part 4 §10.1, §18 | **Normative dependency, not a respelling:** §10.1's faithfulness guarantee is stated over "every primitive, and exactly the `Hash`-bearing primitive inventory of Part 2 §2.5" — both qualifying clauses now stale for `Bool`. The guarantee **still holds** (pin ⇒ `Eq<Bool>` is `===` on booleans ⇒ SameValueZero), but its grounds for `Bool` become "derived union `Eq` over the pinned representation"; restate the lead-in and amend §18 note 2's `Bool` line. Filed per §18 note 4's own change-control procedure. Predicate examples respell. |
+| FFI Part 10 §4.3 | Mirror of the Part 4 §10.1 item (the two enumerations are change-controlled together per Part 4 §18 note 4); same restatement. |
+| FFI Part 2 / zero-cost exports | Boundary mapping `Bool ↔ boolean` unchanged (§3.3); zero-cost §2.1's "unions do not enter the set" sentence gains a clarifying clause (`Bool` is in by enumeration; membership is a language category, §3.3 here); example spellings respell. |
+| `ffi.md` §"native primitives" list | `Bool` reclassifies to the prelude-union clause with a pin pointer; face unchanged (`boolean`). |
+| Method Syntax §4.1 receiver table | `Bool` moves from the **Primitive** row to the prelude-nominal row; `CompanionOf(Bool)` = the `Bool` companion module, now also the declaration's home (§3.5). Dispatch outcome unchanged — the move is classification hygiene, flagged because dot-call dispatch has proven sensitive to symbol classification (#134's fun-vs-extern lesson). |
+| Collections Part 5 §4 non-iterables list | `Bool` reclassifies from the primitive clause to the prelude-union clause (`Option`/`Result` company); still not iterable. |
+| Type System Overview | Primitive enumeration drops Bool; Bool listed with prelude unions. (Non-authoritative router; lowest priority.) |
 | Loops & Iteration | `while` condition examples respell. |
 | Corpus-wide standing rule | Any spec touched for any reason respells `true`/`false` to `True`/`False` in Hexagon-source examples in the touched sections (emitted-JS examples keep lowercase — they are JavaScript). |
 
@@ -136,6 +154,8 @@ Lexer: `true`/`false` keep token kinds, now diagnostic-only (§2.2's redirect). 
 | `True`/`False` are the only spellings; `true`/`false` reserved with redirect diagnostic | §2.2 |
 | `show True` = `"True"` (derived union Show; supersedes lowercase ruling) | §2.3 |
 | Representation pinned to JS `boolean`; sole exception to Unions §6.2; not the intrinsic door; no user-reachable pin | §3 |
-| FFI boundary unchanged | §3.3 |
+| FFI boundary unchanged; `Bool` stays in the zero-cost fundamental set by enumeration | §3.3 |
+| `Bool` is the sole exception to "`match` is the only eliminator"; the operator eliminators' native emission is licensed by the pin | §3.4; Unions §1/§8 |
+| The declaration is real prelude source (`Seq.hex` model, `Bool` companion module, compiler-verified shape); instances arrive via the ordinary derivation door, ceasing to be compiler-provided; pin = the only privilege | §3.5; Collections Part 2 §2.5/§17 |
 | Exhaustiveness/literal-pattern/constraint-fiat/Show-fiat carve-outs deleted | §4 |
 | Lowercase constructors, dual spellings, string representation, door-based pin: rejected | §5 |

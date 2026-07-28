@@ -187,10 +187,13 @@ write `honor`.
 
 **The `true`/`false` redirect (2026-07-29, #147).** Both spellings remain hard
 keywords — they may never be used as names, which forecloses `let true = ...`
-permanently — but they no longer produce values. Any use receives the Rewrite-Rule
-diagnostic: "`true` is reserved; Bool's constructors are `True` and `False` — write
-`True`." Keeping the tokens reserved makes the JS-trained user's most probable
-spelling a one-token fixit rather than an unbound-name puzzle. Full ruling:
+permanently — but they no longer produce values. The diagnostic is
+**position-aware** (§10 rows): in value position, the Rewrite-Rule redirect —
+"`true` is reserved; Bool's constructors are `True` and `False` — write `True`" —
+a one-token fixit for the JS-trained user's most probable spelling. In name/binder
+position, the ordinary hard-keyword message applies with **no** constructor fixit:
+"write `True`" would be wrong there, since `let True = ...` is a refutable
+constructor pattern that errors again. Full ruling:
 `decisions-ml-dialect-bool-2026-07.md` §2.2.
 
 ### 4.2 Contextual keywords
@@ -432,7 +435,8 @@ token inventory and the lexer must not report the same source code unit twice.
 | Continuation-only or otherwise invalid name initial | state that the character cannot begin an identifier |
 | Reserved `__hex_` prefix | "`__hex_` is reserved for compiler-generated names" + rename fix-it |
 | Literal bidirectional control | reject it; in a string suggest an explicit Unicode escape |
-| Hard keyword in name position | "`WORD` is reserved and cannot be used as a name" |
+| Hard keyword in name position | "`WORD` is reserved and cannot be used as a name" — including `true`/`false`; **no constructor fixit in this position** (`let True = ...` would be a refutable pattern, a second error) *(#147)* |
+| `true`/`false` in value position | "`true` is reserved; Bool's constructors are `True` and `False` — write `True`" (resp. `False`); one-token fixit *(#147, §4.1)* |
 | Malformed `_` in a number | "`_` in a number must have a digit on both sides" |
 | `.5` / `1.` | suggest `0.5` / `1.0` |
 | Non-decimal base prefix | "Hexagon v1 has decimal literals only" |
@@ -492,6 +496,7 @@ a && b              -- write `a and b`
 | Uppercase-start/non-uppercase-start classification; exact spelling equality | §3.1 |
 | Bare `_` wildcard; `__hex_` reserved; escapes/apostrophes excluded; bidi controls rejected | §3.2 |
 | Complete hard/contextual/not-keyword tables; `finally` reserved | §4 |
+| `true`/`false`: hard keywords, redirect-only (no values); position-aware diagnostic — constructor fixit in value position, none in name position; `True`/`False` are ordinary `UpperName`s | §4.1, §10 (#147) |
 | Decimal numeric grammar, required digits around `.`, exact suffix rules | §5 |
 | Composite string token; interpolation recursively lexed but layout-suppressed | §6.1 |
 | Complete escape set; source newlines normalize to semantic LF | §6.2 |

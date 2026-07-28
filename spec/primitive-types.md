@@ -190,7 +190,7 @@ The constraint system has its own spec; this section records only the decisions 
 
 **Contract:** `show : a -> String` produces the *human-readable display form* (Rust `Display`, not Haskell `show`): `show "abc"` is `abc` — no quotes; `show 42` is `"42"`; `show 1n` is `"1"`.
 
-**Implementation rule ("toString unless JS is stupid"):** for each instance, `show` is JS `toString`/`String(x)` **when that output is sane**, and a Hexagon-provided implementation when JS's is stupid. Concretely:
+**Implementation rule ("toString unless JS is stupid"):** for each instance, `show` is JS `toString`/`String(x)` **when that output is sane**, and a Hexagon-provided implementation when JS's is stupid — **and the rule applies only to types this document owns**: a union's `Show` is the derived constructor-name form (Unions §7), which is why `Bool`'s corrected row below is not an exception to this rule but an exit from its jurisdiction *(clause added 2026-07-29, #147 — record in §12)*. Concretely:
 
 | Type | `show` compiles to | Notes |
 |---|---|---|
@@ -279,7 +279,7 @@ Three standing rules accompany the refresh:
 
 ## 12. Correction record — Bool reclassified as a prelude union (2026-07-29, #147)
 
-> **Correction (2026-07-29, #147).** Under the ML-dialect doctrine pivot (`decisions-ml-dialect-bool-2026-07.md` §1 — James's ruling), `Bool` moved from this document's primitive set to the prelude: `union Bool derives (Eq, Ord, Show, Hash) = False | True`, with its representation intrinsically pinned to JS `boolean` (sole exception to Unions §6.2). Edits applied in place: the scope line counts six primitives; §1's table row now records only the representation fact; §4 is a pointer to the ruling plus the surviving no-truthiness clause; §7's table row shows the derived constructor-name form, superseding the lowercase `String(x)` ruling; §10 gained the log row.
+> **Correction (2026-07-29, #147).** Under the ML-dialect doctrine pivot (`decisions-ml-dialect-bool-2026-07.md` §1 — James's ruling), `Bool` moved from this document's primitive set to the prelude: `union Bool derives (Eq, Ord, Show, Hash) = False | True`, with its representation intrinsically pinned to JS `boolean` (sole exception to Unions §6.2). Edits applied in place: the scope line counts six primitives; §1's table row now records only the representation fact; §4 is a pointer to the ruling plus the surviving no-truthiness clause; §7's table row shows the derived constructor-name form, superseding the lowercase `String(x)` ruling, and §7's implementation rule gained the jurisdiction clause (the toString rule governs only types this document owns; unions exit to Unions §7); §10 gained the log row.
 
 Two standing rules accompany the reclassification:
 
