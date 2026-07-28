@@ -56,6 +56,13 @@ interface Variable {
    * its level) nor absorbed by a declared type variable (rejected in `#bind`).
    */
   placeholder?: boolean;
+  /**
+   * A source-shaped name for a variable that survives into a diagnostic the
+   * Rewrite Rule makes mandatory. Numeric Literals §6 requires survivors in
+   * those reports to be "named rather than numbered"; `?3` is what this
+   * replaces. Display only — it never affects unification, unlike `rigidName`.
+   */
+  displayName?: string;
   level: number;
   instance?: Mono;
   literalOnly: boolean;
@@ -152,6 +159,13 @@ interface Requirement {
   readonly origin: "annotation" | "literal" | "operation" | "interpolation";
   /** The literal's digits, so §6's blocked-defaulting report can name it. */
   literal?: string;
+  /**
+   * Where the scheme carrying this requirement was *used*. `span` points at
+   * the definition, which a copy inherits, so a report about the use — §6's
+   * blocked-defaulting one — would otherwise caret a constraint declaration,
+   * or another module's source entirely.
+   */
+  useSpan?: Source.Span;
   readonly impliedTypes?: ReadonlyMap<string, Mono>;
   evidenceConstraint?: Typed.ConstraintName;
   evidencePath?: readonly string[];
@@ -1475,7 +1489,12 @@ class Checker {
       }
       case "Name":
         const requirements: Requirement[] = [];
-        type = this.#instantiate(this.#scheme(expression.symbol), level, requirements);
+        type = this.#instantiate(
+          this.#scheme(expression.symbol),
+          level,
+          requirements,
+          expression.span,
+        );
         this.#nameRequirements.set(expression, requirements);
         break;
       case "Unit":
@@ -2064,7 +2083,12 @@ class Checker {
               );
               break;
             }
-            const callee = this.#instantiate(scheme, level);
+            const callee = this.#instantiate(
+              scheme,
+              level,
+              undefined,
+              expression.callee.field.span,
+            );
             const arguments_ = [
               receiver,
               ...expression.arguments.map((argument) => this.#inferExpr(argument, level)),
@@ -3762,11 +3786,12 @@ class Checker {
     if (variable.rigidName !== undefined) return;
     const blocking = this.#blockingConstraint(variable);
     if (blocking === undefined || blocking.reported) return;
-    // Report at the literal, per §6, where one is in the set; a variable
-    // constrained only by use (`x + x`) reports at the blocking operation.
-    // Literals that unify (`pair(4, 6)`) collapse onto one `Num` requirement,
-    // so exactly one of them is nameable — and the span points at that one,
-    // which is what keeps the message and the caret agreeing.
+    // Report at the literal, per §6, where one is in the set. Literals that
+    // unify (`pair(4, 6)`) collapse onto one `Num` requirement, so exactly one
+    // of them is nameable — and the span points at that one, which is what
+    // keeps the message and the caret agreeing. Otherwise report where the
+    // blocked scheme was used: `blocking.span` is the *declaration* the
+    // constraint was written at, which is not what this error is about.
     const literal = variable.requirements.find(({ origin }) => origin === "literal");
     for (const requirement of variable.requirements) requirement.reported = true;
     this.#diagnostics.add({
@@ -3777,7 +3802,7 @@ class Checker {
           : `the literal \`${literal.literal}\``
       } cannot default to \`Int\`: \`${blocking.name}\` is not a defaultable ` +
         "constraint; add a type annotation to pin the type",
-      primary: literal?.span ?? blocking.span,
+      primary: literal?.span ?? blocking.useSpan ?? blocking.span,
     });
   }
 
@@ -3809,6 +3834,28 @@ class Checker {
       if (variable.rigidName === undefined && this.#canDefaultToInt(variable)) {
         this.#bind(variable, primitive("Int"), span);
       }
+    }
+    this.#nameSurvivingVariables(actual);
+  }
+
+  /**
+   * §4 does not settle a variable a non-defaultable constraint blocks, so one
+   * can still reach the mandatory fixit — `(?2, Int)`. §6 requires survivors
+   * there to be named rather than numbered, which is the same sentence that
+   * excepts declared variables: both say the message speaks the user's names.
+   */
+  #nameSurvivingVariables(type: Mono): void {
+    const variables = this.#collectVariables(type);
+    const taken = new Set(
+      variables.flatMap(({ rigidName }) => rigidName === undefined ? [] : [rigidName]),
+    );
+    let index = 0;
+    for (const variable of variables) {
+      if (variable.rigidName !== undefined || variable.displayName !== undefined) continue;
+      let name = inferredTypeVariableName(index++);
+      while (taken.has(name)) name = inferredTypeVariableName(index++);
+      taken.add(name);
+      variable.displayName = name;
     }
   }
 
@@ -3893,6 +3940,7 @@ class Checker {
     scheme: Scheme,
     level: number,
     collected?: Requirement[],
+    useSpan?: Source.Span,
   ): Mono {
     const replacements = new Map<number, Variable>();
     const copiedRequirements = new Set<number>();
@@ -3923,8 +3971,10 @@ class Checker {
             requirement.name === scheme.constraint ? impliedTypes : undefined,
           );
           // The copy keeps the definition-site span, so it keeps the digits
-          // that span points at too (§6's report names both).
+          // that span points at too (§6's report names both) — and records
+          // where the use was, for a report that is about the use.
           if (requirement.literal !== undefined) copied.literal = requirement.literal;
+          if (useSpan !== undefined) copied.useSpan = useSpan;
           collected?.push(copied);
         }
         return replacement;
@@ -5426,7 +5476,9 @@ class Checker {
     // A declared variable has a name the user wrote; `?3` in its place is
     // unreadable, and worse inside a diagnostic the Rewrite Rule makes
     // mandatory.
-    if (actual.kind === "Variable") return actual.rigidName ?? `?${actual.id}`;
+    if (actual.kind === "Variable") {
+      return actual.rigidName ?? actual.displayName ?? `?${actual.id}`;
+    }
     if (actual.kind === "Tuple") {
       return `(${actual.elements.map((element) => this.#display(element)).join(", ")})`;
     }

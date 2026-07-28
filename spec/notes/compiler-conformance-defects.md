@@ -1158,9 +1158,23 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   §6's blocked-defaulting report now exists at §4's ambiguity point — the
   end-of-module pass, the last place the blocking constraint can still be named
   — reporting at the literal where one is in the set (naming it, per §6) and at
-  the blocking operation otherwise. A declared variable is never reported: an
-  annotation already pins it, so nothing about it was blocked (the Rewrite
-  Rule).
+  the *use* of the blocked scheme otherwise. That last part took a second pass:
+  a requirement copied out of a scheme inherits the **declaration's** span, so
+  the first spelling carets the constraint member's signature — another
+  module's source, for an imported constraint — for a report about the caller.
+  `#instantiate` now records the use site on each copy, and the report prefers
+  it. (The pre-existing missing-instance report has the same wart and is left
+  alone here: it is a defect of its own, filed as #136, not this arc's.) A
+  declared variable is never reported: an annotation already pins it, so
+  nothing about it was blocked (the Rewrite Rule).
+- **One knock-on inside §6's own machinery.** Structural settling (§6's last
+  paragraph) settles a discarded branch's literals by §4's rule, so under the
+  closed set a component can now *survive* into a mandatory fixit —
+  `(make(), 2)` reported as ``(?2, Int)``. §6 requires survivors there to be
+  "named rather than numbered", the same sentence that excepts declared
+  variables, so survivors take source-shaped display names: ``(a, Int)``. The
+  name is display-only and never participates in unification, which is what
+  keeps it distinct from `rigidName`.
 - **A second, silent defect surfaced with it.** A parameterized instance's own
   parameter — the `a` of `honor<a: Render> Render<Box(a)>` — was not quantified,
   so `#defaultRemainingVariables` treated it as an unresolved inference
@@ -1184,18 +1198,28 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   diagnostics row requires `gcd(4, 6)` to resolve to `Int` "as usual" and the
   five-name reading makes it an ambiguity error. Which of the two is the rule
   is a spec ruling, not an implementation choice — the user-extensibility
-  defect is closed either way.
+  defect is closed either way. **Ruled (Fable, 2026-07-28, on #135):** the
+  property is the rule and the list was its v1.1 snapshot, so the compiler is
+  conformant; the correction record and its two edit notes are on the issue,
+  to be applied to Numeric Literals §4 as a change of its own.
 - **Executable conformance:** `checker.test.ts` — the issue's repro reports
   instead of defaulting and leaves `v` a variable; the annotation §6 names
   compiles; a literal under a user constraint reports at the literal, naming it
   and the blocking constraint, with the span pinned; unified literals collapse
   to one report; a declared type variable is never reported; `{Num, Integral}`
   and `{Num, Show}` still default to `Int`; and a parameterized instance's
-  parameter is clean. Verified sensitive by blinding each half independently:
-  restoring the user-instance lookup reddens the closed-set test alone, and
-  removing the quantification reddens the parameterized-instance test and the
-  emitter's dictionary-factory test.
+  parameter is clean. Both report locations are pinned by span, not just by
+  message — the caret is the half that was wrong first — and the structural
+  survivor's name is pinned at both mandatory fixits. Verified sensitive by
+  blinding each part independently: restoring the user-instance lookup reddens
+  the closed-set test alone; removing the quantification reddens the
+  parameterized-instance test and the emitter's dictionary-factory test;
+  dropping the use-site span reddens the closed-set test; and dropping the
+  survivor naming reddens the structured-branch test.
 - **Credit:** Fable, in the #76 review, separated the `Unit` side (#108) from
   the `Int` side (#109) of one helper and predicted that splitting the
   predicates would let the second be corrected without undoing the first, which
-  is how it went.
+  is how it went. Fable's review of this fix then found both defects in the new
+  §6 machinery — the caret on the declaration and the numbered survivor —
+  neither of which the author's own tests covered, since both tests asserted
+  the message and the message was right.

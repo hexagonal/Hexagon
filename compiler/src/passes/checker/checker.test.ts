@@ -1319,6 +1319,14 @@ describe("check", () => {
         "defaultable constraint; add a type annotation to pin the type",
     ]);
     expect(letSymbol(ambiguous, "v").scheme.type).toMatchObject({ kind: "Variable" });
+    // …carets the use, not `make`'s declaration. A requirement copied out of a
+    // scheme inherits the definition's span, which for an imported constraint
+    // is another module's source; §6 asks for the location of the literal or
+    // expression whose type is stuck.
+    expect(ambiguous.diagnostics[0]?.primary).toMatchObject({
+      start: { line: 4, column: 8 },
+      end: { line: 4, column: 12 },
+    });
 
     // The annotation §6 names is the repair, and it compiles.
     expect(checkSource(conjure + "let v: Int = make()").diagnostics).toEqual([]);
@@ -1436,6 +1444,28 @@ describe("check", () => {
       "this expression's value is discarded — its type is `(Int, Int)`; " +
         "wrap it in `ignore(...)` if discarding is intentional",
     ]);
+
+    // §4 refuses to settle a component a non-defaultable constraint blocks, so
+    // one survives into the fixit — and §6 requires survivors there to be
+    // named, not numbered: `(a, Int)`, never `(?2, Int)`.
+    const conjure = "constraint Conjure<a> =\n" +
+      "    make(): a\n" +
+      "honor Conjure<Int> =\n" +
+      "    make() = 1\n";
+    expect(
+      checkSource(conjure + "fun y(): Unit =\n    (make(), 2)\n    ()").diagnostics
+        .map(({ message }) => message),
+    ).toContain(
+      "this expression's value is discarded — its type is `(a, Int)`; " +
+        "wrap it in `ignore(...)` if discarding is intentional",
+    );
+    expect(
+      checkSource(conjure + "let y(c: Bool) = if c then (make(), 2)").diagnostics
+        .map(({ message }) => message),
+    ).toContain(
+      "an `if` without `else` produces `Unit`; its `then` branch is " +
+        "`(a, Int)` — add an `else` branch to produce a value",
+    );
   });
 
   test("checks Range and String for loops with their concrete item types", () => {
