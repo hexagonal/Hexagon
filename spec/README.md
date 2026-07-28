@@ -9,7 +9,7 @@
 3. **Cross-cutting closure documents** (`decisions-batch-2026-07.md`, `decisions-sol-review-2026-07.md`) are **authoritative until consolidated into their host specs**; where a host has not yet applied a recorded decision, the closure document governs.
 4. **Edit-note convention:** a cross-spec correction is recorded as an *edit note in the originating document* and applied on next touch of the target; until applied, the originating document governs that point.
 5. **Section numbers are stable forever.** Specs never renumber; they append, or add correction records / review-resolution sections that supersede the text they annotate in place.
-6. **The Rewrite Rule** is doctrine corpus-wide. Its current owner is `decisions-sol-review-2026-07.md` §E; it is slated for a permanent host during consolidation. This index does not restate it.
+6. **The Rewrite Rule** is doctrine corpus-wide. Its permanent host is `declarations-preamble.md` §1.1 *(corrected 2026-07-28 — the hosting foreseen here has happened; originating record: `decisions-sol-review-2026-07.md` §E)*. This index does not restate it.
 
 ## Live corpus ownership map
 
@@ -25,6 +25,7 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Declarations | `functions.md` | lambdas, `let`/`fun`, arity, application, generalization, function emission |
 | Declarations | `statements-blocks-mutability.md` | statements, blocks, `var`/mutability, binder classes |
 | Declarations | `modules.md` | files-as-modules, import/export, visibility, acyclicity, ESM emission |
+| Declarations | `intrinsics.md` | the intrinsic door: `extern from "hex:intrinsic"`, keys, gate, self-declaration fallback, door deprecation schedule |
 | Router | `type-system-overview.md` | non-authoritative legacy orientation; superseded by `language.md` at Part 3 |
 | Types | `primitive-types.md` | `Nat`/`Int`/`Float`/`BigInt`/`Bool`/`String`/`Unit`, `Show`/display |
 | Types | `products.md` | tuples, structural/nominal records, rows, field access |
@@ -72,12 +73,12 @@ Load the set for the task; add files only when a cited section demands it. `ffi.
 | Task | Read |
 |---|---|
 | **Parser** | Base: `lexer.md`, `lexer-layout.md`, `comments.md`, `declarations-preamble.md`, `functions.md` §3–§5, `operators-logic-precedence.md`, `pattern-matching.md` (grammar), `statements-blocks-mutability.md`; add the ownership-map file for the feature syntax being changed (FFI syntax routes through `ffi.md`) |
-| **Resolver / checker** | `declarations-preamble.md`, `functions.md`, `statements-blocks-mutability.md`, `modules.md`, `products.md`, `unions.md`, `constraints.md`, `integral-constraint.md`, `method-syntax.md`, `pattern-matching.md`, `numeric-literals.md` (defaulting), closure docs (rules not yet hosted) |
+| **Resolver / checker** | `declarations-preamble.md`, `functions.md`, `statements-blocks-mutability.md`, `modules.md`, `intrinsics.md` (gate §5; self-declaration fallback §7), `products.md`, `unions.md`, `constraints.md`, `integral-constraint.md`, `method-syntax.md`, `pattern-matching.md`, `numeric-literals.md` (defaulting), closure docs (rules not yet hosted) |
 | **Emitter** | `functions.md` §9, `unions.md` §6, `products.md` (representation), `exceptions.md` §7, `modules.md` §11, `loops-ranges-iteration.md`, `collections-part3-vector.md` / `collections-part4-map-set.md` (emission notes), `ffi.md` + owning parts per feature (especially Parts 7–9) |
-| **Modules work** | `modules.md`, `declarations-preamble.md`, `constraints.md` §5 (coherence/orphans), `ffi-part4-extern-bindings.md`, `ffi-part7-exports.md` |
+| **Modules work** | `modules.md`, `declarations-preamble.md`, `constraints.md` §5 (coherence/orphans), `ffi-part4-extern-bindings.md`, `intrinsics.md`, `ffi-part7-exports.md` |
 | **Collections work** | `collections-part1-decisions.md` through `collections-part5-iterable.md`, `loops-ranges-iteration.md`; for the JS boundary add `ffi-part10-js-map-set.md` |
 | **FFI work** | `ffi.md` first, then the owning part(s) via its §4 router; `exceptions.md` §6–§7 and `modules.md` §11 as cited |
-| **Stdlib work** | `collections-part1-decisions.md` §3 (naming/accessor doctrine), `collections-part5-iterable.md` §10, `method-syntax.md` §4/§15 (dot-callability constraints), `ffi.md` §9.1, `stdlib-roadmap.md` *(pending)*; prelude rules in `modules.md` §6 |
+| **Stdlib work** | `collections-part1-decisions.md` §3 (naming/accessor doctrine), `collections-part5-iterable.md` §10, `method-syntax.md` §4/§15 (dot-callability constraints), `intrinsics.md` (how stdlib source names compiler-provided implementations), `ffi.md` §9.1, `stdlib-roadmap.md` *(pending)*; prelude rules in `modules.md` §6 |
 | **Documentation work** | `notes/hexagon-for-typescript-coders.md`, `notes/canonical-formatting-plan.md`, `type-system-overview.md` *(orienting, stale — prefer `language.md` once it lands)*, `spec-roadmap.md`, this file |
 
 ## Historical material
