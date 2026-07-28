@@ -168,6 +168,8 @@ Rules fixed here:
 - **Extern types are never re-exports of foreign typings** (Part 4 §12.3, resolved): the brand is generated even when the foreign package ships its own declarations, because the extern `type` is a nominal Hexagon contract, not an endorsement of the foreign package's structural type.
 - This discharges **Modules §11.4's deferred opaque-representation question** in favor of branded types; the honest-fields interim caveat ends when this part lands (edit note, §10).
 
+*(Note, 2026-07-28, defect 12 ruling.)* The "no runtime wrapper, tag, or validation is added" clause forbids **boundary artifacts** — things attached at the crossing. It does not forbid a type's *representation* from carrying protocol members everywhere: `Seq`'s boundary traversal method (Part 3 §9.4), like `Range`/`Map`/`Set`'s `[Symbol.iterator]`, is part of the value from construction, so the value still crosses out and back by identity, unmodified at the crossing. The identity clause is moreover now *delivered* for `Seq` in the inbound direction: a genuine `Seq` handed back at a `Seq(a)` position passes through Part 3 §2.2's door by identity rather than being re-adapted. (`Seq`'s `.d.ts` face itself remains `Iterable<a>` per §2.3 and Part 3 §9.1, not this section's brand — that carve-out predates the ruling and is unchanged.)
+
 ---
 
 ## 6. Exceptions
@@ -213,7 +215,7 @@ The exported constructor is an ordinary function with stable ESM identity; the b
 
 **Generate one stable module-level boundary wrapper only when a supported top-level signature needs adaptation or calling-convention plumbing.** The v1 occasions are exactly Part 6 §1's table:
 
-1. an incoming `Iterable<a>` parameter declared as `Seq(a)` (the wrapper performs Part 3's crossing at each call — and each adapted value receives a **fresh per-value adapter**, Part 3 §2.1; the named callable wrapper and the per-value adapter remain distinct objects with distinct lifetimes);
+1. an incoming `Iterable<a>` parameter declared as `Seq(a)` (the wrapper performs Part 3's crossing at each call — and each adapted value receives a **fresh per-value adapter**, Part 3 §2.1; the named callable wrapper and the per-value adapter remain distinct objects with distinct lifetimes). *(Sharpened 2026-07-28, defect 12 ruling:)* the crossing is Part 3 §2.2's **inbound door** — a genuine `Seq` argument passes by identity (§6), any other iterable is adapted freshly. Hexagon importers call the same ESM binding and therefore the same wrapper; the identity pass-through makes it semantically transparent to them, at one recognition check per `Seq`-typed argument per cross-module call. The wrapper exists only for `Seq` parameters; `Seq` **results** and `Seq` **value exports** need no wrapper — the value carries its face by representation (Part 3 §9.4);
 2. exported extern receiver members, whose ESM export is Part 5 §2.3's stable convention-preserving wrapper (there is no raw property function to export);
 3. a generic constrained export with trailing dictionary evidence **when ABI plumbing makes a wrapper necessary** (shape governed by Parts 8–9). If the internal function already has the public trailing-evidence ABI, it exports directly; Part 9's rule does not require an identity-only wrapper.
 
@@ -325,3 +327,4 @@ This part introduces **no new hard errors**. The boundary-shape and collision er
 | Direct-vs-wrapper rule: direct wherever representation and public ABI match; one stable module-level wrapper for adapted top-level positions, exported receiver members, and constrained generic editions only when ABI plumbing requires it; wrapper identity stable (once per ESM binding); per-value adapters remain distinct | §7 |
 | Constrained exports referenced only; Parts 8–9 govern; generated exports obey this part's naming/binder/identity rules; collisions stay Part 8 §6.2 | §8 |
 | Companion specs discharged: Modules §11.4, Products §5.4, Unions §6.4–§6.5, Exceptions §7.5 | §10 |
+| *(2026-07-28, defect 12 ruling)* Occasion 1 sharpened: the wrapper's crossing is Part 3 §2.2's inbound door (genuine `Seq` by identity); wrappers exist for `Seq` parameters only — results and value exports are honest by representation (Part 3 §9.4); §6's no-runtime-artifact clause clarified as forbidding boundary artifacts, not representation members | §6, §7 |
