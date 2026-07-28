@@ -82,10 +82,12 @@ describe("the gate (§5)", () => {
    * output — a specifier no loader resolves — so it fails closed too.
    */
   test("an effect import of the door is refused on both sides of the gate", () => {
+    // The rewrite names the form the author was already writing — an effect
+    // import, not the `extern from` block the other refusal points at.
     expect(main('extern import "hex:intrinsic"\n')).toEqual([
       "the `hex:` specifier scheme is reserved to standard-library source; " +
-      "to bind your own JavaScript implementation, use an ordinary `extern from` " +
-      "block naming your module",
+      "to run your own JavaScript module for its effects, use an ordinary " +
+      "`extern import` naming your module",
     ]);
     expect(diagnostics([
       ["/main.hex", "export let ok: Int = 1\n"],
@@ -116,16 +118,18 @@ describe("verification replaces trust (§4.2)", () => {
   });
 
   /**
-   * A key with nothing close to it gets no suggestion. Past a small edit
-   * distance the "nearest" member is noise, and a confidently wrong suggestion
-   * is worse than none.
+   * A key with nothing close to it gets no *guess* — past a small edit distance
+   * the "nearest" member is noise, and a confidently wrong suggestion is worse
+   * than none. It still gets a rewrite, as the Rewrite Rule requires: the
+   * inventory is flat and compiler-global, so listing it is exhaustive rather
+   * than speculative, which is the one thing a suggestion here must not be.
    */
-  test("a key with no near neighbour is refused without a guess", () => {
+  test("a key with no near neighbour is refused with the inventory, not a guess", () => {
     expect(privileged(
       'extern from "hex:intrinsic"\n' +
       "    export fun vectorAt as at<a>(values: Seq(a), index: Int): a\n",
     )).toEqual([
-      "the compiler provides no intrinsic `vectorAt`",
+      "the compiler provides no intrinsic `vectorAt`; the keys it provides are `seqMemoize`",
     ]);
   });
 
@@ -225,6 +229,30 @@ describe("genericity is granted inside the boundary only (§3.4)", () => {
     expect(diagnostics([
       ["/main.hex", "export let ok: Int = 1\n"],
       ["/Result.hex", DOOR],
+    ])).toEqual([]);
+  });
+
+  /**
+   * §3.1 and §6: after the declaration the binding is ordinary, which includes
+   * *ordinary generalisation* — two consumers instantiate it independently.
+   *
+   * The variable here appears only in the **result**, the shape that catches a
+   * scheme quantified over a snapshot taken before every annotation was
+   * interned. A result-only variable left free is not a type error at the
+   * declaration; it is a variable shared by every consumer, so the first call
+   * site silently pins it for all the others, and the second one fails with a
+   * mismatch naming a type it never mentioned. `seqMemoize` has no such
+   * variable, but §9.2 binds the `Vector` arc, whose door is full of nullary
+   * producers (`empty<a>(): Vector(a)`) that are exactly this shape.
+   */
+  test("a result-only type variable generalizes, so consumers instantiate it independently", () => {
+    expect(diagnostics([
+      ["/main.hex",
+        "export let asInt: Int = Result.produce(1)\n" +
+        "export let asText: String = Result.produce(2)\n"],
+      ["/Result.hex",
+        'extern from "hex:intrinsic"\n' +
+        "    export fun seqMemoize as produce<a>(source: Int): a\n"],
     ])).toEqual([]);
   });
 });

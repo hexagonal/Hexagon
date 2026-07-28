@@ -550,17 +550,22 @@ class Checker {
             this.#schemes.set(parameter.symbol, { variables: [], type });
             return type;
           });
+          // Every annotation is interned before the quantified set is read.
+          // `typeParameters` is filled in as variables are first *encountered*,
+          // so snapshotting it while the result annotation is still uninterned
+          // would leave a result-only variable free — a module-global unification
+          // variable shared by every consumer, which the first call site would
+          // then pin for all the others. `seqMemoize` happens not to have one;
+          // the nullary producers §9.2 binds to the `Vector` arc (`empty<a>():
+          // Vector(a)`) are exactly that shape.
+          const result = this.#annotationType(
+            declaration.returnAnnotation, 0, new Map(), typeParameters,
+          );
           this.#schemes.set(declaration.binding.symbol, {
             variables: [...typeParameters.values()].flatMap((type) =>
               type.kind === "Variable" ? [type] : []
             ),
-            type: {
-              kind: "Function",
-              parameters,
-              result: this.#annotationType(
-                declaration.returnAnnotation, 0, new Map(), typeParameters,
-              ),
-            },
+            type: { kind: "Function", parameters, result },
           });
           continue;
         }

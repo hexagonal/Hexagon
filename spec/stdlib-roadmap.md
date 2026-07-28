@@ -168,8 +168,13 @@ Proceed a piece at a time:
    schedule retiring the transitional public-name and primitive doors is its §9,
    with `BigInt.hex` inheriting the form at this stage with no further ruling.
    **Implemented 2026-07-28**: the form, the gate, and inventory verification are
-   in the compiler, with `Seq.memoize` as the first customer through it; `BigInt`
-   adds inventory keys at this stage and needs no new machinery.)*
+   in the compiler, with `Seq.memoize` as the first customer through it. `BigInt`
+   inherits the *form* with no new machinery — it adds inventory keys and their
+   lowerings. It does need the **gate** widened: v1 privilege is prelude
+   membership (`spec/intrinsics.md` §5.2's first bullet) and `BigInt.hex` is not a
+   prelude member, so this stage must extend privilege to the modules the loader
+   designates as canonical companion source, which is §5.2's second bullet and
+   was always this stage's own work.)*
 3. Move derived operations into understandable Hexagon source: Euclidean `div`/`mod`,
    iterative `gcd`, divide-first `lcm`, zero checks, and Hexagon exception branding.
 4. Move the coherent `Integral<BigInt>` instance to the appropriate canonical source

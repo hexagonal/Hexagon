@@ -529,14 +529,24 @@ class Resolver {
    * user program can reach the inventory (§5.3), and reporting exactly one error
    * per block keeps the diagnostic about the thing the author actually typed.
    */
-  #checkExternSpecifier(specifier: string, span: Source.Span): boolean {
+  #checkExternSpecifier(
+    specifier: string,
+    span: Source.Span,
+    form: "block" | "import",
+  ): boolean {
     if (!isIntrinsicScheme(specifier)) return false;
     if (!this.#privileged) {
+      // The rewrite names the form the author was already writing. Pointing an
+      // effect import at an `extern from` block would be telling them to rewrite
+      // the wrong half of what they typed.
       this.#diagnostics.add({
         severity: "error",
         message: "the `hex:` specifier scheme is reserved to standard-library source; " +
-          "to bind your own JavaScript implementation, use an ordinary `extern from` " +
-          "block naming your module",
+          (form === "block"
+            ? "to bind your own JavaScript implementation, use an ordinary `extern from` " +
+              "block naming your module"
+            : "to run your own JavaScript module for its effects, use an ordinary " +
+              "`extern import` naming your module"),
         primary: span,
       });
       return false;
@@ -572,11 +582,19 @@ class Resolver {
     const name = declaration.foreignName ?? declaration.localName;
     const arity = INTRINSIC_INVENTORY.get(name.text);
     if (arity === undefined) {
+      // The Rewrite Rule wants a named rewrite in every hard error. A near
+      // neighbour is the best one — it is almost always the key the author meant.
+      // With nothing close, the inventory itself is the rewrite: it is flat and
+      // compiler-global, so listing it is exhaustive rather than a guess, which
+      // is the one thing a suggestion here must not be.
       const nearest = nearestIntrinsicKey(name.text);
       this.#diagnostics.add({
         severity: "error",
-        message: `the compiler provides no intrinsic \`${name.text}\`` +
-          (nearest === undefined ? "" : `; the nearest provided key is \`${nearest}\``),
+        message: `the compiler provides no intrinsic \`${name.text}\`; ` +
+          (nearest === undefined
+            ? `the keys it provides are ${[...INTRINSIC_INVENTORY.keys()]
+              .map((key) => `\`${key}\``).join(", ")}`
+            : `the nearest provided key is \`${nearest}\``),
         primary: name.span,
       });
       return;
@@ -838,7 +856,7 @@ class Resolver {
         // but the form is not: §8.3 emits no import because there is no foreign
         // module, and an effect import of the door would emit one that resolves
         // to nothing.
-        if (this.#checkExternSpecifier(item.specifier, item.span)) {
+        if (this.#checkExternSpecifier(item.specifier, item.span, "import")) {
           this.#diagnostics.add({
             severity: "error",
             message: "the intrinsic door has no foreign module to import; " +
@@ -849,7 +867,7 @@ class Resolver {
         }
         return item;
       case "ExternBlock": {
-        const intrinsic = this.#checkExternSpecifier(item.specifier, item.span);
+        const intrinsic = this.#checkExternSpecifier(item.specifier, item.span, "block");
         const declarations = item.declarations.map((declaration): Resolved.ExternDeclaration => {
           if (intrinsic && declaration.kind !== "ExternType") {
             this.#verifyIntrinsicKey(declaration);

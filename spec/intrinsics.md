@@ -93,6 +93,8 @@ The consequence worth stating architecturally: the checker's parallel row tables
 
 The specifier scheme `hex:` is reserved in every `extern from` specifier position, corpus-wide. `"hex:intrinsic"` is its only v1 member. In **unprivileged source**, any `hex:`-scheme specifier is a hard error with a named rewrite (§11); the block never resolves, so no user program can reach the inventory.
 
+*(Edit note, 2026-07-28, on implementation review.)* The reservation extends to **every extern specifier position, not only `extern from`** — `extern import "hex:intrinsic"` is refused too. The scheme is reserved as a scheme; a reservation that held for one block form and not the other would let unprivileged source emit `import "hex:intrinsic";` into the output, a specifier no loader resolves. In privileged source the specifier is legal but the *form* is not, because §8.3 emits no import: there is no foreign module to run for its effects. Both messages are in §11.
+
 ### 5.2 Privileged source
 
 A `"hex:intrinsic"` block is legal only in modules compiled as **standard-library source**:
@@ -183,7 +185,9 @@ Per companion: one mechanical conversion commit (wrapper → declaration, §3.2'
 All hard errors, each with its named rewrite per the Rewrite Rule (Declarations Preamble §1.1):
 
 - **Reserved scheme in unprivileged source** — `extern from "hex:intrinsic"` (or any `hex:`-scheme specifier) outside privileged stdlib source: "the `hex:` specifier scheme is reserved to standard-library source; to bind your own JavaScript implementation, use an ordinary `extern from` block naming your module." The rewrite is the ordinary extern block the user's intent wants.
-- **Unknown intrinsic key** — declaration-site, verified against the inventory (§4.2): "the compiler provides no intrinsic `seqMemoise`; the nearest provided key is `seqMemoize`." The rewrite is the corrected key.
+- **Reserved scheme in an effect import** *(added 2026-07-28 with §5.1's edit note)* — `extern import "hex:…"` in unprivileged source: the same reservation, with the rewrite naming the form the author was already writing — "to run your own JavaScript module for its effects, use an ordinary `extern import` naming your module." Pointing an effect import at an `extern from` block would rewrite the wrong half of what they typed.
+- **The door imported as a module** *(added 2026-07-28 with §5.1's edit note)* — `extern import "hex:intrinsic"` in *privileged* source, where the specifier is legal but the form is not: "the intrinsic door has no foreign module to import; declare the operations you need in an `extern from \"hex:intrinsic\"` block." The rewrite is the block form, which is what the author needs to reach the inventory at all.
+- **Unknown intrinsic key** — declaration-site, verified against the inventory (§4.2): "the compiler provides no intrinsic `seqMemoise`; the nearest provided key is `seqMemoize`." The rewrite is the corrected key. *(2026-07-28: when no key is close enough for a suggestion to be anything but a guess, the rewrite is the inventory itself — "the keys it provides are …" — which is exhaustive rather than speculative, the flat compiler-global key space paying off.)*
 - **Intrinsic arity mismatch** — declaration-site: "intrinsic `vectorAt` takes 2 parameters, but this declaration has 3." The rewrite is the inventory arity, stated in the message.
 - **Inadmissible declaration form in the block** (§3.3) — `let`, `type`, `default`, `method`, `get`, `set`, `class`, or `enum` under `"hex:intrinsic"`: "the intrinsic boundary provides operations only; declare `fun` here, and declare types as ordinary (`export opaque`) declarations in this module." The rewrite is the ordinary declaration the form should have been.
 - **Generic foreign extern** — unchanged Part 4 behavior; not restated here (§3.4 grants genericity inside the reserved boundary only).
