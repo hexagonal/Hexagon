@@ -29,7 +29,7 @@ C(p1, ..., pn)           -- constructor pattern, sub-patterns nest freely
 C                        -- nullary constructor
 (p1, ..., pn)            -- tuple pattern, arity ≥ 2; (p) is grouping
 {f1 = p1, f2, ...}       -- record pattern: open; {f} puns as {f = f}
-0   "yes"   true         -- literal patterns: Int, String, Bool only
+0   "yes"                -- literal patterns: Int, String only (#147)
 p1 | p2                  -- or-pattern
 p as x                   -- as-pattern: match p, additionally bind the whole to x
 ()                       -- the Unit pattern (trivially irrefutable)
@@ -83,7 +83,7 @@ Arity must equal the tuple's arity (Products §2.1 report shape). `(p)` is **gro
 - Nominal records: a bare record pattern does **not** match a nominal-record-typed scrutinee (the unifier never unfolds nominal names — Products §5.1). Go through the constructor pattern: `Point({x, y})`. Diagnostic: "`Point` is a nominal record; destructure it with `Point({x, y})`."
 - Separator near-miss: `:` inside a term-position record — pattern or literal — is a parse error with the Products §6/§8 fixit ("record fields bind with `=`; `:` gives a field its type in record *types*"). This retires the old type-position confusion guard: under `:`-in-terms, `{x: Float}` in a pattern parsed as a constructor sub-pattern and needed a bespoke "`Float` is a type, not a constructor" diagnostic; under `=` the misreading is caught at the token (§16). One refinement, because the old guard's actual customer *meant an annotation*: when the text after the `:` is uppercase-start (`{x: Float}`), the separator repair alone would be a wrong turn — `{x = Float}` just errors again below — so the fixit appends: "if you meant a type, patterns destructure values; annotate outside the pattern." The bespoke message survives only for the genuinely written `{x = Float}` — `Float` there *is* a constructor-position name, and the error stays "`Float` is a type, not a constructor — patterns destructure values."
 
-### 2.5 Literal patterns — `Int`, `String`, `Bool`; never `Float`
+### 2.5 Literal patterns — `Int`, `String`; never `Float`
 
 ```
 match n
@@ -92,11 +92,12 @@ match n
     _ => "many"
 
 match answer
-    true => proceed()
-    false => abort()               -- exhaustive: no _ required (§7.1)
+    True => proceed()
+    False => abort()               -- NOT literal patterns: constructor patterns (§2.2)
 ```
 
-- A literal pattern elaborates through **`Eq`** exactly as `==` does (Operators §5.1): the arm test is `equals(scrutinee, lit)`, emitting `===` on the primitive fast path — which is every v1 case, since the allowed types are `Int`, `String`, `Bool`.
+- **Bool left this section (corrected 2026-07-29, #147).** `Bool` is now the prelude union `False | True` (Unions §8), so `True`/`False` in patterns are nullary **constructor patterns** (§2.2), and the exhaustiveness of the second example above is ordinary closed-constructor union checking (§7.1) — no literal machinery involved. The example is retained here as the contrast case, because it is the respelling of what was previously this section's Bool-literal example.
+- A literal pattern elaborates through **`Eq`** exactly as `==` does (Operators §5.1): the arm test is `equals(scrutinee, lit)`, emitting `===` on the primitive fast path — which is every v1 case, since the allowed types are `Int`, `String` *(corrected 2026-07-29, #147 — Bool removed)*.
 - **Typing joins ordinary inference.** An integer literal in a pattern contributes the same `Num` (via `fromNat`) and `Eq` constraints that `x == 0` would, and unifies with the scrutinee type; defaulting applies as usual. In v1 the scrutinee is concrete by the time patterns check, so this is invisible — but the spec fixes the mechanism so a future polymorphic scrutinee doesn't force an improvised rule. Literal patterns do not force early monomorphization beyond what the constraints require.
 - **`Float` literal patterns are a permanent hard error**, not a deferral. `Eq<Float>` is SameValueZero (Decisions Batch §1): `NaN` would never match its own literal, and `-0.0`/`0.0` would collapse — a pattern that *reads* exact and isn't. The diagnostic must redirect: "Float literals cannot appear in patterns; use a guard: `x when x == 1.5`" — where the SameValueZero semantics is at least attached to a visible `==`. Matching *on* a `Float` scrutinee is fine (variables, `_`, guards); only the literal form is banned.
 - There is no `Char` type in Hexagon; single-character strings are `String` literals like any other.
@@ -149,8 +150,8 @@ match shape
 - The guard is an ordinary `Bool` expression with the pattern's binders in scope. Chained comparisons (`0 <= x < 100`) work exactly per Operators §5.3–5.4 and are the idiomatic guard spelling for ranges — this is the interaction that makes range *patterns* unnecessary in v1 (§11.2).
 - **Guard termination (grammar pin):** the guard expression is terminated by the arm's `=>` — a top-level `=>` after `when` always belongs to the arm, never to a lambda. Without this pin, `p when f => x` would maximal-munch `f => x` as an eats-right lambda (Operators §3.2) and never find the arm's arrow. Same resolution as F#'s. **The arm's claim on the arrow is dropped inside any bracket** — `(`, `[`, `{` — because a bracket must close before the arm's `=>` can arrive: `p when apply(f, x => x > 0) => body` is legal, and the parenthesized `(x => x > 0)` is a style choice, not a requirement (this sentence formerly read "must be parenthesized"; softened July 2026). Only a lambda written *bare at the guard's top level* is unavailable, and it is unavailable at no cost: a guard must be `Bool` and a lambda never is, so the claim can never suppress a well-typed program.
 - **The diagnostic "`=>` ends the guard; parenthesize the lambda" is retired** (July 2026), superseded by the pin it was written to repair. The parse it caught now succeeds — `p when f => x` reads as guard `f`, body `x`, which is exactly what the pin asks for — so the fixit has no trigger, and firing it would mean guessing that a user who wrote a valid guard meant a lambda. A bare lambda genuinely intended at guard top level surfaces as an honest type mismatch (`Bool` expected, function found), which names the real problem.
-- **Evaluation order is normative** (guards may be effectful): arms top to bottom; a guard is evaluated only after its arm's pattern has matched, at most once per `match` evaluation; if the guard is `false`, matching falls through to the next arm as if the pattern had failed.
-- **A guarded arm contributes nothing to exhaustiveness** (§7.1). The checker does not attempt to prove guards total — not even `when true`. A match whose domain is only covered by guarded arms is non-exhaustive: hard error. This bites harder than F#'s warning; that is the point and the house rule (no warning tier).
+- **Evaluation order is normative** (guards may be effectful): arms top to bottom; a guard is evaluated only after its arm's pattern has matched, at most once per `match` evaluation; if the guard is `False`, matching falls through to the next arm as if the pattern had failed.
+- **A guarded arm contributes nothing to exhaustiveness** (§7.1). The checker does not attempt to prove guards total — not even `when True`. A match whose domain is only covered by guarded arms is non-exhaustive: hard error. This bites harder than F#'s warning; that is the point and the house rule (no warning tier).
 - Guards appear only where arms appear: `match` and `catch`. There are no guards on `let`, `for..in`, or lambda parameters — those positions demand irrefutability, and a guard is the maximally refutable construct.
 
 ---
@@ -196,8 +197,8 @@ Consequences, spelled out:
 | `UserId(n)` | `UserId` (union `UserId = UserId(Int)`) | **irrefutable** | sole constructor: every `UserId` value has this shape |
 | `Point({x, y})` | nominal `record Point` | irrefutable | a record constructor is always "sole constructor" |
 | `0` | `Int` | refutable | infinite domain |
-| `true` | `Bool` | refutable | `false` exists |
-| `true \| false` | `Bool` | **irrefutable** | jointly cover the domain — the coverage definition, not a syntactic one, decides |
+| `True` | `Bool` | refutable | `False` exists — an ordinary two-constructor union since #147 |
+| `True \| False` | `Bool` | **irrefutable** | jointly cover the domain — the coverage definition, not a syntactic one, decides |
 | `Some(_) \| None` | `Option(a)` | irrefutable | ditto (binds nothing, so same-bindings is satisfied) |
 | vector patterns | `Vector(a)` | per Collections Part 3 §3 | length-based; that spec's verdicts are authoritative |
 
@@ -243,12 +244,12 @@ match point
 
 match user
     {role = Admin}       => allowAll()
-    {role = _, verified = true} => allowSome()
+    {role = _, verified = True} => allowSome()
     _                    => deny()
 
 match flag
-    true  => on()
-    false => off()
+    True  => on()
+    False => off()
 ```
 
 Two **permanent** exclusions:
@@ -331,9 +332,9 @@ Both generalize from Unions §4.3. Both remain **hard errors**. Both remain **ex
 
 ### 7.1 Exhaustiveness
 
-- Domains with finitely many shapes — unions (closed, nominal), `Bool` via literals, `Unit`, and tuples/records thereof — are checked exactly. **A `match` on `Bool` with `true` and `false` arms is exhaustive with no `_`** (the first non-union exhaustive domain; acceptance-tested).
+- Domains with finitely many shapes — unions (closed, nominal — which since #147 includes the prelude `Bool`), `Unit`, and tuples/records thereof — are checked exactly. **A `match` on `Bool` with `True` and `False` arms is exhaustive with no `_`** — this survives verbatim in force, respelled in form: it is now the ordinary closed-constructor union path, and the former "`Bool` via literals" carve-out (the first non-union exhaustive domain) is **deleted** *(corrected 2026-07-29, #147; the acceptance test is retained, respelled, now exercising the union path)*.
 - Infinite domains (`Int`, `String`, `Float`) are never covered by literals; exactness there means: **a catch-all (`_` or bare variable, possibly under `as`/or-composition per §5.1's coverage semantics) is required.**
-- **Guarded arms contribute nothing** — including `when true`. Coverage is computed as if guarded arms were absent.
+- **Guarded arms contribute nothing** — including `when True`. Coverage is computed as if guarded arms were absent.
 - Record patterns: coverage is computed over the **mentioned fields only**. Sound because unmentioned fields are unconstrained in every arm — openness means they cannot distinguish arms. (If two arms mention different field sets, the matrix is built over the union of mentioned fields, absent mentions widening to `_`.)
 - Missing-case reporting must produce a **witness pattern**, rendered by §7.3: "match is missing cases: `(None, _)`", "match is missing cases: `{status = Queued}`". The Unions constructor-name listing is the degenerate rendering of this.
 
@@ -341,12 +342,12 @@ Both generalize from Unions §4.3. Both remain **hard errors**. Both remain **ex
 
 - An arm is unreachable if its pattern is useless relative to the *unguarded* arms above it (guarded arms above cannot subsume — their guards may fail). Hard error, naming the shadowing arm, as before.
 - Two arms with the same pattern and different guards are both reachable (the checker cannot prove a guard total): legal.
-- A guarded arm whose pattern is already fully covered by an earlier **unguarded** arm is unreachable — `when true` does not launder it.
+- A guarded arm whose pattern is already fully covered by an earlier **unguarded** arm is unreachable — `when True` does not launder it.
 - Anything after a catch-all arm is unreachable. In `catch`, the Exceptions §5.3 logic transfers with or-patterns folded in: a second `JsError(_)` arm, or anything after `_`, is unreachable; domestic arms after a `JsError` arm are fine.
 
 ### 7.3 Counterexample rendering (normative for diagnostics)
 
-Witnesses print as patterns: constructor names applied to `_` for unconstrained slots (`Node(_, _, _)`), tuples with `_` holes (`(None, _)`), records with only the discriminating fields (`{status = Queued}` — never invent mentions), literals for finite literal domains (`false`), and `_` where any value works. Prefer the shallowest witness that is genuinely missing. Multiple missing cases: list up to a small cap (say 3) then "…and N more".
+Witnesses print as patterns: constructor names applied to `_` for unconstrained slots (`Node(_, _, _)`) and bare for nullary (`False`), tuples with `_` holes (`(None, _)`), records with only the discriminating fields (`{status = Queued}` — never invent mentions), and `_` where any value works *(the former "literals for finite literal domains" clause is deleted — corrected 2026-07-29, #147: Bool was its only customer, and `False` now renders as an ordinary constructor witness)*. Prefer the shallowest witness that is genuinely missing. Multiple missing cases: list up to a small cap (say 3) then "…and N more".
 
 ---
 
@@ -383,8 +384,8 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 | `@` for as-patterns | Words-only aesthetic; F# precedent for `as`; `@` is a new sigil buying nothing (§2.7). |
 | Type-test patterns (F# `:? T`) | No subtyping, no downcasting, nominal opacity. There is nothing to test. Permanent. |
 | Closed record patterns / `...` in patterns | Openness has no opt-out in v1; a "match exactly these fields" pattern has no use case that isn't better served by the type. Revisit only with evidence. |
-| Guards counting toward exhaustiveness (even `when true`) | Requires totality checking of arbitrary expressions or ad-hoc special cases; the hard-error stance demands exactness, and exactness demands exclusion. |
-| A second syntactic irrefutability judgment | One algorithm (§5.1); a syntactic approximation would drift from the exhaustiveness checker and mis-verdict `true \| false`. |
+| Guards counting toward exhaustiveness (even `when True`) | Requires totality checking of arbitrary expressions or ad-hoc special cases; the hard-error stance demands exactness, and exactness demands exclusion. |
+| A second syntactic irrefutability judgment | One algorithm (§5.1); a syntactic approximation would drift from the exhaustiveness checker and mis-verdict `True \| False`. |
 | New brackets to split tuples from parameter lists | Both parens uses are identity commitments (JS-style calls; ML-style tuples). The depth rule resolves the single-site collision without spending either (§6.5). |
 | `let _ = e` as discard | Already rejected (Statements §3.3); reaffirmed now that `let` takes patterns. `ignore` is the one idiom. |
 
@@ -434,19 +435,19 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 |---|---|
 | One grammar, five positions; refutable positions ungated; binding positions gated by irrefutability | §1, §6 |
 | Uniform constructor patterns in lambda heads; "transparency rule" carve-out rejected and recorded | §6.5, §10 |
-| Irrefutability = single-row exhaustiveness; one algorithm for both; `true \| false` irrefutable | §5.1 |
+| Irrefutability = single-row exhaustiveness; one algorithm for both; `True \| False` irrefutable | §5.1 |
 | `Some(n)` refutable / `UserId(n)` irrefutable — closed-union constructor count decides; flip-on-extension is a feature | §5.2 |
 | Nested patterns everywhere; positional constructor patterns stand; nominal records destructure via constructor pattern `Point({x, y})` | §2.2 |
 | Record patterns open by default, no `...`, punning `{f}` ≡ `{f = f}`; sub-pattern in field slot | §2.4 |
 | Pattern field separator is `=`, matching literals (Products §8); the `{x: Float}` type-confusion guard is retired in favour of the token-level `:`-in-terms fixit | §2.4, §16 |
-| Literal patterns: `Int`/`String`/`Bool` via `Eq`; ordinary inference (`Num` + `Eq` constraints); `Float` permanently banned with guard fixit; no `Char` | §2.5 |
+| Literal patterns: `Int`/`String` via `Eq` (`Bool` removed 2026-07-29, #147 — constructor patterns now); ordinary inference (`Num` + `Eq` constraints); `Float` permanently banned with guard fixit; no `Char` | §2.5 |
 | Or-patterns with F# same-bindings rule; spelling `\|` (C#'s `or` rejected: declaration/pattern coherence, predicate disanalogy, `and`/`not` pressure, lambda-head ambiguity) | §2.6, §10 |
 | Guard termination: top-level `=>` after `when` belongs to the arm; the claim is dropped inside any bracket, so a lambda in a guard needs no extra parens; the parenthesize fixit is retired | §3 |
 | `as` keyword; loosest pattern operator, looser than `\|`; refutability-transparent; zero-cost | §2.7 |
-| Guards: `when`, arm syntax only, whole-arm coverage, evaluated after pattern at most once, contribute nothing to exhaustiveness (incl. `when true`) | §3 |
+| Guards: `when`, arm syntax only, whole-arm coverage, evaluated after pattern at most once, contribute nothing to exhaustiveness (incl. `when True`) | §3 |
 | `match` scrutinee generalized; `Exn` and constraint-bounded abstract types permanently excluded | §6.1 |
 | Lambda heads: top-level commas = parameters; `((x, y))` = one tuple param; no grouping parens around param lists; single paren-free-pattern params | §6.5 |
-| Exhaustiveness/reachability: Maranget matrix, hard errors, exact; `Bool` exhaustive via literals; record coverage over mentioned fields; witness-pattern rendering | §7 |
+| Exhaustiveness/reachability: Maranget matrix, hard errors, exact; `Bool` exhaustive via closed constructors (#147); record coverage over mentioned fields; witness-pattern rendering | §7 |
 | Construction punning ships in v1; emits JS shorthand; term-level only | §9 |
 | Binder class is positional (Statements §5): arm/lambda/loop binders head, `let`-pattern binders sequential; no third class; duplicate-in-whole-pattern error incl. `as`, class-independent | §1, §2.1, §4, §6.3 |
 | Vector patterns shipped, owned by Collections Part 3 §3; `Vector` owns `[...]` in v1 (no `List`, no `Array` pattern surface); range patterns → guards; type-test patterns → never | §2, §10, §11.1 |
@@ -476,10 +477,10 @@ match tree
     Leaf => Leaf
 -- guard emits: 0 <= x && x < 100 appended with && to the arm test
 
--- (b) Bool exhaustive via literals; no wildcard
+-- (b) Bool exhaustive via closed constructors (#147); no wildcard
 match flag
-    true => 1
-    false => 0
+    True => 1
+    False => 0
 -- exhaustive; adding `_ => 2` afterwards is an unreachable-arm error
 
 -- (c) Or-pattern same-bindings
@@ -494,8 +495,8 @@ union UserId = UserId(Int)
 let UserId(n) = id                  -- OK: sole constructor
 let Some(v) = opt                   -- ERROR: this pattern can fail: None; use match
 
--- (f) true|false is irrefutable (coverage definition, not syntax)
-let (true | false) = b              -- legal (binds nothing; pointless but principled)
+-- (f) True|False is irrefutable (coverage definition, not syntax)
+let (True | False) = b              -- legal (binds nothing; pointless but principled)
 
 -- (g) Lambda depth rule
 (x, y) => x + y                     -- 2 params
@@ -507,10 +508,10 @@ Some(x) => x                        -- ERROR: refutable pattern in a binding pos
 -- (h) Record openness + punning + literal sub-pattern
 match user
     {role = Admin} => allowAll()
-    {verified = true, name} => greet(name)
+    {verified = True, name} => greet(name)
     _ => deny()
 -- coverage computed over {role, verified, name}; witness rendering on removal of `_`:
---   match is missing cases: {role = Member, verified = false}   (or shallowest equivalent)
+--   match is missing cases: {role = Member, verified = False}   (or shallowest equivalent)
 
 -- (i) Guards never count
 match n
@@ -528,7 +529,7 @@ match n
 
 -- (j) Construction punning round trip
 let name = "Ada"
-let user = {name, verified = true}  -- {name = name, ...}; emits {name, verified: true}
+let user = {name, verified = True}  -- {name = name, ...}; emits {name, verified: true}
 let {name = n} = user               -- n = "Ada"
 
 -- (k) Float literal ban

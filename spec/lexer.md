@@ -173,7 +173,10 @@ The groups are:
 - expression and control forms: `catch`, `else`, `for`, `if`, `in`, `match`,
   `then`, `try`, `while`;
 - word operators: `and`, `iff`, `implies`, `not`, `or`;
-- literal words: `false`, `true`;
+- reserved redirect words: `false`, `true` — formerly Bool literals, now reserved
+  spellings whose only role is a diagnostic (see below) *(corrected 2026-07-29,
+  #147: Bool is the prelude union `False | True`; its values are ordinary
+  uppercase constructor names, which the lexer treats like any `UpperName`)*;
 - derivation: `derive`, legal only as the complete body of an `honor` declaration;
 - reserved future control word: `finally`. It is tokenized now but has no v1
   grammar, so its use receives the targeted deferred-feature diagnostic.
@@ -181,6 +184,21 @@ The groups are:
 `honor` is the current instance-declaration keyword. The superseded `implement` is
 not reserved; in a declaration-shaped position it should receive a migration hint to
 write `honor`.
+
+**The `true`/`false` redirect (2026-07-29, #147).** Both spellings remain hard
+keywords — they may never be used as names, which forecloses `let true = ...`
+permanently — but they no longer produce values. The diagnostic is
+**position-aware, and position is the parser's to know** — the same division §4.2
+already fixes for contextual keywords: the lexer emits the hard-keyword token and
+the reserved-word fact; **the parser selects the message by position** (the §10
+rows record the required messages; their selection is parser work). In value
+position, the Rewrite-Rule redirect —
+"`true` is reserved; Bool's constructors are `True` and `False` — write `True`" —
+a one-token fixit for the JS-trained user's most probable spelling. In name/binder
+position, the ordinary hard-keyword message applies with **no** constructor fixit:
+"write `True`" would be wrong there, since `let True = ...` is a refutable
+constructor pattern that errors again. Full ruling:
+`decisions-ml-dialect-bool-2026-07.md` §2.2.
 
 ### 4.2 Contextual keywords
 
@@ -204,7 +222,7 @@ listed positions:
 | `static` | foreign static-member modifier; syntax completed by the FFI spec |
 | `default` | foreign default-import position; syntax completed by the FFI spec |
 
-Contextual status is observable: `let when = true` is legal, while the same spelling
+Contextual status is observable: `let when = True` is legal, while the same spelling
 after an arm pattern introduces its guard. Likewise `{with = 3}` is a field and `{with}`
 a pun, while `{p with x = 3}` is an update. A parser must test both spelling and
 position; the lexer does not emit contextual-keyword token kinds.
@@ -421,7 +439,8 @@ token inventory and the lexer must not report the same source code unit twice.
 | Continuation-only or otherwise invalid name initial | state that the character cannot begin an identifier |
 | Reserved `__hex_` prefix | "`__hex_` is reserved for compiler-generated names" + rename fix-it |
 | Literal bidirectional control | reject it; in a string suggest an explicit Unicode escape |
-| Hard keyword in name position | "`WORD` is reserved and cannot be used as a name" |
+| Hard keyword in name position | "`WORD` is reserved and cannot be used as a name" — including `true`/`false`; **no constructor fixit in this position** (`let True = ...` would be a refutable pattern, a second error) *(#147; position-dependent rows: the lexer emits the token, the **parser** selects the message — §4.1/§4.2's division)* |
+| `true`/`false` in value position | "`true` is reserved; Bool's constructors are `True` and `False` — write `True`" (resp. `False`); one-token fixit *(#147, §4.1; selection is parser work, same note as above)* |
 | Malformed `_` in a number | "`_` in a number must have a digit on both sides" |
 | `.5` / `1.` | suggest `0.5` / `1.0` |
 | Non-decimal base prefix | "Hexagon v1 has decimal literals only" |
@@ -481,6 +500,7 @@ a && b              -- write `a and b`
 | Uppercase-start/non-uppercase-start classification; exact spelling equality | §3.1 |
 | Bare `_` wildcard; `__hex_` reserved; escapes/apostrophes excluded; bidi controls rejected | §3.2 |
 | Complete hard/contextual/not-keyword tables; `finally` reserved | §4 |
+| `true`/`false`: hard keywords, redirect-only (no values); position-aware diagnostic — constructor fixit in value position, none in name position; `True`/`False` are ordinary `UpperName`s | §4.1, §10 (#147) |
 | Decimal numeric grammar, required digits around `.`, exact suffix rules | §5 |
 | Composite string token; interpolation recursively lexed but layout-suppressed | §6.1 |
 | Complete escape set; source newlines normalize to semantic LF | §6.2 |

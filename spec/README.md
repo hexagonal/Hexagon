@@ -6,7 +6,7 @@
 
 1. **The focused specifications below are normative.** This index and the router files only navigate; where an index and an owning spec appear to disagree, the owning spec wins.
 2. **Archived notes are non-normative.** Everything under `notes/archive/` (populated in consolidation Part 7) is drafting history: excluded from default reading sets, unable to override any promoted spec. Until Part 7 lands, files marked *historical* in the inventory have the same standing in place.
-3. **Cross-cutting closure documents** (`decisions-batch-2026-07.md`, `decisions-sol-review-2026-07.md`) are **authoritative until consolidated into their host specs**; where a host has not yet applied a recorded decision, the closure document governs.
+3. **Cross-cutting closure documents** (`decisions-batch-2026-07.md`, `decisions-sol-review-2026-07.md`, `decisions-ml-dialect-bool-2026-07.md` *(added 2026-07-29, #147)*) are **authoritative until consolidated into their host specs**; where a host has not yet applied a recorded decision, the closure document governs.
 4. **Edit-note convention:** a cross-spec correction is recorded as an *edit note in the originating document* and applied on next touch of the target; until applied, the originating document governs that point.
 5. **Section numbers are stable forever.** Specs never renumber; they append, or add correction records / review-resolution sections that supersede the text they annotate in place.
 6. **The Rewrite Rule** is doctrine corpus-wide. Its permanent host is `declarations-preamble.md` §1.1 *(corrected 2026-07-28 — the hosting foreseen here has happened; originating record: `decisions-sol-review-2026-07.md` §E)*. This index does not restate it.
@@ -27,7 +27,7 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Declarations | `modules.md` | files-as-modules, import/export, visibility, acyclicity, ESM emission |
 | Declarations | `intrinsics.md` | the intrinsic door: `extern from "hex:intrinsic"`, keys, gate, self-declaration fallback, door deprecation schedule |
 | Router | `type-system-overview.md` | non-authoritative legacy orientation; superseded by `language.md` at Part 3 |
-| Types | `primitive-types.md` | `Nat`/`Int`/`Float`/`BigInt`/`Bool`/`String`/`Unit`, `Show`/display |
+| Types | `primitive-types.md` | `Nat`/`Int`/`Float`/`BigInt`/`String`/`Unit`, `Show`/display *(`Bool` reclassified to `unions.md` §8 + the #147 closure doc, 2026-07-29; §4 there is the pointer)* |
 | Types | `products.md` | tuples, structural/nominal records, rows, field access |
 | Types | `unions.md` | `union` declarations, `match` surface, representations |
 | Types | `integral-constraint.md` | the `Integral` constraint |
@@ -46,6 +46,7 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Collections | `collections-part5-iterable.md` | user `Iterable`, instance table, `String` iteration, closeout |
 | Closure docs | `decisions-batch-2026-07.md` | six cross-spec decisions (incl. SameValueZero `Eq<Float>`) until hosted |
 | Closure docs | `decisions-sol-review-2026-07.md` | seven review resolutions (incl. Rewrite Rule §E) until hosted |
+| Closure docs | `decisions-ml-dialect-bool-2026-07.md` | the ML-dialect doctrine pivot and the `Bool`-as-prelude-union ruling (#147) until hosted |
 | FFI | `ffi.md` | **FFI entry point**: index, terminology, invariants, conformance (Part 12) |
 | FFI | `ffi-part1-boundary.md` | boundary doctrine, categories, master type table |
 | FFI | `ffi-part2-nullable-array.md` | `Nullable`, `NullableCase`, borrowed `Array` |

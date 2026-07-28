@@ -11,7 +11,7 @@
 
 - **`union` is the nominal sum; there is no structural sum.** Rows are records-only (Products §4): no polymorphic variants, no open unions, no anonymous `A | B` type expressions in Hexagon source. Two unions with identical constructor sets do not unify.
 - **The unifier treats a union name as opaque** — same doctrine as nominal `record` (Products §5.1). There is no structural counterpart to unfold to, so unions don't even have the `{...p}` crossing; the name is the whole story.
-- **`match` is the only eliminator.** No field access on union-typed receivers, no generated predicates, no casts.
+- **`match` is the only eliminator.** No field access on union-typed receivers, no generated predicates, no casts. *(One prelude exception, recorded 2026-07-29, #147: `Bool` — the logic operators and `if`/`while` conditions are additional `Bool` eliminators, and their native emission is licensed by §6.2's representation pin; §8. Every user-declared union is match-only without exception.)*
 - **Exhaustiveness is a hard error.** Closed nominal sums + no subtyping make it exact and cheap; it is the payoff of the feature and is not demoted to a warning.
 - **Runtime representation is what a TS author would hand-write:** string-tagged plain objects for the general case, bare string literals for the all-nullary case. No classes, no `instanceof`, no numeric tag compression.
 
@@ -124,7 +124,7 @@ The general algorithm — Maranget-style usefulness over the full grammar, witne
 
 ## 6. Runtime representation & emission
 
-Two representations, chosen **per union declaration** by one syntactic test: *does any constructor carry a payload?*
+Two representations, chosen **per union declaration** by one syntactic test: *does any constructor carry a payload?* *(Plus exactly one pinned exception outside the test — the prelude `Bool`, §6.2's note; #147.)*
 
 ### 6.1 General case: string-tagged POJOs
 
@@ -160,6 +160,8 @@ This is the single most idiomatic TS pattern for enum-likes and a large interop 
 > **Representation cliff:** adding a payload-carrying constructor to an all-nullary union flips the *entire* union — including the pre-existing constructors — to the tagged-POJO representation. Hexagon-side code is unaffected (`match` is the only eliminator, and it recompiles). JS-side consumers of the emitted values break. This is accepted because any constructor addition is already a breaking change for JS consumers (their switches stop being exhaustive); the cliff changes *how* it breaks, not *whether*.
 
 For every exported all-nullary union, **generated FFI documentation must carry this warning**; the emitter should additionally place it in a `.d.ts` doc comment (FFI Part 7 §4.1). The obligation is normative even though the comment placement is representative.
+
+> **The one language-side exception: the prelude's `Bool` (2026-07-29, #147).** `union Bool = False | True` (§8) does **not** take the string representation. Its representation is **intrinsically pinned to JS `boolean`**: `True` emits `true`, `False` emits `false`, `.d.ts` says `boolean`, and `match` emits on the boolean itself (`if`/ternary or `switch` with `case true:` — §6.3's judgment license applies). The pin is a compiler representation commitment granted to exactly this one prelude declaration — no user syntax requests it, and it is not the intrinsic door (Intrinsics §1 links operations, not representations). The representation cliff above cannot occur for `Bool`: its constructor set is compiler-verified prelude source. Derived-instance emission simplifies accordingly: `Eq` is `===`; `Ord` needs no declaration-index table, because JS `<` on booleans agrees with the declaration order `False | True` by construction; `Hash` hashes the boolean; `Show` is the two-way lookup to `"True"`/`"False"`. Full ruling: `decisions-ml-dialect-bool-2026-07.md` §3.
 
 `extern enum` is the explicit FFI exception to this representation rule. It retains
 nullary-union typing and matching while using captured foreign object-member values as
@@ -218,12 +220,22 @@ Mirroring Products §2.5/§3.4 — the structural semantics, applied to the decl
 
 ---
 
-## 8. Prelude: `Option` and `Result`
+## 8. Prelude: `Option`, `Result` — and `Bool` (2026-07-29, #147)
 
 ```
 union Option(a) derives (Eq, Show) = Some(value: a) | None
 union Result(a, e) = Ok(value: a) | Err(error: e)
+union Bool derives (Eq, Ord, Show, Hash) = False | True
 ```
+
+**`Bool`** joined the prelude when it left the primitive set (ML-dialect pivot; `decisions-ml-dialect-bool-2026-07.md`, Primitive Types §12). Its specifics:
+
+- **Constructor order `False | True`** is normative — derived `Ord` (§7, declaration order) must yield `False < True`, and the §6.2 representation pin relies on the order agreeing with JS `<` on booleans.
+- **Representation is pinned to JS `boolean`** — the §6.2 exception; everything else about the union is ordinary (§2.2 nullary-constructor values, §4 matching, §7 derivation semantics).
+- **`True`/`False` are the only value spellings.** The reserved words `true`/`false` produce the Lexer §4.1 redirect ("Bool's constructors are `True` and `False`"). `show True` is `"True"` — the standard derived Show, superseding the former lowercase primitive ruling.
+- **No truthiness** — conditions require `Bool`, no coercion (the surviving Primitive Types §4 clause; recorded there, honored everywhere).
+- **`Bool` is the sole exception to §1's match-only eliminator doctrine** *(added 2026-07-29, PR #148 review)*: `and`/`or`/`not`/`implies`/`iff` (Operators §4) and `if`/`while` conditions (Operators §11) eliminate a `Bool` without `match`, with mandated native emission (`&&`, `||`, `!`, `!a || b`, `===`, direct branch). That emission is **legal only because of the §6.2 pin** — against the string representation, `&&` on `"False"` would be truthy nonsense — so the operators are silent dependents of the pin, recorded here and in the ruling's ledger so a pin revisit knows what breaks. The eliminators are representation-blind at the source level; nothing about them exposes fields, predicates, or casts, and the §5 dot-access ban applies to `Bool` like any union.
+- **The declaration is real prelude source, not spec prose** *(James's ruling, 2026-07-29 — decisions doc §3.5)*: a compiler-verified `.hex` companion module on the `Seq.hex` model. Consequently the `derives` clause is the ordinary derivation door (Collections Part 2 §4.3), and `Bool`'s four instances are **derived, not compiler-provided** — Part 2 §2.5's provenance correction (#147, §18 there) records the move.
 
 - **Success type first** in `Result`, matching the subject-first convention (Functions §5.3).
 - Payload slots are **named** even though these are the "obvious" constructors, because their emitted shape (`{tag: "Some", value: x}`, `{tag: "Err", error: e}`) is the most-trafficked union surface at the FFI, and `value`/`error` is what a TS author writes there. This deliberately overrides the §2.1 style rule's escape hatch for the prelude's own exports.
@@ -272,6 +284,7 @@ union Result(a, e) = Ok(value: a) | Err(error: e)
 | Constructor applications erase; referenced constructors materialise on demand; non-opaque export is a mandatory stable materialization site; opaque export exposes no constructors | §6.4; FFI Part 7 §§4–5 |
 | `.d.ts` = hand-written-style discriminated union / string-literal union for non-opaque exports, with constructors in their representation shapes; opaque export = brand-only type face | §6.5; FFI Part 7 §§4–5 |
 | No automatic instances for nominal unions; Eq/Ord/Show/Hash by explicit `derive`/`derives` only (Constraints §4.5); semantics here; `Hash` → Collections Part 2; derivation fails on absent payload instances | §7 |
+| `Bool` is a prelude union (`False \| True`), representation intrinsically pinned to JS `boolean` — sole language-side exception to the all-nullary string rule; no user-reachable pin | §6.2, §8; decisions-ml-dialect-bool-2026-07.md (#147) |
 | Ord by declaration order (index table for string case); Show positional | §7 |
 | Prelude `Option`/`Result`, named payloads, success-first `Result` | §8 |
 | `Option` ≠ `a \| undefined`; nullability is `Nullable(a)` at the boundary; conversions are `Nullable.toOption`/`fromOption`/`fromOptionOrNull` (FFI Part 2 §4–§5) | §8 |

@@ -71,6 +71,7 @@ Design guards for the eventual discussion:
 Per the house convention (README authority rule 4), pending notes live in their originating documents and are applied at consolidation Part 6. The remaining ripple large enough to track here:
 
 - **Statements §5 correction** (`let`-pattern binders are sequential) — owner: `statements-blocks-mutability.md` §5/§5.4, full edit text in its §9.2 items 5–8; targets: `pattern-matching.md`, `products.md` §2.4, `modules.md` §10 (near-miss diagnostic), `notes/hexagon-for-typescript-coders.md`.
+- **#147 Bool-as-union ripple** (2026-07-29) — owner: `decisions-ml-dialect-bool-2026-07.md` §6 (the ledger); targets: Operators §4/§11 (pin-licensed native emission), Collections Part 4 §10.1/§18 + FFI Part 10 §4.3 (faithfulness lead-ins), zero-cost exports §2.1, `ffi.md`, Method Syntax §4.1, Collections Part 5 §4, Type System Overview, Loops; plus the corpus-wide `true`/`false` → `True`/`False` example-respelling standing rule.
 
 The complete pending-note registry, per originating document, is `notes/v1-spec-inventory.md` §3.2 (approved; consumed by Part 6).
 
