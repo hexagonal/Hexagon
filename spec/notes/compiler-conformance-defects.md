@@ -825,12 +825,12 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   strictly needed — and a spare distinguished local costs nothing while a missed
   one is unloadable output.
 
-### 15. The inbound adapter does not memoize a forcing failure (open, pre-existing)
+### 15. The inbound adapter does not memoize a forcing failure
 
 - **Classification:** compiler defect against specification. **Pre-existing** —
   carried unchanged from the intrinsic `seq` helper into the FFI Part 3 bridge
   pair. Recorded by Fable on PR #91 (finding F4) as a log entry rather than a fix,
-  since the unification neither introduced nor worsened it.
+  since the unification neither introduced nor worsened it. **Corrected 2026-07-28.**
 - **Authority:** FFI Part 3 §7.1 — "**If forcing a sequence node fails, that node
   remembers the failure**: forcing the same persistent position again must not
   advance the iterator and must not repeat the foreign operation." §7.2 step 6
@@ -846,6 +846,55 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
 - **Shape of the fix:** the spine's memo cell needs a third state beside
   *unforced* and *forced* — *failed, with the thrown value* — replayed on every
   subsequent force of that position. It is a change to the one helper.
+- **Correction applied (2026-07-28).** `seqFromIterable` (emitter.ts) wraps the
+  whole forcing step — acquisition, `next()`, the malformed-result check, the
+  `done` and `value` reads — in one `try`, stores the thrown value, and rethrows
+  it on every later force of that position. Failure is now an outcome of the §4
+  spine, the third state beside unforced and forced.
+- **One cell serves the whole spine, and the argument is the entry's substance.**
+  Only the frontier position is ever unforced: a tail node is constructed solely
+  in `pull`'s success path, so position *i+1* exists only because *i* forced
+  cleanly. A failure pushes nothing and leaves `__hex_done` false, so the
+  frontier does not move and no position beyond a failed one can be reached. The
+  guard that gates forcing — `index === values.length && !done` — is therefore
+  already exactly "this is the frontier", and the replay check sits inside it,
+  which is what keeps a failure from poisoning the buffered positions before it.
+  A per-node cell would encode the same fact more expensively.
+  **The argument assumes forcing is not reentrant** — that foreign code driven
+  by one forcing does not itself pull the same spine. Under reentrancy "a
+  failure pushes nothing" is voided: an inner forcing can record a failure that
+  an outer, still-running forcing then overwrites with a value, leaving a stale
+  error replayed at a position the source would have served. Issue #123 asks for
+  the ruling (raised by Fable, review finding F3). It is not a consequence of the single cell — a per-node cell
+  collides on the same node — and the pre-fix spine was already incoherent
+  there, reordering elements rather than replaying a stale failure.
+- **The stored cell is a box, not the thrown value.** JavaScript permits
+  `throw undefined`, so `failure !== undefined` would otherwise misread a
+  genuine failure as unforced and re-enter the foreign call — the defect again,
+  in the fix, on the one input that looks like the sentinel.
+- **Executable conformance:** `seq-unification.test.ts`, a describe block of six.
+  Five are one per throwing operation §7.1 and §7.2 name — `next()`,
+  `[Symbol.iterator]()`, a `done` getter, a `value` getter, and the adapter's own
+  malformed-result `TypeError`; `return()`, the remaining operation in §7.1's
+  list, is not covered because the adapter never invokes it (§8). Each forces
+  **one persistent position twice** and asserts the second throw is `toBe` the
+  first (identity, so replay is distinguished from a re-run that throws a
+  look-alike) and that the foreign side was touched once. Each foreign source
+  yields a good value on the call after the failing one, so a re-invocation shows
+  up as a *success* where §7.1 demands a replayed failure.
+- **The sixth test is the one that pins the paragraph above**, and it was missing
+  from the first cut of this fix. The other five all fail at the head, so none of
+  them can tell a correct spine from one that poisons every buffered position: a
+  mutant with the replay check moved *outside* the frontier guard passes all
+  five, and the whole file. The sixth buffers position 1, fails twice at position
+  2, and re-reads position 1 — the only case here whose failing position is not
+  the head. It is the executable form of "a failure is an outcome of that node".
+- All six confirmed red against the pre-fix helper in a detached worktree,
+  failing on the same discriminator: one throw recorded instead of two.
+- **Bearing on `memoize`:** `Seq.memoize` is specified as "the same mechanism as
+  FFI Part 3's inbound adapter" (Loops §6.4), and `Seq` is the pilot `Vector`,
+  `Set`, and `Map` inherit. Fixing the spine before exposing it to a second
+  caller is why this entry led its phase rather than following it.
 
 ### 16. A call could pass more evidence than the callee's scheme declares
 

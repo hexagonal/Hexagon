@@ -502,3 +502,236 @@ describe("the inbound adapter's protocol access order (FFI Part 3 §7.2)", () =>
     expect(exports["before"]).toBe(0);
   });
 });
+
+describe("the inbound adapter memoizes a forcing failure (FFI Part 3 §7.1)", () => {
+  /**
+   * §7.1: "**If forcing a sequence node fails, that node remembers the
+   * failure**: forcing the same persistent position again must not advance the
+   * iterator and must not repeat the foreign operation." §7.2 step 6 repeats it
+   * for every step of the protocol order. Failure is an outcome like any other
+   * in the §4 spine — a third memo state beside *unforced* and *forced*.
+   *
+   * Defect 15. Each test below forces **one persistent position twice** and
+   * asserts two things the old spine got wrong: the second force throws the
+   * *same* value (identity, so a re-run that happens to throw a look-alike does
+   * not pass), and the foreign side was touched exactly once.
+   *
+   * The failing position is the head, so the failure is what a caller sees
+   * first; the foreign sources all yield perfectly good values on the call
+   * after the failing one, which is what makes a re-invocation visible as a
+   * *success* where §7.1 demands a replayed failure.
+   */
+
+  /** `force()` twice over a shared head, plus the foreign side's own call count. */
+  async function forcedTwice(foreign: string): Promise<{
+    thrown: readonly unknown[];
+    touches: number;
+  }> {
+    const exports = await run(
+      [["/main.hex",
+        "extern from \"numbers\"\n" +
+        "    fun counter(): Seq(Int)\n" +
+        "    fun touches(): Int\n" +
+        "\n" +
+        "let shared: Seq(Int) = counter()\n" +
+        "\n" +
+        "export let force(ignored: Int): Int =\n" +
+        "    match Seq.next(shared)\n" +
+        "        None => 0\n" +
+        "        Some((value, _)) => value\n" +
+        "\n" +
+        "export let touched(ignored: Int): Int = touches()\n"]],
+      { numbers: foreign },
+    );
+    const force = exports["force"] as (ignored: number) => number;
+    const thrown: unknown[] = [];
+    for (const _attempt of [0, 1]) {
+      try {
+        force(0);
+      } catch (error) {
+        thrown.push(error);
+      }
+    }
+    return { thrown, touches: (exports["touched"] as (ignored: number) => number)(0) };
+  }
+
+  test("a throw from `next()` is replayed, and the iterator does not advance", async () => {
+    const { thrown, touches } = await forcedTwice([
+      "let calls = 0;",
+      "export function touches() { return calls; }",
+      "export function counter() {",
+      "  return { [Symbol.iterator]() {",
+      "    return { next() {",
+      "      calls += 1;",
+      "      if (calls === 1) throw new Error(\"no first element\");",
+      "      return { done: false, value: calls };",
+      "    } };",
+      "  } };",
+      "}",
+    ].join("\n"));
+    // Two failures, not a failure and then the element the caller skipped past.
+    expect(thrown).toHaveLength(2);
+    expect(thrown[1]).toBe(thrown[0]);
+    expect((thrown[0] as Error).message).toBe("no first element");
+    expect(touches).toBe(1);
+  });
+
+  test("a throw from `[Symbol.iterator]()` is replayed, and the source is acquired once", async () => {
+    // §7.1 names acquisition among the throwing operations. It happens *during*
+    // the first force (§3), so it is that node's failure like any other.
+    const { thrown, touches } = await forcedTwice([
+      "let acquisitions = 0;",
+      "export function touches() { return acquisitions; }",
+      "export function counter() {",
+      "  return { [Symbol.iterator]() {",
+      "    acquisitions += 1;",
+      "    if (acquisitions === 1) throw new Error(\"no cursor\");",
+      "    return { next: () => ({ done: false, value: 7 }) };",
+      "  } };",
+      "}",
+    ].join("\n"));
+    expect(thrown).toHaveLength(2);
+    expect(thrown[1]).toBe(thrown[0]);
+    expect((thrown[0] as Error).message).toBe("no cursor");
+    expect(touches).toBe(1);
+  });
+
+  test("a throw from a `done` getter is replayed, and the iterator does not advance", async () => {
+    // §7.2 step 3's read, and the earlier of the two accessors §7.2 names.
+    // Nothing about the node has been decided when this throws — not even
+    // whether it ends the sequence — so the memo cell is all there is to record.
+    const { thrown, touches } = await forcedTwice([
+      "let calls = 0;",
+      "export function touches() { return calls; }",
+      "export function counter() {",
+      "  return { [Symbol.iterator]() {",
+      "    return { next() {",
+      "      calls += 1;",
+      "      if (calls === 1) return { get done() { throw new Error(\"bad done\"); }, value: 1 };",
+      "      return { done: false, value: calls };",
+      "    } };",
+      "  } };",
+      "}",
+    ].join("\n"));
+    expect(thrown).toHaveLength(2);
+    expect(thrown[1]).toBe(thrown[0]);
+    expect((thrown[0] as Error).message).toBe("bad done");
+    expect(touches).toBe(1);
+  });
+
+  test("a throw from a `value` getter is replayed, and the iterator does not advance", async () => {
+    // §7.2 step 5's read. `done` was already read and coerced when this throws,
+    // so the memo cell must record the failure rather than a half-forced node.
+    const { thrown, touches } = await forcedTwice([
+      "let calls = 0;",
+      "export function touches() { return calls; }",
+      "export function counter() {",
+      "  return { [Symbol.iterator]() {",
+      "    return { next() {",
+      "      calls += 1;",
+      "      if (calls === 1) return { done: false, get value() { throw new Error(\"bad value\"); } };",
+      "      return { done: false, value: calls };",
+      "    } };",
+      "  } };",
+      "}",
+    ].join("\n"));
+    expect(thrown).toHaveLength(2);
+    expect(thrown[1]).toBe(thrown[0]);
+    expect((thrown[0] as Error).message).toBe("bad value");
+    expect(touches).toBe(1);
+  });
+
+  test("the malformed-result TypeError is replayed, and the iterator does not advance", async () => {
+    // The one check the adapter performs itself (§7.2). Its `TypeError` is
+    // raised by the spine, not the foreign side, and is memoized identically —
+    // identity here proves the *stored* error is rethrown, not a fresh one.
+    const { thrown, touches } = await forcedTwice([
+      "let calls = 0;",
+      "export function touches() { return calls; }",
+      "export function counter() {",
+      "  return { [Symbol.iterator]() {",
+      "    return { next() {",
+      "      calls += 1;",
+      "      return calls === 1 ? 5 : { done: false, value: calls };",
+      "    } };",
+      "  } };",
+      "}",
+    ].join("\n"));
+    expect(thrown).toHaveLength(2);
+    expect(thrown[0]).toBeInstanceOf(TypeError);
+    expect(thrown[1]).toBe(thrown[0]);
+    expect(touches).toBe(1);
+  });
+
+  /**
+   * The failure is an outcome of **one position**, not of the sequence. A
+   * position already forced keeps its value: §4's spine memoizes outcomes
+   * per position, and §7.1 speaks of "that node". So the replay check belongs
+   * *inside* the frontier guard, and this is the test that says so — the four
+   * above all fail at the head, so none of them would notice a check that
+   * poisoned every buffered position behind the failed one.
+   *
+   * It is also the only case here where the failing position is not the head.
+   */
+  test("a failure does not poison the positions already forced before it", async () => {
+    const exports = await run(
+      [["/main.hex",
+        "extern from \"numbers\"\n" +
+        "    fun counter(): Seq(Int)\n" +
+        "    fun touches(): Int\n" +
+        "\n" +
+        "let shared: Seq(Int) = counter()\n" +
+        "\n" +
+        "let tailOf(source: Seq(Int)): Seq(Int) =\n" +
+        "    match Seq.next(source)\n" +
+        "        None => source\n" +
+        "        Some((_, rest)) => rest\n" +
+        "\n" +
+        "let second: Seq(Int) = tailOf(shared)\n" +
+        "\n" +
+        "export let forceSecond(ignored: Int): Int =\n" +
+        "    match Seq.next(second)\n" +
+        "        None => 0\n" +
+        "        Some((value, _)) => value\n" +
+        "\n" +
+        "export let forceHead(ignored: Int): Int =\n" +
+        "    match Seq.next(shared)\n" +
+        "        None => 0\n" +
+        "        Some((value, _)) => value\n" +
+        "\n" +
+        "export let touched(ignored: Int): Int = touches()\n"]],
+      {
+        numbers: [
+          "let calls = 0;",
+          "export function touches() { return calls; }",
+          "export function counter() {",
+          "  return { [Symbol.iterator]() {",
+          "    return { next() {",
+          "      calls += 1;",
+          "      if (calls === 2) throw new Error(\"no second element\");",
+          "      return { done: false, value: calls * 10 };",
+          "    } };",
+          "  } };",
+          "}",
+        ].join("\n"),
+      },
+    );
+    const forceSecond = exports["forceSecond"] as (ignored: number) => number;
+    const forceHead = exports["forceHead"] as (ignored: number) => number;
+    // Position 1 was forced while `second` was taken, so it is buffered.
+    expect(forceHead(0)).toBe(10);
+    const thrown: unknown[] = [];
+    for (const _attempt of [0, 1]) {
+      try {
+        forceSecond(0);
+      } catch (error) {
+        thrown.push(error);
+      }
+    }
+    expect(thrown).toHaveLength(2);
+    expect(thrown[1]).toBe(thrown[0]);
+    // The head still answers with its value, after the failure and twice over.
+    expect(forceHead(0)).toBe(10);
+    expect((exports["touched"] as (ignored: number) => number)(0)).toBe(2);
+  });
+});

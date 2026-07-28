@@ -3538,21 +3538,38 @@ function renderHelper(
       // `next()` once, require an object, read `done` once and **boolean-coerce**
       // it (a `{ done: 1 }` result terminates native iteration and must
       // terminate this), read `value` once and only when not done.
+      //
+      // **Failure is an outcome the spine memoizes too** (§7.1, and §7.2 step 6
+      // for every step above): forcing a position again after it failed must
+      // replay the stored throw rather than advance the iterator or repeat the
+      // foreign operation. One cell suffices for the whole spine — only the
+      // frontier position is ever unforced (a tail node exists only because its
+      // predecessor was forced successfully), and a failure leaves the frontier
+      // where it was, so the spine cannot advance past a failed position. The
+      // cell is a *box*, not the thrown value itself, since JavaScript permits
+      // throwing `undefined`.
       return [
         `function ${name}(__hex_source) {`,
         "  const __hex_values = [];",
         "  let __hex_iterator = undefined;",
         "  let __hex_done = false;",
+        "  let __hex_failure = undefined;",
         "  const __hex_node = (__hex_index) => ({",
         "    pull: () => {",
         "      if (__hex_index === __hex_values.length && !__hex_done) {",
-        "        if (__hex_iterator === undefined) __hex_iterator = __hex_source[Symbol.iterator]();",
-        "        const __hex_next = __hex_iterator.next();",
-        '        if (__hex_next === null || (typeof __hex_next !== "object" && typeof __hex_next !== "function")) {',
-        '          throw new TypeError("Iterator result " + String(__hex_next) + " is not an object");',
+        "        if (__hex_failure !== undefined) throw __hex_failure.error;",
+        "        try {",
+        "          if (__hex_iterator === undefined) __hex_iterator = __hex_source[Symbol.iterator]();",
+        "          const __hex_next = __hex_iterator.next();",
+        '          if (__hex_next === null || (typeof __hex_next !== "object" && typeof __hex_next !== "function")) {',
+        '            throw new TypeError("Iterator result " + String(__hex_next) + " is not an object");',
+        "          }",
+        "          __hex_done = Boolean(__hex_next.done);",
+        "          if (!__hex_done) __hex_values.push(__hex_next.value);",
+        "        } catch (__hex_error) {",
+        "          __hex_failure = { error: __hex_error };",
+        "          throw __hex_error;",
         "        }",
-        "        __hex_done = Boolean(__hex_next.done);",
-        "        if (!__hex_done) __hex_values.push(__hex_next.value);",
         "      }",
         '      if (__hex_index >= __hex_values.length) return { tag: "None" };',
         '      return { tag: "Some", value: [__hex_values[__hex_index], __hex_node(__hex_index + 1)] };',
