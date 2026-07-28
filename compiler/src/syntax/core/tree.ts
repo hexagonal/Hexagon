@@ -489,6 +489,10 @@ export interface IfExpr extends ExpressionFields {
   readonly condition: Expr;
   readonly consequence: Expr;
   readonly alternative: Expr;
+  // See Parsed.IfExpr: set when the source omitted `else` (`else ()` sugar).
+  // The emitter erases the inserted branch instead of emitting a synthetic
+  // `else` (Operators §11.4).
+  readonly elseless?: boolean;
 }
 
 export interface WhileExpr extends ExpressionFields {

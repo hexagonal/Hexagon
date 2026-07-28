@@ -95,4 +95,165 @@ describe("statement-position match", () => {
     expect(m.summed).toBe(10);
     expect(m.missing).toBe(-1);
   });
+
+  // A `match` that cannot lower to a `switch` — a tuple pattern here — becomes
+  // an `if`-chain closed by an unreachable-pattern `throw`. A `Unit`-valued arm
+  // emits statements, so without a `return` control runs on through every later
+  // arm and into that `throw`.
+  test("an if-chain arm does not fall through into the later arms", async () => {
+    const m = await run(
+      "let pick(pair: (Int, Int)): Int =\n" +
+        "    var result = 0\n" +
+        "    match pair\n" +
+        "        (0, second) => result := second\n" +
+        "        (first, _) => result := first\n" +
+        "    result\n" +
+        "export let firstArm: Int = pick((0, 7))\n" +
+        "export let secondArm: Int = pick((5, 7))\n",
+    );
+    expect(m.firstArm).toBe(7);
+    expect(m.secondArm).toBe(5);
+  });
+
+  test("a conditional-valued if-chain arm does not fall through either", async () => {
+    const m = await run(
+      "let pick(pair: (Int, Int)): Int =\n" +
+        "    var result = 0\n" +
+        "    match pair\n" +
+        "        (0, second) => if second > 0 then result := second\n" +
+        "        (first, _) => result := first\n" +
+        "    result\n" +
+        "export let branchTaken: Int = pick((0, 7))\n" +
+        "export let branchSkipped: Int = pick((0, 0 - 7))\n" +
+        "export let secondArm: Int = pick((5, 7))\n",
+    );
+    expect(m.branchTaken).toBe(7);
+    expect(m.branchSkipped).toBe(0);
+    expect(m.secondArm).toBe(5);
+  });
+});
+
+describe("statement-position conditionals", () => {
+  test("an else-less conditional runs its branch and skips it otherwise", async () => {
+    const m = await run(
+      "let classify(value: Int): Int =\n" +
+        "    var result = 0\n" +
+        "    if value > 0 then result := 1\n" +
+        "    result\n" +
+        "export let taken: Int = classify(3)\n" +
+        "export let untaken: Int = classify(0 - 3)\n",
+    );
+    expect(m.taken).toBe(1);
+    expect(m.untaken).toBe(0);
+  });
+
+  test("an `else if` chain picks exactly one branch", async () => {
+    const m = await run(
+      "let sign(value: Int): Int =\n" +
+        "    var result = 99\n" +
+        "    if value < 0 then\n" +
+        "        result := 0 - 1\n" +
+        "    else if value == 0 then\n" +
+        "        result := 0\n" +
+        "    else\n" +
+        "        result := 1\n" +
+        "    result\n" +
+        "export let negative: Int = sign(0 - 4)\n" +
+        "export let zero: Int = sign(0)\n" +
+        "export let positive: Int = sign(4)\n",
+    );
+    expect(m.negative).toBe(-1);
+    expect(m.zero).toBe(0);
+    expect(m.positive).toBe(1);
+  });
+
+  // A block arm flattens into the braces the `if` already needs, rather than
+  // staying an IIFE. Its own bindings must survive the move, and its final
+  // item must not emit the `return` the IIFE wanted — that would return from
+  // the enclosing function and skip everything after the conditional.
+  test("a block arm flattens without returning from the enclosing function", async () => {
+    const m = await run(
+      "let compute(flag: Bool): Int =\n" +
+        "    var result = 0\n" +
+        "    if flag then\n" +
+        "        let taken = 1\n" +
+        "        result := result + taken\n" +
+        "        result := result + taken\n" +
+        "    else\n" +
+        "        let skipped = 10\n" +
+        "        result := result + skipped\n" +
+        "    result := result + 100\n" +
+        "    result\n" +
+        "export let branchTaken: Int = compute(true)\n" +
+        "export let branchSkipped: Int = compute(false)\n",
+    );
+    expect(m.branchTaken).toBe(102);
+    expect(m.branchSkipped).toBe(110);
+  });
+
+  // The conditional is the function's tail: emitting it as a statement leaves
+  // the function falling off its end, which must still produce `Unit` — and
+  // must still run the branch. A `throw` in the taken branch makes both halves
+  // observable from outside the function.
+  test("a conditional in tail position runs its branch and still yields Unit", async () => {
+    const m = await run(
+      "exception Marked\n" +
+        "let guard(flag: Bool): Unit =\n" +
+        "    if flag then throw(Marked)\n" +
+        "let attempt(flag: Bool): Int =\n" +
+        "    try\n" +
+        "        guard(flag)\n" +
+        "        0\n" +
+        "    catch\n" +
+        "        Marked => 1\n" +
+        "export let taken: Int = attempt(true)\n" +
+        "export let untaken: Int = attempt(false)\n",
+    );
+    expect(m.taken).toBe(1);
+    expect(m.untaken).toBe(0);
+  });
+
+  test("a nested conditional inside a branch keeps both conditions", async () => {
+    const m = await run(
+      "let both(left: Bool, right: Bool): Int =\n" +
+        "    var result = 0\n" +
+        "    if left then\n" +
+        "        if right then\n" +
+        "            result := 2\n" +
+        "        result := result + 1\n" +
+        "    result\n" +
+        "export let neither: Int = both(false, false)\n" +
+        "export let outerOnly: Int = both(true, false)\n" +
+        "export let inner: Int = both(true, true)\n",
+    );
+    expect(m.neither).toBe(0);
+    expect(m.outerOnly).toBe(1);
+    expect(m.inner).toBe(3);
+  });
+
+  test("a conditional in a loop body does not escape the loop", async () => {
+    const m = await run(
+      "let evens(limit: Int): Int =\n" +
+        "    var total = 0\n" +
+        "    var step = 0\n" +
+        "    while step < limit\n" +
+        "        step := step + 1\n" +
+        "        if Int.mod(step, 2) == 0 then total := total + step\n" +
+        "    total\n" +
+        "export let summed: Int = evens(6)\n",
+    );
+    expect(m.summed).toBe(12);
+  });
+
+  // Value position is untouched: the ternary still produces a value, including
+  // when the value happens to be `Unit`.
+  test("a value-position conditional still produces its value", async () => {
+    const m = await run(
+      "let pick(flag: Bool): Int = if flag then 1 else 2\n" +
+        "export let taken: Int = pick(true)\n" +
+        "export let untaken: Int = pick(false)\n",
+    );
+    expect(m.taken).toBe(1);
+    expect(m.untaken).toBe(2);
+  });
 });

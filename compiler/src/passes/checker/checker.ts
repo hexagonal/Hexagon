@@ -5070,6 +5070,7 @@ class Checker {
           condition: this.#materializeExpr(expression.condition),
           consequence: this.#materializeExpr(expression.consequence),
           alternative: this.#materializeExpr(expression.alternative),
+          ...(expression.elseless ? { elseless: true } : {}),
           type,
           span: expression.span,
         };
