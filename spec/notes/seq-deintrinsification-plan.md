@@ -162,7 +162,13 @@ only as a declaration: the resolver's intrinsic fallback list is
   driver — a `while` over `pull`, never recursion, per Loops §6.5). Producing
   rows go through the first, consuming rows and `for x in` (R3) and extern
   boundaries in both directions through the second. HAMT traversal stays
-  runtime-owned and composes with the pair, as R1 says.
+  runtime-owned and composes with the pair, as R1 says. *(Amended 2026-07-28,
+  defect 12 ruling — FFI Part 3 §9.4: the compiler-side representation family
+  grows from the pair to four named members — the pair, the boundary traversal
+  method every `Seq` value carries (composed from the pair), and the inbound
+  door's genuine-`Seq` recognition check (Part 3 §2.2). The sole-constructor
+  and sole-`pull`-consumer clauses stand; R5's round-trips extend over the two
+  new members.)*
 - **The compiler-known operation family is deleted, not repointed** (PR #85
   finding F1). `Seq.iterate`/`map`/`filter`/`take` are ordinary qualified
   references to prelude functions; `source.map(f)` is ordinary companion

@@ -678,7 +678,7 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   from a structure that is closed by construction — as PR #91's F1 fix does, by
   taking every name `#declare` ever produced instead of listing binder syntax.
 
-### 12. An exported `Seq` no longer faces JavaScript as an `Iterable` (open)
+### 12. An exported `Seq` no longer faces JavaScript as an `Iterable` (ruled 2026-07-28 — FFI Part 3 §9.4–§9.7; implementation owed)
 
 - **Classification:** **open question for ruling, not a defect with a known
   fix.** A capability regression introduced by Phase 4 steps 8–9 and pinned
@@ -742,6 +742,69 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   `Iterable<number>` in parameter and result position with no wrapper behind
   either; and the emitted `.d.ts` *does* say `Iterable<number>` throughout.
   Whichever answer lands, those tests fail and have to be rewritten deliberately.
+
+- **RULED (2026-07-28, Fable in the spec seat).** The ruling is FFI Part 3
+  §9.4 (mechanism at every position), §2.2 (inbound door: genuine `Seq` by
+  identity), §9.5 (binding `Vector`/`Set`/`Map` inheritance, with Part 1 §8.2),
+  §9.6 (rejected alternatives with prices), §9.7 (`toJsIterable` discharged by
+  merger into the face + `Seq.memoize`); companions annotated: Part 7 §6/§7,
+  Part 1 §8.2, Loops §6.4/§6.5, ledger §5.1. In one line: **the iterable face is
+  representation** — every `Seq` value carries one shared `[Symbol.iterator]`
+  whose traversals share a lazily created per-value memoized boundary view
+  (§9.1's seven properties, verified against the composed R1 pair including
+  #124's failure memoization); value and result positions are direct;
+  parameter positions get occasion 1's stable wrapper over the §2.2 door;
+  Hexagon-internal traversal never drives the face. None of the three "disagreeing"
+  rules gives way: §9.1 holds in full, Part 7 §6 holds (a representation member
+  is not a boundary artifact; identity crossing is now also *delivered* inbound),
+  and R1 is amended, not broken (the compiler-side representation family grows
+  from the pair to four named members). Part 1 §4.1's outbound row had stated
+  the representation contract all along.
+- **The pinning-test schedule the implementer inherits** (do not rediscover it;
+  all in `seq-unification.test.ts`, the "boundary face (FFI Part 3)" describe):
+  - *":288 a Seq crosses out to JavaScript as an Iterable"* — `.d.ts`-only;
+    **stays green, keep unchanged.**
+  - *":324 an exported function's Seq positions face JavaScript as the record
+    too"* — the two `.d.ts` assertions **stay**; the two JS assertions become
+    wrong and are the deliberate reds: `toContain("const total = values =>
+    fold(values, 0,")` (the binding becomes the stable wrapper) and
+    `not.toContain("__hex_seqFromIterable")` (the wrapper reaches the inbound
+    door). Replace with runtime round-trips per the file's own doctrine:
+    (a) a JS caller passes a plain array to `total` and gets the sum (adapter
+    ran); (b) identity pass-through — `export let same(values: Seq(Int)):
+    Seq(Int) = values`; from JS, `same(counted) === counted` for an exported
+    `Seq`, while `same([1, 2])` returns a non-array `Seq` that iterates
+    `1, 2`; (c) a second `.hex` module imports `total` and calls it with a
+    `.hex`-built `Seq` — wrapper transparency for Hexagon importers;
+    (d) `[...upTo(3)]` yields `[1, 2, 3]` (result position, no wrapper).
+  - *":353 an exported Seq faces JavaScript as the record, not yet as an
+    Iterable"* — `expect(counted[Symbol.iterator]).toBeUndefined()` **inverts**
+    (that is the headline red). Replace the test with §9.1 conformance:
+    `typeof counted[Symbol.iterator] === "function"`; spreading twice yields
+    `[1, 2, 3]` twice; two interleaved cursors advance independently;
+    memoization via an extern `tick()` counter in the pipeline — two full JS
+    traversals leave the counter at 3, not 6; and channel separation — a
+    Hexagon-side export that folds the same `Seq` still re-derives (counter
+    grows per Hexagon traversal) per Loops §6.4. `typeof counted.pull` may stay
+    (the record representation is unchanged).
+  - *":373 a foreign `Seq` result enters through the inbound adapter, not
+    raw"* — the intent stands; the emitted-name regex
+    (`__hex_seqFromIterable(...)`) survives only if the emitter keeps that
+    spelling for the door, which is latitude — prefer rewriting it behavioural.
+    Add the door's new half: an extern `echo(values: Seq(Int)): Seq(Int)`
+    implemented in JS as the identity returns the very spine — observable
+    because traversing the round-tripped effectful `Seq` twice from Hexagon
+    re-derives (ticks double) instead of replaying a silently added memo layer.
+  - The failure-memoization describe and everything above the boundary-face
+    describe are unaffected; `emitter.test.ts:351`'s `.d.ts` face assertion
+    stays. Every new red must be confirmed red against pre-ruling `main` per
+    the standing rule.
+- **Filed separately, found while binding §9.5** (not this ruling's to fix):
+  the emitted `.d.ts` faces for `Vector`/`Map`/`Set`/`Range` are
+  `ReadonlyArray`/`ReadonlyMap`/`ReadonlySet`/bare `Iterable<number>`
+  (emitter.ts `renderType`), diverging from Part 1 §4.1/§8's decided `Hex.*`
+  branded faces — pre-existing, and `ReadonlyMap`/`ReadonlySet` promise API
+  the HAMT records do not have. Needs its own defect entry / issue.
 
 ### 13. An unsupported companion operation crashes on a literal argument (pre-existing)
 

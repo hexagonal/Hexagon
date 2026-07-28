@@ -59,13 +59,14 @@
 | `Hash` for prelude unions (`Ordering` et al., via `derives` on prelude declarations) | `collections-part2-hash-and-type-members.md` §12.3 | derivable-only `Hash` doctrine (§4) | — | listing: prelude instances |
 | Numeric narrowing set (`Int.fromFloat`, kin) | `ffi-part1-boundary.md` §6 ("if included") | checked, `Option`-returning, `Number.isSafeInteger` discipline; `BigInt.toInt` already core | — | listing: numeric |
 
-## 4. Post-v1 candidates (3; explicitly field-evidence-gated by their owners)
+## 4. Post-v1 candidates (4; gated by their owners on field evidence, or on a dependency that is itself deferred)
 
 | Surface / question | Origin | Fixed semantics | Revisit bar | Discharge |
 |---|---|---|---|---|
 | `Set.isSupersetOf` | `collections-part4-map-set.md` §12.3 ("candidate at most, only if field usage shows the flipped call is a real pain") | flipped-argument `isSubsetOf` exists | field evidence | listing (post-v1 review) |
 | Public `Range.toSeq` | `collections-part5-iterable.md` §14.3 ("candidate at most") | `Range` iterates without it; its `iterate` is runtime-internal | field demand | listing (post-v1 review) |
 | Grapheme-cluster iteration for `String` | `collections-part5-iterable.md` §5.1 | named stdlib function if ever; the `Iterable` instance is codepoints permanently | field demand | listing (post-v1 review) |
+| **A non-retaining streaming export for `Seq`** *(added 2026-07-28, James's decision on the defect-12 ruling)* | `ffi-part3-seq.md` §9.7 (which forecloses `toJsIterable` and routes a genuinely distinct surface here under ledger rule 1); the retention cost is §5's addendum | The capability is an outbound view that lets JavaScript traverse a `Seq` **without** the §9.4 boundary view's memoization, and therefore without pinning the forced prefix for the value's lifetime. It is neither the identity nor `memoize` — the two meanings §9.7 forecloses. **It is not named `toJsIterable`**: the name must say *streaming*/*single-pass*, per the same decision. Semantics, spelling, and whether it needs an opt-out of §9.1's unconditional export memoization are the ruling's, not fixed here | **Not field demand.** Part 3 §10's deferred single-pass/resource-aware type is the enabler; §9.2 already binds it ("must not be called `Seq` and must not weaken `Seq` persistence"). Revisit when that type is designed | its own focused ruling (tracked as issue #129), then this row |
 
 ## 5. Long-term canonical source for every standard-library companion
 
@@ -114,13 +115,26 @@ The current compiler-owned surface yields this migration inventory:
 | `Int.hex` | Euclidean family, `gcd`, checked arithmetic, public instances | native remainder/truncation and representation-sensitive operations |
 | `Float.hex` | public wrappers and instances | IEEE/NaN and selected `Math` primitives |
 | `String.hex` | companion algorithms and public instances | efficient JS UTF-16/codepoint bridge primitives |
-| `Seq.hex` | **the `Seq(a)` declaration itself** (`export opaque record`, Loops §6.6) plus `next` and the combinator core (`iterate`, `map`, `filter`, `take`, `fold`, and the ship-list) | memoizing spine (`memoize`'s buffer + the FFI Part 3 inbound adapter) and the `toJsIterable` bridge |
+| `Seq.hex` | **the `Seq(a)` declaration itself** (`export opaque record`, Loops §6.6) plus `next` and the combinator core (`iterate`, `map`, `filter`, `take`, `fold`, and the ship-list) | memoizing spine (`memoize`'s buffer + the FFI Part 3 inbound adapter) and the boundary traversal face (FFI Part 3 §9.4 — formerly listed as "the `toJsIterable` bridge"; see the 2026-07-28 edit note below) |
 | `Vector.hex` | companion API and combinators | persistent-vector representation core |
 | `Map.hex` / `Set.hex` | algebra, conversions, projections, and combinators | HAMT lookup/insertion/removal and representation core |
 | `Range.hex` | public constructors and companion functions | iterator bridge; counting-loop erasure remains a compiler transformation |
 | `Option.hex` / `Result.hex` | declarations, instances, and ordinary combinators | only genuine foreign-boundary helpers, if any |
 | Prelude constraint sources | declarations and primitive `honor` blocks | derivation, evidence selection, and specialization |
 | Prelude exception/function sources | public declarations and wrappers | JS `throw`, `Error` construction, hashing primitives, and other host operations |
+
+*(Edit note, 2026-07-28, defect 12 ruling — FFI Part 3 §9.7.)* The `Seq.hex`
+row's "`toJsIterable` bridge" residue is **discharged by merger**, not still
+owed. The bridge is the boundary traversal face itself — every `Seq` value
+carries `[Symbol.iterator]` as representation (FFI Part 3 §9.4), runtime-provided
+exactly where this table kept it — and the public operation the obligation
+imagined is `Seq.memoize` (Loops §6.4; declared per `spec/intrinsics.md` §3.2),
+since after the ruling a distinct public `toJsIterable` could mean only the
+identity or `memoize` itself. No second name ships (naming doctrine, §1). A
+genuinely distinct future conversion surface (single-pass export, `JsValue`
+integration) enters as a new row under ledger rule 1. The same ruling binds the
+`Vector`/`Set`/`Map` boundary-face inheritance — FFI Part 3 §9.5 and Part 1
+§8.2 — with no new residue added to their rows.
 
 `stdlib/Vector.hex` now discharges the decided core companion surface from
 Collections Part 3, backed by the narrow representation operations listed in that

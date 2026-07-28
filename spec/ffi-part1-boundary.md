@@ -264,6 +264,16 @@ export declare function index():
 
 > **Edit note (for Loops/Ranges/Iteration §8, applied on next touch):** the "range object's interface (or `Iterable<number>`)" alternative for `Range`'s `.d.ts` face is resolved by this section: the face is `Hex.Range`, branded, extending `Iterable<number>`.
 
+### 8.2 The collection faces extend their iterable protocol *(added 2026-07-28, defect 12 ruling — Part 3 §9.5)*
+
+On the §8.1 precedent, the remaining collection faces declare the iterability their runtime values already carry:
+
+- **`Hex.Vector<a>` extends `Iterable<a>`** (elements in index order);
+- **`Hex.Set<a>` extends `Iterable<a>`** (members, in the collection's own traversal order);
+- **`Hex.Map<k, v>` extends `Iterable<[k, v]>`** (entries as two-element tuples, in the collection's own traversal order).
+
+The brand doctrine is §8.1's, unchanged: each face remains an opaque branded interface, so an **arbitrary iterable does not satisfy it** — a JS consumer can traverse a crossed value but only a genuine runtime-originated value satisfies the type, and iterability is the *only* protocol the faces expose (no representation fields, no mutation surface, and deliberately not `ReadonlyMap`/`ReadonlySet`/`ReadonlyArray` API shapes, which the runtime values do not implement). `Seq(a)` is deliberately **not** in this list: its face stays the structural `Iterable<a>` (§4.1; Part 3 §9.1), because its parameter positions must admit arbitrary foreign iterables (Part 7 §7 occasion 1) — the one type whose face is the protocol rather than a brand over it.
+
 ---
 
 ## 9. Diagnostics checklist
@@ -305,3 +315,4 @@ Part 12 §11.1 fixes the deterministic `Hex`-alias collision scheme promised by 
 | Opaque extern Promise handles: representation-direct by identity; no Hexagon async semantics; settlement observation only via ordinary extern members; binding-author warning obligation (docs preserve, never invent); no diagnostic on principle; async spec unconstrained | §4.4 |
 | `Range` faces as `Hex.Range`: opaque branded interface extending `Iterable<number>`; no representation fields; arbitrary `Iterable<number>` does not satisfy it (edit note to Loops §8 issued) | §8.1 |
 | Generated `Hex` import alias uses first-free `Hex`, `Hex1`, `Hex2`, … probing over every emitted top-level `.d.ts` identifier; user exports are never renamed | §10; Part 12 §11.1 |
+| *(2026-07-28, defect 12 ruling)* `Hex.Vector<a>`/`Hex.Set<a>` extend `Iterable<a>`, `Hex.Map<k, v>` extends `Iterable<[k, v]>`; brands unchanged; `Seq` deliberately excluded (structural face) | §8.2 |
