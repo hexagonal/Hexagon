@@ -59,7 +59,7 @@ type name from a type variable and enables implicit generalisation without `fora
 
 **Division:** `Int` honors `Num` and `Signed` (add/multiply plus subtract/negate/fromInt) but **not** `Frac` — there is no generic `divide` at Int (decided when `divide` was evicted from `Signed`). Integer division/modulo are the monomorphic `Int.div` / `Int.mod` with deliberately chosen (floored) semantics — see the Signed/Frac constraint notes.
 
-**Standard constraints:** `Num`, `Signed`, `Eq`, `Ord`, `Show`.
+**Standard constraints:** `Num`, `Signed`, `Eq`, `Ord`, `Show`, `Pow` (Operators §6.3), `Hash` (Collections Part 2 §2.5), `Integral` (Integral §3) *(corrected 2026-07-28, #137 — record in §11)*.
 
 ### 2.1 Overflow policy (decided)
 
@@ -83,7 +83,7 @@ type name from a type variable and enables implicit generalisation without `fora
 
 **Literals:** monomorphic, always `Float` — a literal is a Float literal iff it contains a `.` or an exponent (`1.5`, `0.0`, `1e9`, `2.5e-3`). `_` separators allowed per §8. Decimal literals do **not** participate in the polymorphic literal scheme in v1 (deferred; the blocker is that `Rat`'s exact-binary `fromFloat` is not what a user writing `0.1` means — see Numeric Literals spec §7).
 
-**Standard constraints:** `Num`, `Signed`, `Frac` (generic `divide`, lawful up to rounding), `Eq`, `Ord`, `Show`.
+**Standard constraints:** `Num`, `Signed`, `Frac` (generic `divide`, lawful up to rounding), `Eq`, `Ord`, `Show`, `Pow` (Operators §6.3), `Hash` (Collections Part 2 §2.5). Never `Integral` — permanently, so that `gcd(1.5, 2.0)` fails with the right message (Integral §3) *(corrected 2026-07-28, #137 — record in §11)*.
 
 **Show wart, pre-registered as a decision:** `Float.show` is JS number formatting (§7 rule), so `show (0.1 + 0.2)` is `"0.30000000000000004"` and `show 1e21` is `"1e+21"`. This is the honest display of the value and matches JS-developer expectations. Accepted for v1.
 
@@ -93,7 +93,7 @@ type name from a type variable and enables implicit generalisation without `fora
 
 JS `boolean`. Literals `true`, `false` (these are keywords/literals in the lexer, not library names). Emits as-is.
 
-**Standard constraints:** `Eq`, `Ord` (`false < true`), `Show` (`"true"` / `"false"` — note: JS `String(true)` form, lowercase; if a capitalised `True`/`False` display is ever wanted, that's a Show-instance decision, not a type decision — current decision is the JS form per the §7 "toString unless stupid" rule).
+**Standard constraints:** `Eq`, `Ord` (`false < true`), `Show` (`"true"` / `"false"` — note: JS `String(true)` form, lowercase; if a capitalised `True`/`False` display is ever wanted, that's a Show-instance decision, not a type decision — current decision is the JS form per the §7 "toString unless stupid" rule), `Hash` (Collections Part 2 §2.5) *(corrected 2026-07-28, #137 — record in §11)*.
 
 Not `Signed`. No truthiness: Hexagon conditions require `Bool`; there is no implicit coercion from any other type.
 
@@ -146,7 +146,7 @@ v2 may introduce a `Debug` constraint (`Debug.debug`, programmer-facing form: qu
 
 Cheap now, prevents a silent meaning change later. Implementers: this is a hard error, not a warning.
 
-**Standard constraints for String:** `Eq`, `Ord`, `Show` (identity).
+**Standard constraints for String:** `Eq`, `Ord`, `Show` (identity), `Concat` (`++` — Operators §7), `Hash` (Collections Part 2 §2.5) *(corrected 2026-07-28, #137 — record in §11)*.
 
 **`Ord String` is codepoint-wise lexicographic, permanently** — even if grapheme-based indexing later becomes the default (§5.1). Rationale: grapheme order genuinely disagrees with codepoint order (e.g. `"a\u0301"` vs `"a\uFFFF"` sort oppositely under the two schemes), so switching Ord across versions would silently reorder users' sorted collections; and grapheme segmentation (UAX #29 / `Intl.Segmenter`) is revised with each Unicode version, so an ordering built on it changes under a browser update, which an `Ord` instance must never do. Codepoint order is eternal, and coincides with UTF-8 byte order. Grapheme mode, if it comes, changes what "position" and "length" mean — not what "less than" means.
 
@@ -170,7 +170,7 @@ Human-facing sorting ("é" before "f", locale digraph rules) is **collation**, i
 
 **FFI:** appears as `bigint` in emitted `.d.ts`. Known landmine, documented once in FFI docs: `JSON.stringify` throws on bigint — but only records that explicitly contain BigInt fields carry it, which is the point of keeping BigInt out of `Int`.
 
-**Standard constraints:** `Num`, `Signed`, `Eq`, `Ord`, `Show` (note `show 1n` is `"1"` — **no** `n` suffix; this is JS `String(1n)` behaviour and is display-correct).
+**Standard constraints:** `Num`, `Signed`, `Eq`, `Ord`, `Show` (note `show 1n` is `"1"` — **no** `n` suffix; this is JS `String(1n)` behaviour and is display-correct), `Pow` (Operators §6.3), `Hash` (Collections Part 2 §2.5), `Integral` (Integral §3) *(corrected 2026-07-28, #137 — record in §11)*.
 
 ---
 
@@ -223,7 +223,7 @@ Rationale for `undefined`: a Hexagon function returning `Unit` is a JS function 
 
 **Role:** Unit exists chiefly for the Standard-ML-flavoured function design, where every function takes exactly one thing — a single value, a tuple, or the empty tuple `()`. That design (call syntax, tuple types, how `()` -taking functions emit) is the functions/tuples spec's job; this doc only fixes the type's existence, literal, and representation.
 
-**Standard constraints:** `Eq` (trivially — one value), `Ord` (trivially), `Show` (`"()"`, a replaced-because-JS-is-stupid case, §7). Neither `Num` nor `Signed`.
+**Standard constraints:** `Eq` (trivially — one value), `Ord` (trivially), `Show` (`"()"`, a replaced-because-JS-is-stupid case, §7), `Hash` (trivially — Collections Part 2 §2.5) *(corrected 2026-07-28, #137 — record in §11)*. Neither `Num` nor `Signed`.
 
 **Implementer cautions:**
 - `()` must lex/parse unambiguously against parenthesised expressions and (future) tuple syntax — `()` is the nullary case of the tuple family; coordinate with the functions/tuples spec rather than special-casing.
@@ -250,3 +250,18 @@ Rationale for `undefined`: a Hexagon function returning `Unit` is a JS function 
 | Int overflow: silent past ±2^53, plain-JS operators; checked stdlib variants; `--checked-int` reserved; int32/`\|0` rejected | this doc §2.1 |
 | `Ord String` = codepoint lexicographic, permanent regardless of grapheme indexing; collation is stdlib, never Ord | this doc §5 |
 | Types uppercase-start; type variables non-uppercase-start (`a b c` by convention) | this doc §1; Lexer §3 |
+| Constraint inventories refreshed for `Pow`/`Concat`/`Hash`/`Integral`; owning specs govern instance sets; enumeration retained deliberately | this doc §11 (#137); Operators §6.3, §7; Collections Part 2 §2.5; Integral §3 |
+
+---
+
+## 11. Correction record — constraint inventories (2026-07-28, #137)
+
+> **Correction (2026-07-28, #137).** The per-type "Standard constraints" lines in §2–§6 and §9 predated four prelude constraints added after this document was decided: `Pow` (Operators §6.3), `Concat` (Operators §7), `Hash` (Collections Part 2 §2.5), and `Integral` (Integral §3). The lines are refreshed in place, each marked *(corrected 2026-07-28, #137)*; §1's Nat paragraph postdates all four and was already complete. The omissions contradicted nothing — each constraint's owning spec authoritatively recorded its own instances — but they mattered more than an ordinary gap: Numeric Literals §4's correction record (#135) defines the defaultable set by rule and stopped enumerating it, which left these inventories as the reader's nearest map of which constraints a bare literal can carry and still default.
+
+Three standing rules accompany the refresh:
+
+1. **Ownership is unchanged.** Which types honor a constraint is fixed by that constraint's owning spec — Constraints §7 for the original six, Operators §6.3/§7 for `Pow`/`Concat`, Collections Part 2 §2.5 for `Hash`, Integral §3 for `Integral`. Where an inventory line here and an owning spec disagree, the owning spec wins (README authority rule 1). The inventories are this document's per-type index of those decisions, nothing more.
+2. **Enumeration is retained deliberately.** The alternative — citing the owning specs without naming the constraints, the move Numeric Literals §4 made under #135 — was considered and declined. §4 could stop enumerating because a *rule* generates its set ("the constraints whose `Int` instance ships with the compiler"); no rule generates a per-type inventory. The list *is* the information, and "which constraints does this type support" is precisely the question a reader opens the per-type reference to answer; citation-only would send that reader through four documents for a one-line answer.
+3. **Future additions must touch this document.** A spec that grants any of §1's types an instance of a new constraint carries an edit note against the affected inventory line(s) here, applied on next touch (README authority rule 4). This is the same mechanism as every other cross-spec correction; it turns the next drift from silent into tracked debt.
+
+**One known gap, recorded so rule 1 is not misread (#139):** §1's Nat paragraph names `Hash`, and the compiler ships `Hash<Nat>` — but Collections Part 2 §2.5, the owner rule 1 points at, predates Nat (v1.1) and has no `Nat` row while stating that it fixes no other core instance. The stale party is the owner's table, not this document: #139 tracks the one-row fix there. Until it lands, rule 1 is not to be read as retracting `Hash<Nat>`; this paragraph is the tracked exception, and it deletes on Part 2's next touch.
