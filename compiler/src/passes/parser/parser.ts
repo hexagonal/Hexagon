@@ -9,6 +9,7 @@
  */
 
 import * as Diagnostics from "../../support/diagnostics.js";
+import { isIntrinsicScheme } from "../../intrinsics.js";
 import type * as Source from "../../support/source.js";
 import { syntheticParameterName } from "../../support/synthetic.js";
 import type * as LaidOut from "../../syntax/laid-out/index.js";
@@ -387,11 +388,16 @@ class Parser {
     }
     this.#advance();
     const specifier = this.#parseImportSpecifier();
+    // The intrinsic door reuses this grammar wholesale except for the deltas
+    // `spec/intrinsics.md` §3.3–§3.4 state, which are keyed off the specifier
+    // alone. Whether the module may *use* the door is the resolver's question
+    // (§5.2's privilege gate); the shape of what it wrote is this pass's.
+    const intrinsic = isIntrinsicScheme(specifier.value);
     this.#expect("VOpen", "expected an indented extern block");
     const declarations: Parsed.ExternDeclaration[] = [];
     this.#skipSeparators();
     while (!this.#at("VClose") && !this.#at("Eof")) {
-      const declaration = this.#parseExternDeclaration();
+      const declaration = this.#parseExternDeclaration(intrinsic);
       if (declaration !== undefined) declarations.push(declaration);
       if (this.#at("VSep") || this.#at("Semicolon")) this.#skipSeparators();
       else if (!this.#at("VClose") && !this.#at("Eof")) {
@@ -409,13 +415,25 @@ class Parser {
     };
   }
 
-  #parseExternDeclaration(): Parsed.ExternDeclaration | undefined {
+  #parseExternDeclaration(intrinsic: boolean): Parsed.ExternDeclaration | undefined {
     const start = this.#current();
     const exported = this.#at("Export");
     if (exported) this.#advance();
     const defaultBinding = this.#atContextual("default");
-    if (defaultBinding) this.#advance();
+    if (defaultBinding) {
+      // `default` names a foreign module's default export. There is no foreign
+      // module behind the intrinsic door (§8.3 emits no import), so the modifier
+      // has nothing to name — it falls under §3.3's `fun`-only admission.
+      if (intrinsic) this.#errorAt(this.#current().span, intrinsicFormError("default"));
+      this.#advance();
+    }
     const kind = this.#current().kind;
+    if (intrinsic && kind !== "Fun") {
+      const label = this.#current();
+      this.#errorAt(label.span, intrinsicFormError(externDeclarationKeyword(label)));
+      this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
+      return undefined;
+    }
     if (kind !== "Fun" && kind !== "Let" && kind !== "Type") {
       const label = this.#current();
       const text = label.kind === "NonUpperName" || label.kind === "UpperName"
@@ -480,7 +498,14 @@ class Parser {
       );
     }
     if (this.#at("Less")) {
-      this.#errorAt(this.#current().span, "generic extern declarations are not part of Hexagon v1");
+      // Genericity is granted inside the reserved boundary only (§3.4): the
+      // implementer here is the compiler, which owns the representation of every
+      // instantiation, so Part 4 §12.4's representation question does not arise.
+      // The list is declarative — the annotations carry the variables — so it is
+      // parsed for its scoping shape and not recorded.
+      if (!intrinsic) {
+        this.#errorAt(this.#current().span, "generic extern declarations are not part of Hexagon v1");
+      }
       this.#parseTypeParameters();
     }
     if (kind === "Fun") {
@@ -2707,6 +2732,28 @@ function invalidType(name: Parsed.Name): Parsed.NamedType {
     name: { ...name, text: "Invalid", startClass: "upper" },
     span: name.span,
   };
+}
+
+/**
+ * The spelling to blame in an inadmissible intrinsic declaration (§3.3). A
+ * keyword token reports as itself; anything else reports as its text so the
+ * message names what the author actually wrote.
+ */
+function externDeclarationKeyword(token: LaidOut.Token): string {
+  if (token.kind === "NonUpperName" || token.kind === "UpperName") return token.text;
+  return token.kind.toLocaleLowerCase();
+}
+
+/**
+ * §11's inadmissible-form diagnostic. The intrinsic boundary provides operations
+ * only; compiler-owned *types* in particular do not enter here (§3.3), which is
+ * why the rewrite points at an ordinary declaration in the same module rather
+ * than at a different extern spelling.
+ */
+function intrinsicFormError(form: string): string {
+  return `the intrinsic boundary provides operations only; declare \`fun\` here, ` +
+    `and declare types as ordinary (\`export opaque\`) declarations in this module ` +
+    `(\`${form}\` is not admitted)`;
 }
 
 function lowerInitial(name: string): string {

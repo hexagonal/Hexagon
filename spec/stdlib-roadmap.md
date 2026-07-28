@@ -166,7 +166,10 @@ Proceed a piece at a time:
    the `extern from "hex:intrinsic"` declaration form, `spec/intrinsics.md`
    (ruling on #125). Items 2 and 6's "private boundary" is that door; the
    schedule retiring the transitional public-name and primitive doors is its §9,
-   with `BigInt.hex` inheriting the form at this stage with no further ruling.)*
+   with `BigInt.hex` inheriting the form at this stage with no further ruling.
+   **Implemented 2026-07-28**: the form, the gate, and inventory verification are
+   in the compiler, with `Seq.memoize` as the first customer through it; `BigInt`
+   adds inventory keys at this stage and needs no new machinery.)*
 3. Move derived operations into understandable Hexagon source: Euclidean `div`/`mod`,
    iterative `gcd`, divide-first `lcm`, zero checks, and Hexagon exception branding.
 4. Move the coherent `Integral<BigInt>` instance to the appropriate canonical source

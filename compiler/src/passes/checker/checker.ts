@@ -8,6 +8,7 @@
  */
 
 import * as Diagnostics from "../../support/diagnostics.js";
+import { isIntrinsicScheme } from "../../intrinsics.js";
 import type * as Source from "../../support/source.js";
 import { displayParameterName } from "../../support/synthetic.js";
 import * as Resolved from "../../syntax/resolved/index.js";
@@ -214,6 +215,14 @@ class Checker {
    * members, and `Seq.hex` itself.
    */
   #seqRecord: Resolved.RecordId | undefined;
+  /**
+   * Per intrinsic declaration, the variables its annotations introduced. Shared
+   * between scheme construction and materialization so both name the same
+   * variables — without it the materialized result type would carry a fresh
+   * variable unrelated to the scheme's, and the emitted `.d.ts` face would
+   * quantify one `a` while returning another.
+   */
+  readonly #intrinsicTypeParameters = new WeakMap<Resolved.ExternFunDeclaration, Map<string, Mono>>();
   readonly #externTypes = new Map<Resolved.ExternTypeId, Resolved.ExternTypeDeclaration>();
   readonly #recordParameters = new Map<Resolved.RecordId, ReadonlyMap<string, Variable>>();
   readonly #recordFields = new Map<Resolved.RecordId, ReadonlyMap<string, Mono>>();
@@ -491,6 +500,12 @@ class Checker {
     }
     for (const item of module.items) {
       if (item.kind !== "ExternBlock") continue;
+      // The intrinsic door is not a foreign boundary (`spec/intrinsics.md` §6):
+      // no foreign calling convention applies, so neither of the two rules below
+      // does. Genericity is granted inside it (§3.4) because the compiler owns
+      // every instantiation's representation, and there is no crossing for an
+      // adapter-requiring type to be nested in — a `Seq` here stays a `Seq`.
+      const intrinsic = isIntrinsicScheme(item.specifier);
       for (const declaration of item.declarations) {
         if (declaration.kind === "ExternType") continue;
         const annotations = declaration.kind === "ExternFun"
@@ -501,22 +516,53 @@ class Checker {
               declaration.returnAnnotation,
             ]
           : [declaration.annotation];
-        if (annotations.some(annotationHasTypeVariable)) {
+        if (!intrinsic && annotations.some(annotationHasTypeVariable)) {
           this.#diagnostics.add({
             severity: "error",
             message: "generic extern declarations are not part of Hexagon v1",
             primary: declaration.span,
           });
         }
-        for (const annotation of annotations) {
-          const nested = nestedAdapterType(annotation, this.#seqRecord);
-          if (nested !== undefined) {
-            this.#diagnostics.add({
-              severity: "error",
-              message: `extern type \`${nested}\` requires adaptation inside a direct value; use an explicit eager conversion at the boundary or a foreign shim`,
-              primary: annotation.span,
-            });
+        if (!intrinsic) {
+          for (const annotation of annotations) {
+            const nested = nestedAdapterType(annotation, this.#seqRecord);
+            if (nested !== undefined) {
+              this.#diagnostics.add({
+                severity: "error",
+                message: `extern type \`${nested}\` requires adaptation inside a direct value; use an explicit eager conversion at the boundary or a foreign shim`,
+                primary: annotation.span,
+              });
+            }
           }
+        }
+        if (intrinsic && declaration.kind === "ExternFun") {
+          // Typed from the annotation, in the declaring module's own scope, and
+          // generalized over the variables the annotation mentions — an ordinary
+          // annotated export in every respect after this point (§3.1, §6). The
+          // variable map is kept so materialization reuses these very variables
+          // rather than minting a second, unrelated set.
+          const typeParameters = new Map<string, Mono>();
+          this.#intrinsicTypeParameters.set(declaration, typeParameters);
+          const parameters = declaration.parameters.map((parameter) => {
+            const type = parameter.annotation === undefined
+              ? ERROR
+              : this.#annotationType(parameter.annotation, 0, new Map(), typeParameters);
+            this.#schemes.set(parameter.symbol, { variables: [], type });
+            return type;
+          });
+          this.#schemes.set(declaration.binding.symbol, {
+            variables: [...typeParameters.values()].flatMap((type) =>
+              type.kind === "Variable" ? [type] : []
+            ),
+            type: {
+              kind: "Function",
+              parameters,
+              result: this.#annotationType(
+                declaration.returnAnnotation, 0, new Map(), typeParameters,
+              ),
+            },
+          });
+          continue;
         }
         if (declaration.kind === "ExternLet") {
           this.#schemes.set(declaration.binding.symbol, {
@@ -4632,7 +4678,12 @@ class Checker {
               ...parameter,
               scheme: this.#publicScheme(this.#scheme(parameter.symbol)),
             })),
-            result: this.#publicType(this.#annotationType(declaration.returnAnnotation)),
+            result: this.#publicType(this.#annotationType(
+              declaration.returnAnnotation,
+              0,
+              new Map(),
+              this.#intrinsicTypeParameters.get(declaration) ?? new Map(),
+            )),
             span: declaration.span,
           };
         }),

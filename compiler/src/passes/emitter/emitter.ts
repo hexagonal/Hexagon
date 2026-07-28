@@ -4,6 +4,7 @@
  */
 
 import * as Diagnostics from "../../support/diagnostics.js";
+import { INTRINSIC_INVENTORY, isIntrinsicScheme } from "../../intrinsics.js";
 import type * as Source from "../../support/source.js";
 import { isSyntheticParameterName } from "../../support/synthetic.js";
 import type * as Core from "../../syntax/core/index.js";
@@ -236,6 +237,7 @@ class JavaScriptEmitter {
     }
     if (item.kind === "ExternBlock") {
       const specifier = JSON.stringify(item.specifier);
+      const intrinsic = isIntrinsicScheme(item.specifier);
       const lines: string[] = [];
       for (const declaration of item.declarations) {
         if (declaration.kind === "ExternType") continue;
@@ -243,6 +245,24 @@ class JavaScriptEmitter {
           declaration.binding.symbol,
           declaration.localName,
         );
+        if (intrinsic) {
+          // An ordinary binding of this module's output, whose body is the
+          // compiler's lowering (`spec/intrinsics.md` §8.3) — so cross-module
+          // linkage is ordinary ESM, exactly like every other prelude function.
+          // No import is emitted: there is no foreign module. Nor is either
+          // `Seq` bridge applied, because this is not a crossing — both sides of
+          // the door are Hexagon, and a `Seq` argument arrives as itself.
+          const key = declaration.foreignName ?? declaration.localName;
+          lines.push(`${prefix}const ${local} = ${this.#lowerIntrinsic(key, declaration.span)};`);
+          if (declaration.exported) {
+            this.#exports.push(
+              local === declaration.localName
+                ? `export { ${local} };`
+                : `export { ${local} as ${declaration.localName} };`,
+            );
+          }
+          continue;
+        }
         // A `Seq` faces JavaScript as `Iterable<a>` and is a record inside, so
         // both directions need a bridge: a foreign result is adapted in, and a
         // `Seq` argument is driven out. Without the argument half a foreign
@@ -2490,10 +2510,50 @@ class JavaScriptEmitter {
     return `${arrowParameters(parameters)} => ${base}(${[...parameters, ...dictionaries].join(", ")})`;
   }
 
+  /**
+   * The compiler's implementation of an inventory key (`spec/intrinsics.md` §4).
+   * The key space is flat and compiler-global precisely so it can mirror the
+   * helper family, which is why every row here is one helper name.
+   *
+   * The declared scheme and the operation's owning spec are what bind: a
+   * divergence between a row and its declaration is a compiler conformance
+   * defect, testable and loggable, never a user diagnostic — the resolver has
+   * already verified that the key exists, so an unknown key here cannot be
+   * something the author typed.
+   *
+   * The two ways to arrive without a row are not the same failure, and must not
+   * share a message. A key the *inventory* does not have is the author's typo,
+   * already reported by the resolver — emitting quietly here keeps one mistake to
+   * one diagnostic. A key the inventory *does* have with no lowering behind it is
+   * the compiler contradicting itself, and is loud: emitting `undefined` for it
+   * would surface later as a `Seq` that is not a `Seq`. `intrinsics.test.ts`
+   * holds the two tables together ahead of time; this is the backstop.
+   */
+  #lowerIntrinsic(key: string, span: Source.Span): string {
+    switch (key) {
+      case "seqMemoize":
+        return this.#useHelper("seqMemoize");
+      default:
+        if (INTRINSIC_INVENTORY.has(key)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `compiler defect: the intrinsic inventory provides \`${key}\`, ` +
+              "but the emitter has no lowering for it",
+            primary: span,
+          });
+        }
+        return "undefined";
+    }
+  }
+
   #useHelper(helper: Helper): string {
     this.#helpers.add(helper);
     if (helper === "stringIndex") this.#helpers.add("vectorIndex");
     if (helper === "stringSlice") this.#helpers.add("vectorSlice");
+    if (helper === "seqMemoize") {
+      this.#helpers.add("seqFromIterable");
+      this.#helpers.add("seqToIterable");
+    }
     return this.#helperName(helper);
   }
 
@@ -3158,6 +3218,7 @@ type Helper =
   | "floatEquals"
   | "range"
   | "seqFromIterable"
+  | "seqMemoize"
   | "seqToIterable"
   | "nodeSet"
   | "vectorAt"
@@ -3578,6 +3639,31 @@ function renderHelper(
         "  return __hex_node(0);",
         "}",
       ];
+    case "seqMemoize":
+      // Loops §6.4's explicit opt-in, lowered for `spec/intrinsics.md` §3.2's
+      // declaration. Re-derivation is the internal default, so a `Seq` whose
+      // steps are effectful and which will be traversed more than once is the
+      // caller's cue to come here; the result replays cached elements instead of
+      // recomputing, at the cost of retaining the forced prefix.
+      //
+      // No new spine is built. §6.4 names the mechanism as *the same* one FFI
+      // Part 3's inbound adapter uses, so the lowering is literally the R1 pair
+      // composed: `seqToIterable` exposes the source's persistent traversal as an
+      // iterable, and `seqFromIterable` puts the memoizing spine over it. Every
+      // §6.4 property then holds by inheritance rather than by re-derivation of
+      // the argument — including failure memoization (Part 3 §7.1), which the
+      // spine already provides and which composition cannot weaken.
+      //
+      // Composition is sound here for the reason §4's retention rule states: the
+      // outbound view is created once, at this call, so all traversals of the
+      // result share the one spine over the one iterator. Handing `seqToIterable`
+      // a `Seq` does not consume it — the argument is left as it was, and
+      // memoizing it does not change *it*, only the value returned.
+      return [
+        `function ${name}(__hex_source) {`,
+        `  return ${dependencyName("seqFromIterable")}(${dependencyName("seqToIterable")}(__hex_source));`,
+        "}",
+      ];
     case "seqToIterable":
       // Bridge OUT. A `while` loop over `pull`, never recursion: Loops §6.5
       // promises no tail-call elimination, so driving a long `Seq` recursively
@@ -3954,21 +4040,29 @@ function renderExternFunctionDeclaration(
     declaration.parameters,
     declaration.parameters.length,
   );
-  const parameters = declaration.parameters.map((parameter, index) =>
-    `${names[index]}: ${renderType(parameter.scheme.type, new Map(), seqRecord, false)}`
+  // Foreign externs are monomorphic (FFI Part 4 §12.4) and quantify nothing, so
+  // this is empty for them. Intrinsic declarations may be generic (§3.4), and
+  // their face has to quantify what their scheme does.
+  const variables = typeVariableNames(declaration.binding.scheme.variables);
+  const genericNames = declaration.binding.scheme.variables.map((variable) =>
+    variables.get(variable)!
   );
-  const result = renderType(declaration.result, new Map(), seqRecord, true);
+  const generics = genericNames.length === 0 ? "" : `<${genericNames.join(", ")}>`;
+  const parameters = declaration.parameters.map((parameter, index) =>
+    `${names[index]}: ${renderType(parameter.scheme.type, variables, seqRecord, false)}`
+  );
+  const result = renderType(declaration.result, variables, seqRecord, true);
   const safe = isSafeIdentifier(declaration.localName);
   const local = safe
     ? declaration.localName
     : `__hex_binding${Number(declaration.binding.symbol)}`;
   if (safe) {
     return [
-      `${exported ? "export " : ""}declare function ${local}(${parameters.join(", ")}): ${result};`,
+      `${exported ? "export " : ""}declare function ${local}${generics}(${parameters.join(", ")}): ${result};`,
     ];
   }
   const lines = [
-    `declare const ${local}: (${parameters.join(", ")}) => ${result};`,
+    `declare const ${local}: ${generics}(${parameters.join(", ")}) => ${result};`,
   ];
   if (exported) lines.push(`export { ${local} as ${declaration.localName} };`);
   return lines;

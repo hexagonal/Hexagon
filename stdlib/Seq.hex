@@ -25,6 +25,15 @@
 // §6.2 protocol (`next`) and the combinators below.
 export opaque record Seq(a) = { pull: () -> Option((a, Seq(a))) }
 
+// The Loops §6.4 opt-in, declared through the intrinsic door (`spec/intrinsics.md`
+// §3.2). Bodyless and fully typed: the implementation is the runtime's memoizing
+// spine, which cannot be written here for the reason given above, and this is the
+// canonical `.hex` spelling that owns its public type. Not a call to `Seq.memoize`
+// — that would read as infinite self-recursion and would die the moment this
+// module declared its own type, which it does on line 26.
+extern from "hex:intrinsic"
+    export fun seqMemoize as memoize<a>(source: Seq(a)): Seq(a)
+
 // The Loops §6.2 protocol, thin over the field. Not recursive, so `let` (N6).
 // The field is named `pull`, not `next`, so the field access never shadows the
 // protocol; the call is written `(source.pull)()` because a bare
