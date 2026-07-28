@@ -256,6 +256,11 @@ class JavaScriptEmitter {
           // Asking the specifier here is not re-deriving the gate: "is this the
           // reserved scheme?" is syntactic, and the specifier does answer it.
           // Whether the module may *use* it is `item.intrinsic`, above.
+          //
+          // A binding that throws when called was considered and declined: it
+          // would name the refusal at the call site instead of "not a function",
+          // but diagnostics are the contract and running an errored module's
+          // output is already off-book. §8.3 records the choice.
           lines.push(`${prefix}const ${local} = undefined;`);
           if (declaration.exported) {
             this.#exports.push(
