@@ -1,0 +1,498 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Hexagon",
+  "scopeName": "source.hexagon",
+  "fileTypes": ["hex"],
+
+  "//": [
+    "Hexagon recognizes a closed token language (spec/lexer.md §1), so this grammar",
+    "mirrors that inventory rather than guessing. Identifier classes follow §3.1:",
+    "start class is syntax, so an uppercase-start name is a type/constructor role and a",
+    "non-uppercase-start name is a term/binder role, decided by the literal first",
+    "codepoint alone. Hard keywords are §4.1; contextual keywords (§4.2) lex as ordinary",
+    "names and are only matched here in the positions the spec lists. Constructs the",
+    "lexer rejects outright (§10) are painted invalid.illegal so the editor shows the",
+    "same errors the compiler would."
+  ],
+
+  "patterns": [
+    { "include": "#tab-indentation" },
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#reserved-identifier" },
+    { "include": "#extern-from-block" },
+    { "include": "#declarations" },
+    { "include": "#keywords" },
+    { "include": "#contextual-keywords" },
+    { "include": "#numbers" },
+    { "include": "#function-call" },
+    { "include": "#parameter" },
+    { "include": "#names" },
+    { "//": "Before #operators: spec/lexer.md §8.2 requires `||` to be one forbidden run pointing at `or`, never two pattern bars.", "include": "#invalid" },
+    { "include": "#operators" },
+    { "include": "#punctuation" }
+  ],
+
+  "repository": {
+
+    "comments": {
+      "patterns": [
+        {
+          "//": "spec/comments.md §3: doc-comment recognition requires `/**` followed by at least one character that is not `/`, which keeps `/**/` an ordinary empty block comment while `/*** x ***/` is a doc comment.",
+          "name": "comment.block.documentation.hexagon",
+          "begin": "/\\*\\*(?!/)",
+          "end": "\\*/",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.begin.hexagon" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.comment.end.hexagon" } },
+          "patterns": [{ "include": "#bidirectional-control" }, { "include": "#block-comment-inner" }]
+        },
+        {
+          "//": "spec/comments.md §3: block comments nest.",
+          "name": "comment.block.hexagon",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.begin.hexagon" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.comment.end.hexagon" } },
+          "patterns": [{ "include": "#bidirectional-control" }, { "include": "#block-comment-inner" }]
+        },
+        {
+          "//": "begin/end rather than match, so a bidirectional control inside the comment body still gets its own scope (§3.2 prohibits them in comments too).",
+          "name": "comment.line.documentation.hexagon",
+          "begin": "///",
+          "end": "$",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.hexagon" } },
+          "patterns": [{ "include": "#bidirectional-control" }]
+        },
+        {
+          "name": "comment.line.double-slash.hexagon",
+          "begin": "//",
+          "end": "$",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.hexagon" } },
+          "patterns": [{ "include": "#bidirectional-control" }]
+        },
+        {
+          "//": "spec/comments.md §3: `*/` at depth zero is a hard error, not `*` then `/`.",
+          "name": "invalid.illegal.unmatched-comment-close.hexagon",
+          "match": "\\*/"
+        }
+      ]
+    },
+
+    "block-comment-inner": {
+      "begin": "/\\*",
+      "end": "\\*/",
+      "patterns": [{ "include": "#bidirectional-control" }, { "include": "#block-comment-inner" }]
+    },
+
+    "strings": {
+      "//": "spec/lexer.md §6: one composite String token; may span physical newlines.",
+      "name": "string.quoted.double.hexagon",
+      "begin": "\"",
+      "end": "\"",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.hexagon" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.hexagon" } },
+      "patterns": [
+        { "include": "#bidirectional-control" },
+        { "include": "#string-invalid-escape" },
+        { "include": "#string-escape" },
+        { "include": "#interpolation" },
+        { "include": "#string-invalid" }
+      ]
+    },
+
+    "string-escape": {
+      "//": "spec/lexer.md §6.2 is the complete escape inventory; no legacy JS escapes.",
+      "name": "constant.character.escape.hexagon",
+      "match": "\\\\(?:[ntr\\\\\"$#]|u\\{[0-9A-Fa-f]{1,6}\\})"
+    },
+
+    "string-invalid-escape": {
+      "//": [
+        "spec/lexer.md §6.2: a `\\u{...}` escape must name a Unicode scalar value —",
+        "at most U+10FFFF and never a surrogate. These run before #string-escape so a",
+        "well-formed-looking but out-of-range escape loses to the invalid rule.",
+        "Leading zeros are legal, hence the `0*`."
+      ],
+      "patterns": [
+        {
+          "//": "A surrogate: the whole D800-DFFF block, so the second nibble is 8 through F.",
+          "name": "invalid.illegal.unicode-escape.hexagon",
+          "match": "\\\\u\\{0*[dD][89a-fA-F][0-9A-Fa-f]{2}\\}"
+        },
+        {
+          "//": "Above U+10FFFF.",
+          "name": "invalid.illegal.unicode-escape.hexagon",
+          "match": "\\\\u\\{0*(?:1[1-9a-fA-F]|[2-9a-fA-F][0-9A-Fa-f])[0-9A-Fa-f]{4}\\}"
+        },
+        {
+          "//": "More than six digits, whatever their value.",
+          "name": "invalid.illegal.unicode-escape.hexagon",
+          "match": "\\\\u\\{[0-9A-Fa-f]{7,}\\}"
+        }
+      ]
+    },
+
+    "bidirectional-control": {
+      "//": "spec/lexer.md §3.2: literal bidirectional controls are prohibited throughout source, including comments and strings — this is the trojan-source class, so it is included in those contexts too, not only at the top level.",
+      "name": "invalid.illegal.bidirectional-control.hexagon",
+      "match": "[\\x{200E}\\x{200F}\\x{061C}\\x{202A}-\\x{202E}\\x{2066}-\\x{2069}]"
+    },
+
+    "string-invalid": {
+      "patterns": [
+        {
+          "//": "spec/lexer.md §6.2: `\\u{...}` must be 1-6 hex digits naming a scalar value.",
+          "name": "invalid.illegal.unicode-escape.hexagon",
+          "match": "\\\\u(?:\\{[^}\\n\"]*\\}?)?"
+        },
+        {
+          "//": "spec/lexer.md §6.2: bare `#{` is reserved for future Debug interpolation; write `\\#{`.",
+          "name": "invalid.illegal.reserved-interpolation.hexagon",
+          "match": "#\\{"
+        },
+        {
+          "name": "invalid.illegal.unknown-escape.hexagon",
+          "match": "\\\\."
+        }
+      ]
+    },
+
+    "interpolation": {
+      "//": "spec/lexer.md §6.1: the hole is lexed recursively with the normal inventory.",
+      "name": "meta.embedded.line.hexagon",
+      "begin": "\\$\\{",
+      "end": "\\}",
+      "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.hexagon" } },
+      "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.hexagon" } },
+      "patterns": [
+        { "include": "#brace-group" },
+        { "include": "$self" }
+      ]
+    },
+
+    "brace-group": {
+      "//": "Keeps a record literal's `}` inside a hole from closing the interpolation.",
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": { "0": { "name": "punctuation.section.braces.begin.hexagon" } },
+      "endCaptures": { "0": { "name": "punctuation.section.braces.end.hexagon" } },
+      "patterns": [
+        { "include": "#brace-group" },
+        { "include": "$self" }
+      ]
+    },
+
+    "reserved-identifier": {
+      "//": "spec/lexer.md §3.2: `__hex_` is reserved for compiler-generated names.",
+      "name": "invalid.illegal.reserved-identifier.hexagon",
+      "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])__hex_[\\p{ID_Continue}$_\\x{200C}\\x{200D}]*"
+    },
+
+    "extern-from-block": {
+      "//": [
+        "`extern from \"specifier\"` is the only extern form that opens an indented block,",
+        "and it is always top-level, so the block ends at the next line starting in",
+        "column zero. The FFI contextual keywords (spec/lexer.md §4.2) are recognized only",
+        "in here: `get`, `set`, `new`, `default` and friends are ordinary names elsewhere."
+      ],
+      "name": "meta.extern.hexagon",
+      "begin": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(extern)[ \\t]+(from)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.import.hexagon" },
+        "2": { "name": "keyword.other.from.hexagon" }
+      },
+      "end": "^(?=\\S)",
+      "patterns": [
+        { "include": "#ffi-declarations" },
+        { "include": "$self" }
+      ]
+    },
+
+    "ffi-declarations": {
+      "patterns": [
+        {
+          "//": "`enum Direction = ...` / `class Foo` — the described foreign type is uppercase-start.",
+          "match": "^[ \\t]*(?:(export)[ \\t]+)?(enum|class)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?:[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*))?",
+          "captures": {
+            "1": { "name": "keyword.control.import.hexagon" },
+            "2": { "name": "keyword.other.ffi.hexagon" },
+            "3": { "name": "entity.name.type.hexagon" }
+          }
+        },
+        {
+          "//": "`export method get(...)`, `export get status(...)`, `export static method of(...)`.",
+          "match": "^[ \\t]*(?:(export)[ \\t]+)?(?:(static)[ \\t]+)?(method|get|set)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?:[ \\t]+((?![\\p{Uppercase}\\p{Lt}])(?!__hex_)[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*))?",
+          "captures": {
+            "1": { "name": "keyword.control.import.hexagon" },
+            "2": { "name": "storage.modifier.hexagon" },
+            "3": { "name": "keyword.other.ffi.hexagon" },
+            "4": { "name": "entity.name.function.hexagon" }
+          }
+        },
+        {
+          "//": "`export new(...)` constructor description, and the `default` import position.",
+          "match": "^[ \\t]*(?:(export)[ \\t]+)?(?:(static)[ \\t]+)?(new|default)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])",
+          "captures": {
+            "1": { "name": "keyword.control.import.hexagon" },
+            "2": { "name": "storage.modifier.hexagon" },
+            "3": { "name": "keyword.other.ffi.hexagon" }
+          }
+        }
+      ]
+    },
+
+    "declarations": {
+      "//": "Names the thing being declared. `fun` always introduces a function; `let`/`var` introduce one only when a parameter list or type-parameter list follows (stdlib/Seq.hex leans on this distinction heavily).",
+      "patterns": [
+        {
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(fun)[ \\t]+((?![\\p{Uppercase}\\p{Lt}])(?!__hex_)[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)",
+          "captures": {
+            "1": { "name": "storage.type.function.hexagon" },
+            "2": { "name": "entity.name.function.hexagon" }
+          }
+        },
+        {
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(let|var)[ \\t]+((?![\\p{Uppercase}\\p{Lt}])(?!__hex_)[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)(?=[ \\t]*[(<])",
+          "captures": {
+            "1": { "name": "storage.type.hexagon" },
+            "2": { "name": "entity.name.function.hexagon" }
+          }
+        },
+        {
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(let|var)[ \\t]+((?![\\p{Uppercase}\\p{Lt}])(?!__hex_)[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)",
+          "captures": {
+            "1": { "name": "storage.type.hexagon" },
+            "2": { "name": "variable.other.definition.hexagon" }
+          }
+        },
+        {
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(record|union|type|constraint|exception|honor)[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)",
+          "captures": {
+            "1": { "name": "storage.type.hexagon" },
+            "2": { "name": "entity.name.type.hexagon" }
+          }
+        }
+      ]
+    },
+
+    "keywords": {
+      "patterns": [
+        {
+          "//": "spec/lexer.md §4.1 hard keywords, grouped as that section groups them.",
+          "name": "keyword.control.hexagon",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?:catch|else|finally|for|if|in|match|then|try|while)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])"
+        },
+        {
+          "name": "keyword.control.import.hexagon",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?:import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])"
+        },
+        {
+          "name": "storage.type.hexagon",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?:constraint|derive|exception|fun|honor|let|record|type|union|var)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])"
+        },
+        {
+          "//": "spec/lexer.md §4.1 word operators: Hexagon has no `&&`, `||`, or `!`.",
+          "name": "keyword.operator.word.hexagon",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?:and|iff|implies|not|or)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])"
+        },
+        {
+          "name": "constant.language.boolean.hexagon",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?:true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])"
+        }
+      ]
+    },
+
+    "contextual-keywords": {
+      "//": [
+        "spec/lexer.md §4.2: these lex as NonUpperName and mean nothing outside their",
+        "position, so each rule pins the position. `let when = true` and `{with = 3}`",
+        "must keep reading as an ordinary binding and an ordinary field."
+      ],
+      "patterns": [
+        {
+          "//": "`from` is always followed by a module specifier string.",
+          "name": "keyword.other.from.hexagon",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])from(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?=[ \\t]*\")"
+        },
+        {
+          "//": "`x as y` in imports, foreign aliases, and `p as name` patterns. Something being renamed must precede it, or `let r = as b` would read as a keyword.",
+          "match": "(?<=[\\p{ID_Continue}$_)\\]}])[ \\t]+(as)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?=[ \\t]+[\\p{ID_Start}$_])",
+          "captures": { "1": { "name": "keyword.other.as.hexagon" } }
+        },
+        {
+          "//": "`derives Eq` or `derives (Eq, Show)`, which only ever follows a declaration header's name or parameter list.",
+          "match": "(?<=[\\p{ID_Continue}$_)\\]}])[ \\t]+(derives)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?=[ \\t]*[(\\p{Uppercase}\\p{Lt}])",
+          "captures": { "1": { "name": "keyword.other.derives.hexagon" } }
+        },
+        {
+          "//": "`export opaque record` / `export opaque union` only.",
+          "name": "storage.modifier.hexagon",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?=[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))"
+        },
+        {
+          "//": [
+            "A match/catch arm guard. spec/pattern-matching.md §3 is emphatic that `when`",
+            "is arm syntax and never pattern syntax, so it can only follow a complete arm",
+            "pattern — never an opening `(` or a `,`, which is where `Event(when, what)`,",
+            "`(when) => ...`, `f(when, g)` and `fun schedule(when: Instant)` all put it.",
+            "Requiring the arm's `=>` later on the line is necessary but nowhere near",
+            "sufficient on its own, because TextMate cannot see bracket depth."
+          ],
+          "match": "(?<=[\\p{ID_Continue}$_)\\]}])[ \\t]+(when)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?![ \\t]*:)(?=[^\\n]*=>)",
+          "captures": { "1": { "name": "keyword.other.when.hexagon" } }
+        },
+        {
+          "//": "Record update `{p with x = 3}`; `{with = 3}` is a field, `{with}` a pun, and `let ok = with` an ordinary name.",
+          "match": "(?<=[\\p{ID_Continue}$_)\\]}])[ \\t]+(with)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?=[ \\t]+[\\p{ID_Start}$_])",
+          "captures": { "1": { "name": "keyword.other.with.hexagon" } }
+        }
+      ]
+    },
+
+    "numbers": {
+      "//": "spec/lexer.md §5. Decimal only; `_` needs a digit on both sides; `n` is BigInt.",
+      "patterns": [
+        {
+          "//": "`0x`/`0o`/`0b` are errors, not literals: Hexagon v1 has decimal literals only.",
+          "name": "invalid.illegal.numeric-base.hexagon",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])0[xXoObB][\\p{ID_Continue}$_]*"
+        },
+        {
+          "name": "constant.numeric.bigint.hexagon",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])\\d(?:_?\\d)*n(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])"
+        },
+        {
+          "name": "constant.numeric.float.hexagon",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])\\d(?:_?\\d)*\\.\\d(?:_?\\d)*(?:[eE][+-]?\\d(?:_?\\d)*)?(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])"
+        },
+        {
+          "name": "constant.numeric.float.hexagon",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])\\d(?:_?\\d)*[eE][+-]?\\d(?:_?\\d)*(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])"
+        },
+        {
+          "//": "A trailing `.` with nothing literal after it: write `1.0`. `1.show()` and `1..2` are fine and must not match here.",
+          "name": "invalid.illegal.numeric-literal.hexagon",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])\\d(?:_?\\d)*\\.(?![.\\d\\p{ID_Start}$_])"
+        },
+        {
+          "name": "constant.numeric.integer.hexagon",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])\\d(?:_?\\d)*(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])"
+        },
+        {
+          "//": "Digits joined to identifier characters: `12cats`, `1nmore`, `1efoo`, `1__0`.",
+          "name": "invalid.illegal.numeric-literal.hexagon",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])\\d[\\p{ID_Continue}$_]*"
+        },
+        {
+          "//": "A leading `.`: write `0.5`. The second dot of `1..2` is excluded by the lookbehind.",
+          "name": "invalid.illegal.numeric-literal.hexagon",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}.])\\.\\d(?:_?\\d)*"
+        }
+      ]
+    },
+
+    "function-call": {
+      "//": [
+        "A non-uppercase-start name applied to arguments. Also catches a constraint",
+        "member's bodyless header, which is spelled the same way. The second alternative",
+        "admits an angle-bracket type-parameter list only when a call actually follows",
+        "it (`isEmpty<a>(values)`), because spec/lexer.md §8.1 makes `<` the very same",
+        "token in a comparison — `count <= 0` must keep reading as a comparison."
+      ],
+      "match": "(?![\\p{Uppercase}\\p{Lt}])([\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)(?=[ \\t]*\\(|<[^<>()\\n]*>[ \\t]*\\()",
+      "captures": { "1": { "name": "entity.name.function.hexagon" } }
+    },
+
+    "parameter": {
+      "//": "A binder followed by its type annotation: parameters, record-type fields, and `<a: Ord>` constraint binders. `:=` is assignment, not an annotation.",
+      "match": "(?![\\p{Uppercase}\\p{Lt}])([\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)(?=[ \\t]*:(?!=))",
+      "captures": { "1": { "name": "variable.parameter.hexagon" } }
+    },
+
+    "names": {
+      "patterns": [
+        {
+          "//": "spec/lexer.md §3.2: bare `_` is its own wildcard token; `_name` is an ordinary name.",
+          "name": "variable.language.wildcard.hexagon",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])_(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])"
+        },
+        {
+          "//": "An uppercase-start name before an accessor `.` is always a qualifier — a module alias or a companion (spec/modules.md §3.3, §5.3). Terms are never uppercase-start, so this cannot be a field access. `..` and `...` are single tokens (§8.1), so `A..B` is a range and its `A` is an ordinary type name.",
+          "name": "entity.name.namespace.hexagon",
+          "match": "[\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*(?=\\.(?!\\.))"
+        },
+        {
+          "//": "spec/lexer.md §3.1: one scope for every uppercase-start role. Type, union case, constraint, implied type, and exception are deliberately not distinguished before parsing, so this grammar does not invent a distinction either.",
+          "name": "entity.name.type.hexagon",
+          "match": "[\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*"
+        },
+        {
+          "name": "variable.other.hexagon",
+          "match": "(?![\\p{Uppercase}\\p{Lt}])[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*"
+        }
+      ]
+    },
+
+    "operators": {
+      "//": "spec/lexer.md §8.1, ordered so maximal munch (§8.2) falls out of rule order.",
+      "patterns": [
+        { "name": "keyword.operator.spread.hexagon", "match": "\\.\\.\\." },
+        { "name": "keyword.operator.range.hexagon", "match": "\\.\\." },
+        { "name": "keyword.operator.pipe.hexagon", "match": "\\|>" },
+        { "name": "keyword.operator.assignment.hexagon", "match": ":=" },
+        { "name": "keyword.operator.arrow.hexagon", "match": "=>" },
+        { "name": "keyword.operator.type.arrow.hexagon", "match": "->" },
+        { "name": "keyword.operator.comparison.hexagon", "match": "==|!=|<=|>=" },
+        { "name": "keyword.operator.arithmetic.hexagon", "match": "\\*\\*" },
+        { "name": "keyword.operator.concat.hexagon", "match": "\\+\\+" },
+        { "name": "keyword.operator.arithmetic.hexagon", "match": "[+\\-*/]" },
+        { "name": "keyword.operator.comparison.hexagon", "match": "[<>]" },
+        { "name": "keyword.operator.assignment.hexagon", "match": "=" },
+        { "name": "keyword.operator.bar.hexagon", "match": "\\|" }
+      ]
+    },
+
+    "punctuation": {
+      "patterns": [
+        { "name": "punctuation.section.parens.begin.hexagon", "match": "\\(" },
+        { "name": "punctuation.section.parens.end.hexagon", "match": "\\)" },
+        { "name": "punctuation.section.brackets.begin.hexagon", "match": "\\[" },
+        { "name": "punctuation.section.brackets.end.hexagon", "match": "\\]" },
+        { "name": "punctuation.section.braces.begin.hexagon", "match": "\\{" },
+        { "name": "punctuation.section.braces.end.hexagon", "match": "\\}" },
+        { "name": "punctuation.separator.comma.hexagon", "match": "," },
+        { "name": "punctuation.separator.colon.hexagon", "match": ":" },
+        { "name": "punctuation.separator.semicolon.hexagon", "match": ";" },
+        { "name": "punctuation.accessor.hexagon", "match": "\\." }
+      ]
+    },
+
+    "invalid": {
+      "//": "spec/lexer.md §8.3 and §10: characters and runs with no token at all. §10's last row requires *any* invalid character to be one diagnostic, so the final rule is a negated class over the whole legal repertoire rather than a list of the forbidden characters someone thought of.",
+      "patterns": [
+        {
+          "//": "§8.2 special-cases these so the user is pointed at `not`, `and`, `or`.",
+          "name": "invalid.illegal.operator.hexagon",
+          "match": "&&|\\|\\||!(?!=)"
+        },
+        { "include": "#bidirectional-control" },
+        {
+          "//": "spec/lexer.md §2.2: space and tab are the only horizontal whitespace. There is no invisible second spelling of an ordinary space.",
+          "name": "invalid.illegal.whitespace.hexagon",
+          "match": "[\\x{000B}\\x{000C}\\x{00A0}\\x{1680}\\x{2000}-\\x{200B}\\x{202F}\\x{205F}\\x{3000}\\x{FEFF}]"
+        },
+        {
+          "//": "Every character outside the identifier repertoire (§3.1) and the closed punctuation inventory (§8.1). Catches `~`, `'` (§3.2: ML-style `a'` names do not exist), `%`, `^`, a lone `&`, `?`, `@`, `#`, backtick, backslash, and §11's own rejected `let 😀 = 1`. `!` is excluded here because `!=` is a real token; the rule above already claims a bare `!`.",
+          "name": "invalid.illegal.character.hexagon",
+          "match": "[^\\p{ID_Continue}$_\\x{200C}\\x{200D} \\t()\\[\\]{},:;.=+\\-*/<>|\"!]"
+        }
+      ]
+    },
+
+    "tab-indentation": {
+      "//": "spec/lexer.md §2.2 and §10's first row: a tab anywhere from the start of a line through its first non-whitespace character is a hard error. A tab after a token is legal, and a tab inside a string or comment is content — neither reaches this rule.",
+      "name": "invalid.illegal.tab-indentation.hexagon",
+      "match": "^(?=[ \\t]*\\t)[ \\t]+"
+    }
+  }
+}
