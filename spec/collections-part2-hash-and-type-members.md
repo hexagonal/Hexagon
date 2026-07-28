@@ -66,14 +66,14 @@ Consequences, normative:
 
 ### 2.5 Provided instances (primitives and structural types)
 
-The following instances are **compiler/runtime-provided** (§4.4 wording; no source form):
+The following instances are **compiler/runtime-provided** (§4.4 wording; no source form) — with one recorded exception: this table is the exhaustive **status map** of core-type `Hash`, and since #147 the `Bool` row records a *derived* instance, not a provided one (§18) *(lead-in amended 2026-07-29, #147)*:
 
 | Type | Notes |
 |---|---|
 | `Hash<Nat>` | value-based; `Nat` is the non-negative refinement of `Int`'s f64-integer representation (Primitive Types §1), so the `Int` triviality carries over, and agreement with `Eq<Nat>` — plain-number SameValueZero on the same values — is trivial for the same reason *(row added 2026-07-28, #139 — record in §17)* |
 | `Hash<Int>` | value-based; the f64-integer-invariant makes this trivial |
 | `Hash<Float>` | §2.3: `-0` ≡ `+0`, all NaNs one value — SameValueZero-consistent |
-| `Hash<Bool>` | **no longer provided here** — `Bool` is the prelude union `False \| True` declared in real prelude source, and its `Hash` arrives through the ordinary §4.3 derivation door (`derives (Eq, Ord, Show, Hash)`, `Eq` derived in the same header); agreement with `Eq<Bool>` is §4.3's by-construction guarantee, and the derived hash operates over the pinned `boolean` representation (Unions §6.2/§8) *(provenance corrected 2026-07-29, #147 — record in §17; row retained so this table stays the exhaustive map of core-type `Hash` status)* |
+| `Hash<Bool>` | **no longer provided here** — `Bool` is the prelude union `False \| True` declared in real prelude source, and its `Hash` arrives through the ordinary §4.3 derivation door (`derives (Eq, Ord, Show, Hash)`, `Eq` derived in the same header); agreement with `Eq<Bool>` is §4.3's by-construction guarantee, and the derived hash operates over the pinned `boolean` representation (Unions §6.2/§8) *(provenance corrected 2026-07-29, #147 — record in §18; row retained so this table stays the exhaustive map of core-type `Hash` status)* |
 | `Hash<String>` | agrees with `Eq<String>` (JS `===` string equality); algorithm unspecified (runtime-owned) |
 | `Hash<BigInt>` | folds the arbitrary-precision value into `Int`; collisions inevitable and lawful |
 | `Hash<Unit>` | constant |
@@ -139,7 +139,7 @@ The rule composes cleanly with the rest of the system: `derives (Eq, Hash)` in o
 
 ### 4.4 The stdlib asymmetry, made precise
 
-"Derivable-only" constrains **users**, not the specification. The prelude's `Hash` instances (§2.5 here; collection instances in Parts 3–4) are **compiler/runtime-provided, specified normatively by the spec text, with no source form** — precisely the status the automatic structural instances have always had. There is no privileged-module mechanism, no pragma, no blessed syntax: "the stdlib may bless an instance" *means* "the spec declares that the instance exists and the compiler/runtime provide it." A future stdlib author cannot smuggle a `Hash` instance into a `.hex` source file any more than a user can; the collection parts' instances enter the language the same way §2.5's do — by specification.
+"Derivable-only" constrains **users**, not the specification. The prelude's *provided* `Hash` instances (§2.5 here — every row but `Bool`'s since #147, see §18; collection instances in Parts 3–4) are **compiler/runtime-provided, specified normatively by the spec text, with no source form** — precisely the status the automatic structural instances have always had. There is no privileged-module mechanism, no pragma, no blessed syntax *for instances*: "the stdlib may bless an instance" *means* "the spec declares that the instance exists and the compiler/runtime provide it." A future stdlib author cannot smuggle a `Hash` instance into a `.hex` source file any more than a user can; the collection parts' instances enter the language the same way §2.5's do — by specification. *(Amended 2026-07-29, #147 — record in §18: `Bool`'s instance left this category by taking the door this rule leaves open to everyone, the §4.3 derivation; the prelude `Bool` module's single compiler privilege is its representation pin (Unions §6.2), which is not an instance mechanism and is outside this section's scope.)*
 
 Every such provided instance is bound by §2.3's law; the spec text carrying the instance carries the obligation.
 

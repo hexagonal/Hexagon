@@ -188,7 +188,11 @@ write `honor`.
 **The `true`/`false` redirect (2026-07-29, #147).** Both spellings remain hard
 keywords — they may never be used as names, which forecloses `let true = ...`
 permanently — but they no longer produce values. The diagnostic is
-**position-aware** (§10 rows): in value position, the Rewrite-Rule redirect —
+**position-aware, and position is the parser's to know** — the same division §4.2
+already fixes for contextual keywords: the lexer emits the hard-keyword token and
+the reserved-word fact; **the parser selects the message by position** (the §10
+rows record the required messages; their selection is parser work). In value
+position, the Rewrite-Rule redirect —
 "`true` is reserved; Bool's constructors are `True` and `False` — write `True`" —
 a one-token fixit for the JS-trained user's most probable spelling. In name/binder
 position, the ordinary hard-keyword message applies with **no** constructor fixit:
@@ -435,8 +439,8 @@ token inventory and the lexer must not report the same source code unit twice.
 | Continuation-only or otherwise invalid name initial | state that the character cannot begin an identifier |
 | Reserved `__hex_` prefix | "`__hex_` is reserved for compiler-generated names" + rename fix-it |
 | Literal bidirectional control | reject it; in a string suggest an explicit Unicode escape |
-| Hard keyword in name position | "`WORD` is reserved and cannot be used as a name" — including `true`/`false`; **no constructor fixit in this position** (`let True = ...` would be a refutable pattern, a second error) *(#147)* |
-| `true`/`false` in value position | "`true` is reserved; Bool's constructors are `True` and `False` — write `True`" (resp. `False`); one-token fixit *(#147, §4.1)* |
+| Hard keyword in name position | "`WORD` is reserved and cannot be used as a name" — including `true`/`false`; **no constructor fixit in this position** (`let True = ...` would be a refutable pattern, a second error) *(#147; position-dependent rows: the lexer emits the token, the **parser** selects the message — §4.1/§4.2's division)* |
+| `true`/`false` in value position | "`true` is reserved; Bool's constructors are `True` and `False` — write `True`" (resp. `False`); one-token fixit *(#147, §4.1; selection is parser work, same note as above)* |
 | Malformed `_` in a number | "`_` in a number must have a digit on both sides" |
 | `.5` / `1.` | suggest `0.5` / `1.0` |
 | Non-decimal base prefix | "Hexagon v1 has decimal literals only" |
