@@ -187,7 +187,7 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   (`Some(Point({ x, y }))`) is not writable at all yet. **The blocker was
   misattributed to #83** (paren-free `{a, b}` / `UserId(n)` lambda-head
   patterns). #83 has since landed and the spelling is still rejected, with
-  `unknown constructor \`Point\``: a nominal `record` declaration registers no
+  `` unknown constructor `Point` ``: a nominal `record` declaration registers no
   constructor *pattern*, so `Point({ x, y })` cannot be written in any pattern
   position — `match` arm, `let`, or lambda head alike. That is **#84 item 1**
   (nominal record patterns), and it was always the real blocker; #83 governed
@@ -320,7 +320,7 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   record whose *arity* differs from the intrinsic's got no arity diagnostic at
   all, because the annotation never reached the declaration; the mismatch
   appeared later as an unreadable `Vector(Int)` / `Vector(?, ?)`. The corrected
-  resolver reports `type \`Vector\` expects 2 arguments, but 1 were provided`.
+  resolver reports ``type `Vector` expects 2 arguments, but 1 were provided``.
 - **Executable conformance:** `compiler/src/conformance/resolution-order.test.ts`
   — occlusion coherence for a user `record Vector(a)` across annotation,
   constructor, field read, same-module and imported-home companion dispatch, and
@@ -484,7 +484,7 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   it collided with `stdlib/Vector.hex`'s own `empty` immediately.
 - **Reproduction:** with any prelude module exporting a lowercase value `tally`,
   a consumer writing `export let tally: String = "mine"` at module level reports
-  ``\`tally\` is already bound``. The same module written `export fun tally(...)`
+  `` `tally` is already bound ``. The same module written `export fun tally(...)`
   compiles — that discriminating pair is what located the fix.
 - **Correction applied (2026-07-26).** The module-level `let` path consults
   `lookupLocal`; nested binders keep the full `lookup` walk, because §5.4's
@@ -652,8 +652,8 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   names, and `iterate`, `map`, `filter`, and `fold` are all plausible constraint
   members. Until `Seq.hex` actually joined the set, nothing could collide.
 - **Reproduction:** with `Seq.hex` in the prelude,
-  ``constraint Walkable<c> = ... iterate(value: c): Int`` reports ``\`iterate\` is
-  already bound``, naming a line in `Seq.hex`.
+  ``constraint Walkable<c> = ... iterate(value: c): Int`` reports
+  `` `iterate` is already bound ``, naming a line in `Seq.hex`.
 - **Correction applied (2026-07-26).** The same scope-identity test defect 9's
   correction settled on: `lookupLocal` when the binder is in the module scope,
   the full `lookup` walk otherwise. Scope identity rather than nesting depth, per
