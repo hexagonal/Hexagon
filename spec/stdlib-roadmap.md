@@ -148,7 +148,11 @@ Proceed a piece at a time:
    operations that public Hexagon cannot express (`BigInt` truncated
    quotient/remainder while `BigInt` has no `/` and Hexagon has no `%`). Give those
    operations a narrow private intrinsic door rather than treating the whole
-   companion as intrinsic.
+   companion as intrinsic. *(2026-07-28: the door now has its normative spelling —
+   the `extern from "hex:intrinsic"` declaration form, `spec/intrinsics.md`
+   (ruling on #125). Items 2 and 6's "private boundary" is that door; the
+   schedule retiring the transitional public-name and primitive doors is its §9,
+   with `BigInt.hex` inheriting the form at this stage with no further ruling.)*
 3. Move derived operations into understandable Hexagon source: Euclidean `div`/`mod`,
    iterative `gcd`, divide-first `lcm`, zero checks, and Hexagon exception branding.
 4. Move the coherent `Integral<BigInt>` instance to the appropriate canonical source
@@ -172,6 +176,14 @@ After the BigInt worked example, the preferred order is:
 3. Map/Set algebra over a retained tuned HAMT core;
 4. `Option.hex` and `Result.hex`; and
 5. the remaining primitive and collection companions, one bounded slice at a time.
+
+*(Edit note, 2026-07-28, #125 ruling.)* For the collection companions this
+preferred order is **superseded by James's sequencing**: the `Vector` arc runs
+next, before Map/Set (`spec/notes/seq-deintrinsification-plan.md` Phase 5
+item 11), reversing item 3's placement relative to `Vector`, which this list
+reached only at item 5. `spec/intrinsics.md` §9.2 binds the door-deprecation
+milestones to that sequencing, not to this list. The order among items 1 and 4
+and the primitives within item 7 is unchanged and still owed here.
 
 Parsing, resolution, checking, exhaustiveness, derivation, evidence selection,
 specialization, representation lowering, counting-loop erasure, and JavaScript FFI

@@ -178,6 +178,8 @@ The prelude's `Int.div`, `Map.get`, `Vector.map` are this exact pattern — auto
 
 **Companion dispatch makes this idiom load-bearing** (Method Syntax §4): a dot call `p.getX()` rewrites to the companion operation of the receiver's type, and `CompanionOf` targets **the nominal type's home module** — the declaration site, unconditionally — not the importer's alias or any import path. The idiom is therefore a resolution rule's substrate, not just a style.
 
+*(Ruling #125, 2026-07-28.)* The compiler-provided implementation of a companion operation is **not a third meaning of the shared name**: §5.1's resolution by position keeps exactly its two meanings, module and constructor. Intrinsic linkage is a declaration form owned by `spec/intrinsics.md`; the transitional practice of reaching an intrinsic through the companion's own public qualified name is deprecated there with a per-companion terminus (`intrinsics.md` §9). The idiom itself was examined under an explicitly widened scope and retained (`intrinsics.md` §2).
+
 ### 5.4 The prelude occlusion rule
 
 The prelude enters every module's scope as a **distinct outermost layer**. The Head Binder Shadowing rule (Statements §5) is untouched in statement — sequential binders never reuse a name in their scope layer or any inner layer — but "in scope" is now layered:
@@ -437,3 +439,4 @@ Geo.area(2.0)
 | ML calculus, headers, export lists, `(..)` sugar, default exports, single-namespace, F# priority stack, unified paths, cycles: rejected with reasons | §9 |
 | Emission: 1:1 ESM; named imports even for namespace form; exported opaque types use FFI Part 7's private-symbol branded `.d.ts` face | §11 |
 | Five hanging questions recorded | §12 |
+| Intrinsic linkage is a declaration (`extern from "hex:intrinsic"`), never a third resolution meaning; companion idiom retained under widened #125 scope; public-name and primitive doors deprecated per-companion | §5.3 note; `spec/intrinsics.md` |
