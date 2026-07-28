@@ -237,7 +237,6 @@ class JavaScriptEmitter {
     }
     if (item.kind === "ExternBlock") {
       const specifier = JSON.stringify(item.specifier);
-      const intrinsic = isIntrinsicScheme(item.specifier);
       const lines: string[] = [];
       for (const declaration of item.declarations) {
         if (declaration.kind === "ExternType") continue;
@@ -245,13 +244,41 @@ class JavaScriptEmitter {
           declaration.binding.symbol,
           declaration.localName,
         );
-        if (intrinsic) {
+        if (!item.intrinsic && isIntrinsicScheme(item.specifier)) {
+          // A `hex:`-scheme block the gate refused (§5). The module is errored,
+          // so what is emitted is best-effort — but it must not be either of the
+          // two things falling through would produce: the lowering (a working
+          // door beside the diagnostic forbidding it) or the foreign path, which
+          // would write `import … from "hex:intrinsic"` into user output and put
+          // the reserved specifier — the one string the reservation exists to
+          // keep out — into the artifact. An inert binding is neither.
+          //
+          // Asking the specifier here is not re-deriving the gate: "is this the
+          // reserved scheme?" is syntactic, and the specifier does answer it.
+          // Whether the module may *use* it is `item.intrinsic`, above.
+          lines.push(`${prefix}const ${local} = undefined;`);
+          if (declaration.exported) {
+            this.#exports.push(
+              local === declaration.localName
+                ? `export { ${local} };`
+                : `export { ${local} as ${declaration.localName} };`,
+            );
+          }
+          continue;
+        }
+        if (item.intrinsic) {
           // An ordinary binding of this module's output, whose body is the
           // compiler's lowering (`spec/intrinsics.md` §8.3) — so cross-module
           // linkage is ordinary ESM, exactly like every other prelude function.
           // No import is emitted: there is no foreign module. Nor is either
           // `Seq` bridge applied, because this is not a crossing — both sides of
           // the door are Hexagon, and a `Seq` argument arrives as itself.
+          //
+          // `item.intrinsic`, never the specifier: a `hex:` block the gate
+          // refused reaches here as an ordinary errored item, and lowering it
+          // would hand back a *working* door beside the diagnostic forbidding it
+          // (§5.3). Emission for an errored module is best-effort by design, but
+          // best-effort must not mean functional-but-forbidden.
           const key = declaration.foreignName ?? declaration.localName;
           lines.push(`${prefix}const ${local} = ${this.#lowerIntrinsic(key, declaration.span)};`);
           if (declaration.exported) {

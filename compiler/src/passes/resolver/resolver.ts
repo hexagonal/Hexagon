@@ -918,6 +918,7 @@ class Resolver {
         return {
           kind: "ExternBlock",
           specifier: item.specifier,
+          intrinsic,
           declarations,
           span: item.span,
         };

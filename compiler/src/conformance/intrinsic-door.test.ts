@@ -64,6 +64,36 @@ describe("the gate (§5)", () => {
     ])).toEqual([]);
   });
 
+  /**
+   * §5.3's claim is unconditional — "the block never resolves, so **no user
+   * program can reach the inventory**" — so it has to hold of the *artifact*,
+   * not only of the diagnostics. Emission for an errored module is best-effort
+   * by design (`project.ts` emits every module so a broken one cannot report
+   * success silently), and the gate's answer travels on the resolved item
+   * precisely so best-effort cannot mean functional-but-forbidden here.
+   *
+   * The two things that must not be emitted are the two the block would fall
+   * through to: the lowering, which is a working door beside the diagnostic
+   * refusing it, and the ordinary foreign path, which would write the reserved
+   * specifier — the one string the reservation exists to keep out of user
+   * programs — into the output as an import.
+   */
+  test("a refused block emits no lowering, no import, and no reserved specifier", () => {
+    const project = compileProject([
+      new Source.File(Source.fileId(0), "/main.hex", DOOR),
+    ]);
+    expect(project.diagnostics).toHaveLength(1);
+    const javascript = project.modules
+      .find(({ source }) => source.path === "/main.hex")!.javascript.text;
+
+    expect(javascript).not.toContain("hex:intrinsic");
+    expect(javascript).not.toContain("seqMemoize");
+    expect(javascript).not.toContain("import");
+    // Inert, not absent: the binding still exists, so the rest of an errored
+    // module's output stays readable rather than referring to a missing name.
+    expect(javascript).toContain("const memoized = undefined;");
+  });
+
   /** §5.1: `"hex:intrinsic"` is the scheme's only v1 member. */
   test("another `hex:` member is refused even in privileged source", () => {
     expect(diagnostics([
