@@ -89,7 +89,7 @@ const v = m.get(k);
 
 Consequences, documented:
 
-- **Primitive keys behave identically on both sides** — Hexagon `Eq` on `Int`/`Float`/`String`/`Bool` *is* SameValueZero (Collections Part 4 §10.1): all `NaN`s are one key, `-0`/`+0` unify, in both regimes.
+- **Primitive keys behave identically on both sides** — Hexagon `Eq` on `Nat`/`Int`/`Float`/`Bool`/`String`/`BigInt`/`Unit` — every primitive — *is* SameValueZero on its JS representation (Collections Part 4 §10.1): all `NaN`s are one key, `-0`/`+0` unify, in both regimes *(enumeration corrected 2026-07-28, #141 — record: Collections Part 4 §18)*.
 - **Structural keys are reference-identity lookups.** A record-typed key finds an entry only via the exact object reference; an equal-looking value is a different key. Legal, occasionally what a binding needs, and nearly useless as a structural index — which is what the conversions (§7) exist for.
 - The absence of `Hash` also means **`JsMap(Hex.Range, v)` is satisfiable** where `Map(Range, v)` is not (`Range` has no `Hash`, Part 4 §4.4). A `Range`-typed bracket element on a `JsMap` whose key type is `Range` is an ordinary key lookup — **`JsMap` has no slicing**, so no `Range`-means-slice reading exists here to compete with it. Part 4 §4.4's "unsatisfiable" escape hatch does not port; the resolution rule (receiver + element type select the meaning) does.
 
