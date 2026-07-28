@@ -1304,6 +1304,114 @@ describe("check", () => {
     ]);
   });
 
+  test("keeps §4's defaultable set closed against user `honor` instances", () => {
+    // A user `honor Conjure<Int>` must not make `Conjure` defaultable:
+    // Numeric Literals §4's list is hard-coded "not user-extensible", and §7
+    // rejects extensible defaulting as a design. Nothing pins `v`, so this is
+    // §4's ambiguity error rather than a silent `v : Int`.
+    const conjure = "constraint Conjure<a> =\n" +
+      "    make(): a\n" +
+      "honor Conjure<Int> =\n" +
+      "    make() = 1\n";
+    const ambiguous = checkSource(conjure + "let v = make()");
+    expect(ambiguous.diagnostics.map(({ message }) => message)).toEqual([
+      "this expression's type cannot default to `Int`: `Conjure` is not a " +
+        "defaultable constraint; add a type annotation to pin the type",
+    ]);
+    expect(letSymbol(ambiguous, "v").scheme.type).toMatchObject({ kind: "Variable" });
+
+    // The annotation §6 names is the repair, and it compiles.
+    expect(checkSource(conjure + "let v: Int = make()").diagnostics).toEqual([]);
+
+    // A literal under a user constraint is §4's `{Num α, SomeUserConstraint α}`
+    // case: it is the user constraint that blocks, not `Num`, and §6 requires
+    // the report to name the blocking constraint at the literal's location.
+    const literal = checkSource(
+      "constraint Tag<a> =\n" +
+        "    label(value: a): String\n" +
+        "honor Tag<Int> =\n" +
+        "    label(value) = \"int\"\n" +
+        "let text = label(1)",
+    );
+    expect(literal.diagnostics.map(({ message }) => message)).toEqual([
+      "the literal `1` cannot default to `Int`: `Tag` is not a defaultable " +
+        "constraint; add a type annotation to pin the type",
+    ]);
+    expect(literal.diagnostics[0]?.primary).toMatchObject({
+      start: { line: 4, column: 17 },
+      end: { line: 4, column: 18 },
+    });
+
+    // Literals that unify share one blocked variable, and their duplicate
+    // `Num` requirements collapse to one — so the report fires once, naming
+    // the literal its own caret points at rather than one of them each.
+    const shared = checkSource(
+      "constraint Pairable<a> =\n" +
+        "    pair(left: a, right: a): String\n" +
+        "honor Pairable<Int> =\n" +
+        "    pair(left, right) = \"pair\"\n" +
+        "let text = pair(4, 6)",
+    );
+    expect(shared.diagnostics.map(({ message }) => message)).toEqual([
+      "the literal `6` cannot default to `Int`: `Pairable` is not a " +
+        "defaultable constraint; add a type annotation to pin the type",
+    ]);
+    expect(shared.diagnostics[0]?.primary).toMatchObject({
+      start: { line: 4, column: 19 },
+      end: { line: 4, column: 20 },
+    });
+
+    // A declared type variable never defaulted, so nothing about it is
+    // blocked — the annotation already pins it, and the report would name a
+    // rewrite that repairs nothing.
+    expect(
+      checkSource(conjure + "fun f<a: Conjure>(): a = make()\nlet used: Int = f()")
+        .diagnostics,
+    ).toEqual([]);
+  });
+
+  test("defaults through the compiler's own `Int` instances", () => {
+    // The closed set is the compiler's table, so the builtin constraints on it
+    // still default — including `Integral`, whose bare-call literal case its
+    // own spec (Integral §8) expects to resolve to `Int` as usual.
+    const integral = checkSource(
+      "constraint Integral<a: (Num, Ord)> =\n" +
+        "    gcd(left: a, right: a): a\n" +
+        "let common = gcd(4, 6)",
+    );
+    expect(integral.diagnostics).toEqual([]);
+    expect(letSymbol(integral, "common").scheme.type).toEqual({
+      kind: "Primitive",
+      name: "Int",
+    });
+
+    // And §4's own consequence list: `{Num}` and `{Num, Show}` both default.
+    const plain = checkSource("let count = 1\nlet text = \"${1 + 2}\"");
+    expect(plain.diagnostics).toEqual([]);
+    expect(letSymbol(plain, "count").scheme.type).toEqual({
+      kind: "Primitive",
+      name: "Int",
+    });
+  });
+
+  test("quantifies a parameterized instance's own type parameter", () => {
+    // `honor<a: Render>` binds `a`; it is not an unresolved variable for
+    // defaulting to settle — nor one for the blocked-defaulting report to
+    // name, which is how the absent quantification became visible.
+    const module = checkSource(
+      "constraint Render<a> =\n" +
+        "    render(value: a): String\n" +
+        "honor Render<Int> =\n" +
+        "    render(value) = \"int\"\n" +
+        "record Box(a) = {value: a}\n" +
+        "honor<a: Render> Render<Box(a)> =\n" +
+        "    render(box) = \"box\"\n" +
+        "let boxed: Box(Int) = Box({value = 42})\n" +
+        "let text: String = render(boxed)",
+    );
+    expect(module.diagnostics).toEqual([]);
+  });
+
   test("names concrete types when a discarded branch is structured", () => {
     // A structured branch can never be the demanded `Unit`, so its literals
     // would otherwise reach a mandatory fixit as raw variables — `(?0, ?1)`.
