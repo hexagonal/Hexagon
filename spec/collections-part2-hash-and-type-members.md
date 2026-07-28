@@ -70,6 +70,7 @@ The following instances are **compiler/runtime-provided** (§4.4 wording; no sou
 
 | Type | Notes |
 |---|---|
+| `Hash<Nat>` | value-based; `Nat` is the non-negative refinement of `Int`'s f64-integer representation (Primitive Types §1), so the `Int` triviality carries over, and agreement with `Eq<Nat>` — plain-number SameValueZero on the same values — is trivial for the same reason *(row added 2026-07-28, #139 — record in §17)* |
 | `Hash<Int>` | value-based; the f64-integer-invariant makes this trivial |
 | `Hash<Float>` | §2.3: `-0` ≡ `+0`, all NaNs one value — SameValueZero-consistent |
 | `Hash<Bool>` | two values |
@@ -426,3 +427,17 @@ constraint Queue<c> =
 ## 16. Reserved
 
 *Anchor retained for stable inbound references. The post-review corrections formerly recorded here (owner-scoped implied-type identity; the seeded-placement/iteration-order split) are incorporated into §6 and §2.4 respectively, each with its do-not-relitigate record.*
+
+---
+
+## 17. Correction record — the `Hash<Nat>` row (2026-07-28, #139)
+
+> **Correction (2026-07-28, #139).** `Nat` (v1.1) postdates this document. Its introduction gave `Pow<Nat>` and `Integral<Nat>` proper rows in their owners (Operators §6.3; Integral §3) and gave Primitive Types §1 a complete constraint inventory naming `Hash` — but never touched §2.5, so the normative home of the provided `Hash` instances had no `Nat` row while closing with "no other core instance is fixed by this section." Read strictly, the owner denied an instance the compiler ships and the rest of the corpus assumes. The fix is the one row: `Hash<Nat>` is inserted into §2.5's table in place, marked *(row added 2026-07-28, #139)*, in Primitive Types §1's type order.
+
+Three notes complete the record:
+
+1. **The closing sentence is deliberately untouched.** "No other core instance is fixed by this section" was and remains load-bearing — it is what makes `Hash<Exn>`'s absence and `Seq`'s hashlessness derivable from this table rather than merely unmentioned. The correction is that the exhaustive table was missing a member, not that exhaustiveness was the wrong posture; with the row present, the sentence is again simply true.
+2. **The instance decides nothing new.** `Nat` is the non-negative refinement of the same f64-integer representation as `Int` (Primitive Types §1/§2): no runtime tag, values a subset of `Int`'s. `Hash<Nat>` is therefore the `Int` story on a subset of the same values, bound by §2.3's law through §4.4's blanket obligation, and its agreement with `Eq<Nat>` holds exactly as `Hash<Int>`'s does with `Eq<Int>`. This record specifies an instance the checker's provided-instance set has carried since v1.1; no implementation change accompanies it.
+3. **This touch discharges Primitive Types §11's tracked exception.** That document recorded this gap under #139 so its ownership rule ("the owning spec wins") could not be misread as retracting `Hash<Nat>`, and the paragraph stated its own deletion condition — "it deletes on Part 2's next touch." This is that touch; the paragraph is deleted with this correction, and rule 1 there now stands with no known exception.
+
+§2.5 is the only inventory in this document that enumerates core types; no other section required a `Nat` touch (the v1.1 commit's only other mark here was §3.1's whitelist-diagnostic rewording).
