@@ -7,6 +7,12 @@
  */
 
 import * as Diagnostics from "../../support/diagnostics.js";
+import {
+  INTRINSIC_INVENTORY,
+  INTRINSIC_SPECIFIER,
+  isIntrinsicScheme,
+  nearestIntrinsicKey,
+} from "../../intrinsics.js";
 import type * as Source from "../../support/source.js";
 import * as Parsed from "../../syntax/parsed/index.js";
 import * as Resolved from "../../syntax/resolved/index.js";
@@ -102,6 +108,20 @@ export interface ResolveOptions {
    * design note §5.2.
    */
   readonly runtime?: boolean;
+  /**
+   * Whether this module is compiled as **standard-library source**, the privilege
+   * the intrinsic door is gated on (`spec/intrinsics.md` §5.2). In v1 that is the
+   * prelude set — including a project-supplied file at a prelude injection path,
+   * which the loader already lets win over the embedded copy, and which is the
+   * stdlib-developing-itself path.
+   *
+   * The privilege attaches to *how the module is compiled*, never to its text, and
+   * unlike `runtime` it puts no name into scope: the door is a declaration form,
+   * so there is nothing for unprivileged source to leak (§5.3). All an
+   * unprivileged module can even type is the reserved specifier, which fails
+   * closed with a named rewrite.
+   */
+  readonly privileged?: boolean;
 }
 
 export function resolve(
@@ -112,6 +132,22 @@ export function resolve(
   for (const diagnostic of module.diagnostics) diagnostics.add(diagnostic);
 
   return new Resolver(diagnostics, options).resolve(module);
+}
+
+/**
+ * What kind of binding an `extern` block's declarations produce.
+ *
+ * A foreign one is `extern` — the value came from outside and the compiler knows
+ * nothing about it beyond the declaration it was asked to believe. An intrinsic
+ * one is `fun`, because that is what `spec/intrinsics.md` §3.1 makes it: "After
+ * the declaration, the binding is an **ordinary module-level binding**: same
+ * typing, visibility, collision, and occlusion rules as any other." §8.1 spends
+ * that immediately — Method Syntax §4.2's companion operation set is built from
+ * ordinary function bindings, and an exported intrinsic declaration has to be in
+ * it for `source.memoize()` to dispatch the way every sibling combinator does.
+ */
+function externBindingKind(specifier: string): "fun" | "extern" {
+  return isIntrinsicScheme(specifier) ? "fun" : "extern";
 }
 
 export function moduleInterface(module: Resolved.Module): ModuleInterface {
@@ -223,6 +259,7 @@ class Resolver {
   readonly #resolvingAliases: string[] = [];
   readonly #imports: ReadonlyMap<string, ModuleInterface>;
   readonly #runtime: boolean;
+  readonly #privileged: boolean;
   readonly #preludeScope = new Scope();
   #moduleScope: Scope | undefined;
   readonly #preludeTerms = new Map<Resolved.SymbolId, Resolved.Symbol>();
@@ -257,6 +294,7 @@ class Resolver {
     this.#diagnostics = diagnostics;
     this.#imports = options.imports ?? new Map();
     this.#runtime = options.runtime ?? false;
+    this.#privileged = options.privileged ?? false;
     this.#nextSymbol = options.symbolBase ?? 0;
     this.#nextUnion = options.unionBase ?? 0;
     this.#nextRecord = options.recordBase ?? 0;
@@ -472,14 +510,104 @@ class Resolver {
   #predeclareExternTerms(items: readonly Parsed.Item[], scope: Scope): void {
     for (const item of items) {
       if (item.kind !== "ExternBlock") continue;
+      const kind = externBindingKind(item.specifier);
       for (const declaration of item.declarations) {
         if (declaration.kind === "ExternType") continue;
         const existing = scope.lookupLocal(declaration.localName.text);
         if (existing !== undefined) this.#reportRebinding(declaration.localName, existing);
-        const binding = this.#declare(declaration.localName, "extern");
+        const binding = this.#declare(declaration.localName, kind);
         this.#predeclaredBindings.set(declaration, binding);
         if (existing === undefined) scope.define(declaration.localName.text, binding.symbol);
       }
+    }
+  }
+
+  /**
+   * The gate (`spec/intrinsics.md` §5). Returns whether this block is the
+   * intrinsic door — which it is only when the specifier names it *and* the
+   * module may use it. In unprivileged source the block never resolves, so no
+   * user program can reach the inventory (§5.3), and reporting exactly one error
+   * per block keeps the diagnostic about the thing the author actually typed.
+   */
+  #checkExternSpecifier(
+    specifier: string,
+    span: Source.Span,
+    form: "block" | "import",
+  ): boolean {
+    if (!isIntrinsicScheme(specifier)) return false;
+    if (!this.#privileged) {
+      // The rewrite names the form the author was already writing. Pointing an
+      // effect import at an `extern from` block would be telling them to rewrite
+      // the wrong half of what they typed.
+      this.#diagnostics.add({
+        severity: "error",
+        message: "the `hex:` specifier scheme is reserved to standard-library source; " +
+          (form === "block"
+            ? "to bind your own JavaScript implementation, use an ordinary `extern from` " +
+              "block naming your module"
+            : "to run your own JavaScript module for its effects, use an ordinary " +
+              "`extern import` naming your module"),
+        primary: span,
+      });
+      return false;
+    }
+    if (specifier !== INTRINSIC_SPECIFIER) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `\`${specifier}\` is not a reserved boundary; ` +
+          `\`${INTRINSIC_SPECIFIER}\` is the scheme's only member`,
+        primary: span,
+      });
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Verification replaces trust (§4.2). At a foreign boundary the declaration is
+   * believed; here the compiler is the implementer, so key existence and arity
+   * are checked at the declaration site. Types are deliberately *not* checked
+   * against a compiler-side table — the annotation is normative, and a lowering
+   * that diverges from it is a compiler conformance defect, never a user
+   * diagnostic.
+   */
+  #verifyIntrinsicKey(
+    declaration: Parsed.ExternFunDeclaration | Parsed.ExternLetDeclaration,
+  ): void {
+    // A `default` declaration has no foreign name to be the key, and the form
+    // was already refused (§3.3). Verifying the local name as a key on top of
+    // that would report the author's one mistake twice, the second time as a
+    // claim about a key they never wrote.
+    if (declaration.default) return;
+    const name = declaration.foreignName ?? declaration.localName;
+    const arity = INTRINSIC_INVENTORY.get(name.text);
+    if (arity === undefined) {
+      // The Rewrite Rule wants a named rewrite in every hard error. A near
+      // neighbour is the best one — it is almost always the key the author meant.
+      // With nothing close, the inventory itself is the rewrite: it is flat and
+      // compiler-global, so listing it is exhaustive rather than a guess, which
+      // is the one thing a suggestion here must not be.
+      const nearest = nearestIntrinsicKey(name.text);
+      this.#diagnostics.add({
+        severity: "error",
+        message: `the compiler provides no intrinsic \`${name.text}\`; ` +
+          (nearest === undefined
+            ? `the keys it provides are ${[...INTRINSIC_INVENTORY.keys()]
+              .map((key) => `\`${key}\``).join(", ")}`
+            : `the nearest provided key is \`${nearest}\``),
+        primary: name.span,
+      });
+      return;
+    }
+    if (declaration.kind !== "ExternFun") return;
+    if (declaration.parameters.length !== arity) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `intrinsic \`${name.text}\` takes ${arity} ` +
+          `${arity === 1 ? "parameter" : "parameters"}, but this declaration has ` +
+          `${declaration.parameters.length}`,
+        primary: declaration.span,
+      });
     }
   }
 
@@ -723,9 +851,27 @@ class Resolver {
         };
       }
       case "ExternImport":
+        // The reservation is a property of the scheme, not of one block form, so
+        // it fails closed here too. In privileged source the specifier is legal
+        // but the form is not: §8.3 emits no import because there is no foreign
+        // module, and an effect import of the door would emit one that resolves
+        // to nothing.
+        if (this.#checkExternSpecifier(item.specifier, item.span, "import")) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: "the intrinsic door has no foreign module to import; " +
+              "declare the operations you need in an `extern from " +
+              `${JSON.stringify(INTRINSIC_SPECIFIER)}\` block`,
+            primary: item.span,
+          });
+        }
         return item;
       case "ExternBlock": {
+        const intrinsic = this.#checkExternSpecifier(item.specifier, item.span, "block");
         const declarations = item.declarations.map((declaration): Resolved.ExternDeclaration => {
+          if (intrinsic && declaration.kind !== "ExternType") {
+            this.#verifyIntrinsicKey(declaration);
+          }
           if (declaration.kind === "ExternType") {
             const resolved: Resolved.ExternTypeDeclaration = {
               kind: "ExternType",
@@ -739,7 +885,8 @@ class Resolver {
             this.#externTypes.push(resolved);
             return resolved;
           }
-          const binding = this.#predeclaredBindings.get(declaration) ?? this.#declare(declaration.localName, "extern");
+          const binding = this.#predeclaredBindings.get(declaration) ??
+            this.#declare(declaration.localName, externBindingKind(item.specifier));
           const common = {
             exported: declaration.exported,
             default: declaration.default,
@@ -771,6 +918,7 @@ class Resolver {
         return {
           kind: "ExternBlock",
           specifier: item.specifier,
+          intrinsic,
           declarations,
           span: item.span,
         };

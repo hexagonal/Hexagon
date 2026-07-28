@@ -242,6 +242,21 @@ export type Item =
 export interface ExternBlockItem {
   readonly kind: "ExternBlock";
   readonly specifier: string;
+  /**
+   * Whether this block resolved as the intrinsic door (`spec/intrinsics.md` §5):
+   * the specifier names it **and** the module was compiled with the privilege to
+   * use it. False for every foreign block, and false for a `hex:`-scheme block
+   * the gate refused — for which §5.3's "the block never resolves" is the whole
+   * point, and this field is what makes that literally so downstream.
+   *
+   * The gate's answer travels rather than being re-derived, because the
+   * specifier alone cannot answer it: privilege is a property of the
+   * compilation. A later pass asking `isIntrinsicScheme(specifier)` would be
+   * deciding the same question from strictly less information, and would go
+   * quietly wrong when §5.2's second bullet (loader-designated companion source)
+   * widens the gate.
+   */
+  readonly intrinsic: boolean;
   readonly declarations: readonly ExternDeclaration[];
   readonly span: Source.Span;
 }

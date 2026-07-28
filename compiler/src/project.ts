@@ -150,6 +150,11 @@ export function compileProject(files: readonly Source.File[]): CompiledProject {
       unionBase: isPrelude ? preludeUnionBase : unionBase,
       recordBase: isPrelude ? preludeRecordBase : recordBase,
       externTypeBase: isPrelude ? preludeExternTypeBase : externTypeBase,
+      // v1's standard-library privilege is prelude membership (`spec/intrinsics.md`
+      // §5.2). It follows the *path*, so a project supplying its own file at a
+      // prelude injection path is privileged in it — the stdlib-developing-itself
+      // path, carrying the same trust model as the `Node` runtime flag precedent.
+      privileged: isPrelude,
       ...(preludeImports.length === 0 ? {} : { prelude: preludeImports }),
     });
     if (isPrelude) {

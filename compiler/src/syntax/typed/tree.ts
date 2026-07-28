@@ -210,6 +210,8 @@ export type ExternImportItem = Resolved.ExternImportItem;
 export interface ExternBlockItem {
   readonly kind: "ExternBlock";
   readonly specifier: string;
+  /** Carried from the resolved tree unchanged; see `Resolved.ExternBlockItem`. */
+  readonly intrinsic: boolean;
   readonly declarations: readonly ExternDeclaration[];
   readonly span: Source.Span;
 }
