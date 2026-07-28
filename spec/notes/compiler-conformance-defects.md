@@ -860,20 +860,37 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   already exactly "this is the frontier", and the replay check sits inside it,
   which is what keeps a failure from poisoning the buffered positions before it.
   A per-node cell would encode the same fact more expensively.
+  **The argument assumes forcing is not reentrant** — that foreign code driven
+  by one forcing does not itself pull the same spine. Under reentrancy "a
+  failure pushes nothing" is voided: an inner forcing can record a failure that
+  an outer, still-running forcing then overwrites with a value, leaving a stale
+  error replayed at a position the source would have served. Issue #123 asks for
+  the ruling (raised by Fable, review finding F3). It is not a consequence of the single cell — a per-node cell
+  collides on the same node — and the pre-fix spine was already incoherent
+  there, reordering elements rather than replaying a stale failure.
 - **The stored cell is a box, not the thrown value.** JavaScript permits
   `throw undefined`, so `failure !== undefined` would otherwise misread a
   genuine failure as unforced and re-enter the foreign call — the defect again,
   in the fix, on the one input that looks like the sentinel.
-- **Executable conformance:** `seq-unification.test.ts`, a describe block of
-  four, one per throwing operation §7.1 and §7.2 name — `next()`,
-  `[Symbol.iterator]()`, a `value` getter, and the adapter's own malformed-result
-  `TypeError`. Each forces **one persistent position twice** and asserts the
-  second throw is `toBe` the first (identity, so replay is distinguished from a
-  re-run that throws a look-alike) and that the foreign side was touched once.
-  Each foreign source yields a good value on the call after the failing one, so
-  a re-invocation shows up as a *success* where §7.1 demands a replayed failure.
-  All four confirmed red before the fix, failing on that exact discriminator:
-  one throw recorded instead of two.
+- **Executable conformance:** `seq-unification.test.ts`, a describe block of six.
+  Five are one per throwing operation §7.1 and §7.2 name — `next()`,
+  `[Symbol.iterator]()`, a `done` getter, a `value` getter, and the adapter's own
+  malformed-result `TypeError`; `return()`, the remaining operation in §7.1's
+  list, is not covered because the adapter never invokes it (§8). Each forces
+  **one persistent position twice** and asserts the second throw is `toBe` the
+  first (identity, so replay is distinguished from a re-run that throws a
+  look-alike) and that the foreign side was touched once. Each foreign source
+  yields a good value on the call after the failing one, so a re-invocation shows
+  up as a *success* where §7.1 demands a replayed failure.
+- **The sixth test is the one that pins the paragraph above**, and it was missing
+  from the first cut of this fix. The other five all fail at the head, so none of
+  them can tell a correct spine from one that poisons every buffered position: a
+  mutant with the replay check moved *outside* the frontier guard passes all
+  five, and the whole file. The sixth buffers position 1, fails twice at position
+  2, and re-reads position 1 — the only case here whose failing position is not
+  the head. It is the executable form of "a failure is an outcome of that node".
+- All six confirmed red against the pre-fix helper in a detached worktree,
+  failing on the same discriminator: one throw recorded instead of two.
 - **Bearing on `memoize`:** `Seq.memoize` is specified as "the same mechanism as
   FFI Part 3's inbound adapter" (Loops §6.4), and `Seq` is the pilot `Vector`,
   `Set`, and `Map` inherit. Fixing the spine before exposing it to a second

@@ -596,6 +596,29 @@ describe("the inbound adapter memoizes a forcing failure (FFI Part 3 §7.1)", ()
     expect(touches).toBe(1);
   });
 
+  test("a throw from a `done` getter is replayed, and the iterator does not advance", async () => {
+    // §7.2 step 3's read, and the earlier of the two accessors §7.2 names.
+    // Nothing about the node has been decided when this throws — not even
+    // whether it ends the sequence — so the memo cell is all there is to record.
+    const { thrown, touches } = await forcedTwice([
+      "let calls = 0;",
+      "export function touches() { return calls; }",
+      "export function counter() {",
+      "  return { [Symbol.iterator]() {",
+      "    return { next() {",
+      "      calls += 1;",
+      "      if (calls === 1) return { get done() { throw new Error(\"bad done\"); }, value: 1 };",
+      "      return { done: false, value: calls };",
+      "    } };",
+      "  } };",
+      "}",
+    ].join("\n"));
+    expect(thrown).toHaveLength(2);
+    expect(thrown[1]).toBe(thrown[0]);
+    expect((thrown[0] as Error).message).toBe("bad done");
+    expect(touches).toBe(1);
+  });
+
   test("a throw from a `value` getter is replayed, and the iterator does not advance", async () => {
     // §7.2 step 5's read. `done` was already read and coerced when this throws,
     // so the memo cell must record the failure rather than a half-forced node.
@@ -638,5 +661,77 @@ describe("the inbound adapter memoizes a forcing failure (FFI Part 3 §7.1)", ()
     expect(thrown[0]).toBeInstanceOf(TypeError);
     expect(thrown[1]).toBe(thrown[0]);
     expect(touches).toBe(1);
+  });
+
+  /**
+   * The failure is an outcome of **one position**, not of the sequence. A
+   * position already forced keeps its value: §4's spine memoizes outcomes
+   * per position, and §7.1 speaks of "that node". So the replay check belongs
+   * *inside* the frontier guard, and this is the test that says so — the four
+   * above all fail at the head, so none of them would notice a check that
+   * poisoned every buffered position behind the failed one.
+   *
+   * It is also the only case here where the failing position is not the head.
+   */
+  test("a failure does not poison the positions already forced before it", async () => {
+    const exports = await run(
+      [["/main.hex",
+        "extern from \"numbers\"\n" +
+        "    fun counter(): Seq(Int)\n" +
+        "    fun touches(): Int\n" +
+        "\n" +
+        "let shared: Seq(Int) = counter()\n" +
+        "\n" +
+        "let tailOf(source: Seq(Int)): Seq(Int) =\n" +
+        "    match Seq.next(source)\n" +
+        "        None => source\n" +
+        "        Some((_, rest)) => rest\n" +
+        "\n" +
+        "let second: Seq(Int) = tailOf(shared)\n" +
+        "\n" +
+        "export let forceSecond(ignored: Int): Int =\n" +
+        "    match Seq.next(second)\n" +
+        "        None => 0\n" +
+        "        Some((value, _)) => value\n" +
+        "\n" +
+        "export let forceHead(ignored: Int): Int =\n" +
+        "    match Seq.next(shared)\n" +
+        "        None => 0\n" +
+        "        Some((value, _)) => value\n" +
+        "\n" +
+        "export let touched(ignored: Int): Int = touches()\n"]],
+      {
+        numbers: [
+          "let calls = 0;",
+          "export function touches() { return calls; }",
+          "export function counter() {",
+          "  return { [Symbol.iterator]() {",
+          "    return { next() {",
+          "      calls += 1;",
+          "      if (calls === 2) throw new Error(\"no second element\");",
+          "      return { done: false, value: calls * 10 };",
+          "    } };",
+          "  } };",
+          "}",
+        ].join("\n"),
+      },
+    );
+    const forceSecond = exports["forceSecond"] as (ignored: number) => number;
+    const forceHead = exports["forceHead"] as (ignored: number) => number;
+    // Position 1 was forced while `second` was taken, so it is buffered.
+    expect(forceHead(0)).toBe(10);
+    const thrown: unknown[] = [];
+    for (const _attempt of [0, 1]) {
+      try {
+        forceSecond(0);
+      } catch (error) {
+        thrown.push(error);
+      }
+    }
+    expect(thrown).toHaveLength(2);
+    expect(thrown[1]).toBe(thrown[0]);
+    // The head still answers with its value, after the failure and twice over.
+    expect(forceHead(0)).toBe(10);
+    expect((exports["touched"] as (ignored: number) => number)(0)).toBe(2);
   });
 });
