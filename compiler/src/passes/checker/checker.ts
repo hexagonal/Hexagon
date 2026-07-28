@@ -57,6 +57,13 @@ interface Variable {
    * its level) nor absorbed by a declared type variable (rejected in `#bind`).
    */
   placeholder?: boolean;
+  /**
+   * A source-shaped name for a variable that survives into a diagnostic the
+   * Rewrite Rule makes mandatory. Numeric Literals §6 requires survivors in
+   * those reports to be "named rather than numbered"; `?3` is what this
+   * replaces. Display only — it never affects unification, unlike `rigidName`.
+   */
+  displayName?: string;
   level: number;
   instance?: Mono;
   literalOnly: boolean;
@@ -151,6 +158,15 @@ interface Requirement {
   readonly type: Mono;
   readonly span: Source.Span;
   readonly origin: "annotation" | "literal" | "operation" | "interpolation";
+  /** The literal's digits, so §6's blocked-defaulting report can name it. */
+  literal?: string;
+  /**
+   * Where the scheme carrying this requirement was *used*. `span` points at
+   * the definition, which a copy inherits, so a report about the use — §6's
+   * blocked-defaulting one — would otherwise caret a constraint declaration,
+   * or another module's source entirely.
+   */
+  useSpan?: Source.Span;
   readonly impliedTypes?: ReadonlyMap<string, Mono>;
   evidenceConstraint?: Typed.ConstraintName;
   evidencePath?: readonly string[];
@@ -344,6 +360,11 @@ class Checker {
         const typeParameters = new Map(
           item.typeParameters.map(({ name }) => [name, this.#fresh(0, false)] as const),
         );
+        // An instance's parameters are universally quantified by its header,
+        // exactly as a constraint's subject is below: `honor<a: Render>` binds
+        // `a`, so it is never an unresolved variable for defaulting to settle
+        // — nor one for §4's blocked-defaulting report to name.
+        for (const variable of typeParameters.values()) this.#quantified.add(variable.id);
         this.#instanceTypeParameters.set(item, typeParameters);
         for (const parameter of item.typeParameters) {
           const variable = typeParameters.get(parameter.name)!;
@@ -1519,7 +1540,12 @@ class Checker {
       }
       case "Name":
         const requirements: Requirement[] = [];
-        type = this.#instantiate(this.#scheme(expression.symbol), level, requirements);
+        type = this.#instantiate(
+          this.#scheme(expression.symbol),
+          level,
+          requirements,
+          expression.span,
+        );
         this.#nameRequirements.set(expression, requirements);
         break;
       case "Unit":
@@ -1531,6 +1557,7 @@ class Checker {
       case "Integer": {
         type = this.#fresh(level, true);
         const requirement = this.#require("Num", type, expression.span, "literal");
+        requirement.literal = expression.decimal;
         this.#requirements.set(expression, [requirement]);
         break;
       }
@@ -2107,7 +2134,12 @@ class Checker {
               );
               break;
             }
-            const callee = this.#instantiate(scheme, level);
+            const callee = this.#instantiate(
+              scheme,
+              level,
+              undefined,
+              expression.callee.field.span,
+            );
             const arguments_ = [
               receiver,
               ...expression.arguments.map((argument) => this.#inferExpr(argument, level)),
@@ -3782,12 +3814,47 @@ class Checker {
         continue;
       }
       seen.add(actual.id);
-      if (
-        this.#canDefaultToInt(actual)
-      ) {
+      if (actual.requirements.length === 0) continue;
+      if (this.#canDefaultToInt(actual)) {
         this.#bind(actual, primitive("Int"), actual.requirements[0]!.span);
+        continue;
       }
+      // Nothing generalised this variable and §4 will not default it, so this
+      // is §4's "ambiguity error if the binding form doesn't allow it" — the
+      // last point at which the blocking constraint can still be named.
+      this.#reportBlockedDefaulting(actual);
     }
+  }
+
+  /**
+   * Numeric Literals §6's blocked-defaulting report: name the constraint that
+   * prevents defaulting and the literal it came from, and name the rewrite —
+   * an annotation pins the type, which is the only thing that can (§4).
+   */
+  #reportBlockedDefaulting(variable: Variable): void {
+    // A declared variable is pinned by its annotation already; it never
+    // defaulted, so nothing about it is blocked.
+    if (variable.rigidName !== undefined) return;
+    const blocking = this.#blockingConstraint(variable);
+    if (blocking === undefined || blocking.reported) return;
+    // Report at the literal, per §6, where one is in the set. Literals that
+    // unify (`pair(4, 6)`) collapse onto one `Num` requirement, so exactly one
+    // of them is nameable — and the span points at that one, which is what
+    // keeps the message and the caret agreeing. Otherwise report where the
+    // blocked scheme was used: `blocking.span` is the *declaration* the
+    // constraint was written at, which is not what this error is about.
+    const literal = variable.requirements.find(({ origin }) => origin === "literal");
+    for (const requirement of variable.requirements) requirement.reported = true;
+    this.#diagnostics.add({
+      severity: "error",
+      message: `${
+        literal?.literal === undefined
+          ? "this expression's type"
+          : `the literal \`${literal.literal}\``
+      } cannot default to \`Int\`: \`${blocking.name}\` is not a defaultable ` +
+        "constraint; add a type annotation to pin the type",
+      primary: literal?.span ?? blocking.useSpan ?? blocking.span,
+    });
   }
 
   #inputVariables(type: Mono, found = new Set<number>()): Set<number> {
@@ -3819,6 +3886,28 @@ class Checker {
         this.#bind(variable, primitive("Int"), span);
       }
     }
+    this.#nameSurvivingVariables(actual);
+  }
+
+  /**
+   * §4 does not settle a variable a non-defaultable constraint blocks, so one
+   * can still reach the mandatory fixit — `(?2, Int)`. §6 requires survivors
+   * there to be named rather than numbered, which is the same sentence that
+   * excepts declared variables: both say the message speaks the user's names.
+   */
+  #nameSurvivingVariables(type: Mono): void {
+    const variables = this.#collectVariables(type);
+    const taken = new Set(
+      variables.flatMap(({ rigidName }) => rigidName === undefined ? [] : [rigidName]),
+    );
+    let index = 0;
+    for (const variable of variables) {
+      if (variable.rigidName !== undefined || variable.displayName !== undefined) continue;
+      let name = inferredTypeVariableName(index++);
+      while (taken.has(name)) name = inferredTypeVariableName(index++);
+      taken.add(name);
+      variable.displayName = name;
+    }
   }
 
   /**
@@ -3847,12 +3936,23 @@ class Checker {
       this.#instances.has(this.#instanceKey(name, primitive(primitiveName)));
   }
 
+  /**
+   * Numeric Literals §4's defaulting rule: the defaultable set is closed and
+   * hard-coded, "not user-extensible" — §7 rejects Haskell-style extensible
+   * defaulting outright. So the test reads the compiler's own `Int` instance
+   * table and never `#instances`, which a user `honor Conjure<Int>` extends:
+   * consulting that table would make defaulting user-extensible, which is
+   * exactly what §4 forbids. Contrast `#satisfiedAt`, which answers §6's
+   * different, *semantic* question and does consult user instances.
+   */
   #canDefaultToInt(variable: Variable): boolean {
     return variable.requirements.length > 0 &&
-      variable.requirements.every(({ name }) =>
-        supports("Int", name) ||
-        this.#instances.has(this.#instanceKey(name, primitive("Int")))
-      );
+      this.#blockingConstraint(variable) === undefined;
+  }
+
+  /** The first constraint outside §4's closed set, which blocks defaulting. */
+  #blockingConstraint(variable: Variable): Requirement | undefined {
+    return variable.requirements.find(({ name }) => !supports("Int", name));
   }
 
   #collectVariables(type: Mono, found = new Map<number, Variable>()): Variable[] {
@@ -3891,6 +3991,7 @@ class Checker {
     scheme: Scheme,
     level: number,
     collected?: Requirement[],
+    useSpan?: Source.Span,
   ): Mono {
     const replacements = new Map<number, Variable>();
     const copiedRequirements = new Set<number>();
@@ -3920,6 +4021,11 @@ class Checker {
             requirement.origin,
             requirement.name === scheme.constraint ? impliedTypes : undefined,
           );
+          // The copy keeps the definition-site span, so it keeps the digits
+          // that span points at too (§6's report names both) — and records
+          // where the use was, for a report that is about the use.
+          if (requirement.literal !== undefined) copied.literal = requirement.literal;
+          if (useSpan !== undefined) copied.useSpan = useSpan;
           collected?.push(copied);
         }
         return replacement;
@@ -5426,7 +5532,9 @@ class Checker {
     // A declared variable has a name the user wrote; `?3` in its place is
     // unreadable, and worse inside a diagnostic the Rewrite Rule makes
     // mandatory.
-    if (actual.kind === "Variable") return actual.rigidName ?? `?${actual.id}`;
+    if (actual.kind === "Variable") {
+      return actual.rigidName ?? actual.displayName ?? `?${actual.id}`;
+    }
     if (actual.kind === "Tuple") {
       return `(${actual.elements.map((element) => this.#display(element)).join(", ")})`;
     }

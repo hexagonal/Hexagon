@@ -1642,7 +1642,12 @@ describe("emitJavaScript", () => {
         "record Box(a) = {value: a}\n" +
         "honor<a: Render> Render<Box(a)> =\n" +
         '    render(box) = "Box(${render(box.value)})"\n' +
-        "export let text: String = render(Box({value = 42}))",
+        // The annotation is required, not decorative: the literal's variable
+        // carries `Render` as well as `Num`, and `Render` is outside §4's
+        // closed defaultable set, so nothing defaults it to `Int` — a user
+        // `honor Render<Int>` deliberately does not make it defaultable.
+        "let boxed: Box(Int) = Box({value = 42})\n" +
+        "export let text: String = render(boxed)",
     );
 
     expect(module.diagnostics).toEqual([]);

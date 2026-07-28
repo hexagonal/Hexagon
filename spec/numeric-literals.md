@@ -128,6 +128,8 @@ Consequences worth asserting in tests:
 
 Note the closed list means a literal used *only* under a user-defined constraint keeps `Num` in its set too (elaboration always adds `Num`), so the "solely defaultable" test correctly fails on the user constraint, not on `Num`.
 
+> **Correction (2026-07-28, #135).** The v1.1 list above was a snapshot of a property, not the rule. The rule: **a constraint is defaultable exactly when its `Int` instance ships with the compiler** — membership in the builtin instance table, closed against user code. A user `honor C<Int>` never makes `C` defaultable (§7's rejection of extensible defaulting, unchanged); the set grows only when the language itself adds a prelude constraint whose `Int` instance the compiler supplies. As of this correction the set is `Num`, `Signed`, `Eq`, `Ord`, `Show`, `Pow`, `Hash`, `Integral`. The last three postdate this document, and Integral §8's diagnostics row — a bare `gcd(4, 6)` resolves to `Int` "as usual" — already depended on this reading; taking the five-name list literally would turn that row into an ambiguity error, which is how the drift surfaced (#109, then #135). This document now stops enumerating: a future prelude constraint with a compiler-shipped `Int` instance joins the set by the rule, with no amendment here. The rule box's parenthetical assertion is unchanged and has become the definition — the unification with `Int` succeeds by construction because membership *means* "has a compiler-shipped `Int` instance". Everything else in this section stands, including the guard note directly above: a user constraint still blocks defaulting, and still fails the "solely defaultable" test on itself rather than on `Num`.
+
 ---
 
 ## 5. Codegen
@@ -263,7 +265,7 @@ A branch or item whose type is *structured* — `(1, 2)`, `[1, 2]` — can never
 1. **Lexer:** ensure three distinct token kinds (IntLit, BigIntLit, FloatLit). Range-check IntLit payload against 2^53−1; emit the fixit error otherwise. BigIntLit payload stored losslessly.
 2. **Prelude / constraint defs:** add `fromNat : Nat -> a` to `Num` and `fromInt : Int -> a` to `Signed`; implement the five `Num` and four `Signed` prelude instances (§5 table); document the exact-homomorphism law.
 3. **Inference:** elaborate IntLit per §3 (fresh tyvar, `Num` constraint with `LiteralConstraint` provenance, `fromNat` application node). BigIntLit/FloatLit type directly.
-4. **Generalisation:** insert the defaulting pass per §4, with the closed defaultable set {Num, Signed, Eq, Ord, Show}. Assert successful unification with Int.
+4. **Generalisation:** insert the defaulting pass per §4, testing membership against the compiler's own `Int` instance table — the closed defaultable set of §4's correction record, not the v1.1 five-name list *(corrected 2026-07-28, #135)*. Assert successful unification with Int.
 5. **Codegen:** implement contextual Nat and Int widening per §5.1; erase resolved literal `fromNat` per §5.2 (`k` for Nat/Int, readable `k.0` identity folding for Float, `kn` folding for BigInt, constructor call for Rat/others); dictionary slots for polymorphic cases.
 6. **Diagnostics:** literal-aware unification errors, blocked-defaulting error, no `fromNat` leakage (§6).
 7. **LSP:** hover types per §6; signature round-trip consistency (`Num a => a -> a -> a` etc.) unchanged.

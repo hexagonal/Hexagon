@@ -1118,3 +1118,113 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
 - **Credit:** Opus filed the defect out of the #65 arc rather than fixing it
   inside that PR; Fable's #99 review established that the narrow `#isValue` fix
   was not extractable, which is what sent this fix upstream of the checker.
+
+## 2026-07-28 — generalisation-time defaulting was user-extensible
+
+- **Classification:** compiler defect against specification; no design change.
+  Issue #109; pre-existing on `main`, filed out of Fable's review of the #76 fix
+  and left open there deliberately (see the 2026-07-27 entry) so that the two
+  questions about one helper could be corrected in the right order.
+- **Authority:** Numeric Literals §4 — the defaultable set is "a hard-coded set
+  in the compiler, **not user-extensible**", and its consequence list is
+  explicit about this exact case: a tyvar with `{Num α, SomeUserConstraint α}`
+  "does **not** default; proceeds to ordinary generalisation if the binding
+  form allows it, or produces an ambiguity error if it doesn't. Error message
+  should name the non-defaultable constraint (§6)." §7 rejects Haskell-style
+  extensible defaulting as a *design*, so this is not room the spec left.
+- **Defect origin:** `#canDefaultToInt` answered §4's policy question with §6's
+  semantic evidence — builtin `supports` **or** a user `honor` instance at
+  `Int`. A user constraint honored at `Int` therefore joined the closed list,
+  which is precisely the extensibility §4 forbids:
+
+  ```
+  constraint Conjure<a> =
+      make(): a
+  honor Conjure<Int> =
+      make() = 1
+  let v = make()
+  ```
+
+  compiled clean, with `v` silently `Int`.
+- **Reach:** wider than literals. The test is stated over *constraints*, not
+  provenance, so any variable a user constraint reached — a literal's (§3), or
+  one constrained only by use — defaulted through that user's instance, at both
+  §4 sites (`#generalize` and the end-of-module leftovers) and at the structural
+  settling that §6 routes through §4's rule.
+- **Correction:** `#canDefaultToInt` reads the compiler's own `Int` instance
+  table and never `#instances`. The split #108 prepared is what made this a
+  one-predicate change: `#satisfiedAt` keeps answering §6's semantic question
+  *with* user instances, and the two no longer share an answer. Alongside it,
+  §6's blocked-defaulting report now exists at §4's ambiguity point — the
+  end-of-module pass, the last place the blocking constraint can still be named
+  — reporting at the literal where one is in the set (naming it, per §6) and at
+  the *use* of the blocked scheme otherwise. That last part took a second pass:
+  a requirement copied out of a scheme inherits the **declaration's** span, so
+  the first spelling carets the constraint member's signature — another
+  module's source, for an imported constraint — for a report about the caller.
+  `#instantiate` now records the use site on each copy, and the report prefers
+  it. (The pre-existing missing-instance report has the same wart and is left
+  alone here: it is a defect of its own, filed as #136, not this arc's.) A
+  declared variable is never reported: an annotation already pins it, so
+  nothing about it was blocked (the Rewrite Rule).
+- **One knock-on inside §6's own machinery.** Structural settling (§6's last
+  paragraph) settles a discarded branch's literals by §4's rule, so under the
+  closed set a component can now *survive* into a mandatory fixit —
+  `(make(), 2)` reported as ``(?2, Int)``. §6 requires survivors there to be
+  "named rather than numbered", the same sentence that excepts declared
+  variables, so survivors take source-shaped display names: ``(a, Int)``. The
+  name is display-only and never participates in unification, which is what
+  keeps it distinct from `rigidName`.
+- **A second, silent defect surfaced with it.** A parameterized instance's own
+  parameter — the `a` of `honor<a: Render> Render<Box(a)>` — was not quantified,
+  so `#defaultRemainingVariables` treated it as an unresolved inference
+  variable and, where the parameter's constraint had any `Int` instance, bound
+  it to `Int`. Unobservable before (nothing downstream reads the pruned
+  variable; the dictionary factory is built from the resolved item), it became
+  a wrong ambiguity report the moment §6's diagnostic existed. Fixed the way
+  the constraint *subject* three declarations below it already was: quantified
+  at the header that binds it.
+- **What it costs, stated plainly.** A literal under a user constraint now
+  requires an annotation — `render(Box({value = 42}))` becomes
+  `let boxed: Box(Int) = Box({value = 42})`. That is §4's consequence list
+  working as written, and the emitter test that carried the old spelling was
+  updated rather than exempted; but it is the user-visible price of the closed
+  list, and it is worth knowing that the corpus chose it deliberately (§7).
+  Blast radius otherwise none in-repo: all seven `stdlib/` modules compile with
+  no blocked-defaulting report, checked by compiling each one.
+- **Left open, filed as #135:** §4 enumerates *five* defaultable constraints
+  and the compiler's closed set is the eight-name `Int` table (`Pow`, `Hash`,
+  and `Integral` besides). The fix keeps the table, because Integral §8's
+  diagnostics row requires `gcd(4, 6)` to resolve to `Int` "as usual" and the
+  five-name reading makes it an ambiguity error. Which of the two is the rule
+  is a spec ruling, not an implementation choice — the user-extensibility
+  defect is closed either way. **Ruled (Fable, 2026-07-28, on #135):** the
+  property is the rule and the list was its v1.1 snapshot, so the compiler is
+  conformant. Fable then wrote the correction record into Numeric Literals §4
+  and refreshed the two restatements (§8 item 4; Type System Overview §2's
+  pillar 4, edited directly — the README classifies that document as a
+  non-authoritative router, and an echo of a rule has no authority to defer).
+  §4 now stops enumerating: membership *is* "the compiler ships this
+  constraint's `Int` instance". The per-type inventories in Primitive Types
+  §2/§6 have the same drift and are #137.
+- **Executable conformance:** `checker.test.ts` — the issue's repro reports
+  instead of defaulting and leaves `v` a variable; the annotation §6 names
+  compiles; a literal under a user constraint reports at the literal, naming it
+  and the blocking constraint, with the span pinned; unified literals collapse
+  to one report; a declared type variable is never reported; `{Num, Integral}`
+  and `{Num, Show}` still default to `Int`; and a parameterized instance's
+  parameter is clean. Both report locations are pinned by span, not just by
+  message — the caret is the half that was wrong first — and the structural
+  survivor's name is pinned at both mandatory fixits. Verified sensitive by
+  blinding each part independently: restoring the user-instance lookup reddens
+  the closed-set test alone; removing the quantification reddens the
+  parameterized-instance test and the emitter's dictionary-factory test;
+  dropping the use-site span reddens the closed-set test; and dropping the
+  survivor naming reddens the structured-branch test.
+- **Credit:** Fable, in the #76 review, separated the `Unit` side (#108) from
+  the `Int` side (#109) of one helper and predicted that splitting the
+  predicates would let the second be corrected without undoing the first, which
+  is how it went. Fable's review of this fix then found both defects in the new
+  §6 machinery — the caret on the declaration and the numbered survivor —
+  neither of which the author's own tests covered, since both tests asserted
+  the message and the message was right.
