@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1536" height="1024" viewBox="0 0 1536 1024"
+     role="img" aria-labelledby="title desc">
+  <title id="title">Hexagon programming language logo</title>
+  <desc id="desc">A purple hexagon on a white background with the word HEX right-aligned inside.</desc>
+
+  <rect width="1536" height="1024" fill="#ffffff"/>
+
+  <defs>
+    <linearGradient id="purple" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7f2be8"/>
+      <stop offset="100%" stop-color="#6520d6"/>
+    </linearGradient>
+  </defs>
+
+  <polygon
+    points="768,92 1118,294 1118,700 768,902 418,700 418,294"
+    fill="url(#purple)"
+    stroke="#6f22dd"
+    stroke-width="2"
+    stroke-linejoin="round"/>
+
+  <text
+    x="1095"
+    y="590"
+    text-anchor="end"
+    font-family="Arial, Helvetica, sans-serif"
+    font-size="198"
+    font-weight="700"
+    letter-spacing="-8"
+    fill="#ffffff">HEX</text>
+</svg>

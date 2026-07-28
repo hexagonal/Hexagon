@@ -1,0 +1,71 @@
+{
+  "comments": {
+    "lineComment": "//",
+    "blockComment": ["/*", "*/"]
+  },
+  "brackets": [
+    ["{", "}"],
+    ["[", "]"],
+    ["(", ")"]
+  ],
+  "autoClosingPairs": [
+    { "open": "{", "close": "}" },
+    { "open": "[", "close": "]" },
+    { "open": "(", "close": ")" },
+    { "open": "\"", "close": "\"", "notIn": ["string", "comment"] },
+    { "open": "/*", "close": " */", "notIn": ["string"] }
+  ],
+  "surroundingPairs": [
+    ["{", "}"],
+    ["[", "]"],
+    ["(", ")"],
+    ["\"", "\""]
+  ],
+  "//wordPattern": [
+    "The object form is required, not a bare string: VS Code compiles a string",
+    "wordPattern with no flags, and without `u` every `\\p{...}` degrades into an",
+    "identity escape — the class silently becomes the literal set `p{IDStart}$_`,",
+    "so double-clicking `map` would select `ap` and `xs` would select nothing.",
+    "The repertoire itself is spec/lexer.md §3.1's ECMAScript ID_Start/ID_Continue."
+  ],
+  "wordPattern": {
+    "pattern": "(?!\\d)[\\p{ID_Start}$_][\\p{ID_Continue}$_]*",
+    "flags": "u"
+  },
+  "indentationRules": {
+    "//": [
+      "Hexagon is layout-sensitive: a block opens by indenting under its header.",
+      "A header ending in `=` already covers `constraint C<a> =` and `honor C<T> =`,",
+      "and leaves `honor C<T> = derive` alone — spec/lexer.md §4.1 makes that a",
+      "complete one-line declaration that opens no block.",
+      "The scrutinee-taking forms open their block from the *front* of the line, not",
+      "the end: `match next(current)` and `while searching` are followed by an",
+      "indented block, and `let first(v) = match v` puts `match` mid-line, so those",
+      "words are matched wherever they appear rather than only at end of line.",
+      "`extern from` is the one block header that does neither."
+    ],
+    "increaseIndentPattern": "(?:^|\\s)(?:then|else|=>|=)\\s*$|(?:^|\\s)(?:match|try|catch|while|for)\\b|^\\s*extern\\s+from\\b",
+    "decreaseIndentPattern": "^\\s*else\\b"
+  },
+  "onEnterRules": [
+    {
+      "//": "Continue a `///` doc-comment run onto the next line.",
+      "beforeText": "^\\s*///.*$",
+      "action": { "indent": "none", "appendText": "/// " }
+    },
+    {
+      "//": "Keep block comments aligned and closed, as in the JS/TS defaults.",
+      "beforeText": "^\\s*/\\*\\*(?!/)([^*]|\\*(?!/))*$",
+      "afterText": "^\\s*\\*/$",
+      "action": { "indent": "indentOutdent", "appendText": " * " }
+    },
+    {
+      "beforeText": "^\\s*/\\*\\*(?!/)([^*]|\\*(?!/))*$",
+      "action": { "indent": "none", "appendText": " * " }
+    },
+    {
+      "beforeText": "^(\\t|[ ])*[ ]\\*([ ]([^*]|\\*(?!/))*)?$",
+      "action": { "indent": "none", "appendText": "* " }
+    }
+  ]
+}
