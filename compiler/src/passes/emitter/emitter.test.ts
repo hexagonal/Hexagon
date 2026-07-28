@@ -1329,6 +1329,64 @@ describe("emitJavaScript", () => {
     expect(output.diagnostics).toEqual([]);
   });
 
+  // Operators §11.4: statement/`Unit` position is plain `if`/`else if`/`else`.
+  // The ternary is reserved for value position, which the case above covers.
+  test("emits statement-position conditionals as plain if/else", () => {
+    const output = emitJavaScript(
+      coreSource(
+        "fun classify(value: Int): Unit =\n" +
+          "    var label = \"\"\n" +
+          "    if value < 0 then\n" +
+          "        label := \"negative\"\n" +
+          "    else if value == 0 then\n" +
+          "        label := \"zero\"\n" +
+          "    else\n" +
+          "        let suffix = \"!\"\n" +
+          "        label := \"positive\" ++ suffix\n" +
+          "    label := label ++ \".\"",
+      ),
+    );
+
+    expect(output.text).toBe(
+      "function classify(value) {\n" +
+        "  let label = \"\";\n" +
+        "  if (value < 0) {\n" +
+        "    label = \"negative\";\n" +
+        "  } else if (value === 0) {\n" +
+        "    label = \"zero\";\n" +
+        "  } else {\n" +
+        "    const suffix = \"!\";\n" +
+        "    label = \"positive\" + suffix;\n" +
+        "  }\n" +
+        "  label = label + \".\";\n" +
+        "}\n",
+    );
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  // §11.4: the `else ()` the parser inserts for an else-less conditional is
+  // erased — never a synthetic `else`. The conditional here is also the
+  // function's tail, so the statement form leaves it falling off the end.
+  test("emits an else-less conditional without an else branch", () => {
+    const output = emitJavaScript(
+      coreSource(
+        "fun bump(flag: Bool): Unit =\n" +
+          "    var count = 0\n" +
+          "    if flag then count := count + 1",
+      ),
+    );
+
+    expect(output.text).toBe(
+      "function bump(flag) {\n" +
+        "  let count = 0;\n" +
+        "  if (flag) {\n" +
+        "    count = count + 1;\n" +
+        "  }\n" +
+        "}\n",
+    );
+    expect(output.diagnostics).toEqual([]);
+  });
+
   test("emits block returns and immediately called lambdas", () => {
     const output = emitJavaScript(
       coreSource(

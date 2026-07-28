@@ -171,6 +171,7 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
         condition: elaborateExpr(expression.condition),
         consequence: elaborateExpr(expression.consequence),
         alternative: elaborateExpr(expression.alternative),
+        ...(expression.elseless ? { elseless: true } : {}),
         type: expression.type,
         span: expression.span,
       };

@@ -381,25 +381,9 @@ class JavaScriptEmitter {
       ];
     }
     if (item.kind === "ExprItem") {
-      if (item.expression.kind === "While") {
-        return this.#emitWhile(item.expression, depth, evidenceNames);
-      }
-      if (item.expression.kind === "For") {
-        return this.#emitFor(item.expression, depth, evidenceNames);
-      }
-      if (item.expression.kind === "Assignment") {
-        const target = this.#identifier(
-          item.expression.target.symbol,
-          item.expression.target.text,
-        );
-        const value = this.#emitExpr(item.expression.value, depth, evidenceNames);
-        return [`${prefix}${target} = ${value};`];
-      }
-      if (returnFinal) {
-        return this.#emitReturn(item.expression, depth, evidenceNames);
-      }
-      const expression = this.#emitExpr(item.expression, depth, evidenceNames);
-      return [`${prefix}${expression};`];
+      return returnFinal
+        ? this.#emitReturn(item.expression, depth, evidenceNames)
+        : this.#emitStatement(item.expression, depth, evidenceNames);
     }
 
     if (item.kind === "LetPattern") {
@@ -954,7 +938,13 @@ class JavaScriptEmitter {
     const head = `${arrowParameters(parameters)} =>`;
 
     if (expression.body.kind !== "Block") {
-      if (expression.body.kind === "Match") {
+      // A `match`, and a `Unit`-position conditional (Operators §11.4), emit
+      // statements rather than an expression, so the arrow needs a body block
+      // to hold them.
+      if (
+        expression.body.kind === "Match" ||
+        (expression.body.kind === "If" && isUnit(expression.body.type))
+      ) {
         const lines = this.#emitReturn(
           expression.body,
           depth + 1,
@@ -1006,19 +996,107 @@ class JavaScriptEmitter {
     if (expression.kind === "Match") {
       return this.#emitReturningMatch(expression, depth, evidenceNames);
     }
-    if (expression.kind === "While") {
-      return this.#emitWhile(expression, depth, evidenceNames);
-    }
-    if (expression.kind === "For") {
-      return this.#emitFor(expression, depth, evidenceNames);
-    }
-    if (expression.kind === "Assignment") {
-      const target = this.#identifier(expression.target.symbol, expression.target.text);
-      return [`${indent(depth)}${target} = ${this.#emitExpr(expression.value, depth, evidenceNames)};`];
+    // A `Unit`-valued tail is `Unit` position, not value position: the implicit
+    // `undefined` a JavaScript function falls off the end with is exactly the
+    // value these produce, so they emit as statements (Operators §11.4).
+    if (
+      expression.kind === "While" || expression.kind === "For" ||
+      expression.kind === "Assignment" ||
+      (expression.kind === "If" && isUnit(expression.type))
+    ) {
+      return this.#emitStatement(expression, depth, evidenceNames);
     }
     return [
       `${indent(depth)}return ${this.#emitExpr(expression, depth, evidenceNames)};`,
     ];
+  }
+
+  /**
+   * An expression in statement position — its value is discarded, so the forms
+   * that read better as statements than as expressions emit that way.
+   */
+  #emitStatement(
+    expression: Core.Expr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string[] {
+    switch (expression.kind) {
+      case "While":
+        return this.#emitWhile(expression, depth, evidenceNames);
+      case "For":
+        return this.#emitFor(expression, depth, evidenceNames);
+      case "If":
+        return this.#emitStatementIf(expression, depth, evidenceNames);
+      case "Assignment": {
+        const target = this.#identifier(
+          expression.target.symbol,
+          expression.target.text,
+        );
+        const value = this.#emitExpr(expression.value, depth, evidenceNames);
+        return [`${indent(depth)}${target} = ${value};`];
+      }
+      default:
+        return [
+          `${indent(depth)}${this.#emitExpr(expression, depth, evidenceNames)};`,
+        ];
+    }
+  }
+
+  /**
+   * Statement/`Unit` position: plain `if`/`else if`/`else`, never a ternary
+   * (Operators §11.4). An else-less source conditional emits an else-less JS
+   * `if` — the `else ()` the parser inserted is erased, never a synthetic
+   * `else`. An explicitly written `else ()` contributes no statements either,
+   * so the same empty-branch check covers it.
+   */
+  #emitStatementIf(
+    expression: Core.IfExpr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string[] {
+    const prefix = indent(depth);
+    const condition = this.#emitExpr(expression.condition, depth, evidenceNames);
+    const lines = [
+      `${prefix}if (${condition}) {`,
+      ...this.#emitBranch(expression.consequence, depth + 1, evidenceNames),
+    ];
+
+    // `else if` is `else` whose expression is another conditional (§11.3), so
+    // the chain flattens rather than nesting a braced `if` per level.
+    if (!expression.elseless && expression.alternative.kind === "If") {
+      const [head = "", ...rest] = this.#emitStatementIf(
+        expression.alternative,
+        depth,
+        evidenceNames,
+      );
+      return [...lines, `${prefix}} else ${head.trimStart()}`, ...rest];
+    }
+
+    const alternative = expression.elseless
+      ? []
+      : this.#emitBranch(expression.alternative, depth + 1, evidenceNames);
+    return alternative.length === 0
+      ? [...lines, `${prefix}}`]
+      : [...lines, `${prefix}} else {`, ...alternative, `${prefix}}`];
+  }
+
+  /**
+   * A branch of a statement conditional. A block arm flattens into the braces
+   * the `if` already needs — its bindings keep their scope, which is what the
+   * braces are — and none of its items returns, since the whole conditional is
+   * in statement position.
+   */
+  #emitBranch(
+    expression: Core.Expr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string[] {
+    if (expression.kind === "Unit") return [];
+    return expression.kind === "Block"
+      ? expression.items.flatMap((item) =>
+        this.#emitItem(item, depth, evidenceNames, false)
+      )
+      : this.#emitStatement(expression, depth, evidenceNames);
   }
 
   #emitWhile(
@@ -1365,11 +1443,16 @@ class JavaScriptEmitter {
           lines.push(`${armPrefix}${binding}`);
         }
         if (arm.guard === undefined) {
-          lines.push(...this.#emitReturn(arm.body, armDepth, evidenceNames));
+          lines.push(...this.#emitChainArmBody(arm.body, armDepth, armPrefix, evidenceNames));
         } else {
           const guard = this.#emitExpr(arm.guard, armDepth, evidenceNames);
           lines.push(`${armPrefix}if (${guard}) {`);
-          lines.push(...this.#emitReturn(arm.body, armDepth + 1, evidenceNames));
+          lines.push(...this.#emitChainArmBody(
+            arm.body,
+            armDepth + 1,
+            indent(armDepth + 1),
+            evidenceNames,
+          ));
           lines.push(`${armPrefix}}`);
         }
         lines.push(`${prefix}}`);
@@ -1377,6 +1460,23 @@ class JavaScriptEmitter {
     }
     lines.push(`${prefix}throw new RangeError("Unexpected pattern.");`);
     return lines;
+  }
+
+  /**
+   * An `if`-chain arm's body, followed by `return;` unless the body already
+   * exits. An arm whose value is `Unit` — an assignment, a loop, a statement
+   * conditional — emits statements rather than a `return`, and the chain is
+   * closed by the unreachable-pattern `throw`, so without this the arm would
+   * run and then fall into that throw.
+   */
+  #emitChainArmBody(
+    body: Core.Expr,
+    depth: number,
+    bodyIndent: string,
+    evidenceNames: EvidenceNames,
+  ): string[] {
+    const lines = this.#emitReturn(body, depth, evidenceNames);
+    return exits(lines) ? lines : [...lines, `${bodyIndent}return;`];
   }
 
   #emitPatternPlan(
@@ -3016,6 +3116,11 @@ function arrowParameters(parameters: readonly string[]): string {
   return parameters.length === 1
     ? parameters[0]!
     : `(${parameters.join(", ")})`;
+}
+
+/** Whether a type is `Unit`, whose only value the emitter spells `undefined`. */
+function isUnit(type: Typed.Type): boolean {
+  return type.kind === "Primitive" && type.name === "Unit";
 }
 
 /**
