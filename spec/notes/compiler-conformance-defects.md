@@ -1200,8 +1200,13 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   is a spec ruling, not an implementation choice — the user-extensibility
   defect is closed either way. **Ruled (Fable, 2026-07-28, on #135):** the
   property is the rule and the list was its v1.1 snapshot, so the compiler is
-  conformant; the correction record and its two edit notes are on the issue,
-  to be applied to Numeric Literals §4 as a change of its own.
+  conformant. Fable then wrote the correction record into Numeric Literals §4
+  and refreshed the two restatements (§8 item 4; Type System Overview §2's
+  pillar 4, edited directly — the README classifies that document as a
+  non-authoritative router, and an echo of a rule has no authority to defer).
+  §4 now stops enumerating: membership *is* "the compiler ships this
+  constraint's `Int` instance". The per-type inventories in Primitive Types
+  §2/§6 have the same drift and are #137.
 - **Executable conformance:** `checker.test.ts` — the issue's repro reports
   instead of defaulting and leaves `v` a variable; the annotation §6 names
   compiles; a literal under a user constraint reports at the literal, naming it
