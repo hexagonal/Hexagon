@@ -1,7 +1,7 @@
 # Hexagon Spec: Primitive Types
 
 **Status:** Decided (July 2026)
-**Scope:** The seven primitive types: `Nat`, `Int`, `Float`, `Bool`, `String`, `BigInt`, `Unit`. Their JS representations, literal syntax, string interpolation, and the `Show` connection.
+**Scope:** The six primitive types: `Nat`, `Int`, `Float`, `String`, `BigInt`, `Unit`. Their JS representations, literal syntax, string interpolation, and the `Show` connection. *(Originally seven: `Bool` was reclassified as a prelude union 2026-07-29, #147 — §4 is now a pointer, §12 the correction record.)*
 **Not in scope:** `Char` (does not exist), `Rat` (stdlib module with a focused v1 spec owed), tuples/records/unions/functions (own specs), the constraint system itself (own spec — this doc only *names* which standard constraints each type supports), 1-based indexing in general (forthcoming spec), equality semantics in depth (constraint spec).
 **Companion:** the Numeric Literals spec (Nat-payload polymorphic integer literals, `fromNat`/`fromInt`, Int defaulting) — cross-referenced, not restated here.
 
@@ -16,7 +16,7 @@ This document is written for a future implementation session and assumes the exi
 | `Nat` | `number` | `42` | Non-negative whole numbers up to 2⁵³−1. |
 | `Int` | `number` | `42` | Whole numbers within ±(2⁵³−1). f64-integer-invariant. |
 | `Float` | `number` | `0.5`, `1e9` | IEEE 754 double-precision floating point. |
-| `Bool` | `boolean` | `true` | Boolean values. |
+| `Bool` | `boolean` | `True` | *Reclassified:* prelude union with a pinned representation (§4, #147). Row retained for the representation fact. |
 | `String` | `string` | `"Hello ${name}."` | Text. Interpolating by default. |
 | `BigInt` | `bigint` | `9_007_199_254_740_993n` | Whole numbers of arbitrary size. |
 | `Unit` | `undefined` | `()` | The one-value type. |
@@ -91,11 +91,21 @@ type name from a type variable and enables implicit generalisation without `fora
 
 ## 4. Bool
 
-JS `boolean`. Literals `true`, `false` (these are keywords/literals in the lexer, not library names). Emits as-is.
+> **Reclassified (2026-07-29, #147; correction record §12).** `Bool` is no longer a primitive. It is the prelude union
+>
+> ```
+> union Bool derives (Eq, Ord, Show, Hash) = False | True
+> ```
+>
+> declared alongside `Option`/`Result` (Unions §8), with its runtime representation **intrinsically pinned to JS `boolean`** — the sole exception to the all-nullary string rule (Unions §6.2). The values are the constructors `True` and `False`; the former literals `true`/`false` remain reserved words whose only role is the redirect diagnostic (Lexer §4.1). The full ruling, including the doctrine pivot that motivates it, is `decisions-ml-dialect-bool-2026-07.md`.
 
-**Standard constraints:** `Eq`, `Ord` (`false < true`), `Show` (`"true"` / `"false"` — note: JS `String(true)` form, lowercase; if a capitalised `True`/`False` display is ever wanted, that's a Show-instance decision, not a type decision — current decision is the JS form per the §7 "toString unless stupid" rule), `Hash` (Collections Part 2 §2.5) *(corrected 2026-07-28, #137 — record in §11)*.
+What this section formerly decreed, and where it went:
 
-Not `Signed`. No truthiness: Hexagon conditions require `Bool`; there is no implicit coercion from any other type.
+- **Constraints** (`Eq`, `Ord` with `False < True`, `Show`, `Hash`) are now **derived** through the standard union derivations (Unions §7) — the declaration order `False | True` reproduces the ruled ordering; no fiat rows remain.
+- **Show** is the derived constructor-name form: `show True` is `"True"`. The former lowercase JS-form ruling (`String(x)`, `"true"`/`"false"`) is **superseded** — see §7's corrected table and §12.
+- **Representation** (`boolean`, emits as-is, zero-cost at the FFI) survives verbatim as the §3 pin of the decisions doc; the §1 table row above records it.
+
+Unchanged and still normative here: **not `Signed`, and no truthiness** — Hexagon conditions require `Bool`; there is no implicit coercion from any other type.
 
 ---
 
@@ -188,7 +198,7 @@ The constraint system has its own spec; this section records only the decisions 
 | `Int` | `String(x)` | sane |
 | `Float` | `String(x)` | sane-ish; wart pre-registered in §3 |
 | `BigInt` | `String(x)` | sane; drops `n`, correct for display |
-| `Bool` | `String(x)` | `"true"`/`"false"` |
+| `Bool` | derived union `Show` | `"True"`/`"False"` — *corrected 2026-07-29, #147 (§12); formerly `String(x)`* |
 | `String` | identity | |
 | `Unit` | constant `"()"` | JS would give `"undefined"` — stupid; replaced |
 
@@ -251,6 +261,7 @@ Rationale for `undefined`: a Hexagon function returning `Unit` is a JS function 
 | `Ord String` = codepoint lexicographic, permanent regardless of grapheme indexing; collation is stdlib, never Ord | this doc §5 |
 | Types uppercase-start; type variables non-uppercase-start (`a b c` by convention) | this doc §1; Lexer §3 |
 | Constraint inventories refreshed for `Pow`/`Concat`/`Hash`/`Integral`; owning specs govern instance sets; enumeration retained deliberately | this doc §11 (#137); Operators §6.3, §7; Collections Part 2 §2.5; Integral §3 |
+| `Bool` reclassified: prelude union `False \| True`, representation pinned to `boolean`, Show = constructor names, literals replaced by constructors with reserved-word redirect | decisions-ml-dialect-bool-2026-07.md (#147); this doc §4, §12; Unions §6.2, §8; Lexer §4.1 |
 
 ---
 
@@ -263,3 +274,14 @@ Three standing rules accompany the refresh:
 1. **Ownership is unchanged.** Which types honor a constraint is fixed by that constraint's owning spec — Constraints §7 for the original six, Operators §6.3/§7 for `Pow`/`Concat`, Collections Part 2 §2.5 for `Hash`, Integral §3 for `Integral`. Where an inventory line here and an owning spec disagree, the owning spec wins (README authority rule 1). The inventories are this document's per-type index of those decisions, nothing more.
 2. **Enumeration is retained deliberately.** The alternative — citing the owning specs without naming the constraints, the move Numeric Literals §4 made under #135 — was considered and declined. §4 could stop enumerating because a *rule* generates its set ("the constraints whose `Int` instance ships with the compiler"); no rule generates a per-type inventory. The list *is* the information, and "which constraints does this type support" is precisely the question a reader opens the per-type reference to answer; citation-only would send that reader through four documents for a one-line answer.
 3. **Future additions must touch this document.** A spec that grants any of §1's types an instance of a new constraint carries an edit note against the affected inventory line(s) here, applied on next touch (README authority rule 4). This is the same mechanism as every other cross-spec correction; it turns the next drift from silent into tracked debt.
+
+---
+
+## 12. Correction record — Bool reclassified as a prelude union (2026-07-29, #147)
+
+> **Correction (2026-07-29, #147).** Under the ML-dialect doctrine pivot (`decisions-ml-dialect-bool-2026-07.md` §1 — James's ruling), `Bool` moved from this document's primitive set to the prelude: `union Bool derives (Eq, Ord, Show, Hash) = False | True`, with its representation intrinsically pinned to JS `boolean` (sole exception to Unions §6.2). Edits applied in place: the scope line counts six primitives; §1's table row now records only the representation fact; §4 is a pointer to the ruling plus the surviving no-truthiness clause; §7's table row shows the derived constructor-name form, superseding the lowercase `String(x)` ruling; §10 gained the log row.
+
+Two standing rules accompany the reclassification:
+
+1. **Section numbers did not move.** §4 remains "Bool" forever (house rule); its content is a pointer, not a hole. Cross-references of the form "Primitive Types §4" remain valid and now resolve to the pointer.
+2. **Ownership transferred.** Bool's normative home is Unions (§6.2 for the pin, §8 for the declaration) and the decisions doc; this document retains only the representation row and the no-truthiness sentence. Where older text elsewhere in the corpus says "Primitive Types owns Bool," the decisions doc's ledger (its §6) governs the fix-on-next-touch.

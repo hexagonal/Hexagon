@@ -173,7 +173,10 @@ The groups are:
 - expression and control forms: `catch`, `else`, `for`, `if`, `in`, `match`,
   `then`, `try`, `while`;
 - word operators: `and`, `iff`, `implies`, `not`, `or`;
-- literal words: `false`, `true`;
+- reserved redirect words: `false`, `true` — formerly Bool literals, now reserved
+  spellings whose only role is a diagnostic (see below) *(corrected 2026-07-29,
+  #147: Bool is the prelude union `False | True`; its values are ordinary
+  uppercase constructor names, which the lexer treats like any `UpperName`)*;
 - derivation: `derive`, legal only as the complete body of an `honor` declaration;
 - reserved future control word: `finally`. It is tokenized now but has no v1
   grammar, so its use receives the targeted deferred-feature diagnostic.
@@ -181,6 +184,14 @@ The groups are:
 `honor` is the current instance-declaration keyword. The superseded `implement` is
 not reserved; in a declaration-shaped position it should receive a migration hint to
 write `honor`.
+
+**The `true`/`false` redirect (2026-07-29, #147).** Both spellings remain hard
+keywords — they may never be used as names, which forecloses `let true = ...`
+permanently — but they no longer produce values. Any use receives the Rewrite-Rule
+diagnostic: "`true` is reserved; Bool's constructors are `True` and `False` — write
+`True`." Keeping the tokens reserved makes the JS-trained user's most probable
+spelling a one-token fixit rather than an unbound-name puzzle. Full ruling:
+`decisions-ml-dialect-bool-2026-07.md` §2.2.
 
 ### 4.2 Contextual keywords
 
@@ -204,7 +215,7 @@ listed positions:
 | `static` | foreign static-member modifier; syntax completed by the FFI spec |
 | `default` | foreign default-import position; syntax completed by the FFI spec |
 
-Contextual status is observable: `let when = true` is legal, while the same spelling
+Contextual status is observable: `let when = True` is legal, while the same spelling
 after an arm pattern introduces its guard. Likewise `{with = 3}` is a field and `{with}`
 a pun, while `{p with x = 3}` is an update. A parser must test both spelling and
 position; the lexer does not emit contextual-keyword token kinds.
