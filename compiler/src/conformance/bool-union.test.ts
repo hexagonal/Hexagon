@@ -87,6 +87,13 @@ describe("the reserved redirect words (#147 §2.2)", () => {
     );
   });
 
+  test("`false` in name position gets no constructor fixit either", () => {
+    const messages = projectDiagnostics("fun false() = 1\n");
+
+    expect(messages).toContain("`false` is reserved and cannot be used as a name");
+    expect(messages.join("\n")).not.toContain("write `False`");
+  });
+
   test("`true` in name position gets no constructor fixit", () => {
     // "write `True`" would be wrong here: `let True = ...` is a refutable
     // constructor pattern and errors again. The position-aware split is the
@@ -131,11 +138,14 @@ describe("the representation pin (#147 §3)", () => {
     const emitted = javascript(
       "export let combine(a: Bool, b: Bool): Bool = a and not b\n" +
         "export let either(a: Bool, b: Bool): Bool = a or b\n" +
-        "export let agree(a: Bool, b: Bool): Bool = a iff b\n",
+        "export let agree(a: Bool, b: Bool): Bool = a iff b\n" +
+        "export let promise(a: Bool, b: Bool): Bool = a implies b\n",
     );
 
     expect(emitted).toContain("a && !b");
     expect(emitted).toContain("a || b");
+    // `implies` desugars to `not a or b` before checking (Operators §4.1).
+    expect(emitted).toContain("!a || b");
     // `iff` is `Eq<Bool>`, which over the pinned representation is `===`.
     expect(emitted).toContain("a === b");
   });
@@ -255,5 +265,33 @@ describe("the declaration's shape is verified, not trusted (#147 §3.5/§7)", ()
     expect(extra.diagnostics.map(({ message }) => message).join("\n")).toContain(
       "compiler integrity: the prelude `Bool`",
     );
+  });
+});
+
+describe("the pin is granted to one declaration, not to a name (#147 §3.1)", () => {
+  // "No user declaration can request a pin; there is no annotation, no syntax, no
+  // extension point." A union a user happens to name `Bool` occludes the spelling
+  // (Modules §5.4) and gets none of the privilege: ordinary all-nullary strings,
+  // an ordinary `.d.ts` face, and no claim on what `if` accepts.
+  test("a user union named `Bool` gets the string representation, not the pin", () => {
+    const project = compileMain(
+      "export union Bool = Naw | Aye\n" +
+        "export let pick: Bool = Aye\n",
+    );
+    const main = project.modules.find(({ source }) => source.path === "/main.hex")!;
+
+    expect(main.javascript.text).toContain('const Aye = "Aye";');
+    expect(main.declarations.text).toContain('export type Bool = "Naw" | "Aye";');
+  });
+
+  test("conditions still demand the prelude's `Bool`", () => {
+    // The occluding declaration cannot make its own type a condition type.
+    // (The message itself is poor — both sides render as `Bool` — which is #156.)
+    expect(
+      projectDiagnostics(
+        "union Bool = Naw | Aye\n" +
+          "let f(b: Bool): Int = if b then 1 else 0\n",
+      ).join("\n"),
+    ).toContain("type mismatch");
   });
 });
