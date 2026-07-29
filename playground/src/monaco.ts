@@ -14,9 +14,14 @@ import type {
 } from "./editor";
 import type { TypeOccurrence } from "./protocol";
 import {
-  createHexagonTokensProvider,
+  createGrammarLoader,
+  createTokensProvider,
   hexagonLanguage,
-  loadHexagonGrammar,
+  hexagonScopeName,
+  javascriptLanguage,
+  javascriptScopeName,
+  typescriptLanguage,
+  typescriptScopeName,
 } from "./monaco-textmate";
 import { defineHexagonThemes, hexagonDarkTheme, hexagonLightTheme } from "./monaco-theme";
 
@@ -38,9 +43,10 @@ const onigLib = (async () => {
 })();
 
 monaco.languages.register({ id: hexagonLanguage, extensions: [".hex"] });
+
 // Monaco accepts a promise here and repaints when it settles, so the editor opens on
-// the first keystroke rather than waiting on the WASM. Until then Hexagon source is
-// unpainted — never mispainted.
+// the first keystroke rather than waiting on the WASM. Until then the pane is unpainted
+// — never mispainted.
 //
 // A failure to load leaves it unpainted permanently, which is a degradation the
 // textarea fallback does not cover: Monaco itself started fine, so there is nothing to
@@ -53,15 +59,49 @@ const unpainted: monaco.languages.TokensProvider = {
   tokenize: (_line, state) => ({ tokens: [{ startIndex: 0, scopes: "" }], endState: state }),
 };
 
+const loadGrammar = createGrammarLoader(onigLib);
+
+const tokensProvider = (scopeName: string, languageId: string) =>
+  loadGrammar(scopeName)
+    .then((grammar) => createTokensProvider(scopeName, grammar))
+    .catch((cause: unknown) => {
+      console.error(`${languageId} syntax highlighting is unavailable`, cause);
+      return unpainted;
+    });
+
+// The source editor is on screen from the first frame, so its grammar is asked for now.
 monaco.languages.setTokensProvider(
   hexagonLanguage,
-  loadHexagonGrammar(onigLib)
-    .then(createHexagonTokensProvider)
-    .catch((cause: unknown) => {
-      console.error("Hexagon syntax highlighting is unavailable", cause);
-      return unpainted;
-    }),
+  tokensProvider(hexagonScopeName, hexagonLanguage),
 );
+
+// The generated panes ask for theirs only when Monaco first has a model of that
+// language to tokenize, rather than when this module is evaluated. Passing a promise to
+// `setTokensProvider` would have to build it here, which starts both fetches during
+// startup, alongside the Oniguruma WASM the visible editor is waiting on.
+//
+// Worth being exact about what that does and does not save today: the JS pane is the
+// default tab and `createMonacoEditors` builds both models up front, so in practice
+// both grammars are still fetched during startup — just after the source editor is
+// running rather than in competition with it. The saving becomes real if the panes are
+// ever modelled lazily, and the registration is demand-driven either way.
+//
+// This also displaces the Monarch tokenizers the `basic-languages` contributions
+// registered for these ids, because it is the same registry slot: both land in
+// `TokenizationRegistry.registerFactory`, which drops whatever factory it finds already
+// there. Ours wins by running second — the imports at the top of this file are
+// evaluated before its body. The contributions keep the jobs Monarch is still the only
+// source for: registering the ids at all, and supplying each language's brackets,
+// comments, and folding rules.
+for (const [languageId, scopeName] of [
+  [javascriptLanguage, javascriptScopeName],
+  [typescriptLanguage, typescriptScopeName],
+] as const) {
+  monaco.languages.registerTokensProviderFactory(languageId, {
+    create: () => tokensProvider(scopeName, languageId),
+  });
+}
+
 defineHexagonThemes(monaco.editor);
 
 export interface MonacoEditors {
@@ -93,12 +133,12 @@ export function createMonacoEditors(
   const javascriptModel = replaceModel(
     "inmemory://hexagon/main.js",
     "",
-    "javascript",
+    javascriptLanguage,
   );
   const declarationsModel = replaceModel(
     "inmemory://hexagon/main.d.ts",
     "",
-    "typescript",
+    typescriptLanguage,
   );
   const generatedEditor = monaco.editor.create(generatedContainer, {
     model: javascriptModel,
@@ -200,7 +240,7 @@ export function createMonacoEditors(
 
   const generatedAdapter: GeneratedCodeEditor = {
     show: (language, generatedSource) => {
-      const model = language === "javascript" ? javascriptModel : declarationsModel;
+      const model = language === javascriptLanguage ? javascriptModel : declarationsModel;
       if (model.getValue() !== generatedSource) model.setValue(generatedSource);
       generatedEditor.setModel(model);
       generatedContainer.hidden = false;
