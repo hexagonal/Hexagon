@@ -183,12 +183,25 @@ describe("declarations name what they declare", () => {
   it("names a type-introducing declaration", async () => {
     expect(await scope("record Point = {x: Float}", "Point")).toBe("entity.name.type.hexagon");
     expect(await scope("union Shape = Circle | Rect", "Shape")).toBe("entity.name.type.hexagon");
+  });
+
+  it("names a constraint-introducing declaration as a constraint", async () => {
     expect(await scope("constraint Ord<a: Eq> =\n    compare(l: a): a", "Ord")).toBe(
-      "entity.name.type.hexagon",
+      "entity.name.type.constraint.hexagon",
     );
     expect(await scope("honor Show<Rat> =\n    show(r: Rat): String = \"\"", "Show")).toBe(
-      "entity.name.type.hexagon",
+      "entity.name.type.constraint.hexagon",
     );
+  });
+
+  it("keeps an instance subject nominal even inside a constraint head", async () => {
+    // spec/constraints.md §4.1: `honor C<T>` names a constraint and supplies a type.
+    // The two sit adjacent, so the subject must not be dragged into the constraint family.
+    const pairs = await scopePairs('honor Show<Rat> =\n    show(r: Rat): String = ""');
+    expect(pairs.filter(([text]) => text === "Rat")).toEqual([
+      ["Rat", "entity.name.type.hexagon"],
+      ["Rat", "entity.name.type.hexagon"],
+    ]);
   });
 
   it("scopes a call head and a constraint member header as a function", async () => {
@@ -210,10 +223,201 @@ describe("declarations name what they declare", () => {
     expect(await scope("searching := False", ":=")).toBe("keyword.operator.assignment.hexagon");
   });
 
+  it("never lets a hard keyword read as the name being declared (#154)", async () => {
+    // spec/lexer.md §10: "`WORD` is reserved and cannot be used as a name". The
+    // binding rules run ahead of #keywords, so without an explicit guard they claim
+    // the keyword first and paint a hard error as an ordinary, valid binder.
+    expect(await scope("let true = 1", "true")).toBe(
+      "invalid.illegal.reserved-redirect-word.hexagon",
+    );
+    expect(await scope("var false = 1", "false")).toBe(
+      "invalid.illegal.reserved-redirect-word.hexagon",
+    );
+    expect(await scope("fun true(x: Int) = x", "true")).toBe(
+      "invalid.illegal.reserved-redirect-word.hexagon",
+    );
+    expect(await scope("let if = 1", "if")).toBe("keyword.control.hexagon");
+    expect(await scope("fun if(x: Int) = x", "if")).toBe("keyword.control.hexagon");
+    expect(await scope("var for = 1", "for")).toBe("keyword.control.hexagon");
+    expect(await scope("let not = 1", "not")).toBe("keyword.operator.word.hexagon");
+  });
+
+  it("still lets a foreign member name be a Hexagon keyword", async () => {
+    // FFI Part 5 §2.4: a foreign member name that breaks Hexagon naming is legal
+    // precisely because it is aliased, so the #154 guard must not reach this slot.
+    const pairs = await scopePairs(
+      ['extern from "list-ops"', "    export method for as forEach(xs: T): Unit"].join("\n"),
+    );
+    expect(pairs.find(([text]) => text === "for")?.[1]).toBe("entity.name.function.hexagon");
+  });
+
+  it("still binds names that merely begin with a keyword", async () => {
+    // The guard ends in a boundary lookahead, so only the whole word is excluded.
+    expect(await scope("let iffy = 1", "iffy")).toBe("variable.other.definition.hexagon");
+    expect(await scope("let format = 1", "format")).toBe("variable.other.definition.hexagon");
+    expect(await scope("let inner = 1", "inner")).toBe("variable.other.definition.hexagon");
+    expect(await scope("let trueish = 1", "trueish")).toBe("variable.other.definition.hexagon");
+    expect(await scope("fun compute(x: Int) = x", "compute")).toBe(
+      "entity.name.function.hexagon",
+    );
+  });
+
   it("scopes an uppercase qualifier before `.` as a namespace", async () => {
     const source = "let n = Vector.size(values)";
     expect(await scope(source, "Vector")).toBe("entity.name.namespace.hexagon");
     expect(await scope(source, "size")).toBe("entity.name.function.hexagon");
+  });
+});
+
+describe("type variables are nominal-coloured in type positions", () => {
+  it("recognizes a constraint subject inside angle brackets", async () => {
+    expect(await scope("constraint Show<a> =\n    show(value: Int): String", "a")).toBe(
+      "entity.name.type.parameter.hexagon",
+    );
+  });
+
+  it("recognizes a type variable in a parameter annotation", async () => {
+    expect(await scope("fun identity(value: a): Int = 1", "a")).toBe(
+      "entity.name.type.parameter.hexagon",
+    );
+  });
+
+  it("recognizes nested type-variable uses throughout an annotation", async () => {
+    const pairs = await scopePairs(
+      "fun choose(value: Result(a, Vector(b))): Option((a, b)) = None",
+    );
+    expect(pairs.filter(([text]) => text === "a" || text === "b")).toEqual([
+      ["a", "entity.name.type.parameter.hexagon"],
+      ["b", "entity.name.type.parameter.hexagon"],
+      ["a", "entity.name.type.parameter.hexagon"],
+      ["b", "entity.name.type.parameter.hexagon"],
+    ]);
+  });
+
+  it("recognizes parenthesized data-declaration parameters", async () => {
+    const pairs = await scopePairs("record Pair(a, b) = {left: a, right: b}");
+    expect(pairs.filter(([text]) => text === "a" || text === "b")).toEqual([
+      ["a", "entity.name.type.parameter.hexagon"],
+      ["b", "entity.name.type.parameter.hexagon"],
+      ["a", "entity.name.type.parameter.hexagon"],
+      ["b", "entity.name.type.parameter.hexagon"],
+    ]);
+  });
+
+  it("recognizes parameters and uses throughout a type alias", async () => {
+    const pairs = await scopePairs("type Handler(a) = a -> Option(a)");
+    expect(pairs.filter(([text]) => text === "a")).toEqual([
+      ["a", "entity.name.type.parameter.hexagon"],
+      ["a", "entity.name.type.parameter.hexagon"],
+      ["a", "entity.name.type.parameter.hexagon"],
+    ]);
+  });
+
+  it("keeps the same spelling term-coloured outside type position", async () => {
+    expect(await scope("let value = a", "a")).toBe("variable.other.hexagon");
+  });
+
+  it("binds an `honor` prefix binder the same way it binds its use", async () => {
+    // spec/constraints.md §4.3. The binder and the subject's `a` are one variable,
+    // so painting the binding occurrence as an ordinary parameter would split it.
+    const pairs = await scopePairs('honor<a: Show> Show<Vector(a)> =\n    show(xs) = "x"');
+    expect(pairs.filter(([text]) => text === "a")).toEqual([
+      ["a", "entity.name.type.parameter.hexagon"],
+      ["a", "entity.name.type.parameter.hexagon"],
+    ]);
+  });
+
+  it("scopes a binder's obligations as constraints, in both spec forms", async () => {
+    // spec/constraints.md §3. The bound is the one constraint position with no
+    // keyword marking it, so casing inside it has to carry the whole distinction.
+    expect(await scope("let plus<a: Num>(x: a): a = x", "Num")).toBe(
+      "entity.name.type.constraint.hexagon",
+    );
+    const pairs = await scopePairs("constraint Integral<a: (Num, Ord)> =\n    div(l: a): a");
+    expect(pairs.filter(([, s]) => s === "entity.name.type.constraint.hexagon")).toEqual([
+      ["Integral", "entity.name.type.constraint.hexagon"],
+      ["Num", "entity.name.type.constraint.hexagon"],
+      ["Ord", "entity.name.type.constraint.hexagon"],
+    ]);
+    // The tuple form's own comma must not end the bound early.
+    expect(pairs.filter(([text]) => text === "a").every(([, s]) =>
+      s === "entity.name.type.parameter.hexagon"
+    )).toBe(true);
+  });
+
+  it("scopes a derives list as constraints, in both spec forms", async () => {
+    // spec/declarations-preamble.md §2.3 gives `derives Eq` and `derives (Eq, Show)`.
+    expect(await scope("record Point derives Eq = {x: Float}", "Eq")).toBe(
+      "entity.name.type.constraint.hexagon",
+    );
+    const pairs = await scopePairs("export union Bool derives (Eq, Ord, Show, Hash) =\n    | True");
+    expect(pairs.filter(([, s]) => s === "entity.name.type.constraint.hexagon")).toEqual([
+      ["Eq", "entity.name.type.constraint.hexagon"],
+      ["Ord", "entity.name.type.constraint.hexagon"],
+      ["Show", "entity.name.type.constraint.hexagon"],
+      ["Hash", "entity.name.type.constraint.hexagon"],
+    ]);
+    // The declared name and the constructors stay nominal.
+    expect(pairs.find(([text]) => text === "Bool")?.[1]).toBe("entity.name.type.hexagon");
+    expect(pairs.find(([text]) => text === "True")?.[1]).toBe("entity.name.type.hexagon");
+  });
+
+  it("scopes a parameterized instance head and its binder", async () => {
+    // spec/constraints.md §4.3: the binders precede the constraint name.
+    const pairs = await scopePairs('honor<a: Show> Show<Vector(a)> =\n    show(xs) = "x"');
+    expect(pairs.filter(([text]) => text === "Show")).toEqual([
+      ["Show", "entity.name.type.constraint.hexagon"],
+      ["Show", "entity.name.type.constraint.hexagon"],
+    ]);
+    expect(pairs.find(([text]) => text === "Vector")?.[1]).toBe("entity.name.type.hexagon");
+  });
+
+  it("does not let an indented type member swallow its block", async () => {
+    // Collections Part 2 §5.1/§5.3 put `type Item = a` inside an `honor` block, so a
+    // type-alias context that ran to the next top-level declaration would repaint the
+    // block's member names and value parameters as type variables.
+    const pairs = await scopePairs(
+      [
+        "honor<a> Iterable<Bag(a)> =",
+        "    type Item = a",
+        "    iterate(xs) = Bag.toSeq(xs)",
+        "    other(ys) = length(ys)",
+      ].join("\n"),
+    );
+    expect(pairs.find(([text]) => text === "iterate")?.[1]).toBe("entity.name.function.hexagon");
+    expect(pairs.find(([text]) => text === "other")?.[1]).toBe("entity.name.function.hexagon");
+    expect(pairs.filter(([text]) => text === "ys").map(([, s]) => s)).toEqual([
+      "variable.other.hexagon",
+      "variable.other.hexagon",
+    ]);
+  });
+
+  it("recognizes a `derives` clause on its own continuation line", async () => {
+    // Declarations Preamble §2.4 documents this shape verbatim.
+    const pairs = await scopePairs(
+      ["union Shape", "    derives (Eq, Show) =", "    | Circle(radius: Float)"].join("\n"),
+    );
+    expect(pairs.find(([text]) => text === "derives")?.[1]).toBe("keyword.other.derives.hexagon");
+    expect(pairs.filter(([, s]) => s === "entity.name.type.constraint.hexagon")).toEqual([
+      ["Eq", "entity.name.type.constraint.hexagon"],
+      ["Show", "entity.name.type.constraint.hexagon"],
+    ]);
+  });
+
+  it("treats a `>=` tail as the comparison it is", async () => {
+    const pairs = await scopePairs("let ok = a<b and c >= d");
+    expect(pairs.filter(([, s]) => s.startsWith("entity.name.type"))).toEqual([]);
+    expect(pairs.find(([text]) => text === "and")?.[1]).toBe("keyword.operator.word.hexagon");
+  });
+
+  it("leaves a spaced comparison chain entirely alone", async () => {
+    // A `<` … `>` span whose tail happens to be `(` is still a comparison when the
+    // operands are spaced, so nothing inside it may be claimed as a type — and the
+    // word operator between them must keep its keyword scope.
+    const pairs = await scopePairs("let ok = count < limit and total > (x + y)");
+    expect(pairs.filter(([, s]) => s.startsWith("entity.name.type"))).toEqual([]);
+    expect(pairs.find(([text]) => text === "and")?.[1]).toBe("keyword.operator.word.hexagon");
+    expect(pairs.find(([text]) => text === "limit")?.[1]).toBe("variable.other.hexagon");
   });
 });
 

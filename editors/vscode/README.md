@@ -33,7 +33,9 @@ look like.
 | :--- | :--- | :--- |
 | Uppercase-start name | `entity.name.type` | §3.1 |
 | Uppercase-start name before `.` | `entity.name.namespace` | Modules §3.3, §5.3 |
-| Non-uppercase-start name | `variable.other` | §3.1 |
+| Uppercase-start name in a constraint position | `entity.name.type.constraint` | Constraints §3, §4.1, §4.3; Declarations Preamble §2.3 |
+| Non-uppercase-start name in type position | `entity.name.type.parameter` | Functions §4.2.1 |
+| Non-uppercase-start term name | `variable.other` | §3.1 |
 | Name being declared | `entity.name.function` / `variable.other.definition` | — |
 | Name before `:` | `variable.parameter` | — |
 | Bare `_` | `variable.language.wildcard` | §3.2 |
@@ -45,16 +47,37 @@ look like.
 | Operators and punctuation | `keyword.operator.*` / `punctuation.*` | §8.1 |
 | Everything §10 requires a diagnostic for | `invalid.illegal.*` | §10 |
 
-Three decisions worth stating, because each one is a place where an obvious
+Four decisions worth stating, because each one is a place where an obvious
 alternative would be wrong:
 
-**One scope for every uppercase-start name.** Type, union case, constraint,
+**One scope for every uppercase-start name, by default.** Type, union case,
 implied type, exception, and module alias all share the uppercase start class,
 and §3.1 makes that classification happen *before* parsing or resolution — the
 distinction between them is not available to a lexer, so this grammar does not
-invent one. The single exception is the qualifier position: a term is never
+invent one. Two positions are exceptions, and both earn it the same way: by being
+syntactically closed rather than by guessing at a name's meaning. A term is never
 uppercase-start, so an uppercase name immediately before `.` can only be a module
-alias or a companion, and it gets `entity.name.namespace`.
+alias or a companion (`entity.name.namespace`); and a constraint can only appear
+in the four positions below (`entity.name.type.constraint`).
+
+**Constraints are distinguished, because their positions are closed.** A constraint
+name can appear only as a `constraint` or `honor` head (Constraints §4.1), in a
+parameterized instance head's prefix form (§4.3), inside a binder's bound (§3), or
+in a `derives` list (Declarations Preamble §2.3). That list is exhaustive, which is
+what makes the distinction safe: `Show` takes `entity.name.type.constraint` in every
+position it can legally occupy, so a name never changes scope depending on where it
+is written. The instance *subject* is not a constraint — `honor Show<Rat>` scopes
+`Show` as a constraint and `Rat` as an ordinary type, which is exactly the
+declaration/use duality §4.1 describes. The `derives` rules accept the clause at the
+start of a continuation line as well as after a header name, because Declarations
+Preamble §2.4 spells that shape out.
+
+**Type variables are recognized by type position plus casing.** A lowercase name
+is not intrinsically a type variable — `a` remains an ordinary term in `let x = a`.
+But inside a declaration parameter list, a disambiguated `<...>` list, a type
+alias, or an annotation after `:`, the language says a non-uppercase-start name
+can only be a type variable. Those names get `entity.name.type.parameter`, including
+nested uses such as `Result(a, Vector(b))`.
 
 **Contextual keywords are matched by position, not spelling.** §4.2's whole point
 is that `let when = True` is legal and `{with = 3}` is a field. Each contextual
@@ -123,11 +146,27 @@ to be exact.
 - **A record update wrapped after `with` is not recognized.** In
   `{settings with\n    port = 8080}` the lookahead cannot cross the newline, so
   `with` reads as an ordinary name. Keeping it on one line highlights correctly.
-- **Type variables are not distinguished from terms.** In `Seq(a)`, the `a` is a
-  type variable, but it is spelled exactly like a term and only the parser knows
-  the difference.
+- **A type alias is coloured only on its own line.** The header must reach `=` on
+  the same physical line, which keeps a foreign declaration such as
+  `extern type SearchParams` from opening a type-alias context, and the right-hand
+  side ends at end of line. Running the context further would be worse than useless:
+  Collections Part 2 §5.1 puts an implied `type Item = a` inside a `constraint` body
+  or `honor` block, so a context that reached the next top-level declaration would
+  swallow the rest of the block and paint its member names as type variables. A
+  wrapped alias right-hand side loses colour past the break.
 - **`<` and `>` are comparison tokens.** §8.1 makes them the same physical token
   in a comparison and in an angle-bracket binder, and the grammar keeps them that
   way. A generic call like `isEmpty<a>(v)` is still recognized as a call, because
   a following `(` disambiguates it; a bare `Ord<Rat>` head shows `<`/`>` as
   operators.
+- **A binder list is told from a comparison heuristically, and the heuristic is not
+  complete.** Entering the binder context needs `<` followed immediately by an
+  identifier character, and a closing `>` that is not `>=` and is followed by `(`,
+  `=`, or an uppercase name. That admits `<a>`, `honor<a: Show>`, and `isEmpty<a>(v)`
+  while rejecting the spaced `count < limit and total > (x + y)` and the `>=` of
+  `a<b and c >= d`. It does **not** reject every comparison: `let z = a<b and c > (d)`
+  and `size(a)<size(b) and count(c) > (d)` still read as binder lists, painting the
+  span between the operators as types and costing `and` its keyword scope. §8.1 makes
+  `<` and `>` the same physical token in both roles, so no regex distinguishes them in
+  general; spacing the left operand is the fix. This is the same class of exposure the
+  generic-call rule has always had.
