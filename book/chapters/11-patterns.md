@@ -44,7 +44,7 @@ always open and mention only the fields they need.
 
 ```hexagon
 match reservation
-    {confirmed = true, guest} => "Confirmed for ${guest}"
+    {confirmed = True, guest} => "Confirmed for ${guest}"
     {guest} => "Awaiting confirmation for ${guest}"
 ```
 
@@ -74,7 +74,7 @@ A bare `{x, y}` pattern would describe a structural record, not the nominal `Poi
 
 ## Literals match particular values
 
-`Int`, `String`, and `Bool` literals may appear in patterns:
+`Int` and `String` literals may appear in patterns:
 
 ```hexagon
 let describeCount(count: Int): String =
@@ -88,12 +88,14 @@ let describeCount(count: Int): String =
 `Int` and `String` always need a wildcard or variable catch-all because a finite list
 of literals cannot cover every possible value.
 
-`Bool` is finite, so this match is complete without `_`:
+`Bool` needs no wildcard either, but for a different reason than a short literal list
+would give. `True` and `False` are constructor patterns, so this is the ordinary union
+exhaustiveness of the previous chapter:
 
 ```hexagon
 match enabled
-    true => "enabled"
-    false => "disabled"
+    True => "enabled"
+    False => "disabled"
 ```
 
 `Unit` also has one possible value, written `()`, and the same spelling is its pattern:
@@ -171,7 +173,7 @@ The guard follows `when` and must produce `Bool`. Pattern bindings are available
 it. Arms are tried from top to bottom; a guard runs only after its pattern matches and
 at most once for that attempt.
 
-Guards do not contribute to exhaustiveness—not even `when true`. The compiler does not
+Guards do not contribute to exhaustiveness—not even `when True`. The compiler does not
 try to prove arbitrary expressions always succeed. A later unguarded arm must cover
 the remaining values.
 
@@ -255,8 +257,9 @@ dialects.
 - patterns describe static shapes and may bind names to their pieces;
 - constructor, tuple, and record patterns can nest;
 - record patterns are open and support punning and renaming;
-- `Int`, `String`, and `Bool` literals may be patterns, `()` is the `Unit` pattern, and
-  `Float` literals may not appear in patterns;
+- `Int` and `String` literals may be patterns, `()` is the `Unit` pattern, and
+  `Float` literals may not appear in patterns; `True` and `False` are constructor
+  patterns, not literals;
 - or-pattern alternatives must bind the same names;
 - as-patterns retain both a matched component and its whole value;
 - guards test runtime conditions and contribute nothing to exhaustiveness;

@@ -30,12 +30,13 @@ unambiguous.
 
 ## Expressions produce values
 
-An expression is a piece of a program that produces a value. Literals are expressions:
+An expression is a piece of a program that produces a value. The simplest ones are
+the values themselves:
 
 ```hexagon
 42
 "ready"
-true
+True
 ()
 ```
 

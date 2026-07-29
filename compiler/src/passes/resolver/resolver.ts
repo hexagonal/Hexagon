@@ -250,6 +250,8 @@ class Resolver {
   readonly #recordNames = new Map<string, Resolved.RecordId>();
   /** Record identities the prelude supplies, by name, immune to local occlusion. */
   readonly #preludeRecords = new Map<string, Resolved.RecordId>();
+  /** Union identities the prelude supplies, by name, immune to local occlusion. */
+  readonly #preludeUnions = new Map<string, Resolved.UnionId>();
   readonly #recordArities = new Map<string, number>();
   readonly #externTypeNames = new Map<string, Resolved.ExternTypeId>();
   readonly #typeAliases = new Map<string, Parsed.TypeAliasItem | Resolved.TypeAliasItem>();
@@ -363,6 +365,9 @@ class Resolver {
    */
   #seedPrelude(prelude: ModuleInterface, specifier: string): void {
     this.#preludeInterfaceBySpecifier.set(specifier, prelude);
+    const seedTypeName = (name: string): void => {
+      this.#preludeTypeNames.add(name);
+    };
     // Modules §6.4: the occlusion rule's "the prelude version stays reachable
     // qualified" only works if the member can be *named*. Registering it under
     // its own basename gives every prelude name the qualified home §6.4 requires,
@@ -380,7 +385,11 @@ class Resolver {
       this.#importedSymbols.set(symbol.id, symbol);
     }
     for (const [name, union] of prelude.unions) {
-      this.#preludeTypeNames.add(name);
+      seedTypeName(name);
+      // Kept separately from `#unionNames` for the reason given below for
+      // records: a local declaration may occlude the name (§5.4), and the
+      // compiler's own producers must still reach the prelude's `Bool`.
+      this.#preludeUnions.set(name, union.id);
       this.#unionNames.set(name, union.id);
       this.#unionArities.set(name, union.parameters.length);
       if (!this.#unions.some(({ id }) => id === union.id)) {
@@ -388,7 +397,7 @@ class Resolver {
       }
     }
     for (const [name, record] of prelude.records) {
-      this.#preludeTypeNames.add(name);
+      seedTypeName(name);
       // Kept separately from `#recordNames`, which a local declaration may
       // occlude (§5.4). The compiler's own producers must reach the *prelude's*
       // `Seq`, not whatever record a module happens to name `Seq`, so they need
@@ -401,11 +410,11 @@ class Resolver {
       }
     }
     for (const [name, alias] of prelude.aliases) {
-      this.#preludeTypeNames.add(name);
+      seedTypeName(name);
       this.#typeAliases.set(name, { ...alias, name });
     }
     for (const [name, externType] of prelude.externTypes) {
-      this.#preludeTypeNames.add(name);
+      seedTypeName(name);
       this.#externTypeNames.set(name, externType.externType);
       if (!this.#externTypes.some(({ externType: id }) => id === externType.externType)) {
         this.#externTypes.push({ ...externType, localName: name });
@@ -448,6 +457,7 @@ class Resolver {
       unions: this.#unions,
       records: this.#records,
       preludeRecords: this.#preludeRecords,
+      preludeUnions: this.#preludeUnions,
       externTypes: this.#externTypes,
       comments: module.comments,
       span: module.span,
@@ -1261,7 +1271,6 @@ class Resolver {
       case "Name":
         return this.#resolveName(expression, scope);
       case "Unit":
-      case "Boolean":
       case "Integer":
       case "BigInt":
       case "Float":
@@ -1588,7 +1597,6 @@ class Resolver {
     if (
       pattern.kind === "Wildcard" ||
       pattern.kind === "Unit" ||
-      pattern.kind === "Boolean" ||
       pattern.kind === "Integer" ||
       pattern.kind === "String"
     ) return pattern;
@@ -2381,7 +2389,20 @@ class Resolver {
       // Carry the prelude module's coherent instances (e.g. `Eq`/`Show<Option>`)
       // the same way an explicit import would, so `a != None` and `show(x)` resolve.
       const iface = this.#preludeInterfaceBySpecifier.get(specifier);
-      const instances = (iface?.instances ?? []).map((instance) => ({
+      const boolUnion = this.#preludeUnions.get("Bool");
+      const instances = (iface?.instances ?? [])
+        // The pinned `Bool`'s four constraints are satisfied structurally at
+        // every use site (#147 — see the checker's `#resolveRequirement`), so
+        // its dictionaries are never referenced. Dropping them here rather than
+        // after checking is what keeps a module's *interface* honest: consumers
+        // build their own import lists from it, so an instance pruned later
+        // would be a name a consumer asks for and the producer no longer emits.
+        .filter(({ subject }) =>
+          boolUnion === undefined ||
+          subject.kind !== "Union" ||
+          subject.union !== boolUnion
+        )
+        .map((instance) => ({
         identity: instance.identity,
         constraint: instance.constraint,
         typeParameters: instance.typeParameters,
@@ -2479,7 +2500,7 @@ function isUnshadowedConsoleLog(
 }
 
 function isPrimitiveName(name: string): name is Resolved.PrimitiveName {
-  return ["Nat", "Int", "Float", "Bool", "String", "BigInt", "Exn", "Unit"].includes(name);
+  return ["Nat", "Int", "Float", "String", "BigInt", "Exn", "Unit"].includes(name);
 }
 
 function isResolvedTypeAlias(
@@ -2494,7 +2515,6 @@ function parsedPatternNames(pattern: Parsed.Pattern): Parsed.Name[] {
       return [pattern.name];
     case "Wildcard":
     case "Unit":
-    case "Boolean":
     case "Integer":
     case "String":
       return [];
@@ -2638,7 +2658,7 @@ function itemNameReferences(item: Resolved.Item): readonly Resolved.NameExpr[] {
 
 function expressionNames(expression: Resolved.Expr): Resolved.NameExpr[] {
   if (expression.kind === "Name") return [expression];
-  if (expression.kind === "Unit" || expression.kind === "Boolean" || expression.kind === "Integer" || expression.kind === "BigInt" || expression.kind === "Float" || expression.kind === "ErrorExpr" || expression.kind === "CollectionOperation" || expression.kind === "PrimitiveOperation") return [];
+  if (expression.kind === "Unit" || expression.kind === "Integer" || expression.kind === "BigInt" || expression.kind === "Float" || expression.kind === "ErrorExpr" || expression.kind === "CollectionOperation" || expression.kind === "PrimitiveOperation") return [];
   if (expression.kind === "String") return expression.parts.flatMap((part) => part.kind === "Interpolation" ? expressionNames(part.expression) : []);
   if (expression.kind === "Tuple" || expression.kind === "Vector") return expression.elements.flatMap(expressionNames);
   if (expression.kind === "Record") return [...(expression.spread === undefined ? [] : expressionNames(expression.spread)), ...expression.fields.flatMap((field) => expressionNames(field.value))];

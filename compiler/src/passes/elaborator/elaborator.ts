@@ -16,6 +16,7 @@ export function elaborate(module: Typed.Module): Core.Module {
     unions: module.unions,
     records: module.records,
     preludeRecords: module.preludeRecords,
+    preludeUnions: module.preludeUnions,
     externTypes: module.externTypes,
     comments: module.comments,
     span: module.span,
@@ -86,7 +87,6 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
     }
     case "PrimitiveOperation":
     case "Unit":
-    case "Boolean":
     case "BigInt":
     case "Float":
     case "ErrorExpr":
@@ -329,7 +329,6 @@ function elaboratePattern(pattern: Typed.Pattern): Core.Pattern {
     case "Binding":
     case "Wildcard":
     case "Unit":
-    case "Boolean":
     case "Integer":
     case "String":
       return { ...pattern };

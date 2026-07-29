@@ -1,6 +1,6 @@
 # Hexagon Spec: Type System Overview
 
-**Status:** Orienting document (July 2026). Records the overall shape so it doesn't get lost between the detailed specs. Individual decisions live in — and are overruled by — the specific specs; anything stated only here and nowhere else should be treated as *intent*, not as a settled decision.
+**Status:** Orienting document (July 2026). Records the overall shape so it doesn't get lost between the detailed specs. Individual decisions live in — and are overruled by — the specific specs; anything stated only here and nowhere else should be treated as *intent*, not as a settled decision. *Touched 2026-07-29 (#147): §1 restated under the ML-dialect doctrine (`decisions-ml-dialect-bool-2026-07.md` §1); `Bool` moved from the §3 primitive row to the prelude unions; §2.8 and §4 re-grounded.*
 **Scope:** the one-paragraph identity of the language, the pillars of the type system, the inventory of type formers, and the spec map (what's written, what's owed).
 **Not in scope:** everything. Every section here is a pointer to a real spec, existing or forthcoming.
 
@@ -8,9 +8,9 @@
 
 ## 1. What Hexagon is
 
-Hexagon is an ML-style language. It uses a Hindley–Milner type system with **row polymorphism** and **type constraints** (ad-hoc polymorphism via dictionary passing). Its compilation target is JavaScript, with **JS interop as a first-class design consideration**: emitted code is idiomatic, readable JS with accurate `.d.ts` files, so Hexagon code is a good citizen inside an existing JS project.
+Hexagon is an **ML dialect that targets JavaScript** — the posture of F# with Fable (#147, `decisions-ml-dialect-bool-2026-07.md` §1): the language's semantics and surface belong to the ML family; JavaScript is the compilation target it serves excellently. It uses a Hindley–Milner type system with **row polymorphism** and **type constraints** (ad-hoc polymorphism via dictionary passing). JS interop is a first-class property of the *target*: the emitter pursues idiomatic, readable JS and accurate `.d.ts` files wherever they do not constrain the language, so Hexagon code is a good citizen inside an existing JS project — a valued outcome, no longer a design adjudicator.
 
-The intended user is a JS developer with moderate FP capability who wants to do **some light functional work inside a JS environment** — not a Haskell refugee. Every design decision that trades theoretical strength for JS-native ergonomics (f64 `Int`, no currying, silent overflow, `undefined` as Unit) has been made deliberately in that direction.
+The intended user is a JS developer with moderate FP capability who wants to do **some light functional work inside a JS environment** — not a Haskell refugee. That is an audience fact, and #147 did not change it. What #147 retired is the adjudication rule this paragraph used to state — that every design decision trading theoretical strength for JS-native ergonomics had been made in that direction. The standing decisions it pointed at (f64 `Int`, no currying, silent overflow, `undefined` as Unit) all stand on their recorded rationales; but where ML-family semantics and JS-native surface genuinely conflict in *new* questions, the ML answer now wins by default, and the JS-specific answer must earn its place by pointing at something JavaScript-specific (decisions doc §1.1).
 
 ---
 
@@ -23,7 +23,7 @@ The intended user is a JS developer with moderate FP capability who wants to do 
 5. **Row polymorphism for records.** Structural records with row variables in the unifier — the one deliberate extension beyond vanilla HM. Extent and mechanics are the Products spec's job (open: width-subtyping-free row polymorphism à la Elm/PureScript is the presumed shape; whether rows appear anywhere besides records — e.g. polymorphic variants — is presumed **no** for v1).
 6. **No subtyping.** Rows give the "this function accepts any record with at least field x" ergonomics without a subsumption relation. Unification-only.
 7. **N-ary functions, no currying.** `TFun([A, B], C)`; arity checked at every call; no partial application (Functions spec).
-8. **Readable-JS emission as a semantic constraint.** The type system is designed so that types erase: no runtime tags, no wrappers, monomorphic literals and arithmetic emit as plain JS. Where a feature would force runtime scaffolding on common code, the feature loses (see: Int-as-BigInt rejection, int32 rejection).
+8. **Zero-cost erasure as a semantic constraint.** The type system is designed so that types erase: no runtime tags, no wrappers, monomorphic literals and arithmetic emit as plain JS. Where a feature would force runtime scaffolding on common code, the feature loses (see: Int-as-BigInt rejection, int32 rejection). *(Retitled 2026-07-29, #147 — formerly "Readable-JS emission as a semantic constraint." The pillar's force was always cost and boundary honesty, both independent grounds that survive the pivot; readable emitted JS remains a valued outcome of erasure, not the constraint itself.)*
 
 ---
 
@@ -31,12 +31,13 @@ The intended user is a JS developer with moderate FP capability who wants to do 
 
 | Former | Kind | Spec | Status |
 |---|---|---|---|
-| `Nat`, `Int`, `Float`, `Bool`, `String`, `BigInt`, `Unit` | primitives | Primitive Types | **decided** |
+| `Nat`, `Int`, `Float`, `String`, `BigInt`, `Unit` | primitives | Primitive Types | **decided** — `Bool` left the set 2026-07-29 (#147; Primitive Types §12): see the prelude-unions row |
 | function types (n-ary) | built-in | Functions | **decided** |
 | tuples | structural product, positional | Products (forthcoming) | conventions fixed by Functions spec (no 1-tuples, `()` nullary, no tuple↔args conversion); rest owed |
 | structural records | structural product, named, row-polymorphic | Products (forthcoming) | direction fixed here; mechanics owed |
 | `record` | nominal product declaration | Products (forthcoming) | owed — including its relation to structural rows (wrapper over a row vs. independent) |
 | `union` | nominal sum declaration | Unions (forthcoming) | owed — constructors, matching, exhaustiveness, tagged JS representation |
+| prelude unions: `Option`, `Result`, `Bool` | declared `union`s shipped in the prelude | Unions §8 | **decided** — `Bool` reclassified from primitive (#147), representation pinned to JS `boolean` (Unions §6.2) |
 | `type` | alias declaration | Declarations preamble or Products (forthcoming) | owed — parameterisation, recursion ban, alias-vs-expansion display |
 | type variables `a b c` | — | Primitive Types §1, Functions §4.2 | decided |
 | constraints (`Num`, `Signed`, `Eq`, `Ord`, `Show`, `Frac`, user) | — | Constraints (forthcoming) | partially fixed by Numeric Literals + Primitive Types §7 |
@@ -46,9 +47,9 @@ The intended user is a JS developer with moderate FP capability who wants to do 
 
 ## 4. JS interop commitments (type-system-visible)
 
-- Every primitive maps to a native JS type with no wrapper (Primitive Types §1 table). `Unit` ↔ `undefined`; `Nat`/`Int`/`Float` ↔ `number`; `BigInt` ↔ `bigint`.
+- Every primitive maps to a native JS type with no wrapper (Primitive Types §1 table). `Unit` ↔ `undefined`; `Nat`/`Int`/`Float` ↔ `number`; `BigInt` ↔ `bigint`. `Bool` — no longer a primitive (#147) — keeps its zero-cost `boolean` face through the representation pin (Unions §6.2).
 - Emitted `.d.ts` must be honest and idiomatic: n-ary functions as n-ary TS functions, `void`/`undefined` for Unit, `bigint` only where BigInt genuinely appears.
-- Products/unions must choose JS representations a JS consumer would plausibly hand-write (records as plain objects is the presumption; tuple and union representations are owed to their specs, with the readable-JS goal as the tiebreaker).
+- Product/union representations are unboxed structural data: records as plain objects (Products §3.5), tuples as plain arrays (Products §2.6), unions as string-tagged POJOs with a bare-string all-nullary case (Unions §6) — each the natural zero-cost representation at the boundary. That each matches what a JS consumer would plausibly hand-write is a valued outcome; it is no longer the tiebreaker (#147: on genuine conflict the ML answer wins by default, decisions doc §1.1).
 - Foreign nullability lives at the boundary (`Nullable(a)`), never inside the language's own types.
 
 ---
@@ -70,4 +71,4 @@ The intended user is a JS developer with moderate FP capability who wants to do 
 ## 6. Decisions vs. intents (read this before citing this doc)
 
 Decided elsewhere and merely echoed here: everything in §2 items 1–4, 7–8; the §3 rows marked decided.
-**Intent, first stated here, needs its real spec:** row polymorphism as the record mechanism (§2.5); no subtyping (§2.6); rows-for-records-only in v1; records-as-plain-objects presumption (§4). If a forthcoming spec finds a reason to deviate, it wins — then update this doc.
+**Intent, first stated here, needs its real spec:** row polymorphism as the record mechanism (§2.5); no subtyping (§2.6); rows-for-records-only in v1. (The records-as-plain-objects presumption formerly listed here was discharged: Products §3.5 decides it; §4 now cites the owners.) If a forthcoming spec finds a reason to deviate, it wins — then update this doc.

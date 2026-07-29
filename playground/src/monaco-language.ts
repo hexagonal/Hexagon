@@ -15,7 +15,6 @@ export const hexagonTokens: monaco.languages.IMonarchLanguage = {
     "exception",
     "export",
     "extern",
-    "false",
     "finally",
     "for",
     "fun",
@@ -31,13 +30,19 @@ export const hexagonTokens: monaco.languages.IMonarchLanguage = {
     "or",
     "record",
     "then",
-    "true",
     "try",
     "type",
     "union",
     "var",
     "while",
   ],
+  // spec/lexer.md §4.1 reserved redirect words (#147). Still hard keywords — they can
+  // never be names — but they no longer denote values: Bool is the prelude union
+  // `False | True`. Every occurrence is an error carrying a one-token fixit, so they
+  // are painted as errors rather than keywords, matching the VS Code grammar. The
+  // constructors need no entry: `True`/`False` are uppercase-start names and already
+  // reach `type.identifier` through the rule that paints `None`.
+  redirectWords: ["false", "true"],
   operators: [
     "+",
     "-",
@@ -61,7 +66,7 @@ export const hexagonTokens: monaco.languages.IMonarchLanguage = {
       [/_(?![$\u200C\u200D_\p{ID_Continue}])/u, "delimiter"],
       [/[\p{Uppercase}\p{Lt}][$\u200C\u200D_\p{ID_Continue}]*/u, "type.identifier"],
       [/(?![\p{Uppercase}\p{Lt}])[$_\p{ID_Start}][$\u200C\u200D_\p{ID_Continue}]*/u, {
-        cases: { "@keywords": "keyword", "@default": "identifier" },
+        cases: { "@redirectWords": "invalid", "@keywords": "keyword", "@default": "identifier" },
       }],
       [/\d+(?:\.\d+)?n?/u, "number"],
       [/"(?:[^"\\]|\\.)*"/u, "string"],

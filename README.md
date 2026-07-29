@@ -4,7 +4,7 @@
   <img src="Hex.svg" width="384" alt="Hexagon programming language logo: a purple hexagon containing the word HEX">
 </p>
 
-Hexagon is an ML-style functional language designed for the JavaScript and TypeScript ecosystem. It combines strong type inference, plain data, algebraic types, pattern matching, row-polymorphic records, and type constraints with readable JavaScript output and accurate `.d.ts` declarations.
+Hexagon is an ML dialect that targets JavaScript. Its semantics and its surface belong to the ML family — strong type inference, plain data, algebraic types, pattern matching, row-polymorphic records, and type constraints — and JavaScript is the platform it compiles to, in the posture F# takes with Fable. The output is readable JavaScript with accurate `.d.ts` declarations, and Hexagon is a good citizen inside an existing JavaScript project.
 
 ## Try Hexagon
 
@@ -52,14 +52,14 @@ or prototype lookup.
 
 ## Direction
 
-Hexagon is intended for JavaScript and TypeScript developers who want to use functional programming without leaving the JavaScript environment behind. It draws from the ML family while making deliberate choices for JavaScript-native ergonomics.
+Hexagon is intended for JavaScript and TypeScript developers who want to use functional programming without leaving the JavaScript environment behind. What they get is a real ML: the language answers design questions the way the ML family answers them, and a JavaScript-specific answer has to earn its place by pointing at something genuinely specific to JavaScript — representation at a zero-cost boundary, `n`-ary parameter passing, literal emission into JavaScript source. Readable output and honest declarations are outcomes the compiler works hard for; they are not what decides the language.
 
 The current design includes:
 
 - Hindley–Milner inference using Algorithm J;
 - let-polymorphism with the ML value restriction;
 - row-polymorphic structural records without general subtyping;
-- nominal records and unions;
+- nominal records and unions — including `Bool`, which is not a primitive but the prelude union `False | True`, matched and derived like any other;
 - exhaustive pattern matching;
 - type constraints compiled through dictionary passing;
 - genuinely n-ary functions without automatic currying;

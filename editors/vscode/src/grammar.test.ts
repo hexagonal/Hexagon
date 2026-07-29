@@ -6,6 +6,7 @@
  * drifts from the token language fails here rather than in someone's editor.
  */
 
+import { readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -66,8 +67,23 @@ describe("keywords (spec/lexer.md §4)", () => {
     expect(await scope("let x = a implies b", "implies")).toBe("keyword.operator.word.hexagon");
   });
 
-  it("scopes literal words", async () => {
-    expect(await scope("let x = true", "true")).toBe("constant.language.boolean.hexagon");
+  // #147: Bool is the prelude union `False | True`, so `true`/`false` are reserved
+  // spellings with no value meaning. They must read as errors, and the constructors
+  // must read as the ordinary UpperNames they are.
+  it("paints the reserved redirect words as errors, not literals", async () => {
+    expect(await scope("let x = true", "true")).toBe(
+      "invalid.illegal.reserved-redirect-word.hexagon",
+    );
+    expect(await scope("let x = false", "false")).toBe(
+      "invalid.illegal.reserved-redirect-word.hexagon",
+    );
+  });
+
+  it("scopes Bool's constructors as ordinary uppercase names", async () => {
+    expect(await scope("let x = True", "True")).toBe("entity.name.type.hexagon");
+    expect(await scope("let x = False", "False")).toBe("entity.name.type.hexagon");
+    // The same scope `None` gets: nothing about Bool is special at the token level.
+    expect(await scope("let x = None", "None")).toBe("entity.name.type.hexagon");
   });
 
   it("does not treat a §4.3 non-keyword as a keyword", async () => {
@@ -82,7 +98,7 @@ describe("contextual keywords are positional (spec/lexer.md §4.2)", () => {
     expect(await scope("match v\n    Some(x) when ready => x", "when")).toBe(
       "keyword.other.when.hexagon",
     );
-    expect(await scope("let when = true", "when")).toBe("variable.other.definition.hexagon");
+    expect(await scope("let when = True", "when")).toBe("variable.other.definition.hexagon");
   });
 
   it("recognizes `with` in a record update but not as a field or pun", async () => {
@@ -190,8 +206,8 @@ describe("declarations name what they declare", () => {
   });
 
   it("does not mistake `:=` assignment for an annotation", async () => {
-    expect(await scope("searching := false", "searching")).toBe("variable.other.hexagon");
-    expect(await scope("searching := false", ":=")).toBe("keyword.operator.assignment.hexagon");
+    expect(await scope("searching := False", "searching")).toBe("variable.other.hexagon");
+    expect(await scope("searching := False", ":=")).toBe("keyword.operator.assignment.hexagon");
   });
 
   it("scopes an uppercase qualifier before `.` as a namespace", async () => {
@@ -345,7 +361,7 @@ describe("operators and forbidden runs (spec/lexer.md §8)", () => {
   it("keeps `<` and `>` one token in both comparison and binder position", async () => {
     expect(await scope("let x = count <= 0", "count")).toBe("variable.other.hexagon");
     expect(await scope("let x = a < b", "a")).toBe("variable.other.hexagon");
-    expect(await scope("fun isEmpty<a>(v: Vector(a)): Bool = true", "isEmpty")).toBe(
+    expect(await scope("fun isEmpty<a>(v: Vector(a)): Bool = True", "isEmpty")).toBe(
       "entity.name.function.hexagon",
     );
   });
@@ -504,16 +520,21 @@ describe("regressions found in review", () => {
 });
 
 describe("the whole checked-in corpus", () => {
-  const sources = [
-    "stdlib/Prelude.hex",
-    "stdlib/Option.hex",
-    "stdlib/Result.hex",
-    "stdlib/Seq.hex",
-    "stdlib/Vector.hex",
-    "stdlib/Rat.hex",
-    "stdlib/Integral.hex",
-    "runtime/VectorTrie.hex",
-  ];
+  // Discovered, not listed. A hand-maintained list silently stops covering the
+  // file that matters most the moment one is added — `stdlib/Bool.hex` arrived
+  // with #147 and would have been missed. This is also what makes the README's
+  // claim ("every `.hex` file in the repository") true rather than aspirational.
+  const sources = ["stdlib", "runtime"].flatMap((directory) =>
+    readdirSync(join(repositoryRoot, directory))
+      .filter((entry) => entry.endsWith(".hex"))
+      .sort()
+      .map((entry) => `${directory}/${entry}`)
+  );
+
+  it("finds the corpus it is meant to be checking", () => {
+    expect(sources).toContain("stdlib/Bool.hex");
+    expect(sources.length).toBeGreaterThanOrEqual(8);
+  });
 
   it.each(sources)("paints no lexical error in %s", async (relative) => {
     const source = await readFile(join(repositoryRoot, relative), "utf8");

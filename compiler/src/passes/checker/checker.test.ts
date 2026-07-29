@@ -44,8 +44,8 @@ describe("check", () => {
       "type Coordinates = Point\n" +
         "record Point = {x: Int, y: Int}\n" +
         "type Pair(a) = (a, a)\n" +
-        "fun even(n: Int): Bool = if n == 0 then true else odd(n - 1)\n" +
-        "fun odd(n: Int): Bool = if n == 0 then false else even(n - 1)\n" +
+        "fun even(n: Int): Bool = if n == 0 then True else odd(n - 1)\n" +
+        "fun odd(n: Int): Bool = if n == 0 then False else even(n - 1)\n" +
         "let origin: Coordinates = Point({x = 0, y = 0})\n" +
         "let flags: Pair(Bool) = (even(4), odd(3))",
     );
@@ -131,8 +131,8 @@ describe("check", () => {
 
   test("genuine mutual recursion still shares one monomorphic group", () => {
     const module = checkSource(
-      "fun even(n: Int): Bool = if n == 0 then true else odd(n - 1)\n" +
-        "fun odd(n: Int): Bool = if n == 0 then false else even(n - 1)\n",
+      "fun even(n: Int): Bool = if n == 0 then True else odd(n - 1)\n" +
+        "fun odd(n: Int): Bool = if n == 0 then False else even(n - 1)\n",
     );
     expect(module.diagnostics).toEqual([]);
   });
@@ -171,8 +171,8 @@ describe("check", () => {
     const complete = checkSource(
       "union Flagged = Flagged(value: Bool) | Empty\n" +
         "fun describe(flagged: Flagged): String = match flagged\n" +
-        '    Flagged(true) => "yes"\n' +
-        '    Flagged(false) => "no"\n' +
+        '    Flagged(True) => "yes"\n' +
+        '    Flagged(False) => "no"\n' +
         '    Empty => "empty"',
     );
     expect(complete.diagnostics).toEqual([]);
@@ -180,7 +180,7 @@ describe("check", () => {
     const incomplete = checkSource(
       "union Flagged = Flagged(value: Bool) | Empty\n" +
         "fun describe(flagged: Flagged): String = match flagged\n" +
-        '    Flagged(true) => "yes"\n' +
+        '    Flagged(True) => "yes"\n' +
         '    Empty => "empty"',
     );
     expect(incomplete.diagnostics.map(({ message }) => message)).toContain(
@@ -190,8 +190,8 @@ describe("check", () => {
     const unreachable = checkSource(
       "union Flagged = Flagged(value: Bool) | Empty\n" +
         "fun describe(flagged: Flagged): String = match flagged\n" +
-        '    Flagged(true) => "yes"\n' +
-        '    Flagged(false) => "no"\n' +
+        '    Flagged(True) => "yes"\n' +
+        '    Flagged(False) => "no"\n' +
         '    Flagged(_) => "impossible"\n' +
         '    Empty => "empty"',
     );
@@ -206,7 +206,7 @@ describe("check", () => {
         "union Box = Box(side: Side)\n" +
         "fun unbox(box: Box): Int = match box\n" +
         "    Box(Left(value) | Right(value)) => value\n" +
-        "let true | false = true\n" +
+        "let True | False = True\n" +
         "let Left(amount) | Right(amount) = Left(42)\n" +
         "let answer = amount",
     );
@@ -217,7 +217,7 @@ describe("check", () => {
       name: "Int",
     });
 
-    const incomplete = checkSource("let true | true = false");
+    const incomplete = checkSource("let True | True = False");
     expect(incomplete.diagnostics.map(({ message }) => message)).toContain(
       "this or-pattern does not cover every possible value and cannot be used in a binding position; use `match`",
     );
@@ -307,7 +307,7 @@ describe("check", () => {
     const module = checkSource(
       "let getX = {x} => x\n" +
         "let first = getX({x = 1})\n" +
-        "let second = getX({x = 2, y = true})",
+        "let second = getX({x = 2, y = True})",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -342,17 +342,17 @@ describe("check", () => {
   test("matches tuple and structural-record scrutinees directly", () => {
     const module = checkSource(
       'fun tupleLabel(pair: (Bool, Int)): String = match pair\n' +
-        '    (true, count) => "active"\n' +
+        '    (True, count) => "active"\n' +
         '    (_, _) => "inactive"\n' +
         'fun recordName(user: {name: String, active: Bool}): String = match user\n' +
-        '    {active = true, name} => name\n' +
+        '    {active = True, name} => name\n' +
         '    {name} => name',
     );
 
     expect(module.diagnostics).toEqual([]);
 
     const incomplete = checkSource(
-      'fun tupleLabel(pair: (Bool, Int)): String = match pair\n    (true, _) => "active"',
+      'fun tupleLabel(pair: (Bool, Int)): String = match pair\n    (True, _) => "active"',
     );
     expect(incomplete.diagnostics.map(({ message }) => message)).toContain(
       "match on `(Bool, Int)` needs a catch-all structural pattern",
@@ -376,13 +376,13 @@ describe("check", () => {
 
   test("checks exhaustive Bool literal matches and catch-alls for infinite primitives", () => {
     const module = checkSource(
-      'fun describe(flag: Bool): String = match flag\n    true => "yes"\n    false => "no"\n' +
+      'fun describe(flag: Bool): String = match flag\n    True => "yes"\n    False => "no"\n' +
         'fun count(n: Int): String = match n\n    0 => "none"\n    1 => "one"\n    _ => "many"',
     );
     expect(module.diagnostics).toEqual([]);
 
     const strings = checkSource(
-      'fun agrees(answer: String): Bool = match answer\n    "yes" => true\n    _ => false',
+      'fun agrees(answer: String): Bool = match answer\n    "yes" => True\n    _ => False',
     );
     expect(strings.diagnostics).toEqual([]);
 
@@ -405,14 +405,14 @@ describe("check", () => {
     expect(module.diagnostics).toEqual([]);
 
     const guardedOnly = checkSource(
-      'fun describe(flag: Bool): String = match flag\n    true when flag => "yes"\n    false => "no"',
+      'fun describe(flag: Bool): String = match flag\n    True when flag => "yes"\n    False => "no"',
     );
     expect(guardedOnly.diagnostics.map(({ message }) => message)).toContain(
-      "match is missing case `true`",
+      "match is missing cases: `True`",
     );
 
     const wrongGuard = checkSource(
-      'fun describe(flag: Bool): String = match flag\n    true when 1 => "yes"\n    _ => "no"',
+      'fun describe(flag: Bool): String = match flag\n    True when 1 => "yes"\n    _ => "no"',
     );
     expect(wrongGuard.diagnostics.map(({ message }) => message)).toContain(
       "integer literal cannot have type `Bool`",
@@ -432,10 +432,12 @@ describe("check", () => {
 
   test("checks nested tuple and renamed record patterns in constructor payloads", () => {
     const module = checkSource(
-      "union Result = Ok(value: (String, Int)) | Err(error: {context: {message: String}, code: Int})\n" +
-        "fun describe(result: Result): String = match result\n" +
-        "    Ok((name, _)) => name\n" +
-        "    Err({context = {message = reason}}) => reason",
+      // Named `Outcome`/`Fine`/`Bad`, not `Result`/`Ok`/`Err`: this now compiles
+      // with the prelude, whose `Result` owns those constructor names.
+      "union Outcome = Fine(value: (String, Int)) | Bad(error: {context: {message: String}, code: Int})\n" +
+        "fun describe(outcome: Outcome): String = match outcome\n" +
+        "    Fine((name, _)) => name\n" +
+        "    Bad({context = {message = reason}}) => reason",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -446,13 +448,13 @@ describe("check", () => {
     const open = checkSource(
       "fun getX(r: {x: Int, ...}): Int = r.x\n" +
         "let first = getX({x = 1})\n" +
-        "let second = getX({x = 2, y = true})",
+        "let second = getX({x = 2, y = True})",
     );
     expect(open.diagnostics).toEqual([]);
 
     const closed = checkSource(
       "fun getX(r: {x: Int}): Int = r.x\n" +
-        "let extra = getX({x = 1, y = true})",
+        "let extra = getX({x = 1, y = True})",
     );
     expect(closed.diagnostics.map(({ message }) => message)).toContain(
       "record fields do not match; unexpected `y`",
@@ -484,7 +486,7 @@ describe("check", () => {
 
   test("binds fields from an open structural record pattern", () => {
     const module = checkSource(
-      'let reservation = {guest = "Mira", seats = 3, confirmed = true}\n' +
+      'let reservation = {guest = "Mira", seats = 3, confirmed = True}\n' +
         "let {guest, seats} = reservation\n" +
         "let label = guest\nlet count = seats",
     );
@@ -496,18 +498,22 @@ describe("check", () => {
 
   test("types primitive literals and defaults bare integers to Int", () => {
     const module = checkSource(
-      'let count = 1\nlet ratio = 1.5\nlet exact = 1n\nlet flag = true\nlet text = "hello"\nlet unit = ()',
+      'let count = 1\nlet ratio = 1.5\nlet exact = 1n\nlet flag = True\nlet text = "hello"\nlet unit = ()',
     );
 
-    expect(module.symbols.map(({ name, scheme }) => [name, typeName(scheme.type)])).toEqual([
+    // By name: `True` names a prelude constructor, so the module's symbol list
+    // now carries the prelude's own symbols alongside these six.
+    for (const [name, expected] of [
       ["count", "Int"],
       ["ratio", "Float"],
       ["exact", "BigInt"],
       ["flag", "Bool"],
       ["text", "String"],
       ["unit", "Unit"],
-    ]);
-    expect(module.items[0]).toMatchObject({
+    ] as const) {
+      expect([name, typeName(letSymbol(module, name).scheme.type)]).toEqual([name, expected]);
+    }
+    expect(module.items.find(({ kind }) => kind === "Let")).toMatchObject({
       kind: "Let",
       value: {
         kind: "FromNat",
@@ -522,7 +528,7 @@ describe("check", () => {
   });
 
   test("types console.log arguments and returns Unit", () => {
-    const module = checkSource('console.log("answer", 42, true)');
+    const module = checkSource('console.log("answer", 42, True)');
     const logged = expression(module);
 
     expect(logged).toMatchObject({
@@ -531,7 +537,7 @@ describe("check", () => {
       arguments: [
         { type: { kind: "Primitive", name: "String" } },
         { type: { kind: "Primitive", name: "Int" } },
-        { type: { kind: "Primitive", name: "Bool" } },
+        { type: { kind: "Union", name: "Bool" } },
       ],
     });
     expect(module.diagnostics).toEqual([]);
@@ -557,7 +563,7 @@ describe("check", () => {
 
   test("checks direct recursion monomorphically and generalizes afterward", () => {
     const module = checkSource(
-      "fun choose(value) = if true then value else choose(value)\n" +
+      "fun choose(value) = if True then value else choose(value)\n" +
         "let number = choose(1)\n" +
         'let text = choose("a")',
     );
@@ -646,7 +652,7 @@ describe("check", () => {
 
   test("types tuple pattern bindings and makes them available sequentially", () => {
     const module = checkSource(
-      'let (name, _, (x, y)) = ("point", true, (3, 4))\n' +
+      'let (name, _, (x, y)) = ("point", True, (3, 4))\n' +
         "let total = x + y",
     );
 
@@ -787,7 +793,7 @@ describe("check", () => {
         "let explicit<a>(thing: a) = takesInt(thing)\n" +
         "let nested(things: Vector(a)) = takesInts(things)\n" +
         "let result(): a = takesInt(1)\n" +
-        "let same(left: a, right: b) = if true then left else right",
+        "let same(left: a, right: b) = if True then left else right",
     );
 
     expect(rejected.diagnostics.map(({ message }) => message)).toEqual([
@@ -801,7 +807,7 @@ describe("check", () => {
     const accepted = checkSource(
       'let numeric(thing: a) = thing + 1\n' +
         'let display(thing: a) = "${thing}"\n' +
-        "let choose(thing: a, fallback) = if true then thing else fallback\n" +
+        "let choose(thing: a, fallback) = if True then thing else fallback\n" +
         "let takesInt(value: Int) = value\n" +
         "let inferred(thing) = takesInt(thing)",
     );
@@ -958,7 +964,7 @@ describe("check", () => {
         "fun choose(reason: Reason): Int = try\n" +
         "    throw(Wrapped(reason))\n" +
         "catch\n" +
-        "    Wrapped(_) when false => 1\n" +
+        "    Wrapped(_) when False => 1\n" +
         "    Wrapped(Code(_)) => 2",
     );
     const unreachable = checkSource(
@@ -1027,10 +1033,10 @@ describe("check", () => {
   test("enforces n-ary calls, Bool conditions, and matching branches", () => {
     const good = checkSource(
       "let choose = (condition, yes, no) => if condition then yes else no\n" +
-        "choose(true, 1, 2)",
+        "choose(True, 1, 2)",
     );
     const bad = checkSource(
-      'let pair = (x, y) => x\npair(1)\nif "yes" then 1 else true',
+      'let pair = (x, y) => x\npair(1)\nif "yes" then 1 else True',
     );
 
     expect(typeName(expression(good).type)).toBe("Int");
@@ -1171,7 +1177,7 @@ describe("check", () => {
       "fun bad(): Unit =\n" +
         "    let fixed = 1\n" +
         "    fixed := 2\n" +
-        "    while true\n" +
+        "    while True\n" +
         "        42",
     );
     expect(invalid.diagnostics.map(({ message }) => message)).toContain(
@@ -1472,8 +1478,12 @@ describe("check", () => {
     const module = checkSource(
       "fun visit(): Unit =\n" +
         "    for number in 1..3\n" +
-        "        let next: Int = number + 1\n" +
-        "        console.log(next)\n" +
+        // Not `next`: that is a prelude term (`Seq.next`), and a *local* binding
+        // of a prelude name is currently rejected as rebinding — a pre-existing
+        // compiler defect this test would otherwise trip over now that it
+        // compiles with the prelude.
+        "        let incremented: Int = number + 1\n" +
+        "        console.log(incremented)\n" +
         "    for character in \"ab\"\n" +
         "        let copy: String = character\n" +
         "        console.log(copy)",
@@ -1482,7 +1492,7 @@ describe("check", () => {
 
     const invalid = checkSource(
       "fun bad(): Unit =\n" +
-        "    for true in 1..3\n" +
+        "    for True in 1..3\n" +
         "        ()\n" +
         "    for item in 42\n" +
         "        console.log(item)",
@@ -1511,7 +1521,20 @@ describe("check", () => {
   });
 });
 
+/**
+ * Since #147 made `Bool` a prelude union rather than a primitive, a module
+ * assembled by calling the passes directly cannot type a condition, a guard, a
+ * comparison, or a logic operator — the declaration those name lives in
+ * `stdlib/Bool.hex`. Everything therefore goes through the project, which
+ * injects the prelude; `checkModule` below is what remains for the handful of
+ * cases that genuinely test a prelude-free module.
+ */
 function checkSource(text: string): Typed.Module {
+  return checkProject(text);
+}
+
+/** A single module checked with no prelude at all. */
+function checkModule(text: string): Typed.Module {
   const source = new Source.File(Source.fileId(0), "test.hex", text);
   return check(resolve(parse(applyLayout(lex(source)))));
 }
@@ -1533,7 +1556,10 @@ function expression(module: Typed.Module): Typed.Expr {
 }
 
 function typeName(type: Typed.Type): string {
-  return type.kind === "Primitive" ? type.name : type.kind;
+  // Unions report their name too, so `Bool` reads as `Bool` rather than as
+  // `Union` now that #147 made it one.
+  if (type.kind === "Primitive" || type.kind === "Union") return type.name;
+  return type.kind;
 }
 
 function letSymbol(module: Typed.Module, name: string): Typed.Symbol {

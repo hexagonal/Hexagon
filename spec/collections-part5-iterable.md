@@ -101,7 +101,7 @@ Notes:
 
 - The final three rows inherit their observation and emission semantics from their owning FFI parts; this table records their coherent `Iterable` instances rather than restating those borrow contracts.
 - `Range` participates in iteration but not in the conversion suite (§1); its `iterate` is runtime-internal. `Seq`'s row is the identity — the currency needs no conversion into itself.
-- No other v1 type is iterable. In particular `Option`/`Result` are not (matching is their consumption form), and `Bool`/`Int`/`Float`/`Unit`/functions are the §3.2 concrete-non-iterable case.
+- No other v1 type is iterable. In particular the prelude unions `Option`/`Result`/`Bool` are not (`match` is their consumption form — for `Bool`, joined by its condition/operator eliminators, Unions §1/§8; it keeps `Option`/`Result` company here since #147 reclassified it out of this note's primitive clause *(2026-07-29; record §18.3)*), and `Int`/`Float`/`Unit`/functions are the §3.2 concrete-non-iterable case.
 - This table closes Loops §11.6 and is the finalized Loops §5 inventory (Loops now defers here by reference).
 
 ---
@@ -258,7 +258,7 @@ The user-instance call is the ordinary emitted module function (here `Bag_toSeq`
 
 ### 9.3 Laziness and `.d.ts`
 
-- `for x in s` over a `Seq` pulls elements **on demand** (the functional cursor, Loops §6.2/§6.5); an infinite `Seq` loops forever, computing each element only as reached — exit is via `throw` or process end, per the `while true` stance (Loops §4).
+- `for x in s` over a `Seq` pulls elements **on demand** (the functional cursor, Loops §6.2/§6.5); an infinite `Seq` loops forever, computing each element only as reached — exit is via `throw` or process end, per the `while True` stance (Loops §4).
 - **No `Iterable`, `Item`, or `Iterable`-instance machinery appears in `.d.ts`.** The constraint cannot leak by construction (no binder can carry it — Part 2 §8), instances are never exports (Modules §11.5), and the v1 reference ban keeps `Item` out of every signature. **The foreign representation of *other* constraints on exported polymorphic functions (e.g. `Bag.fromSeq`'s `<a: Hash>`) is owned by the FFI spec** — see the bounded exported-dictionaries direction (`spec/notes/ffi-exported-dictionaries.md`); this document asserts nothing about it. (`Seq(a)` itself faces as `Iterable<a>` — Loops §6.5 — which is a statement about `Seq`, not about the constraint.)
 
 ---
@@ -490,3 +490,7 @@ The draft declared the `Iterable<Array(a)>` row normatively here while leaving i
 ### 18.2 The `.d.ts` claim narrowed to `Iterable` machinery
 
 §9.3 originally claimed no constraint machinery of any kind appears in `.d.ts`; the foreign representation of *other* constraints on exported polymorphic functions is the FFI spec's (bounded exported-dictionaries direction, `spec/notes/ffi-exported-dictionaries.md`). Corrected in §9.3 and test (l). Do not restate the unconditional non-leakage slogan in any collections document — its scope is monomorphic exports plus this constraint's by-construction guarantee.
+
+### 18.3 `Bool` reclassified in §4's non-iterables note (2026-07-29, #147)
+
+§4's closing note listed `Bool` in its concrete-primitive clause; under the ML-dialect ruling (`decisions-ml-dialect-bool-2026-07.md`) `Bool` is the prelude union `False | True` (Unions §8) and now stands with `Option`/`Result` in the prelude-union clause instead. No behavioral change: `Bool` was not iterable and is not iterable; a `for x in myBool` head remains the §3.2 concrete-non-iterable error either way.

@@ -231,7 +231,7 @@ describe("parse", () => {
   });
 
   test("parses tuple patterns as let binders", () => {
-    const module = parseSource("let (name, _, (x, y)) = (\"point\", true, (3, 4))");
+    const module = parseSource("let (name, _, (x, y)) = (\"point\", True, (3, 4))");
 
     expect(module.items).toMatchObject([
       {

@@ -11,8 +11,9 @@
     "non-uppercase-start name is a term/binder role, decided by the literal first",
     "codepoint alone. Hard keywords are §4.1; contextual keywords (§4.2) lex as ordinary",
     "names and are only matched here in the positions the spec lists. Constructs the",
-    "lexer rejects outright (§10) are painted invalid.illegal so the editor shows the",
-    "same errors the compiler would."
+    "§10 requires a diagnostic for are painted invalid.illegal so the editor shows",
+    "the same errors the compiler would. (Not \"the lexer rejects\": some rows, the",
+    "`true`/`false` redirect among them, lex fine and are the parser's to refuse.)"
   ],
 
   "patterns": [
@@ -296,7 +297,18 @@
           "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?:and|iff|implies|not|or)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])"
         },
         {
-          "name": "constant.language.boolean.hexagon",
+          "//": [
+            "spec/lexer.md §4.1 reserved redirect words (#147). `true`/`false` are still",
+            "hard keywords but no longer produce values: Bool is the prelude union",
+            "`False | True`, so an occurrence in value position is an error carrying a",
+            "one-token fixit. Name position is §10's other row and a different message,",
+            "and this rule does not reach it: #declarations is included ahead of",
+            "#keywords, so `let true = 1` is claimed by the binding rule first. That",
+            "shadowing swallows every hard keyword, not just these two, and is filed",
+            "separately. `True`/`False` need no rule — they are ordinary UpperNames and",
+            "reach entity.name.type through #names, exactly like `None`."
+          ],
+          "name": "invalid.illegal.reserved-redirect-word.hexagon",
           "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?:true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])"
         }
       ]
@@ -305,7 +317,7 @@
     "contextual-keywords": {
       "//": [
         "spec/lexer.md §4.2: these lex as NonUpperName and mean nothing outside their",
-        "position, so each rule pins the position. `let when = true` and `{with = 3}`",
+        "position, so each rule pins the position. `let when = True` and `{with = 3}`",
         "must keep reading as an ordinary binding and an ordinary field."
       ],
       "patterns": [

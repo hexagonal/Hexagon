@@ -4,7 +4,7 @@
 
 ## 1. Orientation
 
-Hexagon is an ML-family language designed to produce readable JavaScript and accurate TypeScript declarations; functions, data, modules, emission, and the JS boundary are owned respectively by `functions.md`, `products.md` / `unions.md`, `modules.md`, feature-specific emission sections, and `ffi.md`. This file supplies a reading path only.
+Hexagon is an **ML dialect that targets JavaScript**, in the posture of F# with Fable: the language's semantics and surface belong to the ML family, and JavaScript is the compilation target it serves excellently — readable JavaScript and accurate TypeScript declarations are valued outcomes the emitter pursues, not design adjudicators *(restated 2026-07-29 under the #147 doctrine pivot; `decisions-ml-dialect-bool-2026-07.md` §1)*. Functions, data, modules, emission, and the JS boundary are owned respectively by `functions.md`, `products.md` / `unions.md`, `modules.md`, feature-specific emission sections, and `ffi.md`. This file supplies a reading path only.
 
 ## 2. Dependency and reading order
 

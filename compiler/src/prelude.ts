@@ -28,8 +28,13 @@ export interface PreludeModule {
  * before it, and only those, which is what makes cycles impossible by
  * construction. Adding a member means placing it after everything it uses —
  * `Seq.hex` sits after `Option.hex` because a pull step returns an `Option`.
+ *
+ * `Bool.hex` is first because everything can use it and it uses nothing: it is the
+ * one prelude member with no predecessors, and since #147 made `Bool` a union rather
+ * than a primitive, every later member's conditions and predicates depend on it.
  */
 export const PRELUDE_MODULES: readonly PreludeModule[] = [
+  "Bool.hex",
   "Prelude.hex",
   "Option.hex",
   "Seq.hex",

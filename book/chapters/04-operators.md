@@ -176,19 +176,26 @@ All operands must be `Bool`; truthiness never enters the calculation.
 
 Evaluation is precise:
 
-- `and` evaluates its right side only when the left side is `true`;
-- `or` evaluates its right side only when the left side is `false`;
+- `and` evaluates its right side only when the left side is `True`;
+- `or` evaluates its right side only when the left side is `False`;
 - `implies` describes a promise: `winGame implies getPizza` means “if we win, we get
-  pizza.” The right side is checked only when the left side is `true`; and
+  pizza.” The right side is checked only when the left side is `True`; and
 - `iff` means the two Boolean values agree, so it evaluates both sides.
 
-The pizza promise is broken only if `winGame` is `true` and `getPizza` is `false`. If
+The pizza promise is broken only if `winGame` is `True` and `getPizza` is `False`. If
 we do not win, this particular promise makes no demand about pizza. `implies` is less
 common than `and` or `or` in application code, but when a rule really is a promise, it
 says that rule directly.
 
 Hexagon emits the corresponding native JavaScript logic. The words are the language's
 only spellings: `&&`, `||`, and bare `!` are not alternative operators.
+
+These five words are worth a second glance now that you know, from Chapter 2, that
+`Bool` is a union rather than a primitive. Unions are inspected with `match` and nothing
+else — that is the rule the next chapters lean on constantly — and these operators are
+`Bool`'s one exception to it, along with the condition of an `if` or a `while`. They can
+be, because a `Bool` is a real JavaScript `boolean` underneath, so `and` really is `&&`
+and `not` really is `!`, with no inspection happening at all.
 
 `not` binds less tightly than a comparison, matching mathematical and plain-English
 reading:
@@ -232,7 +239,7 @@ Each branch is a block, so the final-expression rule from the first chapter appl
 The first branch ends in a `String`, the second branch is a one-expression block, and
 the whole `if` produces `String`.
 
-Conditionals that exist only for an effect may leave the false path unwritten:
+Conditionals that exist only for an effect may leave the `else` path unwritten:
 
 ```hexagon
 if delayed then
@@ -243,7 +250,7 @@ The missing branch is `()`, the unit value — the compiler supplies it. This is
 a special statement form; it is the same expression model: the conditional produces
 `Unit` on both paths, one of them written for you. It also means an else-less `if`
 can only produce `Unit` — if the `then` branch produces anything else, the compiler
-asks for an explicit `else` branch to say what the false path produces.
+asks for an explicit `else` branch to say what the other path produces.
 
 ## Pipes show the flow of values
 

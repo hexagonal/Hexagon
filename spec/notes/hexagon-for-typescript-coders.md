@@ -244,9 +244,9 @@ That emits `Rat.create(1n, 3n)`. Integer division by zero throws
 `==` in Hexagon is *structural* equality, and it's defined for tuples, records, and unions automatically:
 
 ```hexagon
-{x = 1, y = 2} == {x = 1, y = 2}      // true
-(1, "a") == (1, "a")              // true
-Some(3) == Some(3)                // true
+{x = 1, y = 2} == {x = 1, y = 2}      // True
+(1, "a") == (1, "a")              // True
+Some(3) == Some(3)                // True
 ```
 
 Every TypeScript developer has written a `deepEqual` helper or reached for lodash because `{a: 1} === {a: 1}` is `false`. In Hexagon, `==` on compound data compares contents, the compiler generates the comparison code, and it's a *type error* to `==` two things of different types. (On primitives it compiles straight to `===`.)

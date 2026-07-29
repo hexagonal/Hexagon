@@ -37,6 +37,17 @@ Drafting order is not final reading order.
 
 ## Global commitments
 
+- **Hexagon is an ML dialect that targets JavaScript** (#147, 2026-07-29 — the doctrine
+  pivot that opened Draft 3). The book presents it as a member of the ML family whose
+  compilation target is JavaScript, in the posture F# takes with Fable — not as a
+  JavaScript-shaped language with types added. Readable emitted JavaScript and honest
+  declarations are real achievements worth showing the reader, and the output chapters
+  should show them; they are outcomes the compiler pursues, never the reason the
+  language behaves as it does. Where an explanation reaches for a justification, the
+  ML-family answer is the one to give, and a JavaScript-specific answer needs a
+  JavaScript-specific fact behind it (zero-cost representation at the boundary, n-ary
+  parameter passing, literal emission into JavaScript source). Phrases of the form
+  "what a TypeScript author would hand-write" are retired as justifications.
 - The specification is normative; the book is explanatory.
 - For planning and drafting, assume the specification is complete. If it changes,
   update affected book material at that time.
@@ -134,8 +145,10 @@ late pedagogy pass, not a commitment to the current order.
   `Unit`.
 - Lightly previews conditions, comparisons, numeric constraints, interpolation through
   `Show`, conversion, string indexing, and companion-module operations.
-- Establishes the seven primitive types, their literal distinctions, and their native
-  JavaScript/TypeScript faces for use throughout the book.
+- Establishes the six primitive types, their literal distinctions, and their native
+  JavaScript/TypeScript faces for use throughout the book. `Bool` is **not** among them
+  (#147): it is introduced here only as far as conditions require, as the prelude union
+  met properly in Unions.
 - Prepares operator semantics, type inference, constraints, FFI, and collections.
 
 ### Functions
@@ -213,8 +226,14 @@ late pedagogy pass, not a commitment to the current order.
 - Assumes nominal declarations, functions and arity, type parameters, layout, and
   expression-valued control flow.
 - Establishes closed alternatives, nullary and payload constructors, basic exhaustive
-  `match`, recursive unions, `Option`, `Result`, tagged-object emission, and the
+  `match`, recursive unions, `Option`, `Result`, `Bool`, tagged-object emission, and the
   all-nullary string representation.
+- **`Bool` is taught here, not in Primitive Types** (#147): the prelude union
+  `False | True`, ordinary in declaration, matching, exhaustiveness, and derivation, with
+  one compiler privilege — its representation is pinned to the JavaScript `boolean`, the
+  single exception to the all-nullary string rule, and unavailable to any user
+  declaration. The pin is what licenses the logic operators and `if`/`while` conditions
+  to eliminate a `Bool` without `match`; Operators carries the forward half of that.
 - Prepares the full pattern language, exceptions, deriving, collections, and FFI
   conversions.
 
@@ -417,14 +436,17 @@ late pedagogy pass, not a commitment to the current order.
 
 ### Primitive Types
 
-- Primitive boundary table: `Int`/`Float` → `number`, `BigInt` → `bigint`, `Bool` →
-  `boolean`, `String` → `string`, and `Unit` → `undefined` (`void` in TS return
-  position).
+- Primitive boundary table: `Int`/`Float` → `number`, `BigInt` → `bigint`, `String` →
+  `string`, and `Unit` → `undefined` (`void` in TS return position). `Bool` → `boolean`
+  holds too, by the representation pin rather than by primitiveness.
 - Bare integer literals normally default to `Int`; decimal-point and exponent literals
   are `Float`; the `n` suffix selects `BigInt`.
 - `Int` is exact only in JavaScript's safe-integer range and direct arithmetic may
   silently round beyond it.
 - `Bool` has no truthiness conversion.
+- `Bool` is the prelude union `False | True`; `True`/`False` are its constructors and the
+  only spellings. Lowercase `true`/`false` are reserved words that error with a fixit.
+  `show(True)` and `"${flag}"` produce `True`/`False`, not the JavaScript lowercase form.
 - `orderSummary` extends `orderTotal` and is the first interpolation example:
   `"Order total: ${total}"`.
 - Interpolation is display through `Show`, not universal coercion. Full constraint
@@ -537,7 +559,7 @@ late pedagogy pass, not a commitment to the current order.
 
 ### Records
 
-- `reservation = {guest = "Mira", seats = 3, confirmed = false}` is the first structural
+- `reservation = {guest = "Mira", seats = 3, confirmed = False}` is the first structural
   record and grows naturally from Chapter 7's tuple example.
 - Core reader rule: a function that reads particular fields can accept records
   containing at least those fields.
@@ -576,7 +598,9 @@ late pedagogy pass, not a commitment to the current order.
   a runtime test**.
 - Structural patterns nest. Record patterns are open and use no `...`; nominal records
   cross through constructor patterns such as `Point({x, y})`.
-- Literal patterns admit `Int`, `String`, and `Bool`, never `Float`.
+- Literal patterns admit `Int` and `String`, never `Float`. `True`/`False` are
+  constructor patterns, and a `match` over both is exhaustive by ordinary closed-union
+  checking, not by a finite-literal-domain rule.
 - `()` is the sole `Unit` pattern and covers `Unit` exhaustively.
 - Or-pattern alternatives bind the same names; as-patterns retain the whole value.
 - Guards contribute nothing to exhaustiveness. Missing and unreachable cases are hard

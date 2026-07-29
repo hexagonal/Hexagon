@@ -1,13 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import * as Source from "../support/source.js";
-import { lex } from "../passes/lexer/lexer.js";
-import { applyLayout } from "../passes/layout/layout.js";
-import { parse } from "../passes/parser/parser.js";
-import { resolve } from "../passes/resolver/resolver.js";
-import { check } from "../passes/checker/checker.js";
-import { elaborate } from "../passes/elaborator/elaborator.js";
-import { emitJavaScript } from "../passes/emitter/emitter.js";
+import { runProject } from "../support/test-project.js";
 import trieSource from "../../../runtime/VectorTrie.hex?raw";
 
 /**
@@ -31,15 +24,13 @@ import trieSource from "../../../runtime/VectorTrie.hex?raw";
  * cross a boundary.
  */
 async function runTrie(probes: string): Promise<Record<string, unknown>> {
-  const file = new Source.File(Source.fileId(0), "/VectorTrie.hex", `${trieSource}\n${probes}`);
-  const resolved = resolve(parse(applyLayout(lex(file))), { runtime: true });
-  expect(resolved.diagnostics).toEqual([]);
-  const typed = check(resolved);
-  expect(typed.diagnostics).toEqual([]);
-  const javascript = emitJavaScript(elaborate(typed));
-  expect(javascript.diagnostics).toEqual([]);
-  const url = `data:text/javascript;charset=utf-8,${encodeURIComponent(javascript.text)}`;
-  return (await import(/* @vite-ignore */ url)) as Record<string, unknown>;
+  // Through the whole project, with this file designated a runtime module: the
+  // trie's own `isEmpty` returns `Bool`, and since #147 that names a prelude
+  // declaration, so a prelude-free compilation of this module no longer typechecks.
+  return runProject(
+    [["/VectorTrie.hex", `${trieSource}\n${probes}`]],
+    { runtimePaths: ["/VectorTrie.hex"], entry: "/VectorTrie.hex" },
+  );
 }
 
 // `buildTo(n)` = [1, 2, ..., n] via repeated append. Constant-stack (`for` + var),

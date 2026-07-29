@@ -1,7 +1,8 @@
 # Hexagon Feature Catalogue
 
-**Status:** Draft 2 coverage. Each numbered item now corresponds to the chapter with
-the same number; later passes may still revise boundaries and order.
+**Status:** Draft 3 coverage. Each numbered item now corresponds to the chapter with
+the same number; later passes may still revise boundaries and order. Draft 3 opens with
+the ML-dialect pivot (#147) and its first consequence, `Bool` as a prelude union.
 
 This catalogue describes Hexagon from a programmer's point of view. It deliberately
 groups related syntax and rules into things a reader can learn and use; it is not an
@@ -29,10 +30,12 @@ open specification work does not make the book outline provisional.
    final expression, discarded non-`Unit` values are errors, and `ignore` makes
    intentional discarding explicit.
 
-4. **Primitive types** — `Int`, `Float`, `BigInt`, `Bool`, `String`, and
+4. **Primitive types** — `Nat`, `Int`, `Float`, `BigInt`, `String`, and
    `Unit` map directly to familiar JavaScript values. This includes interpolation,
    multiline strings, numeric separators, codepoint-based string operations, and the
-   deliberate distinction between integer and floating-point semantics.
+   deliberate distinction between integer and floating-point semantics. `Bool` is a
+   prelude union rather than a primitive and is covered under unions; this chapter
+   introduces only the no-truthiness rule that conditions need.
 
 5. **Operators** — Arithmetic, comparison chains, word-based
    Boolean logic, concatenation with `++`, pipes with `|>`, precedence, and
@@ -68,8 +71,9 @@ open specification work does not make the book outline provisional.
 
 11. **Unions** — Nominal sum types model alternatives with constructors and optional
     payloads. Their JavaScript representation stays readable, and the prelude's
-    `Option` and `Result` provide central examples covering absence and recoverable
-    outcomes.
+    `Option`, `Result`, and `Bool` provide central examples covering absence,
+    recoverable outcomes, and the two-valued case. `Bool` is `False | True`, ordinary in
+    every respect but one: its representation is pinned to the JavaScript `boolean`.
 
 12. **Patterns** — `match` supports constructor, tuple, record, literal,
     vector, wildcard, variable, or-, and as-patterns, plus guards and construction

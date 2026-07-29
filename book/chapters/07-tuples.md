@@ -22,7 +22,7 @@ names, a record will usually communicate more clearly.
 A tuple fixes its number of positions and the type of each position:
 
 ```hexagon
-let status = ("ready", true, 3)
+let status = ("ready", True, 3)
 ```
 
 This has type `(String, Bool, Int)`. The positions do not need a shared element type;

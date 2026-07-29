@@ -68,7 +68,7 @@ let maybeFourth = Vector.get(supplies, 4)
 ```
 
 The bracket asserts that the position exists. It produces a `String` here and throws
-`IndexError` if the assertion is false. `get` makes absence part of the result instead:
+`IndexError` if the assertion fails. `get` makes absence part of the result instead:
 it returns `Option(String)`, with `None` for an invalid position.
 
 These two forms express different intentions:

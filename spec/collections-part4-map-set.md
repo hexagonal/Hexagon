@@ -321,7 +321,7 @@ The conversion functions — `Map.toJsMap` / `Map.fromJsMap` / `Set.toJsSet` / `
 
 ### 10.1 Primitive keys: faithful
 
-For `Nat`, `Int`, `Float`, `Bool`, `String`, `BigInt`, `Unit` keys/elements — every primitive, and exactly the `Hash`-bearing primitive inventory of Part 2 §2.5 — conversion is semantically faithful in both directions *(enumeration corrected 2026-07-28, #141 — record in §18)*: Hexagon's `Eq` on each of these types *is* SameValueZero on its JS representation (`Eq<Float>` normatively so per Constraints §7 — the only type where the two regimes had corners to align; for the rest, value equality on the representation and SameValueZero simply coincide, grounds per type in §18), which *is* JS `Map`/`Set` key equality. `-0`/`+0` unify and all `NaN`s are one key on both sides of the fence. This is the Part 1 §4.2 payoff, stated as normative: **no primitive-keyed entry is collapsed, split, or lost by conversion in either direction.**
+For `Nat`, `Int`, `Float`, `String`, `BigInt`, `Unit` keys/elements — every primitive, exactly the `Hash`-bearing primitive inventory of Part 2 §2.5 — and for `Bool`, since #147 the prelude union whose representation is pinned to the JS `boolean` (Unions §6.2/§8), conversion is semantically faithful in both directions *(enumeration corrected 2026-07-28, #141; `Bool`'s grounds restated 2026-07-29, #147 — records in §18)*: Hexagon's `Eq` on each of these types *is* SameValueZero on its JS representation (`Eq<Float>` normatively so per Constraints §7 — the only type where the two regimes had corners to align; for `Bool`, as the derived union `Eq` operating over the pinned representation — `===` on booleans, which is SameValueZero there; for the rest, value equality on the representation and SameValueZero simply coincide, grounds per type in §18), which *is* JS `Map`/`Set` key equality. `-0`/`+0` unify and all `NaN`s are one key on both sides of the fence. This is the Part 1 §4.2 payoff, stated as normative: **no entry keyed by one of these seven types is collapsed, split, or lost by conversion in either direction.**
 
 ### 10.2 Hexagon → JS: structural identity does not survive
 
@@ -436,22 +436,22 @@ let bad = Map.set(Map.empty, Weird({s = "K"}), 1)
 m[1]                                       -- "one"
 m[9]                                       -- throws KeyError
 Map.get(m, 9)                              -- None
-Map.containsKey(m, 2)                      -- true
+Map.containsKey(m, 2)                      -- True
 
 -- (d) No Set brackets; contains is membership
 s[1]                                       -- ERROR: type error (Set has no [])
-Set.contains(s, 2)                         -- true
+Set.contains(s, 2)                         -- True
 
 -- (e) Upsert vs assert
 Map.set(m, 3, "three")                     -- OK: inserts (contrast Vector.set, throws)
 Map.set(m, 1, "uno")                       -- OK: replaces
 Map.remove(m, 99)                          -- OK: unchanged (forgiving)
-Set.remove(Set.add(s, 4), 4) == s          -- true
+Set.remove(Set.add(s, 4), 4) == s          -- True
 
 -- (f) Set algebra
 Set.union(Set.fromVector([1, 2]), Set.fromVector([2, 3]))
                                            -- {1, 2, 3} extensionally
-Set.isSubsetOf(Set.empty, s)               -- true
+Set.isSubsetOf(Set.empty, s)               -- True
 s ++ s                                     -- ERROR: no Concat for Set (use Set.union)
 
 -- (g) Iteration; pattern loop head
@@ -468,13 +468,13 @@ for [k, v] in m
 
 -- (i) Instances
 Map.fromVector([(1, "a"), (2, "b")]) == Map.fromVector([(2, "b"), (1, "a")])
-                                           -- true   (extensional Eq)
+                                           -- True   (extensional Eq)
 Set.fromVector([1, 2]) < Set.fromVector([1, 2, 3])
                                            -- ERROR: no Ord instance for Set(Int)
 show(Set.fromVector([1, 2]))               -- "Set.fromVector([1, 2])"  (some order)
 show(Map.empty)                            -- "Map.empty"
 hash(Set.fromVector([1, 2])) == hash(Set.fromVector([2, 1]))
-                                           -- true   (permutation-invariant)
+                                           -- True   (permutation-invariant)
 let nested = Set.fromVector([Set.fromVector([1]), Set.fromVector([2])])
                                            -- OK: Set(Set(Int)) — Hash<Set> provided
 
@@ -482,7 +482,7 @@ let nested = Set.fromVector([Set.fromVector([1]), Set.fromVector([2])])
 let z = Set.fromVector([-0.0, 0.0])        -- one element (SameValueZero)
 Set.size(z)                                -- 1
 show(Vector.fromSeq(Set.toSeq(z)))         -- "[-0.0]"   (first representative retained)
-Set.add(z, 0.0) == z                       -- true, and the SAME value (add is idempotent)
+Set.add(z, 0.0) == z                       -- True, and the SAME value (add is idempotent)
 let m0 = Map.set(Map.set(Map.empty, -0.0, "a"), 0.0, "b")
 m0[0.0]                                    -- "b"        (value: last wins)
 show(Vector.fromSeq(Map.keys(m0)))         -- "[-0.0]"   (key representative: first wins)
@@ -510,8 +510,9 @@ Four notes complete the record:
    - `Nat` — a non-negative safe-integer `number` (Primitive Types §1; FFI Part 1 §4.1), the same representation as `Int` on a subset of its values, with `Eq<Nat>` plain-number SameValueZero on those values (Part 2 §2.5, #139 row). Faithful for exactly `Int`'s reasons.
    - `BigInt` — crosses as `bigint`, representation-direct (FFI Part 1 §4.1). SameValueZero compares bigints by mathematical value, which is precisely `Eq<BigInt>`: two equal `BigInt` keys are one key in both regimes. `BigInt` has a single zero and no `NaN`, so it has no corners to align at all. SameValueZero never identifies a `bigint` with a `number`, and neither does the type system; an inward `JsMap` holding a JS `number` key where `BigInt` is expected is FFI Part 11's strict-decoding `Err`, not a collapse. (`Hash<BigInt>`'s lawful collisions — Part 2 §2.5 — are table placement, never observable through `Map`/`Set` semantics.)
    - `Unit` — one value, crossing as `undefined` (Primitive Types §9). A `Map(Unit, v)` holds at most one entry, and a native `Map` can hold at most one `undefined` key — degenerate, and faithful in both directions with nothing to collapse, split, or lose. A present `undefined` *key* troubles none of FFI Part 10's machinery: its bracket lowering is `has`-then-`get` and its conversions traverse entries, so an `undefined` key is never confused with absence.
-   - `Int`, `Float`, `String`, `Bool` — unchanged. `Float` remains the only type where the two equality regimes had divergent corners (`-0`, `NaN`), which the `Eq<Float>` = SameValueZero decision (Constraints §7) aligned; that alignment is what §10.1 has cited all along.
+   - `Int`, `Float`, `String` — unchanged. `Float` remains the only type where the two equality regimes had divergent corners (`-0`, `NaN`), which the `Eq<Float>` = SameValueZero decision (Constraints §7) aligned; that alignment is what §10.1 has cited all along.
+   - `Bool` — *(grounds restated 2026-07-29, #147)* behavior unchanged, grounds moved. `Bool` is now the prelude union `union Bool derives (Eq, Ord, Show, Hash) = False | True` with its representation pinned to the JS `boolean` (Unions §6.2/§8; ruling `decisions-ml-dialect-bool-2026-07.md` §3), so its line in this faithfulness argument no longer rests on a primitive `Eq` decree but on the derived union `Eq` over the pinned representation: pin ⇒ `Eq<Bool>` is `===` on booleans ⇒ SameValueZero, in both directions, with nothing to collapse, split, or lose. §10.1's lead-in and bolded clause are restated accordingly (the six primitives are one clause — "every primitive, exactly Part 2 §2.5's `Hash`-bearing primitive inventory" — and `Bool` is its own clause, since neither qualifier describes it any longer; the seven covered types and the guarantee itself are unchanged), and FFI Part 10 §4.3 is restated in the same edit — the two enumerations are change-controlled together per note 4's own procedure.
 
 3. **Enumeration is retained deliberately — Primitive Types §11's posture, not Numeric Literals §4's.** A rule does generate the membership here ("the `Hash`-bearing primitives", Part 2 §2.5), so the #135 stop-enumerating move was available — and is declined, because §10.1 asserts more than membership: faithfulness is a per-type theorem about a representation meeting SameValueZero, established above type by type, not a property true by construction for whatever §2.5 might one day contain. A property-statement would extend the normative claim automatically to future primitives nobody has audited. The list stays, now coextensive with the closed seven-primitive inventory, and future drift is handled by note 4.
 
-4. **Future additions must touch these lines.** A spec that adds a primitive type bearing `Hash` (no current candidate exists — Primitive Types §1's scope is closed at seven) carries an edit note against §10.1 here and FFI Part 10 §4.3, applied on next touch (README authority rule 4), and owes either the per-type faithfulness argument this record supplies for the seven, or a stated exclusion where that argument fails.
+4. **Future additions must touch these lines.** A spec that adds a primitive type bearing `Hash` (no current candidate exists — Primitive Types §1's scope is closed at seven *(six primitives since #147 reclassified `Bool` to the prelude unions — Primitive Types §12; the procedure is unchanged, and #147's own restatement of these two lines followed it)*) carries an edit note against §10.1 here and FFI Part 10 §4.3, applied on next touch (README authority rule 4), and owes either the per-type faithfulness argument this record supplies for the seven, or a stated exclusion where that argument fails.

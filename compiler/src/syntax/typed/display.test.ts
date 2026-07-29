@@ -80,7 +80,7 @@ describe("displayScheme", () => {
             { kind: "Primitive", name: "String" },
             { kind: "Primitive", name: "Int" },
           ],
-          result: { kind: "Primitive", name: "Bool" },
+          result: { kind: "Union", union: unionId(0), name: "Bool", arguments: [] },
         },
       }),
     ).toBe("(String, Int) -> Bool");
@@ -102,7 +102,7 @@ describe("displayScheme", () => {
               ],
             },
           ],
-          result: { kind: "Primitive", name: "Bool" },
+          result: { kind: "Union", union: unionId(0), name: "Bool", arguments: [] },
         },
       }),
     ).toBe("((String, Int)) -> Bool");

@@ -67,6 +67,12 @@ export interface Module {
   readonly records: readonly RecordDeclaration[];
   /** Prelude-supplied record identities by name; see `Resolved.Module`. */
   readonly preludeRecords: ReadonlyMap<string, Resolved.RecordId>;
+  /**
+   * Prelude-supplied union identities by name; see `Resolved.Module`. Emission
+   * needs `Bool` from here (#147) to apply the representation pin: it is the one
+   * union whose values are the JS `boolean` rather than the §6.2 string form.
+   */
+  readonly preludeUnions: ReadonlyMap<string, Resolved.UnionId>;
   readonly externTypes: readonly Typed.ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
   readonly span: Source.Span;
@@ -122,7 +128,6 @@ export type Pattern =
   | BindingPattern
   | WildcardPattern
   | UnitPattern
-  | BooleanPattern
   | IntegerPattern
   | StringPattern
   | VectorPattern
@@ -161,12 +166,8 @@ export interface OrPattern {
   readonly span: Source.Span;
 }
 
-export interface BooleanPattern {
-  readonly kind: "Boolean";
-  readonly value: boolean;
-  readonly span: Source.Span;
-}
-
+// #147: no `BooleanPattern`. `True`/`False` are nullary constructors, so
+// they are `ConstructorPattern`s like `None`.
 export interface IntegerPattern {
   readonly kind: "Integer";
   readonly decimal: string;
@@ -301,7 +302,6 @@ interface ExpressionFields {
 export type Expr =
   | NameExpr
   | UnitExpr
-  | BooleanExpr
   | NumberExpr
   | BigIntExpr
   | FloatExpr
@@ -352,11 +352,8 @@ export interface UnitExpr extends ExpressionFields {
   readonly kind: "Unit";
 }
 
-export interface BooleanExpr extends ExpressionFields {
-  readonly kind: "Boolean";
-  readonly value: boolean;
-}
-
+// #147: no `BooleanExpr`. `True`/`False` are constructor *names*, so they are
+// ordinary `Name` references; the reserved words `true`/`false` never reach a tree.
 /** A concrete Int/Float representation of a source integer literal. */
 export interface NumberExpr extends ExpressionFields {
   readonly kind: "Number";

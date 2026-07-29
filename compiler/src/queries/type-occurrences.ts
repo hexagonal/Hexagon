@@ -245,8 +245,6 @@ function typeOfPattern(pattern: Typed.Pattern): Typed.Type | undefined {
       return pattern.binding.scheme.type;
     case "As":
       return pattern.binding.scheme.type;
-    case "Boolean":
-      return { kind: "Primitive", name: "Bool" };
     case "Integer":
       return { kind: "Primitive", name: "Int" };
     case "String":

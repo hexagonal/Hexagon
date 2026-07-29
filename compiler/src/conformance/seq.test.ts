@@ -129,14 +129,14 @@ describe("Seq construction and the §6.2 protocol", () => {
   test("empty pulls None; singleton and cons pull one element then empty", async () => {
     const m = await run(
       IMPORT +
-        "export let emptyIsNone: Bool = match Seq.next(Seq.empty)\n    None => true\n    Some(_) => false\n" +
+        "export let emptyIsNone: Bool = match Seq.next(Seq.empty)\n    None => True\n    Some(_) => False\n" +
         "export let singleHead: Int = match Seq.next(Seq.singleton(7))\n" +
         "    None => 0 - 1\n" +
         "    Some(pulled) =>\n        let (value, _) = pulled\n        value\n" +
         "export let singleTailEmpty: Bool = match Seq.next(Seq.singleton(7))\n" +
-        "    None => false\n" +
+        "    None => False\n" +
         "    Some(pulled) =>\n        let (_, rest) = pulled\n" +
-        "        match Seq.next(rest)\n            None => true\n            Some(_) => false\n" +
+        "        match Seq.next(rest)\n            None => True\n            Some(_) => False\n" +
         "export let consHead: Int = match Seq.next(Seq.cons(1, Seq.singleton(2)))\n" +
         "    None => 0 - 1\n" +
         "    Some(pulled) =>\n        let (value, _) = pulled\n        value\n" +
@@ -158,7 +158,7 @@ describe("Seq construction and the §6.2 protocol", () => {
         NATURALS +
         "let doubled = Seq.map(naturals, x => x * 2)\n" +
         "let evens = Seq.filter(naturals, x => Int.mod(x, 2) == 0)\n" +
-        "export let built: Bool = true\n" +
+        "export let built: Bool = True\n" +
         "export let firstDoubled: Int = Seq.length(Seq.take(doubled, 3))\n" +
         "export let firstEvens: Int = Seq.length(Seq.take(evens, 3))\n",
       CORE,
@@ -235,12 +235,12 @@ describe("Seq while-pull combinators", () => {
         "let sum(source) = Seq.fold(source, 0, (total, value) => total + value)\n" +
         "export let evens: Int = sum(Seq.take(Seq.filter(naturals, x => Int.mod(x, 2) == 0), 3))\n" +
         "export let filterNone: Int = Seq.length(Seq.filter(Seq.take(naturals, 10), x => x > 99))\n" +
-        "export let filterAll: Int = Seq.length(Seq.filter(Seq.take(naturals, 10), x => true))\n" +
+        "export let filterAll: Int = Seq.length(Seq.filter(Seq.take(naturals, 10), x => True))\n" +
         "export let dropped: Int = sum(Seq.take(Seq.drop(naturals, 3), 2))\n" +
         "export let dropPastEnd: Int = Seq.length(Seq.drop(Seq.take(naturals, 3), 99))\n" +
         "export let dropZero: Int = Seq.length(Seq.drop(Seq.take(naturals, 3), 0))\n" +
         "export let dropWhileSmall: Int = sum(Seq.take(Seq.dropWhile(naturals, x => x < 5), 2))\n" +
-        "export let dropWhileAll: Int = Seq.length(Seq.dropWhile(Seq.take(naturals, 5), x => true))\n" +
+        "export let dropWhileAll: Int = Seq.length(Seq.dropWhile(Seq.take(naturals, 5), x => True))\n" +
         // each element expands to that many copies of itself: 1, 2, 2, 3, 3, 3
         "export let flat: Int = sum(Seq.flatMap(Seq.take(naturals, 3), x => Seq.take(Seq.iterate(x, y => y), x)))\n" +
         "export let flatLength: Int = Seq.length(Seq.flatMap(Seq.take(naturals, 3), x => Seq.take(Seq.iterate(x, y => y), x)))\n" +
@@ -303,13 +303,13 @@ describe("Seq consumers", () => {
         "export let counted: Int = Seq.length(five)\n" +
         "export let countedEmpty: Int = Seq.length(Seq.empty)\n" +
         "export let found: Int = match Seq.find(naturals, x => x > 3)\n    None => 0 - 1\n    Some(value) => value\n" +
-        "export let findMisses: Bool = match Seq.find(five, x => x > 99)\n    None => true\n    Some(_) => false\n" +
+        "export let findMisses: Bool = match Seq.find(five, x => x > 99)\n    None => True\n    Some(_) => False\n" +
         "export let anyTrue: Bool = Seq.any(five, x => x == 3)\n" +
         "export let anyFalse: Bool = Seq.any(five, x => x == 99)\n" +
         "export let allTrue: Bool = Seq.all(five, x => x < 99)\n" +
         "export let allFalse: Bool = Seq.all(five, x => x < 3)\n" +
-        "export let allEmpty: Bool = Seq.all(Seq.empty, x => false)\n" +
-        "export let anyEmpty: Bool = Seq.any(Seq.empty, x => true)\n",
+        "export let allEmpty: Bool = Seq.all(Seq.empty, x => False)\n" +
+        "export let anyEmpty: Bool = Seq.any(Seq.empty, x => True)\n",
       CORE,
     );
     expect(m.summed).toBe(15);
@@ -361,7 +361,7 @@ describe("Seq persistence", () => {
         "export let replaySum: Bool = firstSum == Seq.fold(odds, 0, (total, value) => total + value)\n" +
         // a tail taken from a partial drive is independent of the parent
         "export let tailIndependent: Bool = match Seq.next(five)\n" +
-        "    None => false\n" +
+        "    None => False\n" +
         "    Some(pulled) =>\n        let (_, rest) = pulled\n" +
         "        Seq.length(rest) == 4 and Seq.length(five) == 5\n",
       CORE,

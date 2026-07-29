@@ -7,7 +7,7 @@ grows, names become more valuable than brevity:
 let reservation = {
     guest = "Mira",
     seats = 3,
-    confirmed = false
+    confirmed = False
 }
 ```
 
@@ -66,7 +66,7 @@ An unannotated function may infer a flexible record requirement:
 let guestName(reservation) = reservation.guest
 
 let first = guestName({guest = "Mira", seats = 3})
-let second = guestName({guest = "Noah", confirmed = true})
+let second = guestName({guest = "Noah", confirmed = True})
 ```
 
 Both calls work. `guestName` requires a record containing a `guest` field of one
@@ -122,7 +122,7 @@ Records are immutable. An update makes a shallow copy and replaces selected fiel
 naming the record it starts from and then the overrides:
 
 ```hexagon
-let confirmedReservation = {reservation with confirmed = true}
+let confirmedReservation = {reservation with confirmed = True}
 ```
 
 Every overridden field must already exist and keep its field type:
@@ -187,7 +187,7 @@ When a field and its source binding share a name, the shorter form is available:
 ```hexagon
 let guest = "Ari"
 let seats = 2
-let reservation = {guest, seats, confirmed = false}
+let reservation = {guest, seats, confirmed = False}
 ```
 
 Here `{guest, seats}` means `{guest = guest, seats = seats}`. The punned form is spelled

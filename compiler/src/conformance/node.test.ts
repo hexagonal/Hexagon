@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
 
+import { compileFiles, runProject } from "../support/test-project.js";
+
 import * as Source from "../support/source.js";
 import { lex } from "../passes/lexer/lexer.js";
 import { applyLayout } from "../passes/layout/layout.js";
@@ -21,25 +23,24 @@ import { emitJavaScript } from "../passes/emitter/emitter.js";
  * so the Vector conformance gate stays green throughout.
  */
 
-/** Compiles one privileged runtime module and executes its exports. */
+/**
+ * Compiles one privileged runtime module and executes its exports. Through the
+ * whole project: a runtime module still sees the prelude, and since #147 that is
+ * what lets it name `Bool` at all.
+ */
 async function runRuntime(source: string): Promise<Record<string, unknown>> {
-  const file = new Source.File(Source.fileId(0), "/runtime.hex", source);
-  const resolved = resolve(parse(applyLayout(lex(file))), { runtime: true });
-  expect(resolved.diagnostics).toEqual([]);
-  const typed = check(resolved);
-  expect(typed.diagnostics).toEqual([]);
-  const javascript = emitJavaScript(elaborate(typed));
-  expect(javascript.diagnostics).toEqual([]);
-  const url = `data:text/javascript;charset=utf-8,${encodeURIComponent(javascript.text)}`;
-  return (await import(/* @vite-ignore */ url)) as Record<string, unknown>;
+  return runProject(
+    [["/runtime.hex", source]],
+    { runtimePaths: ["/runtime.hex"], entry: "/runtime.hex" },
+  );
 }
 
 /** The diagnostic messages a source produces, resolved with the given options. */
 function diagnose(source: string, options: { readonly runtime?: boolean } = {}): readonly string[] {
-  const file = new Source.File(Source.fileId(0), "/runtime.hex", source);
-  // The checker carries resolver diagnostics forward, so `typed.diagnostics` is
-  // the union of both phases.
-  return check(resolve(parse(applyLayout(lex(file))), options)).diagnostics.map((d) => d.message);
+  return compileFiles(
+    [["/runtime.hex", source]],
+    options.runtime === true ? { runtimePaths: ["/runtime.hex"] } : {},
+  ).diagnostics.map(({ message }) => message);
 }
 
 describe("Node intrinsic conformance", () => {

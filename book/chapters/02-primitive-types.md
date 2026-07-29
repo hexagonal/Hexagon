@@ -8,7 +8,7 @@ export let orderTotal(subtotal: Int, delivery: Int): Int =
     total
 ```
 
-`Int` is one of the **seven primitive types**. These are the small values from which larger
+`Int` is one of the **six primitive types**. These are the small values from which larger
 programs are assembled:
 
 | Hexagon type | Literal | JavaScript / TypeScript |
@@ -16,7 +16,6 @@ programs are assembled:
 | `Nat` | `42` | `number` |
 | `Int` | `42` | `number` |
 | `Float` | `3.14` | `number` |
-| `Bool` | `true` | `boolean` |
 | `String` | `"ready"` | `string` |
 | `BigInt` | `42n` | `bigint` |
 | `Unit` | `()` | `undefined` / `void` return |
@@ -24,8 +23,14 @@ programs are assembled:
 There are no wrapper objects around these values. An `Int` becomes an ordinary
 JavaScript number, a `String` becomes an ordinary JavaScript string, and so on. The
 differences Hexagon adds are checked before the program runs: an integer cannot be
-silently mixed with a `BigInt`, a string cannot wander into a Boolean condition, and
+silently mixed with a `BigInt`, a string cannot wander into a condition, and
 interpolation cannot stringify a value that has no meaningful display form.
+
+`Bool` is not on that list, and its absence is worth a moment. In most languages that
+compile to JavaScript, the boolean is a built-in. In Hexagon it is an ordinary
+two-constructor union that the prelude declares, met properly in
+[Unions](10-unions.md). Conditions still need one, so this chapter introduces the rule
+that governs them.
 
 ## `Nat`: non-negative by construction
 
@@ -134,12 +139,28 @@ TypeScript type cannot preserve that distinction; both appear as `number`.
 
 ## `Bool`: a condition, not a truthiness convention
 
-`Bool` has the two values familiar from JavaScript:
+`Bool` has the two values familiar from JavaScript, spelled the way Hexagon spells the
+cases of any union — capitalised:
 
 ```hexagon
-true
-false
+True
+False
 ```
+
+They are not literals. `True` and `False` are the two constructors of the prelude's
+
+```hexagon
+union Bool derives (Eq, Ord, Show, Hash) = False | True
+```
+
+which is a declaration you could have written yourself. Nothing about it is built in
+except one thing the compiler promises quietly: a `Bool` is a JavaScript `boolean` at
+runtime and a `boolean` in the generated TypeScript, so nothing is paid at the boundary
+for the extra honesty. [Unions](10-unions.md) returns to this.
+
+The lowercase `true` and `false` are reserved words that mean nothing. Writing one is an
+error, and the error names its own fix — "write `True`" — because a JavaScript
+programmer's fingers will type it for years.
 
 What Hexagon does not inherit is JavaScript truthiness. A condition must have type
 `Bool`. Empty strings, zero, collections, `Unit`, and user-defined values are not
@@ -156,8 +177,8 @@ if quantity > 0 then "some" else "none"
 ```
 
 The rule removes a large family of boundary cases—whether an empty collection is
-truthy, whether `NaN` is false, whether an absent foreign value is present—from the
-meaning of ordinary control flow.
+truthy, whether `NaN` counts as `False`, whether an absent foreign value is present—from
+the meaning of ordinary control flow.
 
 ## `String`: one literal form
 
@@ -188,8 +209,10 @@ export const orderSummary = (subtotal, delivery) => {
 ```
 
 Interpolation is checked rather than universal. Internally it uses the `Show`
-capability, which we will study with constraints. Numbers, Booleans, strings, `Unit`,
-and many structured values have meaningful display forms. Functions do not. Hexagon
+capability, which we will study with constraints. Numbers, strings, `Unit`, and many
+structured values have meaningful display forms; so does a `Bool`, which displays as its
+constructor name, `True` or `False`, exactly as any other union case does. Functions do
+not have a display form. Hexagon
 therefore rejects an attempt to interpolate a function instead of producing its source
 text or JavaScript's occasional `[object Object]` embarrassment.
 
@@ -319,15 +342,17 @@ JavaScript's implicit conversions:
 - `Int` is the ordinary signed safe-range whole number and usually the type of a bare integer
   literal;
 - `Float` is IEEE 754 binary64 and is selected by a decimal point or exponent;
-- `Bool` permits no truthiness conversions;
 - `String` has one interpolating, multiline literal form and codepoint-based text
   operations;
 - `BigInt` provides arbitrary precision; `n` pins an otherwise unpinned literal and is mandatory beyond Int's range; and
 - `Unit` is the one-value type used when an expression has no interesting result.
 
-All seven use native JavaScript representations. Types make their distinctions visible to
+All six use native JavaScript representations. Types make their distinctions visible to
 Hexagon even where JavaScript or generated TypeScript erases one—most notably the
 distinction between `Int` and `Float`.
+
+`Bool` is a union rather than a primitive, but it keeps the same bargain: `True` and
+`False` are a JavaScript `boolean` at runtime, and a condition accepts nothing else.
 
 Later chapters will explain how operators choose behavior for these types, how bare
 integer literals participate in inference, how `Show` powers interpolation, and how

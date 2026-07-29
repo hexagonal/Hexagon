@@ -6,26 +6,11 @@
  */
 import { describe, expect, test } from "vitest";
 
-import * as Source from "../support/source.js";
-import { lex } from "../passes/lexer/lexer.js";
-import { applyLayout } from "../passes/layout/layout.js";
-import { parse } from "../passes/parser/parser.js";
-import { resolve } from "../passes/resolver/resolver.js";
-import { check } from "../passes/checker/checker.js";
-import { elaborate } from "../passes/elaborator/elaborator.js";
-import { emitJavaScript } from "../passes/emitter/emitter.js";
+import { runMain } from "../support/test-project.js";
 
-async function run(source: string): Promise<Record<string, unknown>> {
-  const file = new Source.File(Source.fileId(0), "/probe.hex", source);
-  const resolved = resolve(parse(applyLayout(lex(file))), {});
-  expect(resolved.diagnostics).toEqual([]);
-  const typed = check(resolved);
-  expect(typed.diagnostics).toEqual([]);
-  const javascript = emitJavaScript(elaborate(typed));
-  expect(javascript.diagnostics).toEqual([]);
-  const url = `data:text/javascript;charset=utf-8,${encodeURIComponent(javascript.text)}`;
-  return (await import(/* @vite-ignore */ url)) as Record<string, unknown>;
-}
+// Through the whole project, prelude included: since #147 a probe module with no
+// prelude cannot type a condition, which is what most of these cases are about.
+const run = runMain;
 
 // Proves this file's harness can observe a failure: a harness that silently
 // swallowed diagnostics would report every case below as green regardless of
@@ -184,8 +169,8 @@ describe("statement-position conditionals", () => {
         "        result := result + skipped\n" +
         "    result := result + 100\n" +
         "    result\n" +
-        "export let branchTaken: Int = compute(true)\n" +
-        "export let branchSkipped: Int = compute(false)\n",
+        "export let branchTaken: Int = compute(True)\n" +
+        "export let branchSkipped: Int = compute(False)\n",
     );
     expect(m.branchTaken).toBe(102);
     expect(m.branchSkipped).toBe(110);
@@ -206,8 +191,8 @@ describe("statement-position conditionals", () => {
         "        0\n" +
         "    catch\n" +
         "        Marked => 1\n" +
-        "export let taken: Int = attempt(true)\n" +
-        "export let untaken: Int = attempt(false)\n",
+        "export let taken: Int = attempt(True)\n" +
+        "export let untaken: Int = attempt(False)\n",
     );
     expect(m.taken).toBe(1);
     expect(m.untaken).toBe(0);
@@ -222,9 +207,9 @@ describe("statement-position conditionals", () => {
         "            result := 2\n" +
         "        result := result + 1\n" +
         "    result\n" +
-        "export let neither: Int = both(false, false)\n" +
-        "export let outerOnly: Int = both(true, false)\n" +
-        "export let inner: Int = both(true, true)\n",
+        "export let neither: Int = both(False, False)\n" +
+        "export let outerOnly: Int = both(True, False)\n" +
+        "export let inner: Int = both(True, True)\n",
     );
     expect(m.neither).toBe(0);
     expect(m.outerOnly).toBe(1);
@@ -250,8 +235,8 @@ describe("statement-position conditionals", () => {
   test("a value-position conditional still produces its value", async () => {
     const m = await run(
       "let pick(flag: Bool): Int = if flag then 1 else 2\n" +
-        "export let taken: Int = pick(true)\n" +
-        "export let untaken: Int = pick(false)\n",
+        "export let taken: Int = pick(True)\n" +
+        "export let untaken: Int = pick(False)\n",
     );
     expect(m.taken).toBe(1);
     expect(m.untaken).toBe(2);

@@ -32,8 +32,23 @@ export interface CompiledProject {
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }
 
+export interface ProjectOptions {
+  /**
+   * Paths compiled as privileged **runtime** modules — the ones allowed to spell
+   * `Node(a)` (`resolve`'s `runtime` flag). Separate from prelude privilege,
+   * which follows the injection path. A runtime module still sees the prelude,
+   * which is what lets it name `Bool` at all since #147 made `Bool` a prelude
+   * declaration rather than a primitive.
+   */
+  readonly runtimePaths?: readonly string[];
+}
+
 /** Compiles every supplied file in dependency-first order without filesystem access. */
-export function compileProject(files: readonly Source.File[]): CompiledProject {
+export function compileProject(
+  files: readonly Source.File[],
+  options: ProjectOptions = {},
+): CompiledProject {
+  const runtimePaths = new Set((options.runtimePaths ?? []).map(normalizePath));
   const diagnostics = new Diagnostics.Bag();
   const sources = new Map(files.map((file) => [normalizePath(file.path), file]));
   const preludePaths = injectPrelude(sources);
@@ -155,6 +170,7 @@ export function compileProject(files: readonly Source.File[]): CompiledProject {
       // prelude injection path is privileged in it — the stdlib-developing-itself
       // path, carrying the same trust model as the `Node` runtime flag precedent.
       privileged: isPrelude,
+      ...(runtimePaths.has(path) ? { runtime: true } : {}),
       ...(preludeImports.length === 0 ? {} : { prelude: preludeImports }),
     });
     if (isPrelude) {

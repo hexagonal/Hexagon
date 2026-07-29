@@ -38,7 +38,7 @@ can distinguish structural shape from nominal identity; can choose between `type
 
 - A `reservation` record grows from the tuple chapter's guest/seats example.
 - `guestName` accepts any record containing `guest`.
-- `confirm` uses `{reservation with confirmed = true}`.
+- `confirm` uses `{reservation with confirmed = True}`.
 - `record UserId = {value: Int}` provides the first nominal contrast.
 - `record Point = {x: Float, y: Float}` demonstrates structural crossing.
 

@@ -271,7 +271,16 @@ class Parser {
     }
     if (this.#at("Let")) {
       if (
-        ["LeftParen", "LeftBrace", "UpperName", "True", "False", "Wildcard"]
+        // No `True`/`False` here (#147): those token kinds are the *lowercase*
+        // reserved words, which used to open a literal pattern and no longer
+        // open anything. Routing them to the pattern binding would answer
+        // `let true = 1` with the value-position redirect ("write `True`"),
+        // which is wrong advice in a binder — `let True = ...` is a refutable
+        // constructor pattern and errors again. Falling through to the ordinary
+        // binding path gets the plain reserved-name message the spec requires
+        // (Lexer §10). The constructors themselves are `UpperName`s, already
+        // listed.
+        ["LeftParen", "LeftBrace", "UpperName", "Wildcard"]
           .includes(this.#peek(1).kind)
       ) {
         return this.#parsePatternBinding();
@@ -1304,8 +1313,11 @@ class Parser {
       return { kind: "Wildcard", span: token.span };
     }
     if (token.kind === "True" || token.kind === "False") {
+      // #147: the constructor patterns are `True`/`False`; these spellings are
+      // reserved and carry the same one-token fixit they do in value position.
       this.#advance();
-      return { kind: "Boolean", value: token.kind === "True", span: token.span };
+      this.#redirectBooleanWord(token, token.kind === "True" ? "true" : "false");
+      return { kind: "Wildcard", span: token.span };
     }
     if (token.kind === "Integer") {
       this.#advance();
@@ -1610,9 +1622,12 @@ class Parser {
         this.#advance();
         return { kind: "Name", name: parsedName(token), span: token.span };
       case "True":
-      case "False":
+      case "False": {
+        // #147: not a literal any more — a reserved spelling with a fixit.
         this.#advance();
-        return { kind: "Boolean", value: token.kind === "True", span: token.span };
+        this.#redirectBooleanWord(token, token.kind === "True" ? "true" : "false");
+        return { kind: "ErrorExpr", span: token.span };
+      }
       case "Integer":
         this.#advance();
         return { kind: "Integer", decimal: token.decimal, span: token.span };
@@ -2614,7 +2629,12 @@ class Parser {
   ): Lexed.NameToken | undefined {
     const token = this.#current();
     if (token.kind !== kind) {
-      this.#error(message);
+      const reserved = this.#reservedBooleanWord(token);
+      this.#error(
+        reserved === undefined
+          ? message
+          : `\`${reserved}\` is reserved and cannot be used as a name`,
+      );
       return undefined;
     }
     this.#advance();
@@ -2624,7 +2644,12 @@ class Parser {
   #takeAnyName(message: string): Lexed.NameToken | undefined {
     const token = this.#current();
     if (token.kind !== "NonUpperName" && token.kind !== "UpperName") {
-      this.#error(message);
+      const reserved = this.#reservedBooleanWord(token);
+      this.#error(
+        reserved === undefined
+          ? message
+          : `\`${reserved}\` is reserved and cannot be used as a name`,
+      );
       return undefined;
     }
     this.#advance();
@@ -2677,6 +2702,33 @@ class Parser {
       return this.#advance();
     }
     return undefined;
+  }
+
+  /**
+   * The `true`/`false` redirect (Lexer §4.1, #147). Both spellings stay hard
+   * keywords so `let true = ...` is foreclosed forever, but they no longer
+   * denote values — `Bool` is the prelude union `False | True`. The lexer emits
+   * the token and the reserved-word fact; **selecting the message by position is
+   * the parser's job**, which is why this lives here and not there.
+   *
+   * In value position the Rewrite Rule requires a one-token fixit, because
+   * `true` is the JS-trained user's most probable spelling error. In name or
+   * binder position there is no fixit to give: "write `True`" would be wrong,
+   * since `let True = ...` is a refutable constructor pattern and errors again.
+   */
+  #reservedBooleanWord(token: LaidOut.Token): "true" | "false" | undefined {
+    if (token.kind === "True") return "true";
+    if (token.kind === "False") return "false";
+    return undefined;
+  }
+
+  /** The value-position redirect, with its mandatory fixit. */
+  #redirectBooleanWord(token: LaidOut.Token, word: "true" | "false"): void {
+    const constructor = word === "true" ? "True" : "False";
+    this.#errorAt(
+      token.span,
+      `\`${word}\` is reserved; Bool's constructors are \`True\` and \`False\` — write \`${constructor}\``,
+    );
   }
 
   #error(message: string): void {

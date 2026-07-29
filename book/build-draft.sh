@@ -4,7 +4,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-output="DRAFT-2.md"
+output="DRAFT-3.md"
 temporary="${output}.tmp"
 
 chapters=(

@@ -13,7 +13,7 @@
 - **The unifier treats a union name as opaque** — same doctrine as nominal `record` (Products §5.1). There is no structural counterpart to unfold to, so unions don't even have the `{...p}` crossing; the name is the whole story.
 - **`match` is the only eliminator.** No field access on union-typed receivers, no generated predicates, no casts. *(One prelude exception, recorded 2026-07-29, #147: `Bool` — the logic operators and `if`/`while` conditions are additional `Bool` eliminators, and their native emission is licensed by §6.2's representation pin; §8. Every user-declared union is match-only without exception.)*
 - **Exhaustiveness is a hard error.** Closed nominal sums + no subtyping make it exact and cheap; it is the payoff of the feature and is not demoted to a warning.
-- **Runtime representation is what a TS author would hand-write:** string-tagged plain objects for the general case, bare string literals for the all-nullary case. No classes, no `instanceof`, no numeric tag compression.
+- **Runtime representation is the natural unboxed sum:** string-tagged plain objects for the general case, bare string literals for the all-nullary case. No classes, no `instanceof`, no numeric tag compression. *(Re-grounded 2026-07-29, #147: this bullet formerly led with "what a TS author would hand-write." The representation stands on independent merit — the string-tagged POJO is the natural unboxed representation of a closed sum — and the hand-written look of the output remains a valued outcome, no longer the adjudicating test; `decisions-ml-dialect-bool-2026-07.md` §1.1.)*
 
 ---
 
@@ -193,7 +193,7 @@ switch (s.tag) {
 
 ### 6.5 `.d.ts`
 
-The general case emits the discriminated union a TS author would hand-write:
+The general case emits the hand-written-style discriminated union:
 
 ```ts
 type Shape =
@@ -238,7 +238,7 @@ union Bool derives (Eq, Ord, Show, Hash) = False | True
 - **The declaration is real prelude source, not spec prose** *(James's ruling, 2026-07-29 — decisions doc §3.5)*: a compiler-verified `.hex` companion module on the `Seq.hex` model. Consequently the `derives` clause is the ordinary derivation door (Collections Part 2 §4.3), and `Bool`'s four instances are **derived, not compiler-provided** — Part 2 §2.5's provenance correction (#147, §18 there) records the move.
 
 - **Success type first** in `Result`, matching the subject-first convention (Functions §5.3).
-- Payload slots are **named** even though these are the "obvious" constructors, because their emitted shape (`{tag: "Some", value: x}`, `{tag: "Err", error: e}`) is the most-trafficked union surface at the FFI, and `value`/`error` is what a TS author writes there. This deliberately overrides the §2.1 style rule's escape hatch for the prelude's own exports.
+- Payload slots are **named** even though these are the "obvious" constructors, because their emitted shape (`{tag: "Some", value: x}`, `{tag: "Err", error: e}`) is the most-trafficked union surface at the FFI, and `value`/`error` is what that boundary's JS consumers read and write — a boundary-representation fact, the kind of JavaScript-specific ground that still decides under the #147 doctrine (`decisions-ml-dialect-bool-2026-07.md` §1.1). This deliberately overrides the §2.1 style rule's escape hatch for the prelude's own exports.
 - **Pre-registered rejection — `Option(a)` is not `a | undefined`.** Compiling `Option` to nullable erasure is the tempting interop move and is wrong: `Some(None)` and `None` collapse (generic code over `Option(a)` breaks whenever `a` instantiates to another Option); it special-cases the one place the language promises uniformity; and the emitted type lies structurally. JS-side nullability lives at the boundary as `Nullable(a)`, with the final **`Nullable`-owned** conversions — `Nullable.toOption`, `Nullable.fromOption` (`None` → `undefined`), and `Nullable.fromOptionOrNull` (`None` → `null`) — per FFI Part 2 §4–§5. `Option` owns no nullable-conversion aliases. Do not re-litigate without new information.
 - The standard partiality story elsewhere in the stdlib (`Int.checkedAdd : ... -> Option(Int)`, `BigInt.toInt` partial, etc.) is this `Option`. Nothing changes there; the type it referred to now exists.
 
@@ -288,3 +288,4 @@ union Bool derives (Eq, Ord, Show, Hash) = False | True
 | Ord by declaration order (index table for string case); Show positional | §7 |
 | Prelude `Option`/`Result`, named payloads, success-first `Result` | §8 |
 | `Option` ≠ `a \| undefined`; nullability is `Nullable(a)` at the boundary; conversions are `Nullable.toOption`/`fromOption`/`fromOptionOrNull` (FFI Part 2 §4–§5) | §8 |
+| Rationale re-grounded post-#147 (2026-07-29): representation carried by natural-unboxed-sum merit, prelude slot names by the FFI-boundary fact; "what a TS author would hand-write" demoted to valued outcome (decisions doc §1.1); decisions unchanged | §1, §6.5, §8 |
