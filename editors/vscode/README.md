@@ -6,6 +6,13 @@ The grammar lives in [`syntaxes/hexagon.tmLanguage.json`](syntaxes/hexagon.tmLan
 and is the whole extension — there is no runtime code. A language server is a
 separate, later concern (`language-server/`).
 
+**Playground reads this same file** (`playground/src/monaco-textmate.ts`), so it is
+not the extension's private grammar: it is the one Hexagon grammar, and a rule
+changed here changes both editors. Playground used to carry a second, hand-written
+Monarch tokenizer, which drifted (#145) until #161 deleted it. The one construct
+Playground does not share is its own `module` / `end module` notation, which is not
+`.hex` syntax and lives in a Playground-side injection rather than here.
+
 ## Installing it locally
 
 VS Code loads any extension folder it finds in `~/.vscode/extensions`, so a
