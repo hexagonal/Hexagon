@@ -1743,11 +1743,12 @@ describe("emitJavaScript", () => {
     expect(output.diagnostics).toEqual([]);
   });
 
-  // 250 full compiles, twice over for the determinism half: since #147 put `Bool`
-  // in the prelude, every run loads the project rather than calling the passes
-  // directly. ~1.5s here, but a CI runner several times slower blew the default 5s
-  // budget and took the Pages deploy down with it. Explicit, so a genuine hang
-  // still fails the job rather than hanging it.
+  // 250 full compiles, emitted twice over for the determinism half: since #147 put
+  // `Bool` in the prelude, every run loads the project rather than calling the
+  // passes directly. That is ~3s in the full suite here and 5708ms on the runner
+  // that took the Pages deploy down with it (#160, #163) — barely over the default
+  // 5s budget, which had been thin since #147. Explicit per test rather than a
+  // global testTimeout, so the other 680 keep the tight default.
   test("is deterministic and bounded for arbitrary compiler input", () => {
     fc.assert(
       fc.property(fc.string(), (text) => {

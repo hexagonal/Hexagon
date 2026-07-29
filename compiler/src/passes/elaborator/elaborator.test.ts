@@ -224,11 +224,13 @@ describe("elaborate", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
-  // 250 full compiles: since #147 put `Bool` in the prelude, every run loads the
-  // project rather than calling the passes directly. At ~1.7s this is the slowest
-  // of the three, and the only reason it did not take the Pages deploy down
-  // alongside the checker's and the emitter's was luck about which runner it drew.
-  // Explicit, so a genuine hang still fails the job rather than hanging it.
+  // 250 full compiles, the same shape as the checker's and the emitter's: since
+  // #147 put `Bool` in the prelude, every run loads the project rather than calling
+  // the passes directly. This one passed the run that took the Pages deploy down
+  // (#160, #163), but at 3550ms against the default 5s budget — thin enough that
+  // fixing only the two that failed would have left this as the next to break.
+  // Explicit per test rather than a global testTimeout, so the other 680 keep the
+  // tight default.
   test("never leaks Typed-only surface nodes from arbitrary input", () => {
     fc.assert(
       fc.property(fc.string(), (text) => {
