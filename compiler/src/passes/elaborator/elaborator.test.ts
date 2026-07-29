@@ -224,6 +224,11 @@ describe("elaborate", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  // 250 full compiles: since #147 put `Bool` in the prelude, every run loads the
+  // project rather than calling the passes directly. At ~1.7s this is the slowest
+  // of the three, and the only reason it did not take the Pages deploy down
+  // alongside the checker's and the emitter's was luck about which runner it drew.
+  // Explicit, so a genuine hang still fails the job rather than hanging it.
   test("never leaks Typed-only surface nodes from arbitrary input", () => {
     fc.assert(
       fc.property(fc.string(), (text) => {
@@ -243,7 +248,7 @@ describe("elaborate", () => {
       }),
       { numRuns: 250 },
     );
-  });
+  }, 30_000);
 });
 
 // Through the whole project, prelude included. Since #147 `Bool` is a prelude
