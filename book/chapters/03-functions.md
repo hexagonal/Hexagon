@@ -303,7 +303,7 @@ Two `fun` declarations may refer to each other:
 ```hexagon
 fun isEven(n: Int): Bool =
     if n == 0 then
-        true
+        True
     else
         if n > 0 then
             isOdd(n - 1)
@@ -312,7 +312,7 @@ fun isEven(n: Int): Bool =
 
 fun isOdd(n: Int): Bool =
     if n == 0 then
-        false
+        False
     else
         if n > 0 then
             isEven(n - 1)

@@ -10,11 +10,11 @@ fun renameGuest(reservation: {guest: String, ...rest}, guest: String) =
     {reservation with guest = guest}
 
 fun confirmedGuest(reservation: {guest: String, confirmed: Bool}) = match reservation
-    {confirmed = true, guest} => guest
+    {confirmed = True, guest} => guest
     {guest} => guest
 
 let dinner = {guest = "Ada", seats = 2}
-let lunch = {guest = "Grace", vegetarian = true, seats = 1}
+let lunch = {guest = "Grace", vegetarian = True, seats = 1}
 let note = "window table"
 let preference = {note}
 let renamedDinner = renameGuest(dinner, "Augusta")
@@ -24,7 +24,7 @@ let {guest, seats} = updatedDinner
 console.log(guest, "now has", seats, "seats")
 console.log("Preference:", preference.note)
 console.log(guestName(lunch))
-console.log(confirmedGuest({guest = "Lin", confirmed = true}))
+console.log(confirmedGuest({guest = "Lin", confirmed = True}))
 `,
   specificationReferences: ["spec/products.md"],
 };

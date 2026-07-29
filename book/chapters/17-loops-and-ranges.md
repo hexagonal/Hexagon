@@ -99,7 +99,7 @@ let countdown(start: Int): Unit =
 ```
 
 The condition must be `Bool`; Hexagon has no numeric or object truthiness. It is tested
-before every iteration, so a false initial condition executes the body zero times.
+before every iteration, so a condition that starts out `False` executes the body zero times.
 
 Like `for`, a `while` loop and its body produce `Unit`. Hexagon has no `break` or
 `continue`. Put the exit condition in the `while` header, or shape the iterable or

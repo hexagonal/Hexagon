@@ -380,7 +380,9 @@ test("Ord.compare must return Ordering, not a bare Int", () => {
   const bad = project.modules.find(({ source }) => source.path === "/bad.hex")!;
   // `0` demands a `Num` instance for the now-`Ordering` result type, which it lacks.
   expect(bad.typed.diagnostics.map(({ message }) => message)).toContain(
-    "type `Ordering` has no `Num` instance",
+    // The literal-specific message, which #147 extended to unions: `Ordering`
+    // stopped being reachable only as a primitive-shaped type.
+    "integer literal cannot have type `Ordering`",
   );
 });
 

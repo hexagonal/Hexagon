@@ -155,7 +155,15 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
-    const execute = Function(`${output.text}\nreturn result;`) as () => unknown;
+    // `Function` cannot take ESM, and this module now carries a prelude import
+    // (`Set.contains` returns a `Bool`, which is a prelude declaration since
+    // #147). Stripping the import statements is enough here: nothing this test
+    // executes reads a name they bind.
+    const executable = output.text
+      .split("\n")
+      .filter((line) => !line.startsWith("import "))
+      .join("\n");
+    const execute = Function(`${executable}\nreturn result;`) as () => unknown;
     const result = execute() as unknown[];
     expect(result.slice(0, 4)).toEqual(["replaced", "thirty-three", 0, 2]);
     expect(result[4]).toBe(result[5]);
@@ -167,7 +175,11 @@ describe("emitJavaScript", () => {
     );
     expect(missingModule.diagnostics).toEqual([]);
     const missingOutput = emitJavaScript(missingModule);
-    expect(() => Function(missingOutput.text)()).toThrowError(
+    const missingExecutable = missingOutput.text
+      .split("\n")
+      .filter((line) => !line.startsWith("import "))
+      .join("\n");
+    expect(() => Function(missingExecutable)()).toThrowError(
       expect.objectContaining({ name: "KeyError" }),
     );
   });
@@ -375,7 +387,7 @@ describe("emitJavaScript", () => {
         "union Box = Box(side: Side)\n" +
         "fun unbox(box: Box): Int = match box\n" +
         "    Box(Left(value) | Right(value)) => value\n" +
-        "let true | false = true\n" +
+        "let True | False = True\n" +
         "let Left(amount) | Right(amount) = Left(42)",
     );
 
@@ -429,10 +441,10 @@ describe("emitJavaScript", () => {
 
     const structural = emitJavaScript(coreSource(
       'fun tupleLabel(pair: (Bool, Int)): String = match pair\n' +
-        '    (true, count) => "active"\n' +
+        '    (True, count) => "active"\n' +
         '    (_, _) => "inactive"\n' +
         'fun recordName(user: {name: String, active: Bool}): String = match user\n' +
-        '    {active = true, name} => name\n' +
+        '    {active = True, name} => name\n' +
         '    {name} => name',
     )).text;
     expect(structural).toContain("if (__hex_match0[0] === true)");
@@ -453,11 +465,15 @@ describe("emitJavaScript", () => {
 
   test("emits literal matches and guarded constructor arms in source order", () => {
     const primitive = coreSource(
-      'fun describe(flag: Bool): String = match flag\n    true => "yes"\n    false => "no"',
+      'fun describe(flag: Bool): String = match flag\n    True => "yes"\n    False => "no"',
     );
     const primitiveJavaScript = emitJavaScript(primitive).text;
-    expect(primitiveJavaScript).toContain("if (__hex_match0 === true)");
-    expect(primitiveJavaScript).toContain("if (__hex_match0 === false)");
+    // #147: a `Bool` match is a closed-union match, so it takes the same switch
+    // path every other all-nullary union takes — over the pinned representation,
+    // which is why the case labels are JavaScript booleans.
+    expect(primitiveJavaScript).toContain("switch (flag) {");
+    expect(primitiveJavaScript).toContain("case true:");
+    expect(primitiveJavaScript).toContain("case false:");
 
     const guarded = coreSource(
       "union Shape = Circle(radius: Float) | Point\n" +
@@ -479,10 +495,11 @@ describe("emitJavaScript", () => {
 
   test("emits nested tuple and renamed record constructor patterns", () => {
     const module = coreSource(
-      "export union Result = Ok(value: (String, Int)) | Err(error: {context: {message: String}, code: Int})\n" +
-        "export fun describe(result: Result): String = match result\n" +
-        "    Ok((name, _)) => name\n" +
-        "    Err({context = {message = reason}}) => reason",
+      // Not `Result`/`Ok`/`Err`: the prelude owns those names here.
+      "export union Outcome = Fine(value: (String, Int)) | Bad(error: {context: {message: String}, code: Int})\n" +
+        "export fun describe(outcome: Outcome): String = match outcome\n" +
+        "    Fine((name, _)) => name\n" +
+        "    Bad({context = {message = reason}}) => reason",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -553,22 +570,26 @@ describe("emitJavaScript", () => {
 
   test("emits generic nominal unions, constructors, matches, and declarations", () => {
     const module = coreSource(
-      "export union Option(a) = Some(value: a) | None\n" +
-        "export fun unwrapOr(value: Option(a), fallback: a): a = match value\n" +
-        "    Some(found) => found\n" +
-        "    None => fallback\n" +
-        "export let answer: Int = unwrapOr(Some(42), 0)",
+      // Spelled `Maybe`/`Present`/`Absent`: this compiles with the prelude now,
+      // and `Option`/`Some`/`None` are its names. The shapes under test — a
+      // generic union, its constructors, a match, and the declarations — are
+      // unchanged.
+      "export union Maybe(a) = Present(value: a) | Absent\n" +
+        "export fun unwrapOr(value: Maybe(a), fallback: a): a = match value\n" +
+        "    Present(found) => found\n" +
+        "    Absent => fallback\n" +
+        "export let answer: Int = unwrapOr(Present(42), 0)",
     );
 
     expect(module.diagnostics).toEqual([]);
     expect(emitJavaScript(module).text).toContain(
-      'const Some = value => ({ tag: "Some", value });',
+      'const Present = value => ({ tag: "Present", value });',
     );
     expect(emitDeclarations(module).text).toBe(
-      'export type Option<a> = { tag: "Some"; value: a } | { tag: "None" };\n' +
-        "export declare const Some: <a>(value: a) => Option<a>;\n" +
-        "export declare const None: Option<never>;\n" +
-        "export declare function unwrapOr<a>(value: Option<a>, fallback: a): a;\n" +
+      'export type Maybe<a> = { tag: "Present"; value: a } | { tag: "Absent" };\n' +
+        "export declare const Present: <a>(value: a) => Maybe<a>;\n" +
+        "export declare const Absent: Maybe<never>;\n" +
+        "export declare function unwrapOr<a>(value: Maybe<a>, fallback: a): a;\n" +
         "export declare const answer: number;\n",
     );
   });
@@ -699,7 +720,7 @@ describe("emitJavaScript", () => {
   });
 
   test("emits the host console operation as ordinary readable JavaScript", () => {
-    const module = coreSource('console.log("answer", 42, true)');
+    const module = coreSource('console.log("answer", 42, True)');
 
     expect(emitJavaScript(module)).toMatchObject({
       text: 'console.log("answer", 42, true);\n',
@@ -727,7 +748,7 @@ describe("emitJavaScript", () => {
 
   test("emits tuple patterns as readable array destructuring", () => {
     const module = coreSource(
-      'let (name, _, (x, y)) = ("point", true, (3, 4))\n' +
+      'let (name, _, (x, y)) = ("point", True, (3, 4))\n' +
         "let total = x + y",
     );
 
@@ -928,7 +949,7 @@ describe("emitJavaScript", () => {
       coreSource(
         "let product = (1 + 2) * 3\n" +
           "let difference = 1 - (2 - 3)\n" +
-          "let logic = (true or false) and true\n" +
+          "let logic = (True or False) and True\n" +
           "let sum = 1 + 2 * 3\n" +
           "let power = (-2.0) ** 3.0",
       ),
@@ -1012,9 +1033,14 @@ describe("emitJavaScript", () => {
   test("passes dictionaries through constrained function bodies", () => {
     const output = emitJavaScript(coreSource("let addOne = x => x + 1"));
 
+    // The dictionary parameter is named after the type variable's id, and that
+    // counter starts wherever the prelude left it — so the shape is asserted and
+    // the number is not.
+    const dictionary = /__hex_dictNum_\d+/.exec(output.text)?.[0];
+    expect(dictionary).toBeDefined();
     expect(output.text).toBe(
-      "const addOne = (x, __hex_dictNum_1) => " +
-        "__hex_dictNum_1.add(x, __hex_dictNum_1.fromNat(1));\n",
+      `const addOne = (x, ${dictionary}) => ` +
+        `${dictionary}.add(x, ${dictionary}.fromNat(1));\n`,
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -1443,7 +1469,7 @@ describe("emitJavaScript", () => {
           "let quotient = 4.0 / 2.0\n" +
           'let joined = "a" ++ "b"\n' +
           "let powered = 2n ** 3n\n" +
-          "let logic = not false and true or false\n" +
+          "let logic = not False and True or False\n" +
           'let display = x => "${x}"\n' +
           "let equal = x => x == x",
       ),
@@ -1772,7 +1798,7 @@ describe("emitDeclarations", () => {
     const declarations = emitDeclarations(
       coreSource(
         "export let ratio: Float = 1.5\n" +
-          "export let flag: Bool = true\n" +
+          "export let flag: Bool = True\n" +
           'export let text: String = "hello"\n' +
           "export let exact: BigInt = 2n\n" +
           "export let unit: Unit = ()\n" +
@@ -1795,7 +1821,7 @@ describe("emitDeclarations", () => {
     const declarations = emitDeclarations(
       coreSource(
         "export let run(callback: (Int, String) -> Bool, fallback: () -> Bool): Bool = " +
-          "if callback(1, \"ok\") then true else fallback()",
+          "if callback(1, \"ok\") then True else fallback()",
       ),
     );
 
@@ -1941,9 +1967,12 @@ describe("emitTypeScriptPreview", () => {
   });
 });
 
+// Through the whole project, prelude included. Since #147 `Bool` is a prelude
+// declaration, so a module assembled by calling the passes directly cannot type
+// a condition, a guard, a comparison, or a logic operator.
 function coreSource(text: string): Core.Module {
-  const source = new Source.File(Source.fileId(0), "test.hex", text);
-  return elaborate(check(resolve(parse(applyLayout(lex(source))))));
+  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", text)]);
+  return project.modules.find((module) => module.source.path === "/main.hex")!.core;
 }
 
 /**

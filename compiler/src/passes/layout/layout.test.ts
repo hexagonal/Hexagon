@@ -125,7 +125,7 @@ describe("applyLayout", () => {
     expect(result.diagnostics).toEqual([]);
   });
 
-  test("opens a true-branch block after mandatory then", () => {
+  test("opens a then-branch block after mandatory then", () => {
     const result = layout(
       "fun fact(n: Int): Int =\n" +
         "    if n <= 1 then\n" +

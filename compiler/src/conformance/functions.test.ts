@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
 
+import { compileMain, runMain } from "../support/test-project.js";
+
 import {
   applyLayout,
   check,
@@ -90,20 +92,14 @@ describe("Functions specification conformance", () => {
   });
 });
 
+// Through the whole project, prelude included. Since #147 `Bool` is a prelude
+// declaration, so a module assembled by calling the passes directly cannot type
+// a condition, a guard, a comparison, or a logic operator.
 function checkSource(text: string): Typed.Module {
-  const source = new Source.File(Source.fileId(0), "functions-conformance.hex", text);
-  return check(resolve(parse(applyLayout(lex(source)))));
+  return compileMain(text).modules.find(({ source }) => source.path === "/main.hex")!.typed;
 }
 
-async function run(text: string): Promise<Record<string, unknown>> {
-  const source = new Source.File(Source.fileId(0), "functions-conformance.hex", text);
-  const typed = check(resolve(parse(applyLayout(lex(source)))));
-  expect(typed.diagnostics).toEqual([]);
-  const javascript = emitJavaScript(elaborate(typed));
-  expect(javascript.diagnostics).toEqual([]);
-  const url = `data:text/javascript;charset=utf-8,${encodeURIComponent(javascript.text)}`;
-  return (await import(/* @vite-ignore */ url)) as Record<string, unknown>;
-}
+const run = runMain;
 
 function symbol(module: Typed.Module, name: string): Typed.Symbol {
   const found = module.symbols.find((candidate) => candidate.name === name);

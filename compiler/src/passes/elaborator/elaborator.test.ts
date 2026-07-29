@@ -9,6 +9,7 @@ import { lex } from "../lexer/lexer.js";
 import { parse } from "../parser/parser.js";
 import { resolve } from "../resolver/resolver.js";
 import { elaborate } from "./elaborator.js";
+import { compileProject } from "../../project.js";
 
 describe("elaborate", () => {
   test("preserves recursive function bindings while elaborating their bodies", () => {
@@ -155,12 +156,22 @@ describe("elaborate", () => {
   });
 
   test("lowers derived logic while preserving short-circuit structure", () => {
+    // Annotated: `iff` lowers to `Eq<Bool>`, and since #147 that instance is the
+    // prelude declaration's derived one, reached through `Bool.hex`'s import.
+    // The annotation is also what a real program would carry here.
     const module = elaborateSource(
-      "let implication = (a, b) => a implies b\n" +
-        "let agreement = (a, b) => a iff b",
+      "let implication(a: Bool, b: Bool): Bool = a implies b\n" +
+        "let agreement(a: Bool, b: Bool): Bool = a iff b",
     );
 
-    expect(module.items[0]).toMatchObject({
+    // By name, not by index: naming `Bool` in the annotations means the module
+    // carries a synthesized prelude import ahead of its own items.
+    const item = (name: string): Core.Item | undefined =>
+      module.items.find((candidate) =>
+        candidate.kind === "Let" && candidate.binding.name === name
+      );
+
+    expect(item("implication")).toMatchObject({
       kind: "Let",
       value: {
         kind: "Lambda",
@@ -172,7 +183,7 @@ describe("elaborate", () => {
         },
       },
     });
-    expect(module.items[1]).toMatchObject({
+    expect(item("agreement")).toMatchObject({
       kind: "Let",
       value: {
         kind: "Lambda",
@@ -181,7 +192,9 @@ describe("elaborate", () => {
           steps: [
             {
               test: "Equal",
-              evidence: { kind: "Primitive", instance: "Bool" },
+              // Structural, not a dictionary: the pinned `Bool` satisfies its
+              // four derivable constraints inline (#147).
+              evidence: { kind: "Structural" },
             },
           ],
         },
@@ -233,9 +246,12 @@ describe("elaborate", () => {
   });
 });
 
+// Through the whole project, prelude included. Since #147 `Bool` is a prelude
+// declaration, so a module assembled by calling the passes directly cannot type
+// a condition, a guard, a comparison, or a logic operator.
 function elaborateSource(text: string): Core.Module {
-  const source = new Source.File(Source.fileId(0), "test.hex", text);
-  return elaborate(check(resolve(parse(applyLayout(lex(source))))));
+  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", text)]);
+  return project.modules.find((module) => module.source.path === "/main.hex")!.core;
 }
 
 function visitItems(
@@ -287,7 +303,6 @@ function visitExpr(expression: Core.Expr, visit: (expression: Core.Expr) => void
       return visitExpr(expression.value, visit);
     case "Name":
     case "Unit":
-    case "Boolean":
     case "Number":
     case "BigInt":
     case "Float":

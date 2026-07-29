@@ -245,7 +245,6 @@ export type Pattern =
   | BindingPattern
   | WildcardPattern
   | UnitPattern
-  | BooleanPattern
   | IntegerPattern
   | StringPattern
   | VectorPattern
@@ -284,12 +283,8 @@ export interface OrPattern {
   readonly span: Source.Span;
 }
 
-export interface BooleanPattern {
-  readonly kind: "Boolean";
-  readonly value: boolean;
-  readonly span: Source.Span;
-}
-
+// #147: no `BooleanPattern`. `True`/`False` are nullary constructors, so
+// they are `ConstructorPattern`s like `None`.
 export interface IntegerPattern {
   readonly kind: "Integer";
   readonly decimal: string;
@@ -399,7 +394,6 @@ export interface Parameter {
 export type Expr =
   | NameExpr
   | UnitExpr
-  | BooleanExpr
   | IntegerExpr
   | BigIntExpr
   | FloatExpr
@@ -435,12 +429,8 @@ export interface UnitExpr {
   readonly span: Source.Span;
 }
 
-export interface BooleanExpr {
-  readonly kind: "Boolean";
-  readonly value: boolean;
-  readonly span: Source.Span;
-}
-
+// #147: no `BooleanExpr`. `True`/`False` are constructor *names*, so they are
+// ordinary `Name` references; the reserved words `true`/`false` never reach a tree.
 export interface IntegerExpr {
   readonly kind: "Integer";
   readonly decimal: string;

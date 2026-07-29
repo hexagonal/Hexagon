@@ -61,7 +61,7 @@ Each use supplies both type arguments:
 
 ```hexagon
 let score: Entry(String, Int) = ("Mira", 10)
-let flag: Entry(Int, Bool) = (7, true)
+let flag: Entry(Int, Bool) = (7, True)
 ```
 
 Type parameters begin with lowercase letters. Concrete type names begin with uppercase

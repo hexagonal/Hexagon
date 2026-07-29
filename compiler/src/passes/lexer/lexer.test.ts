@@ -8,6 +8,8 @@ import { lex } from "./lexer.js";
 describe("lex", () => {
   test("distinguishes hard keywords, contextual words, and cased names", () => {
     const result = lexSource(
+      // `true` stays lowercase here on purpose: this is the lexer, where #147
+      // kept `true`/`false` as hard keywords. Rejecting them is the parser's job.
       "let when = true\nrecord Résultat(a) derives Eq = {value: a}",
     );
 

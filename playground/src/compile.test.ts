@@ -374,7 +374,9 @@ describe("compileSource", () => {
       await import(/* @vite-ignore */ moduleUrls.get(response.entryPath)!);
       expect(log).toHaveBeenCalledWith("1/2 + 1/3 = 5/6");
       expect(log).toHaveBeenCalledWith("1/2 / 1/3 = 3/2");
-      expect(log).toHaveBeenCalledWith("Does 10/12 = 5/6? true");
+      // `True`, not `true` (#147): interpolating a `Bool` shows its constructor
+      // name, the ruling's one silent behaviour change. Pinned here on purpose.
+      expect(log).toHaveBeenCalledWith("Does 10/12 = 5/6? True");
     } finally {
       log.mockRestore();
     }

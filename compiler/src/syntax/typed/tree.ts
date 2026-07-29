@@ -14,11 +14,12 @@ export type TypeVariableId = number & {
   readonly [typeVariableIdBrand]: "TypeVariableId";
 };
 
+// #147: `Bool` is not here. It left the primitive set and became the prelude
+// union `False | True` (`stdlib/Bool.hex`), so it is a `UnionType` like any other.
 export type PrimitiveName =
   | "Nat"
   | "Int"
   | "Float"
-  | "Bool"
   | "String"
   | "BigInt"
   | "Exn"
@@ -182,6 +183,8 @@ export interface Module {
   readonly records: readonly RecordDeclaration[];
   /** Prelude-supplied record identities by name; see `Resolved.Module`. */
   readonly preludeRecords: ReadonlyMap<string, Resolved.RecordId>;
+  /** Prelude-supplied union identities by name; see `Resolved.Module`. */
+  readonly preludeUnions: ReadonlyMap<string, Resolved.UnionId>;
   readonly externTypes: readonly ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
   readonly span: Source.Span;
@@ -277,7 +280,6 @@ export type Pattern =
   | BindingPattern
   | WildcardPattern
   | UnitPattern
-  | BooleanPattern
   | IntegerPattern
   | StringPattern
   | VectorPattern
@@ -316,12 +318,8 @@ export interface OrPattern {
   readonly span: Source.Span;
 }
 
-export interface BooleanPattern {
-  readonly kind: "Boolean";
-  readonly value: boolean;
-  readonly span: Source.Span;
-}
-
+// #147: no `BooleanPattern`. `True`/`False` are nullary constructors, so
+// they are `ConstructorPattern`s like `None`.
 export interface IntegerPattern {
   readonly kind: "Integer";
   readonly decimal: string;
@@ -520,7 +518,6 @@ interface ExpressionFields {
 export type Expr =
   | NameExpr
   | UnitExpr
-  | BooleanExpr
   | FromNatExpr
   | WidenNatExpr
   | WidenIntExpr
@@ -574,11 +571,8 @@ export interface UnitExpr extends ExpressionFields {
   readonly kind: "Unit";
 }
 
-export interface BooleanExpr extends ExpressionFields {
-  readonly kind: "Boolean";
-  readonly value: boolean;
-}
-
+// #147: no `BooleanExpr`. `True`/`False` are constructor *names*, so they are
+// ordinary `Name` references; the reserved words `true`/`false` never reach a tree.
 /** A non-negative integer literal with its explicit `Num.fromNat` requirement. */
 export interface FromNatExpr extends ExpressionFields {
   readonly kind: "FromNat";

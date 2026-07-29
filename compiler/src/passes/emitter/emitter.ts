@@ -47,10 +47,48 @@ export function emitTypeScriptPreview(
 
 type EvidenceNames = ReadonlyMap<string, string>;
 
+/**
+ * The two prelude declarations emission is allowed to recognize by identity.
+ * Everything else about a user's or the stdlib's types reaches the emitter as
+ * ordinary Core, and that is deliberate — this is the whole list of places where
+ * the back end knows a specific declaration.
+ *
+ * - `seq` (Loops §6.6): known for exactly three jobs, all of them the FFI Part 3
+ *   boundary in ruling R1's sense — wrap a foreign value entering as a `Seq`,
+ *   drive a `Seq` leaving for JavaScript, and lower `for x in` over one.
+ * - `bool` (#147, decisions doc §3): the representation pin. `Bool` is an
+ *   ordinary union to every earlier pass; here, and only here, its values are
+ *   the JS `boolean` instead of the §6.2 all-nullary strings. This is a
+ *   representation commitment, not a semantic one: no Hexagon program can tell
+ *   the difference, because every eliminator of a `Bool` is representation-blind
+ *   at the source level.
+ */
+interface PreludeIds {
+  readonly seq: Resolved.RecordId | undefined;
+  readonly bool: Resolved.UnionId | undefined;
+}
+
+function preludeIds(module: Core.Module): PreludeIds {
+  return {
+    seq: module.preludeRecords.get("Seq"),
+    // The fallback reaches exactly one module: `stdlib/Bool.hex`, which declares
+    // what the prelude cannot yet supply to it. Everywhere else the prelude
+    // entry wins, so a user's own `union Bool` occludes the name (Modules §5.4)
+    // without acquiring the pin.
+    bool: module.preludeUnions.get("Bool")
+      ?? (module.preludeUnions.size === 0
+        ? module.unions.find(({ name }) => name === "Bool")?.id
+        : undefined),
+  };
+}
+
 class JavaScriptEmitter {
   readonly #diagnostics = new Diagnostics.Bag();
   readonly #symbols = new Map<Resolved.SymbolId, Core.Symbol>();
-  readonly #constructors = new Map<Resolved.SymbolId, { constructor: Core.Constructor; tagged: boolean }>();
+  readonly #constructors = new Map<
+    Resolved.SymbolId,
+    { constructor: Core.Constructor; tagged: boolean; pinnedBool: boolean }
+  >();
   readonly #recordConstructors = new Set<Resolved.SymbolId>();
   readonly #constrainedImports = new Map<Resolved.SymbolId, string>();
   readonly #exceptions = new Map<Resolved.SymbolId, Core.ExceptionItem>();
@@ -59,13 +97,8 @@ class JavaScriptEmitter {
   readonly #generatedNames: GeneratedNames;
   /** Local each imported symbol is bound under, by the module's own imports. */
   readonly #importLocals = new Map<Resolved.SymbolId, string>();
-  /**
-   * The prelude `Seq` (Loops §6.6). The emitter knows this identity for exactly
-   * three jobs, all of them the FFI Part 3 boundary in ruling R1's sense: wrap a
-   * foreign value entering as a `Seq`, drive a `Seq` leaving for JavaScript, and
-   * lower `for x in` over one. Nothing else here may know the representation.
-   */
-  readonly #seqRecord: Resolved.RecordId | undefined;
+  /** The prelude identities emission is permitted to know; see `PreludeIds`. */
+  readonly #prelude: PreludeIds;
   readonly #helpers = new Set<Helper>();
   readonly #helperNames = new Map<Helper, string>();
   readonly #exports: string[] = [];
@@ -80,7 +113,7 @@ class JavaScriptEmitter {
 
   constructor(module: Core.Module, options: JavaScriptEmissionOptions) {
     this.#module = module;
-    this.#seqRecord = module.preludeRecords.get("Seq");
+    this.#prelude = preludeIds(module);
     this.#exportInstanceEvidence = options.exportInstanceEvidence ?? false;
     this.#generatedNames = new GeneratedNames(module.symbols.map(({ name }) => name));
     for (const item of module.items) {
@@ -95,8 +128,9 @@ class JavaScriptEmitter {
     for (const symbol of module.symbols) this.#symbols.set(symbol.id, symbol);
     for (const union of module.unions) {
       const tagged = union.constructors.some(({ slots }) => (slots?.length ?? 0) > 0);
+      const pinnedBool = this.#prelude.bool !== undefined && union.id === this.#prelude.bool;
       for (const constructor of union.constructors) {
-        this.#constructors.set(constructor.symbol, { constructor, tagged });
+        this.#constructors.set(constructor.symbol, { constructor, tagged, pinnedBool });
       }
     }
     for (const record of module.records) {
@@ -221,12 +255,28 @@ class JavaScriptEmitter {
           ...instanceImport,
         ];
       }
-      const names = item.form.names.filter(({ typeOnly }) => typeOnly !== true).map(({ imported, local, symbol }) => {
+      const names = item.form.names
+        // A pinned `Bool` constructor is emitted as its literal (#147), so the
+        // import that would bind it has nothing to bind.
+        .filter(({ symbol }) => symbol === undefined || this.#pinnedBoolLiteral(symbol) === undefined)
+        .filter(({ typeOnly }) => typeOnly !== true).map(({ imported, local, symbol }) => {
         const source = symbol !== undefined && this.#constrainedImports.has(symbol)
           ? internalConstrainedExportName(symbol)
           : imported;
         return source === local ? source : `${source} as ${local}`;
       });
+      // A synthesized prelude import with no names is an instance carrier, not a
+      // request to run the module for effect (#147): it exists because this
+      // module named one of that module's *types*. Emitting a side-effect import
+      // for it would put a load-order dependency into the output that the source
+      // never asked for.
+      // A synthesized prelude import whose only names were `Bool` constructors
+      // has nothing left to bind once the pin emits them as literals (#147), so
+      // it must not fall through to the side-effect form: that would put a
+      // load-order dependency into the output the source never asked for.
+      if (names.length === 0 && item.form.kind === "Named" && item.form.names.length > 0) {
+        return instanceImport;
+      }
       return [...(names.length === 0
         ? [`${prefix}import ${specifier};`]
         : [`${prefix}import { ${names.join(", ")} } from ${specifier};`]),
@@ -502,6 +552,11 @@ class JavaScriptEmitter {
           const fields = slots.map(({ field }) => objectProperty(field, field));
           return `${prefix}const ${name} = ${arrowParameters(parameters)} => ({ tag: ${JSON.stringify(constructor.name)}, ${fields.join(", ")} });`;
         }
+        // The pin (#147, Unions §6.4): a `Bool` constructor materialises against
+        // the pinned representation, so the export site binds the JS boolean
+        // rather than the all-nullary name-string.
+        const pinned = this.#pinnedBoolLiteral(constructor.symbol);
+        if (pinned !== undefined) return `${prefix}const ${name} = ${pinned};`;
         return tagged
           ? `${prefix}const ${name} = { tag: ${JSON.stringify(constructor.name)} };`
           : `${prefix}const ${name} = ${JSON.stringify(constructor.name)};`;
@@ -580,8 +635,6 @@ class JavaScriptEmitter {
           kind: "Wildcard",
           span: pattern.span,
         });
-      case "Boolean":
-        return String(pattern.value);
       case "Integer":
         return cleanNumber(pattern.decimal);
       case "String":
@@ -747,7 +800,12 @@ class JavaScriptEmitter {
     evidenceNames: EvidenceNames,
   ): string {
     switch (expression.kind) {
-      case "Name":
+      case "Name": {
+        // The pin at the reference site (#147, decisions doc §3.2): `True` emits
+        // `true`. Ahead of every other spelling rule, because the constructor
+        // never needs a binding, a local, or an import to be named by.
+        const pinned = this.#pinnedBoolLiteral(expression.symbol);
+        if (pinned !== undefined) return pinned;
         if (this.#constrainedImports.has(expression.symbol)) {
           const imported = this.#constrainedImports.get(expression.symbol)!;
           // An imported constrained binding has the same trailing-evidence ABI
@@ -768,6 +826,7 @@ class JavaScriptEmitter {
         return (expression.evidence?.length ?? 0) === 0
           ? name
           : this.#emitConstrainedValue(expression, name, evidenceNames);
+      }
       case "CollectionOperation": {
         const needsPersistentRuntime = expression.collection !== "Vector";
         // The producing rows hand their traversal to the inbound adapter; the
@@ -797,8 +856,6 @@ class JavaScriptEmitter {
       case "Unit":
       case "ErrorExpr":
         return "undefined";
-      case "Boolean":
-        return String(expression.value);
       case "Number": {
         const literal = cleanNumber(expression.decimal);
         return expression.representation === "Float" ? `${literal}.0` : literal;
@@ -1421,7 +1478,9 @@ class JavaScriptEmitter {
     for (const arm of expression.arms) {
       const pattern = arm.pattern;
       if (pattern.kind === "Constructor") {
-        lines.push(`${armIndent}case ${JSON.stringify(pattern.text)}:`);
+        // `case true:` / `case false:` under the pin; the name-string otherwise.
+        const pinned = this.#pinnedBoolLiteral(pattern.symbol);
+        lines.push(`${armIndent}case ${pinned ?? JSON.stringify(pattern.text)}:`);
         const metadata = this.#constructors.get(pattern.symbol)?.constructor;
         pattern.arguments.forEach((argument, index) => {
           if (matchName === undefined) return;
@@ -1571,8 +1630,6 @@ class JavaScriptEmitter {
         const name = this.#identifier(pattern.binding.symbol, pattern.binding.name);
         return { tests: [], bindings: [`const ${name} = ${value};`] };
       }
-      case "Boolean":
-        return { tests: [`${value} === ${pattern.value}`], bindings: [] };
       case "Integer":
         return { tests: [`${value} === ${cleanNumber(pattern.decimal)}`], bindings: [] };
       case "String":
@@ -1636,8 +1693,12 @@ class JavaScriptEmitter {
           ? this.#exceptions.get(pattern.symbol)
           : undefined;
         const metadata = this.#constructors.get(pattern.symbol);
+        const pinned = this.#pinnedBoolLiteral(pattern.symbol);
         const test = exception !== undefined
           ? `${value} != null && ${value}.$hex === true && ${value}.name === ${JSON.stringify(pattern.text)}`
+          : pinned !== undefined
+          // The pin again: a `Bool` pattern tests the boolean it actually is.
+          ? `${value} === ${pinned}`
           : metadata?.tagged
           ? `${value}.tag === ${JSON.stringify(pattern.text)}`
           : `${value} === ${JSON.stringify(pattern.text)}`;
@@ -1969,6 +2030,21 @@ class JavaScriptEmitter {
       );
     }
     if (step.evidence.kind === "Error") return "false";
+    if (
+      step.evidence.kind === "Structural" &&
+      step.evidence.type.kind === "Union" &&
+      this.#prelude.bool !== undefined &&
+      step.evidence.type.union === this.#prelude.bool
+    ) {
+      // The pin (#147 §3.2/§3.4): comparing two `Bool`s is comparing two JS
+      // booleans, so it is the operator itself — `a === b` for `iff` and `==`,
+      // and `<`/`<=`/`>`/`>=` directly, because `false < true` is exactly the
+      // declaration order `False | True`. Building a dictionary object to call
+      // `.equals` on would be the same answer wrapped in an allocation.
+      if (step.test === "Equal") return `${left} === ${right}`;
+      if (step.test === "NotEqual") return `${left} !== ${right}`;
+      return `${left} ${comparisonOperator(step.test)} ${right}`;
+    }
     if (step.evidence.kind === "Instance" || step.evidence.kind === "Structural") {
       const dictionary = this.#emitEvidence(
         step.evidence,
@@ -2194,6 +2270,12 @@ class JavaScriptEmitter {
     if (type.kind === "Union") {
       const union = this.#module.unions.find(({ id }) => id === type.union);
       if (union === undefined) return "0";
+      // Under the pin (#147) the declaration-index table the string case needs
+      // is unnecessary: `False | True` and JS `false < true` agree by
+      // construction, so ordering is arithmetic on the booleans themselves.
+      if (this.#prelude.bool !== undefined && union.id === this.#prelude.bool) {
+        return `(${left} ? 1 : 0) - (${right} ? 1 : 0)`;
+      }
       const tag = (value: string) => union.constructors
         .map((constructor, index) => `${value} === ${JSON.stringify(constructor.name)} ? ${index} : `)
         .join("") + "-1";
@@ -2377,6 +2459,12 @@ class JavaScriptEmitter {
     if (type.kind === "Union") {
       const union = this.#module.unions.find(({ id }) => id === type.union);
       if (union !== undefined) {
+        // The all-nullary case shows itself, because its representation already
+        // *is* its constructor name. The pinned `Bool` is the one union where
+        // that is not so, so it needs the two-way lookup (#147, §3.2).
+        if (this.#prelude.bool !== undefined && union.id === this.#prelude.bool) {
+          return `${value} ? "True" : "False"`;
+        }
         const tagged = union.constructors.some(({ slots }) => slots.length > 0);
         if (!tagged) return value;
         const replacements = new Map(union.parameters.map((parameter, index) => [
@@ -2471,14 +2559,28 @@ class JavaScriptEmitter {
   }
 
   /**
+   * The pinned JS literal a `Bool` constructor denotes, or `undefined` if this
+   * symbol is not one of the prelude `Bool`'s two constructors (#147).
+   *
+   * This is the whole of the representation pin at the value level: `True` is
+   * `true`, `False` is `false`, and every place that would otherwise spell an
+   * all-nullary constructor as its own name-string asks here first.
+   */
+  #pinnedBoolLiteral(symbol: Resolved.SymbolId): "true" | "false" | undefined {
+    const metadata = this.#constructors.get(symbol);
+    if (metadata === undefined || !metadata.pinnedBool) return undefined;
+    return metadata.constructor.name === "True" ? "true" : "false";
+  }
+
+  /**
    * Whether this is the prelude `Seq` — the one type the emitter bridges at the
    * boundary. A record a *user* declares as `Seq` is an ordinary value and is
    * deliberately not matched: identity, never the spelling.
    */
   #isSequence(type: Typed.Type): boolean {
-    return this.#seqRecord !== undefined &&
+    return this.#prelude.seq !== undefined &&
       type.kind === "NominalRecord" &&
-      type.record === this.#seqRecord;
+      type.record === this.#prelude.seq;
   }
 
   /** The trailing evidence arguments a constrained callee expects (Constraints §6.1). */
@@ -2603,13 +2705,13 @@ class DeclarationEmitter {
   readonly #module: Core.Module;
   readonly #specializations: readonly FundamentalSpecialization[];
   readonly #opaqueBrands: ReadonlyMap<string, string>;
-  /** The prelude `Seq` this module's `.d.ts` face renders as `Iterable<a>`. */
-  readonly #seqRecord: Resolved.RecordId | undefined;
+  /** The prelude identities this module's `.d.ts` face needs; see `PreludeIds`. */
+  readonly #prelude: PreludeIds;
 
   constructor(module: Core.Module) {
     this.#module = module;
     this.#opaqueBrands = opaqueBrandNames(module);
-    this.#seqRecord = module.preludeRecords.get("Seq");
+    this.#prelude = preludeIds(module);
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
     const plan = planFundamentalSpecializations(module);
     this.#specializations = plan.specializations;
@@ -2643,10 +2745,10 @@ class DeclarationEmitter {
             declarations.push(`declare const ${brand}: unique symbol;`);
             declarations.push(`export type ${declaration.localName} = { readonly [${brand}]: never };`);
           } else if (declaration.kind === "ExternFun") {
-            declarations.push(...renderExternFunctionDeclaration(declaration, true, this.#seqRecord));
+            declarations.push(...renderExternFunctionDeclaration(declaration, true, this.#prelude));
           } else {
             declarations.push(
-              `export declare const ${declaration.localName}: ${renderType(declaration.type, new Map(), this.#seqRecord, false)};`,
+              `export declare const ${declaration.localName}: ${renderType(declaration.type, new Map(), this.#prelude, false)};`,
             );
           }
           isExternalModule = true;
@@ -2659,7 +2761,7 @@ class DeclarationEmitter {
         const variables = typeVariableNames(item.parameters);
         const names = item.parameters.map((parameter) => variables.get(parameter)!);
         const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
-        declarations.push(`export type ${item.name}${generics} = ${renderType(item.type, variables, this.#seqRecord, false)};`);
+        declarations.push(`export type ${item.name}${generics} = ${renderType(item.type, variables, this.#prelude, false)};`);
         isExternalModule = true;
         continue;
       }
@@ -2674,7 +2776,7 @@ class DeclarationEmitter {
           isExternalModule = true;
           continue;
         }
-        declarations.push(renderUnionDeclaration(item, item.exported, this.#seqRecord));
+        declarations.push(renderUnionDeclaration(item, item.exported, this.#prelude));
         if (item.exported) {
           isExternalModule = true;
           const variables = typeVariableNames(item.parameters);
@@ -2690,7 +2792,7 @@ class DeclarationEmitter {
               ? item.parameters.length === 0
                 ? item.name
                 : `${item.name}<${item.parameters.map(() => "never").join(", ")}>`
-              : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, this.#seqRecord, false)}`).join(", ")}) => ${result}`;
+              : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, this.#prelude, false)}`).join(", ")}) => ${result}`;
             declarations.push(
               `export declare const ${constructor.name}: ${type};`,
             );
@@ -2711,7 +2813,7 @@ class DeclarationEmitter {
           continue;
         }
         const recordType = `{ ${item.fields.map((field) =>
-          `${field.name}: ${renderType(field.type, variables, this.#seqRecord, false)}`
+          `${field.name}: ${renderType(field.type, variables, this.#prelude, false)}`
         ).join("; ")} }`;
         const result = names.length === 0 ? item.name : `${item.name}<${names.join(", ")}>`;
         declarations.push(`export type ${item.name}${generics} = ${recordType};`);
@@ -2721,11 +2823,11 @@ class DeclarationEmitter {
       }
       if (item.kind === "Exception") {
         if (!item.exported) continue;
-        const face = `Error & { readonly $hex: true; readonly name: ${JSON.stringify(item.binding.name)}${item.slots.map((slot) => `; readonly ${slot.field}: ${renderType(slot.type, new Map(), this.#seqRecord, false)}`).join("")} }`;
+        const face = `Error & { readonly $hex: true; readonly name: ${JSON.stringify(item.binding.name)}${item.slots.map((slot) => `; readonly ${slot.field}: ${renderType(slot.type, new Map(), this.#prelude, false)}`).join("")} }`;
         declarations.push(`export type ${item.binding.name} = ${face};`);
         const constructor = item.slots.length === 0
           ? `() => ${item.binding.name}`
-          : `(${item.slots.map((slot) => `${slot.field}: ${renderType(slot.type, new Map(), this.#seqRecord, false)}`).join(", ")}) => ${item.binding.name}`;
+          : `(${item.slots.map((slot) => `${slot.field}: ${renderType(slot.type, new Map(), this.#prelude, false)}`).join(", ")}) => ${item.binding.name}`;
         declarations.push(`export declare const ${item.binding.name}: ${constructor};`);
         isExternalModule = true;
         continue;
@@ -2746,7 +2848,7 @@ class DeclarationEmitter {
               specialized.binding.scheme,
               specialized.value as Core.LambdaExpr,
               true,
-              this.#seqRecord,
+              this.#prelude,
             ),
           );
         }
@@ -2761,16 +2863,16 @@ class DeclarationEmitter {
         : `__hex_binding${Number(item.binding.symbol)}`;
       if (item.kind === "Fun") {
         declarations.push(
-          renderFunctionDeclaration(local, item.binding.scheme, item.value, safeName, this.#seqRecord),
+          renderFunctionDeclaration(local, item.binding.scheme, item.value, safeName, this.#prelude),
         );
         if (!safeName) {
           declarations.push(`export { ${local} as ${item.binding.name} };`);
         }
       } else if (safeName) {
-        const type = renderScheme(item.binding.scheme, this.#seqRecord, item.value);
+        const type = renderScheme(item.binding.scheme, this.#prelude, item.value);
         declarations.push(`export declare const ${item.binding.name}: ${type};`);
       } else {
-        const type = renderScheme(item.binding.scheme, this.#seqRecord, item.value);
+        const type = renderScheme(item.binding.scheme, this.#prelude, item.value);
         declarations.push(`declare const ${local}: ${type};`);
         declarations.push(`export { ${local} as ${item.binding.name} };`);
       }
@@ -2791,13 +2893,13 @@ class TypeScriptPreviewEmitter {
   readonly #module: Core.Module;
   readonly #specializations: readonly FundamentalSpecialization[];
   readonly #opaqueBrands: ReadonlyMap<string, string>;
-  /** The prelude `Seq` this module's `.d.ts` face renders as `Iterable<a>`. */
-  readonly #seqRecord: Resolved.RecordId | undefined;
+  /** The prelude identities this module's `.d.ts` face needs; see `PreludeIds`. */
+  readonly #prelude: PreludeIds;
 
   constructor(module: Core.Module) {
     this.#module = module;
     this.#opaqueBrands = opaqueBrandNames(module);
-    this.#seqRecord = module.preludeRecords.get("Seq");
+    this.#prelude = preludeIds(module);
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
     const plan = planFundamentalSpecializations(module, true);
     this.#specializations = plan.specializations;
@@ -2832,10 +2934,10 @@ class TypeScriptPreviewEmitter {
             declarations.push(`declare const ${brand}: unique symbol;`);
             declarations.push(`${prefix}type ${declaration.localName} = { readonly [${brand}]: never };`);
           } else if (declaration.kind === "ExternFun") {
-            declarations.push(...renderExternFunctionDeclaration(declaration, declaration.exported, this.#seqRecord));
+            declarations.push(...renderExternFunctionDeclaration(declaration, declaration.exported, this.#prelude));
           } else {
             declarations.push(
-              `${prefix}declare const ${declaration.localName}: ${renderType(declaration.type, new Map(), this.#seqRecord, false)};`,
+              `${prefix}declare const ${declaration.localName}: ${renderType(declaration.type, new Map(), this.#prelude, false)};`,
             );
           }
           isExternalModule ||= declaration.exported;
@@ -2848,7 +2950,7 @@ class TypeScriptPreviewEmitter {
         const variables = typeVariableNames(item.parameters);
         const names = item.parameters.map((parameter) => variables.get(parameter)!);
         const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
-        declarations.push(`${prefix}type ${item.name}${generics} = ${renderType(item.type, variables, this.#seqRecord, false)};`);
+        declarations.push(`${prefix}type ${item.name}${generics} = ${renderType(item.type, variables, this.#prelude, false)};`);
         isExternalModule ||= item.exported;
         continue;
       }
@@ -2864,7 +2966,7 @@ class TypeScriptPreviewEmitter {
           isExternalModule ||= item.exported;
           continue;
         }
-        declarations.push(renderUnionDeclaration(item, item.exported, this.#seqRecord));
+        declarations.push(renderUnionDeclaration(item, item.exported, this.#prelude));
         const variables = typeVariableNames(item.parameters);
         const genericNames = item.parameters.map((parameter) => variables.get(parameter)!);
         const generics = genericNames.length === 0 ? "" : `<${genericNames.join(", ")}>`;
@@ -2877,7 +2979,7 @@ class TypeScriptPreviewEmitter {
             ? item.parameters.length === 0
               ? item.name
               : `${item.name}<${item.parameters.map(() => "never").join(", ")}>`
-            : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, this.#seqRecord, false)}`).join(", ")}) => ${result}`;
+            : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, this.#prelude, false)}`).join(", ")}) => ${result}`;
           declarations.push(
             `${prefix}declare const ${constructor.name}: ${type};`,
           );
@@ -2898,7 +3000,7 @@ class TypeScriptPreviewEmitter {
           continue;
         }
         const recordType = `{ ${item.fields.map((field) =>
-          `${field.name}: ${renderType(field.type, variables, this.#seqRecord, false)}`
+          `${field.name}: ${renderType(field.type, variables, this.#prelude, false)}`
         ).join("; ")} }`;
         const result = names.length === 0 ? item.name : `${item.name}<${names.join(", ")}>`;
         declarations.push(`${prefix}type ${item.name}${generics} = ${recordType};`);
@@ -2908,11 +3010,11 @@ class TypeScriptPreviewEmitter {
       }
       if (item.kind === "Exception") {
         const prefix = item.exported ? "export " : "";
-        const face = `Error & { readonly $hex: true; readonly name: ${JSON.stringify(item.binding.name)}${item.slots.map((slot) => `; readonly ${slot.field}: ${renderType(slot.type, new Map(), this.#seqRecord, false)}`).join("")} }`;
+        const face = `Error & { readonly $hex: true; readonly name: ${JSON.stringify(item.binding.name)}${item.slots.map((slot) => `; readonly ${slot.field}: ${renderType(slot.type, new Map(), this.#prelude, false)}`).join("")} }`;
         declarations.push(`${prefix}type ${item.binding.name} = ${face};`);
         const constructor = item.slots.length === 0
           ? `() => ${item.binding.name}`
-          : `(${item.slots.map((slot) => `${slot.field}: ${renderType(slot.type, new Map(), this.#seqRecord, false)}`).join(", ")}) => ${item.binding.name}`;
+          : `(${item.slots.map((slot) => `${slot.field}: ${renderType(slot.type, new Map(), this.#prelude, false)}`).join(", ")}) => ${item.binding.name}`;
         declarations.push(`${prefix}declare const ${item.binding.name}: ${constructor};`);
         isExternalModule ||= item.exported;
         continue;
@@ -2923,7 +3025,7 @@ class TypeScriptPreviewEmitter {
             ? binding.name
             : `__hex_binding${Number(binding.symbol)}`;
           declarations.push(
-            `declare const ${name}: ${renderScheme(binding.scheme, this.#seqRecord)};`,
+            `declare const ${name}: ${renderScheme(binding.scheme, this.#prelude)};`,
           );
         }
         continue;
@@ -2942,7 +3044,7 @@ class TypeScriptPreviewEmitter {
               specialized.binding.scheme,
               specialized.value as Core.LambdaExpr,
               item.exported,
-              this.#seqRecord,
+              this.#prelude,
             ),
           );
         }
@@ -2961,7 +3063,7 @@ class TypeScriptPreviewEmitter {
               item.binding.scheme,
               item.value,
               isSafeIdentifier(item.binding.name),
-              this.#seqRecord,
+              this.#prelude,
             ),
           );
           if (!isSafeIdentifier(item.binding.name)) {
@@ -2969,22 +3071,22 @@ class TypeScriptPreviewEmitter {
           }
         } else if (isSafeIdentifier(item.binding.name)) {
           declarations.push(
-            `export declare const ${name}: ${renderScheme(item.binding.scheme, this.#seqRecord, item.value)};`,
+            `export declare const ${name}: ${renderScheme(item.binding.scheme, this.#prelude, item.value)};`,
           );
         } else {
           declarations.push(
-            `declare const ${name}: ${renderScheme(item.binding.scheme, this.#seqRecord, item.value)};`,
+            `declare const ${name}: ${renderScheme(item.binding.scheme, this.#prelude, item.value)};`,
           );
           declarations.push(`export { ${name} as ${item.binding.name} };`);
         }
         isExternalModule = true;
       } else if (item.kind === "Fun") {
         declarations.push(
-          renderFunctionDeclaration(name, item.binding.scheme, item.value, false, this.#seqRecord),
+          renderFunctionDeclaration(name, item.binding.scheme, item.value, false, this.#prelude),
         );
       } else {
         declarations.push(
-          `declare const ${name}: ${renderScheme(item.binding.scheme, this.#seqRecord, item.value)};`,
+          `declare const ${name}: ${renderScheme(item.binding.scheme, this.#prelude, item.value)};`,
         );
       }
     }
@@ -3129,7 +3231,6 @@ function isSimplePayloadBindingPattern(pattern: Core.Pattern): boolean {
       return pattern.fields.every((field) =>
         isSimplePayloadBindingPattern(field.pattern)
       );
-    case "Boolean":
     case "Integer":
     case "String":
     case "Constructor":
@@ -3361,7 +3462,6 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
     case "CollectionOperation":
     case "PrimitiveOperation":
     case "Unit":
-    case "Boolean":
     case "Number":
     case "BigInt":
     case "Float":
@@ -4041,12 +4141,12 @@ function comparisonOperator(
 
 function renderScheme(
   scheme: Typed.Scheme,
-  seqRecord: Resolved.RecordId | undefined,
+  prelude: PreludeIds,
   value?: Core.Expr,
 ): string {
   const variables = typeVariableNames(scheme.variables);
   const type = scheme.type;
-  if (type.kind !== "Function") return renderType(type, variables, seqRecord, false);
+  if (type.kind !== "Function") return renderType(type, variables, prelude, false);
   const lambda = value?.kind === "Lambda" ? value : undefined;
 
   const genericNames = scheme.variables.map((variable) => variables.get(variable)!);
@@ -4055,18 +4155,18 @@ function renderScheme(
     : `<${genericNames.join(", ")}>`;
   const names = declarationParameterNames(lambda?.parameters ?? [], type.parameters.length);
   const parameters = type.parameters.map(
-    (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, seqRecord, false),
+    (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, prelude, false),
   );
   return (
     `${generics}(${parameters.join(", ")}) => ` +
-    renderType(type.result, variables, seqRecord, true, lambda?.body)
+    renderType(type.result, variables, prelude, true, lambda?.body)
   );
 }
 
 function renderExternFunctionDeclaration(
   declaration: Core.ExternBlockItem["declarations"][number] & { readonly kind: "ExternFun" },
   exported: boolean,
-  seqRecord: Resolved.RecordId | undefined,
+  prelude: PreludeIds,
 ): readonly string[] {
   const names = declarationParameterNames(
     declaration.parameters,
@@ -4081,9 +4181,9 @@ function renderExternFunctionDeclaration(
   );
   const generics = genericNames.length === 0 ? "" : `<${genericNames.join(", ")}>`;
   const parameters = declaration.parameters.map((parameter, index) =>
-    `${names[index]}: ${renderType(parameter.scheme.type, variables, seqRecord, false)}`
+    `${names[index]}: ${renderType(parameter.scheme.type, variables, prelude, false)}`
   );
-  const result = renderType(declaration.result, variables, seqRecord, true);
+  const result = renderType(declaration.result, variables, prelude, true);
   const safe = isSafeIdentifier(declaration.localName);
   const local = safe
     ? declaration.localName
@@ -4105,11 +4205,11 @@ function renderFunctionDeclaration(
   scheme: Typed.Scheme,
   value: Core.LambdaExpr,
   exported: boolean,
-  seqRecord: Resolved.RecordId | undefined,
+  prelude: PreludeIds,
 ): string {
   if (scheme.type.kind !== "Function") {
     const prefix = exported ? "export " : "";
-    return `${prefix}declare const ${name}: ${renderScheme(scheme, seqRecord, value)};`;
+    return `${prefix}declare const ${name}: ${renderScheme(scheme, prelude, value)};`;
   }
 
   const variables = typeVariableNames(scheme.variables);
@@ -4119,9 +4219,9 @@ function renderFunctionDeclaration(
     : `<${genericNames.join(", ")}>`;
   const names = declarationParameterNames(value.parameters, scheme.type.parameters.length);
   const parameters = scheme.type.parameters.map(
-    (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, seqRecord, false),
+    (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, prelude, false),
   );
-  const result = renderType(scheme.type.result, variables, seqRecord,
+  const result = renderType(scheme.type.result, variables, prelude,
     true,
     value.body,
   );
@@ -4135,7 +4235,7 @@ function renderFunctionDeclaration(
 function renderType(
   type: Typed.Type,
   variables: ReadonlyMap<Typed.TypeVariableId, string>,
-  seqRecord: Resolved.RecordId | undefined,
+  prelude: PreludeIds,
   returnPosition: boolean,
   value?: Core.Expr,
 ): string {
@@ -4146,8 +4246,6 @@ function renderType(
         case "Int":
         case "Float":
           return "number";
-        case "Bool":
-          return "boolean";
         case "String":
           return "string";
         case "BigInt":
@@ -4162,24 +4260,29 @@ function renderType(
     case "Range":
       return "Iterable<number>";
     case "Vector":
-      return `ReadonlyArray<${renderType(type.element, variables, seqRecord, false)}>`;
+      return `ReadonlyArray<${renderType(type.element, variables, prelude, false)}>`;
     case "Set":
-      return `ReadonlySet<${renderType(type.element, variables, seqRecord, false)}>`;
+      return `ReadonlySet<${renderType(type.element, variables, prelude, false)}>`;
     case "Map":
-      return `ReadonlyMap<${renderType(type.key, variables, seqRecord, false)}, ${renderType(type.value, variables, seqRecord, false)}>`;
+      return `ReadonlyMap<${renderType(type.key, variables, prelude, false)}, ${renderType(type.value, variables, prelude, false)}>`;
     case "Array":
-      return `Array<${renderType(type.element, variables, seqRecord, false)}>`;
+      return `Array<${renderType(type.element, variables, prelude, false)}>`;
     case "Node":
       // The hidden trie node never appears in a public `.d.ts`; its honest JS
       // shape is a fixed-length mutable array of the slot type.
-      return `Array<${renderType(type.element, variables, seqRecord, false)}>`;
+      return `Array<${renderType(type.element, variables, prelude, false)}>`;
     case "Nullable":
-      return `${renderType(type.value, variables, seqRecord, false)} | null | undefined`;
+      return `${renderType(type.value, variables, prelude, false)} | null | undefined`;
     case "Union":
+      // The representation pin (#147): the prelude `Bool` faces JavaScript as
+      // `boolean`, not as the `"False" | "True"` string union its all-nullary
+      // shape would otherwise produce. Only the prelude's; a user union spelled
+      // `Bool` renders as itself.
+      if (prelude.bool !== undefined && type.union === prelude.bool) return "boolean";
       return type.arguments.length === 0
         ? type.name
         : `${type.name}<${type.arguments.map((argument) =>
-          renderType(argument, variables, seqRecord, false)
+          renderType(argument, variables, prelude, false)
         ).join(", ")}>`;
     case "NominalRecord":
       // FFI Part 3: `Seq(a)` faces JavaScript as `Iterable<a>`, whatever it is
@@ -4187,25 +4290,25 @@ function renderType(
       // both are decided — the bridge pair is what makes the face honest. Only
       // the *prelude's* `Seq` gets this; a user record spelled `Seq` is an
       // ordinary nominal type.
-      if (seqRecord !== undefined && type.record === seqRecord) {
-        return `Iterable<${renderType(type.arguments[0] ?? { kind: "Error" }, variables, seqRecord, false)}>`;
+      if (prelude.seq !== undefined && type.record === prelude.seq) {
+        return `Iterable<${renderType(type.arguments[0] ?? { kind: "Error" }, variables, prelude, false)}>`;
       }
       return type.arguments.length === 0
         ? type.name
         : `${type.name}<${type.arguments.map((argument) =>
-          renderType(argument, variables, seqRecord, false)
+          renderType(argument, variables, prelude, false)
         ).join(", ")}>`;
     case "ExternType":
       return type.name;
     case "Tuple":
       return (
         `[${type.elements.map((element) =>
-          renderType(element, variables, seqRecord, false)
+          renderType(element, variables, prelude, false)
         ).join(", ")}]`
       );
     case "Record":
       const record = `{ ${type.fields.map(({ name, type: field }) =>
-        `${name}: ${renderType(field, variables, seqRecord, false)}`
+        `${name}: ${renderType(field, variables, prelude, false)}`
       ).join("; ")} }`;
       return type.tail === undefined
         ? record
@@ -4217,11 +4320,11 @@ function renderType(
         type.parameters.length,
       );
       const parameters = type.parameters.map(
-        (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, seqRecord, false),
+        (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, prelude, false),
       );
       return (
         `(${parameters.join(", ")}) => ` +
-        renderType(type.result, variables, seqRecord, true, lambda?.body)
+        renderType(type.result, variables, prelude, true, lambda?.body)
       );
     }
     case "Error":
@@ -4269,16 +4372,22 @@ function declarationParameterNames(
 function renderUnionDeclaration(
   item: Core.UnionItem,
   exported: boolean,
-  seqRecord: Resolved.RecordId | undefined,
+  prelude: PreludeIds,
 ): string {
   const prefix = exported ? "export " : "";
   const variables = typeVariableNames(item.parameters);
   const genericNames = item.parameters.map((parameter) => variables.get(parameter)!);
   const generics = genericNames.length === 0 ? "" : `<${genericNames.join(", ")}>`;
+  // The pin (#147): the declaration site has to agree with every use site, so
+  // the prelude `Bool`'s own alias is `boolean`, not the `"False" | "True"`
+  // string union its all-nullary shape would otherwise produce.
+  if (prelude.bool !== undefined && item.union === prelude.bool) {
+    return `${prefix}type ${item.name} = boolean;`;
+  }
   const tagged = item.constructors.some(({ slots }) => slots.length > 0);
   const alternatives = item.constructors
     .map(({ name, slots }) => tagged
-      ? `{ tag: ${JSON.stringify(name)}${slots.map(({ field, type }) => `; ${field}: ${renderType(type, variables, seqRecord, false)}`).join("")} }`
+      ? `{ tag: ${JSON.stringify(name)}${slots.map(({ field, type }) => `; ${field}: ${renderType(type, variables, prelude, false)}`).join("")} }`
       : JSON.stringify(name))
     .join(" | ");
   return `${prefix}type ${item.name}${generics} = ${alternatives};`;
@@ -4290,7 +4399,6 @@ function patternBindings(pattern: Core.Pattern): Core.Binding[] {
       return [pattern.binding];
     case "Wildcard":
     case "Unit":
-    case "Boolean":
     case "Integer":
     case "String":
       return [];

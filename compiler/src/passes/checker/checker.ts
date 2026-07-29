@@ -232,6 +232,17 @@ class Checker {
    */
   #seqRecord: Resolved.RecordId | undefined;
   /**
+   * The prelude `Bool` union's identity (#147). `Bool` stopped being a primitive
+   * and became `union Bool = False | True` declared in `stdlib/Bool.hex`, so every
+   * condition, guard, logic operand, comparison result, and compiler-known
+   * predicate has to name *that* declaration. Taken from `preludeUnions` rather
+   * than by scanning names, so a module declaring its own `Bool` occludes the
+   * spelling (§5.4) without redirecting `if`. The local-declaration fallback
+   * exists for exactly one module: `Bool.hex` itself, where the prelude cannot
+   * supply what the file is in the middle of declaring.
+   */
+  #boolUnion: Resolved.UnionId | undefined;
+  /**
    * Per intrinsic declaration, the variables its annotations introduced. Shared
    * between scheme construction and materialization so both name the same
    * variables — without it the materialized result type would carry a fresh
@@ -279,6 +290,8 @@ class Checker {
 
   check(module: Resolved.Module): Typed.Module {
     this.#seqRecord = module.preludeRecords.get("Seq");
+    this.#boolUnion = module.preludeUnions.get("Bool")
+      ?? module.unions.find((union) => union.name === "Bool")?.id;
     for (const externType of module.externTypes) {
       this.#externTypes.set(externType.externType, externType);
     }
@@ -683,6 +696,7 @@ class Checker {
       unions: module.unions.map((union) => this.#materializeUnion(union)),
       records: module.records.map((record) => this.#materializeRecord(record)),
       preludeRecords: module.preludeRecords,
+      preludeUnions: module.preludeUnions,
       externTypes: module.externTypes,
       comments: module.comments,
       span: module.span,
@@ -1269,15 +1283,33 @@ class Checker {
     return ERROR;
   }
 
+  /**
+   * `Bool` as the compiler's own producers must speak it (#147). The same shape
+   * as `#orderingType`, and absent for the same kind of reason — a module the
+   * prelude `Bool` cannot reach — except that here the only such module declares
+   * `Bool` itself and the constructor's fallback has already found it.
+   */
+  #boolType(span: Source.Span): Mono {
+    if (this.#boolUnion === undefined) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: "the prelude `Bool` union is not in scope; a condition cannot be typed",
+        primary: span,
+      });
+      return ERROR;
+    }
+    return { kind: "Union", union: this.#boolUnion, name: "Bool", arguments: [] };
+  }
+
   #checkPreludeHonor(item: Resolved.HonorItem, level: number): boolean {
     const subject = this.#instanceSubjects.get(item) ?? ERROR;
     const members = new Map<string, { parameters: readonly Mono[]; result: Mono; optional?: boolean }>();
     const binary = { parameters: [subject, subject], result: subject };
     if (item.constraint === "Eq") {
-      members.set("equals", { parameters: [subject, subject], result: primitive("Bool") });
+      members.set("equals", { parameters: [subject, subject], result: this.#boolType(item.span) });
       members.set("notEquals", {
         parameters: [subject, subject],
-        result: primitive("Bool"),
+        result: this.#boolType(item.span),
         optional: true,
       });
     } else if (item.constraint === "Ord") {
@@ -1459,9 +1491,9 @@ class Checker {
       if (operation === "empty") return { kind: "Function", parameters: [], result: map };
       if (operation === "set") return { kind: "Function", parameters: [map, key, value], result: map };
       if (operation === "remove") return { kind: "Function", parameters: [map, key], result: map };
-      if (operation === "containsKey") return { kind: "Function", parameters: [map, key], result: primitive("Bool") };
+      if (operation === "containsKey") return { kind: "Function", parameters: [map, key], result: this.#boolType(span) };
       if (operation === "size") return { kind: "Function", parameters: [map], result: primitive("Int") };
-      if (operation === "isEmpty") return { kind: "Function", parameters: [map], result: primitive("Bool") };
+      if (operation === "isEmpty") return { kind: "Function", parameters: [map], result: this.#boolType(span) };
       const entry: Mono = { kind: "Tuple", elements: [key, value] };
       if (operation === "keys") return { kind: "Function", parameters: [map], result: this.#sequence(key, span) };
       if (operation === "values") return { kind: "Function", parameters: [map], result: this.#sequence(value, span) };
@@ -1476,11 +1508,11 @@ class Checker {
       }
       if (operation === "empty") return { kind: "Function", parameters: [], result: set };
       if (operation === "add" || operation === "remove") return { kind: "Function", parameters: [set, element], result: set };
-      if (operation === "contains") return { kind: "Function", parameters: [set, element], result: primitive("Bool") };
+      if (operation === "contains") return { kind: "Function", parameters: [set, element], result: this.#boolType(span) };
       if (["union", "intersect", "difference"].includes(operation)) return { kind: "Function", parameters: [set, set], result: set };
-      if (operation === "isSubsetOf") return { kind: "Function", parameters: [set, set], result: primitive("Bool") };
+      if (operation === "isSubsetOf") return { kind: "Function", parameters: [set, set], result: this.#boolType(span) };
       if (operation === "size") return { kind: "Function", parameters: [set], result: primitive("Int") };
-      if (operation === "isEmpty") return { kind: "Function", parameters: [set], result: primitive("Bool") };
+      if (operation === "isEmpty") return { kind: "Function", parameters: [set], result: this.#boolType(span) };
       if (operation === "toSeq") return { kind: "Function", parameters: [set], result: this.#sequence(element, span) };
       if (operation === "fromVector") return { kind: "Function", parameters: [{ kind: "Vector", element }], result: set };
       if (operation === "fromSeq") return { kind: "Function", parameters: [this.#sequence(element, span)], result: set };
@@ -1498,7 +1530,7 @@ class Checker {
       const vector: VectorMono = { kind: "Vector", element };
       if (operation === "empty") return { kind: "Function", parameters: [], result: vector };
       if (operation === "size") return { kind: "Function", parameters: [vector], result: primitive("Int") };
-      if (operation === "isEmpty") return { kind: "Function", parameters: [vector], result: primitive("Bool") };
+      if (operation === "isEmpty") return { kind: "Function", parameters: [vector], result: this.#boolType(span) };
       if (operation === "append") return { kind: "Function", parameters: [vector, element], result: vector };
       if (operation === "prepend") return { kind: "Function", parameters: [vector, element], result: vector };
       if (operation === "at") return { kind: "Function", parameters: [vector, primitive("Int")], result: element };
@@ -1550,9 +1582,6 @@ class Checker {
         break;
       case "Unit":
         type = primitive("Unit");
-        break;
-      case "Boolean":
-        type = primitive("Bool");
         break;
       case "Integer": {
         type = this.#fresh(level, true);
@@ -1759,7 +1788,7 @@ class Checker {
       }
       case "If": {
         const condition = this.#inferExpr(expression.condition, level);
-        this.#unify(condition, primitive("Bool"), expression.condition.span);
+        this.#unify(condition, this.#boolType(expression.condition.span), expression.condition.span);
         const consequence = this.#inferExpr(expression.consequence, level);
         const alternative = this.#inferExpr(expression.alternative, level);
         if (expression.elseless) {
@@ -1811,7 +1840,7 @@ class Checker {
       }
       case "While": {
         const condition = this.#inferExpr(expression.condition, level);
-        this.#unify(condition, primitive("Bool"), expression.condition.span);
+        this.#unify(condition, this.#boolType(expression.condition.span), expression.condition.span);
         const body = this.#inferExpr(expression.body, level);
         this.#defaultDiscardedLiteral(body, expression.body.span);
         this.#unify(body, primitive("Unit"), expression.body.span, () =>
@@ -1911,7 +1940,6 @@ class Checker {
               }
               if (!guarded) armConstructors.push(coveragePattern);
             } else if (
-              coveragePattern.kind === "Boolean" ||
               coveragePattern.kind === "Integer" ||
               coveragePattern.kind === "String"
             ) {
@@ -1923,12 +1951,7 @@ class Checker {
                   primary: coveragePattern.span,
                 });
               }
-              if (!guarded) {
-                coveredLiterals.add(key);
-                if (coveragePattern.kind === "Boolean") {
-                  coveredBooleans.add(coveragePattern.value);
-                }
-              }
+              if (!guarded) coveredLiterals.add(key);
             } else if (isStructurallyIrrefutablePattern(coveragePattern)) {
               armCatchesAll = true;
             }
@@ -1945,7 +1968,7 @@ class Checker {
           this.#inferMatchPattern(arm.pattern, scrutinee, level);
           if (arm.guard !== undefined) {
             const guard = this.#inferExpr(arm.guard, level);
-            this.#unify(guard, primitive("Bool"), arm.guard.span);
+            this.#unify(guard, this.#boolType(arm.guard.span), arm.guard.span);
           }
           this.#unify(result, this.#inferExpr(arm.body, level), arm.body.span);
         }
@@ -1976,15 +1999,9 @@ class Checker {
             message: "match requires a closed type; exceptions are inspected with `try`/`catch`",
             primary: expression.scrutinee.span,
           });
-        } else if (actual.kind === "Constructor" && actual.name === "Bool") {
-          if (!catchAll && coveredBooleans.size < 2) {
-            const missing = coveredBooleans.has(true) ? "false" : "true";
-            this.#diagnostics.add({
-              severity: "error",
-              message: `match is missing case \`${missing}\``,
-              primary: expression.span,
-            });
-          }
+        // #147 deleted the `Bool` branch that stood here. `Bool` is a union, so
+        // it reaches the closed-constructor path above like every other union,
+        // and reports its missing case as `False`/`True` by that machinery.
         } else if (
           actual.kind === "Constructor" &&
           (actual.name === "Int" || actual.name === "String")
@@ -2101,7 +2118,7 @@ class Checker {
           this.#inferExceptionPattern(arm.pattern, level);
           if (arm.guard !== undefined) {
             const guard = this.#inferExpr(arm.guard, level);
-            this.#unify(guard, primitive("Bool"), arm.guard.span);
+            this.#unify(guard, this.#boolType(arm.guard.span), arm.guard.span);
           }
           this.#unify(result, this.#inferExpr(arm.body, level), arm.body.span);
         }
@@ -2234,8 +2251,8 @@ class Checker {
       case "Unary": {
         const operand = this.#inferExpr(expression.operand, level);
         if (expression.operator === "Not") {
-          this.#unify(operand, primitive("Bool"), expression.span);
-          type = primitive("Bool");
+          this.#unify(operand, this.#boolType(expression.span), expression.span);
+          type = this.#boolType(expression.span);
           this.#requirements.set(expression, []);
         } else {
           const requirement = this.#require("Signed", operand, expression.span);
@@ -2283,7 +2300,7 @@ class Checker {
           ),
         );
         this.#requirements.set(expression, requirements);
-        type = primitive("Bool");
+        type = this.#boolType(expression.span);
         break;
       }
       case "Assignment": {
@@ -2538,7 +2555,6 @@ class Checker {
       return;
     }
     if (
-      pattern.kind === "Boolean" ||
       pattern.kind === "Integer" ||
       pattern.kind === "String"
     ) {
@@ -2636,10 +2652,6 @@ class Checker {
       for (const [symbol, type] of common) {
         this.#schemes.set(symbol, { variables: [], type });
       }
-      return;
-    }
-    if (pattern.kind === "Boolean") {
-      this.#unify(expected, primitive("Bool"), pattern.span);
       return;
     }
     if (pattern.kind === "Integer") {
@@ -2783,14 +2795,6 @@ class Checker {
       if (pattern.alternatives.some((alternative) =>
         this.#isIrrefutablePattern(alternative, actual)
       )) return true;
-      if (actual.kind === "Constructor" && actual.name === "Bool") {
-        const values = new Set<boolean>();
-        for (const alternative of pattern.alternatives) {
-          const unwrapped = unwrapAsPattern(alternative);
-          if (unwrapped.kind === "Boolean") values.add(unwrapped.value);
-        }
-        return values.size === 2;
-      }
       if (actual.kind === "Union") {
         const union = this.#unions.get(actual.union);
         return union?.constructors.every((constructor) =>
@@ -2889,10 +2893,22 @@ class Checker {
     const right = this.#inferExpr(expression.right, level);
 
     if (["And", "Or", "Implies", "Iff"].includes(expression.operator)) {
-      this.#unify(left, primitive("Bool"), expression.left.span);
-      this.#unify(right, primitive("Bool"), expression.right.span);
-      this.#requirements.set(expression, []);
-      return primitive("Bool");
+      const bool = this.#boolType(expression.span);
+      this.#unify(left, bool, expression.left.span);
+      this.#unify(right, bool, expression.right.span);
+      // `iff` lowers to `Eq<Bool>` equality (§5.5's derived-logic table), so it
+      // needs a real, *resolved* requirement — evidence selection runs over the
+      // registered ones. Before #147 `Eq<Bool>` was primitive evidence the
+      // elaborator could name from the type alone; now it is the prelude
+      // declaration's derived instance and has to be selected like any other.
+      // The other four operators require nothing: they are structural forms.
+      this.#requirements.set(
+        expression,
+        expression.operator === "Iff"
+          ? [this.#require("Eq", bool, expression.span, "operation")]
+          : [],
+      );
+      return bool;
     }
 
     if (expression.operator === "Range") {
@@ -3638,6 +3654,33 @@ class Checker {
       requirement.structural = true;
       return;
     }
+    // The pinned `Bool` satisfies its four derivable constraints **structurally**
+    // (#147). The instances themselves are real and derived — `stdlib/Bool.hex`
+    // declares them through the ordinary `derives` door, and `Bool.js` exports
+    // them — but a *direct* use inlines the same structural code instead of
+    // reaching for the dictionary, exactly as a tuple or a vector does above.
+    //
+    // Why: without this, naming `Bool` in a signature drags four unused
+    // dictionary imports into the emitted JavaScript of nearly every module,
+    // because a module's interface is fixed before checking and so the import
+    // cannot be pruned afterwards (see the `Import` case in `#materializeItem`).
+    // Structural satisfaction agrees with the declared instances by
+    // construction, since both are the derivation of the same declaration.
+    //
+    // **Flagged for review:** this is the one place where emission quality was
+    // put ahead of a literal reading of decisions doc §3.5 ("`Eq<Bool>` … cease
+    // to be compiler-provided instances"). The instances have not moved back
+    // into the compiler — the declaration still owns them — but the compiler
+    // does now satisfy a direct requirement without consulting them.
+    if (
+      this.#boolUnion !== undefined &&
+      type.kind === "Union" &&
+      type.union === this.#boolUnion &&
+      ["Eq", "Ord", "Show", "Hash"].includes(requirement.name)
+    ) {
+      requirement.structural = true;
+      return;
+    }
     const instance = this.#instances.get(this.#instanceKey(requirement.name, type));
     if (instance !== undefined) {
       requirement.dictionary = instance.dictionary;
@@ -3668,7 +3711,11 @@ class Checker {
     this.#diagnostics.add({
       severity: "error",
       message:
-        requirement.origin === "literal" && type.kind === "Constructor"
+        // `type.kind === "Union"` since #147: `Bool` is the common case of a
+        // literal landing on a type with no `Num`, and it stopped being a
+        // `Constructor` when it left the primitive set.
+        requirement.origin === "literal" &&
+          (type.kind === "Constructor" || type.kind === "Union")
           ? `integer literal cannot have type \`${type.name}\``
           : type.kind === "Function"
           ? `functions have no \`${requirement.name}\` instance`
@@ -4549,7 +4596,6 @@ class Checker {
   #isValue(expression: Resolved.Expr): boolean {
     switch (expression.kind) {
       case "Unit":
-      case "Boolean":
       case "Integer":
       case "BigInt":
       case "Float":
@@ -4755,6 +4801,13 @@ class Checker {
 
   #materializeItem(item: Resolved.Item): Typed.Item {
     if (item.kind === "ErrorItem") return item;
+    // Imports pass through unchanged. Pruning an import's unused instance
+    // dictionaries was tried and reverted (#147): a module's interface — which
+    // is what downstream modules build their own imports from — is computed
+    // before checking, so dropping an instance here makes a consumer import a
+    // name the producer no longer exports. Unused evidence in the emitted
+    // JavaScript is a readability defect worth its own issue, not something to
+    // fix by breaking the interface contract.
     if (item.kind === "Import") return item;
     if (item.kind === "ExternImport") return item;
     if (item.kind === "ExternBlock") {
@@ -4985,7 +5038,6 @@ class Checker {
     if (
       pattern.kind === "Wildcard" ||
       pattern.kind === "Unit" ||
-      pattern.kind === "Boolean" ||
       pattern.kind === "Integer" ||
       pattern.kind === "String"
     ) return pattern;
@@ -5157,7 +5209,6 @@ class Checker {
       case "CollectionOperation":
       case "PrimitiveOperation":
       case "Unit":
-      case "Boolean":
       case "BigInt":
       case "Float":
       case "ErrorExpr":
@@ -5464,14 +5515,18 @@ class Checker {
       };
     }
     if (expression.operator === "Iff") {
-      const bool: Typed.PrimitiveType = { kind: "Primitive", name: "Bool" };
+      // `a iff b` is `Eq<Bool>` equality over the requirement registered while
+      // checking it, so the evidence the elaborator sees is the same selected
+      // instance an ordinary `==` would carry (#147).
       return {
         kind: "ComparisonChain",
         operands: [left, right],
         steps: [
           {
             test: "Equal",
-            requirement: { name: "Eq", type: bool, span: expression.span },
+            requirement: this.#publicRequirement(
+              this.#requirements.get(expression)?.[0]!,
+            ),
             span: expression.span,
           },
         ],
@@ -5586,11 +5641,9 @@ function rewritePipe(expression: Resolved.BinaryExpr): Resolved.CallExpr {
 }
 
 function renderLiteralPatternKey(
-  pattern: Resolved.BooleanPattern | Resolved.IntegerPattern | Resolved.StringPattern,
+  pattern: Resolved.IntegerPattern | Resolved.StringPattern,
 ): string {
   switch (pattern.kind) {
-    case "Boolean":
-      return `Bool:${pattern.value}`;
     case "Integer":
       return `Int:${pattern.decimal}`;
     case "String":
@@ -5826,7 +5879,6 @@ function resolvedPatternBindings(
       return [pattern.binding];
     case "Wildcard":
     case "Unit":
-    case "Boolean":
     case "Integer":
     case "String":
       return [];
@@ -5872,7 +5924,6 @@ function isStructurallyIrrefutablePattern(pattern: Resolved.Pattern): boolean {
       return pattern.fields.every((field) =>
         isStructurallyIrrefutablePattern(field.pattern)
       );
-    case "Boolean":
     case "Integer":
     case "String":
     case "Constructor":
@@ -5888,7 +5939,10 @@ function supports(
     Nat: ["Num", "Eq", "Ord", "Show", "Pow", "Hash", "Integral"],
     Int: ["Num", "Signed", "Eq", "Ord", "Show", "Pow", "Hash", "Integral"],
     Float: ["Num", "Signed", "Frac", "Eq", "Ord", "Show", "Pow", "Hash"],
-    Bool: ["Eq", "Ord", "Show", "Hash"],
+    // No `Bool` row (#147): its four instances are *derived* from the `derives`
+    // clause in `stdlib/Bool.hex`, through the same door a user's union uses,
+    // rather than decreed here. That is the whole point of the declaration being
+    // real prelude source — see Collections Part 2 §4.4.
     String: ["Eq", "Ord", "Show", "Concat", "Hash"],
     BigInt: ["Num", "Signed", "Eq", "Ord", "Show", "Pow", "Hash", "Integral"],
     Exn: [],

@@ -57,7 +57,7 @@ uppercase-start, so an uppercase name immediately before `.` can only be a modul
 alias or a companion, and it gets `entity.name.namespace`.
 
 **Contextual keywords are matched by position, not spelling.** §4.2's whole point
-is that `let when = true` is legal and `{with = 3}` is a field. Each contextual
+is that `let when = True` is legal and `{with = 3}` is a field. Each contextual
 rule pins the position the spec lists for it — `from` only before a specifier
 string, `when` only before an arm's `=>`, `opaque` only before `record`/`union`,
 and the FFI vocabulary (`get`, `set`, `new`, `method`, `static`, `default`,
@@ -68,6 +68,12 @@ by the next line that starts in column zero.
 accepted source or a hard error. `__hex_` names, `0xFF`, `.5`, `1.`, `1__0`,
 `12cats`, unknown string escapes, a bare `#{`, an unmatched `*/`, and `&&`/`||`/`!`
 all get `invalid.illegal.*`, so the editor shows them before the compiler does.
+
+`true` and `false` are on that list (#147). `Bool` is the prelude union
+`False | True`, so the two words are reserved spellings with no value meaning, and
+the compiler answers them with a one-token redirect. Their replacements need no rule:
+`True` and `False` are ordinary uppercase-start names and take `entity.name.type`
+along with every other constructor, `None` included.
 
 ## Tests
 

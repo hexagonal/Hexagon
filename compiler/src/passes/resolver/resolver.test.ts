@@ -219,9 +219,12 @@ describe("resolve", () => {
   });
 
   test("resolves forward and mutual function references as one recursive group", () => {
+    // `Int`, not `Bool`: since #147 `Bool` is a prelude declaration, and this
+    // harness resolves one module with no prelude. The recursion group is what
+    // is under test, and the annotation plays no part in forming it.
     const module = resolveSource(
-      "fun even(n: Int): Bool = odd(n - 1)\n" +
-        "fun odd(n: Int): Bool = even(n - 1)",
+      "fun even(n: Int): Int = odd(n - 1)\n" +
+        "fun odd(n: Int): Int = even(n - 1)",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -500,7 +503,6 @@ function visitExpr(
       visitExpr(expression.target, symbols, sourceLength);
       return visitExpr(expression.value, symbols, sourceLength);
     case "Unit":
-    case "Boolean":
     case "Integer":
     case "BigInt":
     case "Float":

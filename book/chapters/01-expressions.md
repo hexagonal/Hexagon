@@ -35,7 +35,6 @@ An expression is a piece of a program that produces a value. Literals are expres
 ```hexagon
 42
 "ready"
-true
 ()
 ```
 

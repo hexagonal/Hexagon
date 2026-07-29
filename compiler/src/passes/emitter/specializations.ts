@@ -34,7 +34,16 @@ export interface SpecializationPlan {
   readonly collisions: readonly SpecializationCollision[];
 }
 
-export type FundamentalType = Exclude<Typed.PrimitiveName, "Exn">;
+/**
+ * The zero-cost fundamental set (`ffi-zero-cost-fundamental-exports.md` §2.1).
+ * **Defined by enumeration, not derived from type classification** — the spec's
+ * own framing, and #147 is what makes the distinction bite: `Bool` left the
+ * primitive set to become a prelude union and stayed in this set unchanged,
+ * because membership is a language category rather than an inference from how a
+ * type happens to be classified. Algorithm G's fundamental/non-fundamental split
+ * is unaffected by the reclassification.
+ */
+export type FundamentalType = Exclude<Typed.PrimitiveName, "Exn"> | "Bool";
 
 const fundamentalTypes: readonly FundamentalType[] = [
   "Nat",
@@ -55,10 +64,14 @@ export function planFundamentalSpecializations(
   const generated = new Map<string, FundamentalSpecialization>();
   const specializations: FundamentalSpecialization[] = [];
   const collisions: SpecializationCollision[] = [];
+  // #147: `Bool` is a fundamental type that is no longer a primitive, so an
+  // edition assigning it has to name the prelude declaration.
+  const bool = module.preludeUnions.get("Bool")
+    ?? module.unions.find(({ name }) => name === "Bool")?.id;
 
   for (const item of module.items) {
     if (!isSpecializable(item) || (!includePrivate && !item.exported)) continue;
-    const planned = planItem(item);
+    const planned = planItem(item, bool);
     for (const specialization of planned) {
       let collided = false;
       const explicit = explicitTerms.get(specialization.name);
@@ -109,7 +122,10 @@ export function specializeItem(
   } as SpecializableItem;
 }
 
-function planItem(item: SpecializableItem): readonly FundamentalSpecialization[] {
+function planItem(
+  item: SpecializableItem,
+  bool: Resolved.UnionId | undefined,
+): readonly FundamentalSpecialization[] {
   if (item.binding.scheme.constraints.length === 0) return [];
   if (item.kind === "Let" && item.value.kind !== "Lambda") return [];
 
@@ -147,7 +163,7 @@ function planItem(item: SpecializableItem): readonly FundamentalSpecialization[]
       assignment,
       scheme: specializeScheme(item.binding.scheme, new Map(
         assignment.map(({ variable, type }) => [variable, type] as const),
-      )),
+      ), bool),
     };
   });
 }
@@ -155,6 +171,7 @@ function planItem(item: SpecializableItem): readonly FundamentalSpecialization[]
 function specializeScheme(
   scheme: Typed.Scheme,
   substitutions: ReadonlyMap<Typed.TypeVariableId, FundamentalType>,
+  bool: Resolved.UnionId | undefined,
 ): Typed.Scheme {
   return {
     variables: scheme.variables.filter((variable) => !substitutions.has(variable)),
@@ -162,56 +179,66 @@ function specializeScheme(
       .filter(({ type }) => type.kind !== "Variable" || !substitutions.has(type.id))
       .map((constraint) => ({
         ...constraint,
-        type: substituteType(constraint.type, substitutions),
+        type: substituteType(constraint.type, substitutions, bool),
       })),
-    type: substituteType(scheme.type, substitutions),
+    type: substituteType(scheme.type, substitutions, bool),
   };
 }
 
 function substituteType(
   type: Typed.Type,
   substitutions: ReadonlyMap<Typed.TypeVariableId, FundamentalType>,
+  bool: Resolved.UnionId | undefined,
 ): Typed.Type {
   switch (type.kind) {
     case "Variable": {
       const replacement = substitutions.get(type.id);
-      return replacement === undefined ? type : { kind: "Primitive", name: replacement };
+      if (replacement === undefined) return type;
+      // Six of the seven fundamental types are primitives and become a
+      // primitive node. `Bool` is the exception since #147 — it is a prelude
+      // union that stayed in the fundamental set by enumeration — so its
+      // edition has to name the declaration, not a primitive that no longer
+      // exists.
+      if (replacement !== "Bool") return { kind: "Primitive", name: replacement };
+      return bool === undefined
+        ? { kind: "Error" }
+        : { kind: "Union", union: bool, name: "Bool", arguments: [] };
     }
     case "Function":
       return {
         ...type,
         parameters: type.parameters.map((parameter) =>
-          substituteType(parameter, substitutions)
+          substituteType(parameter, substitutions, bool)
         ),
-        result: substituteType(type.result, substitutions),
+        result: substituteType(type.result, substitutions, bool),
       };
     case "Tuple":
       return {
         ...type,
-        elements: type.elements.map((element) => substituteType(element, substitutions)),
+        elements: type.elements.map((element) => substituteType(element, substitutions, bool)),
       };
     case "Vector":
-      return { ...type, element: substituteType(type.element, substitutions) };
+      return { ...type, element: substituteType(type.element, substitutions, bool) };
     case "Set":
-      return { ...type, element: substituteType(type.element, substitutions) };
+      return { ...type, element: substituteType(type.element, substitutions, bool) };
     case "Map":
       return {
         ...type,
-        key: substituteType(type.key, substitutions),
-        value: substituteType(type.value, substitutions),
+        key: substituteType(type.key, substitutions, bool),
+        value: substituteType(type.value, substitutions, bool),
       };
     case "Array":
-      return { ...type, element: substituteType(type.element, substitutions) };
+      return { ...type, element: substituteType(type.element, substitutions, bool) };
     case "Node":
-      return { ...type, element: substituteType(type.element, substitutions) };
+      return { ...type, element: substituteType(type.element, substitutions, bool) };
     case "Nullable":
-      return { ...type, value: substituteType(type.value, substitutions) };
+      return { ...type, value: substituteType(type.value, substitutions, bool) };
     case "Record":
       return {
         ...type,
         fields: type.fields.map((field) => ({
           ...field,
-          type: substituteType(field.type, substitutions),
+          type: substituteType(field.type, substitutions, bool),
         })),
       };
     case "Union":
@@ -219,7 +246,7 @@ function substituteType(
       return {
         ...type,
         arguments: type.arguments.map((argument) =>
-          substituteType(argument, substitutions)
+          substituteType(argument, substitutions, bool)
         ),
       };
     case "Primitive":
@@ -328,7 +355,6 @@ function patternBindingNames(pattern: Core.Pattern): readonly string[] {
       return pattern.arguments.flatMap(patternBindingNames);
     case "Wildcard":
     case "Unit":
-    case "Boolean":
     case "Integer":
     case "String":
       return [];

@@ -28,11 +28,12 @@ export type SymbolKind =
   | "extern"
   | "constraint-member";
 
+// #147: no `Bool`. It is the prelude union `False | True`, resolved like any
+// other union name.
 export type PrimitiveName =
   | "Nat"
   | "Int"
   | "Float"
-  | "Bool"
   | "String"
   | "BigInt"
   | "Exn"
@@ -216,6 +217,14 @@ export interface Module {
    * prelude type without spelling it.
    */
   readonly preludeRecords: ReadonlyMap<string, RecordId>;
+  /**
+   * Union identities the prelude supplies, by name — the `preludeRecords`
+   * channel for unions, and for the same occlusion reason. `Bool` is why this
+   * exists (#147): since it stopped being a primitive, every condition, guard,
+   * comparison, and predicate result the checker builds has to name the
+   * *prelude's* `Bool`, which a module declaring its own `Bool` must not move.
+   */
+  readonly preludeUnions: ReadonlyMap<string, UnionId>;
   readonly externTypes: readonly ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
   readonly span: Source.Span;
@@ -362,7 +371,6 @@ export type Pattern =
   | BindingPattern
   | WildcardPattern
   | UnitPattern
-  | BooleanPattern
   | IntegerPattern
   | StringPattern
   | VectorPattern
@@ -401,12 +409,8 @@ export interface OrPattern {
   readonly span: Source.Span;
 }
 
-export interface BooleanPattern {
-  readonly kind: "Boolean";
-  readonly value: boolean;
-  readonly span: Source.Span;
-}
-
+// #147: no `BooleanPattern`. `True`/`False` are nullary constructors, so
+// they are `ConstructorPattern`s like `None`.
 export interface IntegerPattern {
   readonly kind: "Integer";
   readonly decimal: string;
@@ -600,7 +604,6 @@ export interface ErrorItem {
 export type Expr =
   | NameExpr
   | UnitExpr
-  | BooleanExpr
   | IntegerExpr
   | BigIntExpr
   | FloatExpr
@@ -642,12 +645,8 @@ export interface UnitExpr {
   readonly span: Source.Span;
 }
 
-export interface BooleanExpr {
-  readonly kind: "Boolean";
-  readonly value: boolean;
-  readonly span: Source.Span;
-}
-
+// #147: no `BooleanExpr`. `True`/`False` are constructor *names*, so they are
+// ordinary `Name` references; the reserved words `true`/`false` never reach a tree.
 export interface IntegerExpr {
   readonly kind: "Integer";
   readonly decimal: string;

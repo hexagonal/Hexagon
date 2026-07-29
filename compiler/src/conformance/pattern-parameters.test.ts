@@ -8,6 +8,8 @@
  */
 import { describe, expect, test } from "vitest";
 
+import { compileMain, runMain } from "../support/test-project.js";
+
 import * as Source from "../support/source.js";
 import { lex } from "../passes/lexer/lexer.js";
 import { applyLayout } from "../passes/layout/layout.js";
@@ -17,11 +19,10 @@ import { check } from "../passes/checker/checker.js";
 import { elaborate } from "../passes/elaborator/elaborator.js";
 import { emitDeclarations, emitJavaScript } from "../passes/emitter/emitter.js";
 
+// Through the whole project, prelude included: since #147 `Bool` is a prelude
+// declaration, so a probe module compiled on its own cannot name it.
 function diagnostics(source: string): string[] {
-  const file = new Source.File(Source.fileId(0), "/probe.hex", source);
-  const resolved = resolve(parse(applyLayout(lex(file))), {});
-  const typed = check(resolved);
-  return [...resolved.diagnostics, ...typed.diagnostics].map(({ message }) => message);
+  return [...compileMain(source).diagnostics.map(({ message }) => message)];
 }
 
 /** Where a `duplicate parameter` diagnostic puts its two markers, as source offsets. */
@@ -45,24 +46,12 @@ function renderedParameterNames(source: string): string[] {
 }
 
 function declarations(source: string): string {
-  const file = new Source.File(Source.fileId(0), "/probe.hex", source);
-  const resolved = resolve(parse(applyLayout(lex(file))), {});
-  const typed = check(resolved);
-  expect([...resolved.diagnostics, ...typed.diagnostics]).toEqual([]);
-  return emitDeclarations(elaborate(typed)).text;
+  const project = compileMain(source);
+  expect(project.diagnostics).toEqual([]);
+  return project.modules.find(({ source: file }) => file.path === "/main.hex")!.declarations.text;
 }
 
-async function run(source: string): Promise<Record<string, unknown>> {
-  const file = new Source.File(Source.fileId(0), "/probe.hex", source);
-  const resolved = resolve(parse(applyLayout(lex(file))), {});
-  expect(resolved.diagnostics).toEqual([]);
-  const typed = check(resolved);
-  expect(typed.diagnostics).toEqual([]);
-  const javascript = emitJavaScript(elaborate(typed));
-  expect(javascript.diagnostics).toEqual([]);
-  const url = `data:text/javascript;charset=utf-8,${encodeURIComponent(javascript.text)}`;
-  return (await import(/* @vite-ignore */ url)) as Record<string, unknown>;
-}
+const run = runMain;
 
 // Proves this file's harness can observe a failure.
 test("the harness reports a broken module rather than passing it", () => {
@@ -167,7 +156,7 @@ describe("paren-free single parameters", () => {
     const m = await run(
       "let getX = {x} => x\n" +
         "export let narrow: Int = getX({x = 1})\n" +
-        "export let wide: Int = getX({x = 2, y = true})\n",
+        "export let wide: Int = getX({x = 2, y = True})\n",
     );
     expect([m.narrow, m.wide]).toEqual([1, 2]);
   });
@@ -206,8 +195,8 @@ describe("guard termination", () => {
         "    match b\n" +
         "        Wrap(x) when flag => x\n" +
         rest +
-        "export let taken: Int = f(Wrap(5), true)\n" +
-        "export let skipped: Int = f(Wrap(5), false)\n",
+        "export let taken: Int = f(Wrap(5), True)\n" +
+        "export let skipped: Int = f(Wrap(5), False)\n",
     );
     expect([m.taken, m.skipped]).toEqual([5, 9]);
   });

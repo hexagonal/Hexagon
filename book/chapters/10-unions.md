@@ -173,6 +173,45 @@ let message =
 Exceptions remain available for exceptional control flow, but `Result` is the common
 fit when failure is expected and the caller should decide what it means.
 
+## `Bool` is one of these
+
+The third standard union is the one you have been using since Chapter 2:
+
+```hexagon
+union Bool derives (Eq, Ord, Show, Hash) = False | True
+```
+
+Everything this chapter has said applies to it without an asterisk. `True` and `False`
+are nullary constructors, so they are values and are used bare. A `match` over both is
+exhaustive, and a `match` over one of them is the ordinary missing-case error:
+
+```hexagon
+let label(flag: Bool): String =
+    match flag
+        True => "on"
+        False => "off"
+```
+
+`Bool` derives its four capabilities the way any union declaration derives them, and the
+constructor order in the declaration is what makes `False < True` when it is compared.
+Displaying one gives its constructor name: `show(True)` is `"True"`, and `"${flag}"`
+renders `True` or `False`.
+
+There is exactly one thing the compiler does for `Bool` that it will not do for a union
+you write. A `Bool` value is a JavaScript `boolean` — `True` emits `true`, `False` emits
+`false`, and an exported signature mentioning `Bool` says `boolean` in the generated
+declarations. That is a promise about representation, not about meaning, and it is not
+observable from inside Hexagon: every way of consuming a `Bool` — `match`, `and`, `or`,
+`not`, `implies`, `iff`, and the condition of an `if` or a `while` — behaves the same
+either way. The promise exists so that the language's most common type costs nothing at
+the JavaScript boundary, which is precisely the kind of JavaScript-specific fact that
+earns a JavaScript-specific answer.
+
+The precedent is OCaml, where `bool` is likewise an ordinary declared variant that the
+compiler happens to represent immediately. Hexagon is an ML dialect, and this is what
+being one looks like in the small: a type that most languages targeting JavaScript would
+build in, described instead by the machinery the language already has.
+
 ## The JavaScript representation stays readable
 
 When any constructor carries data, every value of that union is a tagged plain object:
@@ -185,8 +224,8 @@ Dispatched("HX-2048")
 {tag: "Dispatched", tracking: "HX-2048"}
 ```
 
-An exported union produces the discriminated TypeScript union a TS author would
-normally write:
+An exported union produces the discriminated TypeScript union a TypeScript consumer can
+read and narrow without help:
 
 ```ts
 export type DeliveryStatus =
@@ -212,6 +251,11 @@ At runtime, `North` is simply the string `"North"`. Adding a payload constructor
 changes the entire union to tagged objects, so that change is a JavaScript-boundary
 breaking change even though Hexagon matches continue to use the same source model.
 
+`Bool` is the single exception to that rule, and the previous section explains why: its
+representation is pinned to the JavaScript `boolean` rather than to the strings
+`"True"`/`"False"`. No declaration you write can ask for such a pin, and `Bool` cannot
+gain a third constructor, so the breaking change described above cannot reach it.
+
 ## Summary
 
 - a union is one nominal type with a closed set of constructors;
@@ -221,7 +265,9 @@ breaking change even though Hexagon matches continue to use the same source mode
 - missing and unreachable arms are compile errors;
 - unions may have type parameters and recursive payloads;
 - `Option(a)` represents a value that may be absent;
-- `Result(a, e)` represents success or recoverable failure; and
+- `Result(a, e)` represents success or recoverable failure;
+- `Bool` is the prelude union `False | True`, ordinary in every respect except that its
+  representation is pinned to the JavaScript `boolean`; and
 - unions emit as readable tagged objects, or strings when every constructor is nullary.
 
 The basic constructor patterns above are only the beginning. The next chapter combines

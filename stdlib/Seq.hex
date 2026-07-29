@@ -129,14 +129,14 @@ export fun filter(source: Seq(a), keep: a -> Bool): Seq(a) =
     let step = () =>
         var current = source
         var result = None
-        var searching = true
+        var searching = True
         while searching
             match next(current)
-                None => searching := false
+                None => searching := False
                 Some((value, rest)) =>
                     if keep(value) then
                         result := Some((value, filter(rest, keep)))
-                        searching := false
+                        searching := False
                     else
                         current := rest
         result
@@ -149,14 +149,14 @@ export let drop(source: Seq(a), count: Int): Seq(a) =
         var current = source
         var remaining = count
         var result = None
-        var running = true
+        var running = True
         while running
             if remaining <= 0 then
                 result := next(current)
-                running := false
+                running := False
             else
                 match next(current)
-                    None => running := false
+                    None => running := False
                     Some((_, rest)) =>
                         current := rest
                         remaining := remaining - 1
@@ -167,16 +167,16 @@ export let dropWhile(source: Seq(a), discard: a -> Bool): Seq(a) =
     let step = () =>
         var current = source
         var result = None
-        var searching = true
+        var searching = True
         while searching
             match next(current)
-                None => searching := false
+                None => searching := False
                 Some((value, rest)) =>
                     if discard(value) then
                         current := rest
                     else
                         result := Some((value, rest))
-                        searching := false
+                        searching := False
         result
     Seq({ pull = step })
 
@@ -191,15 +191,15 @@ fun flatMapWith(source: Seq(a), transform: a -> Seq(b), pending: Seq(b)): Seq(b)
         var outer = source
         var inner = pending
         var result = None
-        var searching = true
+        var searching = True
         while searching
             match next(inner)
                 Some((value, rest)) =>
                     result := Some((value, flatMapWith(outer, transform, rest)))
-                    searching := false
+                    searching := False
                 None =>
                     match next(outer)
-                        None => searching := false
+                        None => searching := False
                         Some((outerValue, outerRest)) =>
                             outer := outerRest
                             inner := transform(outerValue)
@@ -219,10 +219,10 @@ export let flatMap(source: Seq(a), transform: a -> Seq(b)): Seq(b) =
 export let fold(source: Seq(a), initial: b, combine: (b, a) -> b): b =
     var accumulator = initial
     var current = source
-    var running = true
+    var running = True
     while running
         match next(current)
-            None => running := false
+            None => running := False
             Some((value, rest)) =>
                 accumulator := combine(accumulator, value)
                 current := rest
@@ -231,10 +231,10 @@ export let fold(source: Seq(a), initial: b, combine: (b, a) -> b): b =
 export let length(source: Seq(a)): Int =
     var total = 0
     var current = source
-    var running = true
+    var running = True
     while running
         match next(current)
-            None => running := false
+            None => running := False
             Some((_, rest)) =>
                 total := total + 1
                 current := rest
@@ -242,10 +242,10 @@ export let length(source: Seq(a)): Int =
 
 export let forEach(source: Seq(a), action: a -> Unit): Unit =
     var current = source
-    var running = true
+    var running = True
     while running
         match next(current)
-            None => running := false
+            None => running := False
             Some((value, rest)) =>
                 action(value)
                 current := rest
@@ -253,22 +253,22 @@ export let forEach(source: Seq(a), action: a -> Unit): Unit =
 export let find(source: Seq(a), matches: a -> Bool): Option(a) =
     var current = source
     var result = None
-    var searching = true
+    var searching = True
     while searching
         match next(current)
-            None => searching := false
+            None => searching := False
             Some((value, rest)) =>
                 if matches(value) then
                     result := Some(value)
-                    searching := false
+                    searching := False
                 else
                     current := rest
     result
 
 export let any(source: Seq(a), matches: a -> Bool): Bool =
     match find(source, matches)
-        None => false
-        Some(_) => true
+        None => False
+        Some(_) => True
 
 export let all(source: Seq(a), matches: a -> Bool): Bool =
     not any(source, value => not matches(value))

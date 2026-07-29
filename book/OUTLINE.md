@@ -1,6 +1,6 @@
 # Book Outline
 
-**Status:** Draft 2 structure. All 25 feature chapters exist. Front matter and a
+**Status:** Draft 3 structure. All 25 feature chapters exist. Front matter and a
 possible new **Getting Started** chapter remain to be written, followed by the
 whole-book pedagogy and liveliness passes.
 
@@ -12,14 +12,18 @@ one. Do not rename the files until that revision is undertaken deliberately.
 
 A short account of what Hexagon is for and why it exists.
 
-Introduce Hexagon as a functional language for the JavaScript and TypeScript world.
-Give an approachable sense of programs built from values and functions, strong
-inference, explicit data shapes, composition, and controlled effects.
+Introduce Hexagon as an ML dialect that targets JavaScript. Give an approachable sense
+of programs built from values and functions, strong inference, explicit data shapes,
+composition, and controlled effects.
 
-Explain that Hexagon brings ideas associated with the ML family to programmers in the
-TypeScript ecosystem while treating JavaScript interoperation and readable emitted
-JavaScript as central requirements. Contrast this gently with inheritance-heavy design
-without making an anti-object or anti-subtyping argument.
+Explain the posture, because it is the thing a reader most needs to get right early:
+Hexagon is a member of the ML family — that is where its semantics and its surface come
+from — and JavaScript is the platform it compiles to and interoperates with excellently.
+The reader will meet a real ML, not a JavaScript variant with types bolted on. Readable
+emitted JavaScript and honest declarations are things the compiler works hard for, and
+the book should show them off; they are not what decides how the language behaves. Where
+the two pull apart, the ML answer is the one the reader will find. Contrast this gently
+with inheritance-heavy design without making an anti-object or anti-subtyping argument.
 
 ## Introduction
 
