@@ -86,9 +86,9 @@ Final names and faces only; the authoritative full table is **Part 1 §4.1**, de
 
 | Family | Runtime representation | `.d.ts` face | Detail |
 |---|---|---|---|
-| `Nat`/`Int`/`Float`/`BigInt`/`Bool`/`String`/`Unit` | native primitives; `Unit` = `undefined` | `number`/`number`/`number`/`bigint`/`boolean`/`string`/`void`-in-return | Part 1 §4/§6 |
+| `Nat`/`Int`/`Float`/`BigInt`/`String`/`Unit` | native primitives; `Unit` = `undefined` | `number`/`number`/`number`/`bigint`/`string`/`void`-in-return | Part 1 §4/§6 |
 | tuples / structural records / nominal records | JS arrays / POJOs | TS tuples / structural object types | Part 1; Part 7 §3 |
-| unions / `Option(a)` / exceptions | tagged POJOs; all-nullary = strings; branded `Error` | discriminated unions; string unions; `Error & {$hex…}` | Unions §6; Exceptions §7; Part 7 §4/§6 |
+| unions / `Option(a)` / `Bool` / exceptions *(`Bool` reclassified from the primitives row 2026-07-29, #147; face unchanged)* | tagged POJOs; all-nullary = strings — sole exception the prelude `Bool`, pinned to `boolean` (Unions §6.2); branded `Error` | discriminated unions; string unions; `boolean` for `Bool`; `Error & {$hex…}` | Unions §6; Exceptions §7; Part 7 §4/§6 |
 | `Nullable(a)` | `a \| null \| undefined` (zero wrapper) | the same union | Part 2 |
 | `Array(a)` | borrowed foreign JS array | `ReadonlyArray<a>` | Part 2 §6 |
 | `Seq(a)` | runtime sequence / inbound memoizing adapter | `Iterable<a>` (export is stronger: replayable) | Part 3 |

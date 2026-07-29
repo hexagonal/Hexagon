@@ -9,7 +9,7 @@
 
 ## 1. Design stance
 
-Hexagon targets JS developers with moderate FP capability and compiles to idiomatic, readable JavaScript. The function design follows from decisions fixed elsewhere:
+Hexagon is an ML dialect that targets JavaScript (`decisions-ml-dialect-bool-2026-07.md` §1; #147). It serves JS developers with moderate FP capability, and its emitter pursues idiomatic, readable JavaScript as a valued outcome — no longer the design adjudicator it was once framed as. The function design below predates the pivot and stands unchanged in substance: its JS-facing choices rest on the JavaScript-specific fact of n-ary parameter passing, exactly the kind of ground the ruling's §1.1 still honors. *(Restated 2026-07-29.)* It follows from decisions fixed elsewhere:
 
 - **No currying.** All arguments are supplied at once.
 - **Functions are genuinely n-ary.** Internally `TFun([A, B], C)`; emitted as n-ary JS functions; arity is a property of the function, checked at every call site.

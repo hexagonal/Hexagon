@@ -14,7 +14,7 @@
 - **Guards are arm syntax, not pattern syntax** (§3). A pattern is a static shape; a guard is a runtime test. Keeping them in separate grammatical strata is what keeps or-patterns, the same-bindings rule, and exhaustiveness simple.
 - **Exhaustiveness and reachability remain hard errors and remain exact** over the decidable fragment (§7). Guarded arms contribute nothing to coverage. Infinite domains require a catch-all. This is the Unions §4.3 doctrine, generalized, not renegotiated.
 - **Binder class is positional, never determined by pattern syntax** (Statements §5, the proper-subterm criterion): `match`-arm, `catch`-arm, lambda-parameter, and loop-pattern binders are **head binders** and shadow freely; every name a **`let` pattern** binds is a **sequential binder** (Statements §5.4) and may not reuse a name in scope. The same record pattern `{name}` is a head binder in an arm and a sequential binder on a `let` LHS. No pattern form creates a third class. **Duplicates within one simultaneous pattern are errors regardless of class.**
-- **Emission stays readable**: cascades of `if`/`else if` on tags and fields, `switch` where a single tag discriminates, `const` binders from named fields, guards appended with `&&`. No decision-tree compilation that a TS author couldn't have written by hand.
+- **Emission stays readable**: cascades of `if`/`else if` on tags and fields, `switch` where a single tag discriminates, `const` binders from named fields, guards appended with `&&`. No decision-tree compilation whose output couldn't have been written by hand. *(Standing post-#147: this bullet constrains the emitter, not the language — emission shape is exactly the territory where readable JS remains a governing goal; the pivot demoted the TS-author test as a language-design adjudicator, not as an emission commitment. `decisions-ml-dialect-bool-2026-07.md` §1.)*
 
 ---
 
@@ -451,6 +451,7 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 | Construction punning ships in v1; emits JS shorthand; term-level only | §9 |
 | Binder class is positional (Statements §5): arm/lambda/loop binders head, `let`-pattern binders sequential; no third class; duplicate-in-whole-pattern error incl. `as`, class-independent | §1, §2.1, §4, §6.3 |
 | Vector patterns shipped, owned by Collections Part 3 §3; `Vector` owns `[...]` in v1 (no `List`, no `Array` pattern surface); range patterns → guards; type-test patterns → never | §2, §10, §11.1 |
+| §1's emission bullet restated post-#147 (2026-07-29): readable emission is an emitter commitment, standing because it constrains no language semantics; TS-author phrasing retired | §1, §15(n) |
 
 ---
 
@@ -553,7 +554,7 @@ match shape
     Rect(w, h) => w * h
     Point => 0.0
 -- emits an if/else-if cascade on shape.tag (guards preclude plain switch fall-through),
--- OR switch with guard-carrying cases restructured; either accepted if a TS author would write it
+-- OR switch with guard-carrying cases restructured; either accepted if it reads as hand-written JS
 ```
 
 ---

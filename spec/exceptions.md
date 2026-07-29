@@ -185,7 +185,7 @@ try {
 
 ### 7.5 `.d.ts`
 
-An exported exception appears as the intersection type a TS author would write for a branded error:
+An exported exception appears as the intersection type that states the §7.1 representation honestly — which is also exactly the shape a hand-written branded error's declaration takes (an outcome, post-#147, not the ground):
 
 ```ts
 type ParseError = Error & { $hex: true; name: "ParseError"; line: number };
@@ -270,3 +270,4 @@ Runs the thunk; `Ok(value)` on normal return, `Err(exn)` on any throw — Hexago
 | `.d.ts`: `Error & {$hex: true; name: "..."; ...}`; brand included; exported constructor functions (nullary included, fresh per call); `Exn` at the boundary is `Error` | §7.5; FFI Part 7 §6 |
 | Prelude: `JsError`, `Result.attempt : (() -> a) -> Result(a, Exn)` (stdlib, not magic) | §8 |
 | Four hanging questions recorded | §10 |
+| §7.5's `.d.ts` phrasing re-grounded post-#147 (2026-07-29): the intersection face is the honest statement of §7.1's representation; TS-author phrasing demoted to outcome; face unchanged | §7.5 |

@@ -139,7 +139,7 @@ fun collatzSteps(n0) =
     steps
 ```
 
-- **`while true`:** legal, type `Unit`. With no `break`, an intentional infinite loop exits only via `throw` (or process end). Note for implementers and doc-writers: Hexagon has no `Never`/bottom type, so `while true ...` in final block position makes the function return `Unit` as far as the checker knows, even though it never returns. Accepted for v1; a `Never` type is not being invented here.
+- **`while True`:** legal, type `Unit`. With no `break`, an intentional infinite loop exits only via `throw` (or process end). Note for implementers and doc-writers: Hexagon has no `Never`/bottom type, so `while True ...` in final block position makes the function return `Unit` as far as the checker knows, even though it never returns. Accepted for v1; a `Never` type is not being invented here. *(Spelling: `True` is the constructor of the prelude union `Bool` since #147 — Unions §8; the emitted JS is still `while (true)`.)*
 
 ---
 
@@ -270,7 +270,7 @@ Readable-JS doctrine: the general mechanism exists; the common case erases.
 
 1. **C-style `for(init; cond; step)`: does not exist.** Counting is `for i in 1..n`; irregular stepping is `while` + `var`. Its header is three statement positions jammed into one line — the shape the layout syntax exists to avoid — and it is fully redundant with two features Hexagon already has.
 2. **`do..while`: no.** Rare; expressible with `while` + a `var` flag or restructuring. F# — the statement-model precedent — does not have it either.
-3. **`loop` (loop-forever): no in v1.** Only coherent alongside `break`; automatically part of the break/continue deepdive (below). `while true` covers the interim (§4 note).
+3. **`loop` (loop-forever): no in v1.** Only coherent alongside `break`; automatically part of the break/continue deepdive (below). `while True` covers the interim (§4 note).
 4. **`break` / `continue`: not in v1 — deepdive owed.** F# has neither and has lived without them for two decades; Hexagon starts from the same position (removing them later is impossible; adding them is easy). The deepdive's known decision surface, recorded so it is not rediscovered: (a) statement-flavored `break` as a `Unit`-ish expression legal only in loop bodies — cheapest, but the first non-exception non-local control flow; (b) break-with-value (Rust's `break expr`) — makes loops non-`Unit`, drags the loop's type in; (c) labeled variants — decline outright. The F#-flavored alternative to weigh: `while` + flag covers most `break` cases, inverted `if` covers most `continue` cases; whether that ergonomics is acceptable is exactly what the deepdive decides, with field evidence from real Hexagon code (shared revisit-bar with compound assignment, Statements §6.4).
 5. **An `Iterator` constraint / cursor objects: never.** The `Seq(a)` functional cursor (§6.2) makes a second constraint and its implied `Iter` type pure structure with no job (the `Iterable`-returns-`Iterator` design collapsed once the cursor became a concrete type). Even in v2, `Iterable` is the only iteration constraint.
 6. **Fold-based `for..in` desugaring:** forbidden, §6.3.
@@ -394,7 +394,7 @@ for (k, v) in m                -- m : Map(String, Int); k : String, v : Int
 | `range(lo, hi)` prelude twin; `rangeDown(hi, lo)` for descending; direction never inferred from operand order | §3.2–3.4 |
 | Ascending `lo > hi` ⇒ empty; descending `hi < lo` ⇒ empty; `lo == hi` ⇒ one element | §3.4 |
 | `..` precedence decided as recorded intent (looser than arithmetic, non-chaining) — Operators §9 owns | §3.5 |
-| `while cond` + block; condition grammar = `if`'s, by reference; `Bool`, no truthiness; `Unit`; `while true` legal, no `Never` type invented | §4 |
+| `while cond` + block; condition grammar = `if`'s, by reference; `Bool`, no truthiness; `Unit`; `while True` legal (respelled per #147), no `Never` type invented | §4 |
 | `Seq(a)`: concrete lazy sequence type in v1; protocol is the functional cursor `next : Seq(a) -> Option((a, Seq(a)))`; persistence mandatory | §6 |
 | External iteration mandatory; fold-based desugaring forbidden (lambda boundary) | §6.3 |
 | `Seq` emits onto the JS iterable protocol; `.d.ts` face `Iterable<a>`; constant-stack traversal; boundary adaptation owned by FFI Part 3 | §6.5 |

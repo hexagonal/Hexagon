@@ -118,12 +118,12 @@ All five operate on `Bool` only. There is no truthiness anywhere in Hexagon; a n
 | Operator | Primitive? | Definition | Evaluation of operands |
 |---|---|---|---|
 | `not a` | yes | — | `a` always |
-| `a and b` | yes | — | `a` always; `b` iff `a` is `true` |
-| `a or b` | yes | — | `a` always; `b` iff `a` is `false` |
-| `a implies b` | no | `not a or b` | `a` always; `b` iff `a` is `true` |
+| `a and b` | yes | — | `a` always; `b` iff `a` is `True` |
+| `a or b` | yes | — | `a` always; `b` iff `a` is `False` |
+| `a implies b` | no | `not a or b` | `a` always; `b` iff `a` is `True` |
 | `a iff b` | no | `equals(a, b)` on `Bool` — see §4.3 | **both, always** |
 
-`and` and `or` are the primitive short-circuit forms and compile to JS `&&`/`||` directly. `implies` desugars *before* type checking to `not a or b` and therefore short-circuits for free: `false implies loop()` returns `true` without evaluating the right side. Emission: `!a || b`.
+`and` and `or` are the primitive short-circuit forms and compile to JS `&&`/`||` directly. `implies` desugars *before* type checking to `not a or b` and therefore short-circuits for free: `False implies loop()` returns `True` without evaluating the right side. Emission: `!a || b`. These native emissions — with `not`'s `!` — are mandatory, and they are **licensed by `Bool`'s representation pin** (§4.5). *(Operand spellings respelled and license added 2026-07-29, #147.)*
 
 ### 4.2 Why logic is not constraint-backed
 
@@ -133,11 +133,21 @@ All five operate on `Bool` only. There is no truthiness anywhere in Hexagon; a n
 
 The early draft defined `iff` as `(a implies b) and (b implies a)` and claimed it short-circuits. Under the single-evaluation rule (§5.4) that definition requires binding both operands to temporaries first — at which point *both operands are always evaluated* and no short-circuiting remains. The claim was false; strike it.
 
-Given that, the honest and simpler definition wins: **`a iff b` is Boolean equality.** It elaborates to `equals(a, b)` at `Bool` and emits `a === b`. Same truth table as the double implication, one evaluation of each operand, no temporaries, one token of output. Diagnostics and docs must describe `iff` as "true when both sides agree" and must state that both operands are always evaluated (the one member of the logic family that does not short-circuit).
+Given that, the honest and simpler definition wins: **`a iff b` is Boolean equality.** It elaborates to `equals(a, b)` at `Bool` and emits `a === b` — a native emission carrying the same §4.5 pin license as the rest of the family. Same truth table as the double implication, one evaluation of each operand, no temporaries, one token of output. Diagnostics and docs must describe `iff` as "true when both sides agree" and must state that both operands are always evaluated (the one member of the logic family that does not short-circuit).
 
 ### 4.4 On the length of `implies`
 
 `implies` is the longest keyword in the family. Alternatives considered: a symbolic `==>` (rejected — the words-only rule is worth more than the keystrokes, and `==>` collides visually with `=>` at exactly the moment a reader can least afford it) and abbreviations (`imp`, `impl` — cryptic; `impl` additionally reads as Rust's implementation keyword). No natural shorter English word exists. `implies` stands; material implication is rare enough in application code that its length is a feature — it marks the interesting line.
+
+### 4.5 `Bool` is a union; the native emissions are licensed by the representation pin (2026-07-29, #147)
+
+Since the ML-dialect ruling, `Bool` is not a primitive: it is the prelude union `union Bool derives (Eq, Ord, Show, Hash) = False | True` (Unions §8), so this section's operands are **union-typed values**. `True`/`False` are the only value spellings; the reserved words `true`/`false` produce the Lexer §4.1 redirect. Nothing about the operators' typing changes — they remain structural forms monomorphic on `Bool` (§1.1, §4.2), and the no-truthiness rule of §4's lead-in survives verbatim.
+
+What must be stated here is the representation dependency:
+
+> The mandated native emissions of this section — `and` → `&&`, `or` → `||`, `not` → `!`, `implies` → `!a || b` (§4.1), `iff` → `a === b` (§4.3) — and §11's direct branch on an `if` condition (inherited by `while`, Loops §4) are legal **only because the compiler pins `Bool`'s runtime representation to the JS `boolean`** (Unions §6.2: `True` emits `true`, `False` emits `false`; full ruling `decisions-ml-dialect-bool-2026-07.md` §3). Against the unpinned all-nullary string representation, `&&` on `"False"` would be truthy nonsense. This section is a recorded dependent of the pin: any future session revisiting the pin must treat every emission named here as breaking with it.
+
+Consequently `Bool` is the **sole exception** to Unions §1's "`match` is the only eliminator" doctrine — the five logic operators and `if`/`while` conditions eliminate a `Bool` without `match`. The carve lives at Unions §1/§8; every user-declared union remains match-only without exception. The exception is representation-blind at the source level: no field access, predicate, or cast is exposed, and no Hexagon program can observe the pinned representation from inside the language.
 
 ---
 
@@ -163,7 +173,7 @@ establishes the matching target. Thus `count < cost` is a
 Float comparison when `count : Int` and `cost : Float`; `Int` versus `Int` remains an
 exact Int comparison. Non-numeric comparisons gain no coercion.
 
-**Codegen fast path (mandatory for readable JS):** when the `Ord`/`Eq` dictionary is a known primitive instance, emit the direct JavaScript operation only when it preserves that instance's semantics. `Int`, `Bool`, all-BMP-safe `String` handling per Primitive Types §5, and the applicable all-nullary-union cases may use native operators directly.
+**Codegen fast path (mandatory for readable JS):** when the `Ord`/`Eq` dictionary is a known primitive (or pinned-`Bool`) instance, emit the direct JavaScript operation only when it preserves that instance's semantics. `Int`, all-BMP-safe `String` handling per Primitive Types §5, and the applicable all-nullary-union cases may use native operators directly; `Bool` — since #147 a prelude union, not a primitive — takes the native path under its representation pin (§4.5): `===` on booleans *is* the derived `Eq<Bool>`, and JS `<` on booleans agrees with derived `Ord`'s declaration order `False | True` by construction (Unions §6.2), so no declaration-index table is needed. *(Reclassified 2026-07-29, #147.)*
 
 `Float` is the mandatory exception. `Eq<Float>` is SameValueZero (Decisions Batch §1), so bare `===` and `!==` are wrong for `NaN`. Given operands evaluated once as `x` and `y`, the fast paths are:
 
@@ -326,7 +336,7 @@ The conditional is an **expression**, this spec owns it fully, and the Loops spe
 
 ### 11.1 Condition
 
-Bare expression, no required parentheses, must be `Bool` — no truthiness, and the diagnostic for a non-`Bool` condition never suggests coercion. (Parentheses are of course *allowed*; they're just parentheses.) `while` inherits exactly this, per the Loops spec's reference.
+Bare expression, no required parentheses, must be `Bool` — no truthiness, and the diagnostic for a non-`Bool` condition never suggests coercion. (Parentheses are of course *allowed*; they're just parentheses.) `while` inherits exactly this, per the Loops spec's reference. The condition is consumed directly — the emitted JS branches on the `Bool` value itself (§11.4), an elimination without `match` that is **licensed by the representation pin** (§4.5; Unions §1/§8 carry the carve). *(License recorded 2026-07-29, #147.)*
 
 ### 11.2 Mandatory clauses
 
@@ -502,6 +512,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | Postfix `.`/call/`[]` level 1; indexing/slicing semantics deferred to collections spec | §10 |
 | Every `if` requires `then`; else-less `if` = sugar for `else ()` (forces `Unit` `then` branch; F# rule, adopted July 2026 reversing the original strict decision); canonical for effect conditionals; canonical multiline form keeps `then` on the condition line and indents branches; condition = bare `Bool` expr, inherited by `while` by reference | §11 |
 | `:=` loosest, non-associative, does not chain | §12 |
+| `Bool` is a prelude union (#147): §4's operands are union values, `True`/`False` the only spellings; the native logic/condition emissions are licensed by the Unions §6.2 representation pin; `Bool` is the sole exception to Unions §1's match-only elimination | §4.5, §11.1 |
 
 ---
 
@@ -527,7 +538,7 @@ a != b != c                    -- ERROR: != does not chain
 sideA() iff sideB()            -- emits sideA() === sideB(); both effects run
 
 -- (e) implies short-circuits
-false implies loop()           -- true; loop() not evaluated → !false || loop()
+False implies loop()           -- True; loop() not evaluated → !false || loop()
 
 -- (f) Exponentiation, the math way
 2 ** 3 ** 2                    -- 2 ** (3 ** 2) = 512

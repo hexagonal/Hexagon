@@ -38,7 +38,7 @@ private/internal types       -> no effect on the JS export surface
 Nat   Int   Float   BigInt   Bool   String   Unit
 ```
 
-**"Fundamental" is a language category, not an inference from runtime size, representation, or current engine performance.** `Date`, `Array(a)`, `Nullable(a)`, the runtime collections (`Vector`, `Map`, `Set`, `Seq`, `Range`), records, unions, and user types do not enter the set merely because their JS representation is small or native (rejected alternative §11.1).
+**"Fundamental" is a language category, not an inference from runtime size, representation, or current engine performance.** `Date`, `Array(a)`, `Nullable(a)`, the runtime collections (`Vector`, `Map`, `Set`, `Seq`, `Range`), records, unions, and user types do not enter the set merely because their JS representation is small or native (rejected alternative §11.1) — and, symmetrically, `Bool` is **in** the set by enumeration and stays there after its reclassification as a prelude union (#147; `decisions-ml-dialect-bool-2026-07.md` §3.3): membership is a language category, not an inference from type classification, so reclassification moves nothing, and Algorithm G's fundamental/non-fundamental split is unaffected. *(Clause added 2026-07-29, #147.)*
 
 ### 2.2 Pre-v1 review obligation
 
@@ -46,7 +46,7 @@ Before v1 freezes, perform **one explicit inventory review** of commonly used Ja
 
 ### 2.3 `.d.ts` faces of the fundamentals
 
-Per Primitive Types §1 / Type System Overview §4, for use in §8's generated signatures:
+Per Primitive Types §1 / Type System Overview §4 (`Bool`'s face per the pinned representation of the prelude union — Unions §6.2, #147), for use in §8's generated signatures:
 
 | Fundamental | Parameter face | Return face |
 |---|---|---|
@@ -374,6 +374,7 @@ Exported constrained-polymorphic **non-function values**, should generalization 
 | 14 | **Code-size acceptance:** per-module measurement of specialization JS/`.d.ts` size is a binding implementation obligation; caps only ever by explicit design against that evidence | §10, §12.2 |
 | 15 | Per-user-type export explosion rejected permanently; user types share the one generic edition | §11.4 |
 | 16 | Constraints §6.4 / Modules §11.5 wording contradictions recorded for the FFI consolidation, unresolved here | §13.2 |
+| 17 | `Bool` remains fundamental **by enumeration** after #147's prelude-union reclassification — membership is a language category, not type classification; Algorithms S/G/N unaffected; face `boolean` unchanged (now grounded in the Unions §6.2 pin) | §2.1, §2.3 |
 
 ---
 

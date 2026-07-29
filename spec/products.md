@@ -86,7 +86,7 @@ Componentwise, at every arity, via **automatic compiler-derived structural insta
 | `t.item2` | `t[1]` | — |
 | `let (x, y) = t` | `const [x, y] = t;` | — |
 
-Plain arrays, no wrapper, no tag. TS tuple types are exactly what a TS author would hand-write. Wildcard destructuring emits JS array-destructuring holes (`const [a, , c] = t;`) or positioned indexing, emitter's choice — prefer whichever reads better case-by-case.
+Plain arrays, no wrapper, no tag — the natural unboxed representation of a positional product, zero-cost at the JS boundary; that the `.d.ts` face is exactly the TS tuple type a hand-written declaration would use is a valued outcome, not the ground *(re-grounded 2026-07-29, #147; `decisions-ml-dialect-bool-2026-07.md` §1.1)*. Wildcard destructuring emits JS array-destructuring holes (`const [a, , c] = t;`) or positioned indexing, emitter's choice — prefer whichever reads better case-by-case.
 
 ---
 
@@ -269,6 +269,7 @@ What does **not** work, by design: passing `p` directly where `{x: Float, ...}` 
 | `.d.ts` structural for ordinary exports; `export opaque record` = FFI Part 7 §5 brand-only face | §5.4 |
 | Structural Eq/Ord/Show/Hash: automatic, compiler-derived, **user-closed** (semantics §2.5/§3.4; `Hash` → Collections Part 2); nominal records derive only by explicit `derive`/`derives` (Constraints §4.5) | §2.5, §3.4, §5.2 |
 | Tier-0 row inference unchanged by dot calls; fused `r.name(args…)` = field access unless head-known nominal | §3.2 |
+| §2.6's rationale re-grounded post-#147 (2026-07-29): tuples-as-arrays carried by natural-unboxed-product merit, zero-cost at the boundary; TS-author phrasing demoted to outcome; decision unchanged | §2.6 |
 
 ---
 

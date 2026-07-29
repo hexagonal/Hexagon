@@ -189,7 +189,7 @@ export type UserName = string;
 export declare function greet(name: UserName): string;
 ```
 
-TS aliases are equally transparent, so semantics are preserved exactly; the emitted declarations are what a TS author would hand-write, and the output is diff-stable when an alias's expansion changes. Positions where inference produced the type (no alias written) emit expanded — same stickiness. **Visibility is Modules' (§4.3/§11.4), and stickiness yields to it: an exported alias emits the corresponding TS alias declaration; a *private* alias appearing in an exported signature emits as its expansion** — it is not emitted privately.
+TS aliases are equally transparent, so semantics are preserved exactly, and the output is diff-stable when an alias's expansion changes; that the emitted declarations read as hand-written is a valued outcome, not the ground *(re-grounded 2026-07-29, #147; `decisions-ml-dialect-bool-2026-07.md` §1.1)*. Positions where inference produced the type (no alias written) emit expanded — same stickiness. **Visibility is Modules' (§4.3/§11.4), and stickiness yields to it: an exported alias emits the corresponding TS alias declaration; a *private* alias appearing in an exported signature emits as its expansion** — it is not emitted privately.
 
 ---
 
@@ -252,6 +252,7 @@ Two type-namespace declarations of the same name in one module — any mix of `r
 | Declaration inventory module-level only; one diagnostic family | §7.1 |
 | Module-level declarations order-insensitive; mutual recursion per each form's rules; alias SCC the only cycle error | §7.2 |
 | Type-namespace duplicates: hard error at second declaration | §7.3 |
+| §6's alias-emission rationale re-grounded post-#147 (2026-07-29): carried by exact transparency-preservation and diff-stability; hand-written observation demoted to outcome; rule unchanged | §6 |
 
 ---
 

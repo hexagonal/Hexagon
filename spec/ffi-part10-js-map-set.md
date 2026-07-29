@@ -89,7 +89,7 @@ const v = m.get(k);
 
 Consequences, documented:
 
-- **Primitive keys behave identically on both sides** — Hexagon `Eq` on `Nat`/`Int`/`Float`/`Bool`/`String`/`BigInt`/`Unit` — every primitive — *is* SameValueZero on its JS representation (Collections Part 4 §10.1): all `NaN`s are one key, `-0`/`+0` unify, in both regimes *(enumeration corrected 2026-07-28, #141 — record: Collections Part 4 §18)*.
+- **Primitive keys — and `Bool` — behave identically on both sides**: Hexagon `Eq` on `Nat`/`Int`/`Float`/`String`/`BigInt`/`Unit` — every primitive — and on `Bool`, since #147 the prelude union pinned to the JS `boolean`, *is* SameValueZero on its JS representation (Collections Part 4 §10.1; for `Bool`, as the derived union `Eq` over the pinned representation — `===` on booleans, Unions §6.2/§8): all `NaN`s are one key, `-0`/`+0` unify, in both regimes *(enumeration corrected 2026-07-28, #141; `Bool`'s grounds restated 2026-07-29, #147, in the same edit as Collections Part 4 §10.1 — the two statements are change-controlled together per Part 4 §18 note 4; records: Collections Part 4 §18)*.
 - **Structural keys are reference-identity lookups.** A record-typed key finds an entry only via the exact object reference; an equal-looking value is a different key. Legal, occasionally what a binding needs, and nearly useless as a structural index — which is what the conversions (§7) exist for.
 - The absence of `Hash` also means **`JsMap(Hex.Range, v)` is satisfiable** where `Map(Range, v)` is not (`Range` has no `Hash`, Part 4 §4.4). A `Range`-typed bracket element on a `JsMap` whose key type is `Range` is an ordinary key lookup — **`JsMap` has no slicing**, so no `Range`-means-slice reading exists here to compete with it. Part 4 §4.4's "unsatisfiable" escape hatch does not port; the resolution rule (receiver + element type select the meaning) does.
 
@@ -186,7 +186,7 @@ All four are **eager shallow snapshots** (Part 1 §5.1): the named outer collect
 
 `Map.toJsMap`/`Set.toJsSet` are **total** — no constraint, no failure mode. Hexagon values are acyclic by construction, insertion into a native collection performs no traversal, and every Hexagon value has a JS representation by definition. Semantics pinned by Collections Part 4 §10.1–10.2, now normative at the boundary:
 
-- primitive keys/elements are faithful (SameValueZero alignment; nothing collapsed, split, or lost);
+- primitive and `Bool` keys/elements are faithful (SameValueZero alignment; nothing collapsed, split, or lost — Part 4 §10.1);
 - structural keys become **reference-identity** keys: the converted map is a snapshot for JS consumption, not a shared structural index, and JS cannot look up by reconstruction;
 - the fresh native collection is stable while exclusively Hexagon-held (§2) and is the foreign consumer's to own once handed over.
 
@@ -267,3 +267,4 @@ Sol review added `JsMap.fromSeq` and `JsSet.fromSeq` (§6.5). The direct constru
 | Parameters obey Part 1 §5.3 at declaration site; adapter-requiring nesting rejected | §8 |
 | Deferred: `keys`/`values`, set algebra, writable door, `WeakMap`/`WeakSet` | §9 |
 | Edit notes: Part 1 table row finalized; Collections Part 4 §10.4 discharged; Part 5 table +2 rows | §10 |
+| `Bool` line of the §4.3 faithfulness statement restated after #147 (`Bool` = prelude union pinned to `boolean`; guarantee unchanged, grounds now derived union `Eq` over the pin; restated together with Collections Part 4 §10.1 per its §18 note 4) | §4.3 |
