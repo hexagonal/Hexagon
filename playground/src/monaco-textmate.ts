@@ -31,7 +31,7 @@ import playgroundModuleGrammarSource from "./playground-module.tmLanguage.json?r
 
 export const hexagonLanguage = "hexagon";
 export const hexagonScopeName = "source.hexagon";
-export const playgroundModuleScopeName = "source.hexagon.playground";
+const playgroundModuleScopeName = "source.hexagon.playground";
 
 /**
  * The grammar is imported from `editors/vscode` rather than copied, so there is one
@@ -43,7 +43,16 @@ const grammarSources: Readonly<Record<string, string>> = {
   [playgroundModuleScopeName]: playgroundModuleGrammarSource,
 };
 
-export function createHexagonRegistry(onigLib: Promise<IOnigLib>): Registry {
+/**
+ * Monaco's default `editor.maxTokenizationLineLength`. `MonarchTokenizer` reads that
+ * setting and returns a single unscoped token for any line at or over it; the adapter
+ * behind `setTokensProvider` does no such thing, so a provider that wants the bound has
+ * to apply it itself. Without it a pasted megabyte-long line blocks the main thread for
+ * seconds — a protection the Monarch tokenizer had and this must not quietly drop.
+ */
+const maxTokenizedLineLength = 20_000;
+
+function createHexagonRegistry(onigLib: Promise<IOnigLib>): Registry {
   return new Registry({
     onigLib,
     loadGrammar: async (scopeName) => {
@@ -72,13 +81,15 @@ export async function loadHexagonGrammar(onigLib: Promise<IOnigLib>): Promise<IG
  * A token no rule claims — layout whitespace, an unrecognized character — carries only
  * `source.hexagon`, which no rule matches, so it lands on the editor foreground.
  *
- * `tokenizeLine` takes an optional per-line time budget, and this deliberately does not
- * pass one. Exceeding it does not report an error: it returns the tokens it managed and
- * a rule stack for a line it did not finish, so the line is silently mispainted and the
- * next one inherits the wrong state. A budget small enough to bound a pathological line
- * is also small enough to be tripped by the first call, which pays for compiling every
- * scanner in the grammar. Monaco already refuses to tokenize past
- * `maxTokenizationLineLength`, which is the guard the Monarch tokenizer ran under too.
+ * A long line is skipped rather than tokenized, mirroring what `MonarchTokenizer` does
+ * and preserving the incoming state so the line is a no-op rather than a state reset.
+ *
+ * `tokenizeLine` also takes an optional per-line *time* budget, and this deliberately
+ * does not pass one. Exceeding it does not report an error: it returns the tokens it
+ * managed plus a rule stack for a line it never finished, so the line is silently
+ * mispainted and every line after it inherits the wrong state. A budget small enough to
+ * bound a pathological line is also small enough to be tripped by the first call, which
+ * pays for compiling every scanner in the grammar. Length is the honest bound here.
  */
 export function createHexagonTokensProvider(
   grammar: IGrammar,
@@ -86,11 +97,15 @@ export function createHexagonTokensProvider(
   return {
     getInitialState: () => INITIAL as monaco.languages.IState,
     tokenize: (line, state) => {
+      if (line.length >= maxTokenizedLineLength) {
+        return { tokens: [{ startIndex: 0, scopes: hexagonScopeName }], endState: state };
+      }
       const result = grammar.tokenizeLine(line, state as unknown as StateStack);
       return {
         tokens: result.tokens.map((token) => ({
           startIndex: token.startIndex,
-          scopes: token.scopes.at(-1) ?? hexagonScopeName,
+          // vscode-textmate always carries the root scope, so `scopes` is never empty.
+          scopes: token.scopes[token.scopes.length - 1]!,
         })),
         endState: result.ruleStack as monaco.languages.IState,
       };

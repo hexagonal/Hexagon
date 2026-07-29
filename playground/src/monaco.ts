@@ -41,9 +41,26 @@ monaco.languages.register({ id: hexagonLanguage, extensions: [".hex"] });
 // Monaco accepts a promise here and repaints when it settles, so the editor opens on
 // the first keystroke rather than waiting on the WASM. Until then Hexagon source is
 // unpainted — never mispainted.
+//
+// A failure to load leaves it unpainted permanently, which is a degradation the
+// textarea fallback does not cover: Monaco itself started fine, so there is nothing to
+// fall back from. Monaco attaches no rejection handler to this promise, so a rethrow
+// would surface only as an unhandled rejection and again on dispose. It settles with an
+// inert tokenizer instead, and says why once — an editor that silently stops colouring
+// is a confusing thing to debug from a screenshot.
+const unpainted: monaco.languages.TokensProvider = {
+  getInitialState: () => ({ clone: () => unpainted.getInitialState(), equals: () => true }),
+  tokenize: (_line, state) => ({ tokens: [{ startIndex: 0, scopes: "" }], endState: state }),
+};
+
 monaco.languages.setTokensProvider(
   hexagonLanguage,
-  loadHexagonGrammar(onigLib).then(createHexagonTokensProvider),
+  loadHexagonGrammar(onigLib)
+    .then(createHexagonTokensProvider)
+    .catch((cause: unknown) => {
+      console.error("Hexagon syntax highlighting is unavailable", cause);
+      return unpainted;
+    }),
 );
 defineHexagonThemes(monaco.editor);
 

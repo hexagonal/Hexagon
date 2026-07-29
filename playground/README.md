@@ -211,7 +211,8 @@ the Oniguruma WASM build — the same pair VS Code itself uses — and bridged i
 by `src/monaco-textmate.ts`. Monaco's native format is Monarch, and Playground did
 maintain a second grammar in it until #161; one language with two grammars meant every
 token-inventory change had to be made twice, and silently wasn't (#145). The cost of
-consolidating is `onig.wasm`, ~460 KB, on a page that already ships Monaco.
+consolidating is `onig.wasm`, 473 KB raw / 162 KB gzipped, on a page that already
+ships Monaco.
 
 Playground's own `module` / `end module` notation is not `.hex` syntax, so it is not in
 the shared grammar. It lives in `src/playground-module.tmLanguage.json`, a TextMate

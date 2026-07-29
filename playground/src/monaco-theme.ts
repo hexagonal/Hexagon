@@ -180,12 +180,15 @@ export const hexagonFamilies: Readonly<Record<string, HexagonFamily>> = {
 /**
  * Monaco resolves a rule by walking the token string's dot-separated segments, so a
  * rule matches a scope and everything more specific than it. Every scope is therefore
- * listed outright rather than relying on a `keyword` or `entity.name.type` prefix:
- * `entity.name.type.constraint.hexagon` and `entity.name.type.parameter.hexagon` are
- * different families under a shared prefix, and a prefix rule would hand one of them
- * the other's colour. Listing them also keeps the rules confined to Hexagon — every
- * scope ends `.hexagon`, so the generated JavaScript and `.d.ts` panes, which share
- * this theme, keep their own base-theme colours.
+ * listed outright rather than abbreviated to a shared prefix. A rule for
+ * `entity.name.type` would be inherited by `entity.name.type.parameter.hexagon`, which
+ * belongs to the nominal family, *and* by `entity.name.type.constraint.hexagon`, which
+ * does not — one rule, two families, and the more specific one loses.
+ *
+ * Two fully-spelled scopes cannot shadow each other, because both end `.hexagon` and
+ * neither is then a dotted prefix of the other. That is the same property that keeps
+ * these rules confined to Hexagon: the generated JavaScript and `.d.ts` panes share
+ * this theme and keep their own base-theme colours.
  */
 const rulesFor = (palette: HexagonPalette): monaco.editor.ITokenThemeRule[] =>
   Object.values(hexagonFamilies).flatMap((family) =>

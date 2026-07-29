@@ -2,6 +2,11 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 
+// @ts-expect-error Internal Monaco modules intentionally have no declaration files.
+import { TokenMetadata } from "monaco-editor/esm/vs/editor/common/encodedTokenAttributes.js";
+// @ts-expect-error Internal Monaco modules intentionally have no declaration files.
+import { TokenTheme } from "monaco-editor/esm/vs/editor/common/languages/supports/tokenization.js";
+
 import hexagonGrammarSource from "../../editors/vscode/syntaxes/hexagon.tmLanguage.json?raw";
 import playgroundModuleGrammarSource from "./playground-module.tmLanguage.json?raw";
 import {
@@ -125,13 +130,19 @@ test("paints every scope the grammars can emit, or knowingly leaves it inherited
   expect(unaccounted.toSorted()).toEqual([]);
 });
 
-test("the inherited scopes are ones the grammars really emit", () => {
-  // Otherwise the list above turns into a place stale names accumulate.
+test("themes and exempts only scopes the grammars really emit", () => {
+  // The inverse of the test above, and the reason it is here: a scope deleted from the
+  // grammar would otherwise linger indefinitely in both this file and
+  // `.vscode/settings.json`, painting nothing and looking load-bearing.
   const emitted = new Set([
     ...grammarScopes(hexagonGrammarSource),
     ...grammarScopes(playgroundModuleGrammarSource),
   ]);
-  expect(inheritsEditorForeground.filter((scope) => !emitted.has(scope))).toEqual([]);
+  const stale = [
+    ...hexagonLightThemeData.rules.map((rule) => rule.token),
+    ...inheritsEditorForeground,
+  ].filter((scope) => !emitted.has(scope));
+  expect(stale.toSorted()).toEqual([]);
 });
 
 describe("theme data", () => {
@@ -142,15 +153,49 @@ describe("theme data", () => {
     }
   });
 
-  test("names each scope outright rather than leaning on a prefix", () => {
-    // Monaco resolves a rule by walking dot-separated segments, so a rule for a prefix
-    // would silently claim every scope beneath it — `entity.name.type.hexagon` would
-    // take `entity.name.type.constraint.hexagon`'s magenta away.
-    const tokens = hexagonLightThemeData.rules.map((rule) => rule.token);
-    const shadowed = tokens.filter((token) =>
-      tokens.some((other) => other !== token && token.startsWith(`${other}.`)),
+  test("resolves every scope to its own family through Monaco's own matcher", () => {
+    // The rules are only correct if Monaco agrees, and Monaco resolves them through a
+    // dot-segment trie rather than by string equality: a rule is inherited by every
+    // scope beneath it, so an abbreviated rule can hand one family another's colour.
+    // Nothing short of building the real theme catches that, so this builds it.
+    const theme = TokenTheme.createFromRawTokenTheme(
+      hexagonLightThemeData.rules.map((rule) => ({
+        token: rule.token,
+        foreground: rule.foreground,
+      })),
+      [],
     );
-    expect(shadowed).toEqual([]);
+    const colourOf = (scope: string) =>
+      theme
+        .getColorMap()
+        [TokenMetadata.getForeground(theme.match(0, scope))]?.toString()
+        .toLowerCase();
+
+    for (const [name, family] of Object.entries(hexagonFamilies)) {
+      for (const scope of family.scopes) {
+        expect(`${scope} in ${name} -> ${colourOf(scope)}`).toBe(
+          // Monaco normalizes a colour's case on the way in.
+          `${scope} in ${name} -> ${lightPalette[family.palette].toLowerCase()}`,
+        );
+      }
+    }
+  });
+
+  test("leaves the scopes it does not claim on the editor foreground", () => {
+    const theme = TokenTheme.createFromRawTokenTheme(
+      hexagonLightThemeData.rules.map((rule) => ({
+        token: rule.token,
+        foreground: rule.foreground,
+      })),
+      [],
+    );
+    // Colour id 1 is the theme's default foreground: no rule was inherited at all,
+    // which is what the `inheritsEditorForeground` list asserts about these scopes.
+    for (const scope of [...inheritsEditorForeground, "source.hexagon"]) {
+      expect(`${scope}:${TokenMetadata.getForeground(theme.match(0, scope))}`).toBe(
+        `${scope}:1`,
+      );
+    }
   });
 
   test("uses each palette colour at least once", () => {

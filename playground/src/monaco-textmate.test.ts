@@ -361,9 +361,23 @@ describe("the Playground-only module notation (injection)", () => {
     expect(await allTokensFor(named, "Mगणित")).toEqual([namespace, namespace]);
   });
 
-  test("`module` is an ordinary name anywhere but a whole line of its own", async () => {
+  test("`module` is an ordinary name when the line is not a header", async () => {
     expect(await tokenOf("let module = 1", "module")).toBe(binder);
-    expect(await tokenOf("module Numbers extra", "module")).toBe(term);
+    expect(await tokenOf("let x = module", "module")).toBe(term);
+  });
+
+  test("recognizes every header the host recognizes, valid name or not", async () => {
+    // workspace-source.ts takes any non-blank run as the name and opens the module
+    // even while reporting a diagnostic, so a header the host acts on must not be
+    // painted as ordinary code. The host's diagnostic is what flags the bad name.
+    for (const name of ["foo", "_X", "N.M", "Numbers extra"]) {
+      expect(`${name}: ${await tokenOf(`module ${name}`, "module")}`).toBe(
+        `${name}: ${control}`,
+      );
+      expect(`${name}: ${await tokenOf(`module ${name}`, name)}`).toBe(
+        `${name}: ${namespace}`,
+      );
+    }
   });
 });
 
@@ -383,11 +397,23 @@ describe("the bridge itself", () => {
   test("labels a token no rule claims with the root scope alone", async () => {
     // No theme rule matches it, so it lands on the editor foreground rather than
     // inheriting a colour from some unrelated prefix.
-    const painted = await paint("  ");
-    expect(painted).toEqual([]);
-    expect((await provider).getInitialState()).toBeDefined();
-    const line = (await provider).tokenize("  ", (await provider).getInitialState());
+    const tokens = await provider;
+    const line = tokens.tokenize("  ", tokens.getInitialState());
     expect(line.tokens.map((token) => token.scopes)).toEqual([hexagonScopeName]);
+  });
+
+  test("skips a line past Monaco's tokenization length, preserving state", async () => {
+    // What MonarchTokenizer did, and what the adapter behind setTokensProvider does
+    // not do for us. Preserving the state is the point: resetting it would reopen a
+    // multi-line string on the far side of the long line.
+    const tokens = await provider;
+    const inString = tokens.tokenize('let s = "open', tokens.getInitialState());
+    const long = tokens.tokenize("x".repeat(20_000), inString.endState);
+    expect(long.tokens).toEqual([{ startIndex: 0, scopes: hexagonScopeName }]);
+    expect(long.endState).toBe(inString.endState);
+    expect(tokens.tokenize('closes"', long.endState).tokens[0]?.scopes).toBe(
+      "string.quoted.double.hexagon",
+    );
   });
 
   test("threads state across lines so a model tokenizes incrementally", async () => {
