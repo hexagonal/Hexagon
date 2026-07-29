@@ -1,0 +1,54 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Hexagon Playground module notation",
+  "scopeName": "source.hexagon.playground",
+
+  "//": [
+    "`module X` / `end module X` are the Playground's own way of declaring a second",
+    "virtual file, not `.hex` syntax: a real Hexagon module IS a file (spec/modules.md",
+    "§2), so the VS Code grammar deliberately has no counterpart and must not grow one.",
+    "",
+    "This is an injection rather than an edit to syntaxes/hexagon.tmLanguage.json for",
+    "exactly that reason — the shared grammar stays the language, and the one construct",
+    "only Playground understands is added on top, where only Playground loads it.",
+    "",
+    "`L:` puts these patterns ahead of the injected-into grammar's own, which is what",
+    "they need: `module` and `end` are ordinary NonUpperNames to the base grammar and",
+    "would otherwise be claimed as terms first.",
+    "",
+    "The selector deliberately carries no `-comment -string` exclusion. src/workspace-",
+    "source.ts scans raw lines and knows nothing of strings or comments, so a line",
+    "inside a multi-line string that reads exactly `module X` really does open a",
+    "virtual file. Painting it as one shows the user that surprise rather than hiding",
+    "it; excluding those contexts would make the editor disagree with the host."
+  ],
+  "injectionSelector": "L:source.hexagon",
+
+  "patterns": [
+    {
+      "//": [
+        "The opening header. The name pattern is `\\S(?:.*?\\S)?` — any non-blank run —",
+        "because that is exactly what src/workspace-source.ts accepts. It is tempting to",
+        "require an uppercase-start identifier here, since a name that is not one is a",
+        "host error, but the host opens the module anyway and only *also* reports a",
+        "diagnostic. Requiring the identifier would leave `module foo` painted as",
+        "ordinary code on a line that really does carve a virtual file out of the",
+        "source — the editor disagreeing with the host about what the line is. Monaco",
+        "already shows the host's diagnostic as a squiggle, so nothing is hidden."
+      ],
+      "match": "^(module)[ \\t]+(\\S(?:.*?\\S)?)[ \\t]*$",
+      "captures": {
+        "1": { "name": "keyword.control.hexagon" },
+        "2": { "name": "entity.name.namespace.hexagon" }
+      }
+    },
+    {
+      "//": "The closing header, matching the host's closer the same way. `end module` is scoped as one keyword run because that is what it is — neither word means anything without the other.",
+      "match": "^(end[ \\t]+module)[ \\t]+(\\S(?:.*?\\S)?)[ \\t]*$",
+      "captures": {
+        "1": { "name": "keyword.control.hexagon" },
+        "2": { "name": "entity.name.namespace.hexagon" }
+      }
+    }
+  ]
+}

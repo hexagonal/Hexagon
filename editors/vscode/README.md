@@ -6,6 +6,13 @@ The grammar lives in [`syntaxes/hexagon.tmLanguage.json`](syntaxes/hexagon.tmLan
 and is the whole extension — there is no runtime code. A language server is a
 separate, later concern (`language-server/`).
 
+**Playground reads this same file** (`playground/src/monaco-textmate.ts`), so it is
+not the extension's private grammar: it is the one Hexagon grammar, and a rule
+changed here changes both editors. Playground used to carry a second, hand-written
+Monarch tokenizer, which drifted (#145) until it was deleted for #161. The one construct
+Playground does not share is its own `module` / `end module` notation, which is not
+`.hex` syntax and lives in a Playground-side injection rather than here.
+
 ## Installing it locally
 
 VS Code loads any extension folder it finds in `~/.vscode/extensions`, so a
@@ -153,7 +160,10 @@ to be exact.
   Collections Part 2 §5.1 puts an implied `type Item = a` inside a `constraint` body
   or `honor` block, so a context that reached the next top-level declaration would
   swallow the rest of the block and paint its member names as type variables. A
-  wrapped alias right-hand side loses colour past the break.
+  wrapped alias right-hand side loses colour past the break — *unless* the break falls
+  inside an unclosed bracket, in which case the context runs on and repaints the rest
+  of the file. That is #162, and it is not specific to aliases: any unterminated group
+  in a type position does it.
 - **`<` and `>` are comparison tokens.** §8.1 makes them the same physical token
   in a comparison and in an angle-bracket binder, and the grammar keeps them that
   way. A generic call like `isEmpty<a>(v)` is still recognized as a call, because

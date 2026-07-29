@@ -122,8 +122,10 @@ test("Dark 2026 preserves Light 2026's semantic color families", async () => {
   ))).toEqual({
     "Hexagon literal data": "#7ee787",
     "Hexagon commentary": "#8b949e",
-    // The theme's own `editor.foreground`, so a scoped ordinary term and an
-    // inherited bracket or comma render identically. See THEME-COLORS.md.
+    // `Dark 2026`'s own `editor.foreground`, deliberately: brackets, commas and the
+    // other punctuation this customization leaves unscoped inherit that value, so a
+    // scoped ordinary term and an inherited bracket must render identically or the
+    // ordinary family would look like a highlight rather than the baseline.
     "Hexagon ordinary terms and symbolic operators": "#BBBEBF",
     "Hexagon structural vocabulary": "#58a6ff",
     "Hexagon nominal names": "#4EC9B0",

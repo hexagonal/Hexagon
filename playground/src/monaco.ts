@@ -2,6 +2,8 @@ import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import "monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution.js";
 import "monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution.js";
+import { loadWASM, OnigScanner, OnigString } from "vscode-oniguruma";
+import onigWasmUrl from "vscode-oniguruma/release/onig.wasm?url";
 
 import type { LocatedDiagnostic } from "./diagnostics";
 import type {
@@ -11,15 +13,55 @@ import type {
   SourceEditor,
 } from "./editor";
 import type { TypeOccurrence } from "./protocol";
-import { hexagonLanguage, hexagonTokens } from "./monaco-language";
+import {
+  createHexagonTokensProvider,
+  hexagonLanguage,
+  loadHexagonGrammar,
+} from "./monaco-textmate";
 import { defineHexagonThemes, hexagonDarkTheme, hexagonLightTheme } from "./monaco-theme";
 
 globalThis.MonacoEnvironment = {
   getWorker: () => new EditorWorker(),
 };
 
+/**
+ * The Oniguruma regex engine, as WASM. This is the whole cost of tokenizing with the
+ * VS Code grammar rather than a second hand-written one, and it is a marginal addition
+ * to a page that already ships Monaco. `loadWASM` may be called only once per document.
+ */
+const onigLib = (async () => {
+  await loadWASM(await fetch(onigWasmUrl));
+  return {
+    createOnigScanner: (sources: string[]) => new OnigScanner(sources),
+    createOnigString: (text: string) => new OnigString(text),
+  };
+})();
+
 monaco.languages.register({ id: hexagonLanguage, extensions: [".hex"] });
-monaco.languages.setMonarchTokensProvider(hexagonLanguage, hexagonTokens);
+// Monaco accepts a promise here and repaints when it settles, so the editor opens on
+// the first keystroke rather than waiting on the WASM. Until then Hexagon source is
+// unpainted — never mispainted.
+//
+// A failure to load leaves it unpainted permanently, which is a degradation the
+// textarea fallback does not cover: Monaco itself started fine, so there is nothing to
+// fall back from. Monaco attaches no rejection handler to this promise, so a rethrow
+// would surface only as an unhandled rejection and again on dispose. It settles with an
+// inert tokenizer instead, and says why once — an editor that silently stops colouring
+// is a confusing thing to debug from a screenshot.
+const unpainted: monaco.languages.TokensProvider = {
+  getInitialState: () => ({ clone: () => unpainted.getInitialState(), equals: () => true }),
+  tokenize: (_line, state) => ({ tokens: [{ startIndex: 0, scopes: "" }], endState: state }),
+};
+
+monaco.languages.setTokensProvider(
+  hexagonLanguage,
+  loadHexagonGrammar(onigLib)
+    .then(createHexagonTokensProvider)
+    .catch((cause: unknown) => {
+      console.error("Hexagon syntax highlighting is unavailable", cause);
+      return unpainted;
+    }),
+);
 defineHexagonThemes(monaco.editor);
 
 export interface MonacoEditors {

@@ -205,6 +205,19 @@ The integration uses Monaco's supported ESM build through Vite and a separately
 bundled editor worker, not its deprecated AMD distribution. Monaco is dynamically
 imported so it does not delay the textarea, compiler worker, or unsupported devices.
 
+**Tokenization is the VS Code extension's TextMate grammar, not a Playground grammar.**
+`editors/vscode/syntaxes/hexagon.tmLanguage.json` is run through `vscode-textmate` over
+the Oniguruma WASM build — the same pair VS Code itself uses — and bridged into Monaco
+by `src/monaco-textmate.ts`. Monaco's native format is Monarch, and Playground did
+maintain a second grammar in it until #161; one language with two grammars meant every
+token-inventory change had to be made twice, and silently wasn't (#145). The cost of
+consolidating is `onig.wasm`, 473 KB raw / 162 KB gzipped, on a page that already
+ships Monaco.
+
+Playground's own `module` / `end module` notation is not `.hex` syntax, so it is not in
+the shared grammar. It lives in `src/playground-module.tmLanguage.json`, a TextMate
+injection Playground alone loads.
+
 Monaco does not officially support mobile browsers. The playground is therefore Monaco-first on supported desktop browsers and retains a plain textarea editor for mobile, unsupported environments, initial loading, or editor-startup failure. The fallback must still support source editing, compilation, diagnostics in the Errors tab, generated views, and explicit Run; richer inline language services may be unavailable there. Switching to or from the fallback must preserve the current source and source version.
 
 The textarea is that fallback, not a competing editor choice. One `SourceEditor`
@@ -293,3 +306,15 @@ fresh execution worker with a two-second timeout.
 - Monaco is dynamically imported and its editor worker is bundled separately by Vite.
 - A plain textarea remains the mobile, unsupported-browser, loading, and failure fallback.
 - Both editor paths share one source state and compiler position-conversion boundary.
+
+### Tokenization (#161)
+
+- There is one Hexagon grammar, `editors/vscode/syntaxes/hexagon.tmLanguage.json`.
+  Playground consumes it; it does not copy it and does not generate from it.
+- Playground therefore tokenizes with `vscode-textmate` over Oniguruma, not Monarch.
+- Playground-only syntax goes in a Playground-side injection, never in the shared
+  grammar, which stays the `.hex` language.
+- This makes the two editors wrong in the *same* way, which is the point. It does not
+  make them right: `spec/lexer.md` §8.1's `<` and §4.2's contextual keywords are beyond
+  regex by construction. The layer that cannot be wrong is semantic tokens from the
+  compiler, and that belongs to `language-server/`, not here.
