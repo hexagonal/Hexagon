@@ -2,10 +2,14 @@ import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { describe, expect, test } from "vitest";
 
+import type * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
+
 import {
-  createHexagonTokensProvider,
+  createGrammarLoader,
+  createTokensProvider,
   hexagonScopeName,
-  loadHexagonGrammar,
+  javascriptScopeName,
+  typescriptScopeName,
 } from "./monaco-textmate";
 
 /**
@@ -33,7 +37,12 @@ const onigLib = (async () => {
   };
 })();
 
-const provider = loadHexagonGrammar(onigLib).then(createHexagonTokensProvider);
+const loadGrammar = createGrammarLoader(onigLib);
+
+const providerFor = (scopeName: string): Promise<monaco.languages.TokensProvider> =>
+  loadGrammar(scopeName).then((grammar) => createTokensProvider(scopeName, grammar));
+
+const provider = providerFor(hexagonScopeName);
 
 interface Painted {
   readonly text: string;
@@ -41,7 +50,10 @@ interface Painted {
 }
 
 /** Every non-blank token, in source order, exactly as Monaco receives it. */
-async function paint(source: string): Promise<Painted[]> {
+async function paintWith(
+  provider: Promise<monaco.languages.TokensProvider>,
+  source: string,
+): Promise<Painted[]> {
   const tokens = await provider;
   const painted: Painted[] = [];
   let state = tokens.getInitialState();
@@ -56,6 +68,8 @@ async function paint(source: string): Promise<Painted[]> {
   }
   return painted;
 }
+
+const paint = (source: string): Promise<Painted[]> => paintWith(provider, source);
 
 const tokenOf = async (source: string, text: string): Promise<string | undefined> =>
   (await paint(source)).find((entry) => entry.text === text)?.token;
@@ -378,6 +392,59 @@ describe("the Playground-only module notation (injection)", () => {
         `${name}: ${namespace}`,
       );
     }
+  });
+});
+
+describe("the generated-code panes go through the same bridge", () => {
+  // Not a second look at VS Code's JavaScript grammar, which is not ours to test. What
+  // these pin is that the panes reach the families `monaco-theme.ts` paints, over the
+  // shapes the emitter actually produces — a call, a declaration, a keyword, a literal.
+  const javascript = providerFor(javascriptScopeName);
+  const typescript = providerFor(typescriptScopeName);
+
+  const scopeOf = async (
+    provider: Promise<monaco.languages.TokensProvider>,
+    source: string,
+    text: string,
+  ): Promise<string | undefined> =>
+    (await paintWith(provider, source)).find((entry) => entry.text === text)?.token;
+
+  test("names a callable, which is what Monarch could not do at all", async () => {
+    // The whole reason the panes left Monarch: `identifier` was its only verdict here,
+    // so the callable family had nothing to paint and generated code read as prose.
+    const source = "export const show = (x) => Vector.append(items, x);";
+    expect(await scopeOf(javascript, source, "append")).toBe("entity.name.function.js");
+    expect(await scopeOf(javascript, source, "items")).toBe("variable.other.readwrite.js");
+  });
+
+  test("splits a bigint suffix off its digits, which the theme rejoins", async () => {
+    const source = "const big = 42n;";
+    expect(await scopeOf(javascript, source, "42")).toBe("constant.numeric.decimal.js");
+    expect(await scopeOf(javascript, source, "n")).toBe("storage.type.numeric.bigint.js");
+  });
+
+  test("sorts word operators from symbolic ones, as the Hexagon grammar does", async () => {
+    const source = "const b = typeof x === 'string' && y + 1;";
+    expect(await scopeOf(javascript, source, "typeof")).toBe(
+      "keyword.operator.expression.typeof.js",
+    );
+    expect(await scopeOf(javascript, source, "===")).toBe("keyword.operator.comparison.js");
+    expect(await scopeOf(javascript, source, "+")).toBe("keyword.operator.arithmetic.js");
+  });
+
+  test("the declarations pane is tokenized as TypeScript, not as JavaScript", async () => {
+    const source = "export declare function greet(name: string): string;";
+    expect(await scopeOf(typescript, source, "declare")).toBe("storage.modifier.ts");
+    expect(await scopeOf(typescript, source, "greet")).toBe("entity.name.function.ts");
+    expect(await scopeOf(typescript, source, "string")).toBe("support.type.primitive.ts");
+  });
+
+  test("labels a long line with its own root scope, not Hexagon's", async () => {
+    // `source.js` has to be as inert against the theme as `source.hexagon` is; handing
+    // back the wrong root would paint the skipped line with whatever that root matches.
+    const tokens = await javascript;
+    const long = tokens.tokenize("x".repeat(20_000), tokens.getInitialState());
+    expect(long.tokens).toEqual([{ startIndex: 0, scopes: javascriptScopeName }]);
   });
 });
 

@@ -9,6 +9,13 @@
  * caller to use it: `setTokensProvider` takes any tokenizer that can label a line and
  * hand back a state, which is exactly what `IGrammar.tokenizeLine` does.
  *
+ * The generated-code panes go through the same bridge, on VS Code's own JavaScript and
+ * TypeScript grammars. They were the last Monarch tokenizers on the page: Monaco ships
+ * one for each and registers it from `*.contribution.js`, but Monarch cannot tell a
+ * function name from any other identifier, so the callable family had nothing to paint
+ * and the panes read as a different language than the source above them. The scope
+ * inventory is also what lets `monaco-theme.ts` colour all three panes from one table.
+ *
  * TextMate is still a regex approximation — spec/lexer.md §8.1 makes `<` one token in
  * a binder and in a comparison, and §4.2's contextual keywords are keywords only by
  * position — so this does not make Playground right. It makes both editors wrong in
@@ -31,16 +38,30 @@ import playgroundModuleGrammarSource from "./playground-module.tmLanguage.json?r
 
 export const hexagonLanguage = "hexagon";
 export const hexagonScopeName = "source.hexagon";
+/** Monaco registers both ids itself, from the `basic-languages` contributions. */
+export const javascriptLanguage = "javascript";
+export const typescriptLanguage = "typescript";
+export const javascriptScopeName = "source.js";
+export const typescriptScopeName = "source.ts";
 const playgroundModuleScopeName = "source.hexagon.playground";
 
 /**
- * The grammar is imported from `editors/vscode` rather than copied, so there is one
- * file and no room for the two editors to disagree about what a token is. Vite inlines
- * it at build time; Playground ships no second copy.
+ * The Hexagon grammar is imported from `editors/vscode` rather than copied, so there is
+ * one file and no room for the two editors to disagree about what a token is. Vite
+ * inlines it at build time; Playground ships no second copy.
+ *
+ * The other two are VS Code's, taken from `tm-grammars` rather than vendored, and they
+ * are an order of magnitude larger than Hexagon's. They load through a dynamic import,
+ * which splits them out of the entry chunk; `monaco.ts` is what decides they are not
+ * fetched at all until a generated pane is first tokenized.
  */
-const grammarSources: Readonly<Record<string, string>> = {
-  [hexagonScopeName]: hexagonGrammarSource,
-  [playgroundModuleScopeName]: playgroundModuleGrammarSource,
+const grammarSources: Readonly<Record<string, () => Promise<string>>> = {
+  [hexagonScopeName]: async () => hexagonGrammarSource,
+  [playgroundModuleScopeName]: async () => playgroundModuleGrammarSource,
+  [javascriptScopeName]: async () =>
+    (await import("tm-grammars/grammars/javascript.json?raw")).default,
+  [typescriptScopeName]: async () =>
+    (await import("tm-grammars/grammars/typescript.json?raw")).default,
 };
 
 /**
@@ -52,23 +73,30 @@ const grammarSources: Readonly<Record<string, string>> = {
  */
 const maxTokenizedLineLength = 20_000;
 
-function createHexagonRegistry(onigLib: Promise<IOnigLib>): Registry {
-  return new Registry({
+/**
+ * One registry over all four grammars, so the Oniguruma library is handed over once and
+ * a grammar is compiled once however many panes ask for it. Nothing is read until a
+ * `load` call names a scope, which is what keeps the two large grammars off the entry
+ * chunk.
+ */
+export function createGrammarLoader(
+  onigLib: Promise<IOnigLib>,
+): (scopeName: string) => Promise<IGrammar> {
+  const registry = new Registry({
     onigLib,
     loadGrammar: async (scopeName) => {
       const source = grammarSources[scopeName];
       // `parseRawGrammar` picks JSON over PLIST from the path's extension.
-      return source === undefined ? null : parseRawGrammar(source, `${scopeName}.json`);
+      return source === undefined ? null : parseRawGrammar(await source(), `${scopeName}.json`);
     },
     getInjections: (scopeName) =>
       scopeName === hexagonScopeName ? [playgroundModuleScopeName] : undefined,
   });
-}
-
-export async function loadHexagonGrammar(onigLib: Promise<IOnigLib>): Promise<IGrammar> {
-  const grammar = await createHexagonRegistry(onigLib).loadGrammar(hexagonScopeName);
-  if (grammar === null) throw new Error(`grammar ${hexagonScopeName} failed to load`);
-  return grammar;
+  return async (scopeName) => {
+    const grammar = await registry.loadGrammar(scopeName);
+    if (grammar === null) throw new Error(`grammar ${scopeName} failed to load`);
+    return grammar;
+  };
 }
 
 /**
@@ -79,7 +107,10 @@ export async function loadHexagonGrammar(onigLib: Promise<IOnigLib>): Promise<IG
  * resolves through one name in both.
  *
  * A token no rule claims — layout whitespace, an unrecognized character — carries only
- * `source.hexagon`, which no rule matches, so it lands on the editor foreground.
+ * the grammar's root scope, which no rule matches, so it lands on the editor foreground.
+ * That is why the root scope is what a skipped line is labelled with too, and why it is
+ * passed in rather than assumed: `source.js` has to be inert for the same reason
+ * `source.hexagon` does.
  *
  * A long line is skipped rather than tokenized, mirroring what `MonarchTokenizer` does
  * and preserving the incoming state so the line is a no-op rather than a state reset.
@@ -91,14 +122,15 @@ export async function loadHexagonGrammar(onigLib: Promise<IOnigLib>): Promise<IG
  * bound a pathological line is also small enough to be tripped by the first call, which
  * pays for compiling every scanner in the grammar. Length is the honest bound here.
  */
-export function createHexagonTokensProvider(
+export function createTokensProvider(
+  scopeName: string,
   grammar: IGrammar,
 ): monaco.languages.TokensProvider {
   return {
     getInitialState: () => INITIAL as monaco.languages.IState,
     tokenize: (line, state) => {
       if (line.length >= maxTokenizedLineLength) {
-        return { tokens: [{ startIndex: 0, scopes: hexagonScopeName }], endState: state };
+        return { tokens: [{ startIndex: 0, scopes: scopeName }], endState: state };
       }
       const result = grammar.tokenizeLine(line, state as unknown as StateStack);
       return {
