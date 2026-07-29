@@ -290,8 +290,18 @@ class Checker {
 
   check(module: Resolved.Module): Typed.Module {
     this.#seqRecord = module.preludeRecords.get("Seq");
+    // The fallback is deliberately guarded on the prelude being *absent
+    // entirely*, not merely on `Bool` being missing from it. Reaching for a
+    // locally declared `Bool` in any other circumstance would hand a user's own
+    // `union Bool` the pin and the structural instances (#147). Only one module
+    // satisfies the guard: `stdlib/Bool.hex`, declaring what the prelude cannot
+    // yet supply to it. The emitter and the specialization planner use the same
+    // form; they must agree, or one pass pins what another does not.
     this.#boolUnion = module.preludeUnions.get("Bool")
-      ?? module.unions.find((union) => union.name === "Bool")?.id;
+      ?? (module.preludeUnions.size === 0
+        ? module.unions.find((union) => union.name === "Bool")?.id
+        : undefined);
+    this.#verifyPinnedBoolShape(module);
     for (const externType of module.externTypes) {
       this.#externTypes.set(externType.externType, externType);
     }
@@ -1281,6 +1291,53 @@ class Checker {
       primary: span,
     });
     return ERROR;
+  }
+
+  /**
+   * Checks that the declaration the pin is granted to is the declaration the pin
+   * was ruled for (#147 §3.5/§7: the compiler verifies this shape "the way the
+   * intrinsic door verifies its inventory").
+   *
+   * This is not ceremony. The emitter maps a constructor named `True` to `true`
+   * and everything else to `false`, and derived `Ord` emits
+   * `(l ? 1 : 0) - (r ? 1 : 0)` on the strength of the declaration order — so a
+   * reordered or three-constructor `Bool.hex` would silently emit wrong constants
+   * and inverted comparisons rather than the compiler-integrity error §3.2
+   * promises. It is also the proof obligation of satisfying `Bool`'s constraints
+   * structurally: "structural agrees with derived by construction" is only true
+   * while the declaration says what the structural code assumes.
+   *
+   * Not user-reachable — the prelude sources are embedded in the compiler — so a
+   * failure here means the compiler's own stdlib copy is wrong, and the message
+   * says so rather than blaming the program being compiled.
+   */
+  #verifyPinnedBoolShape(module: Resolved.Module): void {
+    if (this.#boolUnion === undefined) return;
+    const declaration = module.unions.find(({ id }) => id === this.#boolUnion);
+    if (declaration === undefined) return;
+    const constructors = declaration.constructors.map(({ binding, slots }) => ({
+      name: binding.name,
+      nullary: slots.length === 0,
+    }));
+    const shapeIsRight = declaration.parameters.length === 0 &&
+      constructors.length === 2 &&
+      constructors[0]?.name === "False" && constructors[0].nullary &&
+      constructors[1]?.name === "True" && constructors[1].nullary &&
+      ["Eq", "Ord", "Show", "Hash"].every((constraint) =>
+        declaration.derives.includes(constraint)
+      );
+    if (shapeIsRight) return;
+    this.#diagnostics.add({
+      severity: "error",
+      message:
+        "compiler integrity: the prelude `Bool` must be declared exactly " +
+        "`union Bool derives (Eq, Ord, Show, Hash) = False | True`, in that " +
+        "constructor order — the representation pin and derived `Ord` both " +
+        `depend on it; found \`${
+          constructors.map(({ name }) => name).join(" | ")
+        }\``,
+      primary: declaration.span,
+    });
   }
 
   /**

@@ -65,9 +65,14 @@ export function planFundamentalSpecializations(
   const specializations: FundamentalSpecialization[] = [];
   const collisions: SpecializationCollision[] = [];
   // #147: `Bool` is a fundamental type that is no longer a primitive, so an
-  // edition assigning it has to name the prelude declaration.
+  // edition assigning it has to name the prelude declaration. Same guard as the
+  // checker's `#boolUnion` and the emitter's `preludeIds` — the fallback is for
+  // `stdlib/Bool.hex` alone, and the three passes must agree about which
+  // declaration is the pinned one.
   const bool = module.preludeUnions.get("Bool")
-    ?? module.unions.find(({ name }) => name === "Bool")?.id;
+    ?? (module.preludeUnions.size === 0
+      ? module.unions.find(({ name }) => name === "Bool")?.id
+      : undefined);
 
   for (const item of module.items) {
     if (!isSpecializable(item) || (!includePrivate && !item.exported)) continue;

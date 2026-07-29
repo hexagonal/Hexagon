@@ -265,11 +265,6 @@ class JavaScriptEmitter {
           : imported;
         return source === local ? source : `${source} as ${local}`;
       });
-      // A synthesized prelude import with no names is an instance carrier, not a
-      // request to run the module for effect (#147): it exists because this
-      // module named one of that module's *types*. Emitting a side-effect import
-      // for it would put a load-order dependency into the output that the source
-      // never asked for.
       // A synthesized prelude import whose only names were `Bool` constructors
       // has nothing left to bind once the pin emits them as literals (#147), so
       // it must not fall through to the side-effect form: that would put a
@@ -2462,8 +2457,15 @@ class JavaScriptEmitter {
         // The all-nullary case shows itself, because its representation already
         // *is* its constructor name. The pinned `Bool` is the one union where
         // that is not so, so it needs the two-way lookup (#147, §3.2).
+        //
+        // Parenthesized, and that is not cosmetic: every other branch here
+        // returns something safe to drop into the `+`-concatenation a composite
+        // show builds, and `+` binds tighter than `?:`. Bare, the accumulated
+        // string prefix became the ternary's condition, so a record containing a
+        // `Bool` displayed as `"True"` — the wrong value, silently. Caught in
+        // review of the commit that introduced it.
         if (this.#prelude.bool !== undefined && union.id === this.#prelude.bool) {
-          return `${value} ? "True" : "False"`;
+          return `(${value} ? "True" : "False")`;
         }
         const tagged = union.constructors.some(({ slots }) => slots.length > 0);
         if (!tagged) return value;

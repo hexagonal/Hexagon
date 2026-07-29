@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { compileMain, projectDiagnostics, runMain } from "../support/test-project.js";
+import { compileFiles, compileMain, projectDiagnostics, runMain } from "../support/test-project.js";
 
 /**
  * Conformance for `Bool` as a prelude union (ruling #147,
@@ -179,5 +179,81 @@ describe("the representation pin (#147 §3)", () => {
     const main = project.modules.find(({ source }) => source.path === "/main.hex")!;
     expect(main.javascript.text).not.toContain("__hex_toBool");
     expect(main.declarations.text).toContain("boolean");
+  });
+});
+
+describe("`Bool` inside a composite (#147, regression)", () => {
+  // The pinned `Show` is a ternary, and `+` binds tighter than `?:`. Unparenthesized
+  // it made the accumulated string prefix the ternary's condition, so any composite
+  // containing a `Bool` displayed as `"True"` — the wrong value, with no diagnostic.
+  // Found in review of the commit that introduced it.
+  test("a record field, a tuple element, and a payload all display in place", async () => {
+    const module = await runMain(
+      "record Flagged derives (Show) = {on: Bool, count: Int}\n" +
+        "union Wrap derives (Show) = Wrapped(flag: Bool)\n" +
+        "export let inRecord: String = \"${Flagged({on = False, count = 2})}\"\n" +
+        "export let inTuple: String = \"${(True, 1)}\"\n" +
+        "export let inPayload: String = \"${Wrapped(True)}\"\n",
+    );
+
+    expect(module.inRecord).toBe("{count = 2, on = False}");
+    expect(module.inTuple).toBe("(True, 1)");
+    expect(module.inPayload).toBe("Wrapped(True)");
+  });
+
+  test("`Bool` works as a `Set` element and a `Map` key", async () => {
+    const module = await runMain(
+      "let flags: Set(Bool) = Set.add(Set.add(Set.empty(), True), False)\n" +
+        "export let size: Int = Set.size(flags)\n" +
+        "export let hasTrue: Bool = Set.contains(flags, True)\n" +
+        "let byFlag: Map(Bool, String) = Map.set(Map.empty(), True, \"yes\")\n" +
+        "export let looked: String = byFlag[True]\n",
+    );
+
+    expect(module.size).toBe(2);
+    expect(module.hasTrue).toBe(true);
+    expect(module.looked).toBe("yes");
+  });
+});
+
+describe("the declaration's shape is verified, not trusted (#147 §3.5/§7)", () => {
+  // The pin is granted to a declaration, so the compiler checks that the
+  // declaration is the one the pin was ruled for. `stdlib/Bool.hex` is embedded
+  // in the compiler and no program can reach it, so this is an integrity check on
+  // the compiler's own stdlib copy — but it is load-bearing rather than
+  // ceremonial: the emitter maps the constructor named `True` to `true`, and
+  // derived `Ord` leans on the declaration order.
+  const shapeError = (source: string): string | undefined =>
+    projectDiagnostics(source).find((message) =>
+      message.startsWith("compiler integrity: the prelude `Bool`")
+    );
+
+  test("the shipped prelude passes", () => {
+    expect(shapeError("export let flag: Bool = True\n")).toBeUndefined();
+  });
+
+  test("a project supplying a wrong `Bool.hex` at the injection path is refused", () => {
+    // Compiling the stdlib itself is the one way to substitute a prelude module
+    // (`injectPrelude` prefers a project file at the injection path), so it is
+    // also the way to prove the check runs.
+    const reversed = compileFiles([
+      ["/Bool.hex", "export union Bool derives (Eq, Ord, Show, Hash) =\n    | True\n    | False\n"],
+      ["/main.hex", "export let flag: Bool = True\n"],
+    ]);
+
+    expect(reversed.diagnostics.map(({ message }) => message).join("\n")).toContain(
+      "in that constructor order",
+    );
+  });
+
+  test("a third constructor is refused", () => {
+    const extra = compileFiles([
+      ["/Bool.hex", "export union Bool derives (Eq, Ord, Show, Hash) =\n    | False\n    | True\n    | Maybe\n"],
+      ["/main.hex", "export let flag: Bool = True\n"],
+    ]);
+
+    expect(extra.diagnostics.map(({ message }) => message).join("\n")).toContain(
+      "compiler integrity: the prelude `Bool`",
+    );
   });
 });

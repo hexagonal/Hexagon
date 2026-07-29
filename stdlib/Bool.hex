@@ -17,7 +17,8 @@
 // pin (decisions doc §3): a `Bool` is the JS `boolean`, `True` emits `true`, `False`
 // emits `false`, and `Bool` is `boolean` in emitted `.d.ts`. That is the single
 // exception to the all-nullary string rule (Unions §6.2), it is unavailable to any user
-// declaration, and the compiler verifies this file's shape rather than trusting it. The
+// declaration, and the compiler verifies this file's shape — exactly two nullary
+// constructors, `False` then `True`, deriving those four — rather than trusting it. The
 // pin is also what licenses `and`/`or`/`not`/`implies`/`iff` and `if`/`while` conditions
 // to eliminate a `Bool` without `match` (Operators §4, §11) — against the string
 // representation, `&&` on `"False"` would be truthy nonsense.
