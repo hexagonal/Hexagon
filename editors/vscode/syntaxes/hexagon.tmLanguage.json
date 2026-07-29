@@ -22,12 +22,16 @@
     { "include": "#strings" },
     { "include": "#reserved-identifier" },
     { "include": "#extern-from-block" },
+    { "include": "#type-alias-declaration" },
+    { "include": "#type-declaration-parameters" },
     { "include": "#declarations" },
     { "include": "#keywords" },
     { "include": "#contextual-keywords" },
     { "include": "#numbers" },
     { "include": "#function-call" },
     { "include": "#parameter" },
+    { "include": "#type-parameters" },
+    { "include": "#annotation-type" },
     { "include": "#names" },
     { "//": "Before #operators: spec/lexer.md §8.2 requires `||` to be one forbidden run pointing at `or`, never two pattern bars.", "include": "#invalid" },
     { "include": "#operators" },
@@ -243,36 +247,280 @@
     },
 
     "declarations": {
-      "//": "Names the thing being declared. `fun` always introduces a function; `let`/`var` introduce one only when a parameter list or type-parameter list follows (stdlib/Seq.hex leans on this distinction heavily).",
+      "//": [
+        "Names the thing being declared. `fun` always introduces a function; `let`/`var`",
+        "introduce one only when a parameter list or type-parameter list follows",
+        "(stdlib/Seq.hex leans on this distinction heavily).",
+        "",
+        "Each name alternative excludes the §4.1 hard keywords as well as uppercase",
+        "starts and `__hex_`. These rules are included ahead of #keywords, so without",
+        "that guard they would claim the keyword first and paint `let true = 1` or",
+        "`let if = 1` — both §10 hard errors — as ordinary, valid binders (#154). The",
+        "guard's trailing boundary lookahead is what keeps `let iffy` and `let format`",
+        "binding normally."
+      ],
       "patterns": [
         {
-          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(fun)[ \\t]+((?![\\p{Uppercase}\\p{Lt}])(?!__hex_)[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(fun)[ \\t]+((?![\\p{Uppercase}\\p{Lt}])(?!__hex_)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|union|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)",
           "captures": {
             "1": { "name": "storage.type.function.hexagon" },
             "2": { "name": "entity.name.function.hexagon" }
           }
         },
         {
-          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(let|var)[ \\t]+((?![\\p{Uppercase}\\p{Lt}])(?!__hex_)[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)(?=[ \\t]*[(<])",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(let|var)[ \\t]+((?![\\p{Uppercase}\\p{Lt}])(?!__hex_)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|union|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)(?=[ \\t]*[(<])",
           "captures": {
             "1": { "name": "storage.type.hexagon" },
             "2": { "name": "entity.name.function.hexagon" }
           }
         },
         {
-          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(let|var)[ \\t]+((?![\\p{Uppercase}\\p{Lt}])(?!__hex_)[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(let|var)[ \\t]+((?![\\p{Uppercase}\\p{Lt}])(?!__hex_)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|union|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)",
           "captures": {
             "1": { "name": "storage.type.hexagon" },
             "2": { "name": "variable.other.definition.hexagon" }
           }
         },
         {
-          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(record|union|type|constraint|exception|honor)[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)",
+          "//": [
+            "`constraint C` declares a constraint and `honor C` names one, so the name",
+            "after either keyword is a constraint rather than an ordinary type. This is",
+            "the declaration/use duality of spec/constraints.md §4.1 — the subject inside",
+            "the following `<...>` is a type and keeps the nominal scope."
+          ],
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(constraint|honor)[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)",
+          "captures": {
+            "1": { "name": "storage.type.hexagon" },
+            "2": { "name": "entity.name.type.constraint.hexagon" }
+          }
+        },
+        {
+          "//": [
+            "A parameterized instance head puts its binders before the constraint name",
+            "(spec/constraints.md §4.3: `honor<a: Show> Show<Vector(a)>`), so the name is",
+            "no longer adjacent to `honor` and the rule above cannot see it.",
+            "",
+            "The pattern keys on the shape rather than on `honor` itself: an uppercase",
+            "name between a binder list's `>` and a tight `<` of its own. Angle brackets",
+            "are not type application in Hexagon — `Vector(a)` uses parens — so no",
+            "ordinary type reaches this shape, but the pattern is not anchored to the",
+            "keyword and would also claim a contrived `a > B<c>` comparison."
+          ],
+          "match": "(?<=>)[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)(?=<)",
+          "captures": {
+            "1": { "name": "entity.name.type.constraint.hexagon" }
+          }
+        },
+        {
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(record|union|type|exception)[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)",
           "captures": {
             "1": { "name": "storage.type.hexagon" },
             "2": { "name": "entity.name.type.hexagon" }
           }
         }
+      ]
+    },
+
+    "type-alias-declaration": {
+      "//": [
+        "Unlike nominal declarations, a type alias has a type expression as its whole",
+        "right-hand side, so the header opens a type context.",
+        "",
+        "That context ends at end of line. Running it to the next top-level declaration",
+        "instead would be wrong wherever `type` appears indented — Collections Part 2",
+        "§5.1 puts an implied type member inside a `constraint` body or `honor` block,",
+        "and §5.3's example is indented, so an unbounded context swallows the rest of",
+        "the block and paints its member names and parameters as type variables. A",
+        "multi-line alias right-hand side is the rarer case and loses only colour."
+      ],
+      "begin": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(type)[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)(?=[ \\t]*(?:\\([^\\n)]*\\)[ \\t]*)?=)",
+      "beginCaptures": {
+        "1": { "name": "storage.type.hexagon" },
+        "2": { "name": "entity.name.type.hexagon" }
+      },
+      "end": "$",
+      "patterns": [
+        { "include": "#type-expression" }
+      ]
+    },
+
+    "type-declaration-parameters": {
+      "//": [
+        "Data-declaration headers use parentheses, unlike function and constraint",
+        "type parameters. Inside this syntactically closed position every",
+        "non-uppercase-start name is a type variable (Declarations Preamble §2.1)."
+      ],
+      "begin": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(record|union|type)[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)[ \\t]*(\\()",
+      "beginCaptures": {
+        "1": { "name": "storage.type.hexagon" },
+        "2": { "name": "entity.name.type.hexagon" },
+        "3": { "name": "punctuation.section.parens.begin.hexagon" }
+      },
+      "end": "\\)",
+      "endCaptures": {
+        "0": { "name": "punctuation.section.parens.end.hexagon" }
+      },
+      "patterns": [
+        {
+          "name": "entity.name.type.parameter.hexagon",
+          "match": "(?![\\p{Uppercase}\\p{Lt}])[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*"
+        },
+        {
+          "name": "punctuation.separator.comma.hexagon",
+          "match": ","
+        }
+      ]
+    },
+
+    "type-parameters": {
+      "//": [
+        "Angle brackets are also comparison operators, so entering this context needs",
+        "two guards, because a binder list is written tight while a comparison is spaced.",
+        "First, `<` must be followed immediately by an identifier character: every binder",
+        "and type-argument list is written `<a>`, `honor<a: Show>`, `isEmpty<a>(v)`, so a",
+        "spaced `count < limit and total > (x + y)` is excluded before the tail is even",
+        "considered. The function-call rule instead excludes parens from its span, which",
+        "is not available here — `<a: (Num, Ord)>` needs them (spec/constraints.md §3).",
+        "Second, the closing `>` must be followed by `(` (type arguments before a call),",
+        "`=` (a constraint or function head), or an uppercase name (an `honor` head's",
+        "prefix binder, §4.3: `honor<a: Show> Show<Vector(a)>`)."
+      ],
+      "begin": "<(?=[\\p{ID_Start}$_][^<>\\n]*>(?!=)[ \\t]*(?:\\(|=|[\\p{Uppercase}\\p{Lt}]))",
+      "beginCaptures": {
+        "0": { "name": "keyword.operator.comparison.hexagon" }
+      },
+      "end": ">",
+      "endCaptures": {
+        "0": { "name": "keyword.operator.comparison.hexagon" }
+      },
+      "patterns": [
+        { "include": "#type-parameter-bound" },
+        {
+          "name": "entity.name.type.parameter.hexagon",
+          "match": "(?![\\p{Uppercase}\\p{Lt}])[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*"
+        },
+        { "include": "#names" },
+        { "include": "#punctuation" }
+      ]
+    },
+
+    "type-parameter-bound": {
+      "//": [
+        "The obligation side of a binder: `<a: Ord>` and `<a: (Num, Ord)>`. Everything",
+        "uppercase after the colon is a constraint (spec/constraints.md §3), which is the",
+        "one constraint position with no keyword announcing it. The bound runs to the",
+        "binder separator, so the tuple form's own parens are consumed by a nested",
+        "context — otherwise the comma inside `(Num, Ord)` would end the bound early."
+      ],
+      "begin": ":(?!=)",
+      "beginCaptures": {
+        "0": { "name": "punctuation.separator.colon.hexagon" }
+      },
+      "end": "(?=[,>])",
+      "patterns": [
+        {
+          "begin": "\\(",
+          "beginCaptures": {
+            "0": { "name": "punctuation.section.parens.begin.hexagon" }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": { "name": "punctuation.section.parens.end.hexagon" }
+          },
+          "patterns": [
+            { "include": "#constraint-name" },
+            { "include": "#punctuation" }
+          ]
+        },
+        { "include": "#constraint-name" },
+        { "include": "#punctuation" }
+      ]
+    },
+
+    "constraint-name": {
+      "//": "An uppercase name in a position the grammar has already established is a constraint.",
+      "name": "entity.name.type.constraint.hexagon",
+      "match": "[\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*"
+    },
+
+    "annotation-type": {
+      "//": [
+        "A colon that is not `:=` opens a type annotation. The surrounding",
+        "parameter/result/field syntax supplies the closing delimiter. Within this",
+        "context casing is sufficient: a non-uppercase-start name can only be a type",
+        "variable (Functions §4.2.1), while record-type field names are the one",
+        "lowercase role before a nested colon."
+      ],
+      "begin": ":(?!=)",
+      "beginCaptures": {
+        "0": { "name": "punctuation.separator.colon.hexagon" }
+      },
+      "end": "(?=[,)=}\\]]|=>|=(?!=)|$)",
+      "patterns": [
+        { "include": "#type-expression" }
+      ]
+    },
+
+    "type-expression": {
+      "patterns": [
+        { "include": "#comments" },
+        {
+          "name": "variable.parameter.hexagon",
+          "match": "(?![\\p{Uppercase}\\p{Lt}])([\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)(?=[ \\t]*:(?!=))"
+        },
+        {
+          "name": "entity.name.namespace.hexagon",
+          "match": "[\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*(?=\\.(?!\\.))"
+        },
+        {
+          "name": "entity.name.type.hexagon",
+          "match": "[\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*"
+        },
+        {
+          "name": "entity.name.type.parameter.hexagon",
+          "match": "(?![\\p{Uppercase}\\p{Lt}])[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*"
+        },
+        {
+          "begin": "\\(",
+          "beginCaptures": {
+            "0": { "name": "punctuation.section.parens.begin.hexagon" }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": { "name": "punctuation.section.parens.end.hexagon" }
+          },
+          "patterns": [
+            { "include": "#type-expression" }
+          ]
+        },
+        {
+          "begin": "\\{",
+          "beginCaptures": {
+            "0": { "name": "punctuation.section.braces.begin.hexagon" }
+          },
+          "end": "\\}",
+          "endCaptures": {
+            "0": { "name": "punctuation.section.braces.end.hexagon" }
+          },
+          "patterns": [
+            { "include": "#type-expression" }
+          ]
+        },
+        {
+          "begin": "\\[",
+          "beginCaptures": {
+            "0": { "name": "punctuation.section.brackets.begin.hexagon" }
+          },
+          "end": "\\]",
+          "endCaptures": {
+            "0": { "name": "punctuation.section.brackets.end.hexagon" }
+          },
+          "patterns": [
+            { "include": "#type-expression" }
+          ]
+        },
+        { "include": "#operators" },
+        { "include": "#punctuation" }
       ]
     },
 
@@ -301,12 +549,12 @@
             "spec/lexer.md §4.1 reserved redirect words (#147). `true`/`false` are still",
             "hard keywords but no longer produce values: Bool is the prelude union",
             "`False | True`, so an occurrence in value position is an error carrying a",
-            "one-token fixit. Name position is §10's other row and a different message,",
-            "and this rule does not reach it: #declarations is included ahead of",
-            "#keywords, so `let true = 1` is claimed by the binding rule first. That",
-            "shadowing swallows every hard keyword, not just these two, and is filed",
-            "separately. `True`/`False` need no rule — they are ordinary UpperNames and",
-            "reach entity.name.type through #names, exactly like `None`."
+            "one-token fixit. Name position is §10's other row: #declarations is",
+            "included ahead of #keywords, so it would claim `let true = 1` first, and",
+            "its name alternatives therefore carry an explicit hard-keyword guard (#154)",
+            "so this rule reaches the binder position too. `True`/`False` need no rule —",
+            "they are ordinary UpperNames and reach entity.name.type through #names,",
+            "exactly like `None`."
           ],
           "name": "invalid.illegal.reserved-redirect-word.hexagon",
           "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?:true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])"
@@ -332,9 +580,33 @@
           "captures": { "1": { "name": "keyword.other.as.hexagon" } }
         },
         {
-          "//": "`derives Eq` or `derives (Eq, Show)`, which only ever follows a declaration header's name or parameter list.",
-          "match": "(?<=[\\p{ID_Continue}$_)\\]}])[ \\t]+(derives)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?=[ \\t]*[(\\p{Uppercase}\\p{Lt}])",
-          "captures": { "1": { "name": "keyword.other.derives.hexagon" } }
+          "//": [
+            "The tuple form `derives (Eq, Show)`, which only ever follows a declaration",
+            "header's name or parameter list. Everything it lists is a constraint",
+            "(spec/declarations-preamble.md §2.3), so the clause opens a context rather",
+            "than scoping the keyword alone."
+          ],
+          "begin": "(?:(?<=[\\p{ID_Continue}$_)\\]}])[ \\t]+|^[ \\t]+)(derives)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]*(\\()",
+          "beginCaptures": {
+            "1": { "name": "keyword.other.derives.hexagon" },
+            "2": { "name": "punctuation.section.parens.begin.hexagon" }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": { "name": "punctuation.section.parens.end.hexagon" }
+          },
+          "patterns": [
+            { "include": "#constraint-name" },
+            { "include": "#punctuation" }
+          ]
+        },
+        {
+          "//": "The single-name form `derives Eq`, the other half of §2.3.",
+          "match": "(?:(?<=[\\p{ID_Continue}$_)\\]}])[ \\t]+|^[ \\t]+)(derives)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)",
+          "captures": {
+            "1": { "name": "keyword.other.derives.hexagon" },
+            "2": { "name": "entity.name.type.constraint.hexagon" }
+          }
         },
         {
           "//": "`export opaque record` / `export opaque union` only.",

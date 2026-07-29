@@ -6,5 +6,273 @@
     "editor.detectIndentation": false,
     "editor.insertSpaces": true,
     "editor.tabSize": 4
+  },
+  "editor.tokenColorCustomizations": {
+    "[Light 2026]": {
+      "textMateRules": [
+        {
+          "name": "Hexagon literal data",
+          "scope": [
+            "constant.character.escape.hexagon",
+            "constant.numeric.integer.hexagon",
+            "constant.numeric.float.hexagon",
+            "constant.numeric.bigint.hexagon",
+            "string.quoted.double.hexagon"
+          ],
+          "settings": {
+            "foreground": "#38761d"
+          }
+        },
+        {
+          "name": "Hexagon commentary",
+          "scope": [
+            "comment.block.documentation.hexagon",
+            "comment.block.hexagon",
+            "comment.line.documentation.hexagon",
+            "comment.line.double-slash.hexagon",
+            "punctuation.definition.comment.hexagon",
+            "punctuation.definition.comment.begin.hexagon",
+            "punctuation.definition.comment.end.hexagon"
+          ],
+          "settings": {
+            "foreground": "#6e7781"
+          }
+        },
+        {
+          "name": "Hexagon ordinary terms and symbolic operators",
+          "scope": [
+            "meta.embedded.line.hexagon",
+            "variable.other.hexagon",
+            "variable.other.definition.hexagon",
+            "variable.parameter.hexagon",
+            "variable.language.wildcard.hexagon",
+            "keyword.operator.arithmetic.hexagon",
+            "keyword.operator.comparison.hexagon",
+            "keyword.operator.assignment.hexagon",
+            "keyword.operator.concat.hexagon",
+            "keyword.operator.pipe.hexagon",
+            "keyword.operator.range.hexagon",
+            "keyword.operator.spread.hexagon",
+            "keyword.operator.bar.hexagon",
+            "keyword.operator.arrow.hexagon",
+            "keyword.operator.type.arrow.hexagon"
+          ],
+          "settings": {
+            "foreground": "#1f2328"
+          }
+        },
+        {
+          "name": "Hexagon structural vocabulary",
+          "scope": [
+            "keyword.control.hexagon",
+            "keyword.control.import.hexagon",
+            "storage.type.hexagon",
+            "storage.type.function.hexagon",
+            "storage.modifier.hexagon",
+            "keyword.other.as.hexagon",
+            "keyword.other.from.hexagon",
+            "keyword.other.derives.hexagon",
+            "keyword.other.when.hexagon",
+            "keyword.other.with.hexagon",
+            "keyword.other.ffi.hexagon",
+            "keyword.operator.word.hexagon"
+          ],
+          "settings": {
+            "foreground": "#0550ae"
+          }
+        },
+        {
+          "name": "Hexagon nominal names",
+          "scope": [
+            "entity.name.type.hexagon",
+            "entity.name.namespace.hexagon",
+            "entity.name.type.parameter.hexagon"
+          ],
+          "settings": {
+            "foreground": "#267f99"
+          }
+        },
+        {
+          "name": "Hexagon constraint names",
+          "scope": "entity.name.type.constraint.hexagon",
+          "settings": {
+            "foreground": "#a4128c"
+          }
+        },
+        {
+          "name": "Hexagon callable names",
+          "scope": "entity.name.function.hexagon",
+          "settings": {
+            "foreground": "#8250df"
+          }
+        },
+        {
+          "name": "Hexagon lexical errors",
+          "scope": [
+            "invalid.illegal.reserved-identifier.hexagon",
+            "invalid.illegal.reserved-redirect-word.hexagon",
+            "invalid.illegal.numeric-base.hexagon",
+            "invalid.illegal.numeric-literal.hexagon",
+            "invalid.illegal.unknown-escape.hexagon",
+            "invalid.illegal.unicode-escape.hexagon",
+            "invalid.illegal.reserved-interpolation.hexagon",
+            "invalid.illegal.unmatched-comment-close.hexagon",
+            "invalid.illegal.operator.hexagon",
+            "invalid.illegal.character.hexagon",
+            "invalid.illegal.whitespace.hexagon",
+            "invalid.illegal.tab-indentation.hexagon",
+            "invalid.illegal.bidirectional-control.hexagon"
+          ],
+          "settings": {
+            "foreground": "#cf222e"
+          }
+        },
+        {
+          "name": "Hexagon literal punctuation",
+          "scope": [
+            "punctuation.definition.string.begin.hexagon",
+            "punctuation.definition.string.end.hexagon",
+            "punctuation.section.interpolation.begin.hexagon",
+            "punctuation.section.interpolation.end.hexagon"
+          ],
+          "settings": {
+            "foreground": "#1f2328"
+          }
+        }
+      ]
+    },
+    "[Dark 2026]": {
+      "textMateRules": [
+        {
+          "name": "Hexagon literal data",
+          "scope": [
+            "constant.character.escape.hexagon",
+            "constant.numeric.integer.hexagon",
+            "constant.numeric.float.hexagon",
+            "constant.numeric.bigint.hexagon",
+            "string.quoted.double.hexagon"
+          ],
+          "settings": {
+            "foreground": "#7ee787"
+          }
+        },
+        {
+          "name": "Hexagon commentary",
+          "scope": [
+            "comment.block.documentation.hexagon",
+            "comment.block.hexagon",
+            "comment.line.documentation.hexagon",
+            "comment.line.double-slash.hexagon",
+            "punctuation.definition.comment.hexagon",
+            "punctuation.definition.comment.begin.hexagon",
+            "punctuation.definition.comment.end.hexagon"
+          ],
+          "settings": {
+            "foreground": "#8b949e"
+          }
+        },
+        {
+          "name": "Hexagon ordinary terms and symbolic operators",
+          "scope": [
+            "meta.embedded.line.hexagon",
+            "variable.other.hexagon",
+            "variable.other.definition.hexagon",
+            "variable.parameter.hexagon",
+            "variable.language.wildcard.hexagon",
+            "keyword.operator.arithmetic.hexagon",
+            "keyword.operator.comparison.hexagon",
+            "keyword.operator.assignment.hexagon",
+            "keyword.operator.concat.hexagon",
+            "keyword.operator.pipe.hexagon",
+            "keyword.operator.range.hexagon",
+            "keyword.operator.spread.hexagon",
+            "keyword.operator.bar.hexagon",
+            "keyword.operator.arrow.hexagon",
+            "keyword.operator.type.arrow.hexagon"
+          ],
+          "settings": {
+            "foreground": "#BBBEBF"
+          }
+        },
+        {
+          "name": "Hexagon structural vocabulary",
+          "scope": [
+            "keyword.control.hexagon",
+            "keyword.control.import.hexagon",
+            "storage.type.hexagon",
+            "storage.type.function.hexagon",
+            "storage.modifier.hexagon",
+            "keyword.other.as.hexagon",
+            "keyword.other.from.hexagon",
+            "keyword.other.derives.hexagon",
+            "keyword.other.when.hexagon",
+            "keyword.other.with.hexagon",
+            "keyword.other.ffi.hexagon",
+            "keyword.operator.word.hexagon"
+          ],
+          "settings": {
+            "foreground": "#58a6ff"
+          }
+        },
+        {
+          "name": "Hexagon nominal names",
+          "scope": [
+            "entity.name.type.hexagon",
+            "entity.name.namespace.hexagon",
+            "entity.name.type.parameter.hexagon"
+          ],
+          "settings": {
+            "foreground": "#4EC9B0"
+          }
+        },
+        {
+          "name": "Hexagon constraint names",
+          "scope": "entity.name.type.constraint.hexagon",
+          "settings": {
+            "foreground": "#dd82cf"
+          }
+        },
+        {
+          "name": "Hexagon callable names",
+          "scope": "entity.name.function.hexagon",
+          "settings": {
+            "foreground": "#d2a8ff"
+          }
+        },
+        {
+          "name": "Hexagon lexical errors",
+          "scope": [
+            "invalid.illegal.reserved-identifier.hexagon",
+            "invalid.illegal.reserved-redirect-word.hexagon",
+            "invalid.illegal.numeric-base.hexagon",
+            "invalid.illegal.numeric-literal.hexagon",
+            "invalid.illegal.unknown-escape.hexagon",
+            "invalid.illegal.unicode-escape.hexagon",
+            "invalid.illegal.reserved-interpolation.hexagon",
+            "invalid.illegal.unmatched-comment-close.hexagon",
+            "invalid.illegal.operator.hexagon",
+            "invalid.illegal.character.hexagon",
+            "invalid.illegal.whitespace.hexagon",
+            "invalid.illegal.tab-indentation.hexagon",
+            "invalid.illegal.bidirectional-control.hexagon"
+          ],
+          "settings": {
+            "foreground": "#ffa198"
+          }
+        },
+        {
+          "name": "Hexagon literal punctuation",
+          "scope": [
+            "punctuation.definition.string.begin.hexagon",
+            "punctuation.definition.string.end.hexagon",
+            "punctuation.section.interpolation.begin.hexagon",
+            "punctuation.section.interpolation.end.hexagon"
+          ],
+          "settings": {
+            "foreground": "#BBBEBF"
+          }
+        }
+      ]
+    }
   }
 }

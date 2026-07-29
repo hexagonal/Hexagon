@@ -12,6 +12,7 @@ import type {
 } from "./editor";
 import type { TypeOccurrence } from "./protocol";
 import { hexagonLanguage, hexagonTokens } from "./monaco-language";
+import { defineHexagonThemes, hexagonDarkTheme, hexagonLightTheme } from "./monaco-theme";
 
 globalThis.MonacoEnvironment = {
   getWorker: () => new EditorWorker(),
@@ -19,6 +20,7 @@ globalThis.MonacoEnvironment = {
 
 monaco.languages.register({ id: hexagonLanguage, extensions: [".hex"] });
 monaco.languages.setMonarchTokensProvider(hexagonLanguage, hexagonTokens);
+defineHexagonThemes(monaco.editor);
 
 export interface MonacoEditors {
   readonly source: SourceEditor;
@@ -232,6 +234,6 @@ function toDiagnosticSeverity(
   }
 }
 
-function toMonacoTheme(theme: EditorTheme): "vs" | "vs-dark" {
-  return theme === "dark" ? "vs-dark" : "vs";
+function toMonacoTheme(theme: EditorTheme): string {
+  return theme === "dark" ? hexagonDarkTheme : hexagonLightTheme;
 }
