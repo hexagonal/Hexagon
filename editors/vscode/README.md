@@ -43,7 +43,7 @@ look like.
 | String, escapes, interpolation hole | `string.quoted.double`, `constant.character.escape`, `meta.embedded` | §6 |
 | Line, block, and doc comments | `comment.*` | Comments §1 |
 | Operators and punctuation | `keyword.operator.*` / `punctuation.*` | §8.1 |
-| Everything §10 rejects | `invalid.illegal.*` | §10 |
+| Everything §10 requires a diagnostic for | `invalid.illegal.*` | §10 |
 
 Three decisions worth stating, because each one is a place where an obvious
 alternative would be wrong:
@@ -69,9 +69,13 @@ accepted source or a hard error. `__hex_` names, `0xFF`, `.5`, `1.`, `1__0`,
 `12cats`, unknown string escapes, a bare `#{`, an unmatched `*/`, and `&&`/`||`/`!`
 all get `invalid.illegal.*`, so the editor shows them before the compiler does.
 
-`true` and `false` are on that list (#147). `Bool` is the prelude union
-`False | True`, so the two words are reserved spellings with no value meaning, and
-the compiler answers them with a one-token redirect. Their replacements need no rule:
+`true` and `false` in **value position** are on that list (#147). `Bool` is the
+prelude union `False | True`, so the two words are reserved spellings with no value
+meaning, and the compiler answers them with a one-token redirect. In name position —
+`let true = 1` — the binding rule claims the name first and paints it as a binder;
+that is a general shadowing hole in `#declarations`, which sits ahead of `#keywords`
+and swallows every hard keyword there, and it is filed on its own. Their
+replacements need no rule:
 `True` and `False` are ordinary uppercase-start names and take `entity.name.type`
 along with every other constructor, `None` included.
 

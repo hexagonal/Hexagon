@@ -6,6 +6,7 @@
  * drifts from the token language fails here rather than in someone's editor.
  */
 
+import { readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -519,16 +520,21 @@ describe("regressions found in review", () => {
 });
 
 describe("the whole checked-in corpus", () => {
-  const sources = [
-    "stdlib/Prelude.hex",
-    "stdlib/Option.hex",
-    "stdlib/Result.hex",
-    "stdlib/Seq.hex",
-    "stdlib/Vector.hex",
-    "stdlib/Rat.hex",
-    "stdlib/Integral.hex",
-    "runtime/VectorTrie.hex",
-  ];
+  // Discovered, not listed. A hand-maintained list silently stops covering the
+  // file that matters most the moment one is added — `stdlib/Bool.hex` arrived
+  // with #147 and would have been missed. This is also what makes the README's
+  // claim ("every `.hex` file in the repository") true rather than aspirational.
+  const sources = ["stdlib", "runtime"].flatMap((directory) =>
+    readdirSync(join(repositoryRoot, directory))
+      .filter((entry) => entry.endsWith(".hex"))
+      .sort()
+      .map((entry) => `${directory}/${entry}`)
+  );
+
+  it("finds the corpus it is meant to be checking", () => {
+    expect(sources).toContain("stdlib/Bool.hex");
+    expect(sources.length).toBeGreaterThanOrEqual(8);
+  });
 
   it.each(sources)("paints no lexical error in %s", async (relative) => {
     const source = await readFile(join(repositoryRoot, relative), "utf8");

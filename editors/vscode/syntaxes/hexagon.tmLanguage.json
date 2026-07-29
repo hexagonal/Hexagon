@@ -11,8 +11,9 @@
     "non-uppercase-start name is a term/binder role, decided by the literal first",
     "codepoint alone. Hard keywords are §4.1; contextual keywords (§4.2) lex as ordinary",
     "names and are only matched here in the positions the spec lists. Constructs the",
-    "lexer rejects outright (§10) are painted invalid.illegal so the editor shows the",
-    "same errors the compiler would."
+    "§10 requires a diagnostic for are painted invalid.illegal so the editor shows",
+    "the same errors the compiler would. (Not \"the lexer rejects\": some rows, the",
+    "`true`/`false` redirect among them, lex fine and are the parser's to refuse.)"
   ],
 
   "patterns": [
@@ -299,9 +300,12 @@
           "//": [
             "spec/lexer.md §4.1 reserved redirect words (#147). `true`/`false` are still",
             "hard keywords but no longer produce values: Bool is the prelude union",
-            "`False | True`, so every occurrence is an error carrying a one-token fixit.",
-            "Painted invalid.illegal per this grammar's stated rule for constructs the",
-            "lexer rejects. `True`/`False` need no rule — they are ordinary UpperNames and",
+            "`False | True`, so an occurrence in value position is an error carrying a",
+            "one-token fixit. Name position is §10's other row and a different message,",
+            "and this rule does not reach it: #declarations is included ahead of",
+            "#keywords, so `let true = 1` is claimed by the binding rule first. That",
+            "shadowing swallows every hard keyword, not just these two, and is filed",
+            "separately. `True`/`False` need no rule — they are ordinary UpperNames and",
             "reach entity.name.type through #names, exactly like `None`."
           ],
           "name": "invalid.illegal.reserved-redirect-word.hexagon",
