@@ -173,7 +173,7 @@ let message =
 Exceptions remain available for exceptional control flow, but `Result` is the common
 fit when failure is expected and the caller should decide what it means.
 
-## `Bool` is one of these
+## `Bool` represents truth or falsity
 
 The third standard union is the one you have been using since Chapter 2:
 
