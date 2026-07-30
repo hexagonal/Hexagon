@@ -72,6 +72,7 @@ Per the house convention (README authority rule 4), pending notes live in their 
 
 - **Statements §5 correction** (`let`-pattern binders are sequential) — owner: `statements-blocks-mutability.md` §5/§5.4, full edit text in its §9.2 items 5–8; targets: `pattern-matching.md`, `products.md` §2.4, `modules.md` §10 (near-miss diagnostic), `notes/hexagon-for-typescript-coders.md`.
 - **#147 Bool-as-union ripple** (2026-07-29) — owner: `decisions-ml-dialect-bool-2026-07.md` §6 (the ledger); targets: Operators §4/§11 (pin-licensed native emission), Collections Part 4 §10.1/§18 + FFI Part 10 §4.3 (faithfulness lead-ins), zero-cost exports §2.1, `ffi.md`, Method Syntax §4.1, Collections Part 5 §4, Type System Overview, Loops; plus the corpus-wide `true`/`false` → `True`/`False` example-respelling standing rule.
+- **#159 Unit-as-empty-tuple ripple** (2026-07-30) — owner: `decisions-ml-dialect-unit-2026-07.md` §8 (the ledger); targets: Collections Part 2 §2.5 (`Hash<Unit>` provenance), Collections Part 4 §10.1 + FFI Part 10 §4.3 (primitive-inventory lead-ins, change-controlled together), FFI Part 1 §4.1 (Tuple-row arity exemption), `ffi.md` §6, Method Syntax §3.4/§4.1, Collections Part 5 §4, Functions §5.3 (optional respelling). No example respelling exists — `Unit` and `()` spell as before.
 
 The complete pending-note registry, per originating document, is `notes/v1-spec-inventory.md` §3.2 (approved; consumed by Part 6).
 
