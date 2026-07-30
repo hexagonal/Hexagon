@@ -191,7 +191,7 @@ Hexagon emits the corresponding native JavaScript logic. The words are the langu
 only spellings: `&&`, `||`, and bare `!` are not alternative operators.
 
 These five words are worth a second glance now that you know, from Chapter 2, that
-`Bool` is a union rather than a primitive. Unions are inspected with `match` and nothing
+`Bool` is a union the prelude declares. Unions are inspected with `match` and nothing
 else — that is the rule the next chapters lean on constantly — and these operators are
 `Bool`'s one exception to it, along with the condition of an `if` or a `while`. They can
 be, because a `Bool` is a real JavaScript `boolean` underneath, so `and` really is `&&`

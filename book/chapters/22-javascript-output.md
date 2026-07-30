@@ -18,12 +18,13 @@ Hexagon's primitive values are already JavaScript values:
 | --- | --- |
 | `Nat`, `Int`, `Float` | `number` |
 | `BigInt` | `bigint` |
+| `Bool` | `boolean` |
 | `String` | `string` |
 | `Unit` | `undefined` |
 
-`Bool` crosses as `boolean` alongside them, though it is a union rather than a
-primitive: its representation is pinned to the JavaScript `boolean` precisely so that
-the language's most common type costs nothing here.
+`Bool`'s row rests on a promise rather than on coincidence: it is the prelude union
+`False | True`, and its representation is pinned to the JavaScript `boolean` precisely
+so that the language's most common type costs nothing here.
 
 The compiler keeps native operations when JavaScript has the required semantics:
 

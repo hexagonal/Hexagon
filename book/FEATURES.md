@@ -30,12 +30,13 @@ open specification work does not make the book outline provisional.
    final expression, discarded non-`Unit` values are errors, and `ignore` makes
    intentional discarding explicit.
 
-4. **Primitive types** — `Nat`, `Int`, `Float`, `BigInt`, `String`, and
-   `Unit` map directly to familiar JavaScript values. This includes interpolation,
-   multiline strings, numeric separators, codepoint-based string operations, and the
-   deliberate distinction between integer and floating-point semantics. `Bool` is a
-   prelude union rather than a primitive and is covered under unions; this chapter
-   introduces only the no-truthiness rule that conditions need.
+4. **Primitive types** — `Nat`, `Int`, `Float`, `Bool`, `String`, `BigInt`, and
+   `Unit`: the types whose values are already JavaScript primitive values (#158). This
+   includes interpolation, multiline strings, numeric separators, codepoint-based
+   string operations, and the deliberate distinction between integer and
+   floating-point semantics. `Bool` (a prelude union) and `Unit` (the empty tuple) are
+   defined in their own chapters; this one carries their boundary rows and the
+   no-truthiness rule that conditions need.
 
 5. **Operators** — Arithmetic, comparison chains, word-based
    Boolean logic, concatenation with `++`, pipes with `|>`, precedence, and

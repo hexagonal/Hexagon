@@ -17,6 +17,7 @@ Related forms and likely lookup terms should point to one another.
 | assignment | Chapter 16, “Assignment produces `Unit`” | `:=`; see **mutable variable** and **var** |
 | Array, foreign | Chapter 24, “`Array` is borrowed; `Vector` is persistent” | Readonly borrow, stability contract, and explicit conversions |
 | binding | Chapter 1, “Bindings introduce names” | `let`, `var`, patterns, and function parameters |
+| Bool | Chapter 2, “`Bool`: a condition, not a truthiness convention” | Chapter 10, the prelude union and its representation pin; see **primitive types** |
 | coherence | Chapter 12, “One type gets one answer” | See also **constraint**, **instance**, and **orphan rule** |
 | companion module | Chapter 14, “Companion modules give operations a home” | Chapter 15, dot-call lookup; see **dot call** |
 | constraint | Chapter 12, opening definition | Chapter 12 throughout; later collections and FFI chapters |
@@ -64,6 +65,7 @@ Related forms and likely lookup terms should point to one another.
 | pattern | Chapter 11, opening definition | Chapter 11 throughout |
 | persistent collection | Chapter 20, opening definition | `Vector`, `Map`, and `Set` |
 | polymorphism | Chapter 6, “A `let`-bound function can be reused at several types” | Chapter 6, monomorphic parameters and recursive calls |
+| primitive types | Chapter 2, opening definition — types whose values are already JavaScript primitive values | Chapter 22, native values; Chapter 23, TypeScript faces; see **Bool** and **Unit** for the rows defined elsewhere |
 | polymorphic recursion | Chapter 6, “Recursive calls keep one type” | — |
 | range | Chapter 17, “Ranges are inclusive integer progressions” | `..`, `range`, and `rangeDown` |
 | record | Chapter 9, opening definition | See **record, structural** and **record, nominal** |
@@ -83,6 +85,7 @@ Related forms and likely lookup terms should point to one another.
 | type parameter | Chapter 8, “Aliases can have parameters” | Later generic declarations |
 | transparent type | Chapter 8, “An alias names an existing type” | See **type alias** and **type identity** |
 | type identity | Chapter 8, “An alias names an existing type” | Later nominal records and unions |
+| Unit | Chapter 1, “Sequencing effects with `Unit`” | Chapter 2, the empty tuple and its boundary faces; see **primitive types** and **tuple** |
 | union | Chapter 10, opening definition | Chapter 10 throughout; Chapter 11 patterns |
 | value restriction | Chapter 6, “Calls do not automatically create reusable polymorphic values” | See also **let-polymorphism** |
 | var | Chapter 16, opening and “`var` marks the changing name” | See **assignment** and **mutable variable** |

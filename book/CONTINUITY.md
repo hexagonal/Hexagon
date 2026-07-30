@@ -48,6 +48,17 @@ Drafting order is not final reading order.
   JavaScript-specific fact behind it (zero-cost representation at the boundary, n-ary
   parameter passing, literal emission into JavaScript source). Phrases of the form
   "what a TypeScript author would hand-write" are retired as justifications.
+- **The book's "primitive types" are defined by JavaScript representation** (#158,
+  ruled 2026-07-30; the ruling is issue #158's comment 5127946331). In the book,
+  *primitive types* means Hexagon types whose values compile to JavaScript primitive
+  values: `Nat`, `Int`, `Float`, `Bool`, `String`, `BigInt`, `Unit`. The definition
+  appears at first use in Primitive Types, and the book never uses "primitive" in the
+  spec's type-system sense — where the classification difference matters, a chapter
+  points at the owning chapter instead of asserting it in its own voice (`Bool` →
+  Unions, `Unit` → Tuples). `Exn` is out: an `Error` object is not a JS primitive, and
+  Exceptions owns it. This deliberately diverges from `spec/primitive-types.md`, whose
+  term of art now covers five types (#147, #159); the divergence is recorded here,
+  once, and nowhere else.
 - The specification is normative; the book is explanatory.
 - For planning and drafting, assume the specification is complete. If it changes,
   update affected book material at that time.
@@ -145,10 +156,12 @@ late pedagogy pass, not a commitment to the current order.
   `Unit`.
 - Lightly previews conditions, comparisons, numeric constraints, interpolation through
   `Show`, conversion, string indexing, and companion-module operations.
-- Establishes the six primitive types, their literal distinctions, and their native
-  JavaScript/TypeScript faces for use throughout the book. `Bool` is **not** among them
-  (#147): it is introduced here only as far as conditions require, as the prelude union
-  met properly in Unions.
+- Establishes the seven primitive types under the book's boundary definition (#158),
+  their literal distinctions, and their native JavaScript/TypeScript faces for use
+  throughout the book. `Bool` and `Unit` hold their rows by representation, each with
+  a classification pointer: `Bool` is the prelude union met properly in Unions and
+  introduced here only as far as conditions require; `Unit` is the empty tuple, met
+  properly in Tuples.
 - Prepares operator semantics, type inference, constraints, FFI, and collections.
 
 ### Functions
@@ -436,9 +449,10 @@ late pedagogy pass, not a commitment to the current order.
 
 ### Primitive Types
 
-- Primitive boundary table: `Int`/`Float` → `number`, `BigInt` → `bigint`, `String` →
-  `string`, and `Unit` → `undefined` (`void` in TS return position). `Bool` → `boolean`
-  holds too, by the representation pin rather than by primitiveness.
+- Primitive boundary table (seven rows, #158): `Nat`/`Int`/`Float` → `number`,
+  `Bool` → `boolean` (by the Unions representation pin), `String` → `string`,
+  `BigInt` → `bigint`, and `Unit` → `undefined` (`void` in TS return position; the
+  empty tuple, #159).
 - Bare integer literals normally default to `Int`; decimal-point and exponent literals
   are `Float`; the `n` suffix selects `BigInt`.
 - `Int` is exact only in JavaScript's safe-integer range and direct arithmetic may
@@ -538,7 +552,9 @@ late pedagogy pass, not a commitment to the current order.
 ### Tuples
 
 - `("Mira", 3)` is the first tuple: one `(String, Int)` value.
-- Tuples have arity at least two; `(x)` is grouping and `()` is `Unit`.
+- A tuple never has exactly one position: `(x)` is grouping, and `()` is the empty
+  tuple, better known as `Unit` (#159). The positional tuples the chapter teaches
+  start at two.
 - `itemN` is one-based in Hexagon and emits zero-based JS indexing.
 - `minMax` is the canonical tuple-return example.
 - `move(3.0, 4.0)` versus `move(coordinates)` pays off the deferred distinction between
