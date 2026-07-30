@@ -207,20 +207,24 @@ describe("a type context never outlives what encloses it", () => {
 
   test("a multi-line derives list keeps its constraints", async () => {
     // The Monarch tokenizer could not do this — its `^` reset tore the list open at
-    // each line start. It is also what makes #162 a trade-off rather than a patch.
+    // each line start. This list keeps its colour under #162's hanging split because
+    // its `(` is the last thing on the line, which is what dissolved that trade-off.
     const source = "record P derives (\n    Eq,\n    Show)\nlet after = 1";
     expect(await allTokensFor(source, "Eq")).toEqual([constraint]);
     expect(await allTokensFor(source, "Show")).toEqual([constraint]);
     expect(await tokenOf(source, "after")).toBe(binder);
   });
 
-  // NOT covered here: an *unterminated* bracket group in a type context — `record P(a`
-  // or `record P derives (Eq` with no closing paren — runs to the end of the file and
-  // repaints it. Monarch got that right by accident of its end-of-line workaround, and
-  // this is the one case the port loses. It is a pre-existing defect in the shared
-  // grammar, affecting VS Code today, and fixing it means choosing against the test
-  // above; see #162. No assertion is written for the current behaviour, because
-  // pinning it would make #162 harder to close rather than easier.
+  test("an unterminated group does not repaint what follows it", async () => {
+    // #162, and the one case the port from Monarch briefly lost. The grammar contains
+    // it with `^`-anchored end patterns, which only work if each line is handed to the
+    // engine as its own string — a property of this bridge, not of the grammar, so it
+    // is asserted here as well as in editors/vscode/src/grammar.test.ts.
+    const source = "record P(a\nlet after = 1";
+    expect(await allTokensFor(source, "a")).toEqual([typeParameter]);
+    expect(await tokenOf(source, "let")).toBe(storage);
+    expect(await tokenOf(source, "after")).toBe(binder);
+  });
 });
 
 describe("constraints and callables", () => {
