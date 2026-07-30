@@ -266,7 +266,7 @@ What does **not** work, by design: passing `p` directly where `{x: Float, ...}` 
 | Decision | Where |
 |---|---|
 | Positions→tuple, names→record; no named tuple elements | §1, §2.2 |
-| Tuples: arity ≥ 2, no cap, structural, immutable | §2.1 |
+| Tuples: arity 0 or ≥ 2 *(corrected 2026-07-30, #159 — formerly "arity ≥ 2")*, no cap, structural, immutable | §2.1 |
 | `t.itemN`, 1-based, type-directed, emits `t[N-1]`; not a row; unchanged in the dot-call resolution table | §2.3 |
 | Destructuring = the pattern grammar's degenerate case: nesting ships; lambda-head irrefutable patterns per the depth rule; `let`-pattern binders sequential | §2.4 |
 | Tuples = JS arrays, TS tuple types | §2.6 |
