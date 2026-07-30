@@ -19,9 +19,13 @@ import seqSource from "../../../stdlib/Seq.hex?raw";
  * 2. the defect-1 workaround is reverted — recursive bodies call `next(source)`
  *    rather than driving `(source.pull)()` inline;
  * 3. the defect-2 workaround is reverted — arms are written `Some((value, rest))`
- *    rather than binding the payload whole and destructuring on the next line.
+ *    rather than binding the payload whole and destructuring on the next line;
+ * 4. the pull steps are inline (#177) — a lambda written at the `pull` field,
+ *    not bound to a local and passed by name. Item 4 is not a revert like 1–3:
+ *    the constraint it worked around never applied to this spelling.
  *
- * The prelude is exemplary code and must not carry a workaround for a fixed bug.
+ * The prelude is exemplary code and must not carry a workaround for a fixed bug,
+ * nor — item 4's lesson — for one that was never there.
  *
  * The module is still mounted explicitly at `/Seq.hex` and imported by name.
  * That is not redundant with the prelude: a project file at a prelude basename
@@ -100,6 +104,31 @@ describe("the step-7 reverts are in the source, not merely intended", () => {
   test("the `emptyCore` split is gone from the source", () => {
     expect(seqSource).not.toContain("emptyCore");
     expect(seqSource).toContain("export let empty: Seq(a) = Seq({ pull = () => None })");
+  });
+
+  test("every pull step is inline — no `let step` indirection survives", () => {
+    // Unlike the two above, this is not a revert: nothing was ever broken here
+    // (#177). Every combinator bound its step to a local first — `let step = ...`
+    // then `Seq({ pull = step })` — on the strength of a file comment claiming an
+    // inline `match` could not be a record-field value. Checked against the very
+    // commit that wrote the comment: this spelling parsed clean there too. The
+    // spelling that genuinely fails, then and now, is defect-log finding 5's
+    // (head on the `pull =` line, `})` trailing the last arm); the comment
+    // over-generalized that finding to a shape it never covered.
+    expect(seqSource).not.toMatch(/\blet step\b/u);
+
+    // The general form of the same assertion, which no rename escapes: the step
+    // is always a literal lambda at the field, never a name bound above it. The
+    // record *declaration* spells the field `pull:`, so it is not in scope here.
+    expect(seqSource).not.toMatch(/pull = (?!\(\) =>)/u);
+
+    // …and the two above are not vacuous: every combinator still builds a `Seq`.
+    // This one also pins the formatting — `Seq({ pull = () =>` on one line —
+    // which is deliberate but worth saying, since a reformat that hung the
+    // opener would fail here while breaking nothing the test names. It earns the
+    // brittleness: an indirection reintroduced across a line break slips past
+    // both regexes above and is caught only by the count.
+    expect(seqSource.match(/Seq\(\{ pull = \(\) =>/gu)).toHaveLength(14);
   });
 
   test("the declaration is the opaque record Loops §6.6 specifies", () => {

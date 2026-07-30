@@ -25,24 +25,24 @@ export fun iterate(seed: a, step: a -> a): Seq(a) =
     Seq({ pull = () => Some((seed, iterate(step(seed), step))) })
 
 export fun map(source: Seq(a), transform: a -> b): Seq(b) =
-    let step = () =>
+    Seq({ pull = () =>
         match next(source)
             None => None
             Some((value, rest)) => Some((transform(value), map(rest, transform)))
-    Seq({ pull = step })
+    })
 
 export fun take(source: Seq(a), count: Int): Seq(a) =
     if count <= 0 then
         empty
     else
-        let step = () =>
+        Seq({ pull = () =>
             match next(source)
                 None => None
                 Some((value, rest)) => Some((value, take(rest, count - 1)))
-        Seq({ pull = step })
+        })
 
 export fun takeWhile(source: Seq(a), keep: a -> Bool): Seq(a) =
-    let step = () =>
+    Seq({ pull = () =>
         match next(source)
             None => None
             Some((value, rest)) =>
@@ -50,17 +50,17 @@ export fun takeWhile(source: Seq(a), keep: a -> Bool): Seq(a) =
                     Some((value, takeWhile(rest, keep)))
                 else
                     None
-    Seq({ pull = step })
+    })
 
 export fun unfold(seed: b, produce: b -> Option((a, b))): Seq(a) =
-    let step = () =>
+    Seq({ pull = () =>
         match produce(seed)
             None => None
             Some((value, nextSeed)) => Some((value, unfold(nextSeed, produce)))
-    Seq({ pull = step })
+    })
 
 export fun zipWith(left: Seq(a), right: Seq(b), combine: (a, b) -> c): Seq(c) =
-    let step = () =>
+    Seq({ pull = () =>
         match next(left)
             None => None
             Some((leftValue, leftRest)) =>
@@ -68,22 +68,22 @@ export fun zipWith(left: Seq(a), right: Seq(b), combine: (a, b) -> c): Seq(c) =
                     None => None
                     Some((rightValue, rightRest)) =>
                         Some((combine(leftValue, rightValue), zipWith(leftRest, rightRest, combine)))
-    Seq({ pull = step })
+    })
 
 export let zip(left: Seq(a), right: Seq(b)): Seq((a, b)) =
     zipWith(left, right, (leftValue, rightValue) => (leftValue, rightValue))
 
 export fun concat(first: Seq(a), second: Seq(a)): Seq(a) =
-    let step = () =>
+    Seq({ pull = () =>
         match next(first)
             None => next(second)
             Some((value, rest)) => Some((value, concat(rest, second)))
-    Seq({ pull = step })
+    })
 
 // Combinators whose step may consume many source elements to yield one.
 
 export fun filter(source: Seq(a), keep: a -> Bool): Seq(a) =
-    let step = () =>
+    Seq({ pull = () =>
         var current = source
         var result = None
         var searching = True
@@ -97,10 +97,10 @@ export fun filter(source: Seq(a), keep: a -> Bool): Seq(a) =
                     else
                         current := rest
         result
-    Seq({ pull = step })
+    })
 
 export let drop(source: Seq(a), count: Int): Seq(a) =
-    let step = () =>
+    Seq({ pull = () =>
         var current = source
         var remaining = count
         var result = None
@@ -116,10 +116,10 @@ export let drop(source: Seq(a), count: Int): Seq(a) =
                         current := rest
                         remaining := remaining - 1
         result
-    Seq({ pull = step })
+    })
 
 export let dropWhile(source: Seq(a), discard: a -> Bool): Seq(a) =
-    let step = () =>
+    Seq({ pull = () =>
         var current = source
         var result = None
         var searching = True
@@ -133,11 +133,11 @@ export let dropWhile(source: Seq(a), discard: a -> Bool): Seq(a) =
                         result := Some((value, rest))
                         searching := False
         result
-    Seq({ pull = step })
+    })
 
 // `flatMap` with the partially consumed inner sequence carried between pulls.
 fun flatMapWith(source: Seq(a), transform: a -> Seq(b), pending: Seq(b)): Seq(b) =
-    let step = () =>
+    Seq({ pull = () =>
         var outer = source
         var inner = pending
         var result = None
@@ -154,7 +154,7 @@ fun flatMapWith(source: Seq(a), transform: a -> Seq(b), pending: Seq(b)): Seq(b)
                             outer := outerRest
                             inner := transform(outerValue)
         result
-    Seq({ pull = step })
+    })
 
 export let flatMap(source: Seq(a), transform: a -> Seq(b)): Seq(b) =
     flatMapWith(source, transform, empty)
