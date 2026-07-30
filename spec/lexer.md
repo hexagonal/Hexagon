@@ -333,8 +333,10 @@ followed by `{` is ordinary string text.
 The Comments spec is authoritative; this section fixes token interaction.
 
 - `//` begins a line comment and spends that spelling permanently.
-- `/*` begins a nesting block comment; `*/` at depth zero is one unmatched-comment
-  error, not `*` followed by `/`.
+- `(*` begins a nesting block comment; `*)` at depth zero is one unmatched-comment
+  error, not `*` followed by `)`. *(Re-spelled 2026-07-30, #171.)*
+- The JavaScript spellings `/*` and `*/` are detected hard errors with Comments
+  §3.1's redirects; they are never lexed as `/` then `*` or `*` then `/`. *(#171.)*
 - Comments and horizontal whitespace are trivia, not parser tokens. An implementation
   may retain their spans and text for formatting or readable emission, but doing so
   cannot affect the token sequence.
@@ -376,7 +378,9 @@ longest valid token. Important cases:
 +++  means ++ then +
 |>   before  |
 <= >= == != := =>  before their one-character prefixes
-// /* */ are handled before / and *
+//     is handled before /
+(* *)  are handled before ( and *
+/* */  are detected (Comments §3.1) before / and *
 ```
 
 Maximal munch does not combine adjacent valid tokens into an unlisted one. `--` is
@@ -386,7 +390,8 @@ annotation diagnostic.
 
 The lexer special-cases well-known forbidden symbolic logic runs so the user gets one
 useful error: bare `!`, `&&`, and `||` point to `not`, `and`, and `or`. `||` must not
-be accepted as two pattern bars.
+be accepted as two pattern bars. The JavaScript comment spellings `/*` and `*/` join
+this family with Comments §3.1's redirects *(#171)*.
 
 ### 8.3 Not tokens
 
@@ -452,6 +457,7 @@ token inventory and the lexer must not report the same source code unit twice.
 | Bare `#{` in a string | required future-reservation message + `\#{` fix-it |
 | Unterminated string/interpolation | point at the opener; recover at EOF |
 | Unterminated/unmatched block comment | Comments §5 messages verbatim |
+| JavaScript comment spelling `/*` / `*/` | Comments §5 redirect messages verbatim *(#171)* |
 | Bare `!`, `&&`, `||` | suggest `not`, `and`, `or` respectively |
 | Any other invalid character | name the character and codepoint; consume it once |
 

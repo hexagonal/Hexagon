@@ -533,7 +533,8 @@ late pedagogy pass, not a commitment to the current order.
 - Semicolons separate items at the same block level; they are not statement
   terminators and never open a body.
 - Leading indentation contains spaces only. Line comments use `//`; block comments use
-  nestable `/* ... */`.
+  nestable `(* ... *)` (#171 — the ML spelling; the JS spellings `/*` and `*/` are
+  detected and redirected, and `(**` / `///` are the reserved doc-comment forms).
 
 ### Polymorphism
 
