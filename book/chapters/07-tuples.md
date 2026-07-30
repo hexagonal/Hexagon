@@ -41,18 +41,20 @@ Both are `(String, Int)`. Reversing one to `(3, "Mira")` produces the distinct t
 
 ## Parentheses do not always make a tuple
 
-A tuple has at least two positions:
+A tuple never has exactly one position:
 
 ```hexagon
 (x, y)       // tuple
 (x, y, z)    // tuple
 (x)          // grouped expression: just x
-()           // Unit
+()           // the empty tuple: Unit
 ```
 
 There is no one-element tuple. This keeps `(value)` as ordinary grouping, matching the
-function and operator syntax already in use. The empty-looking case is not a tuple
-either: `()` is the single value of `Unit`.
+function and operator syntax already in use. At the other end sits the empty case:
+`()` is the empty tuple, which Chapter 2 introduced under its everyday name, `Unit`.
+With no positions there is nothing to destructure and only one possible value — the
+rest of this chapter is about the tuples that have positions.
 
 ## Positional access is explicit
 
@@ -189,9 +191,9 @@ Hexagon. Its arity and position types remain fixed statically.
 
 ## Summary
 
-- a tuple is one immutable value with two or more typed positions;
+- a tuple packages typed positions into one immutable value;
 - positions may have different types;
-- `(x)` is grouping and `()` is `Unit`, not a tuple;
+- `(x)` is grouping, `()` is the empty tuple `Unit`, and there is no one-element tuple;
 - `itemN` accesses positions with one-based spelling;
 - tuple patterns bind several positions and `_` skips one;
 - returning a tuple is returning one compound value; and

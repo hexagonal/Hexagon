@@ -8,29 +8,34 @@ export let orderTotal(subtotal: Int, delivery: Int): Int =
     total
 ```
 
-`Int` is one of the **six primitive types**. These are the small values from which larger
-programs are assembled:
+`Int` is one of the **seven primitive types** — the small values from which larger
+programs are assembled. Hexagon's primitive types are the types whose values are
+already JavaScript primitive values: nothing is wrapped, nothing is boxed, and nothing
+is paid at the boundary.
 
-| Hexagon type | Literal | JavaScript / TypeScript |
+| Hexagon type | Example value | JavaScript / TypeScript |
 |---|---|---|
 | `Nat` | `42` | `number` |
 | `Int` | `42` | `number` |
 | `Float` | `3.14` | `number` |
+| `Bool` | `True` | `boolean` |
 | `String` | `"ready"` | `string` |
 | `BigInt` | `42n` | `bigint` |
 | `Unit` | `()` | `undefined` / `void` return |
 
-There are no wrapper objects around these values. An `Int` becomes an ordinary
-JavaScript number, a `String` becomes an ordinary JavaScript string, and so on. The
-differences Hexagon adds are checked before the program runs: an integer cannot be
-silently mixed with a `BigInt`, a string cannot wander into a condition, and
-interpolation cannot stringify a value that has no meaningful display form.
+An `Int` becomes an ordinary JavaScript number, a `String` an ordinary JavaScript
+string, and so on. The differences Hexagon adds are checked before the program runs:
+an integer cannot be silently mixed with a `BigInt`, a string cannot wander into a
+condition, and interpolation cannot stringify a value that has no meaningful display
+form.
 
-`Bool` is not on that list, and its absence is worth a moment. In most languages that
-compile to JavaScript, the boolean is a built-in. In Hexagon it is an ordinary
-two-constructor union that the prelude declares, met properly in
-[Unions](10-unions.md). Conditions still need one, so this chapter introduces the rule
-that governs them.
+Two of the rows have their definitions elsewhere, and that is the group's one
+subtlety. `Bool` is an ordinary two-constructor union that the prelude declares, met
+properly in [Unions](10-unions.md); `Unit` is the empty tuple, whose family
+[Tuples](07-tuples.md) introduces. Both hold their places here by representation — a
+`Bool` is a JavaScript `boolean`, and `()` is `undefined` — which is exactly what
+membership in this chapter means. Conditions need a `Bool` long before unions arrive,
+so this chapter introduces the rule that governs them.
 
 ## `Nat`: non-negative by construction
 
@@ -326,6 +331,11 @@ the absence of a type. A function that prints a message and produces no interest
 result returns `Unit`. A block may sequence that call because the discarded value is
 known to carry no information.
 
+Those parentheses are not a coincidence of spelling. `Unit` is the empty tuple — a
+tuple with no positions — and that is the whole reason it has exactly one value: with
+nothing to fill in, there is nothing to vary. [Tuples](07-tuples.md) introduces the
+rest of the family.
+
 At runtime, `()` becomes `undefined`. In a TypeScript parameter or stored-value
 position, its face is `undefined`; as a function return, idiomatic declarations use
 `void`.
@@ -335,24 +345,29 @@ static meaning while retaining the JavaScript value that naturally represents it
 
 ## Summary
 
-Hexagon's primitive types are intentionally close to JavaScript without being ruled by
-JavaScript's implicit conversions:
+Hexagon's primitive types are the types whose values are already JavaScript values —
+intentionally close to the platform without being ruled by JavaScript's implicit
+conversions:
 
 - `Nat` records a non-negative safe-range whole number without changing its JS representation;
 - `Int` is the ordinary signed safe-range whole number and usually the type of a bare integer
   literal;
 - `Float` is IEEE 754 binary64 and is selected by a decimal point or exponent;
+- `Bool` is the condition type, with constructors `True` and `False` and no truthiness
+  conversions;
 - `String` has one interpolating, multiline literal form and codepoint-based text
   operations;
 - `BigInt` provides arbitrary precision; `n` pins an otherwise unpinned literal and is mandatory beyond Int's range; and
-- `Unit` is the one-value type used when an expression has no interesting result.
+- `Unit` is the one-value type — the empty tuple — used when an expression has no
+  interesting result.
 
-All six use native JavaScript representations. Types make their distinctions visible to
+All seven use native JavaScript representations. Types make their distinctions visible to
 Hexagon even where JavaScript or generated TypeScript erases one—most notably the
 distinction between `Int` and `Float`.
 
-`Bool` is a union rather than a primitive, but it keeps the same bargain: `True` and
-`False` are a JavaScript `boolean` at runtime, and a condition accepts nothing else.
+`Bool` and `Unit` earn their rows the same way: each is defined elsewhere — `Bool` as a
+prelude union, `Unit` as the empty tuple — and each keeps the primitive bargain, a
+JavaScript `boolean` and `undefined` at the boundary with nothing paid to cross.
 
 Later chapters will explain how operators choose behavior for these types, how bare
 integer literals participate in inference, how `Show` powers interpolation, and how
