@@ -188,9 +188,12 @@ class Scanner {
           this.#offset += scalarWidth(this.#source.text, this.#offset);
         }
         this.#recordComment("Line", commentStart);
-      } else if (this.#startsWith("/*")) {
+      } else if (this.#startsWith("(*")) {
         this.#atLineStart = false;
         this.#scanBlockComment();
+      } else if (this.#startsWith("/*")) {
+        this.#atLineStart = false;
+        this.#scanJavaScriptBlockComment();
       } else {
         return;
       }
@@ -240,10 +243,10 @@ class Scanner {
     this.#offset += 2;
 
     while (this.#offset < this.#source.text.length) {
-      if (this.#startsWith("/*")) {
+      if (this.#startsWith("(*")) {
         openers.push(this.#offset);
         this.#offset += 2;
-      } else if (this.#startsWith("*/")) {
+      } else if (this.#startsWith("*)")) {
         openers.pop();
         this.#offset += 2;
         if (openers.length === 0) {
@@ -269,7 +272,7 @@ class Scanner {
     const depth = openers.length;
     const nested =
       depth > 1
-        ? ` (nested ${depth} levels deep; each \`/*\` needs its own \`*/\`)`
+        ? ` (nested ${depth} levels deep; each \`(*\` needs its own \`*)\`)`
         : "";
     this.#recordComment("Block", commentStart);
     this.#error(
@@ -279,6 +282,62 @@ class Scanner {
         this.#source.positionAt(innermost).line + 1
       }, column ${this.#source.positionAt(innermost).column + 1}${nested}`,
     );
+  }
+
+  /**
+   * `/*` is JavaScript's opener, never Hexagon's. The redirect is reported at the
+   * opener; JavaScript's own non-nesting extent is then skipped so one pasted
+   * comment costs one diagnostic instead of a cascade from its body.
+   */
+  #scanJavaScriptBlockComment(): void {
+    const start = this.#offset;
+    const documentation = this.#startsWith("/**") && !this.#startsWith("/**/");
+    const openerEnd = start + (documentation ? 3 : 2);
+
+    this.#offset = start + 2;
+    let closerStart: number | undefined;
+    while (this.#offset < this.#source.text.length) {
+      if (this.#startsWith("*/")) {
+        closerStart = this.#offset;
+        this.#offset += 2;
+        break;
+      }
+
+      if (isNewlineStart(this.#source.text.charCodeAt(this.#offset))) {
+        this.#scanNewline();
+        this.#atLineStart = false;
+      } else {
+        this.#offset += scalarWidth(this.#source.text, this.#offset);
+      }
+    }
+
+    const opener = this.#source.span(start, openerEnd);
+    const message = `JavaScript block comment syntax — Hexagon block comments are \`(* ... *)\`${
+      documentation ? " (documentation form: `(** ... *)`)" : ""
+    }`;
+
+    // Both delimiters are rewritten together, or neither: fixing the opener alone
+    // would leave the JavaScript closer inside an unterminated Hexagon comment. With
+    // no closer to pair with, the redirect stands on its message.
+    if (closerStart === undefined) {
+      this.#diagnostics.add({ severity: "error", message, primary: opener });
+      return;
+    }
+
+    this.#diagnostics.add({
+      severity: "error",
+      message,
+      primary: opener,
+      fixes: [
+        {
+          message: "use the Hexagon block comment spelling",
+          edits: [
+            { span: opener, replacement: documentation ? "(**" : "(*" },
+            { span: this.#source.span(closerStart, closerStart + 2), replacement: "*)" },
+          ],
+        },
+      ],
+    });
   }
 
   #recordComment(kind: Source.Comment["kind"], start: number): void {
@@ -302,9 +361,21 @@ class Scanner {
       return undefined;
     }
 
+    if (this.#startsWith("*)")) {
+      this.#offset += 2;
+      this.#error(start, this.#offset, "unmatched `*)` — no open block comment");
+      return undefined;
+    }
+
+    // No fix is offered: rewriting a stray closer to `*)` only exchanges this
+    // error for the unmatched-closer one above.
     if (this.#startsWith("*/")) {
       this.#offset += 2;
-      this.#error(start, this.#offset, "unmatched `*/` — no open block comment");
+      this.#error(
+        start,
+        this.#offset,
+        "`*/` is JavaScript's block comment closer — Hexagon spells it `*)`; no block comment is open here",
+      );
       return undefined;
     }
 

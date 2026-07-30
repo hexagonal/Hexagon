@@ -160,6 +160,7 @@ export const hexagonFamilies: Readonly<Record<string, HexagonFamily>> = {
       "invalid.illegal.unicode-escape.hexagon",
       "invalid.illegal.reserved-interpolation.hexagon",
       "invalid.illegal.unmatched-comment-close.hexagon",
+      "invalid.illegal.javascript-comment.hexagon",
       "invalid.illegal.operator.hexagon",
       "invalid.illegal.character.hexagon",
       "invalid.illegal.whitespace.hexagon",
@@ -241,9 +242,10 @@ export const generatedFamilies: Readonly<Record<string, HexagonFamily>> = {
       "comment",
       "punctuation.definition.comment",
       "punctuation.whitespace.comment",
-      // The emitter forwards a source comment verbatim, delimiters and all, so a
-      // Hexagon `/** … */` arrives in the generated pane as a JavaScript doc comment
-      // and VS Code's grammar reads the JSDoc inside it: `@param` is a storage type,
+      // The emitter translates a source comment into JavaScript's spelling
+      // (spec/comments.md §6), so a Hexagon `(** … *)` arrives in the generated pane
+      // as a JavaScript doc comment, and VS Code's grammar reads the JSDoc inside
+      // it: `@param` is a storage type,
       // `{Vector}` a type name, the `@` and the braces punctuation. Hexagon's own
       // grammar has no such notion and paints the whole comment one colour, so
       // untranslated these render the same text as three colours here and one there.

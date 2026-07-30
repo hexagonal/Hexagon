@@ -17,7 +17,7 @@ describe("applyLayout", () => {
 
   test("keeps comment-only lines invisible to the offside rule", () => {
     const result = layout(
-      "while ready\n    first()\n// deliberately outdented\n            /* padded */\n    second()",
+      "while ready\n    first()\n// deliberately outdented\n            (* padded *)\n    second()",
     );
 
     expect(virtualKinds(result.tokens)).toEqual([

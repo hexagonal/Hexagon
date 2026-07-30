@@ -301,7 +301,7 @@ describe("what Playground gains by inheriting the grammar (#145)", () => {
   });
 
   test("block comments nest", async () => {
-    const source = "/* outer /* inner */ still comment */\nlet after = 1";
+    const source = "(* outer (* inner *) still comment *)\nlet after = 1";
     expect(await tokenOf(source, "still comment")).toBe("comment.block.hexagon");
     expect(await tokenOf(source, "after")).toBe(binder);
   });
@@ -310,7 +310,7 @@ describe("what Playground gains by inheriting the grammar (#145)", () => {
     expect(await tokenOf("/// doc\nlet x = 1", "doc")).toBe(
       "comment.line.documentation.hexagon",
     );
-    expect(await tokenOf("/** doc */\nlet x = 1", "doc")).toBe(
+    expect(await tokenOf("(** doc *)\nlet x = 1", "doc")).toBe(
       "comment.block.documentation.hexagon",
     );
   });

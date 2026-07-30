@@ -16,21 +16,24 @@ import { grammarPath, repositoryRoot, scopeOf, scopePairs, tokenize } from "./to
 const scope = (source: string, text: string) => scopeOf(source, text);
 
 /**
- * Every `end` pattern in the grammar, at any depth. Reads the parsed grammar rather
- * than its text so the `//` notes — which quote patterns in prose — cannot be mistaken
- * for rules.
+ * Every `begin` or `end` pattern in the grammar, at any depth. Reads the parsed
+ * grammar rather than its text so the `//` notes — which quote patterns in prose —
+ * cannot be mistaken for rules.
  */
-function endPatterns(node: unknown, found: string[] = []): string[] {
+function patternsUnder(key: "begin" | "end", node: unknown, found: string[] = []): string[] {
   if (Array.isArray(node)) {
-    for (const child of node) endPatterns(child, found);
+    for (const child of node) patternsUnder(key, child, found);
   } else if (node !== null && typeof node === "object") {
-    for (const [key, value] of Object.entries(node)) {
-      if (key === "end" && typeof value === "string") found.push(value);
-      else endPatterns(value, found);
+    for (const [property, value] of Object.entries(node)) {
+      if (property === key && typeof value === "string") found.push(value);
+      else patternsUnder(key, value, found);
     }
   }
   return found;
 }
+
+const endPatterns = (node: unknown) => patternsUnder("end", node);
+const beginPatterns = (node: unknown) => patternsUnder("begin", node);
 
 describe("identifiers and start class (spec/lexer.md §3.1)", () => {
   it("classifies an uppercase-start name as a type role", async () => {
@@ -564,8 +567,25 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
     await expectContained("let xs = [1, 2", "let after = 1");
     const spanning = await scopePairs('let s = "one\ntwo"\nlet after = 1');
     expect(spanning).toContainEqual(["two", "string.quoted.double.hexagon"]);
-    const commented = await scopePairs("/* one\ntwo */\nlet after = 1");
+    const commented = await scopePairs("(* one\ntwo *)\nlet after = 1");
     expect(commented).toContainEqual(["two ", "comment.block.hexagon"]);
+  });
+
+  it("guards every type-context bracket against a comment opener", async () => {
+    // The #171 companion to the guard below: same reason for writing it out at every
+    // site, same reason for pinning the copies. Only the two bounded rules change any
+    // paint; the rest are uniformity, and the behavioural cases above are what hold
+    // the line for the ones that matter.
+    const grammar = JSON.parse(await readFile(grammarPath, "utf8"));
+    const guarded = beginPatterns(grammar).filter((begin) => begin.includes("(?!\\*)"));
+
+    // Three hanging groups and four bounded ones, across the type-declaration,
+    // type-expression, binder-bound, and `derives` rules.
+    expect(guarded).toHaveLength(7);
+    for (const begin of guarded) {
+      // The guard sits immediately after the `(` the rule consumes, captured or not.
+      expect(begin.includes("\\((?!\\*)") || begin.includes("(\\()(?!\\*)"), begin).toBe(true);
+    }
   });
 
   it("spells the bail-out guard identically wherever it appears", async () => {
@@ -576,8 +596,9 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
       .filter((end) => end.includes("(?=^\\S"))
       .map((end) => end.slice(end.indexOf("(?=^\\S")));
 
-    // Five hanging groups, six bounded ones, and the two contexts that enclose them.
-    expect(guards).toHaveLength(13);
+    // Five hanging groups, six bounded ones, the two contexts that enclose them, and
+    // the JavaScript-comment region, which is a half-typed `/*` away from the same leak.
+    expect(guards).toHaveLength(14);
     expect(new Set(guards).size).toBe(1);
   });
 
@@ -684,32 +705,126 @@ describe("comments (spec/comments.md)", () => {
   it("distinguishes doc forms from ordinary forms", async () => {
     expect(await scope("// note", " note")).toBe("comment.line.double-slash.hexagon");
     expect(await scope("/// doc", " doc")).toBe("comment.line.documentation.hexagon");
-    expect(await scope("/** doc */", " doc ")).toBe("comment.block.documentation.hexagon");
-    expect(await scope("/* note */", " note ")).toBe("comment.block.hexagon");
+    expect(await scope("(** doc *)", " doc ")).toBe("comment.block.documentation.hexagon");
+    expect(await scope("(* note *)", " note ")).toBe("comment.block.hexagon");
   });
 
   it("nests block comments and resumes code after the outer close", async () => {
-    const pairs = await scopePairs("/* outer /* inner */ still outer */\nlet x = 1");
-    for (const text of [" outer ", "/*", " inner ", "*/", " still outer "]) {
+    const pairs = await scopePairs("(* outer (* inner *) still outer *)\nlet x = 1");
+    for (const text of [" outer ", "(*", " inner ", "*)", " still outer "]) {
       expect(pairs).toContainEqual([text, "comment.block.hexagon"]);
     }
     expect(pairs).toContainEqual(["let", "storage.type.hexagon"]);
   });
 
-  it("treats `//` inside a block comment and `/*` inside a line comment as text", async () => {
-    expect(await scope("/* a // b */", " a // b ")).toBe("comment.block.hexagon");
-    expect(await scope("// a /* b", " a /* b")).toBe("comment.line.double-slash.hexagon");
+  it("treats `//` inside a block comment and `(*` inside a line comment as text", async () => {
+    expect(await scope("(* a // b *)", " a // b ")).toBe("comment.block.hexagon");
+    expect(await scope("// a (* b", " a (* b")).toBe("comment.line.double-slash.hexagon");
   });
 
-  it("rejects `*/` at depth zero", async () => {
-    expect(await scope("let x = 1\n*/", "*/")).toBe(
+  it("rejects `*)` at depth zero", async () => {
+    expect(await scope("let x = 1\n*)", "*)")).toBe(
       "invalid.illegal.unmatched-comment-close.hexagon",
+    );
+  });
+
+  it("redirects the JavaScript spellings (§3.1)", async () => {
+    // Painted as one region, mirroring the compiler's scan-to-`*/` recovery, so the
+    // body of a pasted JS comment does not also light up as code.
+    const pasted = await scopePairs("/* JS habit */\nlet x = 1");
+    expect(pasted).toContainEqual(["/*", "invalid.illegal.javascript-comment.hexagon"]);
+    expect(pasted).toContainEqual([" JS habit ", "invalid.illegal.javascript-comment.hexagon"]);
+    expect(pasted).toContainEqual(["let", "storage.type.hexagon"]);
+
+    expect(await scope("let x = 1\n*/", "*/")).toBe("invalid.illegal.javascript-comment.hexagon");
+    expect(await scope("/** doc */", "/*")).toBe("invalid.illegal.javascript-comment.hexagon");
+
+    // A pasted JSDoc block is one region, not a line of error followed by `@param`
+    // painted as an invalid character — the compiler skips to `*/` and reports once.
+    const jsdoc = await scopePairs("/**\n * @param x the thing\n */\nlet x = 1");
+    expect(jsdoc).toContainEqual([
+      " * @param x the thing",
+      "invalid.illegal.javascript-comment.hexagon",
+    ]);
+    expect(jsdoc).toContainEqual(["let", "storage.type.hexagon"]);
+
+    // A tab inside the body is comment text, which is why the region must not end at
+    // `$`: the compiler diagnoses no tab here (spec/comments.md §4), so nor may this.
+    const tabbed = await scopePairs("/* one\n\ttwo */\nlet y = 2");
+    expect(tabbed).toContainEqual(["\ttwo ", "invalid.illegal.javascript-comment.hexagon"]);
+    expect(tabbed.some(([, name]) => name === "invalid.illegal.tab-indentation.hexagon")).toBe(
+      false,
+    );
+
+    // The bail-out guard still contains a half-typed `/*` rather than repainting the
+    // rest of the file while its author is still typing (the #162 failure class).
+    const halfTyped = await scopePairs("/* still typing\nlet after = 1");
+    expect(halfTyped).toContainEqual(["let", "storage.type.hexagon"]);
+
+    // §3.2 prohibits bidirectional controls in every context, this one included.
+    expect(await scope("/* a‮b */", "‮")).toBe(
+      "invalid.illegal.bidirectional-control.hexagon",
     );
   });
 
   it("does not lex comments inside strings", async () => {
     expect(await scope('let s = "// not a comment"', "// not a comment")).toBe(
       "string.quoted.double.hexagon",
+    );
+    expect(await scope('let s = "(* not a comment *)"', "(* not a comment *)")).toBe(
+      "string.quoted.double.hexagon",
+    );
+  });
+
+  it("keeps a comment opener out of the type-context bracket rules", async () => {
+    // Without `(?!\*)` on those `begin`s, #type-declaration-parameters and the
+    // `derives` rules claim the `(` of a `(*` opener before #comments is reached.
+    for (const source of [
+      "record Pair (* note *) = {a: Int}",
+      "record Pair(a) derives (* note *) Eq = {a: a}",
+      "let x: (* note *) Int = 1",
+      "fun f<a: (* note *) Ord>(v: a) = v",
+    ]) {
+      expect(await scope(source, " note "), source).toBe("comment.block.hexagon");
+    }
+
+    // #function-call reads the `(` through a lookahead, so it needs the guard too or
+    // a name followed by a comment paints as a call.
+    expect(await scope("let y = compute (* note *) (x)", "compute")).toBe(
+      "variable.other.hexagon",
+    );
+    // Its second alternative, the type-argument form, reads a `(` of its own.
+    expect(await scope("let y = isEmpty<a> (* note *) (v)", "isEmpty")).toBe(
+      "variable.other.hexagon",
+    );
+  });
+
+  it("keeps a comment inside a bracket group from closing it", async () => {
+    // The other half of the guard: a group's own patterns are the only ones tried
+    // inside it, so a `(*` that gets past the `begin` still needs #comments in the
+    // body — otherwise `*)` ends the group at its `)` and the rest of the list
+    // loses the colour the group exists to give.
+    const parameters = await scopePairs("record Pair(\n    (* note *)\n    a\n) = {a: a}");
+    expect(parameters).toContainEqual([" note ", "comment.block.hexagon"]);
+    expect(parameters).toContainEqual(["a", "entity.name.type.parameter.hexagon"]);
+
+    const derived = await scopePairs("record P(a) derives (\n    (* note *)\n    Eq\n) = {a: a}");
+    expect(derived).toContainEqual([" note ", "comment.block.hexagon"]);
+    expect(derived).toContainEqual(["Eq", "entity.name.type.constraint.hexagon"]);
+
+    const bound = await scopePairs("fun f<a: (Ord, (* note *) Show)>(v: a) = v");
+    expect(bound).toContainEqual([" note ", "comment.block.hexagon"]);
+    expect(bound).toContainEqual(["Show", "entity.name.type.constraint.hexagon"]);
+
+    // The single-line `derives` clause is the common shape, and it goes through the
+    // bounded rule rather than the hanging one.
+    const inline = await scopePairs("record P(a) derives (Eq, (* note *) Show) = {a: a}");
+    expect(inline).toContainEqual([" note ", "comment.block.hexagon"]);
+    expect(inline).toContainEqual(["Show", "entity.name.type.constraint.hexagon"]);
+
+    // A binder list is a context of its own, with no group between it and the comment.
+    expect(await scope("fun f<a (* note *)>(v: a) = v", " note ")).toBe(
+      "comment.block.hexagon",
     );
   });
 });
@@ -849,7 +964,7 @@ describe("characters with no token (spec/lexer.md §2.2, §3.2, §8.3, §10)", (
     expect(await scope(`// a${bidi}b`, bidi)).toBe(
       "invalid.illegal.bidirectional-control.hexagon",
     );
-    expect(await scope(`/* a${bidi}b */`, bidi)).toBe(
+    expect(await scope(`(* a${bidi}b *)`, bidi)).toBe(
       "invalid.illegal.bidirectional-control.hexagon",
     );
   });
@@ -891,9 +1006,9 @@ describe("regressions found in review", () => {
     }
   });
 
-  it("treats `/*** x ***/` as a doc comment and `/**/` as an empty block comment", async () => {
-    expect(await scope("/*** x ***/", "* x **")).toBe("comment.block.documentation.hexagon");
-    const pairs = await scopePairs("/**/\nlet x = 1");
+  it("treats `(*** x ***)` as a doc comment and `(**)` as an empty block comment", async () => {
+    expect(await scope("(*** x ***)", "* x **")).toBe("comment.block.documentation.hexagon");
+    const pairs = await scopePairs("(**)\nlet x = 1");
     expect(pairs).toContainEqual(["let", "storage.type.hexagon"]);
     expect(pairs.some(([, s]) => s.startsWith("invalid."))).toBe(false);
   });

@@ -43,10 +43,10 @@
     "comments": {
       "patterns": [
         {
-          "//": "spec/comments.md §3: doc-comment recognition requires `/**` followed by at least one character that is not `/`, which keeps `/**/` an ordinary empty block comment while `/*** x ***/` is a doc comment.",
+          "//": "spec/comments.md §3: doc-comment recognition requires `(**` followed by at least one character that is not `)`, which keeps `(**)` an ordinary empty block comment while `(*** x ***)` is a doc comment.",
           "name": "comment.block.documentation.hexagon",
-          "begin": "/\\*\\*(?!/)",
-          "end": "\\*/",
+          "begin": "\\(\\*\\*(?!\\))",
+          "end": "\\*\\)",
           "beginCaptures": { "0": { "name": "punctuation.definition.comment.begin.hexagon" } },
           "endCaptures": { "0": { "name": "punctuation.definition.comment.end.hexagon" } },
           "patterns": [{ "include": "#bidirectional-control" }, { "include": "#block-comment-inner" }]
@@ -54,8 +54,8 @@
         {
           "//": "spec/comments.md §3: block comments nest.",
           "name": "comment.block.hexagon",
-          "begin": "/\\*",
-          "end": "\\*/",
+          "begin": "\\(\\*",
+          "end": "\\*\\)",
           "beginCaptures": { "0": { "name": "punctuation.definition.comment.begin.hexagon" } },
           "endCaptures": { "0": { "name": "punctuation.definition.comment.end.hexagon" } },
           "patterns": [{ "include": "#bidirectional-control" }, { "include": "#block-comment-inner" }]
@@ -76,16 +76,28 @@
           "patterns": [{ "include": "#bidirectional-control" }]
         },
         {
-          "//": "spec/comments.md §3: `*/` at depth zero is a hard error, not `*` then `/`.",
+          "//": "spec/comments.md §3: `*)` at depth zero is a hard error, not `*` then `)`.",
           "name": "invalid.illegal.unmatched-comment-close.hexagon",
+          "match": "\\*\\)"
+        },
+        {
+          "//": "spec/comments.md §3.1: `/*` is JavaScript's opener and is detected, never lexed as `/` then `*`. The region it opens is painted as one error, mirroring the compiler's scan-to-`*/` recovery — a pasted JSDoc block is one region, not a line of error followed by `@param` painted as an invalid character. Ending at `$` instead would say that, and would also let #tab-indentation fire on a tab inside the comment body, which the compiler explicitly does not diagnose. The bail-out guard is what stops a half-typed `/*` from repainting the file; see the //line-bail-guard note.",
+          "name": "invalid.illegal.javascript-comment.hexagon",
+          "begin": "/\\*",
+          "end": "\\*/|(?=^\\S|^[ \\t]*(?:(?:let|var|fun|record|union|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|\\|(?!>)))",
+          "patterns": [{ "include": "#bidirectional-control" }]
+        },
+        {
+          "//": "spec/comments.md §3.1: a stray `*/` where a token may begin, which Hexagon spells `*)`.",
+          "name": "invalid.illegal.javascript-comment.hexagon",
           "match": "\\*/"
         }
       ]
     },
 
     "block-comment-inner": {
-      "begin": "/\\*",
-      "end": "\\*/",
+      "begin": "\\(\\*",
+      "end": "\\*\\)",
       "patterns": [{ "include": "#bidirectional-control" }, { "include": "#block-comment-inner" }]
     },
 
@@ -369,16 +381,30 @@
       "What this costs: a group with content on its opening line that then wraps.",
       "`record P derives (Eq,` / `    Show)` still paints `Show`, in the nominal family",
       "rather than the constraint family. Writing it in the hanging form restores it.",
-      "A trailing comment counts as content — `record Pair( /* note */` classifies as",
+      "A trailing comment counts as content — `record Pair( (* note *)` classifies as",
       "bounded, so its parameters on the next line paint as terms. Same trade, same fix.",
       "",
-      "Coordination with #171, whose ruling re-spells block comments `(* *)`: that lands",
-      "on exactly these rules. Every `\\(`-based `begin` here will need `(?!\\*)`, and",
-      "include order cannot substitute for it, because #type-declaration-parameters and",
-      "the `derives` rules start matching before their `(` and would claim the `(` of a",
-      "`(*` opener. The hanging lookahead needs no change but keeps the behaviour above:",
-      "a trailing `(* … *)` reads as content. Ruling #171 §11 says this change does not",
-      "interact with #162; that was assessed before the split and now understates it."
+      "Second guard, from #171: every `\\(`-based `begin` here also carries `(?!\\*)`, so",
+      "a `(*` comment opener is never eaten as a bracket. Include order cannot substitute",
+      "for it, because #type-declaration-parameters and the `derives` rules start matching",
+      "before their `(` and would claim the `(` of `record Pair (* note *)` ahead of",
+      "#comments. Exactly two of the seven change any paint — the *bounded*",
+      "#type-declaration-parameters rule and the *bounded* `derives` rule. The hanging",
+      "variants cannot read a `(*` opener as end of line, #type-expression lists #comments",
+      "first, and #type-parameter-bound's nested group is reached only from a context that",
+      "now does too. The guard is written out at all seven so every site reads the same;",
+      "grammar.test.ts pins those copies too.",
+      "",
+      "Keeping the opener out of a group's `begin` is only half of it. A group's own",
+      "`patterns` are the only rules tried inside it, so each of these bodies also",
+      "includes #comments — without that, `(*` inside the group falls through to",
+      "#punctuation and the `*)` closes the group at its `)`, which loses the colour the",
+      "group exists to give and paints the closer as a stray bracket.",
+      "",
+      "One consequence, recorded so it is not read later as a regression: in illegal",
+      "source like `record Pair(a *)`, the `*)` is now the unmatched-closer error §3",
+      "requires rather than a bracket that closes the group, so the rest of that line",
+      "stays type context."
     ],
 
     "type-alias-declaration": {
@@ -419,7 +445,7 @@
       "patterns": [
         {
           "//": "Hanging: `record P(` with the bracket last on its line, so the list continues.",
-          "begin": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(record|union|type)[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)[ \\t]*(\\()(?=[ \\t]*$)",
+          "begin": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(record|union|type)[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)[ \\t]*(\\()(?!\\*)(?=[ \\t]*$)",
           "beginCaptures": {
             "1": { "name": "storage.type.hexagon" },
             "2": { "name": "entity.name.type.hexagon" },
@@ -433,7 +459,7 @@
         },
         {
           "//": "Bounded: content after the bracket, so an unclosed list stops at end of line.",
-          "begin": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(record|union|type)[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)[ \\t]*(\\()",
+          "begin": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(record|union|type)[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)[ \\t]*(\\()(?!\\*)",
           "beginCaptures": {
             "1": { "name": "storage.type.hexagon" },
             "2": { "name": "entity.name.type.hexagon" },
@@ -449,7 +475,9 @@
     },
 
     "type-declaration-parameter-list": {
+      "//": "#comments first: a group's own patterns are the only ones tried inside it, so without this a `(*` opener reaches #punctuation and the `*)` closes the group.",
       "patterns": [
+        { "include": "#comments" },
         {
           "name": "entity.name.type.parameter.hexagon",
           "match": "(?![\\p{Uppercase}\\p{Lt}])[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*"
@@ -483,6 +511,7 @@
         "0": { "name": "keyword.operator.comparison.hexagon" }
       },
       "patterns": [
+        { "include": "#comments" },
         { "include": "#type-parameter-bound" },
         {
           "name": "entity.name.type.parameter.hexagon",
@@ -521,8 +550,9 @@
       },
       "end": "(?=[,>])",
       "patterns": [
+        { "include": "#comments" },
         {
-          "begin": "\\(",
+          "begin": "\\((?!\\*)",
           "beginCaptures": {
             "0": { "name": "punctuation.section.parens.begin.hexagon" }
           },
@@ -531,6 +561,7 @@
             "0": { "name": "punctuation.section.parens.end.hexagon" }
           },
           "patterns": [
+            { "include": "#comments" },
             { "include": "#constraint-name" },
             { "include": "#punctuation" }
           ]
@@ -592,7 +623,7 @@
           "match": "(?![\\p{Uppercase}\\p{Lt}])[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*"
         },
         {
-          "begin": "\\((?=[ \\t]*$)",
+          "begin": "\\((?!\\*)(?=[ \\t]*$)",
           "beginCaptures": {
             "0": { "name": "punctuation.section.parens.begin.hexagon" }
           },
@@ -605,7 +636,7 @@
           ]
         },
         {
-          "begin": "\\(",
+          "begin": "\\((?!\\*)",
           "beginCaptures": {
             "0": { "name": "punctuation.section.parens.begin.hexagon" }
           },
@@ -738,7 +769,7 @@
             "",
             "Split hanging/bounded, hanging first — see the //line-bail-guard note."
           ],
-          "begin": "(?:(?<=[\\p{ID_Continue}$_)\\]}])[ \\t]+|^[ \\t]+)(derives)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]*(\\()(?=[ \\t]*$)",
+          "begin": "(?:(?<=[\\p{ID_Continue}$_)\\]}])[ \\t]+|^[ \\t]+)(derives)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]*(\\()(?!\\*)(?=[ \\t]*$)",
           "beginCaptures": {
             "1": { "name": "keyword.other.derives.hexagon" },
             "2": { "name": "punctuation.section.parens.begin.hexagon" }
@@ -748,13 +779,14 @@
             "0": { "name": "punctuation.section.parens.end.hexagon" }
           },
           "patterns": [
+            { "include": "#comments" },
             { "include": "#constraint-name" },
             { "include": "#punctuation" }
           ]
         },
         {
           "//": "The same clause with content after its `(`, bounded to its line.",
-          "begin": "(?:(?<=[\\p{ID_Continue}$_)\\]}])[ \\t]+|^[ \\t]+)(derives)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]*(\\()",
+          "begin": "(?:(?<=[\\p{ID_Continue}$_)\\]}])[ \\t]+|^[ \\t]+)(derives)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]*(\\()(?!\\*)",
           "beginCaptures": {
             "1": { "name": "keyword.other.derives.hexagon" },
             "2": { "name": "punctuation.section.parens.begin.hexagon" }
@@ -764,6 +796,7 @@
             "0": { "name": "punctuation.section.parens.end.hexagon" }
           },
           "patterns": [
+            { "include": "#comments" },
             { "include": "#constraint-name" },
             { "include": "#punctuation" }
           ]
@@ -851,7 +884,7 @@
         "it (`isEmpty<a>(values)`), because spec/lexer.md §8.1 makes `<` the very same",
         "token in a comparison — `count <= 0` must keep reading as a comparison."
       ],
-      "match": "(?![\\p{Uppercase}\\p{Lt}])([\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)(?=[ \\t]*\\(|<[^<>()\\n]*>[ \\t]*\\()",
+      "match": "(?![\\p{Uppercase}\\p{Lt}])([\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)(?=[ \\t]*\\((?!\\*)|<[^<>()\\n]*>[ \\t]*\\((?!\\*))",
       "captures": { "1": { "name": "entity.name.function.hexagon" } }
     },
 

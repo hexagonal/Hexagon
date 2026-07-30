@@ -3307,8 +3307,22 @@ function sourceEntries(
   ].sort((left, right) => left.span.start.offset - right.span.start.offset);
 }
 
+// Emitted comments carry the source's content in JavaScript's spelling, and the
+// emitted file has to stay valid JavaScript (spec/comments.md §6). A block body
+// containing JavaScript's own closer cannot be a JavaScript block comment at all,
+// so it is re-presented as a run of `//` comments on whole lines.
 function commentLines(comment: Source.Comment): string[] {
-  return comment.text.split(/\r\n|\r|\n/u);
+  const split = (text: string) => text.split(/\r\n|\r|\n/u);
+  if (comment.kind === "Line") return split(comment.text);
+
+  // An unterminated comment still reaches here — it is recorded alongside its
+  // diagnostic — and its text has no closer to strip. Taking one off regardless
+  // would delete the last two characters of the file.
+  const closed = comment.text.length >= 4 && comment.text.endsWith("*)");
+  const body = comment.text.slice(2, closed ? -2 : undefined);
+  return body.includes("*/")
+    ? split(body).map((line) => `//${line}`.trimEnd())
+    : split(`/*${body}*/`);
 }
 
 /** Preserves vertical separation where top-level source entries align. */
