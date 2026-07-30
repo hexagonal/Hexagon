@@ -35,7 +35,8 @@ block comments without disturbing layout.
 - `shippingLabel` returns as the nested-layout example.
 - `dishes |> rinse |> wash |> dry` appears in a nested function body as a continuity
   callback, not as a new pipe lesson.
-- A nested `/* outer /* inner */ outer */` comment is the memorable difference from JS.
+- A nested `(* outer (* inner *) outer *)` comment shows both differences from JS at
+  once: the ML spelling and the nesting (#171).
 
 ## Audit notes
 
@@ -43,4 +44,4 @@ block comments without disturbing layout.
 - `;` is a separator, never a terminator; no leading, trailing, or doubled form.
 - `;` never opens a lambda body.
 - `{}` is the empty record, never an empty block.
-- `///` and `/** */` are reserved but currently behave as ordinary comments.
+- `///` and `(** *)` are reserved but currently behave as ordinary comments.

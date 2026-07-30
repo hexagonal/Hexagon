@@ -27,7 +27,7 @@ No other comment syntax exists. `--`, `{- -}`, `#` are not comments (§7). The J
 
 ## 3. Block comments nest
 
-- `(*` opens a comment and pushes depth; each `(*` inside pushes; each `*)` pops; the comment ends when depth returns to zero. This is Rust's nesting semantics with the ML family's spelling — F#'s and OCaml's form, with the wart neither of them fixed (JS's non-nesting) still fixed.
+- `(*` opens a comment and pushes depth; each `(*` inside pushes; each `*)` pops; the comment ends when depth returns to zero. This is F#'s and OCaml's form with F#'s and OCaml's semantics — ML block comments nest natively, and always have. (Under the old `/* */` spelling the nesting was Rust's repair of JS's wart; under the ML spelling there was never a wart to repair.)
 - **Strings are not lexed inside comments.** A `*)` inside a string literal inside commented-out code terminates (a level of) the comment. This is a **chosen divergence from OCaml**, which lexes string literals inside comments and errors on a lone `"` in comment prose; Hexagon's rule stands on its own merit — lexing strings inside comments imports string-escape rules into dead text and turns ordinary prose into a lexing hazard. Not a diagnostic case; it's just the rule. *(Rationale corrected 2026-07-30, #171 — the previous text claimed every nesting language shares this, which OCaml falsifies; the rule itself is unchanged.)*
 - Comments are not lexed inside strings, symmetrically: `"//"` and `"(*"` are two-character strings with no comment significance. (Interaction with interpolation holes: a hole `${...}` is expression territory — comments are legal inside it, per Primitive Types §5.2's "expression-level" framing.)
 - `(**)` is an empty block comment (the `(**` prefix rule does not apply — doc-comment recognition, when it comes, requires `(**` followed by at least one character that is not `)`; the lexer need not care in v1 since both lex as comments).
@@ -37,7 +37,7 @@ No other comment syntax exists. `--`, `{- -}`, `#` are not comments (§7). The J
 
 ### 3.1 The JavaScript spellings are detected *(added 2026-07-30, #171)*
 
-Wherever a token may begin, the two-character sequences `/*` and `*/` are **hard lexical errors** naming the Hexagon spelling — never lexed as `/` then `*` (or `*` then `/`). Since `/` and `*` are infix-only, the adjacency occurs in no legal program; detection is free and the Rewrite Rule (Declarations Preamble §1.1) demands the targeted redirect at the exact place a JavaScript author's muscle memory fires. Messages in §5. Recommended recovery: on `/*`, scan to the nearest `*/` — JavaScript's own non-nesting rule — and resume after it, so one pasted JS comment yields one diagnostic; the recovery is quality-of-implementation, the error and its shape are normative. `//` needs no detection: it is the same spelling in both languages.
+Wherever a token may begin, the two-character sequences `/*` and `*/` are **hard lexical errors** naming the Hexagon spelling — never lexed as `/` then `*` (or `*` then `/`). The adjacency occurs in no legal program: `/` is infix-only, and the sole non-infix `*` in the language — the `import * as` glob (Modules §3.3) — has both neighbours fixed by its grammar (`import` before, `as` after), so neither sequence can arise there or anywhere else; detection is free and the Rewrite Rule (Declarations Preamble §1.1) demands the targeted redirect at the exact place a JavaScript author's muscle memory fires. Messages in §5. Recommended recovery: on `/*`, scan to the nearest `*/` — JavaScript's own non-nesting rule — and resume after it, so one pasted JS comment yields one diagnostic; the recovery is quality-of-implementation, the error and its shape are normative. `//` needs no detection: it is the same spelling in both languages.
 
 ## 4. Comments and layout
 
@@ -68,7 +68,7 @@ No warnings; per house rule there is no warning tier.
   comment remains trailing when its item is emitted on one line. Blank lines between
   top-level items and comments are preserved as item separation; exact interior
   whitespace is formatter territory.
-- **Emitted comments use JavaScript's comment syntax, and the emitted file must remain valid JS** *(clause added 2026-07-30, #171 — closing a gap that predates the re-spelling)*: `//` comments emit verbatim; a `(* ... *)` comment whose body contains neither a comment delimiter nor the sequence `*/` emits as `/* body */`; any other body — nested comments, or a literal `*/` in the text — is re-presented as a run of `//` lines. (A nested Hexagon comment was never verbatim-emittable into JS, which does not nest; the old text simply never said what to do about it.) Content is preserved; the presentation choice is quality-of-implementation.
+- **Emitted comments use JavaScript's comment syntax, and the emitted file must remain valid JS** *(clause added 2026-07-30, #171 — closing a gap that predates the re-spelling)*: `//` comments emit verbatim; a `(* ... *)` comment whose text does not contain the sequence `*/` emits as `/* text */` — interior `(*` / `*)` pairs are inert text to JavaScript and may be carried as-is or re-spelled; a body that does contain `*/` is re-presented as a run of `//` comments occupying **whole lines** (a `//` run must never share its lines with following code). (The gap predates the re-spelling: under the old delimiters a *nested* comment's body necessarily contained `*/`, so it was never verbatim-emittable into non-nesting JS, and the old text never said what to do about it.) Content is preserved; presentation choices beyond the validity requirement are quality-of-implementation.
 - The exception on the horizon: when the documentation spec lands, `///` / `(** *)` content should flow to **JSDoc in the `.d.ts`**. The payoff is unchanged by the re-spelling — doc *content* flows to JSDoc regardless of source delimiters, and under the ML-dialect doctrine the source spelling no longer needs to be JS-shaped to earn it. Attachment rules (what declaration a doc comment binds to), inner-doc forms (Rust's `//!`), and Markdown processing are all deferred with it.
 
 ## 7. Rejected alternatives (do not relitigate)
@@ -86,6 +86,8 @@ No warnings; per house rule there is no warning tier.
 - **`#` line comments** (Python/shell): `#` is spent — `#{` is reserved in strings for future `Debug` interpolation (Primitive Types §5.4), and keeping `#` free for future attribute/directive syntax is worth more than a redundant comment spelling.
 
 ## 8. Acceptance tests
+
+Each line (with its marked continuation) is its own source file with its own expectation; the block is not one program.
 
 ```
 let x = 1 // trailing comment            -- OK (x = 1); comment invisible to layout
@@ -127,7 +129,7 @@ x --1                                    -- NOT a comment: `--` isn't a token;
 
 ## 10. Edit notes to existing specs
 
-- **Lexer & Layout §2 / §6:** the "comments" item in the owed-to-full-lexer-spec list is now resolved here; update the flag table to point at this document. *(Applied.)*
+- **Lexer & Layout §2 / §6:** the "comments" item in the owed-to-full-lexer-spec list is now resolved here; update the flag table to point at this document. *(Still owed — verified open at the #171 review, 2026-07-30.)*
 - **Primitive Types §5.4:** unchanged, but this doc's §7 records that `#` remains reserved territory partly on its account.
 - **Physical Lexer §7 / §8.2 / §10:** re-spelled and extended for §3.1's detection in the #171 PR. *(Applied — added 2026-07-30.)*
 
@@ -140,6 +142,7 @@ Ruled in `decisions-ml-dialect-comments-2026-07.md` (issue #171; James's directi
 3. **§3's string-noninteraction rationale corrected**: the claim "every nesting language shares this" was false of OCaml; the rule is unchanged and now recorded as a chosen divergence.
 4. **Doc-comment block reservation moved** from `/** */` to `(** *)`; `///` untouched; the `/**` spelling now falls under §3.1's detection with a doc-form addendum.
 5. **§12 added** (shipped-source comment doctrine — an addition riding the same ruling, not a consequence of the re-spelling).
+6. **Smaller in-place revisions riding the substitution:** §2 gains the F#-agreement bullet; §5 row 3's rationale respells (the JS-divergence framing gave way to the standing commented-out-code hazard); §6's doc-comment horizon bullet is re-grounded (ruling §5); and §7 gains four **new binding** rejected-alternatives entries (aliases, no-detection, deprecation window, OCaml string-aware lexing) — new doctrine, not substitution.
 
 The prior text of the superseded passages is preserved in git history and in the ruling document's quotations; per house rule, nothing was silently deleted.
 
@@ -152,6 +155,6 @@ Comments in `.hex` source shipped with the compiler — the standard library and
 3. **suitable for a later manual**; and
 4. **omitted entirely when the code says it already** — a comment too obvious to survive editing should not be written.
 
-What shipped-source comments must **not** carry: history, doctrine, ruling numbers, spec cross-references, or change narration. That material has homes — the spec corpus, the decisions documents, issues, and git history — and it belongs in them. A comment stating a load-bearing normative fact with no code expression (e.g. "constructor order is normative") earns its line; the justification behind the fact does not — it is cited from the spec, not restated in source.
+What shipped-source comments must **not** carry: history, doctrine, ruling numbers, spec cross-references, or change narration. That material has homes — the spec corpus, the decisions documents, issues, and git history — and it belongs in them. A comment may *state* a load-bearing normative fact with no code expression (e.g. "constructor order is normative"); the justification behind the fact, and the citation for it, stay in the spec — a reader who wants the why greps the corpus.
 
 The "later manual" criterion is this section's reason for living here rather than in a style note: when the documentation spec activates `///` and `(** *)`, manual-facing comment content upgrades to doc comments mechanically, and comments written to this standard are the ones that upgrade cleanly. The doctrine binds new shipped code immediately; the sweep bringing existing files into compliance is issue #172.
