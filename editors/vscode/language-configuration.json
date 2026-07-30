@@ -1,7 +1,7 @@
 {
   "comments": {
     "lineComment": "//",
-    "blockComment": ["/*", "*/"]
+    "blockComment": ["(*", "*)"]
   },
   "brackets": [
     ["{", "}"],
@@ -12,8 +12,17 @@
     { "open": "{", "close": "}" },
     { "open": "[", "close": "]" },
     { "open": "(", "close": ")" },
-    { "open": "\"", "close": "\"", "notIn": ["string", "comment"] },
-    { "open": "/*", "close": " */", "notIn": ["string"] }
+    { "open": "\"", "close": "\"", "notIn": ["string", "comment"] }
+  ],
+  "//autoClosingPairs": [
+    "No `(*` pair, unlike the JS spelling it replaced: `(` already auto-closes, so",
+    "typing `(` then `*` would leave `(* *))` with the first pair's `)` stranded.",
+    "Without it the same keystrokes work — `(` gives `()`, `*` gives `(*)`, and the",
+    "closing `)` types over the auto-inserted one — and Toggle Block Comment still",
+    "inserts the pair from `comments.blockComment` above.",
+    "The cost, stated rather than hidden: the old pair inserted ` */` immediately, so a",
+    "block comment was closed the moment it was opened. Now an author who opens one",
+    "leaves the file painted as a comment until they type the closer."
   ],
   "surroundingPairs": [
     ["{", "}"],
@@ -54,17 +63,17 @@
       "action": { "indent": "none", "appendText": "/// " }
     },
     {
-      "//": "Keep block comments aligned and closed, as in the JS/TS defaults.",
-      "beforeText": "^\\s*/\\*\\*(?!/)([^*]|\\*(?!/))*$",
-      "afterText": "^\\s*\\*/$",
+      "//": "Keep doc comments aligned and closed. `(**)` is the empty block comment, not a doc opener (spec/comments.md §3), so the opener rules exclude it.",
+      "beforeText": "^\\s*\\(\\*\\*(?!\\))([^*]|\\*(?!\\)))*$",
+      "afterText": "^\\s*\\*\\)$",
       "action": { "indent": "indentOutdent", "appendText": " * " }
     },
     {
-      "beforeText": "^\\s*/\\*\\*(?!/)([^*]|\\*(?!/))*$",
+      "beforeText": "^\\s*\\(\\*\\*(?!\\))([^*]|\\*(?!\\)))*$",
       "action": { "indent": "none", "appendText": " * " }
     },
     {
-      "beforeText": "^(\\t|[ ])*[ ]\\*([ ]([^*]|\\*(?!/))*)?$",
+      "beforeText": "^(\\t|[ ])*[ ]\\*([ ]([^*]|\\*(?!\\)))*)?$",
       "action": { "indent": "none", "appendText": "* " }
     }
   ]

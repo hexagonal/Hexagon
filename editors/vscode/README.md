@@ -96,7 +96,8 @@ by the next line that starts in column zero.
 
 **Lexical errors are painted.** §10 has no warning tier: every row is either
 accepted source or a hard error. `__hex_` names, `0xFF`, `.5`, `1.`, `1__0`,
-`12cats`, unknown string escapes, a bare `#{`, an unmatched `*/`, and `&&`/`||`/`!`
+`12cats`, unknown string escapes, a bare `#{`, an unmatched `*)`, the JavaScript
+comment spellings `/*` and `*/`, and `&&`/`||`/`!`
 all get `invalid.illegal.*`, so the editor shows them before the compiler does.
 
 `true` and `false` in **value position** are on that list (#147). `Bool` is the
@@ -173,7 +174,7 @@ to be exact.
   content shape — in `record P derives (Eq,` / `    Show)`, `Show` is painted in the
   nominal family rather than as a constraint. Rewriting it with the bracket hanging
   restores the finer colour; a trailing comment counts as content, so
-  `record Pair( /* note */` is bounded too. A hanging group that is never closed bails out at the next
+  `record Pair( (* note *)` is bounded too. A hanging group that is never closed bails out at the next
   line that starts a declaration, starts a union alternative, or begins in column one;
   until such a line, an indented body under a half-typed signature is still painted as
   type context, because no lexical rule can tell it from a legitimate multi-line type.

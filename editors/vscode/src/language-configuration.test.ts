@@ -16,6 +16,8 @@ interface LanguageConfiguration {
     increaseIndentPattern: string;
     decreaseIndentPattern: string;
   };
+  readonly autoClosingPairs: readonly { open: string; close: string }[];
+  readonly onEnterRules: readonly { beforeText: string; afterText?: string }[];
 }
 
 const configuration = JSON.parse(
@@ -92,6 +94,40 @@ describe("indentation rules", () => {
 describe("comment configuration", () => {
   it("matches the forms spec/comments.md §1 defines", () => {
     expect(configuration.comments.lineComment).toBe("//");
-    expect(configuration.comments.blockComment).toEqual(["/*", "*/"]);
+    expect(configuration.comments.blockComment).toEqual(["(*", "*)"]);
+  });
+
+  it("leaves block-comment auto-closing to the `(` pair", () => {
+    // A `(*` pair fires only after `(` has already auto-closed, which would strand
+    // that pair's `)` after the inserted ` *)`.
+    expect(configuration.autoClosingPairs.map(({ open }) => open)).not.toContain("(*");
+  });
+
+  it("continues a doc comment, but does not treat `(**)` as one", () => {
+    const openers = configuration.onEnterRules.filter(({ beforeText }) =>
+      beforeText.includes("\\(\\*\\*")
+    );
+    expect(openers).toHaveLength(2);
+
+    for (const { beforeText } of openers) {
+      const opener = new RegExp(beforeText);
+      expect(opener.test("(** doc")).toBe(true);
+      expect(opener.test("    (** doc")).toBe(true);
+      // spec/comments.md §3: `(**)` is the empty block comment, not a doc opener.
+      expect(opener.test("(**)")).toBe(false);
+      // Already closed on its own line, so there is nothing to continue.
+      expect(opener.test("(** doc *)")).toBe(false);
+    }
+
+    const closer = openers.find(({ afterText }) => afterText !== undefined)?.afterText;
+    expect(new RegExp(closer ?? "").test("*)")).toBe(true);
+
+    const continuation = configuration.onEnterRules.find(({ beforeText }) =>
+      beforeText.startsWith("^(\\t|[ ])*[ ]\\*")
+    );
+    expect(continuation).toBeDefined();
+    const inside = new RegExp(continuation?.beforeText ?? "");
+    expect(inside.test(" * more")).toBe(true);
+    expect(inside.test(" * more *)")).toBe(false);
   });
 });
