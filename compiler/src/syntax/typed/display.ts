@@ -40,6 +40,10 @@ function displayType(
     case "Error":
       return "?";
     case "Tuple":
+      // The arity-0 tuple displays as `Unit`, never `()` — the type's one name
+      // (Products §2.7, #159); `()` in type notation is only the zero-parameter
+      // domain below.
+      if (type.elements.length === 0) return "Unit";
       return `(${type.elements.map((element) =>
         displayType(element, variables)
       ).join(", ")})`;
@@ -70,12 +74,16 @@ function displayType(
       const parameters = type.parameters.map((parameter) =>
         displayType(parameter, variables),
       );
+      const soleParameter = type.parameters[0];
       const domain =
         parameters.length === 0
           ? "()"
           : parameters.length === 1
-            ? type.parameters[0]?.kind === "Function" ||
-                type.parameters[0]?.kind === "Tuple"
+            // A sole `Unit` parameter displays bare — it renders as a name, so
+            // the parens that keep `((a, b)) -> c` from reading as two
+            // parameters have nothing to disambiguate.
+            ? soleParameter?.kind === "Function" ||
+                (soleParameter?.kind === "Tuple" && soleParameter.elements.length > 0)
               ? `(${parameters[0]})`
               : parameters[0]!
             : `(${parameters.join(", ")})`;

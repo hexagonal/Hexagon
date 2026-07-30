@@ -58,6 +58,7 @@ describe("displayScheme", () => {
   });
 
   test("distinguishes zero, one, and many parameters", () => {
+    // `Unit` is the arity-0 tuple (#159), and it displays as its one name.
     expect(
       displayScheme({
         variables: [],
@@ -65,7 +66,7 @@ describe("displayScheme", () => {
         type: {
           kind: "Function",
           parameters: [],
-          result: { kind: "Primitive", name: "Unit" },
+          result: { kind: "Tuple", elements: [] },
         },
       }),
     ).toBe("() -> Unit");
@@ -106,6 +107,20 @@ describe("displayScheme", () => {
         },
       }),
     ).toBe("((String, Int)) -> Bool");
+  });
+
+  test("a sole `Unit` parameter displays bare, keeping `Unit -> T` distinct from `() -> T`", () => {
+    expect(
+      displayScheme({
+        variables: [],
+        constraints: [],
+        type: {
+          kind: "Function",
+          parameters: [{ kind: "Tuple", elements: [] }],
+          result: { kind: "Union", union: unionId(0), name: "Bool", arguments: [] },
+        },
+      }),
+    ).toBe("Unit -> Bool");
   });
 
   test("renders nominal union names", () => {

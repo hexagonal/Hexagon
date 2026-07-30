@@ -40,10 +40,14 @@ export interface SpecializationPlan {
  * own framing, and #147 is what makes the distinction bite: `Bool` left the
  * primitive set to become a prelude union and stayed in this set unchanged,
  * because membership is a language category rather than an inference from how a
- * type happens to be classified. Algorithm G's fundamental/non-fundamental split
- * is unaffected by the reclassification.
+ * type happens to be classified. #159 repeats the move for `Unit`, now the
+ * arity-0 tuple. Algorithm G's fundamental/non-fundamental split is unaffected
+ * by either reclassification.
  */
-export type FundamentalType = Exclude<Typed.PrimitiveName, "Exn"> | "Bool";
+export type FundamentalType =
+  | Exclude<Typed.PrimitiveName, "Exn">
+  | "Bool"
+  | "Unit";
 
 const fundamentalTypes: readonly FundamentalType[] = [
   "Nat",
@@ -199,11 +203,12 @@ function substituteType(
     case "Variable": {
       const replacement = substitutions.get(type.id);
       if (replacement === undefined) return type;
-      // Six of the seven fundamental types are primitives and become a
-      // primitive node. `Bool` is the exception since #147 — it is a prelude
-      // union that stayed in the fundamental set by enumeration — so its
-      // edition has to name the declaration, not a primitive that no longer
-      // exists.
+      // Five of the seven fundamental types are primitives and become a
+      // primitive node. `Bool` (#147) and `Unit` (#159) are the exceptions —
+      // both left the primitive set and stayed fundamental by enumeration — so
+      // their editions name what the types are now: the prelude union, and the
+      // arity-0 tuple.
+      if (replacement === "Unit") return { kind: "Tuple", elements: [] };
       if (replacement !== "Bool") return { kind: "Primitive", name: replacement };
       return bool === undefined
         ? { kind: "Error" }
@@ -273,6 +278,11 @@ function replaceDictionaryEvidence<T>(
   const candidate = value as Record<string, unknown>;
   if (candidate.kind === "Dictionary" && typeof candidate.variable === "number") {
     const replacement = substitutions.get(candidate.variable as Typed.TypeVariableId);
+    if (replacement === "Unit") {
+      // `Unit` evidence is structural since #159 — the automatic tuple
+      // instances at arity 0 — because there is no primitive left to name.
+      return { kind: "Structural", type: { kind: "Tuple", elements: [] } } as T;
+    }
     if (replacement !== undefined) {
       return { kind: "Primitive", instance: replacement } as T;
     }

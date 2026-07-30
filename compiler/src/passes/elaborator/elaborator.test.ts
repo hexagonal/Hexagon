@@ -51,7 +51,7 @@ describe("elaborate", () => {
           { kind: "String" },
           { kind: "Number", representation: "Int" },
         ],
-        type: { kind: "Primitive", name: "Unit" },
+        type: { kind: "Tuple", elements: [] },
       },
     });
     expect(module.diagnostics).toEqual([]);

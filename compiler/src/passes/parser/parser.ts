@@ -2460,9 +2460,13 @@ class Parser {
     if (left === undefined) return undefined;
     if (!this.#at("Arrow")) {
       if (left.parameters?.length === 0) {
+        // The Products §6 redirect (#159): `()` is not a type expression, so a
+        // bare `()` in type position names the one legal role it has and the
+        // spelling the writer wanted.
         this.#errorAt(
           left.annotation.span,
-          "an empty type parameter list must be followed by `->`; use `Unit` for the unit type",
+          "the empty tuple's type is written `Unit`; `()` in type syntax is only " +
+            "the zero-parameter domain `() -> T`",
         );
         return undefined;
       }

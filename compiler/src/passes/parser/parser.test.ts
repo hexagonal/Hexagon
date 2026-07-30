@@ -732,11 +732,14 @@ describe("parse", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
-  test("requires an arrow after an empty type parameter list", () => {
+  test("redirects a bare `()` in type position to `Unit`", () => {
+    // Products §6 (#159): `()` is not a type expression; its only type-syntax
+    // role is the zero-parameter domain of a function type.
     const module = parseSource("type Wrong = ()");
 
     expect(module.diagnostics.map(({ message }) => message)).toContain(
-      "an empty type parameter list must be followed by `->`; use `Unit` for the unit type",
+      "the empty tuple's type is written `Unit`; `()` in type syntax is only " +
+        "the zero-parameter domain `() -> T`",
     );
   });
 
