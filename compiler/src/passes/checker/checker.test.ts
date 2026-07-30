@@ -533,7 +533,7 @@ describe("check", () => {
 
     expect(logged).toMatchObject({
       kind: "ConsoleLog",
-      type: { kind: "Primitive", name: "Unit" },
+      type: { kind: "Tuple", elements: [] },
       arguments: [
         { type: { kind: "Primitive", name: "String" } },
         { type: { kind: "Primitive", name: "Int" } },
@@ -1277,26 +1277,33 @@ describe("check", () => {
     ]);
   });
 
-  test("leaves a variable alone when its constraints are honored at `Unit`", () => {
-    // Settling asks whether the variable can be `Int` and cannot be the
-    // demanded `Unit`; both halves count user `honor` instances, so a
-    // constraint honored at `Unit` unifies and the program is accepted.
+  test("`honor` cannot target `Unit`, which is structural (#159)", () => {
+    // This test used to accept `honor Conjure<Unit>` and pin that a constraint
+    // honored at `Unit` blocked settling. `Unit` is now the empty tuple, and
+    // structural types are user-closed (Constraints §9.3), so the premise is
+    // no longer spellable: the honor itself is the error, and settling's
+    // `Unit`-side answer is the structural tuple one, with no user door.
     const honored = "constraint Conjure<a> =\n" +
       "    make(): a\n" +
       "honor Conjure<Int> =\n" +
       "    make() = 1\n" +
       "honor Conjure<Unit> =\n" +
       "    make() = ()\n";
-    expect(checkSource(honored + "let y(c: Bool): Unit = if c then make()").diagnostics)
-      .toEqual([]);
-    expect(checkSource(honored + "fun y(): Unit =\n    make()\n    ()").diagnostics)
-      .toEqual([]);
     expect(
-      checkSource(honored + "fun y(c: Bool): Unit =\n    while c\n        make()")
-        .diagnostics,
-    ).toEqual([]);
+      checkSource(honored + "let n: Int = make()").diagnostics
+        .map(({ message }) => message),
+    ).toContain(
+      "instances are keyed on type constructors; tuples and structural records " +
+        "have compiler-derived instances only — declare a nominal `record` or " +
+        "`union` for a type you control",
+    );
+  });
 
-    // Without the `Unit` instance the same shape still settles and reports.
+  test("settles and reports a constraint the demanded `Unit` cannot satisfy", () => {
+    // Settling asks whether the variable can be `Int` and cannot be the
+    // demanded `Unit` (Numeric Literals §6). `Unit`'s instances are exactly
+    // the structural tuple set, so a user constraint is never satisfiable
+    // there and the demand site's own report fires, naming `Int`.
     const intOnly = "constraint Conjure<a> =\n" +
       "    make(): a\n" +
       "honor Conjure<Int> =\n" +
@@ -1563,8 +1570,10 @@ function expression(module: Typed.Module): Typed.Expr {
 
 function typeName(type: Typed.Type): string {
   // Unions report their name too, so `Bool` reads as `Bool` rather than as
-  // `Union` now that #147 made it one.
+  // `Union` now that #147 made it one. The arity-0 tuple reads as `Unit` for
+  // the same reason, now that #159 made it that.
   if (type.kind === "Primitive" || type.kind === "Union") return type.name;
+  if (type.kind === "Tuple" && type.elements.length === 0) return "Unit";
   return type.kind;
 }
 

@@ -352,7 +352,7 @@ class JavaScriptEmitter {
         const wrapper = declaration.kind === "ExternFun"
           ? this.#isSequence(declaration.result) ||
             sequenceParameters.length > 0 ||
-            (declaration.result.kind === "Primitive" && declaration.result.name === "Unit")
+            isUnit(declaration.result)
           : this.#isSequence(declaration.type);
         if (!wrapper) {
           if (declaration.default) {
@@ -391,7 +391,7 @@ class JavaScriptEmitter {
             ).join(", ")})`;
             const value = this.#isSequence(declaration.result)
               ? `${this.#useHelper("seqFromIterable")}(${call})`
-              : declaration.result.kind === "Primitive" && declaration.result.name === "Unit"
+              : isUnit(declaration.result)
               ? `{ ${call}; }`
               : call;
             lines.push(`${prefix}const ${local} = ${arrowParameters(parameters)} => ${value};`);
@@ -635,6 +635,12 @@ class JavaScriptEmitter {
       case "String":
         return JSON.stringify(pattern.value);
       case "Tuple":
+        // The arity-0 clause (Products §2.6, #159): the value is `undefined`,
+        // so there is nothing to destructure — `const [] = e` would be a
+        // runtime TypeError. Unreachable from source, where `()` parses as the
+        // `Unit` pattern above, but the representation rule is arity-indexed
+        // and this is its arity-0 case at this decision point.
+        if (pattern.elements.length === 0) return "";
         return `[${pattern.elements.map((element) =>
           this.#emitPattern(element)
         ).join(", ")}]`;
@@ -869,6 +875,14 @@ class JavaScriptEmitter {
         return this.#emitString(expression, depth, evidenceNames);
       case "Tuple":
       case "Vector":
+        // The arity-0 tuple's value is `undefined`, never `[]` (Products §2.6,
+        // #159). Unreachable from source, where `()` parses as the `Unit`
+        // expression above — but this is the representation rule's decision
+        // point, so it carries the arity-0 clause. An empty *vector* really is
+        // `[]`.
+        if (expression.kind === "Tuple" && expression.elements.length === 0) {
+          return "undefined";
+        }
         return `[${expression.elements.map((element) =>
           this.#emitExpr(element, depth, evidenceNames)
         ).join(", ")}]`;
@@ -1845,7 +1859,6 @@ class JavaScriptEmitter {
             evidenceNames,
           );
         }
-        if (part.evidence.instance === "Unit") return `(${value}, "()")`;
         return `String(${value})`;
       }
       return `(${value}, undefined)`;
@@ -2075,7 +2088,6 @@ class JavaScriptEmitter {
         `${this.#useHelper("compareString")}(${left}, ${right})`,
       );
     }
-    if (instance === "Unit") return comparisonFromOrder(step.test, "0");
     return `${left} ${comparisonOperator(step.test)} ${right}`;
   }
 
@@ -2222,7 +2234,6 @@ class JavaScriptEmitter {
     if (type.kind === "Primitive") {
       if (type.name === "Float") return `${this.#useHelper("compareFloat")}(${left}, ${right})`;
       if (type.name === "String") return `${this.#useHelper("compareString")}(${left}, ${right})`;
-      if (type.name === "Unit") return "0";
       return `${left} < ${right} ? -1 : ${left} > ${right} ? 1 : 0`;
     }
     if (type.kind === "Variable") {
@@ -2395,7 +2406,6 @@ class JavaScriptEmitter {
   ): string {
     if (type.kind === "Primitive") {
       if (type.name === "String") return value;
-      if (type.name === "Unit") return '"()"';
       return `String(${value})`;
     }
     if (type.kind === "Variable") {
@@ -3313,9 +3323,13 @@ function arrowParameters(parameters: readonly string[]): string {
     : `(${parameters.join(", ")})`;
 }
 
-/** Whether a type is `Unit`, whose only value the emitter spells `undefined`. */
+/**
+ * Whether a type is `Unit` — the arity-0 tuple (#159, Products §2.6): the tuple
+ * representation rule is arity-indexed, an array at arity ≥ 2 and `undefined`
+ * at arity 0, so this is the emitter's one test for the `undefined` clause.
+ */
 function isUnit(type: Typed.Type): boolean {
-  return type.kind === "Primitive" && type.name === "Unit";
+  return type.kind === "Tuple" && type.elements.length === 0;
 }
 
 /**
@@ -4079,7 +4093,6 @@ function primitiveDictionary(
       return `({ eq: ${primitiveDictionary("Eq", instance, helperName)}, compare: (__hex_a, __hex_b) => __hex_a < __hex_b ? -1 : __hex_a > __hex_b ? 1 : 0 })`;
     case "Show":
       if (instance === "String") return "({ show: __hex_a => __hex_a })";
-      if (instance === "Unit") return "({ show: () => \"()\" })";
       return "({ show: __hex_a => String(__hex_a) })";
     case "Hash":
       return instance === "Float"
@@ -4254,8 +4267,6 @@ function renderType(
           return "bigint";
         case "Exn":
           return "Error & { readonly $hex: true; readonly name: string }";
-        case "Unit":
-          return returnPosition ? "void" : "undefined";
       }
     case "Variable":
       return variables.get(type.id) ?? "unknown";
@@ -4303,6 +4314,12 @@ function renderType(
     case "ExternType":
       return type.name;
     case "Tuple":
+      // The arity-indexed representation's `.d.ts` faces (Products §2.6, #159):
+      // at arity 0 the value is `undefined`, never `[]` — a `Unit`-returning
+      // function is a JS function that returns nothing, so its face is `void`.
+      if (type.elements.length === 0) {
+        return returnPosition ? "void" : "undefined";
+      }
       return (
         `[${type.elements.map((element) =>
           renderType(element, variables, prelude, false)

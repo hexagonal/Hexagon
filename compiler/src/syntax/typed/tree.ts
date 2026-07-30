@@ -16,14 +16,16 @@ export type TypeVariableId = number & {
 
 // #147: `Bool` is not here. It left the primitive set and became the prelude
 // union `False | True` (`stdlib/Bool.hex`), so it is a `UnionType` like any other.
+// #159: `Unit` is not here either. It is the empty tuple — the arity-0
+// `TupleType` — and the `Unit` spelling is surface syntax the checker maps to
+// that type (Products §2.7).
 export type PrimitiveName =
   | "Nat"
   | "Int"
   | "Float"
   | "String"
   | "BigInt"
-  | "Exn"
-  | "Unit";
+  | "Exn";
 
 export type Type =
   | PrimitiveType

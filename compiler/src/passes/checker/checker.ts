@@ -185,6 +185,20 @@ interface Scheme {
 
 const ERROR: ErrorMono = { kind: "Error" };
 
+/**
+ * `Unit` is the empty tuple (#159, Products §2.7): the arity-0 member of the
+ * structural tuple family, not a primitive. One interned value is enough —
+ * tuple unification is structural, so identity is a fast path, never a
+ * requirement — and using it everywhere keeps the checker honest about there
+ * being exactly one such type: nothing else ever constructs an arity-0 tuple,
+ * because `()` is not a type expression (Products §2.7) and the tuple forms
+ * start at arity 2.
+ */
+const UNIT: TupleMono = { kind: "Tuple", elements: [] };
+
+/** The constraints every structural product satisfies componentwise (Constraints §4.5). */
+const structuralConstraints = ["Eq", "Ord", "Show", "Hash"];
+
 function primitive(name: Typed.PrimitiveName): Constructor {
   return { kind: "Constructor", name };
 }
@@ -737,6 +751,18 @@ class Checker {
           primary: item.subject.span,
         });
       }
+    } else if (subject.kind === "Primitive" && subject.name === "Unit") {
+      // `Unit` is the empty tuple (#159), and structural types are user-closed
+      // (Constraints §9.3): the spelling resolves like a primitive name, but an
+      // instance may not target it any more than it may target `(Int, Int)`.
+      this.#diagnostics.add({
+        severity: "error",
+        message:
+          "instances are keyed on type constructors; tuples and structural records " +
+          "have compiler-derived instances only — declare a nominal `record` or " +
+          "`union` for a type you control",
+        primary: item.subject.span,
+      });
     } else if (
       subject.kind !== "Primitive" &&
       subject.kind !== "Union" &&
@@ -1167,7 +1193,7 @@ class Checker {
           this.#defaultDiscardedLiteral(expressionType, item.expression.span);
           this.#unify(
             expressionType,
-            primitive("Unit"),
+            UNIT,
             item.expression.span,
             () =>
               `this expression's value is discarded — its type is ` +
@@ -1181,7 +1207,7 @@ class Checker {
       if (item.kind === "Exception") continue;
     }
 
-    if (moduleItems) return primitive("Unit");
+    if (moduleItems) return UNIT;
     const finalItem = items.at(-1);
     if (finalItem === undefined || finalItem.kind === "ErrorItem") return ERROR;
     if (
@@ -1638,7 +1664,7 @@ class Checker {
         this.#nameRequirements.set(expression, requirements);
         break;
       case "Unit":
-        type = primitive("Unit");
+        type = UNIT;
         break;
       case "Integer": {
         type = this.#fresh(level, true);
@@ -1900,10 +1926,10 @@ class Checker {
         this.#unify(condition, this.#boolType(expression.condition.span), expression.condition.span);
         const body = this.#inferExpr(expression.body, level);
         this.#defaultDiscardedLiteral(body, expression.body.span);
-        this.#unify(body, primitive("Unit"), expression.body.span, () =>
+        this.#unify(body, UNIT, expression.body.span, () =>
           "the final expression of a loop body produces a value that is discarded on every iteration; use `ignore(...)` if intended"
         );
-        type = primitive("Unit");
+        type = UNIT;
         break;
       }
       case "For": {
@@ -1958,10 +1984,10 @@ class Checker {
         }
         const body = this.#inferExpr(expression.body, level);
         this.#defaultDiscardedLiteral(body, expression.body.span);
-        this.#unify(body, primitive("Unit"), expression.body.span, () =>
+        this.#unify(body, UNIT, expression.body.span, () =>
           "the final expression of a loop body produces a value that is discarded on every iteration; use `ignore(...)` if intended"
         );
-        type = primitive("Unit");
+        type = UNIT;
         break;
       }
       case "Match": {
@@ -2070,11 +2096,7 @@ class Checker {
               primary: expression.span,
             });
           }
-        } else if (
-          (actual.kind === "Constructor" && actual.name === "Unit") ||
-          actual.kind === "Tuple" ||
-          actual.kind === "Record"
-        ) {
+        } else if (actual.kind === "Tuple" || actual.kind === "Record") {
           if (!catchAll) {
             this.#diagnostics.add({
               severity: "error",
@@ -2303,7 +2325,7 @@ class Checker {
         for (const argument of expression.arguments) {
           this.#inferExpr(argument, level);
         }
-        type = primitive("Unit");
+        type = UNIT;
         break;
       case "Unary": {
         const operand = this.#inferExpr(expression.operand, level);
@@ -2376,7 +2398,7 @@ class Checker {
             primary: expression.target.span,
           });
         }
-        type = primitive("Unit");
+        type = UNIT;
         break;
       }
       case "Access": {
@@ -2536,7 +2558,7 @@ class Checker {
   ): void {
     if (pattern.kind === "Wildcard") return;
     if (pattern.kind === "Unit") {
-      this.#unify(expected, primitive("Unit"), pattern.span);
+      this.#unify(expected, UNIT, pattern.span);
       return;
     }
     if (pattern.kind === "Binding") {
@@ -2683,7 +2705,7 @@ class Checker {
   ): void {
     if (pattern.kind === "Wildcard") return;
     if (pattern.kind === "Unit") {
-      this.#unify(expected, primitive("Unit"), pattern.span);
+      this.#unify(expected, UNIT, pattern.span);
       return;
     }
     if (pattern.kind === "Binding") {
@@ -2874,7 +2896,10 @@ class Checker {
       return false;
     }
     if (pattern.kind === "Unit") {
-      return actual.kind === "Constructor" && actual.name === "Unit";
+      // The arity-0 tuple pattern (#159): irrefutable exactly when the tuple
+      // rule below is, vacuously — spelled out because the surface node is its
+      // own kind, not because the answer differs.
+      return actual.kind === "Tuple" && actual.elements.length === 0;
     }
     if (pattern.kind === "Tuple") {
       return actual.kind === "Tuple" &&
@@ -3090,7 +3115,7 @@ class Checker {
   #solvesToUnit(type: Mono | undefined): boolean {
     if (type === undefined) return false;
     const solved = this.#prune(type);
-    return solved.kind === "Constructor" && solved.name === "Unit";
+    return solved.kind === "Tuple" && solved.elements.length === 0;
   }
 
   /**
@@ -3172,7 +3197,15 @@ class Checker {
       this.#unify(actualLeft.result, actualRight.result, span);
       return;
     } else if (actualLeft.kind === "Tuple" && actualRight.kind === "Tuple") {
-      if (actualLeft.elements.length !== actualRight.elements.length) {
+      if (actualLeft.elements.length === actualRight.elements.length) {
+        actualLeft.elements.forEach((element, index) => {
+          this.#unify(element, actualRight.elements[index]!, span);
+        });
+        return;
+      }
+      // At arity 0 the tuple is `Unit`, and the report must say so (Products
+      // §2.7): fall through to the general mismatch, whose display does.
+      if (actualLeft.elements.length > 0 && actualRight.elements.length > 0) {
         this.#diagnostics.add({
           severity: "error",
           message:
@@ -3182,10 +3215,6 @@ class Checker {
         });
         return;
       }
-      actualLeft.elements.forEach((element, index) => {
-        this.#unify(element, actualRight.elements[index]!, span);
-      });
-      return;
     } else if (actualLeft.kind === "Record" && actualRight.kind === "Record") {
       this.#unifyRecords(actualLeft, actualRight, span);
       return;
@@ -3677,7 +3706,7 @@ class Checker {
     if (type.kind === "Variable" || type.kind === "Error") return;
     if (type.kind === "Constructor" && supports(type.name, requirement.name)) return;
     if (
-      ["Eq", "Ord", "Show", "Hash"].includes(requirement.name) &&
+      structuralConstraints.includes(requirement.name) &&
       (type.kind === "Tuple" || type.kind === "Record" || type.kind === "Vector")
     ) {
       const components = type.kind === "Tuple"
@@ -4017,8 +4046,10 @@ class Checker {
   /**
    * Demand-site settling (Numeric Literals §6) asks whether the variable can
    * be `Int` and cannot be the demanded `Unit`. Both halves are semantic, so a
-   * user `honor` counts on both sides: a constraint honored at `Unit` leaves
-   * the variable alone, to unify with the synthesized `Unit` and be accepted.
+   * user `honor` counts on the `Int` side. The `Unit` side stopped having user
+   * instances to consult when #159 made it structural — `honor` cannot target
+   * a structural type (Constraints §9.3) — so its answer is the structural
+   * tuple one, vacuous at zero components.
    *
    * Deliberately not expressed through `#canDefaultToInt`, which answers §4's
    * different, *policy* question — is the constraint in the closed defaultable
@@ -4035,9 +4066,10 @@ class Checker {
       variable.requirements.some(({ name }) => !this.#satisfiedAt(name, "Unit"));
   }
 
-  #satisfiedAt(name: Typed.ConstraintName, primitiveName: "Int" | "Unit"): boolean {
-    return supports(primitiveName, name) ||
-      this.#instances.has(this.#instanceKey(name, primitive(primitiveName)));
+  #satisfiedAt(name: Typed.ConstraintName, subject: "Int" | "Unit"): boolean {
+    if (subject === "Unit") return structuralConstraints.includes(name);
+    return supports(subject, name) ||
+      this.#instances.has(this.#instanceKey(name, primitive(subject)));
   }
 
   /**
@@ -4181,7 +4213,12 @@ class Checker {
     typeParameters: ReadonlyMap<string, Mono> = new Map(),
     impliedTypes: ReadonlyMap<string, Mono> = new Map(),
   ): Mono {
-    if (annotation.kind === "Primitive") return primitive(annotation.name);
+    if (annotation.kind === "Primitive") {
+      // The `Unit` spelling is surface syntax for the empty tuple (#159): the
+      // resolver keeps it in its compiler-known-name list, and the semantic
+      // type it denotes is minted here, in one place.
+      return annotation.name === "Unit" ? UNIT : primitive(annotation.name);
+    }
     if (annotation.kind === "Range") return { kind: "Range" };
     if (annotation.kind === "Vector") {
       return {
@@ -5648,6 +5685,9 @@ class Checker {
       return actual.rigidName ?? actual.displayName ?? `?${actual.id}`;
     }
     if (actual.kind === "Tuple") {
+      // The arity-0 tuple displays as `Unit`, never `()` — diagnostics and the
+      // pretty-printer say the type's one name (Products §2.7, #159).
+      if (actual.elements.length === 0) return "Unit";
       return `(${actual.elements.map((element) => this.#display(element)).join(", ")})`;
     }
     if (actual.kind === "Union") {
@@ -6000,10 +6040,13 @@ function supports(
     // clause in `stdlib/Bool.hex`, through the same door a user's union uses,
     // rather than decreed here. That is the whole point of the declaration being
     // real prelude source — see Collections Part 2 §4.4.
+    //
+    // No `Unit` row either (#159): `Unit` is the empty tuple, so its four
+    // instances are the automatic structural tuple instances, vacuous at zero
+    // components — `#validate`'s structural branch, not a decree here.
     String: ["Eq", "Ord", "Show", "Concat", "Hash"],
     BigInt: ["Num", "Signed", "Eq", "Ord", "Show", "Pow", "Hash", "Integral"],
     Exn: [],
-    Unit: ["Eq", "Ord", "Show", "Hash"],
   };
   return instances[type].includes(constraint);
 }
