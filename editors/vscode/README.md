@@ -120,7 +120,10 @@ uses — `vscode-textmate` over the Oniguruma WASM build — so the assertions c
 what the editor would really paint. The cases come from `spec/lexer.md` §11's
 acceptance and rejection inventories, plus two invariants over every `.hex` file
 in the repository: no token may be painted `invalid.*`, and no token may come out
-unscoped.
+unscoped. Two more invariants read the grammar itself rather than any source: the
+bail-out guard of #162 is spelled out at thirteen sites, so one test pins every copy
+byte-identical and another pins its keyword list against `#keywords`' own §4.1
+inventories.
 
 `src/language-configuration.test.ts` covers `language-configuration.json`, which
 never goes through the grammar and so is invisible to every test above. It exists
@@ -160,10 +163,22 @@ to be exact.
   Collections Part 2 §5.1 puts an implied `type Item = a` inside a `constraint` body
   or `honor` block, so a context that reached the next top-level declaration would
   swallow the rest of the block and paint its member names as type variables. A
-  wrapped alias right-hand side loses colour past the break — *unless* the break falls
-  inside an unclosed bracket, in which case the context runs on and repaints the rest
-  of the file. That is #162, and it is not specific to aliases: any unterminated group
-  in a type position does it.
+  wrapped alias right-hand side loses colour past the break.
+- **A bracket group in a type position may span lines only when its opening bracket
+  hangs.** `record P(`, `derives (`, `let p: {` and `fun map<a, b>(` all end their line
+  on the bracket, and those keep their colour across the break. A group with content
+  after its bracket is bounded to that line, which is the deliberate side of #162: a
+  half-typed `derives (Eq` cannot reach the next line, where it used to run to end of
+  file and paint everything after it as type parameters. The cost is the wrapped-with-
+  content shape — in `record P derives (Eq,` / `    Show)`, `Show` is painted in the
+  nominal family rather than as a constraint. Rewriting it with the bracket hanging
+  restores the finer colour; a trailing comment counts as content, so
+  `record Pair( /* note */` is bounded too. A hanging group that is never closed bails out at the next
+  line that starts a declaration, starts a union alternative, or begins in column one;
+  until such a line, an indented body under a half-typed signature is still painted as
+  type context, because no lexical rule can tell it from a legitimate multi-line type.
+  `syntaxes/hexagon.tmLanguage.json` carries the whole design in its
+  `//line-bail-guard` note.
 - **`<` and `>` are comparison tokens.** §8.1 makes them the same physical token
   in a comparison and in an angle-bracket binder, and the grammar keeps them that
   way. A generic call like `isEmpty<a>(v)` is still recognized as a call, because

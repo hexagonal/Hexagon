@@ -10,10 +10,27 @@ import { readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { repositoryRoot, scopeOf, scopePairs, tokenize } from "./tokenize.js";
+import { grammarPath, repositoryRoot, scopeOf, scopePairs, tokenize } from "./tokenize.js";
 
 /** Innermost scope of the first token spelled exactly `text`. */
 const scope = (source: string, text: string) => scopeOf(source, text);
+
+/**
+ * Every `end` pattern in the grammar, at any depth. Reads the parsed grammar rather
+ * than its text so the `//` notes — which quote patterns in prose — cannot be mistaken
+ * for rules.
+ */
+function endPatterns(node: unknown, found: string[] = []): string[] {
+  if (Array.isArray(node)) {
+    for (const child of node) endPatterns(child, found);
+  } else if (node !== null && typeof node === "object") {
+    for (const [key, value] of Object.entries(node)) {
+      if (key === "end" && typeof value === "string") found.push(value);
+      else endPatterns(value, found);
+    }
+  }
+  return found;
+}
 
 describe("identifiers and start class (spec/lexer.md §3.1)", () => {
   it("classifies an uppercase-start name as a type role", async () => {
@@ -418,6 +435,171 @@ describe("type variables are nominal-coloured in type positions", () => {
     expect(pairs.filter(([, s]) => s.startsWith("entity.name.type"))).toEqual([]);
     expect(pairs.find(([text]) => text === "and")?.[1]).toBe("keyword.operator.word.hexagon");
     expect(pairs.find(([text]) => text === "limit")?.[1]).toBe("variable.other.hexagon");
+  });
+});
+
+describe("an unterminated bracket group stays on its line (#162)", () => {
+  // A bracket group in a type context ends at its closing bracket, and TextMate only
+  // ever tries the top rule's `end` — so a half-typed group used to run to end of file
+  // and paint the rest of it as type parameters. The grammar's //line-bail-guard note
+  // records the two halves of the fix; these cases are the side that was chosen, and
+  // the ones below them are what it costs. The half-typed state is the state an editor
+  // is in most of the time, which is why containment wins the trade.
+
+  /**
+   * Asserts that `following` paints exactly as it does on its own when it comes after
+   * the half-typed `opening`. Comparing against standalone painting rather than a
+   * written-out scope list says "the leak is contained" without also pinning whatever
+   * else the grammar happens to do with the continuation.
+   */
+  async function expectContained(opening: string, following: string) {
+    const alone = await scopePairs(following);
+    const after = await scopePairs(`${opening}\n${following}`);
+    expect(after.slice(after.length - alone.length)).toEqual(alone);
+  }
+
+  it.each([
+    // The issue's own reproductions, then the rest of the ruling's evidence table.
+    ["record P(a", "let after = 1"],
+    ["let x: (Int", "let after = 1"],
+    ["record P derives (Eq", "let after = compute(1)"],
+    ["let x: Vector(Int", "let after = 1"],
+    ["type A = Vector(Int", "let after = 1"],
+    ["fun f<a: (Num", "let after = 1"],
+    ["union U(a", "    | None\n    | Some(a)"],
+    // Hanging and never closed: the half the bail-out guard is there for.
+    ["record P derives (", "let after = compute(1)"],
+    ["record P(", "let after = 1"],
+    // Hanging under an annotation, which needs the guard on #annotation-type too.
+    ["let x: (", "let after = 1"],
+    ["let p: {", "record Point(a) = {x: Int}"],
+    ["fun f(): (", "let after = 1"],
+    // Hanging inside a bounded group, which needs it on the bounded ends as well:
+    // the bounded `end` only matches at `$`, and a bail lands at position zero.
+    ["let x: Vector(a, (", "let after = 1"],
+    ["let x: {a: (", "let after = 1"],
+    ["type A = Vector(a, (", "let after = 1"],
+  ])("contains %j", async (opening, following) => {
+    await expectContained(opening, following);
+  });
+
+  it("recovers below a half-typed signature that sits above its body", async () => {
+    // The one residue the hanging split cannot remove: an indented line under a
+    // hanging group is indistinguishable from a legitimate multi-line type, so the
+    // body paints as type context until a guard line. Expected, not a regression —
+    // and the declaration that follows still paints normally.
+    const pairs = await scopePairs("fun f(): Vector(\n    compute(1)\nlet after = 1");
+    expect(pairs).toContainEqual(["compute", "entity.name.type.parameter.hexagon"]);
+    await expectContained("fun f(): Vector(\n    compute(1)", "let after = 1");
+  });
+
+  it("keeps the colour of every well-formed multi-line group", async () => {
+    // Each of these hangs its opening bracket, which is what makes the trade-off in
+    // the issue dissolve: the shapes people actually write keep the unbounded `end`.
+    const derives = await scopePairs(
+      ["union Shape", "    derives (", "        Eq,", "        Show) =", "    | Circle"].join("\n"),
+    );
+    expect(derives.filter(([, s]) => s === "entity.name.type.constraint.hexagon")).toEqual([
+      ["Eq", "entity.name.type.constraint.hexagon"],
+      ["Show", "entity.name.type.constraint.hexagon"],
+    ]);
+
+    const annotation = await scopePairs("let p: {\n    x: Float,\n    y: Float\n} = q");
+    expect(annotation.filter(([text]) => text === "Float")).toEqual([
+      ["Float", "entity.name.type.hexagon"],
+      ["Float", "entity.name.type.hexagon"],
+    ]);
+
+    const signature = await scopePairs(
+      ["fun map<a, b>(", "    xs: Vector(a),", "    f: a -> b", "): Vector(b) =", "    xs"].join("\n"),
+    );
+    expect(signature.filter(([text]) => text === "a" || text === "b").map(([, s]) => s)).toEqual(
+      // The two binders, then each use: `Vector(a)`, `a -> b`, `Vector(b)`.
+      Array.from({ length: 6 }, () => "entity.name.type.parameter.hexagon"),
+    );
+  });
+
+  it("lets a closing bracket in column zero close its group rather than bail", async () => {
+    // The `^\S` arm of the guard also matches a `)` at the left margin, so the closer
+    // comes first in the alternation and wins by leftmost-alternative preference.
+    // Declaration parameter lists are written this way.
+    const pairs = await scopePairs("record Pair(\n    a, b\n)\n= {left: a, right: b}");
+    expect(pairs.filter(([text]) => text === "a" || text === "b").map(([, s]) => s)).toEqual([
+      "entity.name.type.parameter.hexagon",
+      "entity.name.type.parameter.hexagon",
+      "entity.name.type.parameter.hexagon",
+      "entity.name.type.parameter.hexagon",
+    ]);
+
+    // Closing and bailing paint the bracket itself the same, so what pins the order is
+    // what comes after it: closing leaves the annotation open, and bailing unwinds it.
+    // With the guard first, this `a` reads as a term instead of a type variable.
+    const functionType = await scopePairs("let x: (\n    Int\n) -> a = f");
+    expect(functionType.find(([text]) => text === "a")?.[1]).toBe(
+      "entity.name.type.parameter.hexagon",
+    );
+  });
+
+  it("charges the wrapped-with-content shape a colour family, deliberately", async () => {
+    // The whole cost of the ruling, pinned so nobody reads it as a bug: a group with
+    // content on its opening line is bounded, so what continues below it is painted
+    // in the nominal family rather than as a constraint or a type parameter. Both
+    // still paint; writing the bracket hanging restores the finer colour.
+    const wrappedDerives = await scopePairs("record P derives (Eq,\n    Show) = {x: Int}");
+    expect(wrappedDerives.find(([text]) => text === "Eq")?.[1]).toBe(
+      "entity.name.type.constraint.hexagon",
+    );
+    expect(wrappedDerives.find(([text]) => text === "Show")?.[1]).toBe("entity.name.type.hexagon");
+
+    const wrappedParameters = await scopePairs("record P(a,\n    b) = {left: a}");
+    expect(wrappedParameters.find(([text]) => text === "a")?.[1]).toBe(
+      "entity.name.type.parameter.hexagon",
+    );
+    expect(wrappedParameters.find(([text]) => text === "b")?.[1]).toBe("variable.other.hexagon");
+  });
+
+  it("leaves a group in term position alone", async () => {
+    // Only type contexts are line-bounded. A term-position bracket is not one of the
+    // rules the ruling touched, and multi-line strings and comments are meant to span.
+    await expectContained("let xs = [1, 2", "let after = 1");
+    const spanning = await scopePairs('let s = "one\ntwo"\nlet after = 1');
+    expect(spanning).toContainEqual(["two", "string.quoted.double.hexagon"]);
+    const commented = await scopePairs("/* one\ntwo */\nlet after = 1");
+    expect(commented).toContainEqual(["two ", "comment.block.hexagon"]);
+  });
+
+  it("spells the bail-out guard identically wherever it appears", async () => {
+    // TextMate cannot share a subpattern, so the guard is written out at every site.
+    // A copy that drifts is a rule that silently stops bailing, which is exactly the
+    // #162 leak coming back for one shape while the others stay fixed.
+    const guards = endPatterns(JSON.parse(await readFile(grammarPath, "utf8")))
+      .filter((end) => end.includes("(?=^\\S"))
+      .map((end) => end.slice(end.indexOf("(?=^\\S")));
+
+    // Five hanging groups, six bounded ones, and the two contexts that enclose them.
+    expect(guards).toHaveLength(13);
+    expect(new Set(guards).size).toBe(1);
+  });
+
+  it("bails on every hard keyword that can open a declaration", async () => {
+    // The guard names the keywords rather than matching any word, so it has to be
+    // checked against the grammar's own §4.1 inventories — a keyword added there and
+    // not here is a line the guard would sit through.
+    /** The words of the first `(?:a|b|c)` alternation in a pattern. */
+    const words = (pattern: string): string[] =>
+      /\(\?:(?:\(\?:)?([a-z|]+)\)/.exec(pattern)?.[1]?.split("|") ?? [];
+
+    const grammar = JSON.parse(await readFile(grammarPath, "utf8"));
+    const guardWords = words(endPatterns(grammar).find((end) => end.includes("(?=^\\S")) ?? "");
+
+    const inventory: string[] = grammar.repository.keywords.patterns
+      .filter((rule: { name?: string }) =>
+        rule.name === "storage.type.hexagon" || rule.name === "keyword.control.import.hexagon"
+      )
+      .flatMap((rule: { match: string }) => words(rule.match));
+
+    expect(inventory.length).toBeGreaterThan(0);
+    expect([...guardWords].sort()).toEqual([...inventory].sort());
   });
 });
 

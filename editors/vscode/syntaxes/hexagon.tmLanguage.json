@@ -321,6 +321,66 @@
       ]
     },
 
+    "//line-bail-guard": [
+      "Not a rule — the note for the pattern the #162 ruling calls the bail-out guard.",
+      "Nothing includes this key; it is documentation kept next to what it describes.",
+      "",
+      "A bracket group in a type context has a closing bracket for its `end`, and",
+      "TextMate only ever tries the *top* rule's `end`, so an unterminated group used",
+      "to run to end of file and repaint everything after it as type parameters (#162).",
+      "The fix has two halves, and every rule below carries whichever half applies:",
+      "",
+      "1. Hanging split. A group may span lines only when its opening bracket is the",
+      "   last thing on its line, so each group rule is two: a *hanging* variant whose",
+      "   `begin` gains `(?=[ \\t]*$)` and keeps the bracket `end`, and a *bounded*",
+      "   variant whose `end` gains `|$`. Hanging is listed first so it wins where both",
+      "   could match. Every well-formed multi-line shape in the language hangs its",
+      "   opening bracket — `record P(`, `derives (`, `let p: {`, `fun map<a, b>(` — so",
+      "   those keep their colour, while `derives (Eq` half-typed cannot leave its line.",
+      "",
+      "2. Bail-out guard. A hanging group can still be left unclosed, so its `end` also",
+      "   takes",
+      "",
+      "     (?=^\\S|^[ \\t]*(?:<hard keywords>(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|\\|(?!>)))",
+      "",
+      "   — bail at the next line that begins hard against the left margin, opens a",
+      "   declaration, or opens a union alternative. The `\\|(?!>)` arm is safe because",
+      "   spec/declarations-preamble.md §2 puts union alternatives after the `=`, as",
+      "   declaration continuations, so no well-formed bracket group ever contains a",
+      "   line-leading `|`; the grammar's only other bar rule is the `|>` pipeline",
+      "   operator. The keyword list is §4.1's `storage.type` and import inventories.",
+      "",
+      "The closing bracket comes first in every hanging `end` alternation: leftmost",
+      "alternative wins at equal positions, so a `)` in column zero closes its group",
+      "rather than tripping the `^\\S` arm.",
+      "",
+      "Everything that can enclose a hanging group takes the guard as well, and for one",
+      "reason: an `end` that can only match at `$` cannot fire at position zero, which",
+      "is exactly where a bail leaves the enclosing rule on top. So the guard is also on",
+      "#type-alias-declaration, on #annotation-type, and on the *bounded* variants —",
+      "`let x: Vector(a, (` nests a hanging group inside a bounded one, and without the",
+      "guard on the bounded end the bail-out line stays inside `Vector(`'s group to its",
+      "own end of line. A bounded end is only ever tried at position zero after an inner",
+      "group popped there, so that arm costs nothing anywhere else.",
+      "",
+      "The guard is spelled out in full at each site because TextMate has no way to",
+      "share a subpattern; grammar.test.ts pins every copy byte-identical.",
+      "",
+      "What this costs: a group with content on its opening line that then wraps.",
+      "`record P derives (Eq,` / `    Show)` still paints `Show`, in the nominal family",
+      "rather than the constraint family. Writing it in the hanging form restores it.",
+      "A trailing comment counts as content — `record Pair( /* note */` classifies as",
+      "bounded, so its parameters on the next line paint as terms. Same trade, same fix.",
+      "",
+      "Coordination with #171, whose ruling re-spells block comments `(* *)`: that lands",
+      "on exactly these rules. Every `\\(`-based `begin` here will need `(?!\\*)`, and",
+      "include order cannot substitute for it, because #type-declaration-parameters and",
+      "the `derives` rules start matching before their `(` and would claim the `(` of a",
+      "`(*` opener. The hanging lookahead needs no change but keeps the behaviour above:",
+      "a trailing `(* … *)` reads as content. Ruling #171 §11 says this change does not",
+      "interact with #162; that was assessed before the split and now understates it."
+    ],
+
     "type-alias-declaration": {
       "//": [
         "Unlike nominal declarations, a type alias has a type expression as its whole",
@@ -331,14 +391,18 @@
         "§5.1 puts an implied type member inside a `constraint` body or `honor` block,",
         "and §5.3's example is indented, so an unbounded context swallows the rest of",
         "the block and paints its member names and parameters as type variables. A",
-        "multi-line alias right-hand side is the rarer case and loses only colour."
+        "multi-line alias right-hand side is the rarer case and loses only colour.",
+        "",
+        "`$` alone does not deliver that, which is what #162 was: while a group inside",
+        "the right-hand side is open, that group is the top rule and this `end` is never",
+        "tried, so the bail-out guard is here too. See the //line-bail-guard note."
       ],
       "begin": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(type)[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)(?=[ \\t]*(?:\\([^\\n)]*\\)[ \\t]*)?=)",
       "beginCaptures": {
         "1": { "name": "storage.type.hexagon" },
         "2": { "name": "entity.name.type.hexagon" }
       },
-      "end": "$",
+      "end": "$|(?=^\\S|^[ \\t]*(?:(?:let|var|fun|record|union|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|\\|(?!>)))",
       "patterns": [
         { "include": "#type-expression" }
       ]
@@ -348,18 +412,43 @@
       "//": [
         "Data-declaration headers use parentheses, unlike function and constraint",
         "type parameters. Inside this syntactically closed position every",
-        "non-uppercase-start name is a type variable (Declarations Preamble §2.1)."
+        "non-uppercase-start name is a type variable (Declarations Preamble §2.1).",
+        "",
+        "Split hanging/bounded per the #162 ruling; see the //line-bail-guard note."
       ],
-      "begin": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(record|union|type)[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)[ \\t]*(\\()",
-      "beginCaptures": {
-        "1": { "name": "storage.type.hexagon" },
-        "2": { "name": "entity.name.type.hexagon" },
-        "3": { "name": "punctuation.section.parens.begin.hexagon" }
-      },
-      "end": "\\)",
-      "endCaptures": {
-        "0": { "name": "punctuation.section.parens.end.hexagon" }
-      },
+      "patterns": [
+        {
+          "//": "Hanging: `record P(` with the bracket last on its line, so the list continues.",
+          "begin": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(record|union|type)[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)[ \\t]*(\\()(?=[ \\t]*$)",
+          "beginCaptures": {
+            "1": { "name": "storage.type.hexagon" },
+            "2": { "name": "entity.name.type.hexagon" },
+            "3": { "name": "punctuation.section.parens.begin.hexagon" }
+          },
+          "end": "\\)|(?=^\\S|^[ \\t]*(?:(?:let|var|fun|record|union|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|\\|(?!>)))",
+          "endCaptures": {
+            "0": { "name": "punctuation.section.parens.end.hexagon" }
+          },
+          "patterns": [{ "include": "#type-declaration-parameter-list" }]
+        },
+        {
+          "//": "Bounded: content after the bracket, so an unclosed list stops at end of line.",
+          "begin": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(record|union|type)[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)[ \\t]*(\\()",
+          "beginCaptures": {
+            "1": { "name": "storage.type.hexagon" },
+            "2": { "name": "entity.name.type.hexagon" },
+            "3": { "name": "punctuation.section.parens.begin.hexagon" }
+          },
+          "end": "\\)|$|(?=^\\S|^[ \\t]*(?:(?:let|var|fun|record|union|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|\\|(?!>)))",
+          "endCaptures": {
+            "0": { "name": "punctuation.section.parens.end.hexagon" }
+          },
+          "patterns": [{ "include": "#type-declaration-parameter-list" }]
+        }
+      ]
+    },
+
+    "type-declaration-parameter-list": {
       "patterns": [
         {
           "name": "entity.name.type.parameter.hexagon",
@@ -410,7 +499,21 @@
         "uppercase after the colon is a constraint (spec/constraints.md §3), which is the",
         "one constraint position with no keyword announcing it. The bound runs to the",
         "binder separator, so the tuple form's own parens are consumed by a nested",
-        "context — otherwise the comma inside `(Num, Ord)` would end the bound early."
+        "context — otherwise the comma inside `(Num, Ord)` would end the bound early.",
+        "",
+        "That nested group is bounded-only, with no hanging variant: #type-parameters",
+        "opens only when the closing `>` is on the same line, so no line can end right",
+        "after this `(` while the binder list is open. A hanging variant here would be",
+        "dead code. Its `|$` is not — `<a: (Num>` half-typed reaches this rule with no",
+        "closer on the line, and that is what stops it leaking. The bail-out guard after",
+        "the `|$` is uniformity rather than necessity: nothing here can survive to a line",
+        "start for it to fire at. See the //line-bail-guard note.",
+        "",
+        "That is a claim about the group, not about this rule. The bound's own `end` is a",
+        "lookahead for the binder separator with no line bound, and #type-parameters'",
+        "`end` is a bare `>`, so `fun f<a: (Num> = 1` — where the group's `|$` fires but",
+        "the swallowed `>` never closes the binder list — still repaints to end of file.",
+        "That predates the split and is unchanged by it; it is filed as #174."
       ],
       "begin": ":(?!=)",
       "beginCaptures": {
@@ -423,7 +526,7 @@
           "beginCaptures": {
             "0": { "name": "punctuation.section.parens.begin.hexagon" }
           },
-          "end": "\\)",
+          "end": "\\)|$|(?=^\\S|^[ \\t]*(?:(?:let|var|fun|record|union|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|\\|(?!>)))",
           "endCaptures": {
             "0": { "name": "punctuation.section.parens.end.hexagon" }
           },
@@ -449,19 +552,27 @@
         "parameter/result/field syntax supplies the closing delimiter. Within this",
         "context casing is sufficient: a non-uppercase-start name can only be a type",
         "variable (Functions §4.2.1), while record-type field names are the one",
-        "lowercase role before a nested colon."
+        "lowercase role before a nested colon.",
+        "",
+        "`let x: (` and `let p: {` open a hanging group inside this context, so when one",
+        "bails the annotation is the top rule at position zero of the bail-out line and",
+        "its `$` arm cannot fire there. Hence the guard; see the //line-bail-guard note."
       ],
       "begin": ":(?!=)",
       "beginCaptures": {
         "0": { "name": "punctuation.separator.colon.hexagon" }
       },
-      "end": "(?=[,)=}\\]]|=>|=(?!=)|$)",
+      "end": "(?=[,)=}\\]]|=>|=(?!=)|$)|(?=^\\S|^[ \\t]*(?:(?:let|var|fun|record|union|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|\\|(?!>)))",
       "patterns": [
         { "include": "#type-expression" }
       ]
     },
 
     "type-expression": {
+      "//": [
+        "Each bracket group is split hanging/bounded, hanging first, per the #162",
+        "ruling — see the //line-bail-guard note."
+      ],
       "patterns": [
         { "include": "#comments" },
         {
@@ -481,13 +592,39 @@
           "match": "(?![\\p{Uppercase}\\p{Lt}])[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*"
         },
         {
+          "begin": "\\((?=[ \\t]*$)",
+          "beginCaptures": {
+            "0": { "name": "punctuation.section.parens.begin.hexagon" }
+          },
+          "end": "\\)|(?=^\\S|^[ \\t]*(?:(?:let|var|fun|record|union|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|\\|(?!>)))",
+          "endCaptures": {
+            "0": { "name": "punctuation.section.parens.end.hexagon" }
+          },
+          "patterns": [
+            { "include": "#type-expression" }
+          ]
+        },
+        {
           "begin": "\\(",
           "beginCaptures": {
             "0": { "name": "punctuation.section.parens.begin.hexagon" }
           },
-          "end": "\\)",
+          "end": "\\)|$|(?=^\\S|^[ \\t]*(?:(?:let|var|fun|record|union|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|\\|(?!>)))",
           "endCaptures": {
             "0": { "name": "punctuation.section.parens.end.hexagon" }
+          },
+          "patterns": [
+            { "include": "#type-expression" }
+          ]
+        },
+        {
+          "begin": "\\{(?=[ \\t]*$)",
+          "beginCaptures": {
+            "0": { "name": "punctuation.section.braces.begin.hexagon" }
+          },
+          "end": "\\}|(?=^\\S|^[ \\t]*(?:(?:let|var|fun|record|union|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|\\|(?!>)))",
+          "endCaptures": {
+            "0": { "name": "punctuation.section.braces.end.hexagon" }
           },
           "patterns": [
             { "include": "#type-expression" }
@@ -498,9 +635,22 @@
           "beginCaptures": {
             "0": { "name": "punctuation.section.braces.begin.hexagon" }
           },
-          "end": "\\}",
+          "end": "\\}|$|(?=^\\S|^[ \\t]*(?:(?:let|var|fun|record|union|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|\\|(?!>)))",
           "endCaptures": {
             "0": { "name": "punctuation.section.braces.end.hexagon" }
+          },
+          "patterns": [
+            { "include": "#type-expression" }
+          ]
+        },
+        {
+          "begin": "\\[(?=[ \\t]*$)",
+          "beginCaptures": {
+            "0": { "name": "punctuation.section.brackets.begin.hexagon" }
+          },
+          "end": "\\]|(?=^\\S|^[ \\t]*(?:(?:let|var|fun|record|union|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|\\|(?!>)))",
+          "endCaptures": {
+            "0": { "name": "punctuation.section.brackets.end.hexagon" }
           },
           "patterns": [
             { "include": "#type-expression" }
@@ -511,7 +661,7 @@
           "beginCaptures": {
             "0": { "name": "punctuation.section.brackets.begin.hexagon" }
           },
-          "end": "\\]",
+          "end": "\\]|$|(?=^\\S|^[ \\t]*(?:(?:let|var|fun|record|union|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|\\|(?!>)))",
           "endCaptures": {
             "0": { "name": "punctuation.section.brackets.end.hexagon" }
           },
@@ -584,14 +734,32 @@
             "The tuple form `derives (Eq, Show)`, which only ever follows a declaration",
             "header's name or parameter list. Everything it lists is a constraint",
             "(spec/declarations-preamble.md §2.3), so the clause opens a context rather",
-            "than scoping the keyword alone."
+            "than scoping the keyword alone.",
+            "",
+            "Split hanging/bounded, hanging first — see the //line-bail-guard note."
           ],
+          "begin": "(?:(?<=[\\p{ID_Continue}$_)\\]}])[ \\t]+|^[ \\t]+)(derives)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]*(\\()(?=[ \\t]*$)",
+          "beginCaptures": {
+            "1": { "name": "keyword.other.derives.hexagon" },
+            "2": { "name": "punctuation.section.parens.begin.hexagon" }
+          },
+          "end": "\\)|(?=^\\S|^[ \\t]*(?:(?:let|var|fun|record|union|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|\\|(?!>)))",
+          "endCaptures": {
+            "0": { "name": "punctuation.section.parens.end.hexagon" }
+          },
+          "patterns": [
+            { "include": "#constraint-name" },
+            { "include": "#punctuation" }
+          ]
+        },
+        {
+          "//": "The same clause with content after its `(`, bounded to its line.",
           "begin": "(?:(?<=[\\p{ID_Continue}$_)\\]}])[ \\t]+|^[ \\t]+)(derives)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]*(\\()",
           "beginCaptures": {
             "1": { "name": "keyword.other.derives.hexagon" },
             "2": { "name": "punctuation.section.parens.begin.hexagon" }
           },
-          "end": "\\)",
+          "end": "\\)|$|(?=^\\S|^[ \\t]*(?:(?:let|var|fun|record|union|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|\\|(?!>)))",
           "endCaptures": {
             "0": { "name": "punctuation.section.parens.end.hexagon" }
           },
