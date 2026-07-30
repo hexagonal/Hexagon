@@ -1,8 +1,4 @@
-// Prelude nominals that are implicitly in scope in every Hexagon module.
-//
-// This file is the canonical, human-facing source of the prelude. The compiler
-// embeds an identical copy in `compiler/src/prelude.ts` so that `compileProject`
-// stays filesystem-free; a test asserts the two never drift.
+// The outcome of comparing two values, as produced by `Ord.compare`.
 export union Ordering derives (Eq, Show) =
     | Less
     | Equal

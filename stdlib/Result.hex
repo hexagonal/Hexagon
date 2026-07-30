@@ -1,5 +1,4 @@
 // The canonical success-or-error union used across the standard library.
-// Success type first, per the subject-first convention (Functions §5.3).
 export union Result(a, e) =
     | Ok(value: a)
     | Err(error: e)

@@ -1,49 +1,19 @@
-// The lazy sequence type (Loops §6, `spec/notes/seq-core-representation.md`).
-//
-// `Option`, `Some`, and `None` are implicitly in scope via the prelude
-// (Modules §5.5). This module declares `Seq(a)`; nothing in the compiler does.
-//
-// A `Seq` is a record carrying its own deferred pull thunk (OCaml's
-// `unit -> node`). The thunk is what defers: constructing a combinator runs
-// nothing, so an infinite `Seq` is a finite value and driving one step is O(1).
-//
-// Why a record-of-closure and not a union of cases: a defunctionalized
-// `union Seq(a) = Mapped(source: Seq(b), f: b -> a) | ...` cannot be written,
-// because `b` would be an existential in the union and Hexagon's HM does not
-// express that. Hiding the source and transform *inside a closure* keeps that
-// type from escaping into `Seq(a)`. This is the load-bearing decision.
-//
-// Persistence here is by **re-derivation**, not memoization: re-driving a `Seq`
-// recomputes it, and therefore *replays any effects* its steps perform (Loops
-// §6.4, where re-derivation is the default and `memoize` the opt-in). Neither
-// the memoizing spine, the opt-in `memoize`, nor the two foreign shims
-// (`fromJsIterator`, `toJsIterable`) can live in this file: all of them need a
-// mutable buffer, and Statements §6.2 forbids mutable capture in closures. They
-// are compiler/runtime-provided at the FFI Part 3 boundary.
-//
-// `opaque`: the pull field is representation, not surface. Consumers use the
-// §6.2 protocol (`next`) and the combinators below.
+// `Option`, `Some`, and `None` are implicitly in scope via the prelude.
+
+// A lazy, immutable, possibly infinite sequence of `a`s. Constructing a
+// combinator computes nothing; each element is produced on demand by `next`.
 export opaque record Seq(a) = { pull: () -> Option((a, Seq(a))) }
 
-// The Loops §6.4 opt-in, declared through the intrinsic door (`spec/intrinsics.md`
-// §3.2). Bodyless and fully typed: the implementation is the runtime's memoizing
-// spine, which cannot be written here for the reason given above, and this is the
-// canonical `.hex` spelling that owns its public type. Not a call to `Seq.memoize`
-// — that would read as infinite self-recursion and would die the moment this
-// module declared its own type, which it does on line 26.
+// Computes each element of `source` at most once however often the result is
+// traversed, at the cost of retaining what has been produced.
 extern from "hex:intrinsic"
     export fun seqMemoize as memoize<a>(source: Seq(a)): Seq(a)
 
-// The Loops §6.2 protocol, thin over the field. Not recursive, so `let` (N6).
-// The field is named `pull`, not `next`, so the field access never shadows the
-// protocol; the call is written `(source.pull)()` because a bare
-// `source.pull(...)` on a nominal head is a companion dispatch, not a field read
-// (Products §3.2).
+// Drives one step: the head element and the successor sequence, or `None` when
+// exhausted. `source` itself is unchanged.
 export let next(source: Seq(a)): Option((a, Seq(a))) = (source.pull)()
 
-// ---------------------------------------------------------------------------
-// 1. One-step `pull`: one input element yields one output element.
-// ---------------------------------------------------------------------------
+// Producers, and combinators whose step yields at most one element per pull.
 
 export let empty: Seq(a) = Seq({ pull = () => None })
 
@@ -54,9 +24,6 @@ export let cons(value: a, rest: Seq(a)): Seq(a) = Seq({ pull = () => Some((value
 export fun iterate(seed: a, step: a -> a): Seq(a) =
     Seq({ pull = () => Some((seed, iterate(step(seed), step))) })
 
-// Each combinator binds its pull step as a local lambda and then wraps it. The
-// step cannot be written inline as the record-field value: a multi-line `match`
-// there makes the layout algorithm close the record literal at the first arm.
 export fun map(source: Seq(a), transform: a -> b): Seq(b) =
     let step = () =>
         match next(source)
@@ -106,8 +73,6 @@ export fun zipWith(left: Seq(a), right: Seq(b), combine: (a, b) -> c): Seq(c) =
 export let zip(left: Seq(a), right: Seq(b)): Seq((a, b)) =
     zipWith(left, right, (leftValue, rightValue) => (leftValue, rightValue))
 
-// `concat`'s exhaust-then-switch is one bounded extra pull, not a skip loop:
-// when the first sequence is spent it hands straight to the second's thunk.
 export fun concat(first: Seq(a), second: Seq(a)): Seq(a) =
     let step = () =>
         match next(first)
@@ -115,15 +80,7 @@ export fun concat(first: Seq(a), second: Seq(a)): Seq(a) =
             Some((value, rest)) => Some((value, concat(rest, second)))
     Seq({ pull = step })
 
-// ---------------------------------------------------------------------------
-// 2. `pull` needs a constant-stack `while`: many input elements per output.
-// ---------------------------------------------------------------------------
-//
-// When a combinator may consume many source elements to yield one, its step is a
-// `while` loop threading a `var` cursor — never self-recursion, because Loops
-// §6.5 promises no TCO and a long run of skipped elements would otherwise grow
-// the stack. The sentinel `var searching` stands in for the absent `break`
-// (Loops §9.4).
+// Combinators whose step may consume many source elements to yield one.
 
 export fun filter(source: Seq(a), keep: a -> Bool): Seq(a) =
     let step = () =>
@@ -142,8 +99,6 @@ export fun filter(source: Seq(a), keep: a -> Bool): Seq(a) =
         result
     Seq({ pull = step })
 
-// `drop` and `dropWhile` need no self-reference: they skip a run of elements and
-// then hand back the underlying pull, so both are `let` (N6).
 export let drop(source: Seq(a), count: Int): Seq(a) =
     let step = () =>
         var current = source
@@ -180,12 +135,7 @@ export let dropWhile(source: Seq(a), discard: a -> Bool): Seq(a) =
         result
     Seq({ pull = step })
 
-// `flatMap` is the hardest of these: draining empty sub-sequences to reach the
-// next element is still one `while`, never a stack. `pending` is the partially
-// consumed inner sequence carried between pulls, which is why the recursive knot
-// is tied through `flatMapWith` rather than through `flatMap` itself.
-// Private: `pending` is recursion plumbing, not public surface. `flatMap` below
-// is the entire exported face of this pair.
+// `flatMap` with the partially consumed inner sequence carried between pulls.
 fun flatMapWith(source: Seq(a), transform: a -> Seq(b), pending: Seq(b)): Seq(b) =
     let step = () =>
         var outer = source
@@ -209,12 +159,7 @@ fun flatMapWith(source: Seq(a), transform: a -> Seq(b), pending: Seq(b)): Seq(b)
 export let flatMap(source: Seq(a), transform: a -> Seq(b)): Seq(b) =
     flatMapWith(source, transform, empty)
 
-// ---------------------------------------------------------------------------
-// 3. Consumers: drive a `Seq` to a value.
-// ---------------------------------------------------------------------------
-//
-// The Loops §6.3 "external iteration" idiom. All are `let`: the loop, not
-// recursion, does the driving.
+// Consumers: drive a `Seq` to a value.
 
 export let fold(source: Seq(a), initial: b, combine: (b, a) -> b): b =
     var accumulator = initial
