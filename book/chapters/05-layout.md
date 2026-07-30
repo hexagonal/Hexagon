@@ -131,28 +131,34 @@ let greet = name =>
 Semicolons are occasionally convenient for tiny neighboring bindings. Newlines are
 usually easier to scan.
 
-## Comments use familiar spellings
+## Comments: one familiar spelling, one ML spelling
 
-A line comment begins with `//` and continues to the newline:
+A line comment begins with `//` and continues to the newline, exactly as in
+JavaScript:
 
 ```hexagon
 let retries = 3 // enough for a transient failure
 ```
 
-A block comment uses `/* ... */` and may span lines. Unlike JavaScript block comments,
-Hexagon block comments nest:
+A block comment uses the ML family's `(* ... *)` and may span lines. Unlike
+JavaScript block comments, Hexagon block comments nest:
 
 ```hexagon
-/* outer explanation
-   /* temporarily disabled detail */
+(* outer explanation
+   (* temporarily disabled detail *)
    back in the outer explanation
-*/
+*)
 ```
 
 Nesting makes it safe to comment out a region that already contains block comments.
-Every opening `/*` still needs its own closing `*/`.
+Every opening `(*` still needs its own closing `*)`.
 
-The forms `///` and `/** ... */` are reserved for documentation comments. They
+If JavaScript muscle memory produces `/*` or `*/`, the compiler recognizes the
+attempt and answers with the rewrite: Hexagon block comments are `(* ... *)`. The
+slash spellings are never silently accepted and never mean division and
+multiplication side by side.
+
+The forms `///` and `(** ... *)` are reserved for documentation comments. They
 currently behave like ordinary line and block comments and do not attach documentation
 to a declaration. Documentation attachment may appear in a later version.
 
@@ -187,7 +193,7 @@ not start string parsing.
 - semicolons separate items at the same block level but never terminate statements or
   open blocks;
 - leading indentation uses spaces, not tabs; and
-- `//` comments are line comments while `/* ... */` comments can nest.
+- `//` comments are line comments while `(* ... *)` comments can nest.
 
 The earlier chapters' blocks were already following these rules. Naming them now gives
 us a stable source shape for the more substantial types and declarations ahead.

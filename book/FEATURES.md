@@ -22,7 +22,7 @@ open specification work does not make the book outline provisional.
 
 2. **Layout** — Indentation defines blocks; braces are records,
    not block delimiters. Semicolons can separate statements explicitly. Hexagon has
-   `//` line comments and nestable `/* ... */` block comments, while doc-comment
+   `//` line comments and nestable `(* ... *)` block comments, while doc-comment
    spellings are reserved for later tooling.
 
 3. **Expressions** — Programs are built primarily from values
