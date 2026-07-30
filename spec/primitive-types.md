@@ -1,7 +1,7 @@
 # Hexagon Spec: Primitive Types
 
 **Status:** Decided (July 2026)
-**Scope:** The six primitive types: `Nat`, `Int`, `Float`, `String`, `BigInt`, `Unit`. Their JS representations, literal syntax, string interpolation, and the `Show` connection. *(Originally seven: `Bool` was reclassified as a prelude union 2026-07-29, #147 — §4 is now a pointer, §12 the correction record.)*
+**Scope:** The five primitive types: `Nat`, `Int`, `Float`, `String`, `BigInt`. Their JS representations, literal syntax, string interpolation, and the `Show` connection. *(Originally seven: `Bool` was reclassified as a prelude union 2026-07-29, #147 — §4 is now a pointer, §12 the correction record; `Unit` was reclassified as the empty tuple 2026-07-30, #159 — §9 is now a pointer, §13 the correction record.)*
 **Not in scope:** `Char` (does not exist), `Rat` (stdlib module with a focused v1 spec owed), tuples/records/unions/functions (own specs), the constraint system itself (own spec — this doc only *names* which standard constraints each type supports), 1-based indexing in general (forthcoming spec), equality semantics in depth (constraint spec).
 **Companion:** the Numeric Literals spec (Nat-payload polymorphic integer literals, `fromNat`/`fromInt`, Int defaulting) — cross-referenced, not restated here.
 
@@ -19,7 +19,7 @@ This document is written for a future implementation session and assumes the exi
 | `Bool` | `boolean` | `True` | *Reclassified:* prelude union with a pinned representation (§4, #147). Row retained for the representation fact. |
 | `String` | `string` | `"Hello ${name}."` | Text. Interpolating by default. |
 | `BigInt` | `bigint` | `9_007_199_254_740_993n` | Whole numbers of arbitrary size. |
-| `Unit` | `undefined` | `()` | The one-value type. |
+| `Unit` | `undefined` | `()` | *Reclassified:* the empty tuple (§9, #159). Row retained for the representation fact. |
 
 **Correction to older documentation:** earlier drafts listed `Int → bigint`. This is wrong and was explicitly reversed. `Int` compiles to JS `number`.
 
@@ -190,7 +190,7 @@ The constraint system has its own spec; this section records only the decisions 
 
 **Contract:** `show : a -> String` produces the *human-readable display form* (Rust `Display`, not Haskell `show`): `show "abc"` is `abc` — no quotes; `show 42` is `"42"`; `show 1n` is `"1"`.
 
-**Implementation rule ("toString unless JS is stupid"):** for each instance, `show` is JS `toString`/`String(x)` **when that output is sane**, and a Hexagon-provided implementation when JS's is stupid — **and the rule applies only to types this document owns**: a union's `Show` is the derived constructor-name form (Unions §7), which is why `Bool`'s corrected row below is not an exception to this rule but an exit from its jurisdiction *(clause added 2026-07-29, #147 — record in §12)*. Concretely:
+**Implementation rule ("toString unless JS is stupid"):** for each instance, `show` is JS `toString`/`String(x)` **when that output is sane**, and a Hexagon-provided implementation when JS's is stupid — **and the rule applies only to types this document owns**: a union's `Show` is the derived constructor-name form (Unions §7), which is why `Bool`'s corrected row below is not an exception to this rule but an exit from its jurisdiction *(clause added 2026-07-29, #147 — record in §12)*; likewise a tuple's — `Unit`'s included, at arity 0 — is the derived structural form (Products §2.5), computing the same `"()"` this table formerly decreed *(clause extended 2026-07-30, #159 — record in §13)*. Concretely:
 
 | Type | `show` compiles to | Notes |
 |---|---|---|
@@ -200,7 +200,7 @@ The constraint system has its own spec; this section records only the decisions 
 | `BigInt` | `String(x)` | sane; drops `n`, correct for display |
 | `Bool` | derived union `Show` | `"True"`/`"False"` — *corrected 2026-07-29, #147 (§12); formerly `String(x)`* |
 | `String` | identity | |
-| `Unit` | constant `"()"` | JS would give `"undefined"` — stupid; replaced |
+| `Unit` | derived structural `Show` | `"()"` — *re-grounded 2026-07-30, #159 (§13): the arity-0 structural derivation (Products §2.5) computes the string this row formerly decreed (JS's `"undefined"` remains foreclosed, now by derivation rather than decree)* |
 
 "JS is stupid" cases that get replacements rather than toString: plain objects (`[object Object]`) → derived structural show for records; arrays (bracket-less comma join) → structural show for List/tuples; functions (source dump) → **no Show instance at all**. Derived structural show for records/unions/tuples is specified with the constraint system, not here.
 
@@ -227,17 +227,16 @@ The BigInt example in §1's table, `9_007_199_254_740_993n`, exercises both feat
 
 ## 9. Unit
 
-**Semantics:** the type with exactly one value. **Literal:** `()`. **JS representation:** `undefined`.
+> **Reclassified (2026-07-30, #159; correction record §13).** `Unit` is no longer a primitive. It is the **empty tuple** — the arity-0 member of the tuple family, normatively hosted at Products §2.7 — with its representation fixed by the arity-indexed tuple representation rule (Products §2.6): `undefined`, `void` in `.d.ts` return position. `()` is the empty-tuple literal and pattern; `Unit` is the type's only name — `()` is not a type expression, and `() -> T` remains Functions §5.3's zero-parameter domain. The full ruling is `decisions-ml-dialect-unit-2026-07.md`.
 
-Rationale for `undefined`: a Hexagon function returning `Unit` is a JS function that returns nothing — the best possible interop story, zero ceremony in emitted code and in `.d.ts` (`void` in return position, `undefined` elsewhere).
+What this section formerly decreed, and where it went:
 
-**Role:** Unit exists chiefly for the Standard-ML-flavoured function design, where every function takes exactly one thing — a single value, a tuple, or the empty tuple `()`. That design (call syntax, tuple types, how `()` -taking functions emit) is the functions/tuples spec's job; this doc only fixes the type's existence, literal, and representation.
+- **Semantics and literal** ("the type with exactly one value", `()`) survive as ordinary tuple facts at arity 0: one shape, zero components, one value.
+- **Representation** (`undefined`, and the "a `Unit` function is a JS function that returns nothing" interop rationale) survives verbatim as Products §2.6's arity-0 clause; the §1 table row above records it.
+- **Constraints** (`Eq`/`Ord`/`Show`/`Hash` "trivially") are now the **automatic structural instances** (Products §2.5, Constraints §4.5) at the vacuous arity — same outputs, verified at ruling time (decisions doc §5); "neither `Num` nor `Signed`" became a structural consequence rather than a decree.
+- **The "nullary case of the tuple family" caution** to implementers is discharged by the reclassification itself: `()` *is* the tuple family's nullary case, officially.
 
-**Standard constraints:** `Eq` (trivially — one value), `Ord` (trivially), `Show` (`"()"`, a replaced-because-JS-is-stupid case, §7), `Hash` (trivially — Collections Part 2 §2.5) *(corrected 2026-07-28, #137 — record in §11)*. Neither `Num` nor `Signed`.
-
-**Implementer cautions:**
-- `()` must lex/parse unambiguously against parenthesised expressions and (future) tuple syntax — `()` is the nullary case of the tuple family; coordinate with the functions/tuples spec rather than special-casing.
-- `Unit`'s JS value being `undefined` must not be confused with the FFI's `Nullable(a)` boundary type (which handles JS `null`/`undefined` at extern boundaries). `Unit` is a real Hexagon type with one value; `Nullable` is a boundary-only foreign shape. They meet at the FFI but are unrelated concepts.
+Unchanged and still worth its ink here: **`Unit`'s `undefined` must not be confused with the FFI's `Nullable(a)`** boundary type. `Unit` is a real Hexagon type with one value; `Nullable` is a boundary-only foreign shape. They meet at the FFI but are unrelated concepts (FFI Part 1 §5).
 
 ---
 
@@ -262,6 +261,7 @@ Rationale for `undefined`: a Hexagon function returning `Unit` is a JS function 
 | Types uppercase-start; type variables non-uppercase-start (`a b c` by convention) | this doc §1; Lexer §3 |
 | Constraint inventories refreshed for `Pow`/`Concat`/`Hash`/`Integral`; owning specs govern instance sets; enumeration retained deliberately | this doc §11 (#137); Operators §6.3, §7; Collections Part 2 §2.5; Integral §3 |
 | `Bool` reclassified: prelude union `False \| True`, representation pinned to `boolean`, Show = constructor names, literals replaced by constructors with reserved-word redirect | decisions-ml-dialect-bool-2026-07.md (#147); this doc §4, §12; Unions §6.2, §8; Lexer §4.1 |
+| `Unit` reclassified: the empty tuple, representation = the arity-0 clause of the tuple rule (`undefined`), constraints = automatic structural instances, `()` never a type, no observable change | decisions-ml-dialect-unit-2026-07.md (#159); this doc §9, §13; Products §2.5–§2.7 |
 
 ---
 
@@ -285,3 +285,14 @@ Two standing rules accompany the reclassification:
 
 1. **Section numbers did not move.** §4 remains "Bool" forever (house rule); its content is a pointer, not a hole. Cross-references of the form "Primitive Types §4" remain valid and now resolve to the pointer.
 2. **Ownership transferred.** Bool's normative home is Unions (§6.2 for the pin, §8 for the declaration) and the decisions doc; this document retains only the representation row and the no-truthiness sentence. Where older text elsewhere in the corpus says "Primitive Types owns Bool," the decisions doc's ledger (its §6) governs the fix-on-next-touch.
+
+---
+
+## 13. Correction record — Unit reclassified as the empty tuple (2026-07-30, #159)
+
+> **Correction (2026-07-30, #159).** Under the ML-dialect doctrine (`decisions-ml-dialect-bool-2026-07.md` §1), `Unit` moved from this document's primitive set to the tuple family: the empty tuple, hosted at Products §2.7, with `()` its literal and pattern, the automatic structural instances (Products §2.5, vacuous at arity 0) its constraints, and its `undefined` representation restated as the arity-0 clause of Products §2.6's arity-indexed representation rule. Edits applied in place: the scope line counts five primitives; §1's table row now records only the representation fact; §7's implementation rule extended its jurisdiction clause (tuples exit to Products §2.5, as unions exit to Unions §7) and §7's table row shows the derived structural form computing the same `"()"`; §9 is a pointer plus the surviving `Nullable` caution; §10 gained the log row. Unlike #147's reclassification, this one has **no behaviour change at all** — the derivation and the deleted decree compute identical outputs, verified per operation in the decisions doc's §5.
+
+Two standing rules accompany the reclassification:
+
+1. **Section numbers did not move.** §9 remains "Unit" forever (house rule); its content is a pointer, not a hole. Cross-references of the form "Primitive Types §9" remain valid and now resolve to the pointer.
+2. **Ownership transferred.** `Unit`'s normative home is Products (§2.7, with §2.5/§2.6 carrying constraints and representation) and the decisions doc; this document retains only the representation row and the `Nullable` caution. Where older text elsewhere says "Primitive Types owns `Unit`," the decisions doc's ledger (its §8) governs the fix-on-next-touch.

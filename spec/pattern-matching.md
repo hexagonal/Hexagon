@@ -27,12 +27,12 @@ _                        -- wildcard: matches anything, binds nothing
 x                        -- variable: matches anything, binds x
 C(p1, ..., pn)           -- constructor pattern, sub-patterns nest freely
 C                        -- nullary constructor
-(p1, ..., pn)            -- tuple pattern, arity ≥ 2; (p) is grouping
+(p1, ..., pn)            -- tuple pattern, arity 0 or ≥ 2; (p) is grouping
 {f1 = p1, f2, ...}       -- record pattern: open; {f} puns as {f = f}
 0   "yes"                -- literal patterns: Int, String only (#147)
 p1 | p2                  -- or-pattern
 p as x                   -- as-pattern: match p, additionally bind the whole to x
-()                       -- the Unit pattern (trivially irrefutable)
+()                       -- the empty-tuple (`Unit`) pattern: the arity-0 tuple form (#159)
 [p1, ..., pn]  [ps, ...rest]  -- vector patterns (Collections Part 3 §3 owns forms,
                               --   typing, exhaustiveness, irrefutability, emission)
 ```
@@ -64,7 +64,7 @@ Envelope(Header(id) as h, body)
 (a, _, (b, c))                   -- nesting includes tuples in tuples
 ```
 
-Arity must equal the tuple's arity (Products §2.1 report shape). `(p)` is **grouping**, exactly as in expressions — there are no 1-tuples, so no ambiguity. `()` is the Unit pattern.
+Arity must equal the tuple's arity (Products §2.1 report shape). `(p)` is **grouping**, exactly as in expressions — there are no 1-tuples, so no ambiguity. `()` is the arity-0 case of this form: the empty-tuple pattern, `Unit`'s sole pattern, irrefutable because all zero of its components are *(reclassified 2026-07-30, #159 — formerly a dedicated "Unit pattern"; Products §2.7)*.
 
 ### 2.4 Record patterns — open, with punning
 
@@ -191,7 +191,7 @@ Consequences, spelled out:
 | `_`, `x` | any | irrefutable | match everything by definition |
 | `(p, q)` | tuple | irrefutable iff `p`, `q` are | tuples have one shape |
 | `{f = p, g}` | record | irrefutable iff sub-patterns are | records have one shape; openness only widens |
-| `()` | `Unit` | irrefutable | one value |
+| `()` | `Unit` | irrefutable | the tuple row at arity 0 — vacuously, all zero components are irrefutable (#159; no longer a separate case) |
 | `p as x` | `T` | iff `p` is | `as` adds a binding, not a test |
 | `Some(x)` | `Option(a)` | **refutable** | `Option` has another constructor, `None` |
 | `UserId(n)` | `UserId` (union `UserId = UserId(Int)`) | **irrefutable** | sole constructor: every `UserId` value has this shape |
@@ -332,7 +332,7 @@ Both generalize from Unions §4.3. Both remain **hard errors**. Both remain **ex
 
 ### 7.1 Exhaustiveness
 
-- Domains with finitely many shapes — unions (closed, nominal — which since #147 includes the prelude `Bool`), `Unit`, and tuples/records thereof — are checked exactly. **A `match` on `Bool` with `True` and `False` arms is exhaustive with no `_`** — this survives verbatim in force, respelled in form: it is now the ordinary closed-constructor union path, and the former "`Bool` via literals" carve-out (the first non-union exhaustive domain) is **deleted** *(corrected 2026-07-29, #147; the acceptance test is retained, respelled, now exercising the union path)*.
+- Domains with finitely many shapes — unions (closed, nominal — which since #147 includes the prelude `Bool`), and tuples/records thereof — are checked exactly. `Unit`'s former standalone listing is **deleted** *(2026-07-30, #159)*: since it is the arity-0 tuple (Products §2.7), a `match` on `Unit` with a `()` arm is exhaustive with no `_` through the ordinary tuple clause, vacuously at zero components. **A `match` on `Bool` with `True` and `False` arms is exhaustive with no `_`** — this survives verbatim in force, respelled in form: it is now the ordinary closed-constructor union path, and the former "`Bool` via literals" carve-out (the first non-union exhaustive domain) is **deleted** *(corrected 2026-07-29, #147; the acceptance test is retained, respelled, now exercising the union path)*.
 - Infinite domains (`Int`, `String`, `Float`) are never covered by literals; exactness there means: **a catch-all (`_` or bare variable, possibly under `as`/or-composition per §5.1's coverage semantics) is required.**
 - **Guarded arms contribute nothing** — including `when True`. Coverage is computed as if guarded arms were absent.
 - Record patterns: coverage is computed over the **mentioned fields only**. Sound because unmentioned fields are unconstrained in every arm — openness means they cannot distinguish arms. (If two arms mention different field sets, the matrix is built over the union of mentioned fields, absent mentions widening to `_`.)
@@ -452,6 +452,7 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 | Binder class is positional (Statements §5): arm/lambda/loop binders head, `let`-pattern binders sequential; no third class; duplicate-in-whole-pattern error incl. `as`, class-independent | §1, §2.1, §4, §6.3 |
 | Vector patterns shipped, owned by Collections Part 3 §3; `Vector` owns `[...]` in v1 (no `List`, no `Array` pattern surface); range patterns → guards; type-test patterns → never | §2, §10, §11.1 |
 | §1's emission bullet restated post-#147 (2026-07-29): readable emission is an emitter commitment, standing because it constrains no language semantics; TS-author phrasing retired | §1, §15(n) |
+| `()` reclassified (2026-07-30, #159): the dedicated `Unit` pattern dissolves into the arity-0 tuple pattern; `Unit` exhaustiveness via the tuple clause; the standalone finite-domain listing deleted; no diagnostic or verdict changes | §2, §2.3, §5.1, §7.1; Products §2.7 |
 
 ---
 
