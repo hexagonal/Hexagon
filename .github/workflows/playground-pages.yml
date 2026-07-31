@@ -28,6 +28,8 @@ jobs:
           cache: npm
           cache-dependency-path: |
             compiler/package-lock.json
+            language-server/package-lock.json
+            editors/vscode/package-lock.json
             playground/package-lock.json
 
       - name: Install compiler dependencies
@@ -41,6 +43,42 @@ jobs:
       - name: Check compiler
         run: npm run check
         working-directory: compiler
+
+      # The language server and the extension are gated here rather than in a
+      # workflow of their own because this is the only job that runs on every
+      # push to main. Neither ships to Pages; they run so that a change to the
+      # compiler cannot break the editor silently.
+      - name: Install language server dependencies
+        run: npm ci
+        working-directory: language-server
+
+      - name: Test language server
+        run: npm test
+        working-directory: language-server
+
+      - name: Check language server
+        run: npm run check
+        working-directory: language-server
+
+      - name: Build language server
+        run: npm run build
+        working-directory: language-server
+
+      - name: Install VS Code extension dependencies
+        run: npm ci
+        working-directory: editors/vscode
+
+      - name: Test VS Code extension
+        run: npm test
+        working-directory: editors/vscode
+
+      - name: Check VS Code extension
+        run: npm run check
+        working-directory: editors/vscode
+
+      - name: Build VS Code extension
+        run: npm run build
+        working-directory: editors/vscode
 
       - name: Install playground dependencies
         run: npm ci
