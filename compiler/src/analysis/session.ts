@@ -25,11 +25,12 @@
  * no longer describes the text the user is looking at.
  *
  * Whole-project recompilation is the deliberate starting point rather than a
- * placeholder. Reanalyzing the whole standard library after an edit measures
- * around 19ms, which is inside a keystroke's budget, so incremental reuse would
- * buy nothing yet and would have to guess at what is worth keeping before any
- * query exists to say. When a real workspace makes that false, the seam is here:
- * only `#analyze` decides what to rebuild.
+ * placeholder. Reanalyzing this repository's own `stdlib/` and `runtime/` after
+ * an edit measures a median of about 40ms, well inside the delay diagnostics are
+ * debounced by, so incremental reuse would buy nothing yet and would have to
+ * guess at what is worth keeping before any query exists to say. When a real
+ * workspace makes that false, the seam is here: only `#analyze` decides what to
+ * rebuild.
  */
 
 import * as Diagnostics from "../support/diagnostics.js";
@@ -461,8 +462,14 @@ export class AnalysisSession {
       probe.setFile(owner, spans === undefined ? text : replaceSpans(text, spans, newName));
     }
 
-    const before = diagnosticTally(this.allDiagnostics(), name);
-    for (const [key, appearance] of diagnosticTally(probe.allDiagnostics(), newName)) {
+    // Both spellings are blanked from both sides. Blanking only each side's own
+    // name would key an *unchanged* message differently on the two runs: a
+    // pre-existing `unknown name \`bar\`` elsewhere in the project survives the
+    // rename untouched, yet reads as new the moment `bar` is the name being
+    // renamed to.
+    const spellings = [name, newName];
+    const before = diagnosticTally(this.allDiagnostics(), spellings);
+    for (const [key, appearance] of diagnosticTally(probe.allDiagnostics(), spellings)) {
       if ((before.get(key)?.count ?? 0) >= appearance.count) continue;
       return {
         refused:
@@ -607,8 +614,10 @@ class Analysis {
     for (const module of project.modules) {
       const path = module.source.path;
       this.#pathsByFileId.set(Number(module.source.id), path);
+      const types = collectTypeOccurrences(module.typed);
       const occurrences = collectOccurrences(module, {
         fileOfSpecifier: (specifier) => fileIdsByPath.get(resolveSpecifier(path, specifier)),
+        typeOccurrences: types,
       });
       this.#occurrencesByPath.set(path, occurrences);
       this.#resolvedByPath.set(path, module.resolved);
@@ -620,9 +629,7 @@ class Analysis {
       }
       this.#typesByPath.set(
         path,
-        new Map(
-          collectTypeOccurrences(module.typed).map((type) => [spanKey(type.span), type]),
-        ),
+        new Map(types.map((type) => [spanKey(type.span), type])),
       );
     }
     // A diagnostic belongs to the file its primary span names, which is not
@@ -688,9 +695,6 @@ interface SubjectOfRename extends RenameSubject {
   readonly mentions: readonly RenameEdit[];
 }
 
-function siteKey(site: { readonly path: string; readonly start: number; readonly end: number }): string {
-  return `${site.path}@${site.start}:${site.end}`;
-}
 
 /**
  * Whether a proposed spelling is a name at all, and the same *kind* of name as
@@ -799,12 +803,14 @@ function readSite(site: string): readonly [string, string] {
  */
 function diagnosticTally(
   all: ReadonlyMap<string, readonly Diagnostics.Diagnostic[]>,
-  spelling: string,
+  spellings: readonly string[],
 ): ReadonlyMap<string, { readonly path: string; readonly message: string; count: number }> {
   const tally = new Map<string, { path: string; message: string; count: number }>();
+  const blanked = (message: string): string =>
+    spellings.reduce((text, spelling) => withoutName(text, spelling), message);
   for (const [path, diagnostics] of all) {
     for (const { severity, message } of diagnostics) {
-      const key = `${path} ${severity} ${withoutName(message, spelling)}`;
+      const key = `${path} ${severity} ${blanked(message)}`;
       const entry = tally.get(key);
       if (entry === undefined) tally.set(key, { path, message, count: 1 });
       else entry.count += 1;

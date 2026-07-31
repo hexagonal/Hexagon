@@ -518,6 +518,98 @@ describe("AnalysisSession.rename", () => {
       .toContain("would change what the code means");
   });
 
+  test("a dot call reached through an alias keeps its own spelling", () => {
+    // A dot call dispatches on the *declared* name, so `Pale.brighten()` is
+    // legal in a module that imported `brighten as b` — and the checker's typed
+    // name for it is the local spelling `b`, not the eight characters the source
+    // wrote. Published under that name, the occurrence lands over the last
+    // character of the field and every consumer reads a name that disagrees with
+    // its own span.
+    const helper = [
+      "export union Shade =",
+      "    | Pale",
+      "",
+      "export fun brighten(s: Shade): Int = 1",
+      "",
+    ].join("\n");
+    const main = [
+      'import {Shade, Pale, brighten as b} from "./helper"',
+      "",
+      "let x: Int = Pale.brighten()",
+      "",
+    ].join("\n");
+    const { session, texts } = sessionOf({ "/helper.hex": helper, "/main.hex": main });
+    expect(session.allDiagnostics().get("/main.hex")).toEqual([]);
+    const call = at(main, "brighten", 2);
+    expect(session.prepareRename("/main.hex", call)).toEqual({
+      name: "brighten",
+      span: expect.objectContaining({
+        start: expect.objectContaining({ offset: call }),
+        end: expect.objectContaining({ offset: call + "brighten".length }),
+      }),
+    });
+    // Renaming the declaration moves the call with it. The alias does not move:
+    // the clause goes on aliasing a differently-spelled declaration.
+    const plan = session.rename("/helper.hex", at(helper, "brighten"), "lighten");
+    expect(applied(texts, plan)).toEqual({
+      "/helper.hex": helper.replace("fun brighten", "fun lighten"),
+      "/main.hex": main
+        .replace("brighten as b", "lighten as b")
+        .replace("Pale.brighten()", "Pale.lighten()"),
+    });
+  });
+
+  test("renaming the alias leaves the dot call alone", () => {
+    // The mirror. `b` and `Pale.brighten()` name one thing under two spellings,
+    // and only the one under the cursor moves.
+    const helper = [
+      "export union Shade =",
+      "    | Pale",
+      "",
+      "export fun brighten(s: Shade): Int = 1",
+      "",
+    ].join("\n");
+    const main = [
+      'import {Shade, Pale, brighten as b} from "./helper"',
+      "",
+      "let x: Int = Pale.brighten()",
+      "let y: Int = b(Pale)",
+      "",
+    ].join("\n");
+    const { session, texts } = sessionOf({ "/helper.hex": helper, "/main.hex": main });
+    const plan = session.rename("/main.hex", at(main, "b(Pale)"), "bb");
+    expect(applied(texts, plan)["/main.hex"]).toBe(
+      main.replace("brighten as b", "brighten as bb").replace("b(Pale)", "bb(Pale)"),
+    );
+  });
+
+  test("a pre-existing error elsewhere that spells the new name is not breakage", () => {
+    // The message is unchanged by the rename, but each side used to blank only
+    // its own spelling, so an untouched `unknown name \`bar\`` read as new the
+    // moment `bar` became the name being renamed to.
+    const helper = "export fun foo(v: Int): Int = v\n";
+    const other = "let q: Int = bar\n";
+    const { session, texts } = sessionOf({ "/helper.hex": helper, "/other.hex": other });
+    expect(session.diagnostics("/other.hex").map(({ message }) => message)).toEqual([
+      "unknown name `bar`",
+    ]);
+    const plan = session.rename("/helper.hex", at(helper, "foo"), "bar");
+    expect(applied(texts, plan)).toEqual({ "/helper.hex": "export fun bar(v: Int): Int = v\n" });
+  });
+
+  test("refuses when a name that resolved to nothing would start resolving", () => {
+    // The other direction of the denotation comparison: a site that means
+    // nothing today and would mean the renamed declaration afterwards. No
+    // diagnostic *appears* — one disappears — so only this test sees it.
+    const source = ["let colour: Int = 1", "let use: Int = tone", ""].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex").map(({ message }) => message)).toEqual([
+      "unknown name `tone`",
+    ]);
+    expect(refusal(session.rename("/main.hex", at(source, "colour"), "tone")))
+      .toContain("would change what the code means");
+  });
+
   test("a pre-existing error that mentions the name is not a reason to refuse", () => {
     // The error re-renders under the new spelling and looks new. Renaming while
     // a file holds an unrelated error mentioning that name is ordinary.

@@ -33,7 +33,7 @@ import type * as Source from "../support/source.js";
 import type * as Parsed from "../syntax/parsed/index.js";
 import type * as Resolved from "../syntax/resolved/index.js";
 import type * as Typed from "../syntax/typed/index.js";
-import { collectTypeOccurrences } from "./type-occurrences.js";
+import { collectTypeOccurrences, type TypeOccurrence } from "./type-occurrences.js";
 import { IDENTIFIER_CONTINUE, IDENTIFIER_START } from "../support/identifiers.js";
 
 /** What an occurrence denotes. Constraints key by name because they have no id. */
@@ -83,6 +83,15 @@ export interface CollectOptions {
    * are left unindexed rather than guessed at.
    */
   readonly fileOfSpecifier?: (specifier: string) => Source.FileId | undefined;
+  /**
+   * This module's type occurrences, when the caller already has them.
+   *
+   * Dot calls are read out of that same table, and a host asking for both — as
+   * `AnalysisSession` does, for hover — would otherwise walk the typed tree
+   * twice per module on every keystroke. Omitted, this query computes them, so
+   * a caller that wants only occurrences still gets all of them.
+   */
+  readonly typeOccurrences?: readonly TypeOccurrence[];
 }
 
 /**
@@ -132,6 +141,7 @@ class Collector {
   /** Spans of the imports the source actually contains — see `#visitItem`. */
   readonly #writtenImports: ReadonlySet<string>;
   readonly #fileOfSpecifier: CollectOptions["fileOfSpecifier"];
+  readonly #typeOccurrences: CollectOptions["typeOccurrences"];
 
   constructor(module: ModuleInput, options: CollectOptions) {
     this.#source = module.source;
@@ -140,6 +150,7 @@ class Collector {
     this.#typed = module.typed;
     this.#fileId = module.resolved.fileId;
     this.#fileOfSpecifier = options.fileOfSpecifier;
+    this.#typeOccurrences = options.typeOccurrences;
     this.#writtenImports = new Set(
       module.parsed.items
         .filter((item) => item.kind === "Import")
@@ -155,7 +166,7 @@ class Collector {
       this.#visitItem(item);
     }
     for (const item of this.#parsed.items) this.#visitParsedItem(item);
-    this.#collectDotCalls();
+    this.#collectDotCalls(this.#typeOccurrences ?? collectTypeOccurrences(this.#typed));
     return this.#occurrences.sort((left, right) =>
       left.span.start.offset - right.span.start.offset ||
       left.span.end.offset - right.span.end.offset ||
@@ -610,13 +621,23 @@ class Collector {
    * The receiver is not published: `Pale` in `Pale.brighten()` is an ordinary
    * name the resolved traversal has already seen.
    */
-  #collectDotCalls(): void {
-    for (const occurrence of collectTypeOccurrences(this.#typed)) {
+  #collectDotCalls(typeOccurrences: readonly TypeOccurrence[]): void {
+    for (const occurrence of typeOccurrences) {
       if (occurrence.receiverBound !== true || occurrence.symbol === undefined) continue;
+      if (occurrence.span.fileId !== this.#fileId) continue;
       this.#publish(
         { kind: "value", symbol: occurrence.symbol },
         "reference",
-        occurrence.name,
+        // The text the source actually wrote, not the occurrence's name. Those
+        // differ here and only here: a dot call is dispatched on the *declared*
+        // name, so `Pale.brighten()` is legal in a module that imported
+        // `brighten as b`, and the typed name is the local spelling `b`. Every
+        // consumer takes a published name to be what stands at its span, and a
+        // rename matches occurrences by spelling — so the source is what counts.
+        this.#source.text.slice(
+          occurrence.span.start.offset,
+          occurrence.span.end.offset,
+        ),
         occurrence.span,
       );
     }

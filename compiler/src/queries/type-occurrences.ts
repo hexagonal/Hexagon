@@ -55,7 +55,13 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
     publish(
       fallbackName,
       receiverBound ? receiverBoundScheme(scheme) : scheme,
-      spanForIdentifier(span, fallbackName),
+      // A dot call's span is already exactly the operation name — the checker
+      // takes it from the field — and its *name* is the local import spelling,
+      // which need not be what the source wrote there. Narrowing by that name
+      // would keep the last few characters of the field instead: `brighten`
+      // imported as `b` and called as `Pale.brighten()` would publish over the
+      // single character `n`.
+      receiverBound ? span : spanForIdentifier(span, fallbackName),
       { symbol: symbol.id, receiverBound },
     );
   };

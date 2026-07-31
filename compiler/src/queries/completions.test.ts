@@ -213,19 +213,23 @@ describe("completions", () => {
   });
 
   test("offers no name the lexer would refuse to read back", () => {
-    // A `try` arm binds a compiler-minted binder. Offering one hands the user a
-    // name they cannot type — `synthetic.ts` states the rule this obeys.
+    // A *pattern parameter* is destructured from a binder the compiler mints,
+    // which really is in scope in the body. Offering one hands the user a name
+    // the lexer will not read back — `synthetic.ts` states the rule this obeys.
+    // (An earlier version of this test used a `try` arm, which binds no such
+    // name, so it passed with the filter deleted.)
     const offered = namesIn(
-      [
-        "fun risky(): Int =",
-        "    try",
-        "        1",
-        "    catch",
-        "        _ => ‸0",
-        "",
-      ].join("\n"),
+      ["fun swap((a, b): (Int, Int)): Int =", "    ‸a", ""].join("\n"),
     );
+    expect(offered).toContain("a");
     expect(offered.some((name) => name.startsWith("__hex_"))).toBe(false);
+  });
+
+  test("says nothing inside a block comment, and answers again after it", () => {
+    // A block comment's span runs past its closing `*)`, unlike a line
+    // comment's, which stops at the newline. One bound cannot serve both.
+    expect(namesIn(["let value: Int = (* here ‸*)1", ""].join("\n"))).toEqual([]);
+    expect(namesIn(["let value: Int = (* here *)‸1", ""].join("\n"))).not.toEqual([]);
   });
 
   test("says nothing inside a comment", () => {

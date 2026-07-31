@@ -68,11 +68,14 @@ export function collectCompletions(input: CompletionInput): readonly Completion[
   // A comment cannot contain code, so nothing belongs here. Strings are left
   // alone deliberately: one can hold an interpolation, where names *do* belong,
   // and telling the two apart needs the token stream rather than the text.
-  // Inclusive at the end and exclusive at the start: a cursor sitting after a
-  // comment's last character is still writing that comment, while one at the
-  // opening `/` is in front of it.
-  if (input.resolved.comments.some(({ span }) =>
-    input.offset > span.start.offset && input.offset <= span.end.offset
+  // Exclusive at the start — a cursor at the opening `/` is in front of the
+  // comment — and at the end only for a block, whose span runs past its closing
+  // `*)`. A line comment's span stops at the newline, so its last offset is
+  // still inside it, and going exclusive there would answer on every line that
+  // ends in a comment.
+  if (input.resolved.comments.some(({ kind, span }) =>
+    input.offset > span.start.offset &&
+    (kind === "Block" ? input.offset < span.end.offset : input.offset <= span.end.offset)
   )) {
     return [];
   }

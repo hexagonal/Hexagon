@@ -86,7 +86,7 @@ pathOfFile(fileId)        the file a span's numeric identity names
 
 Positions crossing this API are UTF-16 offsets into the named file, never line and character pairs — see below.
 
-Analysis is recomputed lazily and wholly: any change discards it and the next question rebuilds it. That is a decision, not a placeholder. Reanalyzing the entire standard library after an edit measures around 19ms, inside a keystroke's budget, so incremental reuse would buy nothing yet and would have to guess what is worth keeping before any query exists to say.
+Analysis is recomputed lazily and wholly: any change discards it and the next question rebuilds it. That is a decision, not a placeholder. Reanalyzing this repository's own `stdlib/` and `runtime/` after an edit measures a median of about 40ms — well inside the delay diagnostics are debounced by — so incremental reuse would buy nothing yet and would have to guess what is worth keeping before any query exists to say. A rename costs about three times that, since it recompiles an edited copy and compares the two; it is not on the keystroke path.
 
 Five compiler queries sit behind these answers, and each exists because no other part of the compiler still knows what it knows:
 
@@ -156,9 +156,19 @@ An alias is the case that makes the rule visible. `import {Shade as Other}` give
 one identity two spellings, and renaming `Shade` must rewrite the clause's
 *imported* name while leaving `Other` alone — the clause goes on aliasing, it
 just aliases a differently-spelled declaration. Renaming through `Other` moves
-only that module's mentions. Restricting each rename to the spelling under the
-cursor is what makes both halves complete rather than partial, and the occurrence
-index publishes both names of an aliasing clause so that neither is missed.
+only the mentions spelled `Other`. Restricting each rename to the spelling under
+the cursor is what makes both halves complete rather than partial, and the
+occurrence index publishes both names of an aliasing clause so that neither is
+missed.
+
+A dot call is a third spelling of the same idea and the reason the index reads
+the typed tree carefully. Dispatch is on the *declared* name, so
+`Pale.brighten()` is legal in a module that imported `brighten as b`, and the
+checker's typed name for that call is the local `b` while its span covers the
+eight characters the source wrote. The index publishes what the source wrote.
+Taking the typed name instead put an occurrence spelled `b` over the last
+character of `brighten`, which every consumer then read as a name disagreeing
+with its own span.
 
 Because a dot call's operation name is in the index, it is also a mention for
 find-references and a token for colouring — `Pale.brighten()` was invisible to
@@ -193,7 +203,9 @@ offered alongside type names, because knowing an offset is in type position mean
 having a parse. Every candidate carries its kind, so a wrong-kind suggestion
 costs a glance — where guessing from a broken parse would drop the right answers.
 It says nothing inside a comment, which cannot hold code, and does answer inside
-a string, which can hold an interpolation where names belong.
+a string, which can hold an interpolation where names belong. A block comment's
+span runs past its closing `*)` where a line comment's stops at the newline, so
+the two take different bounds rather than one that is wrong for either.
 
 ## Correctness principles
 
@@ -352,7 +364,11 @@ less than it looks.
 - **Completion answers inside a string literal.** A string can hold an
   interpolation, where names genuinely belong, and telling the two apart needs
   the token stream rather than the text. Comments are suppressed, since a comment
-  cannot hold code.
+  cannot hold code — except a JavaScript-spelled `/* … */`, which the lexer
+  redirects rather than records, so nothing marks it as a comment to suppress
+  inside. While a `(*` is still unclosed its comment runs to the end of the file,
+  and completion is silent for the rest of it; that is the same shape as the
+  highlighting bail-out in #162 and #174.
 - **A module alias cannot be renamed.** `import * as H` binds `H` in a namespace
   the occurrence index does not model, so a request on it answers "nothing to
   rename here" rather than refusing.
