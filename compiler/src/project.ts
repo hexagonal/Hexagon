@@ -327,7 +327,15 @@ function relativeSpecifier(from: string, to: string): string {
   return up > 0 ? `${"../".repeat(up)}${down}` : `./${down}`;
 }
 
-function resolveSpecifier(importer: string, specifier: string): string {
+/**
+ * The path an import specifier names, from the module that wrote it.
+ *
+ * Exported because it is a rule about the module graph rather than a detail of
+ * compiling one: an editor asking which module a name was imported from has to
+ * answer it the same way the compiler did, and a second copy that drifted would
+ * be wrong only for the imports it disagreed about.
+ */
+export function resolveSpecifier(importer: string, specifier: string): string {
   const directory = importer.slice(0, Math.max(0, importer.lastIndexOf("/")));
   const candidate = normalizePath(`${directory}/${specifier}`);
   return candidate.endsWith(".hex") ? candidate : `${candidate}.hex`;

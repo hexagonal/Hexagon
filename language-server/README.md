@@ -1,8 +1,10 @@
 # Hexagon Language Server
 
-This folder will contain the Hexagon language server: the process that exposes Hexagon language intelligence through Microsoft's Language Server Protocol (LSP).
+The Hexagon language server: the process that exposes Hexagon language intelligence through Microsoft's Language Server Protocol (LSP).
 
-Implementation has not started. The initial purpose of this document is to establish the boundary between the language server and the compiler before source files or protocol dependencies are chosen.
+The first slice is implemented — diagnostics, hover, go-to-definition, and find-references — over a compiler-owned analysis session. Completion, rename, semantic tokens, formatting, and code actions are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
+
+This document states the boundary between the language server and the compiler. That boundary is the reason the server is small: every request handler converts coordinates, asks the session one question, and converts the answer back.
 
 ## Responsibility boundary
 
@@ -39,70 +41,105 @@ language-server/
 compiler/
 ```
 
-## Expected structure
-
-The exact files will be chosen when implementation begins. The anticipated shape is:
+## Structure
 
 ```text
 language-server/
   README.md
   src/
-    server.ts          protocol lifecycle and capability negotiation
-    connection.ts      JSON-RPC/LSP transport adapter
-    documents.ts       open-document versions and text synchronization
-    workspace.ts       projects, roots, configuration, and file events
-    diagnostics.ts     conversion and publication of diagnostics
-    requests/          thin adapters for hover, definition, rename, and others
+    main.ts            process entry point and transport selection
+    server.ts          lifecycle, capabilities, document sync, request dispatch
+    workspace.ts       the file set: open buffers, disk, and precedence between them
+    positions.ts       the single LSP-to-compiler coordinate boundary
+    diagnostics.ts     conversion of compiler diagnostics to the protocol's shape
 ```
 
-Protocol adapters should remain thin. A request module asks the compiler service a semantic question, checks that its result still belongs to the current document version, and converts the answer to LSP structures.
+There is no `connection.ts`: `vscode-languageserver` owns JSON-RPC framing and lifecycle, and no separate `requests/` directory, because each handler is small enough that separating them would cost more indirection than it removes. `documents.ts` is likewise absent — `TextDocuments` from the same package applies incremental changes.
 
-## Compiler service requirement
+Protocol adapters stay thin. A handler asks the compiler service a semantic question and converts the answer to LSP structures; when one looks like it is about to decide something about Hexagon, the decision belongs in `compiler/src/analysis` instead.
 
-The language server must not invoke the batch CLI for every request. The compiler will expose a persistent analysis session that can retain and invalidate work across edits. Its eventual API should support operations such as:
+Two rules keep the process honest. Nothing may write to stdout except protocol messages — a stray `console.log` corrupts the stream and the client disconnects with no useful error — so the server logs through `connection.console`. And the workspace module is the only part that touches a filesystem, because the compiler is deliberately free of one.
+
+## Compiler service
+
+The language server does not invoke the batch CLI for every request. `compiler/src/analysis/session.ts` exposes `AnalysisSession`, a persistent session the server holds open:
 
 ```text
-open or update a source file
-remove a source file
-analyze affected modules
-retrieve diagnostics
-query the symbol or type at a position
-find definitions and references
-prepare and perform a rename
-request completions
-request semantic tokens
+setFile(path, text)       add a file or replace its text
+removeFile(path)          drop a file
+version                   increments on every mutation
+diagnostics(path)         one file's diagnostics
+allDiagnostics()          every held file's, empty lists included
+definitions(path, offset) where the name at this offset is declared
+references(path, offset)  every occurrence of what it denotes
+hover(path, offset)       what it is, and its type if it has one
+pathOfFile(fileId)        the file a span's numeric identity names
 ```
 
-The precise API belongs to the compiler architecture. The language server consumes it and supplies workspace files, document versions, cancellation, and configuration.
+Positions crossing this API are UTF-16 offsets into the named file, never line and character pairs — see below.
+
+Analysis is recomputed lazily and wholly: any change discards it and the next question rebuilds it. That is a decision, not a placeholder. Reanalyzing the entire standard library after an edit measures around 19ms, inside a keystroke's budget, so incremental reuse would buy nothing yet and would have to guess what is worth keeping before any query exists to say. Rename, completion, and semantic tokens will extend this API rather than the server.
+
+The query behind definitions and references is `compiler/src/queries/occurrences.ts`, which indexes every name that denotes something together with what it denotes — values, unions, records, foreign types, and constraints.
 
 ## Correctness principles
 
-- Every response is associated with the document version from which it was computed.
-- Results from superseded analysis are discarded rather than published against newer text.
-- LSP positions are converted at one explicit boundary to the compiler's source-position representation.
-- Compiler diagnostics remain the semantic source of truth; this package only translates and publishes them.
-- Cancellation is propagated into compiler queries where practical.
+- LSP positions are converted at one explicit boundary, `positions.ts`, to the compiler's source-position representation. Both count UTF-16 code units and number lines from zero, so a span crossing outward is a rename rather than a computation; only the inward direction needs the document's line index, which is why that direction takes a `TextDocument`.
+- URIs convert to paths by remembered pairing, not by string surgery. `file:///c:/A` and `file:///C:/a` can name one file, so the server records the URI each path came from and converts back by lookup.
+- Compiler diagnostics remain the semantic source of truth; this package only translates and publishes them. Message text passes through unchanged — rewording here would fork what the terminal, the playground, and the editor each show.
+- Results from superseded analysis are not published against newer text. Diagnostics are debounced, and only the latest analysis is sent.
 - Request ordering must not make compiler results nondeterministic.
-- The server must remain responsive while analysis is running.
 - Editor-specific behaviour is kept out of the shared compiler services.
 
-## Initial delivery order
+Two principles from this document's first draft turned out to describe a problem this design does not have, and are recorded here rather than silently dropped. **Per-response version stamping** and **cancellation propagation** both assume a request can observe an edit midway through being answered. Analysis is synchronous, so nothing yields between reading a document and returning an answer; a request either runs entirely before an edit or entirely after it. Both become real the moment analysis stops being synchronous, and that is the change that should bring them back.
 
-The first vertical slice should provide:
+## Delivered, and what follows
+
+The first vertical slice provides:
 
 1. process startup, initialization, shutdown, and logging;
-2. incremental document synchronization;
-3. compiler-backed diagnostics for an open file;
-4. hover using resolved and typed compiler information; and
-5. go-to-definition using stable compiler symbol identities.
+2. incremental document synchronization, with open buffers taking precedence over disk;
+3. compiler-backed diagnostics for every file in the workspace, not only open ones;
+4. hover using resolved and typed compiler information;
+5. go-to-definition using stable compiler identities; and
+6. find-references over values, type names, and constraints.
 
-Completion, references, rename, semantic tokens, formatting, code actions, and other protocol features should follow as the necessary compiler services become stable. Features should not be simulated with textual guesses when semantic information is required.
+Find-references arrived with the slice rather than after it because it shares one index with go-to-definition: both ask the same question of the same table, and building one without the other would have meant writing the traversal twice.
+
+Completion, rename, semantic tokens, formatting, code actions, and workspace symbols follow as the necessary compiler services become stable. Features are not simulated with textual guesses when semantic information is required — where this slice reads source text, it is to locate a name the tree already said was there, never to decide what the name means.
 
 ## Implementation and distribution
 
-The language server is expected to be written in TypeScript and initially hosted by Node.js. The package and dependency choices, supported LSP version, executable name, transport modes, logging policy, project discovery, and editor-extension packaging remain open.
+TypeScript, hosted by Node.js, speaking LSP through `vscode-languageserver` and `vscode-languageserver-textdocument`. Those are real dependencies rather than a hand-rolled JSON-RPC layer: framing, lifecycle, and protocol types are exactly the parts this document calls thin, and the repository already depends on `vscode-textmate` and `vscode-oniguruma` for the same reason.
 
-A likely executable name is `hexagon-language-server`, but it is not fixed by this document. Editor extensions should launch or connect to this server; they should not contain separate compiler implementations.
+`npm run build` bundles the server and the compiler it embeds into `dist/server.cjs` with esbuild. The bundle is CommonJS because `vscode-languageserver` requires its Node entry point at runtime, which an ESM bundle cannot satisfy. The executable is `hexagon-language-server`; it defaults to stdio when launched with no transport flag, so running it by hand to diagnose a problem does something useful instead of printing a usage error.
+
+Editor extensions launch this server. They do not contain separate compiler implementations; `editors/vscode` is a client and a grammar, nothing more.
+
+## Known limits
+
+Listed rather than hidden, because each is a place where the server is knowingly
+less than it looks.
+
+- **Every `.hex` file under a workspace root is one project.** There is no project
+  manifest, so the server compiles the whole tree together. Opening this
+  repository is the clearest demonstration: `runtime/VectorTrie.hex` is a
+  privileged runtime module that no ordinary project may compile, and it reports
+  38 errors starting with ``unknown generic type `Node` `` — as the user's first
+  impression. A project file, or a convention for excluding a directory, is what
+  fixes this; guessing at roots would not.
+- **Initialization waits for the workspace scan.** `initialize` walks the root
+  and reads every `.hex` file before replying, so that the first request is
+  answered against a whole module graph rather than a partial one. On a very
+  large tree that delay is visible at startup. Scanning in the background instead
+  would trade a slow start for a window where go-to-definition silently misses.
+- **Two URI spellings of one file would be two files.** See `positions.ts`; no
+  client observed so far sends more than one spelling.
+- **Constraints declared in a module cannot be used from another.** The compiler
+  has no channel for exporting one, so a cross-module `honor` does not resolve.
+  Go-to-definition on a constraint therefore only ever answers within a module,
+  and the built-in `Eq`/`Ord`/`Show`/`Hash` are known to the checker rather than
+  declared in Hexagon, so they have nowhere to jump to at all.
 
 ## Code readability
 

@@ -27,6 +27,22 @@ export {
   type TypeOccurrence,
 } from "./queries/type-occurrences.js";
 export {
+  AnalysisSession,
+  type Definition,
+  type Hover,
+  type Location,
+  type Reference,
+  type SessionOptions,
+} from "./analysis/session.js";
+export {
+  collectOccurrences,
+  targetKey,
+  type ModuleInput,
+  type Occurrence,
+  type Role,
+  type Target,
+} from "./queries/occurrences.js";
+export {
   emitJavaScript,
   emitDeclarations,
   emitTypeScriptPreview,

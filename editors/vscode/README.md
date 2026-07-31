@@ -1,10 +1,15 @@
 # Hexagon for VS Code
 
-Syntax highlighting for `.hex` files, as a TextMate grammar.
+Language support for `.hex` files: a TextMate grammar for colour, and a language
+client for everything the compiler knows.
 
-The grammar lives in [`syntaxes/hexagon.tmLanguage.json`](syntaxes/hexagon.tmLanguage.json)
-and is the whole extension — there is no runtime code. A language server is a
-separate, later concern (`language-server/`).
+Those two halves answer different questions and never consult each other. The
+grammar in [`syntaxes/hexagon.tmLanguage.json`](syntaxes/hexagon.tmLanguage.json)
+paints tokens from `spec/lexer.md` alone, with no idea what any name means; it is
+why an unsaved, unparseable file still has colour. The language client starts
+`hexagon-language-server` (`language-server/`) and shows what the compiler
+resolved, typed, and rejected. Most of this README is about the grammar, because
+the grammar is where the decisions are; the client is thin on purpose.
 
 **Playground reads this same file** (`playground/src/monaco-textmate.ts`), so it is
 not the extension's private grammar: it is the one Hexagon grammar, and a rule
@@ -13,16 +18,47 @@ Monarch tokenizer, which drifted (#145) until it was deleted for #161. The one c
 Playground does not share is its own `module` / `end module` notation, which is not
 `.hex` syntax and lives in a Playground-side injection rather than here.
 
+## The language client
+
+`src/extension.ts` holds no knowledge of Hexagon. It starts the language server
+as a child process over stdio, hands it the workspace, and lets
+`vscode-languageclient` route requests — so diagnostics, hover,
+go-to-definition and find-references all come from the compiler, and a feature
+added to the server appears here with no change to the extension.
+
+`npm run build` produces two bundles in `dist/`: `extension.cjs`, and
+`server.cjs`, which is the language server and the compiler it embeds. The
+extension ships its own copy of the server rather than resolving one from the
+machine, so the version that answers is always the version that was tested with
+this grammar.
+
+Three settings exist, and all three are about the editor rather than the language:
+
+| Setting | Purpose |
+| :--- | :--- |
+| `hexagon.languageServer.enabled` | Turn the server off to keep highlighting alone. |
+| `hexagon.languageServer.path` | Run a different server build — for developing the server itself, where reinstalling the extension each iteration is the whole cost. |
+| `hexagon.trace.server` | Log the traffic between extension and server. |
+
+Changing either `languageServer` setting restarts the server immediately; there
+is also **Hexagon: Restart Language Server** for when it has wedged. A server
+that fails to start says so in a notification rather than falling back quietly to
+highlighting, because a silent fallback looks exactly like a feature that was
+never implemented.
+
 ## Installing it locally
 
 VS Code loads any extension folder it finds in `~/.vscode/extensions`, so a
 symlink is enough:
 
 ```sh
+npm install && npm run build
 ln -s "$PWD" ~/.vscode/extensions/hexagon-vscode
 ```
 
-Then reload the window (**Developer: Reload Window**) and open any `.hex` file.
+The build is not optional: without `dist/` there is nothing for `main` to load,
+and the extension fails to activate. Then reload the window
+(**Developer: Reload Window**) and open any `.hex` file.
 The repository's `.vscode/settings.json` already maps `*.hex` to the `hexagon`
 language id this extension contributes.
 
