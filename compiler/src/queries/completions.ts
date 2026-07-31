@@ -32,6 +32,7 @@
  * from a broken parse would drop the *right* answers.
  */
 
+import type * as Source from "../support/source.js";
 import type * as Resolved from "../syntax/resolved/index.js";
 import {
   codePointBefore,
@@ -68,17 +69,7 @@ export function collectCompletions(input: CompletionInput): readonly Completion[
   // A comment cannot contain code, so nothing belongs here. Strings are left
   // alone deliberately: one can hold an interpolation, where names *do* belong,
   // and telling the two apart needs the token stream rather than the text.
-  // Exclusive at the start — a cursor at the opening `/` is in front of the
-  // comment — and at the end only for a block, whose span runs past its closing
-  // `*)`. A line comment's span stops at the newline, so its last offset is
-  // still inside it, and going exclusive there would answer on every line that
-  // ends in a comment.
-  if (input.resolved.comments.some(({ kind, span }) =>
-    input.offset > span.start.offset &&
-    (kind === "Block" ? input.offset < span.end.offset : input.offset <= span.end.offset)
-  )) {
-    return [];
-  }
+  if (input.resolved.comments.some((comment) => inComment(input.offset, comment))) return [];
   const qualifier = qualifierAt(input.text, input.offset);
   if (qualifier !== undefined) return membersOf(qualifier, input);
   const found = new Map<string, Completion>();
@@ -105,6 +96,41 @@ export function collectCompletions(input: CompletionInput): readonly Completion[
     if (!found.has(alias)) found.set(alias, { name: alias, kind: "module" });
   }
   return sorted([...found.values()]);
+}
+
+/**
+ * Whether an offset is being typed inside a comment.
+ *
+ * Exclusive at the start, since a cursor at the opening delimiter is in front of
+ * the comment. At the end it turns on whether the comment was *closed*, which is
+ * not the same as whether it is a block. A closed block's span runs one past its
+ * `*)`, so an offset there is already outside it — but an unterminated one runs
+ * to the end of the file, and that last offset is exactly where the caret sits
+ * while the comment is still being typed. A line comment is never closed by a
+ * delimiter; its span stops at the newline, and the offset before that newline
+ * is still inside it.
+ *
+ * Closure is counted rather than read off the last two characters, because block
+ * comments nest: `(* outer (* inner *)` ends in `*)` and is not closed.
+ */
+function inComment(offset: number, comment: Source.Comment): boolean {
+  if (offset <= comment.span.start.offset) return false;
+  return closed(comment)
+    ? offset < comment.span.end.offset
+    : offset <= comment.span.end.offset;
+}
+
+function closed(comment: Source.Comment): boolean {
+  if (comment.kind !== "Block") return false;
+  let depth = 0;
+  for (let at = 0; at < comment.text.length - 1; at += 1) {
+    const pair = comment.text.slice(at, at + 2);
+    if (pair === "(*") depth += 1;
+    else if (pair === "*)") depth -= 1;
+    else continue;
+    at += 1;
+  }
+  return depth === 0;
 }
 
 /**

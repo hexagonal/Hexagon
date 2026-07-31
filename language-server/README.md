@@ -86,7 +86,7 @@ pathOfFile(fileId)        the file a span's numeric identity names
 
 Positions crossing this API are UTF-16 offsets into the named file, never line and character pairs — see below.
 
-Analysis is recomputed lazily and wholly: any change discards it and the next question rebuilds it. That is a decision, not a placeholder. Reanalyzing this repository's own `stdlib/` and `runtime/` after an edit measures a median of about 40ms — well inside the delay diagnostics are debounced by — so incremental reuse would buy nothing yet and would have to guess what is worth keeping before any query exists to say. A rename costs about three times that, since it recompiles an edited copy and compares the two; it is not on the keystroke path.
+Analysis is recomputed lazily and wholly: any change discards it and the next question rebuilds it. That is a decision, not a placeholder. Reanalyzing this repository's own `stdlib/` and `runtime/` after an edit measures a median of about 40ms — well inside the delay diagnostics are debounced by — so incremental reuse would buy nothing yet and would have to guess what is worth keeping before any query exists to say. A rename adds roughly one more compilation on top of whatever the session already holds, since it recompiles an edited copy and compares the two; it is not on the keystroke path.
 
 Five compiler queries sit behind these answers, and each exists because no other part of the compiler still knows what it knows:
 
@@ -203,9 +203,12 @@ offered alongside type names, because knowing an offset is in type position mean
 having a parse. Every candidate carries its kind, so a wrong-kind suggestion
 costs a glance — where guessing from a broken parse would drop the right answers.
 It says nothing inside a comment, which cannot hold code, and does answer inside
-a string, which can hold an interpolation where names belong. A block comment's
-span runs past its closing `*)` where a line comment's stops at the newline, so
-the two take different bounds rather than one that is wrong for either.
+a string, which can hold an interpolation where names belong. Where a comment
+*ends* turns on whether it was closed rather than on whether it is a block: a
+closed block's span runs one past its `*)`, so a caret there is already outside
+it, while an unterminated one runs to the end of the file and that last offset is
+exactly where the caret sits as it is being typed. Closure is counted, since
+block comments nest and a text ending in `*)` is not proof of it.
 
 ## Correctness principles
 
@@ -372,10 +375,16 @@ less than it looks.
 - **A module alias cannot be renamed.** `import * as H` binds `H` in a namespace
   the occurrence index does not model, so a request on it answers "nothing to
   rename here" rather than refusing.
-- **Rename re-analyses the whole project twice over to verify one request** —
-  once for the edited copy, then a whole-project denotation comparison against
-  the original. That is affordable on the same measurement that makes whole-
-  project analysis affordable, and it is not on the keystroke path.
+- **Rename re-analyses the whole project to verify one request** — one
+  compilation of the edited copy, then a whole-project denotation comparison
+  against the original. That is affordable on the same measurement that makes
+  whole-project analysis affordable, and it is not on the keystroke path.
+- **The "no new diagnostic" test compares messages with the renamed name blanked
+  out of them**, so that a pre-existing error mentioning either spelling is not
+  read as breakage. The cost is that two diagnostics differing *only* in those
+  names count as one: a collision that moves from the old name onto the new one
+  can pass this test. The denotation comparison is the load-bearing check, and
+  the user still sees the error.
 - **A prelude module that no other module references is not compiled**, so it has
   no tokens, no completions, and cannot be renamed within. This is only visible
   in a project that compiles the standard library itself, and it can make a

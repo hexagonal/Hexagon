@@ -226,10 +226,21 @@ describe("completions", () => {
   });
 
   test("says nothing inside a block comment, and answers again after it", () => {
-    // A block comment's span runs past its closing `*)`, unlike a line
+    // A closed block comment's span runs one past its `*)`, unlike a line
     // comment's, which stops at the newline. One bound cannot serve both.
-    expect(namesIn(["let value: Int = (* here ‸*)1", ""].join("\n"))).toEqual([]);
+        expect(namesIn(["let value: Int = (* here ‸*)1", ""].join("\n"))).toEqual([]);
     expect(namesIn(["let value: Int = (* here *)‸1", ""].join("\n"))).not.toEqual([]);
+  });
+
+  test("stays quiet inside a block comment that has not been closed yet", () => {
+    // The caret while a comment is being typed sits at the very end of its span,
+    // because an unterminated comment runs to the end of the file. Bounding
+    // every block exclusively pops the completion list on each keystroke — and
+    // "is it a block?" is the wrong question: "was it closed?" is the right one.
+    expect(namesIn(["let value: Int = 1", "(* still typing‸", ""].join("\n"))).toEqual([]);
+    expect(namesIn(["let value: Int = 1", "(** doc in progress‸"].join("\n"))).toEqual([]);
+    // Block comments nest, so a text ending in `*)` is not proof of closure.
+    expect(namesIn(["let value: Int = 1", "(* outer (* inner *)‸"].join("\n"))).toEqual([]);
   });
 
   test("says nothing inside a comment", () => {
