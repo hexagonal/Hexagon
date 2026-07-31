@@ -98,6 +98,20 @@ export function planReturnAnnotation(
     exported: item.exported,
   };
 
+  // Asked before anything else because it is the most specific thing that can be
+  // said. An unclosed parameter list is also a parse error in the head, so
+  // `unsettledBy` would refuse it too — in the general terms it uses for a head
+  // that will not check, where this names the missing `)` the user is one
+  // keystroke from typing. The narrower sentence is the more useful one, and
+  // asking for it first is what keeps this refusal reachable at all.
+  const writeEdits = insertionPlan(input.lexed, lambda);
+  if (writeEdits === undefined) {
+    return {
+      ...subject,
+      refused: `\`${item.binding.name}\` has no closed parameter list to write a return type after`,
+    };
+  }
+
   const broken = unsettledBy(input.diagnostics, input.lexed, input.laidOut, item, lambda);
   if (broken !== undefined) return { ...subject, refused: broken };
 
@@ -130,15 +144,7 @@ export function planReturnAnnotation(
     };
   }
 
-  const edits = insertionEdits(input.lexed, lambda, spelled.text);
-  if (edits === undefined) {
-    return {
-      ...subject,
-      refused: `\`${item.binding.name}\` has no closed parameter list to write a return type after`,
-    };
-  }
-
-  return { ...subject, annotation: spelled.text, edits };
+  return { ...subject, annotation: spelled.text, edits: writeEdits(spelled.text) };
 }
 
 /**
@@ -155,7 +161,23 @@ export function planReturnAnnotation(
  * Three questions, because the diagnostics can only answer the first.
  *
  * **Is anything wrong inside the declaration?** Any error the file reports
- * between the body's start and the declaration's end is about this function.
+ * within the declaration's span is about this function — head as well as body.
+ * The head matters for the same reason the body does, and it is a mistake to
+ * think otherwise: an unknown *parameter* type is not a local complaint about
+ * one word, because the checker gives that parameter a fresh variable and the
+ * result generalizes over it. `m(x: I) = [x]` — a user two keystrokes into
+ * `Int` — infers `Vector(a)`, which is not wrong about the text on screen and is
+ * wrong about every text the user is on their way to. Writing it down turns a
+ * finished word into `` `a` is a declared type variable, but the body requires
+ * `Int` ``, blaming a signature the user did not write for a typo they already
+ * fixed.
+ *
+ * Two errors caret the *name* rather than any part of the declaration: the
+ * missing signature this repair answers, and the undeclared constraint that
+ * comes with it (`must declare every constraint`). Both are the absence of the
+ * very thing being written, so neither is a reason to refuse to write it, and
+ * both are skipped by span — they are the only diagnostics that sit inside the
+ * binding, and either one is the reason this query was asked at all.
  *
  * The other two are about the same thing — *did the parser get through it?* —
  * and neither can be asked of the diagnostics, because a declaration that stops
@@ -191,8 +213,8 @@ export function planReturnAnnotation(
  * stopped at. A repair derived from a file the compiler gave up reading is the
  * one worth waiting on.
  *
- * The head is deliberately not asked about, only the body. An unclosed
- * *parameter list* is not a broken type, it is a missing place to put one, and
+ * The last two questions are asked of the body alone. An unclosed *parameter
+ * list* is not a broken type, it is a missing place to put one, and
  * `insertionEdits` refuses it in those terms.
  */
 function unsettledBy(
@@ -203,23 +225,33 @@ function unsettledBy(
   lambda: Resolved.LambdaExpr,
 ): string | undefined {
   const name = item.binding.name;
-  const from = lambda.body.span.start.offset;
+  const body = lambda.body.span.start.offset;
+  const from = item.span.start.offset;
   const to = item.span.end.offset;
+  const binding = item.binding.span;
   for (const diagnostic of diagnostics) {
     // Errors only, for now because there is nothing else: no compiler pass emits
     // a warning today. The day one does, it must not take a repair away — a
     // warning is by definition something the user may leave alone.
     if (diagnostic.severity !== "error") continue;
     const { start, end } = diagnostic.primary;
+    // Both declaration-level errors report at exactly the binding, so this is a
+    // containment test rather than an equality one only to keep it a statement
+    // about the *name* rather than about two message strings. Where the region
+    // ends is not observable: a diagnostic reaching past the name means the
+    // parser lost the header, and then `functionAt` finds no function to ask
+    // about in the first place.
+    if (start.offset >= binding.start.offset && end.offset <= binding.end.offset) continue;
     if (start.offset >= from && end.offset <= to) {
       // Not "so the type is not settled": a JavaScript-spelled comment in the
       // body is an error whose own repair is offered beside this one and whose
       // presence says nothing about the type. The claim made here is only that
-      // something in the body needs fixing, which is what being in the body is.
-      return `the body of \`${name}\` has an error to fix first: ${diagnostic.message}`;
+      // something here needs fixing, which is what being in the declaration is.
+      const where = start.offset >= body ? "body" : "signature";
+      return `the ${where} of \`${name}\` has an error to fix first: ${diagnostic.message}`;
     }
   }
-  const unclosed = unclosedGroupIn(lexed, from, to);
+  const unclosed = unclosedGroupIn(lexed, body, to);
   if (unclosed !== undefined) {
     return `the body of \`${name}\` has an unclosed \`${unclosed}\`, ` +
       "so its type is not settled yet";
@@ -371,11 +403,10 @@ function functionAt(
  * program. A list that has parentheses opened them before its first parameter;
  * a bare pattern did not.
  */
-function insertionEdits(
+function insertionPlan(
   lexed: Lexed.File,
   lambda: Resolved.LambdaExpr,
-  annotation: string,
-): readonly Diagnostics.Edit[] | undefined {
+): ((annotation: string) => readonly Diagnostics.Edit[]) | undefined {
   const fileId = lambda.span.fileId;
   const from = lambda.span.start.offset;
   const to = lambda.body.span.start.offset;
@@ -403,9 +434,9 @@ function insertionEdits(
     // an ordinary state to be in halfway through typing one: `fun f(x: Int = x`.
     // There is no place for a colon until it closes.
     if (before.kind !== "RightParen") return undefined;
-    return [{ span: at(before.span.end), replacement: `: ${annotation}` }];
+    return (annotation) => [{ span: at(before.span.end), replacement: `: ${annotation}` }];
   }
-  return [
+  return (annotation) => [
     { span: at(lambda.span.start), replacement: "(" },
     { span: at(before.span.end), replacement: `): ${annotation}` },
   ];

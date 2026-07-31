@@ -82,6 +82,11 @@ describe("code actions: the diagnostic's own fixes", () => {
   test("a caret immediately after the name is still on it", () => {
     // Where an editor leaves the cursor after typing a name, and where the
     // other position queries all answer. The region is closed at both ends.
+    //
+    // This closes `touches` and nothing further: `codeActions` hands the
+    // *diagnostic's* start offset to `functionAt`, never the caret, so the
+    // inclusive end of the binding span in `functionAt` is not what this test
+    // exercises and moving it will not fail here.
     const source = "export fun zero() = 0\n";
     const { session } = sessionOf({ "/main.hex": source });
     const past = at(source, "zero") + "zero".length;
@@ -419,6 +424,84 @@ describe("code actions: infer return type", () => {
     const { session: other } = sessionOf({ "/main.hex": ending });
     expect(sole(actionsOn(other, "/main.hex", ending, "bad")).disabled)
       .toBe("the body of `bad` has an error to fix first: unknown name `missingName`");
+  });
+
+  test("waits while the signature has an error, because a half-typed type is a variable", () => {
+    // The trap this exists for. `I` is a user two keystrokes into `Int`, and the
+    // checker does not stop there: it gives `x` a fresh variable, so the result
+    // generalizes and the repair on offer is `: Vector(a)`. That is not wrong
+    // about the text on screen and is wrong about the text being typed towards.
+    const source = "export fun m(x: I) = [x]\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    const action = sole(actionsOn(session, "/main.hex", source, "m("));
+    expect(action.edits).toEqual([]);
+    expect(action.disabled).toBe(
+      "the signature of `m` has an error to fix first: " +
+        "unknown type `I`; this slice supports primitive, tuple, and declared union types",
+    );
+
+    // What refusing buys, stated as the thing that would otherwise happen: had
+    // the annotation been written, finishing the word would blame the signature.
+    const written = "export fun m(x: Int): Vector(a) = [x]\n";
+    const { session: after } = sessionOf({ "/main.hex": written });
+    expect(after.diagnostics("/main.hex").map(({ message }) => message)).toEqual([
+      "`a` is a declared type variable, but the body requires `Int`; " +
+        "change the annotation to `Int`, or remove it to let the type be inferred",
+    ]);
+  });
+
+  test("a later parameter's type is as much the signature as the first one's", () => {
+    const source = "export fun m(x: Int, y: Bogus) = x\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(sole(actionsOn(session, "/main.hex", source, "m(")).disabled)
+      .toMatch(/^the signature of `m` has an error to fix first: unknown type `Bogus`/);
+  });
+
+  test("the two errors that caret the name are not reasons to refuse", () => {
+    // Both are the absence of the very thing being written — the missing
+    // signature this answers, and the undeclared constraint that comes with it —
+    // so a check on the whole declaration has to step over exactly them.
+    //
+    // This pins that they are stepped over, not where the step ends: widening
+    // the skip past the name changes no answer, because reaching that character
+    // means the parser failed on the header and then there is no function here
+    // to ask about. `export fun m) = 0` reports at exactly that offset and
+    // offers nothing at all.
+    const source = "export fun double(value) = value + value\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    const messages = session.diagnostics("/main.hex").map(({ message }) => message);
+    expect(messages).toHaveLength(2);
+    expect(messages[1]).toMatch(/must declare every constraint/);
+    const action = sole(actionsOn(session, "/main.hex", source, "double"));
+    expect(action.disabled).toBeUndefined();
+    expect(applied(source, action)).toBe("export fun double(value): a = value + value\n");
+  });
+
+  test("an error in another declaration is not this declaration's to wait on", () => {
+    // The region is one declaration's. A file with a mistake elsewhere is the
+    // ordinary state of a file being worked on, and refusing everywhere while
+    // anything anywhere is broken would make the repair unreachable in practice.
+    const source = "export fun m(x: Int) = [x]\nlet helper(y: Bogus) = y\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    const action = sole(actionsOn(session, "/main.hex", source, "m("));
+    expect(action.disabled).toBeUndefined();
+    expect(applied(source, action)).toBe(
+      "export fun m(x: Int): Vector(Int) = [x]\nlet helper(y: Bogus) = y\n",
+    );
+  });
+
+  test("a type the checker gave up on is refused rather than spelled", () => {
+    // `helper` has an error, so its result is the checker's `Error` type, and
+    // `size` inherits it through the call. There is no source text for that —
+    // rendering it as `?` would put a character in the file that does not lex —
+    // and it is reachable only from *another* declaration, since an error in
+    // this one is refused before the type is ever spelled.
+    const source = "let helper(x: Int) = missingName\nexport fun size(v: Int) = helper(v)\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(sole(actionsOn(session, "/main.hex", source, "size")).disabled).toBe(
+      "the return type of `size` cannot be written here: " +
+        "part of the inferred type is unknown, because the definition has an error",
+    );
   });
 
   test("does not claim an error is about the type when it is about the text", () => {

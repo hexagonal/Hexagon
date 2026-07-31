@@ -264,10 +264,21 @@ diagnostic at all: `fun copy(r) = {...r}` infers the *open* record `{...a} ->
 {...a}`, and writing that type closes it, leaving a function that accepts only
 the empty record and an error message nowhere.
 
-A body that does not typecheck is refused before any of that. Inference does not
-stop at an unknown name — it yields a variable — so the repair on offer would be
-`: a`, which is true of the broken text and wrong the moment the name is fixed,
-at which point the rigid annotation is what gets blamed.
+A declaration that does not typecheck is refused before any of that. Inference
+does not stop at an unknown name — it yields a variable — so the repair on offer
+would be `: a`, which is true of the broken text and wrong the moment the name is
+fixed, at which point the rigid annotation is what gets blamed.
+
+The signature counts as much as the body, which is easy to get wrong on the
+grounds that a parameter's type is a local complaint about one word. It is not:
+the checker gives that parameter a fresh variable and the result generalizes over
+it. `export fun m(x: I) = [x]` — a user two keystrokes into `Int` — infers
+`Vector(a)`, and writing that down turns the finished word into ``  `a` is a
+declared type variable, but the body requires `Int` ``, blaming a signature the
+user never wrote for a typo they have already fixed. Two errors caret the *name*
+rather than any part of the declaration — the missing signature this answers and
+the undeclared constraint that travels with it — and both are the absence of the
+thing being written, so neither is a reason to refuse to write it.
 
 That question is asked three times, because the diagnostics can only answer the
 first. Any error reported *inside* the declaration is this function's. But a body
@@ -495,12 +506,19 @@ less than it looks.
   can pass this test. The denotation comparison is the load-bearing check, and
   the user still sees the error.
 - **A broken declaration makes its *callers* provisional, and only its own is
-  checked.** `export fun size(v) = helper(v)` where `helper` is the one with the
-  mistake has a body with nothing wrong in it, so the repair is offered — and
+  checked.** `export fun size(v: Int) = helper(v)` where `helper` is the one
+  with the mistake has nothing wrong inside it, so the repair is offered — and
   the type it writes came through the broken call. Fixing `helper` then leaves a
   rigid annotation that blames the signature. Catching it would mean deciding
   which of a file's errors this declaration's type depends on, which is a
   question about the checker's inference graph rather than about source spans.
+
+  The reach of this is narrower than it looks, because the checker's `Error`
+  type is not spellable and refusing to spell it catches the direct cases. With
+  `let helper(x: Int) = missingName`, the result *is* that type and the action
+  refuses. It slips through only when the error is wrapped in something that can
+  be written: `let helper(x: Int) = [missingName]` gives `Vector` of it, and
+  `: Vector(a)` is offered.
 - **An exported value that is not a function gets nothing at all.** `export let
   size = helper` reports `exported value \`size\` requires a type annotation`,
   and no action answers it — not even a refusal, because there is no return type
