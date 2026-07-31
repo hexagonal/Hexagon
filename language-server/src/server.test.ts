@@ -424,6 +424,10 @@ describe("the Hexagon language server", () => {
       expect(reported.map(({ severity }) => severity).sort()).toEqual([1, 2]);
       expect(reported.find(({ severity }) => severity === 2)!.message)
         .toContain("matches no file");
+      // The protocol types a character as `uinteger`, which is 32-bit. A client
+      // deserializing `Number.MAX_SAFE_INTEGER` into an unsigned 32-bit integer
+      // fails or wraps; VS Code clamps, which is why nothing here would notice.
+      for (const { range } of reported) expect(range.end.character).toBe(2 ** 31 - 1);
     } finally {
       await solo.dispose();
     }

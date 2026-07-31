@@ -160,14 +160,21 @@ they had configured away. A broken manifest never takes language support down
 with it: defaults apply and the workspace still works.
 
 An entry that names nothing is reported too, as a warning rather than an error,
-and checked by exact spelling rather than by asking whether the path opens.
-macOS and Windows will happily open `Trie.hex` when the file is `trie.hex`, so
-the user's own editor gives no hint that the entry matches nothing here, where
-comparison is exact — a privileged module that is silently not privileged brings
-back the very errors it was written to remove. It is a warning because
-`exclude: ["dist"]` in a fresh clone is legitimately ahead of the build that
-creates it, and reporting that as an error would teach a user to ignore the
-mistakes that are real.
+and checked inside the root by exact spelling rather than by asking whether the
+path opens. macOS and Windows will happily open `Trie.hex` when the file is
+`trie.hex`, so the user's own editor gives no hint that the entry matches
+nothing here, where comparison is exact — a privileged module that is silently
+not privileged brings back the very errors it was written to remove. It is a
+warning because `exclude: ["dist"]` in a fresh clone is legitimately ahead of
+the build that creates it, and reporting that as an error would teach a user to
+ignore the mistakes that are real. An entry *outside* the root is judged by
+existence alone, so a mis-cased one there goes unreported on a filesystem that
+ignores case.
+
+The two fields are not symmetrical, and the asymmetry is reported rather than
+left to be discovered: `exclude` accepts a file or a directory, while
+`runtimePaths` accepts only files, because privilege is granted per module. A
+directory in `runtimePaths` is an error, not a silent no-match.
 
 An excluded file that the user opens says so, as one informational diagnostic.
 Going quiet instead would read as a broken server — the grammar still colours the
@@ -191,11 +198,15 @@ less than it looks.
   the fix is to reload the window. Handling it is a small change — `setRoots`
   already replaces the whole file set — but it needs the capability declared and
   a test that adding a folder brings its modules into the graph.
-- **`exclude` matches paths, and a path is one of the names a file has.** Both
-  the name written and the one it resolves to are checked, so a symlink cannot
-  smuggle an excluded directory back in. Matching remains case-sensitive on
-  filesystems that are not, which is why a mis-cased entry is reported rather
-  than silently doing nothing.
+- **`exclude` matches paths, and a path is one of the names a file has.** A
+  file is checked under both the name the walk reached it by and the name it
+  resolves to, so a symlink cannot smuggle an excluded directory back in. The
+  *entry* is not resolved, only re-rooted, so excluding a link excludes that
+  link and not the file it points at — the reverse would silently delete source.
+  The consequence is that an entry whose own intermediate components pass
+  through a link will not match a file reached by the resolved route. Matching
+  also remains case-sensitive on filesystems that are not, which is why a
+  mis-cased entry is reported rather than silently doing nothing.
 - **Initialization waits for the workspace scan.** `initialize` walks the root
   and reads every `.hex` file before replying, so that the first request is
   answered against a whole module graph rather than a partial one. On a very

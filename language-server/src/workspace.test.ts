@@ -382,9 +382,14 @@ describe("the workspace walk", () => {
     expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
   });
 
-  // Permission bits do not apply to root, which would make the descent this
-  // test detects invisible rather than absent.
-  test.skipIf(process.getuid?.() === 0)("an excluded directory reached by a link is not descended at all", async () => {
+  // Skipped where the signal does not exist rather than passing on its absence.
+  // Permission bits do not apply to root; and on Windows `chmod` on a directory
+  // only toggles the read-only attribute, leaving `readdir` working — so the
+  // test would pass whether or not the guard is there, which is worse than not
+  // running it. `process.getuid` is itself undefined on Windows, so testing
+  // only for root would have left exactly that case running.
+  const cannotDetectDescent = process.platform === "win32" || process.getuid?.() === 0;
+  test.skipIf(cannotDetectDescent)("an excluded directory reached by a link is not descended at all", async () => {
     const path = await makeRoot();
     await mkdir(join(path, "generated", "deep"), { recursive: true });
     await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
@@ -425,6 +430,87 @@ describe("the workspace walk", () => {
     // the alias afterwards either way, so only this says the walk never read it
     // — and the count is what the server reports to the user at startup.
     expect(added).toBe(1);
+  });
+
+  test("overlapping rescans settle on one manifest's answer", async () => {
+    const path = await makeRoot();
+    await mkdir(join(path, "gen"));
+    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "gen", "g.hex"), "let generated: Int = 2\n");
+    await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["gen"] }));
+    const workspace = new Workspace();
+
+    // This asserts the contract, not the serialization: the interleaving that
+    // `#queue` exists to prevent needs a second call to land inside the first
+    // one's walk, and nothing here can force that without instrumenting the
+    // walk itself. Removing the queue leaves this test green. It is kept
+    // because the converged answer is worth pinning either way, and the queue
+    // is kept because a hazard that cannot be reproduced on demand is still the
+    // kind that shows up on somebody else's slower disk.
+    const first = workspace.setRoots([path], () => {});
+    await writeFile(join(path, MANIFEST_NAME), JSON.stringify({}));
+    const second = workspace.setRoots([path], () => {});
+    await Promise.all([first, second]);
+    expect(workspace.session.paths.map((p) => p.split("/").at(-1)).sort())
+      .toEqual(["g.hex", "main.hex"]);
+  });
+
+  test("excluding a link does not delete the file it points at", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await symlink(join(path, "main.hex"), join(path, "alias.hex"), "file");
+    // Resolving an exclusion's own components looks like the symmetrical thing
+    // to do and silently deletes source: the link resolves to `main.hex`, so the
+    // target leaves the project under its own legitimate name. Only the part of
+    // the path the user did not write — the root — may be rewritten.
+    await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["alias.hex"] }));
+
+    const { workspace } = await scan(path);
+    expect(workspace.session.paths.map((p) => p.split("/").at(-1))).toEqual(["main.hex"]);
+  });
+
+  test("excluding a linked directory does not delete the directory it points at", async () => {
+    const path = await makeRoot();
+    await mkdir(join(path, "lib"));
+    await writeFile(join(path, "lib", "kept.hex"), "export let kept: Int = 1\n");
+    await writeFile(join(path, "main.hex"), 'import {kept} from "./lib/kept"\n\nlet used: Int = kept\n');
+    await symlink(join(path, "lib"), join(path, "lib-link"), "dir");
+    await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["lib-link"] }));
+
+    const { workspace } = await scan(path);
+    expect(workspace.session.paths.map((p) => p.split("/").at(-1)).sort())
+      .toEqual(["kept.hex", "main.hex"]);
+    // Over-exclusion does not merely lose files, it invents errors: a module
+    // that vanishes takes every import of it down as unresolvable, so the user
+    // is shown failures in code that is perfectly correct.
+    expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
+  });
+
+  test("a runtime module keeps its privilege under the name the walk chose", async () => {
+    const base = await makeRoot();
+    const path = join(base, "project");
+    await mkdir(join(base, "external", "runtime"), { recursive: true });
+    await mkdir(path);
+    // Private, because the checker separately forbids `Node` from crossing an
+    // exported signature — privilege lets a module *name* it, not publish it.
+    const runtime = "let size(node: Node(Int)): Int = 0\n";
+    await writeFile(join(base, "external", "runtime", "Trie.hex"), runtime);
+    // The real directory is outside the root, so the walk can only reach the
+    // file through the link and always keys it under the link's spelling. The
+    // compiler matches `runtimePaths` by exact equality against that key, so a
+    // manifest naming the file's own path loses the privilege entirely, and
+    // `unknown generic type `Node`` — the whole reason this file exists — comes
+    // back with nothing to explain it. Placing it outside also makes that
+    // certain rather than a matter of which name `readdir` returned first.
+    await symlink(join(base, "external", "runtime"), join(path, "rt-link"), "dir");
+    await writeFile(
+      join(path, MANIFEST_NAME),
+      JSON.stringify({ runtimePaths: ["../external/runtime/Trie.hex"] }),
+    );
+
+    const { workspace } = await scan(path);
+    expect(workspace.session.paths.map((p) => p.split("/").at(-1))).toEqual(["Trie.hex"]);
+    expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
   });
 
   test("opening an excluded file by its symlinked name does not add it", async () => {

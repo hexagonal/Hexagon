@@ -150,6 +150,60 @@ describe("readManifest", () => {
     expect(result.manifest.runtimePaths).toEqual([join(path, "runtime/Trie.hex")]);
   });
 
+  test("a directory in `runtimePaths` is refused, not silently matched", async () => {
+    const path = await rootWith(JSON.stringify({ runtimePaths: ["runtime"] }));
+    await make(path, "runtime/Trie.hex");
+    const result = await readManifest(path);
+    // `exclude` takes a directory, so writing one here is the natural mistake —
+    // and it matches no compiled file, leaving the errors the entry was written
+    // to remove exactly where they were, with nothing to explain why.
+    expect(result.problems).toHaveLength(1);
+    expect(result.problems[0]!.severity).toBe("error");
+    expect(result.problems[0]!.message).toContain("is a directory");
+    expect(result.manifest.runtimePaths).toEqual([]);
+  });
+
+  test("a separator the exclusion honours is not called a mismatch", async () => {
+    const path = await rootWith(JSON.stringify({ exclude: ["gen\\a.hex"] }));
+    await make(path, "gen/a.hex");
+    const result = await readManifest(path);
+    // `isExcluded` compares through `comparablePath`, which reads a backslash as
+    // a separator — so this entry really does exclude `gen/a.hex`. Splitting on
+    // the platform's separator instead would report "has no effect" about an
+    // entry that has one, which is worse than saying nothing.
+    expect(result.problems).toEqual([]);
+  });
+
+  test("an entry outside the root is judged by existence, not spelling", async () => {
+    const path = await rootWith(JSON.stringify({ exclude: ["../absent-sibling"] }));
+    const result = await readManifest(path);
+    expect(result.problems).toHaveLength(1);
+    expect(result.problems[0]!.message).toContain("matches no file");
+  });
+
+  test("a directory whose name begins with two dots is inside the root", async () => {
+    const path = await rootWith(JSON.stringify({ exclude: ["..hidden"] }));
+    await mkdir(join(path, "..hidden"));
+    // `relative` returns `..hidden`, which starts with `..` without being the
+    // parent — testing that as a prefix rather than as a whole component sends
+    // a directory plainly inside the root down the outside-root path.
+    const result = await readManifest(path);
+    expect(result.problems).toEqual([]);
+  });
+
+  test("a name beginning with two dots is still checked for its case", async () => {
+    const path = await rootWith(JSON.stringify({ exclude: ["..Hidden"] }));
+    await mkdir(join(path, "..hidden"));
+    // The consequence of taking the outside-root path is losing the exact-case
+    // check, which is the whole point of the component walk. Only a filesystem
+    // that ignores case can tell the two apart — everywhere else the entry
+    // simply does not exist — so this asserts the outcome that holds on both
+    // and discriminates where it can.
+    const result = await readManifest(path);
+    expect(result.problems).toHaveLength(1);
+    expect(result.problems[0]!.message).toContain("matches no file");
+  });
+
   test("a mistake outranks an entry that merely matches nothing", async () => {
     const path = await rootWith(['{', '  "exclude": ["absent"],', '  "nope": []', '}'].join("\n"));
     const result = await readManifest(path);

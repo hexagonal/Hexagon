@@ -70,6 +70,8 @@ export class Workspace {
   readonly #manifests = new Map<string, Manifest>();
   /** Every root's exclusions, merged, under both the names they can wear. */
   #exclude: Exclusions = NOTHING_EXCLUDED;
+  /** Tail of the `setRoots` queue — see the comment there. */
+  #queue: Promise<void> = Promise.resolve();
 
   /**
    * Replaces the workspace with these roots: reads each one's `hexagon.json`,
@@ -85,6 +87,21 @@ export class Workspace {
     roots: readonly string[],
     onError: (message: string) => void,
   ): Promise<{ added: number; manifests: ReadonlyMap<string, ManifestResult> }> {
+    // Serialized against itself. The caller is a notification handler, and
+    // `vscode-jsonrpc` does not await one before delivering the next, so two
+    // quick saves of `hexagon.json` can put a second run's `#manifests.clear()`
+    // in the middle of the first one's walk — which then walks with exclusions
+    // belonging to neither manifest. Queueing is enough because the whole method
+    // is a replacement: the later call's answer is the one that should win.
+    const run = this.#queue.then(() => this.#setRoots(roots, onError));
+    this.#queue = run.then(() => {}, () => {});
+    return await run;
+  }
+
+  async #setRoots(
+    roots: readonly string[],
+    onError: (message: string) => void,
+  ): Promise<{ added: number; manifests: ReadonlyMap<string, ManifestResult> }> {
     // Every manifest is read and applied before any walk, so the walk skips
     // what any root excludes rather than adding files the sweep then removes.
     this.#manifests.clear();
@@ -94,7 +111,10 @@ export class Workspace {
       manifests.set(root, result);
       this.#manifests.set(root, result.manifest);
     }
-    await this.#applyManifests();
+    // Exclusions before the walk, so it skips what any root excludes rather
+    // than adding files the sweep then removes. Privileged modules after it —
+    // see `#applyRuntimePaths`, which needs to know what the walk called them.
+    await this.#applyExclusions();
 
     let added = 0;
     const walked = new Set<string>();
@@ -112,7 +132,6 @@ export class Workspace {
         try {
           this.session.setFile(path, await readFile(found, "utf8"));
           this.#pathsByRealPath.set(realPath, path);
-          this.#realPathOfPath.set(path, realPath);
           walked.add(path);
           added += 1;
         } catch (error) {
@@ -140,6 +159,7 @@ export class Workspace {
       // reason to drop one, and the host is told so rather than left guessing.
       if (!this.#openPaths.has(path) && !walked.has(path)) this.session.removeFile(path);
     }
+    await this.#applyRuntimePaths();
     return { added, manifests };
   }
 
@@ -149,48 +169,77 @@ export class Workspace {
   }
 
   /**
-   * Hands every root's manifest to the session, merged.
+   * The merged exclusions, in the two spellings a walked file can be matched by.
+   *
+   * The second spelling exists because the walk follows symlinks, so a file's
+   * resolved path can have a prefix no manifest ever writes — on macOS `/var` is
+   * a link to `/private/var`, which is every path under a temporary directory.
+   * Only the *root* is resolved to bridge that: an entry's own components are
+   * left exactly as written.
+   *
+   * Resolving those components as well is a mistake this made once. It looks
+   * symmetrical and it silently deletes source: excluding a link `alias.hex`
+   * resolves to the file it points at, so the target leaves the project under
+   * its own legitimate name — taking real code out of the module graph and
+   * producing `cannot resolve module` errors in whatever imported it. An
+   * exclusion names a name; only the part of it the user did not write is safe
+   * to rewrite.
+   */
+  async #applyExclusions(): Promise<void> {
+    const literal: string[] = [];
+    const real: string[] = [];
+    for (const [root, manifest] of this.#manifests) {
+      const rootPath = comparablePath(root);
+      const realRoot = comparablePath(await realPathOf(root));
+      for (const entry of manifest.exclude) {
+        const written = comparablePath(entry);
+        literal.push(written);
+        real.push(rebase(written, rootPath, realRoot));
+      }
+    }
+    this.#exclude = { literal, real };
+  }
+
+  /**
+   * Hands every root's privileged modules to the session, after the walk.
+   *
+   * After, because the compiler matches `runtimePaths` by exact equality with
+   * the key a file is held under, and the walk is what chooses that key: a
+   * runtime module reached through a linked directory is keyed by the link's
+   * spelling, which no manifest mentions. Privilege would then be silently lost
+   * and `unknown generic type \`Node\`` — the whole reason this file exists —
+   * would come back, depending on nothing more than the order `readdir`
+   * happened to return.
    *
    * Roots are merged rather than replaced because a multi-root workspace has one
    * session: the modules of all of them compile together, so a file privileged
    * by its own project stays privileged.
    */
-  async #applyManifests(): Promise<void> {
-    // Both fields take the same one spelling, `comparablePath`, rather than
-    // going through `uris.toPath` — which for an absolute path is that same
-    // function wrapped in two conversions that cancel out, and which would also
-    // *register* the manifest's URI spelling for the file. First URI seen wins,
-    // so registering here would let a path nobody opened decide the spelling
-    // the server later reports locations in.
-    const literal = [...this.#manifests.values()].flatMap(({ exclude }) =>
-      exclude.map(comparablePath)
-    );
-    // The resolved spelling of each exclusion, so that a resolved *file* path
-    // has something in its own terms to match against. Comparing a resolved
-    // path to an unresolved exclusion is a bug that hides wherever no symlink
-    // happens to be — and then appears wholesale on macOS, where `/var` is a
-    // link to `/private/var` and so every path under a temporary directory
-    // resolves to a prefix no manifest ever writes.
-    const real = await Promise.all(
-      literal.map(async (entry) => comparablePath(await realPathOf(entry))),
-    );
-    this.#exclude = { literal, real };
-    this.session.configure({
-      runtimePaths: [...this.#manifests.values()].flatMap(({ runtimePaths }) =>
-        runtimePaths.map(comparablePath)
-      ),
-    });
+  async #applyRuntimePaths(): Promise<void> {
+    const paths = new Set<string>();
+    for (const { runtimePaths } of this.#manifests.values()) {
+      for (const entry of runtimePaths) {
+        // The spelling as written, and the one the walk actually keyed the file
+        // under if it found it. Both, rather than a choice between them: the
+        // compiler matches by set membership, so a spelling that names nothing
+        // costs nothing, while guessing wrong costs the privilege. Resolving the
+        // entry is safe here in a way it is not for an exclusion — this asks
+        // "which file is this?", not "is this name excluded?", so a link and its
+        // target giving the same answer is the point rather than the bug.
+        paths.add(comparablePath(entry));
+        const walked = this.#pathsByRealPath.get(await realPathOf(entry));
+        if (walked !== undefined) paths.add(walked);
+      }
+    }
+    this.session.configure({ runtimePaths: [...paths] });
   }
 
   /**
-   * Whether this path is excluded, under any name it is reachable by.
+   * Whether this path is excluded, under either name it can be reached by.
    *
-   * Both names have to be tried. Matching only the literal path lets a symlink
-   * defeat the exclusion — the walk follows links deliberately, so an excluded
-   * directory reappears under a link's spelling with all its diagnostics. And
-   * matching only the resolved path breaks the opposite case, where the link
-   * itself is what the manifest excludes and the target is a legitimate part of
-   * the project under its own name.
+   * Both have to be tried. Matching only the literal path lets a symlink defeat
+   * the exclusion — the walk follows links deliberately, so an excluded
+   * directory reappears under a link's spelling with all its diagnostics.
    */
   #isExcluded(path: string): boolean {
     return excludes(this.#exclude, path, this.#realPathOfPath.get(path));
@@ -303,8 +352,22 @@ interface FoundFile {
 interface Exclusions {
   /** As written in the manifest, resolved against it but not through links. */
   readonly literal: readonly string[];
-  /** The same entries with every link followed, to compare against real paths. */
+  /** The same entries under the root's *resolved* name, links below it intact. */
   readonly real: readonly string[];
+}
+
+/**
+ * An entry re-expressed under the root's resolved name, so that it can be
+ * compared with a resolved file path.
+ *
+ * Only the prefix moves. What the user wrote below the root is left alone,
+ * because that is the part they meant as a name — see `#applyExclusions`.
+ */
+function rebase(entry: string, rootPath: string, realRoot: string): string {
+  if (rootPath === realRoot) return entry;
+  if (entry === rootPath) return realRoot;
+  const prefix = rootPath.endsWith("/") ? rootPath : `${rootPath}/`;
+  return entry.startsWith(prefix) ? realRoot + entry.slice(rootPath.length) : entry;
 }
 
 const NOTHING_EXCLUDED: Exclusions = { literal: [], real: [] };
@@ -339,16 +402,21 @@ async function hexagonFilesUnder(
   const collected = new Set<string>();
   for (let directory = pending.pop(); directory !== undefined; directory = pending.pop()) {
     const directoryIdentity = await realPathOf(directory);
-    if (walked.has(directoryIdentity)) continue;
-    walked.add(directoryIdentity);
     // Excluded under the name it resolves to, not only the name it was reached
     // by. `gen -> generated` beside an excluded `generated/` is one directory
     // with two names, and the walk follows links on purpose, so checking the
     // literal path alone lets every file in it back into the project under a
-    // spelling the manifest never mentions. Free here: the resolution above is
+    // spelling the manifest never mentions. Free here: the resolution is
     // already paid for by cycle detection. The root itself cannot be caught by
     // this — `readManifest` rejects an `exclude` entry that covers it.
+    //
+    // Before the cycle check claims the identity, not after: an excluded link
+    // would otherwise mark its target as already walked, and the target — a
+    // real directory under its own name — would be skipped as though it had
+    // been visited, taking every module in it out of the project.
     if (excludes(exclude, directory, directoryIdentity)) continue;
+    if (walked.has(directoryIdentity)) continue;
+    walked.add(directoryIdentity);
     let entries;
     try {
       entries = await readdir(directory, { withFileTypes: true });
@@ -358,10 +426,6 @@ async function hexagonFilesUnder(
     }
     for (const entry of entries) {
       const path = join(directory, entry.name);
-      // By literal name only, to keep the common case free of a syscall per
-      // entry; a link's resolved name is checked below, where its resolution is
-      // needed anyway.
-      if (excludes(exclude, path, undefined)) continue;
       // A symlink reports as neither a file nor a directory, so a workspace that
       // links its source tree in — a common monorepo layout — would otherwise
       // get no language support at all, silently. `stat` follows the link to ask
@@ -372,11 +436,14 @@ async function hexagonFilesUnder(
         pending.push(path);
       } else if (kind === "file" && entry.name.endsWith(HEXAGON_EXTENSION)) {
         const realPath = await realPathOf(path);
+        // Excluded before deduplicated, not after. An excluded name that is a
+        // link would otherwise claim its target's identity on the way out, and
+        // the target — a legitimate file under its own name, reached later in
+        // the same walk — would be dropped as a duplicate of something that is
+        // not in the project at all.
+        if (excludes(exclude, path, realPath)) continue;
         if (collected.has(realPath)) continue;
         collected.add(realPath);
-        // The same second name a directory can have, for a link to a single
-        // file. Also already paid for — deduplication needs the resolution.
-        if (excludes(exclude, path, realPath)) continue;
         found.push({ path, realPath });
       }
     }
