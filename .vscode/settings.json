@@ -7,6 +7,36 @@
     "editor.insertSpaces": true,
     "editor.tabSize": 4
   },
+  "editor.semanticTokenColorCustomizations": {
+    "[Light 2026]": {
+      "enabled": true,
+      "rules": {
+        "enum": "#267f99",
+        "enumMember": "#267f99",
+        "struct": "#267f99",
+        "type": "#267f99",
+        "interface": "#a4128c",
+        "function": "#8250df",
+        "method": "#8250df",
+        "variable": "#1f2328",
+        "parameter": "#1f2328"
+      }
+    },
+    "[Dark 2026]": {
+      "enabled": true,
+      "rules": {
+        "enum": "#4EC9B0",
+        "enumMember": "#4EC9B0",
+        "struct": "#4EC9B0",
+        "type": "#4EC9B0",
+        "interface": "#dd82cf",
+        "function": "#d2a8ff",
+        "method": "#d2a8ff",
+        "variable": "#BBBEBF",
+        "parameter": "#BBBEBF"
+      }
+    }
+  },
   "editor.tokenColorCustomizations": {
     "[Light 2026]": {
       "textMateRules": [

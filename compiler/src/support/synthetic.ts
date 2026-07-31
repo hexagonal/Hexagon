@@ -9,7 +9,21 @@
  * wherever a name reaches the reader.
  */
 
-const parameterPrefix = "__hex_parameter";
+/** The prefix the lexer reserves for compiler-minted names. */
+const reservedPrefix = "__hex_";
+
+const parameterPrefix = `${reservedPrefix}parameter`;
+
+/**
+ * Whether a name was minted by the compiler rather than written.
+ *
+ * The broad test, for the places that show the user a *list* of names rather
+ * than one name: an editor's completions must not offer a binder the lexer will
+ * refuse to read back, whatever minted it.
+ */
+export function isCompilerMinted(name: string): boolean {
+  return name.startsWith(reservedPrefix);
+}
 
 /** The binder a pattern parameter destructures from. Not writable in source. */
 export function syntheticParameterName(index: number): string {

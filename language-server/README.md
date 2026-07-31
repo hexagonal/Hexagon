@@ -2,7 +2,7 @@
 
 The Hexagon language server: the process that exposes Hexagon language intelligence through Microsoft's Language Server Protocol (LSP).
 
-The first slice is implemented — diagnostics, hover, go-to-definition, and find-references — over a compiler-owned analysis session. Completion, rename, semantic tokens, formatting, and code actions are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
+Two slices are implemented over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references, then semantic tokens, rename and completion. Formatting, code actions and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
 
 This document states the boundary between the language server and the compiler. That boundary is the reason the server is small: every request handler converts coordinates, asks the session one question, and converts the answer back.
 
@@ -53,6 +53,7 @@ language-server/
     manifest.ts        `hexagon.json`: what the project says it is
     positions.ts       the single LSP-to-compiler coordinate boundary
     diagnostics.ts     conversion of compiler diagnostics to the protocol's shape
+    semantic-tokens.ts the legend, and the protocol's relative token encoding
 ```
 
 Tests sit beside their subject, with one exception: `workspace.concurrency.test.ts`
@@ -85,9 +86,129 @@ pathOfFile(fileId)        the file a span's numeric identity names
 
 Positions crossing this API are UTF-16 offsets into the named file, never line and character pairs — see below.
 
-Analysis is recomputed lazily and wholly: any change discards it and the next question rebuilds it. That is a decision, not a placeholder. Reanalyzing the entire standard library after an edit measures around 19ms, inside a keystroke's budget, so incremental reuse would buy nothing yet and would have to guess what is worth keeping before any query exists to say. Rename, completion, and semantic tokens will extend this API rather than the server.
+Analysis is recomputed lazily and wholly: any change discards it and the next question rebuilds it. That is a decision, not a placeholder. Reanalyzing this repository's own `stdlib/` and `runtime/` after an edit measures a median of about 40ms — well inside the delay diagnostics are debounced by — so incremental reuse would buy nothing yet and would have to guess what is worth keeping before any query exists to say. A rename adds roughly one more compilation on top of whatever the session already holds, since it recompiles an edited copy and compares the two; it is not on the keystroke path.
 
-The query behind definitions and references is `compiler/src/queries/occurrences.ts`, which indexes every name that denotes something together with what it denotes — values, unions, records, foreign types, and constraints.
+Five compiler queries sit behind these answers, and each exists because no other part of the compiler still knows what it knows:
+
+- `queries/occurrences.ts` indexes every name that denotes something together with what it denotes — values, unions, records, foreign types, and constraints. Definitions, references, rename and semantic tokens all read this one table. It reads the resolved tree for identity, the parsed tree for constraints, the source for a head name inside a wider span, and the *typed* tree for one thing only: the operation name of a dot call, which nothing earlier has decided the meaning of.
+- `queries/type-occurrences.ts` gives hover its types, keyed by the same spans.
+- `queries/symbol-facts.ts` records, per value symbol, how it was bound *and* whether the checker gave it a function type. The two come apart constantly: `let brighten(colour) = …` is a `let`, `extern fun` and `extern let` are both `extern`, and `let g = f` is a function with no parameter list anywhere.
+- `queries/semantic-tokens.ts` classifies names, and only names — see below.
+- `queries/completions.ts` answers what could be written at an offset, from a scope record the resolver now keeps.
+
+## Semantic tokens, rename, and completion
+
+Each of the three is shaped by one decision worth stating outright.
+
+**Semantic tokens classify names and nothing else.** No keywords, operators,
+literals, comments or punctuation, because semantic tokens *override* the
+TextMate grammar wherever the two overlap, and the grammar already gets those
+exactly right. Publishing a second opinion would fork one answer across two
+implementations that nothing keeps in step. What a grammar cannot know is what a
+*name* means — `Colour` is a union here and a record there, `size` is a function
+in one module and a parameter in the next — and that is the whole of what this
+adds. The consequence that matters most: when a file stops parsing this query
+goes quiet and the grammar carries on colouring, where a classifier that also
+owned keywords would take the file's colour down with the parse.
+
+Because they override, every type in the legend needs a colour of its own or the
+name silently changes colour the moment the server connects — falling back not to
+the grammar's chosen colour but to the base theme's. The repository's own palette
+therefore carries `editor.semanticTokenColorCustomizations` beside its TextMate
+rules, mapping both onto the same three families, and a test fails if a legend
+entry has no rule.
+
+**Rename is verified by re-analysis, not by a scope calculation.** Working out by
+hand which binder a moved name would fall under means writing Hexagon's scoping
+rules a second time, in a place nothing keeps honest. Instead the edit is applied
+to a copy of the project, the compiler is asked what it now sees, and the rename
+is refused unless the result means exactly what the original did. Two things have
+to hold: no diagnostic may appear that was not there before, which catches the
+collisions Statements §5.1 makes errors in the compiler's own words; and **every
+name in the project must go on denoting what it denotes now**. The second is the
+one that matters, because **capture produces no diagnostic at all** — rename a
+module-level `colour` to `tone` where a match arm already binds `tone` and the
+arm's body quietly stops meaning what it did, with every type still checking.
+
+That second test is asked of *every* site rather than only of the renamed name's
+own mentions, and the difference is not academic. `x.op()` is companion dispatch,
+which the checker settles **by name** against the operations in scope, so giving
+a second function the name `tag` can move `Pale.tag()` from one function to
+another — with no diagnostic, and at a site spelled neither `mark` nor `tag` but
+however its own module spells it. No test confined to the renamed identity can
+see that one. Denotations are compared as the *place a declaration sits* rather
+than as a symbol number, since identities are minted per compilation and two runs
+cannot be compared by them.
+
+A pre-existing diagnostic that mentions the renamed name is not evidence of
+breakage: it re-renders under the new spelling and would otherwise look new, so
+the name is blanked out of both sides before they are counted.
+
+A refusal is a result rather than an error: a name the project does not own, a
+spelling Hexagon will not read as the same kind of name, an edit that would change
+what the code means. Each reaches the user as a failed request, which is the only
+channel a rename has for saying why. Spelling is checked by *lexing* the proposed
+name and comparing the token to the old one's, so keywords, the reserved `__hex_`
+prefix, and the capitalized/uncapitalized split are all decided by the lexer that
+owns them rather than by a copy that would fall behind.
+
+An alias is the case that makes the rule visible. `import {Shade as Other}` gives
+one identity two spellings, and renaming `Shade` must rewrite the clause's
+*imported* name while leaving `Other` alone — the clause goes on aliasing, it
+just aliases a differently-spelled declaration. Renaming through `Other` moves
+only the mentions spelled `Other`. Restricting each rename to the spelling under
+the cursor is what makes both halves complete rather than partial, and the
+occurrence index publishes both names of an aliasing clause so that neither is
+missed.
+
+A dot call is a third spelling of the same idea and the reason the index reads
+the typed tree carefully. Dispatch is on the *declared* name, so
+`Pale.brighten()` is legal in a module that imported `brighten as b`, and the
+checker's typed name for that call is the local `b` while its span covers the
+eight characters the source wrote. The index publishes what the source wrote.
+Taking the typed name instead put an occurrence spelled `b` over the last
+character of `brighten`, which every consumer then read as a name disagreeing
+with its own span.
+
+Because a dot call's operation name is in the index, it is also a mention for
+find-references and a token for colouring — `Pale.brighten()` was invisible to
+all three before.
+
+**Completion is the one question the rest of the compiler cannot answer.** Every
+other query reads a finished tree, where each name has already become an
+identity; completion asks about names that are not there yet, so it needs the
+layers a name would have been chosen from — which resolution consumes and
+discards. `Resolved.Module.scopes` is the resolver writing those layers down as
+it opens them: a region of source, the names it binds, and the offset each
+becomes visible from, because a sequential `let` scopes over the rest of its
+block rather than over all of it. Nesting is recovered by containment rather than
+a parent pointer, so a reader does not replay the walk that produced it.
+
+Two things follow from the buffer being half-typed at the moment of the request.
+Telling a qualified request (`Vector.`) from an unqualified one reads source text
+rather than a tree, and has to: `Vector.` does not parse. The reading is lexical
+only — which identifier precedes the dot, by `spec/lexer.md` §3's own definition
+of an identifier — and nothing about meaning is read from text. And a scope
+region ends at its last *token*, which is not where a user asks: pressing Enter
+inside a function puts the cursor past every region that matters. A region
+therefore also reaches an offset separated from its end by nothing but
+whitespace, bounded by indentation: a region records whether it *is* a body,
+whose own start column is where its contents sit, or a construct with a head
+that sits at that column itself. A cursor in a block's column is inside the
+block; a cursor in a match arm's column is writing the next arm, and the previous
+arm's binder has gone.
+
+Completion does not narrow by position: a type annotation gets value names
+offered alongside type names, because knowing an offset is in type position means
+having a parse. Every candidate carries its kind, so a wrong-kind suggestion
+costs a glance — where guessing from a broken parse would drop the right answers.
+It says nothing inside a comment, which cannot hold code, and does answer inside
+a string, which can hold an interpolation where names belong. Where a comment
+*ends* turns on whether it was closed rather than on whether it is a block: a
+closed block's span runs one past its `*)`, so a caret there is already outside
+it, while an unterminated one runs to the end of the file and that last offset is
+exactly where the caret sits as it is being typed. Closure is counted, since
+block comments nest and a text ending in `*)` is not proof of it.
 
 ## Correctness principles
 
@@ -114,7 +235,13 @@ The first vertical slice provides:
 
 Find-references arrived with the slice rather than after it because it shares one index with go-to-definition: both ask the same question of the same table, and building one without the other would have meant writing the traversal twice.
 
-Completion, rename, semantic tokens, formatting, code actions, and workspace symbols follow as the necessary compiler services become stable. Features are not simulated with textual guesses when semantic information is required — where this slice reads source text, it is to locate a name the tree already said was there, never to decide what the name means.
+The second adds:
+
+8. semantic tokens over names, layered on the TextMate grammar rather than replacing it;
+9. rename, with a preparation step, across every file the project owns; and
+10. completion, unqualified and after a module name.
+
+Formatting, code actions and workspace symbols follow as the necessary compiler services become stable. Features are not simulated with textual guesses when semantic information is required — where these slices read source text, it is to locate a name the tree already said was there, or to read a half-typed line no tree describes yet, never to decide what a name means.
 
 ## Implementation and distribution
 
@@ -223,7 +350,46 @@ less than it looks.
   has no channel for exporting one, so a cross-module `honor` does not resolve.
   Go-to-definition on a constraint therefore only ever answers within a module,
   and the built-in `Eq`/`Ord`/`Show`/`Hash` are known to the checker rather than
-  declared in Hexagon, so they have nowhere to jump to at all.
+  declared in Hexagon, so they have nowhere to jump to at all. Renaming one is
+  refused for the same reason: there is no declaration to rewrite.
+- **A constraint is its name, project-wide.** Constraints have no identity beyond
+  their spelling, so renaming a declared one rewrites every mention of that name
+  in every module — including a same-named constraint that was never related to
+  it. That follows from the identity model rather than from this code, and it is
+  the one rename whose blast radius is larger than a reader would guess.
+- **Completion does not know what kind of thing belongs at the cursor.** Value
+  names, type names and module names are offered together, each carrying its
+  kind. Narrowing would need a parse of the line being typed, which is the line
+  that does not parse.
+- **Completion offers no constraint names.** They appear only in `<a: C>` and
+  `honor C<T>`, positions this does not detect, and the built-in set lives in the
+  checker rather than in any table a query can read.
+- **Completion answers inside a string literal.** A string can hold an
+  interpolation, where names genuinely belong, and telling the two apart needs
+  the token stream rather than the text. Comments are suppressed, since a comment
+  cannot hold code — except a JavaScript-spelled `/* … */`, which the lexer
+  redirects rather than records, so nothing marks it as a comment to suppress
+  inside. While a `(*` is still unclosed its comment runs to the end of the file,
+  and completion is silent for the rest of it; that is the same shape as the
+  highlighting bail-out in #162 and #174.
+- **A module alias cannot be renamed.** `import * as H` binds `H` in a namespace
+  the occurrence index does not model, so a request on it answers "nothing to
+  rename here" rather than refusing.
+- **Rename re-analyses the whole project to verify one request** — one
+  compilation of the edited copy, then a whole-project denotation comparison
+  against the original. That is affordable on the same measurement that makes
+  whole-project analysis affordable, and it is not on the keystroke path.
+- **The "no new diagnostic" test compares messages with the renamed name blanked
+  out of them**, so that a pre-existing error mentioning either spelling is not
+  read as breakage. The cost is that two diagnostics differing *only* in those
+  names count as one: a collision that moves from the old name onto the new one
+  can pass this test. The denotation comparison is the load-bearing check, and
+  the user still sees the error.
+- **A prelude module that no other module references is not compiled**, so it has
+  no tokens, no completions, and cannot be renamed within. This is only visible
+  in a project that compiles the standard library itself, and it can make a
+  rename there refuse: dropping the last reference to such a module removes it
+  from the graph, and the verification then finds the rewritten spans gone.
 
 ## Code readability
 

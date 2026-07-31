@@ -24,11 +24,15 @@
  */
 
 import {
+  CompletionItemKind,
   DidChangeWatchedFilesNotification,
+  ErrorCodes,
   FileChangeType,
   TextDocumentSyncKind,
   DiagnosticSeverity,
+  ResponseError,
   TextDocuments,
+  type CompletionItem,
   type Connection,
   type Definition,
   type Hover,
@@ -36,16 +40,21 @@ import {
   type InitializeResult,
   type Location,
   type MarkupContent,
+  type Range,
+  type SemanticTokens,
+  type TextEdit,
+  type WorkspaceEdit,
   uinteger,
 } from "vscode-languageserver";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { basename, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { Source, Target } from "../../compiler/src/index.js";
+import { refused, type Completion, type Source, type Target } from "../../compiler/src/index.js";
 import { toLspDiagnostic } from "./diagnostics.js";
 import { offsetOfPosition, rangeOfSpan } from "./positions.js";
 import { Workspace } from "./workspace.js";
 import { MANIFEST_NAME, type ManifestResult } from "./manifest.js";
+import { LEGEND, encodeSemanticTokens } from "./semantic-tokens.js";
 
 /**
  * How long to wait after an edit before analysing for diagnostics. Long enough
@@ -91,6 +100,22 @@ export function startServer(connection: Connection): void {
         hoverProvider: true,
         definitionProvider: true,
         referencesProvider: true,
+        // `prepareProvider` is what lets the editor pre-select the identifier
+        // and refuse before the user has typed a replacement, rather than
+        // accepting a rename and then reporting that it was impossible.
+        renameProvider: { prepareProvider: true },
+        // `full` only: a range request would re-analyse the whole project to
+        // answer about part of a file, so it would cost the same and say less.
+        // No `delta` either — deltas are worth their bookkeeping when tokens are
+        // expensive to produce, and these come straight out of an index that has
+        // already been built for diagnostics.
+        semanticTokensProvider: { legend: LEGEND, full: true },
+        // `.` retriggers because a qualified request answers about a different
+        // set entirely — the module's members rather than what is in scope — and
+        // a client that kept filtering the previous list would show names that
+        // cannot follow a dot. No `resolveProvider`: every item is complete when
+        // it is sent, so there is nothing a second round trip would add.
+        completionProvider: { triggerCharacters: ["."] },
       },
       serverInfo: { name: "Hexagon Language Server", version: "0.0.1" },
     };
@@ -197,6 +222,57 @@ export function startServer(connection: Connection): void {
       uri: workspace.uris.toUri(reference.path),
       range: rangeOfSpan(reference.span),
     }));
+  });
+
+  connection.onCompletion(({ textDocument, position }): CompletionItem[] | null => {
+    const document = documents.get(textDocument.uri);
+    if (document === undefined) return null;
+    const path = workspace.uris.toPath(textDocument.uri);
+    const offered = workspace.session.completions(path, offsetOfPosition(document, position));
+    if (offered.length === 0) return null;
+    return offered.map((completion): CompletionItem => ({
+      label: completion.name,
+      kind: completionKindOf(completion.kind),
+      ...(completion.detail === undefined ? {} : { detail: completion.detail }),
+    }));
+  });
+
+  connection.languages.semanticTokens.on(({ textDocument }): SemanticTokens => {
+    // No `documents.get` guard here, unlike the position requests: those need a
+    // document to convert a line/character pair, and this one does not ask about
+    // a position at all. A file the session knows from the workspace scan can be
+    // coloured whether or not this client has opened it.
+    const path = workspace.uris.toPath(textDocument.uri);
+    return encodeSemanticTokens(workspace.session.semanticTokens(path));
+  });
+
+  // A refusal is shown to the user by failing the request: an editor renders the
+  // error's message in place, which is the only channel a rename has for saying
+  // why it will not proceed. Returning `null` instead would read as "nothing to
+  // rename here" and leave the reason unsaid.
+  connection.onPrepareRename(({ textDocument, position }): Range | ResponseError<void> | null => {
+    const document = documents.get(textDocument.uri);
+    if (document === undefined) return null;
+    const path = workspace.uris.toPath(textDocument.uri);
+    const subject = workspace.session.prepareRename(path, offsetOfPosition(document, position));
+    if (subject === undefined) return null;
+    if (refused(subject)) return new ResponseError(ErrorCodes.InvalidRequest, subject.refused);
+    return rangeOfSpan(subject.span);
+  });
+
+  connection.onRenameRequest(({ textDocument, position, newName }): WorkspaceEdit | ResponseError<void> | null => {
+    const document = documents.get(textDocument.uri);
+    if (document === undefined) return null;
+    const path = workspace.uris.toPath(textDocument.uri);
+    const plan = workspace.session.rename(path, offsetOfPosition(document, position), newName);
+    if (plan === undefined) return null;
+    if (refused(plan)) return new ResponseError(ErrorCodes.InvalidRequest, plan.refused);
+    const changes: Record<string, TextEdit[]> = {};
+    for (const edit of plan.edits) {
+      const uri = workspace.uris.toUri(edit.path);
+      (changes[uri] ??= []).push({ range: rangeOfSpan(edit.span), newText: plan.newName });
+    }
+    return { changes };
   });
 
   connection.onShutdown(() => {
@@ -317,6 +393,28 @@ function publishDiagnostics(
 function hoverContents(name: string, target: Target, displayedType: string | undefined): MarkupContent {
   const signature = displayedType === undefined ? `\`${name}\`` : `\`${name}: ${displayedType}\``;
   return { kind: "markdown", value: `${describe(target)} ${signature}` };
+}
+
+/**
+ * The protocol's icon for a completion. Hexagon's kinds and LSP's do not line up
+ * one to one, so each is mapped to the nearest thing a client already draws:
+ * `Constructor` for a union's constructors, `Module` for a companion module.
+ */
+function completionKindOf(kind: Completion["kind"]): CompletionItemKind {
+  switch (kind) {
+    case "function":
+      return CompletionItemKind.Function;
+    case "parameter":
+      return CompletionItemKind.Variable;
+    case "constructor":
+      return CompletionItemKind.Constructor;
+    case "type":
+      return CompletionItemKind.Class;
+    case "module":
+      return CompletionItemKind.Module;
+    case "value":
+      return CompletionItemKind.Variable;
+  }
 }
 
 function describe(target: Target): string {
