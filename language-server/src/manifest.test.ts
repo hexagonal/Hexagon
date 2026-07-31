@@ -95,12 +95,14 @@ describe("readManifest", () => {
   });
 
   test("an entry that is the workspace root is refused, not obeyed", async () => {
-    for (const entry of ["", ".", "./"]) {
+    // `""`, `"."` and `"./"` resolve *to* the root; `".."` and `"/"` resolve
+    // above it and exclude it just as totally. Testing equality alone would
+    // catch the first three and let the last two through silently.
+    for (const entry of ["", ".", "./", "..", "/"]) {
       const path = await rootWith(JSON.stringify({ exclude: [entry] }));
       const result = await readManifest(path);
-      // All three resolve to the root, which would exclude the entire project —
-      // every file, silently, with the server reporting nothing at all. Nobody
-      // writes that on purpose, so it is a mistake worth naming.
+      // Each would exclude the entire project — every file, silently, with the
+      // server reporting nothing at all. Nobody writes that on purpose.
       expect(result.manifest.exclude, entry).toEqual([]);
       expect(result.problems.map(({ message }) => message).join(" "), entry)
         .toContain("workspace root");

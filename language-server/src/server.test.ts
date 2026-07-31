@@ -432,4 +432,40 @@ describe("the Hexagon language server", () => {
       await solo.dispose();
     }
   });
+
+  test("un-excluding restores an open buffer without waiting for a keystroke", async () => {
+    const solo = await harness({
+      "main.hex": "let value: Int = 1\n",
+      "hexagon.json": JSON.stringify({ exclude: ["vendor"] }),
+    });
+    try {
+      await mkdir(join(solo.root, "vendor"));
+      const vendored = join(solo.root, "vendor", "thing.hex");
+      const text = "export let vendored: Int = 7\n";
+      await writeFile(vendored, text);
+      const uri = pathToFileURL(vendored).toString();
+      await solo.client.sendNotification(DidOpenTextDocumentNotification.type, {
+        textDocument: { uri, languageId: "hexagon", version: 1, text },
+      });
+      expect((await solo.diagnosticsFor(uri))[0]!.message).toContain("excluded");
+
+      await writeFile(join(solo.root, "hexagon.json"), JSON.stringify({}));
+      await solo.client.sendNotification(DidChangeWatchedFilesNotification.type, {
+        changes: [{ uri: solo.uriOf("hexagon.json"), type: 2 }],
+      });
+      expect(await solo.diagnosticsFor(uri)).toEqual([]);
+
+      // The rescan reads disk and skips what the editor holds open, so nothing
+      // re-adds this buffer unless the server does it. Without that the file is
+      // in neither source and stays dead until the user types.
+      const hover = await solo.client.sendRequest("textDocument/hover", {
+        textDocument: { uri },
+        position: { line: 0, character: 12 },
+      }) as Hover | null;
+      expect(hover).not.toBeNull();
+      expect((hover!.contents as { value: string }).value).toContain("vendored");
+    } finally {
+      await solo.dispose();
+    }
+  });
 });

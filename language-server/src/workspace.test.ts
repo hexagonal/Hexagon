@@ -292,8 +292,9 @@ describe("the workspace walk", () => {
     await writeFile(join(a, "main.hex"), "let value: Int = 1\n");
     await writeFile(join(a, "gen", "g.hex"), "let generated: Int = 2\n");
     await writeFile(join(b, "other.hex"), "let other: Int = 3\n");
-    // B's manifest excludes a directory under A. Reading every manifest before
-    // walking any root is what makes that hold whichever order they arrive in.
+    // B's manifest excludes a directory under A. The trailing sweep is what
+    // makes that hold whichever order the roots arrive in; reading every
+    // manifest first only stops the walk adding a file the sweep then removes.
     await writeFile(join(b, MANIFEST_NAME), JSON.stringify({ exclude: [join(a, "gen")] }));
 
     const forwards = new Workspace();
@@ -309,5 +310,53 @@ describe("the workspace walk", () => {
     // restores — a sweep after every root would strand it until a restart.
     await forwards.setRoots([a, b], () => {});
     expect(names(forwards)).toEqual(["main.hex", "other.hex"]);
+  });
+
+  test("a file deleted from disk is gone after a rescan, with no watcher event", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "gone.hex"), "let other: Int = 2\n");
+    const { workspace } = await scan(path);
+    expect(workspace.session.paths).toHaveLength(2);
+
+    // A branch switch deletes files without the editor reporting each one, and
+    // a walk only ever adds — so without retiring what the walk no longer finds,
+    // a deleted module keeps answering hover and definition forever.
+    await rm(join(path, "gone.hex"));
+    await workspace.setRoots([path], () => {});
+    expect(workspace.session.paths).toHaveLength(1);
+  });
+
+  test("dropping a root drops its files", async () => {
+    const path = await makeRoot();
+    const a = join(path, "a");
+    const b = join(path, "b");
+    await mkdir(a);
+    await mkdir(b);
+    await writeFile(join(a, "one.hex"), "let one: Int = 1\n");
+    await writeFile(join(b, "two.hex"), "let two: Int = 2\n");
+    const workspace = new Workspace();
+    await workspace.setRoots([a, b], () => {});
+    expect(workspace.session.paths).toHaveLength(2);
+
+    // `setRoots` names a replacement, not an addition. Leaving the old root's
+    // files behind would make the method's name a lie the next caller trusts.
+    await workspace.setRoots([a], () => {});
+    expect(workspace.session.paths.map((p) => p.split("/").at(-1))).toEqual(["one.hex"]);
+  });
+
+  test("an open buffer survives a rescan that does not find it", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    const { workspace } = await scan(path);
+    const uri = workspace.uris.toUri(workspace.session.paths[0]!);
+    await workspace.openDocument({ uri, getText: () => "let value: Int = 9\n" } as never);
+
+    // The walk skips what the editor holds open, so an open file is never among
+    // the walked paths — retiring on that basis alone would delete every buffer
+    // the user has open on the next rescan.
+    await workspace.setRoots([path], () => {});
+    expect(workspace.session.paths).toHaveLength(1);
+    expect(workspace.session.hover(workspace.session.paths[0]!, 4)?.name).toBe("value");
   });
 });

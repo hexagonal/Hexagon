@@ -39,7 +39,7 @@ import {
   uinteger,
 } from "vscode-languageserver";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Source, Target } from "../../compiler/src/index.js";
 import { toLspDiagnostic } from "./diagnostics.js";
@@ -140,7 +140,10 @@ export function startServer(connection: Connection): void {
         manifestChanged = true;
         continue;
       }
-      if (change.uri.endsWith(`/${MANIFEST_NAME}`)) continue;
+      // By basename of the resolved path, not by URI suffix: the same class of
+      // respelling that made the root-manifest match silent applies here too,
+      // and falling through would read a JSON file into the session as Hexagon.
+      if (basename(workspace.uris.toPath(change.uri)) === MANIFEST_NAME) continue;
       if (change.type === FileChangeType.Deleted) await workspace.deleteFile(change.uri);
       else await workspace.refreshFromDisk(change.uri);
     }

@@ -144,14 +144,16 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
       // Relative to the manifest, which is the only reading that survives the
       // project being checked out anywhere else.
       const resolved = resolve(rootPath, entry);
-      if (key === "exclude" && normalizePath(resolved) === normalizePath(rootPath)) {
-        // `""`, `"."` and `"./"` all resolve to the root, which would exclude
-        // the entire project — every file, silently, with the server reporting
-        // nothing at all. Nobody writes that on purpose.
+      if (key === "exclude" && coversRoot(resolved, rootPath)) {
+        // Testing equality alone is a line too narrow: `""`, `"."` and `"./"`
+        // resolve *to* the root, but `".."` and `"/"` resolve above it and
+        // exclude it just as totally — every file gone, nothing published
+        // anywhere, and no explanation. The predicate has to be "is or contains
+        // the root", not "is the root".
         problems.push({
           message:
-            `${MANIFEST_NAME} \`exclude\` entry ${JSON.stringify(entry)} is the workspace root, ` +
-            "which would exclude the whole project",
+            `${MANIFEST_NAME} \`exclude\` entry ${JSON.stringify(entry)} covers the workspace ` +
+            "root, which would exclude the whole project",
           line: lineOf(key),
         });
         continue;
@@ -191,3 +193,8 @@ export function isExcluded(path: string, exclude: readonly string[]): boolean {
 
 /** One spelling for path comparison — the same one the session keys by. */
 export const comparablePath = normalizePath;
+
+/** Whether excluding this path would take the workspace root with it. */
+function coversRoot(resolved: string, rootPath: string): boolean {
+  return isExcluded(rootPath, [resolved]);
+}

@@ -44,6 +44,10 @@ export class Workspace {
   readonly uris = new UriPaths();
   /** URIs whose text the editor currently owns, so disk must not overwrite them. */
   readonly #openUris = new Set<string>();
+  /** The same set as `#openUris`, by session path — see the walk in `setRoots`. */
+  readonly #openPaths = new Set<string>();
+  /** Session paths the last walk put in, so a later walk can retire the rest. */
+  #walkedPaths: ReadonlySet<string> = new Set();
   /**
    * The session path each URI resolves to, remembered from the first time the
    * URI was seen. Two names for one file — a symlink and its target — must reach
@@ -62,7 +66,8 @@ export class Workspace {
 
   /**
    * Replaces the workspace with these roots: reads each one's `hexagon.json`,
-   * reads every Hexagon file they describe, and drops anything now excluded.
+   * reads every Hexagon file they describe, and drops whatever is no longer
+   * among them — newly excluded, under a dropped root, or deleted from disk.
    * Failures are reported rather than thrown, so a workspace with one unreadable
    * directory still gives language support for the rest of itself.
    *
@@ -73,12 +78,8 @@ export class Workspace {
     roots: readonly string[],
     onError: (message: string) => void,
   ): Promise<{ added: number; manifests: ReadonlyMap<string, ManifestResult> }> {
-    // Every manifest is read and applied *before* any walk, and the sweep runs
-    // once at the end. Interleaving the three is what makes a multi-root
-    // workspace order-dependent: walking root A while root B's manifest is
-    // still the previous one lets A admit a file B excludes, and sweeping after
-    // each root deletes a file the next root's walk will not restore, because a
-    // walk only covers its own root.
+    // Every manifest is read and applied before any walk, so the walk skips
+    // what any root excludes rather than adding files the sweep then removes.
     this.#manifests.clear();
     const manifests = new Map<string, ManifestResult>();
     for (const root of roots) {
@@ -89,17 +90,22 @@ export class Workspace {
     this.#applyManifests();
 
     let added = 0;
+    const walked = new Set<string>();
     for (const root of roots) {
       for (const { path: found, realPath } of await hexagonFilesUnder(root, this.#exclude, onError)) {
         // Route the disk path through the URI mapping rather than handing it to
         // the session directly, so a file discovered here and the same file
         // opened later are one entry under one spelling.
         const uri = pathToFileURL(found).toString();
-        if (this.#openUris.has(uri)) continue;
         const path = this.uris.toPath(uri);
+        // By path, not by URI: a client opens a buffer under its own spelling,
+        // and matching the string means every rescan clobbers that buffer with
+        // disk text on any platform whose URIs differ from `pathToFileURL`'s.
+        if (this.#openPaths.has(path)) continue;
         try {
           this.session.setFile(path, await readFile(found, "utf8"));
           this.#pathsByRealPath.set(realPath, path);
+          walked.add(path);
           added += 1;
         } catch (error) {
           onError(`could not read ${found}: ${messageOf(error)}`);
@@ -107,12 +113,26 @@ export class Workspace {
       }
     }
 
-    // A walk only ever adds, so a file that has *left* the project — because an
-    // exclusion widened — has to be taken out here or its diagnostics outlive
-    // the decision to exclude it.
+    // A walk only ever adds, so anything that has *left* the project has to be
+    // taken out here or it outlives the decision that removed it. Three ways to
+    // leave: an exclusion widened, a root was dropped, or the file was deleted
+    // on disk between walks — the last of which no watcher event covers after a
+    // branch switch. A file the editor holds open is not gone; its buffer is
+    // the truth and no walk was ever going to find it.
+    //
+    // This trailing sweep, rather than the order manifests are read in, is what
+    // makes the result independent of the order the roots arrive in.
     for (const path of this.session.paths) {
-      if (this.#isExcluded(path)) this.session.removeFile(path);
+      if (this.#isExcluded(path)) {
+        this.session.removeFile(path);
+        continue;
+      }
+      // The walk skips what the editor holds open, so an open file is never in
+      // `walked` — absence there says nothing about it. Exclusion is the only
+      // reason to drop one, and the host is told so rather than left guessing.
+      if (!this.#openPaths.has(path) && !walked.has(path)) this.session.removeFile(path);
     }
+    this.#walkedPaths = walked;
     return { added, manifests };
   }
 
@@ -149,6 +169,7 @@ export class Workspace {
   async openDocument(document: TextDocument): Promise<void> {
     this.#openUris.add(document.uri);
     const path = await this.#pathOf(document.uri);
+    this.#openPaths.add(path);
     // Excluding a file has to hold at every way into the session, not only at
     // the walk. A walk-time-only check means opening the file, or a watcher
     // firing on it, quietly puts it back — and it then stays, so the exclusion
@@ -173,6 +194,7 @@ export class Workspace {
    */
   async closeDocument(uri: string): Promise<void> {
     this.#openUris.delete(uri);
+    this.#openPaths.delete(await this.#pathOf(uri));
     await this.#reloadFromDisk(uri);
   }
 
@@ -199,7 +221,9 @@ export class Workspace {
 
   async deleteFile(uri: string): Promise<void> {
     this.#openUris.delete(uri);
-    this.session.removeFile(await this.#pathOf(uri));
+    const path = await this.#pathOf(uri);
+    this.#openPaths.delete(path);
+    this.session.removeFile(path);
     this.#pathByUri.delete(uri);
   }
 
