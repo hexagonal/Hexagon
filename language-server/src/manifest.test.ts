@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, extname, join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -9,6 +9,12 @@ let root = "";
 async function rootWith(contents?: string): Promise<string> {
   root = await mkdtemp(join(tmpdir(), "hexagon-manifest-"));
   if (contents !== undefined) await writeFile(join(root, MANIFEST_NAME), contents, "utf8");
+  return root;
+}
+
+/** A temporary directory to build a root *inside*, for entries that escape it. */
+async function makeBase(): Promise<string> {
+  root = await mkdtemp(join(tmpdir(), "hexagon-manifest-"));
   return root;
 }
 
@@ -179,6 +185,55 @@ describe("readManifest", () => {
     const result = await readManifest(path);
     expect(result.problems).toHaveLength(1);
     expect(result.problems[0]!.message).toContain("matches no file");
+  });
+
+  test("an entry outside the root that does exist is not called inert", async () => {
+    const base = await makeBase();
+    const path = join(base, "project");
+    await mkdir(join(base, "vendor"), { recursive: true });
+    await mkdir(path);
+    await writeFile(join(base, "vendor", "Runtime.hex"), "", "utf8");
+    await writeFile(
+      join(path, MANIFEST_NAME),
+      JSON.stringify({ runtimePaths: ["../vendor/Runtime.hex"], exclude: ["../vendor"] }),
+      "utf8",
+    );
+    // Normalizing the *relative* fragment resolves `..` by popping a component,
+    // and popping an empty stack drops it — so `../vendor` becomes `vendor` and
+    // the check walks down from the root rather than the parent. Both entries
+    // exist; neither may be reported.
+    const result = await readManifest(path);
+    expect(result.problems).toEqual([]);
+  });
+
+  test("an entry outside the root that does not exist is still reported", async () => {
+    const base = await makeBase();
+    const path = join(base, "project");
+    await mkdir(join(path, "vendor"), { recursive: true });
+    // The same slip in the other direction: with `..` dropped, this resolves
+    // against the root, finds the *inside* `vendor`, and says nothing about an
+    // entry that names a directory which is not there.
+    await writeFile(
+      join(path, MANIFEST_NAME),
+      JSON.stringify({ exclude: ["../vendor"] }),
+      "utf8",
+    );
+    const result = await readManifest(path);
+    expect(result.problems).toHaveLength(1);
+    expect(result.problems[0]!.message).toContain("matches no file");
+  });
+
+  test("an entry naming the root's resolved path is refused too", async () => {
+    const path = await rootWith();
+    // A user pastes what their shell showed them, and on macOS that is the
+    // resolved path — `/private/tmp/…` for a project under `/tmp`. Comparing
+    // against the literal root alone lets it through, and the walk, which
+    // resolves as it goes, then matches it and empties the project in silence.
+    const resolved = await realpath(path);
+    await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: [resolved] }), "utf8");
+    const result = await readManifest(path);
+    expect(result.manifest.exclude).toEqual([]);
+    expect(result.problems.map(({ message }) => message).join(" ")).toContain("workspace root");
   });
 
   test("a directory whose name begins with two dots is inside the root", async () => {

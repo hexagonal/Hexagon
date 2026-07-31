@@ -21,7 +21,7 @@
  */
 
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import { AnalysisSession } from "../../compiler/src/index.js";
@@ -72,6 +72,10 @@ export class Workspace {
   #exclude: Exclusions = NOTHING_EXCLUDED;
   /** Tail of the `setRoots` queue — see the comment there. */
   #queue: Promise<void> = Promise.resolve();
+  /** The privileged spellings currently configured — see `#applyRuntimePaths`. */
+  readonly #runtimePaths = new Set<string>();
+  /** What those entries resolve to, so a file arriving later can be recognized. */
+  readonly #runtimeRealPaths = new Set<string>();
 
   /**
    * Replaces the workspace with these roots: reads each one's `hexagon.json`,
@@ -118,8 +122,14 @@ export class Workspace {
 
     let added = 0;
     const walked = new Set<string>();
+    // Identity is shared across roots, not restarted at each one. Two roots can
+    // reach one file — a monorepo folder opened beside a link into it — and a
+    // per-root memory would compile it twice, under two names, reporting every
+    // declaration in it as a duplicate of itself and publishing each of its
+    // diagnostics against both paths.
+    const seen: Seen = { directories: new Set(), files: new Set() };
     for (const root of roots) {
-      for (const { path: found, realPath } of await hexagonFilesUnder(root, this.#exclude, onError)) {
+      for (const { path: found, realPath } of await hexagonFilesUnder(root, this.#exclude, seen, onError)) {
         // Route the disk path through the URI mapping rather than handing it to
         // the session directly, so a file discovered here and the same file
         // opened later are one entry under one spelling.
@@ -216,22 +226,51 @@ export class Workspace {
    * by its own project stays privileged.
    */
   async #applyRuntimePaths(): Promise<void> {
-    const paths = new Set<string>();
+    this.#runtimePaths.clear();
+    this.#runtimeRealPaths.clear();
     for (const { runtimePaths } of this.#manifests.values()) {
       for (const entry of runtimePaths) {
-        // The spelling as written, and the one the walk actually keyed the file
-        // under if it found it. Both, rather than a choice between them: the
-        // compiler matches by set membership, so a spelling that names nothing
-        // costs nothing, while guessing wrong costs the privilege. Resolving the
-        // entry is safe here in a way it is not for an exclusion — this asks
-        // "which file is this?", not "is this name excluded?", so a link and its
-        // target giving the same answer is the point rather than the bug.
-        paths.add(comparablePath(entry));
-        const walked = this.#pathsByRealPath.get(await realPathOf(entry));
-        if (walked !== undefined) paths.add(walked);
+        // Privilege is granted by identity, never by the spelling as written:
+        // the compiler matches these by set membership against the key a file is
+        // actually held under, and that key is chosen by whichever route brought
+        // the file in. Two routes exist, and each is answered here — the walk,
+        // through the name it recorded, and everything later through
+        // `#grantIfRuntime`. Resolving the entry is safe in a way it is not for
+        // an exclusion: this asks "which file is this?", not "is this name
+        // excluded?", so a link and its target giving one answer is the point.
+        const realPath = await realPathOf(entry);
+        this.#runtimeRealPaths.add(realPath);
+        // And the same name with only its *directory* resolved. A manifest may
+        // name a module that does not exist yet — the file arrives with a branch
+        // switch — and an absent path resolves to itself, keeping a prefix the
+        // file will not have once it is there. Its directory does exist, and the
+        // prefix is the whole of the difference.
+        this.#runtimeRealPaths.add(
+          join(await realPathOf(dirname(entry)), basename(entry)),
+        );
+        const walked = this.#pathsByRealPath.get(realPath);
+        if (walked !== undefined) this.#runtimePaths.add(walked);
       }
     }
-    this.session.configure({ runtimePaths: [...paths] });
+    this.session.configure({ runtimePaths: [...this.#runtimePaths] });
+  }
+
+  /**
+   * Grants privilege to a file the walk never saw, if the manifest names it.
+   *
+   * A runtime module created after the scan — by a branch switch, or by the
+   * user — arrives through the watcher or an open buffer, and is keyed by
+   * whatever name that route gave it. Under a linked directory that is the
+   * link's spelling, which no manifest mentions, so the module would silently
+   * lose the privilege and report `unknown generic type \`Node\`` until the next
+   * manifest change. Identity is the resolved path, which is the one thing both
+   * routes agree on.
+   */
+  #grantIfRuntime(path: string, realPath: string): void {
+    if (!this.#runtimeRealPaths.has(realPath)) return;
+    if (this.#runtimePaths.has(path)) return;
+    this.#runtimePaths.add(path);
+    this.session.configure({ runtimePaths: [...this.#runtimePaths] });
   }
 
   /**
@@ -331,6 +370,7 @@ export class Workspace {
     // what is excluded — so for exactly the files `#isExcluded` most needs to
     // resolve, this is the only place the resolution ever happens.
     this.#realPathOfPath.set(path, realPath);
+    this.#grantIfRuntime(path, realPath);
     return path;
   }
 }
@@ -383,23 +423,34 @@ function excludes(
   return realPath !== undefined && isExcluded(realPath, exclude.real);
 }
 
+/**
+ * What a walk has already been to, by resolved path.
+ *
+ * Following symlinks means the tree is a graph: `ln -s . loop` makes a
+ * directory contain itself, and a walk with no memory descends it until the
+ * path length stops it, turning one file into dozens of modules that all shadow
+ * each other. Identity has to be the resolved path, since two links to one
+ * place are two names for it — and the same for files, where compiling one
+ * twice reports every declaration in it as a duplicate of itself.
+ *
+ * Shared across roots rather than restarted at each, because two roots can
+ * reach one file and the duplicate does not care which walk found it.
+ */
+interface Seen {
+  readonly directories: Set<string>;
+  readonly files: Set<string>;
+}
+
 async function hexagonFilesUnder(
   root: string,
   exclude: Exclusions,
+  seen: Seen,
   onError: (message: string) => void,
 ): Promise<readonly FoundFile[]> {
   const found: FoundFile[] = [];
   const pending = [root];
-  // Directories already walked, by the real path they resolve to. Following
-  // symlinks means the tree is a graph: `ln -s . loop` makes a directory contain
-  // itself, and a walk with no memory descends it until the path length stops
-  // it, turning one file into dozens of modules that all shadow each other.
-  // Identity has to be the resolved path, since two links to one directory are
-  // two names for the same place.
-  const walked = new Set<string>();
-  // The same, for files: two links to one source file are one module, and
-  // compiling it twice would report every declaration in it as a duplicate.
-  const collected = new Set<string>();
+  const walked = seen.directories;
+  const collected = seen.files;
   for (let directory = pending.pop(); directory !== undefined; directory = pending.pop()) {
     const directoryIdentity = await realPathOf(directory);
     // Excluded under the name it resolves to, not only the name it was reached
@@ -407,8 +458,10 @@ async function hexagonFilesUnder(
     // with two names, and the walk follows links on purpose, so checking the
     // literal path alone lets every file in it back into the project under a
     // spelling the manifest never mentions. Free here: the resolution is
-    // already paid for by cycle detection. The root itself cannot be caught by
-    // this — `readManifest` rejects an `exclude` entry that covers it.
+    // already paid for by cycle detection. The root itself is kept out of this
+    // by `readManifest`, which refuses an `exclude` entry covering it under
+    // either of the root's names — the resolved one included, since that is the
+    // one a user pastes.
     //
     // Before the cycle check claims the identity, not after: an excluded link
     // would otherwise mark its target as already walked, and the target — a

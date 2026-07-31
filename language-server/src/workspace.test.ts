@@ -11,6 +11,7 @@
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, test } from "vitest";
 import { MANIFEST_NAME } from "./manifest.js";
 import { Workspace } from "./workspace.js";
@@ -440,19 +441,99 @@ describe("the workspace walk", () => {
     await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["gen"] }));
     const workspace = new Workspace();
 
-    // This asserts the contract, not the serialization: the interleaving that
-    // `#queue` exists to prevent needs a second call to land inside the first
-    // one's walk, and nothing here can force that without instrumenting the
-    // walk itself. Removing the queue leaves this test green. It is kept
-    // because the converged answer is worth pinning either way, and the queue
-    // is kept because a hazard that cannot be reproduced on demand is still the
-    // kind that shows up on somebody else's slower disk.
+    // Overlapping calls that do not happen to interleave badly, which is the
+    // ordinary case and worth pinning on its own. The damaging order — a second
+    // call finishing while the first is parked mid-walk — needs the filesystem
+    // held still, and lives in `workspace.concurrency.test.ts`.
     const first = workspace.setRoots([path], () => {});
     await writeFile(join(path, MANIFEST_NAME), JSON.stringify({}));
     const second = workspace.setRoots([path], () => {});
     await Promise.all([first, second]);
     expect(workspace.session.paths.map((p) => p.split("/").at(-1)).sort())
       .toEqual(["g.hex", "main.hex"]);
+  });
+
+  test("two roots reaching one file through two names hold it once", async () => {
+    const base = await makeRoot();
+    await mkdir(join(base, "real"), { recursive: true });
+    await writeFile(join(base, "real", "x.hex"), "let value: Int = 1\n");
+    await symlink(join(base, "real"), join(base, "link"), "dir");
+
+    // Deduplication that restarts at each root is no deduplication at all when
+    // the duplicate spans roots — a monorepo folder opened beside a link into
+    // it. The file would compile twice under two names, reporting every
+    // declaration in it as a duplicate of itself.
+    const workspace = new Workspace();
+    const { added } = await workspace.setRoots([join(base, "link"), join(base, "real")], () => {});
+    expect(added).toBe(1);
+    expect(workspace.session.paths).toHaveLength(1);
+    expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
+  });
+
+  test("a runtime module the walk never saw is still privileged", async () => {
+    const path = await makeRoot();
+    await mkdir(join(path, "runtime"));
+    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(
+      join(path, MANIFEST_NAME),
+      JSON.stringify({ runtimePaths: ["runtime/Trie.hex"] }),
+    );
+    const { workspace } = await scan(path);
+
+    // Created after the scan — a branch switch, or the user — and delivered by
+    // the watcher. The manifest named it before it existed, so privilege has to
+    // survive the file arriving late.
+    const runtime = join(path, "runtime", "Trie.hex");
+    await writeFile(runtime, "let size(node: Node(Int)): Int = 0\n");
+    await workspace.refreshFromDisk(pathToFileURL(runtime).toString());
+    expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
+  });
+
+  test("an unsaved runtime module is privileged under the name as written", async () => {
+    const path = await makeRoot();
+    await mkdir(join(path, "runtime"));
+    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(
+      join(path, MANIFEST_NAME),
+      JSON.stringify({ runtimePaths: ["runtime/Trie.hex"] }),
+    );
+    const { workspace } = await scan(path);
+
+    // A module that exists only as a buffer: the manifest names it and the walk
+    // never saw it, so there is no recorded spelling to reuse. Nor is there a
+    // file to resolve — an absent path resolves to itself — which is the case
+    // the manifest's own unresolvable name is kept for, so that identity still
+    // has something to match on.
+    await workspace.openDocument({
+      uri: workspace.uris.toUri(join(path, "runtime", "Trie.hex")),
+      getText: () => "let size(node: Node(Int)): Int = 0\n",
+    } as never);
+    expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
+  });
+
+  test("a late runtime module is privileged under the name its route gave it", async () => {
+    const base = await makeRoot();
+    const path = join(base, "project");
+    await mkdir(join(base, "external", "runtime"), { recursive: true });
+    await mkdir(path);
+    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await symlink(join(base, "external", "runtime"), join(path, "rt-link"), "dir");
+    await writeFile(
+      join(path, MANIFEST_NAME),
+      JSON.stringify({ runtimePaths: ["../external/runtime/Trie.hex"] }),
+    );
+    const { workspace } = await scan(path);
+
+    // The walk never saw this file, so there is no recorded spelling to reuse —
+    // and the route it arrives by names it through the link, which the manifest
+    // does not mention. Identity is the resolved path, the one thing the two
+    // spellings agree on.
+    await writeFile(
+      join(base, "external", "runtime", "Trie.hex"),
+      "let size(node: Node(Int)): Int = 0\n",
+    );
+    await workspace.refreshFromDisk(pathToFileURL(join(path, "rt-link", "Trie.hex")).toString());
+    expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
   });
 
   test("excluding a link does not delete the file it points at", async () => {

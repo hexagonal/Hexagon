@@ -55,6 +55,11 @@ language-server/
     diagnostics.ts     conversion of compiler diagnostics to the protocol's shape
 ```
 
+Tests sit beside their subject, with one exception: `workspace.concurrency.test.ts`
+replaces `readdir` with one that can be parked mid-walk, so that two overlapping
+rescans interleave on demand rather than by luck. It is a separate file because
+that replacement would otherwise apply to every test in the workspace suite.
+
 There is no `connection.ts`: `vscode-languageserver` owns JSON-RPC framing and lifecycle, and no separate `requests/` directory, because each handler is small enough that separating them would cost more indirection than it removes. `documents.ts` is likewise absent — `TextDocuments` from the same package applies incremental changes.
 
 Protocol adapters stay thin. A handler asks the compiler service a semantic question and converts the answer to LSP structures; when one looks like it is about to decide something about Hexagon, the decision belongs in `compiler/src/analysis` instead.
@@ -168,8 +173,8 @@ not privileged brings back the very errors it was written to remove. It is a
 warning because `exclude: ["dist"]` in a fresh clone is legitimately ahead of
 the build that creates it, and reporting that as an error would teach a user to
 ignore the mistakes that are real. An entry *outside* the root is judged by
-existence alone, so a mis-cased one there goes unreported on a filesystem that
-ignores case.
+existence alone — there is no chain of directories below the root to walk down
+— so a mis-cased one there goes unreported on a filesystem that ignores case.
 
 The two fields are not symmetrical, and the asymmetry is reported rather than
 left to be discovered: `exclude` accepts a file or a directory, while

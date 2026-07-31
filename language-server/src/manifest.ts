@@ -29,8 +29,8 @@
  * sharing the reader.
  */
 
-import { readdir, readFile, stat } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { normalizePath } from "./positions.js";
 
 export const MANIFEST_NAME = "hexagon.json";
@@ -173,7 +173,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
       // Relative to the manifest, which is the only reading that survives the
       // project being checked out anywhere else.
       const resolved = resolve(rootPath, entry);
-      if (key === "exclude" && coversRoot(resolved, rootPath)) {
+      if (key === "exclude" && await coversRoot(resolved, rootPath)) {
         // Testing equality alone is a line too narrow: `""`, `"."` and `"./"`
         // resolve *to* the root, but `".."` and `"/"` resolve above it and
         // exclude it just as totally — every file gone, nothing published
@@ -255,7 +255,12 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
  * demonstrably does have one.
  */
 async function matchesExactly(rootPath: string, resolved: string): Promise<boolean> {
-  const within = comparablePath(relative(rootPath, resolved));
+  // Separators only. `comparablePath` would be the tempting reuse and is wrong
+  // on a *relative* path: it resolves `..` by popping a component, and popping
+  // an empty stack drops it, so `../vendor` arrives as `vendor` — the check
+  // then walks down from the root instead of the parent, and every entry
+  // outside the root is judged against the wrong directory in both directions.
+  const within = relative(rootPath, resolved).replaceAll("\\", "/");
   if (within === "" || within === ".") return true;
   // Outside the root there is no chain to walk down from anywhere the user can
   // be assumed to be able to read, so existence is all that can be said —
@@ -322,7 +327,26 @@ export function isExcluded(path: string, exclude: readonly string[]): boolean {
 /** One spelling for path comparison — the same one the session keys by. */
 export const comparablePath = normalizePath;
 
-/** Whether excluding this path would take the workspace root with it. */
-function coversRoot(resolved: string, rootPath: string): boolean {
-  return isExcluded(rootPath, [resolved]);
+/**
+ * Whether excluding this path would take the workspace root with it.
+ *
+ * Under both of the root's names. A user who pastes an absolute path pastes
+ * whatever their shell showed them, and on macOS that is the resolved one —
+ * `/private/tmp/…` for a project under `/tmp`. Comparing against the literal
+ * root alone lets that entry through, and the walk, which resolves as it goes,
+ * then matches it and empties the project: no files, no errors, and a warning
+ * saying the entry has no effect at the moment it removed everything.
+ */
+async function coversRoot(resolved: string, rootPath: string): Promise<boolean> {
+  if (isExcluded(rootPath, [resolved])) return true;
+  return isExcluded(await realPathOf(rootPath), [resolved]);
+}
+
+/** A path with every link followed, or the path itself if it cannot resolve. */
+async function realPathOf(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch {
+    return path;
+  }
 }
