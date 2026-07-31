@@ -294,6 +294,43 @@ describe("AnalysisSession", () => {
     expect(fromClause).toEqual(fromUse);
   });
 
+  test("options can be set after the session is open, and change the answers", () => {
+    // A host learns what kind of project it has by reading a file *in* the
+    // project, so the configuration arrives after the session does — and can
+    // then change while it is open.
+    const source = "let size(node: Node(Int)): Int = 0\n";
+    const session = new AnalysisSession();
+    session.setFile("/trie.hex", source);
+    expect(session.diagnostics("/trie.hex").map(({ message }) => message)).toContain(
+      "unknown generic type `Node`",
+    );
+
+    const before = session.version;
+    session.configure({ runtimePaths: ["/trie.hex"] });
+    expect(session.version).toBeGreaterThan(before);
+    expect(session.diagnostics("/trie.hex")).toEqual([]);
+
+    // `Node` is not merely accepted now; it is understood.
+    expect(session.hover("/trie.hex", at(source, "node"))?.displayedType).toBe("Node(Int)");
+
+    // Withdrawing the privilege has to withdraw the answer too.
+    session.configure({});
+    expect(session.diagnostics("/trie.hex").length).toBeGreaterThan(0);
+  });
+
+  test("reconfiguring with the same options keeps the analysis", () => {
+    const session = new AnalysisSession({ runtimePaths: ["/a.hex", "/b.hex"] });
+    session.setFile("/main.hex", "let value: Int = 1\n");
+    const settled = session.version;
+    session.configure({ runtimePaths: ["/a.hex", "/b.hex"] });
+    expect(session.version).toBe(settled);
+    // Order is not meaningful — `compileProject` reads the list as a set — so a
+    // host that rebuilds it in a different order must not discard analysis it is
+    // about to ask questions of.
+    session.configure({ runtimePaths: ["/b.hex", "/a.hex"] });
+    expect(session.version).toBe(settled);
+  });
+
   test("paths arriving in Windows spelling are the same file", () => {
     const session = new AnalysisSession();
     session.setFile("\\main.hex", "let value: Int = 1\n");

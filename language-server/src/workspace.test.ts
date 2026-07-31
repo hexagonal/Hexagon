@@ -12,6 +12,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
+import { MANIFEST_NAME } from "./manifest.js";
 import { Workspace } from "./workspace.js";
 
 let root = "";
@@ -30,7 +31,7 @@ afterEach(async () => {
 async function scan(path: string): Promise<{ added: number; workspace: Workspace }> {
   const workspace = new Workspace();
   const errors: string[] = [];
-  const added = await workspace.addRoot(path, (message) => errors.push(message));
+  const { added } = await workspace.addRoot(path, (message) => errors.push(message));
   expect(errors).toEqual([]);
   return { added, workspace };
 }
@@ -135,5 +136,79 @@ describe("the workspace walk", () => {
     expect(workspace.session.hover(workspace.session.paths[0]!, 4)?.displayedType).toBe("Int");
     const definition = workspace.session.definitions(workspace.session.paths[0]!, 4);
     expect(definition).toHaveLength(1);
+  });
+
+  test("`runtimePaths` privileges a module, and nothing else does", async () => {
+    const path = await makeRoot();
+    // `Node(a)` is the hidden trie node: it resolves only inside a privileged
+    // runtime module. Without a manifest the server has no way to know which
+    // files those are, which is what made the Hexagon repository greet everyone
+    // with 38 errors that are not errors.
+    // Private, because the checker separately forbids `Node` from crossing an
+    // exported signature — privilege lets a module *name* it, not publish it.
+    const runtime = "let size(node: Node(Int)): Int = 0\n";
+    await writeFile(join(path, "trie.hex"), runtime);
+
+    const plain = await scan(path);
+    const unprivileged = plain.workspace.session.allDiagnostics().get(
+      plain.workspace.session.paths[0]!,
+    )!;
+    expect(unprivileged.length).toBeGreaterThan(0);
+    expect(unprivileged.some(({ message }) => message.includes("Node"))).toBe(true);
+
+    await writeFile(
+      join(path, MANIFEST_NAME),
+      JSON.stringify({ runtimePaths: ["trie.hex"] }),
+    );
+    const privileged = await scan(path);
+    expect(privileged.workspace.session.allDiagnostics().get(
+      privileged.workspace.session.paths[0]!,
+    )).toEqual([]);
+  });
+
+  test("`exclude` keeps a directory out of the project entirely", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await mkdir(join(path, "examples"));
+    await writeFile(join(path, "examples", "broken.hex"), "let oops: Int = \n");
+
+    const included = await scan(path);
+    expect(included.added).toBe(2);
+    expect([...included.workspace.session.allDiagnostics().values()].flat().length)
+      .toBeGreaterThan(0);
+
+    await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["examples"] }));
+    const excluded = await scan(path);
+    expect(excluded.added).toBe(1);
+    expect([...excluded.workspace.session.allDiagnostics().values()].flat()).toEqual([]);
+  });
+
+  test("reloading a manifest drops files it newly excludes", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await mkdir(join(path, "examples"));
+    await writeFile(join(path, "examples", "broken.hex"), "let oops: Int = \n");
+    const { workspace } = await scan(path);
+    expect(workspace.session.paths).toHaveLength(2);
+
+    // Rescanning alone cannot do this: a walk only ever adds. A file that has
+    // left the project has to be taken out of the session, or its diagnostics
+    // outlive the decision to exclude it.
+    await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["examples"] }));
+    await workspace.reloadManifest(path, () => {});
+    expect(workspace.session.paths).toHaveLength(1);
+    expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
+  });
+
+  test("a broken manifest still yields a working workspace", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, MANIFEST_NAME), "{ oops");
+    const workspace = new Workspace();
+    const { added, manifest } = await workspace.addRoot(path, () => {});
+    // The manifest's own failure must not take language support down with it.
+    expect(added).toBe(1);
+    expect(manifest.problems).toHaveLength(1);
+    expect(workspace.session.hover(workspace.session.paths[0]!, 4)?.name).toBe("value");
   });
 });

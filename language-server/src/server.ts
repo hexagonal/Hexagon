@@ -42,6 +42,7 @@ import type { Source, Target } from "../../compiler/src/index.js";
 import { toLspDiagnostic } from "./diagnostics.js";
 import { offsetOfPosition, rangeOfSpan } from "./positions.js";
 import { Workspace } from "./workspace.js";
+import { MANIFEST_NAME, type ManifestResult } from "./manifest.js";
 
 /**
  * How long to wait after an edit before analysing for diagnostics. Long enough
@@ -57,14 +58,20 @@ export function startServer(connection: Connection): void {
   const published = new Set<string>();
   let publishTimer: ReturnType<typeof setTimeout> | undefined;
   let watchedFilesRegistered = false;
+  let roots: readonly string[] = [];
+  /** Each root's manifest problems, republished whenever diagnostics are. */
+  const manifests = new Map<string, ManifestResult>();
 
   const log = (message: string): void => connection.console.info(`[hexagon] ${message}`);
+  const reportError = (message: string): void => connection.console.error(`[hexagon] ${message}`);
 
   connection.onInitialize(async (params: InitializeParams): Promise<InitializeResult> => {
-    const roots = rootPathsOf(params);
+    roots = rootPathsOf(params);
     let discovered = 0;
     for (const root of roots) {
-      discovered += await workspace.addRoot(root, (message) => connection.console.error(`[hexagon] ${message}`));
+      const { added, manifest } = await workspace.addRoot(root, reportError);
+      discovered += added;
+      manifests.set(root, manifest);
     }
     log(`initialized over ${roots.length} root(s); ${discovered} Hexagon file(s) found`);
     watchedFilesRegistered = params.capabilities.workspace?.didChangeWatchedFiles?.dynamicRegistration === true;
@@ -91,7 +98,10 @@ export function startServer(connection: Connection): void {
     // Files can change without ever being opened — a branch switch, a formatter,
     // a generated module. Without this the graph silently keeps stale text.
     await connection.client.register(DidChangeWatchedFilesNotification.type, {
-      watchers: [{ globPattern: "**/*.hex" }],
+      // The manifest decides what the project *is*, so a change to it can change
+      // every answer — not only which files exist, but whether a module may name
+      // `Node(a)` at all. It has to be watched like source.
+      watchers: [{ globPattern: "**/*.hex" }, { globPattern: `**/${MANIFEST_NAME}` }],
     });
   });
 
@@ -111,9 +121,23 @@ export function startServer(connection: Connection): void {
   });
 
   connection.onDidChangeWatchedFiles(async ({ changes }) => {
+    let manifestChanged = false;
     for (const change of changes) {
+      if (change.uri.endsWith(`/${MANIFEST_NAME}`)) {
+        manifestChanged = true;
+        continue;
+      }
       if (change.type === FileChangeType.Deleted) await workspace.deleteFile(change.uri);
       else await workspace.refreshFromDisk(change.uri);
+    }
+    if (manifestChanged) {
+      // Which root's manifest changed does not narrow the work: a root's
+      // `exclude` can hide a file another root's manifest privileges, so the
+      // cheap thing and the correct thing are the same size here.
+      for (const root of roots) {
+        manifests.set(root, (await workspace.reloadManifest(root, reportError)).manifest);
+      }
+      log(`reloaded ${MANIFEST_NAME}`);
     }
     schedulePublish();
   });
@@ -165,7 +189,7 @@ export function startServer(connection: Connection): void {
     if (publishTimer !== undefined) clearTimeout(publishTimer);
     publishTimer = setTimeout(() => {
       publishTimer = undefined;
-      publishDiagnostics(connection, workspace, published);
+      publishDiagnostics(connection, workspace, published, manifests);
     }, DIAGNOSTIC_DELAY_MS);
   }
 }
@@ -183,6 +207,7 @@ function publishDiagnostics(
   connection: Connection,
   workspace: Workspace,
   published: Set<string>,
+  manifests: ReadonlyMap<string, ManifestResult>,
 ): void {
   const analysed = workspace.session.allDiagnostics();
   const pathOfFile = (fileId: number): string | undefined =>
@@ -197,6 +222,27 @@ function publishDiagnostics(
       diagnostics: diagnostics.map((diagnostic) =>
         toLspDiagnostic(diagnostic, workspace.uris, pathOfFile)
       ),
+    });
+  }
+  // A malformed manifest is reported against the manifest, not against anyone's
+  // Hexagon. Silently ignoring a misspelled key would leave a user staring at
+  // diagnostics they believe they configured away, with nothing to explain why.
+  for (const [root, result] of manifests) {
+    if (!result.present) continue;
+    const uri = workspace.uris.toUri(`${root}/${MANIFEST_NAME}`);
+    if (result.problems.length > 0) stillReporting.add(uri);
+    else if (!published.has(uri)) continue;
+    connection.sendDiagnostics({
+      uri,
+      diagnostics: result.problems.map((problem) => ({
+        severity: 1 as const,
+        range: {
+          start: { line: problem.line, character: 0 },
+          end: { line: problem.line, character: Number.MAX_SAFE_INTEGER },
+        },
+        message: problem.message,
+        source: "hexagon",
+      })),
     });
   }
   for (const uri of published) {

@@ -50,6 +50,7 @@ language-server/
     main.ts            process entry point and transport selection
     server.ts          lifecycle, capabilities, document sync, request dispatch
     workspace.ts       the file set: open buffers, disk, and precedence between them
+    manifest.ts        `hexagon.json`: what the project says it is
     positions.ts       the single LSP-to-compiler coordinate boundary
     diagnostics.ts     conversion of compiler diagnostics to the protocol's shape
 ```
@@ -67,6 +68,7 @@ The language server does not invoke the batch CLI for every request. `compiler/s
 ```text
 setFile(path, text)       add a file or replace its text
 removeFile(path)          drop a file
+configure(options)        replace the compilation options
 version                   increments on every mutation
 diagnostics(path)         one file's diagnostics
 allDiagnostics()          every held file's, empty lists included
@@ -101,8 +103,9 @@ The first vertical slice provides:
 2. incremental document synchronization, with open buffers taking precedence over disk;
 3. compiler-backed diagnostics for every file in the workspace, not only open ones;
 4. hover using resolved and typed compiler information;
-5. go-to-definition using stable compiler identities; and
-6. find-references over values, type names, and constraints.
+5. go-to-definition using stable compiler identities;
+6. find-references over values, type names, and constraints; and
+7. a `hexagon.json` manifest saying which modules are privileged and which files are not the project.
 
 Find-references arrived with the slice rather than after it because it shares one index with go-to-definition: both ask the same question of the same table, and building one without the other would have meant writing the traversal twice.
 
@@ -116,18 +119,55 @@ TypeScript, hosted by Node.js, speaking LSP through `vscode-languageserver` and 
 
 Editor extensions launch this server. They do not contain separate compiler implementations; `editors/vscode` is a client and a grammar, nothing more.
 
+## `hexagon.json`
+
+A workspace root may carry a manifest saying what the project is. Without one,
+the root is "every `.hex` file underneath, compiled together", which is a guess
+that goes wrong in two ways a server cannot recover from alone.
+
+```json
+{
+  "runtimePaths": ["runtime/VectorTrie.hex"],
+  "exclude": ["examples"]
+}
+```
+
+**`runtimePaths`** — modules compiled with runtime privilege, the ones allowed to
+name `Node(a)`, the hidden fixed-32 trie node. The compiler has always modelled
+this (`ProjectOptions.runtimePaths`) but nothing could tell a *server* which
+files they were, so opening this repository used to greet a user with 38 errors
+reading ``unknown generic type `Node` `` — none of them real.
+
+**`exclude`** — path prefixes that are not part of the project: generated output,
+deliberately-broken examples, a vendored copy. Matching is by exact path or
+directory prefix rather than by glob; a glob language is a design decision with
+its own edge cases, and prefixes answer every case that motivated this.
+
+Both are resolved against the manifest's own directory, which is the only reading
+that survives the project being checked out somewhere else.
+
+Neither could be inferred. Treating `runtime/` as privileged because of its name
+would be the same mistake as inferring meaning from a name anywhere else in this
+compiler — a project has to say so. Nothing else is in the file: no dependency
+resolution, no build configuration, no compiler flags. Those need designing
+rather than inventing, and nothing yet needs them.
+
+A missing manifest is the ordinary case and is silent. A *malformed* one is
+reported as a diagnostic against `hexagon.json` itself, including an unknown key,
+because a misspelling that quietly did nothing would leave a user staring at
+diagnostics they believed they had configured away. A broken manifest never takes
+language support down with it: defaults apply and the workspace still works.
+
+The manifest is watched like source, since a change to it can change every
+answer.
+
 ## Known limits
 
 Listed rather than hidden, because each is a place where the server is knowingly
 less than it looks.
 
-- **Every `.hex` file under a workspace root is one project.** There is no project
-  manifest, so the server compiles the whole tree together. Opening this
-  repository is the clearest demonstration: `runtime/VectorTrie.hex` is a
-  privileged runtime module that no ordinary project may compile, and it reports
-  38 errors starting with ``unknown generic type `Node` `` — as the user's first
-  impression. A project file, or a convention for excluding a directory, is what
-  fixes this; guessing at roots would not.
+- **One manifest per workspace root, at the root.** Nested projects inside one
+  root are not modelled, and a root's `exclude` cannot be overridden deeper down.
 - **Initialization waits for the workspace scan.** `initialize` walks the root
   and reads every `.hex` file before replying, so that the first request is
   answered against a whole module graph rather than a partial one. On a very

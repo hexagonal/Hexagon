@@ -26,6 +26,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import { AnalysisSession } from "../../compiler/src/index.js";
 import { UriPaths } from "./positions.js";
+import { isExcluded, readManifest, type Manifest, type ManifestResult } from "./manifest.js";
 
 const HEXAGON_EXTENSION = ".hex";
 
@@ -48,15 +49,27 @@ export class Workspace {
   readonly #pathByUri = new Map<string, string>();
   /** Session path for each real path the walk resolved — see `#pathOf`. */
   readonly #pathsByRealPath = new Map<string, string>();
+  /** Each workspace root's `hexagon.json`, merged into the session by `#applyManifests`. */
+  readonly #manifests = new Map<string, Manifest>();
 
   /**
-   * Reads every Hexagon file under a workspace root. Failures are reported
-   * rather than thrown: a workspace with one unreadable directory should still
-   * give language support for the rest of itself.
+   * Reads every Hexagon file under a workspace root, as the root's `hexagon.json`
+   * describes it. Failures are reported rather than thrown: a workspace with one
+   * unreadable directory should still give language support for the rest of
+   * itself.
+   *
+   * Returns the manifest's own problems so the caller can publish them against
+   * the manifest file. They are not errors in anyone's Hexagon.
    */
-  async addRoot(rootPath: string, onError: (message: string) => void): Promise<number> {
+  async addRoot(
+    rootPath: string,
+    onError: (message: string) => void,
+  ): Promise<{ added: number; manifest: ManifestResult }> {
+    const manifest = await readManifest(rootPath);
+    this.#manifests.set(rootPath, manifest.manifest);
+    this.#applyManifests();
     let added = 0;
-    for (const { path: found, realPath } of await hexagonFilesUnder(rootPath, onError)) {
+    for (const { path: found, realPath } of await hexagonFilesUnder(rootPath, manifest.manifest.exclude, onError)) {
       // Route the disk path through the URI mapping rather than handing it to
       // the session directly, so a file discovered here and the same file opened
       // later are one entry under one spelling.
@@ -71,7 +84,38 @@ export class Workspace {
         onError(`could not read ${found}: ${messageOf(error)}`);
       }
     }
-    return added;
+    return { added, manifest };
+  }
+
+  /** Re-reads a root's manifest after it changed on disk, and rescans under it. */
+  async reloadManifest(
+    rootPath: string,
+    onError: (message: string) => void,
+  ): Promise<{ added: number; manifest: ManifestResult }> {
+    // A widened `exclude` leaves files in the session that are no longer part of
+    // the project, and a narrowed one has to pick up files the last walk skipped.
+    // Rescanning covers the second; dropping the newly-excluded covers the first.
+    const result = await this.addRoot(rootPath, onError);
+    for (const path of this.session.paths) {
+      if (!path.startsWith(`${this.uris.toPath(pathToFileURL(rootPath).toString())}/`)) continue;
+      if (!isExcluded(path, result.manifest.manifest.exclude)) continue;
+      this.session.removeFile(path);
+    }
+    return result;
+  }
+
+  /**
+   * Hands the union of every root's runtime paths to the session. Roots are
+   * merged rather than replaced because a multi-root workspace has one session:
+   * the modules of all of them compile together, so a file privileged by its own
+   * project stays privileged.
+   */
+  #applyManifests(): void {
+    this.session.configure({
+      runtimePaths: [...this.#manifests.values()].flatMap(({ runtimePaths }) =>
+        runtimePaths.map((path) => this.uris.toPath(pathToFileURL(path).toString()))
+      ),
+    });
   }
 
   /** Takes over a file's contents from the editor, unsaved edits included. */
@@ -155,6 +199,7 @@ interface FoundFile {
 
 async function hexagonFilesUnder(
   root: string,
+  exclude: readonly string[],
   onError: (message: string) => void,
 ): Promise<readonly FoundFile[]> {
   const found: FoundFile[] = [];
@@ -182,6 +227,7 @@ async function hexagonFilesUnder(
     }
     for (const entry of entries) {
       const path = join(directory, entry.name);
+      if (isExcluded(path, exclude)) continue;
       // A symlink reports as neither a file nor a directory, so a workspace that
       // links its source tree in — a common monorepo layout — would otherwise
       // get no language support at all, silently. `stat` follows the link to ask
