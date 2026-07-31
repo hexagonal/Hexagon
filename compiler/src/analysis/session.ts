@@ -250,10 +250,18 @@ class Analysis {
   readonly #typesByPath = new Map<string, Map<string, TypeOccurrence>>();
 
   constructor(project: { readonly modules: readonly CompiledModule[]; readonly diagnostics: readonly Diagnostics.Diagnostic[] }) {
+    // Built before the indexing loop: an import may name a module compiled after
+    // this one, and a type name in an import list can only be resolved once the
+    // specifier's target file is known.
+    const fileIdsByPath = new Map(
+      project.modules.map((module) => [module.source.path, module.source.id]),
+    );
     for (const module of project.modules) {
       const path = module.source.path;
       this.#pathsByFileId.set(Number(module.source.id), path);
-      const occurrences = collectOccurrences(module);
+      const occurrences = collectOccurrences(module, {
+        fileOfSpecifier: (specifier) => fileIdsByPath.get(resolveSpecifier(path, specifier)),
+      });
       this.#occurrencesByPath.set(path, occurrences);
       for (const occurrence of occurrences) {
         const key = targetKey(occurrence.target);
@@ -312,6 +320,18 @@ class Analysis {
 
 function spanKey(span: Source.Span): string {
   return `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
+}
+
+/**
+ * The path an import specifier names, from the module that wrote it. Mirrors
+ * `compileProject`'s own resolution — the same rule has to be applied here,
+ * because it is what decides which module a type name in an import list came
+ * from when two modules export that name.
+ */
+function resolveSpecifier(importer: string, specifier: string): string {
+  const directory = importer.slice(0, Math.max(0, importer.lastIndexOf("/")));
+  const candidate = normalizePath(`${directory}/${specifier}`);
+  return candidate.endsWith(".hex") ? candidate : `${candidate}.hex`;
 }
 
 /**

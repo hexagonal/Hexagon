@@ -58,6 +58,23 @@ export interface ModuleInput {
   readonly resolved: Resolved.Module;
 }
 
+export interface CollectOptions {
+  /**
+   * The file an import specifier resolves to, from this module.
+   *
+   * A type name in an import list carries no type identity — `ImportName` has no
+   * room for one — so it has to be recovered from the module's own type tables,
+   * which hold the imported declarations alongside the local ones. Matching on
+   * the name alone is not enough: two modules may export the same type name, and
+   * picking either one is wrong half the time. Only the specifier says which.
+   *
+   * Resolving a specifier needs the project's file set, which one module does
+   * not have, so the caller supplies it. Without it, type names in import lists
+   * are left unindexed rather than guessed at.
+   */
+  readonly fileOfSpecifier?: (specifier: string) => Source.FileId | undefined;
+}
+
 /**
  * A comparable identity for a target. Two occurrences belong to the same thing
  * exactly when their keys match, which is what lets find-references group across
@@ -86,8 +103,11 @@ export function targetKey(target: Target): string {
  * symbol of its constructor, so `Box` denotes both. Callers that want every
  * reference to `Box` want the union of both target's references.
  */
-export function collectOccurrences(module: ModuleInput): readonly Occurrence[] {
-  return new Collector(module).run();
+export function collectOccurrences(
+  module: ModuleInput,
+  options: CollectOptions = {},
+): readonly Occurrence[] {
+  return new Collector(module, options).run();
 }
 
 class Collector {
@@ -100,12 +120,14 @@ class Collector {
   readonly #seen = new Set<string>();
   /** Spans of the imports the source actually contains — see `#visitItem`. */
   readonly #writtenImports: ReadonlySet<string>;
+  readonly #fileOfSpecifier: CollectOptions["fileOfSpecifier"];
 
-  constructor(module: ModuleInput) {
+  constructor(module: ModuleInput, options: CollectOptions) {
     this.#source = module.source;
     this.#parsed = module.parsed;
     this.#resolved = module.resolved;
     this.#fileId = module.resolved.fileId;
+    this.#fileOfSpecifier = options.fileOfSpecifier;
     this.#writtenImports = new Set(
       module.parsed.items
         .filter((item) => item.kind === "Import")
@@ -150,7 +172,7 @@ class Collector {
    */
   #headNameSpan(span: Source.Span): Source.Span {
     const text = this.#source.text.slice(span.start.offset, span.end.offset);
-    const match = /^\s*(?:[A-Za-z_$][\w$]*\s*\.\s*)*([A-Za-z_$][\w$]*)/u.exec(text);
+    const match = HEAD_NAME.exec(text);
     const name = match?.[1];
     if (match === null || name === undefined) return span;
     const start = span.start.offset + match[0].length - name.length;
@@ -234,8 +256,15 @@ class Collector {
         // not source text: their spans are the whole module, so publishing them
         // would put `Some`, `None`, `True` and `False` on top of the entire
         // file. A written import is exactly one the parser also saw.
-        if (item.form.kind !== "Effect" && this.#writtenImports.has(spanKey(item.span))) {
-          for (const name of item.form.names) this.#visitImportName(name);
+        // A namespace import's `names` are the members it made reachable, not
+        // names the source wrote: each one carries the whole import statement as
+        // its span, and the alias itself has none. Publishing them would put a
+        // member on top of the `import` keyword and the specifier string.
+        if (
+          item.form.kind === "Named" &&
+          this.#writtenImports.has(spanKey(item.span))
+        ) {
+          for (const name of item.form.names) this.#visitImportName(name, item.specifier);
         }
         return;
       case "ExternBlock":
@@ -300,34 +329,41 @@ class Collector {
   }
 
   /**
-   * A name in an import list. Value names arrive already resolved; a type name
-   * does not, because `ImportName` has no room for a type identity — so it is
-   * recovered from the module's own type tables, which carry the *imported*
-   * declarations alongside the local ones.
+   * A name in an import list.
    *
-   * The lookup deliberately ignores anything declared in this file. A module may
-   * occlude an imported type name (Modules §5.4), and in that case both entries
-   * share a spelling; the one an import list names is by construction the one
-   * declared elsewhere.
+   * The span covers the whole clause — `Shade as Other`, not `Other` — so it is
+   * narrowed to the local name, which is what the reader clicked and what the
+   * editor should underline.
+   *
+   * Value names arrive already resolved. A type name does not, because
+   * `ImportName` has no room for a type identity, so it is recovered from the
+   * module's own type tables, which carry the imported declarations alongside
+   * the local ones. Two modules may export the same type name, so the candidate
+   * has to be matched against the file this specifier resolves to — filtering on
+   * "declared somewhere other than here" picks an arbitrary one of the two, and
+   * is wrong half the time with no diagnostic to warn anyone.
    */
-  #visitImportName(name: Resolved.ImportName): void {
+  #visitImportName(name: Resolved.ImportName, specifier: string): void {
+    const span = this.#trailingNameSpan(name.span, name.local);
     if (name.symbol !== undefined) {
-      this.#publish({ kind: "value", symbol: name.symbol }, "reference", name.local, name.span);
+      this.#publish({ kind: "value", symbol: name.symbol }, "reference", name.local, span);
       return;
     }
-    const foreign = <T extends { readonly span: Source.Span }>(candidates: readonly T[]) =>
-      candidates.find((candidate) => candidate.span.fileId !== this.#fileId);
-    const union = foreign(this.#resolved.unions.filter(({ name: it }) => it === name.imported));
+    const declaring = this.#fileOfSpecifier?.(specifier);
+    if (declaring === undefined) return;
+    const from = <T extends { readonly span: Source.Span }>(candidates: readonly T[]) =>
+      candidates.find((candidate) => candidate.span.fileId === declaring);
+    const union = from(this.#resolved.unions.filter(({ name: it }) => it === name.imported));
     if (union !== undefined) {
-      this.#publish({ kind: "union", union: union.id }, "reference", name.local, name.span);
+      this.#publish({ kind: "union", union: union.id }, "reference", name.local, span);
       return;
     }
-    const record = foreign(this.#resolved.records.filter(({ name: it }) => it === name.imported));
+    const record = from(this.#resolved.records.filter(({ name: it }) => it === name.imported));
     if (record !== undefined) {
-      this.#publish({ kind: "record", record: record.id }, "reference", name.local, name.span);
+      this.#publish({ kind: "record", record: record.id }, "reference", name.local, span);
       return;
     }
-    const externType = foreign(
+    const externType = from(
       this.#resolved.externTypes.filter(({ localName }) => localName === name.imported),
     );
     if (externType !== undefined) {
@@ -335,7 +371,7 @@ class Collector {
         { kind: "extern-type", externType: externType.externType },
         "reference",
         name.local,
-        name.span,
+        span,
       );
     }
   }
@@ -648,6 +684,21 @@ class Collector {
     this.#publish({ kind: "constraint", name: name.text }, role, name.text, name.span);
   }
 }
+
+/**
+ * `spec/lexer.md` §3's identifier, exactly: `ID_Start | "$" | "_"` followed by
+ * `ID_Continue | "$" | "_" | U+200C | U+200D`. Spelling this as `[A-Za-z_$]\w*`
+ * would be a quieter kind of wrong than failing — an ASCII-start name with a
+ * non-ASCII tail, `TRésultat`, matches *partially*, so the fallback for "no
+ * identifier here" never fires and the span is silently truncated to `TR`.
+ */
+const IDENTIFIER_START = "[\\p{ID_Start}$_]";
+const IDENTIFIER_CONTINUE = "[\\p{ID_Continue}$_\\u200C\\u200D]";
+const HEAD_NAME = new RegExp(
+  `^\\s*(?:${IDENTIFIER_START}${IDENTIFIER_CONTINUE}*\\s*\\.\\s*)*` +
+    `(${IDENTIFIER_START}${IDENTIFIER_CONTINUE}*)`,
+  "u",
+);
 
 function spanKey(span: Source.Span): string {
   return `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;

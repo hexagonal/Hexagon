@@ -26,6 +26,15 @@ const CLIENT_ID = "hexagonLanguageServer";
 const CLIENT_NAME = "Hexagon Language Server";
 
 let client: LanguageClient | undefined;
+/**
+ * Increments on every start or stop. Starting a client is asynchronous, so a
+ * second start can begin while the first is still awaiting `start()` — toggling
+ * the enable setting during activation is enough. Each start captures the
+ * generation it began in and touches the shared `client` only while that
+ * generation is still current, so a losing start cannot clear the winner's
+ * client and strand its child process.
+ */
+let generation = 0;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   context.subscriptions.push(
@@ -57,6 +66,8 @@ async function startClient(context: vscode.ExtensionContext): Promise<void> {
   const configuration = vscode.workspace.getConfiguration(CONFIGURATION_SECTION);
   if (configuration.get<boolean>("languageServer.enabled") !== true) return;
 
+  generation += 1;
+  const started = generation;
   const module = serverModule(context, configuration);
   const serverOptions: ServerOptions = {
     run: { module, transport: TransportKind.stdio },
@@ -80,11 +91,16 @@ async function startClient(context: vscode.ExtensionContext): Promise<void> {
     outputChannelName: CLIENT_NAME,
   };
 
-  client = new LanguageClient(CLIENT_ID, CLIENT_NAME, serverOptions, clientOptions);
+  const starting = new LanguageClient(CLIENT_ID, CLIENT_NAME, serverOptions, clientOptions);
+  if (generation === started) client = starting;
   try {
-    await client.start();
+    await starting.start();
+    // A newer start or a stop overtook this one while it was starting. Its
+    // server is now nobody's, so it has to be shut down here or it outlives the
+    // extension as an orphaned child process.
+    if (generation !== started) await starting.stop();
   } catch (error) {
-    client = undefined;
+    if (generation === started) client = undefined;
     // A server that fails to start must say so: silently falling back to
     // highlighting alone looks like the features were never implemented.
     void vscode.window.showErrorMessage(
@@ -96,6 +112,7 @@ async function startClient(context: vscode.ExtensionContext): Promise<void> {
 }
 
 async function stopClient(): Promise<void> {
+  generation += 1;
   const running = client;
   client = undefined;
   if (running === undefined) return;

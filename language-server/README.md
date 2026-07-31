@@ -116,6 +116,31 @@ TypeScript, hosted by Node.js, speaking LSP through `vscode-languageserver` and 
 
 Editor extensions launch this server. They do not contain separate compiler implementations; `editors/vscode` is a client and a grammar, nothing more.
 
+## Known limits
+
+Listed rather than hidden, because each is a place where the server is knowingly
+less than it looks.
+
+- **Every `.hex` file under a workspace root is one project.** There is no project
+  manifest, so the server compiles the whole tree together. Opening this
+  repository is the clearest demonstration: `runtime/VectorTrie.hex` is a
+  privileged runtime module that no ordinary project may compile, and it reports
+  38 errors starting with ``unknown generic type `Node` `` — as the user's first
+  impression. A project file, or a convention for excluding a directory, is what
+  fixes this; guessing at roots would not.
+- **Initialization waits for the workspace scan.** `initialize` walks the root
+  and reads every `.hex` file before replying, so that the first request is
+  answered against a whole module graph rather than a partial one. On a very
+  large tree that delay is visible at startup. Scanning in the background instead
+  would trade a slow start for a window where go-to-definition silently misses.
+- **Two URI spellings of one file would be two files.** See `positions.ts`; no
+  client observed so far sends more than one spelling.
+- **Constraints declared in a module cannot be used from another.** The compiler
+  has no channel for exporting one, so a cross-module `honor` does not resolve.
+  Go-to-definition on a constraint therefore only ever answers within a module,
+  and the built-in `Eq`/`Ord`/`Show`/`Hash` are known to the checker rather than
+  declared in Hexagon, so they have nowhere to jump to at all.
+
 ## Code readability
 
 Language-server code follows the compiler's readability principles: comments explain protocol concepts, concurrency assumptions, version checks, and reasons for non-obvious behaviour rather than repeating visible TypeScript types. Protocol terminology should be introduced in ordinary language where a reader may not already know LSP internals.

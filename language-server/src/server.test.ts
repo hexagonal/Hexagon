@@ -184,7 +184,11 @@ describe("the Hexagon language server", () => {
       position: positionOf(MAIN, "brighten", 2),
     }) as Hover | null;
     expect(hover).not.toBeNull();
-    expect((hover!.contents as { value: string }).value).toBe("`brighten: Colour -> Colour`");
+    // One shape for every hover — what it is, then its type when it has one —
+    // so the layout is not itself something to parse before the content.
+    expect((hover!.contents as { value: string }).value).toBe(
+      "value `brighten: Colour -> Colour`",
+    );
     // The range is what the editor underlines; it must cover the name and no more.
     expect(hover!.range).toEqual({
       start: { line: 3, character: 21 },
@@ -264,6 +268,19 @@ describe("the Hexagon language server", () => {
     // Clearing is explicit: an editor removes squiggles only on an empty
     // publish, never by the server going quiet.
     expect(await hex.diagnosticsFor(uri)).toEqual([]);
+  });
+
+  test("a broken workspace reports before any document is opened", async () => {
+    const solo = await harness({ "main.hex": "let broken: Int =\n" });
+    try {
+      // The Problems panel is the ordinary way to ask "what is wrong here?", and
+      // it is reachable without opening a file. Waiting for a document event to
+      // publish would answer that question with silence.
+      const reported = await solo.diagnosticsFor(solo.uriOf("main.hex"));
+      expect(reported.length).toBeGreaterThan(0);
+    } finally {
+      await solo.dispose();
+    }
   });
 
   test("an unopened file's diagnostics reach the editor too", async () => {

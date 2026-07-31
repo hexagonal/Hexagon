@@ -20,7 +20,7 @@
  * the host's job, and it stops here.
  */
 
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { TextDocument } from "vscode-languageserver-textdocument";
@@ -102,10 +102,6 @@ export class Workspace {
     this.#openUris.delete(uri);
     this.session.removeFile(this.uris.toPath(uri));
   }
-
-  isOpen(uri: string): boolean {
-    return this.#openUris.has(uri);
-  }
 }
 
 async function hexagonFilesUnder(
@@ -123,15 +119,37 @@ async function hexagonFilesUnder(
       continue;
     }
     for (const entry of entries) {
-      if (entry.isDirectory()) {
+      const path = join(directory, entry.name);
+      // A symlink reports as neither a file nor a directory, so a workspace that
+      // links its source tree in — a common monorepo layout — would otherwise
+      // get no language support at all, silently. `stat` follows the link to ask
+      // what it actually points at.
+      const kind = entry.isSymbolicLink() ? await resolvedKind(path) : entryKind(entry);
+      if (kind === "directory") {
         if (SKIPPED_DIRECTORIES.has(entry.name)) continue;
-        pending.push(join(directory, entry.name));
-      } else if (entry.isFile() && entry.name.endsWith(HEXAGON_EXTENSION)) {
-        found.push(join(directory, entry.name));
+        pending.push(path);
+      } else if (kind === "file" && entry.name.endsWith(HEXAGON_EXTENSION)) {
+        found.push(path);
       }
     }
   }
   return found;
+}
+
+type EntryKind = "file" | "directory" | "other";
+
+function entryKind(entry: { isFile(): boolean; isDirectory(): boolean }): EntryKind {
+  if (entry.isDirectory()) return "directory";
+  return entry.isFile() ? "file" : "other";
+}
+
+/** What a symlink points at, or `other` when it dangles or cannot be read. */
+async function resolvedKind(path: string): Promise<EntryKind> {
+  try {
+    return entryKind(await stat(path));
+  } catch {
+    return "other";
+  }
 }
 
 function fileSystemPath(uri: string): string {

@@ -29,12 +29,15 @@ if (!chosen) process.argv.push("--stdio");
 
 const connection = createConnection(ProposedFeatures.all);
 
-// A crash after this point would otherwise die silently inside the pipe; the
-// client can at least show the reason if it arrives as a log message first.
+// Report the crash through the protocol, where the client shows it beside the
+// request that provoked it, and then *exit*. Swallowing it would leave a process
+// that is alive, accepting messages, and answering none of them, which a client
+// cannot detect and will not restart — a wedged server is worse than a dead one.
 process.on("uncaughtException", (error: unknown) => {
   connection.console.error(
     `[hexagon] unhandled error: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
   );
+  process.exit(1);
 });
 
 startServer(connection);

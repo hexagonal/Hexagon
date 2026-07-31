@@ -14,10 +14,11 @@
  * once, which is what `language-server/README.md` asks for.
  *
  * URIs are the other half of the boundary. The compiler names files by path and
- * the protocol names them by URI, and the mapping is not reliably reversible by
- * string surgery — `file:///c:/A` and `file:///C:/a` can be the same file. The
- * server therefore remembers the URI it was given for every path it hands the
- * compiler, and converts back by lookup rather than by construction.
+ * the protocol names them by URI, and reconstructing a URI from a path does not
+ * reliably reproduce the one the client sent — percent-encoding and drive-letter
+ * case both vary. The server therefore remembers the URI it was given for every
+ * path it hands the compiler and converts back by lookup, so a location it
+ * returns is spelled the way the client spells that file.
  */
 
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -41,11 +42,18 @@ export function offsetOfPosition(document: TextDocument, position: Position): nu
 /**
  * Remembers which URI produced which compiler path, in both directions.
  *
- * A path is derived from a URI once and then reused, so two spellings of one URI
- * cannot become two files in the session. Converting a path back to a URI is a
- * lookup, falling back to construction only for a file the server never saw —
- * which cannot normally happen, since every path the compiler knows arrived
- * through here.
+ * Converting a path back to a URI is a lookup, falling back to construction only
+ * for a file the server never saw — which cannot normally happen, since every
+ * path the compiler knows arrived through here.
+ *
+ * Two different URI *spellings* of one file — `file:///c:/A` and `file:///C:/a`
+ * — would still produce two paths and therefore two session entries, with the
+ * open buffer no longer shadowing the file scanned from disk. Nothing here
+ * prevents that, because doing it properly means asking the filesystem whether
+ * two paths are the same file, and no client observed so far sends more than one
+ * spelling: a URI comes back either as the client's own workspace folder or as
+ * one this server built from a directory walk. If a client is ever found that
+ * does, this is where the canonicalization goes.
  */
 export class UriPaths {
   readonly #pathsByUri = new Map<string, string>();
@@ -57,8 +65,8 @@ export class UriPaths {
     if (known !== undefined) return known;
     const path = normalize(fileSystemPath(uri));
     this.#pathsByUri.set(uri, path);
-    // First URI seen for a path wins, so the pairing cannot flip underneath a
-    // client that spells the same file two ways.
+    // First URI seen for a path wins, so a location the server reports keeps the
+    // spelling the client used rather than flipping between two of them.
     if (!this.#urisByPath.has(path)) this.#urisByPath.set(path, uri);
     return path;
   }
@@ -68,13 +76,6 @@ export class UriPaths {
     const known = this.#urisByPath.get(path);
     if (known !== undefined) return known;
     return pathToFileURL(path).toString();
-  }
-
-  forget(uri: string): void {
-    const path = this.#pathsByUri.get(uri);
-    if (path === undefined) return;
-    this.#pathsByUri.delete(uri);
-    if (this.#urisByPath.get(path) === uri) this.#urisByPath.delete(path);
   }
 }
 

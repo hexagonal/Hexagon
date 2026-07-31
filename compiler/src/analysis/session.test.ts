@@ -256,6 +256,44 @@ describe("AnalysisSession", () => {
     expect(session.hover("/main.hex", at(source, "Eq"))?.name).toBe("Eq");
   });
 
+  test("two modules exporting one type name stay apart", () => {
+    const shade = ["export union Shade =", "    | Pale", "    | Deep", ""].join("\n");
+    const other = ["export union Shade =", "    | Faint", "    | Vivid", ""].join("\n");
+    const main = [
+      'import {Shade} from "./a"',
+      'import {Shade as Other} from "./b"',
+      "",
+      "let p(x: Shade): Shade = x",
+      "let q(y: Other): Other = y",
+      "",
+    ].join("\n");
+    const { session, texts } = sessionOf({
+      "/a.hex": shade,
+      "/b.hex": other,
+      "/main.hex": main,
+    });
+    expect(session.allDiagnostics().get("/main.hex")).toEqual([]);
+
+    // Both imports spell the same type name, so a lookup that only asks "is it
+    // declared somewhere other than here?" picks whichever comes first and is
+    // wrong half the time — with no diagnostic, because the program is valid.
+    // Only the specifier says which module a name came from.
+    expect(show(texts, session.definitions("/main.hex", at(main, "Shade", 3)))).toEqual([
+      "/a.hex:Shade",
+    ]);
+    expect(show(texts, session.definitions("/main.hex", at(main, "Other", 2)))).toEqual([
+      "/b.hex:Shade",
+    ]);
+    // The import clause itself has to agree with the use it binds, or the two
+    // ends of one alias answer with two different types.
+    expect(show(texts, session.definitions("/main.hex", at(main, "Other")))).toEqual([
+      "/b.hex:Shade",
+    ]);
+    const fromClause = session.references("/main.hex", at(main, "Other"));
+    const fromUse = session.references("/main.hex", at(main, "Other", 2));
+    expect(fromClause).toEqual(fromUse);
+  });
+
   test("paths arriving in Windows spelling are the same file", () => {
     const session = new AnalysisSession();
     session.setFile("\\main.hex", "let value: Int = 1\n");

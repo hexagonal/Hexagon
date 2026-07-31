@@ -10,17 +10,17 @@
  *
  * ## Cancellation and staleness
  *
- * Analysis is synchronous and fast enough that a request cannot observe an edit
- * midway: nothing yields between reading the document and returning the answer.
- * That is what makes the version checks here cheap rather than ceremonial — they
- * catch the case that *can* happen, a request whose document changed between the
- * client sending it and the server picking it up, and it is why the server does
- * not yet need to thread a cancellation token into the compiler.
+ * There are no version checks here, and their absence is deliberate. Analysis is
+ * synchronous: nothing yields between reading a document and returning an
+ * answer, so a request runs entirely before an edit or entirely after it and can
+ * never straddle one. A stamped version would have nothing to compare against,
+ * and a cancellation token would have no point at which to take effect. Both
+ * become necessary the moment analysis stops being synchronous.
  *
  * Diagnostics are the exception, because the server chooses when to publish
- * them. They are debounced, and a publish that a newer edit has overtaken is
- * dropped rather than sent, so an editor is never shown squiggles computed from
- * text the user has already replaced.
+ * them rather than answering a request. They are debounced, so a burst of
+ * keystrokes costs one analysis, and each publication reads the session at the
+ * moment it fires — never text the user has already replaced.
  */
 
 import {
@@ -40,7 +40,7 @@ import { TextDocument } from "vscode-languageserver-textdocument";
 import { fileURLToPath } from "node:url";
 import type { Source, Target } from "../../compiler/src/index.js";
 import { toLspDiagnostic } from "./diagnostics.js";
-import { rangeOfSpan } from "./positions.js";
+import { offsetOfPosition, rangeOfSpan } from "./positions.js";
 import { Workspace } from "./workspace.js";
 
 /**
@@ -82,6 +82,11 @@ export function startServer(connection: Connection): void {
   });
 
   connection.onInitialized(async () => {
+    // The workspace is already analysed, so its diagnostics exist before any
+    // document is opened. Waiting for a document event to publish them would
+    // leave a user who opens a project and looks at the Problems panel — the
+    // ordinary way to ask "what is broken here?" — seeing nothing at all.
+    schedulePublish();
     if (!watchedFilesRegistered) return;
     // Files can change without ever being opened — a branch switch, a formatter,
     // a generated module. Without this the graph silently keeps stale text.
@@ -117,7 +122,7 @@ export function startServer(connection: Connection): void {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
     const path = workspace.uris.toPath(textDocument.uri);
-    const hover = workspace.session.hover(path, document.offsetAt(position));
+    const hover = workspace.session.hover(path, offsetOfPosition(document, position));
     if (hover === undefined) return null;
     return { contents: hoverContents(hover.name, hover.target, hover.displayedType), range: rangeOfSpan(hover.span) };
   });
@@ -126,7 +131,7 @@ export function startServer(connection: Connection): void {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
     const path = workspace.uris.toPath(textDocument.uri);
-    const found = workspace.session.definitions(path, document.offsetAt(position));
+    const found = workspace.session.definitions(path, offsetOfPosition(document, position));
     if (found.length === 0) return null;
     return found.map((definition): Location => ({
       uri: workspace.uris.toUri(definition.path),
@@ -138,7 +143,7 @@ export function startServer(connection: Connection): void {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
     const path = workspace.uris.toPath(textDocument.uri);
-    const found = workspace.session.references(path, document.offsetAt(position), {
+    const found = workspace.session.references(path, offsetOfPosition(document, position), {
       includeDeclaration: context.includeDeclaration,
     });
     if (found.length === 0) return null;
@@ -202,11 +207,14 @@ function publishDiagnostics(
   for (const uri of stillReporting) published.add(uri);
 }
 
+/**
+ * One shape for every hover: what the name is, then its type when it has one.
+ * A value and a union reading differently would make the hover's own layout
+ * something the user has to parse before the content.
+ */
 function hoverContents(name: string, target: Target, displayedType: string | undefined): MarkupContent {
-  const heading = displayedType === undefined
-    ? `${describe(target)} \`${name}\``
-    : `\`${name}: ${displayedType}\``;
-  return { kind: "markdown", value: heading };
+  const signature = displayedType === undefined ? `\`${name}\`` : `\`${name}: ${displayedType}\``;
+  return { kind: "markdown", value: `${describe(target)} ${signature}` };
 }
 
 function describe(target: Target): string {

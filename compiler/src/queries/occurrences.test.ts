@@ -9,10 +9,22 @@ function index(
 ): { readonly project: CompiledProject; readonly occurrences: Map<string, readonly Occurrence[]> } {
   const project = compileFiles(files);
   expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+  // Supplied the same way `AnalysisSession` supplies it, since a type name in an
+  // import list cannot be resolved without knowing which module the specifier
+  // names. `collectOccurrences` is exercised without it in its own test.
+  const idsByPath = new Map(project.modules.map(({ source }) => [source.path, source.id]));
+  const fileOfSpecifier = (importer: string) => (specifier: string) => {
+    const directory = importer.slice(0, Math.max(0, importer.lastIndexOf("/")));
+    const target = `${directory}/${specifier.replace(/^\.\//u, "")}`;
+    return idsByPath.get(target.endsWith(".hex") ? target : `${target}.hex`);
+  };
   return {
     project,
     occurrences: new Map(
-      project.modules.map((module) => [module.source.path, collectOccurrences(module)]),
+      project.modules.map((module) => [
+        module.source.path,
+        collectOccurrences(module, { fileOfSpecifier: fileOfSpecifier(module.source.path) }),
+      ]),
     ),
   };
 }
@@ -37,7 +49,12 @@ function render(
     );
 }
 
-const IDENTIFIER = /^[A-Za-z_$][\w$]*$/u;
+/**
+ * `spec/lexer.md` §3's identifier. Written from the spec rather than copied from
+ * the implementation on purpose: an assertion that reuses the pattern under test
+ * agrees with it by construction and cannot fail for the bug it is named after.
+ */
+const IDENTIFIER = /^[\p{ID_Start}$_][\p{ID_Continue}$_‌‍]*$/u;
 
 describe("collectOccurrences", () => {
   test("a span never covers more than the identifier", () => {
@@ -217,6 +234,84 @@ describe("collectOccurrences", () => {
     );
     expect(render(wholeFile, source)).toEqual([]);
     expect(render(own, source, (o) => o.name === "Some")).toEqual(['reference value "Some"']);
+  });
+
+  test("a non-ASCII name is one identifier, not its ASCII prefix", () => {
+    // `spec/lexer.md` §3 admits any `ID_Start`/`ID_Continue`, and gives
+    // `Résultat` and `δelta` as examples. An ASCII-only pattern matches such a
+    // name *partially*, which is worse than not matching: the "not an
+    // identifier" fallback never fires and the span is silently truncated.
+    const source = [
+      "record TRésultat(a) = {",
+      "    item: a,",
+      "}",
+      "",
+      "let unwrapδ(b: TRésultat(Int)): Int = b.item",
+      "",
+    ].join("\n");
+    const { occurrences } = index([["/main.hex", source]]);
+    const own = occurrences.get("/main.hex")!;
+    expect(render(own, source, (o) => o.name === "TRésultat")).toEqual([
+      'definition record "TRésultat"',
+      'definition value "TRésultat"',
+      'reference record "TRésultat"',
+    ]);
+    expect(render(own, source, (o) => o.name === "unwrapδ")).toEqual([
+      'definition value "unwrapδ"',
+    ]);
+  });
+
+  test("an import list names the local binding, not the whole clause", () => {
+    const helper = ["export union Shade =", "    | Pale", "    | Deep", "", "export let two: Int = 2", ""]
+      .join("\n");
+    const main = [
+      'import {Shade as Other, two as deux} from "./helper"',
+      "",
+      "let q(y: Other): Int = deux",
+      "",
+    ].join("\n");
+    const { occurrences } = index([["/helper.hex", helper], ["/main.hex", main]]);
+    const own = occurrences.get("/main.hex")!;
+    // `ImportName.span` covers `Shade as Other`. Published unnarrowed, hover and
+    // find-references would report the whole clause, and every offset across it
+    // — including the `as` — would answer as the imported name.
+    expect(render(own, main, (o) => o.span.start.line === 0)).toEqual([
+      'reference union "Other"',
+      'reference value "deux"',
+    ]);
+  });
+
+  test("a namespace import publishes nothing, having no names of its own", () => {
+    const helper = "export let two: Int = 2\n";
+    const main = ['import * as H from "./helper"', "", "let four: Int = H.two + H.two", ""].join("\n");
+    const { occurrences } = index([["/helper.hex", helper], ["/main.hex", main]]);
+    const own = occurrences.get("/main.hex")!;
+    // The resolver expands `* as H` into one entry per reachable member, each
+    // carrying the whole import statement as its span. Publishing those would
+    // put a member on top of the `import` keyword and the specifier string.
+    expect(render(own, main, (o) => o.span.start.line === 0)).toEqual([]);
+    expect(render(own, main, (o) => o.span.start.line === 2)).toEqual([
+      'definition value "four"',
+      'reference value "two"',
+      'reference value "two"',
+    ]);
+  });
+
+  test("without a specifier resolver, a type import is left unindexed rather than guessed", () => {
+    const helper = ["export union Shade =", "    | Pale", "    | Deep", ""].join("\n");
+    const main = ['import {Shade} from "./helper"', "", "let q(y: Shade): Shade = y", ""].join("\n");
+    const project = compileFiles([["/helper.hex", helper], ["/main.hex", main]]);
+    expect(project.diagnostics).toEqual([]);
+    const module = project.modules.find(({ source }) => source.path === "/main.hex")!;
+    const bare = collectOccurrences(module);
+    const resolved = collectOccurrences(module, {
+      fileOfSpecifier: () => project.modules.find(({ source }) => source.path === "/helper.hex")!
+        .source.id,
+    });
+    expect(render(bare, main, (o) => o.span.start.line === 0)).toEqual([]);
+    expect(render(resolved, main, (o) => o.span.start.line === 0)).toEqual([
+      'reference union "Shade"',
+    ]);
   });
 
   test("every occurrence belongs to the module that published it", () => {
