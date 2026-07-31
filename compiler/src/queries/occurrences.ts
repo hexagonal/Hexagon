@@ -26,6 +26,7 @@
 import type * as Source from "../support/source.js";
 import type * as Parsed from "../syntax/parsed/index.js";
 import type * as Resolved from "../syntax/resolved/index.js";
+import { IDENTIFIER_CONTINUE, IDENTIFIER_START } from "../support/identifiers.js";
 
 /** What an occurrence denotes. Constraints key by name because they have no id. */
 export type Target =
@@ -335,6 +336,14 @@ class Collector {
    * narrowed to the local name, which is what the reader clicked and what the
    * editor should underline.
    *
+   * An aliasing clause writes the name *twice*, and both mentions denote the
+   * same thing: `Shade` names the declaration, `Other` names it locally. Both
+   * are published. Leaving the imported one out would cost find-references a
+   * real mention, and would make a rename of the declaration rewrite every
+   * module except the ones that aliased it — silently breaking exactly the
+   * imports that were hardest to notice. The two are told apart by span rather
+   * than by comparing the spellings, so `Shade as Shade` still publishes both.
+   *
    * Value names arrive already resolved. A type name does not, because
    * `ImportName` has no room for a type identity, so it is recovered from the
    * module's own type tables, which carry the imported declarations alongside
@@ -344,9 +353,17 @@ class Collector {
    * is wrong half the time with no diagnostic to warn anyone.
    */
   #visitImportName(name: Resolved.ImportName, specifier: string): void {
-    const span = this.#trailingNameSpan(name.span, name.local);
+    const local = this.#trailingNameSpan(name.span, name.local);
+    const imported = this.#headNameSpan(name.span);
+    const mentions: readonly (readonly [string, Source.Span])[] =
+      imported.start.offset === local.start.offset
+        ? [[name.local, local]]
+        : [[name.imported, imported], [name.local, local]];
+    const publish = (target: Target): void => {
+      for (const [written, span] of mentions) this.#publish(target, "reference", written, span);
+    };
     if (name.symbol !== undefined) {
-      this.#publish({ kind: "value", symbol: name.symbol }, "reference", name.local, span);
+      publish({ kind: "value", symbol: name.symbol });
       return;
     }
     const declaring = this.#fileOfSpecifier?.(specifier);
@@ -355,24 +372,19 @@ class Collector {
       candidates.find((candidate) => candidate.span.fileId === declaring);
     const union = from(this.#resolved.unions.filter(({ name: it }) => it === name.imported));
     if (union !== undefined) {
-      this.#publish({ kind: "union", union: union.id }, "reference", name.local, span);
+      publish({ kind: "union", union: union.id });
       return;
     }
     const record = from(this.#resolved.records.filter(({ name: it }) => it === name.imported));
     if (record !== undefined) {
-      this.#publish({ kind: "record", record: record.id }, "reference", name.local, span);
+      publish({ kind: "record", record: record.id });
       return;
     }
     const externType = from(
       this.#resolved.externTypes.filter(({ localName }) => localName === name.imported),
     );
     if (externType !== undefined) {
-      this.#publish(
-        { kind: "extern-type", externType: externType.externType },
-        "reference",
-        name.local,
-        span,
-      );
+      publish({ kind: "extern-type", externType: externType.externType });
     }
   }
 
@@ -466,14 +478,23 @@ class Collector {
 
   #visitExpr(expression: Resolved.Expr): void {
     switch (expression.kind) {
-      case "Name":
+      case "Name": {
+        // `Vector.map` is one `Name` whose text carries the qualifier. The span
+        // is narrowed to `map`, and the published name has to be narrowed with
+        // it: a name that says `Vector.map` where its own span says `map` is a
+        // disagreement every consumer then has to know about, and a rename that
+        // matches occurrences by spelling would silently skip every qualified
+        // use. The qualifier names the module, and the module is not what this
+        // occurrence denotes.
+        const written = trailingIdentifier(expression.text);
         this.#publish(
           { kind: "value", symbol: expression.symbol },
           "reference",
-          expression.text,
-          this.#trailingNameSpan(expression.span, trailingIdentifier(expression.text)),
+          written,
+          this.#trailingNameSpan(expression.span, written),
         );
         return;
+      }
       case "String":
         for (const part of expression.parts) {
           if (part.kind === "Interpolation") this.#visitExpr(part.expression);
@@ -685,15 +706,7 @@ class Collector {
   }
 }
 
-/**
- * `spec/lexer.md` §3's identifier, exactly: `ID_Start | "$" | "_"` followed by
- * `ID_Continue | "$" | "_" | U+200C | U+200D`. Spelling this as `[A-Za-z_$]\w*`
- * would be a quieter kind of wrong than failing — an ASCII-start name with a
- * non-ASCII tail, `TRésultat`, matches *partially*, so the fallback for "no
- * identifier here" never fires and the span is silently truncated to `TR`.
- */
-const IDENTIFIER_START = "[\\p{ID_Start}$_]";
-const IDENTIFIER_CONTINUE = "[\\p{ID_Continue}$_\\u200C\\u200D]";
+/** `spec/lexer.md` §3's identifier, optionally behind module qualifiers. */
 const HEAD_NAME = new RegExp(
   `^\\s*(?:${IDENTIFIER_START}${IDENTIFIER_CONTINUE}*\\s*\\.\\s*)*` +
     `(${IDENTIFIER_START}${IDENTIFIER_CONTINUE}*)`,

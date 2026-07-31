@@ -28,10 +28,16 @@ export {
 } from "./queries/type-occurrences.js";
 export {
   AnalysisSession,
+  refused,
   type Definition,
   type Hover,
   type Location,
   type Reference,
+  type RenameEdit,
+  type RenamePlan,
+  type RenameRefusal,
+  type RenameResult,
+  type RenameSubject,
   type SessionOptions,
 } from "./analysis/session.js";
 export {
@@ -42,6 +48,20 @@ export {
   type Role,
   type Target,
 } from "./queries/occurrences.js";
+export {
+  collectSemanticTokens,
+  type SemanticToken,
+  type SemanticTokenModifier,
+  type SemanticTokenType,
+} from "./queries/semantic-tokens.js";
+export { collectSymbolFacts, type SymbolFacts } from "./queries/symbol-facts.js";
+export {
+  collectCompletions,
+  qualifierAt,
+  type Completion,
+  type CompletionInput,
+  type CompletionKind,
+} from "./queries/completions.js";
 export {
   emitJavaScript,
   emitDeclarations,

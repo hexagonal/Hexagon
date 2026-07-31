@@ -202,11 +202,60 @@ export interface FieldName {
   readonly span: Source.Span;
 }
 
+/** One name a scope binds, and the point from which it can be used. */
+export interface ScopeBinding {
+  readonly name: string;
+  readonly symbol: SymbolId;
+  /**
+   * The offset from which the name is in scope. For most binders this is the
+   * start of the region — a parameter is available throughout its lambda, a
+   * `fun` throughout its block, because both are declared before the body is
+   * resolved. A sequential `let` or `var` scopes over the *rest* of its block
+   * (Statements §5.1), so its own offset is where it begins.
+   */
+  readonly visibleFrom: number;
+}
+
+/**
+ * A region of source and the names it introduces.
+ *
+ * Recorded by the resolver as it goes, because the resolver is the only pass
+ * that knows: scoping is its rule, and by the time a tree reaches anyone else
+ * every name has already become an identity, with the layers it was chosen from
+ * gone. Reconstructing them downstream would mean writing Hexagon's scoping a
+ * second time, in a copy nothing keeps honest.
+ *
+ * **Nesting is containment, not a parent pointer.** A name is in scope at an
+ * offset when some region containing that offset binds it and the binding is
+ * visible from at or before it; when two regions both do, the smaller one is the
+ * inner one. That is what makes this record usable without replaying the walk
+ * that produced it.
+ */
+export interface ScopeRegion {
+  readonly span: Source.Span;
+  readonly bindings: readonly ScopeBinding[];
+}
+
+/** A module reachable by name, with the members that name reaches. */
+export interface ModuleAlias {
+  readonly alias: string;
+  readonly members: readonly { readonly name: string; readonly symbol: SymbolId }[];
+}
+
 export interface Module {
   readonly kind: "Module";
   readonly fileId: Source.FileId;
   readonly items: readonly Item[];
   readonly symbols: readonly Symbol[];
+  /**
+   * Every scope this module opened, outermost first. Present for editor
+   * services that need to answer "what could go here?" — the one question the
+   * rest of the tree cannot answer, since it records what names *did* resolve to
+   * and never what else was available.
+   */
+  readonly scopes: readonly ScopeRegion[];
+  /** Modules addressable by name here, prelude companions included. */
+  readonly moduleAliases: readonly ModuleAlias[];
   readonly unions: readonly Union[];
   readonly records: readonly RecordDeclaration[];
   /**

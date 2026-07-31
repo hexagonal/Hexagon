@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { AnalysisSession } from "./session.js";
+import {
+  AnalysisSession,
+  refused,
+  type RenameResult,
+  type RenameSubject,
+} from "./session.js";
 
 /** Offset of the `nth` occurrence of `needle`, counting from one. */
 function at(text: string, needle: string, nth = 1): number {
@@ -337,5 +342,247 @@ describe("AnalysisSession", () => {
     expect(session.paths).toEqual(["/main.hex"]);
     expect(session.hover("/main.hex", 4)?.name).toBe("value");
     expect(session.hover("\\main.hex", 4)?.name).toBe("value");
+  });
+});
+
+/** Applies a plan to the files it names, so a test can read the result. */
+function applied(
+  texts: ReadonlyMap<string, string>,
+  result: RenameResult | undefined,
+): Record<string, string> {
+  if (result === undefined || refused(result)) throw new Error(`no plan: ${JSON.stringify(result)}`);
+  const byPath = new Map<string, { start: number; end: number }[]>();
+  for (const edit of result.edits) {
+    const bucket = byPath.get(edit.path) ?? [];
+    bucket.push({ start: edit.span.start.offset, end: edit.span.end.offset });
+    byPath.set(edit.path, bucket);
+  }
+  const output: Record<string, string> = {};
+  for (const [path, spans] of byPath) {
+    let text = texts.get(path)!;
+    for (const { start, end } of [...spans].sort((left, right) => right.start - left.start)) {
+      text = text.slice(0, start) + result.newName + text.slice(end);
+    }
+    output[path] = text;
+  }
+  return output;
+}
+
+/** The reason a rename was refused, failing loudly when it was not. */
+function refusal(result: RenameResult | RenameSubject | undefined): string {
+  if (result === undefined || !refused(result)) {
+    throw new Error(`expected a refusal, got ${JSON.stringify(result)}`);
+  }
+  return result.refused;
+}
+
+describe("AnalysisSession.rename", () => {
+  test("rewrites the declaration, every use, and the import clauses that name it", () => {
+    const { session, texts } = sessionOf({ "/helper.hex": HELPER, "/main.hex": MAIN });
+    const plan = session.rename("/helper.hex", at(HELPER, "brighten"), "lighten");
+    expect(applied(texts, plan)).toEqual({
+      "/helper.hex": HELPER.replaceAll("brighten", "lighten"),
+      "/main.hex": MAIN.replaceAll("brighten", "lighten"),
+    });
+  });
+
+  test("a record's name moves as its type and its constructor together", () => {
+    const source = [
+      "record Box(a) = {",
+      "    item: a,",
+      "}",
+      "",
+      "let boxed: Box(Int) = Box(1)",
+      "",
+    ].join("\n");
+    const { session, texts } = sessionOf({ "/main.hex": source });
+    // The declaration is one span carrying two identities. Moving only the type
+    // would leave `Box(1)` calling a constructor that no longer exists.
+    const plan = session.rename("/main.hex", at(source, "Box"), "Crate");
+    expect(applied(texts, plan)["/main.hex"]).toBe(source.replaceAll("Box", "Crate"));
+  });
+
+  test("a namespace-qualified use is rewritten past its qualifier", () => {
+    const helper = "export let two: Int = 2\n";
+    const main = ['import * as H from "./helper"', "", "let four: Int = H.two + H.two", ""]
+      .join("\n");
+    const { session, texts } = sessionOf({ "/helper.hex": helper, "/main.hex": main });
+    const plan = session.rename("/helper.hex", at(helper, "two"), "pair");
+    // `H` names the module and does not move; only the member does.
+    expect(applied(texts, plan)).toEqual({
+      "/helper.hex": "export let pair: Int = 2\n",
+      "/main.hex": main.replaceAll("H.two", "H.pair"),
+    });
+  });
+
+  test("renaming a declaration rewrites an aliasing clause's imported name only", () => {
+    const helper = "export let two: Int = 2\n";
+    const main = ['import {two as deux} from "./helper"', "", "let four: Int = deux + deux", ""]
+      .join("\n");
+    const { session, texts } = sessionOf({ "/helper.hex": helper, "/main.hex": main });
+    const plan = session.rename("/helper.hex", at(helper, "two"), "pair");
+    // The clause goes on aliasing; it just aliases a differently-spelled
+    // declaration. Rewriting `deux` as well would rename a name the user never
+    // asked about, and leaving `two` alone would break the import outright.
+    expect(applied(texts, plan)).toEqual({
+      "/helper.hex": "export let pair: Int = 2\n",
+      "/main.hex": main.replace("two as deux", "pair as deux"),
+    });
+  });
+
+  test("renaming through the local alias leaves the declaration alone", () => {
+    const helper = "export let two: Int = 2\n";
+    const main = ['import {two as deux} from "./helper"', "", "let four: Int = deux + deux", ""]
+      .join("\n");
+    const { session, texts } = sessionOf({ "/helper.hex": helper, "/main.hex": main });
+    const plan = session.rename("/main.hex", at(main, "deux"), "zwei");
+    expect(applied(texts, plan)).toEqual({ "/main.hex": main.replaceAll("deux", "zwei") });
+  });
+
+  test("refuses a spelling that is not one identifier, and says which", () => {
+    const source = "let value: Int = 1\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    const start = at(source, "value");
+    // Every one of these is decided by the lexer rather than by a pattern kept
+    // in the session, which is the only way the two cannot drift apart.
+    expect(refusal(session.rename("/main.hex", start, "let"))).toContain("not a name Hexagon can read");
+    expect(refusal(session.rename("/main.hex", start, "two words"))).toContain("one identifier");
+    expect(refusal(session.rename("/main.hex", start, "a.b"))).toContain("one identifier");
+    expect(refusal(session.rename("/main.hex", start, ""))).toContain("one identifier");
+    expect(refusal(session.rename("/main.hex", start, "__hex_x"))).toContain("one identifier");
+    expect(refusal(session.rename("/main.hex", start, "value "))).toContain("one identifier");
+  });
+
+  test("refuses to change a name's capitalization class", () => {
+    const source = ["union Shade =", "    | Pale", "", "let tone: Shade = Pale", ""].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(refusal(session.rename("/main.hex", at(source, "tone"), "Tone")))
+      .toContain("two different kinds of name");
+    expect(refusal(session.rename("/main.hex", at(source, "Shade"), "shade")))
+      .toContain("two different kinds of name");
+    // A non-ASCII capital is still a capital: the classification is the lexer's
+    // Unicode one, not `A`-to-`Z`.
+    expect(refusal(session.rename("/main.hex", at(source, "tone"), "Ünion")))
+      .toContain("two different kinds of name");
+  });
+
+  test("refuses a name the project does not own", () => {
+    const source = "let maybe: Option(Int) = None\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    // `None` is the prelude's, injected rather than read; the workspace has no
+    // file to edit and rewriting the use alone would break it.
+    expect(refusal(session.rename("/main.hex", at(source, "None"), "Nothing")))
+      .toContain("this project does not own");
+  });
+
+  test("renames a constraint the project declared, everywhere it is named", () => {
+    const source = [
+      "constraint Same<a> =",
+      "    same(left: a, right: a): Bool",
+      "",
+      "record Token = {value: Int}",
+      "",
+      "honor Same<Token> =",
+      "    same(left, right) = left.value == right.value",
+      "",
+      "fun agrees<a: Same>(left: a, right: a): Bool = same(left, right)",
+      "",
+    ].join("\n");
+    const { session, texts } = sessionOf({ "/main.hex": source });
+    const plan = session.rename("/main.hex", at(source, "Same"), "Alike");
+    // The declaration, the `honor`, and the type-parameter bound. A constraint
+    // has no identity beyond its name, so all three are one thing.
+    expect(applied(texts, plan)["/main.hex"]).toBe(source.replaceAll("Same", "Alike"));
+  });
+
+  test("refuses a constraint the checker owns rather than Hexagon", () => {
+    const source = ["union Shade derives (Eq) =", "    | Pale", ""].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(refusal(session.rename("/main.hex", at(source, "Eq"), "Same")))
+      .toContain("built into the compiler");
+  });
+
+  test("refuses a rename the compiler would reject, in the compiler's own words", () => {
+    const source = ["let tone: Int = 1", "let colour: Int = 2", ""].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    const reason = refusal(session.rename("/main.hex", at(source, "colour"), "tone"));
+    expect(reason).toContain("would break `/main.hex`");
+    // The message is the compiler's, not a paraphrase invented here.
+    expect(reason).toContain("tone");
+  });
+
+  test("refuses a capture that produces no diagnostic at all", () => {
+    // The arm binder shadows the module-level `tone` legally (Statements §5.1
+    // rule 2), so after the rename `tone + tone` type-checks perfectly and the
+    // second `tone` has quietly stopped meaning the module-level one. Nothing
+    // in the diagnostics changes; only the occurrence sets do.
+    const source = [
+      "let tone: Int = 1",
+      "let f(x: Int): Int = match x",
+      "    colour => colour + tone",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    const reason = refusal(session.rename("/main.hex", at(source, "colour"), "tone"));
+    expect(reason).toContain("would change what the code means");
+    expect(reason).toContain("line 3");
+  });
+
+  test("allows a shadowing rename that changes nothing", () => {
+    // The mirror of the case above: the arm binder still shadows a module-level
+    // `tone`, but nothing inside the arm refers to the outer one, so the rename
+    // is meaning-preserving and must not be refused out of caution.
+    const source = [
+      "let tone: Int = 1",
+      "let f(x: Int): Int = match x",
+      "    colour => colour + 1",
+      "",
+    ].join("\n");
+    const { session, texts } = sessionOf({ "/main.hex": source });
+    const plan = session.rename("/main.hex", at(source, "colour"), "tone");
+    expect(applied(texts, plan)["/main.hex"]).toBe(source.replaceAll("colour", "tone"));
+  });
+
+  test("renaming to the same name is a plan with nothing in it", () => {
+    const source = "let value: Int = 1\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    const plan = session.rename("/main.hex", at(source, "value"), "value");
+    expect(plan).toEqual({ newName: "value", edits: [] });
+  });
+
+  test("prepareRename answers with the identifier, and says nothing where there is none", () => {
+    const source = "let value: Int = 1\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    const subject = session.prepareRename("/main.hex", at(source, "value"));
+    expect(subject).toEqual({
+      name: "value",
+      span: expect.objectContaining({
+        start: expect.objectContaining({ offset: at(source, "value") }),
+      }),
+    });
+    // On the `=`, where there is no name at all: an editor should say nothing
+    // rather than report a problem, which is a different answer from a refusal.
+    expect(session.prepareRename("/main.hex", at(source, "="))).toBeUndefined();
+  });
+
+  test("prepareRename refuses what rename would refuse, before the user types", () => {
+    const source = "let maybe: Option(Int) = None\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(refusal(session.prepareRename("/main.hex", at(source, "None"))))
+      .toContain("this project does not own");
+  });
+
+  test("leaves the session's own analysis untouched", () => {
+    const source = ["let tone: Int = 1", "let colour: Int = 2", ""].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    const settled = session.version;
+    session.rename("/main.hex", at(source, "colour"), "tone");
+    session.rename("/main.hex", at(source, "colour"), "shade");
+    // Verification compiles an edited copy of the project. Doing that on the
+    // real file set would leave the user's session holding text they never
+    // typed, and would invalidate analysis on a request that only asked.
+    expect(session.version).toBe(settled);
+    expect(session.diagnostics("/main.hex")).toEqual([]);
   });
 });

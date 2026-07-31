@@ -26,11 +26,17 @@ import {
   InitializedNotification,
   PublishDiagnosticsNotification,
   ShutdownRequest,
+  CompletionItemKind,
   createProtocolConnection,
+  type CompletionItem,
   type Diagnostic,
   type Hover,
   type InitializeResult,
   type Location,
+  type Range,
+  type SemanticTokens,
+  type TextEdit,
+  type WorkspaceEdit,
   type ProtocolConnection,
 } from "vscode-languageserver-protocol";
 import {
@@ -57,6 +63,28 @@ const MAIN = [
   "",
 ].join("\n");
 
+/**
+ * Applies a set of protocol edits to a text, back to front so that an earlier
+ * replacement cannot move a later one. Tests assert on the *result* rather than
+ * on the edit list: a rename is right when the file it produces is right, and a
+ * list of ranges is only evidence about that.
+ */
+function applyEdits(text: string, edits: readonly TextEdit[]): string {
+  const lineStarts = [0];
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] === "\n") lineStarts.push(index + 1);
+  }
+  const offsetOf = (position: { line: number; character: number }): number =>
+    lineStarts[position.line]! + position.character;
+  return [...edits]
+    .sort((left, right) => offsetOf(right.range.start) - offsetOf(left.range.start))
+    .reduce(
+      (result, { range, newText }) =>
+        result.slice(0, offsetOf(range.start)) + newText + result.slice(offsetOf(range.end)),
+      text,
+    );
+}
+
 /** Position of the `nth` occurrence of `needle`, as a zero-based line/character. */
 function positionOf(text: string, needle: string, nth = 1): { line: number; character: number } {
   let offset = -1;
@@ -69,8 +97,38 @@ function positionOf(text: string, needle: string, nth = 1): { line: number; char
   return { line, character: offset - (before.lastIndexOf("\n") + 1) };
 }
 
+/**
+ * Decodes the protocol's flat token array back into `text:type` against the
+ * source, using the legend the server announced.
+ *
+ * Decoding rather than asserting on the numbers is the point: the numbers are
+ * relative, so a wrong one is only visible as the wrong *name* being coloured,
+ * which is what a user would see. An assertion on the raw array would agree with
+ * whatever the encoder did.
+ */
+function decodeTokens(
+  text: string,
+  data: readonly number[],
+  legend: { readonly tokenTypes: readonly string[] },
+): readonly string[] {
+  const lines = text.split("\n");
+  const decoded: string[] = [];
+  let line = 0;
+  let column = 0;
+  for (let at = 0; at < data.length; at += 5) {
+    const [deltaLine, deltaStart, length, type] = data.slice(at, at + 5) as [
+      number, number, number, number, number,
+    ];
+    line += deltaLine;
+    column = deltaLine === 0 ? column + deltaStart : deltaStart;
+    decoded.push(`${lines[line]!.slice(column, column + length)}:${legend.tokenTypes[type]}`);
+  }
+  return decoded;
+}
+
 interface Harness {
   readonly client: ProtocolConnection;
+  readonly capabilities: InitializeResult["capabilities"];
   readonly root: string;
   readonly uriOf: (name: string) => string;
   readonly diagnosticsFor: (uri: string) => Promise<readonly Diagnostic[]>;
@@ -113,16 +171,17 @@ async function harness(files: Record<string, string>): Promise<Harness> {
   });
   client.listen();
 
-  await client.sendRequest(InitializeRequest.type, {
+  const initialized = await client.sendRequest(InitializeRequest.type, {
     processId: null,
     rootUri: pathToFileURL(root).toString(),
     capabilities: {},
     workspaceFolders: [{ uri: pathToFileURL(root).toString(), name: "test" }],
-  });
+  }) as InitializeResult;
   await client.sendNotification(InitializedNotification.type, {});
 
   return {
     client,
+    capabilities: initialized.capabilities,
     root,
     uriOf: (name) => pathToFileURL(join(root, name)).toString(),
     /** The next publication for a URI, or the one already received. */
@@ -174,9 +233,14 @@ describe("the Hexagon language server", () => {
       expect(result.capabilities.definitionProvider).toBe(true);
       expect(result.capabilities.referencesProvider).toBe(true);
       expect(result.capabilities.textDocumentSync).toBe(2);
-      expect(result.capabilities.completionProvider).toBeUndefined();
-      expect(result.capabilities.renameProvider).toBeUndefined();
+      expect(result.capabilities.renameProvider).toEqual({ prepareProvider: true });
+      expect(result.capabilities.completionProvider).toEqual({ triggerCharacters: ["."] });
+      expect(result.capabilities.semanticTokensProvider).toMatchObject({ full: true });
+      // Still withheld, and still deliberately: a capability announced but
+      // unimplemented offers the user a command that silently does nothing.
       expect(result.capabilities.documentFormattingProvider).toBeUndefined();
+      expect(result.capabilities.codeActionProvider).toBeUndefined();
+      expect(result.capabilities.workspaceSymbolProvider).toBeUndefined();
     } finally {
       await solo.dispose();
     }
@@ -250,6 +314,116 @@ describe("the Hexagon language server", () => {
       position: { line: 1, character: 0 },
     });
     expect(hover).toBeNull();
+  });
+
+  test("completion offers what is in scope, with kinds and types", async () => {
+    const offered = await hex.client.sendRequest("textDocument/completion", {
+      textDocument: { uri: hex.uriOf("main.hex") },
+      position: positionOf(MAIN, "brighten", 2),
+    }) as CompletionItem[];
+    const byLabel = new Map(offered.map((item) => [item.label, item]));
+    expect(byLabel.get("brighten")).toMatchObject({
+      kind: CompletionItemKind.Function,
+      detail: "Colour -> Colour",
+    });
+    expect(byLabel.get("Red")).toMatchObject({ kind: CompletionItemKind.Constructor });
+    expect(byLabel.get("Colour")).toMatchObject({ kind: CompletionItemKind.Class });
+  });
+
+  test("completion after a dot answers about that module alone", async () => {
+    const uri = hex.uriOf("main.hex");
+    const probing = `${MAIN}let probe: Int = Option.\n`;
+    const send = (text: string, version: number) =>
+      hex.client.sendNotification(DidChangeTextDocumentNotification.type, {
+        textDocument: { uri, version },
+        contentChanges: [{ text }],
+      });
+    const completeAt = (position: { line: number; character: number }) =>
+      hex.client.sendRequest("textDocument/completion", {
+        textDocument: { uri },
+        position,
+      }) as Promise<CompletionItem[] | null>;
+
+    await send(probing, 99);
+    try {
+      const start = positionOf(probing, "Option.");
+      const afterDot = { line: start.line, character: start.character + "Option.".length };
+      // A half-typed `Option.` does not parse, which is the whole point: this is
+      // the buffer completion is always asked about.
+      const qualified = await completeAt(afterDot);
+      expect(qualified?.length).toBeGreaterThan(0);
+      // `start` is in scope on this line and would be offered unqualified. After
+      // the dot the user has said which module they mean, so it must not appear.
+      expect(qualified!.some((item) => item.label === "start")).toBe(false);
+      const unqualified = await completeAt(start);
+      expect(unqualified!.some((item) => item.label === "start")).toBe(true);
+    } finally {
+      await send(MAIN, 100);
+    }
+  });
+
+  test("semantic tokens arrive decoded onto the right names", async () => {
+    const result = await hex.client.sendRequest("textDocument/semanticTokens/full", {
+      textDocument: { uri: hex.uriOf("main.hex") },
+    }) as SemanticTokens;
+    // Decoded back through the legend the server announced, so the test reads
+    // the file the way the editor does rather than trusting the numbers.
+    const provider = hex.capabilities.semanticTokensProvider as {
+      legend: { tokenTypes: string[]; tokenModifiers: string[] };
+    };
+    expect(decodeTokens(MAIN, result.data, provider.legend)).toEqual([
+      "Colour:enum",
+      "brighten:function",
+      "Red:enumMember",
+      "start:variable",
+      "Colour:enum",
+      "Red:enumMember",
+      "finish:variable",
+      "Colour:enum",
+      "brighten:function",
+      "start:variable",
+    ]);
+  });
+
+  test("prepare-rename offers the identifier alone, not the clause around it", async () => {
+    const range = await hex.client.sendRequest("textDocument/prepareRename", {
+      textDocument: { uri: hex.uriOf("main.hex") },
+      position: positionOf(MAIN, "brighten", 2),
+    }) as Range | null;
+    expect(range).toEqual({
+      start: { line: 3, character: 21 },
+      end: { line: 3, character: 29 },
+    });
+  });
+
+  test("rename edits every file, including one never opened", async () => {
+    const edit = await hex.client.sendRequest("textDocument/rename", {
+      textDocument: { uri: hex.uriOf("main.hex") },
+      position: positionOf(MAIN, "brighten", 2),
+      newName: "lighten",
+    }) as WorkspaceEdit;
+    const changes = edit.changes!;
+    expect(Object.keys(changes).sort()).toEqual(
+      [hex.uriOf("helper.hex"), hex.uriOf("main.hex")].sort(),
+    );
+    // `helper.hex` was never opened by this client; the declaration still moves,
+    // because the session holds the workspace rather than the open buffers.
+    expect(applyEdits(HELPER, changes[hex.uriOf("helper.hex")]!)).toBe(
+      HELPER.replaceAll("brighten", "lighten"),
+    );
+    expect(applyEdits(MAIN, changes[hex.uriOf("main.hex")]!)).toBe(
+      MAIN.replaceAll("brighten", "lighten"),
+    );
+  });
+
+  test("a refused rename comes back as an error the editor can show", async () => {
+    // The reason has to reach the user, and a failed request is the only channel
+    // a rename has for saying one. `null` would read as "nothing to rename".
+    await expect(hex.client.sendRequest("textDocument/rename", {
+      textDocument: { uri: hex.uriOf("main.hex") },
+      position: positionOf(MAIN, "brighten", 2),
+      newName: "let",
+    })).rejects.toThrow(/not a name Hexagon can read/);
   });
 
   test("diagnostics arrive for an edit, and are cleared when it is fixed", async () => {

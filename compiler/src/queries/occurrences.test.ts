@@ -258,7 +258,7 @@ describe("collectOccurrences", () => {
     ]);
   });
 
-  test("an import list names the local binding, not the whole clause", () => {
+  test("an aliasing import clause publishes both of its names, each narrowed", () => {
     const helper = ["export union Shade =", "    | Pale", "    | Deep", "", "export let two: Int = 2", ""]
       .join("\n");
     const main = [
@@ -271,10 +271,41 @@ describe("collectOccurrences", () => {
     const own = occurrences.get("/main.hex")!;
     // `ImportName.span` covers `Shade as Other`. Published unnarrowed, hover and
     // find-references would report the whole clause, and every offset across it
-    // — including the `as` — would answer as the imported name.
+    // — including the `as` — would answer as the imported name. Both names are
+    // published because both denote the thing: leaving the imported one out
+    // costs find-references a mention, and leaves a rename of the declaration
+    // rewriting every module *except* the ones that aliased it.
     expect(render(own, main, (o) => o.span.start.line === 0)).toEqual([
+      'reference union "Shade"',
       'reference union "Other"',
+      'reference value "two"',
       'reference value "deux"',
+    ]);
+  });
+
+  test("the two names of an aliasing clause denote one identity", () => {
+    const helper = "export let two: Int = 2\n";
+    const main = ['import {two as deux} from "./helper"', "", "let four: Int = deux + deux", ""]
+      .join("\n");
+    const { occurrences } = index([["/helper.hex", helper], ["/main.hex", main]]);
+    const own = occurrences.get("/main.hex")!;
+    const keys = new Set(own.filter((o) => o.span.start.line === 0).map((o) => targetKey(o.target)));
+    expect(keys.size).toBe(1);
+  });
+
+  test("an alias that repeats the name still publishes both mentions", () => {
+    const helper = "export let two: Int = 2\n";
+    // Told apart by span rather than by comparing spellings: `two as two` writes
+    // the name twice at two offsets, and a rename that rewrote only one of them
+    // would leave the clause naming something that no longer exists.
+    const main = ['import {two as two} from "./helper"', "", "let four: Int = two + two", ""]
+      .join("\n");
+    const { occurrences } = index([["/helper.hex", helper], ["/main.hex", main]]);
+    const own = occurrences.get("/main.hex")!;
+    const clause = own.filter((o) => o.span.start.line === 0);
+    expect(clause.map((o) => o.span.start.offset)).toEqual([
+      main.indexOf("two"),
+      main.lastIndexOf("two", main.indexOf("\n")),
     ]);
   });
 

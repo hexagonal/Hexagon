@@ -223,11 +223,34 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
 
 class Scope {
   readonly #bindings = new Map<string, Resolved.SymbolId>();
+  /**
+   * Every binding in the order it was made, kept alongside the lookup map for
+   * `Resolved.Module.scopes`. The map cannot serve: it holds only the *winner*
+   * for each name, and it has no record of where a binding became visible.
+   */
+  readonly recorded: Resolved.ScopeBinding[] = [];
+  /**
+   * The source this scope governs. Assigned after construction only for the
+   * prelude layer, which exists before there is a module to measure.
+   */
+  region: Source.Span | undefined;
 
-  constructor(readonly parent?: Scope) {}
+  constructor(readonly parent?: Scope, region?: Source.Span) {
+    this.region = region;
+  }
 
-  define(name: string, symbol: Resolved.SymbolId): void {
+  /**
+   * @param visibleFrom Where the name comes into scope, for a binder that does
+   * not scope over its whole region. Sequential `let` and `var` are the only
+   * ones; everything else is declared before the region's body is walked.
+   */
+  define(name: string, symbol: Resolved.SymbolId, visibleFrom?: number): void {
     this.#bindings.set(name, symbol);
+    this.recorded.push({
+      name,
+      symbol,
+      visibleFrom: visibleFrom ?? this.region?.start.offset ?? 0,
+    });
   }
 
   lookupLocal(name: string): Resolved.SymbolId | undefined {
@@ -263,6 +286,16 @@ class Resolver {
   readonly #runtime: boolean;
   readonly #privileged: boolean;
   readonly #preludeScope = new Scope();
+  /** Every scope opened, in the order they were opened — see `Module.scopes`. */
+  readonly #openScopes: Scope[] = [];
+  /**
+   * Where a *sequential* pattern binder comes into scope: the end of the `let`
+   * that introduced it. Held here rather than threaded through
+   * `#resolvePattern`, which recurses a dozen ways and would carry the value
+   * unchanged down every one of them; only the one caller that classifies its
+   * binders as sequential ever sets it.
+   */
+  #sequentialVisibleFrom: number | undefined;
   #moduleScope: Scope | undefined;
   readonly #preludeTerms = new Map<Resolved.SymbolId, Resolved.Symbol>();
   readonly #preludeTypeNames = new Set<string>();
@@ -435,7 +468,14 @@ class Resolver {
         this.#impliedTypeOwners.set(impliedType.name.text, owners);
       }
     }
-    const scope = new Scope(this.#preludeScope);
+    // The prelude layer was seeded before there was a module to measure, so it
+    // is given its region now. It governs the whole file — that is what
+    // "implicitly in scope everywhere" means — and it is registered first, so
+    // that a module-level binding of the same name, recorded later, is the one
+    // an inner-wins reader takes.
+    this.#preludeScope.region = module.span;
+    this.#openScopes.push(this.#preludeScope);
+    const scope = this.#openScope(this.#preludeScope, module.span);
     // The one scope whose parent is the prelude layer, and so the only one where
     // Modules §5.4 permits occlusion. Held rather than inferred: "module level"
     // is scope identity, not nesting depth — a block body of a module-level
@@ -454,6 +494,21 @@ class Resolver {
       fileId: module.fileId,
       items,
       symbols: [...this.#importedSymbols.values(), ...this.#symbols.values()],
+      scopes: this.#openScopes.map((open) => ({
+        // Every registered scope has been given a region; the module's own span
+        // is the only sensible answer if one somehow was not, and is wide rather
+        // than wrong.
+        span: open.region ?? module.span,
+        bindings: open.recorded,
+      })),
+      // Explicit aliases first, so a reader taking the first entry for a name
+      // gets the one that wins: an `import * as Vector` is a module-level
+      // binding and outranks the prelude companion of the same name (§5.4).
+      moduleAliases: [...this.#moduleAliases, ...this.#preludeModuleAliases]
+        .map(([alias, reached]) => ({
+          alias,
+          members: [...reached.terms].map(([name, symbol]) => ({ name, symbol: symbol.id })),
+        })),
       unions: this.#unions,
       records: this.#records,
       preludeRecords: this.#preludeRecords,
@@ -463,6 +518,19 @@ class Resolver {
       span: module.span,
       diagnostics: this.#diagnostics.toArray(),
     };
+  }
+
+  /**
+   * Opens a scope and registers it for `Module.scopes`.
+   *
+   * `region` is the source the scope actually governs, which is not always the
+   * span of the construct that opened it — see the `For` case, where the
+   * iterable is resolved outside the scope its own pattern binds into.
+   */
+  #openScope(parent: Scope, region: Source.Span): Scope {
+    const scope = new Scope(parent, region);
+    this.#openScopes.push(scope);
+    return scope;
   }
 
   /** Registers module type identities before resolving any declaration body. */
@@ -1052,7 +1120,11 @@ class Resolver {
 
         // Preserve the first valid meaning after an error instead of allowing
         // a rejected rebinding to change how subsequent names resolve.
-        if (existing === undefined) scope.define(item.name.text, binding.symbol);
+        // Visible from the end of its own item: a sequential binder scopes over
+        // the rest of its block (Statements §5.1), not over its own value.
+        if (existing === undefined) {
+          scope.define(item.name.text, binding.symbol, item.span.end.offset);
+        }
 
         return {
           kind: "Let",
@@ -1106,7 +1178,9 @@ class Resolver {
         this.#pending.push({ name: item.name, kind: "var" });
         const value = this.#resolveExpr(Parsed.unwrapBindingValue(item.value), scope);
         this.#pending.pop();
-        if (existing === undefined) scope.define(item.name.text, binding.symbol);
+        if (existing === undefined) {
+          scope.define(item.name.text, binding.symbol, item.span.end.offset);
+        }
         return {
           kind: "Var",
           binding,
@@ -1125,7 +1199,9 @@ class Resolver {
         const value = this.#resolveExpr(Parsed.unwrapBindingValue(item.value), scope);
         this.#pending.splice(this.#pending.length - names.length, names.length);
         const seen = new Map<string, Resolved.Binding>();
+        this.#sequentialVisibleFrom = item.span.end.offset;
         const pattern = this.#resolvePattern(item.pattern, scope, seen, "sequential");
+        this.#sequentialVisibleFrom = undefined;
         return {
           kind: "LetPattern",
           exported: false,
@@ -1316,7 +1392,7 @@ class Resolver {
           expression: this.#resolveExpr(expression.expression, scope),
         };
       case "Block": {
-        const blockScope = new Scope(scope);
+        const blockScope = this.#openScope(scope, expression.span);
         return {
           ...expression,
           items: this.#resolveItems(expression.items, blockScope),
@@ -1341,7 +1417,10 @@ class Resolver {
           span: expression.span,
         };
       case "For": {
-        const loopScope = new Scope(scope);
+        // The body, not the whole `for`: the iterable is resolved in the
+        // *outer* scope, so a region spanning the construct would claim the
+        // loop's binder is in scope inside the thing being iterated over.
+        const loopScope = this.#openScope(scope, expression.body.span);
         const pattern = this.#resolvePattern(
           expression.pattern,
           loopScope,
@@ -1361,7 +1440,7 @@ class Resolver {
           ...expression,
           scrutinee: this.#resolveExpr(expression.scrutinee, scope),
           arms: expression.arms.map((arm) => {
-            const armScope = new Scope(scope);
+            const armScope = this.#openScope(scope, arm.span);
             const pattern = this.#resolvePattern(
               arm.pattern,
               armScope,
@@ -1383,7 +1462,7 @@ class Resolver {
           kind: "Try",
           body: this.#resolveExpr(expression.body, scope),
           arms: expression.arms.map((arm) => {
-            const armScope = new Scope(scope);
+            const armScope = this.#openScope(scope, arm.span);
             const pattern = this.#resolvePattern(
               arm.pattern,
               armScope,
@@ -1628,7 +1707,13 @@ class Resolver {
         const claimed = this.#claimBinder(name, scope, binderClass);
         const binding = this.#declare(name, declaredKind(binderClass));
         shared.set(text, binding);
-        if (claimed) scope.define(text, binding.symbol);
+        if (claimed) {
+          scope.define(
+            text,
+            binding.symbol,
+            binderClass === "sequential" ? this.#sequentialVisibleFrom : undefined,
+          );
+        }
       }
       return {
         kind: "Or",
@@ -1746,7 +1831,13 @@ class Resolver {
     const binding = sharedBindings?.get(pattern.name.text) ??
       this.#declare(pattern.name, declaredKind(binderClass));
     seen.set(pattern.name.text, binding);
-    if (claimed) scope.define(pattern.name.text, binding.symbol);
+    if (claimed) {
+      scope.define(
+        pattern.name.text,
+        binding.symbol,
+        binderClass === "sequential" ? this.#sequentialVisibleFrom : undefined,
+      );
+    }
     return { kind: "Binding", binding, span: pattern.span };
   }
 
@@ -1862,7 +1953,7 @@ class Resolver {
     impliedContext?: { readonly owner: string; readonly names: ReadonlySet<string> },
   ): Resolved.LambdaExpr {
     this.#lambdaDepth += 1;
-    const lambdaScope = new Scope(scope);
+    const lambdaScope = this.#openScope(scope, expression.span);
     const parameters = expression.parameters.map((parameter) => {
       const existing = lambdaScope.lookupLocal(parameter.name.text);
       const binding = this.#declare(parameter.name, "parameter");
