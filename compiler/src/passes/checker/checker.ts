@@ -4637,6 +4637,7 @@ class Checker {
             missing.join(" and ")
           }`,
         primary: item.binding.span,
+        incompleteSignature: true,
       });
     }
 
@@ -4660,6 +4661,7 @@ class Checker {
             `exported function \`${item.binding.name}\` must declare every constraint in its signature; ` +
             `write \`<${variable.rigidName ?? inferredTypeVariableName(index)}: ${constraintList}>\``,
           primary: item.binding.span,
+          incompleteSignature: true,
         });
       }
     });

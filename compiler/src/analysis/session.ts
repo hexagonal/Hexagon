@@ -35,9 +35,12 @@
 
 import * as Diagnostics from "../support/diagnostics.js";
 import * as Source from "../support/source.js";
+import type * as LaidOut from "../syntax/laid-out/index.js";
 import type * as Lexed from "../syntax/lexed/index.js";
 import type * as Resolved from "../syntax/resolved/index.js";
+import * as Typed from "../syntax/typed/index.js";
 import { lex } from "../passes/lexer/lexer.js";
+import { applyLayout } from "../passes/layout/layout.js";
 import { codePointBefore, isIdentifierContinue } from "../support/identifiers.js";
 import {
   compileProject,
@@ -55,6 +58,12 @@ import { collectTypeOccurrences, type TypeOccurrence } from "../queries/type-occ
 import { collectSemanticTokens, type SemanticToken } from "../queries/semantic-tokens.js";
 import { collectSymbolFacts, type SymbolFacts } from "../queries/symbol-facts.js";
 import { collectCompletions, type Completion } from "../queries/completions.js";
+import {
+  planReturnAnnotation,
+  refusedAnnotation,
+  type ReturnAnnotationPlan,
+  type ReturnAnnotationResult,
+} from "../queries/return-annotation.js";
 
 /** A span together with the path of the file it lies in. */
 export interface Location {
@@ -80,6 +89,39 @@ export interface Hover {
   readonly displayedType?: string;
   /** The identifier the answer describes, for the editor to highlight. */
   readonly span: Source.Span;
+}
+
+/** One replacement, and the file it lies in. An insertion is an empty span. */
+export interface ActionEdit extends Location {
+  readonly replacement: string;
+}
+
+/**
+ * A repair the session offers against a diagnostic.
+ *
+ * `disabled` is the code-action shape of a `RenameRefusal`, and exists for the
+ * same reason: the interesting answers are the ones where the repair is real,
+ * obvious to the user, and not safe to make. Dropping those silently leaves a
+ * user waiting for a lightbulb that never comes with nothing to explain why, so
+ * a refused action is still returned, carrying the sentence that says what
+ * stopped it. An action that carries `disabled` carries no edits.
+ */
+export interface CodeAction {
+  readonly title: string;
+  /** The diagnostic this answers, for a host that shows the two together. */
+  readonly diagnostic: Diagnostics.Diagnostic;
+  readonly edits: readonly ActionEdit[];
+  readonly disabled?: string;
+}
+
+/**
+ * A region of one file, in the session's own coordinates, closed at both ends —
+ * a caret is `start === end`, and one sitting immediately after a name is still
+ * on it, as everywhere else here.
+ */
+export interface OffsetRange {
+  readonly start: number;
+  readonly end: number;
 }
 
 /**
@@ -320,6 +362,189 @@ export class AnalysisSession {
     const resolved = analysis.resolvedOf(normalized);
     if (resolved === undefined) return [];
     return collectCompletions({ text, offset, resolved, facts: analysis.symbolFacts });
+  }
+
+  /**
+   * What could be repaired in this region of one file.
+   *
+   * Every action here answers a diagnostic — this is the diagnostic-driven half
+   * of code actions, not the refactoring half — so the work is bounded by the
+   * errors the user can already see. That bound is what makes the expensive one
+   * affordable: an inferred return type is offered only after being compiled and
+   * compared, and nothing compiles unless the caret is on the error it fixes.
+   *
+   * Two sources feed it. A diagnostic may carry its own `fixes`, written where
+   * the problem was found — the lexer's redirect from a JavaScript-spelled block
+   * comment to `(* … *)` is one — and those are decided already, so they pass
+   * straight through. The rest are computed here, needing the whole project.
+   */
+  codeActions(path: string, range: OffsetRange): readonly CodeAction[] {
+    const normalized = normalizePath(path);
+    const analysis = this.#analyze();
+    const here = analysis.diagnosticsByPath.get(normalized) ?? [];
+    const actions: CodeAction[] = [];
+    const asked = here.filter((diagnostic) => touches(diagnostic.primary, range));
+
+    for (const diagnostic of asked) {
+      for (const fix of diagnostic.fixes ?? []) {
+        const edits = locate(analysis, fix.edits);
+        if (edits !== undefined) actions.push({ title: fix.message, diagnostic, edits });
+      }
+    }
+
+    // Asked once per *place* rather than once per diagnostic. More than one
+    // error can caret one declaration — a missing signature and an undeclared
+    // constraint both do — so the same repair is reachable from either, and
+    // computing it twice would mean lexing and compiling twice to offer it once.
+    const planning = this.#annotationPlanner(analysis, normalized, here);
+    const planned = new Set<number>();
+    for (const diagnostic of asked) {
+      const plan = planning(diagnostic.primary.start.offset);
+      if (plan === undefined || !plan.exported) continue;
+      if (planned.has(plan.binding.start.offset)) continue;
+      planned.add(plan.binding.start.offset);
+      if (refusedAnnotation(plan)) {
+        actions.push({ title: RETURN_ANNOTATION_TITLE, diagnostic, edits: [], disabled: plan.refused });
+        continue;
+      }
+      const objection = this.#verifyAnnotation(normalized, plan);
+      actions.push({
+        title: RETURN_ANNOTATION_TITLE,
+        diagnostic,
+        edits: objection === undefined
+          ? plan.edits.map((edit) => ({ path: normalized, ...edit }))
+          : [],
+        ...(objection === undefined ? {} : { disabled: objection }),
+      });
+    }
+    return actions;
+  }
+
+  /**
+   * Asks about the return type of the declaration at an offset, lexing the file
+   * at most once however many times it is asked.
+   *
+   * The token stream is the only record of where a parameter list closes and
+   * nothing keeps one: compilation discards it, and holding every file's would
+   * cost the whole workspace to answer about one line. Once per request is the
+   * middle position, and it is not paid at all by a request that turns out to
+   * have no declaration under it.
+   */
+  #annotationPlanner(
+    analysis: Analysis,
+    path: string,
+    diagnostics: readonly Diagnostics.Diagnostic[],
+  ): (offset: number) => ReturnAnnotationResult | undefined {
+    const text = this.#texts.get(path);
+    const fileId = this.#fileIds.get(path);
+    const resolved = analysis.resolvedOf(path);
+    const typed = analysis.typedOf(path);
+    if (text === undefined || fileId === undefined) return () => undefined;
+    if (resolved === undefined || typed === undefined) return () => undefined;
+    let lexed: Lexed.File | undefined;
+    let laidOut: LaidOut.File | undefined;
+    return (offset) => {
+      lexed ??= lex(new Source.File(fileId, path, text));
+      laidOut ??= applyLayout(lexed);
+      return planReturnAnnotation({
+        resolved,
+        typed,
+        lexed,
+        laidOut,
+        diagnostics,
+        offset,
+        fileOfSpecifier: (specifier) => analysis.fileIdOf(resolveSpecifier(path, specifier)),
+      });
+    };
+  }
+
+  /**
+   * Re-analyses the project with the annotation written, and objects unless it
+   * changed nothing but the error it repairs.
+   *
+   * The same doctrine as `#verifyRename`, for a related reason. A type
+   * annotation is not a comment: **a type variable written in an annotation is
+   * rigid while that definition is checked** (Functions §4.1), so writing down
+   * what inference derived can restrict what the definition is allowed to mean.
+   * Deciding by hand when that matters means reimplementing generalization in a
+   * place nothing keeps honest, so the edit is made and the compiler is asked.
+   *
+   * Two things have to hold. **The function's type must not change** — compared
+   * as the checker renders it, which normalizes variable names, so an
+   * alpha-equivalent scheme compares equal. And **no diagnostic may appear that
+   * was not there before**, anywhere in the project, since a signature is a
+   * promise to every caller.
+   *
+   * Diagnostics carreting the declaration's own name are the exception, and are
+   * counted rather than compared: the whole point of the edit is to change one
+   * of them, since the checker's message names what is *still* missing, so
+   * completing a signature that also lacks parameter types rewrites the message
+   * instead of removing it. Comparing those messages would read the repair as a
+   * new error every time it half-worked.
+   *
+   * The count is what keeps that exception from being a hole, and it is a weak
+   * guard rather than a strong one: an error that *replaced* another on the same
+   * name passes it. Telling the two apart means knowing which diagnostic is the
+   * one being repaired, and a `Diagnostic` has no identity beyond its text — so
+   * the honest fix is a code on the diagnostic itself, which is worth having for
+   * more than this and belongs to no one slice. No input found so far reaches
+   * even the weak version; it is here because the exception above is real, not
+   * because a failure was observed.
+   */
+  #verifyAnnotation(path: string, plan: ReturnAnnotationPlan): string | undefined {
+    const probe = new AnalysisSession(this.#options);
+    for (const [owner, text] of this.#texts) {
+      probe.setFile(owner, owner === path ? applyEdits(text, plan.edits) : text);
+    }
+    const written = `writing \`: ${plan.annotation}\``;
+
+    const declaration = plan.binding.start.offset;
+    // Both halves matter, though only one of them can be reached today: an
+    // offset names a place only together with a file, and a diagnostic in
+    // another module can start at the same one. Nothing currently gets there,
+    // because an edit that leaves this function's type alone cannot add a
+    // diagnostic to a module that only sees the type.
+    const onDeclaration = (owner: string, diagnostic: Diagnostics.Diagnostic): boolean =>
+      owner === path && diagnostic.primary.start.offset === declaration;
+    const split = (all: ReadonlyMap<string, readonly Diagnostics.Diagnostic[]>) => {
+      const elsewhere = new Map<string, readonly Diagnostics.Diagnostic[]>();
+      const here: string[] = [];
+      for (const [owner, diagnostics] of all) {
+        elsewhere.set(owner, diagnostics.filter((diagnostic) => !onDeclaration(owner, diagnostic)));
+        for (const diagnostic of diagnostics) {
+          if (onDeclaration(owner, diagnostic)) here.push(diagnostic.message);
+        }
+      }
+      return { elsewhere, here };
+    };
+
+    const before = split(this.allDiagnostics());
+    const after = split(probe.allDiagnostics());
+    const was = diagnosticTally(before.elsewhere, []);
+    for (const [key, appearance] of diagnosticTally(after.elsewhere, [])) {
+      if ((was.get(key)?.count ?? 0) >= appearance.count) continue;
+      return `${written} would break \`${appearance.path}\`: ${appearance.message}`;
+    }
+    if (after.here.length > before.here.length) {
+      const fresh = after.here.find((message) => !before.here.includes(message));
+      return `${written} would report a new problem with \`${plan.name}\`` +
+        (fresh === undefined ? "" : `: ${fresh}`);
+    }
+
+    const now = probe.#analyze().schemeAt(path, declaration);
+    const meant = this.#analyze().schemeAt(path, declaration);
+    if (now === undefined) {
+      // The declaration stopped existing: no input reaches this, since a broken
+      // body is refused before any of it is compiled, and the two shapes of edit
+      // add an annotation to a signature that already parsed. It is the answer
+      // to "compare the two types" when there is no second type, and guessing
+      // that no news is good news is the wrong default for that question.
+      return `${written} would leave \`${plan.name}\` without a type at all`;
+    }
+    if (meant !== undefined && now !== meant) {
+      return `${written} would change the type of \`${plan.name}\` from \`${meant}\` to \`${now}\``;
+    }
+    return undefined;
   }
 
   /**
@@ -600,6 +825,8 @@ class Analysis {
   readonly #resolvedByPath = new Map<string, Resolved.Module>();
   readonly #occurrencesByTarget = new Map<string, Occurrence[]>();
   readonly #typesByPath = new Map<string, Map<string, TypeOccurrence>>();
+  readonly #typedByPath = new Map<string, Typed.Module>();
+  readonly #fileIdsByPath: ReadonlyMap<string, Source.FileId>;
   /** Gathered once for the whole project — see `collectSymbolFacts`. */
   readonly symbolFacts: ReadonlyMap<number, SymbolFacts>;
 
@@ -611,9 +838,11 @@ class Analysis {
     const fileIdsByPath = new Map(
       project.modules.map((module) => [module.source.path, module.source.id]),
     );
+    this.#fileIdsByPath = fileIdsByPath;
     for (const module of project.modules) {
       const path = module.source.path;
       this.#pathsByFileId.set(Number(module.source.id), path);
+      this.#typedByPath.set(path, module.typed);
       const types = collectTypeOccurrences(module.typed);
       const occurrences = collectOccurrences(module, {
         fileOfSpecifier: (specifier) => fileIdsByPath.get(resolveSpecifier(path, specifier)),
@@ -657,6 +886,32 @@ class Analysis {
   /** One file's resolved tree, absent for a file that was not compiled. */
   resolvedOf(path: string): Resolved.Module | undefined {
     return this.#resolvedByPath.get(path);
+  }
+
+  /** One file's typed tree, absent for a file that was not compiled. */
+  typedOf(path: string): Typed.Module | undefined {
+    return this.#typedByPath.get(path);
+  }
+
+  /** The compiler identity of a path, for reading a span's file back. */
+  fileIdOf(path: string): Source.FileId | undefined {
+    return this.#fileIdsByPath.get(path);
+  }
+
+  /**
+   * The type of the value declared at this offset, as the checker renders it.
+   *
+   * Rendered rather than returned, because it exists to be *compared* across two
+   * compilations: type identities are minted per run, where `displayScheme`
+   * names variables by the order they appear and so compares equal for schemes
+   * that differ only in which variables they happened to allocate.
+   */
+  schemeAt(path: string, offset: number): string | undefined {
+    const typed = this.#typedByPath.get(path);
+    const symbol = typed?.symbols.find(({ bindingSpan }) =>
+      bindingSpan.fileId === typed.fileId && bindingSpan.start.offset === offset
+    );
+    return symbol === undefined ? undefined : Typed.displayScheme(symbol.scheme);
   }
 
   /**
@@ -743,6 +998,62 @@ function soleNameToken(candidate: string): Lexed.NameToken | undefined {
   return rest.every(({ kind }) => kind === "Eof") ? token : undefined;
 }
 
+/**
+ * One title for the repair, wherever it is offered from.
+ *
+ * Named for what it does rather than for what it produces: the type itself is in
+ * the edit the editor previews, and a title that carried it would change every
+ * time the body did, which is not what a menu entry is for.
+ */
+const RETURN_ANNOTATION_TITLE = "Infer return type";
+
+/**
+ * Whether a diagnostic's span is close enough to the region the host asked
+ * about to be what the user means.
+ *
+ * Inclusive at both ends, like every other position query here: a caret is an
+ * empty range, and one sitting immediately after a name is still on it.
+ */
+function touches(span: Source.Span, range: OffsetRange): boolean {
+  return span.start.offset <= range.end && span.end.offset >= range.start;
+}
+
+/**
+ * A compiler-authored fix's edits, addressed by path.
+ *
+ * All or nothing: an edit naming a file this session cannot place would produce
+ * a partial repair, which for a fix that spans two points — the lexer's comment
+ * redirect rewrites an opener and its closer — leaves the source worse than it
+ * found it. No fix today reaches outside the file its diagnostic is reported
+ * against, so nothing currently takes that branch; it is here because the
+ * property is about the *fixes*, which are written elsewhere and will grow.
+ */
+function locate(
+  analysis: Analysis,
+  edits: readonly Diagnostics.Edit[],
+): readonly ActionEdit[] | undefined {
+  const located: ActionEdit[] = [];
+  for (const edit of edits) {
+    const path = analysis.pathOf(edit.span.fileId);
+    if (path === undefined) return undefined;
+    located.push({ path, span: edit.span, replacement: edit.replacement });
+  }
+  return located;
+}
+
+/** Applies edits back to front, so an earlier one cannot move a later one. */
+function applyEdits(text: string, edits: readonly Diagnostics.Edit[]): string {
+  const ordered = [...edits].sort((left, right) =>
+    left.span.start.offset - right.span.start.offset
+  );
+  let result = text;
+  for (let index = ordered.length - 1; index >= 0; index -= 1) {
+    const { span, replacement } = ordered[index]!;
+    result = result.slice(0, span.start.offset) + replacement + result.slice(span.end.offset);
+  }
+  return result;
+}
+
 /** Replaces spans back to front, so an earlier edit cannot move a later one. */
 function replaceSpans(
   text: string,
@@ -783,6 +1094,35 @@ function withoutName(message: string, spelling: string): string {
   }
 }
 
+/**
+ * A message with any *column* it quotes blanked out, and every line number left
+ * exactly as it is.
+ *
+ * A diagnostic that names where something started — `unterminated block comment;
+ * opened at line 1, column 26` — re-renders with a different column when an edit
+ * earlier on that line moves what it points at, although it is the same
+ * diagnostic and just as pre-existing. Counted without this, that reads as a
+ * diagnostic the edit introduced, and a repair is refused for breaking something
+ * it never touched.
+ *
+ * The line is a different matter and is load-bearing. Neither edit this session
+ * makes — an identifier for an identifier, a type annotation with no newline in
+ * it — moves anything to another line, so a line number that changed means a
+ * genuinely different diagnostic. `\`x\` is already bound (line 3)` is the case
+ * that proves it: renaming `q` to `p` where `p` is already bound produces a
+ * collision quoting a different line from the one the file had before, and with
+ * both spellings already blanked out of the message, that number is the only
+ * thing left distinguishing the new error from the old.
+ *
+ * One singular `column`, deliberately. The layout pass writes a plural — `expected
+ * one of columns 1, 5` — about *indentation*, which is a property of a line and
+ * so is exactly as immovable as the line itself. Widening this to catch it would
+ * blank a number that cannot change.
+ */
+function withoutPositions(message: string): string {
+  return message.replaceAll(/\bcolumn \d+/g, "column ‹moved›");
+}
+
 /** The file and one-based line a denotation key names. */
 function readSite(site: string): readonly [string, string] {
   const [place = "", line = "?"] = site.split("#");
@@ -791,7 +1131,7 @@ function readSite(site: string): readonly [string, string] {
 
 /**
  * How many times each diagnostic is reported against each file, counted rather
- * than collected: a rename shifts positions, so two runs are compared by what
+ * than collected: an edit shifts positions, so two runs are compared by what
  * they say and where, never by the exact span they said it at.
  *
  * Diagnostics quote identifiers, so the renamed one is blanked out of the
@@ -800,6 +1140,12 @@ function readSite(site: string): readonly [string, string] {
  * that was never there before, and the rename is refused although nothing broke.
  * Renaming while a file holds an unrelated error mentioning that name is an
  * ordinary thing to be doing.
+ *
+ * A diagnostic that quotes the *column* something opened at moves the same way
+ * and with the same consequence, so that number is blanked too — but only that
+ * one, and never a line. See `withoutPositions`. Counting is what makes both
+ * blankings safe: two diagnostics differing only in the blanked part collapse to
+ * one key, and a genuinely new one still raises that key's count.
  */
 function diagnosticTally(
   all: ReadonlyMap<string, readonly Diagnostics.Diagnostic[]>,
@@ -807,7 +1153,7 @@ function diagnosticTally(
 ): ReadonlyMap<string, { readonly path: string; readonly message: string; count: number }> {
   const tally = new Map<string, { path: string; message: string; count: number }>();
   const blanked = (message: string): string =>
-    spellings.reduce((text, spelling) => withoutName(text, spelling), message);
+    withoutPositions(spellings.reduce((text, spelling) => withoutName(text, spelling), message));
   for (const [path, diagnostics] of all) {
     for (const { severity, message } of diagnostics) {
       const key = `${path} ${severity} ${blanked(message)}`;

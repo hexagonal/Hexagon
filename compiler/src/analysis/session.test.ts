@@ -713,6 +713,24 @@ describe("AnalysisSession.rename", () => {
     expect(applied(texts, plan)["/main.hex"]).toBe(source.replaceAll("colour", "tone"));
   });
 
+  test("refuses a collision whose message differs only by the line it names", () => {
+    // The two spellings are blanked out of every message before it is counted,
+    // so `\`q\` is already bound (line 2)` and `\`p\` is already bound (line 1)`
+    // are the same sentence with one number of difference — and that number is
+    // all that is left to tell a collision the rename caused from the one that
+    // was already there. Positions are not decoration here.
+    const source = [
+      "let p: Int = 0",
+      "let q: Int = 1",
+      "let q: Int = 2",
+      "export fun use(): Int = p",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(refusal(session.rename("/main.hex", at(source, "q", 2), "p")))
+      .toContain("`p` is already bound (line 1)");
+  });
+
   test("renaming to the same name is a plan with nothing in it", () => {
     const source = "let value: Int = 1\n";
     const { session } = sessionOf({ "/main.hex": source });

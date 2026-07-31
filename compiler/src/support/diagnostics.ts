@@ -28,6 +28,23 @@ export interface Diagnostic {
   readonly labels?: readonly Label[];
   readonly notes?: readonly string[];
   readonly fixes?: readonly Fix[];
+  /**
+   * Set on the errors that say a declaration's signature is incomplete: the
+   * missing annotations themselves (Modules §4.1.1) and the constraints that
+   * cannot be declared until they are written.
+   *
+   * Marked rather than recognised. A repair that writes part of a signature has
+   * to tell these apart from every other error reported against the same
+   * declaration name, because these are the *absence* of what it is writing and
+   * the others are reasons not to write it — and both kinds report at the
+   * binding, so no test on spans can separate them. The alternative is matching
+   * on message text, which makes a sentence a user reads into an interface a
+   * pass depends on.
+   *
+   * Deliberately narrow: not a general diagnostic code, which is a bigger
+   * question than one repair needs answered.
+   */
+  readonly incompleteSignature?: true;
 }
 
 export class Bag {

@@ -29,9 +29,12 @@ export {
 export {
   AnalysisSession,
   refused,
+  type ActionEdit,
+  type CodeAction,
   type Definition,
   type Hover,
   type Location,
+  type OffsetRange,
   type Reference,
   type RenameEdit,
   type RenamePlan,

@@ -31,6 +31,8 @@ import {
   type CompletionItem,
   type Diagnostic,
   type Hover,
+  type CodeAction,
+  type InitializeParams,
   type InitializeResult,
   type Location,
   type Range,
@@ -137,8 +139,18 @@ interface Harness {
   readonly dispose: () => Promise<void>;
 }
 
-/** Starts a server on an in-memory pipe pair over a real temporary workspace. */
-async function harness(files: Record<string, string>): Promise<Harness> {
+/**
+ * Starts a server on an in-memory pipe pair over a real temporary workspace.
+ *
+ * `capabilities` is what the *client* declares. Most tests declare nothing,
+ * which is the honest default for a protocol test: a server must work against a
+ * client that announces the minimum. Code actions are the exception, since their
+ * shape is chosen from what the client says it understands.
+ */
+async function harness(
+  files: Record<string, string>,
+  capabilities: InitializeParams["capabilities"] = {},
+): Promise<Harness> {
   const root = await mkdtemp(join(tmpdir(), "hexagon-lsp-"));
   for (const [name, text] of Object.entries(files)) {
     await writeFile(join(root, name), text, "utf8");
@@ -174,7 +186,7 @@ async function harness(files: Record<string, string>): Promise<Harness> {
   const initialized = await client.sendRequest(InitializeRequest.type, {
     processId: null,
     rootUri: pathToFileURL(root).toString(),
-    capabilities: {},
+    capabilities,
     workspaceFolders: [{ uri: pathToFileURL(root).toString(), name: "test" }],
   }) as InitializeResult;
   await client.sendNotification(InitializedNotification.type, {});
@@ -236,10 +248,13 @@ describe("the Hexagon language server", () => {
       expect(result.capabilities.renameProvider).toEqual({ prepareProvider: true });
       expect(result.capabilities.completionProvider).toEqual({ triggerCharacters: ["."] });
       expect(result.capabilities.semanticTokensProvider).toMatchObject({ full: true });
-      // Still withheld, and still deliberately: a capability announced but
-      // unimplemented offers the user a command that silently does nothing.
-      expect(result.capabilities.documentFormattingProvider).toBeUndefined();
+      // Withheld from *this* client because it declared no capabilities: every
+      // action this server offers is a literal carrying its own edit, and a
+      // client that cannot read one has nothing to apply.
       expect(result.capabilities.codeActionProvider).toBeUndefined();
+      // Still withheld from everyone, and still deliberately: a capability
+      // announced but unimplemented offers a command that silently does nothing.
+      expect(result.capabilities.documentFormattingProvider).toBeUndefined();
       expect(result.capabilities.workspaceSymbolProvider).toBeUndefined();
     } finally {
       await solo.dispose();
@@ -694,6 +709,138 @@ describe("the Hexagon language server", () => {
       }) as Hover | null;
       expect(hover).not.toBeNull();
       expect((hover!.contents as { value: string }).value).toContain("vendored");
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  /**
+   * What a modern client declares. Both halves are read: literal support decides
+   * whether the capability is announced at all, and disabled support decides
+   * whether a refusal can be shown.
+   */
+  const MODERN: InitializeParams["capabilities"] = {
+    textDocument: {
+      codeAction: {
+        codeActionLiteralSupport: { codeActionKind: { valueSet: ["quickfix"] } },
+        disabledSupport: true,
+      },
+    },
+  };
+
+  /** A file whose exported function has not written its return type. */
+  const UNSIGNED = "export fun brighten(colour: Int) = colour + 1\n";
+
+  async function opened(
+    text: string,
+    capabilities: InitializeParams["capabilities"],
+  ): Promise<Harness> {
+    const solo = await harness({ "main.hex": text }, capabilities);
+    await solo.client.sendNotification(DidOpenTextDocumentNotification.type, {
+      textDocument: { uri: solo.uriOf("main.hex"), languageId: "hexagon", version: 1, text },
+    });
+    return solo;
+  }
+
+  test("a quick fix writes the inferred return type into the file", async () => {
+    const solo = await opened(UNSIGNED, MODERN);
+    try {
+      expect(solo.capabilities.codeActionProvider)
+        .toEqual({ codeActionKinds: ["quickfix"] });
+      const reported = await solo.diagnosticsFor(solo.uriOf("main.hex"));
+      const actions = await solo.client.sendRequest("textDocument/codeAction", {
+        textDocument: { uri: solo.uriOf("main.hex") },
+        range: { start: reported[0]!.range.start, end: reported[0]!.range.start },
+        context: { diagnostics: reported },
+      }) as CodeAction[] | null;
+      expect(actions).not.toBeNull();
+      expect(actions!.map(({ title }) => title)).toEqual(["Infer return type"]);
+      const [action] = actions!;
+      expect(action!.kind).toBe("quickfix");
+      // Carrying the diagnostic is what lets an editor group the fix under the
+      // error it repairs rather than listing it loose.
+      expect(action!.diagnostics?.[0]!.message).toContain("requires a complete signature");
+      const edits = action!.edit!.changes![solo.uriOf("main.hex")]!;
+      expect(applyEdits(UNSIGNED, edits))
+        .toBe("export fun brighten(colour: Int): Int = colour + 1\n");
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  test("a refusal arrives greyed out, carrying its reason", async () => {
+    // The type is inferred and unwritable: `{...a}` is an open record, and
+    // writing it closes it. The user gets the sentence, not silence.
+    const source = "export fun copy(r) = {...r}\n";
+    const solo = await opened(source, MODERN);
+    try {
+      const reported = await solo.diagnosticsFor(solo.uriOf("main.hex"));
+      const actions = await solo.client.sendRequest("textDocument/codeAction", {
+        textDocument: { uri: solo.uriOf("main.hex") },
+        range: { start: reported[0]!.range.start, end: reported[0]!.range.start },
+        context: { diagnostics: reported },
+      }) as CodeAction[] | null;
+      expect(actions![0]!.disabled?.reason).toContain("would change the type of `copy`");
+      // A disabled action must carry no edit: a client that applied one anyway
+      // would make exactly the change the reason says not to.
+      expect(actions![0]!.edit).toBeUndefined();
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  test("a client that cannot grey one out is sent nothing instead", async () => {
+    const source = "export fun copy(r) = {...r}\n";
+    const solo = await opened(source, {
+      textDocument: {
+        codeAction: { codeActionLiteralSupport: { codeActionKind: { valueSet: ["quickfix"] } } },
+      },
+    });
+    try {
+      const reported = await solo.diagnosticsFor(solo.uriOf("main.hex"));
+      const actions = await solo.client.sendRequest("textDocument/codeAction", {
+        textDocument: { uri: solo.uriOf("main.hex") },
+        range: { start: reported[0]!.range.start, end: reported[0]!.range.start },
+        context: { diagnostics: reported },
+      }) as CodeAction[] | null;
+      // Not an enabled one: an action that looks applicable and is not is worse
+      // than an action that is missing.
+      expect(actions).toBeNull();
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  test("a request for other kinds of action gets none of these", async () => {
+    const solo = await opened(UNSIGNED, MODERN);
+    try {
+      const reported = await solo.diagnosticsFor(solo.uriOf("main.hex"));
+      const actions = await solo.client.sendRequest("textDocument/codeAction", {
+        textDocument: { uri: solo.uriOf("main.hex") },
+        range: { start: reported[0]!.range.start, end: reported[0]!.range.start },
+        context: { diagnostics: reported, only: ["source.organizeImports"] },
+      }) as CodeAction[] | null;
+      // This is what keeps a fix-on-save configured for imports from rewriting
+      // a signature the user never asked it to touch.
+      expect(actions).toBeNull();
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  test("nothing is offered away from a diagnostic", async () => {
+    const solo = await opened(UNSIGNED, MODERN);
+    try {
+      await solo.diagnosticsFor(solo.uriOf("main.hex"));
+      const actions = await solo.client.sendRequest("textDocument/codeAction", {
+        textDocument: { uri: solo.uriOf("main.hex") },
+        range: {
+          start: positionOf(UNSIGNED, "colour", 2),
+          end: positionOf(UNSIGNED, "colour", 2),
+        },
+        context: { diagnostics: [] },
+      }) as CodeAction[] | null;
+      expect(actions).toBeNull();
     } finally {
       await solo.dispose();
     }
