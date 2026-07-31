@@ -20,7 +20,7 @@
  * the host's job, and it stops here.
  */
 
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { TextDocument } from "vscode-languageserver-textdocument";
@@ -110,7 +110,20 @@ async function hexagonFilesUnder(
 ): Promise<readonly string[]> {
   const found: string[] = [];
   const pending = [root];
+  // Directories already walked, by the real path they resolve to. Following
+  // symlinks means the tree is a graph: `ln -s . loop` makes a directory contain
+  // itself, and a walk with no memory descends it until the path length stops
+  // it, turning one file into dozens of modules that all shadow each other.
+  // Identity has to be the resolved path, since two links to one directory are
+  // two names for the same place.
+  const walked = new Set<string>();
+  // The same, for files: two links to one source file are one module, and
+  // compiling it twice would report every declaration in it as a duplicate.
+  const collected = new Set<string>();
   for (let directory = pending.pop(); directory !== undefined; directory = pending.pop()) {
+    const directoryIdentity = await realPathOf(directory);
+    if (walked.has(directoryIdentity)) continue;
+    walked.add(directoryIdentity);
     let entries;
     try {
       entries = await readdir(directory, { withFileTypes: true });
@@ -129,11 +142,23 @@ async function hexagonFilesUnder(
         if (SKIPPED_DIRECTORIES.has(entry.name)) continue;
         pending.push(path);
       } else if (kind === "file" && entry.name.endsWith(HEXAGON_EXTENSION)) {
+        const identity = await realPathOf(path);
+        if (collected.has(identity)) continue;
+        collected.add(identity);
         found.push(path);
       }
     }
   }
   return found;
+}
+
+/** A path's identity for cycle detection; the path itself if it cannot resolve. */
+async function realPathOf(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch {
+    return path;
+  }
 }
 
 type EntryKind = "file" | "directory" | "other";
