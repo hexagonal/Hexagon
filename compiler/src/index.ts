@@ -27,6 +27,14 @@ export {
   type TypeOccurrence,
 } from "./queries/type-occurrences.js";
 export {
+  collectOccurrences,
+  targetKey,
+  type ModuleInput,
+  type Occurrence,
+  type Role,
+  type Target,
+} from "./queries/occurrences.js";
+export {
   emitJavaScript,
   emitDeclarations,
   emitTypeScriptPreview,
