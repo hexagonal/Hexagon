@@ -1,18 +1,19 @@
 {
   "name": "hexagon-vscode",
   "displayName": "Hexagon",
-  "description": "Syntax highlighting for the Hexagon language.",
+  "description": "Language support for the Hexagon language: highlighting, diagnostics, hover, go-to-definition, and find-references.",
   "version": "0.0.1",
   "private": true,
   "type": "module",
   "publisher": "hexagonal",
   "license": "MIT",
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.91.0"
   },
   "categories": [
     "Programming Languages"
   ],
+  "main": "./dist/extension.cjs",
   "contributes": {
     "languages": [
       {
@@ -37,18 +38,57 @@
         "scopeName": "source.hexagon",
         "path": "./syntaxes/hexagon.tmLanguage.json"
       }
+    ],
+    "configuration": {
+      "title": "Hexagon",
+      "properties": {
+        "hexagon.languageServer.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run the Hexagon language server. Turn this off to keep syntax highlighting alone."
+        },
+        "hexagon.languageServer.path": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to a hexagon-language-server build to run instead of the one bundled with this extension. Intended for developing the server itself."
+        },
+        "hexagon.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Log the traffic between this extension and the Hexagon language server."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "hexagon.restartLanguageServer",
+        "title": "Hexagon: Restart Language Server"
+      }
     ]
   },
   "scripts": {
+    "build": "npm run build:server && npm run build:extension",
+    "build:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=dist/extension.cjs",
+    "build:server": "esbuild ../../language-server/src/main.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/server.cjs",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "devDependencies": {
-    "@types/node": "^24.10.1",
+    "@types/node": "24.10.1",
+    "@types/vscode": "1.91.0",
+    "esbuild": "0.25.10",
     "typescript": "7.0.2",
     "vitest": "4.1.10",
     "vscode-oniguruma": "2.0.1",
     "vscode-textmate": "9.1.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "10.1.0"
   }
 }
