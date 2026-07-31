@@ -1,50 +1,77 @@
 /**
- * The one test that needs the filesystem to hold still mid-walk.
+ * The tests that need the filesystem to hold still mid-operation.
  *
  * `setRoots` is called from a notification handler, and `vscode-jsonrpc` does
- * not await one before delivering the next — so two quick saves of
- * `hexagon.json` really do overlap. What makes that dangerous is that each call
- * is a *replacement*: it clears the merged manifests, recomputes the
- * exclusions, walks, and then sweeps away whatever its own walk did not find.
- * Interleaved, one call's sweep runs against another call's file set, and the
- * result belongs to neither manifest.
+ * not await one before delivering the next — so a rescan really does overlap
+ * with another rescan, with a document opening, and with a watcher-driven
+ * reload. Every defect in that space has the same shape: a guard checked on
+ * one side of an `await`, with the write it guards on the other, and the world
+ * changing in between.
  *
- * The interleaving cannot be produced by timing alone, which is why this lives
- * apart from `workspace.test.ts`: it replaces `readdir` with one that can be
- * parked, so the second call is *guaranteed* to arrive inside the first one's
- * walk rather than merely likely to.
+ * None of these interleavings can be produced by timing alone, which is why
+ * they live apart from `workspace.test.ts`: the filesystem is replaced with
+ * one whose operations can be *parked*, so the overlapping call is guaranteed
+ * to arrive inside the window rather than merely likely to.
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, expect, test, vi } from "vitest";
 
 /**
- * Parks the first `readdir` of a directory whose name ends in `parkAt`, once.
- *
- * Matched by name rather than by call count because the manifest reader also
- * reads directories — that is how it checks an entry's exact spelling — and a
- * counter would park in the wrong phase the moment that check changes. A
- * subdirectory only the walk descends is unambiguous.
+ * One pending park per operation, matched by path suffix rather than by call
+ * count: the manifest reader and the walk share these operations, and a
+ * counter would park in the wrong phase the moment either changes. A path only
+ * the parked phase touches is unambiguous.
  */
-let parkAt: string | undefined;
-let gate: Promise<void> | undefined;
-/** Resolved the moment the walk is actually parked, so the test can be sure. */
-let announceParked: () => void = () => {};
+const parks = new Map<string, { suffix: string; gate: Promise<void>; announce: () => void }>();
+
+interface Parked {
+  /** Resolved the moment the operation is actually parked, so a test can be sure. */
+  readonly parked: Promise<void>;
+  /** Lets the parked operation continue. */
+  readonly release: () => void;
+}
+
+/** Parks the next call of this operation on a path ending in `suffix`, once. */
+function parkNext(operation: "readdir" | "readFile" | "realpath", suffix: string): Parked {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let announce: () => void = () => {};
+  const parked = new Promise<void>((resolve) => {
+    announce = resolve;
+  });
+  parks.set(operation, { suffix, gate, announce });
+  return { parked, release };
+}
+
+async function holdIfParked(operation: string, path: unknown): Promise<void> {
+  const park = parks.get(operation);
+  if (park === undefined || !String(path).endsWith(park.suffix)) return;
+  parks.delete(operation);
+  park.announce();
+  await park.gate;
+}
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   return {
     ...actual,
     readdir: async (...args: Parameters<typeof actual.readdir>) => {
-      if (gate !== undefined && parkAt !== undefined && String(args[0]).endsWith(parkAt)) {
-        const held = gate;
-        gate = undefined;
-        announceParked();
-        await held;
-      }
+      await holdIfParked("readdir", args[0]);
       return await actual.readdir(...args);
+    },
+    readFile: async (...args: Parameters<typeof actual.readFile>) => {
+      await holdIfParked("readFile", args[0]);
+      return await actual.readFile(...args);
+    },
+    realpath: async (...args: Parameters<typeof actual.realpath>) => {
+      await holdIfParked("realpath", args[0]);
+      return await actual.realpath(...args);
     },
   };
 });
@@ -55,8 +82,7 @@ const { Workspace } = await import("./workspace.js");
 let root = "";
 
 afterEach(async () => {
-  gate = undefined;
-  parkAt = undefined;
+  parks.clear();
   if (root !== "") await rm(root, { recursive: true, force: true });
   root = "";
 });
@@ -71,17 +97,9 @@ test("a rescan that starts mid-walk does not sweep the other one's files", async
   await writeFile(join(root, MANIFEST_NAME), JSON.stringify({ exclude: ["gen"] }));
   const workspace = new Workspace();
 
-  let release = (): void => {};
-  parkAt = "/src";
-  gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const parked = new Promise<void>((resolve) => {
-    announceParked = resolve;
-  });
-
   // The first call reads a manifest that excludes `gen`, computes exclusions
   // from it, and parks part-way through its walk — after the root, inside `src`.
+  const { parked, release } = parkNext("readdir", "/src");
   const first = workspace.setRoots([root], () => {});
   // Waited for rather than assumed: the manifest read before the walk is real
   // I/O of unknown length, so yielding a tick or two would sometimes issue the
@@ -107,4 +125,102 @@ test("a rescan that starts mid-walk does not sweep the other one's files", async
   // said to include it and the older one never saw it.
   expect(workspace.session.paths.map((path) => path.split("/").at(-1)).sort())
     .toEqual(["g.hex", "main.hex", "s.hex"]);
+});
+
+test("a buffer opened mid-scan is not overwritten by the scan's own read", async () => {
+  root = await mkdtemp(join(tmpdir(), "hexagon-concurrent-"));
+  await writeFile(join(root, "main.hex"), "let value: Int = 1\n");
+  const workspace = new Workspace();
+
+  // The scan checks that the file is not open, and then reads it. The document
+  // opens inside that window, so the check passed on a world that has changed:
+  // unguarded, the disk text lands on top of the user's unsaved edits.
+  const { parked, release } = parkNext("readFile", "main.hex");
+  const scan = workspace.setRoots([root], () => {});
+  await parked;
+  await workspace.openDocument({
+    uri: pathToFileURL(join(root, "main.hex")).toString(),
+    getText: () => "let renamed: Int = 2\n",
+  } as never);
+  release();
+  await scan;
+
+  expect(workspace.session.hover(workspace.session.paths[0]!, 4)?.name).toBe("renamed");
+});
+
+test("a reload in flight does not resurrect a file the manifest just excluded", async () => {
+  root = await mkdtemp(join(tmpdir(), "hexagon-concurrent-"));
+  await mkdir(join(root, "gen"));
+  await writeFile(join(root, "main.hex"), "let value: Int = 1\n");
+  await writeFile(join(root, "gen", "g.hex"), "let generated: Int = 2\n");
+  const workspace = new Workspace();
+  await workspace.setRoots([root], () => {});
+
+  // A watcher event on `g.hex` starts a reload, which passes the exclusion
+  // check — nothing is excluded yet — and parks inside its read. The manifest
+  // then excludes `gen`, and the rescan's sweep retires the file. The reload's
+  // write must not put it back: the exclusion the user just wrote would appear
+  // to have no effect until the next event happened to touch the file.
+  await writeFile(join(root, MANIFEST_NAME), JSON.stringify({ exclude: ["gen"] }));
+  const { parked, release } = parkNext("readFile", "g.hex");
+  const reload = workspace.refreshFromDisk(pathToFileURL(join(root, "gen", "g.hex")).toString());
+  await parked;
+  await workspace.setRoots([root], () => {});
+  release();
+  await reload;
+
+  expect(workspace.session.paths.some((path) => path.endsWith("g.hex"))).toBe(false);
+});
+
+test("a reload in flight loses to a buffer that opened during it", async () => {
+  root = await mkdtemp(join(tmpdir(), "hexagon-concurrent-"));
+  await writeFile(join(root, "main.hex"), "let value: Int = 1\n");
+  const workspace = new Workspace();
+  await workspace.setRoots([root], () => {});
+
+  // The reload checks that the file is not open, and then reads it. The user
+  // opens it inside that window; the buffer is now the truth, and the disk
+  // text the reload is holding must not be written over it.
+  const uri = pathToFileURL(join(root, "main.hex")).toString();
+  const { parked, release } = parkNext("readFile", "main.hex");
+  const reload = workspace.refreshFromDisk(uri);
+  await parked;
+  await workspace.openDocument({
+    uri,
+    getText: () => "let renamed: Int = 2\n",
+  } as never);
+  release();
+  await reload;
+
+  expect(workspace.session.hover(workspace.session.paths[0]!, 4)?.name).toBe("renamed");
+});
+
+test("an edit before its open has settled does not invent a second file", async () => {
+  root = await mkdtemp(join(tmpdir(), "hexagon-concurrent-"));
+  const project = join(root, "workspace");
+  await mkdir(project);
+  await writeFile(join(project, "main.hex"), "export let value: Int = 1\n");
+  // A link from outside the root, so the opened URI can never be the spelling
+  // the walk kept: resolution is the only way the two can meet.
+  await symlink(join(project, "main.hex"), join(root, "alias.hex"), "file");
+  const workspace = new Workspace();
+  await workspace.setRoots([project], () => {});
+  expect(workspace.session.paths).toHaveLength(1);
+
+  // The open is still resolving which session entry this URI is another name
+  // for when the first keystroke arrives. Guessing the literal path would
+  // write a second entry for one file — and that duplicate outlives the race,
+  // reporting every declaration as a duplicate of itself from then on. The
+  // edit can be declined instead, because the open reads the buffer's current
+  // text once it settles.
+  const uri = pathToFileURL(join(root, "alias.hex")).toString();
+  const document = { uri, getText: () => "export let value: Int = 2\n" } as never;
+  const { parked, release } = parkNext("realpath", "alias.hex");
+  const opening = workspace.openDocument(document);
+  await parked;
+  workspace.updateDocument(document);
+  release();
+  await opening;
+
+  expect(workspace.session.paths).toHaveLength(1);
 });

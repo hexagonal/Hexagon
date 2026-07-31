@@ -121,7 +121,13 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
   // Anchored to a key *position* — `"key"` followed by a colon — so a value that
   // happens to spell another key's name does not steal the report.
   const lineOf = (key: string): number => {
-    const pattern = new RegExp(`^\\s*"${key}"\\s*:`, "u");
+    // Escaped, because unknown keys are user-typed and land in a regex: a
+    // bracket in a misspelling — `"exclude["` — is otherwise a syntax error
+    // thrown from the very report meant to explain it, and the throw takes
+    // language support down with the manifest, the one thing a broken manifest
+    // must never do.
+    const literal = key.replace(/[$()*+.?[\\\]^{|}]/gu, "\\$&");
+    const pattern = new RegExp(`^\\s*"${literal}"\\s*:`, "u");
     const at = text.split("\n").findIndex((line) => pattern.test(line));
     return at < 0 ? 0 : at;
   };

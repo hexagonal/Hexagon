@@ -106,6 +106,20 @@ describe("readManifest", () => {
     expect(result.problems[0]!.line).toBe(1);
   });
 
+  test("a misspelled key that is not regex-safe is reported, not thrown", async () => {
+    const path = await rootWith(
+      ['{', '  "exclude[": []', '}'].join("\n"),
+    );
+    // The key lands in the regex that finds its line. Unescaped, this bracket
+    // is a syntax error thrown from the very report meant to explain the
+    // misspelling — and the throw propagates out of `readManifest`, taking
+    // language support down with the manifest.
+    const result = await readManifest(path);
+    expect(result.problems).toHaveLength(1);
+    expect(result.problems[0]!.message).toContain("`exclude[`");
+    expect(result.problems[0]!.line).toBe(1);
+  });
+
   test("wrong types are reported per field, and the rest still applies", async () => {
     const path = await rootWith(
       ['{', '  "runtimePaths": "runtime/VectorTrie.hex",', '  "exclude": ["build"]', '}'].join("\n"),

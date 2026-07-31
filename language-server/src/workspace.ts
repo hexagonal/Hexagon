@@ -140,7 +140,13 @@ export class Workspace {
         // disk text on any platform whose URIs differ from `pathToFileURL`'s.
         if (this.#openPaths.has(path)) continue;
         try {
-          this.session.setFile(path, await readFile(found, "utf8"));
+          const text = await readFile(found, "utf8");
+          // Asked again on the other side of the read, immediately before the
+          // write it guards. `openDocument` is not serialized behind this scan,
+          // so the file can be opened while the read is in flight — and the
+          // disk text would then land on top of the user's unsaved edits.
+          if (this.#openPaths.has(path)) continue;
+          this.session.setFile(path, text);
           this.#pathsByRealPath.set(realPath, path);
           walked.add(path);
           added += 1;
@@ -300,9 +306,14 @@ export class Workspace {
 
   updateDocument(document: TextDocument): void {
     // Never resolves: an edit arrives per keystroke, and the path was settled
-    // when the document opened. A URI that was never opened falls back to its
-    // literal path, which is the same answer the walk would have given it.
-    const path = this.#pathByUri.get(document.uri) ?? this.uris.toPath(document.uri);
+    // when the document opened. Until `openDocument` has settled it there is
+    // nothing safe to write to — guessing the literal path adds a second
+    // session entry whenever the settled path turns out to be another name for
+    // the file, and that duplicate then outlives the race that made it. An
+    // edit declined here is not lost: `openDocument` reads the buffer's
+    // *current* text the moment it settles.
+    const path = this.#pathByUri.get(document.uri);
+    if (path === undefined) return;
     if (this.#isExcluded(path)) return;
     this.session.setFile(path, document.getText());
   }
@@ -330,13 +341,28 @@ export class Workspace {
       this.session.removeFile(path);
       return;
     }
+    let text: string;
     try {
       // The session is keyed by the compiler's spelling of the path; the read
       // uses the platform's, which is what the URI actually names.
-      this.session.setFile(path, await readFile(fileSystemPath(uri), "utf8"));
+      text = await readFile(fileSystemPath(uri), "utf8");
     } catch {
       this.session.removeFile(path);
+      return;
     }
+    // Both guards asked again on the other side of the read, immediately
+    // before the write. Neither a manifest rescan nor a document open is
+    // serialized behind this reload, so while the read was in flight the
+    // exclusions can have changed — the rescan's sweep has already retired
+    // this file, and writing it back would resurrect it under an exclusion the
+    // user just wrote — and the file can have been reopened, in which case its
+    // buffer, not this disk text, is now the truth.
+    if (this.#isExcluded(path)) {
+      this.session.removeFile(path);
+      return;
+    }
+    if (this.#openUris.has(uri)) return;
+    this.session.setFile(path, text);
   }
 
   async deleteFile(uri: string): Promise<void> {
