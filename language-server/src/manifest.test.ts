@@ -38,6 +38,26 @@ describe("readManifest", () => {
     expect(result.problems).toEqual([]);
   });
 
+  test("a byte-order mark is not a syntax error", async () => {
+    // VS Code writes one when `files.encoding` is `utf8bom`, and `JSON.parse`
+    // then fails complaining about a character nobody can see.
+    const path = await rootWith(`\uFEFF${JSON.stringify({ exclude: ["build"] })}`);
+    const result = await readManifest(path);
+    expect(result.problems).toEqual([]);
+    expect(result.manifest.exclude).toEqual([join(path, "build")]);
+  });
+
+  test("a key's line is found by position, not by spelling anywhere", async () => {
+    const path = await rootWith(
+      ['{', '  "exclude": ["runtimePaths"],', '  "runtimePaths": "nope"', '}'].join("\n"),
+    );
+    const result = await readManifest(path);
+    // The string value on line 1 spells the key reported on line 2; a substring
+    // search would point at the wrong line.
+    expect(result.problems).toHaveLength(1);
+    expect(result.problems[0]!.line).toBe(2);
+  });
+
   test("malformed JSON is reported, not swallowed", async () => {
     const path = await rootWith("{ runtimePaths: [] }");
     const result = await readManifest(path);
@@ -89,6 +109,21 @@ describe("isExcluded", () => {
     expect(isExcluded("/p/one.hex", exclude)).toBe(true);
     expect(isExcluded("/p/examples/broken.hex", exclude)).toBe(true);
     expect(isExcluded("/p/examples", exclude)).toBe(true);
+  });
+
+  test("a Windows-shaped path is excluded like any other", () => {
+    // Both operands reach `isExcluded` with native separators: the walk builds
+    // them with `join`, the manifest with `resolve`. Comparing raw is right on
+    // POSIX by coincidence and wrong on Windows always — and wrong silently,
+    // because an exclusion that never matches looks like one nobody wrote.
+    expect(isExcluded("C:\\repo\\generated\\a.hex", ["C:\\repo\\generated"])).toBe(true);
+    expect(isExcluded("C:/repo/generated/a.hex", ["C:\\repo\\generated"])).toBe(true);
+    expect(isExcluded("C:\\repo\\src\\a.hex", ["C:\\repo\\generated"])).toBe(false);
+  });
+
+  test("a trailing separator on an entry does not stop it matching", () => {
+    expect(isExcluded("/p/examples/a.hex", ["/p/examples/"])).toBe(true);
+    expect(isExcluded("/p/examples", ["/p/examples/"])).toBe(true);
   });
 
   test("a prefix match respects directory boundaries", () => {

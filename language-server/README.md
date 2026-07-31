@@ -167,7 +167,8 @@ Listed rather than hidden, because each is a place where the server is knowingly
 less than it looks.
 
 - **One manifest per workspace root, at the root.** Nested projects inside one
-  root are not modelled, and a root's `exclude` cannot be overridden deeper down.
+  root are not modelled: a `hexagon.json` deeper in the tree is neither read nor
+  watched, and a root's `exclude` cannot be overridden below it.
 - **Initialization waits for the workspace scan.** `initialize` walks the root
   and reads every `.hex` file before replying, so that the first request is
   answered against a whole module graph rather than a partial one. On a very

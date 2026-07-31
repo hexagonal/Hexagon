@@ -26,7 +26,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import { AnalysisSession } from "../../compiler/src/index.js";
 import { UriPaths } from "./positions.js";
-import { isExcluded, readManifest, type Manifest, type ManifestResult } from "./manifest.js";
+import {
+  comparablePath,
+  isExcluded,
+  readManifest,
+  type Manifest,
+  type ManifestResult,
+} from "./manifest.js";
 
 const HEXAGON_EXTENSION = ".hex";
 
@@ -51,6 +57,8 @@ export class Workspace {
   readonly #pathsByRealPath = new Map<string, string>();
   /** Each workspace root's `hexagon.json`, merged into the session by `#applyManifests`. */
   readonly #manifests = new Map<string, Manifest>();
+  /** Every root's exclusions, merged and in one spelling — see `#isExcluded`. */
+  #exclude: readonly string[] = [];
 
   /**
    * Reads every Hexagon file under a workspace root, as the root's `hexagon.json`
@@ -94,44 +102,58 @@ export class Workspace {
   ): Promise<{ added: number; manifest: ManifestResult }> {
     // A widened `exclude` leaves files in the session that are no longer part of
     // the project, and a narrowed one has to pick up files the last walk skipped.
-    // Rescanning covers the second; dropping the newly-excluded covers the first.
+    // Rescanning covers the second; dropping the newly-excluded covers the first,
+    // because a walk only ever adds.
     const result = await this.addRoot(rootPath, onError);
     for (const path of this.session.paths) {
-      if (!path.startsWith(`${this.uris.toPath(pathToFileURL(rootPath).toString())}/`)) continue;
-      if (!isExcluded(path, result.manifest.manifest.exclude)) continue;
-      this.session.removeFile(path);
+      if (this.#isExcluded(path)) this.session.removeFile(path);
     }
     return result;
   }
 
   /**
-   * Hands the union of every root's runtime paths to the session. Roots are
-   * merged rather than replaced because a multi-root workspace has one session:
-   * the modules of all of them compile together, so a file privileged by its own
-   * project stays privileged.
+   * Hands every root's manifest to the session, merged.
+   *
+   * Roots are merged rather than replaced because a multi-root workspace has one
+   * session: the modules of all of them compile together, so a file privileged
+   * by its own project stays privileged.
    */
   #applyManifests(): void {
+    const sessionPath = (path: string): string =>
+      this.uris.toPath(pathToFileURL(path).toString());
+    this.#exclude = [...this.#manifests.values()].flatMap(({ exclude }) =>
+      exclude.map(comparablePath)
+    );
     this.session.configure({
       runtimePaths: [...this.#manifests.values()].flatMap(({ runtimePaths }) =>
-        runtimePaths.map((path) => this.uris.toPath(pathToFileURL(path).toString()))
+        runtimePaths.map(sessionPath)
       ),
     });
+  }
+
+  #isExcluded(path: string): boolean {
+    return this.#exclude.length > 0 && isExcluded(path, this.#exclude);
   }
 
   /** Takes over a file's contents from the editor, unsaved edits included. */
   async openDocument(document: TextDocument): Promise<void> {
     this.#openUris.add(document.uri);
-    this.session.setFile(await this.#pathOf(document.uri), document.getText());
+    const path = await this.#pathOf(document.uri);
+    // Excluding a file has to hold at every way into the session, not only at
+    // the walk. A walk-time-only check means opening the file, or a watcher
+    // firing on it, quietly puts it back — and it then stays, so the exclusion
+    // a user configured lasts until the next thing touches the file.
+    if (this.#isExcluded(path)) return;
+    this.session.setFile(path, document.getText());
   }
 
   updateDocument(document: TextDocument): void {
     // Never resolves: an edit arrives per keystroke, and the path was settled
     // when the document opened. A URI that was never opened falls back to its
     // literal path, which is the same answer the walk would have given it.
-    this.session.setFile(
-      this.#pathByUri.get(document.uri) ?? this.uris.toPath(document.uri),
-      document.getText(),
-    );
+    const path = this.#pathByUri.get(document.uri) ?? this.uris.toPath(document.uri);
+    if (this.#isExcluded(path)) return;
+    this.session.setFile(path, document.getText());
   }
 
   /**
@@ -152,6 +174,10 @@ export class Workspace {
 
   async #reloadFromDisk(uri: string): Promise<void> {
     const path = await this.#pathOf(uri);
+    if (this.#isExcluded(path)) {
+      this.session.removeFile(path);
+      return;
+    }
     try {
       // The session is keyed by the compiler's spelling of the path; the read
       // uses the platform's, which is what the URI actually names.

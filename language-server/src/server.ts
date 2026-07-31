@@ -35,9 +35,11 @@ import {
   type InitializeResult,
   type Location,
   type MarkupContent,
+  uinteger,
 } from "vscode-languageserver";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Source, Target } from "../../compiler/src/index.js";
 import { toLspDiagnostic } from "./diagnostics.js";
 import { offsetOfPosition, rangeOfSpan } from "./positions.js";
@@ -61,6 +63,8 @@ export function startServer(connection: Connection): void {
   let roots: readonly string[] = [];
   /** Each root's manifest problems, republished whenever diagnostics are. */
   const manifests = new Map<string, ManifestResult>();
+  /** The URI of each root's own manifest, which is the only one that is read. */
+  const manifestUris = new Set<string>();
 
   const log = (message: string): void => connection.console.info(`[hexagon] ${message}`);
   const reportError = (message: string): void => connection.console.error(`[hexagon] ${message}`);
@@ -72,6 +76,7 @@ export function startServer(connection: Connection): void {
       const { added, manifest } = await workspace.addRoot(root, reportError);
       discovered += added;
       manifests.set(root, manifest);
+      manifestUris.add(manifestUriOf(root));
     }
     log(`initialized over ${roots.length} root(s); ${discovered} Hexagon file(s) found`);
     watchedFilesRegistered = params.capabilities.workspace?.didChangeWatchedFiles?.dynamicRegistration === true;
@@ -123,10 +128,14 @@ export function startServer(connection: Connection): void {
   connection.onDidChangeWatchedFiles(async ({ changes }) => {
     let manifestChanged = false;
     for (const change of changes) {
-      if (change.uri.endsWith(`/${MANIFEST_NAME}`)) {
+      // Only a *root's* manifest is ever read, so a nested one — a vendored
+      // sub-project, a package that carries its own — must not trigger a full
+      // reread of every root on every save.
+      if (manifestUris.has(change.uri)) {
         manifestChanged = true;
         continue;
       }
+      if (change.uri.endsWith(`/${MANIFEST_NAME}`)) continue;
       if (change.type === FileChangeType.Deleted) await workspace.deleteFile(change.uri);
       else await workspace.refreshFromDisk(change.uri);
     }
@@ -229,16 +238,19 @@ function publishDiagnostics(
   // diagnostics they believe they configured away, with nothing to explain why.
   for (const [root, result] of manifests) {
     if (!result.present) continue;
-    const uri = workspace.uris.toUri(`${root}/${MANIFEST_NAME}`);
+    const uri = manifestUriOf(root);
     if (result.problems.length > 0) stillReporting.add(uri);
     else if (!published.has(uri)) continue;
     connection.sendDiagnostics({
       uri,
       diagnostics: result.problems.map((problem) => ({
         severity: 1 as const,
+        // The protocol types a character as `uinteger`, which is 32-bit.
+        // `Number.MAX_SAFE_INTEGER` exceeds it: VS Code clamps, but a client
+        // deserializing into an unsigned 32-bit integer fails or wraps.
         range: {
           start: { line: problem.line, character: 0 },
-          end: { line: problem.line, character: Number.MAX_SAFE_INTEGER },
+          end: { line: problem.line, character: uinteger.MAX_VALUE },
         },
         message: problem.message,
         source: "hexagon",
@@ -295,4 +307,9 @@ function rootPathsOf(params: InitializeParams): readonly string[] {
     });
   }
   return typeof params.rootPath === "string" ? [params.rootPath] : [];
+}
+
+/** The URI of a root's own manifest, built the same way every time it is needed. */
+function manifestUriOf(rootPath: string): string {
+  return pathToFileURL(join(rootPath, MANIFEST_NAME)).toString();
 }

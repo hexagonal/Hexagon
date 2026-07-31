@@ -211,4 +211,51 @@ describe("the workspace walk", () => {
     expect(manifest.problems).toHaveLength(1);
     expect(workspace.session.hover(workspace.session.paths[0]!, 4)?.name).toBe("value");
   });
+
+  test("an excluded file stays out however it is touched", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await mkdir(join(path, "generated"));
+    const generated = join(path, "generated", "broken.hex");
+    await writeFile(generated, "let oops: Int = \n");
+    await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["generated"] }));
+    const { workspace } = await scan(path);
+    expect(workspace.session.paths).toHaveLength(1);
+
+    // Checking only at the walk means the next thing to touch the file puts it
+    // back — and it then stays, so an exclusion lasts until a build runs or the
+    // user opens the file once.
+    const uri = workspace.uris.toUri(generated);
+    await workspace.refreshFromDisk(uri);
+    expect(workspace.session.paths).toHaveLength(1);
+
+    await workspace.openDocument({ uri, getText: () => "let oops: Int = \n" } as never);
+    expect(workspace.session.paths).toHaveLength(1);
+
+    workspace.updateDocument({ uri, getText: () => "let oops: Int = 2\n" } as never);
+    expect(workspace.session.paths).toHaveLength(1);
+    expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
+  });
+
+  test("a file excluded while open does not return on the next keystroke", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await mkdir(join(path, "generated"));
+    const generated = join(path, "generated", "broken.hex");
+    await writeFile(generated, "let oops: Int = \n");
+    const { workspace } = await scan(path);
+    const uri = workspace.uris.toUri(generated);
+    await workspace.openDocument({ uri, getText: () => "let oops: Int = \n" } as never);
+    expect(workspace.session.paths).toHaveLength(2);
+
+    await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["generated"] }));
+    await workspace.reloadManifest(path, () => {});
+    expect(workspace.session.paths).toHaveLength(1);
+
+    // The buffer is still open, so an edit still arrives. Without a check here
+    // the workspace's contents would depend on whether the user has typed since
+    // the manifest changed.
+    workspace.updateDocument({ uri, getText: () => "let oops: Int = 3\n" } as never);
+    expect(workspace.session.paths).toHaveLength(1);
+  });
 });

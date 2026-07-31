@@ -84,7 +84,9 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    // VS Code writes a byte-order mark when `files.encoding` is `utf8bom`, and
+    // `JSON.parse` rejects it with a message about an invisible character.
+    parsed = JSON.parse(text.replace(/^\uFEFF/u, ""));
   } catch (error) {
     return {
       manifest: EMPTY,
@@ -99,8 +101,11 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
   }
 
   const problems: ManifestProblem[] = [];
+  // Anchored to a key *position* — `"key"` followed by a colon — so a value that
+  // happens to spell another key's name does not steal the report.
   const lineOf = (key: string): number => {
-    const at = text.split("\n").findIndex((line) => line.includes(`"${key}"`));
+    const pattern = new RegExp(`^\\s*"${key}"\\s*:`, "u");
+    const at = text.split("\n").findIndex((line) => pattern.test(line));
     return at < 0 ? 0 : at;
   };
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -149,7 +154,25 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
   };
 }
 
-/** Whether a path is excluded, by exact match or by lying inside a directory. */
+/**
+ * Whether a path is excluded, by exact match or by lying inside a directory.
+ *
+ * Both sides are brought to one spelling first. The callers genuinely disagree:
+ * the walk builds native-separator paths with `join`, while the session's own
+ * paths are forward-slash normalized. Comparing those directly is right on POSIX
+ * by coincidence and wrong on Windows always — and wrong *silently*, because an
+ * exclusion that never matches looks exactly like one nobody configured.
+ */
 export function isExcluded(path: string, exclude: readonly string[]): boolean {
-  return exclude.some((entry) => path === entry || path.startsWith(`${entry}/`));
+  const target = comparablePath(path);
+  return exclude.some((entry) => {
+    const prefix = comparablePath(entry);
+    return target === prefix || target.startsWith(`${prefix}/`);
+  });
+}
+
+/** One spelling for path comparison: forward slashes, no trailing separator. */
+export function comparablePath(path: string): string {
+  const forward = path.replaceAll("\\", "/");
+  return forward.length > 1 && forward.endsWith("/") ? forward.slice(0, -1) : forward;
 }

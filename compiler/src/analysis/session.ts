@@ -347,11 +347,21 @@ function spanKey(span: Source.Span): string {
  * Whether two option sets would compile the same way. Order within
  * `runtimePaths` is not meaningful — `compileProject` reads it as a set — so
  * reordering must not throw away analysis a host is about to ask questions of.
+ *
+ * The destructuring is load-bearing rather than stylistic. A field added to
+ * `ProjectOptions` and not handled here would compare equal to itself forever:
+ * `configure` would return early, the host would get answers from the old
+ * options, and nothing would report it — the worst shape a cache bug takes.
+ * Binding the rest to `Record<string, never>` makes that a compile error at the
+ * moment the field is added, which is the only moment anyone is looking.
  */
 function sameOptions(left: SessionOptions, right: SessionOptions): boolean {
-  const paths = (options: SessionOptions): readonly string[] =>
-    [...(options.runtimePaths ?? [])].sort();
-  const [before, after] = [paths(left), paths(right)];
+  const compared = ({ runtimePaths, ...rest }: SessionOptions): readonly string[] => {
+    const exhaustive: Record<string, never> = rest;
+    void exhaustive;
+    return [...(runtimePaths ?? [])].sort();
+  };
+  const [before, after] = [compared(left), compared(right)];
   return before.length === after.length && before.every((path, at) => path === after[at]);
 }
 
