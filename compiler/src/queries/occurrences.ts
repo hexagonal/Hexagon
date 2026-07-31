@@ -21,11 +21,19 @@
  *   annotation spans include arguments (`Box(Int)`) and qualifiers (`M.Box`).
  *   Reading the text to find a name the tree already told us is there is not a
  *   textual guess about meaning; the meaning arrived with the identity.
+ * - `typed` owns one thing and only one: the operation name of a dot call.
+ *   `source.map(f)` is companion dispatch, which the *checker* resolves by name
+ *   against the operations in scope; in `resolved` it is still an `Access` whose
+ *   field nobody has decided the meaning of. Left out, `map` there is a mention
+ *   of nothing — find-references misses it, and a rename walks straight past it
+ *   while every other mention moves.
  */
 
 import type * as Source from "../support/source.js";
 import type * as Parsed from "../syntax/parsed/index.js";
 import type * as Resolved from "../syntax/resolved/index.js";
+import type * as Typed from "../syntax/typed/index.js";
+import { collectTypeOccurrences } from "./type-occurrences.js";
 import { IDENTIFIER_CONTINUE, IDENTIFIER_START } from "../support/identifiers.js";
 
 /** What an occurrence denotes. Constraints key by name because they have no id. */
@@ -52,11 +60,12 @@ export interface Occurrence {
   readonly span: Source.Span;
 }
 
-/** The three views of one module this query needs; a subset of `CompiledModule`. */
+/** The four views of one module this query needs; a subset of `CompiledModule`. */
 export interface ModuleInput {
   readonly source: Source.File;
   readonly parsed: Parsed.Module;
   readonly resolved: Resolved.Module;
+  readonly typed: Typed.Module;
 }
 
 export interface CollectOptions {
@@ -115,6 +124,7 @@ class Collector {
   readonly #source: Source.File;
   readonly #parsed: Parsed.Module;
   readonly #resolved: Resolved.Module;
+  readonly #typed: Typed.Module;
   readonly #fileId: Source.FileId;
   readonly #occurrences: Occurrence[] = [];
   /** Guards against a span being published twice for the same target. */
@@ -127,6 +137,7 @@ class Collector {
     this.#source = module.source;
     this.#parsed = module.parsed;
     this.#resolved = module.resolved;
+    this.#typed = module.typed;
     this.#fileId = module.resolved.fileId;
     this.#fileOfSpecifier = options.fileOfSpecifier;
     this.#writtenImports = new Set(
@@ -144,6 +155,7 @@ class Collector {
       this.#visitItem(item);
     }
     for (const item of this.#parsed.items) this.#visitParsedItem(item);
+    this.#collectDotCalls();
     return this.#occurrences.sort((left, right) =>
       left.span.start.offset - right.span.start.offset ||
       left.span.end.offset - right.span.end.offset ||
@@ -582,6 +594,31 @@ class Collector {
         return;
       default:
         return;
+    }
+  }
+
+  // ---------------------------------------------------------- typed traversal
+
+  /**
+   * The operation name of every dot call — the `map` in `source.map(f)`.
+   *
+   * Taken from `collectTypeOccurrences`, which already walks the typed tree for
+   * hover, rather than from a second walk written here. A private copy of that
+   * traversal would have exactly one failure mode — a form it forgot to visit —
+   * and that silent omission is the defect this method exists to fix.
+   *
+   * The receiver is not published: `Pale` in `Pale.brighten()` is an ordinary
+   * name the resolved traversal has already seen.
+   */
+  #collectDotCalls(): void {
+    for (const occurrence of collectTypeOccurrences(this.#typed)) {
+      if (occurrence.receiverBound !== true || occurrence.symbol === undefined) continue;
+      this.#publish(
+        { kind: "value", symbol: occurrence.symbol },
+        "reference",
+        occurrence.name,
+        occurrence.span,
+      );
     }
   }
 

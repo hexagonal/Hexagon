@@ -7,6 +7,18 @@ export interface TypeOccurrence {
   readonly name: string;
   readonly displayedType: string;
   readonly span: Source.Span;
+  /** The value this names, when it names one. Absent for a record field. */
+  readonly symbol?: Typed.Symbol["id"];
+  /**
+   * Whether this is a dot-call's operation name — `source.map(f)`.
+   *
+   * Such a name exists only in the typed tree. The checker resolves companion
+   * dispatch by *name* against the operations in scope and materializes the
+   * result as an ordinary `Name` at the field's span, so the resolved tree has
+   * only an `Access` whose field nothing has yet decided the meaning of. Any
+   * query that wants to know what `map` denotes there has to read it from here.
+   */
+  readonly receiverBound?: boolean;
 }
 
 /** Returns every typed value identifier declaration and use in one module. */
@@ -17,6 +29,7 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
     name: string,
     scheme: Typed.Scheme,
     span: Source.Span,
+    denoted?: { readonly symbol: Typed.Symbol["id"]; readonly receiverBound: boolean },
   ): void => {
     if (span.fileId !== module.fileId) return;
     const key = `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
@@ -25,6 +38,9 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
       name,
       displayedType: Typed.displayScheme(scheme),
       span,
+      ...(denoted === undefined
+        ? {}
+        : { symbol: denoted.symbol, receiverBound: denoted.receiverBound }),
     });
   };
   const publishSymbol = (
@@ -40,6 +56,7 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
       fallbackName,
       receiverBound ? receiverBoundScheme(scheme) : scheme,
       spanForIdentifier(span, fallbackName),
+      { symbol: symbol.id, receiverBound },
     );
   };
 

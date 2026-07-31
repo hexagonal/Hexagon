@@ -1,5 +1,23 @@
 import { describe, expect, test } from "vitest";
 import { AnalysisSession } from "../analysis/session.js";
+import { collectSemanticTokens } from "./semantic-tokens.js";
+import type { Occurrence } from "./occurrences.js";
+import type * as Source from "../support/source.js";
+
+/** An occurrence at a position, with no file behind it: only geometry matters. */
+function occurrence(name: string, line: number, column: number): Occurrence {
+  const at = (column_: number) => ({ offset: line * 100 + column_, line, column: column_ });
+  return {
+    target: { kind: "union", union: 0 as never },
+    role: "reference",
+    name,
+    span: {
+      fileId: 0 as Source.FileId,
+      start: at(column),
+      end: at(column + name.length),
+    },
+  };
+}
 
 /**
  * Renders tokens as `text:type` with a `+declaration` suffix, against the source
@@ -100,25 +118,36 @@ describe("semantic tokens", () => {
     expect(rendered).toContain("Token:struct+declaration");
   });
 
-  test("tokens are ordered by position, which the encoding depends on", () => {
-    const source = [
-      "fun outer(value: Int): Int = value",
-      "",
-      "union Shade =",
-      "    | Pale",
-      "",
-      "let chosen: Shade = Pale",
-      "",
-    ].join("\n");
-    const session = sessionOf({ "/main.hex": source });
-    const tokens = session.semanticTokens("/main.hex");
-    const positions = tokens.map(({ span }) => [span.start.line, span.start.column] as const);
-    // A single token out of order shifts every token after it, because each one
-    // is encoded relative to the one before.
-    expect(positions).toEqual(
-      [...positions].sort((left, right) => left[0] - right[0] || left[1] - right[1]),
+  test("puts tokens in position order whatever order they arrive in", () => {
+    // Asked of the function directly, with occurrences deliberately out of
+    // order. Through a session they arrive sorted already, so the ordering step
+    // would agree with itself and the assertion could never fail — while the
+    // protocol's encoding is relative, so one token out of order shifts every
+    // token after it and mis-colours the rest of the file.
+    const tokens = collectSemanticTokens(
+      [occurrence("later", 2, 4), occurrence("first", 0, 8), occurrence("middle", 2, 0)],
+      new Map(),
     );
-    expect(tokens.every(({ span }) => span.start.line === span.end.line)).toBe(true);
+    expect(tokens.map((token) => token.span.start.line * 100 + token.span.start.column))
+      .toEqual([8, 200, 204]);
+  });
+
+  test("drops a token that would span a line break", () => {
+    // The encoding is line-relative and cannot express one. An identifier never
+    // spans lines, so this is a guard rather than a case — but a malformed span
+    // reaching the encoder would corrupt every token after it, not just itself.
+    const straddling = occurrence("broken", 0, 0);
+    const tokens = collectSemanticTokens(
+      [
+        {
+          ...straddling,
+          span: { ...straddling.span, end: { offset: 10, line: 1, column: 2 } },
+        },
+        occurrence("fine", 2, 0),
+      ],
+      new Map(),
+    );
+    expect(tokens.map((token) => token.span.start.line)).toEqual([2]);
   });
 
   test("a function is a function however it was bound", () => {

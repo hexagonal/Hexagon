@@ -38,6 +38,7 @@ import {
   identifierStartBefore,
   isIdentifierStart,
 } from "../support/identifiers.js";
+import { isCompilerMinted } from "../support/synthetic.js";
 import type { SymbolFacts } from "./symbol-facts.js";
 
 export type CompletionKind =
@@ -64,6 +65,17 @@ export interface CompletionInput {
 }
 
 export function collectCompletions(input: CompletionInput): readonly Completion[] {
+  // A comment cannot contain code, so nothing belongs here. Strings are left
+  // alone deliberately: one can hold an interpolation, where names *do* belong,
+  // and telling the two apart needs the token stream rather than the text.
+  // Inclusive at the end and exclusive at the start: a cursor sitting after a
+  // comment's last character is still writing that comment, while one at the
+  // opening `/` is in front of it.
+  if (input.resolved.comments.some(({ span }) =>
+    input.offset > span.start.offset && input.offset <= span.end.offset
+  )) {
+    return [];
+  }
   const qualifier = qualifierAt(input.text, input.offset);
   if (qualifier !== undefined) return membersOf(qualifier, input);
   const found = new Map<string, Completion>();
@@ -76,6 +88,10 @@ export function collectCompletions(input: CompletionInput): readonly Completion[
       // actually means here; an outer binding of the same name is shadowed and
       // has no separate entry to offer.
       if (found.has(binding.name)) continue;
+      // Compiler-minted binders are real symbols in a real scope — a `try` arm
+      // binds one — but the lexer refuses to read `__hex_` back, so offering one
+      // hands the user a name they cannot type.
+      if (isCompilerMinted(binding.name)) continue;
       found.set(binding.name, ofSymbol(binding.name, binding.symbol, input.facts));
     }
   }
@@ -127,19 +143,24 @@ function regionsAt(
  * least as far as the region began is inside it in the only sense Hexagon has;
  * one further left has left it.
  *
- * The remaining imprecision is recorded rather than hidden: a region that starts
- * in column zero — a lambda, whose span starts at `fun` — is still reached from
- * column zero on a following blank line, so a preceding function's *parameters*
- * can be offered at module level. Its block's locals are not, since that region
- * starts at the indented body. Offering a few names too many costs a glance;
- * offering none at the moment the user pressed Enter is the failure that matters.
+ * The indent is read from the line the region *starts* on rather than from the
+ * region's own column, which is not the construct's indent: a lambda's span
+ * begins at its parameter list, so `fun tint(value: Int)` opens a region in
+ * column eight while the declaration plainly sits in column zero.
  */
 function covers(region: Resolved.ScopeRegion, offset: number, text: string): boolean {
   const { start, end } = region.span;
   if (offset >= start.offset && offset <= end.offset) return true;
   if (offset < start.offset || offset > text.length) return false;
   if (!/^\s*$/.test(text.slice(end.offset, offset))) return false;
-  return columnAt(text, offset) >= indentOfLineAt(text, start.offset);
+  const indent = indentOfLineAt(text, start.offset);
+  const column = columnAt(text, offset);
+  // A body's own start column is where its contents sit, so a cursor there is
+  // inside it. A construct that begins with a head — a match arm, a lambda —
+  // sits *at* that column itself, so a cursor there is writing the next one:
+  // after `zero => zero`, a cursor back at the arm's column is a new arm, and
+  // the previous arm's binder has gone out of scope.
+  return region.body ? column >= indent : column > indent;
 }
 
 function columnAt(text: string, offset: number): number {
@@ -228,19 +249,16 @@ function sorted(completions: readonly Completion[]): readonly Completion[] {
  * behind one.
  *
  * Read backwards from the cursor: over the partial name being typed, then a dot,
- * then the identifier before it. `..` is the range operator and never a
- * qualifier, and a number is not an identifier start, so `1..n` and `1.5` are
- * both rejected by the same test rather than by special cases.
+ * then the identifier before it. The forms that merely contain a dot are turned
+ * away by that scan rather than by cases of their own — `..` because a dot is
+ * not an identifier character, so the range operator leaves nothing before it,
+ * and `1.5` because a digit is not an identifier *start*.
  */
 export function qualifierAt(text: string, offset: number): string | undefined {
   const cursor = Math.max(0, Math.min(offset, text.length));
   const afterDot = skipSpace(text, identifierStartBefore(text, cursor));
   const dot = codePointBefore(text, afterDot);
   if (dot?.character !== ".") return undefined;
-  // A second dot means `..`, which joins two expressions rather than qualifying
-  // a name. Checked before the identifier scan, since `xs..ys` would otherwise
-  // read `xs` as a module.
-  if (codePointBefore(text, dot.start)?.character === ".") return undefined;
   const end = skipSpace(text, dot.start);
   const start = identifierStartBefore(text, end);
   if (start === end) return undefined;

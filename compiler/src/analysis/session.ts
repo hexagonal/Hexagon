@@ -37,6 +37,7 @@ import * as Source from "../support/source.js";
 import type * as Lexed from "../syntax/lexed/index.js";
 import type * as Resolved from "../syntax/resolved/index.js";
 import { lex } from "../passes/lexer/lexer.js";
+import { codePointBefore, isIdentifierContinue } from "../support/identifiers.js";
 import {
   compileProject,
   resolveSpecifier,
@@ -437,12 +438,17 @@ export class AnalysisSession {
    *
    * Two things have to hold. **No diagnostic may appear that was not there
    * before**: Statements §5.1 makes most collisions an error, so this catches
-   * them in the compiler's own words rather than in a paraphrase. And **the
-   * renamed identity's mentions must be exactly the spans that were rewritten**
-   * — no more, no fewer. That second test is the one that matters, because
-   * capture produces no diagnostic at all: if a use now falls under a different
-   * binder, or a name nobody touched now falls under this one, the two sets stop
-   * matching and the rename is refused instead of quietly changing the program.
+   * them in the compiler's own words rather than in a paraphrase. And **every
+   * name in the project must go on denoting what it denotes now**. That second
+   * test is the one that matters, because capture produces no diagnostic at all.
+   *
+   * It is deliberately asked of *every* site rather than only of the renamed
+   * identity's own mentions. The narrower question misses the case that motivated
+   * this: `x.op()` is companion dispatch, which the checker settles **by name**
+   * against the operations in scope, so introducing a second `tag` can silently
+   * move `Pale.tag()` from one function to another. That site is a mention of
+   * neither the old name nor the new one — it is spelled however its own module
+   * spells it — and no test confined to the renamed identity can see it.
    */
   #verifyRename(
     name: string,
@@ -455,8 +461,8 @@ export class AnalysisSession {
       probe.setFile(owner, spans === undefined ? text : replaceSpans(text, spans, newName));
     }
 
-    const before = diagnosticTally(this.allDiagnostics());
-    for (const [key, appearance] of diagnosticTally(probe.allDiagnostics())) {
+    const before = diagnosticTally(this.allDiagnostics(), name);
+    for (const [key, appearance] of diagnosticTally(probe.allDiagnostics(), newName)) {
       if ((before.get(key)?.count ?? 0) >= appearance.count) continue;
       return {
         refused:
@@ -465,83 +471,102 @@ export class AnalysisSession {
       };
     }
 
-    // Where each rewritten span ends up. Edits within one file shift everything
-    // after them by the same amount each, since the spans are sorted and cannot
-    // overlap. Lines do not move: an identifier replaces an identifier, and
+    // Every rewritten span moves everything after it in its own file by the same
+    // amount, so an old offset maps forward by the number of edits that begin
+    // before it. Lines do not move: an identifier replaces an identifier and
     // neither contains a line break.
-    interface Site {
-      readonly path: string;
-      readonly line: number;
-      readonly start: number;
-      readonly end: number;
-    }
-    const expected = new Map<string, Site>();
     const delta = newName.length - name.length;
-    for (const [owner, spans] of byPath) {
-      spans.forEach((span, index) => {
-        const start = span.start.offset + delta * index;
-        const site: Site = { path: owner, line: span.start.line, start, end: start + newName.length };
-        expected.set(siteKey(site), site);
-      });
-    }
+    const moved = (owner: string, offset: number): number => {
+      const spans = byPath.get(owner);
+      if (spans === undefined) return offset;
+      let earlier = 0;
+      for (const span of spans) if (span.start.offset < offset) earlier += 1;
+      return offset + delta * earlier;
+    };
 
-    const analysis = probe.#analyze();
-    const targets: Target[] = [];
-    const known = new Set<string>();
-    for (const site of expected.values()) {
-      const here = analysis
-        .occurrencesAt(site.path, site.start)
-        .filter(({ span }) => span.start.offset === site.start && span.end.offset === site.end);
-      if (here.length === 0) {
-        return {
-          refused:
-            `renaming \`${name}\` to \`${newName}\` could not be verified: ` +
-            `\`${site.path}\` line ${site.line + 1} no longer holds a name the compiler recognizes`,
-        };
-      }
-      for (const occurrence of here) {
-        const identity = targetKey(occurrence.target);
-        if (known.has(identity)) continue;
-        known.add(identity);
-        targets.push(occurrence.target);
-      }
-    }
-
-    const reached = new Map<string, Site>();
-    for (const target of targets) {
-      for (const occurrence of analysis.byTarget(target)) {
-        // Same alias rule as when the mentions were gathered: a clause that goes
-        // on aliasing under its old local name is not a mention that moved.
-        if (occurrence.name !== newName) continue;
-        const owner = analysis.pathOf(occurrence.span.fileId);
-        if (owner === undefined) continue;
-        const site: Site = {
-          path: owner,
-          line: occurrence.span.start.line,
-          start: occurrence.span.start.offset,
-          end: occurrence.span.end.offset,
-        };
-        reached.set(siteKey(site), site);
-      }
-    }
-
-    // Only the excess direction can fail, and that is not an oversight: the
-    // targets were collected *from* the rewritten spans, so every one of them is
-    // in its own target's occurrence set and `expected` is a subset of `reached`
-    // by construction. What the comparison is really asking is whether the
-    // rename swept anything else in — a binder the moved name now falls under,
-    // or a name nobody touched that now means the renamed declaration. Either
-    // way some span that is not one of ours ended up sharing the identity.
-    for (const site of reached.values()) {
-      if (expected.has(siteKey(site))) continue;
+    const wasMeant = this.#denotations(this.#analyze(), moved);
+    const isMeant = this.#denotations(probe.#analyze(), () => 0, true);
+    for (const [site, meaning] of wasMeant) {
+      const now = isMeant.get(site);
+      if (now === meaning) continue;
+      const [owner, line] = readSite(site);
       return {
         refused:
           `renaming \`${name}\` to \`${newName}\` would change what the code means: ` +
-          `\`${site.path}\` line ${site.line + 1} already has a \`${newName}\`, and the ` +
-          "rename would merge the two",
+          `the name at \`${owner}\` line ${line} would stop meaning what it means now`,
+      };
+    }
+    for (const site of isMeant.keys()) {
+      if (wasMeant.has(site)) continue;
+      const [owner, line] = readSite(site);
+      return {
+        refused:
+          `renaming \`${name}\` to \`${newName}\` would change what the code means: ` +
+          `\`${owner}\` line ${line} would become a name the compiler resolves, ` +
+          "where today it resolves to nothing",
       };
     }
     return undefined;
+  }
+
+  /**
+   * What every name in the project's own files denotes, keyed by where it is.
+   *
+   * A denotation is written as the *place its declaration sits*, not as a symbol
+   * number: identities are minted per compilation, so two runs cannot be
+   * compared by them. Declarations move under a rename like everything else, so
+   * both sides of the comparison are put through the same offset mapping and the
+   * two agree exactly when nothing changed meaning.
+   *
+   * Prelude files are left out. They are not the project's to edit, they cannot
+   * be reached by any offset mapping, and a prelude module that a rename makes
+   * unreferenced simply stops being compiled — a difference about reachability
+   * rather than about meaning.
+   */
+  #denotations(
+    analysis: Analysis,
+    moved: (path: string, offset: number) => number,
+    identity = false,
+  ): ReadonlyMap<string, string> {
+    const place = (path: string, span: Source.Span): string =>
+      `${path}@${identity ? span.start.offset : moved(path, span.start.offset)}` +
+      `:${identity ? span.end.offset : moved(path, span.end.offset)}#${span.start.line + 1}`;
+    const declaredAt = new Map<string, string>();
+    const declarationsOf = (target: Target): string => {
+      const key = targetKey(target);
+      const known = declaredAt.get(key);
+      if (known !== undefined) return known;
+      const places: string[] = [];
+      for (const occurrence of analysis.byTarget(target)) {
+        if (occurrence.role !== "definition") continue;
+        const owner = analysis.pathOf(occurrence.span.fileId);
+        // A declaration outside the project is still a stable answer: the path
+        // does not move, so naming it unmapped compares correctly on both sides.
+        if (owner === undefined) continue;
+        places.push(
+          this.#texts.has(owner)
+            ? place(owner, occurrence.span)
+            : `${owner}@${occurrence.span.start.offset}`,
+        );
+      }
+      places.sort();
+      const answer = places.join(",");
+      declaredAt.set(key, answer);
+      return answer;
+    };
+
+    const denotations = new Map<string, string>();
+    for (const path of this.#texts.keys()) {
+      for (const occurrence of analysis.occurrencesIn(path)) {
+        const site = place(path, occurrence.span);
+        const meaning = declarationsOf(occurrence.target);
+        const existing = denotations.get(site);
+        // One span can carry more than one identity — a record's name is its
+        // type and its constructor — so the site's meaning is all of them.
+        denotations.set(site, existing === undefined ? meaning : `${existing}|${meaning}`);
+      }
+    }
+    return denotations;
   }
 
   #invalidate(): void {
@@ -729,17 +754,57 @@ function replaceSpans(
 }
 
 /**
+ * A diagnostic's message with one identifier blanked out.
+ *
+ * Whole occurrences only: a message saying `Shade` must lose that word, while
+ * one saying `Shades` keeps it, or two genuinely different diagnostics would
+ * count as one. Messages quote identifiers in several ways — inside backticks,
+ * and bare, as in "expected Int, found Shade" — so the test is on the characters
+ * either side rather than on any quoting convention.
+ */
+function withoutName(message: string, spelling: string): string {
+  if (spelling === "") return message;
+  let result = "";
+  let at = 0;
+  for (;;) {
+    const found = message.indexOf(spelling, at);
+    if (found < 0) return result + message.slice(at);
+    const after = found + spelling.length;
+    const before = codePointBefore(message, found)?.character ?? "";
+    const following = String.fromCodePoint(message.codePointAt(after) ?? 32);
+    const bounded = !isIdentifierContinue(before) &&
+      (after >= message.length || !isIdentifierContinue(following));
+    result += message.slice(at, found) + (bounded ? "‹renamed›" : spelling);
+    at = after;
+  }
+}
+
+/** The file and one-based line a denotation key names. */
+function readSite(site: string): readonly [string, string] {
+  const [place = "", line = "?"] = site.split("#");
+  return [place.slice(0, place.lastIndexOf("@")), line];
+}
+
+/**
  * How many times each diagnostic is reported against each file, counted rather
  * than collected: a rename shifts positions, so two runs are compared by what
  * they say and where, never by the exact span they said it at.
+ *
+ * Diagnostics quote identifiers, so the renamed one is blanked out of the
+ * message before counting. Without that, a *pre-existing* error that happens to
+ * mention the name re-renders under the new spelling, looks like a diagnostic
+ * that was never there before, and the rename is refused although nothing broke.
+ * Renaming while a file holds an unrelated error mentioning that name is an
+ * ordinary thing to be doing.
  */
 function diagnosticTally(
   all: ReadonlyMap<string, readonly Diagnostics.Diagnostic[]>,
+  spelling: string,
 ): ReadonlyMap<string, { readonly path: string; readonly message: string; count: number }> {
   const tally = new Map<string, { path: string; message: string; count: number }>();
   for (const [path, diagnostics] of all) {
     for (const { severity, message } of diagnostics) {
-      const key = `${path} ${severity} ${message}`;
+      const key = `${path} ${severity} ${withoutName(message, spelling)}`;
       const entry = tally.get(key);
       if (entry === undefined) tally.set(key, { path, message, count: 1 });
       else entry.count += 1;

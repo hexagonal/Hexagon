@@ -235,7 +235,7 @@ class Scope {
    */
   region: Source.Span | undefined;
 
-  constructor(readonly parent?: Scope, region?: Source.Span) {
+  constructor(readonly parent?: Scope, region?: Source.Span, readonly body = false) {
     this.region = region;
   }
 
@@ -475,7 +475,7 @@ class Resolver {
     // an inner-wins reader takes.
     this.#preludeScope.region = module.span;
     this.#openScopes.push(this.#preludeScope);
-    const scope = this.#openScope(this.#preludeScope, module.span);
+    const scope = this.#openScope(this.#preludeScope, module.span, true);
     // The one scope whose parent is the prelude layer, and so the only one where
     // Modules §5.4 permits occlusion. Held rather than inferred: "module level"
     // is scope identity, not nesting depth — a block body of a module-level
@@ -500,6 +500,7 @@ class Resolver {
         // than wrong.
         span: open.region ?? module.span,
         bindings: open.recorded,
+        body: open.body,
       })),
       // Explicit aliases first, so a reader taking the first entry for a name
       // gets the one that wins: an `import * as Vector` is a module-level
@@ -527,8 +528,8 @@ class Resolver {
    * span of the construct that opened it — see the `For` case, where the
    * iterable is resolved outside the scope its own pattern binds into.
    */
-  #openScope(parent: Scope, region: Source.Span): Scope {
-    const scope = new Scope(parent, region);
+  #openScope(parent: Scope, region: Source.Span, body = false): Scope {
+    const scope = new Scope(parent, region, body);
     this.#openScopes.push(scope);
     return scope;
   }
@@ -1392,7 +1393,7 @@ class Resolver {
           expression: this.#resolveExpr(expression.expression, scope),
         };
       case "Block": {
-        const blockScope = this.#openScope(scope, expression.span);
+        const blockScope = this.#openScope(scope, expression.span, true);
         return {
           ...expression,
           items: this.#resolveItems(expression.items, blockScope),
@@ -1420,7 +1421,7 @@ class Resolver {
         // The body, not the whole `for`: the iterable is resolved in the
         // *outer* scope, so a region spanning the construct would claim the
         // loop's binder is in scope inside the thing being iterated over.
-        const loopScope = this.#openScope(scope, expression.body.span);
+        const loopScope = this.#openScope(scope, expression.body.span, true);
         const pattern = this.#resolvePattern(
           expression.pattern,
           loopScope,

@@ -234,6 +234,18 @@ export interface ScopeBinding {
 export interface ScopeRegion {
   readonly span: Source.Span;
   readonly bindings: readonly ScopeBinding[];
+  /**
+   * Whether the region *is* a body, so that its own start column is where its
+   * contents sit.
+   *
+   * True for a block: `let doubled = …` begins the region and the next statement
+   * lines up under it, so a cursor in that column is inside. False for a
+   * construct that begins with a head — a match arm, a lambda — where the start
+   * column is where the *construct* sits and a cursor there is writing the next
+   * one. Completion needs the difference to decide whether a scope still reaches
+   * a cursor sitting on blank lines after it.
+   */
+  readonly body: boolean;
 }
 
 /** A module reachable by name, with the members that name reaches. */

@@ -189,6 +189,78 @@ describe("completions", () => {
     expect(offered).not.toContain("doubled");
   });
 
+  test("a match arm's binder is gone by the time the next arm is written", () => {
+    // The bound has to tell a *body* from a construct with a head. A block's
+    // start column is where its statements sit, so a cursor there is inside it;
+    // an arm's start column is where the arm itself sits, so a cursor there is
+    // writing the next arm, and the previous arm's binder has gone out of scope.
+    const offered = namesIn(
+      ["fun f(n: Int): Int = match n", "    zero => zero", "    ‸", ""].join("\n"),
+    );
+    expect(offered).toContain("n");
+    expect(offered).not.toContain("zero");
+  });
+
+  test("a preceding function's parameters are gone at module level", () => {
+    // A lambda's region begins at its parameter list, but the declaration sits
+    // in column zero, so this is the same test as the arm one and it must have
+    // the same answer.
+    const offered = namesIn(
+      ["fun tint(value: Int): Int = value", "", "‸", ""].join("\n"),
+    );
+    expect(offered).toContain("tint");
+    expect(offered).not.toContain("value");
+  });
+
+  test("offers no name the lexer would refuse to read back", () => {
+    // A `try` arm binds a compiler-minted binder. Offering one hands the user a
+    // name they cannot type — `synthetic.ts` states the rule this obeys.
+    const offered = namesIn(
+      [
+        "fun risky(): Int =",
+        "    try",
+        "        1",
+        "    catch",
+        "        _ => ‸0",
+        "",
+      ].join("\n"),
+    );
+    expect(offered.some((name) => name.startsWith("__hex_"))).toBe(false);
+  });
+
+  test("says nothing inside a comment", () => {
+    // A comment cannot hold code. Strings are deliberately left alone: one can
+    // hold an interpolation, where names do belong.
+    expect(namesIn(["let value: Int = 1", "// tint ‸", ""].join("\n"))).toEqual([]);
+  });
+
+  test("the loop binder is not in scope inside the thing being iterated", () => {
+    // The `for` scope is recorded over the *body*, not the whole construct: the
+    // iterable is resolved outside it.
+    const source = [
+      "fun total(xs: Vector(Int)): Int =",
+      "    var sum: Int = 0",
+      "    for item in xs‸",
+      "        sum := sum + item",
+      "    sum",
+      "",
+    ].join("\n");
+    expect(namesIn(source)).not.toContain("item");
+  });
+
+  test("a module-level declaration wins over the prelude name it occludes", () => {
+    // The prelude layer is registered before the module's own, so on the equal
+    // spans they share, the later-recorded one reads as the inner one. Reversed,
+    // completion would describe the occluded prelude member instead.
+    const source = ["fun map(value: Int): Int = value", "", "let used: Int = map(1)", ""]
+      .join("\n");
+    const { text, offset } = at(`${source}let probe: Int = ‸\n`);
+    const session = new AnalysisSession();
+    session.setFile("/main.hex", text);
+    const offered = session.completions("/main.hex", offset).find(({ name }) => name === "map");
+    expect(offered?.detail).toBe("Int -> Int");
+  });
+
   test("a file the session does not hold answers with nothing", () => {
     const session = new AnalysisSession();
     session.setFile("/main.hex", "let value: Int = 1\n");

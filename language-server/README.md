@@ -88,9 +88,10 @@ Positions crossing this API are UTF-16 offsets into the named file, never line a
 
 Analysis is recomputed lazily and wholly: any change discards it and the next question rebuilds it. That is a decision, not a placeholder. Reanalyzing the entire standard library after an edit measures around 19ms, inside a keystroke's budget, so incremental reuse would buy nothing yet and would have to guess what is worth keeping before any query exists to say.
 
-Four compiler queries sit behind these answers, and each exists because no other part of the compiler still knows what it knows:
+Five compiler queries sit behind these answers, and each exists because no other part of the compiler still knows what it knows:
 
-- `queries/occurrences.ts` indexes every name that denotes something together with what it denotes — values, unions, records, foreign types, and constraints. Definitions, references, rename and semantic tokens all read this one table.
+- `queries/occurrences.ts` indexes every name that denotes something together with what it denotes — values, unions, records, foreign types, and constraints. Definitions, references, rename and semantic tokens all read this one table. It reads the resolved tree for identity, the parsed tree for constraints, the source for a head name inside a wider span, and the *typed* tree for one thing only: the operation name of a dot call, which nothing earlier has decided the meaning of.
+- `queries/type-occurrences.ts` gives hover its types, keyed by the same spans.
 - `queries/symbol-facts.ts` records, per value symbol, how it was bound *and* whether the checker gave it a function type. The two come apart constantly: `let brighten(colour) = …` is a `let`, `extern fun` and `extern let` are both `extern`, and `let g = f` is a function with no parameter list anywhere.
 - `queries/semantic-tokens.ts` classifies names, and only names — see below.
 - `queries/completions.ts` answers what could be written at an offset, from a scope record the resolver now keeps.
@@ -123,12 +124,25 @@ rules a second time, in a place nothing keeps honest. Instead the edit is applie
 to a copy of the project, the compiler is asked what it now sees, and the rename
 is refused unless the result means exactly what the original did. Two things have
 to hold: no diagnostic may appear that was not there before, which catches the
-collisions Statements §5.1 makes errors in the compiler's own words; and the
-renamed identity's mentions must be exactly the spans that were rewritten. The
-second is the one that matters, because **capture produces no diagnostic at all**
-— rename a module-level `colour` to `tone` where a match arm already binds `tone`
-and the arm's body quietly stops meaning what it did, with every type still
-checking.
+collisions Statements §5.1 makes errors in the compiler's own words; and **every
+name in the project must go on denoting what it denotes now**. The second is the
+one that matters, because **capture produces no diagnostic at all** — rename a
+module-level `colour` to `tone` where a match arm already binds `tone` and the
+arm's body quietly stops meaning what it did, with every type still checking.
+
+That second test is asked of *every* site rather than only of the renamed name's
+own mentions, and the difference is not academic. `x.op()` is companion dispatch,
+which the checker settles **by name** against the operations in scope, so giving
+a second function the name `tag` can move `Pale.tag()` from one function to
+another — with no diagnostic, and at a site spelled neither `mark` nor `tag` but
+however its own module spells it. No test confined to the renamed identity can
+see that one. Denotations are compared as the *place a declaration sits* rather
+than as a symbol number, since identities are minted per compilation and two runs
+cannot be compared by them.
+
+A pre-existing diagnostic that mentions the renamed name is not evidence of
+breakage: it re-renders under the new spelling and would otherwise look new, so
+the name is blanked out of both sides before they are counted.
 
 A refusal is a result rather than an error: a name the project does not own, a
 spelling Hexagon will not read as the same kind of name, an edit that would change
@@ -145,6 +159,10 @@ just aliases a differently-spelled declaration. Renaming through `Other` moves
 only that module's mentions. Restricting each rename to the spelling under the
 cursor is what makes both halves complete rather than partial, and the occurrence
 index publishes both names of an aliasing clause so that neither is missed.
+
+Because a dot call's operation name is in the index, it is also a mention for
+find-references and a token for colouring — `Pale.brighten()` was invisible to
+all three before.
 
 **Completion is the one question the rest of the compiler cannot answer.** Every
 other query reads a finished tree, where each name has already become an
@@ -164,13 +182,18 @@ of an identifier — and nothing about meaning is read from text. And a scope
 region ends at its last *token*, which is not where a user asks: pressing Enter
 inside a function puts the cursor past every region that matters. A region
 therefore also reaches an offset separated from its end by nothing but
-whitespace, bounded by indentation so that a cursor back in column zero is not
-still inside the function above it.
+whitespace, bounded by indentation: a region records whether it *is* a body,
+whose own start column is where its contents sit, or a construct with a head
+that sits at that column itself. A cursor in a block's column is inside the
+block; a cursor in a match arm's column is writing the next arm, and the previous
+arm's binder has gone.
 
 Completion does not narrow by position: a type annotation gets value names
 offered alongside type names, because knowing an offset is in type position means
 having a parse. Every candidate carries its kind, so a wrong-kind suggestion
 costs a glance — where guessing from a broken parse would drop the right answers.
+It says nothing inside a comment, which cannot hold code, and does answer inside
+a string, which can hold an interpolation where names belong.
 
 ## Correctness principles
 
@@ -326,16 +349,22 @@ less than it looks.
 - **Completion offers no constraint names.** They appear only in `<a: C>` and
   `honor C<T>`, positions this does not detect, and the built-in set lives in the
   checker rather than in any table a query can read.
-- **A blank line in column zero can still see the preceding function's
-  parameters.** Scope regions reach over trailing whitespace so that pressing
-  Enter inside a function still answers, bounded by the indentation of the line
-  the region started on. A lambda's region starts at `fun`, in column zero, so
-  the bound does not exclude it there. Its *body's* locals are correctly
-  excluded, and offering a few names too many costs a glance where offering none
-  would break the common case.
-- **Rename re-analyses the whole project to verify one request.** That is a
-  second full compilation per rename, on the same measurement that makes whole-
-  project analysis affordable. It is not on the keystroke path.
+- **Completion answers inside a string literal.** A string can hold an
+  interpolation, where names genuinely belong, and telling the two apart needs
+  the token stream rather than the text. Comments are suppressed, since a comment
+  cannot hold code.
+- **A module alias cannot be renamed.** `import * as H` binds `H` in a namespace
+  the occurrence index does not model, so a request on it answers "nothing to
+  rename here" rather than refusing.
+- **Rename re-analyses the whole project twice over to verify one request** —
+  once for the edited copy, then a whole-project denotation comparison against
+  the original. That is affordable on the same measurement that makes whole-
+  project analysis affordable, and it is not on the keystroke path.
+- **A prelude module that no other module references is not compiled**, so it has
+  no tokens, no completions, and cannot be renamed within. This is only visible
+  in a project that compiles the standard library itself, and it can make a
+  rename there refuse: dropping the last reference to such a module removes it
+  from the graph, and the verification then finds the rewritten spans gone.
 
 ## Code readability
 

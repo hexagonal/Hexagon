@@ -475,6 +475,83 @@ describe("AnalysisSession.rename", () => {
       .toContain("this project does not own");
   });
 
+  test("rewrites a dot call, which only the checker knows the meaning of", () => {
+    // `Pale.brighten()` is companion dispatch. The resolved tree has only an
+    // `Access` whose field nobody has decided the meaning of yet — the checker
+    // settles it by name — so without the typed tree in the index this call site
+    // is a mention of nothing, and the rename walks straight past it.
+    const source = [
+      "union Shade =",
+      "    | Pale",
+      "",
+      "fun brighten(s: Shade): Shade = s",
+      "",
+      "let x: Shade = Pale.brighten()",
+      "",
+    ].join("\n");
+    const { session, texts } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    const plan = session.rename("/main.hex", at(source, "brighten"), "lighten");
+    expect(applied(texts, plan)["/main.hex"]).toBe(source.replaceAll("brighten", "lighten"));
+  });
+
+  test("refuses a rename that moves a dot call to a different function", () => {
+    // The case no test confined to the renamed identity can see. `Pale.tag()`
+    // resolves by name, so giving `/b.hex`'s function the name `tag` moves that
+    // call from `/a.hex`'s function to `/b.hex`'s — with every type still
+    // checking, no diagnostic anywhere, and the moved site spelled neither
+    // `mark` nor `tag` in its own module. Verified by hand before this was
+    // caught: the emitted `x` changed from `tag(Pale)` to `m(Pale)`.
+    const a = ["export union Shade =", "    | Pale", "", "export fun tag(s: Shade): Int = 1", ""]
+      .join("\n");
+    const b = ['import {Shade} from "./a"', "", "export fun mark(s: Shade): Int = 2", ""].join("\n");
+    const main = [
+      'import {Shade, Pale, tag} from "./a"',
+      'import {mark as m} from "./b"',
+      "",
+      "let x: Int = Pale.tag()",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/a.hex": a, "/b.hex": b, "/main.hex": main });
+    expect(session.allDiagnostics().get("/main.hex")).toEqual([]);
+    expect(refusal(session.rename("/b.hex", at(b, "mark"), "tag")))
+      .toContain("would change what the code means");
+  });
+
+  test("a pre-existing error that mentions the name is not a reason to refuse", () => {
+    // The error re-renders under the new spelling and looks new. Renaming while
+    // a file holds an unrelated error mentioning that name is ordinary.
+    const source = [
+      "union Shade =",
+      "    | Pale",
+      "",
+      "let bad: Int = Pale",
+      "let ok: Shade = Pale",
+      "",
+    ].join("\n");
+    const { session, texts } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex").map(({ message }) => message)).toContain(
+      "type mismatch: expected Int, found Shade",
+    );
+    const plan = session.rename("/main.hex", at(source, "Shade"), "Tint");
+    expect(applied(texts, plan)["/main.hex"]).toBe(source.replaceAll("Shade", "Tint"));
+  });
+
+  test("renaming to a spelling an importer already aliases it to is allowed", () => {
+    // `import {two as deux}` becomes `import {deux as deux}` — legal, and the
+    // same program. The alias's mentions already denoted this declaration, so
+    // nothing merged with anything.
+    const helper = "export let two: Int = 2\n";
+    const main = ['import {two as deux} from "./helper"', "", "let four: Int = deux + deux", ""]
+      .join("\n");
+    const { session, texts } = sessionOf({ "/helper.hex": helper, "/main.hex": main });
+    const plan = session.rename("/helper.hex", at(helper, "two"), "deux");
+    expect(applied(texts, plan)).toEqual({
+      "/helper.hex": "export let deux: Int = 2\n",
+      "/main.hex": main.replace("two as deux", "deux as deux"),
+    });
+  });
+
   test("renames a constraint the project declared, everywhere it is named", () => {
     const source = [
       "constraint Same<a> =",
