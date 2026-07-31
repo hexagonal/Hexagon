@@ -32,7 +32,11 @@ extension ships its own copy of the server rather than resolving one from the
 machine, so the version that answers is always the version that was tested with
 this grammar.
 
-Three settings exist, and all three are about the editor rather than the language:
+A project describes itself in `hexagon.json` at the workspace root — which modules
+carry runtime privilege, and which files are not part of the project. That is
+editor-agnostic and lives with the code; see `language-server/README.md`. The
+settings below are about *this editor* rather than the language, which is why
+none of them describes the project:
 
 | Setting | Purpose |
 | :--- | :--- |

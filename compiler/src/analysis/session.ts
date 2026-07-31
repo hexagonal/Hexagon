@@ -77,7 +77,7 @@ export interface Hover {
 export interface SessionOptions extends ProjectOptions {}
 
 export class AnalysisSession {
-  readonly #options: SessionOptions;
+  #options: SessionOptions;
   readonly #texts = new Map<string, string>();
   /**
    * One identity per path, held even across a removal. Spans are compared by
@@ -97,6 +97,22 @@ export class AnalysisSession {
   /** Increments on every file-set mutation; stable while only queries run. */
   get version(): number {
     return this.#version;
+  }
+
+  /**
+   * Replaces the compilation options.
+   *
+   * A host usually learns what kind of project it has *after* opening a session
+   * on it — the configuration is a file in the workspace, so it has to be read
+   * like any other — and that file can then change while the session is open.
+   * Options are therefore not fixed at construction. Changing them invalidates
+   * analysis exactly as a file change does, because they can change what every
+   * answer is: `runtimePaths` decides which modules may name `Node(a)` at all.
+   */
+  configure(options: SessionOptions): void {
+    if (sameOptions(this.#options, options)) return;
+    this.#options = options;
+    this.#invalidate();
   }
 
   get paths(): readonly string[] {
@@ -325,6 +341,28 @@ class Analysis {
 
 function spanKey(span: Source.Span): string {
   return `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
+}
+
+/**
+ * Whether two option sets would compile the same way. Order within
+ * `runtimePaths` is not meaningful — `compileProject` reads it as a set — so
+ * reordering must not throw away analysis a host is about to ask questions of.
+ *
+ * The destructuring is load-bearing rather than stylistic. A field added to
+ * `ProjectOptions` and not handled here would compare equal to itself forever:
+ * `configure` would return early, the host would get answers from the old
+ * options, and nothing would report it — the worst shape a cache bug takes.
+ * Binding the rest to `Record<string, never>` makes that a compile error at the
+ * moment the field is added, which is the only moment anyone is looking.
+ */
+function sameOptions(left: SessionOptions, right: SessionOptions): boolean {
+  const compared = ({ runtimePaths, ...rest }: SessionOptions): readonly string[] => {
+    const exhaustive: Record<string, never> = rest;
+    void exhaustive;
+    return [...(runtimePaths ?? [])].sort();
+  };
+  const [before, after] = [compared(left), compared(right)];
+  return before.length === after.length && before.every((path, at) => path === after[at]);
 }
 
 /**

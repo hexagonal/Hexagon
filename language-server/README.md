@@ -50,9 +50,15 @@ language-server/
     main.ts            process entry point and transport selection
     server.ts          lifecycle, capabilities, document sync, request dispatch
     workspace.ts       the file set: open buffers, disk, and precedence between them
+    manifest.ts        `hexagon.json`: what the project says it is
     positions.ts       the single LSP-to-compiler coordinate boundary
     diagnostics.ts     conversion of compiler diagnostics to the protocol's shape
 ```
+
+Tests sit beside their subject, with one exception: `workspace.concurrency.test.ts`
+replaces `readdir` with one that can be parked mid-walk, so that two overlapping
+rescans interleave on demand rather than by luck. It is a separate file because
+that replacement would otherwise apply to every test in the workspace suite.
 
 There is no `connection.ts`: `vscode-languageserver` owns JSON-RPC framing and lifecycle, and no separate `requests/` directory, because each handler is small enough that separating them would cost more indirection than it removes. `documents.ts` is likewise absent — `TextDocuments` from the same package applies incremental changes.
 
@@ -67,6 +73,7 @@ The language server does not invoke the batch CLI for every request. `compiler/s
 ```text
 setFile(path, text)       add a file or replace its text
 removeFile(path)          drop a file
+configure(options)        replace the compilation options
 version                   increments on every mutation
 diagnostics(path)         one file's diagnostics
 allDiagnostics()          every held file's, empty lists included
@@ -101,8 +108,9 @@ The first vertical slice provides:
 2. incremental document synchronization, with open buffers taking precedence over disk;
 3. compiler-backed diagnostics for every file in the workspace, not only open ones;
 4. hover using resolved and typed compiler information;
-5. go-to-definition using stable compiler identities; and
-6. find-references over values, type names, and constraints.
+5. go-to-definition using stable compiler identities;
+6. find-references over values, type names, and constraints; and
+7. a `hexagon.json` manifest saying which modules are privileged and which files are not the project.
 
 Find-references arrived with the slice rather than after it because it shares one index with go-to-definition: both ask the same question of the same table, and building one without the other would have meant writing the traversal twice.
 
@@ -116,18 +124,94 @@ TypeScript, hosted by Node.js, speaking LSP through `vscode-languageserver` and 
 
 Editor extensions launch this server. They do not contain separate compiler implementations; `editors/vscode` is a client and a grammar, nothing more.
 
+## `hexagon.json`
+
+A workspace root may carry a manifest saying what the project is. Without one,
+the root is "every `.hex` file underneath, compiled together", which is a guess
+that goes wrong in two ways a server cannot recover from alone.
+
+```json
+{
+  "runtimePaths": ["runtime/VectorTrie.hex"],
+  "exclude": ["examples"]
+}
+```
+
+**`runtimePaths`** — modules compiled with runtime privilege, the ones allowed to
+name `Node(a)`, the hidden fixed-32 trie node. The compiler has always modelled
+this (`ProjectOptions.runtimePaths`) but nothing could tell a *server* which
+files they were, so opening this repository used to greet a user with 38 errors
+reading ``unknown generic type `Node` `` — none of them real.
+
+**`exclude`** — path prefixes that are not part of the project: generated output,
+deliberately-broken examples, a vendored copy. Matching is by exact path or
+directory prefix rather than by glob; a glob language is a design decision with
+its own edge cases, and prefixes answer every case that motivated this.
+
+Both are resolved against the manifest's own directory, which is the only reading
+that survives the project being checked out somewhere else.
+
+Neither could be inferred. Treating `runtime/` as privileged because of its name
+would be the same mistake as inferring meaning from a name anywhere else in this
+compiler — a project has to say so. Nothing else is in the file: no dependency
+resolution, no build configuration, no compiler flags. Those need designing
+rather than inventing, and nothing yet needs them.
+
+A missing manifest is the ordinary case and is silent. A *malformed* one is
+reported as a diagnostic against `hexagon.json` itself, including an unknown key
+and an `exclude` entry that resolves to the workspace root, because a mistake
+that quietly did nothing would leave a user staring at diagnostics they believed
+they had configured away. A broken manifest never takes language support down
+with it: defaults apply and the workspace still works.
+
+An entry that names nothing is reported too, as a warning rather than an error,
+and checked inside the root by exact spelling rather than by asking whether the
+path opens. macOS and Windows will happily open `Trie.hex` when the file is
+`trie.hex`, so the user's own editor gives no hint that the entry matches
+nothing here, where comparison is exact — a privileged module that is silently
+not privileged brings back the very errors it was written to remove. It is a
+warning because `exclude: ["dist"]` in a fresh clone is legitimately ahead of
+the build that creates it, and reporting that as an error would teach a user to
+ignore the mistakes that are real. An entry *outside* the root is judged by
+existence alone — there is no chain of directories below the root to walk down
+— so a mis-cased one there goes unreported on a filesystem that ignores case.
+
+The two fields are not symmetrical, and the asymmetry is reported rather than
+left to be discovered: `exclude` accepts a file or a directory, while
+`runtimePaths` accepts only files, because privilege is granted per module. A
+directory in `runtimePaths` is an error, not a silent no-match.
+
+An excluded file that the user opens says so, as one informational diagnostic.
+Going quiet instead would read as a broken server — the grammar still colours the
+buffer and the server is visibly running — and the user's next move would be to
+report a bug rather than to open `hexagon.json`.
+
+The manifest is watched like source, since a change to it can change every
+answer.
+
 ## Known limits
 
 Listed rather than hidden, because each is a place where the server is knowingly
 less than it looks.
 
-- **Every `.hex` file under a workspace root is one project.** There is no project
-  manifest, so the server compiles the whole tree together. Opening this
-  repository is the clearest demonstration: `runtime/VectorTrie.hex` is a
-  privileged runtime module that no ordinary project may compile, and it reports
-  38 errors starting with ``unknown generic type `Node` `` — as the user's first
-  impression. A project file, or a convention for excluding a directory, is what
-  fixes this; guessing at roots would not.
+- **One manifest per workspace root, at the root.** Nested projects inside one
+  root are not modelled: a `hexagon.json` deeper in the tree is watched but never
+  read, and a root's `exclude` cannot be overridden below it.
+- **The set of workspace roots is fixed at initialization.** A folder added to
+  or removed from the workspace afterwards is not noticed: the server neither
+  declares `workspace.workspaceFolders` nor handles the change notification, so
+  the fix is to reload the window. Handling it is a small change — `setRoots`
+  already replaces the whole file set — but it needs the capability declared and
+  a test that adding a folder brings its modules into the graph.
+- **`exclude` matches paths, and a path is one of the names a file has.** A
+  file is checked under both the name the walk reached it by and the name it
+  resolves to, so a symlink cannot smuggle an excluded directory back in. The
+  *entry* is not resolved, only re-rooted, so excluding a link excludes that
+  link and not the file it points at — the reverse would silently delete source.
+  The consequence is that an entry whose own intermediate components pass
+  through a link will not match a file reached by the resolved route. Matching
+  also remains case-sensitive on filesystems that are not, which is why a
+  mis-cased entry is reported rather than silently doing nothing.
 - **Initialization waits for the workspace scan.** `initialize` walks the root
   and reads every `.hex` file before replying, so that the first request is
   answered against a whole module graph rather than a partial one. On a very

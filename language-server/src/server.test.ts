@@ -9,7 +9,7 @@
  * test that calls a handler directly.
  */
 
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -17,6 +17,7 @@ import { PassThrough } from "node:stream";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
   DidChangeTextDocumentNotification,
+  DidChangeWatchedFilesNotification,
   DidCloseTextDocumentNotification,
   DidOpenTextDocumentNotification,
   DidSaveTextDocumentNotification,
@@ -73,6 +74,8 @@ interface Harness {
   readonly root: string;
   readonly uriOf: (name: string) => string;
   readonly diagnosticsFor: (uri: string) => Promise<readonly Diagnostic[]>;
+  /** Whatever has already arrived for a URI, without waiting for more. */
+  readonly publishedFor: (uri: string) => readonly Diagnostic[] | undefined;
   readonly dispose: () => Promise<void>;
 }
 
@@ -133,6 +136,7 @@ async function harness(files: Record<string, string>): Promise<Harness> {
         }
         waiting.set(uri, resolve);
       }),
+    publishedFor: (uri) => latest.get(uri),
     dispose: async () => {
       await client.sendRequest(ShutdownRequest.type, undefined);
       await client.sendNotification(ExitNotification.type);
@@ -368,5 +372,156 @@ describe("the Hexagon language server", () => {
     // `helper.hex` is in the workspace but was never opened, so the server has
     // no buffer to resolve the position against and must not guess.
     expect(hover).toBeNull();
+  });
+
+  test("a manifest edit reloads however the client spells its URI", async () => {
+    const solo = await harness({
+      "main.hex": "let value: Int = 1\n",
+      "hexagon.json": JSON.stringify({ exclude: ["generated"] }),
+    });
+    try {
+      const mainUri = solo.uriOf("main.hex");
+      await solo.client.sendNotification(DidOpenTextDocumentNotification.type, {
+        textDocument: {
+          uri: mainUri,
+          languageId: "hexagon",
+          version: 1,
+          text: "let value: Int = 1\n",
+        },
+      });
+      await writeFile(join(solo.root, "generated.hex"), "let oops: Int = \n");
+      await writeFile(join(solo.root, "hexagon.json"), JSON.stringify({}));
+
+      // A client spells a URI its own way — VS Code percent-encodes a Windows
+      // drive colon where `pathToFileURL` does not. Matching manifest changes by
+      // URI *string* means a manifest edit silently reloads nothing, forever, on
+      // the platform the author did not test. `%68` is `h`: the same file, spelt
+      // differently, standing in for that class of difference.
+      const respelled = solo.uriOf("hexagon.json").replace(/hexagon\.json$/u, "%68exagon.json");
+      await solo.client.sendNotification(DidChangeWatchedFilesNotification.type, {
+        changes: [{ uri: respelled, type: 2 }],
+      });
+      // Diagnostics for the newly-included file are the proof the reload
+      // happened at all; their exact wording is the compiler's business.
+      const reported = await solo.diagnosticsFor(solo.uriOf("generated.hex"));
+      expect(reported.length).toBeGreaterThan(0);
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  test("a manifest mistake outranks an entry that matches nothing", async () => {
+    const solo = await harness({
+      "main.hex": "let value: Int = 1\n",
+      "hexagon.json": ['{', '  "exclude": ["absent"],', '  "nope": []', '}'].join("\n"),
+    });
+    try {
+      const reported = await solo.diagnosticsFor(solo.uriOf("hexagon.json"));
+      // Reported against the manifest itself, at two volumes: a misspelled key
+      // is wrong today and always will be, while an entry naming a path that is
+      // not there yet is only inert. Publishing both as errors would teach a
+      // user to ignore the file that explains their configuration.
+      expect(reported.map(({ severity }) => severity).sort()).toEqual([1, 2]);
+      expect(reported.find(({ severity }) => severity === 2)!.message)
+        .toContain("matches no file");
+      // The protocol types a character as `uinteger`, which is 32-bit. A client
+      // deserializing `Number.MAX_SAFE_INTEGER` into an unsigned 32-bit integer
+      // fails or wraps; VS Code clamps, which is why nothing here would notice.
+      for (const { range } of reported) expect(range.end.character).toBe(2 ** 31 - 1);
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  test("a nested manifest is skipped, not read into the session as Hexagon", async () => {
+    const solo = await harness({ "main.hex": "let value: Int = 1\n" });
+    try {
+      // Only a *root's* manifest is read. A vendored sub-project's has to be
+      // skipped rather than fall through to the file handler, which would hand
+      // JSON to the Hexagon parser and report its braces as syntax errors — in
+      // a file the user never opened and cannot fix by editing Hexagon. It also
+      // never triggers a reload, so the junk would sit there until some root
+      // manifest happened to change.
+      await mkdir(join(solo.root, "vendor"));
+      const nested = join(solo.root, "vendor", "hexagon.json");
+      await writeFile(nested, JSON.stringify({ runtimePaths: [] }));
+      const uri = pathToFileURL(nested).toString();
+      await solo.client.sendNotification(DidChangeWatchedFilesNotification.type, {
+        changes: [{ uri, type: 1 }],
+      });
+
+      // Something has to arrive before absence means anything, so this waits on
+      // a real publication for another file and then checks the JSON got none.
+      await writeFile(join(solo.root, "later.hex"), "let broken: Int = \n");
+      await solo.client.sendNotification(DidChangeWatchedFilesNotification.type, {
+        changes: [{ uri: solo.uriOf("later.hex"), type: 1 }],
+      });
+      expect((await solo.diagnosticsFor(solo.uriOf("later.hex"))).length).toBeGreaterThan(0);
+      expect(solo.publishedFor(uri)).toBeUndefined();
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  test("an open file that is excluded says so rather than going quiet", async () => {
+    const solo = await harness({
+      "main.hex": "let value: Int = 1\n",
+      "hexagon.json": JSON.stringify({ exclude: ["vendor"] }),
+    });
+    try {
+      await mkdir(join(solo.root, "vendor"));
+      const vendored = join(solo.root, "vendor", "thing.hex");
+      await writeFile(vendored, "let broken: Int = \n");
+      const uri = pathToFileURL(vendored).toString();
+      await solo.client.sendNotification(DidOpenTextDocumentNotification.type, {
+        textDocument: { uri, languageId: "hexagon", version: 1, text: "let broken: Int = \n" },
+      });
+      // Silence would read as a broken server: the grammar still colours the
+      // buffer and the server is visibly running, so the user reports a bug
+      // instead of opening `hexagon.json`.
+      const reported = await solo.diagnosticsFor(uri);
+      expect(reported).toHaveLength(1);
+      expect(reported[0]!.severity).toBe(3);
+      expect(reported[0]!.message).toContain("excluded from the project");
+      expect(reported.some(({ message }) => message.includes("expected"))).toBe(false);
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  test("un-excluding restores an open buffer without waiting for a keystroke", async () => {
+    const solo = await harness({
+      "main.hex": "let value: Int = 1\n",
+      "hexagon.json": JSON.stringify({ exclude: ["vendor"] }),
+    });
+    try {
+      await mkdir(join(solo.root, "vendor"));
+      const vendored = join(solo.root, "vendor", "thing.hex");
+      const text = "export let vendored: Int = 7\n";
+      await writeFile(vendored, text);
+      const uri = pathToFileURL(vendored).toString();
+      await solo.client.sendNotification(DidOpenTextDocumentNotification.type, {
+        textDocument: { uri, languageId: "hexagon", version: 1, text },
+      });
+      expect((await solo.diagnosticsFor(uri))[0]!.message).toContain("excluded");
+
+      await writeFile(join(solo.root, "hexagon.json"), JSON.stringify({}));
+      await solo.client.sendNotification(DidChangeWatchedFilesNotification.type, {
+        changes: [{ uri: solo.uriOf("hexagon.json"), type: 2 }],
+      });
+      expect(await solo.diagnosticsFor(uri)).toEqual([]);
+
+      // The rescan reads disk and skips what the editor holds open, so nothing
+      // re-adds this buffer unless the server does it. Without that the file is
+      // in neither source and stays dead until the user types.
+      const hover = await solo.client.sendRequest("textDocument/hover", {
+        textDocument: { uri },
+        position: { line: 0, character: 12 },
+      }) as Hover | null;
+      expect(hover).not.toBeNull();
+      expect((hover!.contents as { value: string }).value).toContain("vendored");
+    } finally {
+      await solo.dispose();
+    }
   });
 });
