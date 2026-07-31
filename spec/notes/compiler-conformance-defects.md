@@ -265,8 +265,11 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
 
 ### 5. A multi-line `match` cannot be a record-field value (layout)
 
-- **Classification:** limitation observed; *not* yet classified as a defect —
-  needs a layout owner's ruling before it is called one.
+- **Classification:** **FIXED 2026-07-31.** Was: limitation observed, awaiting a
+  layout owner's ruling before it could be called a defect. The ruling is now in
+  Lexer & Layout §2.2 — *a closing delimiter ends every layout block its group
+  opened* — and it went the way that makes this a defect: both shapes were always
+  meant to work.
 - **Observation:** writing the pull step inline as
   `Seq({ pull: () => match next(source)` with the arms on following lines makes
   the layout algorithm close the record literal at the first arm
@@ -275,9 +278,10 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
 - **Impact on the `Seq` core:** none, since 2026-07-31. Formerly: each combinator
   bound its step to a local `let` and then wrapped it.
 
-*(Corrected 2026-07-31, issue #177 — the finding is unchanged and still open; what
-was wrong is the scope claimed for it.)* Two inline spellings were conflated. Only
-the one above fails:
+*(Corrected 2026-07-31, issue #177 — at the time of this correction the finding
+was still open; the Resolution below closes it later the same day. What #177 got
+wrong was the scope claimed for it.)* Two inline spellings were conflated. Only
+the one above failed:
 
 ```
 Seq({ pull = () => match next(source)      -- fails: this finding
@@ -304,6 +308,39 @@ Note for whoever takes the ruling: the canonical examples in
 `seq-core-representation.md` §4.1 are written in the **failing** spelling, so they
 do not compile as printed. That note is a closed rationale archive, so it is left
 as-is rather than edited; this paragraph is the record.
+
+**Resolution *(2026-07-31)*.** Fixed in the layout pass, and the ruling above is
+the answer to that note: the §4.1 **examples** are now legal exactly as printed.
+The archive's own prose is a separate matter and is left frozen — its §9 still
+says "§4.1's inline `match` does not parse", which is now false; that sentence is
+superseded here, not edited there. The cause was narrower than "a
+multi-line `match` cannot be a record-field value" — the `match` was never the
+problem. Any layout block whose group's closer shares a line with the block's
+last item was left open, so a lambda body block ended by `})` failed the same
+way with no `match` anywhere. Blocks now close at that closer.
+
+Conformance: `delimiter-closed-blocks.test.ts` asserts byte-identity of emitted
+JavaScript between the two spellings — the claim is not that both are accepted
+but that they are the same program — plus `layout.test.ts`'s positional cases,
+its `]`/wrong-kind-closer/interpolation guards, and a bracket-and-indentation
+property test. Mutation-tested in three directions, counted over those two files:
+removing the rule reddens 7, over-closing by one bracket level reddens 10
+(including the guard that a block opened *before* the group survives its closer),
+and dropping the semicolon amendment below reddens 1.
+
+**One behavioural amendment rode this fix.** `validateSemicolon` treated any
+same-line token as "a statement on the right", so once blocks began closing at
+delimiters, `id(match p` … `False => 0;)` was accepted in silence while its
+dedented twin still reported §5's trailing-`;` error — the two spellings
+disagreeing on the very invariant this change exists to establish. A closer is
+never a statement, so it no longer counts. The combination was unreachable before
+(the parse errors this fix removes used to mask it), which is why no test caught
+it and why it is recorded here rather than as its own finding.
+
+`stdlib/Seq.hex` was **not** rewritten onto the newly legal spelling. #177 chose
+its current shape on the merits (uniform across the loop-bearing combinators,
+which have nothing to put on the `=>` line); this fix removes a constraint rather
+than settling a style question.
 
 ### 6. Type-annotation resolution consults intrinsics before user declarations
 

@@ -112,9 +112,10 @@ describe("the step-7 reverts are in the source, not merely intended", () => {
     // then `Seq({ pull = step })` — on the strength of a file comment claiming an
     // inline `match` could not be a record-field value. Checked against the very
     // commit that wrote the comment: this spelling parsed clean there too. The
-    // spelling that genuinely fails, then and now, is defect-log finding 5's
-    // (head on the `pull =` line, `})` trailing the last arm); the comment
-    // over-generalized that finding to a shape it never covered.
+    // spelling that genuinely failed was defect-log finding 5's (head on the
+    // `pull =` line, `})` trailing the last arm); the comment over-generalized
+    // that finding to a shape it never covered. Finding 5 is since fixed, so the
+    // shape below is now a style choice — #177's, made on the merits.
     expect(seqSource).not.toMatch(/\blet step\b/u);
 
     // The general form of the same assertion, which no rename escapes: the step

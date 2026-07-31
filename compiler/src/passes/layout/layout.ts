@@ -111,6 +111,8 @@ export function applyLayout(file: Lexed.File): LaidOut.File {
       beginLine(token, blocks, delimiters.length, tokens, diagnostics);
     }
 
+    closeBlocksEndedByDelimiter(token, blocks, delimiters, tokens);
+
     validateSemicolon(
       token,
       physical[index - 1],
@@ -350,6 +352,11 @@ function validateSemicolon(
   const hasRight =
     next !== undefined &&
     next.kind !== "Semicolon" &&
+    // A group's closer is not a statement. `f(a; )` ends its block at the `)`
+    // exactly as a dedent would, so the `;` is trailing and §5's diagnostic is
+    // owed. Only reachable since blocks began closing at delimiters (§2.2) —
+    // before that these inputs died in the parser and never got this far.
+    !closingDelimiter.has(next.kind) &&
     next.span.start.line === token.span.end.line;
 
   const touchesSemicolon = previous?.kind === "Semicolon" || next?.kind === "Semicolon";
@@ -365,6 +372,42 @@ function validateSemicolon(
       message: "`;` separates statements; Hexagon lines don't end with one.",
       primary: token.span,
     });
+  }
+}
+
+/**
+ * Closes every layout block opened inside the group a closing delimiter ends
+ * (Lexer & Layout §2.2).
+ *
+ * The offside rule closes blocks on dedented lines, and a group's `)`/`]`/`}`
+ * may share a line with the block's last item — `Seq({ pull = () => match x`
+ * … `A => y })`. There is no dedent to see, so the block would otherwise still
+ * be open when the parser reaches the delimiter, which reads the `}` as the
+ * next match arm. Each block records the delimiter depth it was opened at, so
+ * the ones this group encloses are those whose recorded depth is at least
+ * `delimiters.length` — the closer has not been popped yet, so that count still
+ * includes the group being closed, and deeper nesting is a larger number.
+ *
+ * A closer with no matching opener closes nothing: it is already an error, and
+ * unwinding real blocks on it would turn one stray character into a cascade.
+ */
+function closeBlocksEndedByDelimiter(
+  token: Lexed.Token,
+  blocks: Block[],
+  delimiters: readonly DelimiterKind[],
+  output: LaidOut.Token[],
+): void {
+  const expected = closingDelimiter.get(token.kind);
+  if (expected === undefined || delimiters.at(-1) !== expected) {
+    return;
+  }
+
+  while (
+    blocks.length > 1 &&
+    currentBlock(blocks).delimiterDepth >= delimiters.length
+  ) {
+    blocks.pop();
+    output.push(virtual("VClose", token.span));
   }
 }
 

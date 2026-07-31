@@ -140,6 +140,33 @@ layout block inside a delimiter—for example, a multiline lambda supplied as a
 call argument. While that nested block is open, its own newlines and semicolons
 use the ordinary block rules.
 
+**A closing delimiter ends every layout block its group opened.** *(Added
+2026-07-31; the ruling defect-log finding 5 was waiting on.)* The offside rule
+closes a block when a line begins at a shallower column, and a group's `)`, `]`,
+or `}` may share a line with that block's last item — there is no dedent to see:
+
+```
+Seq({ pull = () => match next(source)
+    None => None
+    Some((value, rest)) => Some((value, rest)) })
+```
+
+The arm block is closed by the `}`, which is then the record literal's own
+closer. Without this rule the block stays open and the parser reads `}` as the
+next arm's pattern. The rule is positional, not a parse-error recovery: each
+block records the delimiter depth it was opened at, and the blocks a group
+encloses are exactly those whose recorded depth is **at least** the depth of the
+group being closed — deeper nesting, larger number. Closing them needs no
+feedback from the parser. Haskell reaches the same outcome through its
+`parse-error(t)` side condition; Hexagon does not need one, because block heads
+are a closed set (§2.1) and groups are physically delimited.
+
+Two boundaries this rule does **not** cross. A block opened *before* the group
+survives the group's closer — `match x` / `A => f({ y = 1 })` keeps its arm block
+across the `}`, and any following arm is still a sibling. And an **unmatched**
+closer closes nothing: it is already an error, and unwinding real blocks on a
+stray character turns one diagnostic into a cascade.
+
 ## 3. The explicit `;`
 
 `;` is a **real token**, grammatically interchangeable with VSEP: a block's items are separated by *either* a layout-inserted VSEP *or* an explicit `;`. This permits multiple statements on one line:

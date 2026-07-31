@@ -147,13 +147,18 @@ Present surface (22 exports): `next`; `empty`, `singleton`, `cons`, `iterate`,
 `drop`, `dropWhile`, `flatMap` (+ private `flatMapWith`); `fold`, `length`,
 `forEach`, `find`, `any`, `all`.
 
-Two house patterns in the file, both deliberate, both explained in its comments —
-preserve them:
+House patterns in the file — preserve them:
 
-- Each combinator binds its pull step as a **local `let` lambda** before wrapping
-  it, because a multi-line `match` as a record-field value makes the layout
-  algorithm close the record literal at the first arm (defect log finding 5,
-  **unruled**; owner is lexer-layout; the local-`let` form stands meanwhile).
+- ~~Each combinator binds its pull step as a **local `let` lambda** before
+  wrapping it, because a multi-line `match` as a record-field value makes the
+  layout algorithm close the record literal at the first arm (defect log finding
+  5, **unruled**; owner is lexer-layout; the local-`let` form stands
+  meanwhile).~~ **Superseded 2026-07-31 — do not restore this pattern.** Every
+  pull step is now written inline at the `pull` field (#177), and the file's
+  comments no longer explain the old shape because the explanation was wrong:
+  this spelling always worked, and finding 5's genuinely-failing one is itself
+  fixed (Lexer & Layout §2.2). `seq-stdlib.test.ts` fails if the local binding
+  comes back.
 - A combinator that may consume many source elements per output element uses a
   **`while` threading a `var` cursor, never self-recursion** — Loops §6.5
   promises no TCO. The sentinel `var searching` stands in for the absent `break`
