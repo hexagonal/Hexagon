@@ -327,7 +327,6 @@ function spanKey(span: Source.Span): string {
   return `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
 }
 
-
 /**
  * The compiler's module graph resolves specifiers against `/`-separated paths,
  * so a host on Windows has to arrive in that shape. Normalizing here rather than

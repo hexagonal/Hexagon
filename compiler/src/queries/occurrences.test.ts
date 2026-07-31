@@ -51,7 +51,7 @@ function render(
  * the implementation on purpose: an assertion that reuses the pattern under test
  * agrees with it by construction and cannot fail for the bug it is named after.
  */
-const IDENTIFIER = /^[\p{ID_Start}$_][\p{ID_Continue}$_‌‍]*$/u;
+const IDENTIFIER = /^[\p{ID_Start}$_][\p{ID_Continue}$_\u200C\u200D]*$/u;
 
 describe("collectOccurrences", () => {
   test("a span never covers more than the identifier", () => {

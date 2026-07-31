@@ -116,7 +116,17 @@ async function stopClient(): Promise<void> {
   const running = client;
   client = undefined;
   if (running === undefined) return;
-  await running.stop();
+  try {
+    await running.stop();
+  } catch {
+    // `stop()` throws outright for a client that is still starting — the library
+    // cannot interrupt a start in progress. Every caller stops in order to start
+    // again, so letting that propagate would abort the restart and leave the
+    // user with no server until the window reloads, reporting only an unhandled
+    // rejection. Swallowing it is safe precisely because the generation moved:
+    // the start still in flight will find itself overtaken and shut its own
+    // server down when it completes.
+  }
 }
 
 /**

@@ -95,8 +95,8 @@ export function startServer(connection: Connection): void {
     });
   });
 
-  documents.onDidOpen(({ document }) => {
-    workspace.openDocument(document);
+  documents.onDidOpen(async ({ document }) => {
+    await workspace.openDocument(document);
     schedulePublish();
   });
 
@@ -112,7 +112,7 @@ export function startServer(connection: Connection): void {
 
   connection.onDidChangeWatchedFiles(async ({ changes }) => {
     for (const change of changes) {
-      if (change.type === FileChangeType.Deleted) workspace.deleteFile(change.uri);
+      if (change.type === FileChangeType.Deleted) await workspace.deleteFile(change.uri);
       else await workspace.refreshFromDisk(change.uri);
     }
     schedulePublish();

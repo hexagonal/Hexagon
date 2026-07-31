@@ -90,6 +90,26 @@ describe("the workspace walk", () => {
     expect(workspace.session.allDiagnostics().get(workspace.session.paths[0]!)).toEqual([]);
   });
 
+  test("opening a link to an already-scanned file does not double it", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, "a-real.hex"), "export let value: Int = 1\n");
+    await symlink(join(path, "a-real.hex"), join(path, "z-link.hex"), "file");
+    const { workspace } = await scan(path);
+    expect(workspace.session.paths).toHaveLength(1);
+
+    // The walk dedupes by real path, but it chose which of the two names to
+    // keep — and the user may well open the other one. Keying the buffer by its
+    // URI would add a second module for one file, whose every declaration then
+    // reports as a duplicate of itself.
+    await workspace.openDocument({
+      uri: workspace.uris.toUri(join(path, "z-link.hex")),
+      getText: () => "export let value: Int = 2\n",
+    } as never);
+    expect(workspace.session.paths).toHaveLength(1);
+    const only = workspace.session.paths[0]!;
+    expect(workspace.session.allDiagnostics().get(only)).toEqual([]);
+  });
+
   test("a dangling symlink is skipped, not reported as an error", async () => {
     const path = await makeRoot();
     await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
@@ -105,7 +125,7 @@ describe("the workspace walk", () => {
     const { workspace } = await scan(path);
     const uri = workspace.uris.toUri(workspace.session.paths[0]!);
 
-    workspace.openDocument({
+    await workspace.openDocument({
       uri,
       getText: () => "let value: Int = 2\n",
     } as never);
