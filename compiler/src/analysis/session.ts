@@ -34,7 +34,12 @@
 
 import * as Diagnostics from "../support/diagnostics.js";
 import * as Source from "../support/source.js";
-import { compileProject, type CompiledModule, type ProjectOptions } from "../project.js";
+import {
+  compileProject,
+  resolveSpecifier,
+  type CompiledModule,
+  type ProjectOptions,
+} from "../project.js";
 import {
   collectOccurrences,
   targetKey,
@@ -322,17 +327,6 @@ function spanKey(span: Source.Span): string {
   return `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
 }
 
-/**
- * The path an import specifier names, from the module that wrote it. Mirrors
- * `compileProject`'s own resolution — the same rule has to be applied here,
- * because it is what decides which module a type name in an import list came
- * from when two modules export that name.
- */
-function resolveSpecifier(importer: string, specifier: string): string {
-  const directory = importer.slice(0, Math.max(0, importer.lastIndexOf("/")));
-  const candidate = normalizePath(`${directory}/${specifier}`);
-  return candidate.endsWith(".hex") ? candidate : `${candidate}.hex`;
-}
 
 /**
  * The compiler's module graph resolves specifiers against `/`-separated paths,

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { compileFiles } from "../support/test-project.js";
 import { collectOccurrences, targetKey, type Occurrence } from "./occurrences.js";
-import type { CompiledProject } from "../project.js";
+import { resolveSpecifier, type CompiledProject } from "../project.js";
 
 /** Compiles a project and indexes it, refusing sources the compiler rejected. */
 function index(
@@ -13,11 +13,8 @@ function index(
   // import list cannot be resolved without knowing which module the specifier
   // names. `collectOccurrences` is exercised without it in its own test.
   const idsByPath = new Map(project.modules.map(({ source }) => [source.path, source.id]));
-  const fileOfSpecifier = (importer: string) => (specifier: string) => {
-    const directory = importer.slice(0, Math.max(0, importer.lastIndexOf("/")));
-    const target = `${directory}/${specifier.replace(/^\.\//u, "")}`;
-    return idsByPath.get(target.endsWith(".hex") ? target : `${target}.hex`);
-  };
+  const fileOfSpecifier = (importer: string) => (specifier: string) =>
+    idsByPath.get(resolveSpecifier(importer, specifier));
   return {
     project,
     occurrences: new Map(
