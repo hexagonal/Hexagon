@@ -511,6 +511,39 @@ describe("the workspace walk", () => {
     expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
   });
 
+  test("an open runtime module keeps its privilege across a manifest reload", async () => {
+    const path = await makeRoot();
+    await mkdir(join(path, "runtime"));
+    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, MANIFEST_NAME), JSON.stringify({}));
+    const { workspace } = await scan(path);
+
+    // The module is created after the server started, so the first walk never
+    // recorded a spelling for it, and it is open, so no later walk will either.
+    const runtime = join(path, "runtime", "T.hex");
+    await writeFile(runtime, "let size(node: Node(Int)): Int = 0\n");
+    await workspace.openDocument({
+      uri: workspace.uris.toUri(runtime),
+      getText: () => "let size(node: Node(Int)): Int = 0\n",
+    } as never);
+
+    // Granting the privilege is the point of the file, and every grant is
+    // rebuilt from scratch here — so a reload has to be able to reach a module
+    // that identity alone cannot name. `#grantIfRuntime` cannot help: it answers
+    // from `#pathOf`, which caches, so it fires once per URI and never again.
+    await writeFile(
+      join(path, MANIFEST_NAME),
+      JSON.stringify({ runtimePaths: ["runtime/T.hex"] }),
+    );
+    await workspace.setRoots([path], () => {});
+    expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
+    // Still analysed, not merely quiet: a file dropped from the session also
+    // reports nothing, and that would pass the assertion above for the wrong
+    // reason entirely.
+    expect(workspace.session.hover(workspace.uris.toPath(workspace.uris.toUri(runtime)), 4)?.name)
+      .toBe("size");
+  });
+
   test("a late runtime module is privileged under the name its route gave it", async () => {
     const base = await makeRoot();
     const path = join(base, "project");

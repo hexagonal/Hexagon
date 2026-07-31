@@ -248,11 +248,10 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
  *
  * Components are checked from the root down, because the wrong case can be in
  * any of them and only the last one is visible in an error otherwise. They are
- * split the way `isExcluded` splits them — on `comparablePath`'s separator, not
- * the platform's — because the two have to agree about what a component is. A
- * second, nearly-identical notion of that is what `positions.ts` warns against,
- * and disagreeing here means reporting "has no effect" about an entry that
- * demonstrably does have one.
+ * split on `/` after separator conversion, which is what `isExcluded` compares
+ * on, because the two have to agree about what a component is — disagreeing
+ * means reporting "has no effect" about an entry that demonstrably has one.
+ * Conversion only, though, and not `comparablePath`: see below.
  */
 async function matchesExactly(rootPath: string, resolved: string): Promise<boolean> {
   // Separators only. `comparablePath` would be the tempting reuse and is wrong

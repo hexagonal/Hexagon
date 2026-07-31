@@ -230,14 +230,15 @@ export class Workspace {
     this.#runtimeRealPaths.clear();
     for (const { runtimePaths } of this.#manifests.values()) {
       for (const entry of runtimePaths) {
-        // Privilege is granted by identity, never by the spelling as written:
-        // the compiler matches these by set membership against the key a file is
-        // actually held under, and that key is chosen by whichever route brought
-        // the file in. Two routes exist, and each is answered here — the walk,
-        // through the name it recorded, and everything later through
-        // `#grantIfRuntime`. Resolving the entry is safe in a way it is not for
-        // an exclusion: this asks "which file is this?", not "is this name
-        // excluded?", so a link and its target giving one answer is the point.
+        // The spelling as written, and then the ones identity supplies. The
+        // written name looks redundant and is not: `#grantIfRuntime` fires from
+        // `#pathOf`, which answers from a cache after the first time it sees a
+        // URI, so a grant is a once-per-URI event — while this method rebuilds
+        // the set from scratch on every manifest change. Without the written
+        // name, a module that was open when its privilege was granted loses it
+        // at the next save of `hexagon.json` and cannot get it back, because the
+        // walk skips open files and so records no spelling to restore it from.
+        this.#runtimePaths.add(comparablePath(entry));
         const realPath = await realPathOf(entry);
         this.#runtimeRealPaths.add(realPath);
         // And the same name with only its *directory* resolved. A manifest may
