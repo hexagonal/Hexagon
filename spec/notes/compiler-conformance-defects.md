@@ -272,9 +272,38 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   the layout algorithm close the record literal at the first arm
   ("expected `}` after record fields", "expected `)` after arguments"). The same
   applies to a multi-line lambda passed as a call argument.
-- **Impact on the `Seq` core:** each combinator binds its step to a local `let`
-  and then wraps it, which reads well enough that this may simply be the house
-  form rather than something to fix.
+- **Impact on the `Seq` core:** none, since 2026-07-31. Formerly: each combinator
+  bound its step to a local `let` and then wrapped it.
+
+*(Corrected 2026-07-31, issue #177 — the finding is unchanged and still open; what
+was wrong is the scope claimed for it.)* Two inline spellings were conflated. Only
+the one above fails:
+
+```
+Seq({ pull = () => match next(source)      -- fails: this finding
+    None => None
+    Some((value, rest)) => Some((...)) })
+
+Seq({ pull = () =>                          -- parses clean, and always did
+    match next(source)
+        None => None
+        Some((value, rest)) => Some((...))
+})
+```
+
+Verified at `9e135be` — the commit that introduced `stdlib/Seq.hex` and the file
+comment generalizing this finding to "the step cannot be written inline as the
+record-field value" — and again on `main`: the second shape is clean at both, the
+first fails at both with these same messages. The comment's generalization was
+false when written, and ten combinators were shaped around it until #177 collapsed
+them onto the working spelling; `stdlib/Seq.hex` no longer depends on this finding
+either way, and `layout.test.ts` now pins the working shapes so the confusion
+cannot recur silently.
+
+Note for whoever takes the ruling: the canonical examples in
+`seq-core-representation.md` §4.1 are written in the **failing** spelling, so they
+do not compile as printed. That note is a closed rationale archive, so it is left
+as-is rather than edited; this paragraph is the record.
 
 ### 6. Type-annotation resolution consults intrinsics before user declarations
 

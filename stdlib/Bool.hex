@@ -1,27 +1,5 @@
-// `Bool` — an ordinary prelude union, not a primitive (ruling #147,
-// `spec/decisions-ml-dialect-bool-2026-07.md`).
-//
-// This declaration is real, compilable prelude source on the `Seq.hex` model, and
-// that choice is load-bearing: because the `derives` clause here is the *ordinary*
-// derivation door, `Eq<Bool>`, `Ord<Bool>`, `Show<Bool>`, and `Hash<Bool>` are derived
-// instances rather than compiler-provided ones. Collections Part 2 §4.4 bans smuggling
-// a `Hash` instance into stdlib source; `Bool` obeys that ban rather than excepting it
-// — even the prelude obtains `Hash` only through the door users use.
-//
-// Constructor order is normative and is `False | True` (Haskell's order): derived `Ord`
-// follows declaration order (Unions §7), so this order is what makes `False < True`
-// without a hand-written instance, and it is also the order JS `<` on booleans already
-// has, which the representation pin relies on.
-//
-// The compiler grants this one declaration exactly one privilege — the representation
-// pin (decisions doc §3): a `Bool` is the JS `boolean`, `True` emits `true`, `False`
-// emits `false`, and `Bool` is `boolean` in emitted `.d.ts`. That is the single
-// exception to the all-nullary string rule (Unions §6.2), it is unavailable to any user
-// declaration, and the compiler verifies this file's shape — exactly two nullary
-// constructors, `False` then `True`, deriving those four — rather than trusting it. The
-// pin is also what licenses `and`/`or`/`not`/`implies`/`iff` and `if`/`while` conditions
-// to eliminate a `Bool` without `match` (Operators §4, §11) — against the string
-// representation, `&&` on `"False"` would be truthy nonsense.
+// The boolean type. Constructor order `False | True` is normative: it is what makes
+// the derived `Ord` order `False < True`.
 export union Bool derives (Eq, Ord, Show, Hash) =
     | False
     | True

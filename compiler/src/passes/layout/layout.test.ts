@@ -163,6 +163,47 @@ describe("applyLayout", () => {
     expect(result.diagnostics).toEqual([]);
   });
 
+  // §2.2 for the shape `stdlib/Seq.hex` is written in: a lambda inside a record
+  // literal, whose body is a block. The nested blocks must all close on the
+  // dedent to `})`, leaving the record literal open for its physical `}`.
+  //
+  // Pinned because the prelude was written around a belief that this could not
+  // work (#177). It always could. What does not work is the *other* inline
+  // spelling — head on the `pull =` line, `})` trailing the last arm — which is
+  // defect-log finding 5, open and unrelated to these two cases.
+  test("keeps a record literal open across a multi-arm match in a field value", () => {
+    const result = layout(
+      "Seq({ pull = () =>\n" +
+      "    match next(source)\n" +
+      "        None => None\n" +
+      "        Some((value, rest)) => Some((value, rest))\n" +
+      "})",
+    );
+
+    // Module, lambda body, arm block; the two inner closes land before `})`.
+    expect(virtualKinds(result.tokens)).toEqual([
+      "VOpen", "VOpen", "VOpen", "VSep", "VClose", "VClose", "VClose",
+    ]);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  test("keeps a record literal open across a statement block in a field value", () => {
+    const result = layout(
+      "Seq({ pull = () =>\n" +
+      "    var current = source\n" +
+      "    while searching\n" +
+      "        current := rest\n" +
+      "    current\n" +
+      "})",
+    );
+
+    // Module, lambda body — separated statements — and the `while` body within.
+    expect(virtualKinds(result.tokens)).toEqual([
+      "VOpen", "VOpen", "VSep", "VOpen", "VClose", "VSep", "VClose", "VClose",
+    ]);
+    expect(result.diagnostics).toEqual([]);
+  });
+
   test("validates semicolons as same-line block separators", () => {
     const result = layout("; let x = 1;; let y = (1; 2)\nlet z = 3;");
 

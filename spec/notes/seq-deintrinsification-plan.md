@@ -344,7 +344,10 @@ responsibility. Step 8's shape depends on that line.
 ## Open, non-blocking
 
 - Layout ruling on multi-line `match` as a record-field value / lambda argument
-  (defect log finding 5) — owner: lexer-layout. The local-`let` form stands
-  meanwhile.
+  (defect log finding 5) — owner: lexer-layout. Still owed, but no longer blocks
+  anything: *(2026-07-31, issue #177)* the finding covers only the spelling that
+  puts the `match` head on the field's own line; the spelling that opens a block
+  under the `=>` always worked, and `stdlib/Seq.hex` now uses it throughout. The
+  local-`let` form no longer stands — see the finding's correction note.
 - Issue filing for defects 1–4/6 on GitHub — James's call; the defect log is
   the canonical record either way.
