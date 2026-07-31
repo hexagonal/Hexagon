@@ -116,6 +116,15 @@ export class AnalysisSession {
     this.#invalidate();
   }
 
+  /**
+   * The path a compiler file identity belongs to. Spans name files by number,
+   * so a host rendering a span that points somewhere else — a diagnostic's
+   * secondary label, most often — needs this to say where.
+   */
+  pathOfFile(fileId: Source.FileId): string | undefined {
+    return this.#analyze().pathOf(fileId);
+  }
+
   /** Diagnostics for one file, empty for a file the session does not hold. */
   diagnostics(path: string): readonly Diagnostics.Diagnostic[] {
     return this.#analyze().diagnosticsByPath.get(normalizePath(path)) ?? [];
