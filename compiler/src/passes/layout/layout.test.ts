@@ -168,9 +168,9 @@ describe("applyLayout", () => {
   // dedent to `})`, leaving the record literal open for its physical `}`.
   //
   // Pinned because the prelude was written around a belief that this could not
-  // work (#177). It always could. What does not work is the *other* inline
-  // spelling — head on the `pull =` line, `})` trailing the last arm — which is
-  // defect-log finding 5, open and unrelated to these two cases.
+  // work (#177). It always could. The *other* inline spelling — head on the
+  // `pull =` line, `})` trailing the last arm — genuinely did not, and is
+  // defect-log finding 5; it is fixed below by the group-closing rule.
   test("keeps a record literal open across a multi-arm match in a field value", () => {
     const result = layout(
       "Seq({ pull = () =>\n" +
@@ -202,6 +202,140 @@ describe("applyLayout", () => {
       "VOpen", "VOpen", "VSep", "VOpen", "VClose", "VSep", "VClose", "VClose",
     ]);
     expect(result.diagnostics).toEqual([]);
+  });
+
+  // §2.2's other half: the group's closer ends what its lines opened. Defect-log
+  // finding 5 — these shapes parsed as if the `}` were the next match arm,
+  // because the offside rule sees dedents and a trailing `})` is not one.
+  test("closes a layout block at the delimiter that ends its group", () => {
+    const result = layout(
+      "let m =\n" +
+      "    Seq({ pull = () => match next(source)\n" +
+      "        None => None\n" +
+      "        Some((v, r)) => Some((v, r)) })",
+    );
+
+    // The arm block's VClose lands on the `}`, before it — not after `})` at EOF.
+    const closer = result.tokens.findIndex(({ kind }) => kind === "RightBrace");
+    expect(result.tokens[closer - 1]?.kind).toBe("VClose");
+    expect(virtualKinds(result.tokens)).toEqual([
+      "VOpen", "VOpen", "VOpen", "VSep", "VClose", "VClose", "VClose",
+    ]);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  test("closes a layout block at a `)` too — the group's kind is irrelevant", () => {
+    const result = layout(
+      "let m =\n" +
+      "    f(() => match next(source)\n" +
+      "        None => None\n" +
+      "        Some((v, r)) => Some((v, r)))",
+    );
+
+    // Position, not just the multiset: without the rule the VCloses still all
+    // appear, just after the `)` at EOF, which is what misparsed.
+    const closer = result.tokens.findLastIndex(({ kind }) => kind === "RightParen");
+    expect(result.tokens[closer - 1]?.kind).toBe("VClose");
+    expect(virtualKinds(result.tokens)).toEqual([
+      "VOpen", "VOpen", "VOpen", "VSep", "VClose", "VClose", "VClose",
+    ]);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  test("one closer unwinds every block its group opened", () => {
+    const result = layout(
+      "let m =\n" +
+      "    f(x => match a\n" +
+      "        A => match b\n" +
+      "            B => 1)",
+    );
+
+    // Two arm blocks and the lambda body, all ended by the single `)`.
+    const closer = result.tokens.findIndex(({ kind }) => kind === "RightParen");
+    expect(result.tokens.slice(closer - 2, closer).map(({ kind }) => kind))
+      .toEqual(["VClose", "VClose"]);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  test("blocks opened outside the group survive its closer", () => {
+    const result = layout(
+      "let m =\n" +
+      "    match x\n" +
+      "        A => f({ y = 1 })\n" +
+      "        B => 2",
+    );
+
+    // The `}` and `)` close nothing: the arm block predates the group, and `B`
+    // still gets its VSep as a sibling arm.
+    expect(virtualKinds(result.tokens)).toEqual([
+      "VOpen", "VOpen", "VOpen", "VSep", "VClose", "VClose", "VClose",
+    ]);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  test("closes a layout block at a `]`, and at a `}` reached through `]`", () => {
+    const result = layout(
+      "let m =\n" +
+      "    [match p\n" +
+      "        True => 1\n" +
+      "        False => 0]",
+    );
+
+    const closer = result.tokens.findIndex(({ kind }) => kind === "RightBracket");
+    expect(result.tokens[closer - 1]?.kind).toBe("VClose");
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  test("a closer of the wrong kind closes nothing", () => {
+    // `)` against an open `[` matches no group, so it must not unwind the arm
+    // block — same reasoning as the unmatched case, different branch value.
+    const result = layout("let m =\n    id([match p\n        True => 1)\n");
+
+    const closer = result.tokens.findIndex(({ kind }) => kind === "RightParen");
+    expect(result.tokens[closer - 1]?.kind).not.toBe("VClose");
+    expect(virtualKinds(result.tokens).filter((kind) => kind === "VOpen"))
+      .toHaveLength(virtualKinds(result.tokens).filter((kind) => kind === "VClose").length);
+  });
+
+  test("a trailing `;` before a group's closer is still diagnosed", () => {
+    // The closer ends the block, so the `;` is trailing — §5 owes the diagnostic
+    // whichever line the closer sits on. Both spellings must agree.
+    const trailing = layout("let m =\n    id(match p\n        True => 1\n        False => 0;)");
+    const dedented = layout("let m =\n    id(match p\n        True => 1\n        False => 0;\n    )");
+
+    expect(trailing.diagnostics.map(({ message }) => message)).toEqual([
+      "`;` separates statements; Hexagon lines don't end with one.",
+    ]);
+    expect(trailing.diagnostics.map(({ message }) => message))
+      .toEqual(dedented.diagnostics.map(({ message }) => message));
+  });
+
+  test("brackets inside a string do not reach the group-closing rule", () => {
+    // §2's interpolation clause. A string is one composite physical token, so
+    // its `}` and `)` are invisible here — pinned because the rule would close
+    // real blocks on them if that ever stopped being true.
+    const result = layout(
+      "let m =\n" +
+      "    id(match p\n" +
+      "        True => \"a${ 1 }b)\"\n" +
+      "        False => \"}\")",
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    expect(virtualKinds(result.tokens)).toEqual([
+      "VOpen", "VOpen", "VOpen", "VSep", "VClose", "VClose", "VClose",
+    ]);
+  });
+
+  test("an unmatched closer closes no block", () => {
+    const result = layout("let m =\n    match x\n        A => 1)\n");
+
+    // One stray `)` must not unwind the arm block into a cascade of errors.
+    const closer = result.tokens.findIndex(({ kind }) => kind === "RightParen");
+    expect(result.tokens[closer - 1]?.kind).not.toBe("VClose");
+    expect(virtualKinds(result.tokens)).toEqual([
+      "VOpen", "VOpen", "VOpen", "VClose", "VClose", "VClose",
+    ]);
   });
 
   test("validates semicolons as same-line block separators", () => {
@@ -248,6 +382,37 @@ describe("applyLayout", () => {
 
     expect(result.diagnostics.map(({ message }) => message)).toContain(
       "expected an indented block",
+    );
+  });
+
+  test("keeps virtual tokens balanced over bracket and indentation soup", () => {
+    // `fc.string()` below is a good crash guard but almost never produces a block
+    // head, a delimiter, and a dedent in one input — the combination the
+    // group-closing rule works on. This generator does nothing else.
+    const line = fc.tuple(
+      fc.nat({ max: 3 }).map((depth) => " ".repeat(depth * 4)),
+      fc.constantFrom(
+        "match x", "f(", "g({ a = ", "h([", "x =>", "if p then", "while p",
+        "let y =", ")", "}", "]", "})", "])", "A => 1", "1", "y", ");",
+        "{ a = 1 }", "1;", "1;)",
+      ),
+    ).map(([indent, body]) => indent + body);
+
+    fc.assert(
+      fc.property(fc.array(line, { maxLength: 12 }), (lines) => {
+        const result = layout(lines.join("\n"));
+        let depth = 0;
+
+        for (const token of result.tokens) {
+          if (token.kind === "VOpen") depth += 1;
+          if (token.kind === "VClose") depth -= 1;
+          expect(depth).toBeGreaterThanOrEqual(0);
+        }
+
+        expect(depth).toBe(0);
+        expect(result.tokens.at(-1)?.kind).toBe("Eof");
+      }),
+      { numRuns: 500 },
     );
   });
 

@@ -343,11 +343,10 @@ responsibility. Step 8's shape depends on that line.
 
 ## Open, non-blocking
 
-- Layout ruling on multi-line `match` as a record-field value / lambda argument
-  (defect log finding 5) — owner: lexer-layout. Still owed, but no longer blocks
-  anything: *(2026-07-31, issue #177)* the finding covers only the spelling that
-  puts the `match` head on the field's own line; the spelling that opens a block
-  under the `=>` always worked, and `stdlib/Seq.hex` now uses it throughout. The
-  local-`let` form no longer stands — see the finding's correction note.
+- ~~Layout ruling on multi-line `match` as a record-field value / lambda argument
+  (defect log finding 5) — owner: lexer-layout.~~ **Closed 2026-07-31.** Ruled in
+  Lexer & Layout §2.2 (a closing delimiter ends every layout block its group
+  opened) and fixed in the layout pass; both spellings now compile to the same
+  program. The local-`let` step form went out with #177, on its own merits.
 - Issue filing for defects 1–4/6 on GitHub — James's call; the defect log is
   the canonical record either way.
