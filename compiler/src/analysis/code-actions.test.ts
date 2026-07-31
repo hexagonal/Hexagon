@@ -125,56 +125,56 @@ describe("code actions: infer return type", () => {
   });
 
   test("mints a name for a variable no annotation spells, avoiding the ones taken", () => {
-    // `first` is written, so the result's own variable cannot be `a` — writing
+    // `first` is written, so the empty vector's element cannot be `a` — writing
     // it would say the two are the same type, which they are not.
-    const source = "export fun pair(first: a, second) = (second, first)\n";
+    const source = "export fun pair(first: a) = (first, [])\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "pair"));
     expect(applied(source, action)).toBe(
-      "export fun pair(first: a, second): (b, a) = (second, first)\n",
+      "export fun pair(first: a): (a, Vector(b)) = (first, [])\n",
     );
   });
 
   test("parenthesizes a lambda that wrote no parameter list", () => {
-    const source = "export let twice = x => (x, x)\n";
+    const source = "export let twice = x => (1, 2)\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "twice"));
-    expect(applied(source, action)).toBe("export let twice = (x): (a, a) => (x, x)\n");
+    expect(applied(source, action)).toBe("export let twice = (x): (Int, Int) => (1, 2)\n");
   });
 
   test("parenthesizes a destructured parameter around all of it", () => {
     // A record pattern carries an `=` of its own, and the parameter list starts
     // where the lambda does — not at the last `=` before the arrow, which is
     // inside the pattern and would put the open parenthesis in the middle of it.
-    const source = "export let get = {a = p} => p\n";
+    const source = "export let get = {a = p} => 1\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "get"));
-    expect(applied(source, action)).toBe("export let get = ({a = p}): a => p\n");
+    expect(applied(source, action)).toBe("export let get = ({a = p}): Int => 1\n");
   });
 
   test("parenthesizes a constructor pattern, which ends in a parenthesis of its own", () => {
     // A parameter is a pattern, and this one closes with `)` without there
     // being a parameter list at all. Reading that `)` as the list's produced
-    // `Box(v): a => v`, which is not a program.
+    // `Box(v): Int => 1`, which is not a program.
     const source = [
       "export union Box(a) =",
       "    | Box(value: a)",
       "",
-      "export let ff = Box(v) => v",
+      "export let ff = Box(v) => 1",
       "",
     ].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "ff ="));
-    expect(applied(source, action)).toContain("export let ff = (Box(v)): a => v");
+    expect(applied(source, action)).toContain("export let ff = (Box(v)): Int => 1");
   });
 
   test("adds no parentheses to a parameter that already has them", () => {
     // `((x, y))` is one tuple-destructured parameter (Functions §3.1): the outer
     // parentheses are the parameter list and are already there.
-    const source = "export let fst = ((x, y)) => x\n";
+    const source = "export let fst = ((x, y)) => 1\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "fst"));
-    expect(applied(source, action)).toBe("export let fst = ((x, y)): a => x\n");
+    expect(applied(source, action)).toBe("export let fst = ((x, y)): Int => 1\n");
   });
 
   test("writes a zero-parameter signature after its empty parentheses", () => {
@@ -340,13 +340,14 @@ describe("code actions: infer return type", () => {
   });
 
   test("a declared type parameter is a name minting must not take", () => {
-    // `<a>` is declared and never written in a parameter, so nothing pairs it
-    // with a variable — but it is bound, and reusing it would say the result is
-    // the type the caller chooses.
-    const source = "export fun hold<a>(value) = (value, value)\n";
+    // `<a>` is declared and pairs with `value`, so the empty vector's element
+    // is a variable nothing spells — and reusing `a` for it would say the two
+    // are the type the caller chooses, which only one of them is.
+    const source = "export fun hold<a>(value: a) = ([], value)\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "hold"));
-    expect(applied(source, action)).toBe("export fun hold<a>(value): (b, b) = (value, value)\n");
+    expect(applied(source, action))
+      .toBe("export fun hold<a>(value: a): (Vector(b), a) = ([], value)\n");
   });
 
   test("offers nothing on a private function's own error", () => {
@@ -369,18 +370,47 @@ describe("code actions: infer return type", () => {
     expect(actionsOn(session, "/main.hex", source, "helper")).toEqual([]);
   });
 
-  test("still offers the return type when parameter types are missing too", () => {
-    // One diagnostic asks for both; this answers half of it, and the half it
-    // answers must be right. The message that remains no longer says "return".
+  test("waits when the result stands on a parameter that has no type yet", () => {
+    // One diagnostic asks for the parameter type and the return type together,
+    // and it carries `incompleteSignature` either way — so the mark that lets
+    // the return half through would let this through too. Asked of the tree
+    // instead: `value` has no annotation, so its type is a fresh variable, and
+    // the result *is* that variable.
     const source = "export fun identity(value) = value\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "identity"));
-    const repaired = applied(source, action);
-    expect(repaired).toBe("export fun identity(value): a = value\n");
-    session.setFile("/main.hex", repaired);
-    expect(session.diagnostics("/main.hex").map(({ message }) => message)).toEqual([
-      "exported function `identity` requires a complete signature; add type for parameter `value`",
+    expect(action.edits).toEqual([]);
+    expect(action.disabled).toBe(
+      "`value` has no type yet, so the result type of `identity` is not settled",
+    );
+
+    // What refusing buys. `: a` reads as right until the parameter is written,
+    // and then it is the annotation that gets blamed.
+    const written = "export fun identity(value: Int): a = value\n";
+    const { session: after } = sessionOf({ "/main.hex": written });
+    expect(after.diagnostics("/main.hex").map(({ message }) => message)).toEqual([
+      "`a` is a declared type variable, but the body requires `Int`; " +
+        "change the annotation to `Int`, or remove it to let the type be inferred",
     ]);
+  });
+
+  test("a bare parameter the result does not stand on is no reason to wait", () => {
+    // The borrowing is what decides, not the missing annotation. `1` is `Int`
+    // however `x` is eventually typed, so the repair is right under every
+    // completion and refusing would give it up for nothing.
+    const source = "export fun m(x) = 1\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    const action = sole(actionsOn(session, "/main.hex", source, "m("));
+    expect(applied(source, action)).toBe("export fun m(x): Int = 1\n");
+  });
+
+  test("the result borrows through whatever wraps it", () => {
+    // `Vector(a)` is not the parameter's type, it is built from it. A test on
+    // the result type alone — is it a variable? — would let this through.
+    const source = "export fun m(x) = [x]\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(sole(actionsOn(session, "/main.hex", source, "m(")).disabled)
+      .toBe("`x` has no type yet, so the result type of `m` is not settled");
   });
 
   test("is offered once when two diagnostics caret the same declaration", () => {
@@ -484,14 +514,14 @@ describe("code actions: infer return type", () => {
     // means the parser failed on the header and then there is no function here
     // to ask about. `export fun m) = 0` reports at exactly that offset and
     // offers nothing at all.
-    const source = "export fun double(value) = value + value\n";
+    const source = "export fun double(value: a) = value + value\n";
     const { session } = sessionOf({ "/main.hex": source });
     const messages = session.diagnostics("/main.hex").map(({ message }) => message);
     expect(messages).toHaveLength(2);
     expect(messages[1]).toMatch(/must declare every constraint/);
     const action = sole(actionsOn(session, "/main.hex", source, "double"));
     expect(action.disabled).toBeUndefined();
-    expect(applied(source, action)).toBe("export fun double(value): a = value + value\n");
+    expect(applied(source, action)).toBe("export fun double(value: a): a = value + value\n");
   });
 
   test("an error in another declaration is not this declaration's to wait on", () => {
@@ -700,18 +730,32 @@ describe("code actions: infer return type", () => {
     expect(applied(source, action)).toContain("export fun zero(): Int = 0");
   });
 
-  test("refuses when the written type would collide with one the body declares", () => {
-    // `z` is a declared type variable inside the body, and the result is that
-    // same variable — but nothing pairs the two, so the annotation would be
-    // minted as `a` and the checker would then have two distinct declared
-    // variables where the body needs one. Caught by compiling the edit.
+  test("a body-declared variable reaches the result through the parameter", () => {
+    // This was the case that showed compiling the edit to be load-bearing: `z`
+    // is declared in the body and is the result, nothing paired the two, so the
+    // annotation minted `a` and the checker then had two distinct declared
+    // variables where the body needed one.
+    //
+    // It is now refused a step earlier, and every route to it is: a rigid
+    // variable cannot arise in a body from nothing, so it reaches the result by
+    // way of a parameter, and an *annotated* parameter pairs it and mints
+    // nothing. See #187 — verification has no input left that is known to reach
+    // it, which is a question about whether to keep paying for it.
     const source = ["export fun keep(value) =", "    let held: z = value", "    held", ""]
       .join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "keep"));
     expect(action.edits).toEqual([]);
-    expect(action.disabled).toContain("writing `: a` would break `/main.hex`");
-    expect(action.disabled).toContain("distinct declared type variables");
+    expect(action.disabled).toBe(
+      "`value` has no type yet, so the result type of `keep` is not settled",
+    );
+
+    // Written, it pairs, and the repair is the user's own spelling.
+    const annotated = ["export fun keep(value: z) =", "    let held: z = value", "    held", ""]
+      .join("\n");
+    const { session: paired } = sessionOf({ "/main.hex": annotated });
+    expect(applied(annotated, sole(actionsOn(paired, "/main.hex", annotated, "keep"))))
+      .toContain("export fun keep(value: z): z =");
   });
 
   test("a diagnostic that quotes a column is not read as new when the edit moves it", () => {
@@ -729,17 +773,25 @@ describe("code actions: infer return type", () => {
     expect(applied(source, action)).toContain("export fun m(x: Int): Int = 1;");
   });
 
-  test("refuses an annotation that would silently change the type", () => {
-    // The one that justifies compiling before offering. `{...a}` is an *open*
-    // record inferred, and closed the moment it is written: the function goes
-    // from taking any record to taking only the empty one, and not one
-    // diagnostic anywhere says so.
+  test("an open record's row is a borrowing like any other", () => {
+    // The case that justified compiling before offering: `{...a}` is an *open*
+    // record inferred, and closed the moment it is written, so the function went
+    // from taking any record to taking only the empty one with no diagnostic
+    // anywhere saying so. The row variable comes from `r`, so this is refused
+    // for the ordinary reason now — which is why `variablesOf` has to count a
+    // record's tail, and not only the variables in its fields.
     const source = "export fun copy(r) = {...r}\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "copy"));
     expect(action.edits).toEqual([]);
     expect(action.disabled).toBe(
-      "writing `: {...a}` would change the type of `copy` from `{...a} -> {...a}` to `{} -> {}`",
+      "`r` has no type yet, so the result type of `copy` is not settled",
     );
+
+    // Annotated, the row is the user's own and writing it closes nothing.
+    const annotated = "export fun copy(r: {...a}) = {...r}\n";
+    const { session: paired } = sessionOf({ "/main.hex": annotated });
+    expect(applied(annotated, sole(actionsOn(paired, "/main.hex", annotated, "copy"))))
+      .toBe("export fun copy(r: {...a}): {...a} = {...r}\n");
   });
 });

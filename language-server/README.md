@@ -539,14 +539,25 @@ less than it looks.
 - **Only the return type is inferred, and one diagnostic can ask for more.** The
   checker's message asks for every missing annotation at once, so completing the
   signature of a function whose parameters are also unannotated leaves the error
-  standing with a shorter message. The action is still offered, because the half
-  it does is right; parameter types are the next one written.
+  standing with a shorter message. That is fine where the result does not depend
+  on the missing piece — `export fun m(x) = 1` is `Int` however `x` is typed —
+  and it is refused where it does, which is the next entry. Parameter types are
+  the next action to be written.
+- **A result standing on an un-annotated parameter waits for it.** An
+  un-annotated parameter gets a fresh type variable and the result generalizes
+  over it, so `export fun m(x) = [x]` infers `Vector(a)` for the same reason
+  `m(x: I) = [x]` does — one keystroke earlier, and far more common. Writing that
+  down and then typing `x: Int` blames the annotation for a signature the user
+  never wrote. The test is whether the result mentions a variable an
+  un-annotated parameter introduced, asked of the tree, because the checker's one
+  message cannot say which half of the signature is missing.
 - **A type variable written inside the body is not paired with the result's.**
   A body-level `let held: z = value` declares `z` in the same rigid scope as the
   signature, and nothing pairs it with the variable the result is built from, so
-  the annotation is minted as `a` and the two collide. The refusal is the
-  compiler's own message about distinct declared type variables, which says what
-  to do; pairing them properly means walking the body's annotations.
+  the annotation would be minted as `a` and the two would collide. In practice
+  the entry above gets there first: a rigid variable cannot arise in a body from
+  nothing, so it reaches the result through a parameter, and an annotated
+  parameter pairs it. Pairing body annotations properly means walking the body.
 - **A type alias is written as what it expands to.** `type Name = String` is
   transparent to the checker, and the inferred type carries no memory of the
   alias, so the action writes `String` where a reader would have written `Name`.
