@@ -65,7 +65,7 @@ export interface ReturnAnnotationInput {
    */
   readonly laidOut: LaidOut.File;
   /**
-   * This module's own file, lexed — see `insertionEdits` and `unclosedGroupIn`
+   * This module's own file, lexed — see `insertionPlan` and `unclosedGroupIn`
    * for what its tokens are read for. A whole file rather than an
    * array of tokens because they are read by *offset*: taking the file says
    * which text those offsets are into, where a bare array would leave every
@@ -104,6 +104,12 @@ export function planReturnAnnotation(
   // that will not check, where this names the missing `)` the user is one
   // keystroke from typing. The narrower sentence is the more useful one, and
   // asking for it first is what keeps this refusal reachable at all.
+  //
+  // The sentence is an inference from the plan's absence rather than a reading
+  // of the text, and it is the right inference for what puts a user here:
+  // `= (1)) = x` recovers a *closed* list the parser rejected, and is told about
+  // the parameter list when the truer complaint is the one the parser already
+  // made. Both point at the same line, so this costs precision, not direction.
   const writeEdits = insertionPlan(input.lexed, lambda);
   if (writeEdits === undefined) {
     return {
@@ -172,12 +178,19 @@ export function planReturnAnnotation(
  * `Int` ``, blaming a signature the user did not write for a typo they already
  * fixed.
  *
- * Two errors caret the *name* rather than any part of the declaration: the
- * missing signature this repair answers, and the undeclared constraint that
- * comes with it (`must declare every constraint`). Both are the absence of the
- * very thing being written, so neither is a reason to refuse to write it, and
- * both are skipped by span — they are the only diagnostics that sit inside the
- * binding, and either one is the reason this query was asked at all.
+ * The exception is the errors that report the missing signature itself — the
+ * annotations and the constraints that cannot be declared without them. Those
+ * are the absence of the very thing being written, so neither is a reason to
+ * refuse to write it, and each carries `incompleteSignature` to say so.
+ *
+ * They are skipped by that mark and not by where they sit, because *many* errors
+ * report at a declaration's name and only these two are answered by writing a
+ * signature. `` `m` is already bound `` reports there and is a real reason to
+ * wait: a rebinding conflict leaves the body's type unresolved, so the repair
+ * would be `: a` and wrong once the conflict is settled. So does exposing a
+ * private type through an exported binding. A span test cannot tell any of them
+ * apart, and reading the message text would make a sentence a user reads into an
+ * interface this query depends on.
  *
  * The other two are about the same thing — *did the parser get through it?* —
  * and neither can be asked of the diagnostics, because a declaration that stops
@@ -215,7 +228,7 @@ export function planReturnAnnotation(
  *
  * The last two questions are asked of the body alone. An unclosed *parameter
  * list* is not a broken type, it is a missing place to put one, and
- * `insertionEdits` refuses it in those terms.
+ * `insertionPlan` refuses it in those terms.
  */
 function unsettledBy(
   diagnostics: readonly Diagnostics.Diagnostic[],
@@ -228,20 +241,13 @@ function unsettledBy(
   const body = lambda.body.span.start.offset;
   const from = item.span.start.offset;
   const to = item.span.end.offset;
-  const binding = item.binding.span;
   for (const diagnostic of diagnostics) {
     // Errors only, for now because there is nothing else: no compiler pass emits
     // a warning today. The day one does, it must not take a repair away — a
     // warning is by definition something the user may leave alone.
     if (diagnostic.severity !== "error") continue;
+    if (diagnostic.incompleteSignature === true) continue;
     const { start, end } = diagnostic.primary;
-    // Both declaration-level errors report at exactly the binding, so this is a
-    // containment test rather than an equality one only to keep it a statement
-    // about the *name* rather than about two message strings. Where the region
-    // ends is not observable: a diagnostic reaching past the name means the
-    // parser lost the header, and then `functionAt` finds no function to ask
-    // about in the first place.
-    if (start.offset >= binding.start.offset && end.offset <= binding.end.offset) continue;
     if (start.offset >= from && end.offset <= to) {
       // Not "so the type is not settled": a JavaScript-spelled comment in the
       // body is an error whose own repair is offered beside this one and whose
@@ -251,6 +257,10 @@ function unsettledBy(
       return `the ${where} of \`${name}\` has an error to fix first: ${diagnostic.message}`;
     }
   }
+  // Over the body alone. Widening it to the whole declaration changes no answer
+  // — an unclosed group in the head either leaves `insertionPlan` with no `)` to
+  // write after, or carries a parse error the loop above has already returned on
+  // — so the narrower region is the one that matches what the sentence says.
   const unclosed = unclosedGroupIn(lexed, body, to);
   if (unclosed !== undefined) {
     return `the body of \`${name}\` has an unclosed \`${unclosed}\`, ` +

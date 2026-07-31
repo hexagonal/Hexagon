@@ -457,6 +457,23 @@ describe("code actions: infer return type", () => {
       .toMatch(/^the signature of `m` has an error to fix first: unknown type `Bogus`/);
   });
 
+  test("an error caret-ing the name is not thereby about the missing signature", () => {
+    // The trap in the *other* direction. Plenty of errors report at a
+    // declaration's name, and only the ones marked `incompleteSignature` are
+    // answered by writing one. A rebinding conflict leaves the body's type
+    // unresolved — `m(y)` cannot be settled while `m` means two things — so the
+    // repair would be `: a`, rigid and wrong the moment the conflict is.
+    const source = "export fun m(x: Int) = [x]\nexport fun m(y) = [m(y)]\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    const second = source.indexOf("m(y)");
+    const conflict = session.diagnostics("/main.hex")
+      .find(({ message }) => message.includes("already bound"));
+    expect(conflict?.primary.start.offset).toBe(second);
+    const action = sole(session.codeActions("/main.hex", { start: second, end: second }));
+    expect(action.edits).toEqual([]);
+    expect(action.disabled).toMatch(/^the signature of `m` has an error to fix first: /);
+  });
+
   test("the two errors that caret the name are not reasons to refuse", () => {
     // Both are the absence of the very thing being written — the missing
     // signature this answers, and the undeclared constraint that comes with it —

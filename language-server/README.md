@@ -275,10 +275,21 @@ the checker gives that parameter a fresh variable and the result generalizes ove
 it. `export fun m(x: I) = [x]` — a user two keystrokes into `Int` — infers
 `Vector(a)`, and writing that down turns the finished word into ``  `a` is a
 declared type variable, but the body requires `Int` ``, blaming a signature the
-user never wrote for a typo they have already fixed. Two errors caret the *name*
-rather than any part of the declaration — the missing signature this answers and
-the undeclared constraint that travels with it — and both are the absence of the
-thing being written, so neither is a reason to refuse to write it.
+user never wrote for a typo they have already fixed.
+
+The exception is the errors reporting the missing signature itself — the
+annotations, and the constraints that cannot be declared without them. Those are
+the absence of the thing being written, so neither is a reason to refuse to write
+it, and the checker marks them `incompleteSignature` rather than leaving them to
+be recognised. Marking is the point: plenty of errors report at a declaration's
+*name* and only these two are answered by writing a signature. `` `m` is already
+bound `` reports there too and is a real reason to wait, because a rebinding
+conflict leaves the body's type unresolved and the repair would again be `: a`.
+
+The cost of asking about the whole declaration is that errors which provably
+cannot change the result type refuse anyway: `export fun m(x: Bogus) = 42` waits,
+though the answer is `Int` under every repair of `Bogus`. That is the same
+trade the body half already makes, and it errs towards the explained refusal.
 
 That question is asked three times, because the diagnostics can only answer the
 first. Any error reported *inside* the declaration is this function's. But a body
