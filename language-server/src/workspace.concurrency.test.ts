@@ -195,6 +195,58 @@ test("a reload in flight loses to a buffer that opened during it", async () => {
   expect(workspace.session.hover(workspace.session.paths[0]!, 4)?.name).toBe("renamed");
 });
 
+test("a buffer that closes mid-scan is not swept away", async () => {
+  root = await mkdtemp(join(tmpdir(), "hexagon-concurrent-"));
+  await mkdir(join(root, "sub"));
+  await writeFile(join(root, "main.hex"), "let value: Int = 1\n");
+  await writeFile(join(root, "sub", "other.hex"), "let other: Int = 2\n");
+  const workspace = new Workspace();
+  await workspace.setRoots([root], () => {});
+  const uri = pathToFileURL(join(root, "main.hex")).toString();
+  await workspace.openDocument({ uri, getText: () => "let value: Int = 1\n" } as never);
+
+  // The rescan skips `main.hex` because it is open — but it *found* it, and
+  // the sweep has to know that. The document closes while the scan is parked
+  // in a later file, so by sweep time it is neither open nor recorded as
+  // walked: forgetting the skip retires a file that exists on disk,
+  // unexcluded, as though it had been deleted. Files at the root are found
+  // before files in subdirectories, so the park is reached after the skip.
+  const { parked, release } = parkNext("readFile", "other.hex");
+  const scan = workspace.setRoots([root], () => {});
+  await parked;
+  await workspace.closeDocument(uri);
+  release();
+  await scan;
+
+  expect(workspace.session.paths.some((path) => path.endsWith("main.hex"))).toBe(true);
+});
+
+test("a buffer that opens mid-read and closes again is not swept away", async () => {
+  root = await mkdtemp(join(tmpdir(), "hexagon-concurrent-"));
+  await mkdir(join(root, "sub"));
+  await writeFile(join(root, "main.hex"), "let value: Int = 1\n");
+  await writeFile(join(root, "sub", "other.hex"), "let other: Int = 2\n");
+  const workspace = new Workspace();
+
+  // Same retirement, other branch: here the open arrives while the scan is
+  // already inside its read of `main.hex`, so it is the post-read re-check
+  // that skips — and that skip, too, has to leave "found on disk" behind it
+  // when the document closes before the sweep.
+  const uri = pathToFileURL(join(root, "main.hex")).toString();
+  const first = parkNext("readFile", "main.hex");
+  const scan = workspace.setRoots([root], () => {});
+  await first.parked;
+  await workspace.openDocument({ uri, getText: () => "let value: Int = 1\n" } as never);
+  const second = parkNext("readFile", "other.hex");
+  first.release();
+  await second.parked;
+  await workspace.closeDocument(uri);
+  second.release();
+  await scan;
+
+  expect(workspace.session.paths.some((path) => path.endsWith("main.hex"))).toBe(true);
+});
+
 test("an edit before its open has settled does not invent a second file", async () => {
   root = await mkdtemp(join(tmpdir(), "hexagon-concurrent-"));
   const project = join(root, "workspace");

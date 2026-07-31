@@ -333,6 +333,24 @@ describe("the workspace walk", () => {
     expect(workspace.session.paths).toHaveLength(1);
   });
 
+  test("a disk delete does not silence an open buffer", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    const { workspace } = await scan(path);
+    const uri = workspace.uris.toUri(workspace.session.paths[0]!);
+    await workspace.openDocument({ uri, getText: () => "let value: Int = 2\n" } as never);
+
+    // A branch switch deletes the file while the editor keeps its dirty buffer
+    // open, and the watcher reports the delete. The buffer is still the truth:
+    // dropping the file and its URI mapping would decline every later edit, so
+    // the visibly open buffer loses diagnostics, hover, and navigation until
+    // it is closed and reopened.
+    await rm(join(path, "main.hex"));
+    await workspace.deleteFile(uri);
+    workspace.updateDocument({ uri, getText: () => "let renamed: Int = 2\n" } as never);
+    expect(workspace.session.hover(workspace.session.paths[0]!, 4)?.name).toBe("renamed");
+  });
+
   test("dropping a root drops its files", async () => {
     const path = await makeRoot();
     const a = join(path, "a");

@@ -138,14 +138,25 @@ export class Workspace {
         // By path, not by URI: a client opens a buffer under its own spelling,
         // and matching the string means every rescan clobbers that buffer with
         // disk text on any platform whose URIs differ from `pathToFileURL`'s.
-        if (this.#openPaths.has(path)) continue;
+        // Skipped, but still *found*: the walk saw this file on disk, and the
+        // trailing sweep must know that. Recorded as walked, or a buffer that
+        // closes between here and the sweep is retired as though the file had
+        // been deleted — the sweep's own open-file leg only covers files still
+        // open when it runs.
+        if (this.#openPaths.has(path)) {
+          walked.add(path);
+          continue;
+        }
         try {
           const text = await readFile(found, "utf8");
           // Asked again on the other side of the read, immediately before the
           // write it guards. `openDocument` is not serialized behind this scan,
           // so the file can be opened while the read is in flight — and the
           // disk text would then land on top of the user's unsaved edits.
-          if (this.#openPaths.has(path)) continue;
+          if (this.#openPaths.has(path)) {
+            walked.add(path);
+            continue;
+          }
           this.session.setFile(path, text);
           this.#pathsByRealPath.set(realPath, path);
           walked.add(path);
@@ -366,9 +377,14 @@ export class Workspace {
   }
 
   async deleteFile(uri: string): Promise<void> {
-    this.#openUris.delete(uri);
+    // Open documents win here too. A branch switch deletes files the editor
+    // keeps open — dirty, visible, and restorable with a save — so the buffer
+    // remains the truth until the client says it closed. Dropping the file
+    // *and* its URI mapping here would do worse than lose the text: every
+    // later edit finds no settled path and is declined, so the open buffer
+    // silently loses language support until it is closed and reopened.
+    if (this.#openUris.has(uri)) return;
     const path = await this.#pathOf(uri);
-    this.#openPaths.delete(path);
     this.session.removeFile(path);
     this.#pathByUri.delete(uri);
   }
