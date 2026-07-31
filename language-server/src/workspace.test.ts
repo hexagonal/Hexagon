@@ -8,7 +8,7 @@
  * only exercises the protocol.
  */
 
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -126,16 +126,18 @@ describe("the workspace walk", () => {
     const { workspace } = await scan(path);
     const uri = workspace.uris.toUri(workspace.session.paths[0]!);
 
+    // The buffer differs from disk by the *name* it declares, not by the value.
+    // Asserting on the type would prove nothing: `Int` is `Int` in both texts,
+    // so the assertion would hold just as well against the disk text it is
+    // supposed to rule out.
     await workspace.openDocument({
       uri,
-      getText: () => "let value: Int = 2\n",
+      getText: () => "let renamed: Int = 2\n",
     } as never);
     await workspace.setRoots([path], () => {});
     // Re-scanning must not clobber the buffer: the user's unsaved text is what
     // they are looking at, and disk is what they have not saved yet.
-    expect(workspace.session.hover(workspace.session.paths[0]!, 4)?.displayedType).toBe("Int");
-    const definition = workspace.session.definitions(workspace.session.paths[0]!, 4);
-    expect(definition).toHaveLength(1);
+    expect(workspace.session.hover(workspace.session.paths[0]!, 4)?.name).toBe("renamed");
   });
 
   test("`runtimePaths` privileges a module, and nothing else does", async () => {
@@ -292,9 +294,12 @@ describe("the workspace walk", () => {
     await writeFile(join(a, "main.hex"), "let value: Int = 1\n");
     await writeFile(join(a, "gen", "g.hex"), "let generated: Int = 2\n");
     await writeFile(join(b, "other.hex"), "let other: Int = 3\n");
-    // B's manifest excludes a directory under A. The trailing sweep is what
-    // makes that hold whichever order the roots arrive in; reading every
-    // manifest first only stops the walk adding a file the sweep then removes.
+    // B's manifest excludes a directory under A. Reading every manifest before
+    // any walk is what makes that hold whichever order the roots arrive in: the
+    // walk already knows B's exclusion when it descends A, so `g.hex` is never
+    // added in the first place. The trailing sweep would catch it too, but it
+    // never has to here — deleting the sweep's exclusion branch leaves this test
+    // green, which is why the claim belongs to the read order and not to it.
     await writeFile(join(b, MANIFEST_NAME), JSON.stringify({ exclude: [join(a, "gen")] }));
 
     const forwards = new Workspace();
@@ -358,5 +363,88 @@ describe("the workspace walk", () => {
     await workspace.setRoots([path], () => {});
     expect(workspace.session.paths).toHaveLength(1);
     expect(workspace.session.hover(workspace.session.paths[0]!, 4)?.name).toBe("value");
+  });
+
+  test("a symlink does not smuggle an excluded directory back in", async () => {
+    const path = await makeRoot();
+    await mkdir(join(path, "generated"));
+    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "generated", "broken.hex"), "let broken: Int = \n");
+    // The walk follows symlinks on purpose, so an excluded directory has a
+    // second name that the exclusion does not mention. Matching only the name
+    // the walk arrived by would put every file back — with its diagnostics, the
+    // exact thing `exclude` exists to silence.
+    await symlink(join(path, "generated"), join(path, "gen-link"), "dir");
+    await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["generated"] }));
+
+    const { workspace } = await scan(path);
+    expect(workspace.session.paths.map((p) => p.split("/").at(-1))).toEqual(["main.hex"]);
+    expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
+  });
+
+  // Permission bits do not apply to root, which would make the descent this
+  // test detects invisible rather than absent.
+  test.skipIf(process.getuid?.() === 0)("an excluded directory reached by a link is not descended at all", async () => {
+    const path = await makeRoot();
+    await mkdir(join(path, "generated", "deep"), { recursive: true });
+    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await symlink(join(path, "generated"), join(path, "gen-link"), "dir");
+    await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["generated"] }));
+    // Rejecting the *files* inside an excluded directory would give the same
+    // file set while still listing every directory under it, which is most of
+    // the cost `exclude` is asked for — a generated tree is excluded because it
+    // is big. An unreadable subdirectory makes that descent observable: reaching
+    // it at all reports an error, so the guard is the difference between one
+    // error and none, which no assertion about the file set can see.
+    const unreadable = join(path, "generated", "deep");
+    await chmod(unreadable, 0o000);
+
+    const workspace = new Workspace();
+    const errors: string[] = [];
+    try {
+      await workspace.setRoots([path], (message) => errors.push(message));
+    } finally {
+      // Restored whatever happened, or the temporary directory cannot be removed
+      // and every later test in the file inherits the mess.
+      await chmod(unreadable, 0o755);
+    }
+    expect(errors).toEqual([]);
+  });
+
+  test("a symlink to a single excluded file is excluded too", async () => {
+    const path = await makeRoot();
+    await mkdir(join(path, "generated"));
+    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "generated", "broken.hex"), "let broken: Int = \n");
+    await symlink(join(path, "generated", "broken.hex"), join(path, "alias.hex"), "file");
+    await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["generated"] }));
+
+    const { added, workspace } = await scan(path);
+    expect(workspace.session.paths.map((p) => p.split("/").at(-1))).toEqual(["main.hex"]);
+    // The count, not just the final file set: the trailing sweep would remove
+    // the alias afterwards either way, so only this says the walk never read it
+    // — and the count is what the server reports to the user at startup.
+    expect(added).toBe(1);
+  });
+
+  test("opening an excluded file by its symlinked name does not add it", async () => {
+    const path = await makeRoot();
+    await mkdir(join(path, "generated"));
+    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "generated", "broken.hex"), "let broken: Int = \n");
+    await symlink(join(path, "generated"), join(path, "gen-link"), "dir");
+    await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["generated"] }));
+    const { workspace } = await scan(path);
+
+    // Exclusion has to hold at every door into the session, and opening the file
+    // under the link is a door the walk never used.
+    const uri = workspace.uris.toUri(join(path, "gen-link", "broken.hex"));
+    const document = { uri, getText: () => "let broken: Int = \n" };
+    await workspace.openDocument(document as never);
+    expect(workspace.session.paths.map((p) => p.split("/").at(-1))).toEqual(["main.hex"]);
+
+    // And it must still hold on the next keystroke, which takes the sync path.
+    workspace.updateDocument(document as never);
+    expect(workspace.session.paths.map((p) => p.split("/").at(-1))).toEqual(["main.hex"]);
   });
 });

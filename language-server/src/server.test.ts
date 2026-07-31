@@ -74,6 +74,8 @@ interface Harness {
   readonly root: string;
   readonly uriOf: (name: string) => string;
   readonly diagnosticsFor: (uri: string) => Promise<readonly Diagnostic[]>;
+  /** Whatever has already arrived for a URI, without waiting for more. */
+  readonly publishedFor: (uri: string) => readonly Diagnostic[] | undefined;
   readonly dispose: () => Promise<void>;
 }
 
@@ -134,6 +136,7 @@ async function harness(files: Record<string, string>): Promise<Harness> {
         }
         waiting.set(uri, resolve);
       }),
+    publishedFor: (uri) => latest.get(uri),
     dispose: async () => {
       await client.sendRequest(ShutdownRequest.type, undefined);
       await client.sendNotification(ExitNotification.type);
@@ -402,6 +405,55 @@ describe("the Hexagon language server", () => {
       // happened at all; their exact wording is the compiler's business.
       const reported = await solo.diagnosticsFor(solo.uriOf("generated.hex"));
       expect(reported.length).toBeGreaterThan(0);
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  test("a manifest mistake outranks an entry that matches nothing", async () => {
+    const solo = await harness({
+      "main.hex": "let value: Int = 1\n",
+      "hexagon.json": ['{', '  "exclude": ["absent"],', '  "nope": []', '}'].join("\n"),
+    });
+    try {
+      const reported = await solo.diagnosticsFor(solo.uriOf("hexagon.json"));
+      // Reported against the manifest itself, at two volumes: a misspelled key
+      // is wrong today and always will be, while an entry naming a path that is
+      // not there yet is only inert. Publishing both as errors would teach a
+      // user to ignore the file that explains their configuration.
+      expect(reported.map(({ severity }) => severity).sort()).toEqual([1, 2]);
+      expect(reported.find(({ severity }) => severity === 2)!.message)
+        .toContain("matches no file");
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  test("a nested manifest is skipped, not read into the session as Hexagon", async () => {
+    const solo = await harness({ "main.hex": "let value: Int = 1\n" });
+    try {
+      // Only a *root's* manifest is read. A vendored sub-project's has to be
+      // skipped rather than fall through to the file handler, which would hand
+      // JSON to the Hexagon parser and report its braces as syntax errors — in
+      // a file the user never opened and cannot fix by editing Hexagon. It also
+      // never triggers a reload, so the junk would sit there until some root
+      // manifest happened to change.
+      await mkdir(join(solo.root, "vendor"));
+      const nested = join(solo.root, "vendor", "hexagon.json");
+      await writeFile(nested, JSON.stringify({ runtimePaths: [] }));
+      const uri = pathToFileURL(nested).toString();
+      await solo.client.sendNotification(DidChangeWatchedFilesNotification.type, {
+        changes: [{ uri, type: 1 }],
+      });
+
+      // Something has to arrive before absence means anything, so this waits on
+      // a real publication for another file and then checks the JSON got none.
+      await writeFile(join(solo.root, "later.hex"), "let broken: Int = \n");
+      await solo.client.sendNotification(DidChangeWatchedFilesNotification.type, {
+        changes: [{ uri: solo.uriOf("later.hex"), type: 1 }],
+      });
+      expect((await solo.diagnosticsFor(solo.uriOf("later.hex"))).length).toBeGreaterThan(0);
+      expect(solo.publishedFor(uri)).toBeUndefined();
     } finally {
       await solo.dispose();
     }

@@ -261,7 +261,9 @@ function publishDiagnostics(
     connection.sendDiagnostics({
       uri,
       diagnostics: result.problems.map((problem) => ({
-        severity: 1 as const,
+        severity: problem.severity === "error"
+          ? DiagnosticSeverity.Error
+          : DiagnosticSeverity.Warning,
         // The protocol types a character as `uinteger`, which is 32-bit.
         // `Number.MAX_SAFE_INTEGER` exceeds it: VS Code clamps, but a client
         // deserializing into an unsigned 32-bit integer fails or wraps.
@@ -281,9 +283,14 @@ function publishDiagnostics(
   // Saying so costs one publication and cannot be mistaken for a compiler error.
   for (const document of open) {
     if (!workspace.isExcludedUri(document.uri)) continue;
-    stillReporting.add(document.uri);
+    // Through the remembered pairing like every other publication here, rather
+    // than the document's own URI. They agree for an open document, since its
+    // spelling is the first one seen — but reaching past `toUri` is how the two
+    // drift apart, and `published` is keyed by whatever this sends.
+    const uri = workspace.uris.toUri(workspace.uris.toPath(document.uri));
+    stillReporting.add(uri);
     connection.sendDiagnostics({
-      uri: document.uri,
+      uri,
       diagnostics: [{
         severity: DiagnosticSeverity.Information,
         range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },

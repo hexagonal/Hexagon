@@ -29,8 +29,8 @@
  * sharing the reader.
  */
 
-import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { readdir, readFile, stat } from "node:fs/promises";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { normalizePath } from "./positions.js";
 
 export const MANIFEST_NAME = "hexagon.json";
@@ -55,6 +55,16 @@ export interface ManifestProblem {
   readonly message: string;
   /** Zero-based line within `hexagon.json`, or 0 when the file did not parse. */
   readonly line: number;
+  /**
+   * Whether this is a mistake or merely an entry that currently matches nothing.
+   *
+   * A misspelled key or a value of the wrong type is always wrong. An entry
+   * naming a path that does not exist is a weaker claim: it does nothing today,
+   * which is nearly always a typo, but `exclude: ["dist"]` in a fresh clone is
+   * legitimately ahead of the build that creates it. Reporting both at the same
+   * volume would either cry wolf on the second or stay silent on the first.
+   */
+  readonly severity: "error" | "warning";
 }
 
 export interface ManifestResult {
@@ -97,6 +107,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
           error instanceof Error ? error.message : String(error)
         }`,
         line: 0,
+        severity: "error",
       }],
     };
   }
@@ -113,7 +124,11 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
     return {
       manifest: EMPTY,
       present: true,
-      problems: [{ message: `${MANIFEST_NAME} must contain a JSON object`, line: 0 }],
+      problems: [{
+        message: `${MANIFEST_NAME} must contain a JSON object`,
+        line: 0,
+        severity: "error",
+      }],
     };
   }
 
@@ -125,20 +140,29 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
     problems.push({
       message: `unknown ${MANIFEST_NAME} key \`${key}\`; expected \`runtimePaths\` or \`exclude\``,
       line: lineOf(key),
+      severity: "error",
     });
   }
 
-  const readPaths = (key: "runtimePaths" | "exclude"): readonly string[] => {
+  const readPaths = async (key: "runtimePaths" | "exclude"): Promise<readonly string[]> => {
     const value = record[key];
     if (value === undefined) return [];
     if (!Array.isArray(value)) {
-      problems.push({ message: `${MANIFEST_NAME} \`${key}\` must be an array of paths`, line: lineOf(key) });
+      problems.push({
+        message: `${MANIFEST_NAME} \`${key}\` must be an array of paths`,
+        line: lineOf(key),
+        severity: "error",
+      });
       return [];
     }
     const paths: string[] = [];
     for (const entry of value) {
       if (typeof entry !== "string") {
-        problems.push({ message: `${MANIFEST_NAME} \`${key}\` entries must be strings`, line: lineOf(key) });
+        problems.push({
+          message: `${MANIFEST_NAME} \`${key}\` entries must be strings`,
+          line: lineOf(key),
+          severity: "error",
+        });
         continue;
       }
       // Relative to the manifest, which is the only reading that survives the
@@ -155,8 +179,24 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
             `${MANIFEST_NAME} \`exclude\` entry ${JSON.stringify(entry)} covers the workspace ` +
             "root, which would exclude the whole project",
           line: lineOf(key),
+          severity: "error",
         });
         continue;
+      }
+      // An entry that names nothing is the silent failure this file was written
+      // to prevent, and the likeliest cause is a spelling the filesystem itself
+      // forgives: macOS and Windows open `Trie.hex` when the file is `trie.hex`,
+      // so the user's own editor gives them no hint, while path comparison here
+      // is exact and the entry does nothing at all. A privileged module that is
+      // not privileged brings back the very errors it was written to remove.
+      if (!(await matchesExactly(rootPath, resolved))) {
+        problems.push({
+          message:
+            `${MANIFEST_NAME} \`${key}\` entry ${JSON.stringify(entry)} matches no file or ` +
+            "directory, so it has no effect (check the spelling, including its case)",
+          line: lineOf(key),
+          severity: "warning",
+        });
       }
       paths.push(resolved);
     }
@@ -164,10 +204,61 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
   };
 
   return {
-    manifest: { runtimePaths: readPaths("runtimePaths"), exclude: readPaths("exclude") },
+    // Sequential rather than concurrent so that problems are reported in the
+    // order the fields are written, which is the order the user reads them in.
+    manifest: {
+      runtimePaths: await readPaths("runtimePaths"),
+      exclude: await readPaths("exclude"),
+    },
     problems,
     present: true,
   };
+}
+
+/**
+ * Whether this path names something, spelled exactly as the filesystem spells
+ * it.
+ *
+ * Asking `stat` would be the obvious test and is the wrong one: macOS and
+ * Windows open `Trie.hex` when the file is `trie.hex`, so `stat` reports
+ * success for exactly the entry that will then match nothing, since path
+ * comparison here is exact. Reading each directory and looking for the literal
+ * name is what makes the two agree. `realpath` would also reveal the true case
+ * on macOS, but it resolves symlinks at the same time, so an entry that
+ * legitimately names a link would come back as a mismatch.
+ *
+ * Components are checked from the root down, because the wrong case can be in
+ * any of them and only the last one is visible in an error otherwise.
+ */
+async function matchesExactly(rootPath: string, resolved: string): Promise<boolean> {
+  const within = relative(rootPath, resolved);
+  if (within === "") return true;
+  // Outside the root there is no chain to walk down, and an entry above the
+  // root is already refused when it covers the root; anything else is somebody
+  // pointing at a sibling checkout, where existence is all that can be said.
+  if (within.startsWith("..") || isAbsolute(within)) return await exists(resolved);
+  let at = rootPath;
+  for (const part of within.split(sep)) {
+    let entries: readonly string[];
+    try {
+      entries = await readdir(at);
+    } catch {
+      return false;
+    }
+    if (!entries.includes(part)) return false;
+    at = join(at, part);
+  }
+  return true;
+}
+
+/** Whether anything at all is at this path, without caring what. */
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

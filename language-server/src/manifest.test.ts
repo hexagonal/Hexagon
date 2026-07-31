@@ -1,6 +1,6 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, extname, join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { MANIFEST_NAME, isExcluded, readManifest } from "./manifest.js";
 
@@ -10,6 +10,20 @@ async function rootWith(contents?: string): Promise<string> {
   root = await mkdtemp(join(tmpdir(), "hexagon-manifest-"));
   if (contents !== undefined) await writeFile(join(root, MANIFEST_NAME), contents, "utf8");
   return root;
+}
+
+/**
+ * Creates the paths a manifest names, so that a test about something else is
+ * not also a test about whether they exist. An entry matching nothing is a
+ * reported problem in its own right, and most of these fixtures would otherwise
+ * carry that warning into assertions that have nothing to do with it.
+ */
+async function make(path: string, ...entries: readonly string[]): Promise<void> {
+  for (const entry of entries) {
+    await mkdir(dirname(join(path, entry)), { recursive: true });
+    if (extname(entry) === "") await mkdir(join(path, entry), { recursive: true });
+    else await writeFile(join(path, entry), "", "utf8");
+  }
 }
 
 afterEach(async () => {
@@ -30,6 +44,7 @@ describe("readManifest", () => {
     const path = await rootWith(
       JSON.stringify({ runtimePaths: ["runtime/VectorTrie.hex"], exclude: ["examples"] }),
     );
+    await make(path, "runtime/VectorTrie.hex", "examples");
     const result = await readManifest(path);
     // Relative to the manifest is the only reading that survives the project
     // being checked out somewhere else, or the server being launched elsewhere.
@@ -42,6 +57,7 @@ describe("readManifest", () => {
     // VS Code writes one when `files.encoding` is `utf8bom`, and `JSON.parse`
     // then fails complaining about a character nobody can see.
     const path = await rootWith(`\uFEFF${JSON.stringify({ exclude: ["build"] })}`);
+    await make(path, "build");
     const result = await readManifest(path);
     expect(result.problems).toEqual([]);
     expect(result.manifest.exclude).toEqual([join(path, "build")]);
@@ -51,6 +67,7 @@ describe("readManifest", () => {
     const path = await rootWith(
       ['{', '  "exclude": ["runtimePaths"],', '  "runtimePaths": "nope"', '}'].join("\n"),
     );
+    await make(path, "runtimePaths");
     const result = await readManifest(path);
     // The string value on line 1 spells the key reported on line 2; a substring
     // search would point at the wrong line.
@@ -87,6 +104,7 @@ describe("readManifest", () => {
     const path = await rootWith(
       ['{', '  "runtimePaths": "runtime/VectorTrie.hex",', '  "exclude": ["build"]', '}'].join("\n"),
     );
+    await make(path, "build");
     const result = await readManifest(path);
     expect(result.problems).toHaveLength(1);
     expect(result.problems[0]!.message).toContain("must be an array");
@@ -109,6 +127,36 @@ describe("readManifest", () => {
       await rm(path, { recursive: true, force: true });
     }
     root = "";
+  });
+
+  test("an entry that matches no file is reported rather than ignored", async () => {
+    const path = await rootWith(
+      ['{', '  "runtimePaths": ["runtime/Trie.hex"],', '  "exclude": ["Examples"]', '}'].join("\n"),
+    );
+    // The likeliest cause is a case the filesystem itself forgives: on macOS and
+    // Windows the user's editor opens `Trie.hex` when the file is `trie.hex`, so
+    // nothing anywhere else hints that this entry matches nothing — while the
+    // privilege it was meant to grant silently does not happen, and the errors
+    // it was written to remove come straight back.
+    await make(path, "runtime/trie.hex", "examples");
+    const result = await readManifest(path);
+    expect(result.problems.map(({ line, severity }) => ({ line, severity }))).toEqual([
+      { line: 1, severity: "warning" },
+      { line: 2, severity: "warning" },
+    ]);
+    for (const problem of result.problems) expect(problem.message).toContain("matches no file");
+    // Still applied: the entry is inert either way, and dropping it would mean
+    // the manifest quietly said something different from what it says.
+    expect(result.manifest.runtimePaths).toEqual([join(path, "runtime/Trie.hex")]);
+  });
+
+  test("a mistake outranks an entry that merely matches nothing", async () => {
+    const path = await rootWith(['{', '  "exclude": ["absent"],', '  "nope": []', '}'].join("\n"));
+    const result = await readManifest(path);
+    // Two different claims: a misspelled key is wrong today and always will be,
+    // while `exclude: ["dist"]` in a fresh clone is only ahead of the build that
+    // creates it. Reporting both as errors would teach a user to ignore both.
+    expect(result.problems.map(({ severity }) => severity).sort()).toEqual(["error", "warning"]);
   });
 
   test("a non-object manifest is refused outright", async () => {
