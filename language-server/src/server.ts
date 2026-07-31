@@ -24,6 +24,7 @@
  */
 
 import {
+  CodeActionKind,
   CompletionItemKind,
   DidChangeWatchedFilesNotification,
   ErrorCodes,
@@ -32,6 +33,7 @@ import {
   DiagnosticSeverity,
   ResponseError,
   TextDocuments,
+  type CodeAction,
   type CompletionItem,
   type Connection,
   type Definition,
@@ -51,6 +53,12 @@ import { basename, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { refused, type Completion, type Source, type Target } from "../../compiler/src/index.js";
 import { toLspDiagnostic } from "./diagnostics.js";
+import {
+  codeActionSupportOf,
+  toLspCodeAction,
+  wantsQuickFixes,
+  type CodeActionSupport,
+} from "./code-actions.js";
 import { offsetOfPosition, rangeOfSpan } from "./positions.js";
 import { Workspace } from "./workspace.js";
 import { MANIFEST_NAME, type ManifestResult } from "./manifest.js";
@@ -70,6 +78,8 @@ export function startServer(connection: Connection): void {
   const published = new Set<string>();
   let publishTimer: ReturnType<typeof setTimeout> | undefined;
   let watchedFilesRegistered = false;
+  /** Read once at initialization: what shape of code action this client takes. */
+  let codeActions: CodeActionSupport = { literals: false, disabled: false };
   let roots: readonly string[] = [];
   /** Each root's manifest problems, republished whenever diagnostics are. */
   const manifests = new Map<string, ManifestResult>();
@@ -92,6 +102,7 @@ export function startServer(connection: Connection): void {
     for (const root of roots) manifestPaths.add(workspace.uris.toPath(manifestUriOf(root)));
     log(`initialized over ${roots.length} root(s); ${added} Hexagon file(s) found`);
     watchedFilesRegistered = params.capabilities.workspace?.didChangeWatchedFiles?.dynamicRegistration === true;
+    codeActions = codeActionSupportOf(params.capabilities.textDocument?.codeAction);
     return {
       capabilities: {
         // Incremental sync keeps a large file's edits proportional to the edit
@@ -116,6 +127,14 @@ export function startServer(connection: Connection): void {
         // cannot follow a dot. No `resolveProvider`: every item is complete when
         // it is sent, so there is nothing a second round trip would add.
         completionProvider: { triggerCharacters: ["."] },
+        // Quick fixes only: every action this slice offers answers a diagnostic,
+        // and declaring a kind the server never returns makes a client ask for
+        // it on every save. No `resolveProvider` — an action arrives complete,
+        // because the work that would justify deferring it is the work that
+        // decides whether to offer the action at all.
+        ...(codeActions.literals
+          ? { codeActionProvider: { codeActionKinds: [CodeActionKind.QuickFix] } }
+          : {}),
       },
       serverInfo: { name: "Hexagon Language Server", version: "0.0.1" },
     };
@@ -235,6 +254,28 @@ export function startServer(connection: Connection): void {
       kind: completionKindOf(completion.kind),
       ...(completion.detail === undefined ? {} : { detail: completion.detail }),
     }));
+  });
+
+  connection.onCodeAction(({ textDocument, range, context }): CodeAction[] | null => {
+    const document = documents.get(textDocument.uri);
+    if (document === undefined) return null;
+    if (!wantsQuickFixes(context.only)) return null;
+    const path = workspace.uris.toPath(textDocument.uri);
+    const pathOfFile = (fileId: number): string | undefined =>
+      workspace.session.pathOfFile(fileId as Source.FileId);
+    // The client's own `context.diagnostics` are not consulted: they are the
+    // ones it happens to be showing, which after an edit is the previous
+    // analysis. The session's are the current ones, and an action built from
+    // stale spans would edit the wrong characters.
+    const offered = workspace.session.codeActions(path, {
+      start: offsetOfPosition(document, range.start),
+      end: offsetOfPosition(document, range.end),
+    });
+    const actions = offered.flatMap((action) => {
+      const converted = toLspCodeAction(action, codeActions, workspace.uris, pathOfFile);
+      return converted === undefined ? [] : [converted];
+    });
+    return actions.length === 0 ? null : actions;
   });
 
   connection.languages.semanticTokens.on(({ textDocument }): SemanticTokens => {

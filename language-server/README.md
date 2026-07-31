@@ -2,7 +2,7 @@
 
 The Hexagon language server: the process that exposes Hexagon language intelligence through Microsoft's Language Server Protocol (LSP).
 
-Two slices are implemented over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references, then semantic tokens, rename and completion. Formatting, code actions and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
+Three slices are implemented over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions. Formatting, refactoring actions and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
 
 This document states the boundary between the language server and the compiler. That boundary is the reason the server is small: every request handler converts coordinates, asks the session one question, and converts the answer back.
 
@@ -54,6 +54,7 @@ language-server/
     positions.ts       the single LSP-to-compiler coordinate boundary
     diagnostics.ts     conversion of compiler diagnostics to the protocol's shape
     semantic-tokens.ts the legend, and the protocol's relative token encoding
+    code-actions.ts    quick fixes, and what shape of one a client understands
 ```
 
 Tests sit beside their subject, with one exception: `workspace.concurrency.test.ts`
@@ -81,20 +82,23 @@ allDiagnostics()          every held file's, empty lists included
 definitions(path, offset) where the name at this offset is declared
 references(path, offset)  every occurrence of what it denotes
 hover(path, offset)       what it is, and its type if it has one
+codeActions(path, range)  the repairs offered here, refusals included
 pathOfFile(fileId)        the file a span's numeric identity names
 ```
 
 Positions crossing this API are UTF-16 offsets into the named file, never line and character pairs — see below.
 
-Analysis is recomputed lazily and wholly: any change discards it and the next question rebuilds it. That is a decision, not a placeholder. Reanalyzing this repository's own `stdlib/` and `runtime/` after an edit measures a median of about 40ms — well inside the delay diagnostics are debounced by — so incremental reuse would buy nothing yet and would have to guess what is worth keeping before any query exists to say. A rename adds roughly one more compilation on top of whatever the session already holds, since it recompiles an edited copy and compares the two; it is not on the keystroke path.
+An analysis retains every module's resolved *and* typed tree, since a code action asks the checker's own answer for a declaration and the two must be read together. Analysis is recomputed lazily and wholly: any change discards it and the next question rebuilds it. That is a decision, not a placeholder. Reanalyzing this repository's own `stdlib/` and `runtime/` after an edit measures a median of about 40ms — well inside the delay diagnostics are debounced by — so incremental reuse would buy nothing yet and would have to guess what is worth keeping before any query exists to say. A rename adds roughly one more compilation on top of whatever the session already holds, since it recompiles an edited copy and compares the two; it is not on the keystroke path.
 
-Five compiler queries sit behind these answers, and each exists because no other part of the compiler still knows what it knows:
+Seven compiler queries sit behind these answers, and each exists because no other part of the compiler still knows what it knows:
 
 - `queries/occurrences.ts` indexes every name that denotes something together with what it denotes — values, unions, records, foreign types, and constraints. Definitions, references, rename and semantic tokens all read this one table. It reads the resolved tree for identity, the parsed tree for constraints, the source for a head name inside a wider span, and the *typed* tree for one thing only: the operation name of a dot call, which nothing earlier has decided the meaning of.
 - `queries/type-occurrences.ts` gives hover its types, keyed by the same spans.
 - `queries/symbol-facts.ts` records, per value symbol, how it was bound *and* whether the checker gave it a function type. The two come apart constantly: `let brighten(colour) = …` is a `let`, `extern fun` and `extern let` are both `extern`, and `let g = f` is a function with no parameter list anywhere.
 - `queries/semantic-tokens.ts` classifies names, and only names — see below.
 - `queries/completions.ts` answers what could be written at an offset, from a scope record the resolver now keeps.
+- `queries/type-spelling.ts` writes a type back out as source: which nominal types this module has a *name* for, and what to call each type variable.
+- `queries/return-annotation.ts` finds the function a missing return type belongs to and where the colon goes.
 
 ## Semantic tokens, rename, and completion
 
@@ -210,6 +214,105 @@ it, while an unterminated one runs to the end of the file and that last offset i
 exactly where the caret sits as it is being typed. Closure is counted, since
 block comments nest and a text ending in `*)` is not proof of it.
 
+## Quick fixes
+
+Code actions arrive in two halves, and this is the first: **every action answers
+a diagnostic**. Refactorings the user asks for out of nowhere — extract this,
+inline that — are the second half and are not here. The split is not tidiness. It
+is what bounds the cost: an action is computed only where the caret is on an
+error the user can already see, which is rare and deliberate, where a refactoring
+menu must answer every cursor movement.
+
+Two sources feed the same request. A compiler diagnostic may carry its own
+`fixes`, written at the point the problem was found — the lexer's redirect from
+a JavaScript-spelled block comment to `(* … *)` is one, and it has existed
+unreachable since #171, because nothing but a code action can offer it. Those
+pass through unchanged. Everything else is computed on demand, because it needs
+the whole project rather than the pass that found the fault.
+
+**`Infer return type`** is the first computed one. Modules §4.1.1 requires an
+exported function to annotate its result; the type is never in doubt, since
+inference has already worked it out, so the repair is a question of writing it
+down. Three things stand between the inferred type and text that means the same:
+
+**A type has to be spelled the way *this* module can name it.** The name a type
+carries is its declaration's, and `import {Colour as Shade}` leaves that name
+bound to nothing here. So the module's own bindings are read for a spelling —
+its declarations, the local half of each import clause, the prelude's names, and
+`Alias.Name` for a type reached only through a namespace import — and where
+there is none, the action is refused rather than written under a name that does
+not resolve. The same reading is what catches occlusion in both directions: a
+module that declares its own `Option` cannot spell the prelude's, and one that
+declares its own `Unit` cannot spell the language's. This is the one place the
+server's rendering deliberately differs from the hover's: `Typed.displayScheme`
+renders for a reader, where `?` and `t7` are honest, and this renders for a
+writer, where they are not.
+
+**A type variable has to keep the name the signature gave it.** `Typed` records
+a variable as an identity and nothing more, so the pairing is recovered by
+walking each written annotation beside the type inferred for it: the `a` in
+`fun listOf(value: a)` is the same variable the result is built from. Variables
+the signature never wrote get a fresh letter, avoiding the ones it did.
+
+**The edit is compiled before it is offered.** An annotation is not a comment: a
+type variable written in one is rigid while that definition is checked (Functions
+§4.1), so writing down what inference derived can restrict what the definition is
+allowed to mean. The edited project is compiled and the result compared — the
+function's type must render identically, and no diagnostic may appear anywhere
+that was not there before. The case that justifies the expense produces no
+diagnostic at all: `fun copy(r) = {...r}` infers the *open* record `{...a} ->
+{...a}`, and writing that type closes it, leaving a function that accepts only
+the empty record and an error message nowhere.
+
+A body that does not typecheck is refused before any of that. Inference does not
+stop at an unknown name — it yields a variable — so the repair on offer would be
+`: a`, which is true of the broken text and wrong the moment the name is fixed,
+at which point the rigid annotation is what gets blamed.
+
+That question is asked three times, because the diagnostics can only answer the
+first. Any error reported *inside* the declaration is this function's. But a body
+that stops parsing takes its own report with it: the parser carets whatever token
+it stopped on and then synchronizes forward, so `= {a = x` complains at the next
+declaration's first keyword — or at the end of the file when there is no next
+declaration — and neither position nor width tells that apart from a complaint
+about the file. The other two questions are therefore asked of the text, and they are the two
+ways a declaration stops early. **Does the body leave a bracket open?** — `= {a =
+x` ran off the end. **Does the declaration end where a declaration may end?** —
+`= x, y)` parses as `x` and abandons the rest, and `Int` is not the type of the
+tuple being written.
+
+That second question is put to *layout*, because the parser puts it to layout
+too: after an item it accepts `VSep`, `Semicolon`, `VClose` or the end, and
+anything else is "expected a newline or `;` between block items" followed by
+recovery eating the remains. Asking layout rather than reasoning about lines is
+the point. A comma or a closing bracket at the start of a line is an
+*expression continuation*, so no separator is emitted before it and `= x\n, y)`
+is the same event as `= x, y)` — where a rule about same-line tokens concludes
+the opposite. One consequence is a decision rather than a side effect: a
+*finished* body followed by a stray `}` on the next line is refused too, because
+it is the same event and no test on token positions can separate the two. A
+repair derived from a file the compiler gave up reading is the one worth waiting
+on. An unclosed *parameter list* is a separate answer with its own sentence —
+not a broken type, but no place to put one.
+
+**A refusal is still an action**, greyed out and carrying its reason, exactly as
+a `RenameRefusal` is a result rather than an error. Each of the three above
+produces a sentence a user can act on. Dropping them would leave a user waiting
+for a lightbulb that never comes, with nothing to say why — and this is the
+family of repair where the reason is the interesting part.
+
+The protocol decides how much of that a given client sees. A code action was once
+a `Command` and only later became a literal carrying its own edit; a client that
+never learned the newer form has nothing here it can apply, so the capability is
+not announced to one at all. A disabled action is newer still, and a client that
+cannot grey one out is sent nothing rather than an action that looks applicable
+and is not.
+
+The request does not consult the client's own `context.diagnostics`. Those are
+the ones it happens to be showing, which after an edit describe the previous
+analysis; the session's are current, and an action built from stale spans edits
+the wrong characters.
+
 ## Correctness principles
 
 - LSP positions are converted at one explicit boundary, `positions.ts`, to the compiler's source-position representation. Both count UTF-16 code units and number lines from zero, so a span crossing outward is a rename rather than a computation; only the inward direction needs the document's line index, which is why that direction takes a `TextDocument`.
@@ -241,7 +344,13 @@ The second adds:
 9. rename, with a preparation step, across every file the project owns; and
 10. completion, unqualified and after a module name.
 
-Formatting, code actions and workspace symbols follow as the necessary compiler services become stable. Features are not simulated with textual guesses when semantic information is required — where these slices read source text, it is to locate a name the tree already said was there, or to read a half-typed line no tree describes yet, never to decide what a name means.
+The third adds:
+
+11. quick fixes: a diagnostic's own repairs, and `Infer return type` for an
+    exported function that did not write one — verified by compiling the edit,
+    and refused in the open with its reason when it cannot be made.
+
+Formatting, refactoring code actions and workspace symbols follow as the necessary compiler services become stable. Features are not simulated with textual guesses when semantic information is required — where these slices read source text, it is to locate a name the tree already said was there, or to read a half-typed line no tree describes yet, never to decide what a name means.
 
 ## Implementation and distribution
 
@@ -385,6 +494,46 @@ less than it looks.
   names count as one: a collision that moves from the old name onto the new one
   can pass this test. The denotation comparison is the load-bearing check, and
   the user still sees the error.
+- **A broken declaration makes its *callers* provisional, and only its own is
+  checked.** `export fun size(v) = helper(v)` where `helper` is the one with the
+  mistake has a body with nothing wrong in it, so the repair is offered — and
+  the type it writes came through the broken call. Fixing `helper` then leaves a
+  rigid annotation that blames the signature. Catching it would mean deciding
+  which of a file's errors this declaration's type depends on, which is a
+  question about the checker's inference graph rather than about source spans.
+- **An exported value that is not a function gets nothing at all.** `export let
+  size = helper` reports `exported value \`size\` requires a type annotation`,
+  and no action answers it — not even a refusal, because there is no return type
+  to write and the colon would go somewhere else entirely. It is the gap a user
+  is most likely to meet, and it is the next action rather than a limit of this
+  one.
+- **Only the return type is inferred, and one diagnostic can ask for more.** The
+  checker's message asks for every missing annotation at once, so completing the
+  signature of a function whose parameters are also unannotated leaves the error
+  standing with a shorter message. The action is still offered, because the half
+  it does is right; parameter types are the next one written.
+- **A type variable written inside the body is not paired with the result's.**
+  A body-level `let held: z = value` declares `z` in the same rigid scope as the
+  signature, and nothing pairs it with the variable the result is built from, so
+  the annotation is minted as `a` and the two collide. The refusal is the
+  compiler's own message about distinct declared type variables, which says what
+  to do; pairing them properly means walking the body's annotations.
+- **A type alias is written as what it expands to.** `type Name = String` is
+  transparent to the checker, and the inferred type carries no memory of the
+  alias, so the action writes `String` where a reader would have written `Name`.
+- **`Infer return type` costs one extra compilation of the project** per
+  declaration it is offered for, on a request the editor sends whenever the
+  caret moves. It is bounded by needing a diagnostic under the caret, and by the
+  same measurement that makes rename affordable, but it is real in two ways: a
+  project big enough for whole-project analysis to be slow makes the lightbulb
+  slow at exactly those spots, and a *selection* covering many unsigned exports
+  pays for each of them. The repair is offered once per declaration, not once
+  per diagnostic, which is what keeps the usual case at one.
+- **A selection covering several unsigned exports offers several identically
+  titled actions.** The title says what the repair does, not which declaration
+  it does it to, so in that one case the menu entries are told apart only by
+  their previews. A caret on one error — how a quick fix is normally reached —
+  offers exactly one.
 - **A prelude module that no other module references is not compiled**, so it has
   no tokens, no completions, and cannot be renamed within. This is only visible
   in a project that compiles the standard library itself, and it can make a
