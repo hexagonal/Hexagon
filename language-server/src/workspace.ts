@@ -61,54 +61,64 @@ export class Workspace {
   #exclude: readonly string[] = [];
 
   /**
-   * Reads every Hexagon file under a workspace root, as the root's `hexagon.json`
-   * describes it. Failures are reported rather than thrown: a workspace with one
-   * unreadable directory should still give language support for the rest of
-   * itself.
+   * Replaces the workspace with these roots: reads each one's `hexagon.json`,
+   * reads every Hexagon file they describe, and drops anything now excluded.
+   * Failures are reported rather than thrown, so a workspace with one unreadable
+   * directory still gives language support for the rest of itself.
    *
-   * Returns the manifest's own problems so the caller can publish them against
+   * Returns each manifest's own problems so the caller can publish them against
    * the manifest file. They are not errors in anyone's Hexagon.
    */
-  async addRoot(
-    rootPath: string,
+  async setRoots(
+    roots: readonly string[],
     onError: (message: string) => void,
-  ): Promise<{ added: number; manifest: ManifestResult }> {
-    const manifest = await readManifest(rootPath);
-    this.#manifests.set(rootPath, manifest.manifest);
+  ): Promise<{ added: number; manifests: ReadonlyMap<string, ManifestResult> }> {
+    // Every manifest is read and applied *before* any walk, and the sweep runs
+    // once at the end. Interleaving the three is what makes a multi-root
+    // workspace order-dependent: walking root A while root B's manifest is
+    // still the previous one lets A admit a file B excludes, and sweeping after
+    // each root deletes a file the next root's walk will not restore, because a
+    // walk only covers its own root.
+    this.#manifests.clear();
+    const manifests = new Map<string, ManifestResult>();
+    for (const root of roots) {
+      const result = await readManifest(root);
+      manifests.set(root, result);
+      this.#manifests.set(root, result.manifest);
+    }
     this.#applyManifests();
+
     let added = 0;
-    for (const { path: found, realPath } of await hexagonFilesUnder(rootPath, manifest.manifest.exclude, onError)) {
-      // Route the disk path through the URI mapping rather than handing it to
-      // the session directly, so a file discovered here and the same file opened
-      // later are one entry under one spelling.
-      const uri = pathToFileURL(found).toString();
-      if (this.#openUris.has(uri)) continue;
-      const path = this.uris.toPath(uri);
-      try {
-        this.session.setFile(path, await readFile(found, "utf8"));
-        this.#pathsByRealPath.set(realPath, path);
-        added += 1;
-      } catch (error) {
-        onError(`could not read ${found}: ${messageOf(error)}`);
+    for (const root of roots) {
+      for (const { path: found, realPath } of await hexagonFilesUnder(root, this.#exclude, onError)) {
+        // Route the disk path through the URI mapping rather than handing it to
+        // the session directly, so a file discovered here and the same file
+        // opened later are one entry under one spelling.
+        const uri = pathToFileURL(found).toString();
+        if (this.#openUris.has(uri)) continue;
+        const path = this.uris.toPath(uri);
+        try {
+          this.session.setFile(path, await readFile(found, "utf8"));
+          this.#pathsByRealPath.set(realPath, path);
+          added += 1;
+        } catch (error) {
+          onError(`could not read ${found}: ${messageOf(error)}`);
+        }
       }
     }
-    return { added, manifest };
-  }
 
-  /** Re-reads a root's manifest after it changed on disk, and rescans under it. */
-  async reloadManifest(
-    rootPath: string,
-    onError: (message: string) => void,
-  ): Promise<{ added: number; manifest: ManifestResult }> {
-    // A widened `exclude` leaves files in the session that are no longer part of
-    // the project, and a narrowed one has to pick up files the last walk skipped.
-    // Rescanning covers the second; dropping the newly-excluded covers the first,
-    // because a walk only ever adds.
-    const result = await this.addRoot(rootPath, onError);
+    // A walk only ever adds, so a file that has *left* the project — because an
+    // exclusion widened — has to be taken out here or its diagnostics outlive
+    // the decision to exclude it.
     for (const path of this.session.paths) {
       if (this.#isExcluded(path)) this.session.removeFile(path);
     }
-    return result;
+    return { added, manifests };
+  }
+
+  /** Whether this URI is excluded, for a host deciding what to tell the user. */
+  isExcludedUri(uri: string): boolean {
+    return this.#isExcluded(this.#pathByUri.get(uri) ?? this.uris.toPath(uri));
   }
 
   /**

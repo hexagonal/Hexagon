@@ -31,7 +31,7 @@ afterEach(async () => {
 async function scan(path: string): Promise<{ added: number; workspace: Workspace }> {
   const workspace = new Workspace();
   const errors: string[] = [];
-  const { added } = await workspace.addRoot(path, (message) => errors.push(message));
+  const { added } = await workspace.setRoots([path], (message: string) => errors.push(message));
   expect(errors).toEqual([]);
   return { added, workspace };
 }
@@ -130,7 +130,7 @@ describe("the workspace walk", () => {
       uri,
       getText: () => "let value: Int = 2\n",
     } as never);
-    await workspace.addRoot(path, () => {});
+    await workspace.setRoots([path], () => {});
     // Re-scanning must not clobber the buffer: the user's unsaved text is what
     // they are looking at, and disk is what they have not saved yet.
     expect(workspace.session.hover(workspace.session.paths[0]!, 4)?.displayedType).toBe("Int");
@@ -195,7 +195,7 @@ describe("the workspace walk", () => {
     // left the project has to be taken out of the session, or its diagnostics
     // outlive the decision to exclude it.
     await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["examples"] }));
-    await workspace.reloadManifest(path, () => {});
+    await workspace.setRoots([path], () => {});
     expect(workspace.session.paths).toHaveLength(1);
     expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
   });
@@ -205,10 +205,10 @@ describe("the workspace walk", () => {
     await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
     await writeFile(join(path, MANIFEST_NAME), "{ oops");
     const workspace = new Workspace();
-    const { added, manifest } = await workspace.addRoot(path, () => {});
+    const { added, manifests } = await workspace.setRoots([path], () => {});
     // The manifest's own failure must not take language support down with it.
     expect(added).toBe(1);
-    expect(manifest.problems).toHaveLength(1);
+    expect(manifests.get(path)!.problems).toHaveLength(1);
     expect(workspace.session.hover(workspace.session.paths[0]!, 4)?.name).toBe("value");
   });
 
@@ -249,7 +249,7 @@ describe("the workspace walk", () => {
     expect(workspace.session.paths).toHaveLength(2);
 
     await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["generated"] }));
-    await workspace.reloadManifest(path, () => {});
+    await workspace.setRoots([path], () => {});
     expect(workspace.session.paths).toHaveLength(1);
 
     // The buffer is still open, so an edit still arrives. Without a check here
@@ -257,5 +257,57 @@ describe("the workspace walk", () => {
     // the manifest changed.
     workspace.updateDocument({ uri, getText: () => "let oops: Int = 3\n" } as never);
     expect(workspace.session.paths).toHaveLength(1);
+  });
+
+  test("un-excluding restores an open file without waiting for a keystroke", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await mkdir(join(path, "generated"));
+    const generated = join(path, "generated", "extra.hex");
+    await writeFile(generated, "let extra: Int = 2\n");
+    await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["generated"] }));
+    const { workspace } = await scan(path);
+    const uri = workspace.uris.toUri(generated);
+    const document = { uri, getText: () => "let extra: Int = 2\n" } as never;
+    await workspace.openDocument(document);
+    expect(workspace.session.paths).toHaveLength(1);
+
+    // A rescan reads disk and skips what the editor holds open, so a file that
+    // has just stopped being excluded is in neither source: not on the walk's
+    // list, and not re-applied from its buffer. It would stay missing until the
+    // user happened to type in it — the same "depends on whether you typed"
+    // failure as the opposite direction.
+    await rm(join(path, MANIFEST_NAME));
+    await workspace.setRoots([path], () => {});
+    await workspace.openDocument(document);
+    expect(workspace.session.paths).toHaveLength(2);
+  });
+
+  test("one root's exclusion does not depend on the order roots are walked", async () => {
+    const path = await makeRoot();
+    const a = join(path, "a");
+    const b = join(path, "b");
+    await mkdir(join(a, "gen"), { recursive: true });
+    await mkdir(b, { recursive: true });
+    await writeFile(join(a, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(a, "gen", "g.hex"), "let generated: Int = 2\n");
+    await writeFile(join(b, "other.hex"), "let other: Int = 3\n");
+    // B's manifest excludes a directory under A. Reading every manifest before
+    // walking any root is what makes that hold whichever order they arrive in.
+    await writeFile(join(b, MANIFEST_NAME), JSON.stringify({ exclude: [join(a, "gen")] }));
+
+    const forwards = new Workspace();
+    await forwards.setRoots([a, b], () => {});
+    const backwards = new Workspace();
+    await backwards.setRoots([b, a], () => {});
+    const names = (w: Workspace) =>
+      w.session.paths.map((p) => p.split("/").at(-1)).sort();
+    expect(names(forwards)).toEqual(["main.hex", "other.hex"]);
+    expect(names(backwards)).toEqual(["main.hex", "other.hex"]);
+
+    // And reloading must not delete a file one root excludes and no later walk
+    // restores — a sweep after every root would strand it until a restart.
+    await forwards.setRoots([a, b], () => {});
+    expect(names(forwards)).toEqual(["main.hex", "other.hex"]);
   });
 });

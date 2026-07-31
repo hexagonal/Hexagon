@@ -94,6 +94,21 @@ describe("readManifest", () => {
     expect(result.manifest.exclude).toEqual([join(path, "build")]);
   });
 
+  test("an entry that is the workspace root is refused, not obeyed", async () => {
+    for (const entry of ["", ".", "./"]) {
+      const path = await rootWith(JSON.stringify({ exclude: [entry] }));
+      const result = await readManifest(path);
+      // All three resolve to the root, which would exclude the entire project —
+      // every file, silently, with the server reporting nothing at all. Nobody
+      // writes that on purpose, so it is a mistake worth naming.
+      expect(result.manifest.exclude, entry).toEqual([]);
+      expect(result.problems.map(({ message }) => message).join(" "), entry)
+        .toContain("workspace root");
+      await rm(path, { recursive: true, force: true });
+    }
+    root = "";
+  });
+
   test("a non-object manifest is refused outright", async () => {
     const path = await rootWith('["runtime/VectorTrie.hex"]');
     const result = await readManifest(path);

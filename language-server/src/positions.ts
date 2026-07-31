@@ -63,7 +63,7 @@ export class UriPaths {
   toPath(uri: string): string {
     const known = this.#pathsByUri.get(uri);
     if (known !== undefined) return known;
-    const path = normalize(fileSystemPath(uri));
+    const path = normalizePath(fileSystemPath(uri));
     this.#pathsByUri.set(uri, path);
     // First URI seen for a path wins, so a location the server reports keeps the
     // spelling the client used rather than flipping between two of them.
@@ -85,7 +85,7 @@ export class UriPaths {
  * that is not a `file:` URI is used verbatim, which keeps an untitled or virtual
  * document a distinct key instead of an error.
  */
-function fileSystemPath(uri: string): string {
+export function fileSystemPath(uri: string): string {
   if (!uri.startsWith("file:")) return uri;
   try {
     return fileURLToPath(uri);
@@ -94,8 +94,16 @@ function fileSystemPath(uri: string): string {
   }
 }
 
-/** The session's own spelling: `/`-separated, `.` and `..` resolved. */
-function normalize(path: string): string {
+/**
+ * The session's own spelling: `/`-separated, `.` and `..` resolved.
+ *
+ * Exported because everything that compares a path has to agree with it. A
+ * second, nearly-identical normalizer is the shape of bug this file exists to
+ * prevent: two spellings of one file become two files, and the disagreement
+ * shows up only on the path shape the author did not have — a UNC share, a
+ * drive letter — where it then fails silently.
+ */
+export function normalizePath(path: string): string {
   const forward = path.replaceAll("\\", "/");
   const absolute = forward.startsWith("/");
   const parts: string[] = [];

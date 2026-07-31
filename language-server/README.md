@@ -153,10 +153,16 @@ resolution, no build configuration, no compiler flags. Those need designing
 rather than inventing, and nothing yet needs them.
 
 A missing manifest is the ordinary case and is silent. A *malformed* one is
-reported as a diagnostic against `hexagon.json` itself, including an unknown key,
-because a misspelling that quietly did nothing would leave a user staring at
-diagnostics they believed they had configured away. A broken manifest never takes
-language support down with it: defaults apply and the workspace still works.
+reported as a diagnostic against `hexagon.json` itself, including an unknown key
+and an `exclude` entry that resolves to the workspace root, because a mistake
+that quietly did nothing would leave a user staring at diagnostics they believed
+they had configured away. A broken manifest never takes language support down
+with it: defaults apply and the workspace still works.
+
+An excluded file that the user opens says so, as one informational diagnostic.
+Going quiet instead would read as a broken server — the grammar still colours the
+buffer and the server is visibly running — and the user's next move would be to
+report a bug rather than to open `hexagon.json`.
 
 The manifest is watched like source, since a change to it can change every
 answer.
@@ -167,8 +173,8 @@ Listed rather than hidden, because each is a place where the server is knowingly
 less than it looks.
 
 - **One manifest per workspace root, at the root.** Nested projects inside one
-  root are not modelled: a `hexagon.json` deeper in the tree is neither read nor
-  watched, and a root's `exclude` cannot be overridden below it.
+  root are not modelled: a `hexagon.json` deeper in the tree is watched but never
+  read, and a root's `exclude` cannot be overridden below it.
 - **Initialization waits for the workspace scan.** `initialize` walks the root
   and reads every `.hex` file before replying, so that the first request is
   answered against a whole module graph rather than a partial one. On a very

@@ -27,6 +27,7 @@ import {
   DidChangeWatchedFilesNotification,
   FileChangeType,
   TextDocumentSyncKind,
+  DiagnosticSeverity,
   TextDocuments,
   type Connection,
   type Definition,
@@ -63,22 +64,24 @@ export function startServer(connection: Connection): void {
   let roots: readonly string[] = [];
   /** Each root's manifest problems, republished whenever diagnostics are. */
   const manifests = new Map<string, ManifestResult>();
-  /** The URI of each root's own manifest, which is the only one that is read. */
-  const manifestUris = new Set<string>();
+  /**
+   * The *path* of each root's own manifest — the only ones that are read.
+   * Compared by path rather than by URI string on purpose: a client spells a URI
+   * its own way, and VS Code percent-encodes a Windows drive colon
+   * (`file:///c%3A/…`) where `pathToFileURL` does not. Matching the string would
+   * mean a manifest edit on Windows silently never reloaded anything.
+   */
+  const manifestPaths = new Set<string>();
 
   const log = (message: string): void => connection.console.info(`[hexagon] ${message}`);
   const reportError = (message: string): void => connection.console.error(`[hexagon] ${message}`);
 
   connection.onInitialize(async (params: InitializeParams): Promise<InitializeResult> => {
     roots = rootPathsOf(params);
-    let discovered = 0;
-    for (const root of roots) {
-      const { added, manifest } = await workspace.addRoot(root, reportError);
-      discovered += added;
-      manifests.set(root, manifest);
-      manifestUris.add(manifestUriOf(root));
-    }
-    log(`initialized over ${roots.length} root(s); ${discovered} Hexagon file(s) found`);
+    const { added, manifests: read } = await workspace.setRoots(roots, reportError);
+    for (const [root, result] of read) manifests.set(root, result);
+    for (const root of roots) manifestPaths.add(workspace.uris.toPath(manifestUriOf(root)));
+    log(`initialized over ${roots.length} root(s); ${added} Hexagon file(s) found`);
     watchedFilesRegistered = params.capabilities.workspace?.didChangeWatchedFiles?.dynamicRegistration === true;
     return {
       capabilities: {
@@ -130,8 +133,10 @@ export function startServer(connection: Connection): void {
     for (const change of changes) {
       // Only a *root's* manifest is ever read, so a nested one — a vendored
       // sub-project, a package that carries its own — must not trigger a full
-      // reread of every root on every save.
-      if (manifestUris.has(change.uri)) {
+      // reread of every root on every save. It still has to be skipped rather
+      // than fall through, or its JSON would be read into the session as
+      // Hexagon source.
+      if (manifestPaths.has(workspace.uris.toPath(change.uri))) {
         manifestChanged = true;
         continue;
       }
@@ -140,12 +145,17 @@ export function startServer(connection: Connection): void {
       else await workspace.refreshFromDisk(change.uri);
     }
     if (manifestChanged) {
-      // Which root's manifest changed does not narrow the work: a root's
+      // Which root's manifest changed does not narrow the work: one root's
       // `exclude` can hide a file another root's manifest privileges, so the
       // cheap thing and the correct thing are the same size here.
-      for (const root of roots) {
-        manifests.set(root, (await workspace.reloadManifest(root, reportError)).manifest);
-      }
+      const { manifests: read } = await workspace.setRoots(roots, reportError);
+      manifests.clear();
+      for (const [root, result] of read) manifests.set(root, result);
+      // A rescan reads disk, and it skips files the editor has open — so a file
+      // that has just *stopped* being excluded would be left out of the session
+      // entirely until the user happened to type in it. Re-applying the buffers
+      // is what makes the workspace independent of that.
+      for (const document of documents.all()) await workspace.openDocument(document);
       log(`reloaded ${MANIFEST_NAME}`);
     }
     schedulePublish();
@@ -198,7 +208,7 @@ export function startServer(connection: Connection): void {
     if (publishTimer !== undefined) clearTimeout(publishTimer);
     publishTimer = setTimeout(() => {
       publishTimer = undefined;
-      publishDiagnostics(connection, workspace, published, manifests);
+      publishDiagnostics(connection, workspace, published, manifests, documents.all());
     }, DIAGNOSTIC_DELAY_MS);
   }
 }
@@ -217,6 +227,7 @@ function publishDiagnostics(
   workspace: Workspace,
   published: Set<string>,
   manifests: ReadonlyMap<string, ManifestResult>,
+  open: readonly TextDocument[],
 ): void {
   const analysed = workspace.session.allDiagnostics();
   const pathOfFile = (fileId: number): string | undefined =>
@@ -239,8 +250,11 @@ function publishDiagnostics(
   for (const [root, result] of manifests) {
     if (!result.present) continue;
     const uri = manifestUriOf(root);
-    if (result.problems.length > 0) stillReporting.add(uri);
-    else if (!published.has(uri)) continue;
+    // A manifest that has stopped reporting is cleared by the trailing sweep
+    // below, which is where every other file's clearing happens; publishing an
+    // empty list here as well would send it twice.
+    if (result.problems.length === 0) continue;
+    stillReporting.add(uri);
     connection.sendDiagnostics({
       uri,
       diagnostics: result.problems.map((problem) => ({
@@ -255,6 +269,26 @@ function publishDiagnostics(
         message: problem.message,
         source: "hexagon",
       })),
+    });
+  }
+  // An excluded file the user has open would otherwise be simply dead: coloured
+  // by the grammar, with a server visibly running, and answering nothing. That
+  // reads as a broken server rather than as a deliberate exclusion, and the
+  // user's next move is to report a bug instead of opening `hexagon.json`.
+  // Saying so costs one publication and cannot be mistaken for a compiler error.
+  for (const document of open) {
+    if (!workspace.isExcludedUri(document.uri)) continue;
+    stillReporting.add(document.uri);
+    connection.sendDiagnostics({
+      uri: document.uri,
+      diagnostics: [{
+        severity: DiagnosticSeverity.Information,
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+        message:
+          `this file is excluded from the project by \`${MANIFEST_NAME}\`, ` +
+          "so it has no diagnostics, hover, or navigation",
+        source: "hexagon",
+      }],
     });
   }
   for (const uri of published) {

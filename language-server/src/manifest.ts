@@ -31,6 +31,7 @@
 
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { normalizePath } from "./positions.js";
 
 export const MANIFEST_NAME = "hexagon.json";
 
@@ -142,7 +143,20 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
       }
       // Relative to the manifest, which is the only reading that survives the
       // project being checked out anywhere else.
-      paths.push(resolve(rootPath, entry));
+      const resolved = resolve(rootPath, entry);
+      if (key === "exclude" && normalizePath(resolved) === normalizePath(rootPath)) {
+        // `""`, `"."` and `"./"` all resolve to the root, which would exclude
+        // the entire project — every file, silently, with the server reporting
+        // nothing at all. Nobody writes that on purpose.
+        problems.push({
+          message:
+            `${MANIFEST_NAME} \`exclude\` entry ${JSON.stringify(entry)} is the workspace root, ` +
+            "which would exclude the whole project",
+          line: lineOf(key),
+        });
+        continue;
+      }
+      paths.push(resolved);
     }
     return paths;
   };
@@ -157,22 +171,23 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
 /**
  * Whether a path is excluded, by exact match or by lying inside a directory.
  *
- * Both sides are brought to one spelling first. The callers genuinely disagree:
- * the walk builds native-separator paths with `join`, while the session's own
- * paths are forward-slash normalized. Comparing those directly is right on POSIX
- * by coincidence and wrong on Windows always — and wrong *silently*, because an
- * exclusion that never matches looks exactly like one nobody configured.
+ * Both sides are brought to one spelling first, and it is deliberately the
+ * *session's* spelling rather than a second one of this module's own. The
+ * callers genuinely disagree — the walk builds native-separator paths with
+ * `join`, the manifest with `resolve`, and the session normalizes — so any
+ * private notion of "comparable" agrees with the session only for the path
+ * shapes its author happened to try, and fails silently on the rest.
  */
 export function isExcluded(path: string, exclude: readonly string[]): boolean {
   const target = comparablePath(path);
   return exclude.some((entry) => {
     const prefix = comparablePath(entry);
-    return target === prefix || target.startsWith(`${prefix}/`);
+    if (target === prefix) return true;
+    // A root prefix already ends in the separator; appending another would ask
+    // for `//` and match nothing.
+    return target.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`);
   });
 }
 
-/** One spelling for path comparison: forward slashes, no trailing separator. */
-export function comparablePath(path: string): string {
-  const forward = path.replaceAll("\\", "/");
-  return forward.length > 1 && forward.endsWith("/") ? forward.slice(0, -1) : forward;
-}
+/** One spelling for path comparison — the same one the session keys by. */
+export const comparablePath = normalizePath;
