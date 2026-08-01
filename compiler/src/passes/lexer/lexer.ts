@@ -178,6 +178,9 @@ class Scanner {
       } else if (isNewlineStart(codeUnit)) {
         this.#scanNewline();
       } else if (this.#startsWith("//")) {
+        // The lexer does not count slashes (spec/doc-comments.md §2.3): `///`
+        // is a line comment whose text begins with `/`, and so is `////`.
+        // There is no line documentation form, and no reservation of one.
         const commentStart = this.#offset;
         this.#atLineStart = false;
         this.#offset += 2;
@@ -237,8 +240,21 @@ class Scanner {
     this.#atLineStart = true;
   }
 
+  /**
+   * Block comments, including the documentation form. The doc opener differs
+   * from the ordinary one only in what the trivia is *for* (spec/doc-comments.md
+   * §2.1): the body is scanned identically, so nesting, string non-interaction,
+   * and the unterminated error are shared verbatim.
+   */
   #scanBlockComment(): void {
     const commentStart = this.#offset;
+    // §2.1's predicate: `(**` then a character that is neither `)` nor `*`.
+    // `(**)` is the empty ordinary comment and `(***…` is a banner (§2.2); an
+    // unterminated `(**` at end of file has no character after the opener and
+    // so is ordinary too.
+    const after = this.#source.text[this.#offset + 3];
+    const documentation = this.#startsWith("(**") &&
+      after !== undefined && after !== ")" && after !== "*";
     const openers: number[] = [this.#offset];
     this.#offset += 2;
 
@@ -251,7 +267,7 @@ class Scanner {
         this.#offset += 2;
         if (openers.length === 0) {
           this.#atLineStart = false;
-          this.#recordComment("Block", commentStart);
+          this.#recordComment("Block", commentStart, documentation);
           return;
         }
       } else if (isNewlineStart(this.#source.text.charCodeAt(this.#offset))) {
@@ -274,7 +290,9 @@ class Scanner {
       depth > 1
         ? ` (nested ${depth} levels deep; each \`(*\` needs its own \`*)\`)`
         : "";
-    this.#recordComment("Block", commentStart);
+    // An unterminated doc comment stays classified: the §5 row for it is
+    // Comments §5's unterminated-block error, and nothing else fires.
+    this.#recordComment("Block", commentStart, documentation);
     this.#error(
       innermost,
       Math.min(innermost + 2, this.#source.text.length),
@@ -340,9 +358,14 @@ class Scanner {
     });
   }
 
-  #recordComment(kind: Source.Comment["kind"], start: number): void {
+  #recordComment(
+    kind: Source.Comment["kind"],
+    start: number,
+    documentation = false,
+  ): void {
     this.comments.push({
       kind,
+      documentation,
       text: this.#source.text.slice(start, this.#offset),
       span: this.#source.span(start, this.#offset),
     });

@@ -24,6 +24,13 @@ export interface Span {
 /** Source trivia retained unchanged so text emitters can preserve comments. */
 export interface Comment {
   readonly kind: "Line" | "Block";
+  /**
+   * A documentation comment (spec/doc-comments.md §2.1): `(**` followed by a
+   * character that is neither `)` nor `*`. Doc comments ride the ordinary
+   * comment channel — activation added a classification, not a channel — and
+   * only `Block` comments can carry it: `///` has no status of any kind (§2.3).
+   */
+  readonly documentation: boolean;
   readonly text: string;
   readonly span: Span;
 }

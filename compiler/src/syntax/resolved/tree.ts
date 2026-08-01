@@ -6,6 +6,7 @@
 
 import type * as Diagnostics from "../../support/diagnostics.js";
 import type * as Source from "../../support/source.js";
+import type { Documentation } from "../../support/documentation.js";
 
 declare const symbolIdBrand: unique symbol;
 declare const unionIdBrand: unique symbol;
@@ -288,6 +289,13 @@ export interface Module {
   readonly preludeUnions: ReadonlyMap<string, UnionId>;
   readonly externTypes: readonly ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
+  /**
+   * Documentation attached to this module's declarations
+   * (`spec/doc-comments.md` §4), keyed by the documented declaration's
+   * span start. Metadata: no pass between the parser and emission reads
+   * it, and none may branch on it.
+   */
+  readonly docs: readonly Documentation[];
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }

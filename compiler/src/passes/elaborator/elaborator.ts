@@ -19,6 +19,7 @@ export function elaborate(module: Typed.Module): Core.Module {
     preludeUnions: module.preludeUnions,
     externTypes: module.externTypes,
     comments: module.comments,
+    docs: module.docs,
     span: module.span,
     diagnostics: module.diagnostics,
   };

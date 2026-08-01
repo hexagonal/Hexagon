@@ -7,12 +7,20 @@
 
 import type * as Diagnostics from "../../support/diagnostics.js";
 import type * as Source from "../../support/source.js";
+import type { Documentation } from "../../support/documentation.js";
 
 export interface Module {
   readonly kind: "Module";
   readonly fileId: Source.FileId;
   readonly items: readonly Item[];
   readonly comments: readonly Source.Comment[];
+  /**
+   * Documentation attached to this module's declarations
+   * (`spec/doc-comments.md` §4), keyed by the documented declaration's
+   * span start. Metadata: no pass between the parser and emission reads
+   * it, and none may branch on it.
+   */
+  readonly docs: readonly Documentation[];
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }

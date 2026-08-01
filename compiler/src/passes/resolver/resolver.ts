@@ -516,6 +516,7 @@ class Resolver {
       preludeUnions: this.#preludeUnions,
       externTypes: this.#externTypes,
       comments: module.comments,
+      docs: module.docs,
       span: module.span,
       diagnostics: this.#diagnostics.toArray(),
     };
