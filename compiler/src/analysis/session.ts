@@ -58,6 +58,12 @@ import { collectTypeOccurrences, type TypeOccurrence } from "../queries/type-occ
 import { DocumentationIndex } from "../queries/documentation.js";
 import { collectSemanticTokens, type SemanticToken } from "../queries/semantic-tokens.js";
 import { collectSymbolFacts, type SymbolFacts } from "../queries/symbol-facts.js";
+import {
+  siteAt,
+  underClaims,
+  underClaimTitle,
+  varianceHover,
+} from "../queries/variance-claims.js";
 import { collectCompletions, type Completion } from "../queries/completions.js";
 import {
   planReturnAnnotation,
@@ -117,8 +123,21 @@ export interface ActionEdit extends Location {
  */
 export interface CodeAction {
   readonly title: string;
-  /** The diagnostic this answers, for a host that shows the two together. */
-  readonly diagnostic: Diagnostics.Diagnostic;
+  /**
+   * The diagnostic this answers, for a host that shows the two together.
+   *
+   * Absent for an action that answers no diagnostic. There is exactly one such
+   * action, and it exists because Hexagon has no warning tier: an opaque type
+   * that under-claims its variance is not wrong, so nothing reports it, and the
+   * offer to claim more has nothing to attach itself to (closure doc §8.2).
+   */
+  readonly diagnostic?: Diagnostics.Diagnostic;
+  /**
+   * Which family the action belongs to. A repair for a diagnostic is a quick
+   * fix; the variance offer is a refactor, since it changes what a declaration
+   * promises rather than fixing something broken.
+   */
+  readonly kind?: "quickfix" | "refactor";
   readonly edits: readonly ActionEdit[];
   readonly disabled?: string;
 }
@@ -341,6 +360,12 @@ export class AnalysisSession {
     const normalized = normalizePath(path);
     const analysis = this.#analyze();
     const candidates = analysis.occurrencesAt(normalized, offset);
+    // Ahead of the occurrence index because a type parameter in a declaration
+    // head has no occurrence identity at all — it is a name in a binder, not a
+    // reference — so nothing else here can answer about one. Hover shows both
+    // facts: the declared claim, and what the representation supports (§8.2).
+    const variance = this.#varianceHover(analysis, normalized, offset);
+    if (variance !== undefined) return variance;
     if (candidates.length === 0) return this.#documentedName(analysis, normalized, offset);
     const typed = candidates
       .map((occurrence) => ({
@@ -357,6 +382,25 @@ export class AnalysisSession {
       span: best.occurrence.span,
       ...(best.displayedType === undefined ? {} : { displayedType: best.displayedType }),
       ...(documentation === undefined ? {} : { documentation }),
+    };
+  }
+
+  /**
+   * A parameterized `export opaque` declaration's parameter, hovered.
+   *
+   * Only for a declaration written in *this* file: the spans come from the
+   * declaration head, and an imported declaration's head is in another file.
+   */
+  #varianceHover(analysis: Analysis, path: string, offset: number): Hover | undefined {
+    const fileId = this.#fileIds.get(path);
+    const typed = analysis.typedOf(path);
+    if (fileId === undefined || typed === undefined) return undefined;
+    const site = siteAt(typed, fileId, offset);
+    if (site === undefined) return undefined;
+    return {
+      name: site.parameter.name,
+      span: site.span,
+      documentation: varianceHover(site),
     };
   }
 
@@ -502,6 +546,32 @@ export class AnalysisSession {
           : [],
         ...(objection === undefined ? {} : { disabled: objection }),
       });
+    }
+
+    // The one action with no diagnostic behind it (closure doc §8.2). The fix
+    // text is the computed truth the compiler already holds from §6.3's
+    // machinery, so applying it is one keystroke and cannot be wrong: the claim
+    // being offered is exactly the one verification would accept.
+    const fileId = this.#fileIds.get(normalized);
+    const typed = analysis.typedOf(normalized);
+    if (fileId !== undefined && typed !== undefined) {
+      for (
+        const site of underClaims(
+          typed,
+          fileId,
+          (span) => touches(span, range),
+        )
+      ) {
+        actions.push({
+          title: underClaimTitle(site),
+          kind: "refactor",
+          edits: [{
+            path: normalized,
+            span: site.span,
+            replacement: `${site.parameter.computed === "co" ? "+" : "-"}${site.parameter.name}`,
+          }],
+        });
+      }
     }
     return actions;
   }

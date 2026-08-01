@@ -119,7 +119,7 @@ interface Entry {
   readonly name: string;
   readonly opaque: boolean;
   readonly parameters: readonly string[];
-  readonly claims: readonly Resolved.VarianceClaim[];
+  readonly declaredParameters: readonly Resolved.DeclaredTypeParameter[];
   /** The representation: one entry per field or constructor slot. */
   readonly slots: readonly { readonly field: string; readonly annotation: Resolved.TypeAnnotation }[];
   /** Computed variance per parameter; filled by the fixpoint. */
@@ -143,7 +143,7 @@ export class VarianceTable {
         name: union.name,
         opaque: union.opaque,
         parameters: union.parameters,
-        claims: union.claims ?? [],
+        declaredParameters: union.declaredParameters ?? [],
         slots: union.constructors.flatMap((constructor) =>
           constructor.slots.map((slot) => ({
             field: `${constructor.binding.name}.${slot.field}`,
@@ -160,7 +160,7 @@ export class VarianceTable {
         name: record.name,
         opaque: record.opaque,
         parameters: record.parameters,
-        claims: record.claims ?? [],
+        declaredParameters: record.declaredParameters ?? [],
         slots: record.fields.map((field) => ({
           field: field.name,
           annotation: field.annotation,
@@ -213,8 +213,10 @@ export class VarianceTable {
     if (parameter === undefined) return "inv";
     if (!entry.opaque) return entry.computed[index] ?? "inv";
     // Bare is the empty claim, and the empty claim is invariant (§6.2).
-    const claim = entry.claims.find((candidate) => candidate.parameter === parameter);
-    return claim === undefined ? "inv" : claim.claim;
+    const declared = entry.declaredParameters.find(
+      (candidate) => candidate.name === parameter,
+    );
+    return declared?.claim ?? "inv";
   }
 
   /**

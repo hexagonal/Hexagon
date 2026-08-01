@@ -394,10 +394,31 @@ export interface TypeAliasItem {
   readonly span: Source.Span;
 }
 
+/**
+ * A declaration's parameter, its written claim, and the variance its
+ * representation actually supports (closure doc
+ * `decisions-ml-dialect-generalization-2026-08.md` §5, §6).
+ *
+ * Both are here because the editor shows both: hover on a parameterized opaque
+ * type's parameter reports the declared claim *and* the computed variance, and
+ * the difference between them is exactly what §8.2's code action offers to
+ * close. Nothing downstream of the checker recomputes variance; this is the
+ * one channel.
+ */
+export interface ParameterVariance {
+  readonly name: string;
+  /** Absent for a bare parameter — the empty claim, which means invariant. */
+  readonly declared?: "co" | "contra";
+  readonly computed: "unused" | "co" | "contra" | "inv";
+  /** The parameter as written, sigil included; absent on a synthesized head. */
+  readonly span?: Source.Span;
+}
+
 export interface Union {
   readonly id: Resolved.UnionId;
   readonly name: string;
   readonly parameters: readonly TypeVariableId[];
+  readonly variance: readonly ParameterVariance[];
   readonly derives: readonly string[];
   readonly opaque: boolean;
   readonly representationVisible: boolean;
@@ -431,6 +452,7 @@ export interface RecordDeclaration {
   readonly id: Resolved.RecordId;
   readonly name: string;
   readonly parameters: readonly TypeVariableId[];
+  readonly variance: readonly ParameterVariance[];
   readonly derives: readonly string[];
   readonly opaque: boolean;
   readonly representationVisible: boolean;

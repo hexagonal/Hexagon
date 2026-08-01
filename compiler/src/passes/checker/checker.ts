@@ -4948,13 +4948,13 @@ class Checker {
   #verifyVarianceClaims(module: Resolved.Module): void {
     for (const item of module.items) {
       if (item.kind !== "Union" && item.kind !== "RecordDeclaration") continue;
-      for (const claim of item.claims ?? []) {
-        const index = item.parameters.indexOf(claim.parameter);
-        if (index < 0) continue;
+      for (const [index, declared] of (item.declaredParameters ?? []).entries()) {
+        const claim = declared.claim;
+        if (claim === undefined) continue;
         const computed = item.kind === "Union"
           ? this.#variance.computedUnion(item.union, index)
           : this.#variance.computedRecord(item.record, index);
-        const admitted: readonly Variance[] = claim.claim === "co"
+        const admitted: readonly Variance[] = claim === "co"
           ? ["unused", "co"]
           : ["unused", "contra"];
         if (admitted.includes(computed)) continue;
@@ -4964,8 +4964,8 @@ class Checker {
         const witness = occurrences.find(
           (occurrence) => !admitted.includes(occurrence.variance),
         );
-        const claimed = claim.claim === "co" ? "covariant" : "contravariant";
-        const sigil = claim.claim === "co" ? "+" : "-";
+        const claimed = claim === "co" ? "covariant" : "contravariant";
+        const sigil = claim === "co" ? "+" : "-";
         const slot = item.kind === "Union" ? "constructor slot" : "field";
         // The witness is required content, not garnish (§8.1): the author who
         // cannot state variance theory is shown the exact line that blocks the
@@ -4973,16 +4973,16 @@ class Checker {
         this.#diagnostics.add({
           severity: "error",
           message: witness === undefined
-            ? `\`${claim.parameter}\` cannot be declared ${claimed} in \`${item.name}\`; ` +
+            ? `\`${declared.name}\` cannot be declared ${claimed} in \`${item.name}\`; ` +
               `remove the \`${sigil}\`, or change the representation`
-            : `\`${claim.parameter}\` cannot be declared ${claimed} in \`${item.name}\`: ` +
-              `${slot} \`${witness.field}\` uses \`${claim.parameter}\` ${positionPhrase(witness.variance)}. ` +
+            : `\`${declared.name}\` cannot be declared ${claimed} in \`${item.name}\`: ` +
+              `${slot} \`${witness.field}\` uses \`${declared.name}\` ${positionPhrase(witness.variance)}. ` +
               `Remove the \`${sigil}\`, or change the ${slot}`,
-          primary: claim.span,
+          primary: declared.span,
           ...(witness === undefined ? {} : {
             labels: [{
               span: witness.span,
-              message: `\`${claim.parameter}\` ${positionPhrase(witness.variance)} here`,
+              message: `\`${declared.name}\` ${positionPhrase(witness.variance)} here`,
             }],
           }),
         });
@@ -5547,12 +5547,38 @@ class Checker {
     };
   }
 
+  /**
+   * The variance channel to everything downstream of the checker (§8.2's code
+   * action, hover). `declaredParameters` is absent on synthesized declarations,
+   * which have no written head — the computed side is still the truth there.
+   */
+  #parameterVariance(
+    parameters: readonly string[],
+    declared: readonly Resolved.DeclaredTypeParameter[] | undefined,
+    computed: (index: number) => Variance,
+  ): readonly Typed.ParameterVariance[] {
+    return parameters.map((name, index) => {
+      const written = declared?.[index];
+      return {
+        name,
+        ...(written?.claim === undefined ? {} : { declared: written.claim }),
+        computed: computed(index),
+        ...(written === undefined ? {} : { span: written.span }),
+      };
+    });
+  }
+
   #materializeUnion(union: Resolved.Union): Typed.Union {
     return {
       id: union.id,
       name: union.name,
       parameters: [...(this.#unionParameters.get(union.id)?.values() ?? [])]
         .map(({ id }) => Typed.typeVariableId(id)),
+      variance: this.#parameterVariance(
+        union.parameters,
+        union.declaredParameters,
+        (index) => this.#variance.computedUnion(union.id, index),
+      ),
       derives: union.derives,
       opaque: union.opaque,
       representationVisible: union.representationVisible,
@@ -5580,6 +5606,11 @@ class Checker {
       id: record.id,
       name: record.name,
       parameters: [...(parameters?.values() ?? [])].map(({ id }) => Typed.typeVariableId(id)),
+      variance: this.#parameterVariance(
+        record.parameters,
+        record.declaredParameters,
+        (index) => this.#variance.computedRecord(record.id, index),
+      ),
       derives: record.derives,
       opaque: record.opaque,
       representationVisible: record.representationVisible,

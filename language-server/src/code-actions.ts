@@ -58,10 +58,18 @@ export function selects(requested: string, offered: string): boolean {
   return requested === "" || requested === offered || offered.startsWith(`${requested}.`);
 }
 
-/** Whether a request asking for particular kinds wants quick fixes. */
-export function wantsQuickFixes(only: readonly string[] | undefined): boolean {
+/**
+ * Whether a request asking for particular kinds wants anything this server
+ * offers. Two families now: quick fixes for diagnostics, and the one refactor
+ * that offers a variance claim (closure doc §8.2). A request narrowed to
+ * `refactor` used to be answered with nothing at all, because the only question
+ * asked was about quick fixes.
+ */
+export function wantsActions(only: readonly string[] | undefined): boolean {
   if (only === undefined) return true;
-  return only.some((kind) => selects(kind, CodeActionKind.QuickFix));
+  return only.some((kind) =>
+    selects(kind, CodeActionKind.QuickFix) || selects(kind, CodeActionKind.Refactor)
+  );
 }
 
 /**
@@ -76,12 +84,21 @@ export function toLspCodeAction(
 ): LspCodeAction | undefined {
   if (!support.literals) return undefined;
   if (action.disabled !== undefined && !support.disabled) return undefined;
-  const diagnostic = toLspDiagnostic(action.diagnostic, uris, pathOfFile);
+  // An action may answer no diagnostic. Exactly one does — the offer to declare
+  // variance an opaque type's representation already supports — because Hexagon
+  // has no warning tier and an under-claim is not wrong, so nothing reports it
+  // to attach to (closure doc §8.2). `diagnostics` is then omitted rather than
+  // sent empty: a client groups an action under the problem it fixes, and this
+  // one fixes no problem.
+  const diagnostics = action.diagnostic === undefined
+    ? undefined
+    : [toLspDiagnostic(action.diagnostic, uris, pathOfFile)];
+  const kind = action.kind === "refactor" ? CodeActionKind.Refactor : CodeActionKind.QuickFix;
   if (action.disabled !== undefined) {
     return {
       title: action.title,
-      kind: CodeActionKind.QuickFix,
-      diagnostics: [diagnostic],
+      kind,
+      ...(diagnostics === undefined ? {} : { diagnostics }),
       disabled: { reason: action.disabled },
     };
   }
@@ -92,8 +109,8 @@ export function toLspCodeAction(
   }
   return {
     title: action.title,
-    kind: CodeActionKind.QuickFix,
-    diagnostics: [diagnostic],
+    kind,
+    ...(diagnostics === undefined ? {} : { diagnostics }),
     edit: { changes },
   };
 }

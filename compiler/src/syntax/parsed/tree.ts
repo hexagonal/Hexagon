@@ -145,19 +145,18 @@ export interface TypeAliasItem {
 }
 
 /**
- * A variance sigil written on a parameterized `export opaque` declaration —
- * `+a` covariant, `-a` contravariant (Declarations Preamble §2.1, Modules
- * §4.2.1; closure doc `decisions-ml-dialect-generalization-2026-08.md` §6.1).
+ * A type parameter as written in a declaration head, sigil included
+ * (Declarations Preamble §2.1, Modules §4.2.1; closure doc
+ * `decisions-ml-dialect-generalization-2026-08.md` §6.1).
  *
- * Only sigilled parameters get a row. A bare parameter is the *empty claim*,
- * and the empty claim is the absence of a row, not a row saying "invariant" —
- * the two spellings must not both exist or a reader has to ask which one means
- * what (§6.2).
+ * `claim` is absent for a bare parameter, and absent is the *empty claim* —
+ * invariant. The two spellings must not both exist, or a reader has to ask
+ * which one means what (§6.2).
  */
-export interface VarianceClaim {
-  readonly parameter: string;
-  readonly claim: "co" | "contra";
-  /** The sigil and the parameter it decorates, so a report can caret `+a`. */
+export interface DeclaredTypeParameter {
+  readonly name: string;
+  readonly claim?: "co" | "contra";
+  /** The parameter as written, sigil included, for a report or an edit. */
   readonly span: Source.Span;
 }
 
@@ -167,7 +166,7 @@ export interface UnionItem {
   readonly opaque: boolean;
   readonly name: Name;
   readonly parameters: readonly Name[];
-  readonly claims: readonly VarianceClaim[];
+  readonly declaredParameters: readonly DeclaredTypeParameter[];
   readonly derives: readonly Name[];
   readonly constructors: readonly Constructor[];
   readonly span: Source.Span;
@@ -179,7 +178,7 @@ export interface RecordItem {
   readonly opaque: boolean;
   readonly name: Name;
   readonly parameters: readonly Name[];
-  readonly claims: readonly VarianceClaim[];
+  readonly declaredParameters: readonly DeclaredTypeParameter[];
   readonly derives: readonly Name[];
   readonly fields: readonly RecordTypeField[];
   readonly span: Source.Span;

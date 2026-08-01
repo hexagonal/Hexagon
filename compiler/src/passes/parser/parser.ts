@@ -1162,7 +1162,7 @@ class Parser {
       return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
     }
     const parameters: Parsed.Name[] = [];
-    const claims: Parsed.VarianceClaim[] = [];
+    const declaredParameters: Parsed.DeclaredTypeParameter[] = [];
     if (this.#at("LeftParen")) {
       this.#advance();
       const seen = new Set<string>();
@@ -1179,13 +1179,11 @@ class Parser {
         }
         seen.add(name.text);
         parameters.push(name);
-        if (sigil !== undefined) {
-          claims.push({
-            parameter: name.text,
-            claim: sigil.claim,
-            span: spanFrom(sigil.span, name.span),
-          });
-        }
+        declaredParameters.push({
+          name: name.text,
+          ...(sigil === undefined ? {} : { claim: sigil.claim }),
+          span: sigil === undefined ? name.span : spanFrom(sigil.span, name.span),
+        });
         if (!this.#at("Comma")) break;
         this.#advance();
       }
@@ -1274,7 +1272,7 @@ class Parser {
       opaque,
       name: parsedName(nameToken),
       parameters,
-      claims,
+      declaredParameters,
       derives,
       constructors,
       span: spanFrom(
@@ -1292,7 +1290,7 @@ class Parser {
       return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
     }
     const parameters: Parsed.Name[] = [];
-    const claims: Parsed.VarianceClaim[] = [];
+    const declaredParameters: Parsed.DeclaredTypeParameter[] = [];
     if (this.#at("LeftParen")) {
       this.#advance();
       const seen = new Set<string>();
@@ -1304,13 +1302,11 @@ class Parser {
         if (seen.has(name.text)) this.#errorAt(name.span, `duplicate type parameter \`${name.text}\``);
         seen.add(name.text);
         parameters.push(name);
-        if (sigil !== undefined) {
-          claims.push({
-            parameter: name.text,
-            claim: sigil.claim,
-            span: spanFrom(sigil.span, name.span),
-          });
-        }
+        declaredParameters.push({
+          name: name.text,
+          ...(sigil === undefined ? {} : { claim: sigil.claim }),
+          span: sigil === undefined ? name.span : spanFrom(sigil.span, name.span),
+        });
         if (!this.#at("Comma")) break;
         this.#advance();
       }
@@ -1348,7 +1344,7 @@ class Parser {
       opaque,
       name: parsedName(nameToken),
       parameters,
-      claims,
+      declaredParameters,
       derives,
       fields,
       span: spanFrom(

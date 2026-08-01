@@ -108,7 +108,7 @@ describe("code actions: infer return type", () => {
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "brighten"));
     expect(action.title).toBe("Infer return type");
-    expect(action.diagnostic.message).toContain("requires a complete signature");
+    expect(action.diagnostic?.message).toContain("requires a complete signature");
     expect(applied(source, action)).toContain(
       "export fun brighten(colour: Colour): Colour = colour",
     );
@@ -907,5 +907,81 @@ describe("code actions: infer return type", () => {
       "writing `: {...a} -> {...a}` would change the type of `m` " +
         "from `() -> {...a} -> {...a}` to `() -> {} -> {}`",
     );
+  });
+});
+
+describe("code actions: the variance an opaque type could declare (#205)", () => {
+  test("offers the claim the representation supports", () => {
+    const source = [
+      "export opaque record Box(a) = { get: () -> a }",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    const action = sole(actionsOn(session, "/main.hex", source, "a) = {"));
+    // Phrased in consequences, not lattice vocabulary (closure doc §8.2).
+    expect(action.title).toContain("Declare `Box(+a)`");
+    expect(action.title).toContain("stay polymorphic");
+    // The one action that answers no diagnostic: an under-claim is not wrong,
+    // Hexagon has no warning tier, and nothing reports it.
+    expect(action.diagnostic).toBeUndefined();
+    expect(action.kind).toBe("refactor");
+    expect(applied(source, action)).toContain("export opaque record Box(+a) =");
+  });
+
+  test("applying it leaves the file clean, and the claim verified", () => {
+    const source = "export opaque record Box(a) = { get: () -> a }\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    const action = sole(actionsOn(session, "/main.hex", source, "a) = {"));
+    session.setFile("/main.hex", applied(source, action));
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    // And the offer is gone: the claim has been made.
+    expect(actionsOn(session, "/main.hex", applied(source, action), "+a")).toEqual([]);
+  });
+
+  test("a contravariant representation offers the contravariant claim", () => {
+    const source = "export opaque record Sink(a) = { accept: a -> Unit }\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    const action = sole(actionsOn(session, "/main.hex", source, "a) = {"));
+    expect(action.title).toContain("Declare `Sink(-a)`");
+    expect(applied(source, action)).toContain("record Sink(-a)");
+  });
+
+  test("nothing is offered where there is nothing to claim", () => {
+    // Invariant: the representation supports no claim. Transparent: the sigil
+    // is a parse error there, so offering it would be offering an error.
+    for (
+      const source of [
+        "export opaque record Cell(a) = { get: () -> a, put: a -> Unit }\n",
+        "record Box(a) = { get: () -> a }\n",
+        "export record Box(a) = { get: () -> a }\n",
+        "export opaque record Tag(a) = { name: String }\n",
+      ]
+    ) {
+      const { session } = sessionOf({ "/main.hex": source });
+      expect(actionsOn(session, "/main.hex", source, "a) = {")).toEqual([]);
+    }
+  });
+
+  test("a claim already made is not offered again, right or wrong", () => {
+    for (
+      const source of [
+        "export opaque record Box(+a) = { get: () -> a }\n",
+        // Over-claimed: an error, and §6.3's report is the answer to it — not a
+        // refactor offering the same claim a second time.
+        "export opaque record Sink(+a) = { accept: a -> Unit }\n",
+      ]
+    ) {
+      const { session } = sessionOf({ "/main.hex": source });
+      const titles = actionsOn(session, "/main.hex", source, "a) = {")
+        .map(({ title }) => title);
+      expect(titles.filter((title) => title.startsWith("Declare"))).toEqual([]);
+    }
+  });
+
+  test("an imported declaration's head is not this file's to edit", () => {
+    const box = "export opaque record Box(a) = { get: () -> a }\n";
+    const main = 'import * as B from "./box.hex"\nexport let n: Int = 1\n';
+    const { session } = sessionOf({ "/box.hex": box, "/main.hex": main });
+    expect(session.codeActions("/main.hex", { start: 0, end: main.length })).toEqual([]);
   });
 });
