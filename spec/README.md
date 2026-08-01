@@ -20,6 +20,7 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Lexical | `lexer.md` | tokens, literals lexically, strings, comments interface |
 | Lexical | `lexer-layout.md` | layout, blocks, `;`, indentation rules |
 | Lexical | `comments.md` | comment forms |
+| Lexical | `doc-comments.md` | doc-comment recognition, attachment, content model, JSDoc emission *(added 2026-08-01, #191)* |
 | Lexical | `numeric-literals.md` | numeric literal grammar, defaulting |
 | Declarations | `declarations-preamble.md` | declaration forms, headers, order-insensitivity |
 | Declarations | `functions.md` | lambdas, `let`/`fun`, arity, application, generalization, function emission |
@@ -74,9 +75,9 @@ Load the set for the task; add files only when a cited section demands it. `ffi.
 
 | Task | Read |
 |---|---|
-| **Parser** | Base: `lexer.md`, `lexer-layout.md`, `comments.md`, `declarations-preamble.md`, `functions.md` §3–§5, `operators-logic-precedence.md`, `pattern-matching.md` (grammar), `statements-blocks-mutability.md`; add the ownership-map file for the feature syntax being changed (FFI syntax routes through `ffi.md`) |
+| **Parser** | Base: `lexer.md`, `lexer-layout.md`, `comments.md`, `doc-comments.md` (attachment), `declarations-preamble.md`, `functions.md` §3–§5, `operators-logic-precedence.md`, `pattern-matching.md` (grammar), `statements-blocks-mutability.md`; add the ownership-map file for the feature syntax being changed (FFI syntax routes through `ffi.md`) |
 | **Resolver / checker** | `declarations-preamble.md`, `functions.md`, `statements-blocks-mutability.md`, `modules.md`, `intrinsics.md` (gate §5; self-declaration fallback §7), `products.md`, `unions.md`, `constraints.md`, `integral-constraint.md`, `method-syntax.md`, `pattern-matching.md`, `numeric-literals.md` (defaulting), closure docs (rules not yet hosted) |
-| **Emitter** | `functions.md` §9, `unions.md` §6, `products.md` (representation), `exceptions.md` §7, `modules.md` §11, `loops-ranges-iteration.md`, `collections-part3-vector.md` / `collections-part4-map-set.md` (emission notes), `ffi.md` + owning parts per feature (especially Parts 7–9) |
+| **Emitter** | `functions.md` §9, `unions.md` §6, `products.md` (representation), `exceptions.md` §7, `modules.md` §11, `loops-ranges-iteration.md`, `collections-part3-vector.md` / `collections-part4-map-set.md` (emission notes), `doc-comments.md` §7 (JSDoc), `ffi.md` + owning parts per feature (especially Parts 7–9) |
 | **Modules work** | `modules.md`, `declarations-preamble.md`, `constraints.md` §5 (coherence/orphans), `ffi-part4-extern-bindings.md`, `intrinsics.md`, `ffi-part7-exports.md` |
 | **Collections work** | `collections-part1-decisions.md` through `collections-part5-iterable.md`, `loops-ranges-iteration.md`; for the JS boundary add `ffi-part10-js-map-set.md` |
 | **FFI work** | `ffi.md` first, then the owning part(s) via its §4 router; `exceptions.md` §6–§7 and `modules.md` §11 as cited |

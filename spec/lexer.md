@@ -7,7 +7,7 @@ and string literal lexing; the complete punctuation and operator inventory;
 comments as trivia; physical token shapes; maximal munch; lexical diagnostics.
 **Not in scope:** Indentation-stack behaviour and virtual tokens (Lexer & Layout);
 operator precedence (Operators, Logic & Precedence); parsing; doc-comment
-attachment; source-file discovery and filesystem I/O.
+attachment (`doc-comments.md` since #191); source-file discovery and filesystem I/O.
 **Companions:** Lexer & Layout, Comments, Primitive Types, Numeric Literals,
 Operators/Logic/Precedence, Pattern Matching, Modules, and Foreign Enums.
 
@@ -340,6 +340,13 @@ The Comments spec is authoritative; this section fixes token interaction.
 - Comments and horizontal whitespace are trivia, not parser tokens. An implementation
   may retain their spans and text for formatting or readable emission, but doing so
   cannot affect the token sequence.
+- Doc comments (`(**` followed by a character that is neither `)` nor `*` — the
+  predicate owned by Doc Comments §2) are **distinguished trivia**: still trivia
+  to the token sequence and to layout, but their classification, content, and position
+  are retained and delivered to the parser for attachment. *(Activated 2026-08-01,
+  #191.)* `///` is nothing to this lexer — the #191 ruling revoked that
+  reservation; a `//` comment's text may begin with `/` and no slash-counting
+  exists. No other doc spelling exists or is reserved (Doc Comments §9.1).
 - Newlines encountered inside comments still update physical positions. Code before
   and after a multiline block comment therefore retains its real line relationship.
 - Strings are not recognized inside comments and comments are not recognized in

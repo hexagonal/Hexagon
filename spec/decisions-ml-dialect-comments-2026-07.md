@@ -2,7 +2,7 @@
 
 **Status:** Decided (ruling on issue #171, 2026-07-30). Fable's spec ruling under the ML-dialect doctrine (`decisions-ml-dialect-bool-2026-07.md` §1), on James's directive given in-session 2026-07-30 and recorded in the issue: `(* *)` is "the last piece of ML syntax we need to adopt to be a card-carrying ML dialect." Authoritative until consolidated into the host specs, per README authority rule 3 — this document is added to rule 3's closure-document list in this same PR; the standing is conferred there, not claimed here.
 **Scope:** The delimiter re-spelling (§2); the maximal-munch audit that makes it free (§3); detection of the JavaScript spellings (§4); the documentation-comment reservation (§5); what does not change (§6); comment emission into JavaScript, including a pre-existing gap this ruling closes (§7); the shipped-source comment doctrine (§8); rejected alternatives (§9); the edit-notes ledger (§10); implementation notes (§11).
-**Not in scope:** Doc-comment *semantics* — attachment, Markdown flavour, JSDoc emission — still owed to the future documentation spec; this ruling only re-spells the reservation. The sweep re-writing existing library comments to §8's doctrine (issue #172, a fresh session's task after this PR merges). `hexc`, grammar, and formatter implementation (follow-up work, §11).
+**Not in scope:** Doc-comment *semantics* — attachment, Markdown flavour, JSDoc emission — ~~still owed to the future documentation spec~~ *(delivered: `doc-comments.md`, #191, 2026-08-01)*; this ruling only re-spells the reservation. The sweep re-writing existing library comments to §8's doctrine (issue #172, a fresh session's task after this PR merges). `hexc`, grammar, and formatter implementation (follow-up work, §11).
 **Companions:** Comments (host of the normative text; correction record §11 and doctrine §12 there), Lexer §7–§8 (token interaction), Operators §1–§2 (the ground of §3's audit), Declarations Preamble §1.1 (the Rewrite Rule, which §4 applies), `decisions-ml-dialect-bool-2026-07.md` §1 (the doctrine this rules under).
 
 ---
@@ -10,6 +10,8 @@
 ## 1. The ruling
 
 > Hexagon's block comment is **`(* ... *)`** — multi-line and **nesting**, replacing `/* ... */` in every role that form had. **`(**` is reserved for documentation comments** (the block form; `///` remains the reserved line form). The JavaScript spellings **`/*` and `*/` are detected and redirected** to the Hexagon spellings under the Rewrite Rule (§4). Line comments are untouched: `//` remains the line comment, permanently not an operator.
+
+*[The quote stands verbatim as the #171 ruling. Its two reservations were resolved 2026-08-01 by #191: `(**` activated, `///` revoked — §5's annotation.]*
 
 This is the ML-dialect arc's surface completion. The doctrine's named posture is "F# with Fable" (`decisions-ml-dialect-bool-2026-07.md` §1.1), and the resulting comment inventory is F#'s exactly — `//`, `///`, nesting `(* ... *)` — plus OCaml's `(**` doc reservation. Comments §7 had rejected `(* *)` under "do not re-litigate"; per doctrine §1.2 that section remains binding and reopening it required an issue and a ruling — #171 is that procedure, and §9 disposes of the old entry's grounds one by one.
 
@@ -48,6 +50,8 @@ This is the Rewrite Rule (Declarations Preamble §1.1) applied at the exact plac
 
 ## 5. The documentation reservation
 
+*(Resolved 2026-08-01, issue #191 — `doc-comments.md` is the documentation spec this section anticipated, and it split the reservation: **`(** *)` activated** (predicate tightened — the character after `(**` must also not be `*`), **`///` revoked, unspent** (no special status; the TypeScript audience reads `///` as a triple-slash directive or nothing, never as docs). Both recorded in Comments §13. This section's text below stands as the reservation-era record.)*
+
 The reserved doc forms are now **`///`** (line — unchanged) and **`(** ... *)`** (block — replacing `/** ... */`). Recognition, when the documentation spec lands, requires `(**` followed by at least one character that is not `)`, so `(**)` stays an ordinary empty comment (§2). In v1 both reserved forms lex as ordinary comments, exactly as before; upgrading later remains non-breaking because doc comments carry metadata, not semantics.
 
 One sentence of Comments §6 loses its premise and is re-grounded: the old payoff for reserving *JS-shaped* doc syntax was JSDoc flow into the `.d.ts`. That payoff survives the re-spelling untouched — doc *content* flows to JSDoc regardless of the source delimiters — and under the pivoted doctrine the source spelling no longer needs to be JS-shaped to earn it. `/**` is redirected like any `/*`, with the doc-form addendum (§4).
@@ -82,7 +86,7 @@ James's directive, verbatim in substance, hosted normatively as **Comments §12*
 
 What they must *not* be: history, doctrine, ruling numbers, spec cross-references, or change narration. That material has homes — the spec corpus, the decisions documents, issues, and git history — and it stays in them; the prohibition on spec cross-references is flat, per the directive. A load-bearing normative fact with no code expression — "constructor order is normative" — may be *stated* in its one line; the justification and the citation stay in the spec (the host text, Comments §12, governs the exact wording). The motivating specimen is `stdlib/Bool.hex` at ruling time: ~24 comment lines of doctrine and citations, all of it already recorded in the #147 closure document, in front of a three-line declaration. The doctrine is prospective for new code immediately; the sweep bringing existing files into compliance is **issue #172**, deliberately scheduled after this PR so it can re-spell any block comments in the same pass.
 
-The "later manual" criterion is why this doctrine lives in the Comments spec rather than a style note: when the documentation spec activates `///` and `(** *)`, manual-facing comment content upgrades to doc comments mechanically. Writing comments to that standard now is what makes the upgrade mechanical then.
+The "later manual" criterion is why this doctrine lives in the Comments spec rather than a style note: when the documentation spec activates `///` and `(** *)`, manual-facing comment content upgrades to doc comments mechanically. Writing comments to that standard now is what makes the upgrade mechanical then. *(Resolved 2026-08-01, #191: activated for `(** *)` only — `///` was revoked; Comments §12 hosts the corrected sentence.)*
 
 ## 9. Rejected alternatives (do not re-litigate)
 
@@ -127,7 +131,7 @@ Owed (README rule 4 — applied on next touch): none. No other spec, shipped sou
 | Collision surface audited empty: no operator-as-value, no prefix `*`/`/`; `(*`, `*)`, and the JS detections steal no legal program | §3 |
 | `(*)` = unterminated comment (ordinary error); `(**)` = empty ordinary comment; `**` wins positionally in `**)` | §2, §3 |
 | `/*` (incl. `/**`) and stray `*/` are hard errors with Rewrite Rule redirects; scan-to-`*/` recovery recommended | §4 |
-| Doc reservations are `///` and `(** ... *)`; recognition needs a non-`)` character after `(**`; v1 lexes both as ordinary comments | §5 |
+| Doc reservations are `///` and `(** ... *)`; recognition needs a non-`)` character after `(**`; v1 lexes both as ordinary comments *(resolved #191: `(** *)` activated, predicate tightened; `///` revoked)* | §5 |
 | Strings-in-comments non-lexing kept, recorded as a chosen divergence from OCaml | §6, §9 |
 | Emitted comments use JS syntax; bodies containing `*/` re-present as whole-line `//` runs — closes the pre-existing nesting-emission gap | §7 |
 | Shipped-source comment doctrine: 1–2 lines, purpose/function, manual-suitable, omit the obvious; no history/doctrine/spec-links; hosted as Comments §12; sweep = #172 | §8 |
