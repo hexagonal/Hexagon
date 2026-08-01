@@ -4,6 +4,7 @@ import { internationalIdentifiers } from "./international-identifiers";
 import { modules } from "./modules";
 import { patterns } from "./patterns";
 import { payloadUnions } from "./payload-unions";
+import { polymorphism } from "./polymorphism";
 import { records } from "./records";
 import { rat } from "./rat";
 import { recursion } from "./recursion";
@@ -18,6 +19,7 @@ export const playgroundExamples: readonly PlaygroundExample[] = [
   payloadUnions,
   records,
   constraints,
+  polymorphism,
   rat,
   vectors,
   sequences,
