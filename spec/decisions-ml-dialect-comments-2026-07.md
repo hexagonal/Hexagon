@@ -11,6 +11,8 @@
 
 > Hexagon's block comment is **`(* ... *)`** — multi-line and **nesting**, replacing `/* ... */` in every role that form had. **`(**` is reserved for documentation comments** (the block form; `///` remains the reserved line form). The JavaScript spellings **`/*` and `*/` are detected and redirected** to the Hexagon spellings under the Rewrite Rule (§4). Line comments are untouched: `//` remains the line comment, permanently not an operator.
 
+*[The quote stands verbatim as the #171 ruling. Its two reservations were resolved 2026-08-01 by #191: `(**` activated, `///` revoked — §5's annotation.]*
+
 This is the ML-dialect arc's surface completion. The doctrine's named posture is "F# with Fable" (`decisions-ml-dialect-bool-2026-07.md` §1.1), and the resulting comment inventory is F#'s exactly — `//`, `///`, nesting `(* ... *)` — plus OCaml's `(**` doc reservation. Comments §7 had rejected `(* *)` under "do not re-litigate"; per doctrine §1.2 that section remains binding and reopening it required an issue and a ruling — #171 is that procedure, and §9 disposes of the old entry's grounds one by one.
 
 ---
@@ -84,7 +86,7 @@ James's directive, verbatim in substance, hosted normatively as **Comments §12*
 
 What they must *not* be: history, doctrine, ruling numbers, spec cross-references, or change narration. That material has homes — the spec corpus, the decisions documents, issues, and git history — and it stays in them; the prohibition on spec cross-references is flat, per the directive. A load-bearing normative fact with no code expression — "constructor order is normative" — may be *stated* in its one line; the justification and the citation stay in the spec (the host text, Comments §12, governs the exact wording). The motivating specimen is `stdlib/Bool.hex` at ruling time: ~24 comment lines of doctrine and citations, all of it already recorded in the #147 closure document, in front of a three-line declaration. The doctrine is prospective for new code immediately; the sweep bringing existing files into compliance is **issue #172**, deliberately scheduled after this PR so it can re-spell any block comments in the same pass.
 
-The "later manual" criterion is why this doctrine lives in the Comments spec rather than a style note: when the documentation spec activates `///` and `(** *)`, manual-facing comment content upgrades to doc comments mechanically. Writing comments to that standard now is what makes the upgrade mechanical then.
+The "later manual" criterion is why this doctrine lives in the Comments spec rather than a style note: when the documentation spec activates `///` and `(** *)`, manual-facing comment content upgrades to doc comments mechanically. Writing comments to that standard now is what makes the upgrade mechanical then. *(Resolved 2026-08-01, #191: activated for `(** *)` only — `///` was revoked; Comments §12 hosts the corrected sentence.)*
 
 ## 9. Rejected alternatives (do not re-litigate)
 
@@ -129,7 +131,7 @@ Owed (README rule 4 — applied on next touch): none. No other spec, shipped sou
 | Collision surface audited empty: no operator-as-value, no prefix `*`/`/`; `(*`, `*)`, and the JS detections steal no legal program | §3 |
 | `(*)` = unterminated comment (ordinary error); `(**)` = empty ordinary comment; `**` wins positionally in `**)` | §2, §3 |
 | `/*` (incl. `/**`) and stray `*/` are hard errors with Rewrite Rule redirects; scan-to-`*/` recovery recommended | §4 |
-| Doc reservations are `///` and `(** ... *)`; recognition needs a non-`)` character after `(**`; v1 lexes both as ordinary comments | §5 |
+| Doc reservations are `///` and `(** ... *)`; recognition needs a non-`)` character after `(**`; v1 lexes both as ordinary comments *(resolved #191: `(** *)` activated, predicate tightened; `///` revoked)* | §5 |
 | Strings-in-comments non-lexing kept, recorded as a chosen divergence from OCaml | §6, §9 |
 | Emitted comments use JS syntax; bodies containing `*/` re-present as whole-line `//` runs — closes the pre-existing nesting-emission gap | §7 |
 | Shipped-source comment doctrine: 1–2 lines, purpose/function, manual-suitable, omit the obvious; no history/doctrine/spec-links; hosted as Comments §12; sweep = #172 | §8 |

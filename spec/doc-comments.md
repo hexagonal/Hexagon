@@ -15,6 +15,8 @@ Activation is the non-breaking upgrade the reservation was designed to be: no sh
 
 One form, whole. Documentation in Hexagon has a single spelling, in the corpus's one-spelling tradition (Operators §1.2 is its sharpest statement); a one-line doc and a ten-paragraph doc are the same form at different lengths. The spelling is OCaml's — and OCaml itself documents with `(** *)` alone, so the ML lineage is intact without a line form.
 
+**The design target is JSDoc, recreated on Hexagon's surface** (James's directive, stated with the ruling). JSDoc has exactly one comment form; everything it can express — including specializations this spec defers, like module-level docs — is content or position *within* that form, never a new spelling. Hexagon mirrors that structure: **`(** *)` is the entirety of Hexagon's documentation syntax, and this spec reserves no further comment spellings** (§9.1). Future capability arrives as content-level rulings (tags, positions — §9.2), not as delimiters.
+
 ## 2. Recognition
 
 ### 2.1 The form
@@ -27,7 +29,6 @@ A block comment is a **doc comment** when it begins with `(**` followed by a cha
 |---|---|---|
 | `(**)` | empty ordinary comment | already pinned at reservation time (Comments §3); recognition requires a character after `(**` |
 | `(***`, `(****…` | ordinary comment | OCaml's rule; `(********)` rulers and decorative banners never become documentation. A doc comment whose content must *begin* with `*` writes a space first: `(** *bold* *)`. |
-| `(*!` | ordinary comment, **newly reserved** for inner (module-level) docs | §9.1 |
 
 The reservation's recognition predicate said "at least one character that is not `)`" (Comments §3; ruling §5); activation **tightens** it by also excluding `*`. A compatible refinement — before activation everything lexed as an ordinary comment, so no meaning changes — recorded in Comments' correction record (§13 there).
 
@@ -68,7 +69,7 @@ One rule, no special cases, and it decides every edge by itself: a doc comment b
 ### 4.2 Documentable positions
 
 - **Module-level declarations**: `let`, `var`, `fun`; the Declarations Preamble §7.1 inventory (`record`, `union`, `type`, `constraint`, `honor`, `exception`).
-- **`extern from` block items** — every item form the block admits (FFI Part 4 §2.2), because every one introduces a name: `fun` and `let` bindings, `default` bindings, `type` declarations, `enum` declarations, and `class` declarations with their `method`/`get`/`set` members. An `extern enum`'s members are documentable like union constructors.
+- **`extern from` block items** — every item form the block admits (FFI Part 4 §2.2), because every one introduces a name: `fun` and `let` bindings, `default` bindings, `type` declarations, `enum` declarations, `class` declarations, and `method`/`get`/`set` items — the latter documentable **wherever they appear**, standalone in the block or grouped in an `extern class` (FFI Part 5 §5 governs both positions). An `extern enum`'s members are documentable like union constructors.
 - **Members**: a union constructor (the doc block precedes the constructor's alternative — its leading `|`, or the constructor name where no `|` precedes); a record field; a constraint member; a member implementation inside an `honor` block.
 - **Block-local binders**: `let`, `var`, `fun` inside function bodies and blocks. Local docs never reach the `.d.ts` (locals are not exports); they exist for tooling (§8).
 
@@ -87,7 +88,7 @@ A doc comment must be **leading trivia**: on its physical line, nothing but whit
 | Situation | Message (shape) |
 |---|---|
 | Doc block not followed by a documentable declaration (§4.1) — includes EOF, expression positions, mid-declaration positions | "documentation comment does not document anything — the next code is not a declaration. Move it directly above the declaration it describes, or make it an ordinary comment (`(* ... *)`)." |
-| Doc block before an `import` (including `extern import`) | as above, appending: "imports are not documentable; module-level documentation (`(*!`) is reserved but not in v1." |
+| Doc block before an `import` (including `extern import`) | as above, appending: "imports are not documentable; module-level documentation is not in v1." |
 | Doc block before an `extern from` block header | "documentation attaches to the items an `extern from` block introduces, not to the block — move it above the first item inside the block, or make it an ordinary comment (`(* ... *)`)." (The generic message would be false here — the header *does* begin a declaration form — so the Rewrite Rule gets its own row.) |
 | Doc comment preceded by code on its line (§4.3) | "documentation comments precede what they document — move this above the declaration on its own line, or make it an ordinary comment (`(* ... *)`)." |
 | Unterminated `(**` at EOF | Comments §5's unterminated-block-comment error, unchanged (the doc form is a block comment) |
@@ -135,9 +136,9 @@ The language server surfaces doc content, rendered as Markdown, in hover (shippe
 
 ## 9. Reserved and deferred
 
-### 9.1 Inner docs, newly reserved
+### 9.1 Module-level docs, deferred — with no reserved spelling
 
-**`(*!`** is **reserved for inner documentation** — docs that describe the enclosing module rather than the following declaration (the block analogue of Rust's `//!`). In v1 it lexes as an ordinary comment, exactly as `(**` did before this ruling; the reservation exists for the same reason that one did — so that activating it later changes the meaning of nothing written today, rather than retroactively converting comments that happen to start with `!`. (No line spelling is reserved alongside it: documentation is the `(*` family, §2.3.) Module docs are the one documented-surface gap this spec leaves: a file's manual-facing description has no home until the inner-doc spec lands. Revisit bar: the first stdlib module whose manual entry needs prose that belongs to no single declaration.
+JSDoc — the design target (§1) — has module-level documentation, and has it **without a dedicated comment syntax**: a module doc is the same `/** */` block, distinguished by a tag or its position (`@module`, `@fileoverview`; in the TS world, TSDoc's `@packageDocumentation` as a file's first block). Hexagon mirrors that structure: if module docs come, they arrive as a content/position ruling *within* `(** *)` — most plausibly alongside the tag language (§9.2) — and **no new comment spelling is reserved for them**. (An intermediate draft of this ruling reserved `(*!`, Rust's inner-doc model; dropped on James's direction — §10.) Module docs are the one documented-surface gap this spec leaves: a file's manual-facing description has no home until that ruling lands. Revisit bar: the first stdlib module whose manual entry needs prose that belongs to no single declaration.
 
 ### 9.2 Deferred with bars
 
@@ -150,12 +151,13 @@ The language server surfaces doc content, rendered as Markdown, in hover (shippe
 
 ## 10. Rejected alternatives (do not re-litigate)
 
-- **`///` as a doc form — the reservation is revoked, not activated** (James's directive, 2026-08-01, narrowing the initial both-forms draft during the #192 review). Three grounds. *Audience:* Hexagon's target reader lives in TypeScript, where documentation is JSDoc (`/** */`) and `///` is never surfaced as docs by any tooling — worse, `///` already means something else there: triple-slash directives (`/// <reference ... />`), compiler instructions. To that reader `///` as docs is at best unfamiliar and at worst a false friend; the doc-comment intuition for `///` comes from C#, F#, and Rust, none of which is where this audience lives. *One-spelling doctrine:* two doc spellings for one meaning is what Operators §1.2 exists to prevent; the initial draft's "line/block pair" framing understated that both forms would carry identical semantics. *Precedent:* OCaml — the source of the `(**` spelling — documents with the block form alone. Consequence: `///` has **no special status at all** — not reserved, not recognized, not counted; `//` followed by a `/` is comment text (§2.3). F#'s `///` heritage was the counterweight and lost.
+- **`///` as a doc form — the reservation is revoked, not activated** (James's directive, 2026-08-01, narrowing the initial both-forms draft during the #192 review). Three grounds. *Audience:* Hexagon's target reader lives in TypeScript, where documentation is JSDoc (`/** */`) and `///` is never surfaced as docs by any tooling — worse, `///` already means something else there: triple-slash directives (`/// <reference ... />`), compiler instructions, honoured only in a file's preamble — exactly where a header doc would sit, so the collision lands on the likeliest real use. To that reader `///` as docs is at best unfamiliar and at worst a false friend; the doc-comment intuition for `///` comes from C#, F#, and Rust, none of which is where this audience lives. *One-spelling doctrine:* two doc spellings for one meaning is what Operators §1.2 exists to prevent; the initial draft's "line/block pair" framing understated that both forms would carry identical semantics. *Precedent:* OCaml — the source of the `(**` spelling — documents with the block form alone, and JSDoc, the design target (§1), has one comment form for everything. F#'s `///` heritage was the counterweight and lost. Consequence: `///` has **no special status at all** — not reserved, not recognized, not counted; `//` followed by a `/` is comment text (§2.3). **The residual footgun is accepted, eyes open**: an F# author who writes `/// Doubles.` has written a legal ordinary comment that attaches nothing, and no diagnostic fires — this is *not* an exception to the silently-inert-docs rejection below, because that rejection governs Hexagon's doc form, and `///` is not one; a redirect on a legal comment would be warning-shaped, and no warning tier exists (the same ground that made §5's misplaced-doc cases *errors*). The behaviour is pinned by acceptance test (§11; Comments §8) so it stays chosen rather than accidental.
 - **Trailing docs** (OCaml: a doc comment after an item can attach backward). OCaml's attachment is bidirectional and famously ambiguous — a doc comment between two items can bind to either, and odoc documents heuristics for it. One direction, one rule; a trailing annotation is an ordinary comment.
 - **Silently-inert misplaced docs** (Rust pre-1.0, JS ecosystems: a dangling doc comment is just a comment). The footgun this spec's errors exist to kill: the author wrote documentation and nothing will ever show it. With no warning tier, silence was the only alternative to an error, and silence is the footgun.
 - **F# XML doc comments** (`<summary>…</summary>` content). The posture is F#-with-Fable, but XML lost: the target ecosystem's doc surface (JSDoc, TS hover, Markdown renderers) is Markdown-native, and XML docs are boilerplate-heavy for the senior-TS audience.
 - **A `@`-tag DSL in v1** (JSDoc/javadoc style). Duplicates the honest `.d.ts` signature by hand; drifts. §6's rationale, §9.2's bar.
 - **`(***` as a doc form**. Banner and ruler lines (`(********)`) would silently become documentation. OCaml carved this out for the same reason; Hexagon inherits the carve-out.
+- **Reserving an inner-doc spelling** (`(*!` / `//!`, Rust's model — an intermediate draft of this ruling reserved `(*!`). The design target settles it (§1): JSDoc expresses module docs *inside* its one comment form, by tag and position, so a second spelling buys nothing the eventual mechanism would use — and an idle reservation is not free; it is a standing hole in "one form, whole". Dropped on James's direction; §9.1 keeps the module-docs deferral without it.
 - **Emitting docs to the `.d.ts` only** (keep the `.js` clean). Breaks the readable-JS doctrine — the `.js` is a presentation of the source, and Comments §6 already preserves item-boundary comments there; demoting exactly the *documentation* comments would preserve the trivia and drop the substance. TS precedent emits both.
 - **Doc comments as parser tokens** (attachment in the grammar). Would make a comment affect the token sequence, crossing the line Lexer §7 draws; attachment works on trivia-annotated declarations and the two errors are parse-time checks, not grammar productions.
 - **Blank-line-sensitive attachment** (a blank line between doc and declaration detaches it, haiku-style). Turns invisible whitespace into a semantic switch and makes reformatting change what a doc documents; the errors in §5 catch real mistakes instead.
@@ -205,12 +207,12 @@ let a = 1 (** note *)                    -- ERROR: doc comments precede what the
 (** Orphaned. *)                         -- ERROR at EOF: documents nothing (§5)
 let x = (** inline? *) 2                 -- ERROR: next code token does not begin a declaration
 (** Module header? *)
-import Vector                            -- ERROR: imports not documentable; message names the `(*!` deferral
+import Vector                            -- ERROR: imports not documentable; message names the module-docs deferral
 (** The filesystem module. *)
 extern from "node:fs"                    -- ERROR: docs attach to the block's items, not the block (§5's dedicated row)
   fun readFileSync(path: String): String
 export (** misplaced *) fun m(): Unit = ()  -- ERROR: mid-declaration; `fun` does not begin the declaration
-(*! future inner doc *)                  -- ordinary comment in v1 (reserved, §9.1)
+(*! not special *)                       -- ordinary comment; no inner-doc spelling exists or is reserved (§9.1)
 ```
 
 ## 12. Decisions log
@@ -218,7 +220,8 @@ export (** misplaced *) fun m(): Unit = ()  -- ERROR: mid-declaration; `fun` doe
 | Decision | Where |
 |---|---|
 | `(** *)` activates in v1 as the **only** doc form; docs are metadata; one spelling | §1 |
-| `///` reservation **revoked, unspent** — no handling, no status; `//` then `/` is comment text | §2.3, §10 |
+| **The design target is JSDoc**: one comment form carries everything; future capability is content/position within it, never new delimiters; no further comment spelling is ever reserved | §1, §9.1 |
+| `///` reservation **revoked, unspent** — no handling, no status; `//` then `/` is comment text; the F#-author footgun accepted eyes-open and pinned | §2.3, §10 |
 | Recognition: `(**` + a character that is neither `)` nor `*` (`(***…`, `(**)` ordinary) — reservation predicate tightened | §2 |
 | Content extraction: ordered procedure; dedent by longest common literal prefix, opener-line fragment exempt only when it exists | §3.1 |
 | Doc blocks merge across runs; blanks and ordinary comments invisible; empty docs legal | §3.2 |
@@ -229,9 +232,9 @@ export (** misplaced *) fun m(): Unit = ()  -- ERROR: mid-declaration; `fun` doe
 | Emission: JSDoc in both `.js` and `.d.ts` at every corresponding seat; `*/` → `*\/`; no seat → tooling-only | §7 |
 | Verbatim emission makes TS's tag vocabulary live at the boundary — recorded, neither validated nor suppressed; the tag-language ruling inherits it | §6, §7.2, §9.2 |
 | User + generated docs merge into one JSDoc block, user first | §7.3 |
-| `(*!` newly reserved for inner docs (no line spelling alongside); module docs deferred with a named bar | §9.1 |
+| Module docs deferred with a named bar and **no reserved spelling** (JSDoc expresses them within the one form) | §9.1 |
 | Tag language, intra-doc links, parameter docs deferred with bars | §9.2 |
-| Rejected: `///` in any doc role, trailing docs, silent danglers, XML docs, v1 tag DSL, `(***` as doc, `.d.ts`-only emission, docs-as-tokens, blank-line detachment | §10 |
+| Rejected: `///` in any doc role, inner-doc spellings (`(*!`/`//!`), trailing docs, silent danglers, XML docs, v1 tag DSL, `(***` as doc, `.d.ts`-only emission, docs-as-tokens, blank-line detachment | §10 |
 
 ## 13. Edit notes to existing specs
 
@@ -240,7 +243,7 @@ Applied in this ruling's PR (direct edits):
 | Target | Edit |
 |---|---|
 | `comments.md` | §1 table: `(** *)` row becomes an active pointer here; `///` row's reservation revoked in place. §2's `///` bullet superseded (revocation); §3's `(**)` bullet gains the tightened predicate; §6's horizon bullet discharged and its `//`-run repair cross-cites §7.2's escape; §8's `/// still just a comment` line re-annotated **permanent**; §9 log updated; §12's mechanical-upgrade sentence now cites this spec; **§13 correction record** itemizing what activation and the revocation supersede. Scope header updated. |
-| `lexer.md` | §7 gains the doc-trivia bullet (`(**` doc comments are distinguished trivia whose content and position are retained and delivered to the parser; recognition predicate owned here; `(*!` reserved; `///` nothing); "Not in scope" line's doc-comment deferral now points at this spec. |
+| `lexer.md` | §7 gains the doc-trivia bullet (`(**` doc comments are distinguished trivia whose content and position are retained and delivered to the parser; recognition predicate owned here; `///` nothing); "Not in scope" line's doc-comment deferral now points at this spec. |
 | `README.md` | Ownership row for `doc-comments.md`; Parser and Emitter reading sets gain it. |
 | `decisions-ml-dialect-comments-2026-07.md` | §5 annotated: block reservation activated by #191, `///` reservation revoked by the same ruling; predicate tightened here. |
 | Book: `chapters/05-layout.md` (+ `DRAFT-3.md` rebuild), `FEATURES.md`, `plans/05-layout.md`, `CONTINUITY.md` | Every reservation-era passage re-taught: `(** *)` docs active; `///` not mentioned as anything but an ordinary comment *(the plans and continuity files were the cold review's finding 6)*. |

@@ -344,9 +344,9 @@ The Comments spec is authoritative; this section fixes token interaction.
   predicate owned by Doc Comments §2) are **distinguished trivia**: still trivia
   to the token sequence and to layout, but their classification, content, and position
   are retained and delivered to the parser for attachment. *(Activated 2026-08-01,
-  #191.)* `(*!` is reserved for inner docs and lexes as an ordinary comment. `///`
-  is nothing to this lexer — the #191 ruling revoked that reservation; a `//`
-  comment's text may begin with `/` and no slash-counting exists.
+  #191.)* `///` is nothing to this lexer — the #191 ruling revoked that
+  reservation; a `//` comment's text may begin with `/` and no slash-counting
+  exists. No other doc spelling exists or is reserved (Doc Comments §9.1).
 - Newlines encountered inside comments still update physical positions. Code before
   and after a multiline block comment therefore retains its real line relationship.
 - Strings are not recognized inside comments and comments are not recognized in
