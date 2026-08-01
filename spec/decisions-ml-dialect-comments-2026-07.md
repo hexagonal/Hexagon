@@ -48,7 +48,7 @@ This is the Rewrite Rule (Declarations Preamble §1.1) applied at the exact plac
 
 ## 5. The documentation reservation
 
-*(Activated 2026-08-01, issue #191 — `doc-comments.md` is the documentation spec this section anticipated. The recognition predicate is tightened there: the character after `(**` must also not be `*`, and `///` must be exactly three slashes; both refinements recorded in Comments §13. This section's text below stands as the reservation-era record.)*
+*(Resolved 2026-08-01, issue #191 — `doc-comments.md` is the documentation spec this section anticipated, and it split the reservation: **`(** *)` activated** (predicate tightened — the character after `(**` must also not be `*`), **`///` revoked, unspent** (no special status; the TypeScript audience reads `///` as a triple-slash directive or nothing, never as docs). Both recorded in Comments §13. This section's text below stands as the reservation-era record.)*
 
 The reserved doc forms are now **`///`** (line — unchanged) and **`(** ... *)`** (block — replacing `/** ... */`). Recognition, when the documentation spec lands, requires `(**` followed by at least one character that is not `)`, so `(**)` stays an ordinary empty comment (§2). In v1 both reserved forms lex as ordinary comments, exactly as before; upgrading later remains non-breaking because doc comments carry metadata, not semantics.
 

@@ -13,8 +13,8 @@
 |---|---|
 | `// ...` | Line comment: from `//` to end of line (exclusive of the newline). |
 | `(* ... *)` | Block comment: **nests**. May span lines. |
-| `/// ...` | **Doc comment** (line) — *active since #191*; recognition, attachment, and emission: `doc-comments.md`. Lexically a line comment. |
-| `(** ... *)` | **Doc comment** (block) — *active since #191*; ditto. Lexically a block comment (nests, same errors). |
+| `/// ...` | ~~Reserved for doc comments~~ — **reservation revoked, unspent** (#191): no special status; an ordinary `//` comment whose text begins with `/` (`doc-comments.md` §2.3). |
+| `(** ... *)` | **Doc comment** — *active since #191*; recognition, attachment, and emission: `doc-comments.md`. Lexically a block comment (nests, same errors). |
 
 No other comment syntax exists. `--`, `{- -}`, `#` are not comments (§7). The JavaScript spellings `/*` and `*/` are not comments either — they are **detected and redirected** (§3.1). *(Block forms re-spelled from `/* */` / `/** */`, 2026-07-30, #171 — §11.)*
 
@@ -22,7 +22,7 @@ No other comment syntax exists. `--`, `{- -}`, `#` are not comments (§7). The J
 
 - `//` begins a comment anywhere outside a string literal or char-level construct; it runs to end of line. There is no line-continuation mechanism; the newline ends the comment and participates in layout normally.
 - **Maximal munch is permanent:** `//` is never an operator and never will be. In particular, a future integer-division operator cannot be spelled `//`; that spelling is spent. (Integer division remains `Int.div` / whatever the numerics surface provides.)
-- `///` is three slashes: ~~v1 lexes it identically to `//`. The distinction becomes meaningful only when the documentation spec lands~~ *(superseded 2026-08-01, #191 — the documentation spec landed and the distinction is meaningful: exactly `///` is a doc comment, `////…` remains ordinary; `doc-comments.md` §2.1)*. The reservation's promise held: doc comments carry metadata rather than semantics, so activation was non-breaking.
+- `///` is three slashes: v1 lexes it identically to `//` — *and that is now permanent* *(2026-08-01, #191: the documentation spec landed and **revoked** this reservation rather than activating it — Hexagon's doc comment is `(** *)` alone, and `///` has no special status; grounds in `doc-comments.md` §10. The old sentence "the distinction becomes meaningful only when the documentation spec lands" is thereby superseded: the spec landed and there is no distinction — the lexer does not count slashes)*.
 - The #171 re-spelling did not touch this section's rules: `//` is the same spelling in JavaScript and in F#, so ML lineage and JS convention agree here — the observation §7 always made now carries the section.
 
 ## 3. Block comments nest
@@ -71,7 +71,7 @@ No warnings; per house rule there is no warning tier.
   top-level items and comments are preserved as item separation; exact interior
   whitespace is formatter territory.
 - **Emitted comments use JavaScript's comment syntax, and the emitted file must remain valid JS** *(clause added 2026-07-30, #171 — closing a gap that predates the re-spelling)*: `//` comments emit verbatim; a `(* ... *)` comment whose text does not contain the sequence `*/` emits as `/* text */` — interior `(*` / `*)` pairs are inert text to JavaScript and may be carried as-is or re-spelled; a body that does contain `*/` is re-presented as a run of `//` comments occupying **whole lines** (a `//` run must never share its lines with following code). (*Doc* comments take the other repair for the same hazard — the `*\/` escape, `doc-comments.md` §7.2 — because a `//` run is not JSDoc and would silently drop the documentation.) (The gap predates the re-spelling: under the old delimiters a *nested* comment's body necessarily contained `*/`, so it was never verbatim-emittable into non-nesting JS, and the old text never said what to do about it.) Content is preserved; presentation choices beyond the validity requirement are quality-of-implementation.
-- ~~The exception on the horizon: when the documentation spec lands, `///` / `(** *)` content should flow to **JSDoc in the `.d.ts`**.~~ **Discharged (2026-08-01, #191):** the documentation spec landed and the payoff is collected — doc content flows to JSDoc in both the `.d.ts` and the readable `.js` (`doc-comments.md` §7). Attachment rules and Markdown contract live there; inner-doc forms (`//!`, `(*!`) remain deferred and are now formally reserved (`doc-comments.md` §9.1).
+- ~~The exception on the horizon: when the documentation spec lands, `///` / `(** *)` content should flow to **JSDoc in the `.d.ts`**.~~ **Discharged (2026-08-01, #191):** the documentation spec landed and the payoff is collected for the one form that activated — `(** *)` doc content flows to JSDoc in both the `.d.ts` and the readable `.js` (`doc-comments.md` §7); the `///` reservation was revoked rather than activated (§13). Attachment rules and Markdown contract live there; the inner-doc form (`(*!`) remains deferred and is now formally reserved (`doc-comments.md` §9.1).
 
 ## 7. Rejected alternatives (do not relitigate)
 
@@ -100,7 +100,7 @@ let s = "not a // comment"               -- s contains the slashes
 (* "unclosed string with *) let z = 1    -- comment ended at the *) inside the quotes; z = 1
 *)                                       -- ERROR: unmatched `*)`
 (* opened, never closed                  -- ERROR at EOF: unterminated, points here
-let a = 1 /// still just a comment in v1 -- SUPERSEDED (#191): now the trailing-doc ERROR, doc-comments.md §4.3
+let a = 1 /// still just a comment in v1 -- OK — and permanently (#191 revoked the /// reservation; §13)
 (**)                                     -- empty block comment
 (*)                                      -- ERROR at EOF: unterminated (the `)` is comment text)
 let b = a **) 2                          -- never comment machinery: `**` munches first; parse error at `)`
@@ -124,8 +124,9 @@ x --1                                    -- NOT a comment: `--` isn't a token;
 | Comments are whitespace to layout; comment-only lines invisible; first non-comment token's column counts | §4 |
 | Tab rule regulates literal leading whitespace only; tabs inside comments unregulated | §4 |
 | Emitted comments use JS syntax; unsafe bodies re-present as `//` runs *(#171, gap closure)* | §6 |
-| `///` and `(** *)` ~~reserved for~~ **are** doc comments *(activated #191)*; the JSDoc payoff is collected; semantics owned by `doc-comments.md` | §1, §5, §6, §13 |
-| Inner-doc forms (`//!`, `(*!`) reserved, still deferred *(re-homed to `doc-comments.md` §9.1 at #191)* | §6 |
+| `(** *)` ~~reserved for~~ **is the** doc comment *(activated #191)*; the JSDoc payoff is collected; semantics owned by `doc-comments.md` | §1, §5, §6, §13 |
+| `///` reservation **revoked, unspent** (#191): no special status, permanently an ordinary `//` comment | §1, §2, §13 |
+| Inner-doc form `(*!` reserved, still deferred *(re-homed to `doc-comments.md` §9.1 at #191; no line spelling reserved alongside)* | §6 |
 | Rejected: `--`, `{- -}`, non-nesting block comments, `#`, JS-spelling aliases, no-detection, deprecation window, OCaml string-aware comments | §7 |
 | Shipped-source comment doctrine (1–2 lines, purpose, manual-suitable, omit the obvious) | §12 |
 
@@ -159,20 +160,20 @@ Comments in `.hex` source shipped with the compiler — the standard library and
 
 What shipped-source comments must **not** carry: history, doctrine, ruling numbers, spec cross-references, or change narration. That material has homes — the spec corpus, the decisions documents, issues, and git history — and it belongs in them. A comment may *state* a load-bearing normative fact with no code expression (e.g. "constructor order is normative"); the justification behind the fact, and the citation for it, stay in the spec — a reader who wants the why greps the corpus.
 
-The "later manual" criterion is this section's reason for living here rather than in a style note: now that the documentation spec has activated `///` and `(** *)` (#191, `doc-comments.md`), manual-facing comment content upgrades to doc comments mechanically, and comments written to this standard are the ones that upgrade cleanly. The doctrine binds new shipped code immediately; the sweep bringing existing files into compliance was issue #172 (done 2026-07-31), and the upgrade sweep to `///` is the follow-up recorded in `doc-comments.md` §14.
+The "later manual" criterion is this section's reason for living here rather than in a style note: now that the documentation spec has activated `(** *)` (#191, `doc-comments.md`), manual-facing comment content upgrades to doc comments mechanically, and comments written to this standard are the ones that upgrade cleanly. The doctrine binds new shipped code immediately; the sweep bringing existing files into compliance was issue #172 (done 2026-07-31), and the upgrade sweep to `(** *)` is the follow-up recorded in `doc-comments.md` §14.
 
 *(Swept 2026-07-31, issue #172: `stdlib/*.hex` and the embedded prelude are compliant. Two findings the sweep should not silently absorb. First, **Modules §5.5's header-comment house form survives this section** — the one-line ``// `Option`, `Some`, and `None` are implicitly in scope via the prelude.`` note is normative there, on stated pedagogical grounds, and is not a spec cross-reference in the sense this section bans; `Seq.hex` and `Vector.hex` keep it. A ruling, not a sweep, is what would overturn it. Second, the knowledge in a deleted `Seq.hex` comment outlived its claim and went to issue #177 rather than to the corpus: the comment recorded a layout workaround as a necessity.)*
 
 *(#177, settled 2026-07-31.* The necessity was never real for the shape the comment described: it over-generalized defect-log finding 5, which was genuine but narrower than the comment made it — and which was itself fixed later the same day, so neither spelling is constrained now. The corpus record is that finding's correction note, and the prelude no longer depends on it either way. The general lesson belongs in this section, because this section is why the comment was read closely enough to catch it — **a shipped comment asserting an impossibility is a claim about the compiler, and nothing was checking it.** Such a claim is now written as a test or not written at all; §12's criterion 4 ("omitted entirely when the code says it already") does not license an unverified assertion about what the code *could not* say.
 
-## 13. Correction record — the #191 activation *(added 2026-08-01)*
+## 13. Correction record — the #191 activation and revocation *(added 2026-08-01)*
 
-Ruled in `doc-comments.md` (issue #191; James's directive, 2026-08-01): the doc-comment forms reserved here are **active**. This document remains the owner of the comment *forms* — lexing, nesting, layout invisibility, the JS-spelling redirects, the shipped-source doctrine — and every rule of §§2–5 holds of the doc forms exactly as of the ordinary ones. Doc-comment *semantics* (recognition predicates, attachment, content, emission) are owned by `doc-comments.md`. What activation superseded here, all annotated in place:
+Ruled in `doc-comments.md` (issue #191; James's directive, 2026-08-01): of the two forms reserved here, **`(** *)` is active** and **the `///` reservation is revoked, unspent**. Hexagon's documentation comment has one spelling — the block form; `///` has no special status of any kind, permanently: it is a `//` comment whose text begins with `/`, the lexer does not count slashes, and no future activation is contemplated (grounds — the TypeScript audience reads `///` as either nothing or a triple-slash directive, never as documentation — in `doc-comments.md` §10). This document remains the owner of the comment *forms* — lexing, nesting, layout invisibility, the JS-spelling redirects, the shipped-source doctrine — and every rule of §§2–5 holds of the doc form exactly as of the ordinary ones. Doc-comment *semantics* (recognition predicate, attachment, content, emission) are owned by `doc-comments.md`. What #191 superseded here, all annotated in place:
 
-1. **The reservation language** — §1's table rows, §2's `///` bullet, the Status/Scope headers, §9's log rows: "reserved, lexes as ordinary in v1" became "active, semantics in `doc-comments.md`".
-2. **Recognition predicates tightened**: `///` must be exactly three slashes (`////…` stays ordinary); `(**` recognition excludes a following `*` as well as `)` (`(***…` banners stay ordinary). Compatible refinements — before activation all of these lexed as ordinary comments, so no meaning changed (`doc-comments.md` §2.3).
-3. **§6's doc-comment horizon bullet discharged** — the JSDoc payoff is collected, into both the `.d.ts` and the readable `.js`.
-4. **§8's acceptance line** `let a = 1 /// still just a comment in v1` superseded: that spelling is now the trailing-doc hard error (`doc-comments.md` §4.3/§5). The remaining §8 lines are unchanged — none contains a doc form.
-5. **New reservations recorded**: `//!` and `(*!` are reserved for inner docs and lex as ordinary comments in v1 (`doc-comments.md` §9.1) — the same promise this document made for `///`, made again for the next activation.
+1. **The reservation language** — §1's table rows, §2's `///` bullet, the Status/Scope headers, §9's log rows: the `(** *)` row became "active, semantics in `doc-comments.md`"; the `///` row became the revocation.
+2. **The `(**` recognition predicate tightened**: it excludes a following `*` as well as `)`, so `(***…` banners stay ordinary. A compatible refinement — before activation everything lexed as an ordinary comment, so no meaning changed (`doc-comments.md` §2.2).
+3. **§6's doc-comment horizon bullet discharged** — the JSDoc payoff is collected for the activated form, into both the `.d.ts` and the readable `.js`.
+4. **§8's acceptance line** `let a = 1 /// still just a comment in v1` re-annotated from time-bounded to **permanent** — the revocation makes it a standing pin that `///` attaches nothing. *(An intermediate draft of this ruling activated both forms and briefly made that line an error; James narrowed the ruling to the block form during the PR #192 review, and the line's original expectation stands.)*
+5. **One new reservation recorded**: `(*!` is reserved for inner docs and lexes as an ordinary comment in v1 (`doc-comments.md` §9.1) — the same promise this document made for `(**`, made again for the next activation. Deliberately, no line spelling is reserved alongside it.
 
 The prior text is preserved in git history; per house rule, nothing was silently deleted.

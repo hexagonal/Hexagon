@@ -340,11 +340,13 @@ The Comments spec is authoritative; this section fixes token interaction.
 - Comments and horizontal whitespace are trivia, not parser tokens. An implementation
   may retain their spans and text for formatting or readable emission, but doing so
   cannot affect the token sequence.
-- Doc comments (`///` exactly; `(**` followed by a character that is neither `)` nor
-  `*` — predicates owned by Doc Comments §2) are **distinguished trivia**: still trivia
+- Doc comments (`(**` followed by a character that is neither `)` nor `*` — the
+  predicate owned by Doc Comments §2) are **distinguished trivia**: still trivia
   to the token sequence and to layout, but their classification, content, and position
   are retained and delivered to the parser for attachment. *(Activated 2026-08-01,
-  #191.)* `//!` and `(*!` are reserved for inner docs and lex as ordinary comments.
+  #191.)* `(*!` is reserved for inner docs and lexes as an ordinary comment. `///`
+  is nothing to this lexer — the #191 ruling revoked that reservation; a `//`
+  comment's text may begin with `/` and no slash-counting exists.
 - Newlines encountered inside comments still update physical positions. Code before
   and after a multiline block comment therefore retains its real line relationship.
 - Strings are not recognized inside comments and comments are not recognized in

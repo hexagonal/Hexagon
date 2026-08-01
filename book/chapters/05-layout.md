@@ -158,13 +158,13 @@ attempt and answers with the rewrite: Hexagon block comments are `(* ... *)`. Th
 slash spellings are never silently accepted and never mean division and
 multiplication side by side.
 
-The forms `///` and `(** ... *)` are documentation comments. Placed directly above
-a declaration, their content — Markdown — becomes that declaration's documentation:
+The form `(** ... *)` is the documentation comment. Placed directly above a
+declaration, its content — Markdown — becomes that declaration's documentation:
 editors show it on hover, and the compiler carries it into the generated JavaScript
 and `.d.ts` as JSDoc, where every TypeScript consumer's tooling reads it. A
 documentation comment that does not sit above a declaration is an error, not a
 silently ignored note — if you wrote documentation, Hexagon makes sure something
-shows it. (Banner lines are safe: `////……` and `(***……` stay ordinary comments.)
+shows it. (Banner lines are safe: `(***……` stays an ordinary comment.)
 
 ## Comments do not reshape a block
 
