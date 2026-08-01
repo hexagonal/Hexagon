@@ -732,6 +732,12 @@ describe("comments (spec/comments.md)", () => {
       // The comment ends where it should, so the following line is still code.
       expect(pairs, opener).toContainEqual(["let", "storage.type.hexagon"]);
     }
+
+    // No inner-doc spelling exists or is reserved (§9.1), and a doc opener nested inside
+    // an ordinary comment is body text — the block rules do not include #comments, and
+    // an edit that made them would light up the inside of every commented-out region.
+    expect(await scope("(*! not special *)", "! not special ")).toBe("comment.block.hexagon");
+    expect(await scope("(* a (** b *) *)", "* b ")).toBe("comment.block.hexagon");
   });
 
   it("gives `///` no status of its own (spec/doc-comments.md §2.3)", async () => {

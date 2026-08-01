@@ -59,10 +59,11 @@
   "onEnterRules": [
     {
       "//": [
-        "Keep doc comments aligned and closed. The opener rules carry spec/doc-comments.md",
-        "§2.1's predicate, so they fire on exactly what the grammar paints as documentation:",
-        "§2.2's two carve-outs — the empty block comment `(**)` and the banner openers",
-        "`(***`, `(****…` — are excluded by the same `(?![)*])` lookahead the grammar uses.",
+        "Keep doc comments aligned and closed. These fire on a line that *opens* a doc",
+        "comment and leaves it open — a closed one has nothing to continue — and the opener",
+        "they recognize is spec/doc-comments.md §2.1's, the same `(?![)*])` predicate the",
+        "grammar uses: §2.2's two carve-outs, the empty block comment `(**)` and the banner",
+        "openers `(***`, `(****…`, are not doc comments and are not continued as ones.",
         "There is no `///` rule: §2.3 revoked that reservation unspent, so a `///` line is an",
         "ordinary comment and Enter continues nothing."
       ],

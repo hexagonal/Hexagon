@@ -90,7 +90,7 @@ look like.
 | Contextual keywords, in position only | `keyword.other.*` | §4.2 |
 | Integer / Float / BigInt | `constant.numeric.*` | §5 |
 | String, escapes, interpolation hole | `string.quoted.double`, `constant.character.escape`, `meta.embedded` | §6 |
-| Line, block, and doc comments | `comment.*` | Comments §1 |
+| Line, block, and doc comments | `comment.*` | Comments §1; doc-comments §2 |
 | Operators and punctuation | `keyword.operator.*` / `punctuation.*` | §8.1 |
 | Everything §10 requires a diagnostic for | `invalid.illegal.*` | §10 |
 
