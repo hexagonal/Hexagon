@@ -190,6 +190,19 @@ function preludeIds(module: Core.Module): PreludeIds {
 
 class JavaScriptEmitter {
   readonly #diagnostics = new Diagnostics.Bag();
+  /**
+   * Whether the module reached emission already carrying checker errors.
+   *
+   * Closure doc §13.6 scopes the evidence guarantee to modules the checker
+   * accepts: on a **clean** module no value reaches here needing evidence at a
+   * non-function type, so the branches below are conformance assertions. On an
+   * **already-diagnosed** module they stay reachable — `let g = Some(describe)`
+   * unused is the standing example, and it behaves this way on `main` too — and
+   * there the emitter must stay quiet and emit best-effort. A second report of
+   * the same unsolved variable, phrased as an internal failure, is the
+   * Preamble §1.1 violation the ruling named.
+   */
+  readonly #alreadyDiagnosed: boolean;
   readonly #symbols = new Map<Resolved.SymbolId, Core.Symbol>();
   readonly #constructors = new Map<
     Resolved.SymbolId,
@@ -232,6 +245,9 @@ class JavaScriptEmitter {
         if (name.symbol !== undefined) this.#importLocals.set(name.symbol, name.local);
       }
     }
+    this.#alreadyDiagnosed = module.diagnostics.some(
+      ({ severity }) => severity === "error",
+    );
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
     for (const symbol of module.symbols) this.#symbols.set(symbol.id, symbol);
     for (const union of module.unions) {
@@ -2237,6 +2253,36 @@ class JavaScriptEmitter {
     return `${left} ${comparisonOperator(step.test)} ${right}`;
   }
 
+  /**
+   * The evidence-at-a-non-function paths, retired per closure doc §13.6.
+   *
+   * On an already-diagnosed module: silence. The checker has made this
+   * variable's real report, and a second one phrased as an emission failure is
+   * the duplicate the ruling struck.
+   *
+   * On a checker-clean module: reaching here means §13.6's invariant is broken
+   * — a scheme carrying residual constraints that does not describe a
+   * function-typed whole binding — which is a compiler defect, not the author's
+   * mistake. The ruling permits an assertion here. **This does not throw, on
+   * purpose.** Every review round of this arc has found a residual hole in the
+   * previous round's fix, and turning an unknown remaining hole into a hard
+   * crash would trade a wrong diagnostic for a dead compiler. It reports
+   * instead, in terms that can only be read as a compiler bug. If a later round
+   * establishes the invariant holds under adversarial search, this is the line
+   * to harden.
+   */
+  #reportUnreachableEvidence(detail: string, span: Core.Expr["span"]): void {
+    if (this.#alreadyDiagnosed) return;
+    this.#diagnostics.add({
+      severity: "error",
+      message:
+        "internal compiler error: constraint evidence was needed where the checker " +
+        `guarantees none is (${detail}). This is a defect in the compiler, not in ` +
+        "your program; please report it",
+      primary: span,
+    });
+  }
+
   #dictionary(
     variable: Typed.TypeVariableId,
     constraint: Typed.ConstraintName,
@@ -2248,11 +2294,16 @@ class JavaScriptEmitter {
     if (name !== undefined) {
       return path.reduce((dictionary, slot) => `${dictionary}.${slot}`, name);
     }
-    this.#diagnostics.add({
-      severity: "error",
-      message: `missing \`${constraint}\` evidence during JavaScript emission`,
-      primary: span,
-    });
+    // Retired as a user diagnostic, scoped per closure doc §13.6. On a module
+    // the checker already rejected, this variable's real report has been made —
+    // the defaulting/ambiguity error for `let g = Some(describe)`, which names
+    // the rewrite — and repeating it here as an emission failure told the author
+    // nothing and blamed a pass they cannot see. Emit best-effort into a module
+    // the project has already rejected and say nothing.
+    this.#reportUnreachableEvidence(
+      `missing \`${constraint}\` evidence during JavaScript emission`,
+      span,
+    );
     return "undefined";
   }
 
@@ -2795,9 +2846,16 @@ class JavaScriptEmitter {
     // `bindingRhs` is load-bearing and was missing until the 2026-08-01 review.
     // Without it the rule read every reference position, so a record field held
     // the bare evidence-taking function while the checker had typed that field
-    // one arity narrower — and the `missing evidence during JavaScript emission`
-    // note that says so went quiet, because the bare shape needs no evidence to
-    // emit. Constraints §6.1 and §13.3 both say "at a binding"; this is that.
+    // one arity narrower. Constraints §6.1 and §13.3 both say "at a binding";
+    // this is that.
+    //
+    // What made that observable was once the `missing evidence during
+    // JavaScript emission` note going quiet. It is no longer: that message is
+    // retired as a user diagnostic (§13.6), and the shape it used to flag is
+    // refused by the checker's evidence-seat rule before emission is reached.
+    // The gate is still load-bearing — the *emission* changes, the bare name
+    // against the eta-expansion — so read the emitted text, not the diagnostic
+    // list, when probing it.
     //
     // Only a constraint defaulting cannot settle exhibits it. Under `Num` the
     // reference's evidence is a concrete instance rather than an unresolved
@@ -2821,13 +2879,14 @@ class JavaScriptEmitter {
     if (expression.type.kind !== "Function") {
       // Nothing to eta-expand: a constrained non-function value has no arity to
       // wrap, and applying evidence eagerly would change when it is forced.
-      this.#diagnostics.add({
-        severity: "error",
-        message:
-          `\`${expression.text}\` needs constraint evidence in value position, ` +
+      // Retired as a user diagnostic on the same terms as `#dictionary`'s
+      // (closure doc §13.6): the checker's evidence-seat rule is what refuses
+      // this shape now, at the binding, where a rewrite can be named.
+      this.#reportUnreachableEvidence(
+        `\`${expression.text}\` needs constraint evidence in value position, ` +
           "but is not a function; call it, or annotate the reference at a concrete type",
-        primary: expression.span,
-      });
+        expression.span,
+      );
       return base;
     }
     const parameters = expression.type.parameters.map((_, index) =>

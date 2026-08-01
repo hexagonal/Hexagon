@@ -2553,9 +2553,25 @@ class Resolver {
     // compiled with no diagnostic while the same two lines swapped reported
     // properly — `f` hoists in the emitted JavaScript and `a` does not, so the
     // module threw `ReferenceError` on load. Reading the resolved bodies makes
-    // the two orders the same cycle. Restricting to `sequential` is what keeps
-    // it free of false positives: a body's own parameters and inner `let`s are
-    // different symbols and are never in this set.
+    // the two orders the same cycle.
+    //
+    // Restricting to `sequential` keeps a body's own parameters, inner `let`s and
+    // pattern binders out of the set — they are different symbols. It does **not**
+    // make the guard exact, and an earlier version of this comment claimed it did.
+    // The check counts a name mentioned anywhere in the body, a lambda that is
+    // never invoked included, so
+    //
+    //     let a = f()
+    //     fun f(): Int =
+    //         let k = () => a
+    //         1
+    //
+    // is rejected although it runs. `main` already rejected the mirror image of
+    // that program, so this is the existing conservatism made order-insensitive
+    // rather than a new rule — but it is over-approximate in both directions now,
+    // and that is a deliberate choice, not a property of the intersection.
+    // Narrowing it would mean deciding which mentions are reachable at call time,
+    // which `(() => a)()` shows is not a syntactic question.
     const captured = new Map<Resolved.SymbolId, Set<Resolved.SymbolId>>();
     for (const item of items) {
       if (item.kind !== "Fun") continue;
@@ -2754,6 +2770,15 @@ function itemNameReferences(item: Resolved.Item): readonly Resolved.NameExpr[] {
   if (item.kind === "Let" || item.kind === "Var" || item.kind === "LetPattern") return expressionNames(item.value);
   if (item.kind === "ExprItem") return expressionNames(item.expression);
   if (item.kind === "Honor") return item.members.flatMap((member) => expressionNames(member.value.body));
+  // A `fun` nested in a block is walked too. Both callers are
+  // `#checkFunctionAvailability`, and skipping these left it blind to a `fun`
+  // whose *inner* `fun` names the binding: `let a = f()` above a `f` whose body
+  // declares `fun inner() = a` reported nothing and threw `ReferenceError` on
+  // load, while the same program with `f` written first reported properly —
+  // which is the order-sensitivity the guard was repaired to remove. Module-level
+  // `fun`s are unaffected: the caller at the module level skips them and reaches
+  // them through `#funDependencies` instead.
+  if (item.kind === "Fun") return expressionNames(item.value.body);
   return [];
 }
 

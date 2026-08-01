@@ -1277,11 +1277,19 @@ class Checker {
 
       if (item.kind === "LetPattern") {
         const valueType = this.#inferExpr(item.value, level + 1);
+        // `valueType` is passed twice on purpose. As the pattern's expected
+        // type it is peeled apart component by component; as the *evaluated*
+        // type it stays whole, and it is the whole one the evidence-seat rule
+        // reads (closure doc §13.6). A destructuring `let` constructs one
+        // aggregate and every binder names a projection of it, so no binder
+        // here can carry a constrained scheme however function-typed its own
+        // component happens to be.
         this.#inferPattern(
           item.pattern,
           valueType,
           level,
           this.#isValue(item.value),
+          valueType,
         );
         continue;
       }
@@ -2658,6 +2666,13 @@ class Checker {
     expected: Mono,
     level: number,
     generalizable: boolean,
+    /**
+     * The type of the whole right-hand side this pattern destructures — the
+     * binding's one evaluated value (closure doc §13.6). Constant for the
+     * entire walk and passed down every arm unchanged: the seat is a property
+     * of the value that was constructed, not of the name a projection reaches.
+     */
+    evaluated: Mono = expected,
   ): void {
     if (pattern.kind === "Wildcard") return;
     if (pattern.kind === "Unit") {
@@ -2667,15 +2682,15 @@ class Checker {
     if (pattern.kind === "Binding") {
       this.#schemes.set(
         pattern.binding.symbol,
-        this.#generalize(expected, level, generalizable),
+        this.#generalize(expected, level, generalizable, undefined, evaluated),
       );
       return;
     }
     if (pattern.kind === "As") {
-      this.#inferPattern(pattern.pattern, expected, level, generalizable);
+      this.#inferPattern(pattern.pattern, expected, level, generalizable, evaluated);
       this.#schemes.set(
         pattern.binding.symbol,
-        this.#generalize(expected, level, generalizable),
+        this.#generalize(expected, level, generalizable, undefined, evaluated),
       );
       return;
     }
@@ -2688,6 +2703,8 @@ class Checker {
             this.#scheme(binding.symbol).type,
             level,
             generalizable,
+            undefined,
+            evaluated,
           ),
         );
       }
@@ -2732,6 +2749,7 @@ class Checker {
           parameters[index] ?? ERROR,
           level,
           generalizable,
+          evaluated,
         )
       );
       return;
@@ -2753,10 +2771,10 @@ class Checker {
       const vector: VectorMono = { kind: "Vector", element };
       this.#unify(expected, vector, pattern.span);
       for (const nested of pattern.elements) {
-        this.#inferPattern(nested, element, level, generalizable);
+        this.#inferPattern(nested, element, level, generalizable, evaluated);
       }
       if (pattern.rest?.pattern !== undefined) {
-        this.#inferPattern(pattern.rest.pattern, vector, level, generalizable);
+        this.#inferPattern(pattern.rest.pattern, vector, level, generalizable, evaluated);
       }
       if (pattern.rest === undefined || pattern.elements.length > 0) {
         this.#diagnostics.add({
@@ -2785,6 +2803,7 @@ class Checker {
           fields.get(fieldPattern.name) ?? ERROR,
           level,
           generalizable,
+          evaluated,
         );
       }
       return;
@@ -2797,7 +2816,7 @@ class Checker {
       pattern.span,
     );
     pattern.elements.forEach((element, index) => {
-      this.#inferPattern(element, elements[index]!, level, generalizable);
+      this.#inferPattern(element, elements[index]!, level, generalizable, evaluated);
     });
   }
 
@@ -4107,6 +4126,18 @@ class Checker {
     level: number,
     allow: boolean,
     annotation?: Source.Span,
+    /**
+     * The type of the binding's **one evaluated value**, when that is not
+     * `type` itself — closure doc §13.6's corrected reading. It differs only
+     * under a destructuring `let`, where `type` is a component the pattern
+     * projects and this is the aggregate actually constructed. The seat test
+     * must read this and never `type`: at `let (g, n) = (describe, 1)` the
+     * component `g` is function-typed and would pass a test keyed on itself,
+     * generalize still carrying its constraint, and emit a wrapper one arity
+     * narrower than the suffix its callers append — the dropped-dictionary
+     * shape Constraints §6.1 records so it is not rebuilt.
+     */
+    evaluated?: Mono,
   ): Scheme {
     let variables = this.#collectVariables(type).filter(
       (variable) => variable.level > level,
@@ -4133,7 +4164,7 @@ class Checker {
     variables = this.#collectVariables(type).filter(
       (variable) => variable.level > level,
     );
-    if (allow && this.#prune(type).kind !== "Function") {
+    if (allow && this.#prune(evaluated ?? type).kind !== "Function") {
       // Closure doc §13.6, the evidence-seat rule. Evidence has exactly one
       // seat — a function's trailing parameter suffix (Constraints §6.1) — so a
       // constrained variable can be quantified only at a binding whose own type
@@ -4174,13 +4205,25 @@ class Checker {
             message:
               `\`${variable.rigidName}\` is a declared type variable, but a binding whose ` +
               `type is not a function cannot carry its \`${names.join("`, `")}\` ` +
-              "constraint — evidence rides only a function's trailing parameters; " +
-              "annotate at a concrete type, or remove the annotation",
+              `constraint${names.length === 1 ? "" : "s"} — evidence rides only a ` +
+              "function's trailing parameters; annotate at a concrete type, or " +
+              "remove the annotation",
             primary: annotation,
           });
           variable.instance = ERROR;
           continue;
         }
+        // Sunk so no enclosing generalization can quantify what this one
+        // declined — the same sink the `!allow` branch below performs, and the
+        // handoff's Defect 7 invariant (a declined variable must be no more
+        // quantifiable into a sibling's scheme than a placeholder is).
+        //
+        // Recorded, not claimed: this line is **unheld**. Deleting it leaves the
+        // whole suite green, and neither the author nor round 4's reviewer could
+        // build a specimen that discriminates — every sibling shape tried
+        // re-declines at its own binding. It is kept for the invariant above
+        // rather than for a test, and is listed here the way `COMPILER_CLAIMS`'s
+        // `Node` row is, so it is not mistaken for covered.
         variable.level = level;
       }
       variables = quantified;

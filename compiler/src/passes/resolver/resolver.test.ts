@@ -278,6 +278,54 @@ describe("resolve", () => {
       "`f` cannot be used before captured value `a` is bound",
     );
 
+    // A destructured binding is a sequential binding too. `resolvedPatternBindings`
+    // is what puts one in the set the body is intersected against; without it the
+    // cycle below is silent and the emitted module throws on load, with the whole
+    // suite green.
+    const destructured = resolveSource(
+      "let z0 = f()\n" +
+        "let (a, b) = (1, 2)\n" +
+        "fun f(): Int = a\n",
+    );
+    expect(destructured.diagnostics.map(({ message }) => message)).toContain(
+      "`f` cannot be used before captured value `a` is bound",
+    );
+
+    // And through a `fun` nested in the body. `itemNameReferences` skipped `Fun`
+    // items, so the walk stopped at the outer body and this compiled silently,
+    // throwing `ReferenceError: Cannot access 'a' before initialization`.
+    const nested = resolveSource(
+      "let a = f()\n" +
+        "fun f(): Int =\n" +
+        "    fun inner(): Int = a\n" +
+        "    inner()\n",
+    );
+    expect(nested.diagnostics.map(({ message }) => message)).toContain(
+      "`f` cannot be used before captured value `a` is bound",
+    );
+  });
+
+  test("the availability guard over-approximates, in both directions, on purpose", () => {
+    // Pinned because it is a real narrowing against `main`, not an accident. The
+    // guard counts a name mentioned anywhere in a body, including inside a lambda
+    // that is never invoked, so this program is rejected although it runs and
+    // `main` compiles it. `main` already rejected the mirror image (the `fun`
+    // written first), so making the guard order-insensitive necessarily made this
+    // side conservative too.
+    //
+    // If this test ever fails because the program started compiling, that is a
+    // real improvement and the comment in `#checkFunctionAvailability` should be
+    // updated with it — but it must be a decision, not a drift.
+    const overApproximated = resolveSource(
+      "let a = f()\n" +
+        "fun f(): Int =\n" +
+        "    let k = () => a\n" +
+        "    1\n",
+    );
+    expect(overApproximated.diagnostics.map(({ message }) => message)).toContain(
+      "`f` cannot be used before captured value `a` is bound",
+    );
+
     // And the ordinary backward reference stays legal: reading the resolved
     // bodies would report every one of these if the capture set were not
     // restricted to the item list's own sequential bindings.

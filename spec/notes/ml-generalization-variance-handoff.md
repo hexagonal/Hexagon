@@ -5,10 +5,11 @@ request. Not a spec and not a ruling. The governing document is the closure doc
 `spec/decisions-ml-dialect-generalization-2026-08.md`; on any conflict it wins,
 and the host specs it has been consolidated into win over it.
 
-**Branch:** `ml-generalization-variance-207`. **Round 3's six defects are fixed
-(§5), and the blocker is cleared** — what remains before merge is a fourth cold
-review round (§6). Round 4 has run in the authoring session and found one defect
-of its own, inside round 3's own finding; see §2d and §5's D5.
+**Branch:** `ml-generalization-variance-207`. **Rounds 3 and 4 are both fixed
+and applied (§5, §5b).** Round 4 was a genuine cold seat — a fresh agent, its own
+context — and returned REQUEST-CHANGES with nine findings, the blocker inside
+round 4's own fix for round 3's blocker. All nine are closed. What remains before
+merge is a **fifth cold review round** (§6).
 
 **Read first, in this order:** this file → the closure doc (§2, §4, §5, §6, and
 all of §13) → `spec/functions.md` §8 → `spec/modules.md` §4.2.1 →
@@ -23,11 +24,13 @@ it is up to implement it. Implement it everywhere. Including book and
 playground."* With the standing roles: cold **Opus** reviews the code, **James**
 reviews the book himself, **Fable** writes any spec and Opus reviews it.
 
-Everything asked for is built and committed. **Three cold review rounds have run
-and all three returned REQUEST-CHANGES.** All three are now fully applied: round
-3's six defects were fixed in the session of 2026-08-02 and each fix is held by a
-test verified to fail when the fix is reverted (§5). D5 needed a ruling first, and
-Fable wrote it — closure doc §13.6, the evidence-seat rule.
+Everything asked for is built and committed. **Four cold review rounds have run
+and all four returned REQUEST-CHANGES.** All four are now fully applied: round 3's
+six defects and round 4's nine were fixed in the session of 2026-08-02, and each
+fix is held by a test verified to fail when the fix is reverted (§5, §5b). Two
+needed rulings first, and Fable wrote both — closure doc §13.6, the evidence-seat
+rule, then §13.6's own correction after round 4 found the rule missed every
+destructuring binding.
 
 The book has been read and approved by James, twice, including two prose
 corrections he made directly. `book/DRAFT-3.md` is a **gitignored build artifact**
@@ -261,7 +264,9 @@ themselves compiled**; and an unconstrained aggregate still generalizes in full
 (the rule reads the residual constraint set, not the shape — declining on shape
 would un-do Step 1 for every `Seq.hex` producer). Three mutations checked:
 disabling the rule, declining on shape alone, and dropping the annotated arm —
-4, 16, and 1 failures respectively.
+4, 16 and 1 failures **scoped to `value-list.test.ts` alone** (17 tests). Whole-
+suite, the middle one is 372. State the scope when you quote a mutation count:
+round 4 could not reproduce "16" against the full suite and was right not to.
 
 ### D6 — a guaranteed `ReferenceError` accepted
 
@@ -344,12 +349,108 @@ Mutating the variance `join` so `co ∨ contra = co` makes it fail.
   history and is left alone, recorded here instead.
 
 
+## 5b. Round 4's nine findings — all fixed
+
+Round 4 was the first genuinely cold seat of the arc: a fresh agent with its own
+context, which is where the independence comes from — a model switch inside the
+authoring window does not create one. Verdict REQUEST-CHANGES. Every finding was
+reproduced independently here before being acted on, and all nine reproduce.
+
+### The blocker — the seat rule missed every destructuring binding
+
+`#inferPattern` calls `#generalize` once per *component*, so a function-typed
+component of a non-function aggregate passed the seat test, generalized still
+carrying its constraint, and hit the wall §13.6 exists to remove. Six shapes that
+compile and run on `main` were hard errors: tuple, record, nested tuple, `as`
+form, and the same inside a `fun` body and a nested block.
+
+**The emission was wrong, not just the diagnostic** — the part that matters:
+
+```js
+const [g, n] = [__hex_arg00 => describe(__hex_arg00, undefined), 1];   // branch
+const [g, n] = [__hex_arg00 => describe(__hex_arg00, __hex_instance_Tag_String), 1];   // main
+```
+
+one arity narrower than the suffix its caller appends, the dictionary dropped —
+the shape Constraints §6.1 records "so it is not rebuilt". Silencing the message
+alone would have shipped a runtime `TypeError`.
+
+**Why the invariant did not catch it, which is the transferable part.** `g`'s
+scheme *is* function-typed, so the shipped invariant — *every generalized scheme
+with a residual constraint set has a function type* — held literally while the
+program still reached the emitter with no seat. The type half is necessary and
+not sufficient; the missing half is **provenance**. Fable restated it as a
+conjunction (§13.6): every such scheme **(i) describes the binding's entire
+evaluated value** — the root binder or an `as` name at the root, never a pattern
+component — **and (ii) that value's type is a function type.**
+
+Fixed by computing the seat bit once at the `LetPattern` from the pruned RHS type
+and threading it through `#inferPattern` into `#generalize` as `evaluated`. Held
+by §11.1's x-a…x-f; **x-g** is the required mutation — restoring the
+component-type read fails exactly the five destructuring tests and nothing else.
+
+*One instruction in the ruling turned out vacuous and was not built:* threading an
+annotation span through the pattern path. An annotated destructuring binding
+(`let (g, n): (Int, Int) = …`) is a **parse error** — `expected \`=\` after
+\`let\` pattern` — so there is no such binding to key a declaration-site error on.
+
+### The scoped retirement — and a spec sentence that was false when written
+
+Constraints §6.1 claimed the two emission-time messages were retired. Neither was.
+Worse, the property was unreachable as stated: `let g = Some(describe)` with `g`
+never used reaches the evidence branch **identically on `main`**, so the sentence
+was untrue independently of the destructuring gap.
+
+Fable rescoped it to what the rule can deliver: *on a module the checker accepts,
+no value reaches emission needing evidence at a non-function type.* Implemented as
+`#alreadyDiagnosed` in the emitter — silence on a module that already carries
+checker errors (the checker's report names the rewrite; a second one phrased as an
+internal failure is the Preamble §1.1 duplicate the ruling struck), and on a
+checker-clean module a message that can only be read as a compiler defect.
+
+**`Some(describe)` drops from two diagnostics to one.** That is a deliberate change
+to a surface `main` ships, pinned as an exact list by x-f.
+
+**One deviation from the ruling, made knowingly.** §13.6 permits an *assertion* on
+the checker-clean path. The implementation reports instead of throwing. Every round
+of this arc has found a residual hole in the previous round's fix, and turning an
+unknown remaining hole into a hard crash trades a wrong diagnostic for a dead
+compiler. If a later round establishes the invariant under adversarial search,
+`#reportUnreachableEvidence` is the line to harden.
+
+### The rest
+
+- **The `LetPattern` line in D6's fix was held by nothing.** Deleting it left the
+  whole suite green while silencing a guaranteed `ReferenceError`. Now pinned.
+- **D6 did not reach a `fun` nested in a `fun` body.** `itemNameReferences`
+  returned `[]` for `Fun` items, so the walk stopped at the outer body. Fixed
+  rather than recorded — both callers are that one guard, so widening it was
+  contained.
+- **The fix rejects a legal program.** `let k = () => a` inside a body, never
+  invoked, now reports. The comment claimed the `sequential` intersection kept the
+  guard "free of false positives"; that was false. Kept the conservatism —
+  narrowing means deciding reachability, and `(() => a)()` shows that is not a
+  syntactic question — corrected the comment, and pinned the behaviour so it
+  cannot drift silently.
+- **`variable.level = level` in the seat block is unheld.** Deleting it leaves the
+  suite green and neither the author nor the reviewer could build a discriminating
+  specimen. Kept for the Defect 7 invariant, and **labelled uncovered in the
+  source** rather than left looking tested — the same treatment as
+  `COMPILER_CLAIMS`'s `Node` row.
+- **The annotated-arm message did not agree in number** — "its \`Tag\`, \`Other\`
+  constraint". Fixed and held.
+- **A mutation count in §5 was unreproducible** because it did not state its
+  scope. Corrected in place.
+
+
 ## 6. What is left
 
-1. **A fourth cold review round.** This is the only thing between the branch and
-   a PR. Round 4 ran in the authoring session and is *not* an independent seat —
-   it found the §2d defect above, but Opus wrote the code it reviewed. Per the
-   roles rule, no approval is available from that seat.
+1. **A fifth cold review round.** This is the only thing between the branch and a
+   PR. Round 4 was a real cold seat and found nine defects, the blocker inside the
+   fix for round 3's blocker (§5b) — so round 5 is not a formality, and §2d says
+   where to look: inside round 4's fixes. Two places are named in advance as
+   uncovered: `variable.level = level` in the seat block, and whether the restated
+   invariant's provenance half holds under adversarial search.
 2. **Open the PR.** Base `main`. The commits tell the story in order and should
    not be squashed into one.
 3. **#212 is a pre-existing crash this branch makes more visible.** A dot call to
@@ -374,7 +475,7 @@ Mutating the variance `join` so `co ∨ contra = co` makes it fail.
 
 ## 7. Verification, as it stands
 
-Compiler 1029, language-server 113, editors/vscode 149, playground 117 — all
+Compiler 1038, language-server 113, editors/vscode 149, playground 117 — all
 passing, `tsc --noEmit` clean in the compiler. `npm run generate:prelude` was
 re-run after `Seq.hex` gained its sigil; re-run it after any stdlib edit or
 `prelude-sources.ts` goes stale.

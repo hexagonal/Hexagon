@@ -298,6 +298,105 @@ describe("Step 1: the completed syntactic-value list", () => {
     ).toEqual([]);
   });
 
+  test("(x) the annotated arm agrees in number with its constraint list", () => {
+    // The dedup and the join were exercised by nothing — the battery above has
+    // one constraint each, so a singular noun over a plural list read "its
+    // `Tag`, `Other` constraint" and no test could see it.
+    const source = "constraint Tag<a> =\n" +
+      "    label(value: a): String\n" +
+      "constraint Other<a> =\n" +
+      "    other(value: a): String\n" +
+      "honor Tag<String> =\n" +
+      '    label(value) = "s"\n' +
+      "honor Other<String> =\n" +
+      '    other(value) = "s"\n' +
+      "fun both<a: (Tag, Other)>(value: a): String = label(value)\n" +
+      "let holder: { f: (a) -> String } = { f = both }\n" +
+      'export let s: String = (holder.f)("x")\n';
+    expect(diagnostics(source)).toEqual([
+      "`a` is a declared type variable, but a binding whose type is not a function " +
+      "cannot carry its `Tag`, `Other` constraints — evidence rides only a function's " +
+      "trailing parameters; annotate at a concrete type, or remove the annotation",
+    ]);
+  });
+
+  // (x-a…x-g) The destructuring half of the battery, added after review round 4.
+  //
+  // The rule keys on the type of the binding's **one evaluated value**, never on
+  // the type of a name a pattern projects from it. Read the component instead —
+  // as the ruling's first wording permitted — and `g` in `let (g, n) =
+  // (describe, 1)` is function-typed, passes the seat test, generalizes still
+  // carrying `Tag`, and emits `[__hex_arg00 => describe(__hex_arg00, undefined),
+  // 1]` with `g("x", dict)` at the use: a wrapper one arity narrower than the
+  // suffix its caller appends, the dictionary dropped, the exact shape
+  // Constraints §6.1 records so it is not rebuilt. Every specimen below compiled
+  // clean on `main` and was regressed by that reading.
+  //
+  // The emission is the assertion, not just the diagnostic count. A version that
+  // merely silenced the message would still ship the dropped dictionary.
+  const ETA = "=> describe(__hex_arg00, __hex_instance_Tag_String)";
+
+  const destructures: readonly (readonly [string, string, string])[] = [
+    ["x-a a tuple", "let (g, n) = (describe, 1)\n", 'export let s: String = g("x")\n'],
+    ["x-b a record", "let { f } = { f = describe }\n", 'export let s: String = f("x")\n'],
+    ["x-c a nested tuple", "let ((g, m), n) = ((describe, 2), 1)\n", 'export let s: String = g("x")\n'],
+    ["x-d an `as` form", "let (g, n) as whole = (describe, 1)\n", 'export let s: String = g("x")\n'],
+  ];
+
+  for (const [label, binding, use] of destructures) {
+    test(`(${label}) destructuring compiles, pins, and emits \`main\`'s shape`, () => {
+      const source = TAG + binding + use;
+      expect(diagnostics(source)).toEqual([]);
+      const javascript = compileProject([
+        new Source.File(Source.fileId(0), "/main.hex", source),
+      ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
+      // Built inside the aggregate literal, at the concrete instance...
+      expect(javascript).toContain(ETA);
+      // ...and the use carries no suffix, because nothing was generalized.
+      expect(javascript).not.toContain("undefined)");
+    });
+  }
+
+  test("(x-a) the same inside a `fun` body's nested block", () => {
+    // Level and scope are not what makes the rule work, so it must hold where
+    // the binding is not a module item.
+    const source = TAG +
+      "export fun use(): String =\n" +
+      "    let (g, n) = (describe, 1)\n" +
+      '    g("x")\n';
+    expect(diagnostics(source)).toEqual([]);
+    const javascript = compileProject([
+      new Source.File(Source.fileId(0), "/main.hex", source),
+    ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
+    expect(javascript).toContain(ETA);
+  });
+
+  test("(x-e) the unconstrained control: a destructured component still generalizes", () => {
+    // The rule must not overshoot into "no destructuring binding generalizes".
+    // `e` is unconstrained, so it quantifies and serves two element types.
+    expect(
+      diagnostics(
+        "let (e, n) = (empty, 1)\n" +
+          "export let a: Int = Seq.length(cons(1, e))\n" +
+          'export let b: Int = Seq.length(cons("x", e))\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("(x-f) an already-diagnosed module gets one diagnostic, not two", () => {
+    // The scoped retirement (§13.6). `g` is never used, so nothing pins the
+    // variable and the checker reports the non-defaultable constraint — a
+    // message that names the rewrite. The emitter used to add
+    // `missing \`Tag\` evidence during JavaScript emission` on top: a second
+    // report of the same variable, phrased as an internal failure. This is a
+    // deliberate change to a surface `main` ships, so it is pinned as an exact
+    // list rather than a membership.
+    expect(diagnostics(TAG + "let g = Some(describe)\n")).toEqual([
+      "this expression's type cannot default to `Int`: `Tag` is not a defaultable " +
+      "constraint; add a type annotation to pin the type",
+    ]);
+  });
+
   test("(x) an *unconstrained* aggregate still generalizes in full", () => {
     // The other side of the rule, and the record row's whole stdlib motivation:
     // §13.6 reads the residual constraint set, not the shape. Declining on shape
