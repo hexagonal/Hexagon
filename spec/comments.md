@@ -1,8 +1,8 @@
 # Hexagon Spec: Comments
 
 **Status:** Decided (July 2026). Block-comment spelling re-ruled to `(* *)` on 2026-07-30 (issue #171, `decisions-ml-dialect-comments-2026-07.md`) under the ML-dialect doctrine; applied throughout in place, with the correction record at §11. Shipped-source comment doctrine added as §12 in the same ruling. **Doc comments resolved 2026-08-01 (issue #191, `doc-comments.md`): `(** *)` activated as the only doc form, the `///` reservation revoked** — the reservation language throughout is superseded in place, correction record §13.
-**Scope:** Line comments, nested block comments, the doc-comment forms as comment forms, detection of the JavaScript block-comment spellings, interaction with the layout pass, diagnostics, comment doctrine for shipped `.hex` source.
-**Not in scope:** Doc-comment *semantics* — recognition predicates, attachment, content model, JSDoc emission — owned by `doc-comments.md` since #191 *(previously "owed to a future documentation spec"; that spec exists now)*. Comment preservation in emitted JS — codegen quality-of-implementation, noted in §6 but not mandated.
+**Scope:** Line comments, nested block comments, the `(** *)` doc form as a comment form (and the revoked `///`), detection of the JavaScript block-comment spellings, interaction with the layout pass, diagnostics, comment doctrine for shipped `.hex` source.
+**Not in scope:** Doc-comment *semantics* — recognition predicate, attachment, content model, JSDoc emission — owned by `doc-comments.md` since #191 *(previously "owed to a future documentation spec"; that spec exists now)*. Comment preservation in emitted JS — codegen quality-of-implementation, noted in §6 but not mandated.
 **Companions:** Physical Lexer (comments as trivia and token interaction), Lexer & Layout (offside rule), Primitive Types §5 (string lexing; comments and strings do not lex inside each other), `decisions-ml-dialect-comments-2026-07.md` (the #171 ruling; authoritative for the re-spelling until fully consolidated here).
 
 ---
