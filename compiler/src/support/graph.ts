@@ -6,8 +6,19 @@
  * declaration cycle only once its dependencies are final (closure doc
  * `decisions-ml-dialect-generalization-2026-08.md` §6.3).
  *
+ * A **self-referencing node comes back as a one-member component**, exactly like
+ * a node with no edges at all — Tarjan does not distinguish the two, and callers
+ * that read a component as "solve these together" get the self-reference inside
+ * the set rather than outside it. The variance analysis depends on that and would
+ * be wrong without it: `Chain(+a) = { pull: () -> Option((a, Chain(a))) }` must
+ * read its own inner `Chain` through the fixpoint's running estimate, and reading
+ * it as an outsider would consult the bare parameter it is in the middle of
+ * verifying — the claim would be refused by the declaration it is being computed
+ * for (closure doc §6.3).
+ *
  * Successors outside `nodes` are ignored, so a caller may hand in a subgraph
- * without first filtering its own edge function.
+ * without first filtering its own edge function. Deterministic given the node and
+ * successor order supplied by the caller.
  */
 export function stronglyConnectedComponents<T>(
   nodes: readonly T[],

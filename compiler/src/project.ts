@@ -117,6 +117,17 @@ export function compileProject(
   ordered.unshift(...preludePaths);
 
   const compiled = new Map<string, CompiledModule>();
+  // Every nominal the program has resolved, dependencies first. `ordered` is a
+  // topological order and imports are acyclic (Modules §8), so a declaration is
+  // in here before anything that could name it — and, because a type reference
+  // can only follow an import, no cross-module strongly-connected component can
+  // form behind the analysis's back. Only the variance analysis reads it; see
+  // `Declarations` in `passes/checker/variance.ts` for why one module's own view
+  // is the wrong source.
+  const programNominals: { unions: Resolved.Union[]; records: Resolved.RecordDeclaration[] } = {
+    unions: [],
+    records: [],
+  };
   let symbolBase = 0;
   let unionBase = 0;
   let recordBase = 0;
@@ -193,7 +204,9 @@ export function compileProject(
         externTypeBase,
       );
     }
-    const typed = check(resolved, { importedSchemes });
+    const typed = check(resolved, { importedSchemes, programNominals });
+    programNominals.unions.push(...resolved.unions);
+    programNominals.records.push(...resolved.records);
     const core = elaborate(typed);
     const result: CompiledModule = {
       source,

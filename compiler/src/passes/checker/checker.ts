@@ -11,6 +11,7 @@ import * as Diagnostics from "../../support/diagnostics.js";
 import { stronglyConnectedComponents } from "../../support/graph.js";
 import {
   COMPILER_CLAIMS,
+  type Declarations as VarianceDeclarations,
   flip as flipVariance,
   join as joinVariance,
   multiply as multiplyVariance,
@@ -25,6 +26,14 @@ import * as Typed from "../../syntax/typed/index.js";
 
 export interface CheckOptions {
   readonly importedSchemes?: ReadonlyMap<Resolved.SymbolId, Typed.Scheme>;
+  /**
+   * Every nominal declaration the program has resolved so far, dependencies
+   * first. The variance analysis reads it and nothing else does; see
+   * `Declarations` in `variance.ts` for why the analysis cannot be sourced from
+   * one module's own view. Absent — a lone `check` in a test — the analysis
+   * falls back to that view, which is complete for a single-module program.
+   */
+  readonly programNominals?: VarianceDeclarations;
 }
 
 export function check(
@@ -195,6 +204,15 @@ interface Scheme {
 const ERROR: ErrorMono = { kind: "Error" };
 
 /**
+ * The level given to the fresh stand-ins for an instance's own type parameters
+ * (`#pinInstanceSubject`). Deliberately above every inference level: each one
+ * either unifies with a variable from the requirement's type — and `#bind`
+ * sinks it to that variable's level — or is never reachable from any binding's
+ * type, so nothing quantifies it either way.
+ */
+const INSTANCE_LEVEL = Number.MAX_SAFE_INTEGER;
+
+/**
  * `Unit` is the empty tuple (#159, Products §2.7): the arity-0 member of the
  * structural tuple family, not a primitive. One interned value is enough —
  * tuple unification is structural, so identity is a fast path, never a
@@ -335,19 +353,28 @@ class Checker {
   readonly #quantified = new Set<number>();
   readonly #diagnostics: Diagnostics.Bag;
   readonly #importedSchemes: ReadonlyMap<Resolved.SymbolId, Typed.Scheme>;
+  readonly #programNominals: VarianceDeclarations;
   #nextVariable = 0;
 
   constructor(diagnostics: Diagnostics.Bag, options: CheckOptions) {
     this.#diagnostics = diagnostics;
     this.#importedSchemes = options.importedSchemes ?? new Map();
+    this.#programNominals = options.programNominals ?? { unions: [], records: [] };
   }
 
   check(module: Resolved.Module): Typed.Module {
     for (const symbol of module.symbols) this.#symbolKinds.set(symbol.id, symbol.kind);
-    // Built from every declaration this module can see, imports included: the
-    // resolver puts an imported nominal's whole declaration in `module.unions` /
-    // `module.records`, so a claim travels with the type that made it.
-    this.#variance = new VarianceTable(module.unions, module.records);
+    // This module's own view first — its copy of a declaration is authoritative
+    // — then the whole program's, which is what §6.4's uniformity needs and what
+    // the module's view alone cannot supply: a nominal reached only through a
+    // re-exported alias, or through an imported function's type, is not in
+    // `module.records` at all and would read as invariant here and covariant one
+    // import away.
+    this.#variance = new VarianceTable(
+      module.unions,
+      module.records,
+      this.#programNominals,
+    );
     this.#seqRecord = module.preludeRecords.get("Seq");
     // The fallback is deliberately guarded on the prelude being *absent
     // entirely*, not merely on `Bool` being missing from it. Reaching for a
@@ -862,14 +889,30 @@ class Checker {
       for (const symbol of references) capturedSequential.add(symbol);
     }
 
-    // ...except when the `let`'s value is a syntactic value, which generalizes
-    // (Functions §8, the value restriction). Being captured must not cost it that:
-    // a monomorphic placeholder fuses every caller's use into one type, so a
-    // generic `let helper` called from two functions at two element types — or
+    // ...except for `let`s, which generalize. Being captured must not cost one
+    // that: a monomorphic placeholder fuses every caller's use into one type, so
+    // a generic `let helper` called from two functions at two element types — or
     // from one function under a declared type variable — collapses. Such bindings
     // join the dependency-ordered pass below instead, generalized before the
-    // bodies that use them. Non-value bindings and every `var` keep the
-    // placeholder: for them monomorphism is the correct answer, not a limitation.
+    // bodies that use them.
+    //
+    // Every `let`, not only the ones whose RHS is a syntactic value. That gate
+    // was right while generalization was all-or-nothing, and #205's item 7 made
+    // it wrong: an expansive RHS now generalizes per variable, so a placeheld
+    // expansive binding does not "stay monomorphic", it loses the variables item
+    // 7 would have granted it. The closure doc's own headline example is the
+    // case — `let xs = makeEmpty()` generalizes (§4.4), and under the old gate it
+    // stopped doing so the moment any function mentioned `xs`. Which function
+    // mentions a binding is not something the ruling conditions an answer on.
+    //
+    // What made the gate look load-bearing is that the three ways a binding can
+    // be unsound to share are all item 7's clauses, and it asks them whichever
+    // path the binding took: a constrained variable is declined by clause (a), a
+    // contravariant or invariant one by clause (b), and a declined variable is
+    // sunk back to `level` in `#generalize` — so it can no more be quantified
+    // into a sibling's scheme than a placeholder could. `var` keeps the
+    // placeholder unconditionally: a `var` is a cell, and item 7 governs
+    // generalization, not state.
     const letBySymbol = new Map(
       items.flatMap((item) => (item.kind === "Let" ? [[item.binding.symbol, item] as const] : [])),
     );
@@ -878,7 +921,7 @@ class Checker {
       growing = false;
       for (const [symbol, item] of letBySymbol) {
         if (promotedLets.has(symbol)) continue;
-        if (!capturedSequential.has(symbol) || !this.#isValue(item.value)) continue;
+        if (!capturedSequential.has(symbol)) continue;
         promotedLets.set(symbol, item);
         // Whatever the promoted binding itself references is now needed before the
         // graph runs, so it must be placeheld (or promoted) in turn.
@@ -3879,6 +3922,7 @@ class Checker {
     }
     const instance = this.#instances.get(this.#instanceKey(requirement.name, type));
     if (instance !== undefined) {
+      this.#pinInstanceSubject(instance, type, requirement.span);
       requirement.dictionary = instance.dictionary;
       requirement.dictionaryArguments = this.#instanceArguments(instance, type);
       if (requirement.impliedTypes !== undefined) {
@@ -3918,6 +3962,44 @@ class Checker {
           : `type \`${this.#display(type)}\` has no \`${requirement.name}\` instance`,
       primary: requirement.span,
     });
+  }
+
+  /**
+   * Unifies the selected instance's declared subject with the type it is
+   * discharging, so whatever the subject says about its arguments is *true* of
+   * that type.
+   *
+   * Selection is by head constructor — `#instanceKey` keys on the constructor
+   * alone, which is what coherence buys — so the instance found is the only one
+   * that could ever discharge this requirement. Its subject is therefore a fact
+   * about the requirement's type, not a pattern that happened to match: a ground
+   * head (`honor Def<Box(Int)>`) says the argument *is* `Int`.
+   *
+   * Nothing pinned it before, and while the value restriction refused every
+   * expansive binding that cost only precision. Item 7 made it a soundness hole:
+   * `Def(Box(?1))` discharged against `honor Def<Box(Int)>` left `?1` carrying no
+   * requirement at all, so clause (a) saw an unconstrained variable, clause (b)
+   * saw a covariant one, and the binding was quantified — handing one `Box(Int)`
+   * out at `Box(String)` with a `7` inside it.
+   *
+   * The instance's own parameters are freshened first: the declared subject is
+   * built once and shared by every use, so unifying it directly would bind one
+   * use's arguments into every later one.
+   */
+  #pinInstanceSubject(
+    instance: Resolved.HonorItem,
+    subject: Mono,
+    span: Source.Span,
+  ): void {
+    const declared = this.#instanceSubjects.get(instance);
+    if (declared === undefined) return;
+    const parameters = this.#instanceTypeParameters.get(instance);
+    const replacements = new Map<number, Mono>(
+      [...(parameters?.values() ?? [])].map((variable) =>
+        [variable.id, this.#fresh(INSTANCE_LEVEL, false)] as const
+      ),
+    );
+    this.#unify(this.#replaceVariables(declared, replacements), subject, span);
   }
 
   /** Instantiates the context on a parameterized instance at a concrete use. */
@@ -4033,13 +4115,15 @@ class Checker {
     for (const variable of variables) {
       if (
         !inputVariables.has(variable.id) &&
-        // A declared type variable is pinned by its annotation and is not
-        // something §4 may choose a type for. Defaulting one bound it to `Int`
-        // and then reported the *binding* as requiring `Int` — an accurate
-        // sentence about a state defaulting had just created, and the wrong
-        // account of what happened. Skipped here so §4.1's own report reaches
-        // the author instead (closure doc §4.1).
-        variable.rigidName === undefined &&
+        // At an *expansive* binding only, a declared type variable is left for
+        // item 7 to decline: defaulting one bound it to `Int` and then reported
+        // the binding as requiring `Int` — an accurate sentence about a state
+        // defaulting had just created, and the wrong account of what happened
+        // (closure doc §4.1). At a value binding item 7 never fires and the
+        // ruling says nothing, so defaulting keeps its pre-#205 behaviour: the
+        // skip is gated on `allow`, or `let x: a = 42` loses the diagnostic that
+        // names its rewrite and emits `undefined.fromNat(42)` instead.
+        (allow || variable.rigidName === undefined) &&
         variable.requirements.length > 0 &&
         this.#canDefaultToInt(variable)
       ) {
@@ -4208,12 +4292,6 @@ class Checker {
       }
       seen.add(actual.id);
       if (actual.requirements.length === 0) continue;
-      // A declared type variable is pinned by its annotation; §4 never chooses
-      // a type for one. `#reportBlockedDefaulting` said so already for the
-      // blocked case, and defaulting one here produced a *second* report on a
-      // binding item 7 had already refused, telling the author to write `Int`
-      // for a variable the annotation had put there deliberately.
-      if (actual.rigidName !== undefined) continue;
       if (this.#canDefaultToInt(actual)) {
         this.#bind(actual, primitive("Int"), actual.requirements[0]!.span);
         continue;
@@ -6139,14 +6217,7 @@ function unwrapAsPattern(pattern: Resolved.Pattern): Resolved.Pattern {
   return pattern.kind === "As" ? unwrapAsPattern(pattern.pattern) : pattern;
 }
 
-/**
- * Tarjan's strongly-connected-components algorithm over the given nodes. Returns
- * the components in reverse-topological order — every component is emitted after
- * all components it depends on (via `successors` edges) — so processing them in
- * order visits callees before callers. A node with a self-edge forms its own
- * one-member component (its self-reference is still cyclic). Deterministic given
- * the node and successor order supplied by the caller.
- */
+/** Every symbol named anywhere inside a resolved subtree, found structurally. */
 function referencedSymbols(root: object): ReadonlySet<Resolved.SymbolId> {
   const symbols = new Set<Resolved.SymbolId>();
   const seen = new WeakSet<object>();

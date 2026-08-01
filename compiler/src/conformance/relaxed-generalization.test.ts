@@ -42,15 +42,16 @@ describe("§4.1 the relaxed rule, per variable", () => {
     ).toEqual([]);
   });
 
-  test("§4.4 a constructor with neither a claim nor a row is invariant", () => {
-    // The outcome above is contingent on the row. `Map` has no row today —
-    // §11.4 sequences its claim after its own milestone — so its variables are
-    // declined and the first use pins them.
+  test("§4.4 an invariant constructor declines what a covariant one grants", () => {
+    // The outcome above is contingent on the row: read the same shape through a
+    // constructor whose row is invariant and the variable is declined instead.
+    // `Set` is not a stand-in for `Map` here — §11.4 sequences both claims after
+    // their own milestones, and until then both rows say what this asserts.
     const messages = projectDiagnostics(
-      "fun makeEmpty<k: Hash, v>(): Map(k, v) = Map.empty()\n" +
-        "let m = makeEmpty()\n" +
-        "export let a: Option(Int) = Map.get(m, 1)\n" +
-        'export let b: Option(String) = Map.get(m, "k")\n',
+      "fun makeEmpty<a: Hash>(): Set(a) = Set.empty()\n" +
+        "let s = makeEmpty()\n" +
+        "export let n: Set(Int) = s\n" +
+        "export let t: Set(String) = s\n",
     );
     expect(messages.length).toBeGreaterThan(0);
   });
@@ -334,7 +335,54 @@ describe("§6 declared variance on `export opaque`", () => {
     ]);
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
   });
+
+  test("§6.4 a claim travels through a module that was never imported", () => {
+    // `/main.hex` imports two functions and no type at all. `Box` is reached only
+    // through `emptyCrate`'s scheme and `/mid.hex`'s alias, so it is in neither
+    // `module.records` nor `module.unions` there — which is why the analysis is
+    // sourced from the program and not from a module's own view.
+    const compiled = compileFiles([
+      ["/box.hex", BOX],
+      ["/mid.hex", MID],
+      ["/main.hex", MAIN],
+    ]);
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
+  });
+
+  test("§6.4 an unrelated import does not change the answer", () => {
+    // The uniformity property itself, stated as the ruling states it: identical
+    // text must not compile in one module and fail one import away. Adding an
+    // import that `/main.hex` makes no use of is the sharpest form of "one import
+    // away" — nothing about the program changes except what the module can see.
+    const without = compileFiles([
+      ["/box.hex", BOX],
+      ["/mid.hex", MID],
+      ["/main.hex", MAIN],
+    ]);
+    const with_ = compileFiles([
+      ["/box.hex", BOX],
+      ["/mid.hex", MID],
+      ["/main.hex", 'import * as Unused from "./box.hex"\n' + MAIN],
+    ]);
+    expect(without.diagnostics.map(({ message }) => message))
+      .toEqual(with_.diagnostics.map(({ message }) => message));
+  });
 });
+
+/** A covariant opaque type, three modules away from where it is generalized. */
+const BOX = "export opaque record Box(+a) = { get: () -> a }\n" +
+  "exception Empty\n" +
+  "export fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n";
+
+/** Re-exports `Box` under an alias, so the declaration's own name never travels. */
+const MID = 'import { Box, makeBox } from "./box.hex"\n' +
+  "export type Crate(a) = Box(a)\n" +
+  "export fun makeCrate<a>(): Crate(a) = makeBox()\n";
+
+const MAIN = 'import { Crate, makeCrate } from "./mid.hex"\n' +
+  "let c = makeCrate()\n" +
+  "export let n: Crate(Int) = c\n" +
+  "export let s: Crate(String) = c\n";
 
 describe("§6.1 the sigil grammar", () => {
   test("a sigil on a transparent declaration is a parse error", () => {
@@ -410,14 +458,23 @@ describe("§5.3 the compiler-side claim table", () => {
     expect(COMPILER_CLAIMS.get("Nullable")).toEqual(["inv"]);
   });
 
-  test("`Array` declines generalization: a claim may not rest on a boundary contract", () => {
-    const messages = projectDiagnostics(
-      "fun makeEmpty<a>(): Array(a) = Array.fromVector([])\n" +
-        "let xs = makeEmpty()\n" +
-        "export let n: Int = Array.at(xs, 1)\n" +
-        'export let s: String = Array.at(xs, 1)\n',
-    );
-    expect(messages.length).toBeGreaterThan(0);
+  test("every row is consulted, and says what the table says", () => {
+    // §6.3's verification reads a row through the same `multiply` that Step 2's
+    // covariance test does, so a declaration site is where a row's effect can be
+    // asserted for *every* row at once — including `Array` and `Nullable`, which
+    // no source form can produce a value of in v1 and which therefore cannot be
+    // observed at a generalization site at all.
+    //
+    // `Node` is absent deliberately: it is not nameable in a type annotation
+    // (`unknown generic type \`Node\``), which is what makes its row's warrant
+    // `intrinsics.md` §4.2 rather than anything a user could write.
+    expect(projectDiagnostics("export opaque record W(+a) = { v: Vector(a) }\n")).toEqual([]);
+    for (const field of ["Map(String, a)", "Set(a)", "Array(a)", "Nullable(a)"]) {
+      expect(projectDiagnostics(`export opaque record W(+a) = { v: ${field} }\n`)).toContain(
+        "`a` cannot be declared covariant in `W`: field `v` uses `a` in an " +
+          "invariant position. Remove the `+`, or change the field",
+      );
+    }
   });
 });
 

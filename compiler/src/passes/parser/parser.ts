@@ -1062,6 +1062,10 @@ class Parser {
    *
    * The sigil is consumed either way, so the parameter after it still parses and
    * the author gets one report rather than a cascade.
+   *
+   * The gate is `opaque`, not `exported && opaque`, and the two coincide: bare
+   * `opaque` is not a form — the keyword only ever follows `export` — so every
+   * caller that can pass `true` here has already seen `export opaque`.
    */
   #takeVarianceSigil(
     opaque: boolean,
@@ -1086,6 +1090,11 @@ class Parser {
    * fixed once at its declaration; it is not part of any type expression, so
    * there is no "dropping" a sigil at an annotation — no annotation ever carries
    * one (closure doc §5.4).
+   *
+   * Called from one place: a constructor's argument list. That is the only
+   * position where a sigil is close enough to legal to be worth a bespoke
+   * message — elsewhere (`+` before a bare type name, say) `+` is an operator
+   * token and the ordinary expected-a-type diagnostic already fires.
    */
   #rejectVarianceSigilAtUse(constructor: string): void {
     if (!this.#at("Plus") && !this.#at("Minus")) return;

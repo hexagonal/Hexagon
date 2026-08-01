@@ -913,7 +913,7 @@ class JavaScriptEmitter {
     evidenceNames: EvidenceNames,
   ): string {
     if (item.value.kind !== "Lambda") {
-      return this.#emitExpr(item.value, depth, evidenceNames);
+      return this.#emitExpr(item.value, depth, evidenceNames, true);
     }
 
     const localEvidence = new Map(evidenceNames);
@@ -936,6 +936,15 @@ class JavaScriptEmitter {
     expression: Core.Expr,
     depth: number,
     evidenceNames: EvidenceNames,
+    /**
+     * Whether this expression *is* a binding's right-hand side — not merely
+     * somewhere inside one. Read by exactly one rule, `#emitConstrainedValue`'s
+     * bare-alias case, whose spec text (Constraints §6.1, closure doc §13.3)
+     * says "at a binding". Never propagated by the recursive cases: a name
+     * nested in a record literal or an argument list is not a binding's RHS, and
+     * treating it as one is what the 2026-08-01 review caught.
+     */
+    bindingRhs = false,
   ): string {
     switch (expression.kind) {
       case "Name": {
@@ -950,7 +959,7 @@ class JavaScriptEmitter {
           // as a local one, so a value reference to it needs the same wrapper.
           return (expression.evidence?.length ?? 0) === 0
             ? imported
-            : this.#emitConstrainedValue(expression, imported, evidenceNames);
+            : this.#emitConstrainedValue(expression, imported, evidenceNames, bindingRhs);
         }
         if (expression.text.includes(".")) return expression.text;
         // An imported symbol is spelled by the local its import binds, which is
@@ -963,7 +972,7 @@ class JavaScriptEmitter {
         if (this.#nullaryExceptions.has(expression.symbol)) return `${name}()`;
         return (expression.evidence?.length ?? 0) === 0
           ? name
-          : this.#emitConstrainedValue(expression, name, evidenceNames);
+          : this.#emitConstrainedValue(expression, name, evidenceNames, bindingRhs);
       }
       case "CollectionOperation": {
         const needsPersistentRuntime = expression.collection !== "Vector";
@@ -2769,18 +2778,28 @@ class JavaScriptEmitter {
     expression: Core.NameExpr,
     base: string,
     evidenceNames: EvidenceNames,
+    bindingRhs: boolean,
   ): string {
-    // ...except when there is no evidence here to close over. Step 1 of #205
-    // made `let twice = double` a syntactic value, so the alias generalizes and
-    // keeps the original's residual constraints — and closure doc §2.2 is exact
-    // about what that means: a reference "shares the unapplied entity", no
-    // evidence is discharged at the binding, and the alias is "exactly as
-    // polymorphic, and exactly as cheap, as the original". Emitting the bare
-    // name is that sentence in JavaScript: `const twice = double`, with every
-    // consumer appending the suffix it would have appended to `double`.
-    // Eta-expanding instead would build a wrapper of the *unsuffixed* arity,
-    // which silently drops the dictionary the consumer passes.
+    // ...except at a binding whose right-hand side is the reference itself and
+    // which discharges none of its constraints. Step 1 of #205 made `let twice =
+    // double` a syntactic value, so the alias generalizes and keeps the
+    // original's residual constraints — and closure doc §2.2 is exact about what
+    // that means: a reference "shares the unapplied entity", no evidence is
+    // discharged at the binding, and the alias is "exactly as polymorphic, and
+    // exactly as cheap, as the original". Emitting the bare name is that
+    // sentence in JavaScript: `const twice = double`, with every consumer
+    // appending the suffix it would have appended to `double`. Eta-expanding
+    // instead would build a wrapper of the *unsuffixed* arity, which silently
+    // drops the dictionary the consumer passes.
+    //
+    // `bindingRhs` is load-bearing and was missing until the 2026-08-01 review.
+    // Without it the rule read every reference position, so `{ f = double }`
+    // stored the bare evidence-taking function in a field the checker had typed
+    // one arity narrower — no wrong runtime behaviour reachable, but two
+    // diagnostics were lost and the emitted shape stopped matching the type.
+    // Constraints §6.1 and §13.3 both say "at a binding"; this is that.
     if (
+      bindingRhs &&
       (expression.evidence ?? []).every(({ constraint, value }) =>
         value.kind === "Dictionary" &&
         !evidenceNames.has(evidenceKey(value.variable, value.constraint ?? constraint))

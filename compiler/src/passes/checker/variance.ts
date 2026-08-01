@@ -59,11 +59,16 @@ export interface Occurrence {
  *   conservative default here, not a mutability verdict. A claim for either
  *   needs its own ruling.
  *
- * `Map` and `Set` have **no row at all**, which reads the same as invariant and
- * is meant to: §11.4 sequences their claims after their own milestones, when
- * they are computed from their representations, declared, and reviewed. They are
- * listed explicitly rather than left to the default so that adding a row is a
- * deliberate edit here and not an accident of a `switch` gaining a case.
+ * `Map` and `Set` carry **explicit invariant rows**, which is what the absent
+ * row would have meant anyway (`compilerClaim` defaults to `"inv"`). The point of
+ * writing them is that §11.4 sequences their real claims after their own
+ * milestones, and a row that has to be *edited* to change is a deliberate act,
+ * where an absent one changes silently the day a `switch` gains a case.
+ *
+ * Constructors with no row and no need of one: `NullableCase`, `JsMap` and
+ * `JsSet`. None is nameable in a type annotation, so no representation can put a
+ * parameter under them and `#classify` never reaches them — the default they
+ * would fall to is not load-bearing, it is unreachable.
  *
  * `Seq` is **not** here. It has a declaration site, and the ruling's transitional
  * `Seq(+a)` row was retired by writing the sigil into `stdlib/Seq.hex` — a
@@ -128,6 +133,27 @@ interface Entry {
   occurrences: Occurrence[][];
 }
 
+/**
+ * The declarations a table is built over.
+ *
+ * §6.4's uniformity is a property of *which declarations are in here*, and it is
+ * the reason the checker feeds this the whole program's nominals rather than the
+ * ones its own module happens to name. A declaration can be reached without being
+ * imported — through a re-exported alias, or through the type of an imported
+ * function — and an absent declaration reads as invariant (`#effective`). Sourcing
+ * the table per module would therefore make the same text compile in one module
+ * and fail one import away, which is precisely what §6.4 forbids. The direction of
+ * the error is safe either way, but "safe" is not the claim §6.4 makes.
+ *
+ * Earlier declarations win on a duplicate id, so a module's own copy of a
+ * declaration takes precedence over the imported copy carried in a dependant's
+ * resolved module.
+ */
+export interface Declarations {
+  readonly unions: Iterable<Resolved.Union>;
+  readonly records: Iterable<Resolved.RecordDeclaration>;
+}
+
 export class VarianceTable {
   readonly #entries = new Map<Key, Entry>();
   /** The component currently being solved; see `#slotVariance`. */
@@ -136,8 +162,10 @@ export class VarianceTable {
   constructor(
     unions: Iterable<Resolved.Union>,
     records: Iterable<Resolved.RecordDeclaration>,
+    ...rest: readonly Declarations[]
   ) {
-    for (const union of unions) {
+    for (const union of [unions, ...rest.map((it) => it.unions)].flatMap((it) => [...it])) {
+      if (this.#entries.has(unionKey(union.id))) continue;
       this.#entries.set(unionKey(union.id), {
         key: unionKey(union.id),
         name: union.name,
@@ -154,7 +182,8 @@ export class VarianceTable {
         occurrences: union.parameters.map(() => []),
       });
     }
-    for (const record of records) {
+    for (const record of [records, ...rest.map((it) => it.records)].flatMap((it) => [...it])) {
+      if (this.#entries.has(recordKey(record.id))) continue;
       this.#entries.set(recordKey(record.id), {
         key: recordKey(record.id),
         name: record.name,
@@ -229,9 +258,12 @@ export class VarianceTable {
    * contributes its **declared claim** — which for an under-claiming opaque type
    * is deliberately weaker than its representation supports. Solving one global
    * system instead would let a transparent type read an opaque neighbour's
-   * representation through the back door, and §6.4's uniformity ("a program must
-   * not compile in its home module and fail identically-written elsewhere")
-   * would hold only by luck.
+   * representation through the back door.
+   *
+   * This is not what §6.4's uniformity rests on — that rests on the table being
+   * sourced from the whole program, which is `Declarations`' business, not this
+   * method's. Per-SCC order would hold §6.3 just as well over a per-module table,
+   * and §6.4 would still be broken.
    *
    * Termination is immediate from the four-point lattice's finite height.
    */
@@ -361,6 +393,11 @@ export class VarianceTable {
           this.#classify(entry, recordField.annotation, sign, into, field);
         }
         if (annotation.tail !== undefined) {
+          // The variance is joined but no `Occurrence` is recorded, so a claim
+          // blocked here would report without a witness to point at. Unreachable
+          // rather than handled: a row tail cannot be written in a declaration's
+          // field annotation, which is the only annotation this walk ever sees.
+          // If tails ever become writable there, this needs a span.
           const index = entry.parameters.indexOf(annotation.tail);
           if (index >= 0) into[index] = join(into[index] ?? "unused", sign);
         }

@@ -228,6 +228,14 @@ type only produces `a`*; `-a` says the opposite, *it only consumes one*, which i
 right claim for a type like `Sink(-a) = {accept: a -> Unit}`. A bare parameter claims
 nothing, which is why the first version behaved as it did.
 
+The direction a parameter is used in is its **variance**, and the two sigils name the
+two useful directions: `+a` is *covariant*, `-a` is *contravariant*, and a bare
+parameter is *invariant*. Other languages spell the same three with `out`/`in`
+keywords or with nothing at all. Hexagon needs the sigils only here. For a transparent
+type the compiler works the direction out from the definition, and the previous
+chapter's rule about what a computed binding may still be reused at is the same
+analysis reading the same answer.
+
 The compiler checks the claim against the representation, at the declaration:
 
 ```hexagon

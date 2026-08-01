@@ -168,14 +168,23 @@ describe("Step 1: the completed syntactic-value list", () => {
   // (vi) A constrained alias shares the *unapplied* entity, so no evidence is
   // discharged at the binding and the two uses elaborate independently (§2.2).
   test("(vi) a constrained alias stays usable at two representations", () => {
-    expect(
-      diagnostics(
-        "let x = 42\n" +
-          "let y = x\n" +
-          "export let asInt: Int = y\n" +
-          "export let asBig: BigInt = y\n",
-      ),
-    ).toEqual([]);
+    // Deliberately not `let x = 42; let y = x`, which was this test's first
+    // shape. A *literal's* variable is settled at its own binding by Numeric
+    // Literals §4 — `x : Int`, not `Num a => a` — so no alias of it is ever
+    // constrained, and the two uses below would compile through numeric widening
+    // (`const asBig = BigInt(y)`) in a checker that had never heard of item (vi).
+    // The constraint has to come from a declared parameter to survive the
+    // binding, and the chain has to be two links deep to observe that the alias
+    // rule composes rather than firing once.
+    const source = "fun double<a: Num>(value: a): a = value + value\n" +
+      "let x = double\n" +
+      "let y = x\n" +
+      "export let i: Int = y(21)\n" +
+      "export let f: Float = y(1.5)\n";
+    expect(diagnostics(source)).toEqual([]);
+    const aliased = scheme(source, "y");
+    expect(aliased.variables).toHaveLength(1);
+    expect(aliased.constraints.map(({ name }) => name)).toEqual(["Num"]);
   });
 
   test("(vi) the aliased constrained function is aliased, not discharged", async () => {
@@ -195,6 +204,22 @@ describe("Step 1: the completed syntactic-value list", () => {
       new Source.File(Source.fileId(0), "/main.hex", source),
     ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
     expect(javascript).toContain("const twice = double;");
+  });
+
+  test("(vi) the bare shape is the *binding*'s, not every reference's", () => {
+    // Constraints §6.1 and closure doc §13.3 both say "at a binding". A name in
+    // any other position keeps the wrapper, because only a binding gives the
+    // reference a seat whose type is the reference's own: a record field was
+    // typed one arity narrower than the evidence-taking function the bare shape
+    // would store in it, and the two diagnostics that used to say so went quiet.
+    const source = "fun double<a: Num>(value: a): a = value + value\n" +
+      "let holder = { f = double }\n" +
+      "export let out: Int = (holder.f)(21)\n";
+    const javascript = compileProject([
+      new Source.File(Source.fileId(0), "/main.hex", source),
+    ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
+    expect(javascript).not.toContain("{ f: double }");
+    expect(javascript).toContain("=> double(");
   });
 
   // §2.3: a `var` read is a state observation, and stays expansive.

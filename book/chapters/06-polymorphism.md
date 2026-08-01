@@ -182,6 +182,12 @@ When a variable does get fixed, the response is not a type-system trick. Call th
 producer where the intended type is known, add a concrete annotation, or keep the
 reusable behavior behind a lambda.
 
+The first of the two rules — whether a value could be holding an `a` or could take
+one — is a question about a type's **variance**, and for a type whose definition is
+public the compiler answers it by reading the definition. A type that hides its
+definition has to say. The modules chapter returns to this with the `+a` and `-a`
+that let it.
+
 ## Bare whole numbers default to `Int`
 
 A bare integer literal begins with a numeric capability rather than a permanently fixed
