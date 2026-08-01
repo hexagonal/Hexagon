@@ -58,18 +58,20 @@
   },
   "onEnterRules": [
     {
-      "//": "Continue a `///` doc-comment run onto the next line.",
-      "beforeText": "^\\s*///.*$",
-      "action": { "indent": "none", "appendText": "/// " }
-    },
-    {
-      "//": "Keep doc comments aligned and closed. `(**)` is the empty block comment, not a doc opener (spec/comments.md §3), so the opener rules exclude it.",
-      "beforeText": "^\\s*\\(\\*\\*(?!\\))([^*]|\\*(?!\\)))*$",
+      "//": [
+        "Keep doc comments aligned and closed. The opener rules carry spec/doc-comments.md",
+        "§2.1's predicate, so they fire on exactly what the grammar paints as documentation:",
+        "§2.2's two carve-outs — the empty block comment `(**)` and the banner openers",
+        "`(***`, `(****…` — are excluded by the same `(?![)*])` lookahead the grammar uses.",
+        "There is no `///` rule: §2.3 revoked that reservation unspent, so a `///` line is an",
+        "ordinary comment and Enter continues nothing."
+      ],
+      "beforeText": "^\\s*\\(\\*\\*(?![)*])([^*]|\\*(?!\\)))*$",
       "afterText": "^\\s*\\*\\)$",
       "action": { "indent": "indentOutdent", "appendText": " * " }
     },
     {
-      "beforeText": "^\\s*\\(\\*\\*(?!\\))([^*]|\\*(?!\\)))*$",
+      "beforeText": "^\\s*\\(\\*\\*(?![)*])([^*]|\\*(?!\\)))*$",
       "action": { "indent": "none", "appendText": " * " }
     },
     {

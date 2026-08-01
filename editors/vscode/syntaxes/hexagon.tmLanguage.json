@@ -43,9 +43,9 @@
     "comments": {
       "patterns": [
         {
-          "//": "spec/comments.md §3: doc-comment recognition requires `(**` followed by at least one character that is not `)`, which keeps `(**)` an ordinary empty block comment while `(*** x ***)` is a doc comment.",
+          "//": "spec/doc-comments.md §2.1: a block comment is a doc comment when `(**` is followed by a character that is neither `)` nor `*`. §2.2's two carve-outs are exactly the lookahead's two characters: `(**)` stays an ordinary empty block comment, and `(***`, `(****…` stay ordinary so rulers and banners never become documentation. A line-ending `(**` is a doc opener too — the character after it is the newline — which is §3.1's newline-first body idiom. Stated negatively rather than as `(?=[^)*])` so that holds however the engine presents end of line: vscode-textmate happens to hand each line to Oniguruma with its newline attached, but the negative lookahead succeeds at end of input as well, and language-configuration.json's `onEnterRules` carry the same predicate against lines that have none.",
           "name": "comment.block.documentation.hexagon",
-          "begin": "\\(\\*\\*(?!\\))",
+          "begin": "\\(\\*\\*(?![)*])",
           "end": "\\*\\)",
           "beginCaptures": { "0": { "name": "punctuation.definition.comment.begin.hexagon" } },
           "endCaptures": { "0": { "name": "punctuation.definition.comment.end.hexagon" } },
@@ -61,14 +61,7 @@
           "patterns": [{ "include": "#bidirectional-control" }, { "include": "#block-comment-inner" }]
         },
         {
-          "//": "begin/end rather than match, so a bidirectional control inside the comment body still gets its own scope (§3.2 prohibits them in comments too).",
-          "name": "comment.line.documentation.hexagon",
-          "begin": "///",
-          "end": "$",
-          "beginCaptures": { "0": { "name": "punctuation.definition.comment.hexagon" } },
-          "patterns": [{ "include": "#bidirectional-control" }]
-        },
-        {
+          "//": "begin/end rather than match, so a bidirectional control inside the comment body still gets its own scope (§3.2 prohibits them in comments too). There is no line doc form to match ahead of this one: spec/doc-comments.md §2.3 revoked the `///` reservation unspent, so `///` is this rule with a `/` as its first character of text — the grammar does not count slashes.",
           "name": "comment.line.double-slash.hexagon",
           "begin": "//",
           "end": "$",

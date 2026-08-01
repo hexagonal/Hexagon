@@ -89,7 +89,6 @@ export const hexagonFamilies: Readonly<Record<string, HexagonFamily>> = {
     scopes: [
       "comment.block.documentation.hexagon",
       "comment.block.hexagon",
-      "comment.line.documentation.hexagon",
       "comment.line.double-slash.hexagon",
       "punctuation.definition.comment.hexagon",
       "punctuation.definition.comment.begin.hexagon",
