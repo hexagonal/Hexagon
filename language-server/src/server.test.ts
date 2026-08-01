@@ -769,8 +769,9 @@ describe("the Hexagon language server", () => {
   });
 
   test("a refusal arrives greyed out, carrying its reason", async () => {
-    // The type is inferred and unwritable: `{...a}` is an open record, and
-    // writing it closes it. The user gets the sentence, not silence.
+    // The result is an open record whose row comes from `r`, and `r` has no
+    // type yet — so the type is not settled and nothing may be written. What
+    // matters at this layer is that the user gets the sentence, not silence.
     const source = "export fun copy(r) = {...r}\n";
     const solo = await opened(source, MODERN);
     try {
@@ -780,7 +781,8 @@ describe("the Hexagon language server", () => {
         range: { start: reported[0]!.range.start, end: reported[0]!.range.start },
         context: { diagnostics: reported },
       }) as CodeAction[] | null;
-      expect(actions![0]!.disabled?.reason).toContain("would change the type of `copy`");
+      expect(actions![0]!.disabled?.reason)
+        .toContain("`r` has no type yet, so the result type of `copy` is not settled");
       // A disabled action must carry no edit: a client that applied one anyway
       // would make exactly the change the reason says not to.
       expect(actions![0]!.edit).toBeUndefined();
