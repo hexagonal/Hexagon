@@ -168,7 +168,7 @@ var best = firstCandidate(xs)
 - **Form: `var name = expr`.** Name-only — no destructuring (`var (a, b) = t` is a parse error: "`var` binds a single name; destructure with `let` and copy"), no header sugar (a `var` is never a function definition), no annotation-free special cases beyond `let`'s. A type annotation is permitted in the `let` position style: `var count: Int = 0`.
 - **Legal only inside a function body**: in the body block of some lambda, at any block depth within it (`if` branches, match arms, nested blocks — all fine). The module top-level block, and any block not (transitively) inside a lambda body, may not contain `var`: "`var` is only allowed inside a function; move mutable work into a function, or use `let` if the value does not change." Module-level mutable state does not exist.
 - **Non-recursive, like `let`**: the name is not in scope in its own RHS (same pending-binder mechanism, Functions §6; same diagnostic family).
-- **Never generalises** (Functions §8.4, unchanged — this spec is that rule's raison d'être). The binding gets a **monotype**. Value restriction interplay: `var xs = emptyList()` gets `List(?1)` with `?1` unsolved; the first use — including the first `:=` — fixes it, permanently.
+- **Never generalises** (Functions §8.4 — this spec is that rule's raison d'être, and remains so now that §8.4 states both halves). The binding gets a **monotype**. Value restriction interplay: `var xs = emptyList()` gets `List(?1)` with `?1` unsolved; the first use — including the first `:=` — fixes it, permanently. *(Completed 2026-08-01, #205/#207: the rule's other half is now stated at Functions §8.4 — nothing else may generalize a `var`'s type either. An alias `let e = v` is an expansive binding, and Functions §8.7's relaxed rule must decline the `var`'s variables: they belong to the environment for the whole of the `var`'s scope.)*
 - Head Binder Shadowing applies: `var` is a sequential binder; it may not reuse a name in scope, and nothing may rebind it.
 
 ### 6.2 The lambda boundary (the load-bearing rule)
@@ -228,6 +228,8 @@ best := candidate
 ### 7.2 Generalisation and the value restriction
 
 Unchanged; this spec merely activates the rules Functions §8 pre-positioned. Assert in tests: `var xs = emptyList()` then `xs := [1]`-equivalent pins `?1 := Int`; a subsequent `xs := ["a"]`-equivalent is a type error phrased per §6.3.
+
+*(Added 2026-08-01, #205/#207.)* Functions §8.7's relaxed rule adds the alias assertion: `var v = emptyList()`, then `let e = v` — expansive, and Functions §8.7 must decline the `var`'s variable, which belongs to the environment for the whole of the `var`'s scope (Functions §8.4, completed under #207). Assert in tests: a use of `e` at one element type pins `?1` for `v` and `e` alike; a use of either at a second type — `:=` included — is the ordinary pinned-type error, and `e` never receives a scheme quantifying the `var`'s variable.
 
 ### 7.3 `fun` capture sets
 
@@ -399,6 +401,7 @@ fun h() =
 | Pattern-parameter binders shadow everything outside the lambda and collide only with sibling parameters ("duplicate parameter"), never with what the desugaring's `let` would have collided with | §5.2 |
 | `let`-pattern binders are sequential — proper-subterm criterion; refactoring invariance + punning rationale; head-class-for-state-threading alternative rejected; module aliases unshadowable via the case rule (no new restriction) | §5.4, §5.2 |
 | `var name = expr`: name-only, function-body-only, non-recursive, monomorphic, never generalises | §6.1 |
+| Nothing else may generalize a `var`'s type: its variables belong to the environment for the whole of the `var`'s scope, so an expansive alias (`let e = v`) has them declined by Functions §8.7 (2026-08-01, #205/#207) | §6.1, §7.2; Functions §8.4 |
 | Lambda boundary: no read or write of an outer `var` from any lambda; read rewrite = copy to `let`; mutation rewrite = `for` or return-and-assign outside; `fun` therefore never touches vars; **no escape-analysis exception, permanently — legality never depends on optimizer cleverness or foreign callback behavior; any relaxation must be explicit syntax** | §6.2 |
 | `:=`: bare-name target, `var`-bound only, RHS unifies with the monotype ("can't change type" is a consequence); no implicit declaration | §6.3 |
 | No ref cells, no mutable fields, no compound assignment, no module-level `var` | §6.4 |

@@ -1,7 +1,7 @@
 # Hexagon Spec: Decisions — Generalization Relaxed, and Declared Variance
 
 **Status:** Decided (ruling on issue #205, 2026-08-01). Fable's spec ruling under the ML-dialect doctrine (`decisions-ml-dialect-bool-2026-07.md` §1), commissioned by James in-session 2026-08-01 ("ML nature, here we come"). Provenance: `notes/value-restriction-and-variance.md` (Opus's analysis, James's framing), adopted where cited and corrected where the in-session review found it wrong (§1.2). Authoritative until consolidated into the host specs, per README authority rule 3 — this document is added to rule 3's closure-document list in this same PR; the standing is conferred there, not claimed here.
-**Scope:** Step 1 — the syntactic-value list gains references and record literals (§2); the reframed rationale — the value restriction is Hexagon's monomorphism restriction (§3); Step 2 — the relaxed value restriction, with the unconstrained clause (§4); the variance analysis and the **compiler-side claim table** for constructors without declaration sites (§5); variance and `export opaque`: declared claims, bare-means-invariant, the over-claim error (§6); the intrinsic parametricity obligation (§7); tooling surfaces (§8); rejected alternatives (§9); the edit-notes ledger (§10); implementation notes for `hexc` (§11); the decisions log (§12).
+**Scope:** Step 1 — the syntactic-value list gains references and record literals (§2); the reframed rationale — the value restriction is Hexagon's monomorphism restriction (§3); Step 2 — the relaxed value restriction, with the unconstrained clause (§4); the variance analysis and the **compiler-side claim table** for constructors without declaration sites (§5); variance and `export opaque`: declared claims, bare-means-invariant, the over-claim error (§6); the intrinsic parametricity obligation (§7); tooling surfaces (§8); rejected alternatives (§9); the edit-notes ledger (§10); implementation notes for `hexc` (§11); the decisions log (§12); the implementation-question rulings, added 2026-08-01 under #207 (§13).
 **Not in scope:** Higher-kinded types, monomorphic recursion (Functions §7.4), the no-currying and rank-1 decisions — all verified untouched (§4.6). The hover-conflation and diagnostic-misattribution defects (#206 — independent compiler/LSP work; §8.3 records why this ruling raises their stakes), and the invalid-`.d.ts` defect for polymorphic non-function bindings (#132 — pre-existing, stakes likewise raised; §11.2). FFI Part 4 §12.4's deferral of generic foreign externs — the *coupling* is recorded (§3, §4.2, §10), the deferral itself is unchanged.
 **Companions:** Functions §4.1–§4.2.1, §7, §8 (host of Step 1 and Step 2's operative rules); Modules §4.2 (host of the variance-claim semantics — new §4.2.1 there); Declarations Preamble §2.1 (host of the sigil grammar); Statements & Mutability §6.2/§6.4; Constraints §6; Numeric Literals §3/§4/§5; `intrinsics.md` §3.3/§3.4/§4.2/§9 (the non-declared types, the trust argument, the self-declaration schedule that retires table rows); FFI Part 1 §3.1, Part 2, Part 10 (the borrowed-view classification, §5.3), Part 4 §12.4; `runtime/VectorTrie.hex` (the `Vector(+a)` derivation); Loops §6.4 (`memoize`).
 
@@ -58,7 +58,7 @@ A reference evaluates nothing — it is a lookup of an already-bound immutable v
 - **Allocation:** impossible. A reference manufactures no state; there is nothing fresh to share unsoundly. (SML includes variables for exactly this reason; Hexagon's deletion of the row bought no soundness — §9.1.)
 - **Sharing:** guarded by **levels**, which Functions §8 already mandates ("Algorithm J with … level-based generalization"). Generalization quantifies only variables not free in the environment; `(x) => { let e = x; ... }` quantifies nothing, because `x`'s variable belongs to the environment. The restriction guards allocation, levels guard sharing, and a reference allocates nothing. (§11.1 makes the alias case a required conformance test rather than an assumption about the implementation.)
 
-Constrained bindings ride along soundly, and this deserves its sentence because it is where Step 2 will *not* ride along: a reference shares the **unapplied entity**. `let y = x` where `x : Num a => a` aliases the literal's payload constant; `let g = f` where `f` is a constrained function aliases the evidence-suffix-taking function value (Constraints §6.1). No evidence is discharged at the binding, so nothing is computed at one representation and reused at another. The generalized alias is exactly as polymorphic, and exactly as cheap, as the original.
+Constrained bindings ride along soundly, and this deserves its sentence because it is where Step 2 will *not* ride along: a reference shares the **unapplied entity**. `let y = x` where `x : Num a => a` aliases the literal's payload constant; `let g = f` where `f` is a constrained function aliases the evidence-suffix-taking function value (Constraints §6.1). No evidence is discharged at the binding, so nothing is computed at one representation and reused at another. The generalized alias is exactly as polymorphic, and exactly as cheap, as the original. *(The emitted shape of the constrained alias is normative since 2026-08-01 — Constraints §6.1, §13.3 here.)*
 
 ### 2.3 `var` reads stay expansive
 
@@ -235,7 +235,9 @@ The home module sees the full definition ("derivation happens in the home module
 
 An unsupportable claim is a **hard error at the declaration, naming a witness occurrence**:
 
-> `a` cannot be declared covariant in `Seq`: field `consume` uses `a` in argument position (Seq.hex:31). Remove the `+`, or change the field.
+> `a` cannot be declared covariant in `Seq`: field `consume` uses `a` in argument position. Remove the `+`, or change the field.
+>
+> *(Message form revised 2026-08-01, §13.1: the witness's location rides a required secondary diagnostic label at the occurrence's span — never the message text.)*
 
 This is the design's teaching surface as much as its safety surface: the author who cannot state variance theory is shown the exact line that blocks the claim, at the moment it matters, with both legal exits named (Rewrite Rule, Preamble §1.1). A later representation edit that violates a standing claim errors **here**, at the author's declaration — never downstream in a stranger's module. Declaring *less* than the representation supports is legal everywhere and forever: under-claiming reserves the right to add the `consume` field later.
 
@@ -267,7 +269,7 @@ Why it must be written: §5's analysis reads the Hexagon-visible definition, and
 
 ### 8.1 The over-claim error
 
-§6.3's text; the row lives in the Modules diagnostics checklist, the two sigil parse errors in the Preamble's (ledger, §10). The witness occurrence — constructor field, position, line — is required content, not garnish.
+§6.3's text; the row lives in the Modules diagnostics checklist, the two sigil parse errors in the Preamble's (ledger, §10). The witness occurrence — constructor field, position, line — is required content, not garnish. *(Revised 2026-08-01, §13.1: the three parts split across the diagnostic's two channels. The message names the field and the position; the **line** is carried by a required secondary label at the witness occurrence's span, which every host renders as file:line. The label discharges the location requirement; the earlier `(Seq.hex:31)` spelling inside the message text is superseded and must not be read back in.)*
 
 ### 8.2 The under-claim affordance is the LSP's, not the compiler's
 
@@ -309,9 +311,9 @@ Applied in this PR:
 
 Recorded here, applied on next touch of the target (authority rule 4):
 
-- **`ffi-part4-extern-bindings.md` §12.4 / §11 item 7** — lifting the generic-extern deferral must revisit §3's rationale and §4.2's soundness legs; parameterized extern types, if admitted, take declared variance claims, bare meaning invariant (§5.3).
+- **`ffi-part4-extern-bindings.md` §12.4 / §11 item 7** — lifting the generic-extern deferral must revisit §3's rationale and §4.2's soundness legs; parameterized extern types, if admitted, take declared variance claims, bare meaning invariant (§5.3). *(Extended 2026-08-01, §13.4 — a fourth face of the same coupling:)* lifting §12.4 must also rule on whether references to extern bindings join Functions §8.2's value list — deliberately unstated in v1, where no extern type contains a variable and the classification is unobservable; the future ruling must weigh §12.2's stability-assertion doctrine there (an `extern let`'s immutability is a boundary contract, not a language guarantee) before resting a soundness-bearing classification on it, the same scruple §5.3 applies to the borrowed views.
 - **`numeric-literals.md` §4** — a variable item 7 declines under clause (a) is not "a type variable that would otherwise be quantified"; defaulting does not fire on item 7's account (§4.4's ruling).
-- **`constraints.md` §6.1** — the property "dictionary records appear only inside genuinely polymorphic functions" is protected by Functions §8's restriction; add the cross-reference (§3).
+- **`constraints.md` §6.1** — the property "dictionary records appear only inside genuinely polymorphic functions" is protected by Functions §8's restriction; add the cross-reference (§3). *(Applied 2026-08-01 — §13.3's touch of Constraints §6.1 carried it in.)*
 - **`constraints.md` §2.2** — if bare unapplied member references are ever ruled terms, note §2.5's non-expansiveness rider here.
 - **`ffi-part7`** (`.d.ts` mechanics) — declared claims may emit TypeScript `out`/`in` (§6.5).
 - **`loops-ranges-iteration.md` §6.4** — `memoize`'s bullet may cite §7's parametricity obligation and conformance item §11.1 (viii).
@@ -357,3 +359,45 @@ Declare claims on the parameterized opaque exports that **have declaration sites
 | Clause-(a)-declined variables are not "otherwise quantified": defaulting does not fire on item 7's account | §4.4 |
 | Annotated expansive bindings: rigid variables face the same three clauses; a declined one is a declaration-site error (exports inherit it via mandatory signatures) | §4.1 |
 | Adopted per James's directives, in-session 2026-08-01: the `+a`/`-a` sigil spelling; bare-means-invariant as the simplification; the LSP code-action affordance | §6.1–§6.2, §8.2 |
+| Over-claim witness location: message names the field and the position; a **required** secondary label at the witness occurrence's span carries the line; `(file:line)` in the message text superseded (2026-08-01, #207) | §13.1; Modules §4.2.1, §10 |
+| Nothing else may generalize a `var`'s type — an observable rule, not an implementation nicety; hosted at Functions §8.4, asserted at Statements §6.1/§7.2 (2026-08-01, #207) | §13.2 |
+| The constrained alias emits the bare reference when the binding discharges no evidence; eta-expansion reserved for in-scope evidence; boundary = dischargeability (2026-08-01, #207) | §13.3; Constraints §6.1, Functions §9 |
+| Extern references and the value list: deliberately unstated in v1 (unobservable under FFI Part 4 §12.4); fourth face of the §12.4 coupling, must weigh §12.2's stability-assertion doctrine when lifted (2026-08-01, #207) | §13.4; ledger §10 |
+
+---
+
+## 13. Implementation questions, ruled *(added 2026-08-01; #207's four questions)*
+
+The `hexc` implementation of this ruling (branch `ml-generalization-variance-207`) returned four questions only the spec could settle. The rulings below share this document's authority; each is applied to the hosts it names in the same change that adds this section. Nothing here amends §1–§12's decisions — §6.3's message form and §8.1's witness sentence are revised in place with markers pointing back here.
+
+### 13.1 The over-claim witness's location is a label, not message text
+
+**Ruling.** §8.1's required content — constructor field, position, line — splits across the diagnostic's two channels: the **message** names the field (or constructor slot) and the position in prose; the **line** is carried by a required secondary diagnostic label at the witness occurrence's span, which every host already renders as file and line. The label **discharges the location requirement in full** — stated explicitly so no later reader re-derives a `(file:line)` parenthetical from the superseded example text. A message without the witness label does not conform.
+
+Why the split is right, not a concession: the checker holds a `fileId`-bearing span, and no pass below the host knows a path — the corpus's diagnostic structure deliberately separates source attribution from presentation. And the parenthetical's file component was always vacuous: a record's fields and a union's constructor slots are part of the type's own declaration, so the witness is by construction in the file the reader is already looking at. The label points at the exact occurrence — better than prose coordinates, and honest about who owns rendering.
+
+Applied: Modules §4.2.1 (message + label sentence, marker), Modules §10 (row), Modules §14 (log row), §6.3 and §8.1 here (markers).
+
+### 13.2 Nothing else may generalize a `var`'s type (observable rule)
+
+**Ruling.** This is an **observable rule**, not an implementation obligation, and it is hosted at Functions §8.4 — the completed sentence: *`var` never generalizes, and nothing else may generalize a `var`'s type either.* The variables of a `var`'s monotype belong to the environment for the whole of the `var`'s scope; no binding in that scope — §8.2's values and item 7's expansive bindings alike — may quantify them, and any use anywhere in the scope, an assignment included, pins them.
+
+Why it must be normative: the failing program is written in the surface language. `var v = empty`, then `let e = v` — expansive, so before #205 it quantified nothing and the exclusion was invisible — then `e` used at two element types, then `v := ...`: the assignment pins a variable `e`'s scheme had already quantified, and one shared, assignable binding is observed at several types at once. Item 7 created the first expansive bindings that quantify, so the second half of §8.4's sentence had to be written the day item 7 landed. The implementation's mechanism — sinking a `var`'s type to its block's level at the point the `var` is bound, so level admission refuses the variables everywhere above it — is a correct realization and stays an implementation note; the rule is stated in terms of environment membership, not levels.
+
+Applied: Functions §8.4 (the completed item, dated); Statements §6.1 (pointer) and §7.2 (the alias test assertion); Statements §11 (log row). The conflicting-use diagnostic is Functions §10's existing pinning-use row; no new row.
+
+### 13.3 The constrained alias emits the bare reference
+
+**Ruling.** The emitted shape is **normative** — Functions §9's opening sentence ("emission shape is part of the contract") already commits to that — and it lives in Constraints §6.1, which owns the evidence ABI; Functions §9 carries a pointer. The rule: a binding whose RHS is a bare reference to a constrained function, where the binding discharges **none** of the reference's constraints (§2.2's generalized alias), emits the bare name — `const twice = double;` — and every consumer appends the trailing evidence suffix it would have appended to the original. Where evidence for the reference's constraints **is** in scope — a constrained function used as a value inside a genuinely polymorphic function whose own suffix supplies the dictionaries — the reference denotes the evidence-applied value and emits as the eta-expansion closing over that evidence, unchanged. The boundary is **evidence dischargeability at the reference**, never the reference's syntax.
+
+This is §2.2's "shares the unapplied entity … exactly as polymorphic, and exactly as cheap" made operational; the previous behavior (eta-expanding the no-evidence case) built a wrapper of the unsuffixed arity that silently dropped the caller's dictionaries, and is recorded in the host as the rejected shape so it is not rebuilt.
+
+Applied: Constraints §6.1 (the rule, plus §10's pending cross-reference note, applied on the same touch and so marked in the ledger), Constraints §10 (log row), Functions §9 (pointer bullet).
+
+### 13.4 Externs and the value list: deliberately unstated
+
+**Ruling.** Functions §8.2's list says **nothing** about `extern` bindings, deliberately. Under FFI Part 4 §12.4 every extern is monomorphic, so an extern reference has no type variable for either §8.2 or item 7 to quantify — the classification is unobservable in v1, and the corpus does not spend normative text on invisible distinctions. The list is not extended, and no host text changes.
+
+The exclusion becomes visible the day §12.4 is lifted, and the answer then is **not** obvious: an `extern let`'s immutability is a stability *assertion* — a boundary contract, not a language guarantee (FFI Part 4 §4.4, §12.2) — and §5.3 already refuses to let a soundness-bearing classification (variance) rest on a boundary contract. Whether value-ness may rest on one is the same question, and it gets its own ruling at lifting time. Recorded as the **fourth face of the existing §12.4 coupling** — one coupling, one ledger entry — by extending §10's `ffi-part4` bullet rather than opening a separate note.
+
+The other two absent kinds need nothing: `var` reads are §2.3's explicit exclusion, and the bare constraint-member reference stays exactly where §2.5 left it — whether it is a term at all is Constraints §2.2's question, neither opened nor closed here.
