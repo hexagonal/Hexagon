@@ -555,9 +555,12 @@ less than it looks.
   A body-level `let held: z = value` declares `z` in the same rigid scope as the
   signature, and nothing pairs it with the variable the result is built from, so
   the annotation would be minted as `a` and the two would collide. In practice
-  the entry above gets there first: a rigid variable cannot arise in a body from
-  nothing, so it reaches the result through a parameter, and an annotated
-  parameter pairs it. Pairing body annotations properly means walking the body.
+  the entry above usually gets there first, because the body's `z` reaches the
+  result through `value`. Pairing body annotations properly means walking the
+  body. Where it does not get there first, compiling the edit does: that is what
+  the verification step is for, and it has inputs of its own — `export fun m() =
+  (r) => {...r}` has no parameters at all, and its open row still closes when
+  written.
 - **A type alias is written as what it expands to.** `type Name = String` is
   transparent to the checker, and the inferred type carries no memory of the
   alias, so the action writes `String` where a reader would have written `Name`.

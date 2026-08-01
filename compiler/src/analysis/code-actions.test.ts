@@ -340,14 +340,14 @@ describe("code actions: infer return type", () => {
   });
 
   test("a declared type parameter is a name minting must not take", () => {
-    // `<a>` is declared and pairs with `value`, so the empty vector's element
-    // is a variable nothing spells — and reusing `a` for it would say the two
-    // are the type the caller chooses, which only one of them is.
-    const source = "export fun hold<a>(value: a) = ([], value)\n";
+    // `<a>` is declared and written in no parameter, so nothing pairs it with a
+    // variable — it is reserved by the declaration alone. Reusing it for the
+    // empty vector's element would say that element is the type the caller
+    // chooses, which it is not.
+    const source = "export fun hold<a>(value: Int) = []\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "hold"));
-    expect(applied(source, action))
-      .toBe("export fun hold<a>(value: a): (Vector(b), a) = ([], value)\n");
+    expect(applied(source, action)).toBe("export fun hold<a>(value: Int): Vector(b) = []\n");
   });
 
   test("offers nothing on a private function's own error", () => {
@@ -405,12 +405,82 @@ describe("code actions: infer return type", () => {
   });
 
   test("the result borrows through whatever wraps it", () => {
-    // `Vector(a)` is not the parameter's type, it is built from it. A test on
-    // the result type alone — is it a variable? — would let this through.
-    const source = "export fun m(x) = [x]\n";
+    // A test on the result type alone — is it a variable? — would let every one
+    // of these through, and each is a different arm of the walk that finds the
+    // variables a result mentions. One wrong annotation per arm otherwise.
+    const wrappings: readonly [string, string][] = [
+      ["export fun m(x) = [x]\n", "Vector"],
+      ["export fun m(x) = (x, 1)\n", "tuple"],
+      ["export fun m(x) = {a = x}\n", "record field"],
+      ["export fun m(x) = Some(x)\n", "union argument"],
+      ["export fun m(x) = () => x\n", "function result"],
+      ["export fun m(x) = {...x}\n", "record row"],
+      ["export fun m(x) = Map.set(Map.empty(), x, 1)\n", "map key"],
+      ["export fun m(x) = Map.set(Map.empty(), 1, x)\n", "map value"],
+      // The variable is in the returned function's *parameter*, and nowhere in
+      // its result: walking only what a function returns would miss it.
+      ["export fun m(x) = (y) => x == y\n", "function parameter"],
+    ];
+    for (const [source, wrapping] of wrappings) {
+      const { session } = sessionOf({ "/main.hex": source });
+      expect(sole(actionsOn(session, "/main.hex", source, "m(")).disabled, wrapping)
+        .toBe("`x` has no type yet, so the result type of `m` is not settled");
+    }
+  });
+
+  test("a variable the user already wrote is not one to wait for", () => {
+    // `y` is bare, so something is unwritten — but `Vector(a)` is spelled out of
+    // the `a` the user put on `x`, and is the answer under every completion of
+    // `y`. Waiting here would give up a repair for nothing: the mismatch a bad
+    // completion produces is reported identically with the annotation and
+    // without it, so writing it moves no blame.
+    const source = "export fun m(x: a, y) = [x, y]\n";
     const { session } = sessionOf({ "/main.hex": source });
-    expect(sole(actionsOn(session, "/main.hex", source, "m(")).disabled)
-      .toBe("`x` has no type yet, so the result type of `m` is not settled");
+    const action = sole(actionsOn(session, "/main.hex", source, "m("));
+    expect(applied(source, action)).toBe("export fun m(x: a, y): Vector(a) = [x, y]\n");
+
+    // Same signature, and the result is the *bare* parameter's variable instead.
+    const other = "export fun m(x: a, y) = [y]\n";
+    const { session: waits } = sessionOf({ "/main.hex": other });
+    expect(sole(actionsOn(waits, "/main.hex", other, "m(")).disabled)
+      .toBe("`y` has no type yet, so the result type of `m` is not settled");
+  });
+
+  test("borrowing is not always containment: a constraint's implied type", () => {
+    // The reading that first suggests itself — does the result contain the
+    // parameter's own variable? — is too narrow to be safe. An implied type
+    // member (Collections Part 2 §5) makes the result a projection variable
+    // that appears in no parameter's type at all, while being wholly determined
+    // by one: `x` is one fresh variable and the result is another, unified only
+    // once the subject reaches a concrete instance.
+    const source = [
+      "constraint Source<a> =",
+      "    type Item",
+      "    get(value: a): Item",
+      "",
+      "export record Box = {value: Int}",
+      "",
+      "honor Source<Box> =",
+      "    type Item = Int",
+      "    get(box: Box) = box.value",
+      "",
+      "export fun peek(x) = get(x)",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(sole(actionsOn(session, "/main.hex", source, "peek")).disabled)
+      .toBe("`x` has no type yet, so the result type of `peek` is not settled");
+
+    // And what it averts: the projection is `Int`, so `: a` is blamed as soon
+    // as the parameter is written — and the user has no generic completion to
+    // reach for, because a binder may not carry a projection in this slice.
+    const written = source.replace("export fun peek(x) = get(x)", "export fun peek(x: Box): a = get(x)");
+    const { session: after } = sessionOf({ "/main.hex": written });
+    expect(after.diagnostics("/main.hex").map(({ message }) => message))
+      .toContain(
+        "`a` is a declared type variable, but the body requires `Int`; " +
+          "change the annotation to `Int`, or remove it to let the type be inferred",
+      );
   });
 
   test("is offered once when two diagnostics caret the same declaration", () => {
@@ -736,11 +806,10 @@ describe("code actions: infer return type", () => {
     // annotation minted `a` and the checker then had two distinct declared
     // variables where the body needed one.
     //
-    // It is now refused a step earlier, and every route to it is: a rigid
-    // variable cannot arise in a body from nothing, so it reaches the result by
-    // way of a parameter, and an *annotated* parameter pairs it and mints
-    // nothing. See #187 — verification has no input left that is known to reach
-    // it, which is a question about whether to keep paying for it.
+    // It is now refused a step earlier, because the rigid `z` reaches the
+    // result by way of `value`. Verification still has its own reaching inputs
+    // — see the open-record test below — so this moved rather than removed the
+    // cover.
     const source = ["export fun keep(value) =", "    let held: z = value", "    held", ""]
       .join("\n");
     const { session } = sessionOf({ "/main.hex": source });
@@ -774,12 +843,11 @@ describe("code actions: infer return type", () => {
   });
 
   test("an open record's row is a borrowing like any other", () => {
-    // The case that justified compiling before offering: `{...a}` is an *open*
-    // record inferred, and closed the moment it is written, so the function went
-    // from taking any record to taking only the empty one with no diagnostic
-    // anywhere saying so. The row variable comes from `r`, so this is refused
-    // for the ordinary reason now — which is why `variablesOf` has to count a
-    // record's tail, and not only the variables in its fields.
+    // `{...a}` is an *open* record inferred, and closed the moment it is
+    // written: the function goes from taking any record to taking only the
+    // empty one, with no diagnostic anywhere saying so. Directly, the row comes
+    // from `r` and the bare-parameter check gets there first — which is why the
+    // walk has to count a record's tail and not only its fields.
     const source = "export fun copy(r) = {...r}\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "copy"));
@@ -793,5 +861,21 @@ describe("code actions: infer return type", () => {
     const { session: paired } = sessionOf({ "/main.hex": annotated });
     expect(applied(annotated, sole(actionsOn(paired, "/main.hex", annotated, "copy"))))
       .toBe("export fun copy(r: {...a}): {...a} = {...r}\n");
+  });
+
+  test("refuses an annotation that would silently change the type", () => {
+    // The one that justifies compiling before offering, and it is *not* reached
+    // through a bare parameter: the open row lives under an arrow rather than
+    // being the result, so this declaration has no parameters at all and
+    // nothing earlier has anything to say about it. Only writing the annotation
+    // and compiling it shows the row closing.
+    const source = "export fun m() = (r) => {...r}\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    const action = sole(actionsOn(session, "/main.hex", source, "m("));
+    expect(action.edits).toEqual([]);
+    expect(action.disabled).toBe(
+      "writing `: {...a} -> {...a}` would change the type of `m` " +
+        "from `() -> {...a} -> {...a}` to `() -> {} -> {}`",
+    );
   });
 });

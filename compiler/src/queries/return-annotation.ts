@@ -138,7 +138,7 @@ export function planReturnAnnotation(
     }
   });
 
-  const borrowed = borrowedFromAnUntypedParameter(lambda, type);
+  const borrowed = unsettledByABareParameter(lambda, type);
   if (borrowed !== undefined) {
     return {
       ...subject,
@@ -164,7 +164,8 @@ export function planReturnAnnotation(
 }
 
 /**
- * The parameter whose missing type the result type is standing on, if any.
+ * The parameter still missing a type that the result type cannot be trusted
+ * without, if any.
  *
  * Modules §4.1.1 asks an exported function for every parameter type *and* its
  * result, and the checker reports both halves in one message, so the diagnostic
@@ -178,34 +179,74 @@ export function planReturnAnnotation(
  * declared type variable, but the body requires `Int` ``: the rigid annotation
  * takes the blame for a signature the user never wrote.
  *
- * It is the *borrowing* that decides, not the missing annotation. `f(x) = 1`
- * returns `Int` however `x` is eventually typed, and refusing there would give
- * up a repair that is right under every completion. So the question is whether
- * the result mentions a variable this parameter introduced — the same pairing
- * `VariableNames.learn` relies on, read the other way round.
+ * The test is **not** whether the result structurally contains the parameter's
+ * own variable, which is the reading that first suggests itself and is too
+ * narrow to be safe. A constraint with an implied type member (Collections
+ * Part 2 §5) makes the result a *projection* variable that appears in no
+ * parameter's type at all while being wholly determined by one:
  *
- * Only *un*annotated parameters count. A written `a` is the user's word, not
- * inference's, and a result that shares it is already what they said.
+ *     constraint Source<a> =
+ *         type Item
+ *         get(value: a): Item
+ *
+ *     export fun peek(x) = get(x)
+ *
+ * `x` is one fresh variable and the result is another, unified only once the
+ * subject reaches a concrete instance. Nothing structural relates them, and
+ * `: a` is written and then blamed the moment `x: Box` is typed. Borrowing is
+ * not always containment, so containment cannot be the question.
+ *
+ * What is asked instead: **while any parameter is still bare, does the result
+ * mention a variable the user has not already spelled?** A variable standing in
+ * an annotated parameter's type is one they wrote, so a result made only of
+ * those is a result they have already committed to — `m(x: a, y) = [x, y]` is
+ * `Vector(a)` under every completion of `y`, and writing it moves no blame,
+ * because the mismatch the user may be heading for is reported identically with
+ * the annotation and without it. Anything else the result mentions may be a
+ * fresh variable an unwritten parameter is about to fix.
+ *
+ * Once every parameter is written there is nothing to wait for: `f(first: a) =
+ * (first, [])` mints `b` for the empty vector, which is genuinely polymorphic
+ * and stays so. And a result with no variables at all — `f(x) = 1` is `Int`
+ * however `x` is eventually typed — is never in question, which is what keeps
+ * this from collapsing into "refuse whenever a parameter is bare" and giving up
+ * a repair that is right under every completion.
  */
-function borrowedFromAnUntypedParameter(
+function unsettledByABareParameter(
   lambda: Resolved.LambdaExpr,
   type: Typed.FunctionType,
 ): string | undefined {
-  const result = variablesOf(type.result, new Set());
-  for (const [at, parameter] of lambda.parameters.entries()) {
+  const bare = lambda.parameters.find(({ annotation }) => annotation === undefined);
+  if (bare === undefined) return undefined;
+
+  const spelled = new Set<Typed.TypeVariableId>();
+  lambda.parameters.forEach((parameter, at) => {
     const inferred = type.parameters[at];
-    if (parameter.annotation !== undefined || inferred === undefined) continue;
-    for (const variable of variablesOf(inferred, new Set())) {
-      if (result.has(variable)) return displayParameterName(parameter.name);
-    }
+    // A parameter whose type is missing from the scheme contributes nothing,
+    // which is the safe direction: it can only leave the result mentioning more
+    // than the user has spelled, and so only ever waits. `#parameters` maps
+    // positionally over the same list, so this is unreachable today.
+    if (parameter.annotation === undefined || inferred === undefined) return;
+    variablesOf(inferred, spelled);
+  });
+
+  for (const variable of variablesOf(type.result, new Set())) {
+    if (!spelled.has(variable)) return displayParameterName(bare.name);
   }
   return undefined;
 }
 
 /**
  * Every type variable a type mentions, including a record's row variable — an
- * open record is `{x: Int, ...a}` and the `a` is as much a borrowing as any
- * other, which is what makes `copy(r) = {...r}` the case it is.
+ * open record is `{x: Int, ...a}` and the `a` is as much a mention as any other,
+ * which is what makes `copy(r) = {...r}` the case it is.
+ *
+ * Exhaustive over `Typed.Type` by construction: the declared return type makes
+ * a missing variant a compile error rather than a silently dropped variable,
+ * and a dropped variable here is a wrong annotation written into a file. Every
+ * arm that carries one is pinned by a test that fails if it stops walking —
+ * except `Nullable`, which has no annotation syntax in this slice (`Int?` does
+ * not lex) and so cannot be put in a result from source at all.
  */
 function variablesOf(
   type: Typed.Type,
@@ -348,11 +389,18 @@ function unsettledBy(
     if (diagnostic.incompleteSignature === true) continue;
     const { start, end } = diagnostic.primary;
     if (start.offset >= from && end.offset <= to) {
-      // Not "so the type is not settled": a JavaScript-spelled comment in the
-      // body is an error with a repair of its own — reachable from a caret on
-      // the comment, not from this one — and its presence says nothing about the
-      // type. The claim made here is only that something in the declaration
-      // needs fixing, which is what being in the declaration is.
+      // Not "so the type is not settled": a JavaScript-spelled comment is an
+      // error with a repair of its own — reachable from a caret on the comment,
+      // not from this one — and its presence says nothing about the type. The
+      // claim made here is only that something in the declaration needs fixing,
+      // which is what being in the declaration is.
+      //
+      // Which half it is named after is a question about spans, not about what
+      // the user sees: a block's span starts at its first *item*, and comments
+      // are not items, so a comment written above the first line of a body
+      // falls before `body` and is reported as the signature's. Harmless — both
+      // sentences say the same thing about the same error — and worth knowing
+      // before trusting the word to point at a region.
       const where = start.offset >= body ? "body" : "signature";
       return `the ${where} of \`${name}\` has an error to fix first: ${diagnostic.message}`;
     }
