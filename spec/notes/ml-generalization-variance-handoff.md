@@ -5,7 +5,8 @@ request. Not a spec and not a ruling. The governing document is the closure doc
 `spec/decisions-ml-dialect-generalization-2026-08.md`; on any conflict it wins,
 and the host specs it has been consolidated into win over it.
 
-**Branch:** `ml-generalization-variance-207`. **Rounds 3–7 are fixed and applied
+**Branch:** `ml-generalization-variance-207`. **PR [#216](https://github.com/hexagonal/Hexagon/pull/216) is open against `main`** (opened 2026-08-02; §6.3
+discharged). **Rounds 3–7 are fixed and applied
 (§5, §5b–§5e).** Seven cold review rounds, seven REQUEST-CHANGES. **The review
 budget is spent** — James capped it after round 5 — so the branch now goes to him
 on the strength of what seven rounds found, not on a clean verdict, which no round
@@ -26,12 +27,18 @@ playground."* With the standing roles: cold **Opus** reviews the code, **James**
 reviews the book himself, **Fable** writes any spec and Opus reviews it.
 
 Everything asked for is built and committed. **Seven cold review rounds have run
-and all seven returned REQUEST-CHANGES.** All four are now fully applied: round 3's
-six defects and round 4's nine were fixed in the session of 2026-08-02, and each
-fix is held by a test verified to fail when the fix is reverted (§5, §5b). Two
+and all seven returned REQUEST-CHANGES.** All seven are now fully applied: rounds
+3–7 were fixed in the session of 2026-08-02 (§5, §5b–§5e), and each fix is held by
+a test verified to fail when the fix is reverted. Two
 needed rulings first, and Fable wrote both — closure doc §13.6, the evidence-seat
 rule, then §13.6's own correction after round 4 found the rule missed every
 destructuring binding.
+
+*(This paragraph read "all four … round 3's six defects and round 4's nine" until
+2026-08-02, when it was corrected on the way to opening the PR: it had been
+written at round 4 and never caught up with rounds 5–7, which §5c–§5e record. A
+stale count in a note whose subject is stale claims — §2d — is worth naming rather
+than quietly fixing.)*
 
 The book has been read and approved by James, twice, including two prose
 corrections he made directly. `book/DRAFT-3.md` is a **gitignored build artifact**
@@ -698,20 +705,22 @@ diagnostic** — the only such shapes found in seven rounds. All pre-existing on
    never mutated); `.d.ts` emission for the new shapes (#132's family); and the
    `for`-loop head binding position, which round 7 could not exercise because
    `for (a as b) in …` does not parse.
-3. **Open the PR.** Base `main`. The commits tell the story in order and should
-   not be squashed into one.
-3. **#212 is a pre-existing crash this branch makes more visible.** A dot call to
+3. **~~Open the PR.~~ Done** — [#216](https://github.com/hexagonal/Hexagon/pull/216), base `main`, 22 commits left unsquashed because
+   they tell the story in order. All four suites and `tsc --noEmit` were
+   re-verified green at §7's exact counts immediately before pushing, and
+   `generate:prelude` regenerates byte-identical.
+4. **#212 is a pre-existing crash this branch makes more visible.** A dot call to
    a missing companion operation with a bare numeric literal argument throws
    `TypeError` in `#materializeUnwidenedExpr` instead of reporting. Chapter 6's
    new example uses `blank.append(1)`; it compiles where the `Vector` companion
    is in scope (the Playground auto-imports it, and chapter 20 already uses the
    spelling), but a reader copying it into a bare project gets the crash.
    Reproduces on `main`.
-4. **#206's stakes are raised by this branch, not caused by it.** Per-variable
+5. **#206's stakes are raised by this branch, not caused by it.** Per-variable
    generalization means a scheme can quantify some variables and leave others
    unsolved, and hover renders the two identically. The closure doc §4.5 says
    this graduates #206 from annoyance to teachability requirement.
-5. **#132 likewise** — emitted `.d.ts` is invalid for a polymorphic non-function
+6. **#132 likewise** — emitted `.d.ts` is invalid for a polymorphic non-function
    binding (`const empty: Seq<a>` with unbound `a`), which is exactly the shape
    Step 1 multiplies. Note that §13.6 *reduces* this surface: a constrained
    non-function binding no longer generalizes at all, so the invalid shapes are
