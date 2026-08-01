@@ -2531,11 +2531,45 @@ class Resolver {
   }
 
   #checkFunctionAvailability(items: readonly Resolved.Item[]): void {
+    // The sequential bindings this item list introduces.
+    const sequential = new Set<Resolved.SymbolId>();
+    for (const item of items) {
+      if (item.kind === "Let" || item.kind === "Var") sequential.add(item.binding.symbol);
+      if (item.kind === "LetPattern") {
+        for (const binding of resolvedPatternBindings(item.pattern)) {
+          sequential.add(binding.symbol);
+        }
+      }
+    }
+    // A `fun` body that names one of them has captured it, whichever side of
+    // the `fun` the binding was written on. `#funCaptures` alone cannot say
+    // that: it is fed from the *future*-sequential lookup, which ordinary scope
+    // resolution never reaches for a binding already in scope, so it records
+    // forward references only. That made this guard order-sensitive, and
+    //
+    //     let a = f()
+    //     fun f() = a
+    //
+    // compiled with no diagnostic while the same two lines swapped reported
+    // properly — `f` hoists in the emitted JavaScript and `a` does not, so the
+    // module threw `ReferenceError` on load. Reading the resolved bodies makes
+    // the two orders the same cycle. Restricting to `sequential` is what keeps
+    // it free of false positives: a body's own parameters and inner `let`s are
+    // different symbols and are never in this set.
+    const captured = new Map<Resolved.SymbolId, Set<Resolved.SymbolId>>();
+    for (const item of items) {
+      if (item.kind !== "Fun") continue;
+      const captures = new Set(this.#funCaptures.get(item.binding.symbol) ?? []);
+      for (const reference of expressionNames(item.value.body)) {
+        if (sequential.has(reference.symbol)) captures.add(reference.symbol);
+      }
+      captured.set(item.binding.symbol, captures);
+    }
     const required = (symbol: Resolved.SymbolId, visiting = new Set<Resolved.SymbolId>()): Set<Resolved.SymbolId> => {
       if (visiting.has(symbol)) return new Set();
       const next = new Set(visiting);
       next.add(symbol);
-      const captures = new Set(this.#funCaptures.get(symbol) ?? []);
+      const captures = new Set(captured.get(symbol) ?? this.#funCaptures.get(symbol) ?? []);
       for (const dependency of this.#funDependencies.get(symbol) ?? []) {
         for (const capture of required(dependency, next)) captures.add(capture);
       }

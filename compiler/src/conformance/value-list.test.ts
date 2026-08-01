@@ -206,37 +206,109 @@ describe("Step 1: the completed syntactic-value list", () => {
     expect(javascript).toContain("const twice = double;");
   });
 
-  test("(vi) the bare shape is the *binding*'s, not every reference's", () => {
-    // Constraints §6.1 and closure doc §13.3 both say "at a binding". A name in
-    // any other position keeps the wrapper, because only a binding gives the
-    // reference a seat whose type is the reference's own: the field below is
-    // typed one arity narrower than the evidence-taking function the bare shape
-    // would store in it.
-    //
-    // The constraint must be one defaulting cannot settle. Written with `Num`,
-    // the reference's evidence is a *concrete* instance rather than an
-    // unresolved dictionary, the condition's second half is false, and the
-    // wrapper is emitted whether or not the position is checked — a specimen
-    // that cannot tell the two builds apart. With `Tag`, removing the gate
-    // emits `{ f: describe }` and loses the `missing \`Tag\` evidence`
-    // diagnostic that says the stored function does not fit the field.
-    const source = "constraint Tag<a> =\n" +
-      "    label(value: a): String\n" +
-      "honor Tag<String> =\n" +
-      '    label(value) = "string"\n' +
-      "fun describe<a: Tag>(value: a): String = label(value)\n" +
+  // (x) The evidence-seat battery (closure doc §13.6, §11.1 item (x)).
+  //
+  // This replaces the round-2 test that stood here. That test asserted `missing
+  // \`Tag\` evidence during JavaScript emission` as *expected output* for the
+  // record specimen — a regression pinned as intent. Step 1 made a reference to
+  // a constrained function a value, so a record, tuple, or constructor
+  // application holding one became a value too, generalized into a **constrained
+  // non-function scheme**, and hit a wall: evidence rides a function's trailing
+  // parameter suffix (Constraints §6.1) and a record has no arity to put one on.
+  // All three shapes compile on `main` — where the *contents* were not values —
+  // so all three were regressions this branch introduced. §13.6 declines a
+  // still-constrained variable at any non-function value binding, so the scheme
+  // is never built.
+  //
+  // Every specimen uses `Tag`, which defaulting cannot settle. Under `Num` the
+  // variable is gone before any of this is observable (§2a of the arc's notes,
+  // and three false results that came of ignoring it).
+  const TAG = "constraint Tag<a> =\n" +
+    "    label(value: a): String\n" +
+    "honor Tag<String> =\n" +
+    '    label(value) = "string"\n' +
+    "fun describe<a: Tag>(value: a): String = label(value)\n";
+
+  test("(x) a record literal holding a constrained reference compiles, and pins", () => {
+    const source = TAG +
       "let holder = { f = describe }\n" +
       'export let s: String = (holder.f)("x")\n';
-    const compiled = compileProject([
+    expect(diagnostics(source)).toEqual([]);
+    const javascript = compileProject([
       new Source.File(Source.fileId(0), "/main.hex", source),
-    ]);
-    expect(compiled.diagnostics.map(({ message }) => message)).toContain(
-      "missing `Tag` evidence during JavaScript emission",
-    );
-    const javascript = compiled.modules
-      .find((module) => module.source.path === "/main.hex")!.javascript.text;
-    expect(javascript).not.toContain("{ f: describe }");
+    ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
+    // `main`'s emission, exactly: the use pinned `a` to `String`, the evidence
+    // went concrete, and the field holds the eta-expansion. Never the bare
+    // `{ f: describe }` — that is the *binding*-position shape (§13.3), and a
+    // field typed one arity narrower cannot hold an evidence-taking function.
     expect(javascript).toContain("=> describe(");
+    expect(javascript).toContain("__hex_instance_Tag_String");
+    expect(javascript).not.toContain("{ f: describe }");
+  });
+
+  test("(x) the tuple and constructor-application shapes likewise", () => {
+    expect(
+      diagnostics(TAG +
+        "let pair = (describe, 1)\n" +
+        'export let s: String = (pair.item1)("x")\n'),
+    ).toEqual([]);
+    expect(
+      diagnostics(TAG +
+        "export record Holder(a) = { f: a }\n" +
+        "let h = Holder({ f = describe })\n" +
+        'export let s: String = (h.f)("x")\n'),
+    ).toEqual([]);
+  });
+
+  test("(x) a use at a second type is the pinning diagnostic, at the use", () => {
+    // §13.6's one user-facing surface for the category: Functions §10's existing
+    // pinning-use row. No emission-time message, and no new diagnostic.
+    expect(
+      diagnostics(TAG +
+        "honor Tag<Int> =\n" +
+        '    label(value) = "int"\n' +
+        "let n: Int = 1\n" +
+        "let holder = { f = describe }\n" +
+        'export let s: String = (holder.f)("x")\n' +
+        "export let t: String = (holder.f)(n)\n"),
+    ).toEqual(["type mismatch: expected String, found Int"]);
+  });
+
+  test("(x) the annotated arm errors at the declaration, and names two exits", () => {
+    expect(
+      diagnostics(TAG +
+        "let holder: { f: (a) -> String } = { f = describe }\n" +
+        'export let s: String = (holder.f)("x")\n'),
+    ).toEqual([
+      "`a` is a declared type variable, but a binding whose type is not a function " +
+      "cannot carry its `Tag` constraint — evidence rides only a function's trailing " +
+      "parameters; annotate at a concrete type, or remove the annotation",
+    ]);
+    // Both exits the message names actually compile. §13.5's bar: a clause the
+    // emitter cannot make true in general is not permitted, so each is checked.
+    expect(
+      diagnostics(TAG +
+        "let holder: { f: (String) -> String } = { f = describe }\n" +
+        'export let s: String = (holder.f)("x")\n'),
+    ).toEqual([]);
+    expect(
+      diagnostics(TAG +
+        "let holder = { f = describe }\n" +
+        'export let s: String = (holder.f)("x")\n'),
+    ).toEqual([]);
+  });
+
+  test("(x) an *unconstrained* aggregate still generalizes in full", () => {
+    // The other side of the rule, and the record row's whole stdlib motivation:
+    // §13.6 reads the residual constraint set, not the shape. Declining on shape
+    // alone would un-do Step 1 for `Seq.hex`'s every module-level producer.
+    expect(
+      diagnostics(
+        "let r = { items = [] }\n" +
+          "export let n: Int = Vector.at(r.items, 0)\n" +
+          "export let s: String = Vector.at(r.items, 0)\n",
+      ),
+    ).toEqual([]);
   });
 
   // §2.3: a `var` read is a state observation, and stays expansive.

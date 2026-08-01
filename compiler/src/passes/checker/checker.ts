@@ -4133,6 +4133,58 @@ class Checker {
     variables = this.#collectVariables(type).filter(
       (variable) => variable.level > level,
     );
+    if (allow && this.#prune(type).kind !== "Function") {
+      // Closure doc §13.6, the evidence-seat rule. Evidence has exactly one
+      // seat — a function's trailing parameter suffix (Constraints §6.1) — so a
+      // constrained variable can be quantified only at a binding whose own type
+      // is a function. `let g = describe` has that seat and generalizes; `let
+      // holder = { f = describe }` does not, and a constrained scheme built
+      // there is one the language cannot represent: the checker handed it out,
+      // the emitter had nowhere to put the dictionary, and a program that
+      // compiles on `main` became two errors, one of them phrased as an
+      // internal compiler failure.
+      //
+      // Declining is not a new fallback. It is what every expansive binding
+      // already does and what this binding did before #205: the variable stays
+      // unsolved at `level`, and its first use pins it. Unconstrained variables
+      // are untouched — `let r = { pull = () => None }` still generalizes in
+      // full, which is the record row's whole stdlib motivation.
+      //
+      // Ordering: defaulting ran above, deliberately. This reads only the
+      // residue it leaves, so `let x = 42` still means `Int` and a surviving
+      // requirement is by construction one defaulting cannot remove (§13.6).
+      const quantified: Variable[] = [];
+      for (const variable of variables) {
+        if (variable.requirements.length === 0) {
+          quantified.push(variable);
+          continue;
+        }
+        // A rigid variable can be neither quantified nor pinned by a use, so —
+        // exactly as at §4.1 — an annotation whose variable this rule declines
+        // has no legal reading, and the binding is a hard error at the
+        // declaration. Both exits are legal at every arity and depth (§13.5's
+        // bar): a concrete annotation compiles, and removing the annotation
+        // lands on decline-and-pin.
+        if (variable.rigidName !== undefined && annotation !== undefined) {
+          const names = [
+            ...new Set(variable.requirements.map(({ name: constraint }) => constraint)),
+          ];
+          this.#diagnostics.add({
+            severity: "error",
+            message:
+              `\`${variable.rigidName}\` is a declared type variable, but a binding whose ` +
+              `type is not a function cannot carry its \`${names.join("`, `")}\` ` +
+              "constraint — evidence rides only a function's trailing parameters; " +
+              "annotate at a concrete type, or remove the annotation",
+            primary: annotation,
+          });
+          variable.instance = ERROR;
+          continue;
+        }
+        variable.level = level;
+      }
+      variables = quantified;
+    }
     if (!allow) {
       // Functions §8 item 7, the relaxed value restriction. Level admission has
       // already run (the filter above); what remains is per-variable, and the
@@ -4163,10 +4215,16 @@ class Checker {
             primary: annotation,
           });
           // The binding has no legal reading, so nothing downstream should try
-          // to give it one. Left unsolved, its constraint reached the emitter as
-          // an evidence lookup with nowhere to look, and the author's one
-          // mistake collected a "missing evidence during JavaScript emission"
-          // note that reads like a compiler defect.
+          // to give it one. Left unsolved, the variable goes on to be defaulted
+          // (Numeric Literals §4) and the author's one mistake collects a second
+          // message *contradicting* the first: this one says remove the
+          // annotation, and defaulting's says `change the annotation to `Int``.
+          // Pinned by (vii) in `relaxed-generalization.test.ts`, which asserts
+          // the whole diagnostic list — `toContain` cannot see an extra message,
+          // and for three rounds it did not.
+          //
+          // (The symptom before `fc37345` was a `missing evidence during
+          // JavaScript emission` note instead; that path no longer reproduces.)
           variable.instance = ERROR;
           continue;
         }
