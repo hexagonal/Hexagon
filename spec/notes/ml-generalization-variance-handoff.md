@@ -5,8 +5,10 @@ request. Not a spec and not a ruling. The governing document is the closure doc
 `spec/decisions-ml-dialect-generalization-2026-08.md`; on any conflict it wins,
 and the host specs it has been consolidated into win over it.
 
-**Branch:** `ml-generalization-variance-207`, eleven commits ahead of `main`,
-43 files, +3058 / −165. **Not yet opened as a PR, and not ready to be** — see §5.
+**Branch:** `ml-generalization-variance-207`. **Round 3's six defects are fixed
+(§5), and the blocker is cleared** — what remains before merge is a fourth cold
+review round (§6). Round 4 has run in the authoring session and found one defect
+of its own, inside round 3's own finding; see §2d and §5's D5.
 
 **Read first, in this order:** this file → the closure doc (§2, §4, §5, §6, and
 all of §13) → `spec/functions.md` §8 → `spec/modules.md` §4.2.1 →
@@ -22,10 +24,10 @@ playground."* With the standing roles: cold **Opus** reviews the code, **James**
 reviews the book himself, **Fable** writes any spec and Opus reviews it.
 
 Everything asked for is built and committed. **Three cold review rounds have run
-and all three returned REQUEST-CHANGES.** Rounds 1 and 2 are fully applied. Round
-3's six defects are **open** and listed in §5; two of them (D5, D6) are user-
-visible regressions against `main`, so **the branch is not mergeable as it
-stands.** Read §5 before doing anything else with it.
+and all three returned REQUEST-CHANGES.** All three are now fully applied: round
+3's six defects were fixed in the session of 2026-08-02 and each fix is held by a
+test verified to fail when the fix is reverted (§5). D5 needed a ruling first, and
+Fable wrote it — closure doc §13.6, the evidence-seat rule.
 
 The book has been read and approved by James, twice, including two prose
 corrections he made directly. `book/DRAFT-3.md` is a **gitignored build artifact**
@@ -126,8 +128,24 @@ This is the arc's most transferable fact and it should change how the remaining
 work is done. Round 2 found three of round 1's fixes untested. Round 3 found that
 round 1's *rewrite of a test* had deleted the only variable that could
 discriminate on its subject (§5 D3), and that round 2's fix for a test that could
-not fail **enshrined a regression as expected output** (§5 D5). Each round's work
-was checked and each round's work was wrong in a new place.
+not fail **enshrined a regression as expected output** (§5 D5).
+
+**Round 4 continued the pattern, and its instance is the sharpest yet: the defect
+was in round 3's own measurement.** Round 3's D5 table reported that `let holder =
+(describe, 1)` produced "2 messages, one naming a rewrite" on `main`. It does not
+— it compiles clean. The row had been measured with `pair.0`, and `.0` lexes as a
+Float literal, so the diagnostics being compared were parse noise. That false row
+was copied into this note, from this note into the brief that commissioned §13.6,
+and from there into the ruling's own prose, where it survived until the
+implementation contradicted it. Four documents carried it because each trusted the
+one before.
+
+The rule that catches this class: **a specimen that produces a diagnostic you did
+not predict is a broken specimen until proven otherwise.** The malformed tuple
+reported `a Float literal needs a digit before \`.\`` every single time it was
+run, in three separate sessions, and each reader treated it as noise beside the
+message they were looking for rather than as evidence the program was not the one
+they meant to write.
 
 Do not treat "the reviewer approved the last change" as covering the change
 built on top of it. Re-verify the specimen, not just the assertion.
@@ -200,141 +218,175 @@ with §13.4's fourth face), `numeric-literals.md` §4, `constraints.md` §2.2,
 
 ---
 
-## 5. Round 3's six open defects — the blocking work
+## 5. Round 3's six defects — all fixed, and how each is held
 
-Verdict REQUEST-CHANGES, at `a87cd90`. All six were reproduced independently
-before being written down here; D5 and D6 were re-measured against `main` in a
-throwaway worktree. Ordered by what they cost, not by the reviewer's numbering.
+Fixed 2026-08-02. Every fix below was mutation-tested: the change was reverted
+with `cp`, the test was watched to fail, and the file was restored. A fix with no
+failing-on-revert test is not recorded here as done, because §2b says it is not
+done.
 
-### D5 — Step 1 regresses a working program, into a diagnostic with no rewrite
+### D5 — a working program regressed into an unrepresentable scheme
 
-The one to fix first. With a non-defaultable constraint (`constraint Tag<a>`,
-`fun describe<a: Tag>(value: a): String`):
+**Ruled before code moved.** Fable wrote closure doc **§13.6, the evidence-seat
+rule**: evidence has exactly one seat, a function's trailing parameter suffix
+(Constraints §6.1), so generalization quantifies a *constrained* variable only at
+a binding whose own type is a function. At any other value binding a variable
+still constrained after defaulting declines and is pinned by its first use —
+which is what every expansive binding already does, and what this binding did
+before #205. Hosted at Functions §8 item 2, §10's new row, and Constraints §6.1.
 
-```hexagon
-let holder = { f = describe }
-export let s: String = (holder.f)("x")
-```
+Implemented in `#generalize` (`checker.ts`), in the `allow` path, after
+defaulting — the ordering is §13.6's and is deliberate. Measured, three shapes,
+before and after:
 
-| | `main` | branch |
-| --- | --- | --- |
-| record literal, as above | compiles clean | `missing \`Tag\` evidence during JavaScript emission` + `\`holder\` needs constraint evidence in value position…` |
-| `let holder = (describe, 1)` | 2 messages, one naming a rewrite | 1 message, naming none |
+| specimen | `main` | branch, round 3 | branch now |
+| --- | --- | --- | --- |
+| `let holder = { f = describe }` | clean | 2 errors | clean, `main`'s emission byte for byte |
+| `let pair = (describe, 1)` | clean | 2 errors | clean |
+| `let h = Holder({ f = describe })` | clean | 2 errors | clean |
 
-Cause, confirmed by mutation: §2.4's record-literal row makes `{ f = describe }` a
-**value**, so it generalizes into a constrained *non-function* scheme — which the
-corpus rejects, and rejects with a message phrased as an internal compiler
-failure. Rejecting may well be right by §2.4; **the diagnostic is not**, and a
-hard error naming no rewrite violates Preamble §1.1.
+**The correction round 4 made, and it changed the ruling's prose:** round 3's D5
+table said `main` already erred on the tuple. It does not — see §2d for how a
+malformed specimen carried that claim through four documents. All three aggregate
+shapes compiled clean on `main`; **Step 1 regressed all three together**, because
+a reference to a constrained function only became a value at Step 1. §13.6 is a
+regression fix for the category, not a mixed fix-and-improvement. The closure doc
+carries a dated correction note at §13.6, §11.1 item (x), and §12's log row.
 
-Worse, `value-list.test.ts` item (vi) — written in round 2 to fix a test that
-could not fail — now asserts `missing \`Tag\` evidence during JavaScript emission`
-as *expected output*. A regression is currently pinned as intended behaviour.
-Fixing D5 means changing that test, not preserving it.
+Held by five tests replacing item (vi) in `value-list.test.ts`, which had pinned
+the regression as expected output: the three shapes compile and pin; a
+second-type use gets Functions §10's pinning diagnostic *at the use*; the
+annotated arm reports at the declaration and **both exits its message names are
+themselves compiled**; and an unconstrained aggregate still generalizes in full
+(the rule reads the residual constraint set, not the shape — declining on shape
+would un-do Step 1 for every `Seq.hex` producer). Three mutations checked:
+disabling the rule, declining on shape alone, and dropping the annotated arm —
+4, 16, and 1 failures respectively.
 
-The closure doc records **no consequence for constrained references inside
-aggregates**. This is a question for Fable, not a bug to be patched in the
-checker on someone's judgement: what should `let holder = { f = describe }` mean?
+### D6 — a guaranteed `ReferenceError` accepted
 
-### D6 — the branch accepts a program that is a guaranteed `ReferenceError`
+`#checkFunctionAvailability` read `#funCaptures`, which is fed from the
+*future*-sequential lookup and therefore records **forward references only**. A
+`fun` naming a binding written above it captured nothing as far as the guard
+could see, so `let a = f()` above `fun f() = a` reported nothing while the same
+two lines swapped reported properly.
 
-```hexagon
-let a = f()
-fun f() = a
-export let n: Int = a
-export let s: String = a
-```
+Fixed in `resolver.ts` by deriving each `fun`'s captures from its resolved body,
+intersected with the item list's own sequential bindings — direction-agnostic by
+construction, and the intersection is what keeps it free of false positives (a
+body's parameters and inner `let`s are different symbols). Both orders now
+report, transitively too (`f` → `g` → `a`). Held in `resolver.test.ts`, with the
+three legal shapes asserted alongside so the fix cannot pass by over-reporting.
 
-Zero diagnostics on the branch; a type error on `main`. Item 7 quantifies `a` at
-`∀t. t`, and the emitted module is `const a = f();` above `function f() { return
-a; }` — `f` hoists, `a` does not, so this throws at module load.
+### D1 — a contradictory second diagnostic
 
-Round 3 could not turn it into a type unsoundness (the binding never produces a
-value) and reported it as accepted-nonsense, not a soundness break. Believe that
-distinction, but note the guard error it exposes: `#checkFunctionAvailability`
-rejects this shape **only when the `fun` is written first** — swap the two lines
-and it reports properly. See §3.
+`variable.instance = ERROR` confirmed load-bearing: deleting it leaves the suite
+green but adds *`the body requires \`Int\`; change the annotation to \`Int\``*
+beside a message that says to **remove** the annotation. The comment above the
+line described the pre-`fc37345` symptom and no longer reproduced; it now
+describes the real one. The three `(vii)` tests moved from `toContain`/`.some()`
+to whole-list `toEqual` — `toContain` cannot see an extra message, and for three
+rounds it did not.
 
-### D1, D2, D4 — three more live changes held by no test
+### D2 — three `#lowerLevels` arms load-bearing for §13.2, untested
 
-- **D1** `variable.instance = ERROR` (`checker.ts` ~4170). Delete it: suite stays
-  green, but `let y: a = double(42)` gains a second diagnostic contradicting the
-  first. The two tests over that program use `toContain` / `.some()`, so an extra
-  message is invisible; `toEqual([…])` would hold it. The comment above the line
-  also describes the pre-`fc37345` symptom and no longer reproduces.
-- **D2** Three arms of `#lowerLevels` — `Function`, `Tuple`, and
-  `Vector`/`Set`/`Array`/`Node` — are load-bearing for **§13.2**, the rule Fable
-  wrote *because* item 7 made it observable, and none is tested. Only `Record`
-  and `Union`/`NominalRecord` are covered. Statements & Mutability §7.2, added by
-  this branch, mandates an assertion (`:=` at a second type) that was never
-  written.
-- **D4** `resolver.ts:1249`, `declaredParameters` on the resolved **union**.
-  Delete that one line and every `export opaque union Box(+a)` claim is silently
-  ignored, in-module and cross-module, with the suite green. The record
-  equivalent at 1286 is well covered; unions are tested only for the over-claim
-  error and the parse errors.
+Statements & Mutability §7.2's alias assertion had never been written. Four tests
+added, one per uncovered arm (`Vector`/`Set`/`Array`/`Node`, `Tuple`, `Function`)
+plus §7.2's `:=` half. Each specimen puts an **unconstrained, covariant** variable
+behind a `var`, so clauses (a) and (b) both pass and level admission is the only
+thing that can decline — which is the arm under test. Neutering any one arm turns
+exactly one specimen silent. The `Function` specimen uses a variable in **result**
+position deliberately: an argument-position variable is contravariant and clause
+(b) would decline it whatever its level, so it could not discriminate.
 
-### D3 — a test that still cannot fail for its subject
+### D4 — every union variance claim silently ignorable
 
-`relaxed-generalization.test.ts:45`, "§4.4 an invariant constructor declines what
-a covariant one grants". Its single diagnostic comes from the specimen's **first
-line alone** — `fun makeEmpty<a: Hash>(): Set(a) = Set.empty()` already reports
-on its own. The binding and the two conflicting uses contribute nothing; flipping
-the `Set` row to `["co"]` leaves the test green.
+`resolver.ts:1249`'s `declaredParameters` on the resolved union: replace it with
+`[]` and every `export opaque union Box(+a)` claim is discarded, in-module and
+cross-module, suite green. Three tests added — the union's claim believed, the
+same union bare declining, and the claim travelling with the import — mirroring
+the record coverage that already existed.
 
-This is round 1's doing: the test previously used a `Map(k, v)` specimen whose
-`v` was unconstrained, and the rewrite deleted the only variable that could
-discriminate on the row. Both versions were wrong, in opposite ways.
+### D3 — a test that could not fail for its subject
 
-### Nits round 3 recorded
+The `Set(a)` specimen's whole diagnostic came from its **first line**:
+`Set.empty()` does not typecheck there, so the binding and the two conflicting
+uses contributed nothing. It had a second flaw the reviewer did not name: `Set(a)`
+demands `a: Hash`, so **clause (a) declined the variable whatever the variance row
+said** — flipping the row could not change the answer, and the replacement had to
+fix that too, not just the first-line error.
 
-LSP wire shape is unheld (three surviving mutations: `kind: "refactor"` →
-`QuickFix`, `diagnostics: []` vs. omitted, and dropping `underClaims`' range
-filter); `#verifyVarianceClaims`'s witness choice (first vs. last occurrence) is
-unheld; `COMPILER_CLAIMS`'s `Node` row is unheld and cannot be tested from source
-(recorded so it is not mistaken for coverage); `fc37345`'s removal of the rigid
-guard from `#defaultRemainingVariables` is unobservable on HEAD and is
-dead-code deletion rather than the behaviour fix its commit message frames it as;
-and `spec/modules.md` §4.2.1 plus closure doc §6.3 quote the over-claim message
-with a trailing period the compiler does not emit — §10's checklist row and the
-book are correct, so it is the two prose quotations that need conforming (Fable's,
-not the implementation's).
+Replaced with two user records differing in exactly one field — `Co(a) = { items:
+Vector(a) }` and `Inv(a) = { items: Vector(a), sink: a -> Unit }`, whose extra
+contravariant occurrence joins to invariant. `a` is unconstrained in both, so
+clauses (a) and (c) pass in both and clause (b) is the only thing between them.
+Mutating the variance `join` so `co ∨ contra = co` makes it fail.
 
----
+### The nits, also closed
 
-## 6. What is left after §5
+- **LSP wire shape.** Three surviving mutations, all now held: the variance offer
+  goes out as a `refactor` (not a quickfix); its `diagnostics` field is **omitted
+  rather than sent empty** — with a control test asserting a quickfix still
+  carries one, so the omission cannot be mistaken for the field having stopped
+  being sent; and `underClaims`' range filter is scoped to the request (a cursor
+  two lines away is offered nothing).
+- **The witness choice.** `find` vs `findLast` was invisible because every
+  specimen in the suite had exactly one witness. A two-witness record now pins the
+  *first* occurrence, message and label together.
+- **The trailing period.** `spec/modules.md` §4.2.1 and closure doc §6.3 quoted
+  the over-claim message with a final period the compiler does not emit; both
+  conformed by Fable, verified against `checker.ts:5086-5088`.
+- **`COMPILER_CLAIMS`'s `Node` row** remains untestable from source. Recorded, not
+  fixed, so it is not mistaken for coverage.
+- **`fc37345`'s removal of the rigid guard from `#defaultRemainingVariables`** is
+  unobservable on HEAD. It is dead-code deletion, not the behaviour fix its commit
+  message frames it as. Nothing to change in the code; the commit message is
+  history and is left alone, recorded here instead.
 
-1. **Fix §5.** D5 needs a ruling from Fable before code moves.
-2. **A fourth review round.** Every round so far has found real defects inside
-   the previous round's fix; see §2d.
-3. **Open the PR.** Base `main`. The commits tell the story in order and should
+
+## 6. What is left
+
+1. **A fourth cold review round.** This is the only thing between the branch and
+   a PR. Round 4 ran in the authoring session and is *not* an independent seat —
+   it found the §2d defect above, but Opus wrote the code it reviewed. Per the
+   roles rule, no approval is available from that seat.
+2. **Open the PR.** Base `main`. The commits tell the story in order and should
    not be squashed into one.
-4. **#212 is a pre-existing crash this branch makes more visible.** A dot call to
+3. **#212 is a pre-existing crash this branch makes more visible.** A dot call to
    a missing companion operation with a bare numeric literal argument throws
    `TypeError` in `#materializeUnwidenedExpr` instead of reporting. Chapter 6's
    new example uses `blank.append(1)`; it compiles where the `Vector` companion
    is in scope (the Playground auto-imports it, and chapter 20 already uses the
    spelling), but a reader copying it into a bare project gets the crash.
    Reproduces on `main`.
-5. **#206's stakes are raised by this branch, not caused by it.** Per-variable
+4. **#206's stakes are raised by this branch, not caused by it.** Per-variable
    generalization means a scheme can quantify some variables and leave others
    unsolved, and hover renders the two identically. The closure doc §4.5 says
    this graduates #206 from annoyance to teachability requirement.
-6. **#132 likewise** — emitted `.d.ts` is invalid for a polymorphic non-function
+5. **#132 likewise** — emitted `.d.ts` is invalid for a polymorphic non-function
    binding (`const empty: Seq<a>` with unbound `a`), which is exactly the shape
-   Step 1 multiplies.
+   Step 1 multiplies. Note that §13.6 *reduces* this surface: a constrained
+   non-function binding no longer generalizes at all, so the invalid shapes are
+   now only the unconstrained ones.
+
 
 ---
 
 ## 7. Verification, as it stands
 
-Compiler 1015, language-server 111, editors/vscode 149, playground 117 — all
+Compiler 1029, language-server 113, editors/vscode 149, playground 117 — all
 passing, `tsc --noEmit` clean in the compiler. `npm run generate:prelude` was
 re-run after `Seq.hex` gained its sigil; re-run it after any stdlib edit or
 `prelude-sources.ts` goes stale.
 
-Those counts are not a health report. Round 3's D1, D2, D4 and the LSP nits are
-all changes this green suite does not touch; see §2b.
+**These counts mean more than the last set did, and only for that reason.** When
+this section last read 1015, the suite was green over D1, D2, D4 and the LSP
+nits — four live changes it did not touch. Every one of those is now held by a
+test watched to fail with its subject reverted, and so is each of round 3's other
+defects (§5). What the number still cannot tell you is whether anything *else* on
+the branch is unheld: §2b's standard has been applied to every change a review
+has named, not to every change on the branch. Assume the rest is uncovered until
+it has been mutated.
 
 The acceptance test is the program the whole ruling exists for, and it lives in
 `relaxed-generalization.test.ts`:

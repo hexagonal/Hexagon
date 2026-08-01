@@ -119,4 +119,35 @@ describe("converting one action", () => {
     expect(shown?.edit).toBeUndefined();
     expect(convert({ literals: true, disabled: false }, refused)).toBeUndefined();
   });
+
+  test("the variance offer goes out as a refactor, and answers no diagnostic", () => {
+    // #205's under-claim offer is the server's only non-quickfix and its only
+    // action with no diagnostic behind it — Hexagon has no warning tier, and an
+    // under-claim is not wrong, so nothing reports it to attach to (closure doc
+    // §8.2). Both facts are wire shape and neither was held: sending it as a
+    // `quickfix`, or with `diagnostics: []` instead of the field omitted, left
+    // every test green.
+    const offer: CodeAction = {
+      title: "Declare `Box` covariant in `a`",
+      kind: "refactor",
+      edits: [{ path: "/main.hex", span, replacement: "+a" }],
+    };
+    const converted = convert({ literals: true, disabled: false }, offer);
+    expect(converted?.kind).toBe("refactor");
+    // Omitted, not empty: a client groups an action under the problem it fixes,
+    // and an empty array is a claim that it fixes none of the ones it was sent
+    // — which is a different statement from making no claim at all.
+    expect(converted && "diagnostics" in converted).toBe(false);
+    expect(Object.values(converted?.edit?.changes ?? {})[0]).toEqual([
+      { range: { start: { line: 0, character: 4 }, end: { line: 0, character: 4 } }, newText: "+a" },
+    ]);
+  });
+
+  test("...and a quickfix still carries the diagnostic it answers", () => {
+    // The control for the assertion above: `diagnostics` is omitted because the
+    // action has none, not because the field stopped being sent.
+    const converted = convert({ literals: true, disabled: false });
+    expect(converted && "diagnostics" in converted).toBe(true);
+    expect(converted?.diagnostics).toHaveLength(1);
+  });
 });

@@ -962,6 +962,24 @@ describe("code actions: the variance an opaque type could declare (#205)", () =>
     }
   });
 
+  test("the offer is scoped to the requested range", () => {
+    // `underClaims` takes a span filter and the session passes `touches(span,
+    // range)`. Dropping the filter left every test above green — they all ask
+    // at the declaration — while a request anywhere in the file answered with
+    // every under-claim in it. A client asks about the line under the cursor.
+    const source = [
+      "export opaque record Box(a) = { get: () -> a }",
+      "",
+      "export fun size(): Int = 0",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    // At the declaration: offered.
+    expect(actionsOn(session, "/main.hex", source, "a) = {")).toHaveLength(1);
+    // Two lines away, on an unrelated declaration: not offered.
+    expect(actionsOn(session, "/main.hex", source, "Int = 0")).toEqual([]);
+  });
+
   test("a claim already made is not offered again, right or wrong", () => {
     for (
       const source of [

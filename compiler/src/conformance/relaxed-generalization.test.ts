@@ -43,17 +43,39 @@ describe("§4.1 the relaxed rule, per variable", () => {
   });
 
   test("§4.4 an invariant constructor declines what a covariant one grants", () => {
-    // The outcome above is contingent on the row: read the same shape through a
-    // constructor whose row is invariant and the variable is declined instead.
-    // `Set` is not a stand-in for `Map` here — §11.4 sequences both claims after
-    // their own milestones, and until then both rows say what this asserts.
-    const messages = projectDiagnostics(
-      "fun makeEmpty<a: Hash>(): Set(a) = Set.empty()\n" +
-        "let s = makeEmpty()\n" +
-        "export let n: Set(Int) = s\n" +
-        "export let t: Set(String) = s\n",
-    );
-    expect(messages.length).toBeGreaterThan(0);
+    // The outcome above is contingent on clause (b): read the same shape
+    // through a constructor whose parameter is invariant and the variable is
+    // declined instead. The two specimens differ in exactly one token — `Inv`
+    // carries one extra field, `sink: a -> Unit`, which puts `a`
+    // contravariantly alongside its covariant occurrence in `items`, and §5.1's
+    // join of `co` and `contra` is `inv`.
+    //
+    // Two properties this specimen has and the `Set(a)` one it replaces did
+    // not. First, `makeEmpty` typechecks: `Set.empty()` did not, so the whole
+    // former assertion was satisfied by a diagnostic from the *first line*, and
+    // the binding and the two conflicting uses contributed nothing. Second, `a`
+    // is **unconstrained** — `Set(a)` demands `a: Hash`, so clause (a) declined
+    // it whatever the variance row said, and flipping the row could not change
+    // the answer. Here clause (a) and clause (c) both pass in both specimens,
+    // so clause (b) is the only thing between them.
+    expect(
+      projectDiagnostics(
+        "export record Co(a) = { items: Vector(a) }\n" +
+          "fun makeEmpty<a>(): Co(a) = Co({ items = [] })\n" +
+          "let xs = makeEmpty()\n" +
+          "export let n: Co(Int) = xs\n" +
+          "export let t: Co(String) = xs\n",
+      ),
+    ).toEqual([]);
+    expect(
+      projectDiagnostics(
+        "export record Inv(a) = { items: Vector(a), sink: a -> Unit }\n" +
+          "fun makeEmpty<a>(): Inv(a) = Inv({ items = [], sink = (value) => () })\n" +
+          "let xs = makeEmpty()\n" +
+          "export let n: Inv(Int) = xs\n" +
+          "export let t: Inv(String) = xs\n",
+      ),
+    ).toEqual(["type mismatch: expected String, found Int"]);
   });
 
   test("§4.3 a constrained variable is declined, even though it is covariant at the root", () => {
@@ -162,34 +184,42 @@ describe("§4.1 the relaxed rule, per variable", () => {
     ).toEqual([]);
   });
 
+  // Every (vii) assertion below compares the *whole* list, not a membership.
+  // The declined variable is sunk to `ERROR` in `#generalize` precisely so this
+  // is the only message the author gets; left unsolved it is defaulted instead
+  // and collects a second one telling them to `change the annotation to `Int``,
+  // which contradicts this one's "remove the annotation". `toContain` and
+  // `.some()` cannot see an extra message, so they held nothing here.
+  const declined = (reason: string) =>
+    "`a` is a declared type variable, but this right-hand side is a computation " +
+    `that cannot be generalized in \`a\` (${reason}); ` +
+    "bind where the type is known, or remove the annotation";
+
   test("(vii) a declined variable under an annotation is a declaration-site error", () => {
-    const messages = projectDiagnostics(
-      "fun double<a: Num>(value: a): a = value + value\n" +
-        "let y: a = double(42)\n",
-    );
-    expect(messages).toContain(
-      "`a` is a declared type variable, but this right-hand side is a computation " +
-        "that cannot be generalized in `a` (`a` is constrained by `Num`); " +
-        "bind where the type is known, or remove the annotation",
-    );
+    expect(
+      projectDiagnostics(
+        "fun double<a: Num>(value: a): a = value + value\n" +
+          "let y: a = double(42)\n",
+      ),
+    ).toEqual([declined("`a` is constrained by `Num`")]);
   });
 
   test("(vii) clause (b) names its own reason", () => {
-    const messages = projectDiagnostics(
-      "fun make<a>(): (a -> a) = (x) => x\n" +
-        "let f: (a -> a) = make()\n",
-    );
-    expect(messages.some((message) => message.includes("occurs in an invariant position"))).toBe(
-      true,
-    );
+    expect(
+      projectDiagnostics(
+        "fun make<a>(): (a -> a) = (x) => x\n" +
+          "let f: (a -> a) = make()\n",
+      ),
+    ).toEqual([declined("`a` occurs in an invariant position")]);
   });
 
   test("(vii) an export inherits the error through its mandatory signature", () => {
-    const messages = projectDiagnostics(
-      "fun double<a: Num>(value: a): a = value + value\n" +
-        "export let y: a = double(42)\n",
-    );
-    expect(messages.some((message) => message.includes("cannot be generalized in `a`"))).toBe(true);
+    expect(
+      projectDiagnostics(
+        "fun double<a: Num>(value: a): a = value + value\n" +
+          "export let y: a = double(42)\n",
+      ),
+    ).toEqual([declined("`a` is constrained by `Num`")]);
   });
 
   test("§4.4 defaulting does not fire on item 7's account", () => {
@@ -302,6 +332,23 @@ describe("§6 declared variance on `export opaque`", () => {
     )).toBe(true);
   });
 
+  test("§6.3 the witness is the *first* offending occurrence", () => {
+    // Which occurrence gets named was unheld: every specimen elsewhere in this
+    // file has exactly one, so `find` and `findLast` were indistinguishable.
+    // With two, the choice is visible — and it should be the first, because
+    // that is the one the author's eye reaches first in their own declaration.
+    const text = "export opaque record Sink(+a) = { first: a -> Unit, second: a -> Unit }\n";
+    const compiled = compileFiles([["/main.hex", text]]);
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      "`a` cannot be declared covariant in `Sink`: field `first` uses `a` in " +
+      "argument position. Remove the `+`, or change the field",
+    ]);
+    // ...and the label follows the message, rather than pointing somewhere else.
+    const label = compiled.diagnostics[0]!.labels![0]!;
+    expect(label.span.start.offset).toBeLessThan(text.indexOf("second"));
+    expect(label.span.start.offset).toBeGreaterThan(text.indexOf("first"));
+  });
+
   test("§6.3 a union's constructor slot is a witness too", () => {
     const messages = projectDiagnostics(
       "export opaque union Handler(+a) = OnEach(step: a -> Unit)\n",
@@ -358,6 +405,45 @@ describe("§6 declared variance on `export opaque`", () => {
         "export let s: Box(String) = b\n",
     );
     expect(messages.length).toBeGreaterThan(0);
+  });
+
+  // §6.1/§6.2 again, on a *union*. Everything above declares a record, and the
+  // two declaration forms carry their claims down separate lines of the
+  // resolver: replacing the union's `declaredParameters` with `[]` leaves every
+  // record test above green while silently discarding every claim a union ever
+  // makes, in-module and cross-module alike. The union was covered only for the
+  // over-claim error and the parse errors, neither of which reads a *believed*
+  // claim.
+  const UNION_BOX = (sigil: string) =>
+    `export opaque union Box(${sigil}a) = Empty | Full(item: a)\n` +
+    "export fun makeBox<a>(): Box(a) = Empty\n";
+  const USE_BOX = "let b = makeBox()\n" +
+    "export let n: Box(Int) = b\n" +
+    "export let s: Box(String) = b\n";
+
+  test("§6.1 a covariant claim on an opaque union is believed", () => {
+    expect(projectDiagnostics(UNION_BOX("+") + USE_BOX)).toEqual([]);
+  });
+
+  test("§6.2 the same union bare declines — the claim is what did the work", () => {
+    expect(projectDiagnostics(UNION_BOX("") + USE_BOX)).toEqual([
+      "type mismatch: expected String, found Int",
+    ]);
+  });
+
+  test("§6.4 a union's claim travels with the imported declaration", () => {
+    const client = 'import * as B from "./box.hex"\n' +
+      "let b = B.makeBox()\n" +
+      "export let n: B.Box(Int) = b\n" +
+      "export let s: B.Box(String) = b\n";
+    expect(
+      compileFiles([["/box.hex", UNION_BOX("+")], ["/main.hex", client]])
+        .diagnostics.map(({ message }) => message),
+    ).toEqual([]);
+    expect(
+      compileFiles([["/box.hex", UNION_BOX("")], ["/main.hex", client]])
+        .diagnostics.map(({ message }) => message),
+    ).toEqual(["type mismatch: expected String, found Int"]);
   });
 
   test("§6.4 a claim travels with an imported declaration", () => {
@@ -526,6 +612,87 @@ describe("§5.3 the compiler-side claim table", () => {
           "invariant position. Remove the `+`, or change the field",
       );
     }
+  });
+});
+
+describe("§13.2 nothing else may generalize a `var`'s type", () => {
+  // Statements & Mutability §7.2's alias assertion, which this branch added to
+  // the spec and never wrote: `var v = makeEmpty()`, then `let e = v`. The
+  // alias is expansive (a `var` read is not a value, §2.3), so item 7 runs on
+  // it, and clauses (a) and (b) both pass in every specimen below —
+  // unconstrained, covariant. Only level admission can decline, and it can only
+  // decline because the `var`'s type was sunk to its block's level when the
+  // `var` was bound (`#lowerLevels`, `checker.ts`).
+  //
+  // One specimen per *arm* of that walk, because the arms are independent code
+  // and the covered ones (`Record`, `Union`/`NominalRecord`) do not exercise
+  // these. Neutering any single arm below leaves this file's other tests green
+  // and turns exactly one of these programs silent — which is the bug §13.2
+  // exists to forbid: a polymorphic view of a binding that can still be
+  // assigned at one type.
+  const EMPTY = "exception Empty\n";
+
+  test("the `Vector`/`Set`/`Array`/`Node` arm: an element variable", () => {
+    expect(
+      projectDiagnostics(
+        EMPTY + "fun makeEmpty<a>(): Vector(a) = []\n" +
+          "export fun use(): Int =\n" +
+          "    var v = makeEmpty()\n" +
+          "    let e = v\n" +
+          "    let n: Int = Vector.at(e, 0)\n" +
+          "    let s: String = Vector.at(e, 0)\n" +
+          "    n\n",
+      ),
+    ).toEqual(["type mismatch: expected String, found Int"]);
+  });
+
+  test("§7.2's `:=` half: the assignment pins the alias's variable too", () => {
+    // The assertion Statements §7.2 names explicitly. `e`'s use pins the
+    // element type; the *assignment to `v`* at a second one is then the
+    // ordinary pinned-type error — which is only true because `e` never
+    // received a scheme quantifying the variable.
+    expect(
+      projectDiagnostics(
+        EMPTY + "fun makeEmpty<a>(): Vector(a) = []\n" +
+          "export fun use(): Int =\n" +
+          "    var v = makeEmpty()\n" +
+          "    let e = v\n" +
+          "    let n: Int = Vector.at(e, 0)\n" +
+          '    v := ["a"]\n' +
+          "    n\n",
+      ),
+    ).toEqual(["type mismatch: expected Int, found String"]);
+  });
+
+  test("the `Tuple` arm: an element variable", () => {
+    expect(
+      projectDiagnostics(
+        EMPTY + "fun makePair<a>(): (a, Int) = (throw(Empty), 1)\n" +
+          "export fun use(): Int =\n" +
+          "    var v = makePair()\n" +
+          "    let e = v\n" +
+          "    let n: Int = e.item1\n" +
+          "    let s: String = e.item1\n" +
+          "    n\n",
+      ),
+    ).toEqual(["type mismatch: expected String, found Int"]);
+  });
+
+  test("the `Function` arm: a result variable", () => {
+    // The result, not the parameter: a variable in argument position is
+    // contravariant and clause (b) would decline it whatever its level, so a
+    // parameter specimen could not tell the two builds apart.
+    expect(
+      projectDiagnostics(
+        EMPTY + "fun makeMaker<a>(): (Int) -> a = (n) => throw(Empty)\n" +
+          "export fun use(): Int =\n" +
+          "    var v = makeMaker()\n" +
+          "    let e = v\n" +
+          "    let n: Int = e(1)\n" +
+          "    let s: String = e(1)\n" +
+          "    n\n",
+      ),
+    ).toEqual(["type mismatch: expected String, found Int"]);
   });
 });
 
