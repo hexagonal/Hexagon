@@ -1194,7 +1194,7 @@ class Resolver {
         };
       }
       case "LetPattern": {
-        const names = parsedPatternNames(item.pattern);
+        const names = Parsed.patternNames(item.pattern);
         this.#pending.push(
           ...names.map((name) => ({ name, kind: "let" as const })),
         );
@@ -1683,7 +1683,7 @@ class Resolver {
     ) return pattern;
     if (pattern.kind === "Or") {
       const namesByAlternative = pattern.alternatives.map((alternative) =>
-        parsedPatternNames(alternative)
+        Parsed.patternNames(alternative)
       );
       const expected = new Set(namesByAlternative[0]?.map(({ text }) => text));
       for (const names of namesByAlternative.slice(1)) {
@@ -2600,36 +2600,6 @@ function isResolvedTypeAlias(
   alias: Parsed.TypeAliasItem | Resolved.TypeAliasItem,
 ): alias is Resolved.TypeAliasItem {
   return typeof alias.name === "string";
-}
-
-function parsedPatternNames(pattern: Parsed.Pattern): Parsed.Name[] {
-  switch (pattern.kind) {
-    case "Binding":
-      return [pattern.name];
-    case "Wildcard":
-    case "Unit":
-    case "Integer":
-    case "String":
-      return [];
-    case "As":
-      return [...parsedPatternNames(pattern.pattern), pattern.name];
-    case "Or":
-      return pattern.alternatives[0] === undefined
-        ? []
-        : parsedPatternNames(pattern.alternatives[0]);
-    case "Tuple":
-    case "Vector":
-      return [
-        ...pattern.elements.flatMap(parsedPatternNames),
-        ...(pattern.kind === "Vector" && pattern.rest?.pattern !== undefined
-          ? parsedPatternNames(pattern.rest.pattern)
-          : []),
-      ];
-    case "Record":
-      return pattern.fields.flatMap((field) => parsedPatternNames(field.pattern));
-    case "Constructor":
-      return pattern.arguments.flatMap(parsedPatternNames);
-  }
 }
 
 function annotationHeadName(annotation: Resolved.TypeAnnotation): string {

@@ -55,6 +55,7 @@ import {
   type Target,
 } from "../queries/occurrences.js";
 import { collectTypeOccurrences, type TypeOccurrence } from "../queries/type-occurrences.js";
+import { DocumentationIndex } from "../queries/documentation.js";
 import { collectSemanticTokens, type SemanticToken } from "../queries/semantic-tokens.js";
 import { collectSymbolFacts, type SymbolFacts } from "../queries/symbol-facts.js";
 import { collectCompletions, type Completion } from "../queries/completions.js";
@@ -84,9 +85,17 @@ export interface Reference extends Location {
 
 export interface Hover {
   readonly name: string;
-  readonly target: Target;
+  /**
+   * What the name denotes, absent for a name the occurrence index has no
+   * identity for — an `honor` member, a record field, a `type` alias. Those are
+   * documentable positions (`spec/doc-comments.md` §4.2) whose documentation is
+   * the whole of what there is to say about them; see `hover`.
+   */
+  readonly target?: Target;
   /** Present for values the checker gave a scheme; absent for types themselves. */
   readonly displayedType?: string;
+  /** The declaration's documentation as Markdown, when it carries any. */
+  readonly documentation?: string;
   /** The identifier the answer describes, for the editor to highlight. */
   readonly span: Source.Span;
 }
@@ -310,12 +319,29 @@ export class AnalysisSession {
    * What the name at this offset is. When several occurrences share the offset —
    * a record's name is its type and its constructor — the one carrying a type
    * wins, because that is the answer with something to say.
+   *
+   * Documentation joins whatever the occurrence index found: the declaration
+   * under the cursor when the cursor is on one, and otherwise the declaration
+   * this name denotes, so a use site shows what its definition documents
+   * (`spec/doc-comments.md` §8). The order matters because the second question
+   * is answered by identity, and one identity in Hexagon is not always one
+   * declaration: a constraint *is* its name project-wide (`targetKey`), so
+   * `byTarget` on one returns every same-named constraint in the workspace. It
+   * also matters where the two disagree honestly — the constraint in an `honor`
+   * head is a reference to the constraint *and* the name the block's own
+   * documentation is filed under, and the block the cursor is inside wins.
+   *
+   * A documented name the index has no identity for is still answered, with the
+   * documentation alone. That is the only way §8's "every documentable
+   * position" holds: an `honor` member, a record field, and a `type` alias all
+   * resolve to nothing the index can name, so hover would otherwise be silent
+   * exactly where the `.d.ts` is silent too and documentation is all there is.
    */
   hover(path: string, offset: number): Hover | undefined {
     const normalized = normalizePath(path);
     const analysis = this.#analyze();
     const candidates = analysis.occurrencesAt(normalized, offset);
-    if (candidates.length === 0) return undefined;
+    if (candidates.length === 0) return this.#documentedName(analysis, normalized, offset);
     const typed = candidates
       .map((occurrence) => ({
         occurrence,
@@ -323,11 +349,65 @@ export class AnalysisSession {
       }))
       .sort((left, right) => Number(right.displayedType !== undefined) - Number(left.displayedType !== undefined));
     const best = typed[0]!;
+    const documentation = analysis.documentation.at(best.occurrence.span) ??
+      this.#documentationOf(analysis, best.occurrence.target, best.occurrence.span.fileId);
     return {
       name: best.occurrence.name,
       target: best.occurrence.target,
       span: best.occurrence.span,
       ...(best.displayedType === undefined ? {} : { displayedType: best.displayedType }),
+      ...(documentation === undefined ? {} : { documentation }),
+    };
+  }
+
+  /**
+   * What the declaration of an identity documents, wherever it was declared.
+   *
+   * The asking file's own declarations are preferred over any other file's, and
+   * that is not a tie-break for tidiness. A value, a union, a record and a
+   * foreign type each have an identity minted once for the project, so their
+   * `byTarget` sets name one declaration and the preference never fires. A
+   * *constraint* has no identity beyond its spelling — `targetKey` keys it by
+   * name — so two unrelated modules declaring `Shown` share one target, and
+   * without this an undocumented constraint would hover with a stranger's
+   * documentation, which is worse than hovering with none. A file that declares
+   * the name nowhere still falls back to the rest, since that is the only
+   * reading under which the compiler resolved the name at all.
+   */
+  #documentationOf(
+    analysis: Analysis,
+    target: Target,
+    asking: Source.FileId,
+  ): string | undefined {
+    const definitions = analysis
+      .byTarget(target)
+      .filter(({ role }) => role === "definition");
+    const here = definitions.filter(({ span }) => span.fileId === asking);
+    for (const occurrence of here.length > 0 ? here : definitions) {
+      const found = analysis.documentation.at(occurrence.span);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
+
+  /**
+   * A documented declaration's own name at this offset, and nothing else.
+   *
+   * The name is read from the text rather than carried on the documentation:
+   * the span is the name, so slicing it is not a guess about meaning — and a
+   * file this session no longer holds is answered with nothing rather than with
+   * an empty name.
+   */
+  #documentedName(analysis: Analysis, path: string, offset: number): Hover | undefined {
+    const fileId = this.#fileIds.get(path);
+    const text = this.#texts.get(path);
+    if (fileId === undefined || text === undefined) return undefined;
+    const found = analysis.documentation.covering(fileId, offset);
+    if (found === undefined) return undefined;
+    return {
+      name: text.slice(found.span.start.offset, found.span.end.offset),
+      span: found.span,
+      documentation: found.content,
     };
   }
 
@@ -361,7 +441,13 @@ export class AnalysisSession {
     const analysis = this.#analyze();
     const resolved = analysis.resolvedOf(normalized);
     if (resolved === undefined) return [];
-    return collectCompletions({ text, offset, resolved, facts: analysis.symbolFacts });
+    return collectCompletions({
+      text,
+      offset,
+      resolved,
+      facts: analysis.symbolFacts,
+      docs: analysis.documentation,
+    });
   }
 
   /**
@@ -829,9 +915,14 @@ class Analysis {
   readonly #fileIdsByPath: ReadonlyMap<string, Source.FileId>;
   /** Gathered once for the whole project — see `collectSymbolFacts`. */
   readonly symbolFacts: ReadonlyMap<number, SymbolFacts>;
+  /** Attached documentation, indexed for lookup by name and by position. */
+  readonly documentation: DocumentationIndex;
 
   constructor(project: { readonly modules: readonly CompiledModule[]; readonly diagnostics: readonly Diagnostics.Diagnostic[] }) {
-    this.symbolFacts = collectSymbolFacts(project.modules);
+    // Before the facts, which carry each symbol's documentation with them: a
+    // completion asks about a symbol, not about a place.
+    this.documentation = DocumentationIndex.of(project.modules.map(({ typed }) => typed));
+    this.symbolFacts = collectSymbolFacts(project.modules, this.documentation);
     // Built before the indexing loop: an import may name a module compiled after
     // this one, and a type name in an import list can only be resolved once the
     // specifier's target file is known.

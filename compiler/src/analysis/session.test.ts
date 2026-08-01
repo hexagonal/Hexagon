@@ -129,7 +129,7 @@ describe("AnalysisSession", () => {
     const { session } = sessionOf({ "/helper.hex": HELPER, "/main.hex": MAIN });
     const hover = session.hover("/main.hex", at(MAIN, "brighten", 2));
     expect(hover?.name).toBe("brighten");
-    expect(hover?.target.kind).toBe("value");
+    expect(hover?.target?.kind).toBe("value");
     expect(hover?.displayedType).toBe("Colour -> Colour");
   });
 
@@ -137,7 +137,7 @@ describe("AnalysisSession", () => {
     const { session } = sessionOf({ "/helper.hex": HELPER, "/main.hex": MAIN });
     const hover = session.hover("/main.hex", at(MAIN, "Colour", 2));
     expect(hover?.name).toBe("Colour");
-    expect(hover?.target.kind).toBe("union");
+    expect(hover?.target?.kind).toBe("union");
     expect(hover?.displayedType).toBeUndefined();
   });
 
@@ -246,7 +246,7 @@ describe("AnalysisSession", () => {
       "/main.hex:Show2",
       "/main.hex:Show2",
     ]);
-    expect(session.hover("/main.hex", fromBound)?.target.kind).toBe("constraint");
+    expect(session.hover("/main.hex", fromBound)?.target?.kind).toBe("constraint");
   });
 
   test("a built-in constraint has uses but no declaration to jump to", () => {
@@ -342,6 +342,229 @@ describe("AnalysisSession", () => {
     expect(session.paths).toEqual(["/main.hex"]);
     expect(session.hover("/main.hex", 4)?.name).toBe("value");
     expect(session.hover("\\main.hex", 4)?.name).toBe("value");
+  });
+});
+
+/**
+ * `spec/doc-comments.md` §8: attached documentation reaches hover, at every
+ * documentable position — including the ones that reach neither emitted
+ * artifact, which is the whole reason the attachment exists for them.
+ */
+describe("AnalysisSession.hover documentation", () => {
+  const DOCUMENTED = [
+    "(** A colour, as the light leaves it. *)",
+    "export union Colour =",
+    "    (** The warm one. *)",
+    "    | Red",
+    "    | Green",
+    "",
+    "(** Brightens a colour.",
+    "",
+    "    Twice, if you ask twice. *)",
+    "export let brighten(colour: Colour): Colour = colour",
+    "",
+  ].join("\n");
+
+  const USES = [
+    'import {Colour, brighten, Red} from "./helper"',
+    "",
+    "let start: Colour = Red",
+    "let finish: Colour = brighten(start)",
+    "",
+  ].join("\n");
+
+  test("a declaration under the cursor carries its own documentation", () => {
+    const { session } = sessionOf({ "/helper.hex": DOCUMENTED });
+    const hover = session.hover("/helper.hex", at(DOCUMENTED, "brighten"));
+    expect(hover?.name).toBe("brighten");
+    expect(hover?.displayedType).toBe("Colour -> Colour");
+    // Content arrives as the author wrote it, paragraph break included: it is
+    // Markdown (§6), and rendering it is the client's job.
+    expect(hover?.documentation).toBe(
+      "Brightens a colour.\n\nTwice, if you ask twice.",
+    );
+  });
+
+  test("a use carries what its declaration documents, across modules", () => {
+    const { session } = sessionOf({ "/helper.hex": DOCUMENTED, "/main.hex": USES });
+    expect(session.hover("/main.hex", at(USES, "brighten", 2))?.documentation)
+      .toBe("Brightens a colour.\n\nTwice, if you ask twice.");
+    expect(session.hover("/main.hex", at(USES, "Colour", 2))?.documentation)
+      .toBe("A colour, as the light leaves it.");
+    expect(session.hover("/main.hex", at(USES, "Red", 2))?.documentation)
+      .toBe("The warm one.");
+  });
+
+  test("an undocumented declaration says nothing about documentation", () => {
+    const { session } = sessionOf({ "/main.hex": "let value: Int = 1\n" });
+    const hover = session.hover("/main.hex", 4);
+    expect(hover?.name).toBe("value");
+    expect(hover?.documentation).toBeUndefined();
+  });
+
+  test("an empty doc block is documentation nobody shows", () => {
+    // §3.2: an empty block attaches and contributes empty content, which
+    // tooling treats as absent — not as an empty hover section.
+    const source = "(** *)\nlet value: Int = 1\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    expect(session.hover("/main.hex", at(source, "value"))?.documentation).toBeUndefined();
+  });
+
+  test("a position the occurrence index cannot name is still answered", () => {
+    // A record field, a `type` alias and an `honor` member have no identity in
+    // the occurrence index — a field is not a symbol, an alias is expanded
+    // away, and a member implementation's name is a bare string in the resolved
+    // tree. Hover answers each with the documentation alone, which for these
+    // three is the only thing anything can say about them.
+    const source = [
+      "constraint Sized<a> =",
+      "    (** How big it is. *)",
+      "    size(value: a): Int",
+      "",
+      "export record Box = {",
+      "    (** How wide. *)",
+      "    width: Int,",
+      "}",
+      "",
+      "(** A width, named. *)",
+      "export type Width = Int",
+      "",
+      "honor Sized<Box> =",
+      "    (** A box is one wide. *)",
+      "    size(value) = 1",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+
+    const field = session.hover("/main.hex", at(source, "width"));
+    expect(field?.name).toBe("width");
+    expect(field?.target).toBeUndefined();
+    expect(field?.documentation).toBe("How wide.");
+    // Inclusive at the end, like every other position query here: the caret an
+    // editor leaves after typing a name is one past it.
+    expect(session.hover("/main.hex", at(source, "width") + "width".length)?.documentation)
+      .toBe("How wide.");
+
+    expect(session.hover("/main.hex", at(source, "Width"))?.documentation)
+      .toBe("A width, named.");
+
+    // The member implementation's own documentation, not the constraint
+    // member's: the reader is pointing at the implementation.
+    expect(session.hover("/main.hex", at(source, "size", 2))?.documentation)
+      .toBe("A box is one wide.");
+    // And the constraint member still answers with its own.
+    expect(session.hover("/main.hex", at(source, "size"))?.documentation)
+      .toBe("How big it is.");
+  });
+
+  test("an undocumented position with no identity is still nothing", () => {
+    // The fallback reaches documented names only. Without that it would be a
+    // second, weaker hover for everything the index has no answer for.
+    const source = ["export record Box = {", "    width: Int,", "}", ""].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.hover("/main.hex", at(source, "width"))).toBeUndefined();
+  });
+
+  test("an empty doc block does not conjure a hover where there was none", () => {
+    // The same §3.2 rule as above, at the position that has nothing *but* the
+    // documentation: empty content must leave the field as silent as an
+    // undocumented one, not answer with an empty hover.
+    const source = ["export record Box = {", "    (** *)", "    width: Int,", "}", ""].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    expect(session.hover("/main.hex", at(source, "width"))).toBeUndefined();
+  });
+
+  test("a destructuring `let` documents every binder it introduces", () => {
+    // One block over several names: §4.2 makes the `let` documentable and says
+    // nothing about arity. The binders are ordinary symbols — the resolver
+    // declares one each — so each is reachable by name; what only the
+    // attachment knows is which names one block covers.
+    const source = [
+      "(** Both halves. *)",
+      "let (first, second) = (1, 2)",
+      "",
+      "export let use(): Int = first + second",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    const binder = session.hover("/main.hex", at(source, "first"));
+    // A real identity, not a documentation-only answer: this is the key the
+    // documentation is filed under, and what makes completion find it too.
+    expect(binder?.target?.kind).toBe("value");
+    expect(binder?.documentation).toBe("Both halves.");
+    expect(session.hover("/main.hex", at(source, "second"))?.documentation).toBe("Both halves.");
+    // And at a use, which reaches the same block through the same key.
+    expect(session.hover("/main.hex", at(source, "first", 2))?.documentation).toBe("Both halves.");
+  });
+
+  test("a pattern that binds nothing has no name to document", () => {
+    // §5 does not fire — the block is followed by a declaration — and there is
+    // no name to file the content under, so it reaches no reader. Pinned so the
+    // silence stays a decision rather than becoming a surprise.
+    const source = ["(** Nothing to point at. *)", "let (_, _) = (1, 2)", ""].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    expect(session.hover("/main.hex", at(source, "let"))).toBeUndefined();
+    expect(session.hover("/main.hex", at(source, "_"))).toBeUndefined();
+  });
+
+  test("an `honor` block's documentation answers on the constraint it names", () => {
+    // The block introduces no name of its own, so the constraint in its head is
+    // where a reader points to ask what the instance is for. Answering there is
+    // also what the lookup order is for: the same span is a *reference* to the
+    // constraint, whose own documentation is the other answer, and the block the
+    // cursor is inside wins.
+    const source = [
+      "(** Things with a size. *)",
+      "constraint Sized<a> =",
+      "    size(value: a): Int",
+      "",
+      "export record Box = { width: Int }",
+      "",
+      "(** A box sizes by its width. *)",
+      "honor Sized<Box> =",
+      "    size(value) = value.width",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    expect(session.hover("/main.hex", at(source, "Sized", 2))?.documentation)
+      .toBe("A box sizes by its width.");
+    expect(session.hover("/main.hex", at(source, "Sized"))?.documentation)
+      .toBe("Things with a size.");
+  });
+
+  test("a constraint does not borrow a namesake's documentation from another module", () => {
+    // A constraint *is* its name project-wide (`targetKey`), so two unrelated
+    // modules declaring `Shown` share one target and `byTarget` returns both
+    // declarations. Answering with whichever is documented would put one
+    // module's prose on another module's undocumented declaration.
+    const documented = [
+      "(** ALPHA doc. *)",
+      "constraint Shown<a> =",
+      "    render(value: a): Int",
+      "",
+    ].join("\n");
+    const bare = [
+      "constraint Shown<a> =",
+      "    render(value: a): Int",
+      "",
+      "export record Box = { width: Int }",
+      "",
+      "honor Shown<Box> =",
+      "    render(value) = value.width",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/alpha.hex": documented, "/beta.hex": bare });
+    expect(session.diagnostics("/beta.hex")).toEqual([]);
+    expect(session.hover("/beta.hex", at(bare, "Shown"))?.target?.kind).toBe("constraint");
+    expect(session.hover("/beta.hex", at(bare, "Shown"))?.documentation).toBeUndefined();
+    expect(session.hover("/alpha.hex", at(documented, "Shown"))?.documentation)
+      .toBe("ALPHA doc.");
   });
 });
 

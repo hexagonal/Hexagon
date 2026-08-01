@@ -2,7 +2,7 @@
 
 The Hexagon language server: the process that exposes Hexagon language intelligence through Microsoft's Language Server Protocol (LSP).
 
-Three slices are implemented over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions. Formatting, refactoring actions and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
+Four slices are implemented over a compiler-owned analysis session: diagnostics, hover, go-to-definition and find-references; then semantic tokens, rename and completion; then quick fixes, the diagnostic-driven half of code actions; then documentation in hover and completion. Formatting, refactoring actions and workspace symbols are not, and the server does not announce them; a capability announced but unimplemented offers the user a command that silently does nothing.
 
 This document states the boundary between the language server and the compiler. That boundary is the reason the server is small: every request handler converts coordinates, asks the session one question, and converts the answer back.
 
@@ -81,7 +81,7 @@ diagnostics(path)         one file's diagnostics
 allDiagnostics()          every held file's, empty lists included
 definitions(path, offset) where the name at this offset is declared
 references(path, offset)  every occurrence of what it denotes
-hover(path, offset)       what it is, and its type if it has one
+hover(path, offset)       what it is, its type if it has one, its documentation
 codeActions(path, range)  the repairs offered here, refusals included
 pathOfFile(fileId)        the file a span's numeric identity names
 ```
@@ -90,11 +90,12 @@ Positions crossing this API are UTF-16 offsets into the named file, never line a
 
 An analysis retains every module's resolved *and* typed tree, since a code action asks the checker's own answer for a declaration and the two must be read together. Analysis is recomputed lazily and wholly: any change discards it and the next question rebuilds it. That is a decision, not a placeholder. Reanalyzing this repository's own `stdlib/` and `runtime/` after an edit measures a median of about 40ms — well inside the delay diagnostics are debounced by — so incremental reuse would buy nothing yet and would have to guess what is worth keeping before any query exists to say. A rename adds roughly one more compilation on top of whatever the session already holds, since it recompiles an edited copy and compares the two; it is not on the keystroke path.
 
-Seven compiler queries sit behind these answers, and each exists because no other part of the compiler still knows what it knows:
+Eight compiler queries sit behind these answers, and each exists because no other part of the compiler still knows what it knows:
 
 - `queries/occurrences.ts` indexes every name that denotes something together with what it denotes — values, unions, records, foreign types, and constraints. Definitions, references, rename and semantic tokens all read this one table. It reads the resolved tree for identity, the parsed tree for constraints, the source for a head name inside a wider span, and the *typed* tree for one thing only: the operation name of a dot call, which nothing earlier has decided the meaning of.
 - `queries/type-occurrences.ts` gives hover its types, keyed by the same spans.
 - `queries/symbol-facts.ts` records, per value symbol, how it was bound *and* whether the checker gave it a function type. The two come apart constantly: `let brighten(colour) = …` is a `let`, `extern fun` and `extern let` are both `extern`, and `let g = f` is a function with no parameter list anywhere.
+- `queries/documentation.ts` indexes the doc content the parser attached (`spec/doc-comments.md` §4), under both the names a declaration introduces and the declaration's own first token — an editor holds a name, and the two are the same offset only for the forms that begin with theirs. It also answers by *position*, for the three documentable places the occurrence index has no identity for at all: an `honor` member's name is a bare string in the resolved tree, a record field is not a symbol, and a `type` alias is expanded away.
 - `queries/semantic-tokens.ts` classifies names, and only names — see below.
 - `queries/completions.ts` answers what could be written at an offset, from a scope record the resolver now keeps.
 - `queries/type-spelling.ts` writes a type back out as source: which nominal types this module has a *name* for, and what to call each type variable.
@@ -372,6 +373,13 @@ The third adds:
     exported function that did not write one — verified by compiling the edit,
     and refused in the open with its reason when it cannot be made.
 
+The fourth adds:
+
+12. documentation (`spec/doc-comments.md` §8) in hover and completion, rendered
+    as the Markdown §6 says it is — including at the positions that reach
+    neither emitted artifact, which is what makes documenting a local binder or
+    an `honor` member worth doing at all.
+
 Formatting, refactoring code actions and workspace symbols follow as the necessary compiler services become stable. Features are not simulated with textual guesses when semantic information is required — where these slices read source text, it is to locate a name the tree already said was there, or to read a half-typed line no tree describes yet, never to decide what a name means.
 
 ## Implementation and distribution
@@ -488,6 +496,33 @@ less than it looks.
   in every module — including a same-named constraint that was never related to
   it. That follows from the identity model rather than from this code, and it is
   the one rename whose blast radius is larger than a reader would guess.
+- **A documented `honor` member, record field or `type` alias hovers, and does
+  nothing else.** None of the three has an identity in the occurrence index — a
+  member implementation's name is a bare string in the resolved tree, a field is
+  not a symbol, an alias is expanded away — so hover answers them from the
+  documentation index alone, with the content and the name and no type. Without
+  documentation they are exactly as silent as before, and find-references,
+  rename and semantic tokens still pass over all three. Giving an `honor`
+  member a real identity is the fix, and it is a change to the resolver rather
+  than to anything here. Renaming a constraint member shows the cost today: the
+  implementations do not move with it, and the rename is *refused* — verified,
+  against the compiler's own `instance is missing required member` — rather
+  than silently half-applied.
+- **A `type` alias is not offered by completion.** The type tables carry unions,
+  records and foreign types; an alias resolves away before either the tables or
+  the occurrence index see it. Documentation reaches it on hover and nowhere
+  else.
+- **An `honor` block's documentation answers on the constraint in its head.**
+  The block introduces no name of its own, so that is where a reader points to
+  ask what the instance is for, and there the instance's documentation wins over
+  the constraint's. The constraint's own still answers at its declaration and at
+  every other mention, and when the block is undocumented the head shows the
+  constraint's — but a reader who documented both and expected the constraint's
+  text at the head will see the other one.
+- **A pattern that binds nothing documents nothing anyone can read.**
+  `(** … *) let (_, _) = pair` attaches without error, per §5, and has no name to
+  file the content under. It is the one documentable position where hover is
+  silent by construction rather than by a missing identity.
 - **Completion does not know what kind of thing belongs at the cursor.** Value
   names, type names and module names are offered together, each carrying its
   kind. Narrowing would need a parse of the line being typed, which is the line

@@ -281,6 +281,89 @@ describe("completions", () => {
     session.setFile("/main.hex", "let value: Int = 1\n");
     expect(session.completions("/absent.hex", 0)).toEqual([]);
   });
+
+  /**
+   * `spec/doc-comments.md` §8: what a name documents travels with the offer of
+   * that name, so the list answers "which one did I mean?" without a trip to
+   * the declaration.
+   */
+  describe("documentation", () => {
+    const DOCUMENTED = [
+      "(** A colour. *)",
+      "export union Colour =",
+      "    (** The warm one. *)",
+      "    | Red",
+      "",
+      "(** Brightens it. *)",
+      "export let brighten(colour: Colour): Colour = colour",
+      "",
+      "export let plain(colour: Colour): Colour = colour",
+      "",
+      "(** A box, sealed. *)",
+      "export opaque record Box = { width: Int }",
+      "",
+      'extern from "node:fs"',
+      "    (** What the filesystem knows. *)",
+      "    type Stats",
+      "    (** Reads the whole file. *)",
+      "    fun readFileSync as readFile(path: String): String",
+      "",
+    ].join("\n");
+
+    /** Every offer at the cursor, as `name :: documentation`. */
+    function documented(marked: string, others: Record<string, string> = {}): readonly string[] {
+      const { text, offset } = at(marked);
+      const session = new AnalysisSession();
+      for (const [path, other] of Object.entries(others)) session.setFile(path, other);
+      session.setFile("/main.hex", text);
+      return session
+        .completions("/main.hex", offset)
+        .map(({ name, documentation }) => `${name} :: ${documentation ?? "-"}`);
+    }
+
+    test("carries what each documented name says, and nothing for the rest", () => {
+      const offered = documented(`${DOCUMENTED}let probe: Int = ‸\n`);
+      expect(offered).toContain("brighten :: Brightens it.");
+      expect(offered).toContain("Red :: The warm one.");
+      // A union's name is documented on the declaration; an `extern type` kept
+      // only its whole declaration, and is reached by the other key.
+      expect(offered).toContain("Colour :: A colour.");
+      expect(offered).toContain("Stats :: What the filesystem knows.");
+      expect(offered).toContain("plain :: -");
+      // A renamed foreign binding is documented under the name this module
+      // writes, which is the one being offered.
+      expect(offered).toContain("readFile :: Reads the whole file.");
+    });
+
+    test("an imported opaque record is documented as the type it is offered as", () => {
+      // The one path where a record's documentation is reached by the span the
+      // record table kept rather than through its constructor symbol: an opaque
+      // record exports no constructor, so the importing module has only the
+      // type name to offer.
+      const offered = documented(
+        'import {Box} from "./helper"\n\nlet probe: Int = ‸\n',
+        { "/helper.hex": DOCUMENTED },
+      );
+      expect(offered).toContain("Box :: A box, sealed.");
+    });
+
+    test("an imported name brings its declaring module's documentation", () => {
+      const offered = documented(
+        'import {brighten} from "./helper"\n\nlet probe: Int = ‸\n',
+        { "/helper.hex": DOCUMENTED },
+      );
+      expect(offered).toContain("brighten :: Brightens it.");
+    });
+
+    test("a qualified offer carries it too", () => {
+      const offered = documented(
+        'import * as Helper from "./helper"\n\nlet probe: Int = Helper.‸\n',
+        { "/helper.hex": DOCUMENTED },
+      );
+      expect(offered).toContain("brighten :: Brightens it.");
+      expect(offered).toContain("plain :: -");
+    });
+  });
 });
 
 describe("qualifierAt", () => {
