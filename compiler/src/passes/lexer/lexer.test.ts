@@ -334,6 +334,85 @@ describe("lex", () => {
   });
 });
 
+/**
+ * Documentation trivia (`spec/doc-comments.md` §2). The lexer's whole share of
+ * the feature is the classification at the opener; everything downstream of it
+ * reads `documentation`, so what these pin is the predicate — and, just as
+ * hard, that `///` acquires nothing.
+ */
+describe("documentation trivia", () => {
+  test("recognizes `(**` followed by a character that is neither `)` nor `*`", () => {
+    const result = lexSource(
+      "(** doc *)\n(**x*)\n(**\n  newline first\n*)\n(** *bold* *)\n",
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.comments.map(({ documentation }) => documentation)).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
+  });
+
+  test("`(**)`, `(***`, and plain `(*` stay ordinary comments (§2.2)", () => {
+    const result = lexSource(
+      "(**)\n(***)\n(**********)\n(*** doc? *)\n(* plain *)\n(*! not special *)\n",
+    );
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.comments.map(({ documentation }) => documentation)).toEqual([
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]);
+  });
+
+  test("`///` is nothing: the lexer does not count slashes (§2.3)", () => {
+    // The revocation, pinned. `///` is a `//` line comment whose text begins
+    // with `/`, and so is `////`; no line documentation form exists or is
+    // reserved, so this must survive every future edit to trivia scanning.
+    const result = lexSource("/// doc?\n//// more?\n// plain\nlet a = 1\n");
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.comments.map(({ kind, documentation, text }) => ({
+      kind,
+      documentation,
+      text,
+    }))).toEqual([
+      { kind: "Line", documentation: false, text: "/// doc?" },
+      { kind: "Line", documentation: false, text: "//// more?" },
+      { kind: "Line", documentation: false, text: "// plain" },
+    ]);
+  });
+
+  test("an unterminated doc comment keeps its classification and its own error", () => {
+    const result = lexSource("(** never closed\n");
+
+    expect(result.diagnostics.map(({ message }) => message)).toEqual([
+      "unterminated block comment; opened at line 1, column 1",
+    ]);
+    expect(result.comments.map(({ documentation }) => documentation)).toEqual([true]);
+  });
+
+  test("`(**` at end of file has no character after the opener, so it is ordinary", () => {
+    const result = lexSource("(**");
+
+    expect(result.comments.map(({ documentation }) => documentation)).toEqual([false]);
+  });
+
+  test("nesting is the ordinary block rule; an inner `(**` is not its own comment", () => {
+    const result = lexSource("(** outer (** inner *) still outer *)\n");
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.comments).toHaveLength(1);
+    expect(result.comments[0]!.documentation).toBe(true);
+  });
+});
+
 function lexSource(text: string) {
   return lex(new Source.File(Source.fileId(0), "test.hex", text));
 }

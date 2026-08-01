@@ -723,6 +723,7 @@ class Checker {
       preludeUnions: module.preludeUnions,
       externTypes: module.externTypes,
       comments: module.comments,
+      docs: module.docs,
       span: module.span,
       diagnostics: this.#diagnostics.toArray(),
     };

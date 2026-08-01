@@ -15,6 +15,7 @@ import { syntheticParameterName } from "../../support/synthetic.js";
 import type * as LaidOut from "../../syntax/laid-out/index.js";
 import type * as Lexed from "../../syntax/lexed/index.js";
 import * as Parsed from "../../syntax/parsed/index.js";
+import { DocBlocks } from "./doc-blocks.js";
 
 type TokenKind = LaidOut.Token["kind"];
 
@@ -112,15 +113,22 @@ export function parse(file: LaidOut.File): Parsed.Module {
     diagnostics.add(diagnostic);
   }
 
-  return new Parser(file.tokens, diagnostics).parseModule(
-    file.fileId,
-    file.comments,
-  );
+  return new Parser(
+    file.tokens,
+    diagnostics,
+    new DocBlocks(file.tokens, file.comments, diagnostics),
+  ).parseModule(file.fileId, file.comments);
 }
 
 class Parser {
   readonly #tokens: readonly LaidOut.Token[];
   readonly #diagnostics: Diagnostics.Bag;
+  /**
+   * Doc-comment bookkeeping (spec/doc-comments.md §4). Declaration parsers claim
+   * the block sitting before their first token; the blocks nobody claims are
+   * §5's hard errors, reported when the module closes.
+   */
+  readonly #docs: DocBlocks;
   #index = 0;
   /**
    * Type-parameter lambdas awaiting their position check (Functions §4.2). The grammar
@@ -131,9 +139,14 @@ class Parser {
    */
   readonly #pendingTypeParameterLambdas = new Map<Parsed.Expr, Source.Span>();
 
-  constructor(tokens: readonly LaidOut.Token[], diagnostics: Diagnostics.Bag) {
+  constructor(
+    tokens: readonly LaidOut.Token[],
+    diagnostics: Diagnostics.Bag,
+    docs: DocBlocks,
+  ) {
     this.#tokens = tokens;
     this.#diagnostics = diagnostics;
+    this.#docs = docs;
   }
 
   /** Consumes the module's implicit layout block and requires a final Eof. */
@@ -149,11 +162,16 @@ class Parser {
     const first = opening ?? items[0] ?? closing ?? eof ?? this.#current();
     const last = eof ?? closing ?? items.at(-1) ?? first;
 
+    // After the items: `finish` reports every block nobody claimed (§5), and
+    // those diagnostics have to be in the bag before it is drained.
+    const docs = this.#docs.finish();
+
     return {
       kind: "Module",
       fileId,
       items,
       comments,
+      docs,
       span: spanFrom(first.span, last.span),
       diagnostics: this.#diagnostics.toArray(),
     };
@@ -175,7 +193,13 @@ class Parser {
     this.#skipSeparators();
 
     while (!this.#at("VClose") && !this.#at("Eof")) {
-      items.push(this.#parseItem(moduleItems));
+      // The item's first physical token, captured before it is consumed: a doc
+      // block claims its declaration by the token the declaration begins with
+      // (§4.1), and virtual tokens are invisible to that (§4).
+      const start = this.#current().span.start.offset;
+      const item = this.#parseItem(moduleItems);
+      this.#documentItem(start, item);
+      items.push(item);
 
       if (this.#at("VSep") || this.#at("Semicolon")) {
         this.#skipSeparators();
@@ -187,6 +211,38 @@ class Parser {
     }
 
     return items;
+  }
+
+  /**
+   * Hands the doc block before an item to that item, when the item is one of
+   * §4.2's documentable declarations. The forms that are not — `import`,
+   * `extern import`, the `extern from` header, a module-level effect statement
+   * — leave the block unclaimed on purpose: §5 owns the message each of them
+   * gets, and `DocBlocks` chooses it from the code token, not from here.
+   *
+   * An `ErrorItem` claims and drops its block instead. The declaration it would
+   * have documented failed to parse; one syntax error is the whole story.
+   */
+  #documentItem(start: number, item: Parsed.Item): void {
+    switch (item.kind) {
+      case "Let":
+      case "Var":
+      case "LetPattern":
+      case "Fun":
+      case "TypeAlias":
+      case "RecordDeclaration":
+      case "Exception":
+      case "ConstraintDeclaration":
+      case "Honor":
+      case "Union":
+        this.#docs.attach(start, item.span);
+        return;
+      case "ErrorItem":
+        this.#docs.discard(start);
+        return;
+      default:
+        return;
+    }
   }
 
   #parseItem(moduleItems: boolean): Parsed.Item {
@@ -406,8 +462,16 @@ class Parser {
     const declarations: Parsed.ExternDeclaration[] = [];
     this.#skipSeparators();
     while (!this.#at("VClose") && !this.#at("Eof")) {
+      const declarationStart = this.#current().span.start.offset;
       const declaration = this.#parseExternDeclaration(intrinsic);
-      if (declaration !== undefined) declarations.push(declaration);
+      // Every item form the block admits introduces a name, so every one is
+      // documentable (§4.2). A form that failed to parse claims and drops its
+      // block, like an `ErrorItem` does.
+      if (declaration === undefined) this.#docs.discard(declarationStart);
+      else {
+        declarations.push(declaration);
+        this.#docs.attach(declarationStart, declaration.span);
+      }
       if (this.#at("VSep") || this.#at("Semicolon")) this.#skipSeparators();
       else if (!this.#at("VClose") && !this.#at("Eof")) {
         this.#error("expected a newline or `;` between extern declarations");
@@ -618,6 +682,7 @@ class Parser {
         this.#skipSeparators();
         continue;
       }
+      const memberStart = this.#current().span.start.offset;
       const memberToken = this.#takeName("NonUpperName", "constraint members are non-uppercase-start names");
       if (memberToken === undefined) {
         this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
@@ -649,13 +714,15 @@ class Parser {
           span: spanFrom(memberToken.span, body.span),
         };
       }
-      members.push({
+      const member = {
         name: parsedName(memberToken),
         parameters,
         returnAnnotation: result,
         ...(defaultValue === undefined ? {} : { defaultValue }),
         span: spanFrom(memberToken.span, result.span),
-      });
+      };
+      members.push(member);
+      this.#docs.attach(memberStart, member.span);
       this.#skipSeparators();
     }
     const closing = this.#expect("VClose", "expected the constraint body to close");
@@ -721,6 +788,7 @@ class Parser {
         this.#skipSeparators();
         continue;
       }
+      const memberStart = this.#current().span.start.offset;
       const memberToken = this.#takeName("NonUpperName", "instance members are non-uppercase-start names");
       if (memberToken === undefined) {
         this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
@@ -731,17 +799,21 @@ class Parser {
       this.#expect("Equal", "expected `=` in instance member");
       const body = this.#parseBodyExpression(new Set(["VSep", "VClose", "Eof"]));
       const name = parsedName(memberToken);
-      members.push({
+      const member = {
         name,
         value: {
-          kind: "Lambda",
+          kind: "Lambda" as const,
           parameters,
           ...this.#lambdaDestructurings(destructurings),
           body,
           span: spanFrom(name.span, body.span),
         },
         span: spanFrom(name.span, body.span),
-      });
+      };
+      members.push(member);
+      // §7.1: an `honor` member has no seat in either emitted artifact. The
+      // attachment is for tooling (§8), and for the §5 error not to fire.
+      this.#docs.attach(memberStart, member.span);
       this.#skipSeparators();
     }
     const closing = this.#expect("VClose", "expected the instance body to close");
@@ -1047,6 +1119,10 @@ class Parser {
       this.#synchronize(itemEnds);
       return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
     }
+    // An alternative begins at its leading `|`, or at the constructor name
+    // where no `|` precedes (§4.2) — so the offset a doc block would match is
+    // captured before either is consumed.
+    let alternative = this.#current().span.start.offset;
     if (this.#at("Bar")) this.#advance();
 
     const constructors: Parsed.Constructor[] = [];
@@ -1101,7 +1177,12 @@ class Parser {
         }
       }
       constructors.push({ name, slots, span: spanFrom(name.span, end) });
+      // Constructor documentation rides the constructor, whose identity
+      // downstream is its declared name (§7.1: it emits on the materialized
+      // constructor, not on the union type's arm).
+      this.#docs.attach(alternative, name.span);
       if (!this.#at("Bar")) break;
+      alternative = this.#current().span.start.offset;
       this.#advance();
     }
     if (constructors.length === 0) {
@@ -1155,6 +1236,7 @@ class Parser {
     const fields: Parsed.RecordTypeField[] = [];
     const seen = new Set<string>();
     while (!this.#at("RightBrace") && !this.#at("Eof")) {
+      const fieldStart = this.#current().span.start.offset;
       const fieldToken = this.#takeName("NonUpperName", "record fields must be non-uppercase-start names");
       if (fieldToken === undefined) break;
       this.#expect("Colon", "expected `:` after record field name");
@@ -1163,7 +1245,9 @@ class Parser {
       const name = parsedName(fieldToken);
       if (seen.has(name.text)) this.#errorAt(name.span, `duplicate record field \`${name.text}\``);
       seen.add(name.text);
-      fields.push({ name, annotation, span: spanFrom(name.span, annotation.span) });
+      const field = { name, annotation, span: spanFrom(name.span, annotation.span) };
+      fields.push(field);
+      this.#docs.attach(fieldStart, field.span);
       if (!this.#at("Comma")) break;
       this.#advance();
     }
@@ -1817,8 +1901,11 @@ class Parser {
       if (part.kind === "Text") {
         return { kind: "Text", value: part.value, span: part.span };
       }
-      const expression = new Parser(part.tokens, this.#diagnostics)
-        .parseStandaloneExpression();
+      const expression = new Parser(
+        part.tokens,
+        this.#diagnostics,
+        DocBlocks.none(this.#diagnostics),
+      ).parseStandaloneExpression();
       return { kind: "Interpolation", expression, span: part.span };
     });
     return { kind: "String", parts, span: token.span };

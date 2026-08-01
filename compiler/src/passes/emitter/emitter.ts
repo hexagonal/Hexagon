@@ -5,6 +5,7 @@
 
 import * as Diagnostics from "../../support/diagnostics.js";
 import { INTRINSIC_INVENTORY, isIntrinsicScheme } from "../../intrinsics.js";
+import type { Documentation } from "../../support/documentation.js";
 import type * as Source from "../../support/source.js";
 import { isSyntheticParameterName } from "../../support/synthetic.js";
 import type * as Core from "../../syntax/core/index.js";
@@ -46,6 +47,111 @@ export function emitTypeScriptPreview(
 }
 
 type EvidenceNames = ReadonlyMap<string, string>;
+
+/**
+ * Documentation, indexed the way emission asks for it: by the span of the
+ * declaration a JSDoc block would precede (spec/doc-comments.md §7.1). A seat
+ * that finds nothing here emits nothing — documentation is never invented, and
+ * a declaration with no corresponding emitted form simply does not carry its
+ * documentation across (§7.1, §8).
+ */
+class DocIndex {
+  readonly #byTarget: ReadonlyMap<number, Documentation>;
+  /** Blocks that found a seat: the ones a text emitter has already written. */
+  readonly #seated = new Set<Documentation>();
+
+  constructor(docs: readonly Documentation[]) {
+    const byTarget = new Map<number, Documentation>();
+    for (const doc of docs) {
+      // The side table is keyed by the documented declaration's span start, and
+      // the whole design rests on that being unique across every claim site. A
+      // collision would silently hand one declaration another's documentation,
+      // so it fails loudly instead of quietly.
+      if (byTarget.has(doc.target)) {
+        throw new Error(
+          `internal error: two doc blocks target offset ${doc.target}`,
+        );
+      }
+      byTarget.set(doc.target, doc);
+    }
+    this.#byTarget = byTarget;
+  }
+
+  /**
+   * The JSDoc block for the declaration at `span`, as lines, or nothing.
+   *
+   * An empty doc block contributes empty documentation, which tooling treats as
+   * absent (§3.2) — so it emits nothing rather than an empty block. It still
+   * counts as seated: the seat existed, and the comment has been spoken for.
+   */
+  lines(span: Source.Span, indent = ""): string[] {
+    const doc = this.#byTarget.get(span.start.offset);
+    if (doc === undefined) return [];
+    this.#seated.add(doc);
+    return doc.content === "" ? [] : jsDocBlock(doc.content, indent);
+  }
+
+  /**
+   * The comments already written as JSDoc, so the ordinary comment channel does
+   * not write them a second time. Asked *after* the items are emitted, because
+   * what is seated is exactly what emission found a seat for — a doc comment on
+   * a `type` alias or a `union` has no `.js` seat, and Comments §6 keeps
+   * preserving it as the item-boundary comment it also is.
+   */
+  seatedComments(): ReadonlySet<Source.Comment> {
+    return new Set([...this.#seated].flatMap(({ comments }) => [...comments]));
+  }
+
+  /**
+   * The source extent of the doc block a declaration carries. The readable `.js`
+   * reproduces the source's own vertical spacing, and a declaration's
+   * documentation is written above it: without this the blank lines the author
+   * put *before* the doc block would be counted from the declaration instead.
+   */
+  span(span: Source.Span): Source.Span | undefined {
+    return this.#byTarget.get(span.start.offset)?.span;
+  }
+}
+
+/**
+ * Whether an item has a seat in the emitted JavaScript for its *own*
+ * documentation (§7.1). A `union` does not: what it emits is its constructors,
+ * each of which carries its own documentation, and the union type itself exists
+ * only in the `.d.ts`. Neither does a `constraint` (it emits member forwarders)
+ * or an `honor` block (§7.1 names it explicitly as having no seat).
+ */
+function hasJavaScriptSeat(item: Core.Item): boolean {
+  switch (item.kind) {
+    case "Let":
+    case "Var":
+    case "LetPattern":
+    case "Fun":
+    case "RecordDeclaration":
+    case "Exception":
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Renders documentation content as a JSDoc block (§7.2). Content is emitted
+ * verbatim — Markdown is what TypeScript tooling renders in JSDoc — with the
+ * one sanitization the spec requires: JavaScript's block closer inside the
+ * content would end the block early and leave the artifact invalid, so it takes
+ * the standard JSDoc escape. The line prefix and the one-line shorthand are
+ * quality-of-implementation.
+ */
+function jsDocBlock(content: string, indent: string): string[] {
+  const safe = content.replaceAll("*/", "*\\/");
+  const lines = safe.split("\n");
+  if (lines.length === 1) return [`${indent}/** ${lines[0]} */`];
+  return [
+    `${indent}/**`,
+    ...lines.map((line) => `${indent} *${line === "" ? "" : ` ${line}`}`),
+    `${indent} */`,
+  ];
+}
 
 /**
  * The two prelude declarations emission is allowed to recognize by identity.
@@ -104,6 +210,7 @@ class JavaScriptEmitter {
   readonly #exports: string[] = [];
   readonly #exportedEvidence = new Set<string>();
   readonly #module: Core.Module;
+  readonly #docs: DocIndex;
   readonly #exportInstanceEvidence: boolean;
   readonly #specializations: readonly FundamentalSpecialization[];
   readonly #generatedBodies: {
@@ -113,6 +220,7 @@ class JavaScriptEmitter {
 
   constructor(module: Core.Module, options: JavaScriptEmissionOptions) {
     this.#module = module;
+    this.#docs = new DocIndex(module.docs);
     this.#prelude = preludeIds(module);
     this.#exportInstanceEvidence = options.exportInstanceEvidence ?? false;
     this.#generatedNames = new GeneratedNames(module.symbols.map(({ name }) => name));
@@ -168,27 +276,46 @@ class JavaScriptEmitter {
   emit(): Emitted.JavaScript {
     const body: string[] = [];
     const trailing = trailingComments(this.#module.items, this.#module.comments);
+
+    // Items are rendered before the comment channel is decided, because which
+    // doc comments are already spoken for is exactly what rendering discovers:
+    // a doc block with no seat here (a `type` alias, a `union`) is still an
+    // item-boundary comment, and Comments §6 preserves it as one.
+    const rendered = this.#module.items.map((item) => {
+      const lines = this.#emitItem(item, 0, new Map(), false);
+      const comments = trailing.get(item) ?? [];
+      if (comments.length > 0 && lines.length > 0) {
+        const last = lines.length - 1;
+        lines[last] = `${lines[last]} ${comments.map(({ text }) => text).join(" ")}`;
+      }
+      // An item that emits nothing has nothing to precede, and one whose
+      // emitted forms are its members' rather than its own has no seat for the
+      // item's own documentation (§7.1).
+      const doc = lines.length > 0 && hasJavaScriptSeat(item)
+        ? this.#docs.lines(item.span)
+        : [];
+      return {
+        item,
+        lines: [...doc, ...lines],
+        // A documented item starts, on the page, at its doc block.
+        start: (doc.length > 0 ? this.#docs.span(item.span) : undefined) ?? item.span,
+      };
+    });
+
+    const seated = this.#docs.seatedComments();
     const entries = sourceEntries(
-      this.#module.items,
-      this.#module.comments,
+      rendered,
+      this.#module.comments.filter((comment) => !seated.has(comment)),
       trailing,
     );
     let previousSpan: Source.Span | undefined;
     for (const entry of entries) {
       if (previousSpan !== undefined) {
-        body.push(...Array(blankLinesBetween(previousSpan, entry.span)).fill(""));
+        body.push(...Array(blankLinesBetween(previousSpan, entry.start)).fill(""));
       }
-      if (entry.kind === "Comment") {
-        body.push(...commentLines(entry.comment));
-      } else {
-        const lines = this.#emitItem(entry.item, 0, new Map(), false);
-        const comments = trailing.get(entry.item) ?? [];
-        if (comments.length > 0 && lines.length > 0) {
-          const last = lines.length - 1;
-          lines[last] = `${lines[last]} ${comments.map(({ text }) => text).join(" ")}`;
-        }
-        body.push(...lines);
-      }
+      body.push(
+        ...(entry.kind === "Comment" ? commentLines(entry.comment) : entry.lines),
+      );
       previousSpan = entry.span;
     }
     body.push(...this.#exports);
@@ -284,11 +411,14 @@ class JavaScriptEmitter {
       const specifier = JSON.stringify(item.specifier);
       const lines: string[] = [];
       for (const declaration of item.declarations) {
+        // A foreign `type` introduces no `.js` binding, so it has no seat here
+        // and its documentation stays in the `.d.ts` (§7.1).
         if (declaration.kind === "ExternType") continue;
         const local = this.#identifier(
           declaration.binding.symbol,
           declaration.localName,
         );
+        lines.push(...this.#docs.lines(declaration.span, prefix));
         if (!item.intrinsic && isIntrinsicScheme(item.specifier)) {
           // A `hex:`-scheme block the gate refused (§5). The module is errored,
           // so what is emitted is best-effort — but it must not be either of the
@@ -408,7 +538,7 @@ class JavaScriptEmitter {
       return lines;
     }
     if (item.kind === "ConstraintDeclaration") {
-      return item.members.map((member) => {
+      return item.members.flatMap((member) => {
         const name = this.#identifier(member.binding.symbol, member.binding.name);
         const sourceParameters = member.parameters.map((parameter) =>
           this.#identifier(parameter.symbol, parameter.name)
@@ -418,7 +548,12 @@ class JavaScriptEmitter {
         );
         const dictionary = dictionaries[0] ?? "undefined";
         const parameters = [...sourceParameters, ...dictionaries];
-        return `${prefix}const ${name} = ${arrowParameters(parameters)} => ${dictionary}.${member.binding.name}(${sourceParameters.join(", ")});`;
+        // A constraint member's `.js` seat is the forwarder emitted for it; the
+        // dictionary type it also documents (§7.1) has no `.d.ts` form yet.
+        return [
+          ...this.#docs.lines(member.span, prefix),
+          `${prefix}const ${name} = ${arrowParameters(parameters)} => ${dictionary}.${member.binding.name}(${sourceParameters.join(", ")});`,
+        ];
       });
     }
     if (item.kind === "Honor") {
@@ -532,7 +667,7 @@ class JavaScriptEmitter {
     }
     if (item.kind === "Union") {
       const tagged = item.constructors.some(({ slots }) => (slots?.length ?? 0) > 0);
-      const lines = item.constructors.map((constructor) => {
+      const lines = item.constructors.flatMap((constructor) => {
         const name = this.#identifier(constructor.symbol, constructor.name);
         if (item.exported && !item.opaque && depth === 0) {
           this.#exports.push(
@@ -541,20 +676,22 @@ class JavaScriptEmitter {
               : `export { ${name} as ${constructor.name} };`,
           );
         }
+        // Constructor documentation rides the materialized constructor (§7.1).
+        const doc = this.#docs.lines(constructor.span, prefix);
         const slots = constructor.slots ?? [];
         if (slots.length > 0) {
           const parameters = slots.map(({ field }) => field);
           const fields = slots.map(({ field }) => objectProperty(field, field));
-          return `${prefix}const ${name} = ${arrowParameters(parameters)} => ({ tag: ${JSON.stringify(constructor.name)}, ${fields.join(", ")} });`;
+          return [...doc, `${prefix}const ${name} = ${arrowParameters(parameters)} => ({ tag: ${JSON.stringify(constructor.name)}, ${fields.join(", ")} });`];
         }
         // The pin (#147, Unions §6.4): a `Bool` constructor materialises against
         // the pinned representation, so the export site binds the JS boolean
         // rather than the all-nullary name-string.
         const pinned = this.#pinnedBoolLiteral(constructor.symbol);
-        if (pinned !== undefined) return `${prefix}const ${name} = ${pinned};`;
-        return tagged
+        if (pinned !== undefined) return [...doc, `${prefix}const ${name} = ${pinned};`];
+        return [...doc, tagged
           ? `${prefix}const ${name} = { tag: ${JSON.stringify(constructor.name)} };`
-          : `${prefix}const ${name} = ${JSON.stringify(constructor.name)};`;
+          : `${prefix}const ${name} = ${JSON.stringify(constructor.name)};`];
       });
       return lines;
     }
@@ -2719,11 +2856,13 @@ class DeclarationEmitter {
   readonly #opaqueBrands: ReadonlyMap<string, string>;
   /** The prelude identities this module's `.d.ts` face needs; see `PreludeIds`. */
   readonly #prelude: PreludeIds;
+  readonly #docs: DocIndex;
 
   constructor(module: Core.Module) {
     this.#module = module;
     this.#opaqueBrands = opaqueBrandNames(module);
     this.#prelude = preludeIds(module);
+    this.#docs = new DocIndex(module.docs);
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
     const plan = planFundamentalSpecializations(module);
     this.#specializations = plan.specializations;
@@ -2752,13 +2891,19 @@ class DeclarationEmitter {
       if (item.kind === "ExternBlock") {
         for (const declaration of item.declarations) {
           if (!declaration.exported) continue;
+          // The brand line goes before the documentation: JSDoc binds to the
+          // declaration that immediately follows it.
+          const doc = this.#docs.lines(declaration.span);
           if (declaration.kind === "ExternType") {
             const brand = this.#opaqueBrands.get(declaration.localName)!;
             declarations.push(`declare const ${brand}: unique symbol;`);
+            declarations.push(...doc);
             declarations.push(`export type ${declaration.localName} = { readonly [${brand}]: never };`);
           } else if (declaration.kind === "ExternFun") {
+            declarations.push(...doc);
             declarations.push(...renderExternFunctionDeclaration(declaration, true, this.#prelude));
           } else {
+            declarations.push(...doc);
             declarations.push(
               `export declare const ${declaration.localName}: ${renderType(declaration.type, new Map(), this.#prelude, false)};`,
             );
@@ -2773,6 +2918,7 @@ class DeclarationEmitter {
         const variables = typeVariableNames(item.parameters);
         const names = item.parameters.map((parameter) => variables.get(parameter)!);
         const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
+        declarations.push(...this.#docs.lines(item.span));
         declarations.push(`export type ${item.name}${generics} = ${renderType(item.type, variables, this.#prelude, false)};`);
         isExternalModule = true;
         continue;
@@ -2784,10 +2930,12 @@ class DeclarationEmitter {
           const names = item.parameters.map((parameter) => variables.get(parameter)!);
           const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
           declarations.push(`declare const ${brand}: unique symbol;`);
+          declarations.push(...this.#docs.lines(item.span));
           declarations.push(`export type ${item.name}${generics} = { readonly [${brand}]: ${names.length === 0 ? "never" : names.join(" | ")} };`);
           isExternalModule = true;
           continue;
         }
+        declarations.push(...this.#docs.lines(item.span));
         declarations.push(renderUnionDeclaration(item, item.exported, this.#prelude));
         if (item.exported) {
           isExternalModule = true;
@@ -2805,6 +2953,7 @@ class DeclarationEmitter {
                 ? item.name
                 : `${item.name}<${item.parameters.map(() => "never").join(", ")}>`
               : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, this.#prelude, false)}`).join(", ")}) => ${result}`;
+            declarations.push(...this.#docs.lines(constructor.span));
             declarations.push(
               `export declare const ${constructor.name}: ${type};`,
             );
@@ -2820,6 +2969,7 @@ class DeclarationEmitter {
         if (item.opaque) {
           const brand = this.#opaqueBrands.get(item.name)!;
           declarations.push(`declare const ${brand}: unique symbol;`);
+          declarations.push(...this.#docs.lines(item.span));
           declarations.push(`export type ${item.name}${generics} = { readonly [${brand}]: ${names.length === 0 ? "never" : names.join(" | ")} };`);
           isExternalModule = true;
           continue;
@@ -2828,7 +2978,13 @@ class DeclarationEmitter {
           `${field.name}: ${renderType(field.type, variables, this.#prelude, false)}`
         ).join("; ")} }`;
         const result = names.length === 0 ? item.name : `${item.name}<${names.join(", ")}>`;
-        declarations.push(`export type ${item.name}${generics} = ${recordType};`);
+        declarations.push(...this.#docs.lines(item.span));
+        // Field documentation needs the one seat TypeScript tooling reads it
+        // from — the property in the structural type (§7.1) — and a property
+        // only gets its own JSDoc when the type is written across lines.
+        declarations.push(
+          ...this.#renderRecordType(item, variables, `export type ${item.name}${generics} = `),
+        );
         declarations.push(`export declare const ${item.name}: ${generics}(${item.fields.length === 0 ? "record: {}" : `record: ${recordType}`}) => ${result};`);
         isExternalModule = true;
         continue;
@@ -2836,6 +2992,7 @@ class DeclarationEmitter {
       if (item.kind === "Exception") {
         if (!item.exported) continue;
         const face = `Error & { readonly $hex: true; readonly name: ${JSON.stringify(item.binding.name)}${item.slots.map((slot) => `; readonly ${slot.field}: ${renderType(slot.type, new Map(), this.#prelude, false)}`).join("")} }`;
+        declarations.push(...this.#docs.lines(item.span));
         declarations.push(`export type ${item.binding.name} = ${face};`);
         const constructor = item.slots.length === 0
           ? `() => ${item.binding.name}`
@@ -2854,6 +3011,9 @@ class DeclarationEmitter {
         for (const specialization of specializations) {
           if (item.value.kind !== "Lambda") continue;
           const specialized = specializeItem(item as SpecializableItem, specialization);
+          // A constrained binding has no single `.d.ts` declaration — its face
+          // is one per specialization — so its documentation rides each.
+          declarations.push(...this.#docs.lines(item.span));
           declarations.push(
             renderFunctionDeclaration(
               specialization.name,
@@ -2869,6 +3029,7 @@ class DeclarationEmitter {
       }
       isExternalModule = true;
 
+      declarations.push(...this.#docs.lines(item.span));
       const safeName = isSafeIdentifier(item.binding.name);
       const local = safeName
         ? item.binding.name
@@ -2898,6 +3059,31 @@ class DeclarationEmitter {
       diagnostics: this.#diagnostics.toArray(),
     };
   }
+
+  /**
+   * The structural type a `record` declares, as `.d.ts` lines. It stays on one
+   * line — the shape every existing golden expects — unless a field carries
+   * documentation, because a property's JSDoc has to precede it on its own
+   * line to be the property's (spec/doc-comments.md §7.1).
+   */
+  #renderRecordType(
+    item: Core.RecordItem,
+    variables: ReadonlyMap<Typed.TypeVariableId, string>,
+    head: string,
+  ): string[] {
+    const fields = item.fields.map((field) => ({
+      doc: this.#docs.lines(field.span, "  "),
+      text: `${field.name}: ${renderType(field.type, variables, this.#prelude, false)}`,
+    }));
+    if (fields.every(({ doc }) => doc.length === 0)) {
+      return [`${head}{ ${fields.map(({ text }) => text).join("; ")} };`];
+    }
+    return [
+      `${head}{`,
+      ...fields.flatMap(({ doc, text }) => [...doc, `  ${text};`]),
+      "};",
+    ];
+  }
 }
 
 class TypeScriptPreviewEmitter {
@@ -2907,11 +3093,13 @@ class TypeScriptPreviewEmitter {
   readonly #opaqueBrands: ReadonlyMap<string, string>;
   /** The prelude identities this module's `.d.ts` face needs; see `PreludeIds`. */
   readonly #prelude: PreludeIds;
+  readonly #docs: DocIndex;
 
   constructor(module: Core.Module) {
     this.#module = module;
     this.#opaqueBrands = opaqueBrandNames(module);
     this.#prelude = preludeIds(module);
+    this.#docs = new DocIndex(module.docs);
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
     const plan = planFundamentalSpecializations(module, true);
     this.#specializations = plan.specializations;
@@ -2941,13 +3129,17 @@ class TypeScriptPreviewEmitter {
       if (item.kind === "ExternBlock") {
         for (const declaration of item.declarations) {
           const prefix = declaration.exported ? "export " : "";
+          const doc = this.#docs.lines(declaration.span);
           if (declaration.kind === "ExternType") {
             const brand = this.#opaqueBrands.get(declaration.localName)!;
             declarations.push(`declare const ${brand}: unique symbol;`);
+            declarations.push(...doc);
             declarations.push(`${prefix}type ${declaration.localName} = { readonly [${brand}]: never };`);
           } else if (declaration.kind === "ExternFun") {
+            declarations.push(...doc);
             declarations.push(...renderExternFunctionDeclaration(declaration, declaration.exported, this.#prelude));
           } else {
+            declarations.push(...doc);
             declarations.push(
               `${prefix}declare const ${declaration.localName}: ${renderType(declaration.type, new Map(), this.#prelude, false)};`,
             );
@@ -2962,6 +3154,7 @@ class TypeScriptPreviewEmitter {
         const variables = typeVariableNames(item.parameters);
         const names = item.parameters.map((parameter) => variables.get(parameter)!);
         const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
+        declarations.push(...this.#docs.lines(item.span));
         declarations.push(`${prefix}type ${item.name}${generics} = ${renderType(item.type, variables, this.#prelude, false)};`);
         isExternalModule ||= item.exported;
         continue;
@@ -2974,10 +3167,12 @@ class TypeScriptPreviewEmitter {
           const names = item.parameters.map((parameter) => variables.get(parameter)!);
           const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
           declarations.push(`declare const ${brand}: unique symbol;`);
+          declarations.push(...this.#docs.lines(item.span));
           declarations.push(`${prefix}type ${item.name}${generics} = { readonly [${brand}]: ${names.length === 0 ? "never" : names.join(" | ")} };`);
           isExternalModule ||= item.exported;
           continue;
         }
+        declarations.push(...this.#docs.lines(item.span));
         declarations.push(renderUnionDeclaration(item, item.exported, this.#prelude));
         const variables = typeVariableNames(item.parameters);
         const genericNames = item.parameters.map((parameter) => variables.get(parameter)!);
@@ -2992,6 +3187,7 @@ class TypeScriptPreviewEmitter {
               ? item.name
               : `${item.name}<${item.parameters.map(() => "never").join(", ")}>`
             : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, this.#prelude, false)}`).join(", ")}) => ${result}`;
+          declarations.push(...this.#docs.lines(constructor.span));
           declarations.push(
             `${prefix}declare const ${constructor.name}: ${type};`,
           );
@@ -3007,6 +3203,7 @@ class TypeScriptPreviewEmitter {
         if (item.opaque) {
           const brand = this.#opaqueBrands.get(item.name)!;
           declarations.push(`declare const ${brand}: unique symbol;`);
+          declarations.push(...this.#docs.lines(item.span));
           declarations.push(`${prefix}type ${item.name}${generics} = { readonly [${brand}]: ${names.length === 0 ? "never" : names.join(" | ")} };`);
           isExternalModule ||= item.exported;
           continue;
@@ -3015,7 +3212,10 @@ class TypeScriptPreviewEmitter {
           `${field.name}: ${renderType(field.type, variables, this.#prelude, false)}`
         ).join("; ")} }`;
         const result = names.length === 0 ? item.name : `${item.name}<${names.join(", ")}>`;
-        declarations.push(`${prefix}type ${item.name}${generics} = ${recordType};`);
+        declarations.push(...this.#docs.lines(item.span));
+        declarations.push(
+          ...this.#renderRecordType(item, variables, `${prefix}type ${item.name}${generics} = `),
+        );
         declarations.push(`${prefix}declare const ${item.name}: ${generics}(record: ${recordType}) => ${result};`);
         isExternalModule ||= item.exported;
         continue;
@@ -3023,6 +3223,7 @@ class TypeScriptPreviewEmitter {
       if (item.kind === "Exception") {
         const prefix = item.exported ? "export " : "";
         const face = `Error & { readonly $hex: true; readonly name: ${JSON.stringify(item.binding.name)}${item.slots.map((slot) => `; readonly ${slot.field}: ${renderType(slot.type, new Map(), this.#prelude, false)}`).join("")} }`;
+        declarations.push(...this.#docs.lines(item.span));
         declarations.push(`${prefix}type ${item.binding.name} = ${face};`);
         const constructor = item.slots.length === 0
           ? `() => ${item.binding.name}`
@@ -3050,6 +3251,9 @@ class TypeScriptPreviewEmitter {
         for (const specialization of specializations) {
           if (item.value.kind !== "Lambda") continue;
           const specialized = specializeItem(item as SpecializableItem, specialization);
+          // A constrained binding has no single `.d.ts` declaration — its face
+          // is one per specialization — so its documentation rides each.
+          declarations.push(...this.#docs.lines(item.span));
           declarations.push(
             renderFunctionDeclaration(
               specialization.name,
@@ -3067,6 +3271,7 @@ class TypeScriptPreviewEmitter {
       const name = isSafeIdentifier(item.binding.name)
         ? item.binding.name
         : `__hex_binding${Number(item.binding.symbol)}`;
+      declarations.push(...this.#docs.lines(item.span));
       if (item.exported) {
         if (item.kind === "Fun") {
           declarations.push(
@@ -3111,6 +3316,31 @@ class TypeScriptPreviewEmitter {
       text: `${declarations.join("\n")}\n`,
       diagnostics: this.#diagnostics.toArray(),
     };
+  }
+
+  /**
+   * The structural type a `record` declares, as `.d.ts` lines. It stays on one
+   * line — the shape every existing golden expects — unless a field carries
+   * documentation, because a property's JSDoc has to precede it on its own
+   * line to be the property's (spec/doc-comments.md §7.1).
+   */
+  #renderRecordType(
+    item: Core.RecordItem,
+    variables: ReadonlyMap<Typed.TypeVariableId, string>,
+    head: string,
+  ): string[] {
+    const fields = item.fields.map((field) => ({
+      doc: this.#docs.lines(field.span, "  "),
+      text: `${field.name}: ${renderType(field.type, variables, this.#prelude, false)}`,
+    }));
+    if (fields.every(({ doc }) => doc.length === 0)) {
+      return [`${head}{ ${fields.map(({ text }) => text).join("; ")} };`];
+    }
+    return [
+      `${head}{`,
+      ...fields.flatMap(({ doc, text }) => [...doc, `  ${text};`]),
+      "};",
+    ];
   }
 }
 
@@ -3252,9 +3482,16 @@ function isSimplePayloadBindingPattern(pattern: Core.Pattern): boolean {
   }
 }
 
-interface ItemEntry {
-  readonly kind: "Item";
+/** An item already rendered to lines; see the two phases in `emit`. */
+interface RenderedItem {
   readonly item: Core.Item;
+  readonly lines: readonly string[];
+  /** Where the item begins on the page: its doc block, when it has one. */
+  readonly start: Source.Span;
+}
+
+interface ItemEntry extends RenderedItem {
+  readonly kind: "Item";
   readonly span: Source.Span;
 }
 
@@ -3262,6 +3499,7 @@ interface CommentEntry {
   readonly kind: "Comment";
   readonly comment: Source.Comment;
   readonly span: Source.Span;
+  readonly start: Source.Span;
 }
 
 function trailingComments(
@@ -3285,13 +3523,17 @@ function trailingComments(
 }
 
 function sourceEntries(
-  items: readonly Core.Item[],
+  items: readonly RenderedItem[],
   comments: readonly Source.Comment[],
   trailing: ReadonlyMap<Core.Item, readonly Source.Comment[]>,
 ): SourceEntry[] {
   const trailingSet = new Set([...trailing.values()].flat());
   return [
-    ...items.map((item): ItemEntry => ({ kind: "Item", item, span: item.span })),
+    ...items.map((rendered): ItemEntry => ({
+      kind: "Item",
+      ...rendered,
+      span: rendered.item.span,
+    })),
     ...comments
       .filter(
         (comment) =>
@@ -3302,6 +3544,7 @@ function sourceEntries(
           kind: "Comment",
           comment,
           span: comment.span,
+          start: comment.span,
         }),
       ),
   ].sort((left, right) => left.span.start.offset - right.span.start.offset);
@@ -3318,8 +3561,7 @@ function commentLines(comment: Source.Comment): string[] {
   // An unterminated comment still reaches here — it is recorded alongside its
   // diagnostic — and its text has no closer to strip. Taking one off regardless
   // would delete the last two characters of the file.
-  const closed = comment.text.length >= 4 && comment.text.endsWith("*)");
-  const body = comment.text.slice(2, closed ? -2 : undefined);
+  const body = comment.text.slice(2, comment.terminated ? -2 : undefined);
   return body.includes("*/")
     ? split(body).map((line) => `//${line}`.trimEnd())
     : split(`/*${body}*/`);
