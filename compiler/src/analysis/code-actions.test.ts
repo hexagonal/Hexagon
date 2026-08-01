@@ -428,6 +428,32 @@ describe("code actions: infer return type", () => {
     }
   });
 
+  test("the refusal names the parameter that would settle it", () => {
+    // `x` is bare too, and is not why. Sending the user to the wrong word is
+    // worse than saying nothing, because they annotate it and nothing changes.
+    const source = "export fun m(x, y) = [y]\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(sole(actionsOn(session, "/main.hex", source, "m(")).disabled)
+      .toBe("`y` has no type yet, so the result type of `m` is not settled");
+  });
+
+  test("a nullable result is walked like any other wrapper", () => {
+    // `Nullable(a)` is ordinary source syntax — the `?` spelling is what does
+    // not lex in this slice, which is a different claim — so a result can be
+    // one, and the arm that walks it is as load-bearing as the rest.
+    const source = ["export fun m(x, y: Int) =", "    let z: Nullable(a) = x", "    z", ""]
+      .join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(sole(actionsOn(session, "/main.hex", source, "m(")).disabled)
+      .toBe("`x` has no type yet, so the result type of `m` is not settled");
+
+    // Written on the parameter, it is the user's own and is offered.
+    const annotated = "export fun m(x: Nullable(a), y) = x\n";
+    const { session: paired } = sessionOf({ "/main.hex": annotated });
+    expect(applied(annotated, sole(actionsOn(paired, "/main.hex", annotated, "m("))))
+      .toBe("export fun m(x: Nullable(a), y): Nullable(a) = x\n");
+  });
+
   test("a variable the user already wrote is not one to wait for", () => {
     // `y` is bare, so something is unwritten — but `Vector(a)` is spelled out of
     // the `a` the user put on `x`, and is the answer under every completion of
@@ -468,8 +494,12 @@ describe("code actions: infer return type", () => {
       "",
     ].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
+    // No parameter's type mentions the projection, so there is no parameter to
+    // send the user to and the sentence stays general. Annotating `x` does not
+    // settle it either — see #190, which is why this reaches only the bare
+    // case and the all-annotated one is still open.
     expect(sole(actionsOn(session, "/main.hex", source, "peek")).disabled)
-      .toBe("`x` has no type yet, so the result type of `peek` is not settled");
+      .toBe("the signature of `peek` is not complete yet, so its result type is not settled");
 
     // And what it averts: the projection is `Int`, so `: a` is blamed as soon
     // as the parameter is written — and the user has no generic completion to

@@ -548,9 +548,23 @@ less than it looks.
   over it, so `export fun m(x) = [x]` infers `Vector(a)` for the same reason
   `m(x: I) = [x]` does — one keystroke earlier, and far more common. Writing that
   down and then typing `x: Int` blames the annotation for a signature the user
-  never wrote. The test is whether the result mentions a variable an
-  un-annotated parameter introduced, asked of the tree, because the checker's one
-  message cannot say which half of the signature is missing.
+  never wrote.
+
+  The test is asked of the tree, because the checker's one message cannot say
+  which half of the signature is missing, and it is asked as *reachability*
+  rather than containment: **while any parameter is bare, does the result mention
+  a variable no annotated parameter's type contains?** Containment is too narrow
+  — a constraint's implied type (Collections Part 2 §5) makes the result a
+  projection variable that no parameter's type contains while being determined by
+  one. A variable standing in an annotated parameter's type is one the user wrote
+  and is invariant under any completion of the rest, so `m(x: a, y) = [x, y]` is
+  `Vector(a)` whatever `y` becomes and is offered.
+- **A projection is only caught while a parameter is bare.** `peek(x: a) =
+  get(x)` above has every parameter annotated, so the check above does not run,
+  and `: b` is offered for a variable the constraint will pin. Telling a
+  projection from a genuinely quantified variable needs the checker to emit which
+  is which — it knows and does not — so this is #190 rather than a rule that
+  could be written here.
 - **A type variable written inside the body is not paired with the result's.**
   A body-level `let held: z = value` declares `z` in the same rigid scope as the
   signature, and nothing pairs it with the variable the result is built from, so

@@ -138,14 +138,8 @@ export function planReturnAnnotation(
     }
   });
 
-  const borrowed = unsettledByABareParameter(lambda, type);
-  if (borrowed !== undefined) {
-    return {
-      ...subject,
-      refused: `\`${borrowed}\` has no type yet, ` +
-        `so the result type of \`${item.binding.name}\` is not settled`,
-    };
-  }
+  const bare = unsettledByABareParameter(lambda, type, item.binding.name);
+  if (bare !== undefined) return { ...subject, refused: bare };
 
   const spelled = spellType(
     type.result,
@@ -196,6 +190,13 @@ export function planReturnAnnotation(
  * `: a` is written and then blamed the moment `x: Box` is typed. Borrowing is
  * not always containment, so containment cannot be the question.
  *
+ * This closes the bare case and **not** the projection in general: annotate the
+ * subject — `peek(x: a) = get(x)` — and the gate below turns the question off
+ * while the projection is exactly as unsettled as before. Telling the two apart
+ * needs the checker to say which variables are projections, which it knows and
+ * does not emit; #190 carries the proposal. What is here is a rule about
+ * parameters, and it is honest only about parameters.
+ *
  * What is asked instead: **while any parameter is still bare, does the result
  * mention a variable the user has not already spelled?** A variable standing in
  * an annotated parameter's type is one they wrote, so a result made only of
@@ -215,23 +216,43 @@ export function planReturnAnnotation(
 function unsettledByABareParameter(
   lambda: Resolved.LambdaExpr,
   type: Typed.FunctionType,
+  name: string,
 ): string | undefined {
-  const bare = lambda.parameters.find(({ annotation }) => annotation === undefined);
-  if (bare === undefined) return undefined;
+  const bare = lambda.parameters.some(({ annotation }) => annotation === undefined);
+  if (!bare) return undefined;
 
-  const spelled = new Set<Typed.TypeVariableId>();
-  lambda.parameters.forEach((parameter, at) => {
-    const inferred = type.parameters[at];
+  const typeOf = (at: number, parameter: Resolved.Parameter): Typed.Type | undefined =>
     // A parameter whose type is missing from the scheme contributes nothing,
     // which is the safe direction: it can only leave the result mentioning more
     // than the user has spelled, and so only ever waits. `#parameters` maps
     // positionally over the same list, so this is unreachable today.
-    if (parameter.annotation === undefined || inferred === undefined) return;
-    variablesOf(inferred, spelled);
+    type.parameters[at] === undefined ? undefined : type.parameters[at];
+
+  const spelled = new Set<Typed.TypeVariableId>();
+  lambda.parameters.forEach((parameter, at) => {
+    if (parameter.annotation === undefined) return;
+    const inferred = typeOf(at, parameter);
+    if (inferred !== undefined) variablesOf(inferred, spelled);
   });
 
   for (const variable of variablesOf(type.result, new Set())) {
-    if (!spelled.has(variable)) return displayParameterName(bare.name);
+    if (spelled.has(variable)) continue;
+    // Named after the parameter that would settle it, which is the one the user
+    // has to go and write. Not the first bare one: `m(x, y) = [y]` is held up by
+    // `y` and saying `x` sends them to the wrong word.
+    const owner = lambda.parameters.find((parameter, at) => {
+      if (parameter.annotation !== undefined) return false;
+      const inferred = typeOf(at, parameter);
+      return inferred !== undefined && variablesOf(inferred, new Set()).has(variable);
+    });
+    // No parameter's type mentions it, and the signature is still unfinished, so
+    // the result stands on something the tree cannot point at — a constraint's
+    // implied type is one way (see the note above). The sentence stays general
+    // rather than blaming a parameter that is not the reason.
+    return owner === undefined
+      ? `the signature of \`${name}\` is not complete yet, so its result type is not settled`
+      : `\`${displayParameterName(owner.name)}\` has no type yet, ` +
+        `so the result type of \`${name}\` is not settled`;
   }
   return undefined;
 }
@@ -244,9 +265,9 @@ function unsettledByABareParameter(
  * Exhaustive over `Typed.Type` by construction: the declared return type makes
  * a missing variant a compile error rather than a silently dropped variable,
  * and a dropped variable here is a wrong annotation written into a file. Every
- * arm that carries one is pinned by a test that fails if it stops walking —
- * except `Nullable`, which has no annotation syntax in this slice (`Int?` does
- * not lex) and so cannot be put in a result from source at all.
+ * arm that carries one is pinned by a test that fails if it stops walking,
+ * `Nullable` included: `Int?` does not lex in this slice, but `Nullable(a)` is
+ * ordinary source syntax and a result can be one.
  */
 function variablesOf(
   type: Typed.Type,
