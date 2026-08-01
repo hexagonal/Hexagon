@@ -4848,7 +4848,8 @@ function typeVariableName(index: number): string {
  * seat there, so their references carry resolved evidence and belong in the
  * eta-expansion.
  *
- * Replacing this with `return true` leaves the whole suite green, and that is an
+ * Replacing this with `return true` — or the `Or` arm's recursion with a blanket
+ * `true` — leaves the whole suite green, and that is an
  * **equivalent mutant rather than a coverage gap** — recorded with its argument
  * so a later reader does not have to re-derive it. The caller's other condition
  * requires every evidence entry to be an *unresolved* dictionary, which only a
@@ -4861,8 +4862,17 @@ function typeVariableName(index: number): string {
  * silently bare-emitted names in destructuring positions.
  */
 function patternNamesWholeValue(pattern: Core.Pattern): boolean {
-  return pattern.kind === "Binding" || pattern.kind === "Wildcard" ||
-    pattern.kind === "As";
+  if (pattern.kind === "Binding" || pattern.kind === "Wildcard") return true;
+  // `As` qualifies whatever it wraps — its own name is the scrutinee — so it
+  // does not recurse. `Or` does: an or-of-bare-binders reads through (each
+  // alternative names the whole value), while an or-of-destructuring does not,
+  // and the checker's `Or` arm generalizes each binder against the scrutinee
+  // type exactly on that distinction. Omitting `Or` here left `let (g | g) =
+  // describe` generalizing in the checker and eta-expanding in the emitter —
+  // round 5's blocker one pattern shape over, on a program `main` runs.
+  if (pattern.kind === "As") return true;
+  if (pattern.kind === "Or") return pattern.alternatives.every(patternNamesWholeValue);
+  return false;
 }
 
 function emittedModuleSpecifier(specifier: string): string {

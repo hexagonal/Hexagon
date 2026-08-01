@@ -429,6 +429,76 @@ describe("Step 1: the completed syntactic-value list", () => {
     }
   });
 
+  test("(x-i) an `or` of bare binders reads through too", () => {
+    // Round 6. `patternNamesWholeValue` enumerated `Binding`/`Wildcard`/`As` and
+    // omitted `Or`, while the checker's `Or` arm generalizes each alternative's
+    // binder against the *scrutinee* type — so `let (g | g) = describe` kept the
+    // seat in the checker and was eta-expanded to the unsuffixed arity by the
+    // emitter. Round 5's blocker, one pattern shape over, again on a program
+    // `main` compiles and runs.
+    const source = TAG + "let (g | g) = describe\n" + 'export let s: String = g("x")\n';
+    expect(diagnostics(source)).toEqual([]);
+    const javascript = compileProject([
+      new Source.File(Source.fileId(0), "/main.hex", source),
+    ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
+    expect(javascript).toContain("= describe;");
+    expect(javascript).not.toContain("undefined)");
+    // An or of *destructuring* alternatives still declines and keeps the
+    // eta-expansion inside the aggregate.
+    //
+    // Stated exactly, because the first draft of this comment claimed more than
+    // the assertion delivers: this pins the behaviour, it does **not**
+    // discriminate the recursion. Replacing the `Or` arm with a blanket `true`
+    // leaves it green, for the same reason the whole predicate is an equivalent
+    // mutant in that direction — a destructuring alternative's right-hand side
+    // is an aggregate, so the bare branch it would unlock needs a constrained
+    // non-function scheme, which §13.6 forbids. §2e's failure mode, caught in
+    // this file's own new test rather than a round later.
+    const destructuring = TAG +
+      "let ((g, n) | (g, n)) = (describe, 1)\n" +
+      'export let s: String = g("x")\n';
+    expect(diagnostics(destructuring)).toEqual([]);
+    const other = compileProject([
+      new Source.File(Source.fileId(0), "/main.hex", destructuring),
+    ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
+    expect(other).toContain(ETA);
+    expect(other).not.toContain("undefined)");
+  });
+
+  test("(x-i) ...and the `or` read-through runs", async () => {
+    const exports = await runMain(
+      TAG + "let (g | g) = describe\n" + 'export let s: String = g("x")\n',
+    );
+    expect(exports.s).toBe("string");
+  });
+
+  test("(x-j) the `as` binder's *own* scheme reads the scrutinee too", () => {
+    // Round 6, and the same failure mode §2e describes, found inside the fix
+    // for §2e. The `As` arm passes `evaluated` twice — once into the recursion,
+    // once into the as-binder's own `#generalize` — and x-j's other specimens
+    // pin only the first: their inner binder (`g`, `q`) runs first, declines,
+    // and sinks the variable, so by the time the as-binder generalizes the
+    // level filter has emptied the set and both readings agree.
+    //
+    // A `_` inner sinks nothing, so only here does the second argument decide.
+    // NOTE: `h` itself is not emitted — a nested `as` binder never is, issue
+    // #214, pre-existing on `main`. This asserts the checker's and emitter's
+    // *evidence* decision, which is observable in the aggregate's shape.
+    for (
+      const source of [
+        TAG + "let (_ as h, n) = (describe, 1)\n" + 'export let s: String = h("x")\n',
+        TAG + "let { f = _ as r } = { f = describe }\n" + 'export let s: String = r("x")\n',
+      ]
+    ) {
+      expect(diagnostics(source)).toEqual([]);
+      const javascript = compileProject([
+        new Source.File(Source.fileId(0), "/main.hex", source),
+      ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
+      expect(javascript).toContain(ETA);
+      expect(javascript).not.toContain("undefined)");
+    }
+  });
+
   test("(x-k) a declined variable is sunk, so a sibling cannot quantify it", () => {
     // `variable.level = level` in the seat block. Two prior seats recorded it as
     // undiscriminable; it is not. The sibling here has a *function* type, so the

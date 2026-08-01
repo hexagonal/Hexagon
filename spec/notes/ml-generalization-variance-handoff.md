@@ -5,12 +5,14 @@ request. Not a spec and not a ruling. The governing document is the closure doc
 `spec/decisions-ml-dialect-generalization-2026-08.md`; on any conflict it wins,
 and the host specs it has been consolidated into win over it.
 
-**Branch:** `ml-generalization-variance-207`. **Rounds 3, 4 and 5 are fixed and
-applied (§5, §5b, §5c).** Rounds 4 and 5 were genuine cold seats — fresh agents,
-own contexts — and both returned REQUEST-CHANGES, each with its blocker sitting
-inside the previous round's fix. What remains before merge is a **sixth cold
-review round** (§6). Five rounds in, the base rate of "this round is clean" is
-zero; plan for another.
+**Branch:** `ml-generalization-variance-207`. **Rounds 3–6 are fixed and applied
+(§5, §5b, §5c, §5d).** Rounds 4, 5 and 6 were genuine cold seats, and every one
+returned REQUEST-CHANGES with its blocker inside the previous round's fix — three
+times running, each one pattern shape over from the last. James capped the arc at
+**two more rounds after round 5**; round 6 is spent, so **round 7 is the last**,
+after which the branch goes to James whatever the verdict. Six rounds in the base
+rate of "this round is clean" is still zero, so read §6's list before assuming the
+seventh settles it.
 
 **Read first, in this order:** this file → the closure doc (§2, §4, §5, §6, and
 all of §13) → `spec/functions.md` §8 → `spec/modules.md` §4.2.1 →
@@ -25,8 +27,8 @@ it is up to implement it. Implement it everywhere. Including book and
 playground."* With the standing roles: cold **Opus** reviews the code, **James**
 reviews the book himself, **Fable** writes any spec and Opus reviews it.
 
-Everything asked for is built and committed. **Five cold review rounds have run
-and all five returned REQUEST-CHANGES.** All four are now fully applied: round 3's
+Everything asked for is built and committed. **Six cold review rounds have run
+and all six returned REQUEST-CHANGES.** All four are now fully applied: round 3's
 six defects and round 4's nine were fixed in the session of 2026-08-02, and each
 fix is held by a test verified to fail when the fix is reverted (§5, §5b). Two
 needed rulings first, and Fable wrote both — closure doc §13.6, the evidence-seat
@@ -556,17 +558,84 @@ checker's seat rule surfaces as a wrong diagnostic rather than as silently bare
 names. The argument is in the source so the next reader inherits it.
 
 
+## 5d. Round 6's findings — all fixed
+
+Verdict REQUEST-CHANGES. Three defects plus a stale comment. The blocker is round
+5's blocker one pattern shape over, for the third round running.
+
+### The blocker — `Or` at a pattern root
+
+`patternNamesWholeValue` enumerated `Binding`/`Wildcard`/`As` and omitted `Or`.
+The checker's `Or` arm generalizes each alternative's binder against the
+*scrutinee* type, so `let (g | g) = describe` kept the seat there while the
+emitter eta-expanded it to the unsuffixed arity — the dropped dictionary again,
+behind the "this is a defect in the compiler" message, on a program `main`
+compiles and runs. `let (g | g) as h = describe` was correct, which localises it
+to the bare-`Or` root exactly.
+
+Fixed by recursing: `Or` names the whole value iff every alternative does. Held by
+x-i, which asserts the emitted text and the runtime answer.
+
+### The `As` arm's *second* `evaluated` was still unheld — §5c was wrong
+
+§5c said both of the `As` arm's `evaluated` arguments were "pinned properly by
+x-j". Only the recursion argument was. Dropping the one on the as-binder's own
+`#generalize` leaves the entire suite green.
+
+**x-j could not see it for the reason §2e describes**: its specimens use the
+*inner* binder, which runs first, declines, and sinks the variable — so by the
+time the as-binder generalizes, the level filter has emptied the set and both
+readings agree. A `_` inner sinks nothing, and only there does the second argument
+decide. This is §2e's failure mode occurring inside the fix for §2e.
+
+One claim in round 6's report does **not** hold: it says x-j asserts a clean
+compile on two programs that crash at runtime. Both x-j specimens use the inner
+binder and both run to `"string"`. The crash belongs to the *as*-name, which is
+#214 below.
+
+### #214 — filed, not fixed here
+
+A nested `as` binder is never emitted: `let (g as h, n) = (describe, 1)` then
+using `h` compiles clean and throws `ReferenceError: h is not defined`.
+Pre-existing on `main`, emission-only (the checker types it correctly), and **the
+only shape found in six rounds where a checker-clean program compiles to runnable
+JavaScript that is simply wrong.** It bears on two spec sentences that promise
+decline-and-pin "for every bound name, the `as` name included" — true of the
+types, not observable in the emitted module.
+
+### The stale comment
+
+`checker.ts`'s note on `variable.level = level` still said the line was unheld and
+that no specimen could discriminate it. Round 5 built one and x-k pins it. The
+comment now says so, and says what the mistake was: *"no specimen was found" is a
+fact about the search, and it was written down as a fact about the code.*
+
+### One assertion of mine that did not discriminate, caught in the same round
+
+The first draft of x-i's second half claimed the `Or` recursion was what made the
+behaviour right. It is not discriminable: replacing the recursion with a blanket
+`true` leaves it green, because a destructuring alternative's RHS is an aggregate
+and the branch it would unlock needs the constrained non-function scheme §13.6
+forbids. Same equivalence as the predicate as a whole. The comment now states what
+the assertion delivers rather than what it looks like it delivers — §2e applied to
+this file's own new test, one round earlier than usual.
+
+
 ## 6. What is left
 
-1. **A sixth cold review round.** The only thing between the branch and a PR.
-   Five rounds have each found real defects, and rounds 4 and 5 each found their
-   blocker inside the previous round's fix (§5b, §5c) — so treat a clean round as
-   the surprise. Where to look, in order: inside round 5's fixes (the emitter's
-   binding-position gate and the `As`-arm threading); at any test whose specimen
-   makes the right and the wrong implementation agree, which has now cost two
-   rounds; and at the emitted JavaScript rather than the diagnostic list, which is
-   where both of the last two blockers actually lived.
-2. **Open the PR.** Base `main`. The commits tell the story in order and should
+1. **Round 7 — the last, by James's cap.** Where to look, in order: inside round
+   6's fixes (the `Or` recursion, the `As` binder's own `evaluated`); at any test
+   whose specimen makes the right and the wrong reading agree, which has now cost
+   three rounds and has recurred *inside the fix for itself*; at the emitted
+   JavaScript and the runtime answer rather than the diagnostic list, where all
+   three recent blockers lived; and at pattern shapes not yet enumerated — every
+   blocker since round 4 has been one shape over from the last fix, so the
+   remaining risk is a shape nobody has written down. `#emitPattern`'s handling of
+   each pattern kind is the obvious sweep, and #214 shows it drops at least one.
+2. **Then it goes to James regardless of verdict.** Six rounds have each found
+   real defects; the arc is not converging by exhaustion, and the cap is the
+   decision to stop paying for that.
+3. **Open the PR.** Base `main`. The commits tell the story in order and should
    not be squashed into one.
 3. **#212 is a pre-existing crash this branch makes more visible.** A dot call to
    a missing companion operation with a bare numeric literal argument throws
@@ -590,7 +659,7 @@ names. The argument is in the source so the next reader inherits it.
 
 ## 7. Verification, as it stands
 
-Compiler 1042 plus one expected failure (x-h, #213's acceptance pin),
+Compiler 1045 plus one expected failure (x-h, #213's acceptance pin),
 language-server 113, editors/vscode 149, playground 117 — all passing,
 `tsc --noEmit` clean in the compiler. `npm run generate:prelude` was
 re-run after `Seq.hex` gained its sigil; re-run it after any stdlib edit or

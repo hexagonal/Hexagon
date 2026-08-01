@@ -4218,12 +4218,14 @@ class Checker {
         // handoff's Defect 7 invariant (a declined variable must be no more
         // quantifiable into a sibling's scheme than a placeholder is).
         //
-        // Recorded, not claimed: this line is **unheld**. Deleting it leaves the
-        // whole suite green, and neither the author nor round 4's reviewer could
-        // build a specimen that discriminates — every sibling shape tried
-        // re-declines at its own binding. It is kept for the invariant above
-        // rather than for a test, and is listed here the way `COMPILER_CLAIMS`'s
-        // `Node` row is, so it is not mistaken for covered.
+        // Held by (x-k). Two seats recorded this line as undiscriminable before
+        // round 5 found the specimen they had both missed: a *sibling* binding
+        // whose own type is a function never enters this block at all, so an
+        // unsunk variable is quantified into the sibling's scheme
+        // unconditionally — `let holder = { f = describe }` then `let k = () =>
+        // holder.f` gives `k` an evidence parameter and strips `holder`'s
+        // aggregate of its dictionary. "No specimen was found" was a fact about
+        // the search and got written down as a fact about the code.
         variable.level = level;
       }
       variables = quantified;
