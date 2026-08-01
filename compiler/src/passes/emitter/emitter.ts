@@ -635,7 +635,29 @@ class JavaScriptEmitter {
     }
 
     if (item.kind === "LetPattern") {
-      const value = this.#emitExpr(item.value, depth, evidenceNames);
+      // `bindingRhs` is the *binding-position* question Constraints §6.1 and
+      // closure doc §13.3 ask, and a `LetPattern` can be a binding position too:
+      // `let (g) = describe` reads through to a bare binder, so `g` names the
+      // whole right-hand side and the checker keeps the evidence seat and
+      // generalizes. Passing `false` here — as this call did until review round 5
+      // — made the emitter eta-expand a *generalized* constrained alias, building
+      // a wrapper of the unsuffixed arity while every consumer appended the
+      // suffix: `const g = __hex_arg00 => describe(__hex_arg00, undefined)` with
+      // `g("x", dict)` at the use. The dropped dictionary this file's §6.1 note
+      // exists to prevent, on a program `main` compiles and runs.
+      //
+      // Destructuring patterns are excluded because there the checker declines
+      // the seat (§13.6), so the alias is never generalized and the eta-expansion
+      // at the concrete instance is correct. The gate's own condition —
+      // every evidence entry an *unresolved* dictionary — is the second guard:
+      // a pattern that reads through but whose reference discharged its evidence
+      // never takes the bare branch anyway.
+      const value = this.#emitExpr(
+        item.value,
+        depth,
+        evidenceNames,
+        patternNamesWholeValue(item.pattern),
+      );
       const alternatives = expandOrPatterns(item.pattern);
       if (alternatives.length > 1) {
         const bindings = patternBindings(item.pattern);
@@ -2260,11 +2282,15 @@ class JavaScriptEmitter {
    * variable's real report, and a second one phrased as an emission failure is
    * the duplicate the ruling struck.
    *
-   * On a checker-clean module: reaching here means §13.6's invariant is broken
-   * — a scheme carrying residual constraints that does not describe a
-   * function-typed whole binding — which is a compiler defect, not the author's
-   * mistake. The ruling permits an assertion here. **This does not throw, on
-   * purpose.** Every review round of this arc has found a residual hole in the
+   * On a checker-clean module: an evidence lookup that finds nothing is a
+   * compiler defect, not the author's mistake — the checker either resolves the
+   * variable or reports it. The message says exactly that and no more. It
+   * deliberately does **not** cite §13.6's non-function guarantee: this helper
+   * also serves `#dictionary`'s general path, which handles function-typed
+   * values and derived `Eq`/`Hash` evidence that the guarantee never spoke to,
+   * and round 5 caught the earlier wording claiming it for all of them.
+   *
+   * The ruling permits an assertion here. **This does not throw, on purpose.** Every review round of this arc has found a residual hole in the
    * previous round's fix, and turning an unknown remaining hole into a hard
    * crash would trade a wrong diagnostic for a dead compiler. It reports
    * instead, in terms that can only be read as a compiler bug. If a later round
@@ -2276,9 +2302,8 @@ class JavaScriptEmitter {
     this.#diagnostics.add({
       severity: "error",
       message:
-        "internal compiler error: constraint evidence was needed where the checker " +
-        `guarantees none is (${detail}). This is a defect in the compiler, not in ` +
-        "your program; please report it",
+        `internal compiler error: ${detail}, on a module the checker accepted. ` +
+        "This is a defect in the compiler, not in your program; please report it",
       primary: span,
     });
   }
@@ -4811,6 +4836,33 @@ function typeVariableName(index: number): string {
   const letter = String.fromCharCode("a".charCodeAt(0) + (index % 26));
   const cycle = Math.floor(index / 26);
   return cycle === 0 ? letter : `${letter}${cycle}`;
+}
+
+/**
+ * Whether a `let` pattern gives some binder the right-hand side's whole value —
+ * the read-through cases of closure doc §13.6, where the evidence seat survives
+ * because the binder names the value itself rather than a projection of it.
+ *
+ * `As` qualifies whatever it wraps: its own name always denotes the scrutinee.
+ * Every destructuring form does not, and must not — the checker declines the
+ * seat there, so their references carry resolved evidence and belong in the
+ * eta-expansion.
+ *
+ * Replacing this with `return true` leaves the whole suite green, and that is an
+ * **equivalent mutant rather than a coverage gap** — recorded with its argument
+ * so a later reader does not have to re-derive it. The caller's other condition
+ * requires every evidence entry to be an *unresolved* dictionary, which only a
+ * generalized constrained scheme produces. Under a destructuring pattern the
+ * right-hand side's type is an aggregate, so generalizing a constrained variable
+ * there would be exactly the constrained non-function scheme §13.6 forbids: the
+ * bare branch is unreachable, whatever this returns. The restriction is kept as
+ * the emitter's own statement of the correspondence, so that a future regression
+ * in the checker's seat rule surfaces as a wrong *diagnostic* rather than as
+ * silently bare-emitted names in destructuring positions.
+ */
+function patternNamesWholeValue(pattern: Core.Pattern): boolean {
+  return pattern.kind === "Binding" || pattern.kind === "Wildcard" ||
+    pattern.kind === "As";
 }
 
 function emittedModuleSpecifier(specifier: string): string {

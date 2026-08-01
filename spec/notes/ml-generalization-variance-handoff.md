@@ -5,11 +5,12 @@ request. Not a spec and not a ruling. The governing document is the closure doc
 `spec/decisions-ml-dialect-generalization-2026-08.md`; on any conflict it wins,
 and the host specs it has been consolidated into win over it.
 
-**Branch:** `ml-generalization-variance-207`. **Rounds 3 and 4 are both fixed
-and applied (§5, §5b).** Round 4 was a genuine cold seat — a fresh agent, its own
-context — and returned REQUEST-CHANGES with nine findings, the blocker inside
-round 4's own fix for round 3's blocker. All nine are closed. What remains before
-merge is a **fifth cold review round** (§6).
+**Branch:** `ml-generalization-variance-207`. **Rounds 3, 4 and 5 are fixed and
+applied (§5, §5b, §5c).** Rounds 4 and 5 were genuine cold seats — fresh agents,
+own contexts — and both returned REQUEST-CHANGES, each with its blocker sitting
+inside the previous round's fix. What remains before merge is a **sixth cold
+review round** (§6). Five rounds in, the base rate of "this round is clean" is
+zero; plan for another.
 
 **Read first, in this order:** this file → the closure doc (§2, §4, §5, §6, and
 all of §13) → `spec/functions.md` §8 → `spec/modules.md` §4.2.1 →
@@ -24,8 +25,8 @@ it is up to implement it. Implement it everywhere. Including book and
 playground."* With the standing roles: cold **Opus** reviews the code, **James**
 reviews the book himself, **Fable** writes any spec and Opus reviews it.
 
-Everything asked for is built and committed. **Four cold review rounds have run
-and all four returned REQUEST-CHANGES.** All four are now fully applied: round 3's
+Everything asked for is built and committed. **Five cold review rounds have run
+and all five returned REQUEST-CHANGES.** All four are now fully applied: round 3's
 six defects and round 4's nine were fixed in the session of 2026-08-02, and each
 fix is held by a test verified to fail when the fix is reverted (§5, §5b). Two
 needed rulings first, and Fable wrote both — closure doc §13.6, the evidence-seat
@@ -73,7 +74,7 @@ entry; a new Playground `polymorphism` example; `stdlib/Seq.hex` now declares
 
 ---
 
-## 2. The four non-obvious things a future reader will get wrong
+## 2. The five non-obvious things a future reader will get wrong
 
 ### 2a. `Num` is the wrong specimen, and it will fool you three times
 
@@ -152,6 +153,31 @@ they meant to write.
 
 Do not treat "the reviewer approved the last change" as covering the change
 built on top of it. Re-verify the specimen, not just the assertion.
+
+---
+
+### 2e. A test can be untestable-by-construction, and look like coverage
+
+Distinct from §2b, and it has now cost two rounds. §2b's failure is *no test*.
+This one is *a test whose specimen makes the right and the wrong implementation
+give the same answer*. It passes, it names its subject, it reads as coverage, and
+it holds nothing.
+
+- Round 3's `Set(a)` specimen for the variance clause. `Set` demands `a: Hash`, so
+  clause (a) declined the variable **whatever the variance row said** — flipping
+  the row could not change the outcome. The replacement needed an *unconstrained*
+  variable in an invariant position, which is a different specimen, not a
+  correction to the assertion.
+- Round 5's x-d, the `as` battery row. It puts the `as` at the pattern **root**,
+  where the component type and the scrutinee type coincide — so it cannot tell
+  "read the component" from "read the whole value", which is exactly the
+  distinction the lines it appears to cover exist to make. Dropping those lines
+  left all 1038 tests green.
+
+The question that catches it is not "is there a test?" but **"would this test have
+distinguished the wrong implementation from the right one?"** — which you answer by
+building the wrong implementation and running it, not by reading the test. That is
+the same discipline as §2b, applied to the *specimen* rather than to the assertion.
 
 ---
 
@@ -443,14 +469,103 @@ compiler. If a later round establishes the invariant under adversarial search,
   scope. Corrected in place.
 
 
+## 5c. Round 5's findings — all fixed
+
+Verdict REQUEST-CHANGES. Reproduced here before being acted on. **Two of the five
+were direct refutations of claims this note made**, which is the reason to read
+§2b and §2d again rather than trusting a summary — including this one.
+
+### The blocker — the case §13.6 blessed and the battery never touched
+
+§13.6's own second consequence says a `let` pattern that reads through to a bare
+binder over a function-typed RHS **keeps** the seat. The checker implements that
+correctly. The emitter did not know a `LetPattern` could be a binding position at
+all, so it eta-expanded a *generalized* constrained alias to the unsuffixed arity:
+
+```js
+const g = __hex_arg00 => describe(__hex_arg00, undefined);
+const s = g("x", __hex_instance_Tag_String);
+```
+
+The dropped dictionary again — one shape over from where round 4 fixed it — and
+this time behind the new *"this is a defect in the compiler … please report it"*
+message, on a program `main` compiles **and runs**. Three spellings: `let (g) =
+describe`, `let (g) as h = …`, `let (_) as h = …`.
+
+Fixed at the gate, not per shape: `#emitBindingValue`'s binding-position flag is
+now computed from the pattern (`patternNamesWholeValue`), so a read-through binder
+emits §13.3's bare `const g = describe` and destructuring patterns keep the
+eta-expansion. Held by x-i, which asserts the **emitted text and the runtime
+answer** — a diagnostics-only probe passes on all three while the program throws.
+
+### The two refutations
+
+**"`variable.level = level` cannot be discriminated" was false.** §5b recorded it
+as unheld *and unholdable*, on the strength of two seats failing to find a
+specimen. Round 5 found one: a **sibling** binding whose own type is a function
+never enters the seat block, so an unsunk variable is quantified into its scheme
+unconditionally — `let holder = { f = describe }` then `let k = () => holder.f`
+gives `k` an evidence parameter and strips `holder`'s aggregate of its dictionary.
+Pinned by x-k. *"We could not build one" is a fact about the search, not about the
+code, and this note stated it as the latter.*
+
+**"Every fix is mutation-tested" was false.** The `As` arm's two `evaluated`
+arguments were not: dropping them leaves all 1038 tests green while regressing a
+nested `as` to exactly round 4's blocker. The battery's x-d puts its `as` at the
+pattern **root**, where the component type and the scrutinee type coincide — so it
+is an equivalent-mutant test for the lines it appears to cover. Pinned properly by
+x-j.
+
+**This is the second time in the arc that a test looked like coverage while
+testing a case where both readings agree.** The first was round 3's `Set(a)`
+specimen, where clause (a) declined the variable whatever the variance row said.
+That failure mode is distinct from an untested line and is not caught by asking
+"is there a test?" — only by asking *"would this test have distinguished the wrong
+implementation from the right one?"*
+
+### The rest
+
+- **The assertion message over-claimed.** It cited §13.6's non-function guarantee
+  while firing from `#dictionary`'s general path, which also serves function-typed
+  values and derived `Eq`/`Hash` evidence. Reworded to claim only what it knows: an
+  evidence lookup found nothing on a module the checker accepted. Fable then ruled
+  the split explicitly — the *quiet* half is class-wide, the *assert* half is the
+  non-function case's only.
+- **The retirement was stated as one program and is a class.** Every
+  already-diagnosed module reaching the missing-evidence path loses the second
+  message. x-f now pins four members instead of one.
+- **Two spec sentences did not match the implementation.** The annotated-scrutinee
+  sentence described an unwritable program — annotated destructuring is a parse
+  error — and was struck. "Every name a pattern binds" is false for constructor
+  patterns; Fable kept it normative and made it **#213's acceptance target**
+  rather than scoping an off-by-one into the language.
+- **#213 filed** — constructor-pattern components can never generalize
+  (`#constructorShape` opens them at the binding's level where the sibling arms
+  open one level in). Pre-existing on `main`. Pinned by x-h as a `test.fails`, so
+  it goes red the moment the defect is fixed.
+
+### One surviving mutation, recorded as equivalent rather than as a gap
+
+Forcing `patternNamesWholeValue` to `true` leaves everything green. That is
+provable equivalence, not missing coverage: the gate's other condition needs every
+evidence entry to be an *unresolved* dictionary, which only a generalized
+constrained scheme produces, and under a destructuring pattern such a scheme is
+the constrained non-function §13.6 forbids. The restriction is kept as the
+emitter's own statement of the correspondence, so a future regression in the
+checker's seat rule surfaces as a wrong diagnostic rather than as silently bare
+names. The argument is in the source so the next reader inherits it.
+
+
 ## 6. What is left
 
-1. **A fifth cold review round.** This is the only thing between the branch and a
-   PR. Round 4 was a real cold seat and found nine defects, the blocker inside the
-   fix for round 3's blocker (§5b) — so round 5 is not a formality, and §2d says
-   where to look: inside round 4's fixes. Two places are named in advance as
-   uncovered: `variable.level = level` in the seat block, and whether the restated
-   invariant's provenance half holds under adversarial search.
+1. **A sixth cold review round.** The only thing between the branch and a PR.
+   Five rounds have each found real defects, and rounds 4 and 5 each found their
+   blocker inside the previous round's fix (§5b, §5c) — so treat a clean round as
+   the surprise. Where to look, in order: inside round 5's fixes (the emitter's
+   binding-position gate and the `As`-arm threading); at any test whose specimen
+   makes the right and the wrong implementation agree, which has now cost two
+   rounds; and at the emitted JavaScript rather than the diagnostic list, which is
+   where both of the last two blockers actually lived.
 2. **Open the PR.** Base `main`. The commits tell the story in order and should
    not be squashed into one.
 3. **#212 is a pre-existing crash this branch makes more visible.** A dot call to
@@ -475,8 +590,9 @@ compiler. If a later round establishes the invariant under adversarial search,
 
 ## 7. Verification, as it stands
 
-Compiler 1038, language-server 113, editors/vscode 149, playground 117 — all
-passing, `tsc --noEmit` clean in the compiler. `npm run generate:prelude` was
+Compiler 1042 plus one expected failure (x-h, #213's acceptance pin),
+language-server 113, editors/vscode 149, playground 117 — all passing,
+`tsc --noEmit` clean in the compiler. `npm run generate:prelude` was
 re-run after `Seq.hex` gained its sigil; re-run it after any stdlib edit or
 `prelude-sources.ts` goes stale.
 

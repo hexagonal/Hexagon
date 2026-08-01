@@ -371,6 +371,83 @@ describe("Step 1: the completed syntactic-value list", () => {
     expect(javascript).toContain(ETA);
   });
 
+  // (x-i…x-k) Round 5's findings. Each of these compiled and *ran* on `main`,
+  // and each emitted the dropped-dictionary wrapper on this branch until it was
+  // fixed — so each asserts the emitted text and the runtime answer, not the
+  // diagnostic list. A diagnostics-only probe passes on all three while the
+  // program throws `TypeError` at its first operation.
+
+  test("(x-i) a pattern that reads through to a binder keeps the seat, and emits bare", () => {
+    // §13.6: `let (g) = describe` binds `g` to the *whole* right-hand side, so
+    // unlike a destructuring pattern the seat survives and the alias generalizes
+    // — which means §13.3's bare-reference emission, `const g = describe`, with
+    // the consumer appending the suffix. The emitter's binding-position gate did
+    // not know a `LetPattern` could be a binding position, eta-expanded a
+    // generalized alias to the unsuffixed arity, and dropped the dictionary.
+    for (
+      const [binding, use] of [
+        ["let (g) = describe\n", 'export let s: String = g("x")\n'],
+        ["let (g) as h = describe\n", 'export let s: String = g("x")\n'],
+        ["let (_) as h = describe\n", 'export let s: String = h("x")\n'],
+      ] as const
+    ) {
+      const source = TAG + binding + use;
+      expect(diagnostics(source)).toEqual([]);
+      const javascript = compileProject([
+        new Source.File(Source.fileId(0), "/main.hex", source),
+      ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
+      expect(javascript).toContain("= describe;");
+      expect(javascript).not.toContain("undefined)");
+    }
+  });
+
+  test("(x-i) ...and the read-through alias actually runs", async () => {
+    const exports = await runMain(
+      TAG + "let (g) = describe\n" + 'export let s: String = g("x")\n',
+    );
+    expect(exports.s).toBe("string");
+  });
+
+  test("(x-j) an `as` *inside* a destructuring pattern still declines", () => {
+    // The seat is a property of the value, and `g as h` names a tuple component
+    // however it is spelled. Dropping the `evaluated` argument from the `As` arm
+    // leaves the whole suite green while regressing exactly this: x-d's `as` sits
+    // at the pattern *root*, where the component type and the aggregate type are
+    // the same, so it cannot discriminate the two readings.
+    for (
+      const source of [
+        TAG + "let (g as h, n) = (describe, 1)\n" + 'export let s: String = g("x")\n',
+        TAG + "let { f = q as r } = { f = describe }\n" + 'export let s: String = q("x")\n',
+      ]
+    ) {
+      expect(diagnostics(source)).toEqual([]);
+      const javascript = compileProject([
+        new Source.File(Source.fileId(0), "/main.hex", source),
+      ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
+      expect(javascript).toContain(ETA);
+      expect(javascript).not.toContain("undefined)");
+    }
+  });
+
+  test("(x-k) a declined variable is sunk, so a sibling cannot quantify it", () => {
+    // `variable.level = level` in the seat block. Two prior seats recorded it as
+    // undiscriminable; it is not. The sibling here has a *function* type, so the
+    // seat block never runs for it and an unsunk variable is quantified
+    // unconditionally — `k` grows an evidence parameter and `holder`'s aggregate
+    // loses its dictionary.
+    const source = TAG +
+      "let holder = { f = describe }\n" +
+      "let k = () => holder.f\n" +
+      'export let s: String = (k())("x")\n';
+    expect(diagnostics(source)).toEqual([]);
+    const javascript = compileProject([
+      new Source.File(Source.fileId(0), "/main.hex", source),
+    ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
+    expect(javascript).toContain(ETA);
+    expect(javascript).toContain("const k = () =>");
+    expect(javascript).not.toContain("undefined)");
+  });
+
   test("(x-e) the unconstrained control: a destructured component still generalizes", () => {
     // The rule must not overshoot into "no destructuring binding generalizes".
     // `e` is unconstrained, so it quantifies and serves two element types.
@@ -383,6 +460,27 @@ describe("Step 1: the completed syntactic-value list", () => {
     ).toEqual([]);
   });
 
+  test.fails("(x-h) a constructor pattern generalizes its components — #213's target", () => {
+    // §11.1 (x-h): the acceptance test for issue #213, written to **fail** today.
+    // `let Box(e) = Box(empty)` must behave exactly as x-e's tuple control does,
+    // and does not: `#inferPattern`'s constructor arm opens its components at the
+    // binding's own level where the tuple and record arms open one level in, so
+    // they can never pass generalization's level filter. Measured identically on
+    // `main`, so pre-existing — but §13.6 promises it, so it is pinned as the
+    // promise rather than as the present state.
+    //
+    // `test.fails` and not `skip`: when #213 lands this goes red, which is the
+    // signal to delete this comment and flip it to an ordinary `test`.
+    expect(
+      diagnostics(
+        "union Box(a) = Box(a)\n" +
+          "let Box(e) = Box(empty)\n" +
+          "export let x: Int = Seq.length(cons(1, e))\n" +
+          'export let y: Int = Seq.length(cons("s", e))\n',
+      ),
+    ).toEqual([]);
+  });
+
   test("(x-f) an already-diagnosed module gets one diagnostic, not two", () => {
     // The scoped retirement (§13.6). `g` is never used, so nothing pins the
     // variable and the checker reports the non-defaultable constraint — a
@@ -391,10 +489,27 @@ describe("Step 1: the completed syntactic-value list", () => {
     // report of the same variable, phrased as an internal failure. This is a
     // deliberate change to a surface `main` ships, so it is pinned as an exact
     // list rather than a membership.
-    expect(diagnostics(TAG + "let g = Some(describe)\n")).toEqual([
+    //
+    // Widened after round 5: the change is the **class**, not this one program —
+    // every already-diagnosed module whose emission reaches the missing-evidence
+    // path loses the second message. `Some(describe)` is the canonical member;
+    // the others below are function-typed values in other containers, and each
+    // gains the emission message when the suppression is removed. Any further
+    // member losing its second message is this rule operating, not a regression.
+    const onlyTheCheckersError = [
       "this expression's type cannot default to `Int`: `Tag` is not a defaultable " +
       "constraint; add a type annotation to pin the type",
-    ]);
+    ];
+    for (
+      const binding of [
+        "let g = Some(describe)\n",
+        "let holder = { f = describe }\n",
+        "let pair = (describe, 1)\n",
+        "let v = [describe]\n",
+      ]
+    ) {
+      expect(diagnostics(TAG + binding)).toEqual(onlyTheCheckersError);
+    }
   });
 
   test("(x) an *unconstrained* aggregate still generalizes in full", () => {
