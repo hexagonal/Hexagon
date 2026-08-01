@@ -57,24 +57,49 @@ type EvidenceNames = ReadonlyMap<string, string>;
  */
 class DocIndex {
   readonly #byTarget: ReadonlyMap<number, Documentation>;
-  /** The comments documentation was built from; emission must not repeat them. */
-  readonly attached: ReadonlySet<Source.Comment>;
+  /** Blocks that found a seat: the ones a text emitter has already written. */
+  readonly #seated = new Set<Documentation>();
 
   constructor(docs: readonly Documentation[]) {
-    this.#byTarget = new Map(docs.map((doc) => [doc.target, doc]));
-    this.attached = new Set(docs.flatMap(({ comments }) => [...comments]));
+    const byTarget = new Map<number, Documentation>();
+    for (const doc of docs) {
+      // The side table is keyed by the documented declaration's span start, and
+      // the whole design rests on that being unique across every claim site. A
+      // collision would silently hand one declaration another's documentation,
+      // so it fails loudly instead of quietly.
+      if (byTarget.has(doc.target)) {
+        throw new Error(
+          `internal error: two doc blocks target offset ${doc.target}`,
+        );
+      }
+      byTarget.set(doc.target, doc);
+    }
+    this.#byTarget = byTarget;
   }
 
   /**
    * The JSDoc block for the declaration at `span`, as lines, or nothing.
    *
    * An empty doc block contributes empty documentation, which tooling treats as
-   * absent (§3.2) — so it emits nothing rather than an empty block.
+   * absent (§3.2) — so it emits nothing rather than an empty block. It still
+   * counts as seated: the seat existed, and the comment has been spoken for.
    */
   lines(span: Source.Span, indent = ""): string[] {
-    const content = this.#byTarget.get(span.start.offset)?.content;
-    if (content === undefined || content === "") return [];
-    return jsDocBlock(content, indent);
+    const doc = this.#byTarget.get(span.start.offset);
+    if (doc === undefined) return [];
+    this.#seated.add(doc);
+    return doc.content === "" ? [] : jsDocBlock(doc.content, indent);
+  }
+
+  /**
+   * The comments already written as JSDoc, so the ordinary comment channel does
+   * not write them a second time. Asked *after* the items are emitted, because
+   * what is seated is exactly what emission found a seat for — a doc comment on
+   * a `type` alias or a `union` has no `.js` seat, and Comments §6 keeps
+   * preserving it as the item-boundary comment it also is.
+   */
+  seatedComments(): ReadonlySet<Source.Comment> {
+    return new Set([...this.#seated].flatMap(({ comments }) => [...comments]));
   }
 
   /**
@@ -251,41 +276,46 @@ class JavaScriptEmitter {
   emit(): Emitted.JavaScript {
     const body: string[] = [];
     const trailing = trailingComments(this.#module.items, this.#module.comments);
+
+    // Items are rendered before the comment channel is decided, because which
+    // doc comments are already spoken for is exactly what rendering discovers:
+    // a doc block with no seat here (a `type` alias, a `union`) is still an
+    // item-boundary comment, and Comments §6 preserves it as one.
+    const rendered = this.#module.items.map((item) => {
+      const lines = this.#emitItem(item, 0, new Map(), false);
+      const comments = trailing.get(item) ?? [];
+      if (comments.length > 0 && lines.length > 0) {
+        const last = lines.length - 1;
+        lines[last] = `${lines[last]} ${comments.map(({ text }) => text).join(" ")}`;
+      }
+      // An item that emits nothing has nothing to precede, and one whose
+      // emitted forms are its members' rather than its own has no seat for the
+      // item's own documentation (§7.1).
+      const doc = lines.length > 0 && hasJavaScriptSeat(item)
+        ? this.#docs.lines(item.span)
+        : [];
+      return {
+        item,
+        lines: [...doc, ...lines],
+        // A documented item starts, on the page, at its doc block.
+        start: (doc.length > 0 ? this.#docs.span(item.span) : undefined) ?? item.span,
+      };
+    });
+
+    const seated = this.#docs.seatedComments();
     const entries = sourceEntries(
-      this.#module.items,
-      // A doc comment that attached is emitted as its declaration's JSDoc
-      // (§7.1); leaving it on the ordinary comment channel too would emit it
-      // twice. One that attached to nothing is a hard error, and stays an
-      // ordinary comment in the best-effort output.
-      this.#module.comments.filter((comment) => !this.#docs.attached.has(comment)),
+      rendered,
+      this.#module.comments.filter((comment) => !seated.has(comment)),
       trailing,
     );
     let previousSpan: Source.Span | undefined;
     for (const entry of entries) {
-      // A documented item starts, on the page, at its doc block.
-      const start = (entry.kind === "Item"
-        ? this.#docs.span(entry.item.span)
-        : undefined) ?? entry.span;
       if (previousSpan !== undefined) {
-        body.push(...Array(blankLinesBetween(previousSpan, start)).fill(""));
+        body.push(...Array(blankLinesBetween(previousSpan, entry.start)).fill(""));
       }
-      if (entry.kind === "Comment") {
-        body.push(...commentLines(entry.comment));
-      } else {
-        const lines = this.#emitItem(entry.item, 0, new Map(), false);
-        const comments = trailing.get(entry.item) ?? [];
-        if (comments.length > 0 && lines.length > 0) {
-          const last = lines.length - 1;
-          lines[last] = `${lines[last]} ${comments.map(({ text }) => text).join(" ")}`;
-        }
-        // An item that emits nothing — a `type` alias — has nothing to precede,
-        // and one whose emitted forms are its members' rather than its own has
-        // no seat for the item's documentation (§7.1).
-        if (lines.length > 0 && hasJavaScriptSeat(entry.item)) {
-          body.push(...this.#docs.lines(entry.item.span));
-        }
-        body.push(...lines);
-      }
+      body.push(
+        ...(entry.kind === "Comment" ? commentLines(entry.comment) : entry.lines),
+      );
       previousSpan = entry.span;
     }
     body.push(...this.#exports);
@@ -3452,9 +3482,16 @@ function isSimplePayloadBindingPattern(pattern: Core.Pattern): boolean {
   }
 }
 
-interface ItemEntry {
-  readonly kind: "Item";
+/** An item already rendered to lines; see the two phases in `emit`. */
+interface RenderedItem {
   readonly item: Core.Item;
+  readonly lines: readonly string[];
+  /** Where the item begins on the page: its doc block, when it has one. */
+  readonly start: Source.Span;
+}
+
+interface ItemEntry extends RenderedItem {
+  readonly kind: "Item";
   readonly span: Source.Span;
 }
 
@@ -3462,6 +3499,7 @@ interface CommentEntry {
   readonly kind: "Comment";
   readonly comment: Source.Comment;
   readonly span: Source.Span;
+  readonly start: Source.Span;
 }
 
 function trailingComments(
@@ -3485,13 +3523,17 @@ function trailingComments(
 }
 
 function sourceEntries(
-  items: readonly Core.Item[],
+  items: readonly RenderedItem[],
   comments: readonly Source.Comment[],
   trailing: ReadonlyMap<Core.Item, readonly Source.Comment[]>,
 ): SourceEntry[] {
   const trailingSet = new Set([...trailing.values()].flat());
   return [
-    ...items.map((item): ItemEntry => ({ kind: "Item", item, span: item.span })),
+    ...items.map((rendered): ItemEntry => ({
+      kind: "Item",
+      ...rendered,
+      span: rendered.item.span,
+    })),
     ...comments
       .filter(
         (comment) =>
@@ -3502,6 +3544,7 @@ function sourceEntries(
           kind: "Comment",
           comment,
           span: comment.span,
+          start: comment.span,
         }),
       ),
   ].sort((left, right) => left.span.start.offset - right.span.start.offset);
@@ -3518,8 +3561,7 @@ function commentLines(comment: Source.Comment): string[] {
   // An unterminated comment still reaches here — it is recorded alongside its
   // diagnostic — and its text has no closer to strip. Taking one off regardless
   // would delete the last two characters of the file.
-  const closed = comment.text.length >= 4 && comment.text.endsWith("*)");
-  const body = comment.text.slice(2, closed ? -2 : undefined);
+  const body = comment.text.slice(2, comment.terminated ? -2 : undefined);
   return body.includes("*/")
     ? split(body).map((line) => `//${line}`.trimEnd())
     : split(`/*${body}*/`);

@@ -47,6 +47,17 @@ interface Block {
 }
 
 export class DocBlocks {
+  /**
+   * A `DocBlocks` with nothing in it, for a parser that is not parsing a file.
+   * The interpolation sub-parser is the only one: an interpolation's comments
+   * are in the *outer* file's list already, where the enclosing-token test in
+   * the constructor answers for them, so giving the inner parser the outer
+   * bookkeeping would let one comment be judged twice.
+   */
+  static none(diagnostics: Diagnostics.Bag): DocBlocks {
+    return new DocBlocks([], [], diagnostics);
+  }
+
   /** Physical, non-`Eof` tokens: the "code tokens" §4.1 quantifies over. */
   readonly #code: readonly LaidOut.Token[];
   readonly #diagnostics: Diagnostics.Bag;
@@ -86,9 +97,8 @@ export class DocBlocks {
 
       // §5's last row: an unterminated doc comment takes Comments §5's error and
       // nothing else. It runs to end of file, so it has no next code token, and
-      // adding "documents nothing" to it would be a cascade from one typo. The
-      // closer test is the same one the emitter uses on comment text.
-      if (!comment.text.endsWith("*)")) continue;
+      // adding "documents nothing" to it would be a cascade from one typo.
+      if (!comment.terminated) continue;
 
       // A doc comment inside a string interpolation is inside a token: the
       // lexer scans an interpolation's trivia with the same scanner, so its
@@ -120,22 +130,26 @@ export class DocBlocks {
     if (block === undefined) return;
 
     // §4.3: a doc comment with code before it on its line does not attach, even
-    // when what follows it is exactly the declaration it was aimed at.
-    if (block.offending.length > 0) {
-      for (const comment of block.offending) this.#report(LEADING_ONLY, comment.span);
-      return;
-    }
+    // when what follows it is exactly the declaration it was aimed at. Its
+    // block-mates still do — the rule rejects a comment, not its neighbours.
+    for (const comment of block.offending) this.#report(LEADING_ONLY, comment.span);
+    const members = block.comments.filter(
+      (comment) => !block.offending.includes(comment),
+    );
+    if (members.length === 0) return;
+    const first = members[0]!;
+    const last = members.at(-1)!;
 
     this.#attached.push({
       // §3.2: contents concatenate in source order, joined by a blank line. An
       // empty member contributes nothing rather than a stray paragraph break.
-      content: block.comments
+      content: members
         .map(extractDocContent)
         .filter((content) => content !== "")
         .join("\n\n"),
       target: target.start.offset,
-      span: block.span,
-      comments: block.comments,
+      span: { fileId: first.span.fileId, start: first.span.start, end: last.span.end },
+      comments: members,
     });
   }
 

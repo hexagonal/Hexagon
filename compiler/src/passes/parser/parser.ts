@@ -142,7 +142,7 @@ class Parser {
   constructor(
     tokens: readonly LaidOut.Token[],
     diagnostics: Diagnostics.Bag,
-    docs: DocBlocks = new DocBlocks([], [], diagnostics),
+    docs: DocBlocks,
   ) {
     this.#tokens = tokens;
     this.#diagnostics = diagnostics;
@@ -1901,8 +1901,11 @@ class Parser {
       if (part.kind === "Text") {
         return { kind: "Text", value: part.value, span: part.span };
       }
-      const expression = new Parser(part.tokens, this.#diagnostics)
-        .parseStandaloneExpression();
+      const expression = new Parser(
+        part.tokens,
+        this.#diagnostics,
+        DocBlocks.none(this.#diagnostics),
+      ).parseStandaloneExpression();
       return { kind: "Interpolation", expression, span: part.span };
     });
     return { kind: "String", parts, span: token.span };

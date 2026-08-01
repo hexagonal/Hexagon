@@ -313,7 +313,9 @@ describe("§7: emission into both artifacts", () => {
 
     // The `.js` has no seat for the union type itself; it emits constructors.
     expect(main.javascript.text).toContain('/** A circle. */\nconst Circle = radius =>');
-    expect(main.javascript.text).not.toContain("A shape.");
+    // Having no seat does not make the comment disappear: it stays the
+    // item-boundary comment Comments §6 preserves, in JavaScript's spelling.
+    expect(main.javascript.text).toContain("/** A shape. */");
     expect(main.declarations.text).toContain("/** A shape. */\nexport type Shape =");
     expect(main.declarations.text).toContain(
       "/** A circle. */\nexport declare const Circle:",
@@ -367,7 +369,9 @@ describe("§7: emission into both artifacts", () => {
     expect(main.declarations.text).toBe(
       "/** A tally. */\nexport type Count = number;\n",
     );
-    expect(main.javascript.text).not.toContain("A tally.");
+    // A `type` alias emits no JavaScript at all, so there is no seat — but the
+    // comment is still preserved as trivia (Comments §6), not deleted.
+    expect(main.javascript.text).toBe("/** A tally. */\n");
   });
 
   test("a foreign declaration documents both its import and its `.d.ts` face", () => {
@@ -458,5 +462,138 @@ describe("§7.1: seats that are not one-to-one", () => {
       'size(value) = value :: "The obvious size."',
     ]);
     expect(main.javascript.text).not.toContain("The obvious size.");
+  });
+});
+
+/**
+ * The cold review's two defects, and the behaviour around them that no golden
+ * held down before: documentation that finds no seat is still trivia, and
+ * "did this comment close?" is a fact the lexer knows rather than one the text
+ * can be asked.
+ */
+describe("no seat is not deletion (Comments §6)", () => {
+  test("a `union`'s own documentation survives in the `.js` as a comment", () => {
+    const main = compiled("(** A shape. *)\nexport union Shape = | A | B\n");
+
+    expect(main.javascript.text).toContain("/** A shape. */");
+    expect(main.declarations.text).toContain("/** A shape. */\nexport type Shape =");
+  });
+
+  test("a `constraint`'s and an `honor`'s documentation survive too", () => {
+    const main = compiled(
+      "(** Things with a size. *)\n" +
+        "constraint Sized<a> =\n" +
+        "  size(value: a): Int\n" +
+        "(** Ints have one. *)\n" +
+        "honor Sized<Int> =\n" +
+        "  size(value) = value\n",
+    );
+
+    expect(main.javascript.text).toContain("/** Things with a size. */");
+    expect(main.javascript.text).toContain("/** Ints have one. */");
+  });
+
+  test("a doc comment with a seat is written once, not twice", () => {
+    const main = compiled("(** Doubles. *)\nexport let two: Int = 2\n");
+
+    expect(main.javascript.text.match(/Doubles\./gu)).toHaveLength(1);
+  });
+});
+
+describe("termination is the lexer's answer, not the text's", () => {
+  test("an unterminated *nested* doc comment gets one diagnostic, like a flat one", () => {
+    // `(** a (* b *)` ends in `*)` and is open at depth 1 all the same; asking
+    // the text would admit it to a block and stack "documents nothing" on top.
+    expect(diagnostics("(** doc (* inner *)")).toEqual([
+      "unterminated block comment; opened at line 1, column 1",
+    ]);
+    expect(diagnostics("(** doc")).toEqual([
+      "unterminated block comment; opened at line 1, column 1",
+    ]);
+  });
+});
+
+describe("§4.3: one offending comment does not take its block down", () => {
+  test("the leading member still attaches; the offender is still reported", () => {
+    const source = "let a = 1 (** trailing *)\n(** Leading. *)\nlet b = 2\n";
+
+    expect(diagnostics(source)).toEqual([LEADING_ONLY]);
+    expect(attachments(source)).toEqual(['let b = 2 :: "Leading."']);
+  });
+});
+
+describe("shapes the §11 snippets do not exhibit", () => {
+  test("CRLF line endings dedent and join the same way", () => {
+    const source = "(**\r\n    First line.\r\n    Second line.\r\n*)\r\nlet k = 1\r\n";
+
+    expect(attachments(source)).toEqual([
+      'let k = 1 :: "First line.\\nSecond line."',
+    ]);
+  });
+
+  test("tabs inside a doc body are the author's business (§3.1)", () => {
+    const source = "(**\n\tTabbed.\n\tAlso tabbed.\n*)\nlet k = 1\n";
+
+    expect(attachments(source)).toEqual(['let k = 1 :: "Tabbed.\\nAlso tabbed."']);
+  });
+
+  test("nested `(* *)` inside a doc body is content, not structure", () => {
+    const source = "(** Mentions (* a nested comment *) inline. *)\nlet k = 1\n";
+
+    expect(attachments(source)).toEqual([
+      'let k = 1 :: "Mentions (* a nested comment *) inline."',
+    ]);
+  });
+
+  test("a blank line between two doc comments still leaves one block", () => {
+    const source = "(** First. *)\n\n(** Second. *)\nlet k = 1\n";
+
+    expect(attachments(source)).toEqual(['let k = 1 :: "First.\\n\\nSecond."']);
+  });
+
+  test("a local `var` and a union with no leading `|` are documentable", () => {
+    const source = "(** A choice. *)\nunion Choice = Yes | No\n" +
+      "export fun f(): Int =\n  (** A counter. *)\n  var n = 0\n  n\n";
+
+    expect(attachments(source)).toEqual([
+      'union Choice = Yes | No :: "A choice."',
+      'var n = 0 :: "A counter."',
+    ]);
+    expect(diagnostics(source)).toEqual([]);
+  });
+
+  test("opaque exports document their branded type, not the brand", () => {
+    const main = compiled(
+      "(** An opaque handle. *)\nexport opaque record Handle = {id: Int}\n",
+    );
+
+    expect(main.declarations.text).toContain(
+      "unique symbol;\n/** An opaque handle. */\nexport type Handle =",
+    );
+  });
+
+  test("`derives` does not duplicate a declaration's documentation", () => {
+    const main = compiled(
+      "(** A tag. *)\nexport union Tag derives Eq = Yes | No\n",
+    );
+
+    expect(main.declarations.text.match(/\/\*\* A tag\. \*\//gu)).toHaveLength(1);
+  });
+
+  test("content carrying `@deprecated` passes through untouched (§7.2)", () => {
+    // The recorded hole: TypeScript reads its own tag vocabulary out of emitted
+    // JSDoc, and Hexagon neither validates nor suppresses it.
+    const main = compiled("(** @deprecated Use `two`. *)\nexport let one: Int = 1\n");
+
+    expect(main.declarations.text).toContain("/** @deprecated Use `two`. */");
+  });
+
+  test("emitted JavaScript stays parseable when content ends a block at a line seam", () => {
+    const main = compiled(
+      "(** Ends with a star *\n    / starts with a slash *)\nexport let e: Int = 1\n",
+    );
+
+    expect(() => new Function(main.javascript.text.replace(/^export .*$/gmu, "")))
+      .not.toThrow();
   });
 });

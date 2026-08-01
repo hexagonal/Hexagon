@@ -267,7 +267,7 @@ class Scanner {
         this.#offset += 2;
         if (openers.length === 0) {
           this.#atLineStart = false;
-          this.#recordComment("Block", commentStart, documentation);
+          this.#recordComment("Block", commentStart, documentation, true);
           return;
         }
       } else if (isNewlineStart(this.#source.text.charCodeAt(this.#offset))) {
@@ -292,7 +292,7 @@ class Scanner {
         : "";
     // An unterminated doc comment stays classified: the §5 row for it is
     // Comments §5's unterminated-block error, and nothing else fires.
-    this.#recordComment("Block", commentStart, documentation);
+    this.#recordComment("Block", commentStart, documentation, false);
     this.#error(
       innermost,
       Math.min(innermost + 2, this.#source.text.length),
@@ -362,10 +362,12 @@ class Scanner {
     kind: Source.Comment["kind"],
     start: number,
     documentation = false,
+    terminated = true,
   ): void {
     this.comments.push({
       kind,
       documentation,
+      terminated,
       text: this.#source.text.slice(start, this.#offset),
       span: this.#source.span(start, this.#offset),
     });

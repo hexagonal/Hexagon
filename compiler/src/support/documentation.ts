@@ -41,8 +41,7 @@ export interface Documentation {
 export function extractDocContent(comment: Source.Comment): string {
   // An unterminated doc comment still reaches here, recorded alongside its own
   // diagnostic (Comments §5); there is no closer to strip.
-  const closed = comment.text.endsWith("*)") && comment.text.length >= 6;
-  let body = comment.text.slice(3, closed ? -2 : undefined);
+  let body = comment.text.slice(3, comment.terminated ? -2 : undefined);
 
   // 1a. one leading space after `(**`.
   if (body.startsWith(" ")) body = body.slice(1);
@@ -66,21 +65,18 @@ export function extractDocContent(comment: Source.Comment): string {
   //    trailing spaces are a Markdown hard break).
   body = body.replace(/\s+$/u, "");
 
-  // 3. dedent by the longest common literal whitespace prefix of the non-blank
-  //    participating lines. A blank line too short to carry the prefix keeps
-  //    what it has — it is blank either way.
+  // 3. dedent by the longest common literal whitespace prefix, computed over
+  //    the non-blank lines and stripped from exactly the lines that
+  //    participated — so a blank line keeps whatever whitespace it has, and the
+  //    opener-line fragment keeps all of its.
   const lines = body.split(/\r\n|\r|\n/u);
-  const participating = (fragment ? lines.slice(1) : lines)
-    .filter((line) => line.trim() !== "");
-  const prefix = commonWhitespacePrefix(participating);
+  const participates = (line: string, index: number) =>
+    !(fragment && index === 0) && line.trim() !== "";
+  const prefix = commonWhitespacePrefix(lines.filter(participates));
 
   return lines
     .map((line, index) =>
-      fragment && index === 0
-        ? line
-        : line.startsWith(prefix)
-        ? line.slice(prefix.length)
-        : line
+      participates(line, index) ? line.slice(prefix.length) : line
     )
     .join("\n");
 }
