@@ -4058,7 +4058,7 @@ class Checker {
       const positions = this.#variablePositions(type);
       const quantified: Variable[] = [];
       for (const variable of variables) {
-        const declined = this.#declineReason(variable, positions);
+        const declined = this.#declineClause(variable, positions);
         if (declined === undefined) {
           quantified.push(variable);
           continue;
@@ -4074,7 +4074,8 @@ class Checker {
             message:
               `\`${variable.rigidName}\` is a declared type variable, but this right-hand ` +
               `side is a computation that cannot be generalized in \`${variable.rigidName}\` ` +
-              `(${declined}); bind where the type is known, or remove the annotation`,
+              `(${this.#declineReason(variable, declined)}); ` +
+              "bind where the type is known, or remove the annotation",
             primary: annotation,
           });
           // The binding has no legal reading, so nothing downstream should try
@@ -4094,33 +4095,47 @@ class Checker {
   }
 
   /**
-   * Item 7's clauses (a) and (b), or `undefined` when the variable passes both.
-   * The returned text is the parenthesized clause the diagnostic quotes.
+   * Which of item 7's clauses refuses this variable, or `undefined` when it
+   * passes both. Level admission ran before this (`#generalize`'s filter), so
+   * clause (c) never answers here.
+   *
+   * A clause, not a sentence: all but a vanishing fraction of declined
+   * variables are declined silently — only an *annotated* binding reports —
+   * and building a diagnostic string for each of the rest would spend the
+   * display machinery on text nothing reads.
    */
-  #declineReason(
+  #declineClause(
     variable: Variable,
     positions: ReadonlyMap<number, Variance>,
-  ): string | undefined {
+  ): "constrained" | "contra" | "inv" | undefined {
     // (a) Unconstrained. Hexagon's own addition to Garrigue's rule, and
     // load-bearing: a constrained variable occurs covariantly at the root of
     // `Num ?1 => ?1`, so the variance test alone would generalize
     // `let y = double(42)` straight into §3's coherence dilemma — no least `Num`
     // type for the ⊥ argument, and no evaluation point for the evidence
     // (closure doc §4.3). Decided; do not re-litigate.
-    if (variable.requirements.length > 0) {
-      const names = [...new Set(variable.requirements.map(({ name }) => name))];
-      return `\`${variable.rigidName ?? this.#display(variable)}\` is constrained by \`${
-        names.join("`, `")
-      }\``;
-    }
+    if (variable.requirements.length > 0) return "constrained";
     // (b) Covariant-only. A variable whose every occurrence is erased by an
     // unused parameter is covariant-only vacuously — nothing in the value can
     // hold one.
     const position = positions.get(variable.id) ?? "inv";
     if (position === "co" || position === "unused") return undefined;
-    return position === "contra"
-      ? `\`${variable.rigidName ?? this.#display(variable)}\` occurs in argument position`
-      : `\`${variable.rigidName ?? this.#display(variable)}\` occurs in an invariant position`;
+    return position === "contra" ? "contra" : "inv";
+  }
+
+  /** The parenthesized clause §4.1's report quotes, built only when it reports. */
+  #declineReason(
+    variable: Variable,
+    clause: "constrained" | "contra" | "inv",
+  ): string {
+    const name = `\`${variable.rigidName ?? this.#display(variable)}\``;
+    if (clause === "constrained") {
+      const names = [...new Set(variable.requirements.map(({ name: constraint }) => constraint))];
+      return `${name} is constrained by \`${names.join("`, `")}\``;
+    }
+    return clause === "contra"
+      ? `${name} occurs in argument position`
+      : `${name} occurs in an invariant position`;
   }
 
   /**
