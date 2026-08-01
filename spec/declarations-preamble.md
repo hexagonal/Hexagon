@@ -72,6 +72,7 @@ DeriveList  =  ConstraintName  |  "(" ConstraintName ("," ConstraintName)* ")"
 - `Name` is uppercase-start and enters the **type namespace** (constructors introduced by the body enter the term namespace per Unions §2 / Products §5.1; constraint names live in their own namespace per Constraints §2.2).
 - Parameters are **parenthesised, comma-separated, non-uppercase-start type variables**, matching use-site shape exactly: you declare `Option(a)` the way you write `Option(Int)`. Parameters must be distinct: `Pair(a, a)` errors at the second `a` with "parameter `a` appears more than once; rename or remove the duplicate parameter." Arity is fixed; every use site must apply the constructor to exactly that many arguments (the existing use-site rule, now anchored to its declaration).
 - Zero parameters is spelled by omission: `record Point = ...`, never `record Point() = ...` (parse error, "remove the empty parameter list" — parallel to the nullary-constructor parens hint, Unions §2.2).
+- *(Added 2026-08-01, #205.)* A parameter may carry a **variance sigil** — `+a` (covariant claim) or `-a` (contravariant claim) — **only when the declaration is `export opaque`**; Modules §4.2.1 owns the semantics and the home-module verification. On a transparent `record`/`union`, or on `type`: parse error, "variance is inferred for transparent types; remove the `+`". A bare parameter on an opaque declaration stays legal and claims nothing (invariant outside the home module). A sigil is **not** a constraint — §2.2's rejection of constrained parameters is untouched, and `<>` still never appears in a data-declaration header. Use sites never carry sigils (`Seq(Int)`, not `Seq(+Int)`).
 - Parameters scope over the entire RHS (body and, for the elaborated `derives` instances, the instance head — §3).
 
 ### 2.2 No constrained parameters (decided; do not re-litigate)
@@ -216,6 +217,8 @@ Two type-namespace declarations of the same name in one module — any mix of `r
 | Constrained header parameter (`record S(a: Ord)`) | "type parameters of a declaration are unconstrained; constrain them where they're used" (§2.2) |
 | Empty parameter list (`record Point()`) | "remove the empty parameter list" (§2.1) |
 | Duplicate header parameter (`Pair(a, a)`) | "parameter `a` appears more than once; rename or remove the duplicate parameter" (§2.1) |
+| Variance sigil on a transparent declaration (`record Pair(+a, b)` without `export opaque`) | parse error: "variance is inferred for transparent types; remove the `+`" (§2.1, #205) |
+| Variance sigil at a use site (`Seq(+Int)`) | parse error: "remove the `+` — variance is declared on the type's declaration, never written at a use site; write `Seq(Int)`" (§2.1, #205) |
 | `derives` after the body | parse error + move-to-header fixit (§2.3) |
 | Duplicate constraint in one `derives` list | "`Eq` appears more than once in `derives`; remove the duplicate `Eq`" (§2.3) |
 | `derives` on `type` | "aliases are transparent and share their expansion's instances; `derives` belongs on `record` and `union`" (§4) |
@@ -239,6 +242,7 @@ Two type-namespace declarations of the same name in one module — any mix of `r
 | One header grammar: `keyword Name [(params)] [derives List] = body`, three keywords | §2 |
 | Parameters: parens, matching use sites; distinct; fixed arity; no empty list | §2.1 |
 | No constrained header parameters, permanently (datatype-contexts rejection); `<>` never in data headers | §2.2 |
+| Variance sigils `+a`/`-a` legal only on parameterized `export opaque` headers; not a constraint; never at use sites; semantics at Modules §4.2.1 (#205) | §2.1 |
 | `derives` in header position, before `=`, sole position; supersedes Decisions Batch §2.5 placement; semantics untouched | §2.3 |
 | `derives Eq` / `derives (Eq, Show)` mirroring binder conjunction forms | §2.3 |
 | Multi-line declarations = offside continuation; union alternatives are not a block; no VOPEN after `=` | §2.4 |

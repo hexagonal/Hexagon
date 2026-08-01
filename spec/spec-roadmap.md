@@ -74,6 +74,8 @@ Per the house convention (README authority rule 4), pending notes live in their 
 - **#147 Bool-as-union ripple** (2026-07-29) — owner: `decisions-ml-dialect-bool-2026-07.md` §6 (the ledger); targets: Operators §4/§11 (pin-licensed native emission), Collections Part 4 §10.1/§18 + FFI Part 10 §4.3 (faithfulness lead-ins), zero-cost exports §2.1, `ffi.md`, Method Syntax §4.1, Collections Part 5 §4, Type System Overview, Loops; plus the corpus-wide `true`/`false` → `True`/`False` example-respelling standing rule.
 - **#159 Unit-as-empty-tuple ripple** (2026-07-30) — owner: `decisions-ml-dialect-unit-2026-07.md` §8 (the ledger); targets: Collections Part 2 §2.5 (`Hash<Unit>` provenance), Collections Part 4 §10.1 + §18 notes 2–4 (primitive counts and the add-only procedure) + FFI Part 10 §4.3 (primitive-inventory lead-ins, change-controlled together), FFI Part 1 §4.1 (Tuple-row arity exemption), `ffi.md` §6, Method Syntax §3.4/§4.1, Collections Part 5 §4, Functions §5.3 (optional respelling). No example respelling exists — `Unit` and `()` spell as before.
 
+- **#205 generalization/variance ripple** (2026-08-01) — owner: `decisions-ml-dialect-generalization-2026-08.md` §10 (the ledger); targets: FFI Part 4 §12.4/§11 item 7 (lift-the-deferral coupling; declared claims for parameterized extern types), `numeric-literals.md` §4 (declined variables are not "otherwise quantified"), `constraints.md` §6.1 (the evidence-locality property is protected by Functions §8) and §2.2 (member-reference rider, conditional), FFI Part 7 (`.d.ts` `out`/`in` faces), `loops-ranges-iteration.md` §6.4 (parametricity cross-ref).
+
 The complete pending-note registry, per originating document, is `notes/v1-spec-inventory.md` §3.2 (approved; consumed by Part 6).
 
 ## 5. After v1

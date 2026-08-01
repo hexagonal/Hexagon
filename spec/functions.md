@@ -384,11 +384,13 @@ let fib = memoFix(fibOpen)
 The inference engine uses Algorithm J with union-find type variables and level-based generalization. This section fixes the observable behavior; detailed compiler architecture is outside the language surface:
 
 1. **Generalization happens at `let`/`fun` bindings** (and at module export, per the Modules spec). A generalized binding is polymorphic; each *use* instantiates fresh type variables.
-2. **Value restriction (ML-style):** a `let` RHS is generalized **only if it is a syntactic value** — a lambda literal, a literal, a constructor application of values, or a tuple of values. A function *call* is not a value. Given any generic producer — say a local `fun makeEmpty() = []`, of type `() -> Vector<a>` —
+2. **Value restriction (ML-style; list completed and rationale corrected 2026-08-01, #205 — closure doc `decisions-ml-dialect-generalization-2026-08.md`):** a `let` RHS is generalized in full **only if it is a syntactic value** — a lambda literal, a literal, a **reference (possibly module-qualified) to an immutable term binding** (a `let`, a `fun`, a parameter, a pattern binder, or an import — never a `var` read, which is a state observation, not a value; closure doc §2.3), a constructor application of values, a **record literal whose field values are values**, or a tuple of values. A function *call* is not a value. Given any generic producer — say a local `fun makeEmpty() = []`, of type `() -> Vector(a)` —
    ```
    let xs = makeEmpty()
    ```
-   `xs` gets a monomorphic type `Vector<?1>` with `?1` unsolved; the first use fixes it, permanently. Rationale: soundness in the presence of mutation and effects — the classic ML hole is an effectfully produced mutable cell generalized to a polymorphic type. Hexagon's `var` (which never generalizes and interacts with unsolved variables exactly this way — Statements §6.1/§7.2) and effectful FFI calls occupy that territory, so the restriction is load-bearing, not precautionary. The workaround is the familiar ML one: call the producer where the element type is known, or annotate.
+   `xs` is not condemned to monomorphism by this item alone: item 7's relaxed rule governs every non-value RHS and generalizes exactly the unconstrained, covariant-only variables — for `xs`, all of them, `Vector(+a)` being a compiler-side claim (closure doc §5.3; a parameterized type with neither a written claim nor a table row is invariant, and its variables are declined). A variable item 7 *declines* — constrained, or occurring in a non-covariant position — gets an unsolved monomorphic `?1`; the first use fixes it, permanently, and the diagnostic for a later conflicting use points at the **pinning use**, never "the body" (§10, #206). (A variable refused by *levels* is a different creature: it belongs to the environment and was never this binding's to solve.)
+
+   Rationale, corrected (2026-08-01, #205; the prior text here blamed mutation and effects): the classic ML hole — an effectfully produced mutable cell generalized polymorphically — is *inexpressible* in Hexagon (Statements §6.4: no ref cells, no mutable fields; §6.2: `var` crosses no lambda boundary), and no foreign call returns a type containing a variable (FFI Part 4 §12.4 — a coupling recorded in the closure doc §3: lifting that deferral must revisit this rule). What the restriction actually guards is **constraint coherence under the evaluate-once rule** — it is Hexagon's monomorphism restriction. Generalizing an expansive *constrained* binding (`let y = double(42)` at `Num a => a`) would force either one shared computed value used at several representations (incoherent: the computation is representation-sensitive) or evidence abstraction re-running the RHS per use (observably breaking "a binding evaluates once"). Literals escape the dilemma — their elaboration `fromNat(payload)` re-runs per use and the lexer's range cap keeps every instance exact (Numeric Literals §3, §5) — which is why they are values and computations are not. The workaround for a declined variable is the familiar ML one: call the producer where the element type is known, or annotate.
 
    **The test reads through pure wrappers.** It asks what the RHS *means*, not what punctuation surrounds it. Parentheses only group, and a RHS written on the following line only opens a block holding that one expression (Lexer & Layout §2.1) — so
 
@@ -401,15 +403,17 @@ The inference engine uses Algorithm J with union-find type variables and level-b
 
    are one binding written three ways, and all three generalize. Every other rule that reads what a RHS *means* reads it the same way: the exported-signature check (§4.1), the evidence a constrained binding carries (Constraints §6.1), and the emitted shape (§9). Layout is layout; it does not decide whether a binding is polymorphic. §7.1 is the one rule that does not read through, and it asks a different question — what a `fun`'s RHS *is*, on which hoisting depends — so it refuses a wrapped lambda literal in either spelling.
 
-   **A block of more than one item is not read through**, and does not generalize even when its final expression is a lambda:
+   **A block of more than one item is not read through**, and is not a value even when its final expression is a lambda:
 
    ```
+   -- load : () -> Table(k, v),  find : (Table(k, v), k) -> v,  Table transparent
    let lookup =
        let table = load()
-       (key) => find(table, key)     -- monomorphic
+       (key) => find(table, key)     -- key's type: pinned by first use (contravariant);
+                                     -- the result type: generalizes (item 7)
    ```
 
-   Its earlier items run when the binding is bound, and code that has already run is precisely what this restriction withholds generalization from — the symmetry with hoisting noted at the end of this section. The rewrite is the ML one again: lift the earlier items into the enclosing block, where they are bound once and what remains on the right-hand side is a lambda, hence a value.
+   Its earlier items run when the binding is bound, and code that has already run is precisely what *full* generalization is withheld from — the symmetry with hoisting noted at the end of this section. Item 7 still applies per variable *(revised 2026-08-01, #205)*: here the argument variable occurs contravariantly and is pinned by the first use, while the unconstrained result variable generalizes — soundly, because the once-loaded table, typed with no known element type, can by parametricity contain no elements (closure doc §4.4). The rewrite for a pinned variable is the ML one again: lift the earlier items into the enclosing block, where they are bound once and what remains on the right-hand side is a lambda, hence a value.
 3. **`fun` generalizes exactly like `let`** — its RHS is always a lambda (§7.1), hence always a value, so `fun` bindings always generalize. Recursive uses are monomorphic per §7.4.
 4. **`var` never generalizes.** This is its own rule, independent of the value restriction — see the Statements, Blocks & Mutability spec for `var` in full.
 5. **Lambda parameters are monomorphic within their scope.** Inside `(f) => ...`, the parameter `f` has one type per instantiation of the enclosing function; it cannot be used at two different types. The classic demonstration:
@@ -422,8 +426,9 @@ The inference engine uses Algorithm J with union-find type variables and level-b
    ```
    This is HM's let-polymorphism / lambda-monomorphism split and is the single most surprising rule for the target audience; diagnostics should be written with care here.
 6. Header sugar and explicit-lambda forms generalize identically **by construction** (one AST node, §3.2).
+7. **The relaxed rule *(added 2026-08-01, #205; Garrigue's relaxed value restriction, with a clause OCaml never needed)*:** a `let` RHS that is **not** a syntactic value still generalizes, **per variable**, exactly those type variables of the binding's inferred type that are **(a) unconstrained** — the variable does not occur free in the argument of any residual constraint of the binding (compound arguments included: `Show(Vector(?1))` constrains `?1`) — **and (b) covariant-only** — every occurrence is in a covariant position under the variance analysis (closure doc `decisions-ml-dialect-generalization-2026-08.md` §5: transparent constructors inferred, opaque constructors per their declared claims — Modules §4.2.1 — compiler-known constructors per the compiler-side claim table, closure doc §5.3; `->` flips its argument position) — level admission as always. Every other variable stays an unsolved monomorphic `?n`, first-use-pins-it, per item 2; defaulting does **not** fire on a clause-(a)-declined variable's account — item 7's decision *is* Numeric Literals §4's "would otherwise be quantified" test (closure doc §4.4). An **annotated** expansive binding puts its rigid variables through the same three clauses: all pass and the binding generalizes; any declined is a hard error at the declaration in §4.1's diagnostic family — a rigid variable can neither be quantified nor pinned — with exports inheriting the error through their mandatory signatures (Modules §4.1.1; closure doc §4.1). Soundness rests on three legs, each normative elsewhere: parametricity of pure Hexagon code (exception payloads admit no type variables — Exceptions §2); monomorphic foreign externs (FFI Part 4 §12.4 — lifting that deferral must revisit this item); and the intrinsic parametricity obligation (`intrinsics.md` §4.2). Clause (a) is load-bearing and is Hexagon's own — OCaml ships this rule without it because OCaml has no constraints; dropping it would reopen item 2's coherence dilemma. Decided; do not re-litigate (closure doc §4.3, §9.5).
 
-There is a pleasing symmetry the implementer can lean on: hoisting (§7) and generalization (§8.2) are both privileges of syntactic values — of code that has not executed yet.
+There is a pleasing symmetry the implementer can lean on: hoisting (§7) and *full* generalization (§8.2) are both privileges of syntactic values — of code that has not executed yet. Item 7's remainder is bounded precisely by what already-executed code can never contain: an element at a type nothing could have produced *(sentence adjusted 2026-08-01, #205)*.
 
 ---
 
@@ -471,6 +476,8 @@ Diagnostics obey the Rewrite Rule (Declarations Preamble §1.1): where a legal s
 | `((x, y)) => e` written meaning two parameters | Pattern Matching §6.5 owns it — "one parameter destructuring a tuple; remove the outer parentheses for two parameters" |
 | Polymorphic recursion | ordinary unification failure at the recursive call site (§7.4); consider a hint when the failing call is a self/SCC reference |
 | Lambda parameter used at two types | unification failure (§8.5); diagnostic should distinguish this from other type errors if feasible |
+| A use conflicts with a type pinned by an earlier use of a binding's undergeneralized variable | the error points at the **pinning use** ("`e`'s element type was fixed to `BigInt` by this earlier use") and never claims the binding's *body* required the type (§8.2/§8.7; #205, #206) |
+| Annotated (incl. exported) expansive binding whose declared variable item 7 declines | hard error at the declaration, naming the clause that fired: "`a` is a declared type variable, but this right-hand side is a computation that cannot be generalized in `a` (`a` is constrained by `Num`)" / "(`a` occurs in argument position)"; "bind where the type is known, or remove the annotation" (§8.7, §4.1 family; Modules §4.1.1; #205) |
 | Declared type variable forced to a concrete type | "`a` is a declared type variable, but the body requires `Int`; change the annotation to `Int`, or remove it to let the type be inferred" (§4.1) |
 | Body requires a constraint not entailed by the written constraint list | "`a` is declared to honor `Eq`, but the body requires `Hash`; write `<a: Hash>`, or remove the constraint annotation to let it be inferred" (§4.2) |
 | `<...>` type parameters on a lambda outside `let`/`fun` RHS position | parse error (§4.2) |
@@ -490,6 +497,16 @@ Diagnostics obey the Rewrite Rule (Declarations Preamble §1.1): where a legal s
 ---
 
 ## 12. Conformance correction record
+
+**2026-08-01 — §8.2's list omitted record literals; the stdlib leaned on them.**
+`Seq.hex`'s module-level producers are constructor applications **of record
+literals** (`Seq({ pull = ... })`), a shape the written list did not include.
+The list is repaired in place under #205 (which also adds references — the
+Step 1 relaxation, a genuine rule change, not part of this correction). Whether
+the shipped checker conformed to the written list or the repaired one was not
+established at ruling time; the conformance suite must pin the repaired
+behavior on both the bare record literal and the constructor-wrapped shape
+(closure doc `decisions-ml-dialect-generalization-2026-08.md` §2.4, §11.1).
 
 **2026-07-28 — a right-hand side was read with its layout block attached.**
 Lexer & Layout §2.1 already gives every term binding a block and already says a
