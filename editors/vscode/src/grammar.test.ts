@@ -702,11 +702,56 @@ describe("strings and interpolation (spec/lexer.md §6)", () => {
 });
 
 describe("comments (spec/comments.md)", () => {
-  it("distinguishes doc forms from ordinary forms", async () => {
+  it("distinguishes the doc form from the ordinary forms", async () => {
     expect(await scope("// note", " note")).toBe("comment.line.double-slash.hexagon");
-    expect(await scope("/// doc", " doc")).toBe("comment.line.documentation.hexagon");
     expect(await scope("(** doc *)", " doc ")).toBe("comment.block.documentation.hexagon");
     expect(await scope("(* note *)", " note ")).toBe("comment.block.hexagon");
+  });
+
+  it("recognizes a doc comment by spec/doc-comments.md §2.1's predicate", async () => {
+    // `(**` followed by a character that is neither `)` nor `*`.
+    expect(await scope("(**doc*)", "doc")).toBe("comment.block.documentation.hexagon");
+    // The space-first idiom for content that begins with `*` (§2.2).
+    expect(await scope("(** *bold* *)", " *bold* ")).toBe("comment.block.documentation.hexagon");
+
+    // The character after `(**` may be the newline — the newline-first body (§3.1) is a
+    // doc comment, so the predicate must hold at end of line rather than demand a
+    // character on the same one.
+    const newlineFirst = await scopePairs("(**\n    A body.\n*)\nlet x = 1");
+    expect(newlineFirst).toContainEqual(["    A body.", "comment.block.documentation.hexagon"]);
+    expect(newlineFirst).toContainEqual(["let", "storage.type.hexagon"]);
+  });
+
+  it("keeps spec/doc-comments.md §2.2's carve-outs ordinary", async () => {
+    // `(**)` is the empty block comment, and `(***`, `(****…` are banners and rulers:
+    // the predicate excludes `)` and `*` so neither spelling ever becomes documentation.
+    for (const opener of ["(**)", "(***)", "(*** x ***)", "(**********)", "(*** doc-like *)"]) {
+      const pairs = await scopePairs(`${opener}\nlet x = 1`);
+      expect(pairs.some(([, name]) => name.includes(".documentation.")), opener).toBe(false);
+      expect(pairs.some(([, name]) => name.startsWith("invalid.")), opener).toBe(false);
+      // The comment ends where it should, so the following line is still code.
+      expect(pairs, opener).toContainEqual(["let", "storage.type.hexagon"]);
+    }
+
+    // No inner-doc spelling exists or is reserved (§9.1), and a doc opener nested inside
+    // an ordinary comment is body text — the block rules do not include #comments, and
+    // an edit that made them would light up the inside of every commented-out region.
+    expect(await scope("(*! not special *)", "! not special ")).toBe("comment.block.hexagon");
+    expect(await scope("(* a (** b *) *)", "* b ")).toBe("comment.block.hexagon");
+  });
+
+  it("gives `///` no status of its own (spec/doc-comments.md §2.3)", async () => {
+    // The line-doc reservation was revoked unspent, so the grammar does not count
+    // slashes: `///` is a `//` comment whose text begins with `/`, and so is `////`.
+    for (const source of ["/// not documentation", "//// not documentation"]) {
+      const pairs = await scopePairs(`${source}\nlet x = 1`);
+      expect(pairs.some(([, name]) => name.includes(".documentation.")), source).toBe(false);
+      expect(pairs, source).toContainEqual(["//", "punctuation.definition.comment.hexagon"]);
+      expect(pairs, source).toContainEqual(["let", "storage.type.hexagon"]);
+    }
+    expect(await scope("/// not documentation", "/ not documentation")).toBe(
+      "comment.line.double-slash.hexagon",
+    );
   });
 
   it("nests block comments and resumes code after the outer close", async () => {
@@ -1006,8 +1051,11 @@ describe("regressions found in review", () => {
     }
   });
 
-  it("treats `(*** x ***)` as a doc comment and `(**)` as an empty block comment", async () => {
-    expect(await scope("(*** x ***)", "* x **")).toBe("comment.block.documentation.hexagon");
+  it("treats `(*** x ***)` and `(**)` as ordinary block comments", async () => {
+    // `(*** x ***)` painted as documentation under the reservation-era predicate, which
+    // asked only for a non-`)` character; spec/doc-comments.md §2.2 excludes `*` as well
+    // (issue #194), so a banner is a comment again. `(**)` was ordinary either way.
+    expect(await scope("(*** x ***)", "** x **")).toBe("comment.block.hexagon");
     const pairs = await scopePairs("(**)\nlet x = 1");
     expect(pairs).toContainEqual(["let", "storage.type.hexagon"]);
     expect(pairs.some(([, s]) => s.startsWith("invalid."))).toBe(false);

@@ -103,7 +103,7 @@ describe("comment configuration", () => {
     expect(configuration.autoClosingPairs.map(({ open }) => open)).not.toContain("(*");
   });
 
-  it("continues a doc comment, but does not treat `(**)` as one", () => {
+  it("continues a doc comment, but not spec/doc-comments.md §2.2's carve-outs", () => {
     const openers = configuration.onEnterRules.filter(({ beforeText }) =>
       beforeText.includes("\\(\\*\\*")
     );
@@ -113,8 +113,14 @@ describe("comment configuration", () => {
       const opener = new RegExp(beforeText);
       expect(opener.test("(** doc")).toBe(true);
       expect(opener.test("    (** doc")).toBe(true);
-      // spec/comments.md §3: `(**)` is the empty block comment, not a doc opener.
+      // A bare `(**` opens a newline-first body (spec/doc-comments.md §3.1), which is a
+      // doc comment, so Enter continues it.
+      expect(opener.test("(**")).toBe(true);
+      // §2.2: `(**)` is the empty block comment and `(***`, `(****…` are banners and
+      // rulers. None is a doc opener, so Enter must not offer to continue one.
       expect(opener.test("(**)")).toBe(false);
+      expect(opener.test("(*** banner")).toBe(false);
+      expect(opener.test("(**********")).toBe(false);
       // Already closed on its own line, so there is nothing to continue.
       expect(opener.test("(** doc *)")).toBe(false);
     }
@@ -129,5 +135,14 @@ describe("comment configuration", () => {
     const inside = new RegExp(continuation?.beforeText ?? "");
     expect(inside.test(" * more")).toBe(true);
     expect(inside.test(" * more *)")).toBe(false);
+  });
+
+  it("continues no `///` run (spec/doc-comments.md §2.3)", () => {
+    // The line-doc reservation was revoked unspent, so `///` is an ordinary comment
+    // and an editor that appends `/// ` on Enter would be teaching a form that does
+    // not exist. Ordinary `//` runs are not continued either, and never were.
+    for (const { beforeText } of configuration.onEnterRules) {
+      expect(new RegExp(beforeText).test("/// doc"), beforeText).toBe(false);
+    }
   });
 });
