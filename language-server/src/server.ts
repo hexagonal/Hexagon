@@ -29,6 +29,7 @@ import {
   DidChangeWatchedFilesNotification,
   ErrorCodes,
   FileChangeType,
+  MarkupKind,
   TextDocumentSyncKind,
   DiagnosticSeverity,
   ResponseError,
@@ -51,7 +52,13 @@ import {
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { basename, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { refused, type Completion, type Source, type Target } from "../../compiler/src/index.js";
+import {
+  refused,
+  type Completion,
+  type Hover as SessionHover,
+  type Source,
+  type Target,
+} from "../../compiler/src/index.js";
 import { toLspDiagnostic } from "./diagnostics.js";
 import {
   codeActionSupportOf,
@@ -214,7 +221,7 @@ export function startServer(connection: Connection): void {
     const path = workspace.uris.toPath(textDocument.uri);
     const hover = workspace.session.hover(path, offsetOfPosition(document, position));
     if (hover === undefined) return null;
-    return { contents: hoverContents(hover.name, hover.target, hover.displayedType), range: rangeOfSpan(hover.span) };
+    return { contents: hoverContents(hover), range: rangeOfSpan(hover.span) };
   });
 
   connection.onDefinition(({ textDocument, position }): Definition | null => {
@@ -249,10 +256,18 @@ export function startServer(connection: Connection): void {
     const path = workspace.uris.toPath(textDocument.uri);
     const offered = workspace.session.completions(path, offsetOfPosition(document, position));
     if (offered.length === 0) return null;
+    // `documentation` rather than `detail` for the doc content, though
+    // `spec/doc-comments.md` §8 calls the surface "completion detail": the
+    // protocol's `detail` is a plain string shown beside the label, and §8 asks
+    // for Markdown, which only this field renders as such. `detail` goes on
+    // carrying the type, which is what a reader scanning the list wants first.
     return offered.map((completion): CompletionItem => ({
       label: completion.name,
       kind: completionKindOf(completion.kind),
       ...(completion.detail === undefined ? {} : { detail: completion.detail }),
+      ...(completion.documentation === undefined
+        ? {}
+        : { documentation: { kind: MarkupKind.Markdown, value: completion.documentation } }),
     }));
   });
 
@@ -427,13 +442,32 @@ function publishDiagnostics(
 }
 
 /**
- * One shape for every hover: what the name is, then its type when it has one.
- * A value and a union reading differently would make the hover's own layout
- * something the user has to parse before the content.
+ * One shape for every hover: what the name is, then its type when it has one,
+ * then its documentation. A value and a union reading differently would make
+ * the hover's own layout something the user has to parse before the content.
+ *
+ * The documentation is Markdown by `spec/doc-comments.md` §6 and goes in as
+ * itself — no fencing, no escaping — because rendering it as Markdown is what
+ * §8 asks for. It is separated by a blank line rather than by a rule: `---`
+ * after a line of text is a Markdown *heading* marker, which would silently
+ * restyle the signature above it.
  */
-function hoverContents(name: string, target: Target, displayedType: string | undefined): MarkupContent {
-  const signature = displayedType === undefined ? `\`${name}\`` : `\`${name}: ${displayedType}\``;
-  return { kind: "markdown", value: `${describe(target)} ${signature}` };
+function hoverContents(hover: SessionHover): MarkupContent {
+  const signature = hover.displayedType === undefined
+    ? `\`${hover.name}\``
+    : `\`${hover.name}: ${hover.displayedType}\``;
+  // A name the session found no identity for — an `honor` member, a record
+  // field — is answered by its documentation alone, so there is no word to put
+  // in front of it.
+  const heading = hover.target === undefined
+    ? signature
+    : `${describe(hover.target)} ${signature}`;
+  return {
+    kind: "markdown",
+    value: hover.documentation === undefined
+      ? heading
+      : `${heading}\n\n${hover.documentation}`,
+  };
 }
 
 /**

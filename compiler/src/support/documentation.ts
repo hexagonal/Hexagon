@@ -21,6 +21,20 @@ export interface Documentation {
    * block before `| Circle(…)` matches the `|` and targets the constructor.
    */
   readonly target: number;
+  /**
+   * The span of the name the documented declaration introduces, when it
+   * introduces exactly one — absent for a destructuring `let` and for an
+   * `honor` block, neither of which names a single thing.
+   *
+   * Emission never reads this; editor services do. They hold a *name* — a
+   * symbol's `bindingSpan`, a union's, the identifier under a cursor — where
+   * `target` is the declaration's first token, and the two are the same offset
+   * only for the forms whose declaration begins with its name. Recording it
+   * here keeps the join at the one place that already decides which
+   * declaration a block documents, rather than making a second pass re-derive
+   * it from the tree.
+   */
+  readonly subject?: Source.Span;
   /** The doc block's own extent, first opener through last closer. */
   readonly span: Source.Span;
   /** The comments the block is made of, so emission does not repeat them. */

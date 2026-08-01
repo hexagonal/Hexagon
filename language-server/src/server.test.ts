@@ -331,6 +331,95 @@ describe("the Hexagon language server", () => {
     expect(hover).toBeNull();
   });
 
+  /**
+   * `spec/doc-comments.md` §8, over the wire: hover and completion carry doc
+   * content, and carry it as Markdown, which is the form §6 says it is in.
+   */
+  describe("documentation", () => {
+    const DOCUMENTED = [
+      "(** Brightens a colour.",
+      "",
+      "    Fenced, even:",
+      "",
+      "    ```",
+      "    brighten(Red)",
+      "    ``` *)",
+      "export let brighten(colour: Int): Int = colour",
+      "",
+      "export record Box = {",
+      "    (** How wide it is. *)",
+      "    width: Int,",
+      "}",
+      "",
+      "let probe: Int = 1",
+      "",
+    ].join("\n");
+
+    let documented: Harness;
+
+    beforeAll(async () => {
+      documented = await harness({ "main.hex": DOCUMENTED });
+      await documented.client.sendNotification(DidOpenTextDocumentNotification.type, {
+        textDocument: {
+          uri: documented.uriOf("main.hex"),
+          languageId: "hexagon",
+          version: 1,
+          text: DOCUMENTED,
+        },
+      });
+    });
+
+    afterAll(async () => {
+      await documented.dispose();
+    });
+
+    test("hover puts the content under the signature, as Markdown", async () => {
+      const hover = await documented.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: documented.uriOf("main.hex") },
+        position: positionOf(DOCUMENTED, "brighten", 2),
+      }) as Hover | null;
+      expect(hover!.contents).toEqual({
+        kind: "markdown",
+        // Verbatim under the signature: the fence and the blank lines are the
+        // author's Markdown, and the separator is a blank line rather than a
+        // `---`, which after a line of text is a heading marker.
+        value: "value `brighten: Int -> Int`\n\n" +
+          "Brightens a colour.\n\nFenced, even:\n\n```\nbrighten(Red)\n```",
+      });
+    });
+
+    test("hover answers a record field, which has documentation and nothing else", async () => {
+      const hover = await documented.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: documented.uriOf("main.hex") },
+        position: positionOf(DOCUMENTED, "width"),
+      }) as Hover | null;
+      // No word in front of the name: the session found no identity to name,
+      // and inventing one would be a guess the user cannot check.
+      expect(hover!.contents).toEqual({
+        kind: "markdown",
+        value: "`width`\n\nHow wide it is.",
+      });
+    });
+
+    test("completion carries it in `documentation`, keeping `detail` for the type", async () => {
+      const offered = await documented.client.sendRequest("textDocument/completion", {
+        textDocument: { uri: documented.uriOf("main.hex") },
+        position: positionOf(DOCUMENTED, "= 1"),
+      }) as CompletionItem[];
+      const brighten = offered.find(({ label }) => label === "brighten");
+      expect(brighten).toMatchObject({
+        detail: "Int -> Int",
+        documentation: {
+          kind: "markdown",
+          value: "Brightens a colour.\n\nFenced, even:\n\n```\nbrighten(Red)\n```",
+        },
+      });
+      // An undocumented offer carries no empty section for a client to render.
+      expect(offered.find(({ label }) => label === "probe")?.documentation)
+        .toBeUndefined();
+    });
+  });
+
   test("completion offers what is in scope, with kinds and types", async () => {
     const offered = await hex.client.sendRequest("textDocument/completion", {
       textDocument: { uri: hex.uriOf("main.hex") },

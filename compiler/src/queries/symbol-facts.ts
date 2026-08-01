@@ -20,6 +20,7 @@
 
 import type * as Resolved from "../syntax/resolved/index.js";
 import * as Typed from "../syntax/typed/index.js";
+import { DocumentationIndex } from "./documentation.js";
 
 export interface SymbolFacts {
   readonly kind: Resolved.SymbolKind;
@@ -27,10 +28,17 @@ export interface SymbolFacts {
   readonly functionValued: boolean;
   /** The scheme as a reader sees it, for hover text and completion detail. */
   readonly displayedType: string;
+  /**
+   * The declaration's documentation (`spec/doc-comments.md` §8), absent when it
+   * carries none. Found by the symbol's binding span, which is the name the
+   * doc block's subject records — see `DocumentationIndex`.
+   */
+  readonly documentation?: string;
 }
 
 export function collectSymbolFacts(
   modules: readonly { readonly typed: Typed.Module }[],
+  docs: DocumentationIndex,
 ): ReadonlyMap<number, SymbolFacts> {
   const facts = new Map<number, SymbolFacts>();
   for (const { typed } of modules) {
@@ -38,10 +46,12 @@ export function collectSymbolFacts(
       // First writer wins: a module's `symbols` carries imported symbols too, so
       // the same identity is seen once per importer, and every copy agrees.
       if (facts.has(Number(symbol.id))) continue;
+      const documentation = docs.at(symbol.bindingSpan);
       facts.set(Number(symbol.id), {
         kind: symbol.kind,
         functionValued: symbol.scheme.type.kind === "Function",
         displayedType: Typed.displayScheme(symbol.scheme),
+        ...(documentation === undefined ? {} : { documentation }),
       });
     }
   }

@@ -40,6 +40,7 @@ import {
   isIdentifierStart,
 } from "../support/identifiers.js";
 import { isCompilerMinted } from "../support/synthetic.js";
+import type { DocumentationIndex } from "./documentation.js";
 import type { SymbolFacts } from "./symbol-facts.js";
 
 export type CompletionKind =
@@ -55,6 +56,11 @@ export interface Completion {
   readonly kind: CompletionKind;
   /** The checker's type, for the ones that have one. */
   readonly detail?: string;
+  /**
+   * The declaration's documentation as Markdown (`spec/doc-comments.md` §8),
+   * for the ones that carry any.
+   */
+  readonly documentation?: string;
 }
 
 export interface CompletionInput {
@@ -63,6 +69,7 @@ export interface CompletionInput {
   readonly offset: number;
   readonly resolved: Resolved.Module;
   readonly facts: ReadonlyMap<number, SymbolFacts>;
+  readonly docs: DocumentationIndex;
 }
 
 export function collectCompletions(input: CompletionInput): readonly Completion[] {
@@ -89,8 +96,8 @@ export function collectCompletions(input: CompletionInput): readonly Completion[
       found.set(binding.name, ofSymbol(binding.name, binding.symbol, input.facts));
     }
   }
-  for (const { name } of typeNames(input.resolved)) {
-    if (!found.has(name)) found.set(name, { name, kind: "type" });
+  for (const { name, span } of typeNames(input.resolved)) {
+    if (!found.has(name)) found.set(name, ofType(name, span, input.docs));
   }
   for (const { alias } of input.resolved.moduleAliases) {
     if (!found.has(alias)) found.set(alias, { name: alias, kind: "module" });
@@ -233,7 +240,31 @@ function ofSymbol(
 ): Completion {
   const known = facts.get(Number(symbol));
   if (known === undefined) return { name, kind: "value" };
-  return { name, kind: kindOf(known), detail: known.displayedType };
+  return {
+    name,
+    kind: kindOf(known),
+    detail: known.displayedType,
+    ...(known.documentation === undefined ? {} : { documentation: known.documentation }),
+  };
+}
+
+/**
+ * A type name, documented by the declaration it names. Types have no symbol, so
+ * their documentation is reached by span rather than through `SymbolFacts` —
+ * and by whichever span the table kept, which is the name for a union or a
+ * record and the whole declaration for an `extern type`.
+ */
+function ofType(
+  name: string,
+  span: Source.Span,
+  docs: DocumentationIndex,
+): Completion {
+  const documentation = docs.at(span);
+  return {
+    name,
+    kind: "type",
+    ...(documentation === undefined ? {} : { documentation }),
+  };
 }
 
 function kindOf(facts: SymbolFacts): CompletionKind {
@@ -260,12 +291,19 @@ function kindOf(facts: SymbolFacts): CompletionKind {
  * Every type name this module can write, local and imported alike. The tables
  * carry both, which is what makes an imported type offerable without asking the
  * import list what it brought in.
+ *
+ * Each comes with the span its own table kept, for documentation to be looked
+ * up by: a union's span *is* its name, a record's name is on its constructor
+ * binding, and an `extern type` has kept only its whole declaration — which is
+ * the other key `DocumentationIndex` answers to.
  */
-function typeNames(resolved: Resolved.Module): readonly { readonly name: string }[] {
+function typeNames(
+  resolved: Resolved.Module,
+): readonly { readonly name: string; readonly span: Source.Span }[] {
   return [
-    ...resolved.unions.map(({ name }) => ({ name })),
-    ...resolved.records.map(({ name }) => ({ name })),
-    ...resolved.externTypes.map(({ localName }) => ({ name: localName })),
+    ...resolved.unions.map(({ name, span }) => ({ name, span })),
+    ...resolved.records.map((record) => ({ name: record.name, span: record.constructor.span })),
+    ...resolved.externTypes.map(({ localName, span }) => ({ name: localName, span })),
   ];
 }
 

@@ -59,6 +59,11 @@ export {
 } from "./queries/semantic-tokens.js";
 export { collectSymbolFacts, type SymbolFacts } from "./queries/symbol-facts.js";
 export {
+  DocumentationIndex,
+  type DocumentedModule,
+  type DocumentedName,
+} from "./queries/documentation.js";
+export {
   collectCompletions,
   qualifierAt,
   type Completion,
