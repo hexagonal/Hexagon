@@ -1,22 +1,34 @@
-name: Deploy playground to GitHub Pages
+name: Check and deploy the playground
 
+# This runs on pull requests as well as on main. Until #209 it ran only after a
+# merge, so every pull request was merged untested and a lockfile broken in
+# 942dd42 went unnoticed for eleven merges (#208). The checks below are the gate;
+# they are worth nothing if they run too late to stop anything.
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
+# Least privilege by default. The jobs that need to write ask for it themselves,
+# which keeps the pull-request runs on a token that can only read.
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: github-pages
-  cancel-in-progress: true
 
 jobs:
   build:
+    name: Check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+    # Superseded pushes to a pull request are worth cancelling. Superseded
+    # pushes to main are not: main is not one stream of work being revised, it
+    # is a series of merges that each need their own build. Cancelling there is
+    # how PR #203's deploy was lost, 37 seconds in, to PR #207 merging behind it.
+    concurrency:
+      group: check-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -92,7 +104,13 @@ jobs:
         run: npm run check
         working-directory: playground
 
+      # A pull request stops short of the Pages-specific steps. It still runs
+      # the real build, because a build that no longer compiles is exactly the
+      # kind of breakage this gate exists to catch; it just has nothing to
+      # publish. `build:pages` hardcodes its own `--base`, so it does not read
+      # anything from configure-pages.
       - name: Configure GitHub Pages
+        if: github.event_name != 'pull_request'
         uses: actions/configure-pages@v5
 
       - name: Build playground for GitHub Pages
@@ -100,17 +118,96 @@ jobs:
         working-directory: playground
 
       - name: Upload playground
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v4
         with:
           path: playground/dist
 
   deploy:
+    name: Deploy
+    needs: build
+    # Only main publishes. A workflow_dispatch on a branch therefore runs the
+    # whole build and stops cleanly here, which is how a lockfile repair is
+    # verified against the real linux runner before it is merged.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
+    # A deployment already under way finishes rather than being cancelled by the
+    # merge behind it. GitHub keeps only the newest queued run, so the site still
+    # converges on the latest commit without any merge losing its build.
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
     steps:
       - name: Deploy playground
         id: deployment
         uses: actions/deploy-pages@v4
+
+  # The backstop. A pull-request gate cannot catch everything: the darwin/linux
+  # lockfile gap is invisible on the author's machine by construction, so main
+  # can still go red. The default per-run email fired eleven times for #208 and
+  # did not land, because a mail scrolls away and an issue does not.
+  report-red-main:
+    name: Report a red main
+    needs: [build, deploy]
+    if: failure() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open or update the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          title='CI is failing on main'
+          body="The build or the deploy failed on \`main\`, so the site is serving stale content.
+
+          - commit: \`$COMMIT\`
+          - run: $RUN_URL
+
+          This issue is opened and closed by the workflow itself. It stays open
+          until a run on \`main\` goes green, and each further failure adds a
+          comment. Closing it by hand does not fix the site."
+          # Listed rather than searched: the search index lags behind by enough
+          # that two quick failures would each believe they were the first.
+          number=$(gh issue list --state open --limit 100 --json number,title \
+            --jq "[.[] | select(.title == \"$title\")][0].number // empty")
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+  clear-red-main:
+    name: Clear a red main
+    needs: [build, deploy]
+    if: success() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Close the tracking issue if one is open
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          title='CI is failing on main'
+          number=$(gh issue list --state open --limit 100 --json number,title \
+            --jq "[.[] | select(.title == \"$title\")][0].number // empty")
+          if [ -n "$number" ]; then
+            gh issue close "$number" --comment "Green again on \`$COMMIT\` — $RUN_URL"
+          fi
