@@ -534,7 +534,9 @@ late pedagogy pass, not a commitment to the current order.
   terminators and never open a body.
 - Leading indentation contains spaces only. Line comments use `//`; block comments use
   nestable `(* ... *)` (#171 — the ML spelling; the JS spellings `/*` and `*/` are
-  detected and redirected, and `(**` / `///` are the reserved doc-comment forms).
+  detected and redirected). `(**` / `///` are documentation comments (#191): they
+  attach Markdown docs to the following declaration and flow to JSDoc; a doc comment
+  that documents nothing is an error.
 
 ### Polymorphism
 

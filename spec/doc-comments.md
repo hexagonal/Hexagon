@@ -9,7 +9,7 @@
 
 ## 1. The ruling
 
-> The reserved forms are activated. **`/// text`** is a line documentation comment; **`(** ... *)`** is a block documentation comment. A **doc block** — one or more doc comments immediately preceding a declaration — attaches to that declaration as its documentation. Documentation is **metadata, not semantics**: it changes no type, no value, no emission of code. It is carried to tooling, and it emits as **JSDoc** on the corresponding declarations in the generated JavaScript and `.d.ts` — the payoff Comments §6 has promised since the reservation was made.
+> The reserved forms are activated. **`/// text`** is a line documentation comment; **`(** ... *)`** is a block documentation comment. A **doc block** — one or more doc comments immediately preceding a declaration — attaches to that declaration as its documentation. Documentation is **metadata, not semantics**: it changes no type, no value, no emitted *code* (changing emitted *comments* is its job — §7). It is carried to tooling, and it emits as **JSDoc** on the corresponding declarations in the generated JavaScript and `.d.ts` — the payoff Comments §6 has promised since the reservation was made.
 
 Activation is the non-breaking upgrade the reservation was designed to be: no shipped `.hex` source, conformance snippet, or corpus example contains `///` or `(**` (verified at ruling time), and a doc comment still lexes as trivia — layout, the token sequence, and every rule of Comments §2–§4 are untouched. What activation adds is recognition (§2), attachment (§4), two hard errors for doc comments that document nothing (§5), and emission (§7).
 
@@ -46,7 +46,12 @@ The reservation's recognition predicate said "at least one character that is not
 Documentation content is text, extracted per form:
 
 - **Line:** everything after `///`, with **one** leading space dropped if present. (`///  two spaces` keeps one — indented Markdown constructs survive.)
-- **Block:** the body between `(**` and its matching `*)`, processed as: one leading space or newline after `(**` dropped; trailing whitespace (including a final newline) before `*)` dropped; every line after the first stripped of the body's **longest common literal whitespace prefix** (computed over its non-blank lines).
+- **Block:** the body between `(**` and its matching `*)`, processed in order:
+  1. one leading space after `(**` is dropped; if what remains of the opener's line is blank, that line is dropped entirely;
+  2. trailing whitespace (including the final newline) before `*)` is dropped;
+  3. **dedent**: the **longest common literal whitespace prefix** of the remaining lines — computed over their non-blank members, excluding the opener-line fragment when one exists (it begins mid-line after `(**` and carries no indentation) — is stripped from every line that participated in the computation.
+
+  So when content begins on the opener's line, that fragment is exempt and every later line dedents by the later lines' common prefix; when content begins on the next line (the multi-paragraph idiom), **all** content lines participate and dedent together — the rule's exemption is for text that physically follows `(**`, never for the first line of an indented body.
 
 The dedent rule is what makes block docs Markdown-safe: an indented `(** ... *)` would otherwise present every line as leading-whitespace-indented, and four spaces of accidental indentation is a Markdown code block. Interior tabs are the author's business (the tab rule regulates indentation, not comment interiors — Comments §4); the common prefix is literal, character by character.
 
@@ -64,13 +69,20 @@ A doc block whose extracted content is empty attaches normally and contributes e
 
 One rule, no special cases, and it decides every edge by itself: a doc comment before `export fun f ...` attaches to the declaration (its first token is `export`); a doc comment *between* `export` and `fun` is an error (`fun` there does not begin a declaration — it continues one); a doc comment inside an expression (`let x = (** d *) 2`) is an error; a doc comment at end of file is an error. Attachment is purely syntactic and happens in source order — module-level order-insensitivity (Declarations Preamble §7.2) reorders nothing about it.
 
+"Code token" means a **physical** token: the layout pass's virtual tokens (VOPEN/VSEP/VCLOSE, Lexer & Layout) are invisible to attachment, exactly as doc comments are invisible to layout. A doc comment above the first `let` of an indented block therefore attaches to that `let` — the VOPEN that layout interposes does not stand between them.
+
 ### 4.2 Documentable positions
 
-- **Module-level declarations**: `let`, `var`, `fun`; the Declarations Preamble §7.1 inventory (`record`, `union`, `type`, `constraint`, `honor`, `exception`); an `extern` binding item inside an `extern from` block; `extern class` and its `method`/`get`/`set` members.
+- **Module-level declarations**: `let`, `var`, `fun`; the Declarations Preamble §7.1 inventory (`record`, `union`, `type`, `constraint`, `honor`, `exception`).
+- **`extern from` block items** — every item form the block admits (FFI Part 4 §2.2), because every one introduces a name: `fun` and `let` bindings, `default` bindings, `type` declarations, `enum` declarations, and `class` declarations with their `method`/`get`/`set` members. An `extern enum`'s members are documentable like union constructors.
 - **Members**: a union constructor (the doc block precedes the constructor's alternative — its leading `|`, or the constructor name where no `|` precedes); a record field; a constraint member; a member implementation inside an `honor` block.
 - **Block-local binders**: `let`, `var`, `fun` inside function bodies and blocks. Local docs never reach the `.d.ts` (locals are not exports); they exist for tooling (§8).
 
-Not documentable: `import` in any form (imports introduce no API of this module; a doc block before an import errors — the message points at the module-docs deferral, §9.1, because a file-header doc above the import block is exactly what that reservation is for), and the `extern from` block header itself (its *items* are the documented surface).
+Not documentable:
+
+- **`import` in any form**, including the effect-only `import "..."` and `extern import "..."` (FFI Part 4 §8 — it introduces no bindings). Imports introduce no API of this module; the error's message points at the module-docs deferral (§9.1), because a file-header doc above the import block is exactly what that reservation is for.
+- **The `extern from` block header** — it is a container; its *items* are the documented surface. Dedicated message: §5.
+- **Module-level effect statements** (Modules §8.2): an expression is not a declaration; the generic §5 error applies.
 
 ### 4.3 Leading only
 
@@ -81,7 +93,8 @@ A doc comment must be **leading trivia**: on its physical line, nothing but whit
 | Situation | Message (shape) |
 |---|---|
 | Doc block not followed by a documentable declaration (§4.1) — includes EOF, expression positions, mid-declaration positions | "documentation comment does not document anything — the next code is not a declaration. Move it directly above the declaration it describes, or make it an ordinary comment (`//` or `(* ... *)`)." |
-| Doc block before an `import` | as above, appending: "imports are not documentable; module-level documentation (`//!`) is reserved but not in v1." |
+| Doc block before an `import` (including `extern import`) | as above, appending: "imports are not documentable; module-level documentation (`//!`) is reserved but not in v1." |
+| Doc block before an `extern from` block header | "documentation attaches to the items an `extern from` block introduces, not to the block — move it above the first item inside the block, or make it an ordinary comment (`//` or `(* ... *)`)." (The generic message would be false here — the header *does* begin a declaration form — so the Rewrite Rule gets its own row.) |
 | Doc comment preceded by code on its line (§4.3) | "documentation comments precede what they document — move this above the declaration on its own line, or make it an ordinary comment (`//` or `(* ... *)`)." |
 | Unterminated `(**` at EOF | Comments §5's unterminated-block-comment error, unchanged (the doc form is a block comment) |
 
@@ -92,7 +105,7 @@ Hard errors, per house rule — there is no warning tier, so the choice is error
 Documentation content is **Markdown** (CommonMark). The compiler does not parse, validate, or transform it — content is carried opaque and emitted verbatim (§7); Markdown is the *contract with tooling*, which renders doc content as Markdown everywhere it is surfaced.
 
 - A fenced code block with no info string defaults to Hexagon (` ``` ` = ` ```hexagon `) in every Hexagon-aware renderer; emitted JSDoc keeps the fence as written (§7.2).
-- There is **no tag language**. `@param`, `@returns`, and their kin have no Hexagon meaning; a line beginning `@word` is ordinary Markdown text and passes through. Rationale: the `.d.ts` already carries every exported signature completely and honestly (Modules §4.1.1, FFI Part 7) — a hand-written `@param` row duplicates what the compiler states better, and duplicated statements drift. Deferred, not banned forever, with a revisit bar: §9.2.
+- There is **no tag language**. `@param`, `@returns`, and their kin have no Hexagon meaning; a line beginning `@word` is ordinary Markdown text and passes through. Rationale: the `.d.ts` already carries every exported signature completely and honestly (Modules §4.1.1, FFI Part 7) — a hand-written `@param` row duplicates what the compiler states better, and duplicated statements drift. Deferred, not banned forever, with a revisit bar: §9.2. **But note the boundary consequence** (§7.2): "no Hexagon meaning" does not make a tag inert in the shipped artifact, because TypeScript tooling reads emitted JSDoc with its own tag vocabulary.
 - There is **no intra-doc link resolution** in v1 — no OCaml `{!Vector.map}`, no Rust ``[`Vector`]``. A Markdown link is a Markdown link. Deferred: §9.2.
 
 ## 7. Emission
@@ -114,6 +127,10 @@ TypeScript's own compiler behaves exactly this way (comments persist into `.js`,
 
 Content emits verbatim as the JSDoc body — Markdown is what TS tooling renders in JSDoc, so nothing needs translating — with exactly one sanitization: each occurrence of `*/` in doc content emits as `*\/` (the standard JSDoc escape; the emitted file must remain valid JS/TS, and this is the sequence that would end the block). Interior `(*` / `*)` pairs are inert JavaScript text and ride along. The conventional ` * ` line prefix and surrounding formatting are quality-of-implementation; the block's validity, placement, and content are normative.
 
+(Ordinary comments face the same `*/` hazard and take the other repair — an unsafe body re-presents as a run of whole-line `//` comments, Comments §6. Doc comments cannot use that repair: a `//` run is not JSDoc, and tooling would silently drop the documentation. One emitter, two strategies, deliberately.)
+
+**Verbatim emission makes TypeScript's tag vocabulary live at the boundary.** A doc line beginning `@deprecated` has no Hexagon meaning (§6), but the emitted JSDoc is read by TS tooling, which strikes through every downstream use site; `@internal` under `--stripInternal` removes declarations from consumers' view. Hexagon neither validates, suppresses, nor blesses this in v1: content passes through, and what boundary tooling does with it is boundary tooling's contract, not this spec's. Named here so the hole is a recorded decision rather than a surprise; the tag-language ruling (§9.2) inherits the question of whether to adopt, escape, or ignore the accidental tags.
+
 ### 7.3 Coexistence with generated documentation
 
 The emitter already generates documentation of its own: the union representation-cliff warning (FFI Part 7 §4.1, Unions §6.2). Where a declaration carries both user documentation and generated documentation, they emit as **one** JSDoc block — user content first, generated content after a blank line — because TS tooling attaches only the immediately preceding JSDoc block, and two blocks would silently drop one. Edit note to FFI Part 7: §13.
@@ -132,7 +149,7 @@ The language server surfaces doc content, rendered as Markdown, in hover (shippe
 
 | Deferral | Revisit bar |
 |---|---|
-| Tag language (`@param`-style structured fields) | field evidence that free Markdown fails a real manual need the signature doesn't cover (deprecation notices are the likely first case) |
+| Tag language (`@param`-style structured fields) | field evidence that free Markdown fails a real manual need the signature doesn't cover — deprecation is the likely first case, sharpened by the fact that `@deprecated` already functions at the boundary accidentally (§7.2); the ruling must bless, escape, or suppress the passthrough |
 | Intra-doc links (resolve `[Vector.map]` to a definition) | the rendered-manual pipeline — links pay when there is a target to render |
 | Parameter docs (per-parameter attachment) | with the tag language; same evidence |
 | Doc-content linting (dangling references, stale fences) | tooling territory; never a compiler error |
@@ -188,6 +205,9 @@ let a = 1 /// note                       -- ERROR: doc comments precede what the
 let x = (** inline? *) 2                 -- ERROR: next code token does not begin a declaration
 /// Module header?
 import Vector                            -- ERROR: imports not documentable; message names the `//!` deferral
+/// The filesystem module.
+extern from "node:fs"                    -- ERROR: docs attach to the block's items, not the block (§5's dedicated row)
+  fun readFileSync(path: String): String
 export (** misplaced *) fun m(): Unit = ()  -- ERROR: mid-declaration; `fun` does not begin the declaration
 //! future inner doc                     -- ordinary comment in v1 (reserved, §9.1)
 ```
@@ -201,8 +221,9 @@ export (** misplaced *) fun m(): Unit = ()  -- ERROR: mid-declaration; `fun` doe
 | Content extraction: one-space strip (line); dedent by longest common literal prefix (block) | §3.1 |
 | Doc blocks merge across forms and runs; blanks and ordinary comments invisible; empty docs legal | §3.2 |
 | Attachment: next-code-token-begins-declaration, one rule; leading-only; syntactic, order-insensitivity-independent | §4 |
-| Documentable: module-level inventory + extern items/members + union constructors + record fields + constraint members + honor members + local binders; not `import`, not the `extern from` header | §4.2 |
-| Dangling and trailing doc comments are hard errors with Rewrite-Rule redirects | §5 |
+| Documentable: module-level inventory + every `extern from` item form (`fun`/`let`/`default`/`type`/`enum`/`class` and members; enum members like constructors) + union constructors + record fields + constraint members + honor members + local binders; not `import`/`extern import`, not the `extern from` header, not module-level effects | §4.2 |
+| Dangling and trailing doc comments are hard errors with Rewrite-Rule redirects; the `extern from` header gets its own message | §5 |
+| Verbatim emission makes TS's tag vocabulary live at the boundary — recorded, neither validated nor suppressed; the tag-language ruling inherits it | §6, §7.2, §9.2 |
 | Content is CommonMark, carried opaque; bare fences default to Hexagon; no tags, no link resolution in v1 | §6 |
 | Emission: JSDoc in both `.js` and `.d.ts` at every corresponding seat; `*/` → `*\/`; no seat → tooling-only | §7 |
 | User + generated docs merge into one JSDoc block, user first | §7.3 |
@@ -216,25 +237,24 @@ Applied in this ruling's PR (direct edits):
 
 | Target | Edit |
 |---|---|
-| `comments.md` | §1 table's reserved rows become active pointers here; §2's `///` bullet and §3's `(**)` bullet gain the tightened predicates; §6's horizon bullet discharged; §8's `/// still just a comment in v1` line superseded in place (now the §4.3 error); §9 log updated; new **§13 correction record** itemizing what activation supersedes. Scope header updated. |
+| `comments.md` | §1 table's reserved rows become active pointers here; §2's `///` bullet and §3's `(**)` bullet gain the tightened predicates; §6's horizon bullet discharged and its `//`-run repair cross-cites §7.2's escape; §8's `/// still just a comment in v1` line superseded in place (now the §4.3 error); §9 log updated; §12's mechanical-upgrade sentence now cites this spec; new **§13 correction record** itemizing what activation supersedes. Scope header updated. |
 | `lexer.md` | §7 gains the doc-trivia bullet (doc comments are distinguished trivia whose content and position are retained and delivered to the parser; recognition predicates owned here); "Not in scope" line's doc-comment deferral now points at this spec. |
 | `README.md` | Ownership row for `doc-comments.md`; Parser and Emitter reading sets gain it. |
 | `decisions-ml-dialect-comments-2026-07.md` | §5 annotated: reservation activated by #191; predicate tightened here. |
-| Book: `chapters/05-layout.md` (+ `DRAFT-3.md` rebuild), `FEATURES.md` | The reservation paragraph re-taught as active. |
+| Book: `chapters/05-layout.md` (+ `DRAFT-3.md` rebuild), `FEATURES.md`, `plans/05-layout.md`, `CONTINUITY.md` | Every reservation-era passage re-taught as active *(the plans and continuity files were the cold review's finding 6)*. |
 
 Owed (README rule 4 — applied on next touch of the target):
 
-- **FFI Part 7 §4.1 / §11**: the representation-cliff warning coexists with user docs per §7.3 (one JSDoc block, user content first). The warning's own text and obligation are unchanged.
+- **FFI Part 7 §4.1 / §10**: the representation-cliff warning coexists with user docs per §7.3 (one JSDoc block, user content first). The warning's own text and obligation are unchanged.
 - **Unions §6.2**: same coexistence note where the cliff warning's `.d.ts` placement is mentioned.
 - **FFI Part 7 §2.1**: the `.d.ts` structure sketch may note JSDoc placement; no rule changes.
-- **Comments §12**: its "upgrades to doc comments mechanically" sentence may now cite this spec by name.
 
 ## 14. Implementation notes (follow-up work, not this PR)
 
 - **hexc lexer** (`compiler/src/passes/lexer/lexer.ts`): distinguish doc trivia at the opener (§2's predicates); retain content and span. The existing comment-trivia channel already retains text (Comments §6's emission uses it); doc trivia adds the classification, not a new channel.
 - **hexc parser**: attach doc blocks to declarations per §4; the two §5 errors. Extraction and dedent (§3.1) at attachment time.
 - **hexc emitter**: JSDoc emission per §7 into both artifacts; the `*/` escape; the §7.3 merge with the cliff warning.
-- **TextMate grammar**: doc comments get `comment.block.documentation.hexagon` / `comment.line.documentation.hexagon` scopes (both themes and Playground's map need colours for them — follow the #163 single-grammar path; the `(?!\*)` guard family from #171's notes already keys on `(*` and is unaffected by a longer opener).
+- **TextMate grammar**: the doc scopes **already exist and are already themed** (`comment.block.documentation.hexagon` / `comment.line.documentation.hexagon`, `hexagon.tmLanguage.json`; coloured in both themes and Playground's map) — established at the cold review; an earlier draft of this bullet wrongly listed creating them as the work. The actual work is **tightening the recognition patterns to §2's predicates**, because the grammar today over-matches in exactly two ways, both now conformance bugs against §2.1/§2.3: the block-doc opener needs to exclude a following `*` as well as `)` (today `(*** banner ***)` paints as documentation) and the line-doc match needs `(?!/)` after `///` (today `//// banner` paints as documentation). The grammar's inline annotation asserting the old reservation-era predicate goes stale in the same pass, and both fixes need pinning in `grammar.test.ts` — no existing test catches either. The `(?!\*)` guard family from #171's notes keys on `(*` and is unaffected.
 - **VS Code configuration**: `onEnterRules` already treat `(**` as the doc opener with `(**)` excluded (#171 §11); verify the continuation behaviour against §2.3's `(***` carve-out.
 - **LSP**: hover carries attached doc content as Markdown (slice 1's hover path).
 - **Stdlib sweep**: a follow-up issue — upgrade Comments-§12-compliant manual-facing comments to `///` where the comment documents the following declaration. Not mechanical-only (each upgrade asserts "this is manual prose"); a fresh-session task after the compiler work lands.

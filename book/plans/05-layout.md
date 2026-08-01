@@ -44,4 +44,6 @@ block comments without disturbing layout.
 - `;` is a separator, never a terminator; no leading, trailing, or doubled form.
 - `;` never opens a lambda body.
 - `{}` is the empty record, never an empty block.
-- `///` and `(** *)` are reserved but currently behave as ordinary comments.
+- `///` and `(** *)` are documentation comments (#191): leading-only, attach to the
+  next declaration, flow to JSDoc; misplaced docs are errors; `////…` and `(***…`
+  banners stay ordinary.
