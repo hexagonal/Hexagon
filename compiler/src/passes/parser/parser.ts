@@ -1063,6 +1063,12 @@ class Parser {
    * The sigil is consumed either way, so the parameter after it still parses and
    * the author gets one report rather than a cascade.
    *
+   * That covers a sigil, and only a sigil. `Box(++a)` is not a doubled one —
+   * `++` is the concatenation operator's own token (Lexer §3) — so it never
+   * reaches here and recovers as any other token that cannot start a parameter
+   * would, with the parameter list's ordinary messages. There is no doubled
+   * sigil in the grammar to report better.
+   *
    * The gate is `opaque`, not `exported && opaque`, and the two coincide: bare
    * `opaque` is not a form — the keyword only ever follows `export` — so every
    * caller that can pass `true` here has already seen `export opaque`.
@@ -1095,21 +1101,25 @@ class Parser {
    * position where a sigil is close enough to legal to be worth a bespoke
    * message — elsewhere (`+` before a bare type name, say) `+` is an operator
    * token and the ordinary expected-a-type diagnostic already fires.
+   *
+   * The message names one rewrite and shows no corrected spelling. It used to
+   * append ``write `Box(Int)` ``, built from the token after the sigil, which is
+   * the whole argument list only at arity 1: `Pair(+Int, String)` was told to
+   * write `Pair(Int)`, and three of the four shapes the 2026-08-01 cold review
+   * tried produced a fresh error when applied. Declarations Preamble §2.1 struck
+   * the clause (closure doc §13.5) rather than have the parser re-print an
+   * argument list it holds only as kind-tagged tokens: with the caret on the
+   * sigil, "remove the `+`" is already an exact single-token edit, correct at
+   * every arity and nesting depth.
    */
-  #rejectVarianceSigilAtUse(constructor: string): void {
+  #rejectVarianceSigilAtUse(): void {
     if (!this.#at("Plus") && !this.#at("Minus")) return;
     const sigil = this.#at("Plus") ? "+" : "-";
-    const token = this.#advance();
-    const argument = this.#current();
-    const spelling = argument.kind === "UpperName" || argument.kind === "NonUpperName"
-      ? argument.text
-      : "…";
-    // Declarations Preamble §2.1's diagnostics row, with the constructor and
-    // argument the author actually wrote standing in for its `Seq(Int)`.
+    // Declarations Preamble §2.1's diagnostics row, verbatim.
     this.#errorAt(
-      token.span,
+      this.#advance().span,
       `remove the \`${sigil}\` — variance is declared on the type's declaration, ` +
-        `never written at a use site; write \`${constructor}(${spelling})\``,
+        "never written at a use site",
     );
   }
 
@@ -2788,7 +2798,7 @@ class Parser {
       this.#advance();
       const arguments_: Parsed.TypeAnnotation[] = [];
       while (!this.#at("RightParen") && !this.#at("Eof")) {
-        this.#rejectVarianceSigilAtUse(name.text);
+        this.#rejectVarianceSigilAtUse();
         const argument = this.#parseTypeAnnotation();
         if (argument === undefined) return undefined;
         arguments_.push(argument);

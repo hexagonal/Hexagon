@@ -205,6 +205,29 @@ describe("§4.1 the relaxed rule, per variable", () => {
       ),
     ).toEqual([]);
   });
+
+  test("§4.4 ...and still fires at a *value* binding, where item 7 never ran", () => {
+    // The other side of the same gate, and the one that has no ruling behind it:
+    // §4.4 excuses a rigid variable from defaulting at an expansive binding
+    // because item 7's decision is the quantification decision there. At a value
+    // binding item 7 never fires, the ruling says nothing, and defaulting keeps
+    // its pre-#205 behaviour — binding `a` to `Int`, which Functions §4.1 then
+    // reports against with its rewrite named.
+    //
+    // Ungating the skip loses that: `a` stays unsolved, the §4.1 diagnostic
+    // never fires, and the author's one mistake collects `missing \`Num\`
+    // evidence during JavaScript emission` — a note that reads like a compiler
+    // defect — over an emitted `const x = undefined.fromNat(42)`.
+    const source = "export let x: a = 42\n";
+    expect(projectDiagnostics(source)).toEqual([
+      "`a` is a declared type variable, but the body requires `Int`; " +
+        "change the annotation to `Int`, or remove it to let the type be inferred",
+    ]);
+    const javascript = compileProject([
+      new Source.File(Source.fileId(0), "/main.hex", source),
+    ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
+    expect(javascript).not.toContain("fromNat");
+  });
 });
 
 describe("§6 declared variance on `export opaque`", () => {
@@ -298,13 +321,29 @@ describe("§6 declared variance on `export opaque`", () => {
   });
 
   test("§6.3 the SCC rule: a self-recursive occurrence contributes the fixpoint", () => {
-    // `Seq`'s own shape. Read through the bare-parameter claim instead of the
-    // fixpoint, the recursive `Seq(a)` occurrence would be invariant and the
-    // `+a` claim would be refused — by the declaration it is being computed for.
+    // `Seq`'s own shape, and it does *not* discriminate: an in-SCC read gives
+    // the running estimate, an out-of-SCC read goes through `#effective`, and
+    // for `Chain` that returns the written `+` claim. Both readings agree, so
+    // the case is a regression guard on the shape the stdlib ships and nothing
+    // more — recorded because it looked like the SCC test and is not.
     expect(
       projectDiagnostics(
         "export opaque record Chain(+a) = { pull: () -> Option((a, Chain(a))) }\n",
       ),
+    ).toEqual([]);
+
+    // These do discriminate. `a` appears *only* under the self-reference, so the
+    // fixpoint's least solution is `unused` — a phantom, which supports any
+    // claim. Read the self-reference as an outsider and it contributes the
+    // declared claim instead: `+` flipped by the argument position becomes
+    // contravariant and the `+a` is refused, `-` flipped becomes covariant and
+    // the `-a` is refused. Both were verified to fail with `#slotVariance`'s
+    // in-SCC branch removed.
+    expect(
+      projectDiagnostics("export opaque record Odd(+a) = { f: (Odd(a)) -> Unit }\n"),
+    ).toEqual([]);
+    expect(
+      projectDiagnostics("export opaque record Neg(-a) = { f: (Neg(a)) -> Unit }\n"),
     ).toEqual([]);
   });
 
@@ -409,15 +448,27 @@ describe("§6.1 the sigil grammar", () => {
   });
 
   test("a sigil at a use site is a parse error", () => {
-    const messages = projectDiagnostics(
-      "export opaque record Box(+a) = { get: () -> a }\n" +
-        "exception Empty\n" +
-        "export let b: Box(+Int) = throw(Empty)\n",
-    );
-    expect(messages).toContain(
-      "remove the `+` — variance is declared on the type's declaration, " +
-        "never written at a use site; write `Box(Int)`",
-    );
+    // Declarations Preamble §2.1's normative text, exactly. It carries **no**
+    // corrected spelling: the caret is on the sigil, so "remove the `+`" is an
+    // exact single-token edit, and §13.5 struck the worked rewrite the message
+    // used to append. Every shape below got one that produced a fresh error when
+    // applied — `Pair(+Int, String)` was told to write `Pair(Int)`.
+    const message = "remove the `+` — variance is declared on the type's declaration, " +
+      "never written at a use site";
+    const declarations = "export opaque record Box(+a) = { get: () -> a }\n" +
+      "export opaque record Pair(+a, +b) = { first: () -> a, second: () -> b }\n" +
+      "exception Empty\n";
+    for (const annotation of [
+      "Box(+Int)",
+      "Pair(+Int, String)",
+      "Pair(Int, +String)",
+      "Box(+Vector(Int))",
+      "Box(+(Int, Int))",
+    ]) {
+      expect(
+        projectDiagnostics(`${declarations}export let b: ${annotation} = throw(Empty)\n`),
+      ).toContain(message);
+    }
   });
 
   test("§5.4 an annotation naming an opaque type carries no sigil and needs none", () => {

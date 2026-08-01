@@ -363,12 +363,13 @@ Declare claims on the parameterized opaque exports that **have declaration sites
 | Nothing else may generalize a `var`'s type — an observable rule, not an implementation nicety; hosted at Functions §8.4, asserted at Statements §6.1/§7.2 (2026-08-01, #207) | §13.2 |
 | The constrained alias emits the bare reference when the binding discharges no evidence; eta-expansion reserved for in-scope evidence; boundary = dischargeability (2026-08-01, #207) | §13.3; Constraints §6.1, Functions §9 |
 | Extern references and the value list: deliberately unstated in v1 (unobservable under FFI Part 4 §12.4); fourth face of the §12.4 coupling, must weigh §12.2's stability-assertion doctrine when lifted (2026-08-01, #207) | §13.4; ledger §10 |
+| Use-site sigil message: the lead imperative is the Rewrite Rule's rewrite, span on the sigil; the worked re-spelling clause struck — unreproducible past arity 1 (2026-08-01, cold review) | §13.5; Declarations Preamble §2.1, §8, §9 |
 
 ---
 
-## 13. Implementation questions, ruled *(added 2026-08-01; #207's four questions)*
+## 13. Implementation questions, ruled *(added 2026-08-01; #207's four questions, and a fifth from cold review)*
 
-The `hexc` implementation of this ruling (branch `ml-generalization-variance-207`) returned four questions only the spec could settle. The rulings below share this document's authority; each is applied to the hosts it names in the same change that adds this section. Nothing here amends §1–§12's decisions — §6.3's message form and §8.1's witness sentence are revised in place with markers pointing back here.
+The `hexc` implementation of this ruling (branch `ml-generalization-variance-207`) returned four questions only the spec could settle; cold review of the same implementation then surfaced a fifth (§13.5). The rulings below share this document's authority; each is applied to the hosts it names in the same change that adds its subsection. Nothing here amends §1–§12's decisions — §6.3's message form and §8.1's witness sentence are revised in place with markers pointing back here.
 
 ### 13.1 The over-claim witness's location is a label, not message text
 
@@ -401,3 +402,15 @@ Applied: Constraints §6.1 (the rule, plus §10's pending cross-reference note, 
 The exclusion becomes visible the day §12.4 is lifted, and the answer then is **not** obvious: an `extern let`'s immutability is a stability *assertion* — a boundary contract, not a language guarantee (FFI Part 4 §4.4, §12.2) — and §5.3 already refuses to let a soundness-bearing classification (variance) rest on a boundary contract. Whether value-ness may rest on one is the same question, and it gets its own ruling at lifting time. Recorded as the **fourth face of the existing §12.4 coupling** — one coupling, one ledger entry — by extending §10's `ffi-part4` bullet rather than opening a separate note.
 
 The other two absent kinds need nothing: `var` reads are §2.3's explicit exclusion, and the bare constraint-member reference stays exactly where §2.5 left it — whether it is a term at all is Constraints §2.2's question, neither opened nor closed here.
+
+### 13.5 The use-site sigil message: the imperative is the rewrite *(from cold review, 2026-08-01)*
+
+**Ruling.** The Declarations Preamble §2.1 use-site diagnostic loses its trailing worked-rewrite clause. The normative message, with the diagnostic's span on the sigil itself, is:
+
+> remove the `+` — variance is declared on the type's declaration, never written at a use site
+
+The struck clause ("; write `Seq(Int)`") re-spelled the corrected application, and the re-spelling was an artifact of the arity-1 example it was drafted from. Reproducing it in general means re-printing the entire argument list with the sigil deleted — the parser holds tokens, not text, and no type printer exists at that stage — and the reviewer verified that the shipped approximation (echoing the one token after the sigil) hands the author a fresh error in three of four shapes: `Pair(+Int, String)` → "write `Pair(Int)`" (wrong arity), `Pair(Int, +String)` → "write `Pair(String)`" (wrong argument), `Box(+Vector(Int))` → "write `Box(Vector)`" (dropped inner argument). A worked rewrite that manufactures new errors is a Rewrite Rule violation wearing the Rewrite Rule's clothes.
+
+The fix is not a better printer. Preamble §1.1 demands a **named local rewrite**, not a re-spelling of the author's code — and the lead imperative already is one: "remove the `+`", with the caret on the `+`, names an exact single-token edit that is correct at every arity, every argument shape, every nesting depth. This is §13.1's channel discipline read from the other side: there the message stopped carrying what the label channel owns (location); here it stops carrying what no channel can produce faithfully (a reprint of surrounding source). The doctrine, stated once so it need not be re-derived: **a message clause the emitter cannot make true in general is not permitted on the strength of being right in the easy case.** The declaration-site sigil messages are untouched — their "remove the `+`" carries no re-spelling and never did.
+
+Applied: Declarations Preamble §2.1 (the use-site sentence now carries the message, the span requirement, and the marker), Preamble §8 (row revised), Preamble §9 (log row); §12 here (log row).

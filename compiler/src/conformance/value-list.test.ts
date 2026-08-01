@@ -209,17 +209,34 @@ describe("Step 1: the completed syntactic-value list", () => {
   test("(vi) the bare shape is the *binding*'s, not every reference's", () => {
     // Constraints §6.1 and closure doc §13.3 both say "at a binding". A name in
     // any other position keeps the wrapper, because only a binding gives the
-    // reference a seat whose type is the reference's own: a record field was
+    // reference a seat whose type is the reference's own: the field below is
     // typed one arity narrower than the evidence-taking function the bare shape
-    // would store in it, and the two diagnostics that used to say so went quiet.
-    const source = "fun double<a: Num>(value: a): a = value + value\n" +
-      "let holder = { f = double }\n" +
-      "export let out: Int = (holder.f)(21)\n";
-    const javascript = compileProject([
+    // would store in it.
+    //
+    // The constraint must be one defaulting cannot settle. Written with `Num`,
+    // the reference's evidence is a *concrete* instance rather than an
+    // unresolved dictionary, the condition's second half is false, and the
+    // wrapper is emitted whether or not the position is checked — a specimen
+    // that cannot tell the two builds apart. With `Tag`, removing the gate
+    // emits `{ f: describe }` and loses the `missing \`Tag\` evidence`
+    // diagnostic that says the stored function does not fit the field.
+    const source = "constraint Tag<a> =\n" +
+      "    label(value: a): String\n" +
+      "honor Tag<String> =\n" +
+      '    label(value) = "string"\n' +
+      "fun describe<a: Tag>(value: a): String = label(value)\n" +
+      "let holder = { f = describe }\n" +
+      'export let s: String = (holder.f)("x")\n';
+    const compiled = compileProject([
       new Source.File(Source.fileId(0), "/main.hex", source),
-    ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
-    expect(javascript).not.toContain("{ f: double }");
-    expect(javascript).toContain("=> double(");
+    ]);
+    expect(compiled.diagnostics.map(({ message }) => message)).toContain(
+      "missing `Tag` evidence during JavaScript emission",
+    );
+    const javascript = compiled.modules
+      .find((module) => module.source.path === "/main.hex")!.javascript.text;
+    expect(javascript).not.toContain("{ f: describe }");
+    expect(javascript).toContain("=> describe(");
   });
 
   // §2.3: a `var` read is a state observation, and stays expansive.

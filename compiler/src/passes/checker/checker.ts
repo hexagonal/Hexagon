@@ -4158,7 +4158,7 @@ class Checker {
             message:
               `\`${variable.rigidName}\` is a declared type variable, but this right-hand ` +
               `side is a computation that cannot be generalized in \`${variable.rigidName}\` ` +
-              `(${this.#declineReason(variable, declined)}); ` +
+              `(${this.#declineReason(variable.rigidName, variable, declined)}); ` +
               "bind where the type is known, or remove the annotation",
             primary: annotation,
           });
@@ -4207,12 +4207,21 @@ class Checker {
     return position === "contra" ? "contra" : "inv";
   }
 
-  /** The parenthesized clause §4.1's report quotes, built only when it reports. */
+  /**
+   * The parenthesized clause §4.1's report quotes, built only when it reports.
+   *
+   * `rigidName` is a parameter rather than read off the variable because the one
+   * caller has already established it is defined — §4.1's report exists only for
+   * an annotated binding. Reading it here needed a fallback for a case that
+   * cannot arise, and a fallback for a case that cannot arise is a claim about
+   * the code that no longer has to be checked against it.
+   */
   #declineReason(
+    rigidName: string,
     variable: Variable,
     clause: "constrained" | "contra" | "inv",
   ): string {
-    const name = `\`${variable.rigidName ?? this.#display(variable)}\``;
+    const name = `\`${rigidName}\``;
     if (clause === "constrained") {
       const names = [...new Set(variable.requirements.map(({ name: constraint }) => constraint))];
       return `${name} is constrained by \`${names.join("`, `")}\``;

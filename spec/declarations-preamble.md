@@ -72,7 +72,7 @@ DeriveList  =  ConstraintName  |  "(" ConstraintName ("," ConstraintName)* ")"
 - `Name` is uppercase-start and enters the **type namespace** (constructors introduced by the body enter the term namespace per Unions §2 / Products §5.1; constraint names live in their own namespace per Constraints §2.2).
 - Parameters are **parenthesised, comma-separated, non-uppercase-start type variables**, matching use-site shape exactly: you declare `Option(a)` the way you write `Option(Int)`. Parameters must be distinct: `Pair(a, a)` errors at the second `a` with "parameter `a` appears more than once; rename or remove the duplicate parameter." Arity is fixed; every use site must apply the constructor to exactly that many arguments (the existing use-site rule, now anchored to its declaration).
 - Zero parameters is spelled by omission: `record Point = ...`, never `record Point() = ...` (parse error, "remove the empty parameter list" — parallel to the nullary-constructor parens hint, Unions §2.2).
-- *(Added 2026-08-01, #205.)* A parameter may carry a **variance sigil** — `+a` (covariant claim) or `-a` (contravariant claim) — **only when the declaration is `export opaque`**; Modules §4.2.1 owns the semantics and the home-module verification. On a transparent `record`/`union`, or on `type`: parse error, "variance is inferred for transparent types; remove the `+`". A bare parameter on an opaque declaration stays legal and claims nothing (invariant outside the home module). A sigil is **not** a constraint — §2.2's rejection of constrained parameters is untouched, and `<>` still never appears in a data-declaration header. Use sites never carry sigils (`Seq(Int)`, not `Seq(+Int)`).
+- *(Added 2026-08-01, #205.)* A parameter may carry a **variance sigil** — `+a` (covariant claim) or `-a` (contravariant claim) — **only when the declaration is `export opaque`**; Modules §4.2.1 owns the semantics and the home-module verification. On a transparent `record`/`union`, or on `type`: parse error, "variance is inferred for transparent types; remove the `+`". A bare parameter on an opaque declaration stays legal and claims nothing (invariant outside the home module). A sigil is **not** a constraint — §2.2's rejection of constrained parameters is untouched, and `<>` still never appears in a data-declaration header. Use sites never carry sigils (`Seq(Int)`, not `Seq(+Int)`): parse error, span on the sigil, "remove the `+` — variance is declared on the type's declaration, never written at a use site". *(Message revised 2026-08-01, closure doc `decisions-ml-dialect-generalization-2026-08.md` §13.5: a trailing worked re-spelling of the corrected application — "; write `Seq(Int)`" — is struck; it reproduces only at arity 1, and the lead imperative with the caret on the sigil is already §1.1's local rewrite.)*
 - Parameters scope over the entire RHS (body and, for the elaborated `derives` instances, the instance head — §3).
 
 ### 2.2 No constrained parameters (decided; do not re-litigate)
@@ -218,7 +218,7 @@ Two type-namespace declarations of the same name in one module — any mix of `r
 | Empty parameter list (`record Point()`) | "remove the empty parameter list" (§2.1) |
 | Duplicate header parameter (`Pair(a, a)`) | "parameter `a` appears more than once; rename or remove the duplicate parameter" (§2.1) |
 | Variance sigil on a transparent declaration (`record Pair(+a, b)` without `export opaque`) | parse error: "variance is inferred for transparent types; remove the `+`" (§2.1, #205) |
-| Variance sigil at a use site (`Seq(+Int)`) | parse error: "remove the `+` — variance is declared on the type's declaration, never written at a use site; write `Seq(Int)`" (§2.1, #205) |
+| Variance sigil at a use site (`Seq(+Int)`) | parse error, span on the sigil: "remove the `+` — variance is declared on the type's declaration, never written at a use site" (§2.1, #205; worked-rewrite clause struck 2026-08-01, closure doc §13.5) |
 | `derives` after the body | parse error + move-to-header fixit (§2.3) |
 | Duplicate constraint in one `derives` list | "`Eq` appears more than once in `derives`; remove the duplicate `Eq`" (§2.3) |
 | `derives` on `type` | "aliases are transparent and share their expansion's instances; `derives` belongs on `record` and `union`" (§4) |
@@ -257,6 +257,7 @@ Two type-namespace declarations of the same name in one module — any mix of `r
 | Module-level declarations order-insensitive; mutual recursion per each form's rules; alias SCC the only cycle error | §7.2 |
 | Type-namespace duplicates: hard error at second declaration | §7.3 |
 | §6's alias-emission rationale re-grounded post-#147 (2026-07-29): carried by exact transparency-preservation and diff-stability; hand-written observation demoted to outcome; rule unchanged | §6 |
+| Use-site sigil message: the lead imperative is §1.1's rewrite, span on the sigil; the worked re-spelling clause struck — unreproducible past arity 1 (2026-08-01, cold review of the #205/#207 implementation) | §2.1, §8; closure doc `decisions-ml-dialect-generalization-2026-08.md` §13.5 |
 
 ---
 

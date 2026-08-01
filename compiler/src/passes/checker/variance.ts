@@ -73,7 +73,8 @@ export interface Occurrence {
  * `Seq` is **not** here. It has a declaration site, and the ruling's transitional
  * `Seq(+a)` row was retired by writing the sigil into `stdlib/Seq.hex` — a
  * written sigil supersedes a row, and after the sweep exactly one claim source
- * per constructor is an invariant (§5.3, §11.1 (ix); `variance.test.ts` holds it).
+ * per constructor is an invariant (§5.3, §11.1 (ix); the "(ix) one claim source
+ * per constructor" case in `conformance/relaxed-generalization.test.ts` holds it).
  */
 export const COMPILER_CLAIMS: ReadonlyMap<string, readonly Variance[]> = new Map([
   ["Vector", ["co"]],
@@ -145,9 +146,13 @@ interface Entry {
  * and fail one import away, which is precisely what §6.4 forbids. The direction of
  * the error is safe either way, but "safe" is not the claim §6.4 makes.
  *
- * Earlier declarations win on a duplicate id, so a module's own copy of a
- * declaration takes precedence over the imported copy carried in a dependant's
- * resolved module.
+ * Earlier declarations win on a duplicate id. The checker passes its own module's
+ * view first, so where a declaration appears in both, the copy the *checking*
+ * module holds is the one used — which for an imported nominal is the copy the
+ * resolver stamped `representationVisible: false`, not the home module's own. It
+ * makes no difference: the two copies differ in that field alone, and this
+ * analysis never reads it. Stated because the precedence is easy to assume the
+ * other way round.
  */
 export interface Declarations {
   readonly unions: Iterable<Resolved.Union>;

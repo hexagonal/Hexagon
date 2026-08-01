@@ -2793,11 +2793,17 @@ class JavaScriptEmitter {
     // drops the dictionary the consumer passes.
     //
     // `bindingRhs` is load-bearing and was missing until the 2026-08-01 review.
-    // Without it the rule read every reference position, so `{ f = double }`
-    // stored the bare evidence-taking function in a field the checker had typed
-    // one arity narrower — no wrong runtime behaviour reachable, but two
-    // diagnostics were lost and the emitted shape stopped matching the type.
-    // Constraints §6.1 and §13.3 both say "at a binding"; this is that.
+    // Without it the rule read every reference position, so a record field held
+    // the bare evidence-taking function while the checker had typed that field
+    // one arity narrower — and the `missing evidence during JavaScript emission`
+    // note that says so went quiet, because the bare shape needs no evidence to
+    // emit. Constraints §6.1 and §13.3 both say "at a binding"; this is that.
+    //
+    // Only a constraint defaulting cannot settle exhibits it. Under `Num` the
+    // reference's evidence is a concrete instance rather than an unresolved
+    // dictionary, the second half of the condition is false, and the position
+    // never gets asked — which is why the first specimen written for this could
+    // not tell the two builds apart.
     if (
       bindingRhs &&
       (expression.evidence ?? []).every(({ constraint, value }) =>

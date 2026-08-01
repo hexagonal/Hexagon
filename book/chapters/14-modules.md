@@ -243,7 +243,7 @@ export opaque record Sink(+a) = {accept: a -> Unit}   // error
 ```
 
 > `a` cannot be declared covariant in `Sink`: field `accept` uses `a` in argument
-> position. Remove the `+`, or change the field.
+> position. Remove the `+`, or change the field
 
 Claiming *less* than the representation supports is always allowed, and is worth
 knowing about: a bare `Box(a)` reserves the right to add a field that takes an `a` in
