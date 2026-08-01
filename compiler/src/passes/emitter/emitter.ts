@@ -2770,6 +2770,24 @@ class JavaScriptEmitter {
     base: string,
     evidenceNames: EvidenceNames,
   ): string {
+    // ...except when there is no evidence here to close over. Step 1 of #205
+    // made `let twice = double` a syntactic value, so the alias generalizes and
+    // keeps the original's residual constraints — and closure doc §2.2 is exact
+    // about what that means: a reference "shares the unapplied entity", no
+    // evidence is discharged at the binding, and the alias is "exactly as
+    // polymorphic, and exactly as cheap, as the original". Emitting the bare
+    // name is that sentence in JavaScript: `const twice = double`, with every
+    // consumer appending the suffix it would have appended to `double`.
+    // Eta-expanding instead would build a wrapper of the *unsuffixed* arity,
+    // which silently drops the dictionary the consumer passes.
+    if (
+      (expression.evidence ?? []).every(({ constraint, value }) =>
+        value.kind === "Dictionary" &&
+        !evidenceNames.has(evidenceKey(value.variable, value.constraint ?? constraint))
+      )
+    ) {
+      return base;
+    }
     const dictionaries = this.#evidenceArguments(
       expression.evidence ?? [],
       expression.span,

@@ -291,6 +291,15 @@ class Checker {
   readonly #instanceSubjects = new WeakMap<Resolved.HonorItem, Mono>();
   readonly #instanceBaseConstraints = new WeakMap<Resolved.HonorItem, readonly Requirement[]>();
   readonly #mutableSymbols = new Set<Resolved.SymbolId>();
+  /**
+   * Every symbol this module can name, imports included (the resolver puts both
+   * in `module.symbols`). The syntactic-value test reads the *kind* here rather
+   * than the punctuation at the use site, which is what makes a module-qualified
+   * reference non-expansive for the same reason its bare spelling is: `Seq.empty`
+   * resolves to a `Name` carrying the imported symbol (Functions §8.2, closure
+   * doc §2.1).
+   */
+  readonly #symbolKinds = new Map<Resolved.SymbolId, Resolved.SymbolKind>();
   readonly #variables: Variable[] = [];
   readonly #quantified = new Set<number>();
   readonly #diagnostics: Diagnostics.Bag;
@@ -303,6 +312,7 @@ class Checker {
   }
 
   check(module: Resolved.Module): Typed.Module {
+    for (const symbol of module.symbols) this.#symbolKinds.set(symbol.id, symbol.kind);
     this.#seqRecord = module.preludeRecords.get("Seq");
     // The fallback is deliberately guarded on the prelude being *absent
     // entirely*, not merely on `Bool` being missing from it. Reaching for a
@@ -3433,8 +3443,58 @@ class Checker {
       variable.instance = ERROR;
       return;
     }
+    // Algorithm J's level adjustment. Binding `?a` at level L to a composite
+    // puts every variable inside that composite in `?a`'s scope, so each must
+    // sink to L or generalization will quantify a variable the environment can
+    // still see. The variable-to-variable case above does this already; without
+    // the composite case, `(p) => { let {x} = p; x }` quantified the row's
+    // field variable and typed `getX` as `{x: a | r} -> b` — the sharing hazard
+    // that Functions §8.2 leaves to levels rather than to the value restriction
+    // (closure doc §2.2, conformance item (v)). It went unseen while the only
+    // generalizable right-hand sides were lambdas and literals.
+    this.#lowerLevels(type, variable.level);
     variable.instance = type;
     for (const requirement of variable.requirements) this.#validate(requirement);
+  }
+
+  /** Sinks every variable in `type` to `level` if it sits above it. */
+  #lowerLevels(type: Mono, level: number): void {
+    const actual = this.#prune(type);
+    switch (actual.kind) {
+      case "Variable":
+        if (actual.level > level) actual.level = level;
+        return;
+      case "Tuple":
+        for (const element of actual.elements) this.#lowerLevels(element, level);
+        return;
+      case "Record":
+        for (const field of actual.fields.values()) this.#lowerLevels(field, level);
+        if (actual.tail !== undefined) this.#lowerLevels(actual.tail, level);
+        return;
+      case "Function":
+        for (const parameter of actual.parameters) this.#lowerLevels(parameter, level);
+        this.#lowerLevels(actual.result, level);
+        return;
+      case "Union":
+      case "NominalRecord":
+        for (const argument of actual.arguments) this.#lowerLevels(argument, level);
+        return;
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "Node":
+        this.#lowerLevels(actual.element, level);
+        return;
+      case "Nullable":
+        this.#lowerLevels(actual.value, level);
+        return;
+      case "Map":
+        this.#lowerLevels(actual.key, level);
+        this.#lowerLevels(actual.value, level);
+        return;
+      default:
+        return;
+    }
   }
 
   #occurs(variable: Variable, type: Mono): boolean {
@@ -4699,7 +4759,7 @@ class Checker {
       case "Lambda":
         return true;
       case "Name":
-        return this.#constructorUnions.has(expression.symbol);
+        return this.#isImmutableTermReference(expression.symbol);
       case "String":
         return expression.parts.every(({ kind }) => kind === "Text");
       case "Tuple":
@@ -4716,6 +4776,40 @@ class Checker {
         return this.#isValue(expression.expression);
       default:
         return false;
+    }
+  }
+
+  /**
+   * Functions §8.2's "reference — possibly module-qualified — to an immutable
+   * term binding": a `let`, a `fun`, a parameter, a pattern binder, or an import
+   * (whose kind is whatever the defining module gave it). Constructors are the
+   * pre-existing row and stay.
+   *
+   * Excluded, each for its own reason:
+   * - `var`, because a read is a state observation, not a value (closure doc
+   *   §2.3). Levels would protect the typing anyway; this is doctrine hygiene.
+   * - `extern`, because the ruling's list does not name it. Nothing observable
+   *   rides on the choice: FFI Part 4 §12.4 makes every extern monomorphic in
+   *   v1, so an extern reference has no variable for either rule to quantify.
+   * - `constraint-member`, because whether a bare unapplied member is a legal
+   *   term at all belongs to Constraints §2.2; the ruling neither opens nor
+   *   closes that door (closure doc §2.5), so the status quo stands.
+   */
+  #isImmutableTermReference(symbol: Resolved.SymbolId): boolean {
+    switch (this.#symbolKinds.get(symbol)) {
+      case "let":
+      case "fun":
+      case "parameter":
+      case "pattern":
+      case "constructor":
+      case "record-constructor":
+        return true;
+      default:
+        // A symbol the map does not hold is not a term this module can name;
+        // the pre-existing constructor test is kept as the fallback so a
+        // compiler-minted constructor without a `module.symbols` row (none
+        // today) cannot silently lose its row from the list.
+        return this.#constructorUnions.has(symbol);
     }
   }
 
