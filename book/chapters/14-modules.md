@@ -195,6 +195,60 @@ derived `Eq` or `Show` behavior and other lawful instances continue to work glob
 Aliases cannot be opaque because an alias is transparent by definition. When a named
 abstraction is required, use a nominal record or union.
 
+## A parameterized opaque type says what it promises
+
+Hiding the representation hides something callers were relying on without knowing it.
+Consider a sequence type whose parameter appears only in what it hands out:
+
+```hexagon
+export opaque record Box(a) = {open: () -> Option(a)}
+
+export fun emptyBox<a>(): Box(a) = Box({open = () => None})
+```
+
+Inside this module the compiler can see that a `Box` only ever produces an `a`. Outside
+it, nobody can — the representation is exactly what `opaque` withheld. So a caller who
+writes
+
+```hexagon
+let empty = emptyBox()
+```
+
+gets a binding whose element type is fixed by its first use, because as far as the
+outside world is told, a `Box` might be holding an `a` already.
+
+Write a `+` on the parameter and the promise crosses the boundary:
+
+```hexagon
+export opaque record Box(+a) = {open: () -> Option(a)}
+```
+
+Now `empty` above is reusable at any element type, in every module. `+a` says *this
+type only produces `a`*; `-a` says the opposite, *it only consumes one*, which is the
+right claim for a type like `Sink(-a) = {accept: a -> Unit}`. A bare parameter claims
+nothing, which is why the first version behaved as it did.
+
+The compiler checks the claim against the representation, at the declaration:
+
+```hexagon
+export opaque record Sink(+a) = {accept: a -> Unit}   // error
+```
+
+> `a` cannot be declared covariant in `Sink`: field `accept` uses `a` in argument
+> position. Remove the `+`, or change the field.
+
+Claiming *less* than the representation supports is always allowed, and is worth
+knowing about: a bare `Box(a)` reserves the right to add a field that takes an `a` in
+later, without that being a breaking change for anybody. Claiming more is what the
+error above prevents, and it is reported where the author can act on it rather than in
+a stranger's module months later. This is the same principle as `derives`: what
+crosses an opaque boundary is declared, never inferred.
+
+Transparent records and unions take no sigil — their definition is public, so there is
+nothing to declare that a reader could not already see. Nor does a use site: an
+annotation is always written `Box(Int)`, never `Box(+Int)`. The claim belongs to the
+type, once, where it is declared.
+
 ## Public signatures must remain usable
 
 Every exported term writes a complete signature. Values have a type annotation.
@@ -335,6 +389,8 @@ The next chapter uses that fact to explain the convenient dot-call spelling.
 - module aliases are namespaces, not first-class values;
 - companion modules give subject-first operations a predictable qualified home;
 - `export opaque` hides a record's fields or a union's constructors outside its home;
+- a parameterized opaque type declares what it promises with `+a` or `-a`, checked
+  against its representation; a bare parameter claims nothing;
 - exported terms have complete signatures with explicit maximal constraints;
 - public signatures cannot leak private nominal types;
 - instances are global over the imported program graph rather than exported names;

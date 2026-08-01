@@ -543,10 +543,23 @@ late pedagogy pass, not a commitment to the current order.
 - `identity` used at `Int` and `String` is the canonical let-polymorphism example.
 - `useAtTwoTypes(f)` uses `ignore(f(1))` before `f("hello")` to show that one lambda
   parameter cannot change type within a call.
-- `makeIdentity()` is the canonical value-restriction example: binding the call result
-  is monomorphic, and its first use fixes the type.
-- State the conceptual hinge explicitly: `let` is necessary but not sufficient for
-  generalization; its initializer must also be a value.
+- `makeIdentity()` is the canonical fixed-variable example: `a` appears on both sides
+  of the returned function's arrow, so the binding holds one function of one type and
+  a use fixes which. Written with an explicit signature (`fun makeIdentity<a>(): (a -> a)`)
+  so the reader can see both occurrences.
+- **Do not put `// error` on the second call.** The compiler currently reports the
+  conflict against the *first* use, which #206 owns; the prose says the pair is
+  rejected rather than naming a line the reader would not find it on.
+- `Seq.empty` bound as `nothing` and reused at two element types is the canonical
+  reference-is-a-value example (#205), and `makeEmpty(): Vector(a)` bound as `blank`
+  is the canonical computed-but-still-reusable one.
+- State the conceptual hinge explicitly: a value initializer is generalized in full,
+  and a computed one is generalized in the parts nothing could have filled — a
+  variable is fixed when the value could *consume* it, or when it carries a
+  capability that was chosen while the initializer ran.
+- The rationale is **not** mutation or foreign state. Hexagon has no mutable cells
+  and no foreign function returns a type with a variable in it; what the restriction
+  protects is the promise that an initializer runs exactly once (#205).
 - Bare numeric literal defaulting is one-way to `Int`; explicit context may instead
   select another numeric type.
 - Polymorphic recursion is rejected and taught here, after ordinary recursion and
@@ -679,6 +692,11 @@ late pedagogy pass, not a commitment to the current order.
   type/constructor and its companion module because positions select namespaces.
 - `export opaque` is limited to nominal records and unions. It exports only the type,
   hiding record fields/constructor or union constructors outside the home module.
+- A parameterized opaque type declares variance with `+a` / `-a`, verified against its
+  representation at the declaration; a bare parameter claims nothing and behaves as
+  invariant outside the module (#205). Transparent declarations take no sigil, and no
+  use site ever carries one. `Box(a)` / `Box(+a)` is the chapter's worked pair, and
+  `Sink(+a)` is its over-claim error — the quoted message is the compiler's exact text.
 - Exported terms require complete annotations. Constrained exported functions write
   maximal constraint lists and omit entailed base constraints; private module-level
   function annotation remains a style convention.
