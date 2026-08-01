@@ -218,7 +218,7 @@ Two type-namespace declarations of the same name in one module — any mix of `r
 | Empty parameter list (`record Point()`) | "remove the empty parameter list" (§2.1) |
 | Duplicate header parameter (`Pair(a, a)`) | "parameter `a` appears more than once; rename or remove the duplicate parameter" (§2.1) |
 | Variance sigil on a transparent declaration (`record Pair(+a, b)` without `export opaque`) | parse error: "variance is inferred for transparent types; remove the `+`" (§2.1, #205) |
-| Variance sigil at a use site (`Seq(+Int)`) | parse error: sigils are declaration syntax only (§2.1, #205) |
+| Variance sigil at a use site (`Seq(+Int)`) | parse error: "remove the `+` — variance is declared on the type's declaration, never written at a use site; write `Seq(Int)`" (§2.1, #205) |
 | `derives` after the body | parse error + move-to-header fixit (§2.3) |
 | Duplicate constraint in one `derives` list | "`Eq` appears more than once in `derives`; remove the duplicate `Eq`" (§2.3) |
 | `derives` on `type` | "aliases are transparent and share their expansion's instances; `derives` belongs on `record` and `union`" (§4) |
@@ -242,6 +242,7 @@ Two type-namespace declarations of the same name in one module — any mix of `r
 | One header grammar: `keyword Name [(params)] [derives List] = body`, three keywords | §2 |
 | Parameters: parens, matching use sites; distinct; fixed arity; no empty list | §2.1 |
 | No constrained header parameters, permanently (datatype-contexts rejection); `<>` never in data headers | §2.2 |
+| Variance sigils `+a`/`-a` legal only on parameterized `export opaque` headers; not a constraint; never at use sites; semantics at Modules §4.2.1 (#205) | §2.1 |
 | `derives` in header position, before `=`, sole position; supersedes Decisions Batch §2.5 placement; semantics untouched | §2.3 |
 | `derives Eq` / `derives (Eq, Show)` mirroring binder conjunction forms | §2.3 |
 | Multi-line declarations = offside continuation; union alternatives are not a block; no VOPEN after `=` | §2.4 |
