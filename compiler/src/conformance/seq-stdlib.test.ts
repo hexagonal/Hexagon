@@ -136,9 +136,11 @@ describe("the step-7 reverts are in the source, not merely intended", () => {
     expect(seqSource).toContain("export opaque record Seq(a) = { pull: () -> Option((a, Seq(a))) }");
   });
 
-  test("no `import` lines — prelude source uses the header-comment convention", () => {
-    // Modules §5.5.
+  test("no `import` lines — prelude source names earlier prelude members implicitly", () => {
+    // Modules §5.5. The header comment that used to accompany this rule was
+    // withdrawn 2026-08-01 and is asserted absent, not present: the rule is
+    // about what the source may not contain, and never needed a note saying so.
     expect(seqSource).not.toMatch(/^import /mu);
-    expect(seqSource).toContain("implicitly in scope via the prelude");
+    expect(seqSource).not.toContain("implicitly in scope via the prelude");
   });
 });
