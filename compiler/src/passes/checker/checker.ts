@@ -2695,6 +2695,18 @@ class Checker {
       return;
     }
     if (pattern.kind === "Or") {
+      // `evaluated` below is currently an **equivalent mutant** — dropping it
+      // leaves the suite green — but for a reason that is not the one the other
+      // equivalents rest on, and that a future change can remove. The call just
+      // below opens component variables at `level` rather than `level + 1`, so
+      // unification has already sunk the scrutinee's constrained variable below
+      // generalization's admission filter and the seat test never speaks.
+      // Should those levels ever be corrected (they are the same off-by-one as
+      // #213), this argument becomes live: without it, `let ((g, n) | (g, n)) =
+      // (describe, 1)` would read the seat off `g`'s own function-typed
+      // component and generalize a constrained scheme into an emitter that
+      // correctly eta-expands. Recorded rather than pinned, because no source
+      // program can discriminate it today.
       this.#inferMatchPattern(pattern, expected, level);
       for (const binding of resolvedPatternBindings(pattern)) {
         this.#schemes.set(
@@ -2743,6 +2755,11 @@ class Checker {
           primary: pattern.span,
         });
       }
+      // Same standing as the `Or` arm's: `evaluated` here is an equivalent
+      // mutant *today*, masked by #213 — this arm's components are opened at the
+      // binding's own level, so they never reach the seat test. It goes live the
+      // moment #213 lands, and (x-h) is that fix's acceptance test, so the two
+      // must be checked together or they will land unheld together.
       pattern.arguments.forEach((argument, index) =>
         this.#inferPattern(
           argument,

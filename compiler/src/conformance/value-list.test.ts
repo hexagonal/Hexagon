@@ -499,6 +499,67 @@ describe("Step 1: the completed syntactic-value list", () => {
     }
   });
 
+  test("(x-l) mixed evidence at a generalized alias threads the residual", async () => {
+    // Round 7. The bare-alias gate is two conjuncts, and rounds 5 and 6 fixed
+    // only the first (binding position). The second is all-or-nothing — *every*
+    // evidence entry unresolved — and a partial annotation makes its middle case
+    // reachable: `let g: (String, b) -> String = pair` discharges `Tag a` at the
+    // binding and leaves `Tag b` residual, because the scheme quantifies it.
+    // That fell into the eta case, which passed `undefined` for the residual
+    // while every consumer appended a dictionary for it, against a wrapper one
+    // parameter short. Round 5's dropped dictionary through the other conjunct.
+    //
+    // `main` reported this program properly; the branch turned it into "this is
+    // a defect in the compiler". The emission is the assertion, and so is the
+    // runtime answer — a diagnostics-only probe passed on all three of this
+    // arc's blockers.
+    const PAIR = TAG +
+      "honor Tag<Bool> =\n" +
+      '    label(value) = "bool"\n' +
+      "honor Tag<Int> =\n" +
+      '    label(value) = "int"\n' +
+      "fun pair<a: Tag, b: Tag>(x: a, y: b): String = label(y)\n";
+
+    const one = PAIR +
+      "let g: (String, b) -> String = pair\n" +
+      'export let s: String = g("a", True)\n';
+    expect(diagnostics(one)).toEqual([]);
+    const javascript = compileProject([
+      new Source.File(Source.fileId(0), "/main.hex", one),
+    ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
+    expect(javascript).not.toContain("undefined");
+    // Three parameters, not two: two values and the residual dictionary.
+    expect(javascript).toMatch(/const g = \(__hex_arg00, __hex_arg10, __hex_dict\w+\) =>/);
+    expect((await runMain(one)).s).toBe("bool");
+
+    // Two residuals, to pin the *order*: consumers append in
+    // `dictionaryEntries`' order — by (variable, constraint) — so the minted
+    // parameters are sorted the same way. With one residual any order passes.
+    const two = PAIR +
+      "fun trio<a: Tag, b: Tag, c: Tag>(x: a, y: b, z: c): String = label(z)\n" +
+      "let n: Int = 1\n" +
+      "let g: (String, b, c) -> String = trio\n" +
+      'export let s: String = g("a", True, n)\n';
+    expect(diagnostics(two)).toEqual([]);
+    expect((await runMain(two)).s).toBe("int");
+
+    // The two ends of the gate still behave: all-resolved eta-expands with the
+    // concrete instances, all-residual emits bare.
+    const pinned = PAIR +
+      "let g: (String, Bool) -> String = pair\n" +
+      'export let s: String = g("a", True)\n';
+    expect(diagnostics(pinned)).toEqual([]);
+    expect((await runMain(pinned)).s).toBe("bool");
+    const bare = PAIR +
+      "let g: (a, b) -> String = pair\n" +
+      'export let s: String = g("a", True)\n';
+    expect(
+      compileProject([new Source.File(Source.fileId(0), "/main.hex", bare)])
+        .modules.find((module) => module.source.path === "/main.hex")!.javascript.text,
+    ).toContain("const g = pair;");
+    expect((await runMain(bare)).s).toBe("bool");
+  });
+
   test("(x-k) a declined variable is sunk, so a sibling cannot quantify it", () => {
     // `variable.level = level` in the seat block. Two prior seats recorded it as
     // undiscriminable; it is not. The sibling here has a *function* type, so the

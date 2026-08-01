@@ -2896,10 +2896,49 @@ class JavaScriptEmitter {
     ) {
       return base;
     }
+    // Between the two cases above there is a third the gate had no arm for, and
+    // it is reachable from an ordinary *partial* annotation: `let g: (String, b)
+    // -> String = pair`, where `pair : (Tag a, Tag b) => (a, b) -> String`. One
+    // constraint is discharged at the binding, the other is still residual
+    // because the binding's scheme quantifies it. The all-or-nothing test above
+    // is false, so this fell into the eta case, which passed `undefined` for the
+    // residual entry — while every consumer appended a dictionary for it,
+    // against a wrapper one parameter short. Round 5's dropped dictionary,
+    // reached through the *other* conjunct of the same gate.
+    //
+    // The correct shape threads the residual evidence as trailing parameters of
+    // the wrapper: consumers append exactly the dictionaries the scheme
+    // quantifies, in `dictionaryEntries`' order, so the parameters are minted in
+    // that same order — by (variable, constraint name), per Constraints §6.1.
+    // Only at a binding, which is the only position whose scheme can quantify a
+    // residual constraint (§13.3).
+    const residual = !bindingRhs ? [] : [
+      ...new Map(
+        (expression.evidence ?? []).flatMap(({ constraint, value }) => {
+          if (value.kind !== "Dictionary") return [];
+          const name = value.constraint ?? constraint;
+          if (evidenceNames.has(evidenceKey(value.variable, name))) return [];
+          return [[
+            evidenceKey(value.variable, name),
+            { variable: value.variable, constraint: name },
+          ] as const];
+        }),
+      ).values(),
+    ].sort((left, right) =>
+      Number(left.variable) - Number(right.variable) ||
+      left.constraint.localeCompare(right.constraint)
+    );
+    const residualParameters = residual.map(({ constraint, variable }) =>
+      dictionaryParameterName(constraint, variable)
+    );
+    const localEvidence = new Map(evidenceNames);
+    residual.forEach(({ constraint, variable }, index) => {
+      localEvidence.set(evidenceKey(variable, constraint), residualParameters[index]!);
+    });
     const dictionaries = this.#evidenceArguments(
       expression.evidence ?? [],
       expression.span,
-      evidenceNames,
+      localEvidence,
     );
     if (expression.type.kind !== "Function") {
       // Nothing to eta-expand: a constrained non-function value has no arity to
@@ -2917,7 +2956,8 @@ class JavaScriptEmitter {
     const parameters = expression.type.parameters.map((_, index) =>
       this.#generatedNames.fresh(`arg${index}`)
     );
-    return `${arrowParameters(parameters)} => ${base}(${[...parameters, ...dictionaries].join(", ")})`;
+    return `${arrowParameters([...parameters, ...residualParameters])} => ` +
+      `${base}(${[...parameters, ...dictionaries].join(", ")})`;
   }
 
   /**

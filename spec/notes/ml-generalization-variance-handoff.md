@@ -5,14 +5,12 @@ request. Not a spec and not a ruling. The governing document is the closure doc
 `spec/decisions-ml-dialect-generalization-2026-08.md`; on any conflict it wins,
 and the host specs it has been consolidated into win over it.
 
-**Branch:** `ml-generalization-variance-207`. **Rounds 3–6 are fixed and applied
-(§5, §5b, §5c, §5d).** Rounds 4, 5 and 6 were genuine cold seats, and every one
-returned REQUEST-CHANGES with its blocker inside the previous round's fix — three
-times running, each one pattern shape over from the last. James capped the arc at
-**two more rounds after round 5**; round 6 is spent, so **round 7 is the last**,
-after which the branch goes to James whatever the verdict. Six rounds in the base
-rate of "this round is clean" is still zero, so read §6's list before assuming the
-seventh settles it.
+**Branch:** `ml-generalization-variance-207`. **Rounds 3–7 are fixed and applied
+(§5, §5b–§5e).** Seven cold review rounds, seven REQUEST-CHANGES. **The review
+budget is spent** — James capped it after round 5 — so the branch now goes to him
+on the strength of what seven rounds found, not on a clean verdict, which no round
+ever produced. §6 records what is known to be unreviewed; read it before merging,
+because it is the honest statement of what this arc did *not* establish.
 
 **Read first, in this order:** this file → the closure doc (§2, §4, §5, §6, and
 all of §13) → `spec/functions.md` §8 → `spec/modules.md` §4.2.1 →
@@ -27,8 +25,8 @@ it is up to implement it. Implement it everywhere. Including book and
 playground."* With the standing roles: cold **Opus** reviews the code, **James**
 reviews the book himself, **Fable** writes any spec and Opus reviews it.
 
-Everything asked for is built and committed. **Six cold review rounds have run
-and all six returned REQUEST-CHANGES.** All four are now fully applied: round 3's
+Everything asked for is built and committed. **Seven cold review rounds have run
+and all seven returned REQUEST-CHANGES.** All four are now fully applied: round 3's
 six defects and round 4's nine were fixed in the session of 2026-08-02, and each
 fix is held by a test verified to fail when the fix is reverted (§5, §5b). Two
 needed rulings first, and Fable wrote both — closure doc §13.6, the evidence-seat
@@ -621,20 +619,85 @@ the assertion delivers rather than what it looks like it delivers — §2e appli
 this file's own new test, one round earlier than usual.
 
 
+## 5e. Round 7's findings — the last round
+
+Verdict REQUEST-CHANGES. One defect new on this branch; the rest pre-existing and
+filed. Round 7 also delivered the enumeration it was asked for, which is the most
+useful artefact of the whole review sequence.
+
+### The blocker — the gate's *other* conjunct
+
+Rounds 5 and 6 fixed the bare-alias gate's first conjunct (binding position). The
+second is all-or-nothing — *every* evidence entry unresolved — and an ordinary
+**partial annotation** makes its middle case reachable:
+
+```hexagon
+fun pair<a: Tag, b: Tag>(x: a, y: b): String = label(y)
+let g: (String, b) -> String = pair
+export let s: String = g("a", True)
+```
+
+`Tag a` is discharged at the binding; `Tag b` stays residual because the scheme
+quantifies it. That fell into the eta case, which passed `undefined` for the
+residual while every consumer appended a dictionary for it, against a wrapper one
+parameter short. `main` reports this program properly; the branch turned a good
+diagnostic into *"this is a defect in the compiler, not in your program"*.
+
+Fixed by threading residual evidence as trailing wrapper parameters, minted in
+`dictionaryEntries`' order — by (variable, constraint) — so consumers' suffixes
+line up. Held by x-l, which asserts the emitted arity **and** the runtime answer,
+at one and at two residuals; the two-residual case is what makes the ordering
+observable, and reversing the sort fails it.
+
+### The enumeration — why the seventh blocker was not where six rounds looked
+
+Round 7 checked every `Core.Pattern` kind at a `let` root and nested, against both
+the checker's seat decision and the emitter's binding-position decision, and
+concluded that **`patternNamesWholeValue` cannot be false while the checker keeps
+the seat**: every destructuring kind unifies the RHS with a non-function, and the
+refutable kinds are refused at a `let`. So the shape-by-shape divergence that cost
+rounds 4, 5 and 6 is now closed by argument, not just by cases. The seventh defect
+was in the gate's other dimension entirely — which is where it had to be, and
+nobody had looked there because the previous three all rhymed.
+
+### Recorded, not pinned: two `evaluated` threadings that are equivalent *today*
+
+The `Or` arm's and the `Constructor` arm's `evaluated` arguments can both be
+dropped with the suite green. Neither is dead, and neither rests on the argument
+the other equivalents rest on: both are masked by components being opened at the
+binding's own level rather than one level in — the same off-by-one as #213. **Both
+go live the moment #213 lands**, and (x-h) is #213's acceptance test, so the two
+must be checked together or they will land unheld together. Comments at both sites
+say so.
+
+### Filed, not fixed — #215, and the worst class in the arc
+
+Round 7 swept `#emitPattern` deliberately (round 6 had found #214 by accident) and
+the family is seven shapes, not one, including **every pattern parameter in the
+language** — parameter patterns desugar to `LetPatternItem`s. Two further bugs are
+worse than a `ReferenceError`: an or-pattern inside a vector emits a dead arm
+(`&& false`), and a binder-free one emits an unparenthesised `||` that defeats the
+length test, so `[1 | 2]` matches `[2, 5]`. **Wrong answers, no crash, no
+diagnostic** — the only such shapes found in seven rounds. All pre-existing on
+`main`, all in #215, which supersedes #214's scope.
+
+
 ## 6. What is left
 
-1. **Round 7 — the last, by James's cap.** Where to look, in order: inside round
-   6's fixes (the `Or` recursion, the `As` binder's own `evaluated`); at any test
-   whose specimen makes the right and the wrong reading agree, which has now cost
-   three rounds and has recurred *inside the fix for itself*; at the emitted
-   JavaScript and the runtime answer rather than the diagnostic list, where all
-   three recent blockers lived; and at pattern shapes not yet enumerated — every
-   blocker since round 4 has been one shape over from the last fix, so the
-   remaining risk is a shape nobody has written down. `#emitPattern`'s handling of
-   each pattern kind is the obvious sweep, and #214 shows it drops at least one.
-2. **Then it goes to James regardless of verdict.** Six rounds have each found
-   real defects; the arc is not converging by exhaustion, and the cap is the
-   decision to stop paying for that.
+1. **James's call, on evidence rather than on a verdict.** Seven rounds, seven
+   REQUEST-CHANGES, every finding fixed or filed. No round ever came back clean,
+   so "the reviews stopped finding things" is not available as a reason to merge;
+   what is available is that the last round closed the shape-by-shape divergence
+   *by argument* (§5e) rather than by another case, and that the remaining known
+   defects are all pre-existing on `main` and filed (#213, #215).
+2. **What seven rounds did not review**, stated so it is not mistaken for
+   covered: the variance analysis beyond its claim table (`variance.ts`,
+   `support/graph.ts` — ~510 new lines, the largest unreviewed surface); the LSP
+   and editor surfaces (`queries/variance-claims.ts`, `analysis/session.ts`, the
+   code action, hover, the TextMate scope, the Playground example — suites green,
+   never mutated); `.d.ts` emission for the new shapes (#132's family); and the
+   `for`-loop head binding position, which round 7 could not exercise because
+   `for (a as b) in …` does not parse.
 3. **Open the PR.** Base `main`. The commits tell the story in order and should
    not be squashed into one.
 3. **#212 is a pre-existing crash this branch makes more visible.** A dot call to
@@ -659,7 +722,7 @@ this file's own new test, one round earlier than usual.
 
 ## 7. Verification, as it stands
 
-Compiler 1045 plus one expected failure (x-h, #213's acceptance pin),
+Compiler 1046 plus one expected failure (x-h, #213's acceptance pin),
 language-server 113, editors/vscode 149, playground 117 — all passing,
 `tsc --noEmit` clean in the compiler. `npm run generate:prelude` was
 re-run after `Seq.hex` gained its sigil; re-run it after any stdlib edit or
