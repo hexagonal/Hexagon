@@ -2,7 +2,7 @@
 
 **Status:** Decided (ruling on issue #171, 2026-07-30). Fable's spec ruling under the ML-dialect doctrine (`decisions-ml-dialect-bool-2026-07.md` §1), on James's directive given in-session 2026-07-30 and recorded in the issue: `(* *)` is "the last piece of ML syntax we need to adopt to be a card-carrying ML dialect." Authoritative until consolidated into the host specs, per README authority rule 3 — this document is added to rule 3's closure-document list in this same PR; the standing is conferred there, not claimed here.
 **Scope:** The delimiter re-spelling (§2); the maximal-munch audit that makes it free (§3); detection of the JavaScript spellings (§4); the documentation-comment reservation (§5); what does not change (§6); comment emission into JavaScript, including a pre-existing gap this ruling closes (§7); the shipped-source comment doctrine (§8); rejected alternatives (§9); the edit-notes ledger (§10); implementation notes (§11).
-**Not in scope:** Doc-comment *semantics* — attachment, Markdown flavour, JSDoc emission — still owed to the future documentation spec; this ruling only re-spells the reservation. The sweep re-writing existing library comments to §8's doctrine (issue #172, a fresh session's task after this PR merges). `hexc`, grammar, and formatter implementation (follow-up work, §11).
+**Not in scope:** Doc-comment *semantics* — attachment, Markdown flavour, JSDoc emission — ~~still owed to the future documentation spec~~ *(delivered: `doc-comments.md`, #191, 2026-08-01)*; this ruling only re-spells the reservation. The sweep re-writing existing library comments to §8's doctrine (issue #172, a fresh session's task after this PR merges). `hexc`, grammar, and formatter implementation (follow-up work, §11).
 **Companions:** Comments (host of the normative text; correction record §11 and doctrine §12 there), Lexer §7–§8 (token interaction), Operators §1–§2 (the ground of §3's audit), Declarations Preamble §1.1 (the Rewrite Rule, which §4 applies), `decisions-ml-dialect-bool-2026-07.md` §1 (the doctrine this rules under).
 
 ---
@@ -47,6 +47,8 @@ This is the Rewrite Rule (Declarations Preamble §1.1) applied at the exact plac
 `//` needs no detection: it is the same spelling in both languages, and `///` likewise lexes today as an ordinary line comment in both. The redirect surface is exactly the block forms.
 
 ## 5. The documentation reservation
+
+*(Activated 2026-08-01, issue #191 — `doc-comments.md` is the documentation spec this section anticipated. The recognition predicate is tightened there: the character after `(**` must also not be `*`, and `///` must be exactly three slashes; both refinements recorded in Comments §13. This section's text below stands as the reservation-era record.)*
 
 The reserved doc forms are now **`///`** (line — unchanged) and **`(** ... *)`** (block — replacing `/** ... */`). Recognition, when the documentation spec lands, requires `(**` followed by at least one character that is not `)`, so `(**)` stays an ordinary empty comment (§2). In v1 both reserved forms lex as ordinary comments, exactly as before; upgrading later remains non-breaking because doc comments carry metadata, not semantics.
 
