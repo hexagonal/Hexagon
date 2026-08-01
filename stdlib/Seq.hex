@@ -1,16 +1,16 @@
-// `Option`, `Some`, and `None` are implicitly in scope via the prelude.
-
-// A lazy, immutable, possibly infinite sequence of `a`s. Constructing a
-// combinator computes nothing; each element is produced on demand by `next`.
+(** A lazy, immutable, possibly infinite sequence of `a`s. Constructing a
+    combinator computes nothing; each element is produced on demand by `next`,
+    and produced again on every later traversal unless the sequence is
+    `memoize`d. *)
 export opaque record Seq(a) = { pull: () -> Option((a, Seq(a))) }
 
-// Computes each element of `source` at most once however often the result is
-// traversed, at the cost of retaining what has been produced.
 extern from "hex:intrinsic"
+    (** Computes each element of `source` at most once however often the result
+        is traversed, at the cost of retaining what has been produced. *)
     export fun seqMemoize as memoize<a>(source: Seq(a)): Seq(a)
 
-// Drives one step: the head element and the successor sequence, or `None` when
-// exhausted. `source` itself is unchanged.
+(** Drives one step: the head element and the successor sequence, or `None` when
+    exhausted. `source` itself is unchanged. *)
 export let next(source: Seq(a)): Option((a, Seq(a))) = (source.pull)()
 
 // Producers, and combinators whose step yields at most one element per pull.
@@ -19,11 +19,17 @@ export let empty: Seq(a) = Seq({ pull = () => None })
 
 export let singleton(value: a): Seq(a) = Seq({ pull = () => Some((value, empty)) })
 
+(** The sequence that yields `value`, then everything in `rest`. *)
 export let cons(value: a, rest: Seq(a)): Seq(a) = Seq({ pull = () => Some((value, rest)) })
 
+(** The infinite sequence `seed`, `step(seed)`, `step(step(seed))`, and so on.
+    Bound it with `take` or `takeWhile` before consuming it. *)
 export fun iterate(seed: a, step: a -> a): Seq(a) =
     Seq({ pull = () => Some((seed, iterate(step(seed), step))) })
 
+(** Applies `transform` to each element as that element is pulled. A traversal
+    calls `transform` once per element, so two traversals call it twice —
+    `memoize` the result when it is expensive. *)
 export fun map(source: Seq(a), transform: a -> b): Seq(b) =
     Seq({ pull = () =>
         match next(source)
@@ -31,6 +37,8 @@ export fun map(source: Seq(a), transform: a -> b): Seq(b) =
             Some((value, rest)) => Some((transform(value), map(rest, transform)))
     })
 
+(** The first `count` elements of `source`, or all of them if it is shorter. A
+    `count` of zero or less gives the empty sequence. *)
 export fun take(source: Seq(a), count: Int): Seq(a) =
     if count <= 0 then
         empty
@@ -41,6 +49,8 @@ export fun take(source: Seq(a), count: Int): Seq(a) =
                 Some((value, rest)) => Some((value, take(rest, count - 1)))
         })
 
+(** The longest leading run of elements satisfying `keep`. The first element
+    that fails ends the sequence and is not part of it. *)
 export fun takeWhile(source: Seq(a), keep: a -> Bool): Seq(a) =
     Seq({ pull = () =>
         match next(source)
@@ -52,6 +62,8 @@ export fun takeWhile(source: Seq(a), keep: a -> Bool): Seq(a) =
                     None
     })
 
+(** Grows a sequence from `seed`: each step produces one element and the seed
+    for the next, and `None` ends it. The mirror of `fold`, which consumes one. *)
 export fun unfold(seed: b, produce: b -> Option((a, b))): Seq(a) =
     Seq({ pull = () =>
         match produce(seed)
@@ -59,6 +71,8 @@ export fun unfold(seed: b, produce: b -> Option((a, b))): Seq(a) =
             Some((value, nextSeed)) => Some((value, unfold(nextSeed, produce)))
     })
 
+(** Combines elements pairwise with `combine`, ending as soon as either side
+    runs out. *)
 export fun zipWith(left: Seq(a), right: Seq(b), combine: (a, b) -> c): Seq(c) =
     Seq({ pull = () =>
         match next(left)
@@ -70,9 +84,12 @@ export fun zipWith(left: Seq(a), right: Seq(b), combine: (a, b) -> c): Seq(c) =
                         Some((combine(leftValue, rightValue), zipWith(leftRest, rightRest, combine)))
     })
 
+(** Pairs elements positionally, ending as soon as either side runs out. *)
 export let zip(left: Seq(a), right: Seq(b)): Seq((a, b)) =
     zipWith(left, right, (leftValue, rightValue) => (leftValue, rightValue))
 
+(** The elements of `first`, then those of `second`. `second` is not pulled
+    until `first` is exhausted, so an infinite `first` never reaches it. *)
 export fun concat(first: Seq(a), second: Seq(a)): Seq(a) =
     Seq({ pull = () =>
         match next(first)
@@ -82,6 +99,9 @@ export fun concat(first: Seq(a), second: Seq(a)): Seq(a) =
 
 // Combinators whose step may consume many source elements to yield one.
 
+(** The elements of `source` satisfying `keep`. One pull consumes source
+    elements until it finds one, so pulling past the last match runs the source
+    to exhaustion — and does not return at all if the source is infinite. *)
 export fun filter(source: Seq(a), keep: a -> Bool): Seq(a) =
     Seq({ pull = () =>
         var current = source
@@ -99,6 +119,8 @@ export fun filter(source: Seq(a), keep: a -> Bool): Seq(a) =
         result
     })
 
+(** `source` without its first `count` elements. They are skipped on the first
+    pull of the result, not when `drop` is called. *)
 export let drop(source: Seq(a), count: Int): Seq(a) =
     Seq({ pull = () =>
         var current = source
@@ -118,6 +140,8 @@ export let drop(source: Seq(a), count: Int): Seq(a) =
         result
     })
 
+(** `source` from its first element that fails `discard` onward. Like `drop`,
+    the skipping happens on the first pull of the result. *)
 export let dropWhile(source: Seq(a), discard: a -> Bool): Seq(a) =
     Seq({ pull = () =>
         var current = source
@@ -156,11 +180,16 @@ fun flatMapWith(source: Seq(a), transform: a -> Seq(b), pending: Seq(b)): Seq(b)
         result
     })
 
+(** The sequences `transform` produces, concatenated in order. Each is pulled to
+    exhaustion before the next source element is read. *)
 export let flatMap(source: Seq(a), transform: a -> Seq(b)): Seq(b) =
     flatMapWith(source, transform, empty)
 
 // Consumers: drive a `Seq` to a value.
 
+(** Reduces the whole sequence to one value, left to right, starting from
+    `initial`. It pulls every element, so it does not return on an infinite
+    sequence. *)
 export let fold(source: Seq(a), initial: b, combine: (b, a) -> b): b =
     var accumulator = initial
     var current = source
@@ -173,6 +202,8 @@ export let fold(source: Seq(a), initial: b, combine: (b, a) -> b): b =
                 current := rest
     accumulator
 
+(** How many elements `source` yields. It pulls all of them, so it does not
+    return on an infinite sequence. *)
 export let length(source: Seq(a)): Int =
     var total = 0
     var current = source
@@ -185,6 +216,8 @@ export let length(source: Seq(a)): Int =
                 current := rest
     total
 
+(** Runs `action` on each element in order, for its effect. It pulls the whole
+    sequence, so it does not return on an infinite one. *)
 export let forEach(source: Seq(a), action: a -> Unit): Unit =
     var current = source
     var running = True
@@ -195,6 +228,8 @@ export let forEach(source: Seq(a), action: a -> Unit): Unit =
                 action(value)
                 current := rest
 
+(** The first element satisfying `matches`, or `None` if none does. It stops at
+    that element, so it is safe on an infinite sequence that contains one. *)
 export let find(source: Seq(a), matches: a -> Bool): Option(a) =
     var current = source
     var result = None
@@ -210,10 +245,13 @@ export let find(source: Seq(a), matches: a -> Bool): Option(a) =
                     current := rest
     result
 
+(** Whether any element satisfies `matches`, stopping at the first that does. *)
 export let any(source: Seq(a), matches: a -> Bool): Bool =
     match find(source, matches)
         None => False
         Some(_) => True
 
+(** Whether every element satisfies `matches`, stopping at the first that does
+    not. *)
 export let all(source: Seq(a), matches: a -> Bool): Bool =
     not any(source, value => not matches(value))
