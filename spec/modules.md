@@ -126,6 +126,21 @@ export opaque union Handle = FileHandle(fd: Int) | NetHandle(sock: Int)
 
 Lineage: Roc's opaque types and Haskell's export-`Point`-without-`Point(..)` idiom; the modifier spelling keeps the common case JS-shaped where an export list (Haskell/Elm) would abandon it (§9.3).
 
+#### 4.2.1 Variance claims on parameterized opaque types *(added 2026-08-01, #205 — closure doc `decisions-ml-dialect-generalization-2026-08.md` §6)*
+
+A type parameter of an `export opaque` declaration may carry a **variance sigil**: `+a` (covariant claim) or `-a` (contravariant claim). Grammar and its two parse errors are the Declarations Preamble's (§2.1 there); this section owns the semantics.
+
+```hexagon
+export opaque record Seq(+a) = { pull: () -> Option((a, Seq(a))) }
+export opaque record Registry(k, +v) = ...      -- claims are per-parameter
+```
+
+- **Bare means invariant — the empty claim, and legal.** Outside the home module an unmarked parameter is treated as invariant. This is this section's own doctrine applied to the next capability: opacity hides *structure*, not *capabilities* — and every capability that crosses (`derives`, arity, now variance) crosses because the author **wrote** it. The governing principle, owned by the closure doc §6.2: **what crosses an opaque boundary must be declared, not inferred.** Inferred variance would let a private representation edit silently change *client modules'* generalization behavior — fake abstraction by another door.
+- **Claims are verified in the home module**, where nothing is hidden: the compiler computes the representation's true variance (closure doc §5) and checks each claim at the declaration. `+a` is legal iff every occurrence of `a` in the representation is covariant; `-a` iff every occurrence is contravariant; bare is always legal. An unsupportable claim is a **hard error at the declaration naming a witness occurrence**: "`a` cannot be declared covariant in `Seq`: field `consume` uses `a` in argument position (Seq.hex:31). Remove the `+`, or change the field." A later representation edit that violates a standing claim errors *here*, at the author's declaration — never downstream in a stranger's module.
+- **Under-claiming is legal everywhere and forever** — it reserves the right to strengthen the representation later. There is no compiler warning for it (no warning tier, Preamble §1.1); the LSP offers a code action when a bare parameter's representation would support a claim (closure doc §8.2).
+- **Declared claims are used uniformly, the home module included** — Step 2's covariance test (Functions §8.7) reads the claim, never the private representation, so a program cannot compile in its home module and fail identically-written elsewhere. The computed variance is used exactly once, for the verification above.
+- Transparent types are the other half of the rule and take no syntax: their variance is **inferred** — the definition is public, so the computation leaks nothing a reader could not derive (closure doc §5.3).
+
 ### 4.3 Private types in public signatures
 
 An exported term whose type mentions a **private nominal type** is a hard error at the export:
@@ -321,6 +336,7 @@ Library versus application is therefore not a distinction in Hexagon module sema
 | Bare package specifier in Hexagon `import` | "package imports are not yet supported" (§12.1); foreign `extern from` bare specifiers are legal (FFI Part 4 §2.1) |
 | Uppercase-start name in a binder-pattern position matching an in-scope module alias | "`Json` is a module alias; module aliases are not binders — binders are non-uppercase-start; did you mean `json`?" (near-miss hint, same family as §5.1's type-not-module; Statements §9.2 origin) |
 | Missing `C<T>` instance | names the legal homes (§7.6; two, or one if they coincide): "…could only be declared in `./config` (declares `Config`) or the module declaring `Ord`" |
+| Declared variance the representation does not support | hard error at the declaration naming a **witness occurrence**: "`a` cannot be declared covariant in `Seq`: field `consume` uses `a` in argument position (Seq.hex:31). Remove the `+`, or change the field" (§4.2.1, #205) |
 
 ---
 
@@ -440,3 +456,4 @@ Geo.area(2.0)
 | Emission: 1:1 ESM; named imports even for namespace form; exported opaque types use FFI Part 7's private-symbol branded `.d.ts` face | §11 |
 | Five hanging questions recorded | §12 |
 | Intrinsic linkage is a declaration (`extern from "hex:intrinsic"`), never a third resolution meaning; companion idiom retained under widened #125 scope; public-name and primitive doors deprecated per-companion | §5.3 note; `spec/intrinsics.md` |
+| Variance claims on parameterized opaque exports: `+a`/`-a` declared, bare = invariant (the empty claim); verified in the home module against the representation; over-claim errors at the declaration with a witness occurrence; claims read uniformly, home module included; what crosses an opaque boundary is declared, never inferred (#205) | §4.2.1; closure doc `decisions-ml-dialect-generalization-2026-08.md` §6 |
