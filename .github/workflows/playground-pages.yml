@@ -1,22 +1,41 @@
-name: Deploy playground to GitHub Pages
+name: Check and deploy the playground
 
+# This runs on pull requests as well as on main. Until #209 it ran only after a
+# merge, so every pull request was merged untested and a lockfile broken in
+# 942dd42 went unnoticed for eleven merges (#208). The checks below are the gate;
+# they are worth nothing if they run too late to stop anything.
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
+# Least privilege by default; each job asks for what it needs. Note that a
+# `permissions:` block is unconditional, so the Check job below holds
+# `pages: write` on pull requests too — GitHub caps the token for pull requests
+# from a fork, but not for one pushed to this repository.
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: github-pages
-  cancel-in-progress: true
 
 jobs:
   build:
+    name: Check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+    # Superseded pushes to a pull request are worth cancelling. Pushes to main
+    # are not one stream of work being revised, they are separate merges that
+    # each need their own build, so they take a group of their own per run and
+    # never queue behind one another.
+    #
+    # `cancel-in-progress: false` would NOT be enough to say that. A group holds
+    # one pending run: a third arrival evicts the second while it waits. That is
+    # how PR #203 was lost — cancelled 37 seconds in when PR #207 merged behind
+    # it, before it could reach the deploy.
+    concurrency:
+      group: check-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -92,7 +111,14 @@ jobs:
         run: npm run check
         working-directory: playground
 
+      # Anything that is not main stops short of the Pages-specific steps — a
+      # pull request, and a dispatch on a branch, both of which have nothing to
+      # publish. They still run the real build, because a build that no longer
+      # compiles is exactly the breakage this gate exists to catch.
+      # `build:pages` hardcodes its own `--base`, so it reads nothing from
+      # configure-pages and skipping that step cannot change what it produces.
       - name: Configure GitHub Pages
+        if: github.ref == 'refs/heads/main'
         uses: actions/configure-pages@v5
 
       - name: Build playground for GitHub Pages
@@ -100,17 +126,126 @@ jobs:
         working-directory: playground
 
       - name: Upload playground
+        if: github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v4
         with:
           path: playground/dist
 
   deploy:
+    name: Deploy
+    needs: build
+    # Only main publishes. A workflow_dispatch on a branch therefore runs the
+    # whole build and stops cleanly here, which is how a lockfile repair is
+    # verified against the real linux runner before it is merged.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # `contents: read` is not known to be required by deploy-pages, but a
+    # `permissions:` block sets every scope it omits to none, and this is the one
+    # job whose permissions cannot be exercised before this file is on main.
+    # GitHub's own Pages starter workflow grants it; so does this.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
+    # A deployment already under way finishes rather than being cancelled by the
+    # merge behind it. GitHub keeps only the newest queued run, so the site still
+    # converges on the latest commit without any merge losing its build.
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
     steps:
       - name: Deploy playground
         id: deployment
         uses: actions/deploy-pages@v4
+
+  # The backstop. A pull-request gate cannot catch everything: the darwin/linux
+  # lockfile gap is invisible on the author's machine by construction, so main
+  # can still go red. The default per-run email fired eleven times for #208 and
+  # did not land, because a mail scrolls away and an issue does not.
+  # Both jobs below test `needs.*.result` explicitly rather than using
+  # `failure()` and `success()`. Those two functions are blind to a third
+  # outcome: a job that was CANCELLED is neither, so a pair of status-function
+  # guards would both stay silent on exactly the run that most needs reporting.
+  # PR #203's run is the worked example — its conclusion was `cancelled`, not
+  # `failure`, and a backstop nobody can see failing is worse than none, because
+  # it is trusted.
+  #
+  # A superseded deploy is also cancelled, and that one is benign by design, so
+  # neither job treats `cancelled` as red. It is left to the next merge, whose
+  # deploy either goes green and closes the issue or fails and opens one.
+  report-red-main:
+    name: Report a red main
+    needs: [build, deploy]
+    if: >-
+      ${{ always() && github.ref == 'refs/heads/main'
+      && (needs.build.result == 'failure' || needs.deploy.result == 'failure') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open or update the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # The label is the handle, not the title. Searching by title goes
+          # through an index that lags far enough behind that two quick failures
+          # would each believe they were the first, and scanning titles instead
+          # means paging every open issue — fine at 42, wrong at 200.
+          gh label create ci-red --color b60205 \
+            --description 'A run on main failed; opened and closed by the workflow' \
+            >/dev/null 2>&1 || true
+          body="The build or the deploy failed on \`main\`, so the site is serving stale content.
+
+          - commit: \`$COMMIT\`
+          - run: $RUN_URL
+
+          This issue is opened and closed by the workflow itself. It stays open
+          until a run on \`main\` goes green, and each further failure adds a
+          comment. Closing it by hand does not fix the site."
+          number=$(gh issue list --state open --label ci-red --limit 1 \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "$body"
+          else
+            gh issue create --title 'CI is failing on main' --body "$body" --label ci-red
+          fi
+
+  clear-red-main:
+    name: Clear a red main
+    needs: [build, deploy]
+    if: >-
+      ${{ always() && github.ref == 'refs/heads/main'
+      && needs.build.result == 'success' && needs.deploy.result == 'success' }}
+    runs-on: ubuntu-latest
+    # Housekeeping must not invent a red main of its own. Without this, an API
+    # blip here fails the run on a green build and a green deploy, and reports
+    # nothing — report-red-main only sees its own ancestors, and this is a
+    # sibling, not one of them.
+    continue-on-error: true
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Close the tracking issue if one is open
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # Listing by a label that does not exist yet is not an error; it comes
+          # back empty, which is the right answer.
+          number=$(gh issue list --state open --label ci-red --limit 1 \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue close "$number" --comment "Green again on \`$COMMIT\` — $RUN_URL"
+          fi
