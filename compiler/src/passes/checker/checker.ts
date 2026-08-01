@@ -8,6 +8,15 @@
  */
 
 import * as Diagnostics from "../../support/diagnostics.js";
+import { stronglyConnectedComponents } from "../../support/graph.js";
+import {
+  COMPILER_CLAIMS,
+  flip as flipVariance,
+  join as joinVariance,
+  multiply as multiplyVariance,
+  type Variance,
+  VarianceTable,
+} from "./variance.js";
 import { isIntrinsicScheme } from "../../intrinsics.js";
 import type * as Source from "../../support/source.js";
 import { displayParameterName } from "../../support/synthetic.js";
@@ -203,6 +212,22 @@ function primitive(name: Typed.PrimitiveName): Constructor {
   return { kind: "Constructor", name };
 }
 
+/**
+ * A compiler-known constructor's claim (closure doc §5.3). A constructor with
+ * no row is invariant, and item 7 declines its variables — the answer that
+ * withholds generalization rather than granting it on a claim nobody made.
+ */
+function compilerClaim(constructor: string, slot: number): Variance {
+  return COMPILER_CLAIMS.get(constructor)?.[slot] ?? "inv";
+}
+
+/** How an occurrence's sign reads in a report, in position words rather than lattice ones. */
+function positionPhrase(variance: Variance): string {
+  if (variance === "contra") return "in argument position";
+  if (variance === "co") return "in result position";
+  return "in an invariant position";
+}
+
 class Checker {
   readonly #expressionTypes = new WeakMap<Resolved.Expr, Mono>();
   readonly #requirements = new WeakMap<object, readonly Requirement[]>();
@@ -300,6 +325,12 @@ class Checker {
    * doc §2.1).
    */
   readonly #symbolKinds = new Map<Resolved.SymbolId, Resolved.SymbolKind>();
+  /**
+   * The variance of every constructor this module can name (closure doc §5).
+   * Read by Step 2's covariance clause and by §6.3's claim verification; empty
+   * until `check` installs it, which is before any inference runs.
+   */
+  #variance = new VarianceTable([], []);
   readonly #variables: Variable[] = [];
   readonly #quantified = new Set<number>();
   readonly #diagnostics: Diagnostics.Bag;
@@ -313,6 +344,10 @@ class Checker {
 
   check(module: Resolved.Module): Typed.Module {
     for (const symbol of module.symbols) this.#symbolKinds.set(symbol.id, symbol.kind);
+    // Built from every declaration this module can see, imports included: the
+    // resolver puts an imported nominal's whole declaration in `module.unions` /
+    // `module.records`, so a claim travels with the type that made it.
+    this.#variance = new VarianceTable(module.unions, module.records);
     this.#seqRecord = module.preludeRecords.get("Seq");
     // The fallback is deliberately guarded on the prelude being *absent
     // entirely*, not merely on `Bool` being missing from it. Reaching for a
@@ -326,6 +361,7 @@ class Checker {
         ? module.unions.find((union) => union.name === "Bool")?.id
         : undefined);
     this.#verifyPinnedBoolShape(module);
+    this.#verifyVarianceClaims(module);
     for (const externType of module.externTypes) {
       this.#externTypes.set(externType.externType, externType);
     }
@@ -930,6 +966,7 @@ class Checker {
             recursiveTypes.get(symbol)!,
             level,
             item.kind === "Fun" ? true : this.#isValue(item.value),
+            item.kind === "Let" ? item.annotation?.span : undefined,
           ),
         );
       }
@@ -963,6 +1000,7 @@ class Checker {
           valueType,
           level,
           this.#isValue(item.value),
+          item.annotation?.span,
         );
         this.#schemes.set(item.binding.symbol, scheme);
         continue;
@@ -1178,7 +1216,18 @@ class Checker {
         }
         const placeholder = sequentialPlaceholders.get(item.binding.symbol);
         if (placeholder !== undefined) this.#unify(placeholder, valueType, item.span);
-        this.#schemes.set(item.binding.symbol, { variables: [], type: placeholder ?? valueType });
+        // A `var` holds one value of one type for as long as it is in scope, so
+        // its variables belong to the environment and must sit at the block's
+        // own level. Functions §8.4 says a `var` never generalizes; this is the
+        // other half of that sentence — nothing *else* may generalize it either.
+        // Before item 7, an alias `let e = v` demoted these variables on the way
+        // to refusing to quantify anything; now that expansive bindings can
+        // quantify, the demotion has to happen where the `var` is bound, or the
+        // alias would hand out a polymorphic view of a binding that can still be
+        // assigned at one type.
+        const bound = placeholder ?? valueType;
+        this.#lowerLevels(bound, level);
+        this.#schemes.set(item.binding.symbol, { variables: [], type: bound });
         this.#mutableSymbols.add(item.binding.symbol);
         continue;
       }
@@ -3971,7 +4020,12 @@ class Checker {
     return actual;
   }
 
-  #generalize(type: Mono, level: number, allow: boolean): Scheme {
+  #generalize(
+    type: Mono,
+    level: number,
+    allow: boolean,
+    annotation?: Source.Span,
+  ): Scheme {
     let variables = this.#collectVariables(type).filter(
       (variable) => variable.level > level,
     );
@@ -3979,6 +4033,13 @@ class Checker {
     for (const variable of variables) {
       if (
         !inputVariables.has(variable.id) &&
+        // A declared type variable is pinned by its annotation and is not
+        // something §4 may choose a type for. Defaulting one bound it to `Int`
+        // and then reported the *binding* as requiring `Int` — an accurate
+        // sentence about a state defaulting had just created, and the wrong
+        // account of what happened. Skipped here so §4.1's own report reaches
+        // the author instead (closure doc §4.1).
+        variable.rigidName === undefined &&
         variable.requirements.length > 0 &&
         this.#canDefaultToInt(variable)
       ) {
@@ -3989,11 +4050,134 @@ class Checker {
       (variable) => variable.level > level,
     );
     if (!allow) {
-      for (const variable of variables) variable.level = level;
-      variables = [];
+      // Functions §8 item 7, the relaxed value restriction. Level admission has
+      // already run (the filter above); what remains is per-variable, and the
+      // two clauses are asked of each survivor independently — one binding may
+      // end up with a scheme quantifying some variables while others sit
+      // unsolved awaiting their first use (closure doc §4.5).
+      const positions = this.#variablePositions(type);
+      const quantified: Variable[] = [];
+      for (const variable of variables) {
+        const declined = this.#declineReason(variable, positions);
+        if (declined === undefined) {
+          quantified.push(variable);
+          continue;
+        }
+        // A rigid variable can be neither quantified nor pinned by a use, so an
+        // annotation whose variable item 7 declines has no legal reading at all:
+        // hard error at the declaration, in Functions §4.1's family, naming the
+        // clause that actually fired (closure doc §4.1). Exports inherit it
+        // through their mandatory signatures (Modules §4.1.1).
+        if (variable.rigidName !== undefined && annotation !== undefined) {
+          this.#diagnostics.add({
+            severity: "error",
+            message:
+              `\`${variable.rigidName}\` is a declared type variable, but this right-hand ` +
+              `side is a computation that cannot be generalized in \`${variable.rigidName}\` ` +
+              `(${declined}); bind where the type is known, or remove the annotation`,
+            primary: annotation,
+          });
+          // The binding has no legal reading, so nothing downstream should try
+          // to give it one. Left unsolved, its constraint reached the emitter as
+          // an evidence lookup with nowhere to look, and the author's one
+          // mistake collected a "missing evidence during JavaScript emission"
+          // note that reads like a compiler defect.
+          variable.instance = ERROR;
+          continue;
+        }
+        variable.level = level;
+      }
+      variables = quantified;
     }
     for (const variable of variables) this.#quantified.add(variable.id);
     return { variables, type };
+  }
+
+  /**
+   * Item 7's clauses (a) and (b), or `undefined` when the variable passes both.
+   * The returned text is the parenthesized clause the diagnostic quotes.
+   */
+  #declineReason(
+    variable: Variable,
+    positions: ReadonlyMap<number, Variance>,
+  ): string | undefined {
+    // (a) Unconstrained. Hexagon's own addition to Garrigue's rule, and
+    // load-bearing: a constrained variable occurs covariantly at the root of
+    // `Num ?1 => ?1`, so the variance test alone would generalize
+    // `let y = double(42)` straight into §3's coherence dilemma — no least `Num`
+    // type for the ⊥ argument, and no evaluation point for the evidence
+    // (closure doc §4.3). Decided; do not re-litigate.
+    if (variable.requirements.length > 0) {
+      const names = [...new Set(variable.requirements.map(({ name }) => name))];
+      return `\`${variable.rigidName ?? this.#display(variable)}\` is constrained by \`${
+        names.join("`, `")
+      }\``;
+    }
+    // (b) Covariant-only. A variable whose every occurrence is erased by an
+    // unused parameter is covariant-only vacuously — nothing in the value can
+    // hold one.
+    const position = positions.get(variable.id) ?? "inv";
+    if (position === "co" || position === "unused") return undefined;
+    return position === "contra"
+      ? `\`${variable.rigidName ?? this.#display(variable)}\` occurs in argument position`
+      : `\`${variable.rigidName ?? this.#display(variable)}\` occurs in an invariant position`;
+  }
+
+  /**
+   * Every variable in `type`, joined over the signs of its occurrences (closure
+   * doc §5.1). The root is covariant; `->` flips its argument positions; a
+   * constructor's slot multiplies by that constructor's *effective* variance —
+   * the declared claim for an opaque type, the inferred one for a transparent
+   * type, and the compiler-side table's row for a type with no declaration site.
+   */
+  #variablePositions(type: Mono): ReadonlyMap<number, Variance> {
+    const positions = new Map<number, Variance>();
+    const walk = (current: Mono, sign: Variance): void => {
+      const actual = this.#prune(current);
+      switch (actual.kind) {
+        case "Variable":
+          positions.set(actual.id, joinVariance(positions.get(actual.id) ?? "unused", sign));
+          return;
+        case "Function":
+          for (const parameter of actual.parameters) walk(parameter, flipVariance(sign));
+          walk(actual.result, sign);
+          return;
+        case "Tuple":
+          for (const element of actual.elements) walk(element, sign);
+          return;
+        case "Record":
+          for (const field of actual.fields.values()) walk(field, sign);
+          if (actual.tail !== undefined) walk(actual.tail, sign);
+          return;
+        case "Union":
+          actual.arguments.forEach((argument, index) =>
+            walk(argument, multiplyVariance(sign, this.#variance.effectiveUnion(actual.union, index)))
+          );
+          return;
+        case "NominalRecord":
+          actual.arguments.forEach((argument, index) =>
+            walk(argument, multiplyVariance(sign, this.#variance.effectiveRecord(actual.record, index)))
+          );
+          return;
+        case "Vector":
+        case "Set":
+        case "Array":
+        case "Node":
+          walk(actual.element, multiplyVariance(sign, compilerClaim(actual.kind, 0)));
+          return;
+        case "Nullable":
+          walk(actual.value, multiplyVariance(sign, compilerClaim("Nullable", 0)));
+          return;
+        case "Map":
+          walk(actual.key, multiplyVariance(sign, compilerClaim("Map", 0)));
+          walk(actual.value, multiplyVariance(sign, compilerClaim("Map", 1)));
+          return;
+        default:
+          return;
+      }
+    };
+    walk(type, "co");
+    return positions;
   }
 
   #defaultRemainingVariables(): void {
@@ -4009,6 +4193,12 @@ class Checker {
       }
       seen.add(actual.id);
       if (actual.requirements.length === 0) continue;
+      // A declared type variable is pinned by its annotation; §4 never chooses
+      // a type for one. `#reportBlockedDefaulting` said so already for the
+      // blocked case, and defaulting one here produced a *second* report on a
+      // binding item 7 had already refused, telling the author to write `Int`
+      // for a variable the annotation had put there deliberately.
+      if (actual.rigidName !== undefined) continue;
       if (this.#canDefaultToInt(actual)) {
         this.#bind(actual, primitive("Int"), actual.requirements[0]!.span);
         continue;
@@ -4741,6 +4931,60 @@ class Checker {
             `exported function \`${item.binding.name}\` must omit base constraint \`${constraint}\` from ` +
             `\`${parameter.name}\`; \`${provider ?? "another declared constraint"}\` already provides it`,
           primary: parameter.span,
+        });
+      }
+    }
+  }
+
+  /**
+   * §6.3: every written claim is checked against the representation, in the home
+   * module, where nothing is hidden. Only *this* module's declarations — an
+   * imported one was verified where it was written, and re-reporting it would
+   * caret a stranger's source.
+   *
+   * A later representation edit that violates a standing claim therefore errors
+   * at the author's declaration, never downstream in a client module.
+   */
+  #verifyVarianceClaims(module: Resolved.Module): void {
+    for (const item of module.items) {
+      if (item.kind !== "Union" && item.kind !== "RecordDeclaration") continue;
+      for (const claim of item.claims ?? []) {
+        const index = item.parameters.indexOf(claim.parameter);
+        if (index < 0) continue;
+        const computed = item.kind === "Union"
+          ? this.#variance.computedUnion(item.union, index)
+          : this.#variance.computedRecord(item.record, index);
+        const admitted: readonly Variance[] = claim.claim === "co"
+          ? ["unused", "co"]
+          : ["unused", "contra"];
+        if (admitted.includes(computed)) continue;
+        const occurrences = item.kind === "Union"
+          ? this.#variance.occurrencesUnion(item.union, index)
+          : this.#variance.occurrencesRecord(item.record, index);
+        const witness = occurrences.find(
+          (occurrence) => !admitted.includes(occurrence.variance),
+        );
+        const claimed = claim.claim === "co" ? "covariant" : "contravariant";
+        const sigil = claim.claim === "co" ? "+" : "-";
+        const slot = item.kind === "Union" ? "constructor slot" : "field";
+        // The witness is required content, not garnish (§8.1): the author who
+        // cannot state variance theory is shown the exact line that blocks the
+        // claim, with both legal exits named (Rewrite Rule, Preamble §1.1).
+        this.#diagnostics.add({
+          severity: "error",
+          message: witness === undefined
+            ? `\`${claim.parameter}\` cannot be declared ${claimed} in \`${item.name}\`; ` +
+              `remove the \`${sigil}\`, or change the representation`
+            : `\`${claim.parameter}\` cannot be declared ${claimed} in \`${item.name}\`: ` +
+              `${slot} \`${witness.field}\` uses \`${claim.parameter}\` ${positionPhrase(witness.variance)}. ` +
+              `Remove the \`${sigil}\`, or change the ${slot}`,
+          primary: claim.span,
+          ...(witness === undefined ? {} : {
+            labels: [{
+              span: witness.span,
+              message: `\`${claim.parameter}\` ${positionPhrase(witness.variance)} here`,
+            }],
+          }),
         });
       }
     }
@@ -5857,49 +6101,6 @@ function unwrapAsPattern(pattern: Resolved.Pattern): Resolved.Pattern {
  * one-member component (its self-reference is still cyclic). Deterministic given
  * the node and successor order supplied by the caller.
  */
-function stronglyConnectedComponents(
-  nodes: readonly Resolved.SymbolId[],
-  successors: (node: Resolved.SymbolId) => readonly Resolved.SymbolId[],
-): Resolved.SymbolId[][] {
-  const nodeSet = new Set(nodes);
-  const index = new Map<Resolved.SymbolId, number>();
-  const lowlink = new Map<Resolved.SymbolId, number>();
-  const onStack = new Set<Resolved.SymbolId>();
-  const stack: Resolved.SymbolId[] = [];
-  const components: Resolved.SymbolId[][] = [];
-  let counter = 0;
-  const connect = (v: Resolved.SymbolId): void => {
-    index.set(v, counter);
-    lowlink.set(v, counter);
-    counter += 1;
-    stack.push(v);
-    onStack.add(v);
-    for (const w of successors(v)) {
-      if (!nodeSet.has(w)) continue;
-      if (!index.has(w)) {
-        connect(w);
-        lowlink.set(v, Math.min(lowlink.get(v)!, lowlink.get(w)!));
-      } else if (onStack.has(w)) {
-        lowlink.set(v, Math.min(lowlink.get(v)!, index.get(w)!));
-      }
-    }
-    if (lowlink.get(v) === index.get(v)) {
-      const component: Resolved.SymbolId[] = [];
-      let w: Resolved.SymbolId;
-      do {
-        w = stack.pop()!;
-        onStack.delete(w);
-        component.push(w);
-      } while (w !== v);
-      components.push(component);
-    }
-  };
-  for (const node of nodes) {
-    if (!index.has(node)) connect(node);
-  }
-  return components;
-}
-
 function referencedSymbols(root: object): ReadonlySet<Resolved.SymbolId> {
   const symbols = new Set<Resolved.SymbolId>();
   const seen = new WeakSet<object>();

@@ -280,20 +280,49 @@ describe("what the peel must not license", () => {
 
   test("a call is not a value in either spelling", () => {
     // The peel removes a wrapper; it must not make the wrapped expression a
-    // value it was not. `empty()` is a call on both lines and generalizes on
-    // neither, so the second use is a mismatch in both spellings.
+    // value it was not. `make()` is a call on both lines and is a value on
+    // neither, so `full` generalization is withheld in both spellings.
+    //
+    // The observable changed with #205 and the test moved with it. It used to
+    // be a `Vector(a)` producer, whose variable item 7 now generalizes —
+    // `Vector(+a)` is a compiler-side claim and the variable is unconstrained,
+    // so Functions §8.2's own former counterexample compiles (closure doc
+    // §4.4). What still separates a value from a computation is the *rest* of
+    // item 7's remainder: `a -> a` puts the variable on both sides of an arrow,
+    // so it is invariant, declined, and pinned by its first use.
     const uses =
-      "export let whole: Int = Vector.at(xs, 1)\n" +
-      "export let text: String = Vector.at(strings, 1)\n";
-    const producer = "let empty<a>(): Vector(a) = []\n";
+      "export let whole: Int = xs(1)\n" +
+      'export let text: String = strings("s")\n';
+    const producer = "let make<a>(): (a -> a) = (x) => x\n";
+    for (
+      const spelling of [
+        "let xs = make()\nlet strings = xs\n",
+        "let xs =\n    make()\nlet strings = xs\n",
+      ]
+    ) {
+      const messages = diagnostics(producer + spelling + uses);
+      expect(messages.some((message) => message.includes("String"))).toBe(true);
+    }
+  });
+
+  test("item 7 generalizes what the peel still refuses to call a value", () => {
+    // The other side of the same coin, pinned so the pair reads together: the
+    // value test says no, and the binding is polymorphic anyway — per variable,
+    // and only because `Vector` carries a covariant claim (closure doc §4.4).
     for (
       const spelling of [
         "let xs = empty()\nlet strings = xs\n",
         "let xs =\n    empty()\nlet strings = xs\n",
       ]
     ) {
-      const messages = diagnostics(producer + spelling + uses);
-      expect(messages.some((message) => message.includes("String"))).toBe(true);
+      expect(
+        diagnostics(
+          "let empty<a>(): Vector(a) = []\n" +
+            spelling +
+            "export let whole: Int = Vector.at(xs, 1)\n" +
+            "export let text: String = Vector.at(strings, 1)\n",
+        ),
+      ).toEqual([]);
     }
   });
 

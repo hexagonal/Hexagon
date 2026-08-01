@@ -133,7 +133,10 @@ describe("the step-7 reverts are in the source, not merely intended", () => {
   });
 
   test("the declaration is the opaque record Loops §6.6 specifies", () => {
-    expect(seqSource).toContain("export opaque record Seq(a) = { pull: () -> Option((a, Seq(a))) }");
+    // The `+` arrived with the #205 stdlib sweep (closure doc §11.4): `Seq` is
+    // covariant in `a`, the ruling's transitional compiler-side row is retired,
+    // and the claim now lives where every consumer reads it — in the source.
+    expect(seqSource).toContain("export opaque record Seq(+a) = { pull: () -> Option((a, Seq(a))) }");
   });
 
   test("no `import` lines — prelude source names earlier prelude members implicitly", () => {

@@ -115,10 +115,19 @@ describe("Step 1: the completed syntactic-value list", () => {
   });
 
   test("(iv) a record literal with a computed field is not a value", () => {
-    // The recursive condition, same as tuples: field values must be values.
+    // The recursive condition, same as tuples: field values must be values. The
+    // observable has to be a variable item 7 also declines, or Step 2 would
+    // generalize the binding anyway and hide the answer: `a -> a` is invariant.
     expect(
-      scheme("fun make() = None\nlet r = { pull = make() }\n", "r").variables.length,
+      scheme(
+        "fun make<a>(): (a -> a) = (x) => x\nlet r = { apply = make() }\n",
+        "r",
+      ).variables.length,
     ).toBe(0);
+    // The control: the same shape with a value field does generalize.
+    expect(
+      scheme("let r = { apply = (x) => x }\n", "r").variables.length,
+    ).toBe(1);
   });
 
   // (v) The levels guard. The value restriction guards allocation; levels guard
