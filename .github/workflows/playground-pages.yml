@@ -10,8 +10,10 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Least privilege by default. The jobs that need to write ask for it themselves,
-# which keeps the pull-request runs on a token that can only read.
+# Least privilege by default; each job asks for what it needs. Note that a
+# `permissions:` block is unconditional, so the Check job below holds
+# `pages: write` on pull requests too — GitHub caps the token for pull requests
+# from a fork, but not for one pushed to this repository.
 permissions:
   contents: read
 
@@ -22,12 +24,17 @@ jobs:
     permissions:
       contents: read
       pages: write
-    # Superseded pushes to a pull request are worth cancelling. Superseded
-    # pushes to main are not: main is not one stream of work being revised, it
-    # is a series of merges that each need their own build. Cancelling there is
-    # how PR #203's deploy was lost, 37 seconds in, to PR #207 merging behind it.
+    # Superseded pushes to a pull request are worth cancelling. Pushes to main
+    # are not one stream of work being revised, they are separate merges that
+    # each need their own build, so they take a group of their own per run and
+    # never queue behind one another.
+    #
+    # `cancel-in-progress: false` would NOT be enough to say that. A group holds
+    # one pending run: a third arrival evicts the second while it waits. That is
+    # how PR #203 was lost — cancelled 37 seconds in when PR #207 merged behind
+    # it, before it could reach the deploy.
     concurrency:
-      group: check-${{ github.workflow }}-${{ github.ref }}
+      group: check-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - name: Check out repository
@@ -104,13 +111,14 @@ jobs:
         run: npm run check
         working-directory: playground
 
-      # A pull request stops short of the Pages-specific steps. It still runs
-      # the real build, because a build that no longer compiles is exactly the
-      # kind of breakage this gate exists to catch; it just has nothing to
-      # publish. `build:pages` hardcodes its own `--base`, so it does not read
-      # anything from configure-pages.
+      # Anything that is not main stops short of the Pages-specific steps — a
+      # pull request, and a dispatch on a branch, both of which have nothing to
+      # publish. They still run the real build, because a build that no longer
+      # compiles is exactly the breakage this gate exists to catch.
+      # `build:pages` hardcodes its own `--base`, so it reads nothing from
+      # configure-pages and skipping that step cannot change what it produces.
       - name: Configure GitHub Pages
-        if: github.event_name != 'pull_request'
+        if: github.ref == 'refs/heads/main'
         uses: actions/configure-pages@v5
 
       - name: Build playground for GitHub Pages
@@ -118,7 +126,7 @@ jobs:
         working-directory: playground
 
       - name: Upload playground
-        if: github.event_name != 'pull_request'
+        if: github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v4
         with:
           path: playground/dist
@@ -129,9 +137,14 @@ jobs:
     # Only main publishes. A workflow_dispatch on a branch therefore runs the
     # whole build and stops cleanly here, which is how a lockfile repair is
     # verified against the real linux runner before it is merged.
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # `contents: read` is not known to be required by deploy-pages, but a
+    # `permissions:` block sets every scope it omits to none, and this is the one
+    # job whose permissions cannot be exercised before this file is on main.
+    # GitHub's own Pages starter workflow grants it; so does this.
     permissions:
+      contents: read
       pages: write
       id-token: write
     environment:
@@ -152,10 +165,23 @@ jobs:
   # lockfile gap is invisible on the author's machine by construction, so main
   # can still go red. The default per-run email fired eleven times for #208 and
   # did not land, because a mail scrolls away and an issue does not.
+  # Both jobs below test `needs.*.result` explicitly rather than using
+  # `failure()` and `success()`. Those two functions are blind to a third
+  # outcome: a job that was CANCELLED is neither, so a pair of status-function
+  # guards would both stay silent on exactly the run that most needs reporting.
+  # PR #203's run is the worked example — its conclusion was `cancelled`, not
+  # `failure`, and a backstop nobody can see failing is worse than none, because
+  # it is trusted.
+  #
+  # A superseded deploy is also cancelled, and that one is benign by design, so
+  # neither job treats `cancelled` as red. It is left to the next merge, whose
+  # deploy either goes green and closes the issue or fails and opens one.
   report-red-main:
     name: Report a red main
     needs: [build, deploy]
-    if: failure() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: >-
+      ${{ always() && github.ref == 'refs/heads/main'
+      && (needs.build.result == 'failure' || needs.deploy.result == 'failure') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -169,7 +195,13 @@ jobs:
           COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
-          title='CI is failing on main'
+          # The label is the handle, not the title. Searching by title goes
+          # through an index that lags far enough behind that two quick failures
+          # would each believe they were the first, and scanning titles instead
+          # means paging every open issue — fine at 42, wrong at 200.
+          gh label create ci-red --color b60205 \
+            --description 'A run on main failed; opened and closed by the workflow' \
+            >/dev/null 2>&1 || true
           body="The build or the deploy failed on \`main\`, so the site is serving stale content.
 
           - commit: \`$COMMIT\`
@@ -178,21 +210,26 @@ jobs:
           This issue is opened and closed by the workflow itself. It stays open
           until a run on \`main\` goes green, and each further failure adds a
           comment. Closing it by hand does not fix the site."
-          # Listed rather than searched: the search index lags behind by enough
-          # that two quick failures would each believe they were the first.
-          number=$(gh issue list --state open --limit 100 --json number,title \
-            --jq "[.[] | select(.title == \"$title\")][0].number // empty")
+          number=$(gh issue list --state open --label ci-red --limit 1 \
+            --json number --jq '.[0].number // empty')
           if [ -n "$number" ]; then
             gh issue comment "$number" --body "$body"
           else
-            gh issue create --title "$title" --body "$body"
+            gh issue create --title 'CI is failing on main' --body "$body" --label ci-red
           fi
 
   clear-red-main:
     name: Clear a red main
     needs: [build, deploy]
-    if: success() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: >-
+      ${{ always() && github.ref == 'refs/heads/main'
+      && needs.build.result == 'success' && needs.deploy.result == 'success' }}
     runs-on: ubuntu-latest
+    # Housekeeping must not invent a red main of its own. Without this, an API
+    # blip here fails the run on a green build and a green deploy, and reports
+    # nothing — report-red-main only sees its own ancestors, and this is a
+    # sibling, not one of them.
+    continue-on-error: true
     permissions:
       contents: read
       issues: write
@@ -205,9 +242,10 @@ jobs:
           COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
-          title='CI is failing on main'
-          number=$(gh issue list --state open --limit 100 --json number,title \
-            --jq "[.[] | select(.title == \"$title\")][0].number // empty")
+          # Listing by a label that does not exist yet is not an error; it comes
+          # back empty, which is the right answer.
+          number=$(gh issue list --state open --label ci-red --limit 1 \
+            --json number --jq '.[0].number // empty')
           if [ -n "$number" ]; then
             gh issue close "$number" --comment "Green again on \`$COMMIT\` — $RUN_URL"
           fi
