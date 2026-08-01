@@ -22,9 +22,10 @@ export interface Documentation {
    */
   readonly target: number;
   /**
-   * The span of the name the documented declaration introduces, when it
-   * introduces exactly one — absent for a destructuring `let` and for an
-   * `honor` block, neither of which names a single thing.
+   * The spans of the names a reader would point at to ask what this
+   * documentation says: usually the one name the declaration introduces, all of
+   * them for a destructuring `let`, and for an `honor` block the constraint in
+   * its head, which is the only name it writes.
    *
    * Emission never reads this; editor services do. They hold a *name* — a
    * symbol's `bindingSpan`, a union's, the identifier under a cursor — where
@@ -34,7 +35,7 @@ export interface Documentation {
    * declaration a block documents, rather than making a second pass re-derive
    * it from the tree.
    */
-  readonly subject?: Source.Span;
+  readonly subjects: readonly Source.Span[];
   /** The doc block's own extent, first opener through last closer. */
   readonly span: Source.Span;
   /** The comments the block is made of, so emission does not repeat them. */

@@ -296,6 +296,12 @@ function kindOf(facts: SymbolFacts): CompletionKind {
  * up by: a union's span *is* its name, a record's name is on its constructor
  * binding, and an `extern type` has kept only its whole declaration — which is
  * the other key `DocumentationIndex` answers to.
+ *
+ * A record's own `span` would answer as well, since the resolver copies the
+ * item's span into the table (`resolver.ts`, `span: item.span`) and that is the
+ * offset the doc block targets. The constructor's is used anyway, because it is
+ * the same key `ofSymbol` reaches the record by, and one of the two has to be
+ * the answer when a later change makes them disagree.
  */
 function typeNames(
   resolved: Resolved.Module,

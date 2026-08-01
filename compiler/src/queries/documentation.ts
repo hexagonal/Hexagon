@@ -10,17 +10,19 @@
  *
  * - **A name.** A symbol's `bindingSpan`, a union's span, the identifier under
  *   the cursor. That is what `at` answers, and it is why `Documentation` records
- *   a `subject` alongside its `target`: the two agree only for the forms whose
- *   declaration begins with the name it introduces (a union constructor, a
- *   record field, a constraint member), and disagree for every form with a
- *   keyword or an `export` in front (§4.2's module-level inventory, and every
- *   `extern from` item).
+ *   its `subjects` alongside its `target`: the two agree only where a
+ *   declaration's first token *is* the name it introduces — a record field, a
+ *   constraint member, an `honor` member, and a union's first constructor when
+ *   no `|` precedes it — and disagree for every form with a keyword, a `|`, or
+ *   an `export` in front (§4.2's module-level inventory, every `extern from`
+ *   item, and the idiomatic bar-prefixed constructor).
  * - **A position.** Some documentable positions have no identity at all in the
  *   occurrence index — an `honor` member's name is a bare string in the resolved
- *   tree, a record field is not a symbol, a `type` alias is expanded away — so
- *   nothing there can be reached by name. `covering` answers for those, and it
- *   is the reason hover can honour §8's "every documentable position" without
- *   the occurrence index growing entries it has no identity to give them.
+ *   tree, a record field is not a symbol, a `type` alias is expanded away, and a
+ *   destructuring `let`'s binders are patterns before they are anything else —
+ *   so nothing there can be reached by name. `covering` answers for those, and
+ *   it is the reason hover can honour §8's "every documentable position"
+ *   without the occurrence index growing entries it has no identity to give.
  *
  * Project-wide, like `collectSymbolFacts` and for the same reason: a name
  * declared in one module is hovered and completed in another, and every key
@@ -57,14 +59,16 @@ export class DocumentationIndex {
     for (const module of modules) {
       const file = Number(module.fileId);
       for (const doc of module.docs) {
-        // The name goes in first, so that a lookup by name can never be
-        // answered by some other declaration's first token: the two keys share
-        // one map, and the only offsets they can both claim are the ones where
-        // a declaration begins with its own name — where they are the same doc.
-        if (doc.subject !== undefined) {
-          this.#byOffset.set(key(file, doc.subject.start.offset), doc.content);
+        // A subject wins its own offset; the declaration key is written only if
+        // that offset is still free, so a form whose first token *is* its name
+        // writes one entry rather than two. Nothing else can collide: a target
+        // offset is where a code token starts and a subject offset is where a
+        // name token starts, so two of them meeting means one token, which
+        // means one declaration and one block.
+        for (const subject of doc.subjects) {
+          this.#byOffset.set(key(file, subject.start.offset), doc.content);
           const names = this.#namesByFile.get(file);
-          const name = { span: doc.subject, content: doc.content };
+          const name = { span: subject, content: doc.content };
           if (names === undefined) this.#namesByFile.set(file, [name]);
           else names.push(name);
         }

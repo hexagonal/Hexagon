@@ -299,9 +299,14 @@ describe("completions", () => {
       "",
       "export let plain(colour: Colour): Colour = colour",
       "",
+      "(** A box, sealed. *)",
+      "export opaque record Box = { width: Int }",
+      "",
       'extern from "node:fs"',
       "    (** What the filesystem knows. *)",
       "    type Stats",
+      "    (** Reads the whole file. *)",
+      "    fun readFileSync as readFile(path: String): String",
       "",
     ].join("\n");
 
@@ -325,6 +330,21 @@ describe("completions", () => {
       expect(offered).toContain("Colour :: A colour.");
       expect(offered).toContain("Stats :: What the filesystem knows.");
       expect(offered).toContain("plain :: -");
+      // A renamed foreign binding is documented under the name this module
+      // writes, which is the one being offered.
+      expect(offered).toContain("readFile :: Reads the whole file.");
+    });
+
+    test("an imported opaque record is documented as the type it is offered as", () => {
+      // The one path where a record's documentation is reached by the span the
+      // record table kept rather than through its constructor symbol: an opaque
+      // record exports no constructor, so the importing module has only the
+      // type name to offer.
+      const offered = documented(
+        'import {Box} from "./helper"\n\nlet probe: Int = ‸\n',
+        { "/helper.hex": DOCUMENTED },
+      );
+      expect(offered).toContain("Box :: A box, sealed.");
     });
 
     test("an imported name brings its declaring module's documentation", () => {

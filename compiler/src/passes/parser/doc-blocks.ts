@@ -125,11 +125,15 @@ export class DocBlocks {
    * Claims the block sitting before `codeTokenOffset`, if there is one, as the
    * documentation of a declaration spanning `target`.
    *
-   * `subject` is the span of the name that declaration introduces, for the
-   * editor services that hold a name rather than a declaration; a form that
-   * introduces no single name passes none.
+   * `subjects` are the spans of the names a reader would point at to ask what
+   * the block says, for the editor services that hold a name rather than a
+   * declaration — one for most forms, several for a destructuring `let`.
    */
-  attach(codeTokenOffset: number, target: Source.Span, subject?: Source.Span): void {
+  attach(
+    codeTokenOffset: number,
+    target: Source.Span,
+    subjects: readonly Source.Span[] = [],
+  ): void {
     const block = this.#claim(codeTokenOffset);
     if (block === undefined) return;
 
@@ -152,7 +156,7 @@ export class DocBlocks {
         .filter((content) => content !== "")
         .join("\n\n"),
       target: target.start.offset,
-      ...(subject === undefined ? {} : { subject }),
+      subjects,
       span: { fileId: first.span.fileId, start: first.span.start, end: last.span.end },
       comments: members,
     });

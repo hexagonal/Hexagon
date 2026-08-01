@@ -30,8 +30,8 @@ export interface SymbolFacts {
   readonly displayedType: string;
   /**
    * The declaration's documentation (`spec/doc-comments.md` §8), absent when it
-   * carries none. Found by the symbol's binding span, which is the name the
-   * doc block's subject records — see `DocumentationIndex`.
+   * carries none. Found by the symbol's binding span, which is a name the doc
+   * block records as one of its subjects — see `DocumentationIndex`.
    */
   readonly documentation?: string;
 }

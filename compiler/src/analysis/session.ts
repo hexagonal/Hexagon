@@ -323,10 +323,13 @@ export class AnalysisSession {
    * Documentation joins whatever the occurrence index found: the declaration
    * under the cursor when the cursor is on one, and otherwise the declaration
    * this name denotes, so a use site shows what its definition documents
-   * (`spec/doc-comments.md` §8). The two are asked in that order because an
-   * `honor` member's name is a *mention* of the constraint member it implements
-   * — its own documentation is the more specific answer, and the one the reader
-   * is pointing at.
+   * (`spec/doc-comments.md` §8). The order matters because the second question
+   * is answered by identity, and one identity in Hexagon is not always one
+   * declaration: a constraint *is* its name project-wide (`targetKey`), so
+   * `byTarget` on one returns every same-named constraint in the workspace. It
+   * also matters where the two disagree honestly — the constraint in an `honor`
+   * head is a reference to the constraint *and* the name the block's own
+   * documentation is filed under, and the block the cursor is inside wins.
    *
    * A documented name the index has no identity for is still answered, with the
    * documentation alone. That is the only way §8's "every documentable
@@ -347,7 +350,7 @@ export class AnalysisSession {
       .sort((left, right) => Number(right.displayedType !== undefined) - Number(left.displayedType !== undefined));
     const best = typed[0]!;
     const documentation = analysis.documentation.at(best.occurrence.span) ??
-      this.#documentationOf(analysis, best.occurrence.target);
+      this.#documentationOf(analysis, best.occurrence.target, best.occurrence.span.fileId);
     return {
       name: best.occurrence.name,
       target: best.occurrence.target,
@@ -357,10 +360,30 @@ export class AnalysisSession {
     };
   }
 
-  /** What the declaration of an identity documents, wherever it was declared. */
-  #documentationOf(analysis: Analysis, target: Target): string | undefined {
-    for (const occurrence of analysis.byTarget(target)) {
-      if (occurrence.role !== "definition") continue;
+  /**
+   * What the declaration of an identity documents, wherever it was declared.
+   *
+   * The asking file's own declarations are preferred over any other file's, and
+   * that is not a tie-break for tidiness. A value, a union, a record and a
+   * foreign type each have an identity minted once for the project, so their
+   * `byTarget` sets name one declaration and the preference never fires. A
+   * *constraint* has no identity beyond its spelling — `targetKey` keys it by
+   * name — so two unrelated modules declaring `Shown` share one target, and
+   * without this an undocumented constraint would hover with a stranger's
+   * documentation, which is worse than hovering with none. A file that declares
+   * the name nowhere still falls back to the rest, since that is the only
+   * reading under which the compiler resolved the name at all.
+   */
+  #documentationOf(
+    analysis: Analysis,
+    target: Target,
+    asking: Source.FileId,
+  ): string | undefined {
+    const definitions = analysis
+      .byTarget(target)
+      .filter(({ role }) => role === "definition");
+    const here = definitions.filter(({ span }) => span.fileId === asking);
+    for (const occurrence of here.length > 0 ? here : definitions) {
       const found = analysis.documentation.at(occurrence.span);
       if (found !== undefined) return found;
     }

@@ -135,10 +135,12 @@ JSDoc at the seats that correspond — the emitted binding in the `.js`, the
 `export declare`, type declaration, materialized constructor, or record property in
 the `.d.ts` — escaping JavaScript's block closer and inventing no seat where none
 exists. `///` has no status of any kind and receives no handling. The attachment
-also records the *name* each documented declaration introduces, which is the key
-`queries/documentation.ts` gives the editor services: hover and completion show
-doc content at every documentable position (§8), including the local binders and
-`honor` members that reach neither emitted artifact.
+also records the *names* a reader would point at to ask what each block says —
+the one name most forms introduce, every binder of a destructuring `let`, and
+for an `honor` block the constraint in its head, the only name it writes. Those
+are the key `queries/documentation.ts` gives the editor services: hover and
+completion show doc content at every documentable position (§8), including the
+local binders and `honor` members that reach neither emitted artifact.
 
 Interactive tools may additionally call `emitTypeScriptPreview` to inspect every
 representable top-level binding without promoting private bindings into the public

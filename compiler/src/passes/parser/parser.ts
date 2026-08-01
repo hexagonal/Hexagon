@@ -223,9 +223,11 @@ class Parser {
    * An `ErrorItem` claims and drops its block instead. The declaration it would
    * have documented failed to parse; one syntax error is the whole story.
    *
-   * The name each form introduces goes with the block, for the editor services
-   * that look documentation up by it. A `LetPattern` introduces several and an
-   * `Honor` block none, so those two pass no name rather than an arbitrary one.
+   * The names each form introduces go with the block, for the editor services
+   * that look documentation up by one. A destructuring `let` introduces all of
+   * its binders; an `honor` block introduces none, and hands over the
+   * constraint in its head — the only name it writes, and the one a reader
+   * points at to ask what the instance is for.
    */
   #documentItem(start: number, item: Parsed.Item): void {
     switch (item.kind) {
@@ -237,11 +239,17 @@ class Parser {
       case "Exception":
       case "ConstraintDeclaration":
       case "Union":
-        this.#docs.attach(start, item.span, item.name.span);
+        this.#docs.attach(start, item.span, [item.name.span]);
         return;
       case "LetPattern":
+        this.#docs.attach(
+          start,
+          item.span,
+          Parsed.patternNames(item.pattern).map(({ span }) => span),
+        );
+        return;
       case "Honor":
-        this.#docs.attach(start, item.span);
+        this.#docs.attach(start, item.span, [item.constraint.span]);
         return;
       case "ErrorItem":
         this.#docs.discard(start);
@@ -476,7 +484,7 @@ class Parser {
       if (declaration === undefined) this.#docs.discard(declarationStart);
       else {
         declarations.push(declaration);
-        this.#docs.attach(declarationStart, declaration.span, declaration.localName.span);
+        this.#docs.attach(declarationStart, declaration.span, [declaration.localName.span]);
       }
       if (this.#at("VSep") || this.#at("Semicolon")) this.#skipSeparators();
       else if (!this.#at("VClose") && !this.#at("Eof")) {
@@ -728,7 +736,7 @@ class Parser {
         span: spanFrom(memberToken.span, result.span),
       };
       members.push(member);
-      this.#docs.attach(memberStart, member.span, member.name.span);
+      this.#docs.attach(memberStart, member.span, [member.name.span]);
       this.#skipSeparators();
     }
     const closing = this.#expect("VClose", "expected the constraint body to close");
@@ -819,7 +827,7 @@ class Parser {
       members.push(member);
       // §7.1: an `honor` member has no seat in either emitted artifact. The
       // attachment is for tooling (§8), and for the §5 error not to fire.
-      this.#docs.attach(memberStart, member.span, name.span);
+      this.#docs.attach(memberStart, member.span, [name.span]);
       this.#skipSeparators();
     }
     const closing = this.#expect("VClose", "expected the instance body to close");
@@ -1186,7 +1194,7 @@ class Parser {
       // Constructor documentation rides the constructor, whose identity
       // downstream is its declared name (§7.1: it emits on the materialized
       // constructor, not on the union type's arm).
-      this.#docs.attach(alternative, name.span, name.span);
+      this.#docs.attach(alternative, name.span, [name.span]);
       if (!this.#at("Bar")) break;
       alternative = this.#current().span.start.offset;
       this.#advance();
@@ -1253,7 +1261,7 @@ class Parser {
       seen.add(name.text);
       const field = { name, annotation, span: spanFrom(name.span, annotation.span) };
       fields.push(field);
-      this.#docs.attach(fieldStart, field.span, name.span);
+      this.#docs.attach(fieldStart, field.span, [name.span]);
       if (!this.#at("Comma")) break;
       this.#advance();
     }
