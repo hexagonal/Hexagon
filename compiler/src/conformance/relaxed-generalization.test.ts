@@ -344,20 +344,20 @@ describe("§6.1 the sigil grammar", () => {
       "union Maybe(+a) = Just(value: a) | Nothing\n",
       "export union Maybe(-a) = Just(value: a) | Nothing\n",
     ]) {
-      expect(
-        projectDiagnostics(declaration).some((message) =>
-          message.startsWith("variance is inferred for transparent types; remove the")
-        ),
-      ).toBe(true);
+      // Declarations Preamble §2.1's normative text, exactly.
+      expect(projectDiagnostics(declaration)).toContain(
+        `variance is inferred for transparent types; remove the \`${
+          declaration.includes("(+a)") ? "+" : "-"
+        }\``,
+      );
     }
   });
 
   test("a sigil on a `type` alias is a parse error", () => {
-    expect(
-      projectDiagnostics("type Pair(+a) = (a, a)\n").some((message) =>
-        message.includes("variance is inferred for transparent types")
-      ),
-    ).toBe(true);
+    // One message for all three forms: an alias is transparent by definition.
+    expect(projectDiagnostics("type Pair(+a) = (a, a)\n")).toContain(
+      "variance is inferred for transparent types; remove the `+`",
+    );
   });
 
   test("a sigil at a use site is a parse error", () => {
@@ -366,10 +366,10 @@ describe("§6.1 the sigil grammar", () => {
         "exception Empty\n" +
         "export let b: Box(+Int) = throw(Empty)\n",
     );
-    expect(messages.some((message) =>
-      message.startsWith("variance sigils are declaration syntax, not part of a type") &&
-      message.includes("write `Box(Int)`")
-    )).toBe(true);
+    expect(messages).toContain(
+      "remove the `+` — variance is declared on the type's declaration, " +
+        "never written at a use site; write `Box(Int)`",
+    );
   });
 
   test("§5.4 an annotation naming an opaque type carries no sigil and needs none", () => {

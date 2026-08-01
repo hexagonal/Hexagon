@@ -1070,10 +1070,13 @@ class Parser {
     const claim = this.#at("Plus") ? "co" : "contra";
     const token = this.#advance();
     if (opaque) return { claim, span: token.span };
+    // Declarations Preamble §2.1's normative text, verbatim. A second exit —
+    // "or declare this type `export opaque`" — reads helpful and is not: it
+    // invites an author to change what a type *is* to satisfy a sigil they had
+    // no reason to write, and the Preamble already named the rewrite.
     this.#errorAt(
       token.span,
-      `variance is inferred for transparent types; remove the \`${claim === "co" ? "+" : "-"}\`` +
-        `, or declare this type \`export opaque\` to claim variance across the boundary`,
+      `variance is inferred for transparent types; remove the \`${claim === "co" ? "+" : "-"}\``,
     );
     return undefined;
   }
@@ -1092,21 +1095,26 @@ class Parser {
     const spelling = argument.kind === "UpperName" || argument.kind === "NonUpperName"
       ? argument.text
       : "…";
+    // Declarations Preamble §2.1's diagnostics row, with the constructor and
+    // argument the author actually wrote standing in for its `Seq(Int)`.
     this.#errorAt(
       token.span,
-      `variance sigils are declaration syntax, not part of a type; write ` +
-        `\`${constructor}(${spelling})\` — \`${sigil}\` belongs on \`${constructor}\`'s own declaration`,
+      `remove the \`${sigil}\` — variance is declared on the type's declaration, ` +
+        `never written at a use site; write \`${constructor}(${spelling})\``,
     );
   }
 
-  /** The same, where no declaration form admits a sigil at all (`type`). */
-  #rejectVarianceSigil(plural: string): void {
+  /**
+   * The same, where no declaration form admits a sigil at all (`type`). One
+   * message for all three forms, as Declarations Preamble §2.1 writes it: an
+   * alias is transparent by definition, so the reason is the reason given.
+   */
+  #rejectVarianceSigil(): void {
     if (!this.#at("Plus") && !this.#at("Minus")) return;
     const sigil = this.#at("Plus") ? "+" : "-";
     this.#errorAt(
       this.#advance().span,
-      `variance is inferred for transparent types; remove the \`${sigil}\`` +
-        ` — ${plural} have no opaque form to declare it on`,
+      `variance is inferred for transparent types; remove the \`${sigil}\``,
     );
   }
 
@@ -1122,7 +1130,7 @@ class Parser {
       this.#advance();
       const seen = new Set<string>();
       while (!this.#at("RightParen") && !this.#at("Eof")) {
-        this.#rejectVarianceSigil("type aliases");
+        this.#rejectVarianceSigil();
         const token = this.#takeName("NonUpperName", "alias parameters must be non-uppercase-start names");
         if (token === undefined) break;
         const parameter = parsedName(token);
