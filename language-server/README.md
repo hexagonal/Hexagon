@@ -95,7 +95,7 @@ Eight compiler queries sit behind these answers, and each exists because no othe
 - `queries/occurrences.ts` indexes every name that denotes something together with what it denotes — values, unions, records, foreign types, and constraints. Definitions, references, rename and semantic tokens all read this one table. It reads the resolved tree for identity, the parsed tree for constraints, the source for a head name inside a wider span, and the *typed* tree for one thing only: the operation name of a dot call, which nothing earlier has decided the meaning of.
 - `queries/type-occurrences.ts` gives hover its types, keyed by the same spans.
 - `queries/symbol-facts.ts` records, per value symbol, how it was bound *and* whether the checker gave it a function type. The two come apart constantly: `let brighten(colour) = …` is a `let`, `extern fun` and `extern let` are both `extern`, and `let g = f` is a function with no parameter list anywhere.
-- `queries/documentation.ts` indexes the doc content the parser attached (`spec/doc-comments.md` §4), under both the names a declaration introduces and the declaration's own first token — an editor holds a name, and the two are the same offset only for the forms that begin with theirs. It also answers by *position*, for the documentable places the occurrence index has no identity for at all: an `honor` member's name is a bare string in the resolved tree, a record field is not a symbol, a `type` alias is expanded away, and a destructuring `let`'s binders are patterns before they are anything else.
+- `queries/documentation.ts` indexes the doc content the parser attached (`spec/doc-comments.md` §4), under both the names a declaration introduces and the declaration's own first token — an editor holds a name, and the two are the same offset only for the forms that begin with theirs. It also answers by *position*, for the three documentable places the occurrence index has no identity for at all: an `honor` member's name is a bare string in the resolved tree, a record field is not a symbol, and a `type` alias is expanded away.
 - `queries/semantic-tokens.ts` classifies names, and only names — see below.
 - `queries/completions.ts` answers what could be written at an offset, from a scope record the resolver now keeps.
 - `queries/type-spelling.ts` writes a type back out as source: which nominal types this module has a *name* for, and what to call each type variable.
@@ -512,6 +512,17 @@ less than it looks.
   records and foreign types; an alias resolves away before either the tables or
   the occurrence index see it. Documentation reaches it on hover and nowhere
   else.
+- **An `honor` block's documentation answers on the constraint in its head.**
+  The block introduces no name of its own, so that is where a reader points to
+  ask what the instance is for, and there the instance's documentation wins over
+  the constraint's. The constraint's own still answers at its declaration and at
+  every other mention, and when the block is undocumented the head shows the
+  constraint's — but a reader who documented both and expected the constraint's
+  text at the head will see the other one.
+- **A pattern that binds nothing documents nothing anyone can read.**
+  `(** … *) let (_, _) = pair` attaches without error, per §5, and has no name to
+  file the content under. It is the one documentable position where hover is
+  silent by construction rather than by a missing identity.
 - **Completion does not know what kind of thing belongs at the cursor.** Value
   names, type names and module names are offered together, each carrying its
   kind. Narrowing would need a parse of the line being typed, which is the line

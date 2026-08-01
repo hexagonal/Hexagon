@@ -127,12 +127,15 @@ export class DocBlocks {
    *
    * `subjects` are the spans of the names a reader would point at to ask what
    * the block says, for the editor services that hold a name rather than a
-   * declaration — one for most forms, several for a destructuring `let`.
+   * declaration — one for most forms, several for a destructuring `let`, and
+   * none for a pattern that binds nothing. Required rather than defaulted: a
+   * call site that passed none by omission would file its block under no name
+   * at all, which is silent, and is the §8 gap `subjects` exists to close.
    */
   attach(
     codeTokenOffset: number,
     target: Source.Span,
-    subjects: readonly Source.Span[] = [],
+    subjects: readonly Source.Span[],
   ): void {
     const block = this.#claim(codeTokenOffset);
     if (block === undefined) return;

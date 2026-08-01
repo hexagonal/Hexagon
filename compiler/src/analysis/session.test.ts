@@ -479,8 +479,9 @@ describe("AnalysisSession.hover documentation", () => {
 
   test("a destructuring `let` documents every binder it introduces", () => {
     // One block over several names: §4.2 makes the `let` documentable and says
-    // nothing about arity, and a pattern's binders are patterns before they are
-    // symbols, so nothing downstream could have recovered them.
+    // nothing about arity. The binders are ordinary symbols — the resolver
+    // declares one each — so each is reachable by name; what only the
+    // attachment knows is which names one block covers.
     const source = [
       "(** Both halves. *)",
       "let (first, second) = (1, 2)",
@@ -490,10 +491,25 @@ describe("AnalysisSession.hover documentation", () => {
     ].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     expect(session.diagnostics("/main.hex")).toEqual([]);
-    expect(session.hover("/main.hex", at(source, "first"))?.documentation).toBe("Both halves.");
+    const binder = session.hover("/main.hex", at(source, "first"));
+    // A real identity, not a documentation-only answer: this is the key the
+    // documentation is filed under, and what makes completion find it too.
+    expect(binder?.target?.kind).toBe("value");
+    expect(binder?.documentation).toBe("Both halves.");
     expect(session.hover("/main.hex", at(source, "second"))?.documentation).toBe("Both halves.");
-    // And at a use, through the identity rather than the position.
+    // And at a use, which reaches the same block through the same key.
     expect(session.hover("/main.hex", at(source, "first", 2))?.documentation).toBe("Both halves.");
+  });
+
+  test("a pattern that binds nothing has no name to document", () => {
+    // §5 does not fire — the block is followed by a declaration — and there is
+    // no name to file the content under, so it reaches no reader. Pinned so the
+    // silence stays a decision rather than becoming a surprise.
+    const source = ["(** Nothing to point at. *)", "let (_, _) = (1, 2)", ""].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    expect(session.hover("/main.hex", at(source, "let"))).toBeUndefined();
+    expect(session.hover("/main.hex", at(source, "_"))).toBeUndefined();
   });
 
   test("an `honor` block's documentation answers on the constraint it names", () => {

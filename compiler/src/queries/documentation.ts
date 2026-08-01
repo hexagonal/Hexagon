@@ -10,19 +10,26 @@
  *
  * - **A name.** A symbol's `bindingSpan`, a union's span, the identifier under
  *   the cursor. That is what `at` answers, and it is why `Documentation` records
- *   its `subjects` alongside its `target`: the two agree only where a
- *   declaration's first token *is* the name it introduces — a record field, a
- *   constraint member, an `honor` member, and a union's first constructor when
- *   no `|` precedes it — and disagree for every form with a keyword, a `|`, or
- *   an `export` in front (§4.2's module-level inventory, every `extern from`
- *   item, and the idiomatic bar-prefixed constructor).
- * - **A position.** Some documentable positions have no identity at all in the
+ *   its `subjects` alongside its `target`. The two are the same offset wherever
+ *   a declaration's first token *is* a name — a record field, a constraint
+ *   member, an `honor` member, and every union constructor, whose recorded
+ *   target is its own name span and not the `|` that claimed the block — and
+ *   different for every form with a keyword or an `export` in front (§4.2's
+ *   module-level inventory, and every `extern from` item). Where they are the
+ *   same the subject is recorded anyway, so that each attachment names its own
+ *   subject rather than every reader inheriting that coincidence.
+ * - **A position.** Three documentable positions have no identity at all in the
  *   occurrence index — an `honor` member's name is a bare string in the resolved
- *   tree, a record field is not a symbol, a `type` alias is expanded away, and a
- *   destructuring `let`'s binders are patterns before they are anything else —
- *   so nothing there can be reached by name. `covering` answers for those, and
- *   it is the reason hover can honour §8's "every documentable position"
- *   without the occurrence index growing entries it has no identity to give.
+ *   tree, a record field is not a symbol, a `type` alias is expanded away — so
+ *   nothing there can be reached by name. `covering` answers for those, and it
+ *   is the reason hover can honour §8's "every documentable position" without
+ *   the occurrence index growing entries it has no identity to give.
+ *
+ * A destructuring `let` is neither case and needs `subjects` for a third
+ * reason: its binders *are* symbols (the resolver declares one per binder, and
+ * `collectOccurrences` publishes every symbol it finds), so each is reachable
+ * by name — but one block covers all of them, and only the attachment knows
+ * which names those are.
  *
  * Project-wide, like `collectSymbolFacts` and for the same reason: a name
  * declared in one module is hovered and completed in another, and every key
@@ -59,12 +66,14 @@ export class DocumentationIndex {
     for (const module of modules) {
       const file = Number(module.fileId);
       for (const doc of module.docs) {
-        // A subject wins its own offset; the declaration key is written only if
-        // that offset is still free, so a form whose first token *is* its name
-        // writes one entry rather than two. Nothing else can collide: a target
-        // offset is where a code token starts and a subject offset is where a
-        // name token starts, so two of them meeting means one token, which
-        // means one declaration and one block.
+        // Subjects go in first and the declaration key only if its offset is
+        // still free. The guard is defensive rather than load-bearing: today
+        // the only two keys that can meet are one block's own subject and its
+        // own target, where the entry is identical either way — a second block
+        // cannot reach the same offset, because `DocBlocks` lets one block
+        // claim a code token and no declaration begins where a name is
+        // referenced. It costs one lookup to make a future form that broke
+        // that lose its own declaration key rather than another block's name.
         for (const subject of doc.subjects) {
           this.#byOffset.set(key(file, subject.start.offset), doc.content);
           const names = this.#namesByFile.get(file);
