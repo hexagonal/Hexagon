@@ -1504,7 +1504,7 @@ class JavaScriptEmitter {
       switch (expression.callee.operation) {
         case "empty":
           return "[]";
-        case "size":
+        case "length":
           return `(${values}).length`;
         case "isEmpty":
           return `(${values}).length === 0`;
@@ -4294,7 +4294,7 @@ function collectionOperation(
     if (operation === "fromSeq") return `__hex_values => ${runtime}.setFrom(${dictionaries})(${seqTo}(__hex_values))`;
   }
   if (operation === "empty") return "() => []";
-  if (operation === "size") return "__hex_vector => __hex_vector.length";
+  if (operation === "length") return "__hex_vector => __hex_vector.length";
   if (operation === "isEmpty") return "__hex_vector => __hex_vector.length === 0";
   if (operation === "append") return "(__hex_vector, __hex_value) => [...__hex_vector, __hex_value]";
   if (operation === "prepend") return "(__hex_vector, __hex_value) => [__hex_value, ...__hex_vector]";

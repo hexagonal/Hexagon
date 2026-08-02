@@ -283,9 +283,9 @@ describe("declarations name what they declare", () => {
   });
 
   it("scopes an uppercase qualifier before `.` as a namespace", async () => {
-    const source = "let n = Vector.size(values)";
+    const source = "let n = Vector.length(values)";
     expect(await scope(source, "Vector")).toBe("entity.name.namespace.hexagon");
-    expect(await scope(source, "size")).toBe("entity.name.function.hexagon");
+    expect(await scope(source, "length")).toBe("entity.name.function.hexagon");
   });
 });
 
@@ -1052,7 +1052,7 @@ describe("regressions found in review", () => {
     expect(await scope("let r = A..B", "A")).toBe("entity.name.type.hexagon");
     expect(await scope("let s = f(Foo...)", "Foo")).toBe("entity.name.type.hexagon");
     // The accessor case must still read as a qualifier.
-    expect(await scope("let n = Vector.size(v)", "Vector")).toBe(
+    expect(await scope("let n = Vector.length(v)", "Vector")).toBe(
       "entity.name.namespace.hexagon",
     );
   });

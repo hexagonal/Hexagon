@@ -41,7 +41,7 @@ describe("compileSource", () => {
         "    Vector.empty,\n" +
         "    Vector.singleton(7),\n" +
         "    Vector.isEmpty([]),\n" +
-        "    Vector.size(values),\n" +
+        "    Vector.length(values),\n" +
         "    Vector.append(values, 40),\n" +
         "    Vector.prepend(values, 0),\n" +
         "    Vector.first(values),\n" +

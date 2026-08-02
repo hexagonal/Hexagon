@@ -142,7 +142,8 @@ Declaration: `export opaque record Seq(a) = { pull: () -> Option((a, Seq(a))) }`
 The intrinsic `Seq` type-kind, the `SeqOperation` family, and
 `runtime/SeqCore.hex` are **deleted**; `Seq` is reached only as a declaration.
 
-Present surface (22 exports): `next`; `empty`, `singleton`, `cons`, `iterate`,
+Present surface (22 exports): `next`; `empty`, `singleton`, `prepend` (named
+`cons` until 2026-08-02 — Collections Part 1 §10.1), `iterate`,
 `map`, `take`, `takeWhile`, `unfold`, `zipWith`, `zip`, `concat`; `filter`,
 `drop`, `dropWhile`, `flatMap` (+ private `flatMapWith`); `fold`, `length`,
 `forEach`, `find`, `any`, `all`.

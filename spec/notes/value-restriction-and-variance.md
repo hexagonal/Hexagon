@@ -18,6 +18,8 @@ James hit this while exploring, not while implementing. The analysis below is Op
 
 ## 2. What James hit
 
+*(Era syntax, deliberately — Collections Part 1 §10.1. These are the observed runs, and they were run before the 2026-08-02 rename of `Seq.cons` to the subject-first `Seq.prepend(rest, value)`; the recorded diagnostics belong to these exact programs, so the specimens are not renamed. The living acceptance program in current syntax is `decisions-ml-dialect-generalization-2026-08.md` §1.1.)*
+
 ```hexagon
 let e = empty
 let ys = cons(42n, e)

@@ -1723,7 +1723,7 @@ class Checker {
       const element = this.#fresh(level, false);
       const vector: VectorMono = { kind: "Vector", element };
       if (operation === "empty") return { kind: "Function", parameters: [], result: vector };
-      if (operation === "size") return { kind: "Function", parameters: [vector], result: primitive("Int") };
+      if (operation === "length") return { kind: "Function", parameters: [vector], result: primitive("Int") };
       if (operation === "isEmpty") return { kind: "Function", parameters: [vector], result: this.#boolType(span) };
       if (operation === "append") return { kind: "Function", parameters: [vector, element], result: vector };
       if (operation === "prepend") return { kind: "Function", parameters: [vector, element], result: vector };

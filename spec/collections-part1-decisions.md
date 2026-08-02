@@ -1,6 +1,6 @@
 # Hexagon Spec: Collections Part 1 — Foundational Decisions
 
-**Status:** Decided (July 2026). The foundational decisions of the collections suite: names, representation, key model, naming doctrine, and the v1 iteration story. Authoritative for the doctrine it fixes; the full formal specifications are Collections Parts 2–5 and the FFI parts (see Companions), which are written against this ground and do not re-litigate it.
+**Status:** Decided (July 2026); §3.1 amended 2026-08-02 — the `length`/`size` split, and enforcement of the `cons` ban against `stdlib/Seq.hex` — see correction record §10.1. The foundational decisions of the collections suite: names, representation, key model, naming doctrine, and the v1 iteration story. Authoritative for the doctrine it fixes; the full formal specifications are Collections Parts 2–5 and the FFI parts (see Companions), which are written against this ground and do not re-litigate it.
 **Scope:** The `Vector(a)` name and the reservation of `List`; the representation and complexity contract; the collections naming doctrine; the uniform keyed-access partiality doctrine (`[]` throws, `get` is total); the Map/Set key model (`Hash`, hash-tried, not `Ord`-tree); `Hash` as a v1 derivable-only constraint; restricted user-implementable `Iterable` in v1; `Seq` as the universal conversion currency; operator boundaries (`++`).
 **Not in scope:** The `Hash` formal spec and the constraint `type`-member grammar (Collections Part 2); `Vector` literals, patterns, indexing, slicing, and instances (Collections Part 3); the `Map`/`Set` formal spec, `KeyError`, and the iteration-order contract (Collections Part 4); the operational `Iterable` spec, the collections/stdlib boundary, and transients (Collections Part 5); the combinator surface (ledgered in `stdlib-roadmap.md`, decided in the stdlib listing); borrowed `Array(a)` (FFI Part 2); `Seq` interoperation (FFI Part 3); `JsMap`/`JsSet` (FFI Part 10); anything async.
 **Companions:** Collections Parts 2–5 (the formal specs); Loops/Ranges/Iteration (`Seq`, base iteration semantics); Pattern Matching (vector patterns, with Part 3); Exceptions (`IndexError`; `KeyError` is declared in Part 4 §4.3); Operators (§7 `++`/`Concat` doctrine; the instance lives in Part 3 §8); Constraints (`honor`, orphan rule, coherence, derivation whitelist); Modules §7 (instance globality; §7.6 discoverability); FFI Parts 2, 3, and 10; `stdlib-roadmap.md`.
@@ -62,7 +62,7 @@ Immutable.js (MIT) is an implementation influence and property-testing oracle, *
 Hexagon collection names are **modern functional, subject-first, self-describing**. Hexagon is not a copy of JS (it compiles *to* JS), and it is not a LISP or Haskell museum. Concretely:
 
 **Banned name families:**
-- LISP/Clojure lineage: `cons`, `snoc`, `conj`, `assoc`, `dissoc`.
+- LISP/Clojure lineage: `cons`, `snoc`, `conj`, `assoc`, `dissoc`. *(Enforced 2026-08-02: `Seq.cons` had shipped in violation of this row and is renamed `Seq.prepend` — §10.1.)*
 - Haskell lineage where an ordinary word exists: `lookup`, `insert` (for map write), `member`.
 - JS mutation pairs: `push`, `pop`, `shift`, `unshift` (`pop` is uniquely cursed — the ecosystem disagrees on whether it returns the element or the collection). These names stay on the JS side of the fence.
 - `has` (JS-ism): `contains` reads uniformly across `String`, `Vector`, `Set`.
@@ -70,10 +70,11 @@ Hexagon collection names are **modern functional, subject-first, self-describing
 **Chosen core vocabulary (binding, not exhaustive):**
 - `get` / `set` / `remove` for keyed access and update; `get` is always total and `Option`-returning (never a JS-ish absence value), with `[]` as its throwing counterpart — the uniform accessor pair, §3.3.
 - `contains` (Set membership), `containsKey` (Map; leaves room for a deferred `containsValue`, avoids false cognates).
-- `add` (Set), `append` / `prepend` (Vector ends), `dropFirst` / `dropLast`.
+- `add` (Set), `append` / `prepend` (Vector ends; `Seq.prepend` since §10.1), `dropFirst` / `dropLast`.
 - `first` / `last` return `Option(a)` (no exceptions for emptiness).
 - `union` / `intersect` / `difference` / `isSubsetOf` (Set algebra, named — see §7).
-- `empty`, `singleton`, `isEmpty`, `size`.
+- `empty`, `singleton`, `isEmpty`.
+- **The cardinality reader is a general word with a linear specialization** *(amended 2026-08-02 — §10.1; originally a single `size`)*: **`size`** is the general word — `Map`, `Set`, and any non-linear collection; **`length`** is its specialization for linear, ordered structures — `String`, `Seq`, `Vector`, `Array`.
 - `Map.fromEntries` with **last value wins** on duplicate keys (matches JS `Map` construction instinct; easy to state). Made normative, with the synonym pairs and representative-retention fine print, in Part 4 §3.
 - **Uniform conversion suite**: every finite collection provides `toSeq` and `fromSeq` (for `Map`: `Seq((k, v))`), mechanically named, alongside `Map.keys` / `Map.values` / `Map.entries`.
 
@@ -188,3 +189,46 @@ Canonical decisions are stated in §§1–7; no duplicate summary is maintained.
 ## 9. Reserved anchor
 
 No open questions remain in this part; their final rules live in Collections Parts 2–5.
+
+---
+
+## 10. Correction records
+
+Recorded per house rule (`method-syntax.md` §16 precedent): origin, rationale, consequences with owners, rejected alternatives marked do-not-relitigate. Section numbers everywhere are stable; the body text each record amends carries a pointer to it.
+
+### 10.1 The 2026-08-02 naming ruling: `Seq.prepend`, and the `length`/`size` split
+
+Ruled by James, 2026-08-02. Two renames of different characters, one argument-order consequence, and one explicit non-rename.
+
+**(a) `Seq.cons` → `Seq.prepend` — enforcement, not amendment.** §3.1 banned `cons` from the day it was decided ("no ancient LISP words" — James, restating the row's own rationale); `stdlib/Seq.hex` shipped the export anyway, and no audit caught the violation until this ruling. The rename discharges a landed decision rather than changing one. Nothing in §3.1's banned-families row moves.
+
+**(b) `Vector.size` → `Vector.length`, and `Array.size` → `Array.length` — a genuine amendment.** §3.1's chosen vocabulary listed a single `size`, and that word never described the corpus: `String.length` (Primitive Types §5.1) and `Seq.length` (`stdlib/Seq.hex`) shipped as `length` long before this ruling; only `Vector` and `Array` obeyed the written doctrine. The amendment replaces the single word with a **hierarchy, not two coordinate words** (James: *"length is for 'linear' items like Array, Seq, Vector — they use length; size is the general word, used by Map, Set and any non-linear collection"*), now stated in §3.1:
+
+> **`size` is the general word** — the cardinality reader of `Map`, `Set`, and any non-linear collection. A future collection defaults to `size`.
+> **`length` is the specialization for linear, ordered structures** — `String`, `Seq`, `Vector`, `Array`.
+
+`Array` entered by James's in-session amendment when the residual inconsistency was put to him ("Array should also use length, no size"). `Map.size` and `Set.size` are correct under the rule and unchanged. The split is also the host platform's own — JavaScript reads `Array.prototype.length` and `String.prototype.length` against `Map.prototype.size` and `Set.prototype.size` — so the audience's habits already encode it; the amendment makes the doctrine describe both the corpus and the reflexes it serves (§3.2's standard, met rather than asserted).
+
+**(c) `prepend` is subject-first: `Seq.prepend(rest: Seq(a), value: a)`.** The rename is not a transliteration of `cons(value, rest)` — the argument order flips, and the flip is the load-bearing half. `cons` was the *only* non-subject-first export in `stdlib/Seq.hex` (`next(source)`, `map(source, transform)`, `take(source, count)`, … are all subject-first), and dot-call desugaring makes the old order a trap: `s.prepend(x)` puts the receiver in parameter 1 (Method Syntax §2.1), so a value-first `prepend` would desugar to "prepend the sequence `s` onto `x`." In the ordinary case (`s : Seq(a)`, `x : a`) that is a **type error**, not a silent wrong answer; only at `s : Seq(Seq(t))`, `x : Seq(t)` does it type-check and quietly build the wrong sequence. Subject-first closes both doors, and `Seq.prepend(rest, value)` now agrees in shape with `Vector.prepend(values, value)`, which was born subject-first — one word, one shape, both sequences.
+
+**Consequences, with owners:**
+
+- Collections Part 3 §7's core-surface row is renamed in place with an amendment marker; the compiler/runtime-boundary paragraph there already covers that `Vector.length` is a compiler-known core operation (checker and emitter name it), so no further Part 3 surface changes.
+- FFI Part 2 §6.3's specialized `.length` diagnostic **changes character** under the rename — the sharp edge of this ruling. The diagnostic survives, re-scoped and re-justified; the ruling lives in FFI Part 2 §13.1.
+- Identifier occurrences in code samples across `method-syntax.md`, `decisions-ml-dialect-generalization-2026-08.md`, `notes/ml-generalization-variance-handoff.md` (the living acceptance program), and `notes/seq-core-representation.md` / `notes/seq-hex-next-phase-handoff.md` (present-tense surface inventories) are updated in place.
+- **A diagnostic regression on un-imported `Vector` receivers — a known cost of the rename, taken with eyes open and not fixed here (owner: `hexc` diagnostics — issue #217).** The rename puts `length` and `prepend` into the prelude term namespace (they are `Seq.hex` exports), and dot-call resolution on a `Vector` receiver never reaches `Vector`'s compiler-core operations. Before the rename those names bound nothing, so `[1,2].size()` failed *cleanly*, with the Rewrite-Rule message "the companion of `Vector(…)` has no operation `size`; call an available subject-first function explicitly" (verified at the branch point). Now the call **binds — to the wrong companion**: `[1,2,3].length()` reports "type mismatch: expected `Seq(…)`, found `Vector(…)`", and `[1,2].prepend(0)` the analogous mismatch, instead of a message naming the fix. The control confirming the mechanism: `[1,2].isEmpty()`, whose name is not a `Seq` export, still gets the clean message. Bounded, stated precisely: this is **never a wrong answer** — `Seq.prepend`'s and `Seq.length`'s subjects cannot unify with `Vector(a)`, so the call always errors loudly — and it bites only while `stdlib/Vector.hex` is unimported; with `import * as Vector` the module occludes the provisional compiler companion (Part 3 §7) and `[1,2,3].length()` compiles clean. The degraded message is a Rewrite-Rule debt this ruling takes on; it is recorded here so the fix is owed, not rediscovered. Filed as **#217**, which also records that the same root cause — dot call not reaching the collection cores — is what makes `[1,2].append(3)` crash (#212).
+- **Era syntax stands in era records** (the #179 principle: reproduce era claims in era syntax). `notes/value-restriction-and-variance.md`'s specimens are *observed runs* — its recorded diagnostics were produced by `cons(value, rest)`-era programs, and renaming the specimens would detach observed messages from the programs that produced them; they keep era syntax with an annotation. `collections-roadmap.md` (Completed, historical) likewise keeps its era spelling — `size` in its Part 3 plan listing. These residual `cons`/`size` occurrences are deliberate, not missed.
+
+**Out of scope, recorded so it is not rediscovered as a defect:**
+
+- **`IndexError(index: Int, size: Int)` keeps its `size` payload slot** — ruled by James, with the hierarchy of (b) as the reason. `IndexError` is a single shared prelude declaration (Part 3 §5.5), and nothing scopes it to linear structures; since `size` is the general word and `length` the linear specialization, a slot named `length` would assert a linearity the declaration does not have. The slot also names a fact about the collection ("the collection's size at fault time," Part 3 §5.5), not the operation that read it. The generality is anticipation, not description: **today every `IndexError` thrower happens to be linear** — `Vector` (Part 3 §5), `String` (Part 3 §9), `Array` (FFI Part 2 §6.3); `Map` throws the nullary `KeyError` (Part 4 §4.3), not `IndexError` — but §4 pre-registers `SortedMap`/`SortedSet` for v2, and an indexed non-linear collection that ever throws `IndexError` would make a `length` slot already wrong. The residual mismatch — `Vector.length` throws `IndexError(index, size)` — is the specialization reading through to the general declaration, not an oversight; do not "fix" the slot on the observation that all current throwers are linear.
+- Representation-private internals are untouched: `runtime/VectorTrie.hex`'s 0-based `size`, and Part 3 §3.6's emission sketch that mirrors it, are behind the compiler/runtime boundary and invisible at the source level.
+- Prose uses of "size" as an ordinary English noun remain prose.
+
+**Rejected alternatives (do not re-litigate):**
+
+- **Grandfathering `Seq.cons`.** A shipped violation does not amend a spec by accident; the ban is the decision, and enforcement is the cheapest it will ever be.
+- **One word everywhere** — `size` universally (as §3.1 was written) or `length` universally. `length` on `Map`/`Set` implies an ordering that does not exist; `size` on ordered structures fights `String.length`/`Seq.length` as shipped and the platform cognates the audience carries. The split states its convention to a modern reader on first contact.
+- **Value-first `prepend(value, rest)`**, preserving `cons`'s order under the new name: the dot-call inversion of (c). Rejected precisely because the ordinary-case failure is loud but the `Seq(Seq(t))` case is silent.
+- **Renaming the `IndexError` payload slot to match**: explicitly excluded by James in the same ruling.
+

@@ -25,9 +25,11 @@ James, on hitting the original rejection: *"If code works in OCaml and SML and f
 
 ```hexagon
 let e = empty
-let ys = cons(42n, e)
-let xs = cons("Briar", e)      -- accepted after Step 1
+let ys = prepend(e, 42n)
+let xs = prepend(e, "Briar")      -- accepted after Step 1
 ```
+
+*(Restated 2026-08-02 in the renamed surface — `Seq.cons` became the subject-first `Seq.prepend(rest, value)`, Collections Part 1 §10.1. James's original programs, in era syntax with their observed diagnostics, are preserved in the provenance note.)*
 
 ### 1.2 Provenance, and what the review corrected
 

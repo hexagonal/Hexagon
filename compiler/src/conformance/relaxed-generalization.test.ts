@@ -163,8 +163,8 @@ describe("§4.1 the relaxed rule, per variable", () => {
       projectDiagnostics(
         "let e = empty\n" +
           "let m = Seq.memoize(e)\n" +
-          "export let ys: Seq(Int) = cons(42, m)\n" +
-          'export let xs: Seq(String) = cons("Briar", m)\n',
+          "export let ys: Seq(Int) = prepend(m, 42)\n" +
+          'export let xs: Seq(String) = prepend(m, "Briar")\n',
       ),
     ).toEqual([]);
   });
@@ -700,8 +700,8 @@ describe("the acceptance test still runs", () => {
   test("§1.1's empty-sequence program produces both sequences", async () => {
     const exports = await runMain(
       "let e = empty\n" +
-        "export let ys: Int = Seq.length(cons(42, e))\n" +
-        'export let xs: Int = Seq.length(cons("Briar", e))\n',
+        "export let ys: Int = Seq.length(prepend(e, 42))\n" +
+        'export let xs: Int = Seq.length(prepend(e, "Briar"))\n',
     );
     expect(exports.ys).toBe(1);
     expect(exports.xs).toBe(1);
@@ -710,7 +710,7 @@ describe("the acceptance test still runs", () => {
   test("a generalized expansive binding still emits one shared value", async () => {
     const source = "fun makeEmpty<a>(): Vector(a) = []\n" +
       "let xs = makeEmpty()\n" +
-      "export let n: Int = Vector.size(xs)\n";
+      "export let n: Int = Vector.length(xs)\n";
     const exports = await runMain(source);
     expect(exports.n).toBe(0);
     const javascript = compileProject([

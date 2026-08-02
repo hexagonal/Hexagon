@@ -7,9 +7,9 @@ export let empty: Vector(a) = []
 
 export fun singleton<a>(value: a): Vector(a) = [value]
 
-export fun isEmpty<a>(values: Vector(a)): Bool = Vector.size(values) == 0
+export fun isEmpty<a>(values: Vector(a)): Bool = Vector.length(values) == 0
 
-export fun size<a>(values: Vector(a)): Int = Vector.size(values)
+export fun length<a>(values: Vector(a)): Int = Vector.length(values)
 
 export fun append<a>(values: Vector(a), value: a): Vector(a) =
     Vector.append(values, value)
@@ -34,7 +34,7 @@ export fun dropLast<a>(values: Vector(a)): Vector(a) = match values
     [...rest, _] => rest
 
 export fun get<a>(values: Vector(a), index: Int): Option(a) =
-    if index < 1 or index > Vector.size(values) then
+    if index < 1 or index > Vector.length(values) then
         None
     else
         Some(values[index])

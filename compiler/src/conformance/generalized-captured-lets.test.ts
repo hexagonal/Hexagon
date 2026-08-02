@@ -165,7 +165,7 @@ describe("what must stay monomorphic still does", () => {
     expect(diagnostics(
       "fun makeEmpty<a>(): Vector(a) = []\n" +
       "let shared = makeEmpty()\n" +
-      "fun capture(): Int = Vector.size(shared)\n" +
+      "fun capture(): Int = Vector.length(shared)\n" +
       "export let counts: Vector(Int) = shared\n" +
       "export let labels: Vector(String) = shared\n" +
       "export let size: Int = capture()\n",

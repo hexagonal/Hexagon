@@ -301,6 +301,53 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
       .find((module) => module.source.path === "/main.hex")!.javascript.text;
     expect(topLevelBindings(javascript).filter((name) => name === "fold")).toHaveLength(1);
   });
+
+  test("a collection core call registers no companion candidate", async () => {
+    // `Vector.length`/`Vector.prepend` resolve to compiler core operations, but
+    // they share their spelling with real `Seq.hex` exports — deliberately, per
+    // the Collections Part 1 §3.1 naming doctrine. Registering a candidate for
+    // them would import a prelude term the module never names, and a dead import
+    // is not free: it drags `Seq.hex` (and `Bool.hex` behind it) into the graph
+    // of every module that measures a vector.
+    const project = compileProject([
+      new Source.File(Source.fileId(0), "/main.hex",
+        "export let n: Int = Vector.length(Vector.prepend([2, 3], 1))\n"),
+    ]);
+    expect(project.diagnostics).toEqual([]);
+    const javascript = project.modules
+      .find((module) => module.source.path === "/main.hex")!.javascript.text;
+    expect(javascript).not.toContain("Seq.js");
+    expect(topLevelBindings(javascript)).not.toContain("length");
+    // Not vacuous: with the guard's precondition absent the machinery still
+    // fires. This is a function-valued *field* call, not companion dispatch —
+    // it is the shape that cannot be decided without the checker, which is
+    // exactly what `#noteCompanionCandidate` stays conservative for.
+    const fieldCall = compileProject([
+      new Source.File(Source.fileId(0), "/main.hex",
+        "record Holder = { length: Int -> Int }\n" +
+        "let holder = Holder({ length = value => value })\n" +
+        "export let n: Int = holder.length(3)\n"),
+    ]);
+    expect(fieldCall.diagnostics).toEqual([]);
+    expect(fieldCall.modules.find((module) => module.source.path === "/main.hex")!
+      .javascript.text).toContain('import { length } from "./Seq.js"');
+  });
+
+  test("suppressing the core call still imports a genuinely dispatched `length`", async () => {
+    // The failure the guard could cause if it were ever widened: emitted code
+    // that calls a prelude name it never imported (defect log 8/10). One module,
+    // both shapes — a `Vector` core call that must NOT register a candidate, and
+    // a real `Seq` dispatch of the same name that must. Run, not just compiled:
+    // a missing import is a load-time `ReferenceError`, which only linking finds.
+    const module = await run([
+      ["/main.hex",
+        "let source: Seq(Int) = Vector.toSeq([1, 2, 3])\n" +
+        "export let measured: Int = Vector.length([1, 2, 3])\n" +
+        "export let dispatched: Int = source.length()\n"],
+    ]);
+    expect(module["measured"]).toBe(3);
+    expect(module["dispatched"]).toBe(3);
+  });
 });
 
 /** Every identifier the emitted module binds at top level, imports included. */

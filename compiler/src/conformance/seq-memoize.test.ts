@@ -409,7 +409,7 @@ describe("§7: `memoize` moves values, and does nothing else to them", () => {
         "export let one: Cell = Cell({tag = 1})\n" +
         "export let two: Cell = Cell({tag = 2})\n" +
         "export let three: Cell = Cell({tag = 3})\n" +
-        "let source: Seq(Cell) = Seq.cons(one, Seq.cons(two, Seq.cons(three, Seq.empty)))\n" +
+        "let source: Seq(Cell) = Seq.prepend(Seq.prepend(Seq.prepend(Seq.empty, three), two), one)\n" +
         "let memoized: Seq(Cell) = Seq.memoize(source)\n" +
         "export let first: Vector(Cell) = Vector.fromSeq(memoized)\n" +
         "export let second: Vector(Cell) = Vector.fromSeq(memoized)\n"]],
@@ -437,7 +437,7 @@ describe("§7: `memoize` moves values, and does nothing else to them", () => {
     const exports = await run(
       [["/main.hex",
         "export record Cell = {tag: Int}\n" +
-        "let source: Seq(Cell) = Seq.cons(Cell({tag = 1}), Seq.cons(Cell({tag = 2}), Seq.empty))\n" +
+        "let source: Seq(Cell) = Seq.prepend(Seq.prepend(Seq.empty, Cell({tag = 2})), Cell({tag = 1}))\n" +
         "let memoized: Seq(Cell) = Seq.memoize(source)\n" +
         "export let first: Vector(Cell) = Vector.fromSeq(memoized)\n" +
         "export let second: Vector(Cell) = Vector.fromSeq(memoized)\n"]],
@@ -457,7 +457,7 @@ describe("§7: `memoize` moves values, and does nothing else to them", () => {
     // whole rather than as something that merely printed the same.
     const exports = await run(
       [["/main.hex",
-        "let source: Seq(Int -> Int) = Seq.cons(x => x + 1, Seq.cons(x => x * 2, Seq.empty))\n" +
+        "let source: Seq(Int -> Int) = Seq.prepend(Seq.prepend(Seq.empty, x => x * 2), x => x + 1)\n" +
         "let memoized: Seq(Int -> Int) = Seq.memoize(source)\n" +
         "let applied: Seq(Int) = Seq.map(memoized, f => f(10))\n" +
         "export let results: Vector(Int) = Vector.fromSeq(applied)\n"]],

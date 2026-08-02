@@ -92,7 +92,7 @@ describe("Vector specification conformance", () => {
     const m = await run(
       BUILDERS +
         [0, 1, 31, 32, 33, 63, 64, 65, 1024, 1025, 1056].map((n) =>
-          `export let s${n}: Int = Vector.size(appendBuild(${n}))\n`
+          `export let s${n}: Int = Vector.length(appendBuild(${n}))\n`
         ).join("") +
         "export let empty0: Bool = Vector.isEmpty(appendBuild(0))\n" +
         "export let empty1: Bool = Vector.isEmpty(appendBuild(1))\n",
@@ -193,10 +193,10 @@ describe("Vector specification conformance", () => {
     const m = await run(
       BUILDERS +
         "export let appEnd: Int = Vector.at(Vector.append(appendBuild(32), 99), 33)\n" +
-        "export let appSize: Int = Vector.size(Vector.append(appendBuild(1024), 99))\n" +
+        "export let appSize: Int = Vector.length(Vector.append(appendBuild(1024), 99))\n" +
         "export let preStart: Int = Vector.at(Vector.prepend(appendBuild(32), 99), 1)\n" +
         "export let preShift: Int = Vector.at(Vector.prepend(appendBuild(1024), 99), 2)\n" +
-        "export let preSize: Int = Vector.size(Vector.prepend(appendBuild(1024), 99))\n",
+        "export let preSize: Int = Vector.length(Vector.prepend(appendBuild(1024), 99))\n",
     );
     expect(m.appEnd).toBe(99);
     expect(m.appSize).toBe(1025);
@@ -211,7 +211,7 @@ describe("Vector specification conformance", () => {
         "export let cat: Bool = ([1, 2] ++ [3, 4]) == [1, 2, 3, 4]\n" +
         "export let catBig: Bool = (appendBuild(1000) ++ appendBuild(56)) == (appendBuild(1000) ++ appendBuild(56))\n" +
         "export let restHead: Int = match appendBuild(33)\n    [x, ...rest] => x\n    [] => 0\n" +
-        "export let restRestSize: Int = match appendBuild(33)\n    [x, ...rest] => Vector.size(rest)\n    [] => 0\n" +
+        "export let restRestSize: Int = match appendBuild(33)\n    [x, ...rest] => Vector.length(rest)\n    [] => 0\n" +
         "export let shown: String = \"${[1, 2, 3]}\"\n",
     );
     expect(m.cat).toBe(true);

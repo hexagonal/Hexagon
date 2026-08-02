@@ -1,6 +1,6 @@
 # Hexagon Spec: Collections Part 3 — `Vector(a)`
 
-**Status:** Decided (July 2026). The authoritative `Vector(a)` specification: literals, vector patterns, indexing/slicing (`[]`, `at`, `get`, `IndexError`, `SliceError`), the core API with totality decisions, the `Concat`/`Eq`/`Ord`/`Show`/`Hash`/`Iterable` instances, String indexing under the same doctrine, and emission. Written against Collections Parts 1–2, Pattern Matching, Operators §7/§14, Loops §3/§5, and Exceptions; none re-litigated.
+**Status:** Decided (July 2026); amended 2026-08-02 — `Vector.size` is renamed `Vector.length` under Part 1 §10.1's `length`/`size` split (see the §7 marker; the `IndexError` payload slot `size`, §5.5, is deliberately unaffected). The authoritative `Vector(a)` specification: literals, vector patterns, indexing/slicing (`[]`, `at`, `get`, `IndexError`, `SliceError`), the core API with totality decisions, the `Concat`/`Eq`/`Ord`/`Show`/`Hash`/`Iterable` instances, String indexing under the same doctrine, and emission. Written against Collections Parts 1–2, Pattern Matching, Operators §7/§14, Loops §3/§5, and Exceptions; none re-litigated.
 **Scope:** As above, plus: the `at` accessor (signed, from-end addressing) and its equations; the descending-`Range` slice rule (windows have no direction) and the `SliceError` exception; the `IndexError` declaration; negative bracket-indexing rejected with reasoning; slice complexity pinned into the Part 1 table.
 **Not in scope:** `Map`/`Set` (Part 4 — including `KeyError`, declared nullary there, §4.3); the normative `Iterable` spec, table-opening, and the `Bag` worked example (Part 5); the full stdlib combinator listing for `Vector` (`map`, `filter`, `fold`, `reverse`, `sort`, `insertAt`, … — `stdlib-roadmap.md`; this doc fixes the *core* surface only, §7); `Array(a)` and its copying conversions (FFI Part 2); range patterns (Pattern Matching §11.2, untouched); String *iteration* (Collections Part 5 §5 — §9 here is indexing only).
 **Companions:** Collections Part 1 (representation/complexity §2 restated and extended; naming doctrine §3 applied; accessor-pair doctrine §3.3 instantiated); Collections Part 2 (`Hash<Vector(a)>` under its §4.4 wording; `Iterable` instance row); Collections Parts 4–5; Pattern Matching (§2 grammar includes the vector pattern; §11.1 routes here); Operators (§7 `Concat` doctrine; §14 bracket grammar); Loops (§3 `Range` opacity relied on; §5 table row); Exceptions (owed the `IndexError` and `SliceError` declarations, §13); Primitive Types §5 (String codepoint doctrine, bracket-indexed here); Constraints (§4.3 parameterized instances; §7 `Ord<Float>` totality); FFI Part 2 (`Array(a)` and `Vector.toArray`).
@@ -118,7 +118,7 @@ All other rows (get/set O(log₃₂ n), both ends O(1) amortized, `++` linear) s
 
 ### 5.1 The bracket
 
-- `xs[i]` with `xs : Vector(a)`, `i : Int` — **1-based**; yields the element; **throws `IndexError`** when `i < 1` or `i > size(xs)`. `xs[i]` asserts "element `i` exists" and fails loudly at the fault site.
+- `xs[i]` with `xs : Vector(a)`, `i : Int` — **1-based**; yields the element; **throws `IndexError`** when `i < 1` or `i > length(xs)`. `xs[i]` asserts "element `i` exists" and fails loudly at the fault site.
 - `[]` is **read-only** — it never appears in a write position (there is no assignment-to-index grammar in Hexagon at all; updates are `Vector.set`).
 - **Negative indices are absent — decided.** `xs[-1]` throws `IndexError` like any other out-of-bounds value. Reasoning recorded in §11.1 (silent-wrap drift hazard; the `0` dead zone is one value wide under 1-based indexing; slices cannot follow coherently). The end-relative want is served by `at` (§5.3), `last`, and `dropLast`.
 - Emission: monomorphic `xs[i]` emits a runtime indexed read with the bounds check that produces `IndexError`. JS returns `undefined` out of bounds, so a check exists either way; the throwing form wins on type cleanliness — `xs[i] : a` with no hole.
@@ -134,7 +134,7 @@ Vector.at : (Vector(a), Int) -> a
 ```
 
 - **Positive domain: `at` is `[]`, definitionally.** For `i ≥ 1`, `at(v, i) ≡ v[i]` — an equation, not a coincidence: `[]` on a vector *is* the runtime's positive lookup, and `at`'s positive branch is the same lookup. The two cannot drift.
-- **Negative domain: from-end addressing.** For `i ≤ -1`, `at(v, i) ≡ v[size(v) + i + 1]` — so `at(v, -1)` is the last element, `at(v, -size(v))` the first. Equivalent formulation for the docs: `at(v, -n) = v[size(v) - n + 1]`.
+- **Negative domain: from-end addressing.** For `i ≤ -1`, `at(v, i) ≡ v[length(v) + i + 1]` — so `at(v, -1)` is the last element, `at(v, -length(v))` the first. Equivalent formulation for the docs: `at(v, -n) = v[length(v) - n + 1]`.
 - **`at(v, 0)` always throws.** Zero is never an address in a 1-based world; the dead zone between the domains stays dead (and remains the guard rail where index drift lands first).
 - `at` **throws `IndexError`** whenever the resolved position doesn't exist — it is the bracket's signed sibling, an *assertion* with from-end power, not a third total accessor (`get` remains the only total one; a total-and-signed accessor is a v2-on-field-evidence question, §12.3).
 - The `IndexError` payload carries **the index as passed** (the `-4`, not the normalized position) — the payload describes what the caller said; fault-site honesty.
@@ -157,6 +157,7 @@ exception IndexError(index: Int, size: Int)
 
 - Concrete payload (satisfies Exceptions §2's no-type-variables rule); named slots per the all-or-none rule; positional construction and catch patterns as always.
 - `index` is the index as passed (§5.3); `size` is the collection's size at fault time. Sufficient for the canonical message ("index 5 out of bounds for size 3") without a `String` slot; message rendering is the reporting layer's business (Exceptions doctrine).
+- **The slot keeps the name `size`** under the 2026-08-02 rename of the operation (`Vector.size` → `Vector.length`) — ruled with reasoning at Part 1 §10.1: `size` is the general cardinality word and `length` its specialization for linear structures, and this one shared declaration is not scoped to linear throwers — a `length` slot would assert a linearity the declaration does not have (that every *current* thrower is linear is recorded there as a fact of today, not of the declaration). The payload names a fact about the collection, not an operation on it; `IndexError(index, size)` remains the declared shape, and `Vector.length` throws it.
 - `KeyError` does not copy this shape — a polymorphic key cannot be a payload (Exceptions §2 bans type variables). It is declared **nullary** in Part 4 §4.3, which owns that decision.
 
 ---
@@ -165,7 +166,7 @@ exception IndexError(index: Int, size: Int)
 
 ### 6.1 Semantics
 
-`xs[r]` with `r : Range` — any `Range`-valued expression, not just a literal `lo..hi` (Operators §14). For an **ascending** range: the window is intersected with the valid index range `1..size(xs)`; out-of-window portions are silently dropped; a fully-out-of-window or empty range yields the empty vector. 1-based, inclusive at both ends, per the global doctrine.
+`xs[r]` with `r : Range` — any `Range`-valued expression, not just a literal `lo..hi` (Operators §14). For an **ascending** range: the window is intersected with the valid index range `1..length(xs)`; out-of-window portions are silently dropped; a fully-out-of-window or empty range yields the empty vector. 1-based, inclusive at both ends, per the global doctrine.
 
 ```
 let xs = [10, 20, 30]
@@ -216,7 +217,7 @@ The core surface, under the Part 1 §3 naming doctrine (subject-first, `Vector.`
 | `empty` | `Vector(a)` | the `[]` value |
 | `singleton` | `a -> Vector(a)` | |
 | `isEmpty` | `Vector(a) -> Bool` | |
-| `size` | `Vector(a) -> Int` | O(1) |
+| `length` | `Vector(a) -> Int` | O(1) |
 | `append` | `(Vector(a), a) -> Vector(a)` | O(1) am. |
 | `prepend` | `(Vector(a), a) -> Vector(a)` | O(1) am. |
 | `first` / `last` | `Vector(a) -> Option(a)` | total (Part 1 §3.1) |
@@ -227,9 +228,11 @@ The core surface, under the Part 1 §3 naming doctrine (subject-first, `Vector.`
 | `toSeq` / `fromSeq` | `Vector(a) -> Seq(a)` / `Seq(a) -> Vector(a)` | §7.2 |
 | `of`-style construction | — | the literal is the constructor; no public variadic `of` (emission detail, §2) |
 
+*(Amended 2026-08-02: the row now named `length` was `size`; renamed under Part 1 §10.1's `length`/`size` split — `length` for ordered, sequential structures. The `IndexError` payload slot `size` (§5.5) is deliberately unaffected.)*
+
 This surface is implemented by the canonical `stdlib/Vector.hex` module.
 Hexagon source owns `empty`, `singleton`, the total accessors, the forgiving drop
-family, and the public wrappers. Representation-sensitive size and end updates,
+family, and the public wrappers. Representation-sensitive length and end updates,
 signed indexed access, persistent indexed update, and the eager/lazy bridge used
 by `toSeq` and `fromSeq` cross the narrow compiler/runtime boundary. An imported
 `Vector` module alias occludes the provisional compiler companion, so user calls
@@ -237,7 +240,7 @@ and dot-call rewrites reach this source module rather than bypassing it.
 
 ### 7.1 `dropFirst`/`dropLast` on empty: total
 
-`dropFirst(empty) = empty`; likewise `dropLast`. "Drop" vocabulary sits in the forgiving family with slices (Kotlin `take`/`drop` company): the name requests, it does not assert. The asserting reading would make them throw — rejected (§11.4); a caller who needs the assertion writes `xs[2..size(xs)]`… which clamps too, so genuinely assertive callers match on `[_, ...rest]` or check `isEmpty`. Consistency note the doc states: `first`/`last` answer emptiness with `None`; `dropFirst`/`dropLast` answer it with `empty`; `[1]`-the-bracket asserts. Three intents, three behaviours, all named.
+`dropFirst(empty) = empty`; likewise `dropLast`. "Drop" vocabulary sits in the forgiving family with slices (Kotlin `take`/`drop` company): the name requests, it does not assert. The asserting reading would make them throw — rejected (§11.4); a caller who needs the assertion writes `xs[2..length(xs)]`… which clamps too, so genuinely assertive callers match on `[_, ...rest]` or check `isEmpty`. Consistency note the doc states: `first`/`last` answer emptiness with `None`; `dropFirst`/`dropLast` answer it with `empty`; `[1]`-the-bracket asserts. Three intents, three behaviours, all named.
 
 ### 7.2 `fromSeq` is eager
 
@@ -302,7 +305,7 @@ Slicing by magnitude produces nothing by design (clamps). No new *static* diagno
 
 ### 11.1 Negative bracket indexing (`xs[-1]` = from-end)
 
-Coherent formula (`xs[-n] = xs[size - n + 1]`), rejected for `[]`: it contradicts the assert doctrine's own rationale — wrong assertions must fail *loudly at the fault site*. Wraparound converts a drifted computed index into silently plausible data from the wrong end — a famous bug class in Python — and 1-based indexing thins the guard rail to the single value `0`. Slices cannot follow coherently (clamp-before-or-after-normalize ambiguity; Python's negative slices are the cautionary tale), leaving an asymmetry inside one bracket form. The legitimate want (end-relative access) is served by **`at`** (§5.3), where signed addressing is opt-in by name and computed indices flowing into `[]` keep their loud failure. C#-style `^` sigil syntax was also considered and rejected on aesthetic grounds (the power is `at`'s; the sigil bought nothing over a name).
+Coherent formula (`xs[-n] = xs[length - n + 1]`), rejected for `[]`: it contradicts the assert doctrine's own rationale — wrong assertions must fail *loudly at the fault site*. Wraparound converts a drifted computed index into silently plausible data from the wrong end — a famous bug class in Python — and 1-based indexing thins the guard rail to the single value `0`. Slices cannot follow coherently (clamp-before-or-after-normalize ambiguity; Python's negative slices are the cautionary tale), leaving an asymmetry inside one bracket form. The legitimate want (end-relative access) is served by **`at`** (§5.3), where signed addressing is opt-in by name and computed indices flowing into `[]` keep their loud failure. C#-style `^` sigil syntax was also considered and rejected on aesthetic grounds (the power is `at`'s; the sigil bought nothing over a name).
 
 ### 11.2 `IndexError` for descending slices
 
@@ -365,7 +368,7 @@ let sp = [x, ...ys]                   -- ERROR: spread is pattern syntax;
 match xs
     [] => 0
     [x] => x
-    [x, ...rest] => x + size(rest)      -- exhaustive: [] covers 0, [x] covers 1, third covers ≥1
+    [x, ...rest] => x + length(rest)      -- exhaustive: [] covers 0, [x] covers 1, third covers ≥1
 
 match pairs
     [(k, v), ...] => k                  -- nested tuple in element slot
