@@ -871,6 +871,12 @@ than settling a style question.
   (emitter.ts `renderType`), diverging from Part 1 §4.1/§8's decided `Hex.*`
   branded faces — pre-existing, and `ReadonlyMap`/`ReadonlySet` promise API
   the HAMT records do not have. Needs its own defect entry / issue.
+  **Done (2026-08-03, recorded under #242): the entry is #128** — ruled at
+  FFI Part 1 §8.3 (2026-08-02), implemented and merged 2026-08-03 (`882ed2c`).
+  `renderType` now emits the branded `Hex.*` faces, declared in a
+  program-scoped emitted `hex.d.ts` that each mentioning `.d.ts` imports
+  type-only; conformance is `runtime-collection-faces.test.ts`. Do not
+  re-file.
 
 ### 13. An unsupported companion operation crashes on a literal argument (pre-existing)
 
