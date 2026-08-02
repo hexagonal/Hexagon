@@ -4849,9 +4849,16 @@ function renderScheme(
   prelude: PreludeIds,
   value?: Core.Expr,
 ): string {
-  const variables = typeVariableNames(scheme.variables);
   const type = scheme.type;
-  if (type.kind !== "Function") return renderType(type, variables, prelude, false);
+  // A `declare const` has nowhere to put a quantifier, so a polymorphic value's
+  // face is one instantiation of it (FFI Part 7 §14.1): `never` for each
+  // quantified type variable, the empty row for a quantified row tail. Naming
+  // the binders here instead would print a type variable no declaration binds,
+  // and a `.d.ts` that does not compile (#132).
+  if (type.kind !== "Function") {
+    return renderType(type, neverInstantiation(scheme.variables), prelude, false);
+  }
+  const variables = typeVariableNames(scheme.variables);
   const lambda = value?.kind === "Lambda" ? value : undefined;
 
   const genericNames = scheme.variables.map((variable) => variables.get(variable)!);
@@ -5019,9 +5026,11 @@ function renderType(
       const record = `{ ${type.fields.map(({ name, type: field }) =>
         `${name}: ${renderType(field, variables, prelude, false)}`
       ).join("; ")} }`;
-      return type.tail === undefined
-        ? record
-        : `(${record} & ${variables.get(type.tail) ?? "object"})`;
+      const tail = type.tail === undefined ? undefined : variables.get(type.tail) ?? "object";
+      // A row tail carried at the `never` instantiation stands at the empty row
+      // — no further fields — so the intersection is dropped. Writing `& never`
+      // instead would collapse the whole record to `never`.
+      return tail === undefined || tail === NEVER ? record : `(${record} & ${tail})`;
     case "Function": {
       const lambda = value?.kind === "Lambda" ? value : undefined;
       const names = declarationParameterNames(
@@ -5137,6 +5146,23 @@ function typeVariableNames(
   return new Map(
     variables.map((variable, index) => [variable, typeVariableName(index)]),
   );
+}
+
+const NEVER = "never";
+
+/**
+ * The rendering of a scheme's quantified variables at the `never` instantiation
+ * (FFI Part 7 §14.1) — what a face uses where TypeScript has no seat for the
+ * quantifier itself.
+ *
+ * `typeVariableName` produces `a`, `b`, … `a1`, so `NEVER` is a value no binder
+ * name can collide with; the record case reads it back to recognise a row tail
+ * standing at the empty row.
+ */
+function neverInstantiation(
+  variables: readonly Typed.TypeVariableId[],
+): ReadonlyMap<Typed.TypeVariableId, string> {
+  return new Map(variables.map((variable) => [variable, NEVER]));
 }
 
 function typeVariableName(index: number): string {

@@ -1,6 +1,6 @@
 # Hexagon FFI Part 7: Hexagon Exports and TypeScript Declarations
 
-**Status:** Decided (July 2026), revised in place after external review (Sol) before landing. Normative promotion of `spec/notes/ffi-proto-spec-questions.md` §7, plus the export-surface pieces earlier parts assigned here: the exact opaque-brand `.d.ts` form (Part 4 §12.3), stable export wrappers' emission rules (Parts 3/6), and the discharge of Modules §11.4's deferred opaque-representation question. The draft's three clarifications were confirmed in §12: generic nullary constants use the `never` instantiation; export forces stable constructor materialization; and all four opaque-faced families use one non-exported-`unique symbol` brand mechanism. Inherits: generated opaque brands for exported extern types, never re-exported foreign typings; raw identity for representation-direct functions; stable module-level wrappers where adapted signatures or receiver conventions require them, with fresh per-value adapters remaining distinct from those named callable wrappers (Part 6 §1); exported Hexagon `Unit` functions genuinely returning `undefined` (Part 6 §3.2); the `Error & {$hex: true; ...}` exception face (Exceptions §7.5); constrained exports referenced but governed by Parts 8–9.
+**Status:** Decided (July 2026), revised in place after external review (Sol) before landing; §2.2 and §12.1 amended 2026-08-02 — a polymorphic non-function declaration faces as its `never` instantiation, generalizing §12.1 beyond nullary constructors — see correction record §14.1. Normative promotion of `spec/notes/ffi-proto-spec-questions.md` §7, plus the export-surface pieces earlier parts assigned here: the exact opaque-brand `.d.ts` form (Part 4 §12.3), stable export wrappers' emission rules (Parts 3/6), and the discharge of Modules §11.4's deferred opaque-representation question. The draft's three clarifications were confirmed in §12: generic nullary constants use the `never` instantiation; export forces stable constructor materialization; and all four opaque-faced families use one non-exported-`unique symbol` brand mechanism. Inherits: generated opaque brands for exported extern types, never re-exported foreign typings; raw identity for representation-direct functions; stable module-level wrappers where adapted signatures or receiver conventions require them, with fresh per-value adapters remaining distinct from those named callable wrappers (Part 6 §1); exported Hexagon `Unit` functions genuinely returning `undefined` (Part 6 §3.2); the `Error & {$hex: true; ...}` exception face (Exceptions §7.5); constrained exports referenced but governed by Parts 8–9.
 **Scope:** ESM export correspondence; the generated `.d.ts` (structure, the `Hex` namespace import, lowercase Hexagon-originated generic binders); records; unions, exported constructors, and the all-nullary representation cliff; opaque branded values — the uniform brand for `export opaque` types, extern types, and extern class types; exceptions, including the nullary function-shape difference; direct exports versus stable wrappers; edit notes discharging flags in Modules, Unions, and Exceptions.
 **Not in scope:** the specialization and generic-edition machinery for constrained exports (Part 8, `ffi-zero-cost-fundamental-exports.md`) and dictionary types, handles, and factories (Part 9, `ffi-part9-exported-dictionaries.md`); extern declaration syntax (Parts 4–5); calling convention (Part 6); `JsMap`/`JsSet` and `JsValue` faces (finalized by Parts 10–11).
 **Companions:** Modules §4/§11 (export semantics; ESM emission; the §11.4 deferral); Unions §6 (representations, the cliff, constructor emission, `.d.ts`); Products §5.4 (record constructor erasure); Exceptions §7 (branded representation, `.d.ts`, construction sites); Part 1 §4/§8 (master table; `Hex` namespace); Part 3 §9.1 (exported `Seq` replayability); Part 6 §1/§3 (wrapper list; `Unit`); Part 8 §3.4/§6 (zero-entry-point exception; Algorithm N collisions).
@@ -62,6 +62,8 @@ export type Option<a> = {tag: "Some"; value: a} | {tag: "None"};
 ```
 
 TypeScript is case-agnostic about binder names, so nothing is lost; what is gained is that a generated declaration visibly carries its Hexagon origin and matches the hover/diagnostic types a mixed-codebase developer sees on the Hexagon side. Declared-source binder order is preserved (it is ABI-relevant under Parts 8–9's suffix rules).
+
+*(Amended 2026-08-02, §14.1.)* This rule presumes a declaration with somewhere to write the binders. A `declare const` whose type is not a function type has no such seat, and its quantified variables are **instantiated** rather than bound — §14.1.
 
 ### 2.3 Type faces
 
@@ -302,6 +304,8 @@ This part introduces **no new hard errors**. The boundary-shape and collision er
 
 **Confirmed:** `export declare const None: Option<never>;`. The single shared runtime constant needs one `.d.ts` type, and `never` is the instantiation TypeScript's structural checking accepts wherever any `Option<T>` is expected (the `None` arm carries no payload for variance to bite on). A per-use generic function face misdescribes the value and breaks identity idioms; `unknown` is not assignable to specific instantiations.
 
+*(Generalized 2026-08-02, §14.1.)* The reasoning above is not about constructors: it is about a **`declare const` with nowhere to put a quantifier**. §14.1 states it as the general rule for every polymorphic non-function declaration this part generates, of which a generic nullary constructor is one case.
+
 ### 12.2 Export forces constructor materialization (§3–§4)
 
 **Confirmed.** Export is a mandatory demand site with stable ESM identity, while internal direct applications continue to erase. This follows §1's correspondence doctrine: an exported constructor term must exist as a named ESM export.
@@ -331,3 +335,58 @@ This part introduces **no new hard errors**. The boundary-shape and collision er
 | Companion specs discharged: Modules §11.4, Products §5.4, Unions §6.4–§6.5, Exceptions §7.5 | §10 |
 | *(2026-07-28, defect 12 ruling)* Occasion 1 sharpened: the wrapper's crossing is Part 3 §2.2's inbound door (genuine `Seq` by identity); wrappers exist for `Seq` parameters only — results and value exports are honest by representation (Part 3 §9.4); §6's no-runtime-artifact clause clarified as forbidding boundary artifacts, not representation members | §6, §7 |
 | *(2026-08-02, defect 12's implementation)* Occasion 1 follows the published face into constrained exports: fundamental specializations with top-level `Seq(a)` parameters take wrappers; the internal trailing-evidence edition, absent from the `.d.ts`, takes none | §7 |
+| *(2026-08-02, #132)* A polymorphic **non-function** declaration faces as its `never` instantiation — quantified type variables at `never`, a quantified row tail at the empty row — because a `declare const` has no seat for the quantifier. Generalizes §12.1 from nullary constructors to every such declaration; governs the inspection preview too | §14.1 |
+
+---
+
+## 14. Correction records
+
+Recorded per house rule (`method-syntax.md` §16 precedent, `collections-part1-decisions.md` §10 form): origin, rationale, consequences with owners, rejected alternatives marked do-not-relitigate. Section numbers are stable; the body text each record amends carries a pointer to it.
+
+### 14.1 A polymorphic non-function declaration faces as its `never` instantiation (2026-08-02, #132)
+
+**Origin.** `stdlib/Seq.hex` exports one polymorphic value that is not a function:
+
+```hexagon
+export let empty: Seq(a) = Seq({pull = () => None})
+```
+
+Its declaration was generated by naming the source binder, as §2.2 says to — and a `declare const` has nowhere to *bind* that name, so the emitted row referenced a type variable no declaration introduced:
+
+```ts
+export declare const empty: Iterable<a>;   // TS2304: Cannot find name 'a'.
+```
+
+One row, and the whole of `Seq`'s published face was invalid TypeScript. Every other polymorphic export in the module is function-typed, and a function type carries its own `<a>` seat, which is why nothing had caught it: `empty` was the prelude's only polymorphic non-function export.
+
+**The rule.** Where this part generates a declaration whose type is **not a function type**, the scheme's quantified variables are **instantiated, not bound**:
+
+- a quantified **type variable** stands at `never`;
+- a quantified **row tail** stands at the empty row — it contributes no fields, and the intersection is dropped rather than written `& never`, which would collapse the whole record to `never`.
+
+```ts
+export declare const empty: Iterable<never>;
+export declare const None: Option<never>;                       // §12.1, unchanged
+export declare const table: ReadonlyArray<Option<never>>;       // nested, same rule
+export declare const next: <a>(source: Iterable<a>) => Option<[a, Iterable<a>]>;   // function: §2.2 binds
+```
+
+**Why it is honest.** The value's type *is* ∀a. T(a), so T[`never`/a] is one of the value's types — the face states a genuine instantiation and can never over-describe the runtime value. What it gives up is re-generalization: TypeScript will not recover the other instantiations from this one. So the face is **sound always, and additionally usable at every instantiation exactly where the quantified variable occurs covariantly** — the producer shape that motivates a polymorphic constant in the first place (`empty`, `None`, an empty vector). Where a variable occurs contravariantly or invariantly, a consumer gets a value it cannot use at another type. That is a stated limit of the representation, not a defect to be rediscovered: **a Hexagon author who wants such a value usable across instantiations at the boundary exports a function instead**, which restores the quantifier seat §2.2 uses.
+
+`never` over the alternatives, on TypeScript's own assignability (re-verified at this ruling, `tsc --strict`, TypeScript 7.0.2): `Iterable<never>` is assignable to `Iterable<number>`; `Iterable<unknown>` is not (TS2322). This is §12.1's reason, and this record's only change to it is scope.
+
+**Scope.** The rule governs **both** generated TypeScript artifacts: the shipped `.d.ts`, and the inspection-only TypeScript preview an interactive host shows (the Playground's declarations pane), which additionally covers *unexported* bindings and so meets un-annotated, row-polymorphic schemes the boundary itself never sees. A **constrained** polymorphic export is untouched: its face is its fundamental specializations (§8, Part 8), not one declaration.
+
+**Consequences, with owners:**
+
+- `renderScheme` (`compiler/src/passes/emitter/emitter.ts`) instantiates instead of naming on its non-function path; the record case drops an empty-row tail. Conformance: `compiler/src/conformance/polymorphic-value-face.test.ts`, which type-checks the emitted text with `tsc` rather than only comparing strings.
+- **`Seq.d.ts` still does not compile, for an unrelated reason — recorded so it is not read as this ruling's failure.** Its faces name `Option`, a type owned by another Hexagon module, and a generated `.d.ts` emits no import for it (§2.1 fixes only the `Hex` namespace import). Filed as **#227**, which also carries the ruling owed on cross-module type imports. #132's issue text asserted the unbound binder was "the only error in the file"; that was true of TS2304s only, and is corrected here.
+- §2.2 and §12.1 carry pointers to this record.
+
+**Rejected alternatives (do not re-litigate):**
+
+- **A nullary generic function face** — `export declare function empty<a>(): Iterable<a>`. It buys usability at every instantiation by lying about the value's shape: `empty` is a constant, not a factory, and JavaScript would have to call it. §12.1 rejected this for `None` on the same ground (it "misdescribes the value and breaks identity idioms"), and the emitted JavaScript would have to change with it — a wrapper at the boundary, which §7 permits only for the listed occasions.
+- **The `unknown` instantiation.** Not assignable to specific instantiations (evidence above); it fails at exactly the covariant producer positions the rule exists to serve.
+- **The `any` instantiation.** It would be usable everywhere, in both variances, by abandoning the check — and unlike `never` it *over*-promises, inviting a consumer to put anything into a contravariant position. The boundary's contracts are trusted but not unchecked (Part 1 §1); a face that types nothing is not a face.
+- **Forbidding polymorphic non-function exports at the boundary**, requiring the author to write a nullary function (#132's option 3). It moves a TypeScript representation gap into `.hex` source, changing `Seq.empty`'s spelling for every Hexagon consumer to serve a JavaScript face that TypeScript accepts perfectly well as a constant.
+- **Naming the binders anyway and adding a `type` alias to bind them** — e.g. `type Empty<a> = Iterable<a>; export declare const empty: Empty<a>;`. It relocates the unbound name without binding it; TypeScript has no rank-1 quantifier for a constant, and no arrangement of aliases invents one.
