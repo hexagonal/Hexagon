@@ -4391,46 +4391,88 @@ function renderHelper(
       // tail)` / failure are the three. The cell is a *box*, not the thrown
       // value itself, since JavaScript permits throwing `undefined`.
       //
-      // **Exhaustion is the source's property, not a position's**, so `done`
-      // stays a shared cell — §5's own division, which permits shared iterator
-      // state and forbids only a back-reference to the head.
+      // **Forcing is not reentrant, and the spine says so** (§7.3, the #123
+      // ruling). A position whose forcing asks for that same position is asking
+      // for the value it is computing; there is no answer, only a choice of
+      // wrong one. Two forcings of one position each consume a source element
+      // and only one can be the position's value, so the alternatives are losing
+      // an element or reordering the sequence — the buffer this spine replaced
+      // reordered, and the per-node memo dropped, both silently.
       //
-      // The frontier itself is structural and needs no flag: a tail is built
-      // solely in the success path and is reachable only if that outcome won the
-      // memo, since `pull` returns the winner, so the reachable nodes are a
-      // chain and at most its last member is unforced (none is, once that one
-      // has memoized an end or a failure). What the flag adds is that
-      // *the frontier can sit behind an ended source*. One forcing of a node can
-      // see the source end while a reentrant forcing of the same node got a
-      // value and won — the head then hands out a tail the source has nothing
-      // left for, and without the flag, forcing it calls `next()` on an iterator
-      // that already reported done. The flag only ever goes true, so the loser
-      // of that race cannot un-end the source either.
+      // So a forcing already in flight is *this spine's* flag, and a pull that
+      // reaches the forcing step while it is set throws instead. The check sits
+      // **before** the `try`, which is load-bearing: the reentrant pull is of the
+      // very node being forced, so a throw from inside the `try` would memoize
+      // as that node's failure and poison the position the enclosing forcing is
+      // about to answer.
       //
-      // **A step is written once and a failure never over one**, which is what
-      // makes §4's "each node memoizes exactly one outcome" an invariant this
-      // code holds rather than a sentence it cites: the first step stored stays,
-      // and clears any failure beside it, while a failure is stored only into a
-      // node holding neither. So a node never holds both, and a position that
-      // has a step keeps answering with it.
+      // Per spine rather than per node, and the reason is only that one node is
+      // ever unforced: a tail is built solely in the success path, so the
+      // reachable nodes are a chain whose last member is the only one that can
+      // reach the check. The two spellings are indistinguishable — no test
+      // separates them — and this one keeps the cell off every node. A reentrant
+      // pull of an already-memoized position never reaches the check at all:
+      // replay is untouched, and a foreign source that looks back at elements it
+      // has already produced keeps working, which §7.3 requires.
       //
-      // Only a reentrant forcing can reach either guard, and reentrancy is
-      // undecided — issue #123 — so none of this is a claim about what *should*
-      // happen there. Two things it is: without the step guard, a reentrant
-      // inner forcing's outcome was overwritten and two tails of one position
-      // went on to yield different elements, which is `Seq` persistence failing
-      // rather than a reentrancy question. Without letting a step clear a
-      // failure, an inner forcing that threw poisoned the position permanently,
-      // even though the outer forcing that re-entered from it succeeded. The
-      // buffer this replaces had neither problem, so neither is a corner to
-      // leave to #123 on the grounds that it was already broken.
+      // **A refusal is an ordinary failure to every spine it passes through.**
+      // A reentrant traversal that arrives through a second spine — most often
+      // the §9.4 boundary view, since that is JavaScript's route into a `Seq`
+      // value — meets the refusal as a throw out of *its* source, and §7.1
+      // memoizes it there. The Hexagon-side traversal completes correctly; the
+      // value is finished as an `Iterable` to JavaScript.
       //
-      // Where it does still differ from the buffer, recorded rather than
-      // defended: the buffer reordered a reentrant forcing's element and this
-      // drops it, and the buffer replayed a stale failure at the following
-      // position where this serves that position from the source. Both are
-      // #123's to rule on; the conformance tests pin only that the cursors of
-      // one position agree, never which element wins.
+      // §7.3 **records** that rather than ruling it, and issue #232 owns the
+      // decision. The repair that suggests itself — decline to memoize a refusal
+      // you did not raise — is worse *as things stand*: the throw travels out
+      // through `seqToIterable`'s generator, a generator that has thrown is
+      // completed, the next forcing reads `done` off it and memoizes end, and
+      // the value reads as empty to JavaScript instead of raising. Measured, not
+      // argued. But the completion is an artifact of the driver being a
+      // generator, which nothing in Part 3 requires: with `seqToIterable`
+      // emitting an explicit cursor, the same repair keeps the foreign face
+      // working, and the whole suite passes but for the test pinning today's
+      // behaviour. Both halves would land together, and `seqToIterable` is half
+      // of R1 and the internal channel's driver, so it is #232's to weigh.
+      //
+      // **`ReentrancyError`, a declared Hexagon exception** (§7.4), not a
+      // manufactured `TypeError`. The condition is one Hexagon detects in state
+      // Hexagon owns, so it leaves through the domestic door: Exceptions §1's
+      // one-door doctrine puts every Hexagon-originated exception behind a
+      // declared constructor and reserves `JsError` for what JavaScript threw.
+      // §7.2's `TypeError` is the platform's own voice — the minimum protocol
+      // check native iteration performs, reporting foreign misbehaviour — and
+      // this check is lawful on the opposite ground, that it is *not* a protocol
+      // check and reads no foreign value, so it cannot borrow that kind.
+      //
+      // Constructed inline as Exceptions §7.1's representation rather than by
+      // calling `Seq.hex`'s constructor, exactly as the emitted `IndexError` and
+      // `SliceError` are: exception identity is `name` under the `$hex` brand,
+      // chosen over prototype identity precisely so that every module's copy of
+      // this helper and the one `.hex` declaration coincide on one nominal
+      // exception. Fresh per refusal (§7.3 of Exceptions), so the stack points
+      // at the reentrant pull. The message is a diagnostic rendering and is
+      // non-normative — recognition is the `name`, never the text.
+      //
+      // What the enclosing forcing observes is nothing at all, unless the
+      // foreign code lets the throw propagate out of `next()` — in which case it
+      // is that position's failure by §7.1, like any other throw from the source.
+      //
+      // Serialized forcings are why nothing else here guards against collision.
+      // Each node is forced exactly once, so a store never meets a value already
+      // present; and **this spine** cannot have observed `done` while one of its
+      // nodes is unforced, since that node was built from a not-done result and
+      // none is built from an ended one. The qualifier is not decoration — two
+      // adapters over one self-iterable foreign iterator can drive each other's
+      // shared cursor to exhaustion, which is §2.1's documented "repeated
+      // crossings of a single-pass generator observe its current position" and
+      // behaves the same here as it did before. The shared `done` flag and the
+      // first-writer guards that stood here between #131 and #123 were repairs
+      // for collisions this ruling makes unreachable, and dead code whose
+      // comment claims otherwise is worse than none. The `finally` above is the
+      // one thing kept without a test behind it: a stuck flag is unobservable
+      // (no node exists past a failed one), but a `finally` asserts nothing,
+      // which is what separates it from the three that went.
       //
       // Every node carries the boundary traversal method (§9.4): the adapter is
       // one of the ruling's two named construction sites, and a `Seq` built here
@@ -4439,7 +4481,7 @@ function renderHelper(
       return [
         `function ${name}(__hex_source) {`,
         "  let __hex_iterator = undefined;",
-        "  let __hex_done = false;",
+        "  let __hex_forcing = false;",
         "  const __hex_node = () => {",
         "    let __hex_step = undefined;",
         "    let __hex_failure = undefined;",
@@ -4447,26 +4489,24 @@ function renderHelper(
         `      [Symbol.iterator]: ${dependencyName("seqIterate")},`,
         "      pull: () => {",
         "        if (__hex_step === undefined && __hex_failure === undefined) {",
-        '          if (__hex_done) __hex_step = { tag: "None" };',
-        "          else {",
-        "            try {",
-        "              if (__hex_iterator === undefined) __hex_iterator = __hex_source[Symbol.iterator]();",
-        "              const __hex_next = __hex_iterator.next();",
-        '              if (__hex_next === null || (typeof __hex_next !== "object" && typeof __hex_next !== "function")) {',
-        '                throw new TypeError("Iterator result " + String(__hex_next) + " is not an object");',
-        "              }",
-        "              const __hex_ended = Boolean(__hex_next.done);",
-        "              if (__hex_ended) __hex_done = true;",
-        "              const __hex_forced = __hex_ended",
-        '                ? { tag: "None" }',
-        '                : { tag: "Some", value: [__hex_next.value, __hex_node()] };',
-        "              if (__hex_step === undefined) { __hex_step = __hex_forced; __hex_failure = undefined; }",
-        "            } catch (__hex_error) {",
-        "              if (__hex_step === undefined && __hex_failure === undefined) {",
-        "                __hex_failure = { error: __hex_error };",
-        "              }",
-        "              throw __hex_error;",
+        "          if (__hex_forcing) {",
+        '            throw Object.assign(new Error("Seq position is already being forced: a sequence position cannot depend on its own value"), { $hex: true, name: "ReentrancyError" });',
+        "          }",
+        "          __hex_forcing = true;",
+        "          try {",
+        "            if (__hex_iterator === undefined) __hex_iterator = __hex_source[Symbol.iterator]();",
+        "            const __hex_next = __hex_iterator.next();",
+        '            if (__hex_next === null || (typeof __hex_next !== "object" && typeof __hex_next !== "function")) {',
+        '              throw new TypeError("Iterator result " + String(__hex_next) + " is not an object");',
         "            }",
+        "            __hex_step = Boolean(__hex_next.done)",
+        '              ? { tag: "None" }',
+        '              : { tag: "Some", value: [__hex_next.value, __hex_node()] };',
+        "          } catch (__hex_error) {",
+        "            __hex_failure = { error: __hex_error };",
+        "            throw __hex_error;",
+        "          } finally {",
+        "            __hex_forcing = false;",
         "          }",
         "        }",
         "        if (__hex_failure !== undefined) throw __hex_failure.error;",

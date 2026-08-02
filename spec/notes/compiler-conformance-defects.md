@@ -994,7 +994,8 @@ than settling a style question.
   failure pushes nothing" is voided: an inner forcing can record a failure that
   an outer, still-running forcing then overwrites with a value, leaving a stale
   error replayed at a position the source would have served. Issue #123 asks for
-  the ruling (raised by Fable, review finding F3). It is not a consequence of the single cell — a per-node cell
+  the ruling (raised by Fable, review finding F3) — **ruled 2026-08-02, FFI Part
+  3 §7.3; see the last entry in this file**. It is not a consequence of the single cell — a per-node cell
   collides on the same node — and the pre-fix spine was already incoherent
   there, reordering elements rather than replaying a stale failure.
   **Superseded 2026-08-02 (#131).** The shared buffer this whole argument is
@@ -1011,22 +1012,26 @@ than settling a style question.
     adapter's scope while leaving everything else per node reddens `a failure
     does not poison the positions already forced before it` — a failure mode the
     buffer did not have.
-  - "A failure pushes nothing and leaves `__hex_done` false." Half survives:
-    `__hex_done` still exists, still shared, and a failure still leaves it false
-    — `__hex_done = true` is reachable only under a truthy `done`, with no throw
-    between. But nothing is pushed anywhere, and the sentence was the *frontier*
-    argument, which no longer rests on either fact.
+  - "A failure pushes nothing and leaves `__hex_done` false." Neither referent
+    survives. Nothing is pushed anywhere, and `__hex_done` was reinstated by
+    #131's first review round and then deleted outright by the #123 ruling
+    (entry below), which makes the collision it guarded against impossible.
+    *(This bullet said "half survives, `__hex_done` still exists" between #131
+    and #123; it was true for those hours and is recorded as having been so.)*
   - "A per-node cell would encode the same fact more expensively." That is an
     argument against the representation §5 requires and #131 shipped.
   - "An inner forcing can record a failure that an outer, still-running forcing
     then overwrites with a value, leaving a stale error replayed at a position
-    the source would have served." The overwrite cannot happen: a step is
-    written once and a failure is never written over one. What that position
-    gets instead is served from the source.
+    the source would have served." The overwrite cannot happen at all since the
+    #123 ruling: there is no second forcing to do the overwriting. (Between #131
+    and #123 it was prevented differently, by store guards that are now gone.)
 
-  The reentrancy caveat is still #123's, and still for the reason it gave — a
-  per-node cell collides on the same node — but the *outcome* of the collision
-  differs from the buffer's, and the new entry below records how.
+  The reentrancy caveat was #123's, and #123 is **ruled** (2026-08-02, FFI Part
+  3 §7.3): the collision this bullet reasons about — two forcings of one
+  position — cannot occur, because the second forcing is refused. The reason the
+  bullet gave for leaving it open (a per-node cell collides on the same node)
+  was right, and is why the answer had to come from refusing rather than from
+  choosing a winner.
 - **The stored cell is a box, not the thrown value.** JavaScript permits
   `throw undefined`, so `failure !== undefined` would otherwise misread a
   genuine failure as unforced and re-enter the foreign call — the defect again,
@@ -1380,7 +1385,9 @@ than settling a style question.
   in the node beside the value. The box stays a box — JavaScript permits
   `throw undefined`. Entry 15 carries the supersession note, including which of
   its sentences do not survive.
-- **`__hex_done` stays shared, and the first draft deleted it.** Exhaustion is a
+- **`__hex_done` stayed shared, and the first draft deleted it.** *(Reinstated by
+  this round, then deleted outright by the #123 ruling — last entry — which makes
+  the collision below impossible. Read this bullet in the past tense.)* Exhaustion is a
   property of the source, not of a position, and §5's division puts it exactly
   where the iterator is. The argument for deleting it was that the frontier is
   now structural — a tail is built solely in the success path, and is reachable
@@ -1406,6 +1413,15 @@ than settling a style question.
   had returned the outer's value. So a step now clears a failure stored beside
   it, while a failure is stored only into a node holding neither. Both
   directions of the collision are pinned by a test, and each reddens alone.
+  **Removed 2026-08-02 by the #123 ruling (FFI Part 3 §7.3), along with the
+  shared `done` flag above.** Both were repairs for a collision between two
+  forcings of one position, and §7.3 refuses the second forcing outright, so
+  forcings of a spine are serialized and no collision can occur: each node is
+  forced exactly once, and the source cannot report end while an unforced node
+  exists. The reasoning is recorded in the new entry below, with the evidence
+  for it — including an instrumented build in which the whole suite reaches none
+  of the three conditions. What the two rounds bought was not wasted: they are
+  what established that the alternatives to refusing were all silently wrong.
 - **What this does not buy, stated plainly.** Besides #230 above: a
   JavaScript-side traversal pins the prefix for its duration and beyond —
   `seqToIterable`'s generator closes over the head, and §9.4's boundary view is
@@ -1424,16 +1440,15 @@ than settling a style question.
     elements are tuples because a `WeakRef` needs an object. Both sources
     re-derive, which is what makes the memo the only possible holder — and is
     the qualifier #230 is about.
-  - *Reentrancy*, four tests, pinning invariants rather than a semantics: that
-    two forcings of one position agree and hand back the same tail (asserted as
-    an equality between the two, never against literals, because which element
-    wins is #123's to decide); that a forcing which fails after a reentrant one
-    succeeded does not poison the position; that a *failing* reentrant forcing
-    does not poison a position the outer forcing served; and that a node reached
-    past an exhausting forcing does not re-drive the iterator. A reentrant source
-    has to hold the node being forced, which no Hexagon program can hand it, so
-    these append a JavaScript probe to the compiled module and drive the emitted
-    helper by name. They execute it; they are not text assertions.
+  - *Reentrancy*, four tests, pinning invariants rather than a semantics —
+    **all four superseded 2026-08-02 by the #123 ruling**, which replaced the
+    invariants they pinned with a refusal. They are recorded here because the
+    collisions they described are what the ruling was made against, and because
+    two of them drove the emitted helper by name on the belief that a reentrant
+    source "has to hold the node being forced, which no Hexagon program can hand
+    it". That belief was false in a way worth remembering: no Hexagon *module*
+    can, but a third module handing the value to the foreign one is an ordinary
+    program shape, and it is the shape the replacement tests use.
   - **Verified sensitive, by mutation, each part separately.** Restoring the
     pre-fix helper reddens both reclamation tests, and also the agreement test —
     on `sameTail`, for an unrelated reason: the buffer allocated a fresh tail
@@ -1449,16 +1464,19 @@ than settling a style question.
     alone. Two tests written here did not redden the mutation they were written
     for and were replaced or added to — an earlier exhaustion test survived the
     `__hex_done` deletion, and round 1's failure guard was shipped with no test
-    at all until round 2 found it.
-- **Left open:** reentrant forcing (#123), and #230. Under reentrancy the
-  per-node memo differs from the buffer it replaced rather than matching it, in
-  two ways worth having on record when #123 is ruled: where the buffer reordered
-  the losing forcing's element, that element is now dropped; and where the buffer
-  replayed a stale failure at the position after a reentrant one, that position
-  is now served from the source. Both spines are incoherent there and neither
-  behaviour is specified — the point of recording it is that "unchanged from
-  `main`" would have been false. #123's issue body describes the buffer's
-  behaviour and is stale in the same way; a comment there carries this.
+    at all until round 2 found it. (Four of these mutations no longer have
+    targets — the step guard, the failure guard, the failure clear, and
+    `__hex_done` — because §7.3 removed the code they mutate. Restoring the
+    pre-fix helper and reintroducing a shared values array still redden the two
+    reclamation tests, which are untouched.)
+- **Left open at the time, and since closed:** reentrant forcing (#123) — ruled
+  2026-08-02, FFI Part 3 §7.3, entry below — and #230, still open. What this
+  entry recorded about reentrancy was that the per-node memo differed from the
+  buffer in two ways rather than matching it: the losing forcing's element was
+  dropped where the buffer reordered it, and the position after a reentrant
+  forcing was served from the source where the buffer replayed a stale failure.
+  Both readings were right, and both are moot — §7.3 refuses the second forcing,
+  so there is no loser.
 - **Credit:** Fable, reviewing the intrinsic-door implementation, read §5's
   representation sentence against the helper source and filed the divergence
   rather than folding it into an unrelated review. Two cold Opus rounds then
@@ -1468,3 +1486,185 @@ than settling a style question.
   1's own guards introduced. Both rounds worked by running the two helper
   versions side by side in a standalone script, which is what made "same as
   before" a checkable claim rather than an assumed one.
+
+## 2026-08-02 — reentrant forcing lost an element, silently (the #123 ruling)
+
+- **Classification:** a **ruling**, and a conformance fix that follows from it.
+  Unlike every other entry here, the specification did *not* already decide this
+  — FFI Part 3 §4 and §7.1 described forcing as an atomic step with one outcome
+  and said nothing about foreign code re-entering the spine mid-forcing. Issue
+  #123 was filed by Fable as a ruling request against exactly that gap. The
+  ruling is now **§7.3–§7.4**; this entry records why it went the way it did and
+  what the implementation lost as a result. (§7.4 — the error kind — is the spec
+  seat's, written after this entry; see the amended error-kind bullet below.)
+- **What the gap cost, and why no rule could have made it lossless.** Two
+  forcings of one position each advance the source, and only one result can be
+  that position's memoized outcome. This is an impossibility, not a survey: the
+  reentrant forcing needs a value the enclosing `next()` has not returned yet,
+  so lossless *and* order-preserving would require the inner forcing to wait for
+  the outer, which single-threaded synchronous JavaScript cannot express. So the
+  other element is lost or the sequence is reordered, and both silently: a four-element foreign sequence came back
+  from `Vector.fromSeq` with three, the reentrant traversal and the enclosing
+  one agreeing on the short answer, and nothing raised anywhere. No test in the
+  suite could see it, because both observers were wrong the same way.
+- **The reachability claim in the issue was wrong, and that mattered.** #123
+  recorded the case as unreachable from the conformance harness — "its data-URL
+  modules cannot be circular" — and described the real program shape as a
+  circular ESM import. No cycle is needed. A third module hands the `Seq` to the
+  foreign module that the sequence's own derivation calls, which is an ordinary
+  program and is what the conformance tests now do. Believing it exotic is part
+  of why it stayed open, and is why the ruling is not "unspecified".
+- **What the platform already did, checked before ruling.** Every spine whose
+  source is a `seqToIterable` generator — every `Seq.memoize` (Loops §6.4) and
+  every §9.4 boundary view — already had the reentrant advance refused by
+  JavaScript itself: `TypeError: Generator is already running`, with the
+  enclosing traversal completing correctly and losing nothing. Only a foreign
+  iterator whose `next()` is an ordinary function reached the incoherent path.
+  That measurement is what turned option 3 in the issue ("detect and reject",
+  costed there as inventing a failure mode §7.2 says the adapter does not have)
+  into the *conservative* option: it conforms one case to the platform.
+- **The consequence review found, recorded rather than ruled (#232).** A refusal
+  reaching a *second* spine is memoized there by §7.1 like any other throw out of
+  a source — and that is the common case, because a reentrant traversal usually
+  arrives through the §9.4 boundary view, JavaScript's route into a `Seq` value.
+  (Not its only route: foreign code that calls an exported Hexagon function
+  re-enters through the internal channel instead, and poisons nothing.) The
+  value is then finished as an `Iterable` to JavaScript, while the Hexagon-side
+  traversal completes correctly. §7.3's first draft said the opposite ("does not
+  touch the memo", "the enclosing forcing is unaffected otherwise"), which was
+  true only of the Hexagon side.
+  **Two repairs were tried, and the second one works.** Brand the refusal with
+  its raiser and decline to memoize one you did not raise: the value reads as an
+  *empty* sequence instead, because the refusal travels out through
+  `seqToIterable`'s generator, a generator that has thrown is completed, and the
+  next forcing reads `done` off it and memoizes end. Silent truncation for a
+  persistent error is the wrong trade. But the completion is an artifact of the
+  driver being a generator, and nothing in Part 3 requires one: emit
+  `seqToIterable` as an explicit cursor and the same brand keeps the foreign
+  face working — measured, whole suite green but for the test pinning today's
+  behaviour. Both halves land together or not at all, and `seqToIterable` is half
+  of R1 and the internal `for x in` driver, so **#232** owns it rather than this
+  ruling. §7.3's bullet is written as behaviour, not as a decision, for that
+  reason. The second review round found this; the first had accepted the
+  one-repair reasoning.
+- **Why not "unspecified" (the issue's option 1).** It was the cheapest and it
+  reads like the rest of §4, and Part 1 §3.1's unspecified-observation doctrine
+  looks like a fit. It is not one. §3.1 is about foreign code violating a
+  declaration; here the foreign code satisfies its declaration exactly and the
+  program contains no lie. Reentrancy is a cyclic value dependency — and a pure
+  Hexagon program cannot build one, since `let` is non-recursive (checked: the
+  checker says so in as many words) and a closure cannot capture a `var`
+  (Statements §6.2), so the cycle always runs through the boundary without
+  running through misbehaviour. Leaving it unspecified would have left silent
+  element loss in a program with nothing wrong on its face.
+- **Why not "success supersedes" (option 2).** It picks a different loser. The
+  element the other forcing consumed is still gone.
+- **Correction, and what it deleted.** One `forcing` flag per spine; a pull that
+  would begin forcing while one is in flight throws before touching the source,
+  the memo, or the iterator. The check sits **before** the `try` — the reentrant
+  pull is of the very node being forced, so a throw from inside would memoize as
+  that node's failure and poison the position the enclosing forcing is about to
+  answer. Because forcings are now serialized, three mechanisms added between
+  #131 and this ruling are unreachable and are gone: the shared `done` flag, the
+  first-writer guard on the step store, and the guard on the failure store.
+- **The unreachability argument, and how far the evidence goes.** Forcings of a
+  spine cannot interleave (single-threaded, synchronous, the flag set at the top
+  of the forcing step and cleared in `finally`), so each node is forced exactly
+  once; and an unforced node exists only because its predecessor's `next()`
+  returned not-done, so **this spine** cannot have observed end while one
+  exists. The per-spine qualifier is not decoration: two adapters over one
+  self-iterable foreign iterator can drive each other's shared cursor to
+  exhaustion, and one will then call `next()` on an exhausted iterator. That is
+  §2.1's documented "repeated crossings of a single-pass generator observe its
+  current position", it behaves identically on `main` (the deleted flag was per
+  spine too), and it is not what the deletion turns on.
+  That is an argument from the code, not a proof. It was checked by building the
+  compiler with the three conditions instrumented to throw and running the whole
+  suite: 1103 tests, none reached. **Evidence of non-reach, not proof of
+  unreachability** — the honest statement, and the reason the argument is
+  written down where a reviewer can attack it.
+- **What this does not do.** It does not govern re-derivation. The internal
+  channel builds no memo, so a derivation that observes its own sequence there
+  re-derives from the head each time and recurses — and because Loops §6.5
+  declines tail-call elimination, it **fails fast with a stack overflow**. The
+  first draft said "does not terminate" and cited §6.5 for it, which is
+  backwards: §6.5 is the reason such a program *does* terminate, loudly. Nothing
+  detects it and nothing needs to, and §7.3 says so rather than leaving the
+  boundary rule to be read as a language-wide one.
+- **Where the check lawfully lives, which the first draft never asked.** Part 1
+  §3.1 is argued against at length above; **§3.2** is the section that says
+  validation happens *only* in an enumerated set of places, and a reentrancy
+  guard is in none of them. The answer is that §3.2 governs validation of
+  *foreign values* and this validates the adapter's own state — but a ruling
+  marked do-not-re-litigate must not step past a normative "only" in silence,
+  so §7.3 now makes it.
+- **The error kind, honestly.** The first draft said `TypeError` was the kind
+  "because" the platform already used it for generator sources. That does not
+  follow: the check now precedes the platform's, so the rule *replaces*
+  `TypeError: Generator is already running` in both cases rather than deferring
+  to it. §7.2's "no separate Hexagon error type" is a sound reason on its own
+  and is now the only one given — with the alternative named (`vectorAt` raises
+  a branded `IndexError`; the same shape was available) and its cost stated: a
+  `JsError` payload is interrogable only by message.
+  **Overruled 2026-08-02 by the spec seat — FFI Part 3 §7.4.** §7.2's reason
+  turned out not to reach either: that sentence licenses the platform's own
+  minimum protocol check spoken in the platform's voice, and §7.3's lawful-home
+  paragraph rests on this check being no such thing — the same fact cannot make
+  the check lawful and the `TypeError` apt. The kind is the declared domestic
+  `exception ReentrancyError` (nullary, `Seq.hex`-exported, the branded
+  Exceptions §7.1 representation, same canonical message), with `JsError`-via-
+  manufactured-`TypeError` recorded against re-litigation in §7.4 — its
+  "interrogable only by message" cost is a contradiction, not a cost, since
+  message text is exactly what programs must not depend on. The emitter's throw
+  and the conformance expectations pinning `TypeError`/`constructor.name` change
+  with §7.4's implementation, which postdates this entry.
+- **Executable conformance:** `seq-unification.test.ts`, describe block "forcing
+  is not reentrant (FFI Part 3 §7.3)", six tests, all in the ordinary program
+  shape — no probe reaches into the helper by name any more. The refused force
+  costs the enclosing traversal nothing (the headline, `[10, 20, 30, 40]` where
+  the pre-ruling spine gave `[20, 30, 40]`); an already-forced position replays
+  normally from inside a forcing, which is §7.3's carve-out; an uncaught
+  reentrant throw becomes that position's failure by §7.1; a swallowed refusal
+  ends the value's JavaScript face and keeps saying so, which is #232's
+  behaviour pinned against the truncating repair; reentry from
+  `[Symbol.iterator]()` is refused too, since §3 defers acquisition to the first
+  pull and it therefore runs inside a forcing; and a generator source fails
+  identically, which is the uniformity claim checked rather than asserted.
+  Only the *value* arm of §7.3's replay carve-out has a test, and that is
+  complete rather than partial: an end or a failure has no successor node, so no
+  forcing of that spine can be in flight behind one, and those two arms are
+  unreachable from inside a forcing rather than untested. §7.3 says so.
+  **Verified sensitive:** reverting the arm to its pre-ruling state reddens five
+  of the six (not the replay test, which passed before); moving the reentrancy
+  check inside the `try` reddens four; and the rejected brand-the-refusal repair
+  reddens the swallowed-refusal test with `[]` in place of the elements, which
+  is why that bullet is recorded rather than ruled.
+- **The error kind, ruled by the spec seat (§7.4), and what shipped of it.**
+  Fable took the spec seat on the ruling after two implementing-seat rounds and
+  overruled the `TypeError`/`JsError` choice: the refusal is a condition Hexagon
+  detects in state Hexagon owns, so Exceptions §1's one-door doctrine puts it
+  behind a declared constructor. `exception ReentrancyError` — nullary on
+  `KeyError`'s model, declared in §7.4 and exported by `stdlib/Seq.hex`, raised
+  inline as Exceptions §7.1's representation exactly as the emitted `IndexError`
+  and `SliceError` are. The argument that decided it, and which the implementing
+  seat had missed: §7.2's `TypeError` is licensed as *the platform's own minimum
+  protocol check*, while §7.3's guard is lawful precisely because it is **not** a
+  protocol check — the same fact cannot license the check and select its error
+  kind.
+  **The throw shipped; recognition did not, and could not.** Reviewing the
+  ruling turned up a general gap: *no* declared exception is catchable today —
+  `JsError` included — because a constructor named in a `catch` pattern does not
+  resolve, and the qualified spelling the corpus tells users to write is not
+  parseable as a pattern at all. Filed as **#234**. `ReentrancyError` is
+  therefore exactly as catchable as `IndexError` is, and the conformance asserts
+  what is observable: the `$hex` brand and the `name`, never the message, which
+  §7.4 makes non-normative.
+- **Credit:** Fable filed the gap as a ruling request rather than a bug, and was
+  right that it was one. Two cold Opus rounds on #131 established, between them,
+  that every non-refusing rule for the collision is silently wrong — which is
+  the argument this ruling rests on, arrived at by trying the alternatives and
+  watching each break something. A cold Opus round on the ruling itself found
+  the memoization consequence, the backwards §6.5 citation, the unasked §3.2
+  question, and the circular error-kind justification — and independently
+  reproduced every claim of fact the draft made, which is the only reason the
+  rest of it stands.
