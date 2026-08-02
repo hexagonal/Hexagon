@@ -866,3 +866,177 @@ describe("the inbound adapter memoizes a forcing failure (FFI Part 3 §7.1)", ()
     expect((exports["touched"] as (ignored: number) => number)(0)).toBe(2);
   });
 });
+
+/**
+ * One macrotask, and a real collection — the machinery `seq-boundary-view`'s
+ * §9.4 property 7 test introduced, for the sibling retention clause here. Both
+ * reach off `globalThis` / non-literal specifiers for the same reason given
+ * there: this package carries no `@types/node` and `lib` is `ES2024` alone.
+ */
+function yieldToEventLoop(): Promise<void> {
+  const { setTimeout: schedule } = globalThis as unknown as {
+    setTimeout: (callback: () => void, milliseconds: number) => unknown;
+  };
+  return new Promise((resolve) => {
+    schedule(() => resolve(), 0);
+  });
+}
+
+async function collectGarbage(): Promise<void> {
+  const v8 = "node:v8";
+  const vm = "node:vm";
+  const { setFlagsFromString } = await import(/* @vite-ignore */ v8) as {
+    setFlagsFromString: (flags: string) => void;
+  };
+  const { runInNewContext } = await import(/* @vite-ignore */ vm) as {
+    runInNewContext: (code: string) => unknown;
+  };
+  setFlagsFromString("--expose-gc");
+  let collect: () => void;
+  try {
+    collect = runInNewContext("gc") as () => void;
+  } finally {
+    setFlagsFromString("--no-expose-gc");
+  }
+  collect();
+}
+
+describe("the memoizing spine reclaims an unreachable prefix (FFI Part 3 §5)", () => {
+  /**
+   * §5: "Memoization is represented by **persistent lazy nodes, not a permanent
+   * central history array**", and the two clauses it spends that on — "once an
+   * older position is unreachable, ordinary garbage collection may reclaim its
+   * cached prefix", and the user-facing rule that "advancing while retaining
+   * only the current cursor permits unreachable prefixes to be collected".
+   *
+   * Issue #131. The spine memoized into one array closed over by every node, so
+   * the *newest* cursor pinned the entire forced prefix and neither clause held.
+   * Nothing observed reclamation, which is why it survived: the conformance
+   * suites pin what a `Seq` *yields*, and a central array yields exactly what
+   * persistent nodes yield.
+   *
+   * So these two tests observe collection directly, the same way §9.4 property 7
+   * does — `collectGarbage` exposes and withdraws `--expose-gc` in-process, so
+   * they run on every ordinary `vitest run` rather than behind a flag check.
+   *
+   * The elements are **tuples**, because a `WeakRef` needs an object: an `Int`
+   * element would be a JavaScript number, and a spine that retained every one of
+   * them forever would be unobservable here. Each is reachable from the spine
+   * alone — the sources below re-derive rather than store, so nothing but the
+   * memo can be what keeps element 1 alive.
+   */
+
+  /**
+   * Cursor walking, in Hexagon rather than in the test: §5's subject is a
+   * program that holds *only* the advanced position, and a JavaScript driver
+   * would hold the head as well (`seqToIterable`'s generator closes over it, and
+   * so would the local). `advance` returns the cursor and lets its own frame die.
+   */
+  const cursorHelpers =
+    "export let advance(source: Seq((Int, Int)), count: Int): Seq((Int, Int)) =\n" +
+    "    var current = source\n" +
+    "    var remaining = count\n" +
+    "    var running = True\n" +
+    "    while running\n" +
+    "        if remaining <= 0 then\n" +
+    "            running := False\n" +
+    "        else\n" +
+    "            match Seq.next(current)\n" +
+    "                None => running := False\n" +
+    "                Some((_, rest)) =>\n" +
+    "                    current := rest\n" +
+    "                    remaining := remaining - 1\n" +
+    "    current\n" +
+    "\n" +
+    "export let elementAt(source: Seq((Int, Int)), index: Int): (Int, Int) =\n" +
+    "    match Seq.next(advance(source, index))\n" +
+    "        None => (0, 0)\n" +
+    "        Some((value, _)) => value\n" +
+    "\n" +
+    "export let headTag(source: Seq((Int, Int))): Int =\n" +
+    "    match Seq.next(source)\n" +
+    "        None => 0\n" +
+    "        Some((value, _)) =>\n" +
+    "            let (tag, _) = value\n" +
+    "            tag\n";
+
+  interface Walked {
+    /** Element 1 of the spine, held only weakly. */
+    readonly element: WeakRef<object>;
+    /** The advanced cursor, the one position the test still holds. */
+    readonly cursor: unknown;
+  }
+
+  /**
+   * Forces `steps` positions of `build(200)` and keeps the cursor, dropping
+   * every other reference inside a frame that then dies.
+   */
+  function walk(exports: Record<string, unknown>, steps: number): Walked {
+    const build = exports["build"] as (count: number) => unknown;
+    const advance = exports["advance"] as (source: unknown, count: number) => unknown;
+    const elementAt = exports["elementAt"] as (source: unknown, index: number) => object;
+    let cursor: unknown;
+    // The head, and the element handed back by `elementAt`, are named only
+    // inside this arrow — so once it returns, no local and no temporary of the
+    // enclosing scope is still holding either one.
+    const element = ((): WeakRef<object> => {
+      const head = build(200);
+      const weak = new WeakRef(elementAt(head, 1));
+      cursor = advance(head, steps);
+      return weak;
+    })();
+    return { element, cursor };
+  }
+
+  async function collectTwice(): Promise<void> {
+    // A turn of the event loop first: the frames above have to be gone, not
+    // merely unreachable from source.
+    await yieldToEventLoop();
+    await collectGarbage();
+    await collectGarbage();
+  }
+
+  test("an inbound adapter's prefix is collected once the cursor has passed it", async () => {
+    const exports = await run(
+      [["/main.hex",
+        "extern from \"boxes\"\n" +
+        "    fun boxes(count: Int): Seq((Int, Int))\n" +
+        "\n" +
+        "export let build(count: Int): Seq((Int, Int)) = boxes(count)\n" +
+        "\n" + cursorHelpers]],
+      {
+        boxes: [
+          "export function boxes(count) {",
+          "  return { *[Symbol.iterator]() {",
+          "    for (let i = 1; i <= count; i += 1) yield [i, i];",
+          "  } };",
+          "}",
+        ].join("\n"),
+      },
+    );
+    const { element, cursor } = walk(exports, 150);
+    expect(element.deref()).toBeDefined();
+    await collectTwice();
+    expect(element.deref()).toBeUndefined();
+    // And the cursor is unharmed by the collection — §5 reclaims the prefix, not
+    // the suffix reachable from the position still held.
+    expect((exports["headTag"] as (source: unknown) => number)(cursor)).toBe(151);
+  });
+
+  test("a `Seq.memoize` prefix is collected too", async () => {
+    // #131's reason for urgency: `Seq.memoize` (Loops §6.4) lowers to this same
+    // spine, so a pure Hexagon program that never touches the FFI inherits
+    // whatever §5's representation costs. The source is re-derived rather than
+    // stored, so the memo is the only thing that could hold element 1.
+    const exports = await main(
+      "export let build(count: Int): Seq((Int, Int)) =\n" +
+      "    Seq.memoize(Seq.map(Seq.take(Seq.iterate(1, i => i + 1), count), i => (i, i)))\n" +
+      "\n" + cursorHelpers,
+    );
+    const { element, cursor } = walk(exports, 150);
+    expect(element.deref()).toBeDefined();
+    await collectTwice();
+    expect(element.deref()).toBeUndefined();
+    expect((exports["headTag"] as (source: unknown) => number)(cursor)).toBe(151);
+  });
+});

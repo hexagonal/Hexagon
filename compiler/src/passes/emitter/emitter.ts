@@ -4354,15 +4354,38 @@ function renderHelper(
       // it (a `{ done: 1 }` result terminates native iteration and must
       // terminate this), read `value` once and only when not done.
       //
+      // **The memo lives in the nodes, never in a central array** (§5, and #131,
+      // which is the defect of having done it the other way). §5 decides the
+      // representation in as many words — "persistent lazy nodes, not a
+      // permanent central history array" — and it decides it for a property it
+      // then spends: once an older position is unreachable, its cached prefix
+      // may be collected, so "advancing while retaining only the current cursor"
+      // costs O(1). A shared buffer closed over by every node inverts exactly
+      // that: the newest node would pin the whole forced prefix.
+      //
+      // So a node holds its own outcome and, on success, a direct reference to
+      // its successor. References run head-to-tail only, and the adapter scope
+      // below holds no node at all (§5's third clause, that the shared iterator
+      // state keeps no back-reference to the head). Retaining position *i*
+      // therefore retains the forced *suffix* from *i* and nothing before it.
+      //
       // **Failure is an outcome the spine memoizes too** (§7.1, and §7.2 step 6
       // for every step above): forcing a position again after it failed must
       // replay the stored throw rather than advance the iterator or repeat the
-      // foreign operation. One cell suffices for the whole spine — only the
-      // frontier position is ever unforced (a tail node exists only because its
-      // predecessor was forced successfully), and a failure leaves the frontier
-      // where it was, so the spine cannot advance past a failed position. The
-      // cell is a *box*, not the thrown value itself, since JavaScript permits
-      // throwing `undefined`.
+      // foreign operation. It is per-position for the same reason the value is —
+      // §4 says each node memoizes exactly one outcome, and end / `(value,
+      // tail)` / failure are the three. The cell is a *box*, not the thrown
+      // value itself, since JavaScript permits throwing `undefined`.
+      //
+      // Unforced *is* "at the frontier", and now says so structurally rather
+      // than by an index comparison: a tail node is constructed solely in the
+      // success path, so a node exists only because its predecessor forced
+      // cleanly, and at most one node is ever unforced. That is also why no
+      // shared `done` flag is needed — an exhausted node memoizes end, and there
+      // is no node after it to call `next()` again. Reentrant forcing is the one
+      // case this does not decide (an inner forcing's outcome is overwritten by
+      // the outer's); it was undecided under the shared buffer too, and issue
+      // #123 owns it.
       //
       // Every node carries the boundary traversal method (§9.4): the adapter is
       // one of the ruling's two named construction sites, and a `Seq` built here
@@ -4370,33 +4393,34 @@ function renderHelper(
       // handed straight back out to JavaScript must face it as an `Iterable`.
       return [
         `function ${name}(__hex_source) {`,
-        "  const __hex_values = [];",
         "  let __hex_iterator = undefined;",
-        "  let __hex_done = false;",
-        "  let __hex_failure = undefined;",
-        "  const __hex_node = (__hex_index) => ({",
-        `    [Symbol.iterator]: ${dependencyName("seqIterate")},`,
-        "    pull: () => {",
-        "      if (__hex_index === __hex_values.length && !__hex_done) {",
-        "        if (__hex_failure !== undefined) throw __hex_failure.error;",
-        "        try {",
-        "          if (__hex_iterator === undefined) __hex_iterator = __hex_source[Symbol.iterator]();",
-        "          const __hex_next = __hex_iterator.next();",
-        '          if (__hex_next === null || (typeof __hex_next !== "object" && typeof __hex_next !== "function")) {',
-        '            throw new TypeError("Iterator result " + String(__hex_next) + " is not an object");',
+        "  const __hex_node = () => {",
+        "    let __hex_step = undefined;",
+        "    let __hex_failure = undefined;",
+        "    return {",
+        `      [Symbol.iterator]: ${dependencyName("seqIterate")},`,
+        "      pull: () => {",
+        "        if (__hex_step === undefined && __hex_failure === undefined) {",
+        "          try {",
+        "            if (__hex_iterator === undefined) __hex_iterator = __hex_source[Symbol.iterator]();",
+        "            const __hex_next = __hex_iterator.next();",
+        '            if (__hex_next === null || (typeof __hex_next !== "object" && typeof __hex_next !== "function")) {',
+        '              throw new TypeError("Iterator result " + String(__hex_next) + " is not an object");',
+        "            }",
+        "            __hex_step = Boolean(__hex_next.done)",
+        '              ? { tag: "None" }',
+        '              : { tag: "Some", value: [__hex_next.value, __hex_node()] };',
+        "          } catch (__hex_error) {",
+        "            __hex_failure = { error: __hex_error };",
+        "            throw __hex_error;",
         "          }",
-        "          __hex_done = Boolean(__hex_next.done);",
-        "          if (!__hex_done) __hex_values.push(__hex_next.value);",
-        "        } catch (__hex_error) {",
-        "          __hex_failure = { error: __hex_error };",
-        "          throw __hex_error;",
         "        }",
-        "      }",
-        '      if (__hex_index >= __hex_values.length) return { tag: "None" };',
-        '      return { tag: "Some", value: [__hex_values[__hex_index], __hex_node(__hex_index + 1)] };',
-        "    },",
-        "  });",
-        "  return __hex_node(0);",
+        "        if (__hex_failure !== undefined) throw __hex_failure.error;",
+        "        return __hex_step;",
+        "      },",
+        "    };",
+        "  };",
+        "  return __hex_node();",
         "}",
       ];
     case "seqMemoize":

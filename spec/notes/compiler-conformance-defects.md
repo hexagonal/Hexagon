@@ -997,6 +997,14 @@ than settling a style question.
   the ruling (raised by Fable, review finding F3). It is not a consequence of the single cell — a per-node cell
   collides on the same node — and the pre-fix spine was already incoherent
   there, reordering elements rather than replaying a stale failure.
+  **Superseded 2026-08-02 (#131), as a matter of representation only.** The
+  shared buffer this argument is stated over is gone; the cell is now per node,
+  because §5 requires the *values* to be per node and §4 puts failure in the
+  same memo. Every claim above survives the move — a tail node is still
+  constructed solely in the success path, so at most one node is ever unforced,
+  and that is now what "unforced" *means* rather than something an index
+  comparison encodes. The reentrancy caveat is unchanged and still #123's, for
+  the reason it already gave: a per-node cell collides on the same node.
 - **The stored cell is a box, not the thrown value.** JavaScript permits
   `throw undefined`, so `failure !== undefined` would otherwise misread a
   genuine failure as unforced and re-enter the foreign call — the defect again,
@@ -1294,3 +1302,79 @@ than settling a style question.
   §6 machinery — the caret on the declaration and the numbered survivor —
   neither of which the author's own tests covered, since both tests asserted
   the message and the message was right.
+
+## 2026-08-02 — the memoizing spine retained via a central array
+
+- **Classification:** compiler defect against specification; no design change.
+  Issue #131; pre-existing on `main`, filed out of Fable's review of the
+  intrinsic-door / `Seq.memoize` implementation as "pre-existing defect A" and
+  deliberately left open there, since that change neither created nor worsened
+  it.
+- **Authority:** FFI Part 3 §5, which decides the representation in as many
+  words — "Memoization is represented by **persistent lazy nodes, not a
+  permanent central history array**" — and then spends that decision on two
+  clauses: "once an older position is unreachable, ordinary garbage collection
+  may reclaim its cached prefix", and the user-facing space rule that
+  "advancing while retaining only the current cursor permits unreachable
+  prefixes to be collected".
+- **Defect origin:** `seqFromIterable` memoized into a single `__hex_values`
+  array in the adapter's scope, closed over by every node it handed out. Every
+  node therefore held every forced value, including the ones before it, so
+  retaining *any* position retained the entire forced prefix. Advancing while
+  retaining only the cursor retained everything — the exact case §5 promises
+  costs nothing.
+- **What was *not* wrong, and stayed that way:** §5's other two clauses were
+  already satisfied and are untouched. No cache limit evicts reachable history
+  (there is no cache limit), and the shared iterator state keeps no
+  back-reference to the head. The defect was the representation and the
+  reclamation property §5 derives from rejecting it.
+- **Why it mattered more than when it was written:** until `Seq.memoize` landed
+  (Loops §6.4, #125), this spine backed only boundary-crossed values, and §5's
+  space rule is written for that audience. `memoize` lowers to the same spine by
+  design — §6.4 names it as "the same mechanism as FFI Part 3's inbound
+  adapter" — so pure Hexagon programs that never touch the FFI inherited a cost
+  strictly worse than the one the spec documents for them.
+- **Correction:** the memo moved into the nodes. A node holds its own outcome
+  and, on success, a direct reference to its successor, so references run
+  head-to-tail only and the adapter scope holds no node at all. Retaining
+  position *i* retains the forced suffix from *i* and nothing before it, which
+  is §5's representation as written.
+- **The failure cell moved with it.** Entry 15's shared `__hex_failure` box was
+  argued from the buffer's frontier guard; per §4 each node memoizes exactly one
+  outcome, and end / `(value, tail)` / failure are the three, so failure belongs
+  in the node beside the value. The box stays a box — JavaScript permits
+  `throw undefined`. Entry 15 carries the supersession note.
+- **One shared cell was not moved but deleted.** `__hex_done` existed to stop
+  the buffer's index guard from re-driving an exhausted iterator. A node that
+  reaches the end now memoizes end itself, and no node is ever constructed after
+  it, so nothing can call `next()` again and the flag had no reader left. The
+  frontier is now structural: a tail node is built solely in the success path,
+  so at most one node is ever unforced, and "unforced" *is* "at the frontier".
+  The iterator and the source stay shared, which is what §5's third clause is
+  about.
+- **What this does not buy, stated plainly.** A JavaScript-side traversal still
+  pins the prefix for its duration and beyond: `seqToIterable`'s generator
+  closes over the head, and §9.4's boundary view is retained by the value for
+  the value's lifetime. Both are deliberate — the second is §5's own 2026-07-28
+  addendum — and neither is what #131 was about. §5's clause is about a program
+  advancing a cursor, which is why the conformance below advances it in Hexagon
+  rather than driving it from the test.
+- **Executable conformance:** `seq-unification.test.ts`, a describe block of
+  two — the inbound adapter over a foreign iterable, and `Seq.memoize` over a
+  pure Hexagon sequence, since #131's urgency is that the two are one spine.
+  Each walks a 200-element sequence to position 150, keeps only the cursor, and
+  asserts that a `WeakRef` to element 1 has been cleared, then that the cursor
+  still answers. Collection is observed the way §9.4 property 7's test observes
+  it (`--expose-gc` exposed and withdrawn in-process, so it runs on every
+  ordinary `vitest run`), and the elements are tuples because a `WeakRef` needs
+  an object. **Verified sensitive:** restoring the pre-fix helper reddens both,
+  and nothing else in the 1099-test suite — which is the point of the entry.
+  What existed before pinned only what a `Seq` *yields*, and a central array
+  yields exactly what persistent nodes yield.
+- **Left open, unchanged:** reentrant forcing (#123). An inner forcing's outcome
+  is overwritten by the outer's, as it was under the buffer; entry 15 already
+  recorded that a per-node cell collides on the same node, so this is the same
+  undecided case in a new representation, not a regression.
+- **Credit:** Fable, reviewing the intrinsic-door implementation, read §5's
+  representation sentence against the helper source and filed the divergence
+  rather than folding it into an unrelated review.
