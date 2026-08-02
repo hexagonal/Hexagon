@@ -337,12 +337,21 @@ interface DeclarationFaces {
  * for a source-level namespace import, so a module importing under the alias
  * `Hex` forces `Hex1`. That collision predates this ruling.
  *
- * The set is deliberately a superset of what any one file emits. Whether a
- * declaration reaches the file depends on its being exported and on its kind,
- * and re-deciding that here would be a second copy of `emit`'s conditions,
- * drifting from the first. Over-claiming only ever moves the generated alias,
- * which no user name depends on; under-claiming emits a `.d.ts` that does not
- * compile.
+ * The set is deliberately a superset of the *source-derived* names a file can
+ * emit. Whether a declaration reaches the file depends on its being exported
+ * and on its kind, and re-deciding that here would be a second copy of `emit`'s
+ * conditions, drifting from the first. Over-claiming only ever moves the
+ * generated alias, which no user name depends on; under-claiming emits a
+ * `.d.ts` that does not compile.
+ *
+ * The names the emitter *generates* are left out, and that is the one place
+ * this is not a superset: `__hex_opaque_X` brand constants and `__hex_bindingN`
+ * locals really do reach the file. They are omitted because `GeneratedNames`
+ * forces the `__hex_` prefix on both, so neither can spell `Hex` or `HexN`.
+ * Specialization editions are omitted on a weaker ground — they are
+ * `${sourceName}${FundamentalType}`, hence always suffixed `Nat`/`Int`/`Float`/
+ * `BigInt`/`Bool`/`String`/`Unit`, and no such name is `Hex` or `HexN` either.
+ * A generated-name scheme that ever drops those shapes has to revisit this.
  */
 function declarationTopLevelNames(module: Core.Module): ReadonlySet<string> {
   const names = new Set<string>();
@@ -372,10 +381,10 @@ function declarationTopLevelNames(module: Core.Module): ReadonlySet<string> {
         continue;
     }
   }
-  // `Let`/`Fun` names, and every generated name derived from them. The generated
-  // ones (`__hex_…` locals and brands, specialization editions) cannot collide
-  // with `Hex`, but they are cheap to include and the set is a superset by
-  // design.
+  // `Let`/`Fun` names — and, redundantly, the constructor and exception names
+  // the switch already added, since `module.symbols` carries those too. The
+  // redundancy is kept: it is free, and a reader checking the switch against
+  // `emit` should not have to also know which kinds `symbols` covers.
   for (const symbol of module.symbols) names.add(symbol.name);
   return names;
 }
