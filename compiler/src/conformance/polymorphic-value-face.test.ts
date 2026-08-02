@@ -69,10 +69,13 @@ describe("a polymorphic non-function export faces as its `never` instantiation",
     );
   });
 
-  // `Seq` and `Option`, deliberately: both faces are decided and current. A
-  // `Vector(Option(a))` specimen would read the same and pin `ReadonlyArray`,
-  // which FFI Part 1 §4.1 decides against and #128 is filed to change — this
-  // test has no business failing when that lands.
+  // `Seq` and `Option`, deliberately: this test is about the `never`
+  // instantiation, not about which face the outer type wears, and a specimen
+  // that also pinned a face would fail whenever that face was re-decided. It
+  // very nearly did: the comment here used to say a `Vector(Option(a))`
+  // specimen would pin `ReadonlyArray`, "which #128 is filed to change". #128
+  // has since landed — such a specimen now reads `Hex.Vector<Option<never>>`
+  // — and the reason for choosing `Seq`/`Option` is what survives it.
   test("an occurrence nested inside another face is instantiated too", () => {
     expect(declarations("export let table: Seq(Option(a)) = Seq.empty\n")).toContain(
       "export declare const table: Iterable<Option<never>>;",

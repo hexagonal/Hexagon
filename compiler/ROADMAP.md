@@ -66,7 +66,7 @@ Emit readable ESM, source maps, direct primitive operations, records and unions,
 
 ## 10. TypeScript declaration emission
 
-**Primitive, tuple, Vector/Map/Set, Array/Nullable, structural/nominal-record, generic discriminated-union, exception, constructor, opaque foreign type, foreign value/function, `Range`/`Seq` as `Iterable<T>`, unconstrained-function, and fundamental-specialization declarations implemented.**
+**Primitive, tuple, Vector/Map/Set, Array/Nullable, structural/nominal-record, generic discriminated-union, exception, constructor, opaque foreign type, foreign value/function, `Seq` as `Iterable<T>`, unconstrained-function, and fundamental-specialization declarations implemented. The runtime collections and `Range` face as the branded `Hex.*` interfaces, declared in a program-scoped `hex.d.ts` the compiler emits at the source common root (FFI Part 1 §8.3, #128) — the first emission artifact belonging to no source file.**
 
 Emit the checked public surface as `.d.ts`: generics, records, unions, opaque types, runtime-owned values, FFI signatures, fundamental specializations, and public dictionaries.
 

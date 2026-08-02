@@ -346,8 +346,11 @@ interface DeclarationFaces {
  *
  * The names the emitter *generates* are left out, and that is the one place
  * this is not a superset: `__hex_opaque_X` brand constants and `__hex_bindingN`
- * locals really do reach the file. They are omitted because `GeneratedNames`
- * forces the `__hex_` prefix on both, so neither can spell `Hex` or `HexN`.
+ * locals really do reach the file. Both are omitted because their `__hex_`
+ * prefix is unconditional, so neither can spell `Hex` or `HexN` — though by two
+ * separate mechanisms, which is why this says "prefix" and not "`GeneratedNames`":
+ * the brands go through `GeneratedNames.#claim`, while `__hex_bindingN` is a
+ * template literal spelled out afresh at each of its use sites.
  * Specialization editions are omitted on a weaker ground — they are
  * `${sourceName}${FundamentalType}`, hence always suffixed `Nat`/`Int`/`Float`/
  * `BigInt`/`Bool`/`String`/`Unit`, and no such name is `Hex` or `HexN` either.
