@@ -113,7 +113,7 @@ fun take(source: Seq(a), count: Int): Seq(a) =
             Some((value, rest)) => Some((value, take(rest, count - 1))) })
 ```
 
-Same shape: `cons`, `unfold`, `takeWhile`, `zip`/`zipWith`, `concat` (its
+Same shape: `prepend` (`cons` until the 2026-08-02 rename, Collections Part 1 §10.1), `unfold`, `takeWhile`, `zip`/`zipWith`, `concat` (its
 exhaust-then-switch is one bounded extra `next`, not a skip loop).
 
 ### 4.2 Pure `.hex`, but `pull` needs a constant-stack `while`
@@ -176,7 +176,7 @@ because the trie is immutable and a walk is persistent by re-derivation:
 ```
 let toSeq(values: Vector(a)): Seq(a) =
     unfold(1, index =>
-        if index > Vector.size(values) then None else Some((values[index], index + 1)))
+        if index > Vector.length(values) then None else Some((values[index], index + 1)))
 
 let fromSeq(source: Seq(a)): Vector(a) = fold(source, Vector.empty, Vector.append)
 ```
@@ -285,7 +285,7 @@ five are logged with reproductions in `compiler-conformance-defects.md`.
   generalized, so the first use fixes the element type. The generalized binding
   is private and carries the internal uses; the export is a thin annotated alias.
 - **Scope actually delivered.** The pure core only: §4.1, §4.2, and §4.3, plus
-  `cons` and `zip`. The two §3 foreign shims and the §6 `memoize` are *not* in
+  `prepend` (then `cons`) and `zip`. The two §3 foreign shims and the §6 `memoize` are *not* in
   `.hex` and cannot be — all three need a mutable buffer and Statements §6.2
   forbids mutable capture in closures. They remain compiler/runtime-provided, as
   §3 says. §5's Vector bridge waits on milestone 3.

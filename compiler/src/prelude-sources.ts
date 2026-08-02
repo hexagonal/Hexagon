@@ -45,7 +45,7 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "export let singleton(value: a): Seq(a) = Seq({ pull = () => Some((value, empty)) })\n"
     + "\n"
     + "(** The sequence that yields `value`, then everything in `rest`. *)\n"
-    + "export let cons(value: a, rest: Seq(a)): Seq(a) = Seq({ pull = () => Some((value, rest)) })\n"
+    + "export let prepend(rest: Seq(a), value: a): Seq(a) = Seq({ pull = () => Some((value, rest)) })\n"
     + "\n"
     + "(** The infinite sequence `seed`, `step(seed)`, `step(step(seed))`, and so on.\n"
     + "    Bound it with `take` or `takeWhile` before consuming it. *)\n"

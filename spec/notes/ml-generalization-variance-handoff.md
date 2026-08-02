@@ -751,8 +751,8 @@ The acceptance test is the program the whole ruling exists for, and it lives in
 
 ```hexagon
 let e = empty
-export let ys: Int = Seq.length(cons(42, e))
-export let xs: Int = Seq.length(cons("Briar", e))
+export let ys: Int = Seq.length(prepend(e, 42))
+export let xs: Int = Seq.length(prepend(e, "Briar"))
 ```
 
 Naming the empty sequence costs nothing. That is the sentence the branch is for.

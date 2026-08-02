@@ -82,7 +82,7 @@ describe("a sequential placeholder is never quantified by a sibling", () => {
       "export let n: Vector(Int) = shared\n" +
       "export let s: Vector(String) = shared\n";
     expect(diagnostics(granted)).toEqual([]);
-    expect(diagnostics(granted + "fun capture(): Int = Vector.size(shared)\n")).toEqual([]);
+    expect(diagnostics(granted + "fun capture(): Int = Vector.length(shared)\n")).toEqual([]);
   });
 });
 
@@ -105,7 +105,7 @@ describe("legitimate generalization is untouched", () => {
 
   test("a monomorphic captured binding is still usable at its one type", () => {
     expect(diagnostics(
-      "let base = Vector.size([1, 2])\n" +
+      "let base = Vector.length([1, 2])\n" +
       "export fun bump(): Int = base + 1\n" +
       "export fun twice(): Int = base + base\n",
     )).toEqual([]);

@@ -103,8 +103,8 @@ plain reference to something already bound — stays as polymorphic as what it n
 ```hexagon
 let nothing = Seq.empty
 
-let numbers = Seq.cons(42, nothing)
-let words = Seq.cons("Briar", nothing)
+let numbers = Seq.prepend(nothing, 42)
+let words = Seq.prepend(nothing, "Briar")
 ```
 
 `Seq.empty` is a reference to something already bound, so the right-hand side is a

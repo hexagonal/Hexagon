@@ -1,6 +1,6 @@
 # Hexagon FFI Part 2: `Nullable(a)` and Borrowed `Array(a)`
 
-**Status:** Decided (July 2026), revised in place after external review (Sol) before landing. Normative promotion of `spec/notes/ffi-proto-spec-questions.md` §2 and the §4 `Nullable` package, drafted per `spec/notes/ffi-roadmap.md` Part 2. The three questions the draft recorded as promotion blockers (`Nullable` idempotence, §2.1; the `Array` accessor surface, §6.3; sparse arrays, §6.4) were resolved by James and Sol before promotion. Reads Part 1 (`ffi-part1-boundary.md`) for the category vocabulary and failure doctrine; restates neither.
+**Status:** Decided (July 2026), revised in place after external review (Sol) before landing; §6.3 amended 2026-08-02 — `Array.size` is renamed `Array.length` under Collections Part 1 §10.1, and the `.length` diagnostic is re-charactered, see correction record §13.1. Normative promotion of `spec/notes/ffi-proto-spec-questions.md` §2 and the §4 `Nullable` package, drafted per `spec/notes/ffi-roadmap.md` Part 2. The three questions the draft recorded as promotion blockers (`Nullable` idempotence, §2.1; the `Array` accessor surface, §6.3; sparse arrays, §6.4) were resolved by James and Sol before promotion. Reads Part 1 (`ffi-part1-boundary.md`) for the category vocabulary and failure doctrine; restates neither.
 **Scope:** The two explicit foreign doors this part owns. `Nullable(a)`: the raw `a | null | undefined` representation, definitional idempotence (§2.1), the qualified values `Nullable.null` and `Nullable.undefined`, the inspection predicates, `NullableCase(a)` and `Nullable.toCase`, and the `Option` conversions — including the supersession of Unions §8's provisional spellings (§5). `Array(a)`: the zero-copy readonly borrowed view, the foreign stability contract, the read-only accessor surface (§6.3), sparse arrays and holes (§6.4), observation semantics and native iteration emission (discharging Collections Part 5 §6's binding obligation), shallow element treatment, and the explicit copying conversions (`Array.toSeq`/`Array.fromSeq`/`Array.toVector`/`Vector.toArray`).
 **Not in scope:** Optional/default parameters (Part 4 fixes the fixed-arity rule; callers model explicit nullish slots with the §2.2 values). TypeScript-style flow narrowing (reserved for a separate type-system deep dive; §2.5 records the reservation and the preferred alternative). `Seq(a)` adaptation mechanics (Part 3 — `Array.toSeq`'s result is a `Seq`, whose semantics live there). Foreign `JsMap`/`JsSet` views (Part 10). `JsValue` and checked decoding (Part 11).
 **Companions:** Part 1 §2–§5 (categories, failure doctrine, shallow conversion, `Hex` namespace); Unions §8 (`Option`; provisional conversion spellings superseded here, §5); Primitive Types §9 (`Unit` is unrelated to nullability); Collections Part 5 §6 (the `Iterable<Array(a)>` obligation, discharged in §8); Collections Part 5 §1 (the finite-collection conversion suite); Loops/Ranges/Iteration §6 (`Seq`).
@@ -153,7 +153,7 @@ Element types obey Part 1 §5.2's recursive representation contract: `Array(Int)
 `Array(a)` ships a read-only accessor surface aligned with `Vector`'s indexing doctrine (Collections Part 3 §5–§6 — brackets assert, names answer, windows have no direction). All observations are zero-copy reads of the borrowed array except slicing, which is an explicit fresh construction:
 
 ```hexagon
-Array.size  : Array(a) -> Int
+Array.length : Array(a) -> Int
 xs[i]                                 -- 1-based read-only; throws IndexError out of bounds
 Array.at    : (Array(a), Int) -> a    -- signed from-end addressing; throws IndexError
 Array.get   : (Array(a), Int) -> Option(a)
@@ -164,18 +164,18 @@ xs[lo..hi]                            -- eager shallow slice: a fresh JS array
 - `at` and `get` carry their Vector contracts: `at` is the bracket's signed sibling (from-end addressing, throws), `get` answers with `Option`.
 - **Slicing is eager and shallow and returns a fresh JS array** — an `Array(a)` that is freshly runtime-constructed and therefore stable while exclusively held (§6.2). Elements are preserved by value and identity (Part 1 §5.1); windows clamp, and a directed window throws `SliceError`, per the Vector window doctrine.
 - **No mutation surface exists**, on any accessor or result.
-- Emission is representation-honest but not bare: `Array.size(xs)` is `xs.length`. `xs[i]` emits a bounds check (`i < 1 || i > xs.length` throws `IndexError`) plus the 1-to-0 offset, then the native index read — the assertion semantics require the check; a bare `xs[i - 1]` would return `undefined` out of bounds instead of throwing. Slicing emits **window intersection** before calling native `Array.prototype.slice`, because JavaScript interprets negative slice bounds from the end — passing an unclamped bound through would silently select the wrong window, and clamping each endpoint independently into `[1, size]` is also wrong (a fully out-of-window slice like `[10, 20, 30][5..9]` must be empty, not `[30]`). The required emission shape:
+- Emission is representation-honest but not bare: `Array.length(xs)` is `xs.length`. `xs[i]` emits a bounds check (`i < 1 || i > xs.length` throws `IndexError`) plus the 1-to-0 offset, then the native index read — the assertion semantics require the check; a bare `xs[i - 1]` would return `undefined` out of bounds instead of throwing. Slicing emits **window intersection** before calling native `Array.prototype.slice`, because JavaScript interprets negative slice bounds from the end — passing an unclamped bound through would silently select the wrong window, and clamping each endpoint independently into `[1, length]` is also wrong (a fully out-of-window slice like `[10, 20, 30][5..9]` must be empty, not `[30]`). The required emission shape:
 
   ```text
   start = max(lo, 1)
-  end   = min(hi, size)
+  end   = min(hi, length)
 
   if start > end: fresh empty array
   else:           native slice(start - 1, end)
   ```
 
   This handles empty arrays and empty ascending ranges correctly. A slice taking a general `Range` value checks direction **first** and throws `SliceError` for a descending range, per the window doctrine.
-- **The `.length` habit gets a specialized diagnostic**: a TS-habituated `xs.length` on an `Array(a)` is rejected with a message naming `Array.size(xs)` (§10) — per the Rewrite Rule, the fixit is stated in the diagnostic.
+- **The `.length` habit keeps its specialized diagnostic — re-charactered by the 2026-08-02 rename (§13.1).** A bare property read `xs.length` on an `Array(a)` remains a hard error whose message names **both** legal spellings (§10) — the canonical `Array.length(xs)` first, and the minimal edit `xs.length()` — per the Rewrite Rule, the fixits are stated in the diagnostic (§13.1 resolves why both). What the error teaches changed with the rename: the word is now right and the *spelling* is wrong. The message must therefore explain the grammar, never the vocabulary — `Array(a)` is nominal, not a record; it has no field surface, and no property read crosses the foreign door; the companion call is the read. A user who typed the right word must not be told the name is wrong. The fused call form `xs.length()` is not this diagnostic's business at all: it is ordinary companion dispatch (Method Syntax §2.1, §5) resolving to `Array.length(xs)`, and it compiles (§13.1). The diagnostic's domain is exactly the bare read.
 
 ### 6.4 Sparse arrays and holes
 
@@ -250,7 +250,7 @@ This part introduces **one new hard error** (the `.length` habit); everything el
 | Adapter-requiring type nested inside `Array(a)` or any direct aggregate | Part 1 §5.3 (hard error with named rewrite) |
 | Extern declaration syntax around `Nullable` slots (fixed arity, optional-parameter modeling) | Part 4 |
 | Attempted mutation of `Array(a)` | not a diagnostic — no such operation exists to misuse (§6.1) |
-| `.length` on an `Array(a)` (the JS/TS habit) | this part, §6.3 — specialized hard error naming the rewrite: `Array.size(xs)` |
+| Bare property read `.length` on an `Array(a)` (the JS/TS habit) | this part, §6.3 — specialized hard error naming both rewrites: canonical `Array.length(xs)`, minimal `xs.length()`; the fault is the field spelling, not the word (§13.1). The call form `xs.length()` is not an error — companion dispatch. |
 | Out-of-bounds `xs[i]`/`at`; directed slice window | not compile diagnostics — runtime `IndexError`/`SliceError` per Collections Part 3's doctrine (§6.3) |
 
 ---
@@ -276,9 +276,26 @@ None. The three blockers this draft originally recorded were resolved by James a
 | `Array(a)` = zero-copy readonly borrowed view; `ReadonlyArray<a>` face; no mutation surface | §6.1 |
 | Stability contract covers deferred traversals; escaped `Seq` extends the borrow; fresh arrays stable while exclusively held | §6.2 |
 | Live and snapshot iteration observationally identical under the contract; iteration never copies to enforce the contract | §6.5 |
-| Accessor surface: `size`, 1-based read-only `[]` (throws `IndexError`), `at` (signed), `get` (`Option`), eager shallow clamping slices returning fresh JS arrays; no mutation; `.length` gets a specialized diagnostic naming `Array.size` | §6.3 |
+| Accessor surface: `length`, 1-based read-only `[]` (throws `IndexError`), `at` (signed), `get` (`Option`), eager shallow clamping slices returning fresh JS arrays; no mutation; `.length` gets a specialized diagnostic naming `Array.length` | §6.3 |
 | `Nullable` is definitionally idempotent over the closed designated nullish-absorbing set: `Nullable(Nullable(a)) ≡ Nullable(a)` and `Nullable(JsValue) ≡ JsValue`; no structural nullish analysis | §2.1; FFI Part 11 §8 |
 | `Array(Nullable(a))` admits sparse arrays; holes observe as `Nullable.undefined`; no presence distinction, no scanning; a hole under a non-nullable element type is a Part 1 §3.1 contract violation | §6.4 |
 | Native iteration needs no closing protocol | §7 |
 | `Iterable<Array(a)>`: `Item = a`, `iterate = Array.toSeq`; native `for...of` emission; suite membership — Collections Part 5 §6 discharged | §8 |
 | `Array.toSeq` lazy zero-copy; `Array.fromSeq`/`Array.toVector`/`Vector.toArray` eager and fresh; all shallow | §9 |
+| `Array.size` renamed `Array.length` (Collections Part 1 §10.1); the `.length` diagnostic re-charactered — grammar, not vocabulary; `xs.length()` is companion dispatch and compiles; the diagnostic names both rewrites, canonical first | §6.3, §13.1 |
+
+---
+
+## 13. Correction records
+
+### 13.1 The 2026-08-02 rename: `Array.size` → `Array.length`, and what the `.length` diagnostic now teaches
+
+Collections Part 1 §10.1 (James, 2026-08-02) restated the naming doctrine's cardinality reader as a general word with a linear specialization: `size` in general (`Map`, `Set`, any non-linear collection), **`length` for linear, ordered structures** — `String`, `Seq`, `Vector`, and this part's `Array`, by James's explicit amendment. `Array.size` is renamed `Array.length` throughout this part (§6.3's surface block and emission bullet, §10's table, §12's summary row).
+
+**The diagnostic survives the rename — ruled here, because the mechanical edit changed its character and the July text no longer justified it.** As decided in July, the specialized error taught vocabulary: "your JS habit says `.length`; the Hexagon name is `Array.size`." That lesson no longer exists — the word is the same on both sides. Three facts replace it, and §6.3 now states them:
+
+1. **The error's subject is surface grammar, not vocabulary.** `Array(a)` is a nominal foreign view with no field surface; a bare property read fails on any nominal type, and this diagnostic is the door-specific, better-worded instance of that uniform rule — kept specialized because `.length` is the single most-typed reflex the door meets. Its message must explain the absence of fields and name the companion call; a message implying the *name* is wrong would now be false, and the Rewrite Rule requires the fixit to be comprehensible to someone who already typed the right word.
+2. **The call form `xs.length()` stopped being an error entirely.** `Array(a)` is an eligible dot-call receiver (Method Syntax §5: extern/prelude nominal types), and `Array.length` is an exported subject-first companion operation (§4.2 there), so the fused form is ordinary companion dispatch resolving to `Array.length(xs)`. Before the rename it failed — no companion operation named `length` existed. Beyond the rename itself (which removes `Array.size` and the dot spelling `xs.size()` exactly as any rename removes the old name), this is the only change in what compiles, and it is a widening: a TS-habituated author who adds parentheses now simply has working code. **Consequence for the fixit, resolved here:** the cheapest local rewrite of the rejected `xs.length` is now that one-character edit, and the Rewrite Rule is not served by a message that withholds the cheapest fix while mandating a costlier one. The diagnostic names **both** legal spellings: `Array.length(xs)` first — the qualified form is the canonical spelling everything elaborates to (Method Syntax §1), and leading with it keeps the message teaching what the dot form *means* — and `xs.length()` as the minimal edit, per Method Syntax §6's precedent of offering each legal spelling in a fused-form diagnostic.
+3. **The emission coincidence is principled.** `Array.length(xs)` emits `xs.length` (§6.3), so the diagnostic tells a user who wrote `xs.length` to write the form that *emits* `xs.length`. That is correct, not absurd, and the message wording must survive it: the rejected spelling is Hexagon property-read syntax against a nominal type; the mandated one is a Hexagon companion call; that the two meet in the emitted JavaScript is the zero-cost door doing its job.
+
+**Rejected alternative (do not re-litigate): dropping the specialized diagnostic in favor of the generic machinery.** Post-rename, the demanded field's name matches an exported companion operation, which is exactly the key Method Syntax's nominal-fails-row enrichment fires on — so the generic path could now arguably produce a serviceable message. Rejected: that enrichment's mandated wording explains an *inferred row* ("its type was unknown"), the wrong story for a receiver whose type is known to be `Array(a)`; and the frequency of the TS reflex at this door earns a tuned message under the Rewrite Rule. The specialized error remains this part's, with the §6.3 character.

@@ -138,7 +138,7 @@ fun g(v: Vector(Int)) = v.at(3)    -- companion dispatch: Vector.at(v, 3)
 
 Both compile; they mean different things, and `f(someVector)` later fails (a nominal type never unifies with a row — Products §5.1).
 
-Under the receiver-level deadline (§3.1), the asymmetry is **cross-region only**: within one region, evidence anywhere counts — `fun f(v) = { let x = v.at(3); Vector.size(v) }` resolves the dot call as companion dispatch, textual order irrelevant (test §14(d)). The fallback fires only after *all* of a region's evidence is in, so a fallback row can never be contradicted later in its own region; the contradiction always surfaces at a use of the finalised binding — typically another binding or another module. One diagnostic obligation discharges the Rewrite Rule on this, the feature's ugliest corner:
+Under the receiver-level deadline (§3.1), the asymmetry is **cross-region only**: within one region, evidence anywhere counts — `fun f(v) = { let x = v.at(3); Vector.length(v) }` resolves the dot call as companion dispatch, textual order irrelevant (test §14(d)). The fallback fires only after *all* of a region's evidence is in, so a fallback row can never be contradicted later in its own region; the contradiction always surfaces at a use of the finalised binding — typically another binding or another module. One diagnostic obligation discharges the Rewrite Rule on this, the feature's ugliest corner:
 
 **The post-finalisation contradiction** — the worst error this feature can produce, at maximal distance from its cause: `f` above finalises at the row type; `f(vec)` elsewhere fails with, naively, "`Vector` has no field `at`". Mandatory enrichment: whenever a nominal type `T` fails row-unification and the demanded field's name matches an exported companion operation of `T`, the diagnostic must say **why the row exists and what to do**: *"`f`'s parameter was inferred as a record with field `at` because its type was unknown inside `f`; `Vector` is not a record. Annotate the parameter (`v: Vector(a)`) to use companion dispatch, or call `Vector.at` directly."* This fires on the unification failure regardless of where it surfaces — same module or across the program — keyed by the field-name/companion-name match. Acceptance test §14(g).
 
@@ -318,7 +318,7 @@ Any future ergonomic feature that wants the inferencer to postpone a decision ci
 7. **Constraint-member dispatch through dot** (`x.show()` resolving via instances on unknown or known types). Rejected for v1 and pre-registered as the feature's slippery slope: it is precisely extension-trait machinery, makes the method set depend on constraint solving, and taxes the bare-call doctrine (Sol-review §A) for nothing the LSP doesn't already provide. Revisit bar: §12.1.
 8. **A soundness precondition on the row fallback** ("apply the fallback only if row inference can soundly produce a callable-field requirement; otherwise reject"). Rejected as a phantom check: the fallback constrains and never rejects; unsatisfiable results (e.g. constraints a row cannot honor) error through existing constraint-discharge paths with existing phrasing. Zero new code paths. *(Amends Sol's formulation.)*
 9. **Private functions as dot-callable inside the home module.** Rejected: a visibility-dependent operation set; bare calls are available there anyway. Exported-only, uniformly (§4.2).
-10. **Per-binding deadline** ("the goal is attached to the binding currently being inferred and resolves at its boundary"). Rejected: for a goal whose receiver lives at an outer level, an inner `let`'s boundary would fire the fallback on the outer variable prematurely — making `let x = v.at(3); Vector.size(v)` an error while its reordered siblings compile. Statement order between independent siblings would change meaning: the order-sensitivity that disqualified eager resolution (§11.3), reintroduced at binding granularity. The receiver-level deadline (§3.1) is the correct owner; see the correction record §16.1. **Do not relitigate.**
+10. **Per-binding deadline** ("the goal is attached to the binding currently being inferred and resolves at its boundary"). Rejected: for a goal whose receiver lives at an outer level, an inner `let`'s boundary would fire the fallback on the outer variable prematurely — making `let x = v.at(3); Vector.length(v)` an error while its reordered siblings compile. Statement order between independent siblings would change meaning: the order-sensitivity that disqualified eager resolution (§11.3), reintroduced at binding granularity. The receiver-level deadline (§3.1) is the correct owner; see the correction record §16.1. **Do not relitigate.**
 
 ---
 
@@ -383,7 +383,7 @@ f({callback = n => n + 1})          -- OK : Int
 -- (d) Same-region evidence counts, regardless of textual position (§3.1)
 fun g(v) =
     let x = v.at(3)                  -- goal pends; receiver tyvar owned by g's region
-    Vector.size(v)                   -- v := Vector(a): trigger fires, goal resolves
+    Vector.length(v)                   -- v := Vector(a): trigger fires, goal resolves
     x                                -- OK — the dot call is Vector.at(v, 3); the inner
                                    --   let boundary did NOT force the fallback (§11.10)
                                    --   [corrected: was wrongly an error — §16.1]
@@ -469,7 +469,7 @@ fun f(v) =
     let g = x => v.at(x)             -- g is a syntactic value; generalises WITHOUT
                                    --   quantifying the goal's result tyvar (pinned
                                    --   to f's region)
-    Vector.size(v)                   -- v := Vector(a): goal resolves as companion
+    Vector.length(v)                   -- v := Vector(a): goal resolves as companion
     g(1)                             -- OK : a   — g : Int -> a after resolution
 
 -- (q) Post-fallback resumption: survivor rows connect by ordinary unification (§3.3)
@@ -502,7 +502,7 @@ Recorded per house rule: defect origin, rationale, rejected alternative marked d
 
 ### 16.1 Goal ownership: receiver-level region, not the enclosing function — and not the enclosing binding
 
-- **Defect:** §2.2/§3.1 as first decided attached the DotCall goal to "the enclosing function" and set the deadline at "the generalisation boundary of the enclosing function." Neither module-level bindings nor the level structure of inner `let`s fit that wording. Worse, acceptance test (d) asserted that same-function evidence *after* an inner `let` could not rescue a goal — directly contradicting §3.2's own trigger rule ("reconsidered whenever unification changes its receiver tyvar"), which fires on the later `Vector.size(v)` unification. The spec was internally inconsistent as shipped.
+- **Defect:** §2.2/§3.1 as first decided attached the DotCall goal to "the enclosing function" and set the deadline at "the generalisation boundary of the enclosing function." Neither module-level bindings nor the level structure of inner `let`s fit that wording. Worse, acceptance test (d) asserted that same-function evidence *after* an inner `let` could not rescue a goal — directly contradicting §3.2's own trigger rule ("reconsidered whenever unification changes its receiver tyvar"), which fires on the later `Vector.length(v)` unification. The spec was internally inconsistent as shipped.
 - **Origin:** the function-shaped wording was imported from the discussion's running example (`fun f(v) = v.at(3)`) without checking it against module-level bindings, nested `let`s, or the level-based generalisation machinery the corpus actually has; test (d) then encoded the un-generalised intuition rather than the §3.2 rule.
 - **Correction:** the goal is owned by **the inference region (level) of its receiver tyvar**; the deadline is that region's finalisation boundary, effective even where the value restriction prevents quantification; the **pinning rule** keeps goal-entangled tyvars out of inner quantification. Consequences: same-region evidence counts regardless of textual position; the fallback can never be contradicted within its own region; the same-function diagnostic (old row 7) is unreachable and merges into the post-finalisation diagnostic (row 8); test (d) flips to OK.
 - **Rejected alternative (do not relitigate):** the **per-binding deadline** — attaching the goal to "the binding currently being inferred" and finalising at its boundary. It fires the fallback on an outer-level variable at an inner `let`'s boundary, making the meaning of independent sibling statements order-sensitive: the defect class that disqualified eager resolution (§11.3), reintroduced at binding granularity. Recorded at §11.10.

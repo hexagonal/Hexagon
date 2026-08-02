@@ -45,7 +45,7 @@ Common operations follow the subject-first convention:
 ```hexagon
 let withCompass = Vector.append(supplies, "compass")
 let firstSupply = Vector.first(supplies)       // Option(String)
-let supplyCount = Vector.size(supplies)        // Int
+let supplyCount = Vector.length(supplies)      // Int
 ```
 
 The same calls may use the pipe or dot-call spellings already established:
@@ -107,7 +107,7 @@ let describe(items: Vector(String)): String =
     match items
         [] => "nothing"
         [only] => "one item: ${only}"
-        [first, ...rest] => "first: ${first}; more: ${Vector.size(rest)}"
+        [first, ...rest] => "first: ${first}; more: ${Vector.length(rest)}"
 ```
 
 `[]` matches exactly the empty vector. A fixed pattern such as `[only]` matches one

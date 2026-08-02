@@ -392,7 +392,7 @@ test("the implicit prelude supplies Option without an import", () => {
       Source.fileId(0),
       "/app.hex",
       "export fun head<a>(xs: Vector(a)): Option(a) =\n" +
-        "    if Vector.size(xs) == 0 then None else Some(xs[0])\n",
+        "    if Vector.length(xs) == 0 then None else Some(xs[0])\n",
     ),
   ]);
 

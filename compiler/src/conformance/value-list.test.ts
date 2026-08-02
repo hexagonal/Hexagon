@@ -54,8 +54,8 @@ describe("Step 1: the completed syntactic-value list", () => {
     expect(
       diagnostics(
         "let e = empty\n" +
-          "export let ys: Seq(Int) = cons(42, e)\n" +
-          'export let xs: Seq(String) = cons("Briar", e)\n',
+          "export let ys: Seq(Int) = prepend(e, 42)\n" +
+          'export let xs: Seq(String) = prepend(e, "Briar")\n',
       ),
     ).toEqual([]);
   });
@@ -72,8 +72,8 @@ describe("Step 1: the completed syntactic-value list", () => {
       "/main.hex":
         'import * as Lib from "./lib.hex"\n' +
         "let e = Lib.empty\n" +
-        "export let ys: Seq(Int) = cons(42, e)\n" +
-        'export let xs: Seq(String) = cons("Briar", e)\n',
+        "export let ys: Seq(Int) = prepend(e, 42)\n" +
+        'export let xs: Seq(String) = prepend(e, "Briar")\n',
     });
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
     expect(schemeOf(compiled, "/main.hex", "e").variables.length).toBe(1);
@@ -86,8 +86,8 @@ describe("Step 1: the completed syntactic-value list", () => {
     const compiled = project({
       "/main.hex":
         "let e: Seq(a) = empty\n" +
-        "export let ys: Seq(Int) = cons(42, e)\n" +
-        'export let xs: Seq(String) = cons("Briar", e)\n',
+        "export let ys: Seq(Int) = prepend(e, 42)\n" +
+        'export let xs: Seq(String) = prepend(e, "Briar")\n',
     });
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
     expect(schemeOf(compiled, "/main.hex", "e").variables.length).toBe(1);
@@ -585,8 +585,8 @@ describe("Step 1: the completed syntactic-value list", () => {
     expect(
       diagnostics(
         "let (e, n) = (empty, 1)\n" +
-          "export let a: Int = Seq.length(cons(1, e))\n" +
-          'export let b: Int = Seq.length(cons("x", e))\n',
+          "export let a: Int = Seq.length(prepend(e, 1))\n" +
+          'export let b: Int = Seq.length(prepend(e, "x"))\n',
       ),
     ).toEqual([]);
   });
@@ -606,8 +606,8 @@ describe("Step 1: the completed syntactic-value list", () => {
       diagnostics(
         "union Box(a) = Box(a)\n" +
           "let Box(e) = Box(empty)\n" +
-          "export let x: Int = Seq.length(cons(1, e))\n" +
-          'export let y: Int = Seq.length(cons("s", e))\n',
+          "export let x: Int = Seq.length(prepend(e, 1))\n" +
+          'export let y: Int = Seq.length(prepend(e, "s"))\n',
       ),
     ).toEqual([]);
   });
@@ -663,7 +663,7 @@ describe("Step 1: the completed syntactic-value list", () => {
         "let use = () =>\n" +
           "    var v = empty\n" +
           "    let e = v\n" +
-          '    (cons(1, e), cons("a", e))\n',
+          '    (prepend(e, 1), prepend(e, "a"))\n',
       ).length,
     ).toBeGreaterThan(0);
   });

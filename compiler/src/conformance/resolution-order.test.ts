@@ -291,11 +291,11 @@ describe("the term-level yield stays pinned", () => {
     )).toEqual([]);
   });
 
-  test("a module alias named `Vector` takes `Vector.size`", () => {
+  test("a module alias named `Vector` takes `Vector.length`", () => {
     expect(diagnostics(
       "import * as Vector from \"./myvec\"\n" +
-      "export fun use(): Int = Vector.size(7)\n",
-      [["/myvec.hex", "export fun size(n: Int): Int = n\n"]],
+      "export fun use(): Int = Vector.length(7)\n",
+      [["/myvec.hex", "export fun length(n: Int): Int = n\n"]],
     )).toEqual([]);
   });
 });

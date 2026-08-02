@@ -10,8 +10,8 @@ export const polymorphism: PlaygroundExample = {
 // element type. This is the program most languages make you write twice.
 let nothing = Seq.empty
 
-let numbers = Seq.cons(42, nothing)
-let words = Seq.cons("Briar", nothing)
+let numbers = Seq.prepend(nothing, 42)
+let words = Seq.prepend(nothing, "Briar")
 
 // A computed right-hand side is not a value, and is polymorphic anyway when
 // nothing in the result could hold an element the checker never saw. \`Vector\`
@@ -38,7 +38,7 @@ let boxedNumber: Box(Int) = empty
 let boxedWord: Box(String) = empty
 
 console.log(Seq.length(numbers), Seq.length(words))
-console.log(Vector.size(counts), Vector.size(labels))
+console.log(Vector.length(counts), Vector.length(labels))
 console.log(openBox(boxedNumber), openBox(boxedWord))
 `,
   specificationReferences: [

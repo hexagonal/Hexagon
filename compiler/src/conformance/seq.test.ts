@@ -126,7 +126,7 @@ const IMPORT = "";
 const NATURALS = "let naturals = Seq.iterate(1, x => x + 1)\n";
 
 describe("Seq construction and the §6.2 protocol", () => {
-  test("empty pulls None; singleton and cons pull one element then empty", async () => {
+  test("empty pulls None; singleton and prepend pull one element then empty", async () => {
     const m = await run(
       IMPORT +
         "export let emptyIsNone: Bool = match Seq.next(Seq.empty)\n    None => True\n    Some(_) => False\n" +
@@ -137,17 +137,17 @@ describe("Seq construction and the §6.2 protocol", () => {
         "    None => False\n" +
         "    Some(pulled) =>\n        let (_, rest) = pulled\n" +
         "        match Seq.next(rest)\n            None => True\n            Some(_) => False\n" +
-        "export let consHead: Int = match Seq.next(Seq.cons(1, Seq.singleton(2)))\n" +
+        "export let prependHead: Int = match Seq.next(Seq.prepend(Seq.singleton(2), 1))\n" +
         "    None => 0 - 1\n" +
         "    Some(pulled) =>\n        let (value, _) = pulled\n        value\n" +
-        "export let consLength: Int = Seq.length(Seq.cons(1, Seq.singleton(2)))\n",
+        "export let prependLength: Int = Seq.length(Seq.prepend(Seq.singleton(2), 1))\n",
       CORE,
     );
     expect(m.emptyIsNone).toBe(true);
     expect(m.singleHead).toBe(7);
     expect(m.singleTailEmpty).toBe(true);
-    expect(m.consHead).toBe(1);
-    expect(m.consLength).toBe(2);
+    expect(m.prependHead).toBe(1);
+    expect(m.prependLength).toBe(2);
   });
 
   test("an infinite Seq is a finite value: constructing runs nothing", async () => {
