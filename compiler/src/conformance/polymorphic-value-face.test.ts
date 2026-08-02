@@ -64,9 +64,13 @@ describe("a polymorphic non-function export faces as its `never` instantiation",
     );
   });
 
+  // `Seq` and `Option`, deliberately: both faces are decided and current. A
+  // `Vector(Option(a))` specimen would read the same and pin `ReadonlyArray`,
+  // which FFI Part 1 §4.1 decides against and #128 is filed to change — this
+  // test has no business failing when that lands.
   test("an occurrence nested inside another face is instantiated too", () => {
-    expect(declarations("export let table: Vector(Option(a)) = [None]\n")).toContain(
-      "export declare const table: ReadonlyArray<Option<never>>;",
+    expect(declarations("export let table: Seq(Option(a)) = Seq.empty\n")).toContain(
+      "export declare const table: Iterable<Option<never>>;",
     );
   });
 
@@ -209,6 +213,17 @@ describe("tsc accepts the emitted declarations", () => {
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain("error TS2304");
     expect(errors[0]).toContain("Cannot find name 'a'");
+  });
+
+  // §14.1 puts the preview in scope on the argument that a user reads it, so
+  // the preview's own text has to survive the same compiler. This is the one
+  // preview shape that can: the others name another module's types, which no
+  // generated file imports yet (#227).
+  test("the preview's row-tail form compiles too", async () => {
+    const emitted = preview("let probe = ((r) => r.x, 1)\n");
+    expect(emitted).toContain("{ x: never }");
+
+    expect(await typeScriptErrors({ "preview.ts": emitted })).toEqual([]);
   });
 
   test("`unknown` would not serve the consumer — why §14.1 instantiates at `never`", async () => {

@@ -345,6 +345,8 @@ Recorded per house rule (`method-syntax.md` §16 precedent, `collections-part1-d
 
 ### 14.1 A polymorphic non-function declaration faces as its `never` instantiation (2026-08-02, #132)
 
+**Authority.** Two halves, and they are not equally new. The `never` instantiation itself is **§12.1's confirmed decision, enforced past the one family it was written about** — §12.1's reasoning ("a `declare const` … needs one `.d.ts` type"; "`unknown` is not assignable to specific instantiations") never depended on the value being a union constructor, and this record adds no argument to it. What is genuinely new is the **row-tail half** and the **preview's inclusion in scope**; those were decided by the implementing seat with the defect in hand, and James's merge is their ruling.
+
 **Origin.** `stdlib/Seq.hex` exports one polymorphic value that is not a function:
 
 ```hexagon
@@ -367,11 +369,25 @@ One row, and the whole of `Seq`'s published face was invalid TypeScript. Every o
 ```ts
 export declare const empty: Iterable<never>;
 export declare const None: Option<never>;                       // §12.1, unchanged
-export declare const table: ReadonlyArray<Option<never>>;       // nested, same rule
+export declare const table: Iterable<Option<never>>;            // nested, same rule
+                                                                // (from `export let table: Seq(Option(a))`)
 export declare const next: <a>(source: Iterable<a>) => Option<[a, Iterable<a>]>;   // function: §2.2 binds
 ```
 
-**Why it is honest.** The value's type *is* ∀a. T(a), so T[`never`/a] is one of the value's types — the face states a genuine instantiation and can never over-describe the runtime value. What it gives up is re-generalization: TypeScript will not recover the other instantiations from this one. So the face is **sound always, and additionally usable at every instantiation exactly where the quantified variable occurs covariantly** — the producer shape that motivates a polymorphic constant in the first place (`empty`, `None`, an empty vector). Where a variable occurs contravariantly or invariantly, a consumer gets a value it cannot use at another type. That is a stated limit of the representation, not a defect to be rediscovered: **a Hexagon author who wants such a value usable across instantiations at the boundary exports a function instead**, which restores the quantifier seat §2.2 uses.
+**Why it is honest.** The value's type *is* ∀a. T(a), so T[`never`/a] is one of the value's types. The face therefore states a genuine instantiation and never over-describes the Hexagon value; what it gives up is re-generalization, since TypeScript will not recover the other instantiations from this one.
+
+Whether a JavaScript consumer may nonetheless *use* the face at another instantiation is TypeScript's assignability question, not Hexagon's, and the answer is not uniform. Measured with `tsc --strict --lib es2022`, TypeScript 7.0.2:
+
+| From `never` to a concrete instantiation | TypeScript |
+|---|---|
+| covariant faces — `Iterable<never>`, `Option<never>`, a union arm | accepted, and sound |
+| `ReadonlySet<never>`, `ReadonlyMap<never, never>` | accepted, by TypeScript's method-parameter bivariance |
+| `Array<never>` → `Array<number>`, then `.push(1)` | **accepted, and not sound** — TypeScript's own mutable-array hole, not this rule's |
+| a function-typed property (`{push: (x: never) => void}`) | refused, TS2322 |
+
+The rule is stated for the first row, which is the shape a polymorphic constant is for — a producer with nothing in it yet (`empty`, `None`). The unsound third row **cannot be reached from Hexagon source today, and that is a guarantee held elsewhere**: the generalization ruling's variance analysis (`decisions-ml-dialect-generalization-2026-08.md` §5) declines to generalize a variable occurring invariantly, and §5.3 makes the borrowed foreign views `Array`, `JsMap`, and `JsSet` invariant in v1 — so `export let cell: Array(a) = …` is refused at the declaration ("`a` occurs in an invariant position", verified) and no `.hex` source produces an `Array<never>` face. **The coupling is recorded both ways: granting any borrowed view a variance claim must revisit this record**, because that is the day the third row becomes reachable and this ruling would need a per-position instantiation rather than one word.
+
+The fourth row is a usability limit, stated so it is not rediscovered as a defect: **a Hexagon author who wants such a value usable across instantiations at the boundary exports a function instead**, which restores the quantifier seat §2.2 uses.
 
 `never` over the alternatives, on TypeScript's own assignability (re-verified at this ruling, `tsc --strict`, TypeScript 7.0.2): `Iterable<never>` is assignable to `Iterable<number>`; `Iterable<unknown>` is not (TS2322). This is §12.1's reason, and this record's only change to it is scope.
 
@@ -379,7 +395,8 @@ export declare const next: <a>(source: Iterable<a>) => Option<[a, Iterable<a>]>;
 
 **Consequences, with owners:**
 
-- `renderScheme` (`compiler/src/passes/emitter/emitter.ts`) instantiates instead of naming on its non-function path; the record case drops an empty-row tail. Conformance: `compiler/src/conformance/polymorphic-value-face.test.ts`, which type-checks the emitted text with `tsc` rather than only comparing strings.
+- `renderScheme` (`compiler/src/passes/emitter/emitter.ts`) instantiates instead of naming on its non-function path; the record case drops an empty-row tail. Conformance: `compiler/src/conformance/polymorphic-value-face.test.ts`. Its `tsc` round covers what it can compile in isolation — the exported `Iterable<never>` face with a consumer that uses it at two instantiations, the preview's row-tail form, and a negative control on the pre-fix spelling; the faces that name another module's type are text comparisons only, because #227 makes them unresolvable in a file of their own.
+- **The preview now shows the same polymorphism two ways, and that is a cost of the Scope paragraph rather than a defect.** `let field = (r) => r.x` previews as `<a, b>(r: ({ x: a } & b)) => a` while `let pair = (field, 1)` previews as `[(arg0: { x: never }) => never, number]` — one function, generic in one row and instantiated in the next, because the second binding's *type* is not a function type even though the thing inside it is. The `.d.ts` cannot meet this (an exported value must be annotated, and an annotation cannot spell an open row); only the preview can, and the alternative — leaving the preview to print unbound binders — is worse.
 - **`Seq.d.ts` still does not compile, for an unrelated reason — recorded so it is not read as this ruling's failure.** Its faces name `Option`, a type owned by another Hexagon module, and a generated `.d.ts` emits no import for it (§2.1 fixes only the `Hex` namespace import). Filed as **#227**, which also carries the ruling owed on cross-module type imports. #132's issue text asserted the unbound binder was "the only error in the file"; that was true of TS2304s only, and is corrected here.
 - §2.2 and §12.1 carry pointers to this record.
 

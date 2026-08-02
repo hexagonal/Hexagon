@@ -5027,9 +5027,12 @@ function renderType(
         `${name}: ${renderType(field, variables, prelude, false)}`
       ).join("; ")} }`;
       const tail = type.tail === undefined ? undefined : variables.get(type.tail) ?? "object";
-      // A row tail carried at the `never` instantiation stands at the empty row
-      // — no further fields — so the intersection is dropped. Writing `& never`
-      // instead would collapse the whole record to `never`.
+      // A tail rendering as `NEVER` came from `neverInstantiation` — the only
+      // producer that can put it there, since binder names are `a`, `b`, … `a1`
+      // — and stands at the empty row: no further fields, so the intersection is
+      // dropped. Writing `& never` instead would collapse the record to `never`.
+      // A different substitution that ever renders a tail as `never` has to
+      // revisit this, which is why the two sites name each other.
       return tail === undefined || tail === NEVER ? record : `(${record} & ${tail})`;
     case "Function": {
       const lambda = value?.kind === "Lambda" ? value : undefined;
