@@ -43,7 +43,8 @@ export interface CompiledProject {
    * why it sits beside `modules` rather than inside one: the compiled project
    * was strictly per-module until §8.3 needed a program-scoped seat, and
    * obligation 3 is what grows it. The compile stays filesystem-free — the
-   * artefact carries its intended path and a host performs the write.
+   * artefact carries its intended path for a host to write it to. No host in
+   * this repo does; see `Emitted.RuntimeDeclarations` for what that means.
    */
   readonly runtimeDeclarations: Emitted.RuntimeDeclarations | undefined;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
@@ -323,11 +324,13 @@ export function compileProject(
  *
  * Only files directly at the root can collide — a deeper module emits into its
  * own directory. The probe runs over every source there, which is a superset of
- * the emitted ones: the only sources that go unemitted are unreached prelude
- * modules, whose basenames are fixed (`Bool`, `Prelude`, `Option`, `Seq`,
- * `Result`) and never `hex`, so the superset costs nothing today. Over-claiming
- * would only ever move the generated file, which nothing outside this compile
- * names; under-claiming would silently overwrite a user's.
+ * the emitted ones, and the superset is the safe direction: over-claiming only
+ * ever moves the generated file, which nothing outside this compile names,
+ * while under-claiming would silently overwrite a user's. It costs nothing
+ * today, because a source goes unemitted only by being an unreached prelude
+ * module — basenames fixed to `Bool`, `Prelude`, `Option`, `Seq`, `Result`,
+ * never `hex` — or by sitting in an import cycle, which is a diagnosed program
+ * whose output nobody writes.
  */
 function runtimeDeclarationsBasename(paths: Iterable<string>, root: string): string {
   const claimed = new Set<string>();

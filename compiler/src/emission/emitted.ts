@@ -51,7 +51,9 @@ export interface TypeScriptPreview extends Output {
  * project's source paths the same way the injected prelude modules' are, and
  * inherits their one quirk: sources with no directory component at all yield a
  * common root of `""`, so this reads `/hex.d.ts` where those sources read
- * `main.hex`. A host resolves it as it resolves a prelude module's. No
+ * `main.hex`. A host should resolve it as it resolves a prelude module's — a
+ * prescription, not a description: the repo has no host that writes emitted
+ * declarations to disk, so this seat is new and currently unoccupied. No
  * `hex.js` accompanies it: every import of it is type-only and erases (§8.3).
  */
 export interface RuntimeDeclarations {
