@@ -4415,21 +4415,25 @@ function renderHelper(
       // replay is untouched, and a foreign source that looks back at elements it
       // has already produced keeps working, which §7.3 requires.
       //
-      // **A refusal is an ordinary failure to every spine it passes through**,
-      // and §7.3 rules that intended rather than tolerated. JavaScript's only
-      // route back into a `Seq` is the §9.4 face, so a reentrant traversal
-      // almost always arrives through a *second* spine — the boundary view — and
-      // the refusal reaches that spine as a throw out of its own source, ending
-      // the value's foreign traversability for good. That looks like #123's own
-      // complaint one spine out (a stale error at a position the source would
-      // have served), and the obvious repair — decline to memoize a refusal you
-      // did not raise — was tried and is **worse**: the throw travels out
-      // through `seqToIterable`'s generator, and a generator that throws is
-      // completed. The next forcing of that position calls `next()` on a dead
-      // generator, gets `done`, and memoizes *end*. The `Seq` then reads as
-      // empty from JavaScript instead of raising — silent truncation in place of
-      // an error, which is the whole class of bug this ruling exists to remove.
-      // Measured, not argued: `[]` where the elements should be.
+      // **A refusal is an ordinary failure to every spine it passes through.**
+      // A reentrant traversal that arrives through a second spine — most often
+      // the §9.4 boundary view, since that is JavaScript's route into a `Seq`
+      // value — meets the refusal as a throw out of *its* source, and §7.1
+      // memoizes it there. The Hexagon-side traversal completes correctly; the
+      // value is finished as an `Iterable` to JavaScript.
+      //
+      // §7.3 **records** that rather than ruling it, and issue #232 owns the
+      // decision. The repair that suggests itself — decline to memoize a refusal
+      // you did not raise — is worse *as things stand*: the throw travels out
+      // through `seqToIterable`'s generator, a generator that has thrown is
+      // completed, the next forcing reads `done` off it and memoizes end, and
+      // the value reads as empty to JavaScript instead of raising. Measured, not
+      // argued. But the completion is an artifact of the driver being a
+      // generator, which nothing in Part 3 requires: with `seqToIterable`
+      // emitting an explicit cursor, the same repair keeps the foreign face
+      // working, and the whole suite passes but for the test pinning today's
+      // behaviour. Both halves would land together, and `seqToIterable` is half
+      // of R1 and the internal channel's driver, so it is #232's to weigh.
       //
       // `TypeError` is the kind for §7.2's reason alone — the adapter introduces
       // no Hexagon error type of its own — and not because JavaScript picks it:

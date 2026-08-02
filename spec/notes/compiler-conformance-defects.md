@@ -1014,7 +1014,7 @@ than settling a style question.
     buffer did not have.
   - "A failure pushes nothing and leaves `__hex_done` false." Neither referent
     survives. Nothing is pushed anywhere, and `__hex_done` was reinstated by
-    #131's second review round and then deleted outright by the #123 ruling
+    #131's first review round and then deleted outright by the #123 ruling
     (entry below), which makes the collision it guarded against impossible.
     *(This bullet said "half survives, `__hex_done` still exists" between #131
     and #123; it was true for those hours and is recorded as having been so.)*
@@ -1385,7 +1385,9 @@ than settling a style question.
   in the node beside the value. The box stays a box — JavaScript permits
   `throw undefined`. Entry 15 carries the supersession note, including which of
   its sentences do not survive.
-- **`__hex_done` stays shared, and the first draft deleted it.** Exhaustion is a
+- **`__hex_done` stayed shared, and the first draft deleted it.** *(Reinstated by
+  this round, then deleted outright by the #123 ruling — last entry — which makes
+  the collision below impossible. Read this bullet in the past tense.)* Exhaustion is a
   property of the source, not of a position, and §5's division puts it exactly
   where the iterator is. The argument for deleting it was that the frontier is
   now structural — a tail is built solely in the success path, and is reachable
@@ -1520,22 +1522,30 @@ than settling a style question.
   That measurement is what turned option 3 in the issue ("detect and reject",
   costed there as inventing a failure mode §7.2 says the adapter does not have)
   into the *conservative* option: it conforms one case to the platform.
-- **The consequence review found, and where the obvious repair leads.** A
-  refusal reaching a *second* spine is memoized there by §7.1 like any other
-  throw out of a source — and that is the normal case, not an edge one, because
-  JavaScript's only route back into a `Seq` is the §9.4 face, so a reentrant
-  traversal arrives through the boundary view. The value is finished as an
-  `Iterable` to JavaScript from then on, while the Hexagon-side traversal
-  completes correctly. §7.3's first draft said the opposite ("does not touch the
-  memo", "the enclosing forcing is unaffected otherwise"), which was true only
-  of the Hexagon side. **The repair that suggests itself is worse, and was
-  measured before being rejected**: brand the refusal with its raiser and
-  decline to memoize one you did not raise, and the value reads as an *empty*
-  sequence to JavaScript instead — the refusal travels out through
+- **The consequence review found, recorded rather than ruled (#232).** A refusal
+  reaching a *second* spine is memoized there by §7.1 like any other throw out of
+  a source — and that is the common case, because a reentrant traversal usually
+  arrives through the §9.4 boundary view, JavaScript's route into a `Seq` value.
+  (Not its only route: foreign code that calls an exported Hexagon function
+  re-enters through the internal channel instead, and poisons nothing.) The
+  value is then finished as an `Iterable` to JavaScript, while the Hexagon-side
+  traversal completes correctly. §7.3's first draft said the opposite ("does not
+  touch the memo", "the enclosing forcing is unaffected otherwise"), which was
+  true only of the Hexagon side.
+  **Two repairs were tried, and the second one works.** Brand the refusal with
+  its raiser and decline to memoize one you did not raise: the value reads as an
+  *empty* sequence instead, because the refusal travels out through
   `seqToIterable`'s generator, a generator that has thrown is completed, and the
-  next forcing reads `done` off it and memoizes end. Silent truncation in place
-  of a persistent error is the exchange this ruling exists to refuse, so the
-  memoization is ruled intended and §7.3 says so in a clause of its own.
+  next forcing reads `done` off it and memoizes end. Silent truncation for a
+  persistent error is the wrong trade. But the completion is an artifact of the
+  driver being a generator, and nothing in Part 3 requires one: emit
+  `seqToIterable` as an explicit cursor and the same brand keeps the foreign
+  face working — measured, whole suite green but for the test pinning today's
+  behaviour. Both halves land together or not at all, and `seqToIterable` is half
+  of R1 and the internal `for x in` driver, so **#232** owns it rather than this
+  ruling. §7.3's bullet is written as behaviour, not as a decision, for that
+  reason. The second review round found this; the first had accepted the
+  one-repair reasoning.
 - **Why not "unspecified" (the issue's option 1).** It was the cheapest and it
   reads like the rest of §4, and Part 1 §3.1's unspecified-observation doctrine
   looks like a fit. It is not one. §3.1 is about foreign code violating a
@@ -1596,29 +1606,26 @@ than settling a style question.
   a branded `IndexError`; the same shape was available) and its cost stated: a
   `JsError` payload is interrogable only by message.
 - **Executable conformance:** `seq-unification.test.ts`, describe block "forcing
-  is not reentrant (FFI Part 3 §7.3)", four tests, all in the ordinary program
+  is not reentrant (FFI Part 3 §7.3)", six tests, all in the ordinary program
   shape — no probe reaches into the helper by name any more. The refused force
   costs the enclosing traversal nothing (the headline, `[10, 20, 30, 40]` where
   the pre-ruling spine gave `[20, 30, 40]`); an already-forced position replays
   normally from inside a forcing, which is §7.3's carve-out; an uncaught
   reentrant throw becomes that position's failure by §7.1; a swallowed refusal
-  still ends the value's JavaScript face and keeps saying so, which is the
-  clause above pinned against the truncating repair; reentry from
+  ends the value's JavaScript face and keeps saying so, which is #232's
+  behaviour pinned against the truncating repair; reentry from
   `[Symbol.iterator]()` is refused too, since §3 defers acquisition to the first
-  pull and it therefore runs inside a forcing; and a generator source now fails
+  pull and it therefore runs inside a forcing; and a generator source fails
   identically, which is the uniformity claim checked rather than asserted.
-  **Verified sensitive:** reverting the arm to its pre-ruling state reddens
-  three (not the replay test, which passed before); moving the reentrancy check
-  inside the `try` reddens two; and the rejected brand-the-refusal repair
+  Only the *value* arm of §7.3's replay carve-out has a test, and that is
+  complete rather than partial: an end or a failure has no successor node, so no
+  forcing of that spine can be in flight behind one, and those two arms are
+  unreachable from inside a forcing rather than untested. §7.3 says so.
+  **Verified sensitive:** reverting the arm to its pre-ruling state reddens five
+  of the six (not the replay test, which passed before); moving the reentrancy
+  check inside the `try` reddens four; and the rejected brand-the-refusal repair
   reddens the swallowed-refusal test with `[]` in place of the elements, which
-  is the whole reason that clause is ruled the way it is. The `finally` is
-  *not* pinned by anything — a stuck flag after a failed forcing is unobservable,
-  since no node exists past a failed one — and it is used because it is correct
-  by construction, not because a test defends it. That sits awkwardly beside
-  this entry deleting three mechanisms as unreachable, and the distinction is
-  worth stating: those three were *repairs*, each with a comment claiming a
-  hazard that no longer exists, and a false comment outlives the code. A
-  `finally` claims nothing.
+  is why that bullet is recorded rather than ruled.
 - **Credit:** Fable filed the gap as a ruling request rather than a bug, and was
   right that it was one. Two cold Opus rounds on #131 established, between them,
   that every non-refusing rule for the collision is silently wrong — which is
