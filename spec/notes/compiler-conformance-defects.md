@@ -1494,8 +1494,9 @@ than settling a style question.
   — FFI Part 3 §4 and §7.1 described forcing as an atomic step with one outcome
   and said nothing about foreign code re-entering the spine mid-forcing. Issue
   #123 was filed by Fable as a ruling request against exactly that gap. The
-  ruling is now **§7.3**; this entry records why it went the way it did and what
-  the implementation lost as a result.
+  ruling is now **§7.3–§7.4**; this entry records why it went the way it did and
+  what the implementation lost as a result. (§7.4 — the error kind — is the spec
+  seat's, written after this entry; see the amended error-kind bullet below.)
 - **What the gap cost, and why no rule could have made it lossless.** Two
   forcings of one position each advance the source, and only one result can be
   that position's memoized outcome. This is an impossibility, not a survey: the
@@ -1605,6 +1606,18 @@ than settling a style question.
   and is now the only one given — with the alternative named (`vectorAt` raises
   a branded `IndexError`; the same shape was available) and its cost stated: a
   `JsError` payload is interrogable only by message.
+  **Overruled 2026-08-02 by the spec seat — FFI Part 3 §7.4.** §7.2's reason
+  turned out not to reach either: that sentence licenses the platform's own
+  minimum protocol check spoken in the platform's voice, and §7.3's lawful-home
+  paragraph rests on this check being no such thing — the same fact cannot make
+  the check lawful and the `TypeError` apt. The kind is the declared domestic
+  `exception ReentrancyError` (nullary, `Seq.hex`-exported, the branded
+  Exceptions §7.1 representation, same canonical message), with `JsError`-via-
+  manufactured-`TypeError` recorded against re-litigation in §7.4 — its
+  "interrogable only by message" cost is a contradiction, not a cost, since
+  message text is exactly what programs must not depend on. The emitter's throw
+  and the conformance expectations pinning `TypeError`/`constructor.name` change
+  with §7.4's implementation, which postdates this entry.
 - **Executable conformance:** `seq-unification.test.ts`, describe block "forcing
   is not reentrant (FFI Part 3 §7.3)", six tests, all in the ordinary program
   shape — no probe reaches into the helper by name any more. The refused force
@@ -1626,6 +1639,26 @@ than settling a style question.
   check inside the `try` reddens four; and the rejected brand-the-refusal repair
   reddens the swallowed-refusal test with `[]` in place of the elements, which
   is why that bullet is recorded rather than ruled.
+- **The error kind, ruled by the spec seat (§7.4), and what shipped of it.**
+  Fable took the spec seat on the ruling after two implementing-seat rounds and
+  overruled the `TypeError`/`JsError` choice: the refusal is a condition Hexagon
+  detects in state Hexagon owns, so Exceptions §1's one-door doctrine puts it
+  behind a declared constructor. `exception ReentrancyError` — nullary on
+  `KeyError`'s model, declared in §7.4 and exported by `stdlib/Seq.hex`, raised
+  inline as Exceptions §7.1's representation exactly as the emitted `IndexError`
+  and `SliceError` are. The argument that decided it, and which the implementing
+  seat had missed: §7.2's `TypeError` is licensed as *the platform's own minimum
+  protocol check*, while §7.3's guard is lawful precisely because it is **not** a
+  protocol check — the same fact cannot license the check and select its error
+  kind.
+  **The throw shipped; recognition did not, and could not.** Reviewing the
+  ruling turned up a general gap: *no* declared exception is catchable today —
+  `JsError` included — because a constructor named in a `catch` pattern does not
+  resolve, and the qualified spelling the corpus tells users to write is not
+  parseable as a pattern at all. Filed as **#234**. `ReentrancyError` is
+  therefore exactly as catchable as `IndexError` is, and the conformance asserts
+  what is observable: the `$hex` brand and the `name`, never the message, which
+  §7.4 makes non-normative.
 - **Credit:** Fable filed the gap as a ruling request rather than a bug, and was
   right that it was one. Two cold Opus rounds on #131 established, between them,
   that every non-refusing rule for the collision is silently wrong — which is

@@ -4435,14 +4435,24 @@ function renderHelper(
       // behaviour. Both halves would land together, and `seqToIterable` is half
       // of R1 and the internal channel's driver, so it is #232's to weigh.
       //
-      // `TypeError` is the kind for §7.2's reason alone — the adapter introduces
-      // no Hexagon error type of its own — and not because JavaScript picks it:
-      // with the check in place the platform's own refusal is unreachable
-      // through the adapter, so the rule *replaces* `TypeError: Generator is
-      // already running` rather than deferring to it. A branded Hexagon
-      // exception was available (`vectorAt`'s `IndexError` is the shape) and is
-      // declined by that same sentence, at the cost §7.3 records: a `JsError`
-      // payload is interrogable only by message.
+      // **`ReentrancyError`, a declared Hexagon exception** (§7.4), not a
+      // manufactured `TypeError`. The condition is one Hexagon detects in state
+      // Hexagon owns, so it leaves through the domestic door: Exceptions §1's
+      // one-door doctrine puts every Hexagon-originated exception behind a
+      // declared constructor and reserves `JsError` for what JavaScript threw.
+      // §7.2's `TypeError` is the platform's own voice — the minimum protocol
+      // check native iteration performs, reporting foreign misbehaviour — and
+      // this check is lawful on the opposite ground, that it is *not* a protocol
+      // check and reads no foreign value, so it cannot borrow that kind.
+      //
+      // Constructed inline as Exceptions §7.1's representation rather than by
+      // calling `Seq.hex`'s constructor, exactly as the emitted `IndexError` and
+      // `SliceError` are: exception identity is `name` under the `$hex` brand,
+      // chosen over prototype identity precisely so that every module's copy of
+      // this helper and the one `.hex` declaration coincide on one nominal
+      // exception. Fresh per refusal (§7.3 of Exceptions), so the stack points
+      // at the reentrant pull. The message is a diagnostic rendering and is
+      // non-normative — recognition is the `name`, never the text.
       //
       // What the enclosing forcing observes is nothing at all, unless the
       // foreign code lets the throw propagate out of `next()` — in which case it
@@ -4480,7 +4490,7 @@ function renderHelper(
         "      pull: () => {",
         "        if (__hex_step === undefined && __hex_failure === undefined) {",
         "          if (__hex_forcing) {",
-        '            throw new TypeError("Seq position is already being forced: a sequence position cannot depend on its own value");',
+        '            throw Object.assign(new Error("Seq position is already being forced: a sequence position cannot depend on its own value"), { $hex: true, name: "ReentrancyError" });',
         "          }",
         "          __hex_forcing = true;",
         "          try {",

@@ -1121,7 +1121,9 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
       "export { outcome_ as outcome };",
       "function record(fn) {",
       "  try { outcome = 'OK:' + JSON.stringify(fn()); }",
-      "  catch (error) { outcome = 'ERR:' + error.constructor.name + ':' + error.message; }",
+      // Recorded the way §7.4 says a program recognizes it — the brand and the
+      // `name`, never the message, which is a non-normative rendering.
+      "  catch (error) { outcome = 'ERR:' + (error.$hex === true) + ':' + error.name; }",
       "}",
       reenterBody,
       sourceBody,
@@ -1186,10 +1188,7 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
     // traversal had consumed the element the enclosing forcing was fetching, and
     // both traversals returned the short answer with no error raised anywhere.
     expect(drained()).toEqual([10, 20, 30, 40]);
-    expect(reentry()).toBe(
-      "ERR:TypeError:Seq position is already being forced: " +
-      "a sequence position cannot depend on its own value",
-    );
+    expect(reentry()).toBe("ERR:true:ReentrancyError");
     // Replay agrees with the first traversal, so nothing was patched over.
     expect(drained()).toEqual([10, 20, 30, 40]);
   });
@@ -1262,10 +1261,7 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
       "}",
     ].join("\n"));
     expect(drained()).toEqual([10, 20, 30]);
-    expect(reentry()).toBe(
-      "ERR:TypeError:Seq position is already being forced: " +
-      "a sequence position cannot depend on its own value",
-    );
+    expect(reentry()).toBe("ERR:true:ReentrancyError");
   });
 
   test("a generator source behaves identically, which is the point", async () => {
@@ -1275,9 +1271,6 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
     // so the two now fail the same way and with the same message.
     const { drained, reentry } = await armed(generatorSource, retraverseAt(1));
     expect(drained()).toEqual([10, 20, 30, 40]);
-    expect(reentry()).toBe(
-      "ERR:TypeError:Seq position is already being forced: " +
-      "a sequence position cannot depend on its own value",
-    );
+    expect(reentry()).toBe("ERR:true:ReentrancyError");
   });
 });
