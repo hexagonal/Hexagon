@@ -2,7 +2,7 @@
     combinator computes nothing; each element is produced on demand by `next`,
     and produced again on every later traversal unless the sequence is
     `memoize`d. *)
-export opaque record Seq(a) = { pull: () -> Option((a, Seq(a))) }
+export opaque record Seq(+a) = { pull: () -> Option((a, Seq(a))) }
 
 extern from "hex:intrinsic"
     (** Computes each element of `source` at most once however often the result

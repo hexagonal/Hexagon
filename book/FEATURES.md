@@ -18,7 +18,9 @@ open specification work does not make the book outline provisional.
    acyclic, top-level effects run in dependency order, and the selected root module
    runs without a special `main` function. Modules support named, aliased, namespace,
    and effect imports, plus public and opaque exports. Opacity is taught here for both
-   records and unions, after privacy and home modules are established.
+   records and unions, after privacy and home modules are established, together with
+   the `+a` / `-a` variance claim a parameterized opaque type uses to say what it
+   promises across that boundary.
 
 2. **Layout** — Indentation defines blocks; braces are records,
    not block delimiters. Semicolons can separate statements explicitly. Hexagon has
@@ -52,9 +54,10 @@ open specification work does not make the book outline provisional.
    nor partial application.
 
 7. **Polymorphism** — Hindley–Milner inference usually removes the
-   need for annotations. Let-polymorphism, the ML value restriction, monomorphic
-   recursion, type-variable naming, numeric-literal defaulting, and useful annotations
-   explain both the power and the boundaries of inference.
+   need for annotations. Let-polymorphism, the value restriction and the relaxed rule
+   that generalizes a computed initializer per type variable, monomorphic recursion,
+   type-variable naming, numeric-literal defaulting, and useful annotations explain
+   both the power and the boundaries of inference.
 
 8. **Type aliases** — Parameterized `type` aliases are transparent,
    fully applied, non-recursive, and preserved where practical in displayed and

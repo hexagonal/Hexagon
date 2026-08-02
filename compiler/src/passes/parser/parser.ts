@@ -1054,6 +1054,89 @@ class Parser {
     return derives;
   }
 
+  /**
+   * A variance sigil at a type-parameter position (Declarations Preamble §2.1).
+   * `+a` and `-a` are legal only on a parameterized `export opaque` record or
+   * union: what crosses an opaque boundary must be declared, and there is
+   * nothing to declare where the definition is public (closure doc §6.1, §9.6).
+   *
+   * The sigil is consumed either way, so the parameter after it still parses and
+   * the author gets one report rather than a cascade.
+   *
+   * That covers a sigil, and only a sigil. `Box(++a)` is not a doubled one —
+   * `++` is the concatenation operator's own token (Lexer §3) — so it never
+   * reaches here and recovers as any other token that cannot start a parameter
+   * would, with the parameter list's ordinary messages. There is no doubled
+   * sigil in the grammar to report better.
+   *
+   * The gate is `opaque`, not `exported && opaque`, and the two coincide: bare
+   * `opaque` is not a form — the keyword only ever follows `export` — so every
+   * caller that can pass `true` here has already seen `export opaque`.
+   */
+  #takeVarianceSigil(
+    opaque: boolean,
+  ): { readonly claim: "co" | "contra"; readonly span: Source.Span } | undefined {
+    if (!this.#at("Plus") && !this.#at("Minus")) return undefined;
+    const claim = this.#at("Plus") ? "co" : "contra";
+    const token = this.#advance();
+    if (opaque) return { claim, span: token.span };
+    // Declarations Preamble §2.1's normative text, verbatim. A second exit —
+    // "or declare this type `export opaque`" — reads helpful and is not: it
+    // invites an author to change what a type *is* to satisfy a sigil they had
+    // no reason to write, and the Preamble already named the rewrite.
+    this.#errorAt(
+      token.span,
+      `variance is inferred for transparent types; remove the \`${claim === "co" ? "+" : "-"}\``,
+    );
+    return undefined;
+  }
+
+  /**
+   * A sigil written at a *use* site. Variance is a property of the constructor,
+   * fixed once at its declaration; it is not part of any type expression, so
+   * there is no "dropping" a sigil at an annotation — no annotation ever carries
+   * one (closure doc §5.4).
+   *
+   * Called from one place: a constructor's argument list. That is the only
+   * position where a sigil is close enough to legal to be worth a bespoke
+   * message — elsewhere (`+` before a bare type name, say) `+` is an operator
+   * token and the ordinary expected-a-type diagnostic already fires.
+   *
+   * The message names one rewrite and shows no corrected spelling. It used to
+   * append ``write `Box(Int)` ``, built from the token after the sigil, which is
+   * the whole argument list only at arity 1: `Pair(+Int, String)` was told to
+   * write `Pair(Int)`, and three of the four shapes the 2026-08-01 cold review
+   * tried produced a fresh error when applied. Declarations Preamble §2.1 struck
+   * the clause (closure doc §13.5) rather than have the parser re-print an
+   * argument list it holds only as kind-tagged tokens: with the caret on the
+   * sigil, "remove the `+`" is already an exact single-token edit, correct at
+   * every arity and nesting depth.
+   */
+  #rejectVarianceSigilAtUse(): void {
+    if (!this.#at("Plus") && !this.#at("Minus")) return;
+    const sigil = this.#at("Plus") ? "+" : "-";
+    // Declarations Preamble §2.1's diagnostics row, verbatim.
+    this.#errorAt(
+      this.#advance().span,
+      `remove the \`${sigil}\` — variance is declared on the type's declaration, ` +
+        "never written at a use site",
+    );
+  }
+
+  /**
+   * The same, where no declaration form admits a sigil at all (`type`). One
+   * message for all three forms, as Declarations Preamble §2.1 writes it: an
+   * alias is transparent by definition, so the reason is the reason given.
+   */
+  #rejectVarianceSigil(): void {
+    if (!this.#at("Plus") && !this.#at("Minus")) return;
+    const sigil = this.#at("Plus") ? "+" : "-";
+    this.#errorAt(
+      this.#advance().span,
+      `variance is inferred for transparent types; remove the \`${sigil}\``,
+    );
+  }
+
   #parseTypeAlias(exported: boolean, itemStart?: Source.Span): Parsed.Item {
     const start = this.#advance();
     const nameToken = this.#takeName("UpperName", "`type` requires an uppercase type name");
@@ -1066,6 +1149,7 @@ class Parser {
       this.#advance();
       const seen = new Set<string>();
       while (!this.#at("RightParen") && !this.#at("Eof")) {
+        this.#rejectVarianceSigil();
         const token = this.#takeName("NonUpperName", "alias parameters must be non-uppercase-start names");
         if (token === undefined) break;
         const parameter = parsedName(token);
@@ -1105,10 +1189,12 @@ class Parser {
       return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
     }
     const parameters: Parsed.Name[] = [];
+    const declaredParameters: Parsed.DeclaredTypeParameter[] = [];
     if (this.#at("LeftParen")) {
       this.#advance();
       const seen = new Set<string>();
       while (!this.#at("RightParen") && !this.#at("Eof")) {
+        const sigil = this.#takeVarianceSigil(opaque);
         const parameter = this.#takeName(
           "NonUpperName",
           "union type parameters must be non-uppercase-start names",
@@ -1120,6 +1206,11 @@ class Parser {
         }
         seen.add(name.text);
         parameters.push(name);
+        declaredParameters.push({
+          name: name.text,
+          ...(sigil === undefined ? {} : { claim: sigil.claim }),
+          span: sigil === undefined ? name.span : spanFrom(sigil.span, name.span),
+        });
         if (!this.#at("Comma")) break;
         this.#advance();
       }
@@ -1208,6 +1299,7 @@ class Parser {
       opaque,
       name: parsedName(nameToken),
       parameters,
+      declaredParameters,
       derives,
       constructors,
       span: spanFrom(
@@ -1225,16 +1317,23 @@ class Parser {
       return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
     }
     const parameters: Parsed.Name[] = [];
+    const declaredParameters: Parsed.DeclaredTypeParameter[] = [];
     if (this.#at("LeftParen")) {
       this.#advance();
       const seen = new Set<string>();
       while (!this.#at("RightParen") && !this.#at("Eof")) {
+        const sigil = this.#takeVarianceSigil(opaque);
         const parameter = this.#takeName("NonUpperName", "record type parameters must be non-uppercase-start names");
         if (parameter === undefined) break;
         const name = parsedName(parameter);
         if (seen.has(name.text)) this.#errorAt(name.span, `duplicate type parameter \`${name.text}\``);
         seen.add(name.text);
         parameters.push(name);
+        declaredParameters.push({
+          name: name.text,
+          ...(sigil === undefined ? {} : { claim: sigil.claim }),
+          span: sigil === undefined ? name.span : spanFrom(sigil.span, name.span),
+        });
         if (!this.#at("Comma")) break;
         this.#advance();
       }
@@ -1272,6 +1371,7 @@ class Parser {
       opaque,
       name: parsedName(nameToken),
       parameters,
+      declaredParameters,
       derives,
       fields,
       span: spanFrom(
@@ -2698,6 +2798,7 @@ class Parser {
       this.#advance();
       const arguments_: Parsed.TypeAnnotation[] = [];
       while (!this.#at("RightParen") && !this.#at("Eof")) {
+        this.#rejectVarianceSigilAtUse();
         const argument = this.#parseTypeAnnotation();
         if (argument === undefined) return undefined;
         arguments_.push(argument);

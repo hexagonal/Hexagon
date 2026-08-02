@@ -14,9 +14,20 @@ import { compileProject, Source } from "../index";
  * different types — and, at constrained types, with two different evidence
  * dictionaries.
  *
- * `shared` below is a function *call*, so the value restriction denies it
- * generalization (Functions §8). Reading it through an intermediary must not
- * launder that away, whichever keyword declares the intermediary.
+ * `shared` below is a function *call* whose result type is a bare `a -> a`, so
+ * item 7's clause (b) declines it: the variable occurs in argument position, and
+ * the binding holds one function of one type. Reading it through an intermediary
+ * must not launder that away, whichever keyword declares the intermediary.
+ *
+ * **The specimen changed on 2026-08-01, and the reason is the point of the file.**
+ * It used to be `let shared = makeEmpty()` — declined then because the value
+ * restriction was all-or-nothing, and #205's Step 2 makes that exact program the
+ * ruling's headline *acceptance* (closure doc §4.4: unconstrained, covariant-only,
+ * level-admitted). Left alone, these four tests would have gone on passing while
+ * asserting a rule the corpus had dropped, held up by nothing but the capture path
+ * declining to consult item 7 at all. Defect 7's invariant is untouched and still
+ * exactly what is tested here — a placeholder must never be quantified into a
+ * sibling's scheme. What changed is which bindings are placeholders.
  */
 
 function diagnostics(source: string): readonly string[] {
@@ -25,12 +36,12 @@ function diagnostics(source: string): readonly string[] {
 }
 
 const PRELUDE =
-  "let makeEmpty() = []\n" +
-  "let shared = makeEmpty()\n";
+  "fun makeIdentity<a>(): (a) -> a = value => value\n" +
+  "let shared = makeIdentity()\n";
 
 const CONSUMERS =
-  "export fun useInt(values: Vector(Int)): Bool = reuse() == values\n" +
-  "export fun useText(values: Vector(String)): Bool = reuse() == values\n";
+  "export fun useInt(n: Int): Int = reuse()(n)\n" +
+  "export fun useText(s: String): String = reuse()(s)\n";
 
 describe("a sequential placeholder is never quantified by a sibling", () => {
   test("through a captured `let` intermediary", () => {
@@ -38,7 +49,7 @@ describe("a sequential placeholder is never quantified by a sibling", () => {
   });
 
   test("through an annotated `fun` intermediary", () => {
-    expect(diagnostics(PRELUDE + "fun reuse(): Vector(a) = shared\n" + CONSUMERS)).not.toEqual([]);
+    expect(diagnostics(PRELUDE + "fun reuse(): (a) -> a = shared\n" + CONSUMERS)).not.toEqual([]);
   });
 
   test("through an unannotated `fun` intermediary", () => {
@@ -48,9 +59,30 @@ describe("a sequential placeholder is never quantified by a sibling", () => {
   test("direct consumption is rejected too (the unlaundered baseline)", () => {
     expect(diagnostics(
       PRELUDE +
-      "export fun useInt(values: Vector(Int)): Bool = shared == values\n" +
-      "export fun useText(values: Vector(String)): Bool = shared == values\n",
+      "export fun useInt(n: Int): Int = shared(n)\n" +
+      "export fun useText(s: String): String = shared(s)\n",
     )).not.toEqual([]);
+  });
+
+  test("capture does not change the answer, in either direction", () => {
+    // The property the old specimen was quietly testing the negative of. Item 7
+    // asks its clauses per variable and gets one answer; whether some function
+    // happens to mention the binding is not an input to it. Both halves matter:
+    // the declined one must not be laundered *into* generalization, and the
+    // granted one must not be laundered out of it.
+    const declined = "fun makeIdentity<a>(): (a) -> a = value => value\n" +
+      "let shared = makeIdentity()\n" +
+      "export let n: Int = shared(1)\n" +
+      'export let s: String = shared("x")\n';
+    expect(diagnostics(declined)).not.toEqual([]);
+    expect(diagnostics(declined + "fun capture(): Int = shared(0)\n")).not.toEqual([]);
+
+    const granted = "fun makeEmpty<a>(): Vector(a) = []\n" +
+      "let shared = makeEmpty()\n" +
+      "export let n: Vector(Int) = shared\n" +
+      "export let s: Vector(String) = shared\n";
+    expect(diagnostics(granted)).toEqual([]);
+    expect(diagnostics(granted + "fun capture(): Int = Vector.size(shared)\n")).toEqual([]);
   });
 });
 

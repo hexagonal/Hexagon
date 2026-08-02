@@ -1246,6 +1246,7 @@ class Resolver {
           id: union,
           name: item.name.text,
           parameters: item.parameters.map(({ text }) => text),
+          declaredParameters: item.declaredParameters,
           derives: item.derives.map(({ text }) => text),
           opaque: item.opaque,
           representationVisible: true,
@@ -1260,6 +1261,7 @@ class Resolver {
           union,
           name: item.name.text,
           parameters: item.parameters.map(({ text }) => text),
+          declaredParameters: item.declaredParameters,
           derives: item.derives.map(({ text }) => text),
           constructors,
           span: item.span,
@@ -1281,6 +1283,7 @@ class Resolver {
           id: record,
           name: item.name.text,
           parameters: item.parameters.map(({ text }) => text),
+          declaredParameters: item.declaredParameters,
           derives: item.derives.map(({ text }) => text),
           opaque: item.opaque,
           representationVisible: true,
@@ -1296,6 +1299,7 @@ class Resolver {
           record,
           name: item.name.text,
           parameters: declaration.parameters,
+          declaredParameters: item.declaredParameters,
           derives: declaration.derives,
           constructor,
           fields,
@@ -2527,11 +2531,61 @@ class Resolver {
   }
 
   #checkFunctionAvailability(items: readonly Resolved.Item[]): void {
+    // The sequential bindings this item list introduces.
+    const sequential = new Set<Resolved.SymbolId>();
+    for (const item of items) {
+      if (item.kind === "Let" || item.kind === "Var") sequential.add(item.binding.symbol);
+      if (item.kind === "LetPattern") {
+        for (const binding of resolvedPatternBindings(item.pattern)) {
+          sequential.add(binding.symbol);
+        }
+      }
+    }
+    // A `fun` body that names one of them has captured it, whichever side of
+    // the `fun` the binding was written on. `#funCaptures` alone cannot say
+    // that: it is fed from the *future*-sequential lookup, which ordinary scope
+    // resolution never reaches for a binding already in scope, so it records
+    // forward references only. That made this guard order-sensitive, and
+    //
+    //     let a = f()
+    //     fun f() = a
+    //
+    // compiled with no diagnostic while the same two lines swapped reported
+    // properly — `f` hoists in the emitted JavaScript and `a` does not, so the
+    // module threw `ReferenceError` on load. Reading the resolved bodies makes
+    // the two orders the same cycle.
+    //
+    // Restricting to `sequential` keeps a body's own parameters, inner `let`s and
+    // pattern binders out of the set — they are different symbols. It does **not**
+    // make the guard exact, and an earlier version of this comment claimed it did.
+    // The check counts a name mentioned anywhere in the body, a lambda that is
+    // never invoked included, so
+    //
+    //     let a = f()
+    //     fun f(): Int =
+    //         let k = () => a
+    //         1
+    //
+    // is rejected although it runs. `main` already rejected the mirror image of
+    // that program, so this is the existing conservatism made order-insensitive
+    // rather than a new rule — but it is over-approximate in both directions now,
+    // and that is a deliberate choice, not a property of the intersection.
+    // Narrowing it would mean deciding which mentions are reachable at call time,
+    // which `(() => a)()` shows is not a syntactic question.
+    const captured = new Map<Resolved.SymbolId, Set<Resolved.SymbolId>>();
+    for (const item of items) {
+      if (item.kind !== "Fun") continue;
+      const captures = new Set(this.#funCaptures.get(item.binding.symbol) ?? []);
+      for (const reference of expressionNames(item.value.body)) {
+        if (sequential.has(reference.symbol)) captures.add(reference.symbol);
+      }
+      captured.set(item.binding.symbol, captures);
+    }
     const required = (symbol: Resolved.SymbolId, visiting = new Set<Resolved.SymbolId>()): Set<Resolved.SymbolId> => {
       if (visiting.has(symbol)) return new Set();
       const next = new Set(visiting);
       next.add(symbol);
-      const captures = new Set(this.#funCaptures.get(symbol) ?? []);
+      const captures = new Set(captured.get(symbol) ?? this.#funCaptures.get(symbol) ?? []);
       for (const dependency of this.#funDependencies.get(symbol) ?? []) {
         for (const capture of required(dependency, next)) captures.add(capture);
       }
@@ -2716,6 +2770,15 @@ function itemNameReferences(item: Resolved.Item): readonly Resolved.NameExpr[] {
   if (item.kind === "Let" || item.kind === "Var" || item.kind === "LetPattern") return expressionNames(item.value);
   if (item.kind === "ExprItem") return expressionNames(item.expression);
   if (item.kind === "Honor") return item.members.flatMap((member) => expressionNames(member.value.body));
+  // A `fun` nested in a block is walked too. Both callers are
+  // `#checkFunctionAvailability`, and skipping these left it blind to a `fun`
+  // whose *inner* `fun` names the binding: `let a = f()` above a `f` whose body
+  // declares `fun inner() = a` reported nothing and threw `ReferenceError` on
+  // load, while the same program with `f` written first reported properly —
+  // which is the order-sensitivity the guard was repaired to remove. Module-level
+  // `fun`s are unaffected: the caller at the module level skips them and reaches
+  // them through `#funDependencies` instead.
+  if (item.kind === "Fun") return expressionNames(item.value.body);
   return [];
 }
 

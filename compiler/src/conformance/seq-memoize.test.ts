@@ -382,3 +382,86 @@ describe("the door's emission (spec/intrinsics.md §8)", () => {
     );
   });
 });
+
+/**
+ * Closure doc `decisions-ml-dialect-generalization-2026-08.md` §7 and §11.1
+ * (viii): the intrinsic parametricity obligation, for the one entry the v1
+ * inventory holds.
+ *
+ * `intrinsics.md` §4.2's commitment is that a generic intrinsic "may move,
+ * store, and return values at its type parameters; it must never fabricate
+ * them, coerce them, or inspect them by type." That obligation is the entire
+ * warrant for `Seq(+a)` being semantically true of `memoize` — a stateful,
+ * generic, covariant-result intrinsic is the sharpest case there is, and Step
+ * 2's soundness leans on it directly (Functions §8.7's third leg).
+ *
+ * The closure doc declined to *assert* that the lowering satisfies it, routing
+ * the question here instead. These tests are that route. The observable is
+ * **object identity**: elements are nominal records, which emit as JavaScript
+ * objects, so an element the spine fabricated or copied is one `===` cannot
+ * confuse with the element that went in.
+ */
+describe("§7: `memoize` moves values, and does nothing else to them", () => {
+  test("every element out of the memoized spine is the element that went in", async () => {
+    const exports = await run(
+      [["/main.hex",
+        "export record Cell = {tag: Int}\n" +
+        "export let one: Cell = Cell({tag = 1})\n" +
+        "export let two: Cell = Cell({tag = 2})\n" +
+        "export let three: Cell = Cell({tag = 3})\n" +
+        "let source: Seq(Cell) = Seq.cons(one, Seq.cons(two, Seq.cons(three, Seq.empty)))\n" +
+        "let memoized: Seq(Cell) = Seq.memoize(source)\n" +
+        "export let first: Vector(Cell) = Vector.fromSeq(memoized)\n" +
+        "export let second: Vector(Cell) = Vector.fromSeq(memoized)\n"]],
+    );
+    const originals = [exports["one"], exports["two"], exports["three"]];
+    const first = exports["first"] as readonly unknown[];
+    const second = exports["second"] as readonly unknown[];
+    // Nothing fabricated: the counts match, so no element appeared from nowhere
+    // and none was dropped.
+    expect(first.length).toBe(3);
+    expect(second.length).toBe(3);
+    // Nothing copied or coerced: identity, not equality. A spine that rebuilt
+    // its elements — or that reached inside one — would pass a structural
+    // comparison and fail here.
+    for (const [index, original] of originals.entries()) {
+      expect(first[index]).toBe(original);
+      expect(second[index]).toBe(original);
+    }
+  });
+
+  test("the second traversal replays the same objects, not equal ones", async () => {
+    // The memoizing spine is the only thing between the two traversals, so this
+    // is the assertion that its *store* holds pulled values rather than
+    // reconstructions of them.
+    const exports = await run(
+      [["/main.hex",
+        "export record Cell = {tag: Int}\n" +
+        "let source: Seq(Cell) = Seq.cons(Cell({tag = 1}), Seq.cons(Cell({tag = 2}), Seq.empty))\n" +
+        "let memoized: Seq(Cell) = Seq.memoize(source)\n" +
+        "export let first: Vector(Cell) = Vector.fromSeq(memoized)\n" +
+        "export let second: Vector(Cell) = Vector.fromSeq(memoized)\n"]],
+    );
+    const first = exports["first"] as readonly unknown[];
+    const second = exports["second"] as readonly unknown[];
+    expect(first.length).toBe(2);
+    expect(second.length).toBe(2);
+    expect(second[0]).toBe(first[0]);
+    expect(second[1]).toBe(first[1]);
+  });
+
+  test("nothing is inspected by type: a function element survives unchanged", async () => {
+    // The element type here is one an intrinsic could not meaningfully examine
+    // even if it tried, and the spine must be as indifferent to it as to a
+    // record. Applying the elements afterwards is what proves they arrived
+    // whole rather than as something that merely printed the same.
+    const exports = await run(
+      [["/main.hex",
+        "let source: Seq(Int -> Int) = Seq.cons(x => x + 1, Seq.cons(x => x * 2, Seq.empty))\n" +
+        "let memoized: Seq(Int -> Int) = Seq.memoize(source)\n" +
+        "let applied: Seq(Int) = Seq.map(memoized, f => f(10))\n" +
+        "export let results: Vector(Int) = Vector.fromSeq(applied)\n"]],
+    );
+    expect(exports["results"]).toEqual([11, 20]);
+  });
+});

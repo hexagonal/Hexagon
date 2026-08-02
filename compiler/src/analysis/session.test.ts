@@ -996,3 +996,40 @@ describe("AnalysisSession.rename", () => {
     expect(session.diagnostics("/main.hex")).toEqual([]);
   });
 });
+
+describe("hover: a parameterized opaque type's variance (#205)", () => {
+  test("shows the declared claim and what the representation supports", () => {
+    const source = "export opaque record Box(+a) = { get: () -> a }\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    const hover = session.hover("/main.hex", at(source, "+a"));
+    expect(hover?.name).toBe("a");
+    expect(hover?.documentation).toContain("**Declared:** covariant");
+    expect(hover?.documentation).toContain("**Representation:** covariant");
+  });
+
+  test("a bare parameter says so, and says what it costs", () => {
+    // The empty claim is a claim, and the two lines together are the whole
+    // teaching surface: this is what you wrote, this is what you could write.
+    const source = "export opaque record Box(a) = { get: () -> a }\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    const hover = session.hover("/main.hex", at(source, "a) = {"));
+    expect(hover?.documentation).toContain("no claim (bare, so invariant outside this module)");
+    expect(hover?.documentation).toContain("**Representation:** covariant");
+  });
+
+  test("a parameter the representation never mentions reads as unused", () => {
+    const source = "export opaque record Tag(a) = { name: String }\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.hover("/main.hex", at(source, "a) = {"))?.documentation)
+      .toContain("unused");
+  });
+
+  test("a transparent declaration's parameter is not a variance site", () => {
+    // Variance is inferred there and nothing is declared, so there are no two
+    // facts to hold apart.
+    const source = "record Box(a) = { get: () -> a }\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.hover("/main.hex", at(source, "a) = {"))?.documentation)
+      .toBeUndefined();
+  });
+});

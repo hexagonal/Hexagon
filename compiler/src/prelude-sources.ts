@@ -27,7 +27,7 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "    combinator computes nothing; each element is produced on demand by `next`,\n"
     + "    and produced again on every later traversal unless the sequence is\n"
     + "    `memoize`d. *)\n"
-    + "export opaque record Seq(a) = { pull: () -> Option((a, Seq(a))) }\n"
+    + "export opaque record Seq(+a) = { pull: () -> Option((a, Seq(a))) }\n"
     + "\n"
     + "extern from \"hex:intrinsic\"\n"
     + "    (** Computes each element of `source` at most once however often the result\n"

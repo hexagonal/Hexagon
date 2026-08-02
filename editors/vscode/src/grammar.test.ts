@@ -324,6 +324,25 @@ describe("type variables are nominal-coloured in type positions", () => {
     ]);
   });
 
+  it("paints a variance sigil with the parameter it claims (#205)", async () => {
+    const pairs = await scopePairs(
+      "export opaque record Registry(k, +v) = {get: k -> Option(v)}",
+    );
+    expect(pairs.filter(([text]) => ["k", "v", "+"].includes(text))).toEqual([
+      ["k", "entity.name.type.parameter.hexagon"],
+      ["+", "storage.modifier.variance.hexagon"],
+      ["v", "entity.name.type.parameter.hexagon"],
+      ["k", "entity.name.type.parameter.hexagon"],
+      ["v", "entity.name.type.parameter.hexagon"],
+    ]);
+  });
+
+  it("paints a contravariant sigil the same way", async () => {
+    expect(await scope("export opaque record Sink(-a) = {accept: a -> Unit}", "-")).toBe(
+      "storage.modifier.variance.hexagon",
+    );
+  });
+
   it("recognizes parameters and uses throughout a type alias", async () => {
     const pairs = await scopePairs("type Handler(a) = a -> Option(a)");
     expect(pairs.filter(([text]) => text === "a")).toEqual([

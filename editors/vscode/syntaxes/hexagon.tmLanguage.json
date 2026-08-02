@@ -476,6 +476,24 @@
       "patterns": [
         { "include": "#comments" },
         {
+          "//": [
+            "A variance sigil and the parameter it decorates (spec/declarations-preamble.md",
+            "§2.1, #205): `+a` covariant, `-a` contravariant. Matched as one rule so the",
+            "claim paints as one thing, and ahead of the bare-parameter rule below, which",
+            "would otherwise take the name and leave the sigil unstyled.",
+            "",
+            "The grammar does not check that the declaration is `export opaque`, where the",
+            "sigil is the only legal spelling. A grammar colours what is written; hexc is",
+            "what refuses a sigil on a transparent declaration, and source being repaired",
+            "after that error should still read as what the author meant."
+          ],
+          "match": "([+-])[ \\t]*((?![\\p{Uppercase}\\p{Lt}])[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)",
+          "captures": {
+            "1": { "name": "storage.modifier.variance.hexagon" },
+            "2": { "name": "entity.name.type.parameter.hexagon" }
+          }
+        },
+        {
           "name": "entity.name.type.parameter.hexagon",
           "match": "(?![\\p{Uppercase}\\p{Lt}])[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*"
         },

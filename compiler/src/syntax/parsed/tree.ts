@@ -144,12 +144,29 @@ export interface TypeAliasItem {
   readonly span: Source.Span;
 }
 
+/**
+ * A type parameter as written in a declaration head, sigil included
+ * (Declarations Preamble §2.1, Modules §4.2.1; closure doc
+ * `decisions-ml-dialect-generalization-2026-08.md` §6.1).
+ *
+ * `claim` is absent for a bare parameter, and absent is the *empty claim* —
+ * invariant. The two spellings must not both exist, or a reader has to ask
+ * which one means what (§6.2).
+ */
+export interface DeclaredTypeParameter {
+  readonly name: string;
+  readonly claim?: "co" | "contra";
+  /** The parameter as written, sigil included, for a report or an edit. */
+  readonly span: Source.Span;
+}
+
 export interface UnionItem {
   readonly kind: "Union";
   readonly exported: boolean;
   readonly opaque: boolean;
   readonly name: Name;
   readonly parameters: readonly Name[];
+  readonly declaredParameters: readonly DeclaredTypeParameter[];
   readonly derives: readonly Name[];
   readonly constructors: readonly Constructor[];
   readonly span: Source.Span;
@@ -161,6 +178,7 @@ export interface RecordItem {
   readonly opaque: boolean;
   readonly name: Name;
   readonly parameters: readonly Name[];
+  readonly declaredParameters: readonly DeclaredTypeParameter[];
   readonly derives: readonly Name[];
   readonly fields: readonly RecordTypeField[];
   readonly span: Source.Span;

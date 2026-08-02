@@ -142,18 +142,34 @@ describe("a captured `let` keeps its generalization", () => {
 });
 
 describe("what must stay monomorphic still does", () => {
-  test("a captured non-value `let` still does NOT generalize", () => {
-    // `makeEmpty()` is a function *call*, so the value restriction denies
-    // generalization (Functions §8). `shared` must therefore pin to one element
-    // type, and the second use must fail. This is the guard that the promotion
-    // above did not quietly generalize everything.
+  test("a captured `let` item 7 declines still does NOT generalize", () => {
+    // The guard that promotion did not quietly generalize everything. It used to
+    // read `let shared = makeEmpty()` and cite the value restriction; #205's
+    // Step 2 made that program generalize on purpose (closure doc §4.4), so the
+    // specimen moved to one item 7 still declines — `a` occurs in argument
+    // position, clause (b). `shared` holds one function of one type, the first
+    // use pins it, and the second must fail.
     const messages = diagnostics(
-      "let makeEmpty() = []\n" +
-      "let shared = makeEmpty()\n" +
-      "export fun useInt(values: Vector(Int)): Bool = shared == values\n" +
-      "export fun useText(values: Vector(String)): Bool = shared == values\n",
+      "fun makeIdentity<a>(): (a) -> a = value => value\n" +
+      "let shared = makeIdentity()\n" +
+      "export fun useInt(n: Int): Int = shared(n)\n" +
+      "export fun useText(s: String): String = shared(s)\n",
     );
     expect(messages).not.toEqual([]);
+  });
+
+  test("a captured expansive `let` generalizes what item 7 grants", () => {
+    // The other half, and the reason the specimen above had to move: promotion
+    // now covers expansive bindings, so the ruling's headline example keeps its
+    // answer when a function mentions it.
+    expect(diagnostics(
+      "fun makeEmpty<a>(): Vector(a) = []\n" +
+      "let shared = makeEmpty()\n" +
+      "fun capture(): Int = Vector.size(shared)\n" +
+      "export let counts: Vector(Int) = shared\n" +
+      "export let labels: Vector(String) = shared\n" +
+      "export let size: Int = capture()\n",
+    )).toEqual([]);
   });
 
   test("promotion applies inside a function body too, not just at module level", () => {

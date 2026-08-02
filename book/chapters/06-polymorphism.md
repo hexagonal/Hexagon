@@ -94,37 +94,99 @@ This restriction keeps ordinary function parameters simple and predictable. A ca
 may pass an `Int` function or a `String` function, but not one magical parameter whose
 type changes from line to line inside the same call.
 
-## Calls do not automatically create reusable polymorphic values
+## Naming a value keeps it reusable
 
-The name *let-polymorphism* can be misleading here. Using `let` is necessary for
-polymorphic generalization, but it is not sufficient: the initializer must also be a
-value. Merely storing the result of a computation in a `let` binding does not make that
-result polymorphic.
-
-Hexagon applies the **value restriction**: a `let` binding is generalized only when
-its right-hand side is visibly a value rather than a computation that must run.
+Reuse survives being given a name. A `let` whose right-hand side is a **value** — a
+lambda, a literal, a constructor applied to values, a record or tuple of values, or a
+plain reference to something already bound — stays as polymorphic as what it names.
 
 ```hexagon
-let makeIdentity() = x => x
+let nothing = Seq.empty
+
+let numbers = Seq.cons(42, nothing)
+let words = Seq.cons("Briar", nothing)
+```
+
+`Seq.empty` is a reference to something already bound, so the right-hand side is a
+value and the two lines below it are independent. This is a program worth being
+explicit about, because it is the first one many people write and the first place a
+language can quietly refuse: naming the empty sequence costs nothing.
+
+The rule that decides this is the **value restriction**: a right-hand side that is
+visibly a value is generalized in full. A right-hand side that must *run* — a call,
+a `match`, an `if`, a multi-statement block — has already produced one particular
+value by the time the binding exists, and full generalization is withheld from it.
+
+## A computation is generalized in the parts nothing could have filled
+
+Withheld *in full*, not withheld entirely. A computed right-hand side is examined one
+type variable at a time, and a variable is still reusable when nothing in the value
+could be holding one:
+
+```hexagon
+fun makeEmpty<a>(): Vector(a) = []
+
+let blank = makeEmpty()
+
+let counts: Vector(Int) = blank.append(1)
+let labels: Vector(String) = blank.append("one")
+```
+
+`makeEmpty()` is a call, so `blank` is not a value. It is reusable anyway, because a
+`Vector(a)` produced by a function that was told nothing about `a` cannot contain an
+`a`: there was nothing for it to put in. Handing that same empty vector out at `Int`
+and at `String` is safe because there is no element either use could disagree about.
+
+Two things stop a variable from being reused, and both have the same shape — the value
+might already hold something at that type, or might demand one.
+
+**A variable the value could consume.** A function type has two sides, and the argument
+side is the one that takes something in:
+
+```hexagon
+fun makeIdentity<a>(): (a -> a) = x => x
 
 let generatedIdentity = makeIdentity()
 let number = generatedIdentity(1)
-let word = generatedIdentity("hello") // error
+let word = generatedIdentity("hello")
 ```
 
-The definition of `makeIdentity` is a function value, so that binding can be
-generalized. By contrast, `makeIdentity()` is a call, even though its result happens to
-be a function. The binding `generatedIdentity` is therefore monomorphic: its first use
-fixes it for `Int`, and the later `String` call conflicts.
+`a` appears as `generatedIdentity`'s argument as well as its result, so it is not the
+kind of variable that can be given away freely. The binding holds one function of one
+type, a use fixes which, and the two calls above cannot both hold — so the pair is
+rejected.
 
-Why retain this boundary? Function calls may eventually cross into effects or foreign
-state. Generalizing every computed result would make mutation and interoperation
-unsound in ways that are difficult to see at the call site. Hexagon adopts one stable
-rule rather than changing the meaning later when effects enter the program.
+**A variable with a capability attached.** A constrained variable stands for a type
+that carries operations, and those operations are chosen once, when the right-hand
+side runs:
 
-The usual response is not a type-system trick. Call the producer where the intended
-type is known, add a concrete annotation, or keep the reusable behavior behind a
-lambda.
+```hexagon
+fun double<a: Num>(value: a): a = value + value
+
+let doubled = double(42)
+```
+
+`doubled` is one number, computed once, with one set of arithmetic operations already
+selected. Reusing it at another numeric type would mean reusing a result that was
+computed with the wrong ones — `Int` and `BigInt` do not overflow alike. So a
+constrained variable is never reused at a computed binding; `doubled` settles on a
+single numeric type, here the `Int` that unconstrained whole numbers default to.
+
+That second rule is the whole reason the value restriction exists in Hexagon. It is
+not, as it is in some languages, a guard against mutation: Hexagon has no mutable
+cells to smuggle a value through, and no foreign function may return a type with a
+variable in it. What it protects is the promise that a binding's right-hand side runs
+exactly once.
+
+When a variable does get fixed, the response is not a type-system trick. Call the
+producer where the intended type is known, add a concrete annotation, or keep the
+reusable behavior behind a lambda.
+
+The first of the two rules — whether a value could be holding an `a`, or could take
+one — is a question about a type's **variance**. Where a type's definition is public,
+the compiler answers that question by reading the definition. A type that hides its
+definition has to declare the answer instead, and that is what the `+a` and `-a` of
+the modules chapter are for.
 
 ## Bare whole numbers default to `Int`
 
@@ -211,10 +273,13 @@ the JavaScript boundary.
 ## Summary
 
 - inference discovers required type relationships and rejects contradictions;
-- `let` is necessary but not sufficient for generalization: its initializer must also
-  be a value;
+- a `let` whose initializer is a value — a lambda, a literal, a constructor
+  application, a record or tuple of values, or a reference to something already
+  bound — is as reusable as what it names;
 - a lambda parameter has one type within each call;
-- computed right-hand sides are limited by the value restriction;
+- a computed initializer is still reusable in the parts nothing could have filled: a
+  variable is fixed when the value could consume it, or when it carries a capability
+  that was chosen while the initializer ran;
 - unconstrained whole-number literals default to `Int`;
 - annotations document, resolve, or deliberately narrow inferred types; and
 - recursive calls within one `fun` group keep one consistent type.

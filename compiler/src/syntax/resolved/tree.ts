@@ -544,10 +544,28 @@ export interface TypeAliasItem {
   readonly span: Source.Span;
 }
 
+/**
+ * A type parameter as written in a declaration head, sigil included (Modules
+ * §4.2.1, Declarations Preamble §2.1). Index-aligned with `parameters`, which
+ * stays the identity list every other pass reads.
+ *
+ * Carried on the declaration itself, not in a side table, so an imported
+ * declaration brings its claims with it: every consumer reads the *declared*
+ * claim, home module included (closure doc §6.4), and a copy that lost the row
+ * would silently read as the empty claim. Absent entirely on the synthesized
+ * declarations that have no written head.
+ */
+export interface DeclaredTypeParameter {
+  readonly name: string;
+  readonly claim?: "co" | "contra";
+  readonly span: Source.Span;
+}
+
 export interface Union {
   readonly id: UnionId;
   readonly name: string;
   readonly parameters: readonly string[];
+  readonly declaredParameters?: readonly DeclaredTypeParameter[];
   readonly derives: readonly string[];
   readonly opaque: boolean;
   readonly representationVisible: boolean;
@@ -574,6 +592,7 @@ export interface UnionItem {
   readonly union: UnionId;
   readonly name: string;
   readonly parameters: readonly string[];
+  readonly declaredParameters?: readonly DeclaredTypeParameter[];
   readonly derives: readonly string[];
   readonly constructors: readonly Constructor[];
   readonly span: Source.Span;
@@ -583,6 +602,7 @@ export interface RecordDeclaration {
   readonly id: RecordId;
   readonly name: string;
   readonly parameters: readonly string[];
+  readonly declaredParameters?: readonly DeclaredTypeParameter[];
   readonly derives: readonly string[];
   readonly opaque: boolean;
   readonly representationVisible: boolean;
@@ -598,6 +618,7 @@ export interface RecordItem {
   readonly record: RecordId;
   readonly name: string;
   readonly parameters: readonly string[];
+  readonly declaredParameters?: readonly DeclaredTypeParameter[];
   readonly derives: readonly string[];
   readonly constructor: Binding;
   readonly fields: readonly RecordTypeField[];

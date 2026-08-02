@@ -190,6 +190,19 @@ function preludeIds(module: Core.Module): PreludeIds {
 
 class JavaScriptEmitter {
   readonly #diagnostics = new Diagnostics.Bag();
+  /**
+   * Whether the module reached emission already carrying checker errors.
+   *
+   * Closure doc §13.6 scopes the evidence guarantee to modules the checker
+   * accepts: on a **clean** module no value reaches here needing evidence at a
+   * non-function type, so the branches below are conformance assertions. On an
+   * **already-diagnosed** module they stay reachable — `let g = Some(describe)`
+   * unused is the standing example, and it behaves this way on `main` too — and
+   * there the emitter must stay quiet and emit best-effort. A second report of
+   * the same unsolved variable, phrased as an internal failure, is the
+   * Preamble §1.1 violation the ruling named.
+   */
+  readonly #alreadyDiagnosed: boolean;
   readonly #symbols = new Map<Resolved.SymbolId, Core.Symbol>();
   readonly #constructors = new Map<
     Resolved.SymbolId,
@@ -232,6 +245,9 @@ class JavaScriptEmitter {
         if (name.symbol !== undefined) this.#importLocals.set(name.symbol, name.local);
       }
     }
+    this.#alreadyDiagnosed = module.diagnostics.some(
+      ({ severity }) => severity === "error",
+    );
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
     for (const symbol of module.symbols) this.#symbols.set(symbol.id, symbol);
     for (const union of module.unions) {
@@ -619,7 +635,29 @@ class JavaScriptEmitter {
     }
 
     if (item.kind === "LetPattern") {
-      const value = this.#emitExpr(item.value, depth, evidenceNames);
+      // `bindingRhs` is the *binding-position* question Constraints §6.1 and
+      // closure doc §13.3 ask, and a `LetPattern` can be a binding position too:
+      // `let (g) = describe` reads through to a bare binder, so `g` names the
+      // whole right-hand side and the checker keeps the evidence seat and
+      // generalizes. Passing `false` here — as this call did until review round 5
+      // — made the emitter eta-expand a *generalized* constrained alias, building
+      // a wrapper of the unsuffixed arity while every consumer appended the
+      // suffix: `const g = __hex_arg00 => describe(__hex_arg00, undefined)` with
+      // `g("x", dict)` at the use. The dropped dictionary this file's §6.1 note
+      // exists to prevent, on a program `main` compiles and runs.
+      //
+      // Destructuring patterns are excluded because there the checker declines
+      // the seat (§13.6), so the alias is never generalized and the eta-expansion
+      // at the concrete instance is correct. The gate's own condition —
+      // every evidence entry an *unresolved* dictionary — is the second guard:
+      // a pattern that reads through but whose reference discharged its evidence
+      // never takes the bare branch anyway.
+      const value = this.#emitExpr(
+        item.value,
+        depth,
+        evidenceNames,
+        patternNamesWholeValue(item.pattern),
+      );
       const alternatives = expandOrPatterns(item.pattern);
       if (alternatives.length > 1) {
         const bindings = patternBindings(item.pattern);
@@ -913,7 +951,7 @@ class JavaScriptEmitter {
     evidenceNames: EvidenceNames,
   ): string {
     if (item.value.kind !== "Lambda") {
-      return this.#emitExpr(item.value, depth, evidenceNames);
+      return this.#emitExpr(item.value, depth, evidenceNames, true);
     }
 
     const localEvidence = new Map(evidenceNames);
@@ -936,6 +974,15 @@ class JavaScriptEmitter {
     expression: Core.Expr,
     depth: number,
     evidenceNames: EvidenceNames,
+    /**
+     * Whether this expression *is* a binding's right-hand side — not merely
+     * somewhere inside one. Read by exactly one rule, `#emitConstrainedValue`'s
+     * bare-alias case, whose spec text (Constraints §6.1, closure doc §13.3)
+     * says "at a binding". Never propagated by the recursive cases: a name
+     * nested in a record literal or an argument list is not a binding's RHS, and
+     * treating it as one is what the 2026-08-01 review caught.
+     */
+    bindingRhs = false,
   ): string {
     switch (expression.kind) {
       case "Name": {
@@ -950,7 +997,7 @@ class JavaScriptEmitter {
           // as a local one, so a value reference to it needs the same wrapper.
           return (expression.evidence?.length ?? 0) === 0
             ? imported
-            : this.#emitConstrainedValue(expression, imported, evidenceNames);
+            : this.#emitConstrainedValue(expression, imported, evidenceNames, bindingRhs);
         }
         if (expression.text.includes(".")) return expression.text;
         // An imported symbol is spelled by the local its import binds, which is
@@ -963,7 +1010,7 @@ class JavaScriptEmitter {
         if (this.#nullaryExceptions.has(expression.symbol)) return `${name}()`;
         return (expression.evidence?.length ?? 0) === 0
           ? name
-          : this.#emitConstrainedValue(expression, name, evidenceNames);
+          : this.#emitConstrainedValue(expression, name, evidenceNames, bindingRhs);
       }
       case "CollectionOperation": {
         const needsPersistentRuntime = expression.collection !== "Vector";
@@ -2228,6 +2275,39 @@ class JavaScriptEmitter {
     return `${left} ${comparisonOperator(step.test)} ${right}`;
   }
 
+  /**
+   * The evidence-at-a-non-function paths, retired per closure doc §13.6.
+   *
+   * On an already-diagnosed module: silence. The checker has made this
+   * variable's real report, and a second one phrased as an emission failure is
+   * the duplicate the ruling struck.
+   *
+   * On a checker-clean module: an evidence lookup that finds nothing is a
+   * compiler defect, not the author's mistake — the checker either resolves the
+   * variable or reports it. The message says exactly that and no more. It
+   * deliberately does **not** cite §13.6's non-function guarantee: this helper
+   * also serves `#dictionary`'s general path, which handles function-typed
+   * values and derived `Eq`/`Hash` evidence that the guarantee never spoke to,
+   * and round 5 caught the earlier wording claiming it for all of them.
+   *
+   * The ruling permits an assertion here. **This does not throw, on purpose.** Every review round of this arc has found a residual hole in the
+   * previous round's fix, and turning an unknown remaining hole into a hard
+   * crash would trade a wrong diagnostic for a dead compiler. It reports
+   * instead, in terms that can only be read as a compiler bug. If a later round
+   * establishes the invariant holds under adversarial search, this is the line
+   * to harden.
+   */
+  #reportUnreachableEvidence(detail: string, span: Core.Expr["span"]): void {
+    if (this.#alreadyDiagnosed) return;
+    this.#diagnostics.add({
+      severity: "error",
+      message:
+        `internal compiler error: ${detail}, on a module the checker accepted. ` +
+        "This is a defect in the compiler, not in your program; please report it",
+      primary: span,
+    });
+  }
+
   #dictionary(
     variable: Typed.TypeVariableId,
     constraint: Typed.ConstraintName,
@@ -2239,11 +2319,16 @@ class JavaScriptEmitter {
     if (name !== undefined) {
       return path.reduce((dictionary, slot) => `${dictionary}.${slot}`, name);
     }
-    this.#diagnostics.add({
-      severity: "error",
-      message: `missing \`${constraint}\` evidence during JavaScript emission`,
-      primary: span,
-    });
+    // Retired as a user diagnostic, scoped per closure doc §13.6. On a module
+    // the checker already rejected, this variable's real report has been made —
+    // the defaulting/ambiguity error for `let g = Some(describe)`, which names
+    // the rewrite — and repeating it here as an emission failure told the author
+    // nothing and blamed a pass they cannot see. Emit best-effort into a module
+    // the project has already rejected and say nothing.
+    this.#reportUnreachableEvidence(
+      `missing \`${constraint}\` evidence during JavaScript emission`,
+      span,
+    );
     return "undefined";
   }
 
@@ -2769,28 +2854,110 @@ class JavaScriptEmitter {
     expression: Core.NameExpr,
     base: string,
     evidenceNames: EvidenceNames,
+    bindingRhs: boolean,
   ): string {
+    // ...except at a binding whose right-hand side is the reference itself and
+    // which discharges none of its constraints. Step 1 of #205 made `let twice =
+    // double` a syntactic value, so the alias generalizes and keeps the
+    // original's residual constraints — and closure doc §2.2 is exact about what
+    // that means: a reference "shares the unapplied entity", no evidence is
+    // discharged at the binding, and the alias is "exactly as polymorphic, and
+    // exactly as cheap, as the original". Emitting the bare name is that
+    // sentence in JavaScript: `const twice = double`, with every consumer
+    // appending the suffix it would have appended to `double`. Eta-expanding
+    // instead would build a wrapper of the *unsuffixed* arity, which silently
+    // drops the dictionary the consumer passes.
+    //
+    // `bindingRhs` is load-bearing and was missing until the 2026-08-01 review.
+    // Without it the rule read every reference position, so a record field held
+    // the bare evidence-taking function while the checker had typed that field
+    // one arity narrower. Constraints §6.1 and §13.3 both say "at a binding";
+    // this is that.
+    //
+    // What made that observable was once the `missing evidence during
+    // JavaScript emission` note going quiet. It is no longer: that message is
+    // retired as a user diagnostic (§13.6), and the shape it used to flag is
+    // refused by the checker's evidence-seat rule before emission is reached.
+    // The gate is still load-bearing — the *emission* changes, the bare name
+    // against the eta-expansion — so read the emitted text, not the diagnostic
+    // list, when probing it.
+    //
+    // Only a constraint defaulting cannot settle exhibits it. Under `Num` the
+    // reference's evidence is a concrete instance rather than an unresolved
+    // dictionary, the second half of the condition is false, and the position
+    // never gets asked — which is why the first specimen written for this could
+    // not tell the two builds apart.
+    if (
+      bindingRhs &&
+      (expression.evidence ?? []).every(({ constraint, value }) =>
+        value.kind === "Dictionary" &&
+        !evidenceNames.has(evidenceKey(value.variable, value.constraint ?? constraint))
+      )
+    ) {
+      return base;
+    }
+    // Between the two cases above there is a third the gate had no arm for, and
+    // it is reachable from an ordinary *partial* annotation: `let g: (String, b)
+    // -> String = pair`, where `pair : (Tag a, Tag b) => (a, b) -> String`. One
+    // constraint is discharged at the binding, the other is still residual
+    // because the binding's scheme quantifies it. The all-or-nothing test above
+    // is false, so this fell into the eta case, which passed `undefined` for the
+    // residual entry — while every consumer appended a dictionary for it,
+    // against a wrapper one parameter short. Round 5's dropped dictionary,
+    // reached through the *other* conjunct of the same gate.
+    //
+    // The correct shape threads the residual evidence as trailing parameters of
+    // the wrapper: consumers append exactly the dictionaries the scheme
+    // quantifies, in `dictionaryEntries`' order, so the parameters are minted in
+    // that same order — by (variable, constraint name), per Constraints §6.1.
+    // Only at a binding, which is the only position whose scheme can quantify a
+    // residual constraint (§13.3).
+    const residual = !bindingRhs ? [] : [
+      ...new Map(
+        (expression.evidence ?? []).flatMap(({ constraint, value }) => {
+          if (value.kind !== "Dictionary") return [];
+          const name = value.constraint ?? constraint;
+          if (evidenceNames.has(evidenceKey(value.variable, name))) return [];
+          return [[
+            evidenceKey(value.variable, name),
+            { variable: value.variable, constraint: name },
+          ] as const];
+        }),
+      ).values(),
+    ].sort((left, right) =>
+      Number(left.variable) - Number(right.variable) ||
+      left.constraint.localeCompare(right.constraint)
+    );
+    const residualParameters = residual.map(({ constraint, variable }) =>
+      dictionaryParameterName(constraint, variable)
+    );
+    const localEvidence = new Map(evidenceNames);
+    residual.forEach(({ constraint, variable }, index) => {
+      localEvidence.set(evidenceKey(variable, constraint), residualParameters[index]!);
+    });
     const dictionaries = this.#evidenceArguments(
       expression.evidence ?? [],
       expression.span,
-      evidenceNames,
+      localEvidence,
     );
     if (expression.type.kind !== "Function") {
       // Nothing to eta-expand: a constrained non-function value has no arity to
       // wrap, and applying evidence eagerly would change when it is forced.
-      this.#diagnostics.add({
-        severity: "error",
-        message:
-          `\`${expression.text}\` needs constraint evidence in value position, ` +
+      // Retired as a user diagnostic on the same terms as `#dictionary`'s
+      // (closure doc §13.6): the checker's evidence-seat rule is what refuses
+      // this shape now, at the binding, where a rewrite can be named.
+      this.#reportUnreachableEvidence(
+        `\`${expression.text}\` needs constraint evidence in value position, ` +
           "but is not a function; call it, or annotate the reference at a concrete type",
-        primary: expression.span,
-      });
+        expression.span,
+      );
       return base;
     }
     const parameters = expression.type.parameters.map((_, index) =>
       this.#generatedNames.fresh(`arg${index}`)
     );
-    return `${arrowParameters(parameters)} => ${base}(${[...parameters, ...dictionaries].join(", ")})`;
+    return `${arrowParameters([...parameters, ...residualParameters])} => ` +
+      `${base}(${[...parameters, ...dictionaries].join(", ")})`;
   }
 
   /**
@@ -4709,6 +4876,43 @@ function typeVariableName(index: number): string {
   const letter = String.fromCharCode("a".charCodeAt(0) + (index % 26));
   const cycle = Math.floor(index / 26);
   return cycle === 0 ? letter : `${letter}${cycle}`;
+}
+
+/**
+ * Whether a `let` pattern gives some binder the right-hand side's whole value —
+ * the read-through cases of closure doc §13.6, where the evidence seat survives
+ * because the binder names the value itself rather than a projection of it.
+ *
+ * `As` qualifies whatever it wraps: its own name always denotes the scrutinee.
+ * Every destructuring form does not, and must not — the checker declines the
+ * seat there, so their references carry resolved evidence and belong in the
+ * eta-expansion.
+ *
+ * Replacing this with `return true` — or the `Or` arm's recursion with a blanket
+ * `true` — leaves the whole suite green, and that is an
+ * **equivalent mutant rather than a coverage gap** — recorded with its argument
+ * so a later reader does not have to re-derive it. The caller's other condition
+ * requires every evidence entry to be an *unresolved* dictionary, which only a
+ * generalized constrained scheme produces. Under a destructuring pattern the
+ * right-hand side's type is an aggregate, so generalizing a constrained variable
+ * there would be exactly the constrained non-function scheme §13.6 forbids: the
+ * bare branch is unreachable, whatever this returns. The restriction is kept as
+ * the emitter's own statement of the correspondence, so that a future regression
+ * in the checker's seat rule surfaces as a wrong *diagnostic* rather than as
+ * silently bare-emitted names in destructuring positions.
+ */
+function patternNamesWholeValue(pattern: Core.Pattern): boolean {
+  if (pattern.kind === "Binding" || pattern.kind === "Wildcard") return true;
+  // `As` qualifies whatever it wraps — its own name is the scrutinee — so it
+  // does not recurse. `Or` does: an or-of-bare-binders reads through (each
+  // alternative names the whole value), while an or-of-destructuring does not,
+  // and the checker's `Or` arm generalizes each binder against the scrutinee
+  // type exactly on that distinction. Omitting `Or` here left `let (g | g) =
+  // describe` generalizing in the checker and eta-expanding in the emitter —
+  // round 5's blocker one pattern shape over, on a program `main` runs.
+  if (pattern.kind === "As") return true;
+  if (pattern.kind === "Or") return pattern.alternatives.every(patternNamesWholeValue);
+  return false;
 }
 
 function emittedModuleSpecifier(specifier: string): string {

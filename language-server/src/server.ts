@@ -63,7 +63,7 @@ import { toLspDiagnostic } from "./diagnostics.js";
 import {
   codeActionSupportOf,
   toLspCodeAction,
-  wantsQuickFixes,
+  wantsActions,
   type CodeActionSupport,
 } from "./code-actions.js";
 import { offsetOfPosition, rangeOfSpan } from "./positions.js";
@@ -274,7 +274,7 @@ export function startServer(connection: Connection): void {
   connection.onCodeAction(({ textDocument, range, context }): CodeAction[] | null => {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
-    if (!wantsQuickFixes(context.only)) return null;
+    if (!wantsActions(context.only)) return null;
     const path = workspace.uris.toPath(textDocument.uri);
     const pathOfFile = (fileId: number): string | undefined =>
       workspace.session.pathOfFile(fileId as Source.FileId);

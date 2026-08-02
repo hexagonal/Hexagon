@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { CodeAction } from "../../compiler/src/index.js";
-import { codeActionSupportOf, selects, toLspCodeAction, wantsQuickFixes } from "./code-actions.js";
+import { codeActionSupportOf, selects, toLspCodeAction, wantsActions } from "./code-actions.js";
 import { UriPaths } from "./positions.js";
 
 describe("what a client is sent", () => {
@@ -25,32 +25,35 @@ describe("what a client is sent", () => {
   });
 });
 
-describe("which requests want quick fixes", () => {
+describe("which requests want the actions this server offers", () => {
   test("a request that asks for nothing in particular wants them", () => {
-    expect(wantsQuickFixes(undefined)).toBe(true);
+    expect(wantsActions(undefined)).toBe(true);
   });
 
-  test("the kind itself, and the empty prefix that selects everything", () => {
-    expect(wantsQuickFixes(["quickfix"])).toBe(true);
-    expect(wantsQuickFixes([""])).toBe(true);
+  test("the kinds themselves, and the empty prefix that selects everything", () => {
+    expect(wantsActions(["quickfix"])).toBe(true);
+    // `refactor` became a kind this server produces with #205's variance offer,
+    // which answers no diagnostic and so is not a quick fix (closure doc §8.2).
+    expect(wantsActions(["refactor"])).toBe(true);
+    expect(wantsActions([""])).toBe(true);
   });
 
   test("a request for other kinds gets none", () => {
-    expect(wantsQuickFixes(["refactor"])).toBe(false);
-    expect(wantsQuickFixes(["source.organizeImports"])).toBe(false);
+    expect(wantsActions(["source.organizeImports"])).toBe(false);
     // `quickfixes` is not a prefix of `quickfix`, and the other way round it is
     // only one with the dot: matching on bare `startsWith` would make a request
     // for a hypothetical `quick` kind collect fixes it never asked for.
-    expect(wantsQuickFixes(["quick"])).toBe(false);
+    expect(wantsActions(["quick"])).toBe(false);
   });
 
-  test("a request narrower than the kind on offer gets nothing", () => {
+  test("a request narrower than the kinds on offer gets nothing", () => {
     // An entry in `only` is a prefix of the kinds it selects, so a client asking
     // for `quickfix.hexagon` is asking for something more specific than this
     // server produces and must not be handed the general kind instead.
-    expect(wantsQuickFixes(["quickfix.hexagon"])).toBe(false);
+    expect(wantsActions(["quickfix.hexagon"])).toBe(false);
+    expect(wantsActions(["refactor.extract"])).toBe(false);
     // One matching entry among several is a match.
-    expect(wantsQuickFixes(["refactor", "quickfix"])).toBe(true);
+    expect(wantsActions(["source.organizeImports", "quickfix"])).toBe(true);
   });
 });
 
@@ -115,5 +118,36 @@ describe("converting one action", () => {
     expect(shown?.kind).toBe("quickfix");
     expect(shown?.edit).toBeUndefined();
     expect(convert({ literals: true, disabled: false }, refused)).toBeUndefined();
+  });
+
+  test("the variance offer goes out as a refactor, and answers no diagnostic", () => {
+    // #205's under-claim offer is the server's only non-quickfix and its only
+    // action with no diagnostic behind it — Hexagon has no warning tier, and an
+    // under-claim is not wrong, so nothing reports it to attach to (closure doc
+    // §8.2). Both facts are wire shape and neither was held: sending it as a
+    // `quickfix`, or with `diagnostics: []` instead of the field omitted, left
+    // every test green.
+    const offer: CodeAction = {
+      title: "Declare `Box` covariant in `a`",
+      kind: "refactor",
+      edits: [{ path: "/main.hex", span, replacement: "+a" }],
+    };
+    const converted = convert({ literals: true, disabled: false }, offer);
+    expect(converted?.kind).toBe("refactor");
+    // Omitted, not empty: a client groups an action under the problem it fixes,
+    // and an empty array is a claim that it fixes none of the ones it was sent
+    // — which is a different statement from making no claim at all.
+    expect(converted && "diagnostics" in converted).toBe(false);
+    expect(Object.values(converted?.edit?.changes ?? {})[0]).toEqual([
+      { range: { start: { line: 0, character: 4 }, end: { line: 0, character: 4 } }, newText: "+a" },
+    ]);
+  });
+
+  test("...and a quickfix still carries the diagnostic it answers", () => {
+    // The control for the assertion above: `diagnostics` is omitted because the
+    // action has none, not because the field stopped being sent.
+    const converted = convert({ literals: true, disabled: false });
+    expect(converted && "diagnostics" in converted).toBe(true);
+    expect(converted?.diagnostics).toHaveLength(1);
   });
 });
