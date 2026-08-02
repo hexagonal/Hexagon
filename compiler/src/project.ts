@@ -13,7 +13,13 @@ import { parse } from "./passes/parser/parser.js";
 import { moduleInterface, resolve } from "./passes/resolver/resolver.js";
 import { check } from "./passes/checker/checker.js";
 import { elaborate } from "./passes/elaborator/elaborator.js";
-import { emitDeclarations, emitJavaScript } from "./passes/emitter/emitter.js";
+import {
+  emitDeclarations,
+  emitJavaScript,
+  emittedModuleSpecifier,
+  runtimeDeclarationsText,
+  RUNTIME_DECLARATIONS_STEM,
+} from "./passes/emitter/emitter.js";
 import type { PreludeImport } from "./passes/resolver/resolver.js";
 import { PRELUDE_MODULES } from "./prelude.js";
 
@@ -29,6 +35,17 @@ export interface CompiledModule {
 
 export interface CompiledProject {
   readonly modules: readonly CompiledModule[];
+  /**
+   * The program's runtime declaration module (FFI Part 1 §8.3), or `undefined`
+   * when no generated `.d.ts` mentions a `Hex.*` face.
+   *
+   * This is the first emission artefact belonging to no source file, which is
+   * why it sits beside `modules` rather than inside one: the compiled project
+   * was strictly per-module until §8.3 needed a program-scoped seat, and
+   * obligation 3 is what grows it. The compile stays filesystem-free — the
+   * artefact carries its intended path and a host performs the write.
+   */
+  readonly runtimeDeclarations: Emitted.RuntimeDeclarations | undefined;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }
 
@@ -51,8 +68,12 @@ export function compileProject(
   const runtimePaths = new Set((options.runtimePaths ?? []).map(normalizePath));
   const diagnostics = new Diagnostics.Bag();
   const sources = new Map(files.map((file) => [normalizePath(file.path), file]));
-  const preludePaths = injectPrelude(sources);
+  const root = commonRoot([...sources.keys()]);
+  const preludePaths = injectPrelude(sources, root);
   const preludeSet = new Set(preludePaths);
+  // The runtime declaration module's basename, settled before any module is
+  // emitted because every importer has to spell the same one (FFI Part 1 §8.3).
+  const runtimeBasename = runtimeDeclarationsBasename(sources.keys(), root);
   const parsed = new Map<string, Parsed.Module>();
   for (const [path, file] of sources) {
     parsed.set(path, parse(applyLayout(lex(file))));
@@ -215,7 +236,11 @@ export function compileProject(
       typed,
       core,
       javascript: emitJavaScript(core, { exportInstanceEvidence: true }),
-      declarations: emitDeclarations(core),
+      declarations: emitDeclarations(core, {
+        runtimeSpecifier: emittedModuleSpecifier(
+          relativeSpecifier(path, `${root}/${runtimeBasename}.hex`),
+        ),
+      }),
     };
     compiled.set(path, result);
   }
@@ -263,14 +288,59 @@ export function compileProject(
     }
   }
 
+  const modules = ordered.flatMap((path) => {
+    if (!emitted.has(path)) return [];
+    const module = compiled.get(path);
+    return module === undefined ? [] : [module];
+  });
+
   return {
-    modules: ordered.flatMap((path) => {
-      if (!emitted.has(path)) return [];
-      const module = compiled.get(path);
-      return module === undefined ? [] : [module];
-    }),
+    modules,
+    // Present exactly when some emitted `.d.ts` imports it (FFI Part 1 §8.3
+    // obligation 3). A module that was compiled but not emitted writes no file,
+    // so its faces are not an importer — which is why this reads the emitted
+    // list rather than every module compiled.
+    runtimeDeclarations: modules.some(({ declarations }) => declarations.importsRuntimeTypes)
+      ? {
+          kind: "RuntimeDeclarations",
+          path: `${root}/${runtimeBasename}.d.ts`,
+          text: runtimeDeclarationsText(),
+        }
+      : undefined,
     diagnostics: diagnostics.toArray(),
   };
+}
+
+/**
+ * The basename the runtime declaration module claims at the source common root:
+ * the first free of `hex`, `hex1`, `hex2`, … (FFI Part 1 §8.3).
+ *
+ * §10's probing discipline, lifted from identifiers to filenames: a user module
+ * whose own emission claims `hex.js`/`hex.d.ts` **at that root** keeps its name
+ * and the generated file moves. The comparison is case-insensitive because
+ * case-colliding filesystems exist, and a program that compiled here and
+ * overwrote a file there would be the worst possible way to find that out.
+ *
+ * Only files directly at the root can collide — a deeper module emits into its
+ * own directory. The probe runs over every source there, which is a superset of
+ * the emitted ones: the only sources that go unemitted are unreached prelude
+ * modules, whose basenames are fixed (`Bool`, `Prelude`, `Option`, `Seq`,
+ * `Result`) and never `hex`, so the superset costs nothing today. Over-claiming
+ * would only ever move the generated file, which nothing outside this compile
+ * names; under-claiming would silently overwrite a user's.
+ */
+function runtimeDeclarationsBasename(paths: Iterable<string>, root: string): string {
+  const claimed = new Set<string>();
+  for (const path of paths) {
+    const directory = path.slice(0, Math.max(0, path.lastIndexOf("/")));
+    if (directory !== root) continue;
+    claimed.add(path.slice(path.lastIndexOf("/") + 1).replace(/\.hex$/, "").toLowerCase());
+  }
+  if (!claimed.has(RUNTIME_DECLARATIONS_STEM)) return RUNTIME_DECLARATIONS_STEM;
+  for (let suffix = 1; ; suffix += 1) {
+    const candidate = `${RUNTIME_DECLARATIONS_STEM}${suffix}`;
+    if (!claimed.has(candidate)) return candidate;
+  }
 }
 
 /** Reserved id floor for prelude identities, above any realistic per-project count. */
@@ -285,11 +355,14 @@ function nextId(ids: readonly number[], fallback: number): number {
  * sources, unless the project already supplies a file there (e.g. compiling the
  * stdlib itself, where the on-disk copy wins). Returns the normalized prelude
  * paths in compilation order; empty for an empty project.
+ *
+ * `root` is the caller's, not recomputed here: the runtime declaration module
+ * is placed at the same root (FFI Part 1 §8.3) and the two must not be able to
+ * disagree about where that is.
  */
-function injectPrelude(sources: Map<string, Source.File>): readonly string[] {
+function injectPrelude(sources: Map<string, Source.File>, root: string): readonly string[] {
   const paths = [...sources.keys()];
   if (paths.length === 0) return [];
-  const root = commonRoot(paths);
   // Prefer a project file that already provides a prelude module (by basename,
   // wherever it lives — e.g. /stdlib/Option.hex), so the embedded fallback never
   // creates a duplicate that would collide with the project's own declarations.
