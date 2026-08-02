@@ -4406,35 +4406,59 @@ function renderHelper(
       // as that node's failure and poison the position the enclosing forcing is
       // about to answer.
       //
-      // The flag is per spine rather than per node because it is the *source*
-      // that cannot be advanced twice for one position, and because only one
-      // node ever reaches the forcing step: a tail is built solely in the
-      // success path, so the reachable nodes are a chain whose last member is
-      // the only unforced one. A reentrant pull of an already-memoized position
-      // never reaches the check — replay is untouched, and a foreign source that
-      // looks back at earlier elements keeps working, which §7.3 requires.
+      // Per spine rather than per node, and the reason is only that one node is
+      // ever unforced: a tail is built solely in the success path, so the
+      // reachable nodes are a chain whose last member is the only one that can
+      // reach the check. The two spellings are indistinguishable — no test
+      // separates them — and this one keeps the cell off every node. A reentrant
+      // pull of an already-memoized position never reaches the check at all:
+      // replay is untouched, and a foreign source that looks back at elements it
+      // has already produced keeps working, which §7.3 requires.
       //
-      // This is not a new failure mode so much as an existing one made uniform.
-      // A `seqToIterable` generator — the source of every `Seq.memoize` and
-      // every §9.4 boundary view — already makes JavaScript itself refuse the
-      // reentrant advance with `TypeError: Generator is already running`. Only a
-      // foreign iterator whose `next()` is an ordinary function could slip
-      // through, and that is the one case where an element vanished. `TypeError`
-      // is the kind for §7.2's reason: the adapter introduces no Hexagon error
-      // type of its own for a condition it detects at the boundary.
+      // **A refusal is an ordinary failure to every spine it passes through**,
+      // and §7.3 rules that intended rather than tolerated. JavaScript's only
+      // route back into a `Seq` is the §9.4 face, so a reentrant traversal
+      // almost always arrives through a *second* spine — the boundary view — and
+      // the refusal reaches that spine as a throw out of its own source, ending
+      // the value's foreign traversability for good. That looks like #123's own
+      // complaint one spine out (a stale error at a position the source would
+      // have served), and the obvious repair — decline to memoize a refusal you
+      // did not raise — was tried and is **worse**: the throw travels out
+      // through `seqToIterable`'s generator, and a generator that throws is
+      // completed. The next forcing of that position calls `next()` on a dead
+      // generator, gets `done`, and memoizes *end*. The `Seq` then reads as
+      // empty from JavaScript instead of raising — silent truncation in place of
+      // an error, which is the whole class of bug this ruling exists to remove.
+      // Measured, not argued: `[]` where the elements should be.
       //
-      // What the enclosing forcing then observes is nothing at all, unless the
+      // `TypeError` is the kind for §7.2's reason alone — the adapter introduces
+      // no Hexagon error type of its own — and not because JavaScript picks it:
+      // with the check in place the platform's own refusal is unreachable
+      // through the adapter, so the rule *replaces* `TypeError: Generator is
+      // already running` rather than deferring to it. A branded Hexagon
+      // exception was available (`vectorAt`'s `IndexError` is the shape) and is
+      // declined by that same sentence, at the cost §7.3 records: a `JsError`
+      // payload is interrogable only by message.
+      //
+      // What the enclosing forcing observes is nothing at all, unless the
       // foreign code lets the throw propagate out of `next()` — in which case it
       // is that position's failure by §7.1, like any other throw from the source.
       //
       // Serialized forcings are why nothing else here guards against collision.
       // Each node is forced exactly once, so a store never meets a value already
-      // present; the source cannot report `done` while an unforced node exists,
-      // since that node was built from a not-done result and no node is built
-      // from an ended one. The shared `done` flag and the first-writer guards
-      // that stood here between #131 and #123 were repairs for collisions this
-      // ruling makes unreachable, and dead code whose comment claims otherwise
-      // is worse than none.
+      // present; and **this spine** cannot have observed `done` while one of its
+      // nodes is unforced, since that node was built from a not-done result and
+      // none is built from an ended one. The qualifier is not decoration — two
+      // adapters over one self-iterable foreign iterator can drive each other's
+      // shared cursor to exhaustion, which is §2.1's documented "repeated
+      // crossings of a single-pass generator observe its current position" and
+      // behaves the same here as it did before. The shared `done` flag and the
+      // first-writer guards that stood here between #131 and #123 were repairs
+      // for collisions this ruling makes unreachable, and dead code whose
+      // comment claims otherwise is worse than none. The `finally` above is the
+      // one thing kept without a test behind it: a stuck flag is unobservable
+      // (no node exists past a failed one), but a `finally` asserts nothing,
+      // which is what separates it from the three that went.
       //
       // Every node carries the boundary traversal method (§9.4): the adapter is
       // one of the ruling's two named construction sites, and a `Seq` built here

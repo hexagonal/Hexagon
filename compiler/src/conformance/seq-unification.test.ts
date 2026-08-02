@@ -1106,6 +1106,7 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
     "\n" +
     "export let armIt(ignored: Int): Unit = setSeq(shared)\n" +
     "export let drained(ignored: Int): Vector(Int) = Vector.fromSeq(shared)\n" +
+    "export let handOut(ignored: Int): Seq(Int) = shared\n" +
     "export let reentry(ignored: Int): String = outcome()\n";
 
   /**
@@ -1151,7 +1152,11 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
   async function armed(
     sourceBody: string,
     reenterBody: string,
-  ): Promise<{ drained: () => number[]; reentry: () => string }> {
+  ): Promise<{
+    drained: () => number[];
+    reentry: () => string;
+    handOut: () => Iterable<number>;
+  }> {
     const exports = await run(
       [["/main.hex", selfObserving]],
       { probe: probeModule(sourceBody, reenterBody) },
@@ -1160,6 +1165,7 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
     return {
       drained: () => (exports["drained"] as (ignored: number) => number[])(0),
       reentry: () => (exports["reentry"] as (ignored: number) => string)(0),
+      handOut: () => (exports["handOut"] as (ignored: number) => Iterable<number>)(0),
     };
   }
 
@@ -1212,6 +1218,54 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
       expect(drained).toThrowError(/already being forced/u);
     }
     expect(reentry()).toBe("not reached");
+  });
+
+  test("a swallowed refusal still ends the value's JavaScript face, and says so", async () => {
+    // §7.3's memoization clause, and the finding that made it explicit.
+    // JavaScript's only route back into a `Seq` is the §9.4 face, so the
+    // reentrant traversal runs through a *second* spine — the boundary view —
+    // and the refusal reaches it as a throw out of its own source, which §7.1
+    // memoizes there. The Hexagon side is untouched; the value's foreign face
+    // is finished, and every later traversal says why rather than going quiet.
+    const { drained, handOut } = await armed(plainSource, retraverseAt(1));
+    expect(drained()).toEqual([10, 20, 30, 40]);
+    const face = handOut();
+    for (const _attempt of [0, 1]) {
+      // The assertion that matters is not that it throws but that it never
+      // *silently* answers: declining to memoize the refusal here — the obvious
+      // repair — leaves the view's generator completed, so the next forcing
+      // reads `done` off a dead generator and the value becomes an empty
+      // sequence to JavaScript. That was measured; this pins the alternative.
+      expect(() => [...face]).toThrowError(/already being forced/u);
+    }
+  });
+
+  test("reentry from `[Symbol.iterator]()` is refused too", async () => {
+    // §7.3 names acquisition among the reentry sites, because §3 defers it to
+    // the first pull — so it runs inside a forcing like anything else. The
+    // check precedes acquisition for that reason.
+    const { drained, reentry } = await armed([
+      "export function source() {",
+      "  return { [Symbol.iterator]() {",
+      "    reenter(1);",
+      "    return { next() {",
+      "      calls += 1;",
+      "      const mine = calls;",
+      "      return mine <= 3 ? { done: false, value: mine * 10 } : { done: true };",
+      "    } };",
+      "  } };",
+      "}",
+    ].join("\n"), [
+      "function reenter(call) {",
+      "  if (call !== 1) return;",
+      "  record(() => Array.from(held));",
+      "}",
+    ].join("\n"));
+    expect(drained()).toEqual([10, 20, 30]);
+    expect(reentry()).toBe(
+      "ERR:TypeError:Seq position is already being forced: " +
+      "a sequence position cannot depend on its own value",
+    );
   });
 
   test("a generator source behaves identically, which is the point", async () => {
