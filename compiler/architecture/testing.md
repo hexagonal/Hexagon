@@ -88,7 +88,15 @@ Fast-check generates inputs and shrinks failures to small counterexamples. It is
 
 Every property test must report its replay seed on failure. Continuous integration uses deterministic recorded configuration; a failing seed becomes an ordinary regression example when that makes the defect clearer.
 
+The seed is fixed centrally, by `vitest.setup.ts`, and not at each `fc.assert` call — a property test added later must not be able to omit it. Setting `HEXAGON_PROPERTY_SEED` overrides it for a run that wants different inputs. The seed varies per test *file*: most compiler properties generate a bare `fc.string()`, so a single suite-wide seed would make them all draw the identical sample, which is a narrower suite than the unseeded one it replaces rather than merely a frozen one.
+
+A fixed seed means the suite's generated coverage no longer grows on its own. That is the right trade for the gate: a property that samples fresh inputs every run can fail on an input nobody can recover, which is a signal carrying no information (#198). Exploration beyond the pinned inputs belongs in a separate randomized job under §10, which records the seed it used so anything it finds arrives reproducible. No such job exists yet.
+
+A pinned property protects only what its inputs actually reach, and for a compiler that is much less than it looks. The pinned 250 `fc.string()` inputs behind the elaborator property produce eight of Core's thirty-five expression kinds and one of its fifteen item kinds; almost all of them fail to parse. A property over `fc.string()` is therefore a crash-and-invariant guard, not coverage, and a rule worth protecting needs a written example too. Where a property is meant to reach real constructs, it needs a generator that builds them — as `layout.test.ts` does.
+
 Generated tests do not replace carefully chosen boundary cases. They extend coverage into combinations a human is unlikely to enumerate.
+
+A property that forbids a set of values must derive that set from the types wherever it can, rather than restate it, and its traversal must be exhaustive over the tree rather than name the cases someone thought of. #198 was both mistakes at once: a hand-written list of node kinds the elaborator must not emit, two of which it is *supposed* to emit, checked by a walker that entered under a third of the tree.
 
 ### 3.5 End-to-end tests
 
@@ -115,6 +123,8 @@ Given the same sources and options, a compiler test must produce byte-for-byte s
 - timestamps and random seeds;
 - locale-sensitive rendering; and
 - concurrency-sensitive collection order.
+
+§4 excludes *unrelated* environment variables. `HEXAGON_PROPERTY_SEED` (§3.4) is a related one — the only variable the compiler's own test code reads — and it moves determinism rather than removing it: unset, the seed is fixed; set, a job has chosen a different fixed seed rather than an unpredictable one. A run that sets it says so on stderr, since an exported value would otherwise change what the gate tests invisibly.
 
 Tests may run in parallel only when they do not mutate shared compiler state or shared fixture files. A failure that depends on test order is a correctness defect, not an accepted limitation of the runner.
 
@@ -188,3 +198,11 @@ Committed `.only` tests are rejected. Skipped or todo tests must state why they 
 - Tests use deterministic hosts and do not require network access.
 - Coverage informs testing but does not replace semantic judgment.
 - Benchmarks remain separate from correctness tests.
+
+### #198 — property seeds are pinned centrally
+
+The nine compiler properties had run unseeded since they were written, against §5's requirement that test infrastructure fix random seeds. `vitest.setup.ts` now fixes the seed for all of them, per file, and `HEXAGON_PROPERTY_SEED` is the documented way to move it. A test asserts that fast-check actually received the seed: `fc.configureGlobal` validates nothing and the setup file is outside `tsconfig.json`'s `include`, so a misspelled key there would silently restore the very condition this record exists to end.
+
+The defect that surfaced this was not the seeding, though. The elaborator property's list of forbidden node kinds named two kinds Core legitimately has, so any input reaching an indexing expression failed the property on a tree the elaborator got right; `""[0]` does it with no diagnostics. Its walker also recursed into eleven of Core's thirty-five expression kinds and two of its fifteen item kinds, leaving anything nested inside a `Fun`, `Match`, `Vector`, or `Try` unreachable. Both are now derived from the trees and checked by `tsc`.
+
+The seeding was still worth doing, but it is not what closed the defect — a written regression example is, because the generated inputs never reach an `Index` node at all.
