@@ -997,14 +997,29 @@ than settling a style question.
   the ruling (raised by Fable, review finding F3). It is not a consequence of the single cell — a per-node cell
   collides on the same node — and the pre-fix spine was already incoherent
   there, reordering elements rather than replaying a stale failure.
-  **Superseded 2026-08-02 (#131), as a matter of representation only.** The
-  shared buffer this argument is stated over is gone; the cell is now per node,
-  because §5 requires the *values* to be per node and §4 puts failure in the
-  same memo. Every claim above survives the move — a tail node is still
-  constructed solely in the success path, so at most one node is ever unforced,
-  and that is now what "unforced" *means* rather than something an index
-  comparison encodes. The reentrancy caveat is unchanged and still #123's, for
-  the reason it already gave: a per-node cell collides on the same node.
+  **Superseded 2026-08-02 (#131).** The shared buffer this whole argument is
+  stated over is gone; the cell is per node, because §5 requires the *values* to
+  be per node and §4 puts failure in the same memo. Read the bullet above as a
+  record of why one cell was enough *then*, not as a description of the code.
+  Three of its sentences do not survive, and are listed because the temptation
+  is to assume they do:
+  - "The guard that gates forcing … is therefore already exactly 'this is the
+    frontier', and the replay check sits inside it, which is what keeps a
+    failure from poisoning the buffered positions before it." The replay check
+    is now *outside* the forcing guard, and non-poisoning rests entirely on the
+    cell being per node. Verified by mutation: moving the box back to the
+    adapter's scope while leaving everything else per node reddens `a failure
+    does not poison the positions already forced before it` — a failure mode the
+    buffer did not have.
+  - "A failure pushes nothing and leaves `__hex_done` false." Neither referent
+    exists; nothing is pushed anywhere, and `__hex_done` now goes true only on
+    an actual end.
+  - "A per-node cell would encode the same fact more expensively." That is an
+    argument against the representation §5 requires and #131 shipped.
+
+  The reentrancy caveat is still #123's, and for the reason it already gave —
+  a per-node cell collides on the same node — but the *outcome* of the collision
+  differs from the buffer's and the new entry below records how.
 - **The stored cell is a box, not the thrown value.** JavaScript permits
   `throw undefined`, so `failure !== undefined` would otherwise misread a
   genuine failure as unforced and re-enter the foreign call — the defect again,
@@ -1337,44 +1352,90 @@ than settling a style question.
 - **Correction:** the memo moved into the nodes. A node holds its own outcome
   and, on success, a direct reference to its successor, so references run
   head-to-tail only and the adapter scope holds no node at all. Retaining
-  position *i* retains the forced suffix from *i* and nothing before it, which
-  is §5's representation as written.
+  position *i* retains the forced suffix from *i* and none of **this spine's**
+  prefix, which is §5's representation as written.
+- **That qualifier is load-bearing, and was added after review.** The adapter
+  keeps `__hex_source` and the iterator it acquired, which is state §5 permits
+  it to share. But when the source is itself a `Seq` — both `seqMemoize` and
+  `seqIterate` build the spine over `seqToIterable(s)`, whose generator closes
+  over `s`'s head — that pins the *source's* head, and a source that stores
+  rather than re-derives still has its prefix pinned through it.
+  `Seq.memoize` over an inbound-adapted `Seq`, which is a likely thing to write,
+  therefore still retains everything. A second retention channel, in the driver
+  rather than in the memo, reproduced independently and filed as **#230**. The
+  first draft of this entry claimed the reclamation property without the
+  qualifier, and its two tests were built on re-deriving sources, which is
+  exactly the shape where an over-general claim cannot be caught by its own
+  coverage.
 - **The failure cell moved with it.** Entry 15's shared `__hex_failure` box was
   argued from the buffer's frontier guard; per §4 each node memoizes exactly one
   outcome, and end / `(value, tail)` / failure are the three, so failure belongs
   in the node beside the value. The box stays a box — JavaScript permits
-  `throw undefined`. Entry 15 carries the supersession note.
-- **One shared cell was not moved but deleted.** `__hex_done` existed to stop
-  the buffer's index guard from re-driving an exhausted iterator. A node that
-  reaches the end now memoizes end itself, and no node is ever constructed after
-  it, so nothing can call `next()` again and the flag had no reader left. The
-  frontier is now structural: a tail node is built solely in the success path,
-  so at most one node is ever unforced, and "unforced" *is* "at the frontier".
-  The iterator and the source stay shared, which is what §5's third clause is
-  about.
-- **What this does not buy, stated plainly.** A JavaScript-side traversal still
-  pins the prefix for its duration and beyond: `seqToIterable`'s generator
-  closes over the head, and §9.4's boundary view is retained by the value for
-  the value's lifetime. Both are deliberate — the second is §5's own 2026-07-28
-  addendum — and neither is what #131 was about. §5's clause is about a program
+  `throw undefined`. Entry 15 carries the supersession note, including which of
+  its sentences do not survive.
+- **`__hex_done` stays shared, and the first draft deleted it.** Exhaustion is a
+  property of the source, not of a position, and §5's division puts it exactly
+  where the iterator is. The argument for deleting it was that the frontier is
+  now structural — a tail is built solely in the success path, and is reachable
+  only if that outcome won its node's memo, so the reachable nodes form a chain
+  whose last member is the only unforced one. That much is true. What it misses
+  is that **the frontier can sit behind an ended source**: one forcing of a node
+  can see the source end while a reentrant forcing of the same node got a value
+  and won, so the node hands out a tail the source has nothing left for.
+  Without the flag, forcing that tail calls `next()` on an iterator that already
+  reported done — verified against the deleted version, which drives a third
+  `next()` where the flag stops at two.
+- **First writer wins, which the first draft also lacked.** Both memo stores are
+  guarded on the node still being unforced. Without that, a reentrant inner
+  forcing's outcome was overwritten by the outer's, and two tails of *the same
+  position* went on to yield different elements — `Seq` persistence itself
+  failing, where the buffer it replaced had merely reordered them. A node could
+  also end up holding both a step and a failure, so §4's "each node memoizes
+  exactly one outcome" was a sentence this code cited rather than an invariant it
+  held. It is one now.
+- **What this does not buy, stated plainly.** Besides #230 above: a
+  JavaScript-side traversal pins the prefix for its duration and beyond —
+  `seqToIterable`'s generator closes over the head, and §9.4's boundary view is
+  retained by the value for the value's lifetime. Both of those are deliberate,
+  the second being §5's own 2026-07-28 addendum. §5's clause is about a program
   advancing a cursor, which is why the conformance below advances it in Hexagon
   rather than driving it from the test.
-- **Executable conformance:** `seq-unification.test.ts`, a describe block of
-  two — the inbound adapter over a foreign iterable, and `Seq.memoize` over a
-  pure Hexagon sequence, since #131's urgency is that the two are one spine.
-  Each walks a 200-element sequence to position 150, keeps only the cursor, and
-  asserts that a `WeakRef` to element 1 has been cleared, then that the cursor
-  still answers. Collection is observed the way §9.4 property 7's test observes
-  it (`--expose-gc` exposed and withdrawn in-process, so it runs on every
-  ordinary `vitest run`), and the elements are tuples because a `WeakRef` needs
-  an object. **Verified sensitive:** restoring the pre-fix helper reddens both,
-  and nothing else in the 1099-test suite — which is the point of the entry.
-  What existed before pinned only what a `Seq` *yields*, and a central array
-  yields exactly what persistent nodes yield.
-- **Left open, unchanged:** reentrant forcing (#123). An inner forcing's outcome
-  is overwritten by the outer's, as it was under the buffer; entry 15 already
-  recorded that a per-node cell collides on the same node, so this is the same
-  undecided case in a new representation, not a regression.
+- **Executable conformance:** `seq-unification.test.ts`, two describe blocks.
+  - *Reclamation*, two tests — the inbound adapter over a foreign iterable, and
+    `Seq.memoize` over a pure Hexagon sequence, since #131's urgency is that the
+    two are one spine. Each walks a 200-element sequence to position 150, keeps
+    only the cursor, and asserts that `WeakRef`s to positions 0, 1, 40 and 100
+    have all cleared, then that the cursor still answers. Collection is observed
+    the way §9.4 property 7's test observes it (`--expose-gc` exposed and
+    withdrawn in-process, so it runs on every ordinary `vitest run`), and the
+    elements are tuples because a `WeakRef` needs an object. Both sources
+    re-derive, which is what makes the memo the only possible holder — and is
+    the qualifier #230 is about.
+  - *Reentrancy*, two tests, pinning an invariant rather than a semantics: that
+    two forcings of one position agree and hand back the same tail (asserted as
+    an equality between the two, never against literals, because which element
+    wins is #123's to decide), and that a node reached past an exhausting
+    forcing does not re-drive the iterator. A reentrant source has to hold the
+    node being forced, which no Hexagon program can hand it, so these append a
+    JavaScript probe to the compiled module and drive the emitted helper by
+    name. They execute it; they are not text assertions.
+  - **Verified sensitive, by mutation, each part separately.** Restoring the
+    pre-fix helper reddens both reclamation tests and nothing else in the suite.
+    Reintroducing a shared values array while keeping the per-node successor
+    reddens the same two, so they pin central retention and not merely "the arm
+    changed". Dropping the first-writer guards reddens the agreement test alone;
+    deleting `__hex_done` reddens the exhaustion test alone; moving the failure
+    box back to the adapter's scope reddens entry 15's non-poisoning test alone.
+    An earlier spelling of the exhaustion test survived the `__hex_done`
+    deletion it was written for and was replaced.
+- **Left open:** reentrant forcing (#123), and #230. Under reentrancy the
+  per-node memo now differs from the buffer it replaced rather than matching it:
+  where the buffer reordered the losing forcing's element, that element is
+  dropped. Both are incoherent and neither is specified — the point of recording
+  it is that "unchanged from `main`" would have been false.
 - **Credit:** Fable, reviewing the intrinsic-door implementation, read §5's
   representation sentence against the helper source and filed the divergence
-  rather than folding it into an unrelated review.
+  rather than folding it into an unrelated review. A cold Opus review of the fix
+  then found the unqualified retention claim, the `__hex_done` deletion, and the
+  overwrite — the last two with a standalone script that ran both helper
+  versions side by side, which is what made "same as before" checkable.

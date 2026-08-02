@@ -4352,7 +4352,11 @@ function renderHelper(
       // is. Forcing a node then follows §7.2's protocol access order exactly —
       // `next()` once, require an object, read `done` once and **boolean-coerce**
       // it (a `{ done: 1 }` result terminates native iteration and must
-      // terminate this), read `value` once and only when not done.
+      // terminate this), read `value` once and only when not done. The `Boolean`
+      // is written out because §7.2 names the coercion, not because the two
+      // readers of `__hex_ended` would do anything else with a truthy `done`;
+      // what a `{ done: 1 }` source actually does is pinned by a test rather
+      // than by that call.
       //
       // **The memo lives in the nodes, never in a central array** (§5, and #131,
       // which is the defect of having done it the other way). §5 decides the
@@ -4367,7 +4371,17 @@ function renderHelper(
       // its successor. References run head-to-tail only, and the adapter scope
       // below holds no node at all (§5's third clause, that the shared iterator
       // state keeps no back-reference to the head). Retaining position *i*
-      // therefore retains the forced *suffix* from *i* and nothing before it.
+      // therefore retains the forced *suffix* from *i* and none of **this
+      // spine's** prefix.
+      //
+      // That last qualifier is load-bearing, and the claim is false without it.
+      // The adapter keeps `__hex_source` and the iterator it acquired from it,
+      // which is §5's permitted shared state — but when the source is itself a
+      // `Seq` (both `seqMemoize` and `seqIterate` build the spine over
+      // `seqToIterable(s)`, whose generator closes over `s`'s head), that pins
+      // the *source's* head, and a source that stores rather than re-derives
+      // still has its prefix pinned through it. A second retention channel, in
+      // the driver rather than in the memo, filed as #230.
       //
       // **Failure is an outcome the spine memoizes too** (§7.1, and §7.2 step 6
       // for every step above): forcing a position again after it failed must
@@ -4377,15 +4391,32 @@ function renderHelper(
       // tail)` / failure are the three. The cell is a *box*, not the thrown
       // value itself, since JavaScript permits throwing `undefined`.
       //
-      // Unforced *is* "at the frontier", and now says so structurally rather
-      // than by an index comparison: a tail node is constructed solely in the
-      // success path, so a node exists only because its predecessor forced
-      // cleanly, and at most one node is ever unforced. That is also why no
-      // shared `done` flag is needed — an exhausted node memoizes end, and there
-      // is no node after it to call `next()` again. Reentrant forcing is the one
-      // case this does not decide (an inner forcing's outcome is overwritten by
-      // the outer's); it was undecided under the shared buffer too, and issue
-      // #123 owns it.
+      // **Exhaustion is the source's property, not a position's**, so `done`
+      // stays a shared cell — §5's own division, which permits shared iterator
+      // state and forbids only a back-reference to the head.
+      //
+      // The frontier itself is structural and needs no flag: a tail is built
+      // solely in the success path and is reachable only if that outcome won the
+      // memo, since `pull` returns the winner, so the reachable nodes are a
+      // chain and only its last member is unforced. What the flag adds is that
+      // *the frontier can sit behind an ended source*. One forcing of a node can
+      // see the source end while a reentrant forcing of the same node got a
+      // value and won — the head then hands out a tail the source has nothing
+      // left for, and without the flag, forcing it calls `next()` on an iterator
+      // that already reported done. The flag only ever goes true, so the loser
+      // of that race cannot un-end the source either.
+      //
+      // **First writer wins**, which is what makes §4's "each node memoizes
+      // exactly one outcome" an invariant this code holds rather than a sentence
+      // it cites: both stores are guarded on the node still being unforced, so
+      // an outcome is never overwritten and a node never ends up holding both a
+      // step and a failure. Only a reentrant forcing can reach either guard, and
+      // reentrancy is undecided — issue #123 — so this is not a claim about what
+      // *should* happen there. It is the weakest thing that keeps every cursor
+      // of one position agreeing with every other. The cost, recorded because it
+      // is a real difference from the buffer this replaces: where the buffer
+      // reordered a reentrant forcing's element, the loser's element is now
+      // dropped. Neither is specified; #123 is where that gets decided.
       //
       // Every node carries the boundary traversal method (§9.4): the adapter is
       // one of the ruling's two named construction sites, and a `Seq` built here
@@ -4394,6 +4425,7 @@ function renderHelper(
       return [
         `function ${name}(__hex_source) {`,
         "  let __hex_iterator = undefined;",
+        "  let __hex_done = false;",
         "  const __hex_node = () => {",
         "    let __hex_step = undefined;",
         "    let __hex_failure = undefined;",
@@ -4401,18 +4433,26 @@ function renderHelper(
         `      [Symbol.iterator]: ${dependencyName("seqIterate")},`,
         "      pull: () => {",
         "        if (__hex_step === undefined && __hex_failure === undefined) {",
-        "          try {",
-        "            if (__hex_iterator === undefined) __hex_iterator = __hex_source[Symbol.iterator]();",
-        "            const __hex_next = __hex_iterator.next();",
-        '            if (__hex_next === null || (typeof __hex_next !== "object" && typeof __hex_next !== "function")) {',
-        '              throw new TypeError("Iterator result " + String(__hex_next) + " is not an object");',
+        '          if (__hex_done) __hex_step = { tag: "None" };',
+        "          else {",
+        "            try {",
+        "              if (__hex_iterator === undefined) __hex_iterator = __hex_source[Symbol.iterator]();",
+        "              const __hex_next = __hex_iterator.next();",
+        '              if (__hex_next === null || (typeof __hex_next !== "object" && typeof __hex_next !== "function")) {',
+        '                throw new TypeError("Iterator result " + String(__hex_next) + " is not an object");',
+        "              }",
+        "              const __hex_ended = Boolean(__hex_next.done);",
+        "              if (__hex_ended) __hex_done = true;",
+        "              const __hex_forced = __hex_ended",
+        '                ? { tag: "None" }',
+        '                : { tag: "Some", value: [__hex_next.value, __hex_node()] };',
+        "              if (__hex_step === undefined && __hex_failure === undefined) __hex_step = __hex_forced;",
+        "            } catch (__hex_error) {",
+        "              if (__hex_step === undefined && __hex_failure === undefined) {",
+        "                __hex_failure = { error: __hex_error };",
+        "              }",
+        "              throw __hex_error;",
         "            }",
-        "            __hex_step = Boolean(__hex_next.done)",
-        '              ? { tag: "None" }',
-        '              : { tag: "Some", value: [__hex_next.value, __hex_node()] };',
-        "          } catch (__hex_error) {",
-        "            __hex_failure = { error: __hex_error };",
-        "            throw __hex_error;",
         "          }",
         "        }",
         "        if (__hex_failure !== undefined) throw __hex_failure.error;",
@@ -4428,7 +4468,10 @@ function renderHelper(
       // declaration. Re-derivation is the internal default, so a `Seq` whose
       // steps are effectful and which will be traversed more than once is the
       // caller's cue to come here; the result replays cached elements instead of
-      // recomputing, at the cost of retaining the forced prefix.
+      // recomputing, at the cost of retaining what is forced and still
+      // reachable. Since #131 that is the forced *suffix* from each retained
+      // position — a retained cursor no longer pins what it has passed, which is
+      // §5's reclamation clause and is the whole content of that fix.
       //
       // No new spine is built. §6.4 names the mechanism as *the same* one FFI
       // Part 3's inbound adapter uses, so the lowering is literally the R1 pair
