@@ -35,6 +35,10 @@ function preview(source: string): string {
   const project = compileProject([
     new Source.File(Source.fileId(0), "/main.hex", source),
   ]);
+  // The preview describes a module whatever its diagnostics say, so without
+  // this a specimen that stopped compiling would still produce text for the
+  // assertions to match.
+  expect(project.diagnostics).toEqual([]);
   const main = project.modules.find(({ source: file }) => file.path === "/main.hex");
   if (main === undefined) throw new Error("no /main.hex in the compiled project");
   return emitTypeScriptPreview(main.core).text;
@@ -216,14 +220,18 @@ describe("tsc accepts the emitted declarations", () => {
   });
 
   // §14.1 puts the preview in scope on the argument that a user reads it, so
-  // the preview's own text has to survive the same compiler. This is the one
-  // preview shape that can: the others name another module's types, which no
-  // generated file imports yet (#227).
-  test("the preview's row-tail form compiles too", async () => {
-    const emitted = preview("let probe = ((r) => r.x, 1)\n");
-    expect(emitted).toContain("{ x: never }");
+  // the preview's own text has to survive the same compiler. Note what this
+  // does *not* buy: `({ x: never } & never)` is valid TypeScript too, so the
+  // empty-row half of the rule is pinned by the text assertion above and by
+  // the mutation that produces it — never by `tsc`.
+  test("the preview's forms compile too, generic and instantiated alike", async () => {
+    const instantiated = preview("let probe = ((r) => r.x, 1)\n");
+    const generic = preview("let field = (r) => r.x\n");
+    expect(instantiated).toContain("{ x: never }");
+    expect(generic).toContain("<a, b>");
 
-    expect(await typeScriptErrors({ "preview.ts": emitted })).toEqual([]);
+    expect(await typeScriptErrors({ "instantiated.ts": instantiated })).toEqual([]);
+    expect(await typeScriptErrors({ "generic.ts": generic })).toEqual([]);
   });
 
   test("`unknown` would not serve the consumer — why §14.1 instantiates at `never`", async () => {
