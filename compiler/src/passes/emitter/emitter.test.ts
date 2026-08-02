@@ -37,8 +37,10 @@ describe("emitJavaScript", () => {
     expect(output.text).toContain('import { VERSION as version } from "tiny-json";');
     expect(output.text).toContain('import createClient from "tiny-json";');
     expect(output.text).toMatch(/import \{ stream as \w+ \} from "tiny-json";/u);
-    expect(output.text).toMatch(/const stream = \(\) => __hex_seqFromIterable\(\w+\(\)\);/u);
-    expect(output.text).toMatch(/const values = __hex_seqFromIterable\(\w+\);/u);
+    // Inbound `Seq` positions go through FFI Part 3 §2.2's door, which adapts a
+    // foreign iterable and lets a genuine `Seq` coming home pass by identity.
+    expect(output.text).toMatch(/const stream = \(\) => __hex_seqInbound\(\w+\(\)\);/u);
+    expect(output.text).toMatch(/const values = __hex_seqInbound\(\w+\);/u);
     expect(output.text).toMatch(/const report = message => \{ \w+\(message\); \};/u);
     expect(output.text).toContain('import "telemetry/register";');
     expect(output.text).toContain("export { parse };");

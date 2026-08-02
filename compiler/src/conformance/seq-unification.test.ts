@@ -301,33 +301,20 @@ describe("the boundary face (FFI Part 3)", () => {
   });
 
   /**
-   * **Known gap, pinned deliberately — defect 11.** FFI Part 3 §9.1 says an
-   * exported Hexagon `Seq` is a *replayable JavaScript iterable*: each
-   * `[Symbol.iterator]()` opens an independent cursor over the same memoized
-   * sequence. Under the intrinsic that held for free, because a `Seq` *was* a
-   * JS iterable. It is a record now, and this arc does not restore the property.
+   * **Defect 12, closed** (FFI Part 3 §9.4, ruled 2026-07-28). Three tests here
+   * held the divergence as pinned behaviour while it awaited a ruling; they now
+   * hold the ruling's three positions. §9.4's seven normative properties of the
+   * memoized boundary view get their own describe block below.
    *
-   * It is not an oversight and not a one-line fix. An emitted ESM binding is
-   * simultaneously the Hexagon interface and the JavaScript interface, so an
-   * export-site wrapper (Part 7 §7's mechanism) would hand Hexagon importers the
-   * wrapped value and break them. The three candidate answers — a per-value
-   * `[Symbol.iterator]` on the record, a dual-binding export protocol, or
-   * changing the face to Part 7 §6's opaque brand — trade FFI Part 3 §9.1, Part
-   * 7 §6, ruling R1's "sole compiler-side constructor", and per-step allocation
-   * cost against each other. That is a ruling, and `Seq` is the pilot every
-   * other collection inherits, so guessing here would bake the guess into
-   * `Vector`, `Set`, and `Map`.
-   *
-   * Pinned as behaviour rather than left absent, so the ruling lands against a
-   * test that already fails loudly when it changes.
+   * The face is **representation**, not plumbing: every `Seq` value carries the
+   * boundary traversal method from construction, which is what lets a value
+   * export be direct (a wrapper there would hand Hexagon importers a non-`Seq`)
+   * and what makes Part 7 §6's identity crossing true rather than traded away.
    */
-  test("an exported function's Seq positions face JavaScript as the record too", async () => {
-    // The half defect 12's first statement omitted (PR #91 finding F2, Fable).
-    // FFI Part 7 §7 **occasion 1** — a stable wrapper adapting an incoming
-    // `Iterable(a)` parameter declared `Seq(a)` — is decided spec, unimplemented
-    // here: a JS caller following the published face passes an array and the
-    // body drives `.pull` on it. Result positions have the mirror problem.
-    // Pinned so the ruling lands against the whole statement, not half of it.
+  test("an exported function's Seq parameter goes through occasion 1's wrapper", async () => {
+    // Part 7 §7 occasion 1, specified by §9.4: the parameter position is the one
+    // that needs a wrapper, because what arrives may be any iterable. The result
+    // position needs none — it is honest by representation.
     const project = compileProject([
       new Source.File(
         Source.fileId(0),
@@ -345,19 +332,40 @@ describe("the boundary face (FFI Part 3)", () => {
     expect(compiled.declarations.text).toContain(
       "export declare const upTo: (count: number) => Iterable<number>;",
     );
-    // And no boundary wrapper stands behind either one.
-    expect(compiled.javascript.text).toContain("const total = values => fold(values, 0,");
-    expect(compiled.javascript.text).not.toContain("__hex_seqFromIterable");
+    // The `Seq` parameter is routed through the door; the `Seq` result is not
+    // wrapped at all, because the value already carries its face.
+    expect(compiled.javascript.text).toMatch(
+      /const (\w+) = __hex_argument0 => total\(__hex_seqInbound\(__hex_argument0\)\);\nexport \{ \1 as total \};/u,
+    );
+    expect(compiled.javascript.text).toContain("export { upTo };");
   });
 
-  test("an exported Seq faces JavaScript as the record, not yet as an Iterable", async () => {
+  test("a JavaScript caller may pass any iterable to an exported Seq parameter", async () => {
+    // What the wrapper is *for*: the published face says `Iterable<number>`, so
+    // an array must work, and so must a single-shot generator.
+    const exports = await main(
+      "export let total(values: Seq(Int)): Int = Seq.fold(values, 0, (a, b) => a + b)\n",
+    );
+    const total = exports["total"] as (values: Iterable<number>) => number;
+    expect(total([1, 2, 3])).toBe(6);
+    expect(total(new Set([4, 5]))).toBe(9);
+    expect(total((function* () {
+      yield 10;
+      yield 20;
+    })())).toBe(30);
+  });
+
+  test("an exported Seq faces JavaScript as an Iterable, by representation", async () => {
     const exports = await main(
       "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n",
     );
-    const counted = exports["counted"] as { pull: unknown };
+    const counted = exports["counted"] as Iterable<number> & { pull: unknown };
+    // The record is unchanged — `pull` is still the §6.2 protocol — and the
+    // JavaScript face rides the same value rather than a wrapper around it.
     expect(typeof counted.pull).toBe("function");
-    expect(counted[Symbol.iterator as unknown as keyof typeof counted]).toBeUndefined();
-    // The face the `.d.ts` promises, which the value does not yet satisfy.
+    expect(typeof counted[Symbol.iterator]).toBe("function");
+    expect([...counted]).toEqual([1, 2, 3]);
+    // And the value export is the raw ESM binding: no indirection to unwrap.
     const project = compileProject([
       new Source.File(
         Source.fileId(0),
@@ -365,12 +373,54 @@ describe("the boundary face (FFI Part 3)", () => {
         "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n",
       ),
     ]);
-    expect(
-      project.modules.find((module) => module.source.path === "/main.hex")!.declarations.text,
-    ).toContain("export declare const counted: Iterable<number>;");
+    const compiled = project.modules.find((module) => module.source.path === "/main.hex")!;
+    expect(compiled.declarations.text).toContain(
+      "export declare const counted: Iterable<number>;",
+    );
+    expect(compiled.javascript.text).toContain("export { counted };");
   });
 
-  test("a foreign `Seq` result enters through the inbound adapter, not raw", () => {
+  test("the shared method is one function, not a closure per value", async () => {
+    // §9.4: "one shared method for all `Seq` values, never a per-value closure".
+    // Directly observable, so observed rather than read off the emitted text.
+    const exports = await run(
+      [["/main.hex",
+        "extern from \"numbers\"\n" +
+        "    fun counter(): Seq(Int)\n" +
+        "    fun other(): Seq(Int)\n" +
+        "\n" +
+        "export let one: Seq(Int) = Seq.singleton(1)\n" +
+        "export let many: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n" +
+        "export let none: Seq(Int) = Seq.empty\n" +
+        "export let adapted: Seq(Int) = counter()\n" +
+        "export let alsoAdapted: Seq(Int) = other()\n"]],
+      {
+        numbers: "export function counter() { return [1, 2, 3]; }\n" +
+          "export function other() { return [4, 5]; }",
+      },
+    );
+    const face = (name: string) =>
+      (exports[name] as Iterable<number>)[Symbol.iterator];
+    expect(typeof face("one")).toBe("function");
+    // Three different combinators in `Seq.hex`, one method.
+    expect(face("one")).toBe(face("many"));
+    expect(face("one")).toBe(face("none"));
+    // The inbound adapter is the *other* construction site the ruling names,
+    // and it lives in this module's helper block rather than `Seq.hex`'s — so
+    // its nodes share a method with each other, and, per §9.4's scope edit
+    // note, deliberately **not** with `Seq.hex`'s values. That asymmetry is why
+    // the door's mark cannot be this method's identity (§2.2).
+    expect(face("adapted")).toBe(face("alsoAdapted"));
+    expect(face("adapted")).not.toBe(face("one"));
+    // And a tail pulled out of an adapter node carries it too — the node
+    // factory builds every successor, not just the head.
+    const [, tail] = (exports["adapted"] as unknown as {
+      pull: () => { value: [number, Iterable<number>] };
+    }).pull().value;
+    expect(tail[Symbol.iterator]).toBe(face("adapted"));
+  });
+
+  test("a foreign `Seq` result enters through the inbound door, not raw", () => {
     const project = compileProject([
       new Source.File(
         Source.fileId(0),
@@ -389,8 +439,89 @@ describe("the boundary face (FFI Part 3)", () => {
       .find((module) => module.source.path === "/main.hex")!
       .javascript.text;
     // The declared result is a `Seq`, so the raw foreign iterable is adapted
-    // rather than handed to `.hex` code that would try to read `pull` off it.
-    expect(javascript).toMatch(/__hex_seqFromIterable\(__hex_counterForeign\d*\(\)\)/u);
+    // rather than handed to `.hex` code that would try to read `pull` off it —
+    // through §2.2's door, which is what makes a round-tripped `Seq` come home
+    // by identity instead of acquiring a second spine (Part 4 §4.3).
+    expect(javascript).toMatch(/__hex_seqInbound\(__hex_counterForeign\d*\(\)\)/u);
+  });
+
+  test("a Seq argument to a foreign function crosses as itself, unwrapped", () => {
+    // §9.4's outbound extern direction: the value carries its `Iterable<a>` face
+    // by representation, so there is nothing to drive it through. The extern
+    // needs no wrapper at all and the ESM import binds directly.
+    const project = compileProject([
+      new Source.File(
+        Source.fileId(0),
+        "/main.hex",
+        "extern from \"./numbers.js\"\n" +
+        "    fun consume(values: Seq(Int)): Int\n" +
+        "\n" +
+        "export let out: Int = consume(Seq.singleton(1))\n",
+      ),
+    ]);
+    expect(project.diagnostics).toEqual([]);
+    const javascript = project.modules
+      .find((module) => module.source.path === "/main.hex")!
+      .javascript.text;
+    expect(javascript).toContain('import { consume } from "./numbers.js";');
+    expect(javascript).not.toContain("__hex_seqToIterable(values)");
+  });
+
+  test("a foreign function receives a Hexagon Seq as a working iterable", async () => {
+    const exports = await run(
+      [["/main.hex",
+        "extern from \"numbers\"\n" +
+        "    fun consume(values: Seq(Int)): Int\n" +
+        "\n" +
+        "export let out: Int = consume(Seq.take(Seq.iterate(1, x => x + 1), 4))\n"]],
+      {
+        numbers: [
+          "export function consume(values) {",
+          "  let total = 0;",
+          "  for (const value of values) total += value;",
+          "  return total;",
+          "}",
+        ].join("\n"),
+      },
+    );
+    expect(exports["out"]).toBe(10);
+  });
+
+  test("a Seq round-tripped through JavaScript comes home by identity", async () => {
+    // §2.2's door, and the reason it exists: re-adapting would wrap a possibly
+    // re-deriving spine in a memoizing one, observably changing the value's
+    // persistence regime on a trip that changed nothing.
+    const exports = await run(
+      [["/main.hex",
+        "extern from \"numbers\"\n" +
+        "    fun echo(values: Seq(Int)): Seq(Int)\n" +
+        "\n" +
+        "let sent: Seq(Int) = Seq.singleton(1)\n" +
+        "export let same(ignored: Int): Bool = Seq.length(echo(sent)) == Seq.length(sent)\n" +
+        "export let sentOut: Seq(Int) = sent\n" +
+        "export let returned: Seq(Int) = echo(sent)\n"]],
+      { numbers: "export function echo(values) { return values; }" },
+    );
+    expect(exports["returned"]).toBe(exports["sentOut"]);
+    expect((exports["same"] as (ignored: number) => boolean)(0)).toBe(true);
+  });
+
+  test("a foreign iterable at a Seq position is still adapted freshly", async () => {
+    // The door's other case, which is §2.1 unchanged: anything that is not a
+    // genuine `Seq` gets its own adapter and its own spine.
+    const exports = await run(
+      [["/main.hex",
+        "extern from \"numbers\"\n" +
+        "    fun counter(): Seq(Int)\n" +
+        "\n" +
+        "export let firstPass: Vector(Int) = Vector.fromSeq(counter())\n" +
+        "export let secondPass: Vector(Int) = Vector.fromSeq(counter())\n"]],
+      {
+        numbers: "export function counter() { return [1, 2, 3]; }",
+      },
+    );
+    expect(exports["firstPass"]).toEqual([1, 2, 3]);
+    expect(exports["secondPass"]).toEqual([1, 2, 3]);
   });
 });
 

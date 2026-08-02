@@ -159,9 +159,11 @@ function jsDocBlock(content: string, indent: string): string[] {
  * ordinary Core, and that is deliberate — this is the whole list of places where
  * the back end knows a specific declaration.
  *
- * - `seq` (Loops §6.6): known for exactly three jobs, all of them the FFI Part 3
- *   boundary in ruling R1's sense — wrap a foreign value entering as a `Seq`,
- *   drive a `Seq` leaving for JavaScript, and lower `for x in` over one.
+ * - `seq` (Loops §6.6): known for the FFI Part 3 boundary in ruling R1's sense —
+ *   wrap a foreign value entering as a `Seq`, drive a `Seq` leaving for
+ *   JavaScript, lower `for x in` over one, and — since the defect-12 ruling
+ *   (Part 3 §9.4) — give every `Seq` value the boundary traversal method that
+ *   *is* its JavaScript face.
  * - `bool` (#147, decisions doc §3): the representation pin. `Bool` is an
  *   ordinary union to every earlier pass; here, and only here, its values are
  *   the JS `boolean` instead of the §6.2 all-nullary strings. This is a
@@ -176,7 +178,36 @@ interface PreludeIds {
 
 function preludeIds(module: Core.Module): PreludeIds {
   return {
-    seq: module.preludeRecords.get("Seq"),
+    // The same shape as `bool`'s fallback below, and needed for the same
+    // reason: `stdlib/Seq.hex` is compiled *before* the prelude can offer it
+    // `Seq`, yet it is the one module that constructs `Seq` records, so without
+    // the fallback the boundary traversal method (Part 3 §9.4) would be absent
+    // from every combinator's result — the defect itself.
+    //
+    // Unlike `bool`, this fallback is deliberately **not** mirrored in the
+    // checker's `#seqRecord`, so the two passes disagree inside that one
+    // module. That is safe for a different reason than `bool`'s, and the
+    // difference matters: `bool`'s invariant ("they must agree, or one pass
+    // pins what another does not") is about a *representation pin*, which both
+    // passes act on and which can therefore be violated silently. Nothing here
+    // is a pin.
+    //
+    // The checker reaches `#seqRecord` in three places — Part 1 §5.3's
+    // nested-adapter error (extern annotations only, and skipped for the
+    // intrinsic door), `#sequence` (the type of `Map.keys`, `Vector.toSeq` and
+    // their siblings), and `#asSequence` (`for x in` recognition). Inside
+    // `Seq.hex` all three see no `Seq`, so all three would refuse. `Seq.hex`
+    // today writes none of them, which is why the disagreement has no reachable
+    // consequence — and every one of them fails as a **hard error at compile
+    // time**, never as wrong output, so nothing can ship silently while this
+    // holds. The realistic trigger is not a new `extern` but a `for x in` loop
+    // or a `Vector.toSeq` call added to `Seq.hex` (the #177 inlining arc edits
+    // exactly this file); if one lands, mirror this fallback in the checker
+    // rather than working around the refusal.
+    seq: module.preludeRecords.get("Seq")
+      ?? (module.preludeRecords.size === 0
+        ? module.records.find(({ name }) => name === "Seq")?.id
+        : undefined),
     // The fallback reaches exactly one module: `stdlib/Bool.hex`, which declares
     // what the prelude cannot yet supply to it. Everywhere else the prelude
     // entry wins, so a user's own `union Bool` occludes the name (Modules §5.4)
@@ -478,27 +509,38 @@ class JavaScriptEmitter {
           const key = declaration.foreignName ?? declaration.localName;
           lines.push(`${prefix}const ${local} = ${this.#lowerIntrinsic(key, declaration.span)};`);
           if (declaration.exported) {
+            // Occasion 1 applies here as much as to a `.hex` function, and for
+            // the sharper reason: an intrinsic's lowering is a compiler helper
+            // that drives `pull`, so it is not merely dishonest but broken if a
+            // JavaScript caller hands it the `Iterable<a>` its published face
+            // invites. `Seq.memoize` is the whole of today's inventory.
+            const exported = this.#boundaryExportName(
+              local,
+              declaration.kind === "ExternFun"
+                ? {
+                  kind: "Function",
+                  parameters: declaration.parameters.map(({ scheme }) => scheme.type),
+                  result: declaration.result,
+                }
+                : declaration.type,
+            );
             this.#exports.push(
-              local === declaration.localName
-                ? `export { ${local} };`
-                : `export { ${local} as ${declaration.localName} };`,
+              exported === declaration.localName
+                ? `export { ${exported} };`
+                : `export { ${exported} as ${declaration.localName} };`,
             );
           }
           continue;
         }
-        // A `Seq` faces JavaScript as `Iterable<a>` and is a record inside, so
-        // both directions need a bridge: a foreign result is adapted in, and a
-        // `Seq` argument is driven out. Without the argument half a foreign
-        // function would be handed the bare record and iterate nothing.
-        const sequenceParameters = declaration.kind === "ExternFun"
-          ? declaration.parameters.filter((parameter) =>
-            this.#isSequence(parameter.scheme.type)
-          )
-          : [];
+        // A `Seq` faces JavaScript as `Iterable<a>`. **Outbound needs nothing**
+        // (FFI Part 3 §9.4, the outbound extern direction): the value carries
+        // that face by representation, so a `Seq` argument is passed to foreign
+        // code as itself and crosses by identity. Inbound still needs the door
+        // (§2.2) — what arrives may be any iterable — so a foreign result or
+        // value declared `Seq(a)` is wrapped, and a genuine `Seq` coming home
+        // that way returns by identity rather than acquiring a second spine.
         const wrapper = declaration.kind === "ExternFun"
-          ? this.#isSequence(declaration.result) ||
-            sequenceParameters.length > 0 ||
-            isUnit(declaration.result)
+          ? this.#isSequence(declaration.result) || isUnit(declaration.result)
           : this.#isSequence(declaration.type);
         if (!wrapper) {
           if (declaration.default) {
@@ -519,24 +561,15 @@ class JavaScriptEmitter {
           );
           if (declaration.kind === "ExternLet") {
             lines.push(
-              `${prefix}const ${local} = ${this.#useHelper("seqFromIterable")}(${imported});`,
+              `${prefix}const ${local} = ${this.#useHelper("seqInbound")}(${imported});`,
             );
           } else {
             const parameters = declaration.parameters.map((parameter) =>
               this.#identifier(parameter.symbol, parameter.name)
             );
-            const sequenceNames = new Set(
-              sequenceParameters.map((parameter) =>
-                this.#identifier(parameter.symbol, parameter.name)
-              ),
-            );
-            const call = `${imported}(${parameters.map((parameter) =>
-              sequenceNames.has(parameter)
-                ? `${this.#useHelper("seqToIterable")}(${parameter})`
-                : parameter
-            ).join(", ")})`;
+            const call = `${imported}(${parameters.join(", ")})`;
             const value = this.#isSequence(declaration.result)
-              ? `${this.#useHelper("seqFromIterable")}(${call})`
+              ? `${this.#useHelper("seqInbound")}(${call})`
               : isUnit(declaration.result)
               ? `{ ${call}; }`
               : call;
@@ -740,6 +773,23 @@ class JavaScriptEmitter {
           name === item.name ? `export { ${name} };` : `export { ${name} as ${item.name} };`,
         );
       }
+      // `Seq`'s constructor is the one that is not the identity: the boundary
+      // traversal method is part of what a `Seq` *is* (FFI Part 3 §9.4), so a
+      // construction that reaches the binding rather than the inlined form
+      // above must still produce it.
+      //
+      // No source reaches it today — the record is opaque, so only
+      // `stdlib/Seq.hex` can name the constructor, and every construction there
+      // is a direct call that inlines. This is here because the binding is a
+      // *value*: the day `Seq.hex` passes `Seq` to a higher-order function, the
+      // identity would silently hand back records without a face, which is the
+      // defect this ruling closed. Deliberately unreachable, deliberately kept.
+      if (this.#prelude.seq !== undefined && item.id === this.#prelude.seq) {
+        return [
+          `${prefix}const ${name} = __hex_record => ` +
+          `({ ...__hex_record, [Symbol.iterator]: ${this.#useHelper("seqIterate")} });`,
+        ];
+      }
       return [`${prefix}const ${name} = __hex_record => __hex_record;`];
     }
     if (item.kind === "Exception") {
@@ -854,19 +904,71 @@ class JavaScriptEmitter {
   ): void {
     if (!item.exported || depth !== 0) return;
     if (item.binding.scheme.constraints.length > 0) {
+      // The internal constrained export is Hexagon-to-Hexagon plumbing with
+      // trailing evidence — it is not in the `.d.ts` face, so no JavaScript
+      // caller can reach it and it needs no boundary wrapper. The face is the
+      // specializations, and those do.
       this.#exports.push(
         `export { ${name} as ${internalConstrainedExportName(item.binding.symbol)} };`,
       );
       for (const specialization of this.#specializationsFor(item.binding.symbol)) {
-        this.#exports.push(`export { ${specialization.name} };`);
+        const exported = this.#boundaryExportName(
+          specialization.name,
+          specialization.scheme.type,
+        );
+        this.#exports.push(
+          exported === specialization.name
+            ? `export { ${specialization.name} };`
+            : `export { ${exported} as ${specialization.name} };`,
+        );
       }
       return;
     }
+    const exported = this.#boundaryExportName(name, item.binding.scheme.type);
     this.#exports.push(
-      name === item.binding.name
-        ? `export { ${name} };`
-        : `export { ${name} as ${item.binding.name} };`,
+      exported === item.binding.name
+        ? `export { ${exported} };`
+        : `export { ${exported} as ${item.binding.name} };`,
     );
+  }
+
+  /**
+   * Part 7 §7 **occasion 1**, specified by the defect-12 ruling (FFI Part 3
+   * §9.4). An exported function with a top-level `Seq(a)` parameter faces
+   * JavaScript as taking `Iterable<a>`, so the ESM binding is one stable
+   * module-level wrapper that routes each such argument through the §2.2
+   * inbound door before calling the module-internal function.
+   *
+   * Nothing else needs one. A `Seq` **result** and a `Seq` **value export** are
+   * honest by representation, so they export directly — which is also the only
+   * shape available to a value export, since a wrapper there would hand Hexagon
+   * importers a non-`Seq`.
+   *
+   * Allocated once with the binding, so a JS consumer storing or comparing the
+   * export sees one function forever (§7). Hexagon importers reach the same
+   * binding and therefore the same wrapper; the door's identity pass-through is
+   * what makes that semantically invisible to them, at one recognition check
+   * per `Seq`-typed argument per cross-module call. Same-module calls bind the
+   * internal name and pay nothing.
+   *
+   * Returns the name to export under — the internal one when no `Seq` parameter
+   * is present, which is the overwhelmingly common case.
+   */
+  #boundaryExportName(name: string, type: Typed.Type): string {
+    if (type.kind !== "Function") return name;
+    const sequences = type.parameters.map((parameter) => this.#isSequence(parameter));
+    if (!sequences.includes(true)) return name;
+    const door = this.#useHelper("seqInbound");
+    const parameters = sequences.map((_, index) => `__hex_argument${index}`);
+    const wrapper = this.#generatedNames.fresh(`${name}Boundary`);
+    this.#exports.push(
+      `const ${wrapper} = ${arrowParameters(parameters)} => ${name}(${
+        parameters.map((parameter, index) =>
+          sequences[index] === true ? `${door}(${parameter})` : parameter
+        ).join(", ")
+      });`,
+    );
+    return wrapper;
   }
 
   #emitFunctionDeclaration(
@@ -1071,17 +1173,7 @@ class JavaScriptEmitter {
           this.#emitExpr(element, depth, evidenceNames)
         ).join(", ")}]`;
       case "Record":
-        return `{ ${[
-          ...(expression.spread === undefined
-            ? []
-            : [`...${this.#emitExpr(expression.spread, depth, evidenceNames)}`]),
-          ...expression.fields.map((field) =>
-            objectProperty(
-              field.name,
-              this.#emitExpr(field.value, depth, evidenceNames),
-            )
-          ),
-        ].join(", ")} }`;
+        return this.#emitRecordLiteral(expression, depth, evidenceNames);
       case "TupleAccess":
         return (
           `${this.#emitOperand(expression.receiver, Precedence.Call, depth, evidenceNames)}` +
@@ -1160,15 +1252,30 @@ class JavaScriptEmitter {
         return `(() => { throw ${this.#emitExpr(expression.exception, depth, evidenceNames)}; })()`;
       case "Try":
         return this.#emitTry(expression, depth, evidenceNames);
-      case "Call":
-        if (
-          expression.callee.kind === "Name" &&
+      case "Call": {
+        const constructed = expression.callee.kind === "Name" &&
           this.#recordConstructors.has(expression.callee.symbol) &&
           expression.arguments.length === 1
-        ) {
-          return this.#emitExpr(expression.arguments[0]!, depth, evidenceNames);
+          ? expression.arguments[0]!
+          : undefined;
+        if (constructed !== undefined) {
+          // A nominal record constructor is the identity, so the construction
+          // inlines to its argument — except for `Seq`, whose representation
+          // includes the boundary traversal method (FFI Part 3 §9.4). This is
+          // one of the two construction sites the ruling names; the other is
+          // the inbound adapter.
+          if (!this.#isSequence(expression.type)) {
+            return this.#emitExpr(constructed, depth, evidenceNames);
+          }
+          const face = `[Symbol.iterator]: ${this.#useHelper("seqIterate")}`;
+          return constructed.kind === "Record"
+            ? this.#emitRecordLiteral(constructed, depth, evidenceNames, face)
+            // Not a literal (`Seq(existing)`): splice the shared method on
+            // rather than mutate a value that may already be someone else's.
+            : `{ ...${this.#emitExpr(constructed, depth, evidenceNames)}, ${face} }`;
         }
         return this.#emitCall(expression, depth, evidenceNames);
+      }
       case "ConsoleLog":
         return `console.log(${expression.arguments.map((argument) =>
           this.#emitExpr(argument, depth, evidenceNames)
@@ -2817,6 +2924,31 @@ class JavaScriptEmitter {
       type.record === this.#prelude.seq;
   }
 
+  /**
+   * A record literal, with `extra` appended verbatim as a final property when
+   * the construction carries something the source fields do not — which today
+   * is exactly `Seq`'s boundary traversal method (FFI Part 3 §9.4).
+   */
+  #emitRecordLiteral(
+    expression: Core.RecordExpr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+    extra?: string,
+  ): string {
+    return `{ ${[
+      ...(expression.spread === undefined
+        ? []
+        : [`...${this.#emitExpr(expression.spread, depth, evidenceNames)}`]),
+      ...expression.fields.map((field) =>
+        objectProperty(
+          field.name,
+          this.#emitExpr(field.value, depth, evidenceNames),
+        )
+      ),
+      ...(extra === undefined ? [] : [extra]),
+    ].join(", ")} }`;
+  }
+
   /** The trailing evidence arguments a constrained callee expects (Constraints §6.1). */
   #evidenceArguments(
     evidence: readonly Core.CallEvidence[],
@@ -2997,12 +3129,11 @@ class JavaScriptEmitter {
   }
 
   #useHelper(helper: Helper): string {
-    this.#helpers.add(helper);
-    if (helper === "stringIndex") this.#helpers.add("vectorIndex");
-    if (helper === "stringSlice") this.#helpers.add("vectorSlice");
-    if (helper === "seqMemoize") {
-      this.#helpers.add("seqFromIterable");
-      this.#helpers.add("seqToIterable");
+    const pending = [helper];
+    for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+      if (this.#helpers.has(next)) continue;
+      this.#helpers.add(next);
+      pending.push(...HELPER_DEPENDENCIES[next]);
     }
     return this.#helperName(helper);
   }
@@ -3790,6 +3921,8 @@ type Helper =
   | "floatEquals"
   | "range"
   | "seqFromIterable"
+  | "seqInbound"
+  | "seqIterate"
   | "seqMemoize"
   | "seqToIterable"
   | "nodeSet"
@@ -3815,6 +3948,53 @@ type Helper =
   | "floatMod"
   | "floatRem"
   | "persistentCollections";
+
+/**
+ * Which helpers a helper's own body names. `#useHelper` closes over this, so
+ * requesting one member of a mutually recursive family emits the whole family.
+ *
+ * The FFI Part 3 family (ruling R1, four members after the defect-12 ruling —
+ * Part 3 §9.4) is the reason this is a table rather than a couple of `if`s: the
+ * inbound adapter builds records that carry the boundary traversal method, and
+ * that method is composed from the adapter and the outbound driver, so the
+ * three are a cycle that neither eager `add` calls nor recursion can express.
+ */
+const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
+  checkedPower: [],
+  compareFloat: [],
+  compareString: [],
+  exception: [],
+  floatEquals: [],
+  range: [],
+  seqFromIterable: ["seqIterate"],
+  seqInbound: ["seqFromIterable"],
+  seqIterate: ["seqFromIterable", "seqToIterable"],
+  seqMemoize: ["seqFromIterable", "seqToIterable"],
+  seqToIterable: [],
+  nodeSet: [],
+  vectorAt: [],
+  vectorIndex: [],
+  vectorSet: [],
+  vectorSlice: [],
+  stringIndex: ["vectorIndex"],
+  stringSlice: ["vectorSlice"],
+  stableHash: [],
+  mixHash: [],
+  intDiv: [],
+  intMod: [],
+  intQuot: [],
+  intRem: [],
+  intGcd: [],
+  bigIntDiv: [],
+  bigIntMod: [],
+  bigIntQuot: [],
+  bigIntRem: [],
+  bigIntGcd: [],
+  bigIntLcm: [],
+  floatMod: [],
+  floatRem: [],
+  persistentCollections: [],
+};
 
 enum Precedence {
   Arrow = 1,
@@ -4142,11 +4322,14 @@ function renderHelper(
         "}",
       ];
     // ---------------------------------------------------------------------
-    // The FFI Part 3 bridge pair (ruling R1). Together these are the *entire*
-    // compiler-side knowledge of how a `Seq` is represented: `seqFromIterable`
-    // is the only place the compiler constructs one, `seqToIterable` the only
-    // place it drives one. Everything else — every combinator, `next`, the
-    // whole public face — lives in prelude `stdlib/Seq.hex`.
+    // The FFI Part 3 representation family (ruling R1, amended by the defect-12
+    // ruling — Part 3 §9.4). Together these four are the *entire* compiler-side
+    // knowledge of how a `Seq` is represented: `seqFromIterable` is the only
+    // place the compiler constructs one, `seqToIterable` the only place it
+    // drives one, `seqIterate` the boundary traversal method every `Seq` value
+    // carries, and `seqInbound` the door that recognizes one arriving from
+    // JavaScript. Everything else — every combinator, `next`, the whole public
+    // face — lives in prelude `stdlib/Seq.hex`.
     //
     // They are the one sanctioned exception to "nothing outside `.hex` knows
     // `Option`'s or the record's emitted shape", so both shapes are written
@@ -4180,6 +4363,11 @@ function renderHelper(
       // where it was, so the spine cannot advance past a failed position. The
       // cell is a *box*, not the thrown value itself, since JavaScript permits
       // throwing `undefined`.
+      //
+      // Every node carries the boundary traversal method (§9.4): the adapter is
+      // one of the ruling's two named construction sites, and a `Seq` built here
+      // is as much a `Seq` as one `Seq.hex` builds — an adapted foreign iterable
+      // handed straight back out to JavaScript must face it as an `Iterable`.
       return [
         `function ${name}(__hex_source) {`,
         "  const __hex_values = [];",
@@ -4187,6 +4375,7 @@ function renderHelper(
         "  let __hex_done = false;",
         "  let __hex_failure = undefined;",
         "  const __hex_node = (__hex_index) => ({",
+        `    [Symbol.iterator]: ${dependencyName("seqIterate")},`,
         "    pull: () => {",
         "      if (__hex_index === __hex_values.length && !__hex_done) {",
         "        if (__hex_failure !== undefined) throw __hex_failure.error;",
@@ -4235,11 +4424,89 @@ function renderHelper(
         `  return ${dependencyName("seqFromIterable")}(${dependencyName("seqToIterable")}(__hex_source));`,
         "}",
       ];
+    case "seqIterate":
+      // **The face.** FFI Part 3 §9.4: the JavaScript iterable protocol is part
+      // of a `Seq`'s representation, not plumbing bolted on at a crossing, which
+      // is exactly what lets Part 7 §6's identity clause hold — the value crosses
+      // out and back unmodified, and what JavaScript finds on it was always
+      // there. One shared method for every `Seq` value in the module, never a
+      // per-value closure, so carrying the face costs a property slot.
+      //
+      // The per-value state it needs lives in a `WeakMap` rather than a slot on
+      // the record, so a `Seq` JavaScript never traverses gains nothing at all
+      // (§9.4 property 3) and so the view never becomes visible to a JS consumer
+      // enumerating the value. Retention is §5's addendum verbatim: the view is
+      // reachable only from the value, so it is collected with it. The key is
+      // reachable from its own entry (the view's spine drives the value), which
+      // is the textbook ephemeron cycle `WeakMap` is specified to collect.
+      //
+      // The body is the ruling's own representative implementation — the R1 pair
+      // composed, the inbound spine driven over the value's `pull` traversal —
+      // and the seven normative properties are what it is checked against:
+      // independent cursors (1) because each call makes a fresh driver over the
+      // shared spine; at-most-once derivation (2) and memoized failure (4)
+      // because the spine memoizes both; lazy view creation (3) because nothing
+      // is built until the first call and the spine acquires its iterator only
+      // at the first pull; preserved laziness (5) because a cursor forces only
+      // what it reaches; per-cursor `return()` (6) because abandoning the
+      // generator touches neither the spine nor any other cursor; retention (7)
+      // as above.
+      //
+      // "Checked against" means checked, not argued: all seven have executing
+      // tests in `conformance/seq-boundary-view.test.ts`, one describe block
+      // each. Property 7 is the one that needed machinery — collectability of
+      // the `WeakMap`'s ephemeron cycle has no ordinary observable — so that
+      // test exposes `gc` in-process and watches a `WeakRef`. Replacing the
+      // `WeakMap` below with a `Map` fails it and nothing else.
+      //
+      // `this` is the traversed `Seq`: the method is an own property, so the
+      // protocol calls it with the value as receiver.
+      return [
+        `const ${name} = (() => {`,
+        "  const __hex_views = new WeakMap();",
+        "  return function () {",
+        "    let __hex_view = __hex_views.get(this);",
+        "    if (__hex_view === undefined) {",
+        `      __hex_view = ${dependencyName("seqFromIterable")}(${dependencyName("seqToIterable")}(this));`,
+        "      __hex_views.set(this, __hex_view);",
+        "    }",
+        `    return ${dependencyName("seqToIterable")}(__hex_view)[Symbol.iterator]();`,
+        "  };",
+        "})();",
+      ];
+    case "seqInbound":
+      // **The door** (FFI Part 3 §2.2). A genuine `Seq` handed back at a `Seq(a)`
+      // position is not adapted — it crosses by identity, same spine, same
+      // persistence regime (Part 7 §6). Anything else iterable gets a fresh
+      // adapter, which is §2.1 unchanged and whose subject that case is.
+      //
+      // Recognition is by the representation's own mark. `[Symbol.iterator]`
+      // cannot be it — every iterable the door must *adapt* has one too — and
+      // the method's identity cannot be it either, since helpers are emitted per
+      // module and a `Seq` from another module carries that module's copy. So
+      // the test is `pull`, the half of §9.4's representation that is the
+      // record. §2.2 leaves the exact test to the emitter and rules a fabricated
+      // look-alike a trusted-boundary contract violation (Part 1 §3.1), so no
+      // validation is added beyond it.
+      return [
+        `function ${name}(__hex_value) {`,
+        '  return __hex_value != null && typeof __hex_value.pull === "function"',
+        "    ? __hex_value",
+        `    : ${dependencyName("seqFromIterable")}(__hex_value);`,
+        "}",
+      ];
     case "seqToIterable":
-      // Bridge OUT. A `while` loop over `pull`, never recursion: Loops §6.5
-      // promises no tail-call elimination, so driving a long `Seq` recursively
-      // would grow the stack. Re-iterating restarts from the head, which is
-      // persistence, not memoization — the `Seq` handed in is unconsumed.
+      // Bridge OUT, and the **internal** channel's driver. A `while` loop over
+      // `pull`, never recursion: Loops §6.5 promises no tail-call elimination,
+      // so driving a long `Seq` recursively would grow the stack. Re-iterating
+      // restarts from the head, which is persistence, not memoization — the
+      // `Seq` handed in is unconsumed.
+      //
+      // Channel separation (§9.4) is why this stays distinct from the face: a
+      // driver built here consults no boundary view, so lowering `for x in`
+      // through it keeps re-derivation as the internal default. Lowering it to
+      // native `for...of` over the record instead would silently import boundary
+      // memoization, and its retention, into internal semantics.
       return [
         `function ${name}(__hex_sequence) {`,
         "  return {",
