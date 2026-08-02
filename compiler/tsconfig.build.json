@@ -7,6 +7,8 @@
     "rootDir": "src",
     "sourceMap": true
   },
-  "exclude": ["src/**/*.test.ts"],
+  // `property-seed.ts` is test infrastructure that lives under `src` only so
+  // `npm run check` type-checks it; it is not part of the shipped compiler.
+  "exclude": ["src/**/*.test.ts", "src/support/property-seed.ts"],
   "include": ["src/**/*.ts"]
 }

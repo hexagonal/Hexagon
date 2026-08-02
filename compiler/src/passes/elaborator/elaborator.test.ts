@@ -225,8 +225,13 @@ describe("elaborate", () => {
    *
    * The property below forbade `Index` for as long as it existed, so both of
    * these failed it on a tree the elaborator got right — indexing is a *Core*
-   * node, not a surface form to lower. The second is #198's own counterexample,
-   * recovered by sweeping seeds after the original failure was lost.
+   * node, not a surface form to lower. `[][` is #198's own counterexample,
+   * recovered by sweeping seeds after the original failure was lost; `""[0]` is
+   * the smallest case that fails with no diagnostics at all.
+   *
+   * These examples, not the property, are what now hold the defect down. A
+   * `fc.string()` sample of 250 produces no `Index` node at all, so the property
+   * would not catch a re-introduction on its own.
    */
   test("keeps indexing as a Core node, resolved to the receiver's operation", () => {
     expect(elaborateSource('""[0]')).toMatchObject({
@@ -275,14 +280,14 @@ describe("elaborate", () => {
  * to nothing, `Access` to `TupleAccess`/`FieldAccess`.
  *
  * Derived rather than written out, because the written-out version drifted
- * (#198). It had listed `Index` and `Assignment`, which Core has too, so inputs
- * as short as `""[0]` and `[][` — well inside `fc.string()`'s range, and hit by
- * three of eighty seeds swept — failed the property on a correctly elaborated
- * tree, often enough to be seen and rarely enough to look like a flake. It also
- * listed `Unary`, `Binary`, and `Comparison`, which no *Typed* tree can hold at
- * all; TypeScript rules those out at the type level, so asserting them at run
- * time bought nothing. `Exclude` now fails the type check the moment either
- * mistake is made again.
+ * (#198). It had listed `Index` and `Assignment`, which Core has too, so any
+ * input that reached an indexing expression failed the property on a tree the
+ * elaborator got right — `""[0]` does it with no diagnostics at all. A random
+ * `fc.string()` reaches one seldom enough that it read as flakiness rather than
+ * as a defect. The list also held `Unary`, `Binary`, and `Comparison`, which no
+ * *Typed* tree can hold at all; TypeScript rules those out at the type level,
+ * so asserting them at run time bought nothing. `Exclude` now fails the type
+ * check the moment either mistake is made again.
  *
  * The three that remain are still worth checking at run time even though
  * `elaborateExpr` returns `Core.Expr`: it reaches its result through `as` casts
@@ -309,13 +314,17 @@ function elaborateSource(text: string): Core.Module {
 }
 
 /**
- * Every expression in the module, and exhaustively so — the `never` arms below
- * are what make that a claim rather than a hope. The walker this replaced
- * recursed into eleven of Core's thirty-five expression kinds and two of its
- * fifteen item kinds, so an item as ordinary as `fun f() = ...` (a `Fun`, not a
- * `Let`) was never entered, and anything under a `Match`, `Vector`, `Record`,
- * or `Try` was invisible. A leak the property exists to catch could have sat in
- * any of them (#198).
+ * Every expression in the module. The walker this replaced recursed into eleven
+ * of Core's thirty-five expression kinds and two of its fifteen item kinds, so
+ * an item as ordinary as `fun f() = ...` (a `Fun`, not a `Let`) was never
+ * entered, and anything under a `Match`, `Vector`, `Record`, or `Try` was
+ * invisible. A leak the property exists to catch could have sat in any of them
+ * (#198).
+ *
+ * The `never` arms below buy less than they look like they buy: they prove
+ * every *kind* has an arm, not that each arm descends into every field it
+ * holds. Emptying `case "Match":` to a bare `return` still type-checks. Whether
+ * an arm is complete is checked by hand, and every one of them was.
  */
 function visitItems(
   items: readonly Core.Item[],
