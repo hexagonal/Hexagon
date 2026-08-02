@@ -1164,10 +1164,115 @@ describe("what the spine holds when forcing is reentrant (issue #123's territory
       outerDrive: readonly unknown[];
     })();
     expect(result.sameValue).toBe(true);
+    // Node identity, which is a fact about the representation rather than about
+    // agreement — the pre-#131 buffer allocated a fresh tail on every pull and
+    // fails this for that reason alone. `sameValue` and the drive equality are
+    // the invariant; this line pins that one position now *is* one node.
     expect(result.sameTail).toBe(true);
     // Stated as an equality rather than against literals: which elements the
     // spine yields here is #123's to decide, that the two views agree is not.
     expect(result.innerDrive).toEqual(result.outerDrive);
+  });
+
+  test("a forcing that fails after a reentrant one succeeded does not poison the position", async () => {
+    const exports = await probe([
+      driver,
+      "export function run() {",
+      "  let head;",
+      "  let inner;",
+      "  let armed = true;",
+      "  let calls = 0;",
+      // The collision the *failure* guard is for, and the one the agreement test
+      // above cannot reach: a reentrant inner forcing succeeds and wins the
+      // node, and the outer forcing then throws out of the `value` getter it
+      // re-entered from. The outer's throw is its own to surface; what it must
+      // not do is become the node's memo over a step already stored there.
+      "  const source = { [Symbol.iterator]() { return { next() {",
+      "    calls += 1;",
+      "    const mine = calls;",
+      "    if (mine === 1) {",
+      "      return { done: false, get value() {",
+      "        if (armed) { armed = false; inner = head.pull(); }",
+      "        throw new Error('outer boom');",
+      "      } };",
+      "    }",
+      "    return { done: false, value: 'element' + mine };",
+      "  } }; } };",
+      "  head = __hex_seqFromIterable(source);",
+      "  let outer;",
+      "  try { head.pull(); outer = 'STEP'; } catch (error) { outer = 'THROW:' + error.message; }",
+      "  let again;",
+      "  try { const step = head.pull(); again = step.tag === 'Some' ? step.value[0] : 'END'; }",
+      "  catch (error) { again = 'THROW:' + error.message; }",
+      "  return { innerValue: inner.value[0], outer, again };",
+      "}",
+    ].join("\n"));
+    const result = (exports["run"] as () => {
+      innerValue: unknown;
+      outer: string;
+      again: string;
+    })();
+    // The outer forcing's own throw surfaces, once.
+    expect(result.outer).toBe("THROW:outer boom");
+    // And the position still answers with the step it memoized, not the loser's
+    // error — a node holding a step *and* a failure is what §4's "exactly one
+    // outcome" forbids, and what the unguarded store produced.
+    expect(result.again).toBe(result.innerValue);
+    expect(result.again).toBe("element2");
+  });
+
+  test("a failing reentrant forcing does not poison a position the outer forcing served", async () => {
+    const exports = await probe([
+      driver,
+      "export function run() {",
+      "  let head;",
+      "  let inner;",
+      "  let armed = true;",
+      "  let calls = 0;",
+      // The mirror of the test above, and issue #123's own reproduction: the
+      // reentrant inner forcing is the one that throws, and the outer forcing —
+      // which re-entered from its own `done` getter — goes on to succeed. A
+      // step must be allowed to clear a failure stored beside it, or the inner
+      // throw becomes this position's answer forever and takes the whole
+      // sequence with it, which the buffer this replaced did not do.
+      "  const source = { [Symbol.iterator]() { return { next() {",
+      "    calls += 1;",
+      "    const mine = calls;",
+      "    if (mine === 1) {",
+      "      return {",
+      "        get done() {",
+      "          if (armed) {",
+      "            armed = false;",
+      "            try { head.pull(); inner = 'STEP'; } catch (error) { inner = 'THROW:' + error.message; }",
+      "          }",
+      "          return false;",
+      "        },",
+      "        value: 'element1',",
+      "      };",
+      "    }",
+      "    if (mine === 2) throw new Error('inner boom');",
+      "    return { done: false, value: 'element' + mine };",
+      "  } }; } };",
+      "  head = __hex_seqFromIterable(source);",
+      "  let outer;",
+      "  try { const step = head.pull(); outer = step.tag === 'Some' ? step.value[0] : 'END'; }",
+      "  catch (error) { outer = 'THROW:' + error.message; }",
+      "  let again;",
+      "  try { const step = head.pull(); again = step.tag === 'Some' ? step.value[0] : 'END'; }",
+      "  catch (error) { again = 'THROW:' + error.message; }",
+      "  return { inner, outer, again };",
+      "}",
+    ].join("\n"));
+    const result = (exports["run"] as () => {
+      inner: string;
+      outer: string;
+      again: string;
+    })();
+    // The reentrant forcing saw the source throw, and said so to its own caller.
+    expect(result.inner).toBe("THROW:inner boom");
+    // The outer forcing's own `next()` succeeded, so the position holds a value.
+    expect(result.outer).toBe("element1");
+    expect(result.again).toBe("element1");
   });
 
   test("a node reached past an exhausting forcing does not re-drive the iterator", async () => {

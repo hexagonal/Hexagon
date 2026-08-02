@@ -4342,8 +4342,8 @@ function renderHelper(
     case "seqFromIterable":
       // Bridge IN. A foreign iterable is single-shot and mutable; a `Seq` is
       // persistent, so the spine memoizes: every traversal replays the same
-      // buffered values and the source advances only when a traversal reaches
-      // the frontier. This is what FFI Part 3 §9.1 requires of an exported or
+      // values and the source advances only when a traversal reaches the
+      // frontier. This is what FFI Part 3 §9.1 requires of an exported or
       // imported sequence, and Loops §6.4 names it as the boundary's spine.
       //
       // `[Symbol.iterator]()` is called at the first *pull*, not when the
@@ -4398,7 +4398,8 @@ function renderHelper(
       // The frontier itself is structural and needs no flag: a tail is built
       // solely in the success path and is reachable only if that outcome won the
       // memo, since `pull` returns the winner, so the reachable nodes are a
-      // chain and only its last member is unforced. What the flag adds is that
+      // chain and at most its last member is unforced (none is, once that one
+      // has memoized an end or a failure). What the flag adds is that
       // *the frontier can sit behind an ended source*. One forcing of a node can
       // see the source end while a reentrant forcing of the same node got a
       // value and won — the head then hands out a tail the source has nothing
@@ -4406,17 +4407,30 @@ function renderHelper(
       // that already reported done. The flag only ever goes true, so the loser
       // of that race cannot un-end the source either.
       //
-      // **First writer wins**, which is what makes §4's "each node memoizes
-      // exactly one outcome" an invariant this code holds rather than a sentence
-      // it cites: both stores are guarded on the node still being unforced, so
-      // an outcome is never overwritten and a node never ends up holding both a
-      // step and a failure. Only a reentrant forcing can reach either guard, and
-      // reentrancy is undecided — issue #123 — so this is not a claim about what
-      // *should* happen there. It is the weakest thing that keeps every cursor
-      // of one position agreeing with every other. The cost, recorded because it
-      // is a real difference from the buffer this replaces: where the buffer
-      // reordered a reentrant forcing's element, the loser's element is now
-      // dropped. Neither is specified; #123 is where that gets decided.
+      // **A step is written once and a failure never over one**, which is what
+      // makes §4's "each node memoizes exactly one outcome" an invariant this
+      // code holds rather than a sentence it cites: the first step stored stays,
+      // and clears any failure beside it, while a failure is stored only into a
+      // node holding neither. So a node never holds both, and a position that
+      // has a step keeps answering with it.
+      //
+      // Only a reentrant forcing can reach either guard, and reentrancy is
+      // undecided — issue #123 — so none of this is a claim about what *should*
+      // happen there. Two things it is: without the step guard, a reentrant
+      // inner forcing's outcome was overwritten and two tails of one position
+      // went on to yield different elements, which is `Seq` persistence failing
+      // rather than a reentrancy question. Without letting a step clear a
+      // failure, an inner forcing that threw poisoned the position permanently,
+      // even though the outer forcing that re-entered from it succeeded. The
+      // buffer this replaces had neither problem, so neither is a corner to
+      // leave to #123 on the grounds that it was already broken.
+      //
+      // Where it does still differ from the buffer, recorded rather than
+      // defended: the buffer reordered a reentrant forcing's element and this
+      // drops it, and the buffer replayed a stale failure at the following
+      // position where this serves that position from the source. Both are
+      // #123's to rule on; the conformance tests pin only that the cursors of
+      // one position agree, never which element wins.
       //
       // Every node carries the boundary traversal method (§9.4): the adapter is
       // one of the ruling's two named construction sites, and a `Seq` built here
@@ -4446,7 +4460,7 @@ function renderHelper(
         "              const __hex_forced = __hex_ended",
         '                ? { tag: "None" }',
         '                : { tag: "Some", value: [__hex_next.value, __hex_node()] };',
-        "              if (__hex_step === undefined && __hex_failure === undefined) __hex_step = __hex_forced;",
+        "              if (__hex_step === undefined) { __hex_step = __hex_forced; __hex_failure = undefined; }",
         "            } catch (__hex_error) {",
         "              if (__hex_step === undefined && __hex_failure === undefined) {",
         "                __hex_failure = { error: __hex_error };",
@@ -4469,9 +4483,17 @@ function renderHelper(
       // steps are effectful and which will be traversed more than once is the
       // caller's cue to come here; the result replays cached elements instead of
       // recomputing, at the cost of retaining what is forced and still
-      // reachable. Since #131 that is the forced *suffix* from each retained
-      // position — a retained cursor no longer pins what it has passed, which is
-      // §5's reclamation clause and is the whole content of that fix.
+      // reachable. Since #131 this spine's own nodes hold the memo, so a cursor
+      // no longer pins the part of *it* that the cursor has passed.
+      //
+      // **That is not yet true of a `memoize` whose source stores**, and this is
+      // the helper where it bites hardest, because the composition below is
+      // precisely the one that pins its source's head: `seqToIterable`'s
+      // generator closes over `s`, so `Seq.memoize` over an inbound-adapted
+      // `Seq` (or over another `memoize`) still retains everything through it.
+      // The second retention channel is #230, and until it closes the honest
+      // statement of `memoize`'s cost is "the forced suffix, plus whatever the
+      // source itself is holding".
       //
       // No new spine is built. §6.4 names the mechanism as *the same* one FFI
       // Part 3's inbound adapter uses, so the lowering is literally the R1 pair
