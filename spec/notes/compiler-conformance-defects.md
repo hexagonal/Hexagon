@@ -744,7 +744,7 @@ than settling a style question.
   from a structure that is closed by construction — as PR #91's F1 fix does, by
   taking every name `#declare` ever produced instead of listing binder syntax.
 
-### 12. An exported `Seq` no longer faces JavaScript as an `Iterable` (ruled 2026-07-28 — FFI Part 3 §9.4–§9.7; implementation owed)
+### 12. An exported `Seq` no longer faces JavaScript as an `Iterable` (ruled 2026-07-28 — FFI Part 3 §9.4–§9.7; implemented 2026-08-02, PR #226)
 
 - **Classification:** **open question for ruling, not a defect with a known
   fix.** A capability regression introduced by Phase 4 steps 8–9 and pinned
@@ -827,7 +827,15 @@ than settling a style question.
   from the pair to four named members). Part 1 §4.1's outbound row had stated
   the representation contract all along.
 - **The pinning-test schedule the implementer inherits** (do not rediscover it;
-  all in `seq-unification.test.ts`, the "boundary face (FFI Part 3)" describe):
+  all in `seq-unification.test.ts`, the "boundary face (FFI Part 3)" describe)
+  — *spent 2026-08-02: the implementer has acted (PR #226), and the resolution
+  below settles this schedule item by item. It is kept as written because it is
+  the record the settlement reads against. Its coordinates are the
+  pre-implementation file's — measured, four of the five moved (`:324`→`:314`
+  and `:353`→`:358`, both retitled; `:373`→`:423`; `emitter.test.ts:351`→
+  `:365`), and the quoted assertion spellings inside those four are likewise
+  pre-implementation; only the first (`:288`) still lands, line and title
+  verbatim, on the test it names:*
   - *":288 a Seq crosses out to JavaScript as an Iterable"* — `.d.ts`-only;
     **stays green, keep unchanged.**
   - *":324 an exported function's Seq positions face JavaScript as the record
@@ -865,6 +873,60 @@ than settling a style question.
     describe are unaffected; `emitter.test.ts:351`'s `.d.ts` face assertion
     stays. Every new red must be confirmed red against pre-ruling `main` per
     the standing rule.
+- **Resolution *(2026-08-02)*.** Implemented and merged 2026-08-02 as PR #226
+  ("Build defect 12: give every `Seq` its JavaScript face" — merge `847cdbb`,
+  sole build commit `06505b0`). Settled against the merged compiler test by
+  test, not inherited from the PR text:
+  - **The headline inversion landed.** The record-not-yet-Iterable test is now
+    `seq-unification.test.ts`'s "an exported Seq faces JavaScript as an
+    Iterable, by representation": `typeof counted[Symbol.iterator]` is a
+    function on the very value whose `pull` stays, and the value export is the
+    raw ESM binding. The `.d.ts`-only test and the schedule's two staying
+    `.d.ts` assertions are unchanged; every hunk the build commit makes in
+    `seq-unification.test.ts` falls inside the boundary-face describe; the
+    `emitter.test.ts` face assertion stayed (the commit's only change there is
+    the door's new spelling).
+  - **The §9.4 substance landed in a new file**, `seq-boundary-view.test.ts`,
+    not in `seq-unification.test.ts` as the schedule assumed — one describe
+    per §9.4 property, plus channel separation and wrapper transparency.
+    Repeat spreads, two independently advancing cursors, the side-effect
+    counter reading 3 (not 6) after two full foreign traversals — the probe is
+    spelt `note`/`steps`, not `tick` — and the internal channel re-deriving
+    the same value foreign cursors replay (Loops §6.4) are all there, most
+    sharper than scheduled (interleaved cursors are additionally checked by
+    per-position force counts).
+  - **The parameter position landed as scheduled and then some**: a JS caller
+    passes an array, a `Set`, and a single-shot generator; the cross-module
+    Hexagon importer exists twice over — the scheduled smoke form plus a form
+    the schedule did not ask for, non-re-adaptation observed by derivation
+    count. The two old JS assertions inverted exactly as named, with one
+    spelling shift: the wrapper reaches the door as `__hex_seqInbound` (§2.2's
+    door landed as its own fourth family member, not a use of
+    `__hex_seqFromIterable`), so the schedule's emitted-name regex survives
+    rewritten to the new name rather than behavioural — with behavioural
+    companions added (a foreign function receives a working iterable; a
+    foreign non-`Seq` iterable is still adapted freshly). The `echo` extern
+    landed stronger than scheduled: spine identity is asserted directly
+    (`returned === sentOut`), which subsumes the ticks-double observation.
+  - **Two scheduled observations have no test in the landed suite** — recorded
+    as residue rather than silently dropped: *(1)* the identity pass-through
+    in the schedule's own composition (`export let same(values: Seq(Int)):
+    Seq(Int) = values`; from JS, `same(counted) === counted`, and
+    `same([1, 2])` a non-array `Seq` iterating `1, 2`) exists in neither file.
+    Its halves are each proven — door identity via the extern round trip,
+    wrapper non-re-adaptation by derivation count, result-position directness
+    — but no test drives an exported wrapper from JavaScript and observes
+    object identity on a returned `Seq`, and nothing surfaces the wrapper's
+    adapter product as a JavaScript value. *(2)* `[...upTo(3)]` — an
+    element-exact spread of a *function-result* `Seq` from JavaScript; the
+    landed suite spreads function results only by length (property 7's
+    collection test) and spreads value exports element-exactly.
+  - **Beyond the schedule**, `seq-memoize.test.ts` changed too: `memoize`'s
+    export takes occasion 1's wrapper, and `Seq.hex`'s own `.d.ts` face became
+    `Iterable<a>` — the `Seq`-shaped debt-family member recorded by edit note
+    in Part 3 §9.5 (2026-08-02). Confirmation of each new red against
+    pre-ruling `main` is asserted by the build commit's message
+    (mutation-verified), not re-checked here.
 - **Filed separately, found while binding §9.5** (not this ruling's to fix):
   the emitted `.d.ts` faces for `Vector`/`Map`/`Set`/`Range` are
   `ReadonlyArray`/`ReadonlyMap`/`ReadonlySet`/bare `Iterable<number>`
