@@ -35,8 +35,29 @@ export function emitJavaScript(
   return new JavaScriptEmitter(module, options).emit();
 }
 
-export function emitDeclarations(module: Core.Module): Emitted.Declarations {
-  return new DeclarationEmitter(module).emit();
+export interface DeclarationEmissionOptions {
+  /**
+   * The specifier this module's `.d.ts` spells for the program's runtime
+   * declaration module (FFI Part 1 §8.3), path-adjusted from this module's own
+   * emitted location to the source common root: `"./hex.js"` at the root
+   * itself, `"../hex.js"` one directory down, and the probed name where a user
+   * module already claims `hex` there.
+   *
+   * Only `compileProject` knows the program's paths, so only it can compute
+   * this; emitting one module alone takes the same-directory default, which is
+   * the shape a single-file program has.
+   */
+  readonly runtimeSpecifier?: string;
+}
+
+/** What a module at the source common root spells; see `runtimeSpecifier`. */
+const DEFAULT_RUNTIME_SPECIFIER = "./hex.js";
+
+export function emitDeclarations(
+  module: Core.Module,
+  options: DeclarationEmissionOptions = {},
+): Emitted.Declarations {
+  return new DeclarationEmitter(module, options).emit();
 }
 
 /** Emits a module-local TypeScript view of top-level bindings for interactive tools. */
@@ -217,6 +238,172 @@ function preludeIds(module: Core.Module): PreludeIds {
         ? module.unions.find(({ name }) => name === "Bool")?.id
         : undefined),
   };
+}
+
+/**
+ * The `Hex.*` runtime collection faces, exactly as FFI Part 1 §8.3 fixes them.
+ *
+ * The brand is a structural phantom marker rather than Part 7 §5's `unique
+ * symbol`, and deliberately so: two programs compiled by the same compiler
+ * produce interchangeable runtime values, and a per-program symbol would
+ * type-reject handing one across (§8.4 item 3). Nothing carries `"~hex"` at
+ * runtime — it is a TypeScript-only phantom, and no emitted JavaScript changes
+ * on its account.
+ *
+ * Binders are lowercase per FFI Part 7 §2.2. No `/// <reference lib="…" />`
+ * accompanies these: the declared floor is a consuming `lib` of es2015 or
+ * later, stated rather than silently widened (§8.3).
+ */
+const RUNTIME_FACE_DECLARATIONS = [
+  `export interface Vector<a> extends Iterable<a> { readonly "~hex": "Vector"; }`,
+  `export interface Set<a> extends Iterable<a> { readonly "~hex": "Set"; }`,
+  `export interface Map<k, v> extends Iterable<[k, v]> { readonly "~hex": "Map"; }`,
+  `export interface Range extends Iterable<number> { readonly "~hex": "Range"; }`,
+] as const;
+
+/** The basename stem the runtime declaration module claims before probing. */
+export const RUNTIME_DECLARATIONS_STEM = "hex";
+
+/** The text of a program's runtime declaration module (FFI Part 1 §8.3). */
+export function runtimeDeclarationsText(): string {
+  return `${RUNTIME_FACE_DECLARATIONS.join("\n")}\n`;
+}
+
+/**
+ * The same four interfaces as a namespace body, for the TypeScript preview.
+ *
+ * The preview is one pane of text with nothing to import from, so §8.3
+ * obligation 6 has it declare the namespace inline instead. Members of an
+ * ambient namespace are exported implicitly; the `export` keyword is dropped
+ * because writing it inside `declare namespace` is redundant, and the bodies
+ * are otherwise character-for-character the normative ones.
+ */
+function runtimeNamespaceDeclaration(alias: string): readonly string[] {
+  return [
+    `declare namespace ${alias} {`,
+    ...RUNTIME_FACE_DECLARATIONS.map((line) => `  ${line.replace(/^export /, "")}`),
+    "}",
+  ];
+}
+
+/** The four faces §8.3 governs; every other row of the §4.1 table is elsewhere. */
+type RuntimeFaceName = "Vector" | "Set" | "Map" | "Range";
+
+/**
+ * One declaration file's use of the runtime faces: the alias they are spelled
+ * through, and whether any was actually reached.
+ *
+ * The alias is settled *before* rendering rather than patched in afterwards,
+ * which is what lets `reference` return finished text. That is possible because
+ * §10's probe runs over the file's top-level identifiers, and those are a
+ * property of the module, not of the rendering — see `declarationTopLevelNames`.
+ */
+class RuntimeFaces {
+  readonly alias: string;
+  #used = false;
+
+  constructor(alias: string) {
+    this.alias = alias;
+  }
+
+  /** Whether any face was rendered — the whole of "emitted only when needed". */
+  get used(): boolean {
+    return this.#used;
+  }
+
+  reference(name: RuntimeFaceName, ...args: readonly string[]): string {
+    this.#used = true;
+    const face = `${this.alias}.${name}`;
+    return args.length === 0 ? face : `${face}<${args.join(", ")}>`;
+  }
+}
+
+/**
+ * What a declaration or preview emitter needs in order to render a type: the
+ * prelude identities that pin two faces, and the runtime-face sink.
+ */
+interface DeclarationFaces {
+  readonly prelude: PreludeIds;
+  readonly runtime: RuntimeFaces;
+}
+
+/**
+ * Every top-level identifier a generated `.d.ts` for this module can spell, as
+ * the `Hex` alias probe's collision universe (FFI Part 1 §10).
+ *
+ * §10 probes "every top-level identifier emitted in that `.d.ts`, regardless of
+ * TypeScript namespace", and §8.3 obligation 2 names the class this must not
+ * miss: the emitter already writes `import type * as Json from "./tiny-json.js"`
+ * for a source-level namespace import, so a module importing under the alias
+ * `Hex` forces `Hex1`. That collision predates this ruling.
+ *
+ * The set is deliberately a superset of the *source-derived* names a file can
+ * emit. Whether a declaration reaches the file depends on its being exported
+ * and on its kind, and re-deciding that here would be a second copy of `emit`'s
+ * conditions, drifting from the first. Over-claiming only ever moves the
+ * generated alias, which no user name depends on; under-claiming emits a
+ * `.d.ts` that does not compile.
+ *
+ * The names the emitter *generates* are left out, and that is the one place
+ * this is not a superset: `__hex_opaque_X` brand constants and `__hex_bindingN`
+ * locals really do reach the file. Both are omitted because their `__hex_`
+ * prefix is unconditional, so neither can spell `Hex` or `HexN` — though by two
+ * separate mechanisms, which is why this says "prefix" and not "`GeneratedNames`":
+ * the brands go through `GeneratedNames.#claim`, while `__hex_bindingN` is a
+ * template literal spelled out afresh at each of its use sites.
+ * Specialization editions are omitted on a weaker ground — they are
+ * `${sourceName}${FundamentalType}`, hence always suffixed `Nat`/`Int`/`Float`/
+ * `BigInt`/`Bool`/`String`/`Unit`, and no such name is `Hex` or `HexN` either.
+ * A generated-name scheme that ever drops those shapes has to revisit this.
+ */
+function declarationTopLevelNames(module: Core.Module): ReadonlySet<string> {
+  const names = new Set<string>();
+  for (const item of module.items) {
+    switch (item.kind) {
+      case "Import":
+        if (item.form.kind === "Namespace") names.add(item.form.alias);
+        else if (item.form.kind === "Named") {
+          for (const name of item.form.names) names.add(name.local);
+        }
+        continue;
+      case "ExternBlock":
+        for (const declaration of item.declarations) names.add(declaration.localName);
+        continue;
+      case "TypeAlias":
+      case "RecordDeclaration":
+        names.add(item.name);
+        continue;
+      case "Union":
+        names.add(item.name);
+        for (const constructor of item.constructors) names.add(constructor.name);
+        continue;
+      case "Exception":
+        names.add(item.binding.name);
+        continue;
+      default:
+        continue;
+    }
+  }
+  // `Let`/`Fun` names — and, redundantly, the constructor and exception names
+  // the switch already added, since `module.symbols` carries those too. The
+  // redundancy is kept: it is free, and a reader checking the switch against
+  // `emit` should not have to also know which kinds `symbols` covers.
+  for (const symbol of module.symbols) names.add(symbol.name);
+  return names;
+}
+
+/**
+ * The generated namespace alias: first free of `Hex`, `Hex1`, `Hex2`, …
+ * (FFI Part 1 §10, Part 12 §11.1). Only the generated import is renamed; a user
+ * name always keeps its spelling.
+ */
+function runtimeFacesAlias(module: Core.Module): string {
+  const taken = declarationTopLevelNames(module);
+  if (!taken.has("Hex")) return "Hex";
+  for (let suffix = 1; ; suffix += 1) {
+    const candidate = `Hex${suffix}`;
+    if (!taken.has(candidate)) return candidate;
+  }
 }
 
 class JavaScriptEmitter {
@@ -3152,14 +3339,20 @@ class DeclarationEmitter {
   readonly #module: Core.Module;
   readonly #specializations: readonly FundamentalSpecialization[];
   readonly #opaqueBrands: ReadonlyMap<string, string>;
-  /** The prelude identities this module's `.d.ts` face needs; see `PreludeIds`. */
-  readonly #prelude: PreludeIds;
+  /** The prelude identities and runtime faces this `.d.ts` renders through. */
+  readonly #faces: DeclarationFaces;
   readonly #docs: DocIndex;
+  /** Where the program's runtime declaration module sits, from here. */
+  readonly #runtimeSpecifier: string;
 
-  constructor(module: Core.Module) {
+  constructor(module: Core.Module, options: DeclarationEmissionOptions) {
     this.#module = module;
     this.#opaqueBrands = opaqueBrandNames(module);
-    this.#prelude = preludeIds(module);
+    this.#faces = {
+      prelude: preludeIds(module),
+      runtime: new RuntimeFaces(runtimeFacesAlias(module)),
+    };
+    this.#runtimeSpecifier = options.runtimeSpecifier ?? DEFAULT_RUNTIME_SPECIFIER;
     this.#docs = new DocIndex(module.docs);
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
     const plan = planFundamentalSpecializations(module);
@@ -3199,11 +3392,11 @@ class DeclarationEmitter {
             declarations.push(`export type ${declaration.localName} = { readonly [${brand}]: never };`);
           } else if (declaration.kind === "ExternFun") {
             declarations.push(...doc);
-            declarations.push(...renderExternFunctionDeclaration(declaration, true, this.#prelude));
+            declarations.push(...renderExternFunctionDeclaration(declaration, true, this.#faces));
           } else {
             declarations.push(...doc);
             declarations.push(
-              `export declare const ${declaration.localName}: ${renderType(declaration.type, new Map(), this.#prelude, false)};`,
+              `export declare const ${declaration.localName}: ${renderType(declaration.type, new Map(), this.#faces, false)};`,
             );
           }
           isExternalModule = true;
@@ -3217,7 +3410,7 @@ class DeclarationEmitter {
         const names = item.parameters.map((parameter) => variables.get(parameter)!);
         const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
         declarations.push(...this.#docs.lines(item.span));
-        declarations.push(`export type ${item.name}${generics} = ${renderType(item.type, variables, this.#prelude, false)};`);
+        declarations.push(`export type ${item.name}${generics} = ${renderType(item.type, variables, this.#faces, false)};`);
         isExternalModule = true;
         continue;
       }
@@ -3234,7 +3427,7 @@ class DeclarationEmitter {
           continue;
         }
         declarations.push(...this.#docs.lines(item.span));
-        declarations.push(renderUnionDeclaration(item, item.exported, this.#prelude));
+        declarations.push(renderUnionDeclaration(item, item.exported, this.#faces));
         if (item.exported) {
           isExternalModule = true;
           const variables = typeVariableNames(item.parameters);
@@ -3250,7 +3443,7 @@ class DeclarationEmitter {
               ? item.parameters.length === 0
                 ? item.name
                 : `${item.name}<${item.parameters.map(() => "never").join(", ")}>`
-              : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, this.#prelude, false)}`).join(", ")}) => ${result}`;
+              : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, this.#faces, false)}`).join(", ")}) => ${result}`;
             declarations.push(...this.#docs.lines(constructor.span));
             declarations.push(
               `export declare const ${constructor.name}: ${type};`,
@@ -3273,7 +3466,7 @@ class DeclarationEmitter {
           continue;
         }
         const recordType = `{ ${item.fields.map((field) =>
-          `${field.name}: ${renderType(field.type, variables, this.#prelude, false)}`
+          `${field.name}: ${renderType(field.type, variables, this.#faces, false)}`
         ).join("; ")} }`;
         const result = names.length === 0 ? item.name : `${item.name}<${names.join(", ")}>`;
         declarations.push(...this.#docs.lines(item.span));
@@ -3289,12 +3482,12 @@ class DeclarationEmitter {
       }
       if (item.kind === "Exception") {
         if (!item.exported) continue;
-        const face = `Error & { readonly $hex: true; readonly name: ${JSON.stringify(item.binding.name)}${item.slots.map((slot) => `; readonly ${slot.field}: ${renderType(slot.type, new Map(), this.#prelude, false)}`).join("")} }`;
+        const face = `Error & { readonly $hex: true; readonly name: ${JSON.stringify(item.binding.name)}${item.slots.map((slot) => `; readonly ${slot.field}: ${renderType(slot.type, new Map(), this.#faces, false)}`).join("")} }`;
         declarations.push(...this.#docs.lines(item.span));
         declarations.push(`export type ${item.binding.name} = ${face};`);
         const constructor = item.slots.length === 0
           ? `() => ${item.binding.name}`
-          : `(${item.slots.map((slot) => `${slot.field}: ${renderType(slot.type, new Map(), this.#prelude, false)}`).join(", ")}) => ${item.binding.name}`;
+          : `(${item.slots.map((slot) => `${slot.field}: ${renderType(slot.type, new Map(), this.#faces, false)}`).join(", ")}) => ${item.binding.name}`;
         declarations.push(`export declare const ${item.binding.name}: ${constructor};`);
         isExternalModule = true;
         continue;
@@ -3318,7 +3511,7 @@ class DeclarationEmitter {
               specialized.binding.scheme,
               specialized.value as Core.LambdaExpr,
               true,
-              this.#prelude,
+              this.#faces,
             ),
           );
         }
@@ -3334,19 +3527,32 @@ class DeclarationEmitter {
         : `__hex_binding${Number(item.binding.symbol)}`;
       if (item.kind === "Fun") {
         declarations.push(
-          renderFunctionDeclaration(local, item.binding.scheme, item.value, safeName, this.#prelude),
+          renderFunctionDeclaration(local, item.binding.scheme, item.value, safeName, this.#faces),
         );
         if (!safeName) {
           declarations.push(`export { ${local} as ${item.binding.name} };`);
         }
       } else if (safeName) {
-        const type = renderScheme(item.binding.scheme, this.#prelude, item.value);
+        const type = renderScheme(item.binding.scheme, this.#faces, item.value);
         declarations.push(`export declare const ${item.binding.name}: ${type};`);
       } else {
-        const type = renderScheme(item.binding.scheme, this.#prelude, item.value);
+        const type = renderScheme(item.binding.scheme, this.#faces, item.value);
         declarations.push(`declare const ${local}: ${type};`);
         declarations.push(`export { ${local} as ${item.binding.name} };`);
       }
+    }
+    // Exactly one type-only import of the runtime declaration module, and only
+    // when a `Hex.*` face was actually rendered (FFI Part 1 §8.3 obligation 2).
+    // It goes first, ahead of the source-level imports, because it is the
+    // compiler's own line rather than one of the module's. The import is
+    // type-only and erases, so it adds no emitted JavaScript dependency and no
+    // `hex.js` is ever written.
+    if (this.#faces.runtime.used) {
+      declarations.unshift(
+        `import type * as ${this.#faces.runtime.alias} from ` +
+          `${JSON.stringify(this.#runtimeSpecifier)};`,
+      );
+      isExternalModule = true;
     }
     if (!isExternalModule) declarations.push("export {};");
 
@@ -3354,6 +3560,7 @@ class DeclarationEmitter {
       kind: "Declarations",
       fileId: this.#module.fileId,
       text: `${declarations.join("\n")}\n`,
+      importsRuntimeTypes: this.#faces.runtime.used,
       diagnostics: this.#diagnostics.toArray(),
     };
   }
@@ -3371,7 +3578,7 @@ class DeclarationEmitter {
   ): string[] {
     const fields = item.fields.map((field) => ({
       doc: this.#docs.lines(field.span, "  "),
-      text: `${field.name}: ${renderType(field.type, variables, this.#prelude, false)}`,
+      text: `${field.name}: ${renderType(field.type, variables, this.#faces, false)}`,
     }));
     if (fields.every(({ doc }) => doc.length === 0)) {
       return [`${head}{ ${fields.map(({ text }) => text).join("; ")} };`];
@@ -3389,14 +3596,17 @@ class TypeScriptPreviewEmitter {
   readonly #module: Core.Module;
   readonly #specializations: readonly FundamentalSpecialization[];
   readonly #opaqueBrands: ReadonlyMap<string, string>;
-  /** The prelude identities this module's `.d.ts` face needs; see `PreludeIds`. */
-  readonly #prelude: PreludeIds;
+  /** The prelude identities and runtime faces this preview renders through. */
+  readonly #faces: DeclarationFaces;
   readonly #docs: DocIndex;
 
   constructor(module: Core.Module) {
     this.#module = module;
     this.#opaqueBrands = opaqueBrandNames(module);
-    this.#prelude = preludeIds(module);
+    this.#faces = {
+      prelude: preludeIds(module),
+      runtime: new RuntimeFaces(runtimeFacesAlias(module)),
+    };
     this.#docs = new DocIndex(module.docs);
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
     const plan = planFundamentalSpecializations(module, true);
@@ -3435,11 +3645,11 @@ class TypeScriptPreviewEmitter {
             declarations.push(`${prefix}type ${declaration.localName} = { readonly [${brand}]: never };`);
           } else if (declaration.kind === "ExternFun") {
             declarations.push(...doc);
-            declarations.push(...renderExternFunctionDeclaration(declaration, declaration.exported, this.#prelude));
+            declarations.push(...renderExternFunctionDeclaration(declaration, declaration.exported, this.#faces));
           } else {
             declarations.push(...doc);
             declarations.push(
-              `${prefix}declare const ${declaration.localName}: ${renderType(declaration.type, new Map(), this.#prelude, false)};`,
+              `${prefix}declare const ${declaration.localName}: ${renderType(declaration.type, new Map(), this.#faces, false)};`,
             );
           }
           isExternalModule ||= declaration.exported;
@@ -3453,7 +3663,7 @@ class TypeScriptPreviewEmitter {
         const names = item.parameters.map((parameter) => variables.get(parameter)!);
         const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
         declarations.push(...this.#docs.lines(item.span));
-        declarations.push(`${prefix}type ${item.name}${generics} = ${renderType(item.type, variables, this.#prelude, false)};`);
+        declarations.push(`${prefix}type ${item.name}${generics} = ${renderType(item.type, variables, this.#faces, false)};`);
         isExternalModule ||= item.exported;
         continue;
       }
@@ -3471,7 +3681,7 @@ class TypeScriptPreviewEmitter {
           continue;
         }
         declarations.push(...this.#docs.lines(item.span));
-        declarations.push(renderUnionDeclaration(item, item.exported, this.#prelude));
+        declarations.push(renderUnionDeclaration(item, item.exported, this.#faces));
         const variables = typeVariableNames(item.parameters);
         const genericNames = item.parameters.map((parameter) => variables.get(parameter)!);
         const generics = genericNames.length === 0 ? "" : `<${genericNames.join(", ")}>`;
@@ -3484,7 +3694,7 @@ class TypeScriptPreviewEmitter {
             ? item.parameters.length === 0
               ? item.name
               : `${item.name}<${item.parameters.map(() => "never").join(", ")}>`
-            : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, this.#prelude, false)}`).join(", ")}) => ${result}`;
+            : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, this.#faces, false)}`).join(", ")}) => ${result}`;
           declarations.push(...this.#docs.lines(constructor.span));
           declarations.push(
             `${prefix}declare const ${constructor.name}: ${type};`,
@@ -3507,7 +3717,7 @@ class TypeScriptPreviewEmitter {
           continue;
         }
         const recordType = `{ ${item.fields.map((field) =>
-          `${field.name}: ${renderType(field.type, variables, this.#prelude, false)}`
+          `${field.name}: ${renderType(field.type, variables, this.#faces, false)}`
         ).join("; ")} }`;
         const result = names.length === 0 ? item.name : `${item.name}<${names.join(", ")}>`;
         declarations.push(...this.#docs.lines(item.span));
@@ -3520,12 +3730,12 @@ class TypeScriptPreviewEmitter {
       }
       if (item.kind === "Exception") {
         const prefix = item.exported ? "export " : "";
-        const face = `Error & { readonly $hex: true; readonly name: ${JSON.stringify(item.binding.name)}${item.slots.map((slot) => `; readonly ${slot.field}: ${renderType(slot.type, new Map(), this.#prelude, false)}`).join("")} }`;
+        const face = `Error & { readonly $hex: true; readonly name: ${JSON.stringify(item.binding.name)}${item.slots.map((slot) => `; readonly ${slot.field}: ${renderType(slot.type, new Map(), this.#faces, false)}`).join("")} }`;
         declarations.push(...this.#docs.lines(item.span));
         declarations.push(`${prefix}type ${item.binding.name} = ${face};`);
         const constructor = item.slots.length === 0
           ? `() => ${item.binding.name}`
-          : `(${item.slots.map((slot) => `${slot.field}: ${renderType(slot.type, new Map(), this.#prelude, false)}`).join(", ")}) => ${item.binding.name}`;
+          : `(${item.slots.map((slot) => `${slot.field}: ${renderType(slot.type, new Map(), this.#faces, false)}`).join(", ")}) => ${item.binding.name}`;
         declarations.push(`${prefix}declare const ${item.binding.name}: ${constructor};`);
         isExternalModule ||= item.exported;
         continue;
@@ -3536,7 +3746,7 @@ class TypeScriptPreviewEmitter {
             ? binding.name
             : `__hex_binding${Number(binding.symbol)}`;
           declarations.push(
-            `declare const ${name}: ${renderScheme(binding.scheme, this.#prelude)};`,
+            `declare const ${name}: ${renderScheme(binding.scheme, this.#faces)};`,
           );
         }
         continue;
@@ -3558,7 +3768,7 @@ class TypeScriptPreviewEmitter {
               specialized.binding.scheme,
               specialized.value as Core.LambdaExpr,
               item.exported,
-              this.#prelude,
+              this.#faces,
             ),
           );
         }
@@ -3578,7 +3788,7 @@ class TypeScriptPreviewEmitter {
               item.binding.scheme,
               item.value,
               isSafeIdentifier(item.binding.name),
-              this.#prelude,
+              this.#faces,
             ),
           );
           if (!isSafeIdentifier(item.binding.name)) {
@@ -3586,26 +3796,35 @@ class TypeScriptPreviewEmitter {
           }
         } else if (isSafeIdentifier(item.binding.name)) {
           declarations.push(
-            `export declare const ${name}: ${renderScheme(item.binding.scheme, this.#prelude, item.value)};`,
+            `export declare const ${name}: ${renderScheme(item.binding.scheme, this.#faces, item.value)};`,
           );
         } else {
           declarations.push(
-            `declare const ${name}: ${renderScheme(item.binding.scheme, this.#prelude, item.value)};`,
+            `declare const ${name}: ${renderScheme(item.binding.scheme, this.#faces, item.value)};`,
           );
           declarations.push(`export { ${name} as ${item.binding.name} };`);
         }
         isExternalModule = true;
       } else if (item.kind === "Fun") {
         declarations.push(
-          renderFunctionDeclaration(name, item.binding.scheme, item.value, false, this.#prelude),
+          renderFunctionDeclaration(name, item.binding.scheme, item.value, false, this.#faces),
         );
       } else {
         declarations.push(
-          `declare const ${name}: ${renderScheme(item.binding.scheme, this.#prelude, item.value)};`,
+          `declare const ${name}: ${renderScheme(item.binding.scheme, this.#faces, item.value)};`,
         );
       }
     }
 
+    // The preview is one pane of inspection-only text with no file to import
+    // from, so §8.3 obligation 6 has it declare the namespace inline instead —
+    // the same four interfaces, which is what keeps a value typed through the
+    // preview and one typed through an imported `hex.d.ts` mutually assignable.
+    // The header goes first to read like one, not because TypeScript needs it
+    // there: a type reference may precede its declaration in the same file.
+    if (this.#faces.runtime.used) {
+      declarations.unshift(...runtimeNamespaceDeclaration(this.#faces.runtime.alias));
+    }
     if (!isExternalModule) declarations.push("export {};");
 
     return {
@@ -3629,7 +3848,7 @@ class TypeScriptPreviewEmitter {
   ): string[] {
     const fields = item.fields.map((field) => ({
       doc: this.#docs.lines(field.span, "  "),
-      text: `${field.name}: ${renderType(field.type, variables, this.#prelude, false)}`,
+      text: `${field.name}: ${renderType(field.type, variables, this.#faces, false)}`,
     }));
     if (fields.every(({ doc }) => doc.length === 0)) {
       return [`${head}{ ${fields.map(({ text }) => text).join("; ")} };`];
@@ -4975,7 +5194,7 @@ function comparisonOperator(
 
 function renderScheme(
   scheme: Typed.Scheme,
-  prelude: PreludeIds,
+  faces: DeclarationFaces,
   value?: Core.Expr,
 ): string {
   const type = scheme.type;
@@ -4985,7 +5204,7 @@ function renderScheme(
   // the binders here instead would print a type variable no declaration binds,
   // and a `.d.ts` that does not compile (#132).
   if (type.kind !== "Function") {
-    return renderType(type, neverInstantiation(scheme.variables), prelude, false);
+    return renderType(type, neverInstantiation(scheme.variables), faces, false);
   }
   const variables = typeVariableNames(scheme.variables);
   const lambda = value?.kind === "Lambda" ? value : undefined;
@@ -4996,18 +5215,18 @@ function renderScheme(
     : `<${genericNames.join(", ")}>`;
   const names = declarationParameterNames(lambda?.parameters ?? [], type.parameters.length);
   const parameters = type.parameters.map(
-    (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, prelude, false),
+    (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, faces, false),
   );
   return (
     `${generics}(${parameters.join(", ")}) => ` +
-    renderType(type.result, variables, prelude, true, lambda?.body)
+    renderType(type.result, variables, faces, true, lambda?.body)
   );
 }
 
 function renderExternFunctionDeclaration(
   declaration: Core.ExternBlockItem["declarations"][number] & { readonly kind: "ExternFun" },
   exported: boolean,
-  prelude: PreludeIds,
+  faces: DeclarationFaces,
 ): readonly string[] {
   const names = declarationParameterNames(
     declaration.parameters,
@@ -5022,9 +5241,9 @@ function renderExternFunctionDeclaration(
   );
   const generics = genericNames.length === 0 ? "" : `<${genericNames.join(", ")}>`;
   const parameters = declaration.parameters.map((parameter, index) =>
-    `${names[index]}: ${renderType(parameter.scheme.type, variables, prelude, false)}`
+    `${names[index]}: ${renderType(parameter.scheme.type, variables, faces, false)}`
   );
-  const result = renderType(declaration.result, variables, prelude, true);
+  const result = renderType(declaration.result, variables, faces, true);
   const safe = isSafeIdentifier(declaration.localName);
   const local = safe
     ? declaration.localName
@@ -5046,11 +5265,11 @@ function renderFunctionDeclaration(
   scheme: Typed.Scheme,
   value: Core.LambdaExpr,
   exported: boolean,
-  prelude: PreludeIds,
+  faces: DeclarationFaces,
 ): string {
   if (scheme.type.kind !== "Function") {
     const prefix = exported ? "export " : "";
-    return `${prefix}declare const ${name}: ${renderScheme(scheme, prelude, value)};`;
+    return `${prefix}declare const ${name}: ${renderScheme(scheme, faces, value)};`;
   }
 
   const variables = typeVariableNames(scheme.variables);
@@ -5060,9 +5279,9 @@ function renderFunctionDeclaration(
     : `<${genericNames.join(", ")}>`;
   const names = declarationParameterNames(value.parameters, scheme.type.parameters.length);
   const parameters = scheme.type.parameters.map(
-    (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, prelude, false),
+    (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, faces, false),
   );
-  const result = renderType(scheme.type.result, variables, prelude,
+  const result = renderType(scheme.type.result, variables, faces,
     true,
     value.body,
   );
@@ -5076,7 +5295,7 @@ function renderFunctionDeclaration(
 function renderType(
   type: Typed.Type,
   variables: ReadonlyMap<Typed.TypeVariableId, string>,
-  prelude: PreludeIds,
+  faces: DeclarationFaces,
   returnPosition: boolean,
   value?: Core.Expr,
 ): string {
@@ -5096,32 +5315,43 @@ function renderType(
       }
     case "Variable":
       return variables.get(type.id) ?? "unknown";
+    // The four runtime collection faces (FFI Part 1 §4.1, §8.1–§8.3). They are
+    // branded rather than structural because an arbitrary iterable is not one of
+    // these values, and they are not `ReadonlyArray`/`ReadonlyMap`/`ReadonlySet`
+    // because the runtime values do not implement those APIs — a consumer who
+    // called `map.get(k)` through the old face typechecked and failed at run
+    // time (§8.4 item 1). `Seq` keeps the structural `Iterable<a>` below: its
+    // parameter positions must admit arbitrary foreign iterables (§8.2).
     case "Range":
-      return "Iterable<number>";
+      return faces.runtime.reference("Range");
     case "Vector":
-      return `ReadonlyArray<${renderType(type.element, variables, prelude, false)}>`;
+      return faces.runtime.reference("Vector", renderType(type.element, variables, faces, false));
     case "Set":
-      return `ReadonlySet<${renderType(type.element, variables, prelude, false)}>`;
+      return faces.runtime.reference("Set", renderType(type.element, variables, faces, false));
     case "Map":
-      return `ReadonlyMap<${renderType(type.key, variables, prelude, false)}, ${renderType(type.value, variables, prelude, false)}>`;
+      return faces.runtime.reference(
+        "Map",
+        renderType(type.key, variables, faces, false),
+        renderType(type.value, variables, faces, false),
+      );
     case "Array":
-      return `Array<${renderType(type.element, variables, prelude, false)}>`;
+      return `Array<${renderType(type.element, variables, faces, false)}>`;
     case "Node":
       // The hidden trie node never appears in a public `.d.ts`; its honest JS
       // shape is a fixed-length mutable array of the slot type.
-      return `Array<${renderType(type.element, variables, prelude, false)}>`;
+      return `Array<${renderType(type.element, variables, faces, false)}>`;
     case "Nullable":
-      return `${renderType(type.value, variables, prelude, false)} | null | undefined`;
+      return `${renderType(type.value, variables, faces, false)} | null | undefined`;
     case "Union":
       // The representation pin (#147): the prelude `Bool` faces JavaScript as
       // `boolean`, not as the `"False" | "True"` string union its all-nullary
       // shape would otherwise produce. Only the prelude's; a user union spelled
       // `Bool` renders as itself.
-      if (prelude.bool !== undefined && type.union === prelude.bool) return "boolean";
+      if (faces.prelude.bool !== undefined && type.union === faces.prelude.bool) return "boolean";
       return type.arguments.length === 0
         ? type.name
         : `${type.name}<${type.arguments.map((argument) =>
-          renderType(argument, variables, prelude, false)
+          renderType(argument, variables, faces, false)
         ).join(", ")}>`;
     case "NominalRecord":
       // FFI Part 3: `Seq(a)` faces JavaScript as `Iterable<a>`, whatever it is
@@ -5129,13 +5359,13 @@ function renderType(
       // both are decided — the bridge pair is what makes the face honest. Only
       // the *prelude's* `Seq` gets this; a user record spelled `Seq` is an
       // ordinary nominal type.
-      if (prelude.seq !== undefined && type.record === prelude.seq) {
-        return `Iterable<${renderType(type.arguments[0] ?? { kind: "Error" }, variables, prelude, false)}>`;
+      if (faces.prelude.seq !== undefined && type.record === faces.prelude.seq) {
+        return `Iterable<${renderType(type.arguments[0] ?? { kind: "Error" }, variables, faces, false)}>`;
       }
       return type.arguments.length === 0
         ? type.name
         : `${type.name}<${type.arguments.map((argument) =>
-          renderType(argument, variables, prelude, false)
+          renderType(argument, variables, faces, false)
         ).join(", ")}>`;
     case "ExternType":
       return type.name;
@@ -5148,12 +5378,12 @@ function renderType(
       }
       return (
         `[${type.elements.map((element) =>
-          renderType(element, variables, prelude, false)
+          renderType(element, variables, faces, false)
         ).join(", ")}]`
       );
     case "Record":
       const record = `{ ${type.fields.map(({ name, type: field }) =>
-        `${name}: ${renderType(field, variables, prelude, false)}`
+        `${name}: ${renderType(field, variables, faces, false)}`
       ).join("; ")} }`;
       const tail = type.tail === undefined ? undefined : variables.get(type.tail) ?? "object";
       // A tail rendering as `NEVER` came from `neverInstantiation` — the only
@@ -5170,11 +5400,11 @@ function renderType(
         type.parameters.length,
       );
       const parameters = type.parameters.map(
-        (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, prelude, false),
+        (parameter, index) => `${names[index]}: ` + renderType(parameter, variables, faces, false),
       );
       return (
         `(${parameters.join(", ")}) => ` +
-        renderType(type.result, variables, prelude, true, lambda?.body)
+        renderType(type.result, variables, faces, true, lambda?.body)
       );
     }
     case "Error":
@@ -5222,7 +5452,7 @@ function declarationParameterNames(
 function renderUnionDeclaration(
   item: Core.UnionItem,
   exported: boolean,
-  prelude: PreludeIds,
+  faces: DeclarationFaces,
 ): string {
   const prefix = exported ? "export " : "";
   const variables = typeVariableNames(item.parameters);
@@ -5231,13 +5461,13 @@ function renderUnionDeclaration(
   // The pin (#147): the declaration site has to agree with every use site, so
   // the prelude `Bool`'s own alias is `boolean`, not the `"False" | "True"`
   // string union its all-nullary shape would otherwise produce.
-  if (prelude.bool !== undefined && item.union === prelude.bool) {
+  if (faces.prelude.bool !== undefined && item.union === faces.prelude.bool) {
     return `${prefix}type ${item.name} = boolean;`;
   }
   const tagged = item.constructors.some(({ slots }) => slots.length > 0);
   const alternatives = item.constructors
     .map(({ name, slots }) => tagged
-      ? `{ tag: ${JSON.stringify(name)}${slots.map(({ field, type }) => `; ${field}: ${renderType(type, variables, prelude, false)}`).join("")} }`
+      ? `{ tag: ${JSON.stringify(name)}${slots.map(({ field, type }) => `; ${field}: ${renderType(type, variables, faces, false)}`).join("")} }`
       : JSON.stringify(name))
     .join(" | ");
   return `${prefix}type ${item.name}${generics} = ${alternatives};`;
@@ -5340,7 +5570,7 @@ function patternNamesWholeValue(pattern: Core.Pattern): boolean {
   return false;
 }
 
-function emittedModuleSpecifier(specifier: string): string {
+export function emittedModuleSpecifier(specifier: string): string {
   return specifier.endsWith(".hex")
     ? `${specifier.slice(0, -4)}.js`
     : `${specifier}.js`;

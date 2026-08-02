@@ -42,12 +42,25 @@ export interface Occurrence {
  *
  * - **Trusted** — no Hexagon-visible representation exists that the emitter yet
  *   targets, and `intrinsics.md` §4.2's parametricity obligation is the row's
- *   entire warrant.
+ *   entire warrant. *(FFI Part 1 §8.3's edit note to this file calls that
+ *   citation a second defect, on the ground that the spec text says §7's. It is
+ *   a false alarm and is left unapplied: `intrinsics.md` §4.2 does carry the
+ *   obligation — "**Parametricity is part of the contract**", added 2026-08-01
+ *   under #205 — and says in the same bullet that the closure doc's §5.3
+ *   trusted rows ride it. The closure doc's own §7 is the obligation's other
+ *   home; both citations are live, so there is nothing here to correct.)*
  *   - `Node(+a)`: the hidden fixed-32 immutable slot type, read-only from
  *     Hexagon; its disposition is owned by #223, the reopener for this row.
  *   - `Vector(+a)`: `runtime/VectorTrie.hex` writes the representation in
- *     Hexagon, but `Vector` ships from `@hexagon/runtime`'s JS trie today
- *     (Collections Part 3 §4), so there is nothing for §6.3 to check yet. The
+ *     Hexagon, but nothing wires it to the emitter yet, so there is nothing for
+ *     §6.3 to check. Collections Part 3 §4 specifies a persistent trie; what
+ *     ships is a **copy-on-write native JavaScript array** (`append` is
+ *     `[...v, x]`, `set` is `slice()`-then-assign), reaching no persistent
+ *     collection runtime at all — which is further from `VectorTrie.hex` than a
+ *     JS trie would be, so the conclusion holds a fortiori. *(Corrected
+ *     2026-08-02 under #128, per FFI Part 1 §8.3's edit note to this file: this
+ *     read "`Vector` ships from `@hexagon/runtime`'s JS trie today", wrong
+ *     twice over — no such package exists, and there is no trie.)* The
  *     row upgrades to **verified** at the emitter-wiring milestone, at which
  *     point a future `a`-in-argument-position field in `VectorTrie.hex` breaks
  *     at the row rather than silently.

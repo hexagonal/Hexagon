@@ -74,7 +74,7 @@ describe("emitJavaScript", () => {
     expect(output.text).toContain('__hex_stringIndex("héllo", 2)');
     expect(output.text).toContain("function __hex_stableHash");
     expect(output.text).toContain(".length >= 1");
-    expect(emitDeclarations(module).text).toContain("ReadonlyArray<number>");
+    expect(emitDeclarations(module).text).toContain("Hex.Vector<number>");
     expect(output.diagnostics).toEqual([]);
   });
 
@@ -138,8 +138,8 @@ describe("emitJavaScript", () => {
     expect(output.text).toContain("const __hex_persistentCollections");
     expect(output.text).toContain("__hex_hash.eq.equals");
     expect(output.text).toContain("const insert =");
-    expect(emitDeclarations(module).text).toContain("ReadonlyMap<[number, number], string>");
-    expect(emitDeclarations(module).text).toContain("ReadonlySet<[number, number]>");
+    expect(emitDeclarations(module).text).toContain("Hex.Map<[number, number], string>");
+    expect(emitDeclarations(module).text).toContain("Hex.Set<[number, number]>");
   });
 
   test("executes persistent Map and Set updates, lookup, and bracket failure", () => {

@@ -218,6 +218,14 @@ for interactive tools, while `Emitted.Declarations` remains the public module
 contract. Its transforming verb is
 `emitTypeScriptPreview(Core.Module) -> Emitted.TypeScriptPreview`.
 
+`Emitted.RuntimeDeclarations` (August 2026, #128) is the exception the three
+above establish the rule for: it is **program-scoped**, belonging to no source
+file, so it carries a `path` where the others carry a `Source.FileId`. It has no
+transforming verb of the `emit*(Core.Module) -> …` shape, because no one module
+produces it — `compileProject` assembles it from what the modules' declarations
+turned out to need. Its home is still `src/emission/`, on the same ground: it is
+final text.
+
 ### Source-comment retention clarification (July 2026)
 
 `Source.Comment` records source spelling and position rather than a semantic node
