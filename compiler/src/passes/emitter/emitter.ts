@@ -4391,46 +4391,50 @@ function renderHelper(
       // tail)` / failure are the three. The cell is a *box*, not the thrown
       // value itself, since JavaScript permits throwing `undefined`.
       //
-      // **Exhaustion is the source's property, not a position's**, so `done`
-      // stays a shared cell — §5's own division, which permits shared iterator
-      // state and forbids only a back-reference to the head.
+      // **Forcing is not reentrant, and the spine says so** (§7.3, the #123
+      // ruling). A position whose forcing asks for that same position is asking
+      // for the value it is computing; there is no answer, only a choice of
+      // wrong one. Two forcings of one position each consume a source element
+      // and only one can be the position's value, so the alternatives are losing
+      // an element or reordering the sequence — the buffer this spine replaced
+      // reordered, and the per-node memo dropped, both silently.
       //
-      // The frontier itself is structural and needs no flag: a tail is built
-      // solely in the success path and is reachable only if that outcome won the
-      // memo, since `pull` returns the winner, so the reachable nodes are a
-      // chain and at most its last member is unforced (none is, once that one
-      // has memoized an end or a failure). What the flag adds is that
-      // *the frontier can sit behind an ended source*. One forcing of a node can
-      // see the source end while a reentrant forcing of the same node got a
-      // value and won — the head then hands out a tail the source has nothing
-      // left for, and without the flag, forcing it calls `next()` on an iterator
-      // that already reported done. The flag only ever goes true, so the loser
-      // of that race cannot un-end the source either.
+      // So a forcing already in flight is *this spine's* flag, and a pull that
+      // reaches the forcing step while it is set throws instead. The check sits
+      // **before** the `try`, which is load-bearing: the reentrant pull is of the
+      // very node being forced, so a throw from inside the `try` would memoize
+      // as that node's failure and poison the position the enclosing forcing is
+      // about to answer.
       //
-      // **A step is written once and a failure never over one**, which is what
-      // makes §4's "each node memoizes exactly one outcome" an invariant this
-      // code holds rather than a sentence it cites: the first step stored stays,
-      // and clears any failure beside it, while a failure is stored only into a
-      // node holding neither. So a node never holds both, and a position that
-      // has a step keeps answering with it.
+      // The flag is per spine rather than per node because it is the *source*
+      // that cannot be advanced twice for one position, and because only one
+      // node ever reaches the forcing step: a tail is built solely in the
+      // success path, so the reachable nodes are a chain whose last member is
+      // the only unforced one. A reentrant pull of an already-memoized position
+      // never reaches the check — replay is untouched, and a foreign source that
+      // looks back at earlier elements keeps working, which §7.3 requires.
       //
-      // Only a reentrant forcing can reach either guard, and reentrancy is
-      // undecided — issue #123 — so none of this is a claim about what *should*
-      // happen there. Two things it is: without the step guard, a reentrant
-      // inner forcing's outcome was overwritten and two tails of one position
-      // went on to yield different elements, which is `Seq` persistence failing
-      // rather than a reentrancy question. Without letting a step clear a
-      // failure, an inner forcing that threw poisoned the position permanently,
-      // even though the outer forcing that re-entered from it succeeded. The
-      // buffer this replaces had neither problem, so neither is a corner to
-      // leave to #123 on the grounds that it was already broken.
+      // This is not a new failure mode so much as an existing one made uniform.
+      // A `seqToIterable` generator — the source of every `Seq.memoize` and
+      // every §9.4 boundary view — already makes JavaScript itself refuse the
+      // reentrant advance with `TypeError: Generator is already running`. Only a
+      // foreign iterator whose `next()` is an ordinary function could slip
+      // through, and that is the one case where an element vanished. `TypeError`
+      // is the kind for §7.2's reason: the adapter introduces no Hexagon error
+      // type of its own for a condition it detects at the boundary.
       //
-      // Where it does still differ from the buffer, recorded rather than
-      // defended: the buffer reordered a reentrant forcing's element and this
-      // drops it, and the buffer replayed a stale failure at the following
-      // position where this serves that position from the source. Both are
-      // #123's to rule on; the conformance tests pin only that the cursors of
-      // one position agree, never which element wins.
+      // What the enclosing forcing then observes is nothing at all, unless the
+      // foreign code lets the throw propagate out of `next()` — in which case it
+      // is that position's failure by §7.1, like any other throw from the source.
+      //
+      // Serialized forcings are why nothing else here guards against collision.
+      // Each node is forced exactly once, so a store never meets a value already
+      // present; the source cannot report `done` while an unforced node exists,
+      // since that node was built from a not-done result and no node is built
+      // from an ended one. The shared `done` flag and the first-writer guards
+      // that stood here between #131 and #123 were repairs for collisions this
+      // ruling makes unreachable, and dead code whose comment claims otherwise
+      // is worse than none.
       //
       // Every node carries the boundary traversal method (§9.4): the adapter is
       // one of the ruling's two named construction sites, and a `Seq` built here
@@ -4439,7 +4443,7 @@ function renderHelper(
       return [
         `function ${name}(__hex_source) {`,
         "  let __hex_iterator = undefined;",
-        "  let __hex_done = false;",
+        "  let __hex_forcing = false;",
         "  const __hex_node = () => {",
         "    let __hex_step = undefined;",
         "    let __hex_failure = undefined;",
@@ -4447,26 +4451,24 @@ function renderHelper(
         `      [Symbol.iterator]: ${dependencyName("seqIterate")},`,
         "      pull: () => {",
         "        if (__hex_step === undefined && __hex_failure === undefined) {",
-        '          if (__hex_done) __hex_step = { tag: "None" };',
-        "          else {",
-        "            try {",
-        "              if (__hex_iterator === undefined) __hex_iterator = __hex_source[Symbol.iterator]();",
-        "              const __hex_next = __hex_iterator.next();",
-        '              if (__hex_next === null || (typeof __hex_next !== "object" && typeof __hex_next !== "function")) {',
-        '                throw new TypeError("Iterator result " + String(__hex_next) + " is not an object");',
-        "              }",
-        "              const __hex_ended = Boolean(__hex_next.done);",
-        "              if (__hex_ended) __hex_done = true;",
-        "              const __hex_forced = __hex_ended",
-        '                ? { tag: "None" }',
-        '                : { tag: "Some", value: [__hex_next.value, __hex_node()] };',
-        "              if (__hex_step === undefined) { __hex_step = __hex_forced; __hex_failure = undefined; }",
-        "            } catch (__hex_error) {",
-        "              if (__hex_step === undefined && __hex_failure === undefined) {",
-        "                __hex_failure = { error: __hex_error };",
-        "              }",
-        "              throw __hex_error;",
+        "          if (__hex_forcing) {",
+        '            throw new TypeError("Seq position is already being forced: a sequence position cannot depend on its own value");',
+        "          }",
+        "          __hex_forcing = true;",
+        "          try {",
+        "            if (__hex_iterator === undefined) __hex_iterator = __hex_source[Symbol.iterator]();",
+        "            const __hex_next = __hex_iterator.next();",
+        '            if (__hex_next === null || (typeof __hex_next !== "object" && typeof __hex_next !== "function")) {',
+        '              throw new TypeError("Iterator result " + String(__hex_next) + " is not an object");',
         "            }",
+        "            __hex_step = Boolean(__hex_next.done)",
+        '              ? { tag: "None" }',
+        '              : { tag: "Some", value: [__hex_next.value, __hex_node()] };',
+        "          } catch (__hex_error) {",
+        "            __hex_failure = { error: __hex_error };",
+        "            throw __hex_error;",
+        "          } finally {",
+        "            __hex_forcing = false;",
         "          }",
         "        }",
         "        if (__hex_failure !== undefined) throw __hex_failure.error;",

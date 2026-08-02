@@ -1063,251 +1063,167 @@ describe("the memoizing spine reclaims an unreachable prefix (FFI Part 3 §5)", 
   });
 });
 
-describe("what the spine holds when forcing is reentrant (issue #123's territory)", () => {
+describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
   /**
-   * **These pin an invariant, not a semantics.** Reentrant forcing — foreign
-   * code driven by one forcing pulling the same spine — is undecided; issue
-   * #123 asks for the ruling, and defect-log entry 15 records that the spine
-   * was already incoherent there before either memo representation. Nothing
-   * below asserts *which* element a reentrant forcing should yield.
+   * The #123 ruling, 2026-08-02. A forcing that asks the same spine for the
+   * position it is computing is asking for the value it is in the middle of
+   * producing; §7.3 makes that a `TypeError`, observed in Hexagon through
+   * `JsError`, and leaves everything else about the traversal alone.
    *
-   * What they do assert is the pair of properties #131's re-representation put
-   * at risk, both of which held under the central buffer it replaced:
+   * **The shape is an ordinary program, not a contrived one**, which is what
+   * the issue got wrong when it recorded this as unreachable from the harness
+   * ("its data-URL modules cannot be circular"). No circular import is needed:
+   * a third module — here, the test — hands the `Seq` to the foreign module
+   * that the sequence's own derivation calls. `main.hex` never names the value
+   * inside its own definition, so `let`'s non-recursiveness is not in the way.
    *
-   * 1. Every cursor of one position agrees with every other. That is §4's "each
-   *    node memoizes exactly one outcome" — the sentence the per-node memo cites
-   *    as its reason for existing — and a last-writer-wins store silently broke
-   *    it: two tails of the same position went on to yield different elements.
-   * 2. An exhausted iterator is not re-driven. The shared `done` flag is what
-   *    prevents it; deleting it as unreachable, which the frontier's structure
-   *    seems to license, lets a reentrant forcing leave a successor node behind
-   *    an already-ended source.
+   * What that program did before the ruling is the reason for it: the reentrant
+   * traversal and the enclosing one each advanced the source for the same
+   * position, and one element vanished with no error anywhere — a `Vector`
+   * silently one short. Both traversals then agreed on the wrong answer, which
+   * is why no existing test could see it.
    *
-   * Both were found by a cold review, with a standalone script, against a
-   * version of this change that had neither guard. They are here so the next
-   * such version reddens instead.
-   *
-   * **They drive the emitted helper by name.** A reentrant source has to hold
-   * the very node being forced, which no Hexagon program can hand it and no
-   * `extern` signature can express, so the probe is JavaScript appended to the
-   * compiled module. It still *executes* the emitted spine — this is not a text
-   * assertion — and it is the only test here that reaches inside the helper
-   * block, which is why it says so.
+   * The uniformity claim is checked, not asserted (last test): a `seqToIterable`
+   * generator already made JavaScript refuse the reentrant advance, so the spec
+   * is conforming one case to the platform rather than inventing a failure mode.
    */
 
-  /** Compiles a module that emits the spine, then appends and runs a JS probe. */
-  async function probe(source: string): Promise<Record<string, unknown>> {
-    const project = compileProject([
-      // `Vector.toSeq` puts the spine in *this* module and imports nothing, so
-      // the appended probe can be imported as a standalone data URL. Reaching
-      // for `Seq.memoize` instead would emit it into the prelude's `Seq.hex`.
-      new Source.File(Source.fileId(0), "/main.hex",
-        "export let forced: Seq(Int) = Vector.toSeq(Vector.append(Vector.empty(), 1))\n"),
-    ]);
-    expect(project.diagnostics).toEqual([]);
-    const module = project.modules.find((each) => each.source.path === "/main.hex")!;
-    expect(module.javascript.text).toContain("function __hex_seqFromIterable");
-    const url = `data:text/javascript;charset=utf-8,${encodeURIComponent(
-      `${module.javascript.text}\n${source}`,
-    )}`;
-    return (await import(/* @vite-ignore */ url)) as Record<string, unknown>;
+  /**
+   * A sequence whose source can call back into the program that holds it.
+   *
+   * `armIt` is how the foreign module gets the `Seq` — the caller supplies it,
+   * so there is no self-reference and no import cycle. `drained` forces the
+   * whole sequence through the internal channel, which is what a Hexagon
+   * program does with it.
+   */
+  const selfObserving =
+    "extern from \"probe\"\n" +
+    "    fun source(): Seq(Int)\n" +
+    "    fun setSeq(held: Seq(Int)): Unit\n" +
+    "    fun outcome(): String\n" +
+    "\n" +
+    "let shared: Seq(Int) = source()\n" +
+    "\n" +
+    "export let armIt(ignored: Int): Unit = setSeq(shared)\n" +
+    "export let drained(ignored: Int): Vector(Int) = Vector.fromSeq(shared)\n" +
+    "export let reentry(ignored: Int): String = outcome()\n";
+
+  /**
+   * The foreign side. `reenter` is spliced in per test: it runs inside `next()`
+   * for the nominated call, and records what it observed.
+   */
+  function probeModule(sourceBody: string, reenterBody: string): string {
+    return [
+      "let held; let outcome = 'not reached'; let calls = 0;",
+      "export function setSeq(value) { held = value; return undefined; }",
+      "export function outcome_() { return outcome; }",
+      "export { outcome_ as outcome };",
+      "function record(fn) {",
+      "  try { outcome = 'OK:' + JSON.stringify(fn()); }",
+      "  catch (error) { outcome = 'ERR:' + error.constructor.name + ':' + error.message; }",
+      "}",
+      reenterBody,
+      sourceBody,
+    ].join("\n");
   }
 
-  /** Pulls up to `limit` elements off a node, as JavaScript sees the record. */
-  const driver = [
-    "function drive(node, limit) {",
-    "  const out = [];",
-    "  let current = node;",
-    "  for (let index = 0; index < limit; index += 1) {",
-    "    let step;",
-    "    try { step = current.pull(); } catch (error) { out.push('THROW:' + error.message); break; }",
-    "    if (step.tag !== 'Some') { out.push('END'); break; }",
-    "    out.push(step.value[0]);",
-    "    current = step.value[1];",
-    "  }",
-    "  return out;",
+  /** A plain-object iterator: `next()` is an ordinary function, not a generator. */
+  const plainSource = [
+    "export function source() {",
+    "  return { [Symbol.iterator]() { return { next() {",
+    "    calls += 1;",
+    "    const mine = calls;",
+    "    reenter(mine);",
+    "    return mine <= 4 ? { done: false, value: mine * 10 } : { done: true };",
+    "  } }; } };",
     "}",
   ].join("\n");
 
-  test("two forcings of one position agree, and hand back the same tail", async () => {
-    const exports = await probe([
-      driver,
-      "export function run() {",
-      "  let head;",
-      "  let inner;",
-      "  let armed = true;",
-      "  let calls = 0;",
-      // The `done` getter of the first result re-enters the head that is at that
-      // moment mid-force. Both forcings then complete and both return a step.
-      "  const source = { [Symbol.iterator]() { return { next() {",
-      "    calls += 1;",
-      "    const mine = calls;",
-      "    return {",
-      "      get done() { if (armed && mine === 1) { armed = false; inner = head.pull(); } return false; },",
-      "      value: mine,",
-      "    };",
-      "  } }; } };",
-      "  head = __hex_seqFromIterable(source);",
-      "  const outer = head.pull();",
-      "  return {",
-      "    sameValue: inner.value[0] === outer.value[0],",
-      "    sameTail: inner.value[1] === outer.value[1],",
-      "    innerDrive: drive(inner.value[1], 2),",
-      "    outerDrive: drive(outer.value[1], 2),",
-      "  };",
+  /** The same source as a generator, for the uniformity check. */
+  const generatorSource = [
+    "export function source() {",
+    "  return { *[Symbol.iterator]() {",
+    "    for (let index = 1; index <= 4; index += 1) { calls += 1; reenter(calls); yield index * 10; }",
+    "  } };",
+    "}",
+  ].join("\n");
+
+  async function armed(
+    sourceBody: string,
+    reenterBody: string,
+  ): Promise<{ drained: () => number[]; reentry: () => string }> {
+    const exports = await run(
+      [["/main.hex", selfObserving]],
+      { probe: probeModule(sourceBody, reenterBody) },
+    );
+    (exports["armIt"] as (ignored: number) => void)(0);
+    return {
+      drained: () => (exports["drained"] as (ignored: number) => number[])(0),
+      reentry: () => (exports["reentry"] as (ignored: number) => string)(0),
+    };
+  }
+
+  /** Re-traverse the whole sequence from within `next()` for call `at`. */
+  function retraverseAt(at: number, swallow = true): string {
+    const body = "record(() => Array.from(held));";
+    return [
+      "function reenter(call) {",
+      `  if (call !== ${at}) return;`,
+      swallow ? `  ${body}` : "  Array.from(held);",
       "}",
-    ].join("\n"));
-    const result = (exports["run"] as () => {
-      sameValue: boolean;
-      sameTail: boolean;
-      innerDrive: readonly unknown[];
-      outerDrive: readonly unknown[];
-    })();
-    expect(result.sameValue).toBe(true);
-    // Node identity, which is a fact about the representation rather than about
-    // agreement — the pre-#131 buffer allocated a fresh tail on every pull and
-    // fails this for that reason alone. `sameValue` and the drive equality are
-    // the invariant; this line pins that one position now *is* one node.
-    expect(result.sameTail).toBe(true);
-    // Stated as an equality rather than against literals: which elements the
-    // spine yields here is #123's to decide, that the two views agree is not.
-    expect(result.innerDrive).toEqual(result.outerDrive);
+    ].join("\n");
+  }
+
+  test("re-forcing the position being forced fails, and costs the traversal nothing", async () => {
+    const { drained, reentry } = await armed(plainSource, retraverseAt(1));
+    // The headline. Before the ruling this was `[20, 30, 40]` — the reentrant
+    // traversal had consumed the element the enclosing forcing was fetching, and
+    // both traversals returned the short answer with no error raised anywhere.
+    expect(drained()).toEqual([10, 20, 30, 40]);
+    expect(reentry()).toBe(
+      "ERR:TypeError:Seq position is already being forced: " +
+      "a sequence position cannot depend on its own value",
+    );
+    // Replay agrees with the first traversal, so nothing was patched over.
+    expect(drained()).toEqual([10, 20, 30, 40]);
   });
 
-  test("a forcing that fails after a reentrant one succeeded does not poison the position", async () => {
-    const exports = await probe([
-      driver,
-      "export function run() {",
-      "  let head;",
-      "  let inner;",
-      "  let armed = true;",
-      "  let calls = 0;",
-      // The collision the *failure* guard is for, and the one the agreement test
-      // above cannot reach: a reentrant inner forcing succeeds and wins the
-      // node, and the outer forcing then throws out of the `value` getter it
-      // re-entered from. The outer's throw is its own to surface; what it must
-      // not do is become the node's memo over a step already stored there.
-      "  const source = { [Symbol.iterator]() { return { next() {",
-      "    calls += 1;",
-      "    const mine = calls;",
-      "    if (mine === 1) {",
-      "      return { done: false, get value() {",
-      "        if (armed) { armed = false; inner = head.pull(); }",
-      "        throw new Error('outer boom');",
-      "      } };",
-      "    }",
-      "    return { done: false, value: 'element' + mine };",
-      "  } }; } };",
-      "  head = __hex_seqFromIterable(source);",
-      "  let outer;",
-      "  try { head.pull(); outer = 'STEP'; } catch (error) { outer = 'THROW:' + error.message; }",
-      "  let again;",
-      "  try { const step = head.pull(); again = step.tag === 'Some' ? step.value[0] : 'END'; }",
-      "  catch (error) { again = 'THROW:' + error.message; }",
-      "  return { innerValue: inner.value[0], outer, again };",
+  test("reading an already-forced position from inside a forcing replays it", async () => {
+    // §7.3's carve-out, and the reason the flag guards the forcing step rather
+    // than `pull`: a foreign source that looks back at elements it has already
+    // produced is doing nothing cyclic, and must keep working.
+    const { drained, reentry } = await armed(plainSource, [
+      "function reenter(call) {",
+      "  if (call !== 3) return;",
+      "  record(() => held[Symbol.iterator]().next().value);",
       "}",
     ].join("\n"));
-    const result = (exports["run"] as () => {
-      innerValue: unknown;
-      outer: string;
-      again: string;
-    })();
-    // The outer forcing's own throw surfaces, once.
-    expect(result.outer).toBe("THROW:outer boom");
-    // And the position still answers with the step it memoized, not the loser's
-    // error — a node holding a step *and* a failure is what §4's "exactly one
-    // outcome" forbids, and what the unguarded store produced.
-    expect(result.again).toBe(result.innerValue);
-    expect(result.again).toBe("element2");
+    expect(drained()).toEqual([10, 20, 30, 40]);
+    expect(reentry()).toBe("OK:10");
   });
 
-  test("a failing reentrant forcing does not poison a position the outer forcing served", async () => {
-    const exports = await probe([
-      driver,
-      "export function run() {",
-      "  let head;",
-      "  let inner;",
-      "  let armed = true;",
-      "  let calls = 0;",
-      // The mirror of the test above, and issue #123's own reproduction: the
-      // reentrant inner forcing is the one that throws, and the outer forcing —
-      // which re-entered from its own `done` getter — goes on to succeed. A
-      // step must be allowed to clear a failure stored beside it, or the inner
-      // throw becomes this position's answer forever and takes the whole
-      // sequence with it, which the buffer this replaced did not do.
-      "  const source = { [Symbol.iterator]() { return { next() {",
-      "    calls += 1;",
-      "    const mine = calls;",
-      "    if (mine === 1) {",
-      "      return {",
-      "        get done() {",
-      "          if (armed) {",
-      "            armed = false;",
-      "            try { head.pull(); inner = 'STEP'; } catch (error) { inner = 'THROW:' + error.message; }",
-      "          }",
-      "          return false;",
-      "        },",
-      "        value: 'element1',",
-      "      };",
-      "    }",
-      "    if (mine === 2) throw new Error('inner boom');",
-      "    return { done: false, value: 'element' + mine };",
-      "  } }; } };",
-      "  head = __hex_seqFromIterable(source);",
-      "  let outer;",
-      "  try { const step = head.pull(); outer = step.tag === 'Some' ? step.value[0] : 'END'; }",
-      "  catch (error) { outer = 'THROW:' + error.message; }",
-      "  let again;",
-      "  try { const step = head.pull(); again = step.tag === 'Some' ? step.value[0] : 'END'; }",
-      "  catch (error) { again = 'THROW:' + error.message; }",
-      "  return { inner, outer, again };",
-      "}",
-    ].join("\n"));
-    const result = (exports["run"] as () => {
-      inner: string;
-      outer: string;
-      again: string;
-    })();
-    // The reentrant forcing saw the source throw, and said so to its own caller.
-    expect(result.inner).toBe("THROW:inner boom");
-    // The outer forcing's own `next()` succeeded, so the position holds a value.
-    expect(result.outer).toBe("element1");
-    expect(result.again).toBe("element1");
+  test("a reentrant throw the source does not catch is that position's failure", async () => {
+    // §7.1 applies to it like any other throw out of `next()` — the enclosing
+    // forcing did not survive its own source, so the position failed. The point
+    // of the test is *which* position: the throw must not have been memoized by
+    // the reentrant pull, or the failure would sit on the node before this one.
+    const { drained, reentry } = await armed(plainSource, retraverseAt(1, false));
+    for (const _attempt of [0, 1]) {
+      expect(drained).toThrowError(/already being forced/u);
+    }
+    expect(reentry()).toBe("not reached");
   });
 
-  test("a node reached past an exhausting forcing does not re-drive the iterator", async () => {
-    const exports = await probe([
-      driver,
-      "export function run() {",
-      "  let head;",
-      "  let armed = true;",
-      "  let calls = 0;",
-      // The one ordering that leaves a *reachable* unforced node behind an ended
-      // source, and the reason `done` cannot live in the nodes. The outer
-      // forcing's own result is the end; a reentrant inner forcing gets a value
-      // and wins the head, so the head hands out the inner's tail — a node the
-      // source has nothing left for. Reentry from the `done` getter, because the
-      // outer must not read `value` on a result it has just seen end.
-      "  const source = { [Symbol.iterator]() { return { next() {",
-      "    calls += 1;",
-      "    if (calls === 1) {",
-      "      return { get done() { if (armed) { armed = false; head.pull(); } return true; } };",
-      "    }",
-      "    if (calls === 2) return { done: false, value: 'inner' };",
-      "    throw new Error('next() on an exhausted iterator (call ' + calls + ')');",
-      "  } }; } };",
-      "  head = __hex_seqFromIterable(source);",
-      "  const drained = drive(head, 4);",
-      "  return { drained, calls };",
-      "}",
-    ].join("\n"));
-    const { drained, calls } = (exports["run"] as () => {
-      drained: readonly unknown[];
-      calls: number;
-    })();
-    // Two calls, and a clean end. The source's third `next()` is a throw, so a
-    // spine that re-drives it says so in `drained` as well as in `calls`.
-    expect(calls).toBe(2);
-    expect(drained.every((each) => typeof each !== "string" || !each.startsWith("THROW:"))).toBe(true);
+  test("a generator source behaves identically, which is the point", async () => {
+    // JavaScript already refuses this for a generator — `TypeError: Generator is
+    // already running` — and every internal spine (`Seq.memoize`, the §9.4
+    // boundary view) is driven by one. The ruling conforms the remaining case,
+    // so the two now fail the same way and with the same message.
+    const { drained, reentry } = await armed(generatorSource, retraverseAt(1));
+    expect(drained()).toEqual([10, 20, 30, 40]);
+    expect(reentry()).toBe(
+      "ERR:TypeError:Seq position is already being forced: " +
+      "a sequence position cannot depend on its own value",
+    );
   });
 });

@@ -1,6 +1,7 @@
 # Hexagon FFI Part 3: `Seq(a)` Interoperation
 
 **Status:** Decided (July 2026), revised in place after external review (Sol) before landing. Normative promotion of `spec/notes/ffi-proto-spec-questions.md` §3, drafted per `spec/notes/ffi-roadmap.md` Part 3. The question the draft recorded as a promotion blocker (adapter identity, §2.1) was resolved by James after independent review. Loops/Ranges/Iteration §6 is already normative for `Seq(a)` itself — the type, `Seq.next`, persistence, laziness, and emission onto the JS iterable protocol; this part specifies only the **boundary**: what a foreign iterable becomes in Hexagon, and what an exported Hexagon sequence is to JavaScript. **Revised 2026-07-28 (defect 12 ruling, Fable in the spec seat):** §2.2, §9.4–§9.7 added; §5 and §9.1 annotated. The de-intrinsification arc had left §9.1's promise without a mechanism — the exported value was a bare record with no `[Symbol.iterator]` while the `.d.ts` face still said `Iterable<a>` — and the divergence covered value, parameter, and result positions. The ruling restores the face as **representation**, not boundary plumbing, and specifies all three positions uniformly.
+**Revised 2026-08-02 (issue #123 ruling, written from the implementing seat):** §7.3 added, §4 annotated. §4 and §7.1 described forcing as an atomic step with one outcome and said nothing about foreign code re-entering the spine mid-forcing; the case was reachable from an ordinary program and silently lost an element. §7.3 refuses it, which is what a `seqToIterable` generator source already did.
 **Scope:** Top-level `Iterable<a>` input; the persistent memoizing inbound adapter (one iterator, one shared lazy spine, no replayability probing, fresh adapter per crossing with no identity cache — §2.1); retention and reclamation; iterative rather than recursive traversal; iterator closure and the no-deterministic-disposal rule; foreign throws and malformed iterator results; the replayable exported traversal; the `Iterable`-not-`Iterator` boundary; and the v1 restriction on nested adapter-requiring positions (by reference to Part 1 §5.3).
 **Not in scope:** `Seq(a)`'s intrinsic semantics (Loops §6, consumed); single-pass `Iterator<a>` acceptance, async iteration, callback-position adapters, and any separate resource-managed stream type (**deferred**, §10); `Array.toSeq`'s borrow interaction (Part 2 §6.2/§9); callback signatures generally (Part 6).
 **Companions:** Part 1 §2.3/§3/§5.3 (adapted category, failure doctrine, nested restriction); Part 2 §9 (`Array.toSeq`); Loops/Ranges/Iteration §6; Collections Part 5 §1/§4 (`Seq` as conversion currency; instance table); Exceptions §6 (`JsError`); `spec/notes/ffi-agenda.md` (stale non-crossing statement superseded, §1).
@@ -81,6 +82,8 @@ This is the **uniform inbound rule** — there is no fast path for "obviously re
 - Each sequence node memoizes **exactly one outcome**: end, `(value, tail)`, or foreign failure (§7).
 - Repeating `Seq.next` at the same position therefore neither advances the source nor repeats foreign effects.
 
+*(Addendum, 2026-08-02, issue #123 ruling.)* "Exactly one outcome" is stated over a forcing that runs to completion before any other forcing of the same spine begins. **§7.3 makes that an enforced property rather than an assumption**: a forcing that is re-entered — by the foreign source it is driving, or by anything that source calls — refuses the reentrant force rather than letting two forcings compete for one position. Nothing above changes for a program that does not do it.
+
 A single-shot generator works without receiving weaker semantics; a replayable iterable is deliberately treated the same way. Memoization is what makes the foreign iterator's mutability invisible behind `Seq`'s persistence.
 
 ---
@@ -126,6 +129,28 @@ Because `done` and `value` may be effectful getters, forcing one node follows Ja
 6. A throw at any step is memoized as that node's failure outcome (§7.1) at whichever step produced it.
 
 Each property is read once per forcing, and per §4's memoization, once per position ever.
+
+### 7.3 Reentrant forcing is refused *(ruled 2026-08-02, issue #123)*
+
+A forcing is **reentrant** when the code it runs — a foreign `next()`, a `done` or `value` getter, `[Symbol.iterator]()`, or anything they call — asks the same spine to force a position that is not yet memoized. Because a tail node is built only from a successful forcing, the reachable nodes are a chain whose last member is the only unforced one, so the position asked for is always **the position being forced**.
+
+**The ruling: the spine refuses it.** A pull that would begin forcing while a forcing of that spine is in flight raises a JavaScript `TypeError`, observed in Hexagon through `JsError`, and does not touch the source, the memo, or the iterator.
+
+Three consequences, all normative:
+
+- **Replay is untouched.** A reentrant pull of a position that *is* memoized returns its memoized outcome — value, end, or failure — exactly as any other pull would. A foreign source that looks back at elements it has already produced is doing nothing cyclic and must keep working. The refusal is scoped to beginning a forcing, not to entering `pull`.
+- **The refusal is not the position's outcome.** It belongs to the reentrant caller, not to the position the enclosing forcing is about to answer. If the foreign code lets it propagate out of `next()`, it reaches the enclosing forcing as an ordinary source throw and is memoized as **that** position's failure by §7.1 — but that is §7.1 acting, not this rule.
+- **The enclosing forcing is unaffected otherwise.** If the foreign code swallows the refusal and returns a result, that result is the position's outcome and the traversal continues. Exactly one source element is consumed per position, as §4 requires.
+
+**Why refusal and not an answer.** The position is being asked for the value it is computing. Two forcings of one position each advance the source, and only one result can be that position's memoized outcome, so every non-refusing rule either **loses** the other element or **reorders** the sequence — and both are silent. This is not hypothetical: a program with no import cycle and no self-reference (a third module hands the `Seq` to the foreign module the sequence's own derivation calls) produced a sequence one element short, with both the reentrant and the enclosing traversal agreeing on the short answer and nothing raised anywhere.
+
+**This makes one case uniform rather than inventing a failure mode.** Every spine whose source is a `seqToIterable` generator — which is every `Seq.memoize` (Loops §6.4) and every §9.4 boundary view — already had the reentrant advance refused by JavaScript itself, with `TypeError: Generator is already running`. Only a foreign iterator whose `next()` is an ordinary function could reach the incoherent path. The rule conforms that one case to what the platform already does everywhere else, which is why `TypeError` is the kind and why §7.2's sentence still holds: **no separate Hexagon error type is introduced.** The message is the emitter's, as §2.2 leaves the door's exact test to the emitter.
+
+**Scope.** This governs the memoizing spines this part specifies: the §2 inbound adapter, and by §9.4 and Loops §6.4 the boundary view and `Seq.memoize`, which are the same mechanism. It does not govern **re-derivation** — the internal channel builds no memo and has no position to collide on, so a derivation that observes its own sequence there simply re-derives from the head each time and does not terminate. That is ordinary non-termination under Loops §6.5's no-TCO rule, not a boundary condition, and no spine detects it.
+
+**Not a contract violation** (Part 1 §3.1). The foreign code satisfies its declaration; nothing was promised and broken. Reentrancy is a cyclic value dependency, and a pure Hexagon program cannot construct one — `let` is non-recursive and a closure cannot capture mutable state — so the cycle always runs through the boundary, but not always through foreign *misbehaviour*. §3.1's unspecified-observation doctrine is therefore the wrong instrument here, and the previously-recorded reading of this case as "behaviour is unspecified" is superseded.
+
+**Inheritance.** `Seq` is the pilot for `Vector`, `Set`, and `Map` (stdlib-roadmap §5.2). Those inherit §9.5's rule — identity crossing with **no** boundary memoization — so they have no spine, no forcing, and nothing for this rule to apply to. It is inherited as a settled question, not as three more open ones.
 
 ---
 
@@ -252,6 +277,7 @@ This part introduces **no new hard errors**; the boundary-shape errors it relies
 | `Seq` nested in a direct aggregate or borrowed container | Part 1 §5.3 (hard error with named rewrite) |
 | `Seq` in a callback parameter/result position | Part 6 (v1 callback rule) |
 | Malformed foreign iterator result | not a diagnostic — runtime JS `TypeError` via `JsError` (§7.2) |
+| Reentrant forcing of a spine | not a diagnostic — runtime JS `TypeError` via `JsError` (§7.3); detected, unlike the row below |
 | Resource-owning iterator supplied as a `Seq` input | not detectable — documented suitability rule (§8) |
 
 ---
@@ -277,6 +303,7 @@ Everything else the roadmap assigns to this part is closed by the decision recor
 | Reachability governs reclamation; no central history array; no cache limit may evict reachable history | §5 |
 | Traversal is constant-stack iterative; recursion is not the streaming idiom; the space rule stated | §6 |
 | Protocol throws surface via `JsError` and are memoized per position | §7.1 |
+| *(2026-08-02, issue #123 ruling)* Forcing is not reentrant: a pull that would begin forcing while a forcing of that spine is in flight raises a JS `TypeError` via `JsError`, touching neither source nor memo. Replay of an already-memoized position is untouched; the refusal is the caller's, not the position's outcome; re-derivation is out of scope (ordinary non-termination). Conforms the one case that diverged to what a generator source already did; no new Hexagon error type; not a Part 1 §3.1 contract violation. Inherited by `Vector`/`Set`/`Map` as vacuous — §9.5 item 4 gives them no spine | §7.3 |
 | Malformed results = JS `TypeError` via `JsError`; no `InvalidIteratorError`; no deep validation; forcing follows native protocol order (`next()` once, `done` once, `value` once and only if not done) | §7.2 |
 | No deterministic disposal; early loop exit must not call shared `return()`; resource-owning iterators unsuitable | §8 |
 | Exported `Seq` replayable: independent cursors per `[Symbol.iterator]()` over the same memoized sequence; face stays `Iterable<a>` | §9.1 |
