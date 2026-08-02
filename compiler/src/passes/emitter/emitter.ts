@@ -4342,8 +4342,8 @@ function renderHelper(
     case "seqFromIterable":
       // Bridge IN. A foreign iterable is single-shot and mutable; a `Seq` is
       // persistent, so the spine memoizes: every traversal replays the same
-      // buffered values and the source advances only when a traversal reaches
-      // the frontier. This is what FFI Part 3 §9.1 requires of an exported or
+      // values and the source advances only when a traversal reaches the
+      // frontier. This is what FFI Part 3 §9.1 requires of an exported or
       // imported sequence, and Loops §6.4 names it as the boundary's spine.
       //
       // `[Symbol.iterator]()` is called at the first *pull*, not when the
@@ -4352,17 +4352,85 @@ function renderHelper(
       // is. Forcing a node then follows §7.2's protocol access order exactly —
       // `next()` once, require an object, read `done` once and **boolean-coerce**
       // it (a `{ done: 1 }` result terminates native iteration and must
-      // terminate this), read `value` once and only when not done.
+      // terminate this), read `value` once and only when not done. The `Boolean`
+      // is written out because §7.2 names the coercion, not because the two
+      // readers of `__hex_ended` would do anything else with a truthy `done`;
+      // what a `{ done: 1 }` source actually does is pinned by a test rather
+      // than by that call.
+      //
+      // **The memo lives in the nodes, never in a central array** (§5, and #131,
+      // which is the defect of having done it the other way). §5 decides the
+      // representation in as many words — "persistent lazy nodes, not a
+      // permanent central history array" — and it decides it for a property it
+      // then spends: once an older position is unreachable, its cached prefix
+      // may be collected, so "advancing while retaining only the current cursor"
+      // costs O(1). A shared buffer closed over by every node inverts exactly
+      // that: the newest node would pin the whole forced prefix.
+      //
+      // So a node holds its own outcome and, on success, a direct reference to
+      // its successor. References run head-to-tail only, and the adapter scope
+      // below holds no node at all (§5's third clause, that the shared iterator
+      // state keeps no back-reference to the head). Retaining position *i*
+      // therefore retains the forced *suffix* from *i* and none of **this
+      // spine's** prefix.
+      //
+      // That last qualifier is load-bearing, and the claim is false without it.
+      // The adapter keeps `__hex_source` and the iterator it acquired from it,
+      // which is §5's permitted shared state — but when the source is itself a
+      // `Seq` (both `seqMemoize` and `seqIterate` build the spine over
+      // `seqToIterable(s)`, whose generator closes over `s`'s head), that pins
+      // the *source's* head, and a source that stores rather than re-derives
+      // still has its prefix pinned through it. A second retention channel, in
+      // the driver rather than in the memo, filed as #230.
       //
       // **Failure is an outcome the spine memoizes too** (§7.1, and §7.2 step 6
       // for every step above): forcing a position again after it failed must
       // replay the stored throw rather than advance the iterator or repeat the
-      // foreign operation. One cell suffices for the whole spine — only the
-      // frontier position is ever unforced (a tail node exists only because its
-      // predecessor was forced successfully), and a failure leaves the frontier
-      // where it was, so the spine cannot advance past a failed position. The
-      // cell is a *box*, not the thrown value itself, since JavaScript permits
-      // throwing `undefined`.
+      // foreign operation. It is per-position for the same reason the value is —
+      // §4 says each node memoizes exactly one outcome, and end / `(value,
+      // tail)` / failure are the three. The cell is a *box*, not the thrown
+      // value itself, since JavaScript permits throwing `undefined`.
+      //
+      // **Exhaustion is the source's property, not a position's**, so `done`
+      // stays a shared cell — §5's own division, which permits shared iterator
+      // state and forbids only a back-reference to the head.
+      //
+      // The frontier itself is structural and needs no flag: a tail is built
+      // solely in the success path and is reachable only if that outcome won the
+      // memo, since `pull` returns the winner, so the reachable nodes are a
+      // chain and at most its last member is unforced (none is, once that one
+      // has memoized an end or a failure). What the flag adds is that
+      // *the frontier can sit behind an ended source*. One forcing of a node can
+      // see the source end while a reentrant forcing of the same node got a
+      // value and won — the head then hands out a tail the source has nothing
+      // left for, and without the flag, forcing it calls `next()` on an iterator
+      // that already reported done. The flag only ever goes true, so the loser
+      // of that race cannot un-end the source either.
+      //
+      // **A step is written once and a failure never over one**, which is what
+      // makes §4's "each node memoizes exactly one outcome" an invariant this
+      // code holds rather than a sentence it cites: the first step stored stays,
+      // and clears any failure beside it, while a failure is stored only into a
+      // node holding neither. So a node never holds both, and a position that
+      // has a step keeps answering with it.
+      //
+      // Only a reentrant forcing can reach either guard, and reentrancy is
+      // undecided — issue #123 — so none of this is a claim about what *should*
+      // happen there. Two things it is: without the step guard, a reentrant
+      // inner forcing's outcome was overwritten and two tails of one position
+      // went on to yield different elements, which is `Seq` persistence failing
+      // rather than a reentrancy question. Without letting a step clear a
+      // failure, an inner forcing that threw poisoned the position permanently,
+      // even though the outer forcing that re-entered from it succeeded. The
+      // buffer this replaces had neither problem, so neither is a corner to
+      // leave to #123 on the grounds that it was already broken.
+      //
+      // Where it does still differ from the buffer, recorded rather than
+      // defended: the buffer reordered a reentrant forcing's element and this
+      // drops it, and the buffer replayed a stale failure at the following
+      // position where this serves that position from the source. Both are
+      // #123's to rule on; the conformance tests pin only that the cursors of
+      // one position agree, never which element wins.
       //
       // Every node carries the boundary traversal method (§9.4): the adapter is
       // one of the ruling's two named construction sites, and a `Seq` built here
@@ -4370,33 +4438,43 @@ function renderHelper(
       // handed straight back out to JavaScript must face it as an `Iterable`.
       return [
         `function ${name}(__hex_source) {`,
-        "  const __hex_values = [];",
         "  let __hex_iterator = undefined;",
         "  let __hex_done = false;",
-        "  let __hex_failure = undefined;",
-        "  const __hex_node = (__hex_index) => ({",
-        `    [Symbol.iterator]: ${dependencyName("seqIterate")},`,
-        "    pull: () => {",
-        "      if (__hex_index === __hex_values.length && !__hex_done) {",
-        "        if (__hex_failure !== undefined) throw __hex_failure.error;",
-        "        try {",
-        "          if (__hex_iterator === undefined) __hex_iterator = __hex_source[Symbol.iterator]();",
-        "          const __hex_next = __hex_iterator.next();",
-        '          if (__hex_next === null || (typeof __hex_next !== "object" && typeof __hex_next !== "function")) {',
-        '            throw new TypeError("Iterator result " + String(__hex_next) + " is not an object");',
+        "  const __hex_node = () => {",
+        "    let __hex_step = undefined;",
+        "    let __hex_failure = undefined;",
+        "    return {",
+        `      [Symbol.iterator]: ${dependencyName("seqIterate")},`,
+        "      pull: () => {",
+        "        if (__hex_step === undefined && __hex_failure === undefined) {",
+        '          if (__hex_done) __hex_step = { tag: "None" };',
+        "          else {",
+        "            try {",
+        "              if (__hex_iterator === undefined) __hex_iterator = __hex_source[Symbol.iterator]();",
+        "              const __hex_next = __hex_iterator.next();",
+        '              if (__hex_next === null || (typeof __hex_next !== "object" && typeof __hex_next !== "function")) {',
+        '                throw new TypeError("Iterator result " + String(__hex_next) + " is not an object");',
+        "              }",
+        "              const __hex_ended = Boolean(__hex_next.done);",
+        "              if (__hex_ended) __hex_done = true;",
+        "              const __hex_forced = __hex_ended",
+        '                ? { tag: "None" }',
+        '                : { tag: "Some", value: [__hex_next.value, __hex_node()] };',
+        "              if (__hex_step === undefined) { __hex_step = __hex_forced; __hex_failure = undefined; }",
+        "            } catch (__hex_error) {",
+        "              if (__hex_step === undefined && __hex_failure === undefined) {",
+        "                __hex_failure = { error: __hex_error };",
+        "              }",
+        "              throw __hex_error;",
+        "            }",
         "          }",
-        "          __hex_done = Boolean(__hex_next.done);",
-        "          if (!__hex_done) __hex_values.push(__hex_next.value);",
-        "        } catch (__hex_error) {",
-        "          __hex_failure = { error: __hex_error };",
-        "          throw __hex_error;",
         "        }",
-        "      }",
-        '      if (__hex_index >= __hex_values.length) return { tag: "None" };',
-        '      return { tag: "Some", value: [__hex_values[__hex_index], __hex_node(__hex_index + 1)] };',
-        "    },",
-        "  });",
-        "  return __hex_node(0);",
+        "        if (__hex_failure !== undefined) throw __hex_failure.error;",
+        "        return __hex_step;",
+        "      },",
+        "    };",
+        "  };",
+        "  return __hex_node();",
         "}",
       ];
     case "seqMemoize":
@@ -4404,7 +4482,18 @@ function renderHelper(
       // declaration. Re-derivation is the internal default, so a `Seq` whose
       // steps are effectful and which will be traversed more than once is the
       // caller's cue to come here; the result replays cached elements instead of
-      // recomputing, at the cost of retaining the forced prefix.
+      // recomputing, at the cost of retaining what is forced and still
+      // reachable. Since #131 this spine's own nodes hold the memo, so a cursor
+      // no longer pins the part of *it* that the cursor has passed.
+      //
+      // **That is not yet true of a `memoize` whose source stores**, and this is
+      // the helper where it bites hardest, because the composition below is
+      // precisely the one that pins its source's head: `seqToIterable`'s
+      // generator closes over `s`, so `Seq.memoize` over an inbound-adapted
+      // `Seq` (or over another `memoize`) still retains everything through it.
+      // The second retention channel is #230, and until it closes the honest
+      // statement of `memoize`'s cost is "the forced suffix, plus whatever the
+      // source itself is holding".
       //
       // No new spine is built. §6.4 names the mechanism as *the same* one FFI
       // Part 3's inbound adapter uses, so the lowering is literally the R1 pair

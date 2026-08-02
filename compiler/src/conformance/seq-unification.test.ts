@@ -866,3 +866,448 @@ describe("the inbound adapter memoizes a forcing failure (FFI Part 3 §7.1)", ()
     expect((exports["touched"] as (ignored: number) => number)(0)).toBe(2);
   });
 });
+
+/**
+ * One macrotask, and a real collection — the machinery `seq-boundary-view`'s
+ * §9.4 property 7 test introduced, for the sibling retention clause here. Both
+ * reach off `globalThis` / non-literal specifiers for the same reason given
+ * there: this package carries no `@types/node` and `lib` is `ES2024` alone.
+ */
+function yieldToEventLoop(): Promise<void> {
+  const { setTimeout: schedule } = globalThis as unknown as {
+    setTimeout: (callback: () => void, milliseconds: number) => unknown;
+  };
+  return new Promise((resolve) => {
+    schedule(() => resolve(), 0);
+  });
+}
+
+async function collectGarbage(): Promise<void> {
+  const v8 = "node:v8";
+  const vm = "node:vm";
+  const { setFlagsFromString } = await import(/* @vite-ignore */ v8) as {
+    setFlagsFromString: (flags: string) => void;
+  };
+  const { runInNewContext } = await import(/* @vite-ignore */ vm) as {
+    runInNewContext: (code: string) => unknown;
+  };
+  setFlagsFromString("--expose-gc");
+  let collect: () => void;
+  try {
+    collect = runInNewContext("gc") as () => void;
+  } finally {
+    setFlagsFromString("--no-expose-gc");
+  }
+  collect();
+}
+
+describe("the memoizing spine reclaims an unreachable prefix (FFI Part 3 §5)", () => {
+  /**
+   * §5: "Memoization is represented by **persistent lazy nodes, not a permanent
+   * central history array**", and the two clauses it spends that on — "once an
+   * older position is unreachable, ordinary garbage collection may reclaim its
+   * cached prefix", and the user-facing rule that "advancing while retaining
+   * only the current cursor permits unreachable prefixes to be collected".
+   *
+   * Issue #131. The spine memoized into one array closed over by every node, so
+   * the *newest* cursor pinned the entire forced prefix and neither clause held.
+   * Nothing observed reclamation, which is why it survived: the conformance
+   * suites pin what a `Seq` *yields*, and a central array yields exactly what
+   * persistent nodes yield.
+   *
+   * So these two tests observe collection directly, the same way §9.4 property 7
+   * does — `collectGarbage` exposes and withdraws `--expose-gc` in-process, so
+   * they run on every ordinary `vitest run` rather than behind a flag check.
+   *
+   * The elements are **tuples**, because a `WeakRef` needs an object: an `Int`
+   * element would be a JavaScript number, and a spine that retained every one of
+   * them forever would be unobservable here.
+   *
+   * **The claim these pin is narrower than "prefixes are collected", and the
+   * narrowing is deliberate.** Both sources below *re-derive* — a combinator
+   * chain, and a foreign generator — so the memo is the only thing that could be
+   * holding an early element, which is what makes the observation attributable
+   * to the memo's representation. A source that *stores* (a `Seq.memoize` over
+   * an inbound-adapted `Seq`, say) still has its prefix pinned, through a second
+   * channel in the driver rather than in the memo: #230, out of #131's scope and
+   * unfixed. Deleting the qualifier from these tests' subject would make them
+   * assert something false.
+   */
+
+  /**
+   * Cursor walking, in Hexagon rather than in the test: §5's subject is a
+   * program that holds *only* the advanced position, and a JavaScript driver
+   * would hold the head as well (`seqToIterable`'s generator closes over it, and
+   * so would the local). `advance` returns the cursor and lets its own frame die.
+   */
+  const cursorHelpers =
+    "export let advance(source: Seq((Int, Int)), count: Int): Seq((Int, Int)) =\n" +
+    "    var current = source\n" +
+    "    var remaining = count\n" +
+    "    var running = True\n" +
+    "    while running\n" +
+    "        if remaining <= 0 then\n" +
+    "            running := False\n" +
+    "        else\n" +
+    "            match Seq.next(current)\n" +
+    "                None => running := False\n" +
+    "                Some((_, rest)) =>\n" +
+    "                    current := rest\n" +
+    "                    remaining := remaining - 1\n" +
+    "    current\n" +
+    "\n" +
+    "export let elementAt(source: Seq((Int, Int)), index: Int): (Int, Int) =\n" +
+    "    match Seq.next(advance(source, index))\n" +
+    "        None => (0, 0)\n" +
+    "        Some((value, _)) => value\n" +
+    "\n" +
+    "export let headTag(source: Seq((Int, Int))): Int =\n" +
+    "    match Seq.next(source)\n" +
+    "        None => 0\n" +
+    "        Some((value, _)) =>\n" +
+    "            let (tag, _) = value\n" +
+    "            tag\n";
+
+  /**
+   * The prefix positions sampled, as zero-based indices — the very head, its
+   * successor, and two further in — so that what the tests pin is a *prefix*
+   * being reclaimed and not one lucky position. All four are behind the cursor
+   * `walk` stops at.
+   */
+  const sampled = [0, 1, 40, 100] as const;
+
+  interface Walked {
+    /** The `sampled` positions' elements, held only weakly. */
+    readonly elements: readonly WeakRef<object>[];
+    /** The advanced cursor, the one position the test still holds. */
+    readonly cursor: unknown;
+  }
+
+  /**
+   * Forces `steps` positions of `build(200)` and keeps the cursor, dropping
+   * every other reference inside a frame that then dies.
+   */
+  function walk(exports: Record<string, unknown>, steps: number): Walked {
+    const build = exports["build"] as (count: number) => unknown;
+    const advance = exports["advance"] as (source: unknown, count: number) => unknown;
+    const elementAt = exports["elementAt"] as (source: unknown, index: number) => object;
+    let cursor: unknown;
+    // The head, and every element handed back by `elementAt`, are named only
+    // inside this arrow — so once it returns, no local and no temporary of the
+    // enclosing scope is still holding any of them.
+    const elements = ((): readonly WeakRef<object>[] => {
+      const head = build(200);
+      const weak = sampled.map((index) => new WeakRef(elementAt(head, index)));
+      cursor = advance(head, steps);
+      return weak;
+    })();
+    return { elements, cursor };
+  }
+
+  /** Every sampled position, by index, whose element is still reachable. */
+  function alive(elements: readonly WeakRef<object>[]): readonly number[] {
+    return sampled.filter((_index, at) => elements[at]!.deref() !== undefined);
+  }
+
+  async function collectTwice(): Promise<void> {
+    // A turn of the event loop first: the frames above have to be gone, not
+    // merely unreachable from source.
+    await yieldToEventLoop();
+    await collectGarbage();
+    await collectGarbage();
+  }
+
+  test("an inbound adapter's prefix is collected once the cursor has passed it", async () => {
+    const exports = await run(
+      [["/main.hex",
+        "extern from \"boxes\"\n" +
+        "    fun boxes(count: Int): Seq((Int, Int))\n" +
+        "\n" +
+        "export let build(count: Int): Seq((Int, Int)) = boxes(count)\n" +
+        "\n" + cursorHelpers]],
+      {
+        boxes: [
+          "export function boxes(count) {",
+          "  return { *[Symbol.iterator]() {",
+          "    for (let i = 1; i <= count; i += 1) yield [i, i];",
+          "  } };",
+          "}",
+        ].join("\n"),
+      },
+    );
+    const { elements, cursor } = walk(exports, 150);
+    expect(alive(elements)).toEqual([...sampled]);
+    await collectTwice();
+    expect(alive(elements)).toEqual([]);
+    // And the cursor is unharmed by the collection — §5 reclaims the prefix, not
+    // the suffix reachable from the position still held.
+    expect((exports["headTag"] as (source: unknown) => number)(cursor)).toBe(151);
+  });
+
+  test("a `Seq.memoize` prefix is collected too", async () => {
+    // #131's reason for urgency: `Seq.memoize` (Loops §6.4) lowers to this same
+    // spine, so a pure Hexagon program that never touches the FFI inherits
+    // whatever §5's representation costs. The source re-derives rather than
+    // stores, so the memo is the only thing that could hold the sampled
+    // elements — see the block comment on why that qualifier is here.
+    const exports = await main(
+      "export let build(count: Int): Seq((Int, Int)) =\n" +
+      "    Seq.memoize(Seq.map(Seq.take(Seq.iterate(1, i => i + 1), count), i => (i, i)))\n" +
+      "\n" + cursorHelpers,
+    );
+    const { elements, cursor } = walk(exports, 150);
+    expect(alive(elements)).toEqual([...sampled]);
+    await collectTwice();
+    expect(alive(elements)).toEqual([]);
+    expect((exports["headTag"] as (source: unknown) => number)(cursor)).toBe(151);
+  });
+});
+
+describe("what the spine holds when forcing is reentrant (issue #123's territory)", () => {
+  /**
+   * **These pin an invariant, not a semantics.** Reentrant forcing — foreign
+   * code driven by one forcing pulling the same spine — is undecided; issue
+   * #123 asks for the ruling, and defect-log entry 15 records that the spine
+   * was already incoherent there before either memo representation. Nothing
+   * below asserts *which* element a reentrant forcing should yield.
+   *
+   * What they do assert is the pair of properties #131's re-representation put
+   * at risk, both of which held under the central buffer it replaced:
+   *
+   * 1. Every cursor of one position agrees with every other. That is §4's "each
+   *    node memoizes exactly one outcome" — the sentence the per-node memo cites
+   *    as its reason for existing — and a last-writer-wins store silently broke
+   *    it: two tails of the same position went on to yield different elements.
+   * 2. An exhausted iterator is not re-driven. The shared `done` flag is what
+   *    prevents it; deleting it as unreachable, which the frontier's structure
+   *    seems to license, lets a reentrant forcing leave a successor node behind
+   *    an already-ended source.
+   *
+   * Both were found by a cold review, with a standalone script, against a
+   * version of this change that had neither guard. They are here so the next
+   * such version reddens instead.
+   *
+   * **They drive the emitted helper by name.** A reentrant source has to hold
+   * the very node being forced, which no Hexagon program can hand it and no
+   * `extern` signature can express, so the probe is JavaScript appended to the
+   * compiled module. It still *executes* the emitted spine — this is not a text
+   * assertion — and it is the only test here that reaches inside the helper
+   * block, which is why it says so.
+   */
+
+  /** Compiles a module that emits the spine, then appends and runs a JS probe. */
+  async function probe(source: string): Promise<Record<string, unknown>> {
+    const project = compileProject([
+      // `Vector.toSeq` puts the spine in *this* module and imports nothing, so
+      // the appended probe can be imported as a standalone data URL. Reaching
+      // for `Seq.memoize` instead would emit it into the prelude's `Seq.hex`.
+      new Source.File(Source.fileId(0), "/main.hex",
+        "export let forced: Seq(Int) = Vector.toSeq(Vector.append(Vector.empty(), 1))\n"),
+    ]);
+    expect(project.diagnostics).toEqual([]);
+    const module = project.modules.find((each) => each.source.path === "/main.hex")!;
+    expect(module.javascript.text).toContain("function __hex_seqFromIterable");
+    const url = `data:text/javascript;charset=utf-8,${encodeURIComponent(
+      `${module.javascript.text}\n${source}`,
+    )}`;
+    return (await import(/* @vite-ignore */ url)) as Record<string, unknown>;
+  }
+
+  /** Pulls up to `limit` elements off a node, as JavaScript sees the record. */
+  const driver = [
+    "function drive(node, limit) {",
+    "  const out = [];",
+    "  let current = node;",
+    "  for (let index = 0; index < limit; index += 1) {",
+    "    let step;",
+    "    try { step = current.pull(); } catch (error) { out.push('THROW:' + error.message); break; }",
+    "    if (step.tag !== 'Some') { out.push('END'); break; }",
+    "    out.push(step.value[0]);",
+    "    current = step.value[1];",
+    "  }",
+    "  return out;",
+    "}",
+  ].join("\n");
+
+  test("two forcings of one position agree, and hand back the same tail", async () => {
+    const exports = await probe([
+      driver,
+      "export function run() {",
+      "  let head;",
+      "  let inner;",
+      "  let armed = true;",
+      "  let calls = 0;",
+      // The `done` getter of the first result re-enters the head that is at that
+      // moment mid-force. Both forcings then complete and both return a step.
+      "  const source = { [Symbol.iterator]() { return { next() {",
+      "    calls += 1;",
+      "    const mine = calls;",
+      "    return {",
+      "      get done() { if (armed && mine === 1) { armed = false; inner = head.pull(); } return false; },",
+      "      value: mine,",
+      "    };",
+      "  } }; } };",
+      "  head = __hex_seqFromIterable(source);",
+      "  const outer = head.pull();",
+      "  return {",
+      "    sameValue: inner.value[0] === outer.value[0],",
+      "    sameTail: inner.value[1] === outer.value[1],",
+      "    innerDrive: drive(inner.value[1], 2),",
+      "    outerDrive: drive(outer.value[1], 2),",
+      "  };",
+      "}",
+    ].join("\n"));
+    const result = (exports["run"] as () => {
+      sameValue: boolean;
+      sameTail: boolean;
+      innerDrive: readonly unknown[];
+      outerDrive: readonly unknown[];
+    })();
+    expect(result.sameValue).toBe(true);
+    // Node identity, which is a fact about the representation rather than about
+    // agreement — the pre-#131 buffer allocated a fresh tail on every pull and
+    // fails this for that reason alone. `sameValue` and the drive equality are
+    // the invariant; this line pins that one position now *is* one node.
+    expect(result.sameTail).toBe(true);
+    // Stated as an equality rather than against literals: which elements the
+    // spine yields here is #123's to decide, that the two views agree is not.
+    expect(result.innerDrive).toEqual(result.outerDrive);
+  });
+
+  test("a forcing that fails after a reentrant one succeeded does not poison the position", async () => {
+    const exports = await probe([
+      driver,
+      "export function run() {",
+      "  let head;",
+      "  let inner;",
+      "  let armed = true;",
+      "  let calls = 0;",
+      // The collision the *failure* guard is for, and the one the agreement test
+      // above cannot reach: a reentrant inner forcing succeeds and wins the
+      // node, and the outer forcing then throws out of the `value` getter it
+      // re-entered from. The outer's throw is its own to surface; what it must
+      // not do is become the node's memo over a step already stored there.
+      "  const source = { [Symbol.iterator]() { return { next() {",
+      "    calls += 1;",
+      "    const mine = calls;",
+      "    if (mine === 1) {",
+      "      return { done: false, get value() {",
+      "        if (armed) { armed = false; inner = head.pull(); }",
+      "        throw new Error('outer boom');",
+      "      } };",
+      "    }",
+      "    return { done: false, value: 'element' + mine };",
+      "  } }; } };",
+      "  head = __hex_seqFromIterable(source);",
+      "  let outer;",
+      "  try { head.pull(); outer = 'STEP'; } catch (error) { outer = 'THROW:' + error.message; }",
+      "  let again;",
+      "  try { const step = head.pull(); again = step.tag === 'Some' ? step.value[0] : 'END'; }",
+      "  catch (error) { again = 'THROW:' + error.message; }",
+      "  return { innerValue: inner.value[0], outer, again };",
+      "}",
+    ].join("\n"));
+    const result = (exports["run"] as () => {
+      innerValue: unknown;
+      outer: string;
+      again: string;
+    })();
+    // The outer forcing's own throw surfaces, once.
+    expect(result.outer).toBe("THROW:outer boom");
+    // And the position still answers with the step it memoized, not the loser's
+    // error — a node holding a step *and* a failure is what §4's "exactly one
+    // outcome" forbids, and what the unguarded store produced.
+    expect(result.again).toBe(result.innerValue);
+    expect(result.again).toBe("element2");
+  });
+
+  test("a failing reentrant forcing does not poison a position the outer forcing served", async () => {
+    const exports = await probe([
+      driver,
+      "export function run() {",
+      "  let head;",
+      "  let inner;",
+      "  let armed = true;",
+      "  let calls = 0;",
+      // The mirror of the test above, and issue #123's own reproduction: the
+      // reentrant inner forcing is the one that throws, and the outer forcing —
+      // which re-entered from its own `done` getter — goes on to succeed. A
+      // step must be allowed to clear a failure stored beside it, or the inner
+      // throw becomes this position's answer forever and takes the whole
+      // sequence with it, which the buffer this replaced did not do.
+      "  const source = { [Symbol.iterator]() { return { next() {",
+      "    calls += 1;",
+      "    const mine = calls;",
+      "    if (mine === 1) {",
+      "      return {",
+      "        get done() {",
+      "          if (armed) {",
+      "            armed = false;",
+      "            try { head.pull(); inner = 'STEP'; } catch (error) { inner = 'THROW:' + error.message; }",
+      "          }",
+      "          return false;",
+      "        },",
+      "        value: 'element1',",
+      "      };",
+      "    }",
+      "    if (mine === 2) throw new Error('inner boom');",
+      "    return { done: false, value: 'element' + mine };",
+      "  } }; } };",
+      "  head = __hex_seqFromIterable(source);",
+      "  let outer;",
+      "  try { const step = head.pull(); outer = step.tag === 'Some' ? step.value[0] : 'END'; }",
+      "  catch (error) { outer = 'THROW:' + error.message; }",
+      "  let again;",
+      "  try { const step = head.pull(); again = step.tag === 'Some' ? step.value[0] : 'END'; }",
+      "  catch (error) { again = 'THROW:' + error.message; }",
+      "  return { inner, outer, again };",
+      "}",
+    ].join("\n"));
+    const result = (exports["run"] as () => {
+      inner: string;
+      outer: string;
+      again: string;
+    })();
+    // The reentrant forcing saw the source throw, and said so to its own caller.
+    expect(result.inner).toBe("THROW:inner boom");
+    // The outer forcing's own `next()` succeeded, so the position holds a value.
+    expect(result.outer).toBe("element1");
+    expect(result.again).toBe("element1");
+  });
+
+  test("a node reached past an exhausting forcing does not re-drive the iterator", async () => {
+    const exports = await probe([
+      driver,
+      "export function run() {",
+      "  let head;",
+      "  let armed = true;",
+      "  let calls = 0;",
+      // The one ordering that leaves a *reachable* unforced node behind an ended
+      // source, and the reason `done` cannot live in the nodes. The outer
+      // forcing's own result is the end; a reentrant inner forcing gets a value
+      // and wins the head, so the head hands out the inner's tail — a node the
+      // source has nothing left for. Reentry from the `done` getter, because the
+      // outer must not read `value` on a result it has just seen end.
+      "  const source = { [Symbol.iterator]() { return { next() {",
+      "    calls += 1;",
+      "    if (calls === 1) {",
+      "      return { get done() { if (armed) { armed = false; head.pull(); } return true; } };",
+      "    }",
+      "    if (calls === 2) return { done: false, value: 'inner' };",
+      "    throw new Error('next() on an exhausted iterator (call ' + calls + ')');",
+      "  } }; } };",
+      "  head = __hex_seqFromIterable(source);",
+      "  const drained = drive(head, 4);",
+      "  return { drained, calls };",
+      "}",
+    ].join("\n"));
+    const { drained, calls } = (exports["run"] as () => {
+      drained: readonly unknown[];
+      calls: number;
+    })();
+    // Two calls, and a clean end. The source's third `next()` is a throw, so a
+    // spine that re-drives it says so in `drained` as well as in `calls`.
+    expect(calls).toBe(2);
+    expect(drained.every((each) => typeof each !== "string" || !each.startsWith("THROW:"))).toBe(true);
+  });
+});

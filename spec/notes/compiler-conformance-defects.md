@@ -997,6 +997,36 @@ than settling a style question.
   the ruling (raised by Fable, review finding F3). It is not a consequence of the single cell — a per-node cell
   collides on the same node — and the pre-fix spine was already incoherent
   there, reordering elements rather than replaying a stale failure.
+  **Superseded 2026-08-02 (#131).** The shared buffer this whole argument is
+  stated over is gone; the cell is per node, because §5 requires the *values* to
+  be per node and §4 puts failure in the same memo. Read the bullet above as a
+  record of why one cell was enough *then*, not as a description of the code.
+  Three of its sentences do not survive, and are listed because the temptation
+  is to assume they do:
+  - "The guard that gates forcing … is therefore already exactly 'this is the
+    frontier', and the replay check sits inside it, which is what keeps a
+    failure from poisoning the buffered positions before it." The replay check
+    is now *outside* the forcing guard, and non-poisoning rests entirely on the
+    cell being per node. Verified by mutation: moving the box back to the
+    adapter's scope while leaving everything else per node reddens `a failure
+    does not poison the positions already forced before it` — a failure mode the
+    buffer did not have.
+  - "A failure pushes nothing and leaves `__hex_done` false." Half survives:
+    `__hex_done` still exists, still shared, and a failure still leaves it false
+    — `__hex_done = true` is reachable only under a truthy `done`, with no throw
+    between. But nothing is pushed anywhere, and the sentence was the *frontier*
+    argument, which no longer rests on either fact.
+  - "A per-node cell would encode the same fact more expensively." That is an
+    argument against the representation §5 requires and #131 shipped.
+  - "An inner forcing can record a failure that an outer, still-running forcing
+    then overwrites with a value, leaving a stale error replayed at a position
+    the source would have served." The overwrite cannot happen: a step is
+    written once and a failure is never written over one. What that position
+    gets instead is served from the source.
+
+  The reentrancy caveat is still #123's, and still for the reason it gave — a
+  per-node cell collides on the same node — but the *outcome* of the collision
+  differs from the buffer's, and the new entry below records how.
 - **The stored cell is a box, not the thrown value.** JavaScript permits
   `throw undefined`, so `failure !== undefined` would otherwise misread a
   genuine failure as unforced and re-enter the foreign call — the defect again,
@@ -1294,3 +1324,147 @@ than settling a style question.
   §6 machinery — the caret on the declaration and the numbered survivor —
   neither of which the author's own tests covered, since both tests asserted
   the message and the message was right.
+
+## 2026-08-02 — the memoizing spine retained via a central array
+
+- **Classification:** compiler defect against specification; no design change.
+  Issue #131; pre-existing on `main`, filed out of Fable's review of the
+  intrinsic-door / `Seq.memoize` implementation as "pre-existing defect A" and
+  deliberately left open there, since that change neither created nor worsened
+  it.
+- **Authority:** FFI Part 3 §5, which decides the representation in as many
+  words — "Memoization is represented by **persistent lazy nodes, not a
+  permanent central history array**" — and then spends that decision on two
+  clauses: "once an older position is unreachable, ordinary garbage collection
+  may reclaim its cached prefix", and the user-facing space rule that
+  "advancing while retaining only the current cursor permits unreachable
+  prefixes to be collected".
+- **Defect origin:** `seqFromIterable` memoized into a single `__hex_values`
+  array in the adapter's scope, closed over by every node it handed out. Every
+  node therefore held every forced value, including the ones before it, so
+  retaining *any* position retained the entire forced prefix. Advancing while
+  retaining only the cursor retained everything — the exact case §5 promises
+  costs nothing.
+- **What was *not* wrong, and stayed that way:** §5's other two clauses were
+  already satisfied and are untouched. No cache limit evicts reachable history
+  (there is no cache limit), and the shared iterator state keeps no
+  back-reference to the head. The defect was the representation and the
+  reclamation property §5 derives from rejecting it.
+- **Why it mattered more than when it was written:** until `Seq.memoize` landed
+  (Loops §6.4, #125), this spine backed only boundary-crossed values, and §5's
+  space rule is written for that audience. `memoize` lowers to the same spine by
+  design — §6.4 names it as "the same mechanism as FFI Part 3's inbound
+  adapter" — so pure Hexagon programs that never touch the FFI inherited a cost
+  strictly worse than the one the spec documents for them.
+- **Correction:** the memo moved into the nodes. A node holds its own outcome
+  and, on success, a direct reference to its successor, so references run
+  head-to-tail only and the adapter scope holds no node at all. Retaining
+  position *i* retains the forced suffix from *i* and none of **this spine's**
+  prefix, which is §5's representation as written.
+- **That qualifier is load-bearing, and was added after review.** The adapter
+  keeps `__hex_source` and the iterator it acquired, which is state §5 permits
+  it to share. But when the source is itself a `Seq` — both `seqMemoize` and
+  `seqIterate` build the spine over `seqToIterable(s)`, whose generator closes
+  over `s`'s head — that pins the *source's* head, and a source that stores
+  rather than re-derives still has its prefix pinned through it.
+  `Seq.memoize` over an inbound-adapted `Seq`, which is a likely thing to write,
+  therefore still retains everything. A second retention channel, in the driver
+  rather than in the memo, reproduced independently and filed as **#230**. The
+  first draft of this entry claimed the reclamation property without the
+  qualifier, and its two tests were built on re-deriving sources, which is
+  exactly the shape where an over-general claim cannot be caught by its own
+  coverage.
+- **The failure cell moved with it.** Entry 15's shared `__hex_failure` box was
+  argued from the buffer's frontier guard; per §4 each node memoizes exactly one
+  outcome, and end / `(value, tail)` / failure are the three, so failure belongs
+  in the node beside the value. The box stays a box — JavaScript permits
+  `throw undefined`. Entry 15 carries the supersession note, including which of
+  its sentences do not survive.
+- **`__hex_done` stays shared, and the first draft deleted it.** Exhaustion is a
+  property of the source, not of a position, and §5's division puts it exactly
+  where the iterator is. The argument for deleting it was that the frontier is
+  now structural — a tail is built solely in the success path, and is reachable
+  only if that outcome won its node's memo, so the reachable nodes form a chain
+  of which at most the last member is unforced. That much is true. What it misses
+  is that **the frontier can sit behind an ended source**: one forcing of a node
+  can see the source end while a reentrant forcing of the same node got a value
+  and won, so the node hands out a tail the source has nothing left for.
+  Without the flag, forcing that tail calls `next()` on an iterator that already
+  reported done — verified against the deleted version, which drives a third
+  `next()` where the flag stops at two.
+- **A step is written once, and a failure never over one — two review rounds to
+  get there.** The first draft guarded neither store, so a reentrant inner
+  forcing's outcome was overwritten by the outer's and two tails of *the same
+  position* went on to yield different elements: `Seq` persistence itself
+  failing, where the buffer it replaced had merely reordered them. Round 1
+  guarded both stores on the node being unforced, which fixed that and made §4's
+  "each node memoizes exactly one outcome" an invariant the code holds rather
+  than a sentence it cites. Round 2 found that spelling had a defect of its own,
+  on #123's own reproduction: when the *inner* forcing throws and the outer
+  succeeds, the inner's failure was written first and won, so the head answered
+  with that throw forever and took the whole sequence with it — where the buffer
+  had returned the outer's value. So a step now clears a failure stored beside
+  it, while a failure is stored only into a node holding neither. Both
+  directions of the collision are pinned by a test, and each reddens alone.
+- **What this does not buy, stated plainly.** Besides #230 above: a
+  JavaScript-side traversal pins the prefix for its duration and beyond —
+  `seqToIterable`'s generator closes over the head, and §9.4's boundary view is
+  retained by the value for the value's lifetime. Both of those are deliberate,
+  the second being §5's own 2026-07-28 addendum. §5's clause is about a program
+  advancing a cursor, which is why the conformance below advances it in Hexagon
+  rather than driving it from the test.
+- **Executable conformance:** `seq-unification.test.ts`, two describe blocks.
+  - *Reclamation*, two tests — the inbound adapter over a foreign iterable, and
+    `Seq.memoize` over a pure Hexagon sequence, since #131's urgency is that the
+    two are one spine. Each walks a 200-element sequence to position 150, keeps
+    only the cursor, and asserts that `WeakRef`s to positions 0, 1, 40 and 100
+    have all cleared, then that the cursor still answers. Collection is observed
+    the way §9.4 property 7's test observes it (`--expose-gc` exposed and
+    withdrawn in-process, so it runs on every ordinary `vitest run`), and the
+    elements are tuples because a `WeakRef` needs an object. Both sources
+    re-derive, which is what makes the memo the only possible holder — and is
+    the qualifier #230 is about.
+  - *Reentrancy*, four tests, pinning invariants rather than a semantics: that
+    two forcings of one position agree and hand back the same tail (asserted as
+    an equality between the two, never against literals, because which element
+    wins is #123's to decide); that a forcing which fails after a reentrant one
+    succeeded does not poison the position; that a *failing* reentrant forcing
+    does not poison a position the outer forcing served; and that a node reached
+    past an exhausting forcing does not re-drive the iterator. A reentrant source
+    has to hold the node being forced, which no Hexagon program can hand it, so
+    these append a JavaScript probe to the compiled module and drive the emitted
+    helper by name. They execute it; they are not text assertions.
+  - **Verified sensitive, by mutation, each part separately.** Restoring the
+    pre-fix helper reddens both reclamation tests, and also the agreement test —
+    on `sameTail`, for an unrelated reason: the buffer allocated a fresh tail
+    object on every pull, so node identity was never a property it had. (That
+    assertion is node identity, a fact about the representation; `sameValue` and
+    the drive equality are the invariant.) Reintroducing a shared values array
+    while keeping the per-node successor reddens the two reclamation tests and
+    only those, so they pin central retention and not merely "the arm changed".
+    Dropping the step guard reddens the agreement test; dropping the failure
+    guard, the first non-poisoning test alone; dropping the failure *clear*, the
+    second alone; deleting `__hex_done`, the exhaustion test alone; moving the
+    failure box back to the adapter's scope, entry 15's non-poisoning test
+    alone. Two tests written here did not redden the mutation they were written
+    for and were replaced or added to — an earlier exhaustion test survived the
+    `__hex_done` deletion, and round 1's failure guard was shipped with no test
+    at all until round 2 found it.
+- **Left open:** reentrant forcing (#123), and #230. Under reentrancy the
+  per-node memo differs from the buffer it replaced rather than matching it, in
+  two ways worth having on record when #123 is ruled: where the buffer reordered
+  the losing forcing's element, that element is now dropped; and where the buffer
+  replayed a stale failure at the position after a reentrant one, that position
+  is now served from the source. Both spines are incoherent there and neither
+  behaviour is specified — the point of recording it is that "unchanged from
+  `main`" would have been false. #123's issue body describes the buffer's
+  behaviour and is stale in the same way; a comment there carries this.
+- **Credit:** Fable, reviewing the intrinsic-door implementation, read §5's
+  representation sentence against the helper source and filed the divergence
+  rather than folding it into an unrelated review. Two cold Opus rounds then
+  found, between them, the unqualified retention claim (twice — round 1's fix
+  left it standing on `seqMemoize`, the one helper where it always bites), the
+  `__hex_done` deletion, the missing store guards, and the poisoning that round
+  1's own guards introduced. Both rounds worked by running the two helper
+  versions side by side in a standalone script, which is what made "same as
+  before" a checkable claim rather than an assumed one.

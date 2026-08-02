@@ -68,11 +68,18 @@ operation family (the arc just **deleted** one; see the work order's Phase 4
 note on PR #85 finding F1, and do not reintroduce that shape).
 
 **The mechanism already exists to build on:** `seqFromIterable`, the emitter
-helper at `compiler/src/passes/emitter/emitter.ts:3527`, is exactly the
-memoizing spine — a `__hex_values` buffer, lazy `[Symbol.iterator]()`
-acquisition at first pull, §7.2 protocol order. Its comment block is the best
-description of the intended semantics in the repo. `memoize` wants the same
-spine over a `Seq` source instead of a foreign iterator.
+helper in `compiler/src/passes/emitter/emitter.ts` (find it by the
+`case "seqFromIterable":` row — the line number this originally gave went stale
+within days), is exactly the memoizing spine — a `__hex_values` buffer, lazy
+`[Symbol.iterator]()` acquisition at first pull, §7.2 protocol order. Its
+comment block is the best description of the intended semantics in the repo.
+`memoize` wants the same spine over a `Seq` source instead of a foreign
+iterator.
+
+*(2026-08-02, #131: the `__hex_values` buffer is gone — the spine memoizes into
+its nodes, as FFI Part 3 §5 requires. The sentence above is left as written
+because this file is a dated hand-off, not a live description; read the helper's
+own comment block for what the spine is now.)*
 
 ### 1b. Defect 15 — the spine does not memoize a failure
 
