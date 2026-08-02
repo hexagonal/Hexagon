@@ -390,6 +390,37 @@ class Resolver {
   }
 
   /**
+   * Whether `receiver.field(…)` is a *compiler companion* call — one the `Access`
+   * case below turns into a `CollectionOperation`. Those never reach a prelude
+   * term: the operation is the compiler's own, resolved by name against a fixed
+   * per-collection inventory, so no dispatch candidate exists to register.
+   *
+   * The conservatism in `#noteCompanionCandidate` is deliberate and stays; this
+   * only removes the one case that is decidable *here*, syntactically, with no
+   * help from the checker. It matters because the collection cores and `Seq.hex`
+   * now share vocabulary on purpose (`length`, `prepend` — Collections Part 1
+   * §3.1's naming doctrine), so every `Vector.length(v)` in a prelude-visible
+   * module was pulling a dead `Seq.length` import — and with it the whole of
+   * `Seq.hex`, and `Bool.hex` behind that — into the emitted module graph.
+   *
+   * The guards mirror the `Access` case below, and must keep mirroring it: a
+   * receiver that some declaration claims is *not* the compiler companion, and a
+   * candidate must still be registered for it. `Node` carries the field
+   * inventory too, because its `Access` case does — outside those four names
+   * `Node.x(…)` is an ordinary access, and suppressing there would be a claim
+   * this predicate has no right to make.
+   */
+  #routesToCollectionCore(receiver: Parsed.Expr, field: string, scope: Scope): boolean {
+    if (receiver.kind !== "Name") return false;
+    const name = receiver.name.text;
+    if (scope.lookup(name) !== undefined) return false;
+    if (this.#namedModule(name) !== undefined) return false;
+    if (["Map", "Set", "Vector"].includes(name)) return true;
+    return this.#runtime && name === "Node" &&
+      ["empty", "get", "set", "copy"].includes(field);
+  }
+
+  /**
    * Makes one prelude module's nominals implicitly available. Terms go into a
    * fallback scope so a local declaration of the same name shadows the prelude;
    * type identities are registered so annotations resolve and the checker sees
@@ -1540,7 +1571,12 @@ class Resolver {
         if (
           expression.callee.kind === "Access" &&
           !(expression.callee.receiver.kind === "Name" &&
-            this.#namedModule(expression.callee.receiver.name.text) !== undefined)
+            this.#namedModule(expression.callee.receiver.name.text) !== undefined) &&
+          !this.#routesToCollectionCore(
+            expression.callee.receiver,
+            expression.callee.field.text,
+            scope,
+          )
         ) {
           this.#noteCompanionCandidate(expression.callee.field.text);
         }
