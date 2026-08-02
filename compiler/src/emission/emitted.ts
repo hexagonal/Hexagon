@@ -47,10 +47,12 @@ export interface TypeScriptPreview extends Output {
  * `hex.d.ts` per compiled program, declaring the `Hex.*` collection faces.
  *
  * It is the first emission artefact belonging to no source file, so it carries
- * no `Source.FileId` — there is none to carry. `path` is the artefact's own,
- * in the same path universe as the project's sources; a host writes the text
- * there. No `hex.js` accompanies it: every import of it is type-only and
- * erases (§8.3).
+ * no `Source.FileId` — there is none to carry. `path` is derived from the
+ * project's source paths the same way the injected prelude modules' are, and
+ * inherits their one quirk: sources with no directory component at all yield a
+ * common root of `""`, so this reads `/hex.d.ts` where those sources read
+ * `main.hex`. A host resolves it as it resolves a prelude module's. No
+ * `hex.js` accompanies it: every import of it is type-only and erases (§8.3).
  */
 export interface RuntimeDeclarations {
   readonly kind: "RuntimeDeclarations";

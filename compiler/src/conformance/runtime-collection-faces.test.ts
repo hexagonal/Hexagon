@@ -144,6 +144,17 @@ describe("one type-only import of the runtime declaration module (obligation 2)"
     );
   });
 
+  // A private union's shape still reaches the `.d.ts` (it may be named by an
+  // exported signature), so a module can render a face while exporting
+  // nothing. The import alone makes the file a module, so no `export {};`
+  // follows it — the marker exists for a file that has neither.
+  test("a file whose only face is in a private declaration needs no `export {};`", () => {
+    expect(declarations("union Holder = Held(rows: Vector(Int))\n")).toBe(
+      'import type * as Hex from "./hex.js";\n' +
+        'type Holder = { tag: "Held"; rows: Hex.Vector<number> };\n',
+    );
+  });
+
   test("the import leads the file, ahead of the module's own imports", () => {
     const compiled = project({
       "/src/main.hex": "import * as Other from \"./other\"\n" +
@@ -332,6 +343,42 @@ describe("tsc accepts the emitted program (obligation 5)", () => {
 
   test("all four faces compile, in result, parameter, and `declare const` positions", async () => {
     expect(await typeScriptErrors(emittedFiles(ALL_FOUR_FACES))).toEqual([]);
+  });
+
+  // The specifiers the path adjustment produces, through the real compiler
+  // rather than through a substring match. `tsc` resolving `"../hex.js"` from
+  // a nested declaration file is the whole content of that rule, and a program
+  // whose every module sits at the root — which is what every other run here
+  // uses — exercises none of it.
+  test("a multi-directory program resolves its path-adjusted specifiers", async () => {
+    const compiled = project({
+      "/src/main.hex": "export let rows: Vector(Int) = [1]\n",
+      "/src/deep/inner.hex": "export let more: Map(String, Int) = Map.empty()\n",
+      "/src/deep/deeper/most.hex": "export let most: Set(Int) = Set.empty()\n",
+    });
+    expect(
+      await typeScriptErrors({
+        "hex.d.ts": compiled.runtimeDeclarations?.text ?? "",
+        "main.d.ts": declarationsOf(compiled, "/src/main.hex"),
+        "deep/inner.d.ts": declarationsOf(compiled, "/src/deep/inner.hex"),
+        "deep/deeper/most.d.ts": declarationsOf(compiled, "/src/deep/deeper/most.hex"),
+      }),
+    ).toEqual([]);
+  });
+
+  test("a program whose runtime module was renamed resolves the probed name", async () => {
+    const compiled = project({
+      "/src/hex.hex": "export let n: Int = 1\n",
+      "/src/main.hex": "export let rows: Vector(Int) = [1]\n",
+    });
+    expect(compiled.runtimeDeclarations?.path).toBe("/src/hex1.d.ts");
+    expect(
+      await typeScriptErrors({
+        "hex1.d.ts": compiled.runtimeDeclarations?.text ?? "",
+        "hex.d.ts": declarationsOf(compiled, "/src/hex.hex"),
+        "main.d.ts": declarationsOf(compiled, "/src/main.hex"),
+      }),
+    ).toEqual([]);
   });
 
   test("a consumer names the faces through the emitted module and iterates them", async () => {

@@ -42,7 +42,13 @@ export interface Occurrence {
  *
  * - **Trusted** — no Hexagon-visible representation exists that the emitter yet
  *   targets, and `intrinsics.md` §4.2's parametricity obligation is the row's
- *   entire warrant.
+ *   entire warrant. *(FFI Part 1 §8.3's edit note to this file calls that
+ *   citation a second defect, on the ground that the spec text says §7's. It is
+ *   a false alarm and is left unapplied: `intrinsics.md` §4.2 does carry the
+ *   obligation — "**Parametricity is part of the contract**", added 2026-08-01
+ *   under #205 — and says in the same bullet that the closure doc's §5.3
+ *   trusted rows ride it. The closure doc's own §7 is the obligation's other
+ *   home; both citations are live, so there is nothing here to correct.)*
  *   - `Node(+a)`: the hidden fixed-32 immutable slot type, read-only from
  *     Hexagon; its disposition is owned by #223, the reopener for this row.
  *   - `Vector(+a)`: `runtime/VectorTrie.hex` writes the representation in

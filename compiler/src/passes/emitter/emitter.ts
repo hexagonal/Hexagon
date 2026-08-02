@@ -3808,7 +3808,8 @@ class TypeScriptPreviewEmitter {
     // from, so §8.3 obligation 6 has it declare the namespace inline instead —
     // the same four interfaces, which is what keeps a value typed through the
     // preview and one typed through an imported `hex.d.ts` mutually assignable.
-    // The header goes first so the namespace precedes every use of it.
+    // The header goes first to read like one, not because TypeScript needs it
+    // there: a type reference may precede its declaration in the same file.
     if (this.#faces.runtime.used) {
       declarations.unshift(...runtimeNamespaceDeclaration(this.#faces.runtime.alias));
     }
