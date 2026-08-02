@@ -44,7 +44,7 @@ export interface Occurrence {
  *   targets, and `intrinsics.md` §4.2's parametricity obligation is the row's
  *   entire warrant.
  *   - `Node(+a)`: the hidden fixed-32 immutable slot type, read-only from
- *     Hexagon; its disposition is owned by #126, the reopener for this row.
+ *     Hexagon; its disposition is owned by #223, the reopener for this row.
  *   - `Vector(+a)`: `runtime/VectorTrie.hex` writes the representation in
  *     Hexagon, but `Vector` ships from `@hexagon/runtime`'s JS trie today
  *     (Collections Part 3 §4), so there is nothing for §6.3 to check yet. The
