@@ -341,11 +341,21 @@ describe("the door's emission (spec/intrinsics.md §8)", () => {
    * §8.3: an ordinary binding of the declaring module's output, an ESM named
    * export when exported — so cross-module linkage is ordinary ESM, exactly like
    * every other prelude function.
+   *
+   * *(Amended by the defect-12 ruling, FFI Part 3 §9.4.)* The export goes
+   * through Part 7 §7 occasion 1's stable wrapper, as every exported function
+   * with a `Seq` parameter now does. That does not make the linkage special —
+   * it is still one ESM named export of one module-level binding — and here it
+   * is load-bearing rather than cosmetic: `memoize`'s published face is
+   * `Iterable<a>`, and its lowering is a helper that drives `pull`, so without
+   * the door a JavaScript caller following that face would crash.
    */
   test("the binding and its export are ordinary", () => {
     const { javascript } = seqModule();
     expect(javascript).toContain("const memoize = __hex_seqMemoize;");
-    expect(javascript).toContain("export { memoize };");
+    expect(javascript).toMatch(
+      /const (\w+) = __hex_argument0 => memoize\(__hex_seqInbound\(__hex_argument0\)\);\nexport \{ \1 as memoize \};/u,
+    );
   });
 
   /** §4.1: keys mirror the runtime helper family, and the lowering is that helper. */
@@ -375,10 +385,21 @@ describe("the door's emission (spec/intrinsics.md §8)", () => {
     expect(exports["dotCalled"]).toBe(3);
   });
 
-  /** §3.4's genericity, visible where it has to be: the published face. */
+  /**
+   * §3.4's genericity, visible where it has to be: the published face.
+   *
+   * *(Amended by the defect-12 ruling.)* The face spells `Seq(a)` as
+   * `Iterable<a>` — FFI Part 3 §9.1 and §2.3, which say so unconditionally and
+   * which §9.6 alternative 3 reaffirms by rejecting a branded `Hex.Seq<a>`.
+   * `Seq.hex` used to be the one module that spelt it as the local opaque brand
+   * instead, because it cannot reach `Seq` through the prelude and so did not
+   * recognize its own declaration; that made `Seq.js`'s published face
+   * incompatible with the face every consumer of it publishes. The quantifier
+   * is what this test is about and it is unchanged.
+   */
   test("the emitted face quantifies the declaration's variable", () => {
     expect(seqModule().declarations).toContain(
-      "export declare function memoize<a>(source: Seq<a>): Seq<a>;",
+      "export declare function memoize<a>(source: Iterable<a>): Iterable<a>;",
     );
   });
 });
