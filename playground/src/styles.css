@@ -106,7 +106,32 @@
   --badge-text: #8d2939;
 }
 
-* {
+/*
+ * The border-box reset, stopped at Monaco's boundary.
+ *
+ * Monaco's stylesheet is written against the CSS default box model and sets
+ * `border-box` itself on the elements that want it. A global `*` reset breaks
+ * that silently wherever Monaco computes a width in script and applies it to an
+ * element it also gives padding to — the size it measured is a border-box
+ * figure, so re-applying it as a border-box width subtracts the padding a
+ * second time.
+ *
+ * The quick-fix menu is the case that surfaced it (#256). `actionWidget.js`
+ * measures the widest row, then does `widget.style.width = `${width}px`` on
+ * `.action-widget`, which carries `padding: 4px` and a 1px border and declares
+ * no `box-sizing`. Ten pixels of content box vanish and the label ellipsises —
+ * `Infer return type` rendered as `Infer return t…`.
+ *
+ * `:not(:where(…))` rather than `:not(…)`: `:where()` contributes no
+ * specificity, so this selector stays at `*`'s own 0-0-0 and Monaco's own
+ * `box-sizing: border-box` declarations continue to win inside its subtrees.
+ * Fixing only `.action-widget` would have left the next such widget to find.
+ */
+*:not(:where(
+  .monaco-editor, .monaco-editor *,
+  .action-widget, .action-widget *,
+  .context-view, .context-view *
+)) {
   box-sizing: border-box;
 }
 
