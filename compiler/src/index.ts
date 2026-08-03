@@ -43,6 +43,7 @@ export {
   type RenameSubject,
   type SessionOptions,
 } from "./analysis/session.js";
+export { hoverMarkdown } from "./analysis/hover-text.js";
 export {
   collectOccurrences,
   targetKey,

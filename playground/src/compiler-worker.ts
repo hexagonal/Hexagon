@@ -1,32 +1,15 @@
-import type { CompilerRequest, CompilerResponse } from "./protocol";
-import { compileSource } from "./compile";
+import type { CompilerRequest } from "./protocol";
+import { createCompilerService } from "./compiler-service";
 
-/** Owns browser-side compiler state without routing local work through LSP. */
+/**
+ * Owns browser-side compiler state without routing local work through LSP.
+ *
+ * Everything with a decision in it is in `compiler-service.ts`; this file is the
+ * part that cannot be tested without a `Worker`, and it is kept to the size
+ * where reading it is enough.
+ */
+const service = createCompilerService();
+
 self.addEventListener("message", (event: MessageEvent<CompilerRequest>) => {
-  const request = event.data;
-
-  if (request.kind !== "compile") return;
-
-  let response: CompilerResponse;
-  try {
-    response = compileSource(request.version, request.source);
-  } catch (error) {
-    response = {
-      kind: "compile-failure",
-      version: request.version,
-      diagnostics: [
-        {
-          severity: "error",
-          message:
-            error instanceof Error
-              ? `Internal compiler error: ${error.message}`
-              : "Internal compiler error",
-          startOffset: 0,
-          endOffset: 0,
-        },
-      ],
-    };
-  }
-
-  self.postMessage(response);
+  self.postMessage(service.handle(event.data));
 });

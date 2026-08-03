@@ -5,15 +5,23 @@
     "types": ["vite/client"]
   },
   "include": [
+    "src/analysis.ts",
+    "src/analysis.test.ts",
     "src/compile.ts",
     "src/compile.test.ts",
+    "src/compiler-service.ts",
+    "src/compiler-service.test.ts",
     "src/compiler-worker.ts",
     "src/diagnostics.test.ts",
     "src/execution.test.ts",
     "src/execution-worker.ts",
     "src/examples/examples.test.ts",
+    "src/language-services.test.ts",
     "src/persistence.test.ts",
     "src/protocol.ts",
-    "src/sharing.test.ts"
+    "src/sharing.test.ts",
+    "src/workspace.ts",
+    "src/workspace.test.ts",
+    "src/workspace-source.test.ts"
   ]
 }

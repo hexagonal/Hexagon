@@ -18,8 +18,9 @@ import {
 import { groupGeneratedSections, renderGeneratedCodeView } from "./generated-code";
 import { helloWorld } from "./examples/hello-world";
 import { readStoredSource, writeStoredSource } from "./persistence";
+import { createLanguageServices } from "./language-services";
 import type {
-  CompilerResponse,
+  CompilerMessage,
   ExecutionEvent,
   GeneratedJavaScriptSection,
   TypeOccurrence,
@@ -148,7 +149,7 @@ app.innerHTML = `
 
   <footer class="statusbar" aria-live="polite">
     <span id="compile-status">Compiler starting…</span>
-    <span>Direct compiler worker · no LSP</span>
+    <span>Compiler analysis session · no LSP</span>
   </footer>
 `;
 
@@ -203,8 +204,28 @@ let compileTimer: ReturnType<typeof setTimeout> | undefined;
 let executionWorker: Worker | undefined;
 let executionTimer: ReturnType<typeof setTimeout> | undefined;
 
-compilerWorker.addEventListener("message", (event: MessageEvent<CompilerResponse>) => {
+// The same worker answers editor requests from a long-lived `AnalysisSession`.
+// One worker rather than two so both halves see one compiler build.
+//
+// They do not share a compilation: `compileSource` builds its own files for the
+// JS, `.d.ts` and Run panes, and the session compiles again on the first request
+// after an edit. That is the cost of keeping whole-program emission out of the
+// interactive path, and it is paid once per edit, not once per request.
+const languageServices = createLanguageServices(
+  {
+    post: (request) => compilerWorker.postMessage(request),
+    listen: (receive) =>
+      compilerWorker.addEventListener("message", (event: MessageEvent<CompilerMessage>) =>
+        receive(event.data)
+      ),
+    onFailure: (notify) => compilerWorker.addEventListener("error", () => notify()),
+  },
+  () => state.sourceVersion,
+);
+
+compilerWorker.addEventListener("message", (event: MessageEvent<CompilerMessage>) => {
   const response = event.data;
+  if (response.kind !== "compile-success" && response.kind !== "compile-failure") return;
 
   // Compilation can finish out of order. Publishing an older response would
   // attach diagnostics and generated code to source the user no longer sees.
@@ -540,6 +561,7 @@ async function initializeMonaco(): Promise<void> {
         navigator.platform,
         navigator.maxTouchPoints,
       ),
+      languageServices,
     );
     sourceSubscription.dispose();
     sourceEditor.dispose();

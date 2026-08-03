@@ -114,8 +114,8 @@ On narrow screens the result panel moves below the source editor. The source alw
   timeout, and runtime-failure status. Calls also retain the worker's native browser
   console behaviour for DevTools.
 - **Errors** shows structured compiler diagnostics. Selecting a diagnostic focuses
-  its exact source span; safe fix-its may be applied here when the compiler supplies
-  them in a future slice.
+  its exact source span. The repairs themselves are offered in the editor, through
+  Monaco's lightbulb, from the same `Session.codeActions()` VS Code reads.
 - **JS** shows readable ECMAScript modules emitted by Hexagon in a read-only Monaco
   model on supported desktop browsers. Generated specialization families are
   summarized in the default source-shaped view; the view selector exposes the
@@ -195,9 +195,9 @@ be revisited before broader FFI access can expose arbitrary browser facilities.
 ## Editor direction
 
 **Monaco Editor is the primary desktop editor.** The current integration provides
-Hexagon tokenization, compiler-owned diagnostic markers, inferred-type hover on
-top-level binding names, and read-only JavaScript and `.d.ts` models. Completion and
-definition navigation remain later language-service slices. This gives the
+Hexagon tokenization, compiler-owned diagnostic markers, quick fixes, hover,
+go-to-definition, find-references, rename, and read-only JavaScript and `.d.ts`
+models. Completion remains a later language-service slice. This gives the
 playground the same editor foundation and familiar feel as the TypeScript Playground
 and VS Code without moving language semantics into the UI.
 
@@ -245,6 +245,14 @@ Pure playground state and protocol adapters use Vitest under the repository test
 doctrine. The production build verifies Monaco's ESM and worker bundling. A distinct
 Vitest browser project remains the next step for automated DOM-level Monaco behavior.
 
+Two files cannot be loaded outside a browser — `src/monaco.ts` needs a DOM and
+`src/compiler-worker.ts` needs a `Worker` — so the decisions are kept out of them:
+`src/monaco-mapping.ts` holds the translation of session answers into Monaco's
+shapes and imports Monaco not at all, and `src/compiler-service.ts` holds the
+worker's dispatch. Both are tested directly. What remains in the two shells is
+registration and plumbing, and it is kept short enough to read. Anything with a
+condition in it belongs in the tested half.
+
 Tests must cover at least:
 
 - stale compiler results never replacing current results;
@@ -269,6 +277,12 @@ playground/
     protocol.ts
     compiler-worker.ts
     execution-worker.ts
+    compiler-service.ts
+    analysis.ts
+    workspace.ts
+    workspace-source.ts
+    language-services.ts
+    monaco-mapping.ts
     diagnostics.ts
     editor.ts
     execution.ts
@@ -306,6 +320,40 @@ fresh execution worker with a two-second timeout.
 - Monaco is dynamically imported and its editor worker is bundled separately by Vite.
 - A plain textarea remains the mobile, unsupported-browser, loading, and failure fallback.
 - Both editor paths share one source state and compiler position-conversion boundary.
+
+### Editor services (#222)
+
+- Monaco's providers are backed by the compiler's `AnalysisSession`, called
+  directly from the compiler worker. There is no language server in the browser
+  and there is not meant to be one.
+- A quick fix is not an LSP feature. `Session.codeActions()` computes it; the
+  server is one caller and Monaco is a second. Routing through a protocol would
+  mean de-noding the server's workspace discovery, manifest resolution and file
+  watching — none of which the Playground uses — to reuse a layer of LSP-typed
+  translation. Session to Monaco is one hop.
+- **Revisit if, and only if, web VS Code becomes a goal.** `editors/vscode` declares
+  `main` and no `browser` entry, so Hexagon does not run in vscode.dev. Supporting
+  that *requires* a server in a web worker, and the Playground could then ride the
+  result. It is not a reason to build one now.
+- The editor buffer is not any compiled file, so every coordinate crossing the
+  boundary goes through one map (`src/workspace.ts`). It refuses rather than
+  approximates: an edit landing in the synthesized import prefix, or in a hosted
+  library, is declined. `anchor` is the single documented exception, and it exists
+  because a diagnostic must always be shown somewhere.
+- Prose a user reads is written once and shared. `hoverMarkdown` lives in the
+  compiler because both hosts render Markdown; only the wrapper is protocol. Two
+  hand-written copies is what produced the divergence #222 reported.
+- A refusal is a result, so it is passed through rather than filtered out. What
+  the user sees differs by feature, and #222's premise that "Monaco already
+  implements them" is false. A code-action refusal is not displayed at all. A
+  rename refusal is displayed only when it arrives before the prompt opens;
+  after that it goes to a notification service standalone Monaco binds to
+  `console.log`. Six review rounds produced six different explanations of
+  *why*, each wrong, so the explanation lives in #253 — where it can be
+  corrected without touching code — and the code comments claim only what
+  was measured. The wrong answer would be to send the refusal as
+  an *enabled* action: one that appears applicable and does nothing is worse
+  than a missing one.
 
 ### Tokenization (#161)
 
