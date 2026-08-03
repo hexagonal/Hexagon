@@ -345,13 +345,13 @@ fresh execution worker with a two-second timeout.
   hand-written copies is what produced the divergence #222 reported.
 - A refusal is a result, so it is passed through rather than filtered out. What
   the user sees differs by feature, and #222's premise that "Monaco already
-  implements them" is false for code actions. A rename refusal is shown; a
-  code-action refusal is not displayed at all, and a rename refusal only if it
-  arrives before the prompt opens — after that it goes to a notification
-  service that standalone Monaco binds to `console.log`. Five review rounds
-  produced five different explanations of *why*, each wrong, so the explanation
-  lives in #253 — where it can be corrected without touching code — and the
-  code comments claim only what was measured. The wrong answer would be to send the refusal as
+  implements them" is false. A code-action refusal is not displayed at all. A
+  rename refusal is displayed only when it arrives before the prompt opens;
+  after that it goes to a notification service standalone Monaco binds to
+  `console.log`. Six review rounds produced six different explanations of
+  *why*, each wrong, so the explanation lives in #253 — where it can be
+  corrected without touching code — and the code comments claim only what
+  was measured. The wrong answer would be to send the refusal as
   an *enabled* action: one that appears applicable and does nothing is worse
   than a missing one.
 

@@ -458,11 +458,13 @@ type Assert<T extends true> = T;
  * That the optional fields carrying a refusal are spelled and typed Monaco's
  * way.
  *
- * Assignability does not check this. `disabled`, `rejectReason` and `kind` are
- * all optional on Monaco's side, so a mapped value that misspells one is still
- * a legal `CodeAction` or `RenameLocation` — it just silently loses the field,
- * and a refused action ships as an enabled one with no edit. `Pick`'s `keyof`
- * constraint catches the misspelling and `Assert` catches the retyping.
+ * Assignability does not check the *names*. `disabled`, `rejectReason` and
+ * `kind` are all optional on Monaco's side, so a mapped value that misspells one
+ * is still a legal `CodeAction` or `RenameLocation` — it just silently loses the
+ * field, and a refused action ships as an enabled one with no edit. That is what
+ * `Pick`'s `keyof` constraint catches, and it is the gap. Retyping a field is
+ * caught at the provider registration too; `Assert` catches it here, nearer the
+ * decision.
  */
 type _CodeActionFields = Assert<
   Required<Pick<MappedCodeAction<monaco.Uri, monaco.Range>, "disabled" | "kind">> extends
