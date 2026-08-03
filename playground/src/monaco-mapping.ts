@@ -123,6 +123,11 @@ export function toCodeAction<Uri, Range>(
  * `undefined` gets one that names no cause, since it stands for a name that is
  * not there, an unclosed `module` block, a reply dropped as stale, and a worker
  * fault alike.
+ *
+ * Both sentences currently reach the console rather than the screen — standalone
+ * Monaco's notification service is `console.log` — so they are written for
+ * whoever is reading a log, not for a user. `monaco.ts` has the detail, and #253
+ * covers giving a refusal somewhere to be seen.
  */
 export function toRenameEdits<Uri, Range>(
   target: EditTarget<Uri, Range>,
@@ -196,5 +201,7 @@ export function typeOccurrenceAtOffset(
     types.find(({ startOffset, endOffset }) =>
       candidate >= startOffset && candidate < endOffset
     );
-  return at(offset) ?? (offset > 0 ? at(offset - 1) : undefined);
+  // No guard on `offset - 1` going negative: every occurrence starts at zero or
+  // later, so a lookup at -1 matches nothing rather than matching wrongly.
+  return at(offset) ?? at(offset - 1);
 }

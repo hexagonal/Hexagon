@@ -53,6 +53,9 @@ export class PlaygroundAnalysis {
     const hover = this.#session.hover(at.path, at.offset);
     if (hover === undefined) return undefined;
     const range = this.#rangeOfSpan(layout.map, at.path, hover.span);
+    // Unreachable today, like the two other refusals of this shape — see
+    // `#action`. `locate` never lands in a file the map cannot invert, so the
+    // span it asks about always comes back.
     if (range === undefined) return undefined;
     return { markdown: hoverMarkdown(hover), range };
   }
@@ -117,6 +120,9 @@ export class PlaygroundAnalysis {
     const subject = this.#session.prepareRename(at.path, at.offset);
     if (subject === undefined || "refused" in subject) return subject;
     const range = this.#rangeOfSpan(layout.map, at.path, subject.span);
+    // Also unreachable today: the subject's span is the identifier the cursor
+    // is on, and the cursor is in the buffer by construction. The mentions
+    // below are the reachable half of the same question.
     if (range === undefined) return { refused: OUTSIDE_DOCUMENT };
     // Asked of the mentions the rename would move, not only of the identifier
     // under the cursor, so the box does not open on a name that is going to be

@@ -38,6 +38,25 @@ describe("createCompilerService", () => {
     ).toMatchObject({ kind: "rename", id: 9, version: 4, result: { newName: "double" } });
   });
 
+  test("builds one session for its whole life, not one per request", () => {
+    let built = 0;
+    const service = createCompilerService({
+      createAnalysis: () => {
+        built += 1;
+        return new Proxy({} as EditorAnalysis, { get: () => () => undefined });
+      },
+    });
+
+    service.handle({ kind: "hover", id: 0, version: 1, source, offset: caret });
+    service.handle({ kind: "definition", id: 1, version: 1, source, offset: caret });
+    service.handle({ kind: "hover", id: 2, version: 1, source, offset: caret });
+
+    // #222's build item 2, and nothing else here would notice if it broke: a
+    // session per request stays *correct*, because every request carries its
+    // own source. It would just recompile the project three times.
+    expect(built).toBe(1);
+  });
+
   test("compiles, and answers source it cannot compile with diagnostics", () => {
     const service = createCompilerService();
 
@@ -78,7 +97,7 @@ describe("createCompilerService", () => {
         throw new Error("the compiler fell over");
       },
     });
-    const service = createCompilerService({ analysis: throwing });
+    const service = createCompilerService({ createAnalysis: () => throwing });
 
     // A promise Monaco is holding must not be closed by an exception arriving
     // as silence. The id is the whole point of the reply: without it the
@@ -101,7 +120,7 @@ describe("createCompilerService", () => {
     });
 
     expect(
-      createCompilerService({ analysis: throwing }).handle({
+      createCompilerService({ createAnalysis: () => throwing }).handle({
         kind: "rename",
         id: 0,
         version: 1,

@@ -34,7 +34,13 @@ export type EditorAnalysis = Pick<
 >;
 
 export interface CompilerServiceParts {
-  readonly analysis?: EditorAnalysis;
+  /**
+   * Called once, not per request. A factory rather than an instance so that
+   * "once" is something a test can count; injecting an instance would be used
+   * the same number of times either way, which is why the lifetime went
+   * unpinned until it was asked about.
+   */
+  readonly createAnalysis?: () => EditorAnalysis;
   readonly compile?: (version: number, source: string) => CompilerResponse;
 }
 
@@ -44,10 +50,12 @@ export interface CompilerServiceParts {
  * `compileSource` is one shot by design — the JS, `.d.ts` and Run panes want
  * whole-program output every time — but an editor request is one of many against
  * text that has usually not changed since the last one, and the session holds
- * its analysis until a file does.
+ * its analysis until a file does. A session per request would still be correct,
+ * since every request carries its own source; it would just recompile the
+ * project on each one.
  */
 export function createCompilerService(parts: CompilerServiceParts = {}): CompilerService {
-  const analysis = parts.analysis ?? new PlaygroundAnalysis();
+  const analysis = (parts.createAnalysis ?? (() => new PlaygroundAnalysis()))();
   const compileWith = parts.compile ?? compileSource;
   return {
     handle: (request) =>

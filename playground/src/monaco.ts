@@ -185,11 +185,13 @@ export function createMonacoEditors(
    * the session. The two do not agree, in both directions — measured, on one
    * document, rather than reasoned about:
    *
-   * | position                       | gate | session answers |
-   * |--------------------------------|------|-----------------|
-   * | record field, `honor` member   | yes  | no              |
-   * | `export opaque` parameter      | no   | yes             |
-   * | union name, constraint in head | no   | yes             |
+   * | position                        | gate | session answers |
+   * |---------------------------------|------|-----------------|
+   * | record field, `honor` member    | yes  | no *            |
+   * | `export opaque` parameter       | no   | yes             |
+   * | union name, constraint in head  | no   | yes             |
+   *
+   * \* unless it carries a doc comment, which the session answers from alone.
    *
    * So the table is not a conservative approximation of the session; it is a
    * different question. Keeping it is a cost decision, not a correctness one:
@@ -299,9 +301,17 @@ export function createMonacoEditors(
  * filtered out. What the user then sees differs by feature, and #222 assumed it
  * did not. The assumption is recorded here because the code looks like it works.
  *
- * A **rename** refusal is shown. `rename.js` collects `rejectReason` from
- * `resolveRenameLocation` and shows it at the cursor, and from
- * `provideRenameEdits` as a notification.
+ * A **rename** refusal is shown only if it arrives before the prompt opens.
+ * `resolveRenameLocation`'s `rejectReason` reaches `MessageController`, which
+ * draws a real widget at the cursor. `provideRenameEdits`'s goes to
+ * `INotificationService.info`, and standalone Monaco binds that to
+ * `StandaloneNotificationService`, whose `notify` is `console.log`. So a
+ * refusal the session can only reach by trying the rename — a name collision,
+ * say — closes the box and says nothing.
+ *
+ * That is what makes `prepareRename`'s reachability check in `analysis.ts` more
+ * than a courtesy: it moves the refusals it can predict onto the half of this
+ * that a user can see.
  *
  * A **code action** refusal is not displayed to a Playground user at all.
  *
@@ -435,6 +445,38 @@ function registerLanguageProviders(
 }
 
 /**
+ * A type that is only well-formed when its argument is `true`.
+ *
+ * The constraint is the whole point. `X extends Y ? true : never` on its own
+ * checks nothing — `never` is a legal type, so the failing case is as valid as
+ * the passing one and `tsc` says nothing. Feeding the result through here makes
+ * the mismatch an error.
+ */
+type Assert<T extends true> = T;
+
+/**
+ * That the optional fields carrying a refusal are spelled and typed Monaco's
+ * way.
+ *
+ * Assignability does not check this. `disabled`, `rejectReason` and `kind` are
+ * all optional on Monaco's side, so a mapped value that misspells one is still
+ * a legal `CodeAction` or `RenameLocation` — it just silently loses the field,
+ * and a refused action ships as an enabled one with no edit. `Pick`'s `keyof`
+ * constraint catches the misspelling and `Assert` catches the retyping.
+ */
+type _CodeActionFields = Assert<
+  Required<Pick<MappedCodeAction<monaco.Uri, monaco.Range>, "disabled" | "kind">> extends
+    Required<Pick<monaco.languages.CodeAction, "disabled" | "kind">> ? true : false
+>;
+
+type _RenameLocationFields = Assert<
+  Required<Pick<MappedRenameLocation<monaco.Range>, "rejectReason">> extends
+    Required<Pick<monaco.languages.RenameLocation & monaco.languages.Rejection, "rejectReason">>
+    ? true
+    : false
+>;
+
+/**
  * A model as something edits can be written against.
  *
  * The `versionId` is read once, here, and stamped on every edit in the set. It
@@ -452,24 +494,6 @@ function registerLanguageProviders(
  * both; presentable in one. Making the other presentable is the host's job, not
  * this function's.
  */
-/**
- * That the optional fields carrying a refusal are spelled Monaco's way.
- *
- * Assignability does not check this. `disabled`, `rejectReason` and `kind` are
- * all optional on Monaco's side, so a mapped value that misspells one is still
- * a legal `CodeAction` or `RenameLocation` — it just silently loses the field,
- * and a refused action ships as an enabled one with no edit. `Pick` names them,
- * so a rename in `monaco-mapping.ts` fails here instead.
- */
-type _SpelledLikeMonaco = [
-  Required<Pick<MappedCodeAction<monaco.Uri, monaco.Range>, "disabled" | "kind">> extends
-    Required<Pick<monaco.languages.CodeAction, "disabled" | "kind">> ? true : never,
-  Required<Pick<MappedRenameLocation<monaco.Range>, "rejectReason">> extends
-    Required<Pick<monaco.languages.RenameLocation & monaco.languages.Rejection, "rejectReason">>
-    ? true
-    : never,
-];
-
 function editTarget(
   model: monaco.editor.ITextModel,
 ): EditTarget<monaco.Uri, monaco.Range> {
