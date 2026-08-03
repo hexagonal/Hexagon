@@ -112,25 +112,35 @@
  * Monaco's stylesheet is written against the CSS default box model and sets
  * `border-box` itself on the elements that want it. A global `*` reset breaks
  * that silently wherever Monaco computes a width in script and applies it to an
- * element it also gives padding to — the size it measured is a border-box
- * figure, so re-applying it as a border-box width subtracts the padding a
- * second time.
+ * element it also gives padding to: the size it measured is a border-box
+ * figure, so re-applying it as a border-box width subtracts the padding again.
  *
- * The quick-fix menu is the case that surfaced it (#256). `actionWidget.js`
- * measures the widest row, then does `widget.style.width = `${width}px`` on
- * `.action-widget`, which carries `padding: 4px` and a 1px border and declares
- * no `box-sizing`. Ten pixels of content box vanish and the label ellipsises —
- * `Infer return type` rendered as `Infer return t…`.
+ * The quick-fix menu is the case that surfaced it (#256), and the layout it
+ * wants has no slack at all. `actionList.js` measures the widest row — content
+ * plus the row's own `padding: 0 4px` — and `actionWidget.js` assigns that to
+ * `.action-widget`, which carries `padding: 4px`, a 1px border, and no
+ * `box-sizing`. Under the default box model the row then fits exactly. Under a
+ * forced `border-box` the widget's content box loses those 10px, so the label
+ * ellipsises: `Infer return type` rendered as `Infer return t…`.
  *
- * `:not(:where(…))` rather than `:not(…)`: `:where()` contributes no
- * specificity, so this selector stays at `*`'s own 0-0-0 and Monaco's own
- * `box-sizing: border-box` declarations continue to win inside its subtrees.
- * Fixing only `.action-widget` would have left the next such widget to find.
+ * The boundary is `.monaco-editor-host`, a class this file owns, rather than a
+ * list of Monaco's own. Monaco builds its editors inside those two divs and
+ * `StandaloneContextViewService` mounts overlays into `getContainerDomNode()`,
+ * which is that same div — so one owned class closes the whole subtree and does
+ * not rot when Monaco renames something. `.context-view` and `.action-widget`
+ * are named as well only for the fallback path where no editor is focused and
+ * the overlay goes to the document body instead.
+ *
+ * `:not(:where(…))` rather than `:not(…)` because `:not()` otherwise takes the
+ * specificity of its most specific argument. That would raise this rule to
+ * 0-1-0 and let a *reset* outrank a real `box-sizing` rule written later for
+ * one of this file's own classes. `:where()` contributes none, so the rule
+ * stays at the 0-0-0 a bare `*` had.
  */
 *:not(:where(
-  .monaco-editor, .monaco-editor *,
-  .action-widget, .action-widget *,
-  .context-view, .context-view *
+  .monaco-editor-host, .monaco-editor-host *,
+  .context-view, .context-view *,
+  .action-widget, .action-widget *
 )) {
   box-sizing: border-box;
 }
