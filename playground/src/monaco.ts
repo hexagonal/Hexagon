@@ -261,26 +261,27 @@ export function createMonacoEditors(
  * too and be asked about text the worker has never seen.
  *
  * A refusal is a result, not a failure, so it is passed through rather than
- * filtered out. How far it then gets differs by feature, and #222 assumed
- * otherwise — the assumption is recorded here because the code looks like it
- * works and does not.
+ * filtered out. What the user then sees differs by feature, and #222 assumed it
+ * did not. The assumption is recorded here because the code looks like it works.
  *
  * A **rename** refusal is shown. `rename.js` collects `rejectReason` from
  * `resolveRenameLocation` and shows it at the cursor, and from
  * `provideRenameEdits` as a notification.
  *
- * A **code action** refusal is shown only under `Refactor…`. Monaco 0.55.1
- * partitions an action set into `allActions` and `validActions =
- * allActions.filter(a => !a.disabled)` (`codeAction.js:69`), and reaches for
- * `allActions` only when `includeDisabledActions` — which is
- * `!!trigger.filter?.include` (`codeActionController.js:176`). Quick Fix passes
- * no filter (`codeActionCommands.js:65`), and the lightbulb hides itself on
- * `validActions.length <= 0` (`lightBulbWidget.js:168`). So a diagnostic whose
- * only repair is refused shows no lightbulb, and `Ctrl+.` on it says "No code
- * actions available" — the reason the session went to the trouble of computing
- * is dropped by the host. Issue #253 carries the fix; nothing here can force it,
- * because an enabled action that silently does nothing is worse than a missing
- * one.
+ * A **code action** refusal is shown nowhere. Monaco 0.55.1 partitions an action
+ * set into `allActions` and `validActions = allActions.filter(a => !a.disabled)`
+ * (`codeAction.js:69`). Quick Fix triggers with no filter
+ * (`codeActionCommands.js:65`), so `includeDisabledActions` is false
+ * (`codeActionController.js:176`), the lightbulb hides on
+ * `validActions.length <= 0` (`lightBulbWidget.js:168`), and `Ctrl+.` says "No
+ * code actions available". Every refusal the session emits is a quick fix —
+ * `session.ts` sets no `kind` on either — so no kind-filtered trigger reaches
+ * one either.
+ *
+ * That is worth stating flatly because two rounds of review were spent on
+ * narrower versions of it that were still wrong. Issue #253 carries the fix, and
+ * nothing here can force it: an enabled action that silently does nothing is
+ * worse than a missing one.
  */
 function registerLanguageProviders(
   sourceModel: monaco.editor.ITextModel,
@@ -328,10 +329,10 @@ function registerLanguageProviders(
       // Imports and friends), since the automatic trigger asks with no filter
       // at all and reaches every provider regardless.
       //
-      // What the declaration does buy unconditionally is the other half:
-      // Monaco filters the returned actions by kind itself
-      // (`codeAction.js`'s `filtersAction`), which is why `context.only` is
-      // not read below. One owner for the rule, and it is not this file.
+      // Separately, and whether or not this is declared, Monaco filters each
+      // provider's returned actions by kind (`codeAction.js`'s `filtersAction`).
+      // That is why `context.only` is not read below: the rule has one owner
+      // and it is not this file.
       { providedCodeActionKinds: ["quickfix", "refactor"] },
     ),
     monaco.languages.registerDefinitionProvider(hexagonLanguage, {
@@ -398,8 +399,12 @@ function registerLanguageProviders(
           model.getOffsetAt(position),
           newName,
         );
+        // Deliberately says nothing about the cause. `undefined` covers four —
+        // no name at this position, a reply dropped as stale, a worker fault,
+        // and a worker that had already faulted — and naming one of them would
+        // be right a quarter of the time.
         if (result === undefined) {
-          return { edits: [], rejectReason: "there is no name here to rename" };
+          return { edits: [], rejectReason: "Hexagon has no rename for this position" };
         }
         if ("refused" in result) return { edits: [], rejectReason: result.refused };
         return { edits: workspaceEdit(model, result.edits).edits };
@@ -416,10 +421,15 @@ function registerLanguageProviders(
  * not cover: a reply can be current when it arrives and stale by the time the
  * user picks the action out of the lightbulb menu. Monaco validates every edit
  * in the set before applying any of them, so the document is never half
- * rewritten against text that has moved underneath it — but the standalone bulk
- * editor signals the mismatch by throwing (`standaloneServices.js`), which
- * surfaces as an unhandled rejection rather than a message. Loud and safe beats
- * quiet and wrong; making it quiet is the host's job, not this function's.
+ * rewritten against text that has moved underneath it.
+ *
+ * How loudly it declines depends on which caller asked. The standalone bulk
+ * editor signals a mismatch by throwing (`standaloneServices.js`); `rename.js`
+ * catches that and shows "Rename failed to apply edits", while
+ * `codeActionController.js` calls `applyCodeAction` without awaiting it, so a
+ * code action's mismatch surfaces as an unhandled rejection instead. Safe in
+ * both; presentable in one. Making the other presentable is the host's job, not
+ * this function's.
  */
 function workspaceEdit(
   model: monaco.editor.ITextModel,

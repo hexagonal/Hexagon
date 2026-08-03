@@ -333,14 +333,15 @@ fresh execution worker with a two-second timeout.
 - Prose a user reads is written once and shared. `hoverMarkdown` lives in the
   compiler because both hosts render Markdown; only the wrapper is protocol. Two
   hand-written copies is what produced the divergence #222 reported.
-- A refusal is a result, so it is passed through rather than filtered out. How
-  far it gets differs by feature, and #222's premise that "Monaco already
-  implements them" turned out to be false for code actions. A rename refusal is
-  shown. A code-action refusal is shown only under `Refactor…`: Monaco 0.55.1
-  hides the lightbulb when every action is `disabled`, and plain Quick Fix says
-  "No code actions available", discarding the reason. #253 carries the fix. The
-  wrong answer would be to send the refusal as an *enabled* action — an action
-  that appears applicable and does nothing is worse than a missing one.
+- A refusal is a result, so it is passed through rather than filtered out. What
+  the user sees differs by feature, and #222's premise that "Monaco already
+  implements them" is false for code actions. A rename refusal is shown. A
+  code-action refusal is shown nowhere: Monaco 0.55.1 hides the lightbulb when
+  every action is `disabled`, Quick Fix says "No code actions available", and
+  every refusal the session emits is quick-fix kind, so no kind-filtered trigger
+  reaches one either. #253 carries the fix. The wrong answer would be to send
+  the refusal as an *enabled* action — one that appears applicable and does
+  nothing is worse than a missing one.
 
 ### Tokenization (#161)
 

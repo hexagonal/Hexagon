@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { createLanguageServices, type ServiceChannel } from "./language-services";
 import type { CompilerMessage, CompilerRequest } from "./protocol";
@@ -84,9 +84,10 @@ describe("createLanguageServices", () => {
     expect(await first).toEqual([]);
   });
 
-  test("settles a request the worker could not answer at all", async () => {
+  test("says so when the worker could not answer a request at all", async () => {
     const { channel, reply } = harness();
     const services = createLanguageServices(channel, () => 1);
+    const reported = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const answer = services.codeActions("let one = 1\n", {
       startOffset: 0,
@@ -94,7 +95,12 @@ describe("createLanguageServices", () => {
     });
     reply({ kind: "service-failure", id: 0, version: 1, message: "boom" });
 
+    // The empty answer is the same one a stale reply produces, so the report is
+    // the entire difference between the two: a service that has started
+    // throwing looks exactly like a service with nothing to say.
     expect(await answer).toEqual([]);
+    expect(reported).toHaveBeenCalledWith(expect.stringContaining("boom"));
+    reported.mockRestore();
   });
 
   test("settles everything outstanding when the worker itself fails", async () => {

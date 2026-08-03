@@ -67,10 +67,15 @@ export function createLanguageServices(
 ): LanguageServices {
   const pending = new Map<number, (reply: ServiceReplyMessage | undefined) => void>();
   let nextId = 0;
-  // Latched, not merely drained. A worker that failed does not recover, and the
-  // requests that matter most are the ones made *after* it died — a failure
-  // during startup means nothing was outstanding to drain, and every hover from
-  // then on would wait on a reply that cannot come.
+  // Latched, not merely drained. The requests that matter most are the ones
+  // made *after* the fault: a worker whose module fails to evaluate has nothing
+  // outstanding to drain, and every hover from then on would wait on a reply
+  // that cannot come.
+  //
+  // Latching does mean a fault the worker could have survived stops the editor
+  // services for the life of the page. That is the deliberate trade: `serve` and
+  // `compile` already catch everything they can answer, so an `error` event
+  // reaching here is something neither of them could.
   let failed = false;
 
   channel.listen((message) => {

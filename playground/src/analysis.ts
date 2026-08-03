@@ -212,9 +212,11 @@ export class PlaygroundAnalysis {
   /**
    * A span the session reported about `path`, as a buffer range.
    *
-   * The span names its file by id, so the session is asked which path that is
-   * rather than assuming it is the one queried — an answer about a name declared
-   * elsewhere would otherwise be measured against the wrong file's text.
+   * A span names its file by number, not by path, so the number is looked up
+   * rather than assumed to be the queried file's. Both callers today ask about
+   * spans the session took from occurrences in the file they queried, so the
+   * lookup changes no answer; it costs one map read and it is what stops that
+   * from becoming an invariant nothing checks.
    */
   #rangeOfSpan(
     map: WorkspaceMap,
@@ -235,13 +237,20 @@ function toRange(range: BufferRange | undefined): readonly BufferRange[] {
 }
 
 /**
- * Sorted the way the user reads, which is not the way they arrive.
+ * Sorted by where the user will look, which is not the order these arrive in.
  *
- * The session orders by path and then by offset, and that is the right order for
- * a host with one editor per file. Here every path collapses into one document,
- * and path order is not document order: a module block declared before the code
- * that uses it becomes `/Name.hex`, which sorts against `/main.hex` by its
- * spelling rather than by where the user put it.
+ * `Session.references` orders by path and then by offset — right for a host with
+ * one editor per file, wrong here, where every path collapses into one document
+ * and path order is not document order: a module block declared above the code
+ * that uses it becomes `/Name.hex`, which sorts against `/main.hex` by spelling
+ * rather than by position. `Session.definitions` does not sort at all. Neither
+ * ordering is this file's to rely on, so both are replaced by the only one that
+ * means anything to a reader of a single buffer.
+ *
+ * It does not deduplicate. A record's declaration is both a type and a
+ * constructor and so is listed twice, which the language server does too; making
+ * the Playground quietly differ is how the divergence #222 was filed about
+ * started.
  */
 function inBufferOrder(ranges: readonly BufferRange[]): readonly BufferRange[] {
   return [...ranges].sort((left, right) =>

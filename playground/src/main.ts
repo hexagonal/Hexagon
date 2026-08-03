@@ -205,9 +205,7 @@ let executionWorker: Worker | undefined;
 let executionTimer: ReturnType<typeof setTimeout> | undefined;
 
 // The same worker answers editor requests from a long-lived `AnalysisSession`.
-// One worker rather than two so both halves see one compiler build, and so an
-// editor request queues behind the compile of the text it is about rather than
-// racing it.
+// One worker rather than two so both halves see one compiler build.
 //
 // They do not share a compilation: `compileSource` builds its own files for the
 // JS, `.d.ts` and Run panes, and the session compiles again on the first request

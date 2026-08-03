@@ -82,12 +82,12 @@ export class WorkspaceMap {
    * they land on whitespace and no request finds anything at one — which is the
    * answer the Playground's own notation should give.
    *
-   * Two boundaries are deliberate. A body's own end offset is claimed by the
-   * body, so a caret at the end of the last line inside a block still asks about
-   * that block; and that offset is the first character of the `end module` line,
-   * where there is nothing to find either way. A body's start offset is the
-   * first character *after* the opener's line break, so the opener line belongs
-   * to nothing, as it should.
+   * Which side of a body claims its own end offset does not matter, and `<=` is
+   * the arbitrary half of this: that offset is the first character of the
+   * `end module` line, where neither the body nor `/main.hex` has anything to
+   * find. What does matter is that the ends are exclusive of the delimiter
+   * lines in the other direction — a body starts after the opener's line break —
+   * so no offset is ever claimed by two bodies at once.
    */
   locate(bufferOffset: number): FilePosition | undefined {
     if (bufferOffset < 0 || bufferOffset > this.#bufferLength) return undefined;
