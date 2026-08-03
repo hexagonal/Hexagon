@@ -69,10 +69,12 @@ describe("createLanguageServices", () => {
     expect(await answer).toEqual([{ startOffset: 4, endOffset: 7 }]);
   });
 
-  test("drops spans about text the user has since changed", async () => {
-    // The gate reads these to decide whether to open a hover. Answering with
-    // spans for text nobody is looking at would open one over the wrong name;
-    // the empty answer keeps it shut until a fresh one arrives.
+  test("says it has no answer about spans, rather than answering empty", async () => {
+    // The one service that must not use the empty answer for a dropped reply.
+    // Its caller caches what it gets against the text it describes, so `[]`
+    // here would be remembered as "the hover answers nowhere in this document"
+    // and the caret hover would go quiet until the next edit. See
+    // `createHoverSpanCache`.
     const { channel, reply } = harness();
     let version = 3;
     const services = createLanguageServices(channel, () => version);
@@ -81,7 +83,7 @@ describe("createLanguageServices", () => {
     version = 4;
     reply({ kind: "hover-spans", id: 0, version: 3, ranges: [{ startOffset: 4, endOffset: 7 }] });
 
-    expect(await answer).toEqual([]);
+    expect(await answer).toBeUndefined();
   });
 
   test("drops a reply about text the user has since changed", async () => {

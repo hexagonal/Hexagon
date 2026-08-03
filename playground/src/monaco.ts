@@ -12,8 +12,8 @@ import type {
   GeneratedCodeEditor,
   SourceEditor,
 } from "./editor";
+import { createHoverSpanCache } from "./hover-spans";
 import type { LanguageServices } from "./language-services";
-import type { BufferRange } from "./protocol";
 import {
   boundedOffsets,
   codeActionKinds,
@@ -178,12 +178,7 @@ export function createMonacoEditors(
   sourceContainer.hidden = false;
   textarea.hidden = true;
 
-  let hoverSpans: readonly BufferRange[] = [];
-  /**
-   * The model version `hoverSpans` describes, so text they no longer describe
-   * cannot be gated on. Absent until the first answer arrives.
-   */
-  let hoverSpansVersion: number | undefined;
+  const hoverSpanCache = createHoverSpanCache((text) => services.hoverSpans(text));
   let caretHoverTimer: ReturnType<typeof setTimeout> | undefined;
   let suppressChanges = false;
   let disposed = false;
@@ -208,33 +203,46 @@ export function createMonacoEditors(
    * is the answer, sampled.
    *
    * **How it asks Monaco.** `editor.action.showHover` defaults to
-   * `HoverFocusOption.FocusIfVisible`, and with a hover already open that
+   * `HoverFocusBehavior.FocusIfVisible`, and with a hover already open that
    * *focuses the widget* rather than re-asking the provider — so the caret
    * would move, the hover would keep the old name's answer, and keyboard focus
    * would leave the text. `noAutoFocus` takes the branch that re-asks
    * (`hoverActions.js`), which is the whole intent: follow the caret.
    *
-   * **What it costs.** One worker round trip per settled document, not per
-   * keystroke. The spans are cached against the model version they describe, so
-   * moving the caret around unchanged text asks nothing, and the debounce keeps
-   * a burst of typing from asking at all until it stops. The session behind the
-   * request holds its analysis until a file changes, so the hover that follows
-   * is a lookup rather than a second project analysis.
+   * **What it costs, honestly.** One worker round trip per settled document —
+   * cached against the model version it describes and shared with any request
+   * already in flight, so moving the caret around unchanged text asks nothing
+   * after the first, and the debounce keeps a burst of typing from asking until
+   * it stops. But that request is not free: the session's analysis is separate
+   * from the compile's, so a typing pause costs a project analysis here *and*
+   * one in the compile 50ms later. #254 proposed avoiding that by having the
+   * compile publish the spans. This asks the session instead, for two reasons
+   * the issue could not have known: the compile and the session are different
+   * analyses, so computing the gate in the compile would be a *second*
+   * implementation of "where does hover answer" — the exact thing that drifted
+   * — and a compile that fails carries no output at all, where the session
+   * still answers about the names it did resolve. The cost falls only on the
+   * platform with no pointer, which is the only platform this runs on.
    */
   const openHoverAtCaret = async (): Promise<void> => {
     const version = sourceModel.getVersionId();
-    if (hoverSpansVersion !== version) {
-      const spans = await services.hoverSpans(sourceModel.getValue());
-      // The editor may have been torn down, or the user may have typed while
-      // the worker was answering. Either way this answer describes text nobody
-      // is looking at; the edit's own caret move has already scheduled another.
-      if (disposed || sourceModel.getVersionId() !== version) return;
-      hoverSpans = spans;
-      hoverSpansVersion = version;
-    }
+    const hoverSpans = await hoverSpanCache.spansFor(version, sourceModel.getValue());
+    // No answer, or an answer about text nobody is looking at any more — the
+    // editor torn down, or the user typing while the worker worked. The edit's
+    // own caret move has already scheduled the next attempt.
+    if (hoverSpans === undefined || disposed) return;
+    if (sourceModel.getVersionId() !== version) return;
     const position = sourceEditor.getPosition();
     if (position === null) return;
-    if (!hoverAnswersAtOffset(hoverSpans, sourceModel.getOffsetAt(position))) return;
+    if (!hoverAnswersAtOffset(hoverSpans, sourceModel.getOffsetAt(position))) {
+      // Monaco hides the hover itself on a mouse-down and on a key-down
+      // (`contentHoverController.js`), which covers a tap and a cursor key. It
+      // has no cursor-position listener, so a caret moved by neither — the
+      // Errors list jumping to a diagnostic — would leave the previous name's
+      // hover sitting over unrelated text. Refusing to open is said out loud.
+      sourceEditor.trigger("hexagon.ipadTypeAtCaret", "editor.action.hideHover", undefined);
+      return;
+    }
     sourceEditor.trigger("hexagon.ipadTypeAtCaret", "editor.action.showHover", {
       focus: "noAutoFocus",
     });

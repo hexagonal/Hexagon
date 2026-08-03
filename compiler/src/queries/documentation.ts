@@ -118,6 +118,15 @@ export class DocumentationIndex {
    * the lookup cannot come to disagree about what counts as documented: an empty
    * doc block attaches and contributes empty documentation, which tooling treats
    * as absent (§3.2), and that exclusion now happens in one place.
+   *
+   * Moving the exclusion is a real change, not a relocation, and it is one:
+   * `covering` used to find the first name covering the offset and then reject
+   * it for being empty, so an empty block covering a name would hide a
+   * documented one overlapping it. It now skips the empty and finds the
+   * documented one. No input is known that produces two documented names over
+   * one offset — `DocBlocks` lets one block claim one code token, and subjects
+   * are name spans — so the difference is unobservable today; it is written this
+   * way because the reachable reading is also the right one.
    */
   namesIn(fileId: Source.FileId): readonly DocumentedName[] {
     return (this.#namesByFile.get(Number(fileId)) ?? []).filter(

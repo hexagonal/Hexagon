@@ -466,7 +466,7 @@ export class AnalysisSession {
    * pointer and the caret is the only thing that moves — and which therefore has
    * to decide whether to open one before it has an answer to show.
    *
-   * The three sources below are `hover`'s own three, read in the same order and
+   * The three sources below are `hover`'s own three, read from the same arrays
    * with the same containment rule, so the two agree by construction. That is
    * the whole point of the method: the Playground previously gated on the type
    * occurrence table, which answers a different question and so both over- and
@@ -474,13 +474,18 @@ export class AnalysisSession {
    * it, and this one cannot be derived from anything else without saying so
    * here.
    *
-   * `hover` short-circuits — a variance site wins outright, and a documented
-   * name is consulted only where the occurrence index is silent — but the set of
-   * offsets it answers at is the plain union of the three, so no order is
-   * reproduced here. Spans are returned in the *queried file's* coordinates and
-   * are not deduplicated or merged: `occurrencesAt` compares an offset against
-   * every span in the file's bucket regardless of whose file each names, and a
-   * gate that narrowed that would refuse to open where hover would speak.
+   * Order is not reproduced. `hover` short-circuits — a variance site wins
+   * outright, and a documented name is consulted only where the occurrence index
+   * is silent — but the *set of offsets it answers at* is the plain union of the
+   * three, and that set is all a gate needs.
+   *
+   * Every span returned lies in the queried file, which is worth knowing rather
+   * than assuming: `collectOccurrences` drops any span whose file is not the
+   * module's (`#publish`), a variance site's span is checked against `fileId`,
+   * and the documentation index is bucketed by file. A host may therefore map
+   * these back to its own coordinates using the path it asked about. They are
+   * not deduplicated or merged: a record's name is both a type and a
+   * constructor, so overlap is normal and a gate does not care.
    */
   hoverSpans(path: string): readonly OffsetRange[] {
     const normalized = normalizePath(path);

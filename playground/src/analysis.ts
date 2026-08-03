@@ -72,8 +72,14 @@ export class PlaygroundAnalysis {
    * that had nothing to say and stayed shut on positions that did.
    *
    * One request per settled document, not one per caret move: the caller caches
-   * these against the text they describe, and the session behind them holds its
-   * analysis until a file changes, so the hover that follows costs a lookup.
+   * these against the text they describe and shares one request between callers
+   * waiting on the same text, and the session behind them holds its analysis
+   * until a file changes, so the hover that follows costs a lookup.
+   *
+   * Each span is mapped back through the path it was asked about rather than
+   * through the file its span names. Those are the same file — the session says
+   * so — and asking about the queried path is the reading that matches how the
+   * gate will be used: an offset is compared against one file's set.
    *
    * Spans the buffer cannot show are dropped, like a definition's — a caret
    * cannot be inside one, so nothing is lost by not gating on it.

@@ -20,8 +20,9 @@ describe("createCompilerService", () => {
       kind: "hover-spans",
       id: 9,
       version: 4,
-      // The declaration and its one call, at least; the point here is that the
-      // request is answered in this shape, not what the session found.
+      // The declaration's own name. The point here is that the request is
+      // answered in this shape at all; what the session finds is pinned in
+      // `analysis.test.ts`, against `hover` itself.
       ranges: expect.arrayContaining([{ startOffset: 4, endOffset: 9 }]),
     });
     expect(
