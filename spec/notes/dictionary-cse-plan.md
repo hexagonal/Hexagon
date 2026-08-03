@@ -117,6 +117,30 @@ and it is the reason this plan is worth more than tidying.
 
 ## 4. Proposed mechanism
 
+> **Claim by Sol:** Within one dominance scope, semantically identical evidence
+> construction is materialized at most once.
+
+**Response (2026-08-04, Opus).** Sound, and strictly weaker than §4.2. Dominance
+is the right bound when a repeated expression may read mutable state; evidence
+reads none (`constraints.md` §6.3, evaluation-free) and is coherent (§5.1), so
+the bound is the **module**. §5.1 reaches this from the other side in the same
+words — module level "rather than to the innermost scope dominating the use
+sites" — so the claim confirms the fork rather than moving it.
+
+**The part that is not redundant:** dominance-scoped placement would eliminate
+**§4.4 entirely.** A binding at the dominator of its use sites sits after
+everything it depends on — no letrec, no emission order, no TDZ. That names a
+safe fallback for the plan's single hardest risk, and the note did not previously
+consider *not* hoisting to module level.
+
+It cannot replace §4.2, because it does not reach §3.2: a self-referential
+dictionary is a fixpoint, and no dominance-scoped placement constructs one.
+Taking it as *the* mechanism shrinks this plan to §3.1 — the same outcome §6
+item 1 describes by another route. It also presupposes the recognition problem
+(§4.1, §6 item 4) rather than answering it. Terminology flag: "dominance scope"
+appears nowhere else in `spec/` or `compiler/src/`; it needs a definition and an
+owner before it survives into a ruling.
+
 ### 4.1 A canonical key for evidence
 
 CSE requires that two occurrences of the same evidence be recognisable as the
@@ -152,17 +176,53 @@ place a subtle failure could hide: a TDZ violation here is a runtime
 
 ## 5. Why Hexagon can do this
 
-Two of the language's standing restrictions are what make the optimization
+Four of the language's standing restrictions are what make the optimization
 sound. This is the argument worth checking hardest, because if it is wrong the
 plan is unsound rather than merely incomplete.
+*(Coherence row and §5.1 added 2026-08-03: as first written this section
+credited three restrictions, all of which bear on cost and termination and none
+of which licenses sharing at all.)*
 
 | Restriction | What it buys here |
 |---|---|
+| Global coherence | Two occurrences of the same evidence **are the same value**, so sharing one binding between them is semantics-preserving |
 | No polymorphic recursion | The evidence family is **finite**, so every dictionary is hoistable |
 | No higher-kinded types | Evidence is a **ground term**, so it canonicalizes into a hashable key |
 | No currying | A factory is an n-ary function, so hoisting is a textual lift rather than an unpicked closure chain |
 
-The first is decisive. Under polymorphic recursion a function may call itself
+### 5.1 Coherence is what makes the sharing legal
+
+Recorded first because it is the premise the other three sit on top of. They
+answer *can the hoisting be computed, and cheaply*; only coherence answers *may
+two use sites be given one dictionary at all*.
+
+`constraints.md` §5.1 fixes **at most one instance per (constraint, type
+constructor), program-wide**, and §5.2 admits no local and no overlapping
+instances — `honor` is a module-level declaration, so there exists no scope in
+which a use site could see a different instance than another use site sees.
+That, and only that, is why two occurrences of `Show<Int>` denote the same
+value and may be replaced by one reference to one binding. Under Scala-style
+implicits or ML functors the same two occurrences may lawfully select different
+evidence, and this entire plan is unsound rather than merely more expensive.
+
+Coherence is also why hoisting to **module level** specifically is available
+(§4.2), rather than to the innermost scope dominating the use sites: there is
+no enclosing-scope subtlety to respect, because instance visibility does not
+vary by scope. And §5.4's instance-head restriction — one type constructor
+applied to distinct type variables — is what makes selection "a table lookup
+keyed on (constraint, constructor) rather than a search", which is the property
+§4.1's canonical key inherits.
+
+Consequence for §6: coherence is not on the confirm-before-implementing list
+and should not be added to it. It is decided, it is enforced, and it is cited
+here as an authority rather than an assumption. What §6 must still confirm is
+narrower and already listed — that the *representation* selection uses can be
+canonicalized (§6.4). Coherence guarantees the two dictionaries are the same
+value; it does not by itself guarantee the emitter can *recognise* that they
+are.
+
+The second restriction is decisive for termination. Under polymorphic
+recursion a function may call itself
 at a *different* instantiation — `f` at `Tree(a)` calling itself at
 `Tree(Tree(a))` — requiring `Show<Tree(a)>`, `Show<Tree(Tree(a))>`, and so on
 without bound. That family is infinite and constructed at runtime; it has no
