@@ -12,7 +12,8 @@ import type {
   GeneratedCodeEditor,
   SourceEditor,
 } from "./editor";
-import type { TypeOccurrence } from "./protocol";
+import type { LanguageServices } from "./language-services";
+import type { PlaygroundTextEdit, TypeOccurrence } from "./protocol";
 import {
   createGrammarLoader,
   createTokensProvider,
@@ -117,6 +118,7 @@ export function createMonacoEditors(
   source: string,
   theme: EditorTheme,
   showTypesAtCaret: boolean,
+  services: LanguageServices,
 ): MonacoEditors {
   const sourceModel = replaceModel("inmemory://hexagon/main.hex", source, hexagonLanguage);
   const sourceEditor = monaco.editor.create(sourceContainer, {
@@ -164,18 +166,7 @@ export function createMonacoEditors(
     if (suppressChanges) return;
     for (const listener of changeListeners) listener();
   });
-  const hoverProvider = monaco.languages.registerHoverProvider(hexagonLanguage, {
-    provideHover: (model, position) => {
-      if (model !== sourceModel) return undefined;
-      const offset = model.getOffsetAt(position);
-      const occurrence = typeOccurrenceAtOffset(types, offset, showTypesAtCaret);
-      if (occurrence === undefined) return undefined;
-      return {
-        contents: [{ value: `\`${occurrence.name} : ${occurrence.displayedType}\`` }],
-        range: rangeFromOffsets(model, occurrence.startOffset, occurrence.endOffset),
-      };
-    },
-  });
+  const providers = registerLanguageProviders(sourceModel, services);
   const showTypeAtCaret = (): void => {
     const position = sourceEditor.getPosition();
     if (position === null) return;
@@ -230,7 +221,7 @@ export function createMonacoEditors(
     dispose: () => {
       disposed = true;
       cursorSubscription?.dispose();
-      hoverProvider.dispose();
+      providers.dispose();
       changeSubscription.dispose();
       changeListeners.clear();
       sourceEditor.dispose();
@@ -258,6 +249,168 @@ export function createMonacoEditors(
   };
 
   return { source: sourceAdapter, generated: generatedAdapter };
+}
+
+/**
+ * Every editor service, backed by the session in the compiler worker.
+ *
+ * All of them answer about one model — the source editor's — because that is the
+ * only Hexagon document the Playground has. The generated panes are JavaScript
+ * and TypeScript, and the check is not defensive: a provider is registered
+ * against a *language*, so anything else opened as `hexagon` would reach these
+ * too and be asked about text the worker has never seen.
+ *
+ * A refusal is not a failure and is not filtered out. Monaco was extracted from
+ * VS Code and kept the mechanism intact: a code action carrying `disabled` is
+ * drawn greyed out with the reason as its label, and a rename carrying
+ * `rejectReason` shows the reason instead of prompting. So the session's stance
+ * — that a repair which must not be made is still worth showing, with the
+ * sentence that says why — arrives here as a field copy.
+ */
+function registerLanguageProviders(
+  sourceModel: monaco.editor.ITextModel,
+  services: LanguageServices,
+): monaco.IDisposable {
+  const owns = (model: monaco.editor.ITextModel): boolean => model === sourceModel;
+  const registrations = [
+    monaco.languages.registerHoverProvider(hexagonLanguage, {
+      provideHover: async (model, position) => {
+        if (!owns(model)) return undefined;
+        const hover = await services.hover(
+          model.getValue(),
+          model.getOffsetAt(position),
+        );
+        if (hover === undefined) return undefined;
+        return {
+          contents: [{ value: hover.markdown }],
+          range: rangeFromOffsets(model, hover.range.startOffset, hover.range.endOffset),
+        };
+      },
+    }),
+    monaco.languages.registerCodeActionProvider(
+      hexagonLanguage,
+      {
+        provideCodeActions: async (model, range) => {
+          if (!owns(model)) return undefined;
+          const actions = await services.codeActions(model.getValue(), {
+            startOffset: model.getOffsetAt(range.getStartPosition()),
+            endOffset: model.getOffsetAt(range.getEndPosition()),
+          });
+          return {
+            actions: actions.map((action) => ({
+              title: action.title,
+              kind: action.kind,
+              ...(action.disabled === undefined
+                ? { edit: workspaceEdit(model, action.edits) }
+                : { disabled: action.disabled }),
+            })),
+            dispose: () => {},
+          };
+        },
+      },
+      // Declared, and load-bearing: Monaco skips a provider whose advertised
+      // kinds cannot satisfy the filter it is asking under, so a request for
+      // something else never reaches the one action here that has to compile
+      // the project to answer. It also filters what comes back, which is why
+      // `context.only` is not read below — the rule has one owner.
+      { providedCodeActionKinds: ["quickfix", "refactor"] },
+    ),
+    monaco.languages.registerDefinitionProvider(hexagonLanguage, {
+      provideDefinition: async (model, position) => {
+        if (!owns(model)) return undefined;
+        const ranges = await services.definitions(
+          model.getValue(),
+          model.getOffsetAt(position),
+        );
+        return ranges.map((found) => ({
+          uri: model.uri,
+          range: rangeFromOffsets(model, found.startOffset, found.endOffset),
+        }));
+      },
+    }),
+    monaco.languages.registerReferenceProvider(hexagonLanguage, {
+      provideReferences: async (model, position) => {
+        if (!owns(model)) return undefined;
+        const ranges = await services.references(
+          model.getValue(),
+          model.getOffsetAt(position),
+        );
+        return ranges.map((found) => ({
+          uri: model.uri,
+          range: rangeFromOffsets(model, found.startOffset, found.endOffset),
+        }));
+      },
+    }),
+    monaco.languages.registerRenameProvider(hexagonLanguage, {
+      // Asked before the user is prompted, so a name that cannot move says so
+      // rather than opening a box whose every keystroke is going to be refused.
+      resolveRenameLocation: async (model, position) => {
+        if (!owns(model)) return undefined;
+        const subject = await services.prepareRename(
+          model.getValue(),
+          model.getOffsetAt(position),
+        );
+        if (subject === undefined) return undefined;
+        if ("refused" in subject) {
+          const caret = new monaco.Range(
+            position.lineNumber,
+            position.column,
+            position.lineNumber,
+            position.column,
+          );
+          return { range: caret, text: "", rejectReason: subject.refused };
+        }
+        return {
+          range: rangeFromOffsets(
+            model,
+            subject.range.startOffset,
+            subject.range.endOffset,
+          ),
+          text: subject.name,
+        };
+      },
+      provideRenameEdits: async (model, position, newName) => {
+        if (!owns(model)) return { edits: [] };
+        const result = await services.rename(
+          model.getValue(),
+          model.getOffsetAt(position),
+          newName,
+        );
+        if (result === undefined) {
+          return { edits: [], rejectReason: "there is no name here to rename" };
+        }
+        if ("refused" in result) return { edits: [], rejectReason: result.refused };
+        return { edits: workspaceEdit(model, result.edits).edits };
+      },
+    }),
+  ];
+  return { dispose: () => registrations.forEach((registration) => registration.dispose()) };
+}
+
+/**
+ * Edits against one model, stamped with the version they were computed for.
+ *
+ * `versionId` is the last guard on a race the worker's own version check does
+ * not cover: a reply can be current when it arrives and stale by the time the
+ * user picks the action out of the lightbulb menu. Monaco refuses to apply an
+ * edit whose version no longer matches, so the document is never rewritten
+ * against text that has moved underneath it.
+ */
+function workspaceEdit(
+  model: monaco.editor.ITextModel,
+  edits: readonly PlaygroundTextEdit[],
+): monaco.languages.WorkspaceEdit {
+  const versionId = model.getVersionId();
+  return {
+    edits: edits.map((edit) => ({
+      resource: model.uri,
+      versionId,
+      textEdit: {
+        range: rangeFromOffsets(model, edit.startOffset, edit.endOffset),
+        text: edit.replacement,
+      },
+    })),
+  };
 }
 
 function typeOccurrenceAtOffset(

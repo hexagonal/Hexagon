@@ -53,11 +53,11 @@ import { TextDocument } from "vscode-languageserver-textdocument";
 import { basename, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
+  hoverMarkdown,
   refused,
   type Completion,
   type Hover as SessionHover,
   type Source,
-  type Target,
 } from "../../compiler/src/index.js";
 import { toLspDiagnostic } from "./diagnostics.js";
 import {
@@ -442,32 +442,12 @@ function publishDiagnostics(
 }
 
 /**
- * One shape for every hover: what the name is, then its type when it has one,
- * then its documentation. A value and a union reading differently would make
- * the hover's own layout something the user has to parse before the content.
- *
- * The documentation is Markdown by `spec/doc-comments.md` §6 and goes in as
- * itself — no fencing, no escaping — because rendering it as Markdown is what
- * §8 asks for. It is separated by a blank line rather than by a rule: `---`
- * after a line of text is a Markdown *heading* marker, which would silently
- * restyle the signature above it.
+ * The session's hover as the protocol carries it. The sentence itself is
+ * `hoverMarkdown`, shared with every other host that draws one; all that is
+ * added here is the wrapper that says which markup it is.
  */
 function hoverContents(hover: SessionHover): MarkupContent {
-  const signature = hover.displayedType === undefined
-    ? `\`${hover.name}\``
-    : `\`${hover.name}: ${hover.displayedType}\``;
-  // A name the session found no identity for — an `honor` member, a record
-  // field — is answered by its documentation alone, so there is no word to put
-  // in front of it.
-  const heading = hover.target === undefined
-    ? signature
-    : `${describe(hover.target)} ${signature}`;
-  return {
-    kind: "markdown",
-    value: hover.documentation === undefined
-      ? heading
-      : `${heading}\n\n${hover.documentation}`,
-  };
+  return { kind: "markdown", value: hoverMarkdown(hover) };
 }
 
 /**
@@ -489,21 +469,6 @@ function completionKindOf(kind: Completion["kind"]): CompletionItemKind {
       return CompletionItemKind.Module;
     case "value":
       return CompletionItemKind.Variable;
-  }
-}
-
-function describe(target: Target): string {
-  switch (target.kind) {
-    case "value":
-      return "value";
-    case "union":
-      return "union";
-    case "record":
-      return "record";
-    case "extern-type":
-      return "foreign type";
-    case "constraint":
-      return "constraint";
   }
 }
 

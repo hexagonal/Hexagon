@@ -1,0 +1,204 @@
+/**
+ * The Playground's editor services, answered by the compiler's own
+ * `AnalysisSession`.
+ *
+ * There is no language server here and there is not meant to be one. A quick fix
+ * is not an LSP feature: `Session.codeActions()` computes it, and the server is
+ * one caller of that method — the one that serves VS Code over a pipe. Monaco is
+ * a second caller. Routing through a protocol would mean de-noding the server's
+ * workspace discovery and manifest resolution, neither of which the Playground
+ * has any use for, to reuse a layer of LSP-typed translation. Session to Monaco
+ * is one hop and gives the same answers.
+ *
+ * Two things this layer owes its caller. Every coordinate it returns is an
+ * *editor buffer* offset, because the buffer is the only document the user has;
+ * the virtual files stop here. And every answer it cannot express in buffer
+ * coordinates is refused rather than approximated — a rename whose edits reach
+ * into a hosted library is declined with a reason, not performed on the half of
+ * itself that fits.
+ *
+ * The session outlives each request. It holds its analysis until a file changes,
+ * so a hover after a code action on unchanged text costs a lookup rather than a
+ * compile.
+ */
+
+import { AnalysisSession, hoverMarkdown, type CodeAction, type Source } from "../../compiler/src/index";
+
+import type {
+  BufferRange,
+  PlaygroundCodeAction,
+  PlaygroundHover,
+  PlaygroundRenamePlan,
+  PlaygroundRenameRefusal,
+  PlaygroundRenameSubject,
+  PlaygroundTextEdit,
+} from "./protocol";
+import { layOutWorkspace, type WorkspaceLayout, type WorkspaceMap } from "./workspace";
+
+/**
+ * Shown when a repair or a rename is real but reaches code the buffer does not
+ * contain — a hosted library, or the imports the Playground writes for the user.
+ * Monaco uses the reason as the action's label, so it reads as a sentence.
+ */
+const OUTSIDE_DOCUMENT = "this would edit code the Playground does not show";
+
+export class PlaygroundAnalysis {
+  readonly #session = new AnalysisSession();
+
+  hover(source: string, offset: number): PlaygroundHover | undefined {
+    const layout = this.#sync(source);
+    const at = layout?.map.locate(offset);
+    if (layout === undefined || at === undefined) return undefined;
+    const hover = this.#session.hover(at.path, at.offset);
+    if (hover === undefined) return undefined;
+    const range = this.#rangeOfSpan(layout.map, at.path, hover.span);
+    if (range === undefined) return undefined;
+    return { markdown: hoverMarkdown(hover), range };
+  }
+
+  definitions(source: string, offset: number): readonly BufferRange[] {
+    const layout = this.#sync(source);
+    const at = layout?.map.locate(offset);
+    if (layout === undefined || at === undefined) return [];
+    // A definition in a hosted library has nowhere to go: the Playground shows
+    // one document, and `Vector.hex` is not in it. Dropping it leaves the editor
+    // saying there is no definition, which is the truth about what it can open.
+    return this.#session
+      .definitions(at.path, at.offset)
+      .flatMap(({ path, span }) =>
+        toRange(layout.map.toBufferRange(path, offsetsOf(span)))
+      );
+  }
+
+  references(source: string, offset: number): readonly BufferRange[] {
+    const layout = this.#sync(source);
+    const at = layout?.map.locate(offset);
+    if (layout === undefined || at === undefined) return [];
+    return this.#session
+      .references(at.path, at.offset)
+      .flatMap(({ path, span }) =>
+        toRange(layout.map.toBufferRange(path, offsetsOf(span)))
+      );
+  }
+
+  codeActions(
+    source: string,
+    range: BufferRange,
+  ): readonly PlaygroundCodeAction[] {
+    const layout = this.#sync(source);
+    const start = layout?.map.locate(range.startOffset);
+    const end = layout?.map.locate(range.endOffset);
+    if (layout === undefined || start === undefined || end === undefined) return [];
+    // A selection running from one module block into another names no single
+    // file, and the session asks about one. Nothing is offered rather than
+    // silently answering about whichever end came first.
+    if (start.path !== end.path) return [];
+    return this.#session
+      .codeActions(start.path, { start: start.offset, end: end.offset })
+      .map((action) => this.#action(layout.map, action));
+  }
+
+  prepareRename(
+    source: string,
+    offset: number,
+  ): PlaygroundRenameSubject | PlaygroundRenameRefusal | undefined {
+    const layout = this.#sync(source);
+    const at = layout?.map.locate(offset);
+    if (layout === undefined || at === undefined) return undefined;
+    const subject = this.#session.prepareRename(at.path, at.offset);
+    if (subject === undefined || "refused" in subject) return subject;
+    const range = this.#rangeOfSpan(layout.map, at.path, subject.span);
+    if (range === undefined) return { refused: OUTSIDE_DOCUMENT };
+    return { name: subject.name, range };
+  }
+
+  rename(
+    source: string,
+    offset: number,
+    newName: string,
+  ): PlaygroundRenamePlan | PlaygroundRenameRefusal | undefined {
+    const layout = this.#sync(source);
+    const at = layout?.map.locate(offset);
+    if (layout === undefined || at === undefined) return undefined;
+    const result = this.#session.rename(at.path, at.offset, newName);
+    if (result === undefined || "refused" in result) return result;
+    const edits: PlaygroundTextEdit[] = [];
+    for (const { path, span } of result.edits) {
+      const range = layout.map.toBufferRange(path, offsetsOf(span));
+      // Every mention moves or none does. A rename that quietly skipped the
+      // ones it could not reach would leave the program naming two things.
+      if (range === undefined) return { refused: OUTSIDE_DOCUMENT };
+      edits.push({ ...range, replacement: newName });
+    }
+    return { newName: result.newName, edits };
+  }
+
+  /**
+   * The buffer as virtual files, with the session holding exactly those.
+   *
+   * Nothing is analysed while the Playground's own `module` notation is broken:
+   * an unclosed block means the split into files is a guess, and answering from
+   * a guessed split is worse than answering nothing. The compile path reports
+   * those errors, so the user is already being told.
+   */
+  #sync(source: string): WorkspaceLayout | undefined {
+    const layout = layOutWorkspace(source);
+    if (layout.diagnostics.length > 0) return undefined;
+    const present = new Set(layout.files.map(({ path }) => path));
+    for (const path of this.#session.paths) {
+      if (!present.has(path)) this.#session.removeFile(path);
+    }
+    for (const { path, source: text } of layout.files) {
+      this.#session.setFile(path, text);
+    }
+    return layout;
+  }
+
+  /**
+   * One repair in buffer coordinates.
+   *
+   * An action whose edits do not all land in the buffer becomes a refusal rather
+   * than disappearing, for the same reason the session refuses rather than
+   * dropping: the user can see the problem the fix answers, and an offer that
+   * silently never arrives leaves them with nothing to read.
+   */
+  #action(map: WorkspaceMap, action: CodeAction): PlaygroundCodeAction {
+    const kind = action.kind === "refactor" ? "refactor" : "quickfix";
+    if (action.disabled !== undefined) {
+      return { title: action.title, kind, edits: [], disabled: action.disabled };
+    }
+    const edits: PlaygroundTextEdit[] = [];
+    for (const edit of action.edits) {
+      const range = map.toBufferRange(edit.path, offsetsOf(edit.span));
+      if (range === undefined) {
+        return { title: action.title, kind, edits: [], disabled: OUTSIDE_DOCUMENT };
+      }
+      edits.push({ ...range, replacement: edit.replacement });
+    }
+    return { title: action.title, kind, edits };
+  }
+
+  /**
+   * A span the session reported about `path`, as a buffer range.
+   *
+   * The span names its file by id, so the session is asked which path that is
+   * rather than assuming it is the one queried — an answer about a name declared
+   * elsewhere would otherwise be measured against the wrong file's text.
+   */
+  #rangeOfSpan(
+    map: WorkspaceMap,
+    queried: string,
+    span: Source.Span,
+  ): BufferRange | undefined {
+    const owner = this.#session.pathOfFile(span.fileId) ?? queried;
+    return map.toBufferRange(owner, offsetsOf(span));
+  }
+}
+
+function offsetsOf(span: Source.Span): { readonly start: number; readonly end: number } {
+  return { start: span.start.offset, end: span.end.offset };
+}
+
+function toRange(range: BufferRange | undefined): readonly BufferRange[] {
+  return range === undefined ? [] : [range];
+}

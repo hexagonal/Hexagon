@@ -13,63 +13,41 @@ import type {
   TypeOccurrence,
   PlaygroundDiagnostic,
 } from "./protocol";
-import { hostedModules, playgroundEquipment } from "./playground-equipment";
-import { parseWorkspaceSource } from "./workspace-source";
+import { entryPath, layOutWorkspace, type WorkspaceLayout } from "./workspace";
 
 /** Runs the platform-neutral compiler and adapts its result for the worker. */
 export function compileSource(version: number, text: string): CompilerResponse {
-  const workspace = parseWorkspaceSource(text);
-  if (workspace.diagnostics.length > 0) {
+  const layout = layOutWorkspace(text);
+  if (layout.diagnostics.length > 0) {
     return {
       kind: "compile-failure",
       version,
-      diagnostics: workspace.diagnostics,
+      diagnostics: layout.diagnostics,
     };
   }
-  return compileWorkspace(version, text, workspace);
+  return compileWorkspace(version, layout);
 }
 
 function compileWorkspace(
   version: number,
-  combinedSource: string,
-  workspace: ReturnType<typeof parseWorkspaceSource>,
+  layout: WorkspaceLayout,
 ): CompilerResponse {
-  const shadowedCompanions = new Set(workspace.modules.map(({ name }) => name));
-  const hosted = hostedModules.filter(
-    ({ companion }) => !shadowedCompanions.has(companion),
-  );
-  // Auto-import only the equipment subset; hosted prelude sources (Option) are
-  // supplied for resolution but stay implicit via the compiler's prelude.
-  const equipmentPrefix = hosted
-    .filter(({ companion }) => playgroundEquipment.includes(companion))
-    .map(({ companion, path }) => {
-      const specifier = `.${path.slice(0, -".hex".length)}`;
-      return `import * as ${companion} from ${JSON.stringify(specifier)}`;
-    }).join("\n");
-  const mainPrefix = equipmentPrefix.length === 0 ? "" : `${equipmentPrefix}\n`;
-  const files = hosted.map(({ path, source }, index) =>
+  const files = layout.files.map(({ path, source }, index) =>
     new Source.File(Source.fileId(index), path, source)
   );
-  const workspaceFileBase = files.length;
-  files.push(...workspace.modules.map((module, index) =>
-    new Source.File(
-      Source.fileId(workspaceFileBase + index),
-      module.path,
-      module.text,
-    )
-  ));
-  const mainId = Source.fileId(files.length);
-  files.push(new Source.File(mainId, "/main.hex", `${mainPrefix}${workspace.mainText}`));
+  const pathsByFileId = new Map(
+    files.map(({ id, path }) => [Number(id), path] as const),
+  );
 
   const project = compileProject(files);
   const outputs = project.modules.map((module) => ({
     module,
     javascript: emitJavaScript(module.core, {
       previewPrivateSpecializations: true,
-      exportInstanceEvidence: module.source.path !== "/main.hex",
+      exportInstanceEvidence: module.source.path !== entryPath,
     }),
   }));
-  const main = outputs.find(({ module }) => module.source.path === "/main.hex");
+  const main = outputs.find(({ module }) => module.source.path === entryPath);
   if (main === undefined) {
     return {
       kind: "compile-failure",
@@ -84,23 +62,11 @@ function compileWorkspace(
   }
 
   const preview = emitTypeScriptPreview(main.module.core);
-  const sourceOffsets = new Map<number, (offset: number) => number>();
-  workspace.modules.forEach((module, index) => {
-    sourceOffsets.set(workspaceFileBase + index, (offset) =>
-      module.sourceOffset + offset
-    );
-  });
-  sourceOffsets.set(Number(mainId), (offset) =>
-    Math.max(
-      0,
-      Math.min(
-        combinedSource.length,
-        offset - mainPrefix.length - workspace.mainPrefixLength,
-      ),
-    )
-  );
+  // Diagnostics are anchored rather than mapped: every one of them has to be
+  // shown, including the ones from a hosted library or the synthesized import
+  // prefix, which no buffer offset covers. See `WorkspaceMap.anchor`.
   const mapOffset = (fileId: Source.FileId, offset: number): number =>
-    sourceOffsets.get(Number(fileId))?.(offset) ?? 0;
+    layout.map.anchor(pathsByFileId.get(Number(fileId)) ?? "", offset);
   const diagnostics = adaptDiagnostics([
     ...project.diagnostics,
     ...outputs.flatMap(({ javascript }) => javascript.diagnostics),
@@ -119,7 +85,7 @@ function compileWorkspace(
       path: module.source.path,
       javascript: javascript.text,
     })),
-    entryPath: "/main.hex",
+    entryPath,
     generatedJavaScript: main.javascript.generatedSections,
     typeScriptPreview: preview.text,
     types: project.modules.flatMap(({ source, typed }) =>
