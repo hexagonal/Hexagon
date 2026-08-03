@@ -15,10 +15,15 @@ import type {
 import type { LanguageServices } from "./language-services";
 import type { TypeOccurrence } from "./protocol";
 import {
+  boundedOffsets,
+  codeActionKinds,
   toCodeAction,
+  toRenameEdits,
   toRenameLocation,
-  toWorkspaceEdit,
+  typeOccurrenceAtOffset,
   type EditTarget,
+  type MappedCodeAction,
+  type MappedRenameLocation,
 } from "./monaco-mapping";
 import {
   createGrammarLoader,
@@ -176,21 +181,24 @@ export function createMonacoEditors(
   /**
    * Opens the hover where a pointer would have, for a device with no pointer.
    *
-   * Still gated on the occurrence table even though the hover's *content* now
-   * comes from the session, and the mismatch is deliberate. The table is a
-   * cheap local answer to "is there anything here", and this runs on every
-   * caret move and on every keystroke — `publishTypes` is called from
-   * `handleSourceChange`, not only after a compile. Asking the worker instead
-   * would be two round trips per keystroke on the lowest-powered device the
-   * Playground supports, and `editor.action.showHover` on an already-open
-   * hover focuses it rather than re-asking (`hoverActions.js`'s
-   * `FocusIfVisible`), so the extra asks would not even be free of visible
-   * effect.
+   * Gated on the occurrence table, while the hover's *content* now comes from
+   * the session. The two do not agree, in both directions — measured, on one
+   * document, rather than reasoned about:
    *
-   * The cost is that positions the table has no row for — a record field, an
-   * `honor` member, an `export opaque` type parameter — do not auto-open on
-   * iPadOS, though they answer perfectly well when hovered. That is a smaller
-   * loss than a hover that steals focus, and #254 carries it.
+   * | position                       | gate | session answers |
+   * |--------------------------------|------|-----------------|
+   * | record field, `honor` member   | yes  | no              |
+   * | `export opaque` parameter      | no   | yes             |
+   * | union name, constraint in head | no   | yes             |
+   *
+   * So the table is not a conservative approximation of the session; it is a
+   * different question. Keeping it is a cost decision, not a correctness one:
+   * this runs on every caret move *and* every keystroke, since `publishTypes`
+   * is called from `handleSourceChange` and not only after a compile, so asking
+   * the worker would be two round trips per character on the lowest-powered
+   * device the Playground supports.
+   *
+   * #254 carries the disagreement, with these measurements in it.
    */
   const showTypeAtCaret = (): void => {
     const position = sourceEditor.getPosition();
@@ -279,11 +287,13 @@ export function createMonacoEditors(
 /**
  * Every editor service, backed by the session in the compiler worker.
  *
- * All of them answer about one model — the source editor's — because that is the
- * only Hexagon document the Playground has. The generated panes are JavaScript
- * and TypeScript, and the check is not defensive: a provider is registered
- * against a *language*, so anything else opened as `hexagon` would reach these
- * too and be asked about text the worker has never seen.
+ * All of them answer about one model — the source editor's — and the check is
+ * not defensive: a provider is registered against a *language*, so a second
+ * `hexagon` model would reach these too. The worker would answer it correctly,
+ * since the source travels with every request; what would not be correct is the
+ * staleness guard, because `currentVersion()` is the *source editor's* version
+ * and a second model's replies would be matched against the wrong document's
+ * edits.
  *
  * A refusal is a result, not a failure, so it is passed through rather than
  * filtered out. What the user then sees differs by feature, and #222 assumed it
@@ -355,7 +365,7 @@ function registerLanguageProviders(
       // filters each provider's returned actions by kind (`filtersAction`, in
       // `codeAction/common/types.js`). That is why `context.only` is not read
       // above: the rule has one owner and it is not this file.
-      { providedCodeActionKinds: ["quickfix", "refactor"] },
+      { providedCodeActionKinds: codeActionKinds },
     ),
     monaco.languages.registerDefinitionProvider(hexagonLanguage, {
       provideDefinition: async (model, position) => {
@@ -406,24 +416,18 @@ function registerLanguageProviders(
         );
       },
       provideRenameEdits: async (model, position, newName) => {
-        // Not `{ edits: [] }`: Monaco reads any object without a `rejectReason`
-        // as this provider's accepted answer and stops asking the rest, so an
-        // empty one would be a silent successful no-op rather than a pass.
+        // `undefined`, not `{ edits: [] }`, for a model this does not own: an
+        // object without a `rejectReason` is an accepted answer to Monaco, so
+        // an empty one would end the provider chain with a silent no-op.
         if (!owns(model)) return undefined;
-        const result = await services.rename(
-          model.getValue(),
-          model.getOffsetAt(position),
-          newName,
+        return toRenameEdits(
+          editTarget(model),
+          await services.rename(
+            model.getValue(),
+            model.getOffsetAt(position),
+            newName,
+          ),
         );
-        // Deliberately says nothing about the cause. `undefined` is what comes
-        // back for no name at this position, for an unclosed `module` block, for
-        // a reply dropped as stale, and for a worker fault — the list is not
-        // closed, which is exactly why guessing at one of them is wrong.
-        if (result === undefined) {
-          return { edits: [], rejectReason: "Hexagon has no rename for this position" };
-        }
-        if ("refused" in result) return { edits: [], rejectReason: result.refused };
-        return toWorkspaceEdit(editTarget(model), result.edits);
       },
     }),
   ];
@@ -448,6 +452,24 @@ function registerLanguageProviders(
  * both; presentable in one. Making the other presentable is the host's job, not
  * this function's.
  */
+/**
+ * That the optional fields carrying a refusal are spelled Monaco's way.
+ *
+ * Assignability does not check this. `disabled`, `rejectReason` and `kind` are
+ * all optional on Monaco's side, so a mapped value that misspells one is still
+ * a legal `CodeAction` or `RenameLocation` — it just silently loses the field,
+ * and a refused action ships as an enabled one with no edit. `Pick` names them,
+ * so a rename in `monaco-mapping.ts` fails here instead.
+ */
+type _SpelledLikeMonaco = [
+  Required<Pick<MappedCodeAction<monaco.Uri, monaco.Range>, "disabled" | "kind">> extends
+    Required<Pick<monaco.languages.CodeAction, "disabled" | "kind">> ? true : never,
+  Required<Pick<MappedRenameLocation<monaco.Range>, "rejectReason">> extends
+    Required<Pick<monaco.languages.RenameLocation & monaco.languages.Rejection, "rejectReason">>
+    ? true
+    : never,
+];
+
 function editTarget(
   model: monaco.editor.ITextModel,
 ): EditTarget<monaco.Uri, monaco.Range> {
@@ -456,23 +478,6 @@ function editTarget(
     versionId: model.getVersionId(),
     range: (startOffset, endOffset) => rangeFromOffsets(model, startOffset, endOffset),
   };
-}
-
-/**
- * Whether the compile that produced `types` found anything at this offset.
- *
- * Looks one offset back as well, so a caret resting immediately after a name is
- * still on it — the position a tap most often leaves it in.
- */
-function typeOccurrenceAtOffset(
-  types: readonly TypeOccurrence[],
-  offset: number,
-): TypeOccurrence | undefined {
-  const at = (candidate: number): TypeOccurrence | undefined =>
-    types.find(({ startOffset, endOffset }) =>
-      candidate >= startOffset && candidate < endOffset
-    );
-  return at(offset) ?? (offset > 0 ? at(offset - 1) : undefined);
 }
 
 function replaceModel(uri: string, source: string, language: string): monaco.editor.ITextModel {
@@ -499,8 +504,11 @@ function rangeFromOffsets(
   startOffset: number,
   endOffset: number,
 ): monaco.Range {
-  const boundedStart = Math.min(startOffset, model.getValueLength());
-  const boundedEnd = Math.max(boundedStart, Math.min(endOffset, model.getValueLength()));
+  const [boundedStart, boundedEnd] = boundedOffsets(
+    startOffset,
+    endOffset,
+    model.getValueLength(),
+  );
   const start = model.getPositionAt(boundedStart);
   const end = model.getPositionAt(boundedEnd);
   return new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column);

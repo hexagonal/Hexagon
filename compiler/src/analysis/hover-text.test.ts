@@ -16,18 +16,31 @@ const hover = (fields: {
 /**
  * The word in front of a name, for every kind a name can denote.
  *
- * Exhaustive by construction rather than by choice: `Target` is a closed union
- * and `describeTarget` switches on it without a default, so a new kind stops
- * compiling here as well as there. Each row is a string a user reads, which is
- * why they are spelled out rather than derived.
+ * Keyed by `Target["kind"]` rather than listed, so this is exhaustive by the
+ * type checker and not by my counting: a sixth kind added to `Target` fails to
+ * compile here as well as in `describeTarget`'s switch. Each value is a string
+ * a user reads, so they are spelled out rather than derived from the kind.
  */
-const kinds: readonly (readonly [Target, string])[] = [
-  [{ kind: "value", symbol: 1 as never }, "value"],
-  [{ kind: "union", union: 1 as never }, "union"],
-  [{ kind: "record", record: 1 as never }, "record"],
-  [{ kind: "extern-type", externType: 1 as never }, "foreign type"],
-  [{ kind: "constraint", name: "Show" }, "constraint"],
-];
+const words: Record<Target["kind"], string> = {
+  "value": "value",
+  "union": "union",
+  "record": "record",
+  "extern-type": "foreign type",
+  "constraint": "constraint",
+};
+
+/** One `Target` per kind, with a payload the renderer never looks at. */
+const targets: Record<Target["kind"], Target> = {
+  "value": { kind: "value", symbol: 1 as never },
+  "union": { kind: "union", union: 1 as never },
+  "record": { kind: "record", record: 1 as never },
+  "extern-type": { kind: "extern-type", externType: 1 as never },
+  "constraint": { kind: "constraint", name: "Show" },
+};
+
+const kinds = Object.entries(words).map(
+  ([kind, word]) => [targets[kind as Target["kind"]]!, word] as const,
+);
 
 describe("hoverMarkdown", () => {
   test.each(kinds)("names a %o as its kind", (target, word) => {
@@ -36,7 +49,7 @@ describe("hoverMarkdown", () => {
   });
 
   test("omits the type for a name the checker gave no scheme", () => {
-    expect(hoverMarkdown(hover({ name: "Shade", target: kinds[1]![0] })))
+    expect(hoverMarkdown(hover({ name: "Shade", target: targets.union })))
       .toBe("union `Shade`");
   });
 
@@ -52,7 +65,7 @@ describe("hoverMarkdown", () => {
     // silently restyle the signature above it.
     const rendered = hoverMarkdown(hover({
       name: "twice",
-      target: kinds[0]![0],
+      target: targets.value,
       displayedType: "Int -> Int",
       documentation: "Doubles it.",
     }));
@@ -67,7 +80,7 @@ describe("hoverMarkdown", () => {
     expect(
       hoverMarkdown(hover({
         name: "x",
-        target: kinds[0]![0],
+        target: targets.value,
         displayedType: "Int",
         documentation: "See `Vector.length` and *note* the [link](x).",
       })),

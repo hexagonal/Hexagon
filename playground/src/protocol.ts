@@ -189,8 +189,12 @@ export interface RenameReply extends ServiceReply {
 
 /**
  * A request the worker could not answer at all, as opposed to one it answered
- * with nothing. The two are different to a user: an editor says nothing about
- * the first and shows the failure for the second.
+ * with nothing.
+ *
+ * The user sees the same thing either way — the editor draws nothing — and that
+ * is not the point of keeping them apart. The point is the console: a service
+ * that has started throwing is otherwise indistinguishable from a service with
+ * nothing to say, and the difference only becomes visible if something says so.
  */
 export interface ServiceFailure extends ServiceReply {
   readonly kind: "service-failure";

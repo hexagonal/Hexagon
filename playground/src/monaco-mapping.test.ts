@@ -1,9 +1,13 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  boundedOffsets,
+  codeActionKinds,
   toCodeAction,
+  toRenameEdits,
   toRenameLocation,
   toWorkspaceEdit,
+  typeOccurrenceAtOffset,
   type EditTarget,
 } from "./monaco-mapping";
 
@@ -116,12 +120,97 @@ describe("toRenameLocation", () => {
     ).toEqual({ range: [4, 9], text: "twice" });
   });
 
-  test("carries a refusal at the caret, with nothing to pre-fill", () => {
+  test("carries a refusal, which is the only part Monaco reads", () => {
+    // `range` and `text` are pinned because the type demands them, not because
+    // they are used: Monaco discards both and rebuilds the location from the
+    // word under the cursor. `rejectReason` is the assertion that matters.
     expect(toRenameLocation({ refused: "`Show` is declared in `/Prelude.hex`" }, range, caret))
       .toEqual({
         range: [99, 99],
         text: "",
         rejectReason: "`Show` is declared in `/Prelude.hex`",
       });
+  });
+});
+
+describe("toRenameEdits", () => {
+  test("carries the plan's edits when there is a plan", () => {
+    expect(
+      toRenameEdits(target, {
+        newName: "double",
+        edits: [{ startOffset: 4, endOffset: 9, replacement: "double" }],
+      }),
+    ).toEqual({
+      edits: [{
+        resource: "inmemory://hexagon/main.hex",
+        versionId: 12,
+        textEdit: { range: [4, 9], text: "double" },
+      }],
+    });
+  });
+
+  test("rejects with the session's own sentence when the session refused", () => {
+    expect(toRenameEdits(target, { refused: "`Show` is declared in `/Prelude.hex`" }))
+      .toEqual({ edits: [], rejectReason: "`Show` is declared in `/Prelude.hex`" });
+  });
+
+  test("rejects rather than accepting nothing when there is no answer", () => {
+    // The failure this prevents: a result without `rejectReason` is Monaco's
+    // signal that this provider handled the rename, so an empty edit set would
+    // end the chain with a successful no-op instead of a message.
+    const rejected = toRenameEdits(target, undefined);
+
+    expect(rejected.edits).toEqual([]);
+    expect(rejected.rejectReason).toBe("Hexagon has no rename for this position");
+  });
+});
+
+describe("boundedOffsets", () => {
+  test("leaves a span already inside the document alone", () => {
+    expect(boundedOffsets(4, 9, 20)).toEqual([4, 9]);
+    expect(boundedOffsets(0, 20, 20)).toEqual([0, 20]);
+  });
+
+  test("pulls a span past the end back inside it", () => {
+    // A stale reply describes text the model no longer has, and Monaco throws
+    // on a position past the end rather than clamping for us.
+    expect(boundedOffsets(18, 40, 20)).toEqual([18, 20]);
+    expect(boundedOffsets(30, 40, 20)).toEqual([20, 20]);
+  });
+
+  test("never returns an inverted span", () => {
+    expect(boundedOffsets(9, 4, 20)).toEqual([9, 9]);
+    expect(boundedOffsets(-5, -1, 20)).toEqual([0, 0]);
+  });
+});
+
+describe("typeOccurrenceAtOffset", () => {
+  const types = [
+    { name: "xs", displayedType: "Seq(Int)", startOffset: 4, endOffset: 6 },
+  ];
+
+  test("finds the name the offset is inside", () => {
+    expect(typeOccurrenceAtOffset(types, 4)?.name).toBe("xs");
+    expect(typeOccurrenceAtOffset(types, 5)?.name).toBe("xs");
+  });
+
+  test("finds the name a caret has just moved past", () => {
+    // Where a tap most often leaves the caret; without the look-back the
+    // iPadOS hover would not open for a name the user tapped the end of.
+    expect(typeOccurrenceAtOffset(types, 6)?.name).toBe("xs");
+  });
+
+  test("finds nothing beyond that, and never reads before the document", () => {
+    expect(typeOccurrenceAtOffset(types, 7)).toBeUndefined();
+    expect(typeOccurrenceAtOffset(types, 3)).toBeUndefined();
+    expect(typeOccurrenceAtOffset(types, 0)).toBeUndefined();
+  });
+});
+
+describe("codeActionKinds", () => {
+  test("advertises both families the session emits", () => {
+    // `refactor` is load-bearing: the variance offer is the only action of that
+    // kind, and dropping it here makes Monaco stop asking under `Refactor…`.
+    expect([...codeActionKinds].sort()).toEqual(["quickfix", "refactor"]);
   });
 });

@@ -125,17 +125,15 @@ export class PlaygroundAnalysis {
     // are re-derived here from the occurrence index — cheap, where asking
     // `rename` would re-analyse the project to verify a name nobody typed yet.
     //
-    // Restricted to the subject's own spelling, matching `#renameSubject`'s own
-    // filter, so the two sets are the same one and not merely similar.
-    // `references` starts from every occurrence at the offset where the rename
-    // starts from those named like the innermost, so without the filter this is
-    // a superset — which would only ever over-refuse, and over-refusing is the
-    // side to be wrong on: declining a rename that would have worked costs the
-    // user a retry, and a prompt that rejects every keystroke costs them the
+    // Every mention at the offset, deliberately unnarrowed. `#renameSubject`
+    // additionally drops the ones spelled differently from the innermost, so
+    // this can in principle refuse a rename that would have succeeded — and it
+    // is left that way because no input has been found where the two sets
+    // differ, so narrowing would be guarding a case nobody can produce. Refusal
+    // is also the side to be wrong on: declining a rename that would have worked
+    // costs a retry, and a prompt that rejects every keystroke costs the
     // feature.
-    const reachable = this.#session
-      .references(at.path, at.offset)
-      .filter((mention) => mention.name === subject.name);
+    const reachable = this.#session.references(at.path, at.offset);
     if (
       reachable.some(({ path, span }) =>
         layout.map.toBufferRange(path, offsetsOf(span)) === undefined
@@ -225,8 +223,8 @@ export class PlaygroundAnalysis {
    * A span names its file by number, not by path, so the number is looked up
    * rather than assumed to be the queried file's. Both callers today ask about
    * spans the session took from occurrences in the file they queried, so the
-   * lookup changes no answer; it costs one map read and it is what stops that
-   * from becoming an invariant nothing checks.
+   * lookup changes no answer and no test can tell it apart from using `queried`
+   * directly. It is one map read to not depend on that.
    */
   #rangeOfSpan(
     map: WorkspaceMap,

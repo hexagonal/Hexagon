@@ -1,8 +1,8 @@
 /**
  * What the compiler worker does with a message, separated from being a worker.
  *
- * `compiler-worker.ts` is the four lines that reach for `self`; everything with
- * a decision in it is here, so it can be exercised without a `Worker` and a DOM.
+ * `compiler-worker.ts` is the part that reaches for `self`; everything with a
+ * decision in it is here, so it can be exercised without a `Worker`.
  * That split exists because this layer's guarantees — that every request is
  * answered, that a thrown error becomes a reply rather than a silence — are the
  * kind that read as obviously true and are not.

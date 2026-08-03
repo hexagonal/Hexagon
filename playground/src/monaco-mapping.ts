@@ -9,11 +9,33 @@
  *
  * Nothing here imports Monaco, even as a type. A range and a URI arrive already
  * made, through `EditTarget`, because building a range needs the model's line
- * index and the model is what could not be loaded. The result types are
- * structural, and `monaco.ts` is where they are checked against the real ones.
+ * index and the model is what could not be loaded.
+ *
+ * The result types are structural, which buys less than it looks like. Ordinary
+ * assignability catches a missing *required* field and nothing else: spell
+ * `disabled` as `disabledReason` and every one of these still assigns to
+ * Monaco's `CodeAction`, because an optional field that is absent is a legal
+ * `CodeAction` and a stray one is not an excess-property error away from a
+ * literal. `monaco.ts` therefore asserts the optional names field by field, and
+ * the tests here pin the values. Neither alone is enough.
  */
 
-import type { PlaygroundCodeAction, PlaygroundTextEdit } from "./protocol";
+import type {
+  PlaygroundCodeAction,
+  PlaygroundRenamePlan,
+  PlaygroundRenameRefusal,
+  PlaygroundTextEdit,
+  TypeOccurrence,
+} from "./protocol";
+
+/**
+ * The kinds this Playground's code-action provider advertises.
+ *
+ * Named rather than written inline because it is a claim about the actions the
+ * session emits: drop `"refactor"` and Monaco stops asking this provider under
+ * a `refactor` filter, which is where the variance offer would appear.
+ */
+export const codeActionKinds: readonly string[] = ["quickfix", "refactor"];
 
 /**
  * The document an edit is against.
@@ -92,14 +114,45 @@ export function toCodeAction<Uri, Range>(
 }
 
 /**
+ * The edits a rename would make, or the reason there are none.
+ *
+ * `undefined` and a refusal both become a rejection, because Monaco reads any
+ * result *without* a `rejectReason` as this provider's accepted answer and stops
+ * asking the others — so an empty edit set would be a silent successful no-op.
+ * The two do not share a sentence: a refusal has the session's own words, and
+ * `undefined` gets one that names no cause, since it stands for a name that is
+ * not there, an unclosed `module` block, a reply dropped as stale, and a worker
+ * fault alike.
+ */
+export function toRenameEdits<Uri, Range>(
+  target: EditTarget<Uri, Range>,
+  result: PlaygroundRenamePlan | PlaygroundRenameRefusal | undefined,
+): MappedWorkspaceEdit<Uri, Range> & { readonly rejectReason?: string } {
+  if (result === undefined) {
+    return { edits: [], rejectReason: "Hexagon has no rename for this position" };
+  }
+  if ("refused" in result) return { edits: [], rejectReason: result.refused };
+  return toWorkspaceEdit(target, result.edits);
+}
+
+/**
  * The identifier a rename would start from, or the reason it will not run.
  *
- * A refusal still needs a range and a text, because the shape is not optional;
- * they are the caret and the empty string, since there is no subject to
- * describe. Monaco reads `rejectReason` first and shows it at that position.
+ * A refusal still needs a range and a text, because the shape has neither
+ * optional; they are the caret and the empty string, since there is no subject
+ * to describe — and Monaco discards both. `RenameSkeleton` collects the
+ * `rejectReason`, moves on, and rebuilds a location from the word under the
+ * cursor, then shows the reason at the *editor's* position. So the two filler
+ * fields satisfy the type and nothing else, which is worth knowing before
+ * anyone spends effort making them more accurate.
  */
 export function toRenameLocation<Range>(
-  subject: { readonly name: string; readonly range: { readonly startOffset: number; readonly endOffset: number } } | { readonly refused: string },
+  subject:
+    | {
+      readonly name: string;
+      readonly range: { readonly startOffset: number; readonly endOffset: number };
+    }
+    | { readonly refused: string },
   range: (startOffset: number, endOffset: number) => Range,
   caret: Range,
 ): MappedRenameLocation<Range> {
@@ -109,4 +162,39 @@ export function toRenameLocation<Range>(
       range: range(subject.range.startOffset, subject.range.endOffset),
       text: subject.name,
     };
+}
+
+/**
+ * Both offsets brought inside a document of this length, start first.
+ *
+ * A span from the worker describes text the model had when the request was sent,
+ * and the model may be shorter now. Monaco throws on a position past the end, so
+ * this is what stops a stale hover from taking the editor down; the range it
+ * produces is wrong, and a wrong highlight on a hover that is about to be
+ * replaced is the cheap failure.
+ */
+export function boundedOffsets(
+  startOffset: number,
+  endOffset: number,
+  length: number,
+): readonly [number, number] {
+  const start = Math.min(Math.max(0, startOffset), length);
+  return [start, Math.max(start, Math.min(endOffset, length))];
+}
+
+/**
+ * Whether the compile that produced `types` found anything at this offset.
+ *
+ * Looks one offset back as well, so a caret resting immediately after a name is
+ * still on it — the position a tap most often leaves it in.
+ */
+export function typeOccurrenceAtOffset(
+  types: readonly TypeOccurrence[],
+  offset: number,
+): TypeOccurrence | undefined {
+  const at = (candidate: number): TypeOccurrence | undefined =>
+    types.find(({ startOffset, endOffset }) =>
+      candidate >= startOffset && candidate < endOffset
+    );
+  return at(offset) ?? (offset > 0 ? at(offset - 1) : undefined);
 }
