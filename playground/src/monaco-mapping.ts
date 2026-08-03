@@ -21,11 +21,11 @@
  */
 
 import type {
+  BufferRange,
   PlaygroundCodeAction,
   PlaygroundRenamePlan,
   PlaygroundRenameRefusal,
   PlaygroundTextEdit,
-  TypeOccurrence,
 } from "./protocol";
 
 /**
@@ -188,20 +188,25 @@ export function boundedOffsets(
 }
 
 /**
- * Whether the compile that produced `types` found anything at this offset.
+ * Whether a hover would answer at this offset, from the spans the session
+ * published for the text the caret is in.
  *
- * Looks one offset back as well, so a caret resting immediately after a name is
- * still on it — the position a tap most often leaves it in.
+ * Closed at both ends, which is not a convenience here but the session's own
+ * rule: `occurrencesAt`, `DocumentationIndex.covering` and `siteAt` all treat a
+ * caret resting immediately after a name as being on it — the position a tap
+ * most often leaves it in — so a gate that stopped one short of the end would
+ * refuse to open exactly where the hover has an answer.
+ *
+ * The predecessor of this function looked one offset *back* to buy the same
+ * behaviour from a half-open table. That was a faithful local translation of a
+ * table which was itself answering a different question, which is the part #254
+ * was about; reading the published end inclusively is what the session means.
  */
-export function typeOccurrenceAtOffset(
-  types: readonly TypeOccurrence[],
+export function hoverAnswersAtOffset(
+  spans: readonly BufferRange[],
   offset: number,
-): TypeOccurrence | undefined {
-  const at = (candidate: number): TypeOccurrence | undefined =>
-    types.find(({ startOffset, endOffset }) =>
-      candidate >= startOffset && candidate < endOffset
-    );
-  // No guard on `offset - 1` going negative: every occurrence starts at zero or
-  // later, so a lookup at -1 matches nothing rather than matching wrongly.
-  return at(offset) ?? at(offset - 1);
+): boolean {
+  return spans.some(({ startOffset, endOffset }) =>
+    offset >= startOffset && offset <= endOffset
+  );
 }

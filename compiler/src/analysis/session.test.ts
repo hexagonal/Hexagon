@@ -1033,3 +1033,85 @@ describe("hover: a parameterized opaque type's variance (#205)", () => {
       .toBeUndefined();
   });
 });
+
+describe("hoverSpans (#254)", () => {
+  /**
+   * Every position the issue measured a disagreement at, in one file: a record
+   * field and an `honor` member (no occurrence identity, documented and
+   * undocumented), an `export opaque` type parameter (a variance site and
+   * nothing else), a union declaration name, and a constraint named in an
+   * `honor` head.
+   */
+  const SOURCE = [
+    "constraint Shown<a> =",
+    "    show(value: a): String",
+    "",
+    "record P = {",
+    "    (** The one it answers to. *)",
+    "    name: String,",
+    "    tag: String,",
+    "}",
+    "",
+    "honor Shown<P> =",
+    "    show(value) = value.name",
+    "",
+    "export opaque record Box(a) = { get: () -> a }",
+    "",
+    "union Shade =",
+    "    | Pale",
+    "    | Dark",
+    "",
+  ].join("\n");
+
+  /** Whether the published set of spans covers an offset, as a host reads it. */
+  function covers(spans: readonly { start: number; end: number }[], offset: number): boolean {
+    return spans.some(({ start, end }) => offset >= start && offset <= end);
+  }
+
+  test("names every offset hover answers at, and no other", () => {
+    // The property the gate exists for, checked exhaustively rather than at a
+    // list of positions someone chose: at *every* offset in the document, the
+    // published spans and `hover` agree. A gate derived from anything but the
+    // answer fails this somewhere, which is how #254 was found.
+    const { session } = sessionOf({ "/main.hex": SOURCE });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    const spans = session.hoverSpans("/main.hex");
+
+    const disagreements: string[] = [];
+    for (let offset = 0; offset <= SOURCE.length; offset += 1) {
+      const answers = session.hover("/main.hex", offset) !== undefined;
+      if (covers(spans, offset) !== answers) {
+        disagreements.push(
+          `${offset} (${JSON.stringify(SOURCE.slice(Math.max(0, offset - 6), offset + 6))}): ` +
+            `gate ${covers(spans, offset)}, hover ${answers}`,
+        );
+      }
+    }
+    expect(disagreements).toEqual([]);
+  });
+
+  test("covers the three sources hover reads, so the test above is not vacuous", () => {
+    // Without this the exhaustive check would pass just as happily on a
+    // document where hover answers nowhere. Each of these is one of `hover`'s
+    // three branches, and each is a position #254 measured the old gate wrong
+    // at: a documented field the occurrence index cannot name, an opaque type
+    // parameter that is a variance site and nothing else, and a union name.
+    const { session } = sessionOf({ "/main.hex": SOURCE });
+    const spans = session.hoverSpans("/main.hex");
+
+    for (const needle of ["name: String", "a) = { get", "Shade"]) {
+      const offset = at(SOURCE, needle);
+      expect(session.hover("/main.hex", offset)).toBeDefined();
+      expect(covers(spans, offset)).toBe(true);
+    }
+    // And an undocumented field still answers nowhere, in both.
+    const undocumented = at(SOURCE, "tag");
+    expect(session.hover("/main.hex", undocumented)).toBeUndefined();
+    expect(covers(spans, undocumented)).toBe(false);
+  });
+
+  test("a file the session does not hold has no spans rather than throwing", () => {
+    const { session } = sessionOf({ "/main.hex": SOURCE });
+    expect(session.hoverSpans("/absent.hex")).toEqual([]);
+  });
+});

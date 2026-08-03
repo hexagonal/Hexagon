@@ -35,6 +35,23 @@ import type {
 /** What Monaco's providers are given; the worker is not visible past here. */
 export interface LanguageServices {
   hover(source: string, offset: number): Promise<PlaygroundHover | undefined>;
+  /**
+   * Every region of `source` a hover would answer at; see `HoverSpansRequest`.
+   *
+   * The one service that distinguishes "nothing to say" from "no answer".
+   * Its caller *caches* what it gets back against the text it describes, so the
+   * empty array every other service returns would be remembered as "the hover
+   * answers nowhere in this document" and would keep being believed.
+   * `undefined` says ask again.
+   *
+   * The reachable case is a `service-failure` reply — the worker threw on this
+   * one request — which moves neither version counter and does not latch, so
+   * nothing else would ever correct it. A version drop cannot reach the cache,
+   * since the caller re-checks its own clock first, and a latched channel
+   * failure ends every request anyway; both are covered for the price of one
+   * rule rather than because they were the problem.
+   */
+  hoverSpans(source: string): Promise<readonly BufferRange[] | undefined>;
   codeActions(
     source: string,
     range: BufferRange,
@@ -120,6 +137,15 @@ export function createLanguageServices(
         offset,
       }));
       return reply?.kind === "hover" ? reply.hover : undefined;
+    },
+    async hoverSpans(source) {
+      const reply = await ask((id, version) => ({
+        kind: "hover-spans",
+        id,
+        version,
+        source,
+      }));
+      return reply?.kind === "hover-spans" ? reply.ranges : undefined;
     },
     async codeActions(source, range) {
       const reply = await ask((id, version) => ({

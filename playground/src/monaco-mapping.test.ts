@@ -7,7 +7,7 @@ import {
   toRenameEdits,
   toRenameLocation,
   toWorkspaceEdit,
-  typeOccurrenceAtOffset,
+  hoverAnswersAtOffset,
   type EditTarget,
 } from "./monaco-mapping";
 
@@ -184,26 +184,36 @@ describe("boundedOffsets", () => {
   });
 });
 
-describe("typeOccurrenceAtOffset", () => {
-  const types = [
-    { name: "xs", displayedType: "Seq(Int)", startOffset: 4, endOffset: 6 },
-  ];
+describe("hoverAnswersAtOffset", () => {
+  // `xs` at offsets 4..6, as the session publishes it: closed at both ends.
+  const spans = [{ startOffset: 4, endOffset: 6 }];
 
-  test("finds the name the offset is inside", () => {
-    expect(typeOccurrenceAtOffset(types, 4)?.name).toBe("xs");
-    expect(typeOccurrenceAtOffset(types, 5)?.name).toBe("xs");
+  test("answers inside the name", () => {
+    expect(hoverAnswersAtOffset(spans, 4)).toBe(true);
+    expect(hoverAnswersAtOffset(spans, 5)).toBe(true);
   });
 
-  test("finds the name a caret has just moved past", () => {
-    // Where a tap most often leaves the caret; without the look-back the
-    // iPadOS hover would not open for a name the user tapped the end of.
-    expect(typeOccurrenceAtOffset(types, 6)?.name).toBe("xs");
+  test("answers where a caret has just moved past the name", () => {
+    // The position a tap most often leaves the caret in, and the session's own
+    // rule for every position query it answers — see `occurrencesAt`. The gate
+    // reads the published end inclusively rather than looking an offset back,
+    // which is what the table it replaced had to do (#254).
+    expect(hoverAnswersAtOffset(spans, 6)).toBe(true);
   });
 
-  test("finds nothing beyond that, and never reads before the document", () => {
-    expect(typeOccurrenceAtOffset(types, 7)).toBeUndefined();
-    expect(typeOccurrenceAtOffset(types, 3)).toBeUndefined();
-    expect(typeOccurrenceAtOffset(types, 0)).toBeUndefined();
+  test("answers nowhere else, including before the document", () => {
+    expect(hoverAnswersAtOffset(spans, 7)).toBe(false);
+    expect(hoverAnswersAtOffset(spans, 3)).toBe(false);
+    expect(hoverAnswersAtOffset(spans, 0)).toBe(false);
+    expect(hoverAnswersAtOffset([], 5)).toBe(false);
+  });
+
+  test("answers from any span, not only the first", () => {
+    // The session publishes one flat set across every file in the buffer, in
+    // buffer order but with no claim of disjointness: a record's name is both a
+    // type and a constructor, so overlapping spans are normal.
+    const many = [{ startOffset: 4, endOffset: 6 }, { startOffset: 20, endOffset: 23 }];
+    expect(hoverAnswersAtOffset(many, 21)).toBe(true);
   });
 });
 

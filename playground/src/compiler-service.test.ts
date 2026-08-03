@@ -16,6 +16,15 @@ describe("createCompilerService", () => {
       version: 4,
       hover: { markdown: "value `twice: Int -> Int`" },
     });
+    expect(service.handle({ kind: "hover-spans", ...asked })).toMatchObject({
+      kind: "hover-spans",
+      id: 9,
+      version: 4,
+      // The declaration's own name. The point here is that the request is
+      // answered in this shape at all; what the session finds is pinned in
+      // `analysis.test.ts`, against `hover` itself.
+      ranges: expect.arrayContaining([{ startOffset: 4, endOffset: 9 }]),
+    });
     expect(
       service.handle({ kind: "code-actions", ...asked, startOffset: 0, endOffset: 0 }),
     ).toMatchObject({ kind: "code-actions", id: 9, version: 4, actions: [] });

@@ -30,7 +30,13 @@ export interface CompilerService {
  */
 export type EditorAnalysis = Pick<
   PlaygroundAnalysis,
-  "hover" | "definitions" | "references" | "codeActions" | "prepareRename" | "rename"
+  | "hover"
+  | "hoverSpans"
+  | "definitions"
+  | "references"
+  | "codeActions"
+  | "prepareRename"
+  | "rename"
 >;
 
 export interface CompilerServiceParts {
@@ -108,6 +114,13 @@ function serve(
           id,
           version,
           hover: analysis.hover(request.source, request.offset),
+        };
+      case "hover-spans":
+        return {
+          kind: "hover-spans",
+          id,
+          version,
+          ranges: analysis.hoverSpans(request.source),
         };
       case "code-actions":
         return {

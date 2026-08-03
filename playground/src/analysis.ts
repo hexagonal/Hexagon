@@ -60,6 +60,42 @@ export class PlaygroundAnalysis {
     return { markdown: hoverMarkdown(hover), range };
   }
 
+  /**
+   * Every region of the buffer `hover` would answer at, asked once for the whole
+   * document rather than once per position.
+   *
+   * This is the iPadOS caret hover's gate (#254). A pointer host never needs it:
+   * the user hovers, `hover` is asked, and an empty answer draws nothing. Without
+   * a pointer the Playground has to decide to open the hover *before* it has
+   * anything to show, and it used to decide from the compile's type-occurrence
+   * table — which answers a different question, and so both opened on positions
+   * that had nothing to say and stayed shut on positions that did.
+   *
+   * One request per settled document, not one per caret move: the caller caches
+   * these against the text they describe and shares one request between callers
+   * waiting on the same text, and the session behind them holds its analysis
+   * until a file changes, so the hover that follows costs a lookup.
+   *
+   * Each span is mapped back through the path it was asked about rather than
+   * through the file its span names. Those are the same file — the session says
+   * so — and asking about the queried path is the reading that matches how the
+   * gate will be used: an offset is compared against one file's set.
+   *
+   * Spans the buffer cannot show are dropped, like a definition's — a caret
+   * cannot be inside one, so nothing is lost by not gating on it.
+   */
+  hoverSpans(source: string): readonly BufferRange[] {
+    const layout = this.#sync(source);
+    if (layout === undefined) return [];
+    return inBufferOrder(
+      layout.files.flatMap(({ path }) =>
+        this.#session
+          .hoverSpans(path)
+          .flatMap((range) => toRange(layout.map.toBufferRange(path, range)))
+      ),
+    );
+  }
+
   definitions(source: string, offset: number): readonly BufferRange[] {
     const layout = this.#sync(source);
     const at = layout?.map.locate(offset);

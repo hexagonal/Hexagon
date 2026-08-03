@@ -184,6 +184,90 @@ describe("hover", () => {
   });
 });
 
+describe("hoverSpans", () => {
+  /**
+   * Documented and undocumented positions of every kind #254 measured, inside a
+   * module block so the buffer/virtual-file mapping is exercised too — that
+   * translation is the Playground's own contribution to the answer, and the
+   * session's tests cannot see it.
+   */
+  const source = [
+    "module Shapes",
+    "    (** What a shape is called. *)",
+    "    export record P = {",
+    "        name: String,",
+    "        tag: String,",
+    "    }",
+    "    export opaque record Box(a) = { get: () -> a }",
+    "end module Shapes",
+    "let one = 1",
+    "console.log(one)",
+    "",
+  ].join("\n");
+
+  function covers(spans: readonly BufferRange[], offset: number): boolean {
+    return spans.some(({ startOffset, endOffset }) =>
+      offset >= startOffset && offset <= endOffset
+    );
+  }
+
+  test("names every buffer offset the hover answers at, and no other", () => {
+    // The property the caret-driven hover on iPadOS gates on, checked at every
+    // offset rather than at a chosen few: #254 was a gate that answered a
+    // different question, and its first table of positions was wrong in both
+    // columns. Nothing short of exhaustive would have caught either.
+    const analysis = new PlaygroundAnalysis();
+    const spans = analysis.hoverSpans(source);
+
+    const disagreements: string[] = [];
+    for (let offset = 0; offset <= source.length; offset += 1) {
+      const answers = analysis.hover(source, offset) !== undefined;
+      if (covers(spans, offset) !== answers) {
+        disagreements.push(
+          `${offset} (${JSON.stringify(source.slice(Math.max(0, offset - 8), offset + 8))}): ` +
+            `gate ${covers(spans, offset)}, hover ${answers}`,
+        );
+      }
+    }
+    expect(disagreements).toEqual([]);
+  });
+
+  test("opens on the positions the occurrence table never would", () => {
+    // Without this the check above would pass on a document that answers
+    // nowhere. Each is a position the old gate stayed shut at while a pointer
+    // hover answered perfectly well.
+    const analysis = new PlaygroundAnalysis();
+    const spans = analysis.hoverSpans(source);
+
+    for (const [what, offset] of [
+      ["a documented record name", at(source, "P")],
+      ["an export opaque type parameter", at(source, "a) = { get")],
+    ] as const) {
+      expect(analysis.hover(source, offset), what).toBeDefined();
+      expect(covers(spans, offset), what).toBe(true);
+    }
+  });
+
+  test("stays shut where the hover has nothing, including an undocumented field", () => {
+    const analysis = new PlaygroundAnalysis();
+    const spans = analysis.hoverSpans(source);
+    const undocumented = at(source, "tag");
+
+    expect(analysis.hover(source, undocumented)).toBeUndefined();
+    expect(covers(spans, undocumented)).toBe(false);
+  });
+
+  test("publishes nothing while the module notation is broken", () => {
+    // The same refusal `hover` makes, and for the same reason: the split into
+    // files is a guess. A gate that kept the last good spans would open the
+    // hover over text they no longer describe.
+    const analysis = new PlaygroundAnalysis();
+    const unclosed = `module Helper\n${factorial}`;
+
+    expect(analysis.hoverSpans(unclosed)).toEqual([]);
+  });
+});
+
 describe("definition and references", () => {
   test("goes from a use to the declaration that binds it", () => {
     const analysis = new PlaygroundAnalysis();

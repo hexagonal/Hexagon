@@ -12,15 +12,15 @@ import type {
   GeneratedCodeEditor,
   SourceEditor,
 } from "./editor";
+import { createHoverSpanCache } from "./hover-spans";
 import type { LanguageServices } from "./language-services";
-import type { TypeOccurrence } from "./protocol";
 import {
   boundedOffsets,
   codeActionKinds,
+  hoverAnswersAtOffset,
   toCodeAction,
   toRenameEdits,
   toRenameLocation,
-  typeOccurrenceAtOffset,
   type EditTarget,
   type MappedCodeAction,
   type MappedRenameLocation,
@@ -116,6 +116,16 @@ for (const [languageId, scopeName] of [
 
 defineHexagonThemes(monaco.editor);
 
+/**
+ * How long the caret must rest before the hover opens itself.
+ *
+ * Long enough that typing a word does not ask the worker once per character —
+ * every keystroke moves the caret — and short enough that tapping a name and
+ * looking at it does not feel like waiting. It sits under the 200ms the compile
+ * is debounced by, so a pause answers the hover first.
+ */
+const CARET_HOVER_DELAY_MS = 150;
+
 export interface MonacoEditors {
   readonly source: SourceEditor;
   readonly generated: GeneratedCodeEditor;
@@ -128,7 +138,7 @@ export function createMonacoEditors(
   generatedContainer: HTMLElement,
   source: string,
   theme: EditorTheme,
-  showTypesAtCaret: boolean,
+  hoverFollowsCaret: boolean,
   services: LanguageServices,
 ): MonacoEditors {
   const sourceModel = replaceModel("inmemory://hexagon/main.hex", source, hexagonLanguage);
@@ -168,9 +178,9 @@ export function createMonacoEditors(
   sourceContainer.hidden = false;
   textarea.hidden = true;
 
-  let types: readonly TypeOccurrence[] = [];
+  const hoverSpanCache = createHoverSpanCache((text) => services.hoverSpans(text));
+  let caretHoverTimer: ReturnType<typeof setTimeout> | undefined;
   let suppressChanges = false;
-  let caretTypeActivated = false;
   let disposed = false;
   const changeListeners = new Set<() => void>();
   const changeSubscription = sourceModel.onDidChangeContent(() => {
@@ -181,45 +191,81 @@ export function createMonacoEditors(
   /**
    * Opens the hover where a pointer would have, for a device with no pointer.
    *
-   * Gated on the occurrence table, while the hover's *content* now comes from
-   * the session. The two do not agree, in both directions — measured, on one
-   * document, rather than reasoned about:
+   * Three things this has to get right, and #254 is the record of getting the
+   * first two wrong.
    *
-   * | position                        | gate | session answers |
-   * |---------------------------------|------|-----------------|
-   * | record field, `honor` member    | yes  | no *            |
-   * | `export opaque` parameter       | no   | yes             |
-   * | union name, constraint in head  | no   | yes             |
+   * **What it gates on.** The session's own answer, asked for as a set of spans
+   * (`hoverSpans`). It used to gate on the compile's type-occurrence table,
+   * which answers a different question — where a *value* has a displayable type
+   * — and so opened an empty hover on a record field and stayed shut on an
+   * `export opaque` type parameter, a union's name, and a constraint in an
+   * `honor` head. A gate not derived from the answer drifts from it; this one
+   * is the answer, sampled.
    *
-   * \* unless it carries a doc comment, which the session answers from alone.
+   * **How it asks Monaco.** `editor.action.showHover` defaults to
+   * `HoverFocusBehavior.FocusIfVisible`, and with a hover already open that
+   * *focuses the widget* rather than re-asking the provider — so the caret
+   * would move, the hover would keep the old name's answer, and keyboard focus
+   * would leave the text. `noAutoFocus` takes the branch that re-asks
+   * (`hoverActions.js`), which is the whole intent: follow the caret.
    *
-   * So the table is not a conservative approximation of the session; it is a
-   * different question. Keeping it is a cost decision, not a correctness one:
-   * this runs on every caret move *and* every keystroke, since `publishTypes`
-   * is called from `handleSourceChange` and not only after a compile, so asking
-   * the worker would be two round trips per character on the lowest-powered
-   * device the Playground supports.
+   * **What it costs, honestly.** One worker round trip per settled document —
+   * cached against the model version it describes and shared with any request
+   * already in flight, so moving the caret around unchanged text asks nothing
+   * after the first, and the debounce keeps a burst of typing from asking until
+   * it stops. But that request is not free: the session's analysis is separate
+   * from the compile's, so a typing pause costs a project analysis here *and*
+   * one in the compile 50ms later. #254 proposed avoiding that by having the
+   * compile publish the spans. This asks the session instead, for two reasons
+   * the issue could not have known: the compile and the session are different
+   * analyses, so computing the gate in the compile would be a *second*
+   * implementation of "where does hover answer" — the exact thing that drifted
+   * — and a compile that fails carries no output at all, where the session
+   * still answers about the names it did resolve.
    *
-   * #254 carries the disagreement, with these measurements in it.
+   * **Who actually gets this.** Not "an iPad, which has no pointer": Monaco
+   * itself is only started when `(pointer: fine)` matches (`initializeMonaco`),
+   * so this code runs on an iPad *with* a trackpad or mouse attached, and
+   * nowhere else. That is worth writing down because it is the opposite of the
+   * premise the feature was built on, it means every caret hover here competes
+   * with a pointer hover that works, and it makes the cost above fall on a
+   * narrower set of users than anyone had assumed. Whether the feature should
+   * exist in that shape is not this change's question.
    */
-  const showTypeAtCaret = (): void => {
+  const openHoverAtCaret = async (): Promise<void> => {
+    const version = sourceModel.getVersionId();
+    const hoverSpans = await hoverSpanCache.spansFor(version, () => sourceModel.getValue());
+    // No answer, or an answer about text nobody is looking at any more — the
+    // editor torn down, or the user typing while the worker worked. The edit's
+    // own caret move has already scheduled the next attempt.
+    if (hoverSpans === undefined || disposed) return;
+    if (sourceModel.getVersionId() !== version) return;
     const position = sourceEditor.getPosition();
     if (position === null) return;
-    const offset = sourceModel.getOffsetAt(position);
-    if (typeOccurrenceAtOffset(types, offset) === undefined) return;
-    queueMicrotask(() => {
-      if (disposed) return;
-      sourceEditor.trigger(
-        "hexagon.ipadTypeAtCaret",
-        "editor.action.showHover",
-        undefined,
-      );
+    // Nothing to say here, and nothing done about it. #254 asked for an
+    // explicit hide as well, and it was written and then taken back out:
+    // `editor.action.hideHover` is not "hide if visible" — it calls
+    // `hideContentHover`, whose `hide()` cancels the hover operation in flight
+    // (`contentHoverWidgetWrapper.js`). Since this runs on a pointer-equipped
+    // iPad (see the note above), that cancels the hover the user is opening
+    // *with the pointer*, and a stationary pointer never retries. Monaco
+    // already hides on mouse-down and key-down, which is every way the caret
+    // moves here bar a jump from the Errors list.
+    if (!hoverAnswersAtOffset(hoverSpans, sourceModel.getOffsetAt(position))) return;
+    sourceEditor.trigger("hexagon.ipadTypeAtCaret", "editor.action.showHover", {
+      focus: "noAutoFocus",
     });
   };
-  const cursorSubscription = showTypesAtCaret
+  const cursorSubscription = hoverFollowsCaret
     ? sourceEditor.onDidChangeCursorPosition(() => {
-        caretTypeActivated = true;
-        showTypeAtCaret();
+        // Every caret move restarts the wait, including the ones a keystroke
+        // causes. Typing therefore asks nothing until the user pauses, which is
+        // also the only time an automatic hover would be wanted.
+        if (caretHoverTimer !== undefined) clearTimeout(caretHoverTimer);
+        caretHoverTimer = setTimeout(() => {
+          caretHoverTimer = undefined;
+          void openHoverAtCaret();
+        }, CARET_HOVER_DELAY_MS);
       })
     : undefined;
 
@@ -248,13 +294,10 @@ export function createMonacoEditors(
         diagnostics.map((diagnostic) => markerFromDiagnostic(sourceModel, diagnostic)),
       );
     },
-    publishTypes: (nextTypes) => {
-      types = nextTypes;
-      if (caretTypeActivated) showTypeAtCaret();
-    },
     setTheme: (nextTheme) => monaco.editor.setTheme(toMonacoTheme(nextTheme)),
     dispose: () => {
       disposed = true;
+      if (caretHoverTimer !== undefined) clearTimeout(caretHoverTimer);
       cursorSubscription?.dispose();
       providers.dispose();
       changeSubscription.dispose();
