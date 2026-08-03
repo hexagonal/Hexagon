@@ -84,15 +84,17 @@ describe("createLanguageServices", () => {
     expect(await first).toEqual([]);
   });
 
-  test("ignores the compile results the same worker sends", async () => {
+  test("settles a request the worker could not answer at all", async () => {
     const { channel, reply } = harness();
     const services = createLanguageServices(channel, () => 1);
 
-    const answer = services.hover("let one = 1\n", 4);
-    reply({ kind: "compile-failure", version: 1, diagnostics: [] });
-    reply({ kind: "hover", id: 0, version: 1, hover: undefined });
+    const answer = services.codeActions("let one = 1\n", {
+      startOffset: 0,
+      endOffset: 0,
+    });
+    reply({ kind: "service-failure", id: 0, version: 1, message: "boom" });
 
-    expect(await answer).toBeUndefined();
+    expect(await answer).toEqual([]);
   });
 
   test("settles everything outstanding when the worker itself fails", async () => {
@@ -105,5 +107,19 @@ describe("createLanguageServices", () => {
 
     expect(await hover).toBeUndefined();
     expect(await rename).toBeUndefined();
+  });
+
+  test("settles a request made after the worker failed, and posts nothing", async () => {
+    const { channel, sent, fail } = harness();
+    const services = createLanguageServices(channel, () => 1);
+
+    // A worker whose module fails to evaluate dies before anything is
+    // outstanding, so draining what is pending drains nothing: it is every
+    // later request that would otherwise hang.
+    fail();
+
+    expect(await services.hover("let one = 1\n", 4)).toBeUndefined();
+    expect(await services.definitions("let one = 1\n", 4)).toEqual([]);
+    expect(sent).toEqual([]);
   });
 });

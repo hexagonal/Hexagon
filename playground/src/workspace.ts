@@ -78,10 +78,16 @@ export class WorkspaceMap {
    * Which file a buffer offset is in, and where.
    *
    * A module body wins over `/main.hex`, which holds spaces in its place. The
-   * `module` and `end module` lines themselves belong to no file's text: they
-   * are masked out of `/main.hex` too, so they land on whitespace there and no
-   * request can find anything at one — which is the answer the Playground's own
-   * notation should give.
+   * `module` and `end module` lines are masked out of `/main.hex` as well, so
+   * they land on whitespace and no request finds anything at one — which is the
+   * answer the Playground's own notation should give.
+   *
+   * Two boundaries are deliberate. A body's own end offset is claimed by the
+   * body, so a caret at the end of the last line inside a block still asks about
+   * that block; and that offset is the first character of the `end module` line,
+   * where there is nothing to find either way. A body's start offset is the
+   * first character *after* the opener's line break, so the opener line belongs
+   * to nothing, as it should.
    */
   locate(bufferOffset: number): FilePosition | undefined {
     if (bufferOffset < 0 || bufferOffset > this.#bufferLength) return undefined;

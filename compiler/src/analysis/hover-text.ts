@@ -41,7 +41,7 @@ export function hoverMarkdown(hover: Hover): string {
 }
 
 /** The word a hover puts in front of a name, for each thing a name can be. */
-export function describeTarget(target: Target): string {
+function describeTarget(target: Target): string {
   switch (target.kind) {
     case "value":
       return "value";

@@ -260,12 +260,27 @@ export function createMonacoEditors(
  * against a *language*, so anything else opened as `hexagon` would reach these
  * too and be asked about text the worker has never seen.
  *
- * A refusal is not a failure and is not filtered out. Monaco was extracted from
- * VS Code and kept the mechanism intact: a code action carrying `disabled` is
- * drawn greyed out with the reason as its label, and a rename carrying
- * `rejectReason` shows the reason instead of prompting. So the session's stance
- * — that a repair which must not be made is still worth showing, with the
- * sentence that says why — arrives here as a field copy.
+ * A refusal is a result, not a failure, so it is passed through rather than
+ * filtered out. How far it then gets differs by feature, and #222 assumed
+ * otherwise — the assumption is recorded here because the code looks like it
+ * works and does not.
+ *
+ * A **rename** refusal is shown. `rename.js` collects `rejectReason` from
+ * `resolveRenameLocation` and shows it at the cursor, and from
+ * `provideRenameEdits` as a notification.
+ *
+ * A **code action** refusal is shown only under `Refactor…`. Monaco 0.55.1
+ * partitions an action set into `allActions` and `validActions =
+ * allActions.filter(a => !a.disabled)` (`codeAction.js:69`), and reaches for
+ * `allActions` only when `includeDisabledActions` — which is
+ * `!!trigger.filter?.include` (`codeActionController.js:176`). Quick Fix passes
+ * no filter (`codeActionCommands.js:65`), and the lightbulb hides itself on
+ * `validActions.length <= 0` (`lightBulbWidget.js:168`). So a diagnostic whose
+ * only repair is refused shows no lightbulb, and `Ctrl+.` on it says "No code
+ * actions available" — the reason the session went to the trouble of computing
+ * is dropped by the host. Issue #253 carries the fix; nothing here can force it,
+ * because an enabled action that silently does nothing is worse than a missing
+ * one.
  */
 function registerLanguageProviders(
   sourceModel: monaco.editor.ITextModel,
@@ -308,11 +323,15 @@ function registerLanguageProviders(
           };
         },
       },
-      // Declared, and load-bearing: Monaco skips a provider whose advertised
-      // kinds cannot satisfy the filter it is asking under, so a request for
-      // something else never reaches the one action here that has to compile
-      // the project to answer. It also filters what comes back, which is why
-      // `context.only` is not read below — the rule has one owner.
+      // Declared so Monaco can skip this provider for a request it cannot
+      // satisfy — which today means only the `source.*` actions (Organize
+      // Imports and friends), since the automatic trigger asks with no filter
+      // at all and reaches every provider regardless.
+      //
+      // What the declaration does buy unconditionally is the other half:
+      // Monaco filters the returned actions by kind itself
+      // (`codeAction.js`'s `filtersAction`), which is why `context.only` is
+      // not read below. One owner for the rule, and it is not this file.
       { providedCodeActionKinds: ["quickfix", "refactor"] },
     ),
     monaco.languages.registerDefinitionProvider(hexagonLanguage, {
@@ -370,7 +389,10 @@ function registerLanguageProviders(
         };
       },
       provideRenameEdits: async (model, position, newName) => {
-        if (!owns(model)) return { edits: [] };
+        // Not `{ edits: [] }`: Monaco reads any object without a `rejectReason`
+        // as this provider's accepted answer and stops asking the rest, so an
+        // empty one would be a silent successful no-op rather than a pass.
+        if (!owns(model)) return undefined;
         const result = await services.rename(
           model.getValue(),
           model.getOffsetAt(position),
@@ -392,9 +414,12 @@ function registerLanguageProviders(
  *
  * `versionId` is the last guard on a race the worker's own version check does
  * not cover: a reply can be current when it arrives and stale by the time the
- * user picks the action out of the lightbulb menu. Monaco refuses to apply an
- * edit whose version no longer matches, so the document is never rewritten
- * against text that has moved underneath it.
+ * user picks the action out of the lightbulb menu. Monaco validates every edit
+ * in the set before applying any of them, so the document is never half
+ * rewritten against text that has moved underneath it — but the standalone bulk
+ * editor signals the mismatch by throwing (`standaloneServices.js`), which
+ * surfaces as an unhandled rejection rather than a message. Loud and safe beats
+ * quiet and wrong; making it quiet is the host's job, not this function's.
  */
 function workspaceEdit(
   model: monaco.editor.ITextModel,

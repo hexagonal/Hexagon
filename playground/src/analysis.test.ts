@@ -65,6 +65,22 @@ describe("code actions", () => {
     expect(compileSource(2, repaired)).toMatchObject({ kind: "compile-success" });
   });
 
+  test("passes a refused repair through, carrying the reason it was refused", () => {
+    const analysis = new PlaygroundAnalysis();
+    const source = "export fun m(x: Int) = [x]\nexport fun m(y) = [m(y)]\n";
+    const caret = at(source, "m", 1);
+
+    const [action, ...rest] = analysis.codeActions(source, {
+      startOffset: caret,
+      endOffset: caret,
+    });
+
+    expect(rest).toEqual([]);
+    expect(action?.title).toBe("Infer return type");
+    expect(action?.edits).toEqual([]);
+    expect(action?.disabled).toContain("`m` is already bound");
+  });
+
   test("answers nothing for a selection straddling two virtual files", () => {
     const analysis = new PlaygroundAnalysis();
     const source = "module Helper\n" +
@@ -153,20 +169,36 @@ describe("definition and references", () => {
     expect(definition?.startOffset).toBe(source.indexOf("twice"));
   });
 
-  test("reports every mention, ordered and inside the buffer", () => {
+  test("reports every mention, at the offsets the user can see", () => {
     const analysis = new PlaygroundAnalysis();
     const source = "fun twice(n: Int): Int = n * 2\nconsole.log(twice(twice(3)))\n";
 
     const found = analysis.references(source, at(source, "twice"));
 
-    expect(found.map((range) => text(source, range))).toEqual([
-      "twice",
-      "twice",
-      "twice",
+    expect(found).toEqual([
+      { startOffset: 4, endOffset: 9 },
+      { startOffset: 43, endOffset: 48 },
+      { startOffset: 49, endOffset: 54 },
     ]);
-    for (const range of found) {
-      expect(source.slice(range.startOffset, range.endOffset)).toBe("twice");
-    }
+  });
+
+  test("orders mentions by the document, not by the virtual file they came from", () => {
+    const analysis = new PlaygroundAnalysis();
+    // `/Zed.hex` sorts after `/main.hex`, and its block is above main's text.
+    // Passing the session's own order through would list the two uses before
+    // the declaration they sit below on screen.
+    const source = "module Zed\n" +
+      "    export fun twice(n: Int): Int = n * 2\n" +
+      "end module Zed\n" +
+      "console.log(Zed.twice(Zed.twice(3)))\n";
+
+    const found = analysis.references(source, at(source, "twice"));
+
+    expect(found.map(({ startOffset }) => startOffset)).toEqual(
+      [...found.map(({ startOffset }) => startOffset)].sort((a, b) => a - b),
+    );
+    expect(found[0]?.startOffset).toBe(source.indexOf("twice"));
+    expect(found).toHaveLength(3);
   });
 
   test("has nowhere to go for a name declared in a hosted library", () => {
@@ -229,6 +261,23 @@ describe("rename", () => {
     expect(subject).toMatchObject({ name: "twice" });
     if (subject === undefined || "refused" in subject) return;
     expect(text(source, subject.range)).toBe("twice");
+  });
+
+  test("refuses at prepare time whatever `rename` would refuse afterwards", () => {
+    const analysis = new PlaygroundAnalysis();
+    const source = "console.log(Vector.length([1, 2, 3]))\n";
+    const caret = at(source, "length");
+
+    // The identifier itself is in the buffer, so a prepare that asked only
+    // about the subject would open the rename box on a name whose mentions
+    // reach `/stdlib/Vector.hex` — and refuse the moment the user pressed
+    // Enter.
+    expect(analysis.prepareRename(source, caret)).toEqual({
+      refused: "this would edit code the Playground does not show",
+    });
+    expect(analysis.rename(source, caret, "size")).toEqual({
+      refused: "this would edit code the Playground does not show",
+    });
   });
 });
 

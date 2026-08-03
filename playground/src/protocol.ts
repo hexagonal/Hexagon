@@ -83,10 +83,9 @@ export interface PlaygroundTextEdit extends BufferRange {
  * A repair the session offers.
  *
  * `disabled` carries the reason a repair must not be made, and an action that
- * has one has no edits. It is still sent: dropping it leaves a user waiting for
- * a lightbulb that never comes with nothing to explain why, and Monaco — being
- * extracted from VS Code — draws such an action greyed out with the reason as
- * its label.
+ * has one has no edits. It is sent because it is the session's answer and this
+ * is the shape that answer has; see `registerLanguageProviders` in `monaco.ts`
+ * for how much of it a user currently sees, which is less than it should be.
  */
 export interface PlaygroundCodeAction {
   readonly title: string;

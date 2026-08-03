@@ -67,6 +67,11 @@ export function createLanguageServices(
 ): LanguageServices {
   const pending = new Map<number, (reply: ServiceReplyMessage | undefined) => void>();
   let nextId = 0;
+  // Latched, not merely drained. A worker that failed does not recover, and the
+  // requests that matter most are the ones made *after* it died — a failure
+  // during startup means nothing was outstanding to drain, and every hover from
+  // then on would wait on a reply that cannot come.
+  let failed = false;
 
   channel.listen((message) => {
     if (message.kind === "compile-success" || message.kind === "compile-failure") return;
@@ -82,6 +87,7 @@ export function createLanguageServices(
   });
 
   channel.onFailure(() => {
+    failed = true;
     const waiting = [...pending.values()];
     pending.clear();
     for (const settle of waiting) settle(undefined);
@@ -90,6 +96,7 @@ export function createLanguageServices(
   const ask = (
     build: (id: number, version: number) => CompilerRequest,
   ): Promise<ServiceReplyMessage | undefined> => {
+    if (failed) return Promise.resolve(undefined);
     const id = nextId;
     nextId += 1;
     return new Promise((resolve) => {

@@ -205,8 +205,14 @@ let executionWorker: Worker | undefined;
 let executionTimer: ReturnType<typeof setTimeout> | undefined;
 
 // The same worker answers editor requests from a long-lived `AnalysisSession`.
-// It is one worker rather than two so both halves see the same compiler build
-// and the session's cached analysis is the one the compile just warmed.
+// One worker rather than two so both halves see one compiler build, and so an
+// editor request queues behind the compile of the text it is about rather than
+// racing it.
+//
+// They do not share a compilation: `compileSource` builds its own files for the
+// JS, `.d.ts` and Run panes, and the session compiles again on the first request
+// after an edit. That is the cost of keeping whole-program emission out of the
+// interactive path, and it is paid once per edit, not once per request.
 const languageServices = createLanguageServices(
   {
     post: (request) => compilerWorker.postMessage(request),

@@ -38,7 +38,8 @@ import { layOutWorkspace, type WorkspaceLayout, type WorkspaceMap } from "./work
 /**
  * Shown when a repair or a rename is real but reaches code the buffer does not
  * contain — a hosted library, or the imports the Playground writes for the user.
- * Monaco uses the reason as the action's label, so it reads as a sentence.
+ * A sentence rather than a code, because every host that shows a refusal shows
+ * it as prose.
  */
 const OUTSIDE_DOCUMENT = "this would edit code the Playground does not show";
 
@@ -63,22 +64,30 @@ export class PlaygroundAnalysis {
     // A definition in a hosted library has nowhere to go: the Playground shows
     // one document, and `Vector.hex` is not in it. Dropping it leaves the editor
     // saying there is no definition, which is the truth about what it can open.
-    return this.#session
-      .definitions(at.path, at.offset)
-      .flatMap(({ path, span }) =>
-        toRange(layout.map.toBufferRange(path, offsetsOf(span)))
-      );
+    return inBufferOrder(
+      this.#session
+        .definitions(at.path, at.offset)
+        .flatMap(({ path, span }) =>
+          toRange(layout.map.toBufferRange(path, offsetsOf(span)))
+        ),
+    );
   }
 
   references(source: string, offset: number): readonly BufferRange[] {
     const layout = this.#sync(source);
     const at = layout?.map.locate(offset);
     if (layout === undefined || at === undefined) return [];
-    return this.#session
-      .references(at.path, at.offset)
-      .flatMap(({ path, span }) =>
-        toRange(layout.map.toBufferRange(path, offsetsOf(span)))
-      );
+    // Mentions the buffer cannot show are dropped for the same reason as a
+    // definition's: there is nowhere to peek to. Unlike a rename, this is a
+    // reading, not an edit, so an incomplete one is a smaller list rather than
+    // a broken program.
+    return inBufferOrder(
+      this.#session
+        .references(at.path, at.offset)
+        .flatMap(({ path, span }) =>
+          toRange(layout.map.toBufferRange(path, offsetsOf(span)))
+        ),
+    );
   }
 
   codeActions(
@@ -109,6 +118,28 @@ export class PlaygroundAnalysis {
     if (subject === undefined || "refused" in subject) return subject;
     const range = this.#rangeOfSpan(layout.map, at.path, subject.span);
     if (range === undefined) return { refused: OUTSIDE_DOCUMENT };
+    // Asked of the mentions the rename would move, not only of the identifier
+    // under the cursor, so the box does not open on a name that is going to be
+    // refused the moment the user presses Enter. The session's own prepare
+    // answers about the subject alone and keeps its mentions private, so they
+    // are re-derived here from the occurrence index — cheap, where asking
+    // `rename` would re-analyse the project to verify a name nobody typed yet.
+    //
+    // Restricted to the subject's own spelling because that is the set `rename`
+    // moves: an alias gives one identity two spellings and only one of them is
+    // being renamed. Where the two could still disagree, refusing wins —
+    // declining a rename that would have worked costs the user a retry, and a
+    // prompt that rejects every keystroke costs them the feature.
+    const reachable = this.#session
+      .references(at.path, at.offset)
+      .filter((mention) => mention.name === subject.name);
+    if (
+      reachable.some(({ path, span }) =>
+        layout.map.toBufferRange(path, offsetsOf(span)) === undefined
+      )
+    ) {
+      return { refused: OUTSIDE_DOCUMENT };
+    }
     return { name: subject.name, range };
   }
 
@@ -201,4 +232,19 @@ function offsetsOf(span: Source.Span): { readonly start: number; readonly end: n
 
 function toRange(range: BufferRange | undefined): readonly BufferRange[] {
   return range === undefined ? [] : [range];
+}
+
+/**
+ * Sorted the way the user reads, which is not the way they arrive.
+ *
+ * The session orders by path and then by offset, and that is the right order for
+ * a host with one editor per file. Here every path collapses into one document,
+ * and path order is not document order: a module block declared before the code
+ * that uses it becomes `/Name.hex`, which sorts against `/main.hex` by its
+ * spelling rather than by where the user put it.
+ */
+function inBufferOrder(ranges: readonly BufferRange[]): readonly BufferRange[] {
+  return [...ranges].sort((left, right) =>
+    left.startOffset - right.startOffset || left.endOffset - right.endOffset
+  );
 }
