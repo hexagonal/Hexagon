@@ -355,6 +355,38 @@ describe("the boundary face (FFI Part 3)", () => {
     })())).toBe(30);
   });
 
+  test("a genuine Seq handed back at a Seq parameter crosses by identity", async () => {
+    // Both of the door's paths (§2.2), driven through the emitted wrapper from
+    // JavaScript, which is where the two are distinguishable: a genuine `Seq`
+    // arrives unchanged — Part 7 §5's identity clause, which the defect-12
+    // ruling delivers inbound — while anything else iterable is adapted.
+    //
+    // What each half is worth, measured rather than assumed. The identity
+    // assertion is the only *direct* observation of it in the suite; it is not
+    // the only defence, since the reclamation tests below drive genuine values
+    // through this same wrapper and catch a lost fast path by reachability.
+    // The adapting assertion is load-bearing on its own: omit the wrapper for a
+    // `Seq`-in/`Seq`-out export and this is the only test that fails at
+    // runtime. Recognition is also cross-module here — `counted` is built by
+    // `Seq.hex`'s helpers and recognized by this module's own copy of the door,
+    // which is why §2.2 tests `pull` rather than the method's identity.
+    const exports = await main(
+      "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n" +
+      "export let same(values: Seq(Int)): Seq(Int) = values\n",
+    );
+    const counted = exports["counted"] as Iterable<number>;
+    const same = exports["same"] as (values: Iterable<number>) => Iterable<number>;
+    // Through the emitted wrapper and back out: the result position is direct,
+    // so what JavaScript receives is exactly what the door returned.
+    expect(same(counted)).toBe(counted);
+    // The same wrapper, the adapting path: what returns is a genuine `Seq`,
+    // not the array that went in.
+    const adapted = same([1, 2]) as Iterable<number> & { pull: unknown };
+    expect(Array.isArray(adapted)).toBe(false);
+    expect(typeof adapted.pull).toBe("function");
+    expect([...adapted]).toEqual([1, 2]);
+  });
+
   test("an exported Seq faces JavaScript as an Iterable, by representation", async () => {
     const exports = await main(
       "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n",
