@@ -340,6 +340,41 @@ describe("the boundary face (FFI Part 3)", () => {
     expect(compiled.javascript.text).toContain("export { upTo };");
   });
 
+  test("a Seq returned from a call crosses element-exactly, and replays", async () => {
+    // The runtime half of the assertion above. `export { upTo };` pins that the
+    // result position emits no wrapper; this pins that the value arriving in
+    // JavaScript is therefore the record itself, published as §9.1's replayable
+    // iterable, with elements that originated in Hexagon rather than in an
+    // argument that went in.
+    //
+    // The property it holds alone: two *distinct* `Seq` values built by one
+    // emitting module are traversed across the boundary here, so it is what
+    // fails if `seqIterate` keeps one shared view instead of keying per value
+    // by `WeakMap`. §9.4 properties 1 and 2 have their own tests and survive
+    // that, each traversing a single value.
+    const exports = await main(
+      "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 4)\n" +
+      "export let upTo(count: Int): Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), count)\n" +
+      "export let itself(ignored: Int): Seq(Int) = counted\n",
+    );
+    const upTo = exports["upTo"] as (count: number) => Iterable<number> & { pull: unknown };
+    expect([...upTo(3)]).toEqual([1, 2, 3]);
+    // Direct, not adapted: what the call returns carries §6.2's protocol, so it
+    // is the `Seq` itself rather than something wrapped around it.
+    const returned = upTo(4);
+    expect(typeof returned.pull).toBe("function");
+    // And it replays — §9.1's independent cursors, at the result position.
+    expect([...returned]).toEqual([1, 2, 3, 4]);
+    expect([...returned]).toEqual([1, 2, 3, 4]);
+    // Result-directness by identity, separated from the door: the identity
+    // assertion in the parameter test below pins both at once, and a `Seq` here
+    // never crosses inbound. A result wrapper that re-adapted into a *fresh*
+    // `Seq` would keep `pull` and iterate the same elements, so identity is the
+    // only thing that separates them.
+    const itself = exports["itself"] as (ignored: number) => Iterable<number>;
+    expect(itself(0)).toBe(exports["counted"]);
+  });
+
   test("a JavaScript caller may pass any iterable to an exported Seq parameter", async () => {
     // What the wrapper is *for*: the published face says `Iterable<number>`, so
     // an array must work, and so must a single-shot generator.

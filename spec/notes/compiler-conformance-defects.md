@@ -931,7 +931,25 @@ than settling a style question.
     removing the door's identity branch reddens seven other tests besides the
     new one, so this was never a silently-failing path; what the new test alone
     catches at runtime is the *other* half, a wrapper omitted for a
-    `Seq`-in/`Seq`-out export. **(2) still open, tracked as #248.**
+    `Seq`-in/`Seq`-out export.
+    **(2) done (2026-08-03, #248)** — `seq-unification.test.ts`'s "a `Seq`
+    returned from a call crosses element-exactly, and replays": elements,
+    `pull`, two replays, and result-directness stated by identity against a
+    value export the same module publishes. **Correct the sentence above while
+    reading it**, which (1)'s own discharge overtook: since #247's test landed
+    (2026-08-03), a call result *is* spread element-exactly — `same([1, 2])` —
+    so what was missing by then was narrower, a result whose elements originate
+    in Hexagon rather than in the argument that went in. What this test holds
+    **alone** is not that: it is the only place two *distinct* `Seq` values
+    built by one emitting module cross the boundary, so it is what fails if
+    `seqIterate` keeps a single shared view instead of keying per value —
+    §9.4's own property 1 and 2 tests survive that mutation, each traversing
+    one value. Recorded against over-reading: three other mutations kill it
+    *along with* many others (a single-shot boundary view, ten; adapting a
+    `Seq` result to a plain iterable, and re-adapting it into a fresh `Seq`,
+    both gated to exports with no `Seq` parameter and both counted over prelude
+    modules too — a different gate gives a very different number, which is why
+    the gate is stated rather than the count alone).
   - **Beyond the schedule**, `seq-memoize.test.ts` changed too: `memoize`'s
     export takes occasion 1's wrapper, and `Seq.hex`'s own `.d.ts` face became
     `Iterable<a>` — the `Seq`-shaped debt-family member recorded by edit note
