@@ -28,8 +28,12 @@ export interface ParameterSite {
  * parameters have spans. Imported declarations are excluded by the file check:
  * their heads live in a stranger's source, and neither an edit nor a hover here
  * may be about a span in another file.
+ *
+ * Exported because a host that opens the hover by itself has to know where the
+ * hover would answer before the caret is there; `siteAt` answers one offset, and
+ * this is the set it searches.
  */
-function sites(
+export function parameterSites(
   typed: Typed.Module,
   fileId: Source.FileId,
 ): readonly ParameterSite[] {
@@ -80,7 +84,7 @@ export function underClaims(
   fileId: Source.FileId,
   touches: (span: Source.Span) => boolean,
 ): readonly ParameterSite[] {
-  return sites(typed, fileId).filter((site) =>
+  return parameterSites(typed, fileId).filter((site) =>
     site.parameter.declared === undefined &&
     (site.parameter.computed === "co" || site.parameter.computed === "contra") &&
     touches(site.span)
@@ -93,7 +97,7 @@ export function siteAt(
   fileId: Source.FileId,
   offset: number,
 ): ParameterSite | undefined {
-  return sites(typed, fileId).find(
+  return parameterSites(typed, fileId).find(
     ({ span }) => offset >= span.start.offset && offset <= span.end.offset,
   );
 }

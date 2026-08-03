@@ -49,7 +49,6 @@ export interface CompileSuccess {
   readonly generatedJavaScript: readonly GeneratedJavaScriptSection[];
   readonly typeScriptPreview: string;
   readonly types: readonly TypeOccurrence[];
-  readonly typeOccurrences: readonly TypeOccurrence[];
   readonly diagnostics: readonly PlaygroundDiagnostic[];
 }
 
@@ -127,6 +126,17 @@ export interface HoverRequest extends ServiceRequest {
   readonly offset: number;
 }
 
+/**
+ * Where a hover would answer, for the whole document at once.
+ *
+ * The only request here that names no position: it is asked by the host that has
+ * to open the hover itself, which needs the answer before there is a position to
+ * ask about. See `PlaygroundAnalysis.hoverSpans`.
+ */
+export interface HoverSpansRequest extends ServiceRequest {
+  readonly kind: "hover-spans";
+}
+
 export interface CodeActionsRequest extends ServiceRequest, BufferRange {
   readonly kind: "code-actions";
 }
@@ -160,6 +170,11 @@ interface ServiceReply {
 export interface HoverReply extends ServiceReply {
   readonly kind: "hover";
   readonly hover: PlaygroundHover | undefined;
+}
+
+export interface HoverSpansReply extends ServiceReply {
+  readonly kind: "hover-spans";
+  readonly ranges: readonly BufferRange[];
 }
 
 export interface CodeActionsReply extends ServiceReply {
@@ -204,6 +219,7 @@ export interface ServiceFailure extends ServiceReply {
 export type CompilerRequest =
   | CompileRequest
   | HoverRequest
+  | HoverSpansRequest
   | CodeActionsRequest
   | DefinitionRequest
   | ReferencesRequest
@@ -212,6 +228,7 @@ export type CompilerRequest =
 
 export type ServiceReplyMessage =
   | HoverReply
+  | HoverSpansReply
   | CodeActionsReply
   | DefinitionReply
   | ReferencesReply

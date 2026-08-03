@@ -102,13 +102,27 @@ export class DocumentationIndex {
 
   /** The documented name covering an offset, if the offset is on one. */
   covering(fileId: Source.FileId, offset: number): DocumentedName | undefined {
-    const names = this.#namesByFile.get(Number(fileId)) ?? [];
     // Inclusive at the end, like every other position query the session
     // answers: a caret just past a name is still on it.
-    const found = names.find(({ span }) =>
+    return this.namesIn(fileId).find(({ span }) =>
       offset >= span.start.offset && offset <= span.end.offset
     );
-    return found === undefined || found.content === "" ? undefined : found;
+  }
+
+  /**
+   * Every documented name in one file — exactly the set `covering` scans.
+   *
+   * Exists so a caller can ask *where* this index answers without asking offset
+   * by offset, which is what the Playground's caret-driven hover needs. Written
+   * as the source `covering` reads from rather than beside it, so the set and
+   * the lookup cannot come to disagree about what counts as documented: an empty
+   * doc block attaches and contributes empty documentation, which tooling treats
+   * as absent (§3.2), and that exclusion now happens in one place.
+   */
+  namesIn(fileId: Source.FileId): readonly DocumentedName[] {
+    return (this.#namesByFile.get(Number(fileId)) ?? []).filter(
+      ({ content }) => content !== "",
+    );
   }
 }
 

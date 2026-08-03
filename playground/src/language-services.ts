@@ -35,6 +35,8 @@ import type {
 /** What Monaco's providers are given; the worker is not visible past here. */
 export interface LanguageServices {
   hover(source: string, offset: number): Promise<PlaygroundHover | undefined>;
+  /** Every region of `source` a hover would answer at; see `HoverSpansRequest`. */
+  hoverSpans(source: string): Promise<readonly BufferRange[]>;
   codeActions(
     source: string,
     range: BufferRange,
@@ -120,6 +122,15 @@ export function createLanguageServices(
         offset,
       }));
       return reply?.kind === "hover" ? reply.hover : undefined;
+    },
+    async hoverSpans(source) {
+      const reply = await ask((id, version) => ({
+        kind: "hover-spans",
+        id,
+        version,
+        source,
+      }));
+      return reply?.kind === "hover-spans" ? reply.ranges : [];
     },
     async codeActions(source, range) {
       const reply = await ask((id, version) => ({

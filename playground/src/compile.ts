@@ -4,7 +4,6 @@ import {
   compileProject,
   emitJavaScript,
   emitTypeScriptPreview,
-  collectTypeOccurrences,
   type Diagnostics,
 } from "../../compiler/src/index";
 
@@ -91,23 +90,8 @@ function compileWorkspace(
     types: project.modules.flatMap(({ source, typed }) =>
       source.path.startsWith("/stdlib/") ? [] : collectBindingTypes(typed, mapOffset)
     ),
-    typeOccurrences: project.modules.flatMap(({ source, typed }) =>
-      source.path.startsWith("/stdlib/") ? [] : adaptTypeOccurrences(typed, mapOffset)
-    ),
     diagnostics,
   };
-}
-
-function adaptTypeOccurrences(
-  module: Typed.Module,
-  mapOffset: (fileId: Source.FileId, offset: number) => number = (_fileId, offset) => offset,
-): readonly TypeOccurrence[] {
-  return collectTypeOccurrences(module).map(({ name, displayedType, span }) => ({
-    name,
-    displayedType,
-    startOffset: mapOffset(span.fileId, span.start.offset),
-    endOffset: mapOffset(span.fileId, span.end.offset),
-  }));
 }
 
 function collectBindingTypes(

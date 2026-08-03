@@ -51,6 +51,39 @@ describe("createLanguageServices", () => {
     expect(await answer).toMatchObject({ markdown: "value `one: Int`" });
   });
 
+  test("asks where the hover answers without naming a position", async () => {
+    // The one request with no offset in it: the caller needs the answer before
+    // the caret is anywhere in particular. See `HoverSpansRequest`.
+    const { channel, sent, reply } = harness();
+    const services = createLanguageServices(channel, () => 7);
+
+    const answer = services.hoverSpans("let one = 1\n");
+    expect(sent).toMatchObject([{ kind: "hover-spans", version: 7, source: "let one = 1\n" }]);
+    reply({
+      kind: "hover-spans",
+      id: 0,
+      version: 7,
+      ranges: [{ startOffset: 4, endOffset: 7 }],
+    });
+
+    expect(await answer).toEqual([{ startOffset: 4, endOffset: 7 }]);
+  });
+
+  test("drops spans about text the user has since changed", async () => {
+    // The gate reads these to decide whether to open a hover. Answering with
+    // spans for text nobody is looking at would open one over the wrong name;
+    // the empty answer keeps it shut until a fresh one arrives.
+    const { channel, reply } = harness();
+    let version = 3;
+    const services = createLanguageServices(channel, () => version);
+
+    const answer = services.hoverSpans("let one = 1\n");
+    version = 4;
+    reply({ kind: "hover-spans", id: 0, version: 3, ranges: [{ startOffset: 4, endOffset: 7 }] });
+
+    expect(await answer).toEqual([]);
+  });
+
   test("drops a reply about text the user has since changed", async () => {
     const { channel, sent, reply } = harness();
     let version = 3;

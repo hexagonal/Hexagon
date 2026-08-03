@@ -1,5 +1,4 @@
 import type { LocatedDiagnostic } from "./diagnostics";
-import type { TypeOccurrence } from "./protocol";
 
 export interface TextEdit {
   readonly text: string;
@@ -20,7 +19,6 @@ export interface SourceEditor {
   selectOffsets(startOffset: number, endOffset: number): void;
   onDidChange(listener: () => void): EditorSubscription;
   publishDiagnostics(diagnostics: readonly LocatedDiagnostic[]): void;
-  publishTypes(types: readonly TypeOccurrence[]): void;
   setTheme(theme: EditorTheme): void;
   dispose(): void;
 }
@@ -90,7 +88,6 @@ export function createTextareaSourceEditor(
       return { dispose: () => void listeners.delete(listener) };
     },
     publishDiagnostics: () => {},
-    publishTypes: () => {},
     setTheme: () => {},
     dispose: () => {
       listeners.clear();

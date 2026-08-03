@@ -55,7 +55,6 @@ interface PlaygroundState {
   javascriptView: string;
   typeScriptPreview: string;
   types: readonly TypeOccurrence[];
-  typeOccurrences: readonly TypeOccurrence[];
 }
 
 const state: PlaygroundState = {
@@ -71,7 +70,6 @@ const state: PlaygroundState = {
   javascriptView: "source",
   typeScriptPreview: "// The TypeScript preview will appear after compilation.",
   types: [],
-  typeOccurrences: [],
 };
 
 const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
@@ -239,7 +237,6 @@ compilerWorker.addEventListener("message", (event: MessageEvent<CompilerMessage>
     state.generatedJavaScript = response.generatedJavaScript;
     state.typeScriptPreview = response.typeScriptPreview;
     state.types = response.types;
-    state.typeOccurrences = response.typeOccurrences;
     state.diagnostics = response.diagnostics.map((diagnostic) =>
       locateDiagnostic(sourceEditor.getSource(), diagnostic)
     );
@@ -254,7 +251,6 @@ compilerWorker.addEventListener("message", (event: MessageEvent<CompilerMessage>
     state.typeScriptPreview =
       "// No TypeScript preview emitted for the current source.";
     state.types = [];
-    state.typeOccurrences = [];
     state.diagnostics = response.diagnostics.map((diagnostic) =>
       locateDiagnostic(sourceEditor.getSource(), diagnostic)
     );
@@ -263,7 +259,6 @@ compilerWorker.addEventListener("message", (event: MessageEvent<CompilerMessage>
   }
 
   sourceEditor.publishDiagnostics(state.diagnostics);
-  sourceEditor.publishTypes(state.typeOccurrences);
 
   // Continuous compilation updates every view without stealing the tab the
   // developer is inspecting. The status line and Errors badge signal failures.
@@ -277,10 +272,8 @@ function handleSourceChange(): void {
   state.output = [];
   state.diagnostics = [];
   state.types = [];
-  state.typeOccurrences = [];
   state.generatedJavaScript = [];
   sourceEditor.publishDiagnostics([]);
-  sourceEditor.publishTypes([]);
   writeCurrentSource(sourceEditor.getSource());
   runButton.disabled = true;
   compileStatus.textContent = "Waiting to compile…";
@@ -569,7 +562,6 @@ async function initializeMonaco(): Promise<void> {
     generatedCodeEditor = editors.generated;
     sourceSubscription = sourceEditor.onDidChange(handleSourceChange);
     sourceEditor.publishDiagnostics(state.diagnostics);
-    sourceEditor.publishTypes(state.typeOccurrences);
     renderResult();
   } catch (error: unknown) {
     console.error("Monaco failed to start; retaining the textarea fallback.", error);

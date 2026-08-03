@@ -59,6 +59,7 @@ import { DocumentationIndex } from "../queries/documentation.js";
 import { collectSemanticTokens, type SemanticToken } from "../queries/semantic-tokens.js";
 import { collectSymbolFacts, type SymbolFacts } from "../queries/symbol-facts.js";
 import {
+  parameterSites,
   siteAt,
   underClaims,
   underClaimTitle,
@@ -453,6 +454,58 @@ export class AnalysisSession {
       span: found.span,
       documentation: found.content,
     };
+  }
+
+  /**
+   * Where in one file `hover` has something to say — the whole set, so a host
+   * can ask once instead of once per position.
+   *
+   * For a host with a pointer this is not needed: the user hovers, the provider
+   * asks, and an empty answer draws nothing. It exists for a host that has to
+   * open the hover *itself* — the Playground on iPadOS, where there is no
+   * pointer and the caret is the only thing that moves — and which therefore has
+   * to decide whether to open one before it has an answer to show.
+   *
+   * The three sources below are `hover`'s own three, read in the same order and
+   * with the same containment rule, so the two agree by construction. That is
+   * the whole point of the method: the Playground previously gated on the type
+   * occurrence table, which answers a different question and so both over- and
+   * under-fired (#254). A gate derived from anything but the answer drifts from
+   * it, and this one cannot be derived from anything else without saying so
+   * here.
+   *
+   * `hover` short-circuits — a variance site wins outright, and a documented
+   * name is consulted only where the occurrence index is silent — but the set of
+   * offsets it answers at is the plain union of the three, so no order is
+   * reproduced here. Spans are returned in the *queried file's* coordinates and
+   * are not deduplicated or merged: `occurrencesAt` compares an offset against
+   * every span in the file's bucket regardless of whose file each names, and a
+   * gate that narrowed that would refuse to open where hover would speak.
+   */
+  hoverSpans(path: string): readonly OffsetRange[] {
+    const normalized = normalizePath(path);
+    const analysis = this.#analyze();
+    const spans: OffsetRange[] = [];
+    const fileId = this.#fileIds.get(normalized);
+    if (fileId !== undefined) {
+      // Each branch carries the guard its answer carries — `#varianceHover`
+      // needs the typed tree, `#documentedName` needs the text it slices the
+      // name out of — rather than one guard covering both, so a file the session
+      // holds only half of gates exactly where it would answer.
+      const typed = analysis.typedOf(normalized);
+      if (typed !== undefined) {
+        for (const site of parameterSites(typed, fileId)) spans.push(offsetsOf(site.span));
+      }
+      if (this.#texts.has(normalized)) {
+        for (const name of analysis.documentation.namesIn(fileId)) {
+          spans.push(offsetsOf(name.span));
+        }
+      }
+    }
+    for (const occurrence of analysis.occurrencesIn(normalized)) {
+      spans.push(offsetsOf(occurrence.span));
+    }
+    return spans;
   }
 
   /**
@@ -1346,6 +1399,11 @@ function sameOptions(left: SessionOptions, right: SessionOptions): boolean {
   };
   const [before, after] = [compared(left), compared(right)];
   return before.length === after.length && before.every((path, at) => path === after[at]);
+}
+
+/** A span as the closed offset range every position query here compares against. */
+function offsetsOf(span: Source.Span): OffsetRange {
+  return { start: span.start.offset, end: span.end.offset };
 }
 
 /**
