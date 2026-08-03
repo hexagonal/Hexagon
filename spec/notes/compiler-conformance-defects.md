@@ -921,6 +921,17 @@ than settling a style question.
     element-exact spread of a *function-result* `Seq` from JavaScript; the
     landed suite spreads function results only by length (property 7's
     collection test) and spreads value exports element-exactly.
+    **(1) done (2026-08-03, #247)** — `seq-unification.test.ts`'s "a genuine
+    `Seq` handed back at a `Seq` parameter crosses by identity" adds both
+    halves. Read the residue above as written and no wider: the *composition*
+    was already driven — the spine-reclamation fixture's `advance`/`elementAt`
+    both take occasion 1's wrapper and are called from JavaScript with a
+    genuine `Seq` — and it is the **object-identity observation** that was
+    missing, which is what that clause says. Measured while closing it:
+    removing the door's identity branch reddens seven other tests besides the
+    new one, so this was never a silently-failing path; what the new test alone
+    catches at runtime is the *other* half, a wrapper omitted for a
+    `Seq`-in/`Seq`-out export. **(2) still open, tracked as #248.**
   - **Beyond the schedule**, `seq-memoize.test.ts` changed too: `memoize`'s
     export takes occasion 1's wrapper, and `Seq.hex`'s own `.d.ts` face became
     `Iterable<a>` — the `Seq`-shaped debt-family member recorded by edit note
