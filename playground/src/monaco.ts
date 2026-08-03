@@ -221,12 +221,20 @@ export function createMonacoEditors(
    * analyses, so computing the gate in the compile would be a *second*
    * implementation of "where does hover answer" — the exact thing that drifted
    * — and a compile that fails carries no output at all, where the session
-   * still answers about the names it did resolve. The cost falls only on the
-   * platform with no pointer, which is the only platform this runs on.
+   * still answers about the names it did resolve.
+   *
+   * **Who actually gets this.** Not "an iPad, which has no pointer": Monaco
+   * itself is only started when `(pointer: fine)` matches (`initializeMonaco`),
+   * so this code runs on an iPad *with* a trackpad or mouse attached, and
+   * nowhere else. That is worth writing down because it is the opposite of the
+   * premise the feature was built on, it means every caret hover here competes
+   * with a pointer hover that works, and it makes the cost above fall on a
+   * narrower set of users than anyone had assumed. Whether the feature should
+   * exist in that shape is not this change's question.
    */
   const openHoverAtCaret = async (): Promise<void> => {
     const version = sourceModel.getVersionId();
-    const hoverSpans = await hoverSpanCache.spansFor(version, sourceModel.getValue());
+    const hoverSpans = await hoverSpanCache.spansFor(version, () => sourceModel.getValue());
     // No answer, or an answer about text nobody is looking at any more — the
     // editor torn down, or the user typing while the worker worked. The edit's
     // own caret move has already scheduled the next attempt.
@@ -234,15 +242,16 @@ export function createMonacoEditors(
     if (sourceModel.getVersionId() !== version) return;
     const position = sourceEditor.getPosition();
     if (position === null) return;
-    if (!hoverAnswersAtOffset(hoverSpans, sourceModel.getOffsetAt(position))) {
-      // Monaco hides the hover itself on a mouse-down and on a key-down
-      // (`contentHoverController.js`), which covers a tap and a cursor key. It
-      // has no cursor-position listener, so a caret moved by neither — the
-      // Errors list jumping to a diagnostic — would leave the previous name's
-      // hover sitting over unrelated text. Refusing to open is said out loud.
-      sourceEditor.trigger("hexagon.ipadTypeAtCaret", "editor.action.hideHover", undefined);
-      return;
-    }
+    // Nothing to say here, and nothing done about it. #254 asked for an
+    // explicit hide as well, and it was written and then taken back out:
+    // `editor.action.hideHover` is not "hide if visible" — it calls
+    // `hideContentHover`, whose `hide()` cancels the hover operation in flight
+    // (`contentHoverWidgetWrapper.js`). Since this runs on a pointer-equipped
+    // iPad (see the note above), that cancels the hover the user is opening
+    // *with the pointer*, and a stationary pointer never retries. Monaco
+    // already hides on mouse-down and key-down, which is every way the caret
+    // moves here bar a jump from the Errors list.
+    if (!hoverAnswersAtOffset(hoverSpans, sourceModel.getOffsetAt(position))) return;
     sourceEditor.trigger("hexagon.ipadTypeAtCaret", "editor.action.showHover", {
       focus: "noAutoFocus",
     });
