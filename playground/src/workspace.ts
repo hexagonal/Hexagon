@@ -82,12 +82,15 @@ export class WorkspaceMap {
    * they land on whitespace and no request finds anything at one — which is the
    * answer the Playground's own notation should give.
    *
-   * Which side of a body claims its own end offset does not matter, and `<=` is
-   * the arbitrary half of this: that offset is the first character of the
-   * `end module` line, where neither the body nor `/main.hex` has anything to
-   * find. What does matter is that the ends are exclusive of the delimiter
-   * lines in the other direction — a body starts after the opener's line break —
-   * so no offset is ever claimed by two bodies at once.
+   * A body claims its own end offset — the `<=` — and that is not arbitrary,
+   * though nothing is *found* at it. `codeActions` refuses a selection whose
+   * two ends land in different files, so a selection running from inside a
+   * block to the start of its `end module` line is answered only if that last
+   * offset is still the block's. Under `<` it is `/main.hex`'s, and the whole
+   * request is dropped.
+   *
+   * The other end is exclusive: a body starts after the opener's line break, so
+   * no offset is ever claimed by two bodies at once.
    */
   locate(bufferOffset: number): FilePosition | undefined {
     if (bufferOffset < 0 || bufferOffset > this.#bufferLength) return undefined;

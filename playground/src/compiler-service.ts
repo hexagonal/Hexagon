@@ -23,14 +23,20 @@ export interface CompilerService {
 /**
  * The editor half of a session, as this file needs it.
  *
- * Named as an interface only so a test can supply one that throws. `serve`'s
- * promise is that a fault becomes a reply rather than a silence, and a promise
- * about faults is worth exactly as much as the fault you can stage.
+ * Named as an interface only so a test can supply one that throws. Both halves
+ * of this file promise that a fault becomes a reply rather than a silence, and a
+ * promise about faults is worth exactly as much as the fault you can stage — so
+ * both halves are injectable, including the compile.
  */
 export type EditorAnalysis = Pick<
   PlaygroundAnalysis,
   "hover" | "definitions" | "references" | "codeActions" | "prepareRename" | "rename"
 >;
+
+export interface CompilerServiceParts {
+  readonly analysis?: EditorAnalysis;
+  readonly compile?: (version: number, source: string) => CompilerResponse;
+}
 
 /**
  * A service holding one session for the life of the worker.
@@ -40,20 +46,24 @@ export type EditorAnalysis = Pick<
  * text that has usually not changed since the last one, and the session holds
  * its analysis until a file does.
  */
-export function createCompilerService(
-  analysis: EditorAnalysis = new PlaygroundAnalysis(),
-): CompilerService {
+export function createCompilerService(parts: CompilerServiceParts = {}): CompilerService {
+  const analysis = parts.analysis ?? new PlaygroundAnalysis();
+  const compileWith = parts.compile ?? compileSource;
   return {
     handle: (request) =>
       request.kind === "compile"
-        ? compile(request.version, request.source)
+        ? compile(compileWith, request.version, request.source)
         : serve(analysis, request),
   };
 }
 
-function compile(version: number, source: string): CompilerResponse {
+function compile(
+  compileWith: (version: number, source: string) => CompilerResponse,
+  version: number,
+  source: string,
+): CompilerResponse {
   try {
-    return compileSource(version, source);
+    return compileWith(version, source);
   } catch (error) {
     return {
       kind: "compile-failure",

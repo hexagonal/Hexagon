@@ -125,11 +125,14 @@ export class PlaygroundAnalysis {
     // are re-derived here from the occurrence index — cheap, where asking
     // `rename` would re-analyse the project to verify a name nobody typed yet.
     //
-    // Restricted to the subject's own spelling because that is the set `rename`
-    // moves: an alias gives one identity two spellings and only one of them is
-    // being renamed. Where the two could still disagree, refusing wins —
-    // declining a rename that would have worked costs the user a retry, and a
-    // prompt that rejects every keystroke costs them the feature.
+    // Restricted to the subject's own spelling, matching `#renameSubject`'s own
+    // filter, so the two sets are the same one and not merely similar.
+    // `references` starts from every occurrence at the offset where the rename
+    // starts from those named like the innermost, so without the filter this is
+    // a superset — which would only ever over-refuse, and over-refusing is the
+    // side to be wrong on: declining a rename that would have worked costs the
+    // user a retry, and a prompt that rejects every keystroke costs them the
+    // feature.
     const reachable = this.#session
       .references(at.path, at.offset)
       .filter((mention) => mention.name === subject.name);
@@ -192,6 +195,13 @@ export class PlaygroundAnalysis {
    * than disappearing, for the same reason the session refuses rather than
    * dropping: the user can see the problem the fix answers, and an offer that
    * silently never arrives leaves them with nothing to read.
+   *
+   * No action reaches that branch today, and no test covers it, because every
+   * edit the session emits carries the path of the file its diagnostic was
+   * reported against — `session.ts` records the same thing about its own
+   * equivalent. It is written as behaviour rather than an assertion because the
+   * alternative is to encode "the session will never do that" in the one place
+   * that would go wrong silently if it did.
    */
   #action(map: WorkspaceMap, action: CodeAction): PlaygroundCodeAction {
     const kind = action.kind === "refactor" ? "refactor" : "quickfix";

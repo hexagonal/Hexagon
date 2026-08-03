@@ -6,6 +6,7 @@
   },
   "include": [
     "src/main.ts",
+    "src/monaco-mapping.test.ts",
     "src/protocol.ts",
     "src/examples/**/*.ts"
   ]

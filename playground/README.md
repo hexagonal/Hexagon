@@ -245,6 +245,14 @@ Pure playground state and protocol adapters use Vitest under the repository test
 doctrine. The production build verifies Monaco's ESM and worker bundling. A distinct
 Vitest browser project remains the next step for automated DOM-level Monaco behavior.
 
+Two files cannot be loaded outside a browser — `src/monaco.ts` needs a DOM and
+`src/compiler-worker.ts` needs a `Worker` — so the decisions are kept out of them:
+`src/monaco-mapping.ts` holds the translation of session answers into Monaco's
+shapes and imports Monaco not at all, and `src/compiler-service.ts` holds the
+worker's dispatch. Both are tested directly. What remains in the two shells is
+registration and plumbing, and it is kept short enough to read. Anything with a
+condition in it belongs in the tested half.
+
 Tests must cover at least:
 
 - stale compiler results never replacing current results;
@@ -269,10 +277,12 @@ playground/
     protocol.ts
     compiler-worker.ts
     execution-worker.ts
+    compiler-service.ts
     analysis.ts
     workspace.ts
     workspace-source.ts
     language-services.ts
+    monaco-mapping.ts
     diagnostics.ts
     editor.ts
     execution.ts
@@ -335,12 +345,13 @@ fresh execution worker with a two-second timeout.
   hand-written copies is what produced the divergence #222 reported.
 - A refusal is a result, so it is passed through rather than filtered out. What
   the user sees differs by feature, and #222's premise that "Monaco already
-  implements them" is false for code actions. A rename refusal is shown. A
-  code-action refusal reaches none of the six triggers a Playground user can
-  press — the enumeration is in `src/monaco.ts`, along with the one command that
-  *would* show it and is unbound. #253 carries the fix. The wrong answer would
-  be to send the refusal as an *enabled* action — one that appears applicable
-  and does nothing is worse than a missing one.
+  implements them" is false for code actions. A rename refusal is shown; a
+  code-action refusal is not displayed at all. Four review rounds produced four
+  different explanations of *why*, each wrong, so the explanation lives in #253
+  — where it can be corrected without touching code — and the code comments
+  claim only the measurement. The wrong answer would be to send the refusal as
+  an *enabled* action: one that appears applicable and does nothing is worse
+  than a missing one.
 
 ### Tokenization (#161)
 

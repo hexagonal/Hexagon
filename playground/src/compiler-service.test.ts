@@ -38,7 +38,7 @@ describe("createCompilerService", () => {
     ).toMatchObject({ kind: "rename", id: 9, version: 4, result: { newName: "double" } });
   });
 
-  test("compiles, and reports a compile it could not finish as a diagnostic", () => {
+  test("compiles, and answers source it cannot compile with diagnostics", () => {
     const service = createCompilerService();
 
     expect(service.handle({ kind: "compile", version: 1, source })).toMatchObject({
@@ -50,13 +50,35 @@ describe("createCompilerService", () => {
     ).toMatchObject({ kind: "compile-failure", version: 2 });
   });
 
+  test("turns a compiler that throws into a diagnostic the Errors tab can show", () => {
+    const service = createCompilerService({
+      compile: () => {
+        throw new Error("the elaborator fell over");
+      },
+    });
+
+    // Distinct from the branch above: no malformed source reaches this. A
+    // compile that *throws* posts nothing the UI recognizes unless it is caught
+    // here, and the version has to survive or the reply is dropped as stale.
+    expect(service.handle({ kind: "compile", version: 6, source })).toEqual({
+      kind: "compile-failure",
+      version: 6,
+      diagnostics: [{
+        severity: "error",
+        message: "Internal compiler error: the elaborator fell over",
+        startOffset: 0,
+        endOffset: 0,
+      }],
+    });
+  });
+
   test("turns a fault into a reply carrying the id that is waiting on it", () => {
     const throwing = new Proxy({} as EditorAnalysis, {
       get: () => () => {
         throw new Error("the compiler fell over");
       },
     });
-    const service = createCompilerService(throwing);
+    const service = createCompilerService({ analysis: throwing });
 
     // A promise Monaco is holding must not be closed by an exception arriving
     // as silence. The id is the whole point of the reply: without it the
@@ -79,7 +101,7 @@ describe("createCompilerService", () => {
     });
 
     expect(
-      createCompilerService(throwing).handle({
+      createCompilerService({ analysis: throwing }).handle({
         kind: "rename",
         id: 0,
         version: 1,

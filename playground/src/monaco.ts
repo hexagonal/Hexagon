@@ -13,7 +13,13 @@ import type {
   SourceEditor,
 } from "./editor";
 import type { LanguageServices } from "./language-services";
-import type { PlaygroundTextEdit } from "./protocol";
+import type { TypeOccurrence } from "./protocol";
+import {
+  toCodeAction,
+  toRenameLocation,
+  toWorkspaceEdit,
+  type EditTarget,
+} from "./monaco-mapping";
 import {
   createGrammarLoader,
   createTokensProvider,
@@ -157,6 +163,7 @@ export function createMonacoEditors(
   sourceContainer.hidden = false;
   textarea.hidden = true;
 
+  let types: readonly TypeOccurrence[] = [];
   let suppressChanges = false;
   let caretTypeActivated = false;
   let disposed = false;
@@ -169,15 +176,27 @@ export function createMonacoEditors(
   /**
    * Opens the hover where a pointer would have, for a device with no pointer.
    *
-   * It asks unconditionally. It used to consult the occurrence table first, and
-   * that gate outlived what it gated: hover now answers from the session, which
-   * has rows the table never did — a record field, an `honor` member, an
-   * `export opaque` type parameter — so the gate had become a filter that hid
-   * exactly the positions #222 added. Monaco draws nothing when the provider
-   * answers nothing, so asking and being told no costs a message.
+   * Still gated on the occurrence table even though the hover's *content* now
+   * comes from the session, and the mismatch is deliberate. The table is a
+   * cheap local answer to "is there anything here", and this runs on every
+   * caret move and on every keystroke — `publishTypes` is called from
+   * `handleSourceChange`, not only after a compile. Asking the worker instead
+   * would be two round trips per keystroke on the lowest-powered device the
+   * Playground supports, and `editor.action.showHover` on an already-open
+   * hover focuses it rather than re-asking (`hoverActions.js`'s
+   * `FocusIfVisible`), so the extra asks would not even be free of visible
+   * effect.
+   *
+   * The cost is that positions the table has no row for — a record field, an
+   * `honor` member, an `export opaque` type parameter — do not auto-open on
+   * iPadOS, though they answer perfectly well when hovered. That is a smaller
+   * loss than a hover that steals focus, and #254 carries it.
    */
   const showTypeAtCaret = (): void => {
-    if (sourceEditor.getPosition() === null) return;
+    const position = sourceEditor.getPosition();
+    if (position === null) return;
+    const offset = sourceModel.getOffsetAt(position);
+    if (typeOccurrenceAtOffset(types, offset) === undefined) return;
     queueMicrotask(() => {
       if (disposed) return;
       sourceEditor.trigger(
@@ -219,10 +238,8 @@ export function createMonacoEditors(
         diagnostics.map((diagnostic) => markerFromDiagnostic(sourceModel, diagnostic)),
       );
     },
-    // Monaco no longer reads the occurrence table — the session answers hover —
-    // but a fresh compile is still the moment an open caret hover has something
-    // new to say, so it is still the signal to re-ask.
-    publishTypes: () => {
+    publishTypes: (nextTypes) => {
+      types = nextTypes;
       if (caretTypeActivated) showTypeAtCaret();
     },
     setTheme: (nextTheme) => monaco.editor.setTheme(toMonacoTheme(nextTheme)),
@@ -276,28 +293,22 @@ export function createMonacoEditors(
  * `resolveRenameLocation` and shows it at the cursor, and from
  * `provideRenameEdits` as a notification.
  *
- * A **code action** refusal reaches no trigger a Playground user can press. That
- * is an enumeration of Monaco 0.55.1's six, not a rule, because three attempts
- * at stating it as a rule were each wrong in a different way:
+ * A **code action** refusal is not displayed to a Playground user at all.
  *
- * - the **lightbulb** hides on `validActions.length <= 0`
- *   (`lightBulbWidget.js:168`), and `validActions` is
- *   `allActions.filter(a => !a.disabled)` (`codeAction.js:69`);
- * - **Quick Fix** (`Ctrl+.`) triggers with no filter
- *   (`codeActionCommands.js:65`), so `includeDisabledActions` is false
- *   (`codeActionController.js:176`) and it says "No code actions available";
- * - **Auto Fix** (`Ctrl+Alt+.`) asks for quick fixes but with
- *   `onlyIncludePreferredActions`, and the session sets no `isPreferred`;
- * - **Refactor…**, **Source Action…** and **Organize Imports** filter by a kind
- *   these do not have — every `disabled` the session emits is a quick fix, since
- *   `session.ts` sets no `kind` on either site.
+ * That is a measured result, deliberately not backed here by an account of why.
+ * Four rounds of review produced four such accounts — "greyed out with the
+ * reason as its label", "only under `Refactor…`", "no kind-filtered trigger
+ * reaches one", then a six-item enumeration that was missing two triggers — and
+ * each was wrong in a way the previous one's reasoning had hidden. Monaco's
+ * partition of an action set into `allActions` and `validActions =
+ * allActions.filter(a => !a.disabled)` (`codeAction.js`) is reached by more
+ * paths than any of those attempts enumerated, and the paths do not agree with
+ * each other.
  *
- * The one thing that *would* display it is `editor.action.codeAction`, which
- * defaults to `HierarchicalKind.Empty` — matching every kind — and reaches
- * `codeActionController.js:169`'s `showMessage(action.disabled)`. It is
- * registered and nothing binds it. That is a lead for #253, which carries the
- * fix; nothing here can force it, because an enabled action that silently does
- * nothing is worse than a missing one.
+ * So: the finding is the observation, the account of it lives in #253 where it
+ * can be corrected without touching code, and this comment claims nothing it did
+ * not measure. Nothing here can force the refusal into view, because an enabled
+ * action that silently does nothing is worse than a missing one.
  */
 function registerLanguageProviders(
   sourceModel: monaco.editor.ITextModel,
@@ -328,27 +339,22 @@ function registerLanguageProviders(
             startOffset: model.getOffsetAt(range.getStartPosition()),
             endOffset: model.getOffsetAt(range.getEndPosition()),
           });
+          const target = editTarget(model);
           return {
-            actions: actions.map((action) => ({
-              title: action.title,
-              kind: action.kind,
-              ...(action.disabled === undefined
-                ? { edit: workspaceEdit(model, action.edits) }
-                : { disabled: action.disabled }),
-            })),
+            actions: actions.map((action) => toCodeAction(target, action)),
             dispose: () => {},
           };
         },
       },
-      // Declared so Monaco can skip this provider for a request it cannot
-      // satisfy — which today means only the `source.*` actions (Organize
-      // Imports and friends), since the automatic trigger asks with no filter
-      // at all and reaches every provider regardless.
+      // Declared so `getCodeActionProviders` can skip this provider entirely
+      // for a request it could not satisfy — the `source.*` actions, since the
+      // automatic trigger asks with no filter at all and reaches every provider
+      // regardless.
       //
-      // Separately, and whether or not this is declared, Monaco filters each
-      // provider's returned actions by kind (`codeAction.js`'s `filtersAction`).
-      // That is why `context.only` is not read below: the rule has one owner
-      // and it is not this file.
+      // Separately, and whether or not this is declared, `getCodeActions`
+      // filters each provider's returned actions by kind (`filtersAction`, in
+      // `codeAction/common/types.js`). That is why `context.only` is not read
+      // above: the rule has one owner and it is not this file.
       { providedCodeActionKinds: ["quickfix", "refactor"] },
     ),
     monaco.languages.registerDefinitionProvider(hexagonLanguage, {
@@ -387,23 +393,17 @@ function registerLanguageProviders(
           model.getOffsetAt(position),
         );
         if (subject === undefined) return undefined;
-        if ("refused" in subject) {
-          const caret = new monaco.Range(
-            position.lineNumber,
-            position.column,
-            position.lineNumber,
-            position.column,
-          );
-          return { range: caret, text: "", rejectReason: subject.refused };
-        }
-        return {
-          range: rangeFromOffsets(
-            model,
-            subject.range.startOffset,
-            subject.range.endOffset,
-          ),
-          text: subject.name,
-        };
+        const caret = new monaco.Range(
+          position.lineNumber,
+          position.column,
+          position.lineNumber,
+          position.column,
+        );
+        return toRenameLocation(
+          subject,
+          (start, end) => rangeFromOffsets(model, start, end),
+          caret,
+        );
       },
       provideRenameEdits: async (model, position, newName) => {
         // Not `{ edits: [] }`: Monaco reads any object without a `rejectReason`
@@ -423,7 +423,7 @@ function registerLanguageProviders(
           return { edits: [], rejectReason: "Hexagon has no rename for this position" };
         }
         if ("refused" in result) return { edits: [], rejectReason: result.refused };
-        return { edits: workspaceEdit(model, result.edits).edits };
+        return toWorkspaceEdit(editTarget(model), result.edits);
       },
     }),
   ];
@@ -431,13 +431,14 @@ function registerLanguageProviders(
 }
 
 /**
- * Edits against one model, stamped with the version they were computed for.
+ * A model as something edits can be written against.
  *
- * `versionId` is the last guard on a race the worker's own version check does
- * not cover: a reply can be current when it arrives and stale by the time the
- * user picks the action out of the lightbulb menu. Monaco validates every edit
- * in the set before applying any of them, so the document is never half
- * rewritten against text that has moved underneath it.
+ * The `versionId` is read once, here, and stamped on every edit in the set. It
+ * is the last guard on a race the worker's own version check does not cover: a
+ * reply can be current when it arrives and stale by the time the user picks the
+ * action out of a menu. Monaco validates every edit in a set before applying any
+ * of them, so the document is never half rewritten against text that has moved
+ * underneath it.
  *
  * How loudly it declines depends on which caller asked. The standalone bulk
  * editor signals a mismatch by throwing (`standaloneServices.js`); `rename.js`
@@ -447,21 +448,31 @@ function registerLanguageProviders(
  * both; presentable in one. Making the other presentable is the host's job, not
  * this function's.
  */
-function workspaceEdit(
+function editTarget(
   model: monaco.editor.ITextModel,
-  edits: readonly PlaygroundTextEdit[],
-): monaco.languages.WorkspaceEdit {
-  const versionId = model.getVersionId();
+): EditTarget<monaco.Uri, monaco.Range> {
   return {
-    edits: edits.map((edit) => ({
-      resource: model.uri,
-      versionId,
-      textEdit: {
-        range: rangeFromOffsets(model, edit.startOffset, edit.endOffset),
-        text: edit.replacement,
-      },
-    })),
+    uri: model.uri,
+    versionId: model.getVersionId(),
+    range: (startOffset, endOffset) => rangeFromOffsets(model, startOffset, endOffset),
   };
+}
+
+/**
+ * Whether the compile that produced `types` found anything at this offset.
+ *
+ * Looks one offset back as well, so a caret resting immediately after a name is
+ * still on it — the position a tap most often leaves it in.
+ */
+function typeOccurrenceAtOffset(
+  types: readonly TypeOccurrence[],
+  offset: number,
+): TypeOccurrence | undefined {
+  const at = (candidate: number): TypeOccurrence | undefined =>
+    types.find(({ startOffset, endOffset }) =>
+      candidate >= startOffset && candidate < endOffset
+    );
+  return at(offset) ?? (offset > 0 ? at(offset - 1) : undefined);
 }
 
 function replaceModel(uri: string, source: string, language: string): monaco.editor.ITextModel {

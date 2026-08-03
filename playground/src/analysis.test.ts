@@ -102,6 +102,24 @@ describe("code actions", () => {
     expect(action?.disabled).toContain("`m` is already bound");
   });
 
+  test("answers a selection that ends exactly where its module block does", () => {
+    const analysis = new PlaygroundAnalysis();
+    const source = "module Helper\n" +
+      "    export opaque record Box(a) = { get: () -> a }\n" +
+      "end module Helper\n" +
+      "console.log(1)\n";
+
+    // That last offset is the first character of the `end module` line, and
+    // which file claims it decides whether this request is answered at all:
+    // `codeActions` drops a selection whose ends land in different files.
+    const actions = analysis.codeActions(source, {
+      startOffset: source.indexOf("(a)") + 1,
+      endOffset: source.indexOf("end module Helper"),
+    });
+
+    expect(actions.map(({ kind }) => kind)).toEqual(["refactor"]);
+  });
+
   test("answers nothing for a selection straddling two virtual files", () => {
     const analysis = new PlaygroundAnalysis();
     const source = "module Helper\n" +
