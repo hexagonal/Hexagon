@@ -65,6 +65,27 @@ describe("code actions", () => {
     expect(compileSource(2, repaired)).toMatchObject({ kind: "compile-success" });
   });
 
+  test("files the variance offer as a refactor, since it repairs nothing", () => {
+    const analysis = new PlaygroundAnalysis();
+    const source = "export opaque record Box(a) = { get: () -> a }\nconsole.log(1)\n";
+    const caret = source.indexOf("(a)") + 1;
+
+    const [action, ...rest] = analysis.codeActions(source, {
+      startOffset: caret,
+      endOffset: caret,
+    });
+
+    // The only `refactor` the session emits, and the only reason
+    // `providedCodeActionKinds` lists the kind. Misfiled as `quickfix` it would
+    // vanish from `Refactor…` without anything else changing.
+    expect(rest).toEqual([]);
+    expect(action?.kind).toBe("refactor");
+    expect(action?.title).toContain("Declare `Box(+a)`");
+    expect(applied(source, action?.edits ?? [])).toContain(
+      "export opaque record Box(+a) =",
+    );
+  });
+
   test("passes a refused repair through, carrying the reason it was refused", () => {
     const analysis = new PlaygroundAnalysis();
     const source = "export fun m(x: Int) = [x]\nexport fun m(y) = [m(y)]\n";
@@ -261,6 +282,32 @@ describe("rename", () => {
     expect(subject).toMatchObject({ name: "twice" });
     if (subject === undefined || "refused" in subject) return;
     expect(text(source, subject.range)).toBe("twice");
+  });
+
+  test("passes the session's own prepare refusal through, wording and all", () => {
+    const analysis = new PlaygroundAnalysis();
+    const source = "record Person = {name: String}\n" +
+      "honor Show<Person> =\n" +
+      "    show(person) = person.name\n";
+
+    // Not the Playground's `OUTSIDE_DOCUMENT`: this one is the compiler's, and
+    // it is the reason the user is shown. Swallowing it and answering nothing
+    // leaves the editor silent exactly where there is something to say.
+    expect(analysis.prepareRename(source, at(source, "Show"))).toEqual({
+      refused: "`Show` is declared in `/Prelude.hex`, which this project does not own",
+    });
+  });
+
+  test("passes the session's own rename refusal through, wording and all", () => {
+    const analysis = new PlaygroundAnalysis();
+    const source = "fun twice(n: Int): Int = n * 2\nlet one = 1\nconsole.log(twice(one))\n";
+
+    // The rename is verified by re-analysing the project, so this reason is
+    // the compiler's account of what the edit would have done. Replacing it
+    // with silence would let the editor look as though nothing was asked.
+    expect(analysis.rename(source, at(source, "one"), "twice")).toMatchObject({
+      refused: expect.stringContaining("`twice` is already bound"),
+    });
   });
 
   test("refuses at prepare time whatever `rename` would refuse afterwards", () => {

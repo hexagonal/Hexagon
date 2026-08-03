@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { createLanguageServices, type ServiceChannel } from "./language-services";
 import type { CompilerMessage, CompilerRequest } from "./protocol";
@@ -31,6 +31,8 @@ function harness(): Harness {
 }
 
 describe("createLanguageServices", () => {
+  afterEach(() => void vi.restoreAllMocks());
+
   test("carries the current version and the text the answer is about", async () => {
     const { channel, sent, reply } = harness();
     const services = createLanguageServices(channel, () => 7);
@@ -100,7 +102,6 @@ describe("createLanguageServices", () => {
     // throwing looks exactly like a service with nothing to say.
     expect(await answer).toEqual([]);
     expect(reported).toHaveBeenCalledWith(expect.stringContaining("boom"));
-    reported.mockRestore();
   });
 
   test("settles everything outstanding when the worker itself fails", async () => {

@@ -68,6 +68,23 @@ describe("WorkspaceMap", () => {
     expect(map.toBuffer("/Helper.hex", at!.offset)).toBe(inside);
   });
 
+  test("puts text above a module block in `/main.hex`, not in the block", () => {
+    const source = "let one = 1\n" +
+      "module Helper\n" +
+      "    export fun twice(n: Int): Int = n * 2\n" +
+      "end module Helper\n";
+    const { map } = layOutWorkspace(source);
+    const above = source.indexOf("one");
+
+    // An offset before a block is *below* that block's start, which is a
+    // different thing from being inside it. Every other case here has the
+    // block at the top of the buffer, where the distinction cannot show.
+    const at = map.locate(above);
+
+    expect(at?.path).toBe(entryPath);
+    expect(map.toBuffer(entryPath, at!.offset)).toBe(above);
+  });
+
   test("puts text after a module block back where the user typed it", () => {
     const source = "module Helper\n" +
       "    export fun twice(n: Int): Int = n * 2\n" +
@@ -102,13 +119,20 @@ describe("WorkspaceMap", () => {
       .toBeUndefined();
   });
 
-  test("refuses a span with only one end in the buffer", () => {
+  test("refuses a span with only one end in the buffer, whichever end that is", () => {
     const source = "let one = 1\n";
     const { map } = layOutWorkspace(source);
+    const last = prefixLength() + source.length;
 
+    // Starting in the synthesized prefix…
     expect(
       map.toBufferRange(entryPath, { start: prefixLength() - 1, end: prefixLength() + 3 }),
     ).toBeUndefined();
+    // …and running off the end, which is the half a clamp would silently keep.
+    expect(map.toBufferRange(entryPath, { start: last - 3, end: last + 1 }))
+      .toBeUndefined();
+    expect(map.toBufferRange(entryPath, { start: last - 3, end: last }))
+      .toEqual({ startOffset: source.length - 3, endOffset: source.length });
   });
 
   test("refuses an offset outside the buffer entirely", () => {

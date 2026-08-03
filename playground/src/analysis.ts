@@ -253,7 +253,5 @@ function toRange(range: BufferRange | undefined): readonly BufferRange[] {
  * started.
  */
 function inBufferOrder(ranges: readonly BufferRange[]): readonly BufferRange[] {
-  return [...ranges].sort((left, right) =>
-    left.startOffset - right.startOffset || left.endOffset - right.endOffset
-  );
+  return [...ranges].sort((left, right) => left.startOffset - right.startOffset);
 }

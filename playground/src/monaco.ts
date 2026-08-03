@@ -13,7 +13,7 @@ import type {
   SourceEditor,
 } from "./editor";
 import type { LanguageServices } from "./language-services";
-import type { PlaygroundTextEdit, TypeOccurrence } from "./protocol";
+import type { PlaygroundTextEdit } from "./protocol";
 import {
   createGrammarLoader,
   createTokensProvider,
@@ -157,7 +157,6 @@ export function createMonacoEditors(
   sourceContainer.hidden = false;
   textarea.hidden = true;
 
-  let types: readonly TypeOccurrence[] = [];
   let suppressChanges = false;
   let caretTypeActivated = false;
   let disposed = false;
@@ -167,11 +166,18 @@ export function createMonacoEditors(
     for (const listener of changeListeners) listener();
   });
   const providers = registerLanguageProviders(sourceModel, services);
+  /**
+   * Opens the hover where a pointer would have, for a device with no pointer.
+   *
+   * It asks unconditionally. It used to consult the occurrence table first, and
+   * that gate outlived what it gated: hover now answers from the session, which
+   * has rows the table never did — a record field, an `honor` member, an
+   * `export opaque` type parameter — so the gate had become a filter that hid
+   * exactly the positions #222 added. Monaco draws nothing when the provider
+   * answers nothing, so asking and being told no costs a message.
+   */
   const showTypeAtCaret = (): void => {
-    const position = sourceEditor.getPosition();
-    if (position === null) return;
-    const offset = sourceModel.getOffsetAt(position);
-    if (typeOccurrenceAtOffset(types, offset, true) === undefined) return;
+    if (sourceEditor.getPosition() === null) return;
     queueMicrotask(() => {
       if (disposed) return;
       sourceEditor.trigger(
@@ -213,8 +219,10 @@ export function createMonacoEditors(
         diagnostics.map((diagnostic) => markerFromDiagnostic(sourceModel, diagnostic)),
       );
     },
-    publishTypes: (nextTypes) => {
-      types = nextTypes;
+    // Monaco no longer reads the occurrence table — the session answers hover —
+    // but a fresh compile is still the moment an open caret hover has something
+    // new to say, so it is still the signal to re-ask.
+    publishTypes: () => {
       if (caretTypeActivated) showTypeAtCaret();
     },
     setTheme: (nextTheme) => monaco.editor.setTheme(toMonacoTheme(nextTheme)),
@@ -268,20 +276,28 @@ export function createMonacoEditors(
  * `resolveRenameLocation` and shows it at the cursor, and from
  * `provideRenameEdits` as a notification.
  *
- * A **code action** refusal is shown nowhere. Monaco 0.55.1 partitions an action
- * set into `allActions` and `validActions = allActions.filter(a => !a.disabled)`
- * (`codeAction.js:69`). Quick Fix triggers with no filter
- * (`codeActionCommands.js:65`), so `includeDisabledActions` is false
- * (`codeActionController.js:176`), the lightbulb hides on
- * `validActions.length <= 0` (`lightBulbWidget.js:168`), and `Ctrl+.` says "No
- * code actions available". Every refusal the session emits is a quick fix —
- * `session.ts` sets no `kind` on either — so no kind-filtered trigger reaches
- * one either.
+ * A **code action** refusal reaches no trigger a Playground user can press. That
+ * is an enumeration of Monaco 0.55.1's six, not a rule, because three attempts
+ * at stating it as a rule were each wrong in a different way:
  *
- * That is worth stating flatly because two rounds of review were spent on
- * narrower versions of it that were still wrong. Issue #253 carries the fix, and
- * nothing here can force it: an enabled action that silently does nothing is
- * worse than a missing one.
+ * - the **lightbulb** hides on `validActions.length <= 0`
+ *   (`lightBulbWidget.js:168`), and `validActions` is
+ *   `allActions.filter(a => !a.disabled)` (`codeAction.js:69`);
+ * - **Quick Fix** (`Ctrl+.`) triggers with no filter
+ *   (`codeActionCommands.js:65`), so `includeDisabledActions` is false
+ *   (`codeActionController.js:176`) and it says "No code actions available";
+ * - **Auto Fix** (`Ctrl+Alt+.`) asks for quick fixes but with
+ *   `onlyIncludePreferredActions`, and the session sets no `isPreferred`;
+ * - **Refactor…**, **Source Action…** and **Organize Imports** filter by a kind
+ *   these do not have — every `disabled` the session emits is a quick fix, since
+ *   `session.ts` sets no `kind` on either site.
+ *
+ * The one thing that *would* display it is `editor.action.codeAction`, which
+ * defaults to `HierarchicalKind.Empty` — matching every kind — and reaches
+ * `codeActionController.js:169`'s `showMessage(action.disabled)`. It is
+ * registered and nothing binds it. That is a lead for #253, which carries the
+ * fix; nothing here can force it, because an enabled action that silently does
+ * nothing is worse than a missing one.
  */
 function registerLanguageProviders(
   sourceModel: monaco.editor.ITextModel,
@@ -399,10 +415,10 @@ function registerLanguageProviders(
           model.getOffsetAt(position),
           newName,
         );
-        // Deliberately says nothing about the cause. `undefined` covers four —
-        // no name at this position, a reply dropped as stale, a worker fault,
-        // and a worker that had already faulted — and naming one of them would
-        // be right a quarter of the time.
+        // Deliberately says nothing about the cause. `undefined` is what comes
+        // back for no name at this position, for an unclosed `module` block, for
+        // a reply dropped as stale, and for a worker fault — the list is not
+        // closed, which is exactly why guessing at one of them is wrong.
         if (result === undefined) {
           return { edits: [], rejectReason: "Hexagon has no rename for this position" };
         }
@@ -446,18 +462,6 @@ function workspaceEdit(
       },
     })),
   };
-}
-
-function typeOccurrenceAtOffset(
-  types: readonly TypeOccurrence[],
-  offset: number,
-  includePrevious: boolean,
-): TypeOccurrence | undefined {
-  const at = (candidate: number): TypeOccurrence | undefined =>
-    types.find(({ startOffset, endOffset }) =>
-      candidate >= startOffset && candidate < endOffset
-    );
-  return at(offset) ?? (includePrevious && offset > 0 ? at(offset - 1) : undefined);
 }
 
 function replaceModel(uri: string, source: string, language: string): monaco.editor.ITextModel {
