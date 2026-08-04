@@ -309,6 +309,21 @@ export interface Module {
    * only the members before it, and `Bool.hex`'s is empty.
    */
   readonly preludeInstances: readonly PreludeInstance[];
+  /**
+   * The prelude's importable type inventory for this module (FFI Part 7 §2.4).
+   *
+   * The same candidates-then-filter division as `preludeInstances` above, for
+   * the same reason: a prelude type reaches every module's scope with no import
+   * item for the `.d.ts` to render (Modules §5.5), so a face naming `Option`
+   * emitted an unimported name — which TypeScript either rejects or, under the
+   * default `lib` set, silently binds to `lib.dom.d.ts`'s `Option` (#227).
+   *
+   * Ordered by the normative prelude order (`compiler/src/prelude.ts`), and
+   * within a member by unions, then records, then extern types, so the emitted
+   * import lines are deterministic. A prelude module's own slice holds only the
+   * members before it, and `Bool.hex`'s is empty.
+   */
+  readonly preludeTypeImports: readonly PreludeTypeImport[];
   readonly externTypes: readonly ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
   /**
@@ -463,6 +478,37 @@ export interface PreludeInstance extends InstanceImport {
   readonly specifier: string;
 }
 
+/**
+ * One prelude-owned nominal type this module may name without importing it
+ * (`Module.preludeTypeImports`, FFI Part 7 §2.4).
+ *
+ * Availability, not emission — the division `preludeInstances` already draws.
+ * A prelude type in scope but absent from every rendered face costs nothing,
+ * which is what makes the channel free; the declaration emitter imports exactly
+ * the entries its faces reference.
+ *
+ * Exactly one of `union`/`record`/`externType` is set: what a face carries is an
+ * *identity*, and matching by name would break on occlusion (Modules §5.4),
+ * which is the discipline the `Bool`/`Seq` pins already follow. Type aliases get
+ * no entry — a face carries an alias's expansion, never its name (§1).
+ */
+export interface PreludeTypeImport {
+  readonly union?: UnionId;
+  readonly record?: RecordId;
+  readonly externType?: ExternTypeId;
+  /** The prelude export's declared name, which is also the name to import. */
+  readonly name: string;
+  /** The owning prelude member, relative to here; emission rewrites it to `.js`. */
+  readonly specifier: string;
+  /**
+   * Set when a source-written import also binds this identity, under this local.
+   * That import owns the type's emission (§2.4 channel 1) — the same take-over
+   * the term side performs — so the entry renders through the local and owes no
+   * import line of its own. A second line would be a duplicate identifier.
+   */
+  readonly explicitLocal?: string;
+}
+
 export type ImportForm =
   | { readonly kind: "Effect" }
   | { readonly kind: "Namespace"; readonly alias: string; readonly names: readonly ImportName[] }
@@ -472,7 +518,20 @@ export interface ImportName {
   readonly imported: string;
   readonly local: string;
   readonly symbol?: SymbolId;
+  /**
+   * The name binds a type and *no* term. The JavaScript emitter's filter: a
+   * synthesized prelude import skips these, because there is nothing to import
+   * at run time.
+   */
   readonly typeOnly?: boolean;
+  /**
+   * The name binds a type — union, record, type alias, or extern type —
+   * whatever it also binds. Independent of `typeOnly` on purpose (§2.4 channel
+   * 1): `import { Point }` of a record binds the constructor *and* the type, and
+   * the declaration emitter used to infer "type" from "not a term", so the term
+   * half silently cost the `.d.ts` its `import type` row (#227).
+   */
+  readonly typeBinding?: boolean;
   readonly span: Source.Span;
 }
 

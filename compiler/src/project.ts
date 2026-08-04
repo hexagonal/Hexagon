@@ -300,6 +300,12 @@ export function compileProject(
       ...[
         ...(module?.javascript.preludeInstanceImports ?? []),
         ...(module?.javascript.preludeTermImports ?? []),
+        // The `.d.ts` channel (#227, FFI Part 7 §2.4) is an edge on the same
+        // footing, and the only one with no JavaScript counterpart: a face
+        // naming `Option` while touching no `Option` term imports the type and
+        // nothing else. Its target must still be emitted, or the declarations
+        // import from a file that was never written.
+        ...(module?.declarations.preludeTypeImports ?? []),
       ].map((specifier) => resolveSpecifier(path, specifier)),
     ];
   };
