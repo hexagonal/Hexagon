@@ -414,6 +414,25 @@ export interface ImportItem {
   readonly form: ImportForm;
   /** Coherent instance evidence made global by loading this module. */
   readonly instances: readonly InstanceImport[];
+  /**
+   * Whether the resolver synthesized this import rather than the source writing
+   * it — the used-names-only import of one prelude module (Modules §5.5, §6.4).
+   * False for every import the source spells, including one of a prelude module.
+   *
+   * The resolver's answer travels rather than being re-derived, because the
+   * specifier alone cannot answer it: a source module may import `./Option` by
+   * exactly the specifier the synthesized item carries, and the two items are
+   * then indistinguishable by text. The same principle as
+   * `ExternBlockItem.intrinsic` (#125).
+   *
+   * Emission reads it because a synthesized item's names are an
+   * *over-approximation* — the companion-dispatch candidates of
+   * `#noteCompanionCandidate` are registered from syntax, before the checker can
+   * say which of them are dispatches — so its name list is filtered to what the
+   * elaborated Core actually references (#263), which no explicit import's may
+   * be: the source asked for those.
+   */
+  readonly synthesized: boolean;
   readonly span: Source.Span;
 }
 

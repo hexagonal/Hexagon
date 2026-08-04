@@ -301,6 +301,14 @@ class Resolver {
   readonly #preludeTypeNames = new Set<string>();
   readonly #preludeSpecifierBySymbol = new Map<Resolved.SymbolId, string>();
   readonly #preludeInterfaceBySpecifier = new Map<string, ModuleInterface>();
+  /**
+   * File ids of the prelude modules visible here — how an *explicit* import is
+   * recognized as naming one (#263). By module identity rather than by
+   * specifier: the same module is `./Option` from the root and `../Option` from
+   * a subdirectory, and a predicate reading the text would answer differently
+   * for one module.
+   */
+  readonly #preludeFileIds = new Set<number>();
   readonly #usedPreludeSymbols = new Set<Resolved.SymbolId>();
   readonly #explicitlyImported = new Set<Resolved.SymbolId>();
   readonly #moduleAliases = new Map<string, ModuleInterface>();
@@ -335,6 +343,7 @@ class Resolver {
     this.#nextRecord = options.recordBase ?? 0;
     this.#nextExternType = options.externTypeBase ?? 0;
     for (const preludeImport of options.prelude ?? []) {
+      this.#preludeFileIds.add(Number(preludeImport.interface.module.fileId));
       this.#seedPrelude(preludeImport.interface, preludeImport.specifier);
     }
   }
@@ -376,13 +385,20 @@ class Resolver {
    * a call of a function-valued field depends on the receiver's **type** — which
    * the checker decides, long after the synthesized prelude import is built. So
    * the candidate is registered here, from the one syntactic form dispatch can
-   * take. It is conservative in one direction only: at worst a spare named
-   * import of a name the prelude really exports, never a missing one.
+   * take. It is conservative in one direction only: at worst a spare candidate,
+   * never a missing one.
    *
    * The failure this prevents is the silent kind (defect log entries 8 and 10):
    * the module compiles clean and its emitted JavaScript calls a name it never
    * imported. `Seq.hex` is the first prelude module to export dispatchable
    * lowercase operations, so nothing exercised this before.
+   *
+   * What a spare candidate costs is bounded at one entry in the resolved tree
+   * (#263). Registration is *availability* only: emission renders the
+   * synthesized import from the names the elaborated Core references, so a
+   * candidate no dispatch turned out to need is never imported, never drags the
+   * prelude module into the emitted graph, and never reaches this module's
+   * public ESM surface. The over-approximation used to pay all three.
    */
   #noteCompanionCandidate(field: string): void {
     const symbol = this.#preludeScope.lookupLocal(field);
@@ -397,11 +413,14 @@ class Resolver {
    *
    * The conservatism in `#noteCompanionCandidate` is deliberate and stays; this
    * only removes the one case that is decidable *here*, syntactically, with no
-   * help from the checker. It matters because the collection cores and `Seq.hex`
-   * now share vocabulary on purpose (`length`, `prepend` — Collections Part 1
-   * §3.1's naming doctrine), so every `Vector.length(v)` in a prelude-visible
-   * module was pulling a dead `Seq.length` import — and with it the whole of
-   * `Seq.hex`, and `Bool.hex` behind that — into the emitted module graph.
+   * help from the checker. The emitted output no longer depends on it — since
+   * #263 an unreferenced candidate is filtered out at emission — so what it
+   * still buys is in the resolved tree: no spare entry in the used-prelude set,
+   * and no spare claim on a module-level name, which is what would otherwise
+   * push `#preludeImport` into renaming a local it never needed to rename. The
+   * collection cores and `Seq.hex` share vocabulary on purpose (`length`,
+   * `prepend` — Collections Part 1 §3.1's naming doctrine), so `Vector.length(v)`
+   * is an ordinary spelling and not a rarity.
    *
    * The guards mirror the `Access` case below, and must keep mirroring it: a
    * receiver that some declaration claims is *not* the compiler companion, and a
@@ -926,9 +945,24 @@ class Resolver {
         const namespaceAlias = item.form.kind === "Namespace"
           ? item.form.alias.text
           : undefined;
+        // An explicit import of a *prelude* module carries no instance evidence
+        // (#263), for the reason `#preludeImport` carries none (#153): the
+        // prelude's instances ride `Module.preludeInstances`, which every module
+        // gets whether or not it imports anything. Carrying them here as well
+        // would put a second copy of the same identity into this module's
+        // interface, which consumers would then predict imports of and
+        // intermediates re-export — the transit #153 cut for the synthesized
+        // channel, cut here for the explicit one.
+        //
+        // Only prelude modules. An ordinary module's `honor` is reachable from a
+        // consumer three hops away *only* through the intermediates, so instance
+        // evidence on a non-prelude import is load-bearing and untouched.
+        const preludeSource = importedModule !== undefined &&
+          this.#preludeFileIds.has(Number(importedModule.module.fileId));
         return {
           kind: "Import",
           specifier: item.specifier,
+          synthesized: false,
           form: item.form.kind === "Effect"
             ? item.form
             : item.form.kind === "Namespace"
@@ -948,7 +982,7 @@ class Resolver {
                   kind: "Named",
                   names: names ?? [],
                 },
-          instances: (importedModule?.instances ?? []).map((instance) => ({
+          instances: (preludeSource ? [] : importedModule?.instances ?? []).map((instance) => ({
             identity: instance.identity,
             constraint: instance.constraint,
             typeParameters: instance.typeParameters,
@@ -2531,6 +2565,7 @@ class Resolver {
       // interface, which consumers would then predict imports of and
       // intermediates re-export — the transit chain #153 exists to cut.
       instances: [],
+      synthesized: true,
       span,
     }));
   }

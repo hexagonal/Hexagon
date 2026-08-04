@@ -283,15 +283,24 @@ export function compileProject(
   // `Declarations.importsRuntimeTypes`. Missing them is defect 8 exactly: an
   // emitted `import … from "./Prelude.js"` next to no `Prelude.js`, on a project
   // that reported no diagnostic.
+  // A *synthesized* prelude import item is not an edge either, for the same
+  // reason and since #263: its names are the resolver's over-approximation of
+  // what companion dispatch might reach, and emission filters them to what the
+  // body references — so the item can survive resolution with every name
+  // dropped, and reading it as an edge would emit a prelude module nothing
+  // imports. What emission reported is the answer for both channels.
   const importsOf = (path: string): readonly string[] => {
     const module = compiled.get(path);
     return [
       ...(module?.resolved.items ?? []).flatMap((item) =>
-        item.kind === "Import" ? [resolveSpecifier(path, item.specifier)] : []
+        item.kind === "Import" && !item.synthesized
+          ? [resolveSpecifier(path, item.specifier)]
+          : []
       ),
-      ...(module?.javascript.preludeInstanceImports ?? []).map((specifier) =>
-        resolveSpecifier(path, specifier)
-      ),
+      ...[
+        ...(module?.javascript.preludeInstanceImports ?? []),
+        ...(module?.javascript.preludeTermImports ?? []),
+      ].map((specifier) => resolveSpecifier(path, specifier)),
     ];
   };
   const emitted = new Set(ordered.filter((path) => !preludeSet.has(path)));

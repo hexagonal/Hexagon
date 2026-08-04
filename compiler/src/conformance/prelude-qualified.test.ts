@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { compileProject, Source } from "../index";
+import { compileProject, type Resolved, Source } from "../index";
 
 /** Minimal ESM linker: rewrite compiler-owned relative imports to data-URL modules. */
 function resolveModulePath(importer: string, specifier: string): string | undefined {
@@ -306,22 +306,25 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     // `Vector.length`/`Vector.prepend` resolve to compiler core operations, but
     // they share their spelling with real `Seq.hex` exports — deliberately, per
     // the Collections Part 1 §3.1 naming doctrine. Registering a candidate for
-    // them would import a prelude term the module never names, and a dead import
-    // is not free: it drags `Seq.hex` (and `Bool.hex` behind it) into the graph
-    // of every module that measures a vector.
+    // them would put a prelude term the module never names into the used-prelude
+    // set, and with it a claim on the module-level name `length` that
+    // `#preludeImport` would then have to rename around.
     const project = compileProject([
       new Source.File(Source.fileId(0), "/main.hex",
         "export let n: Int = Vector.length(Vector.prepend([2, 3], 1))\n"),
     ]);
     expect(project.diagnostics).toEqual([]);
-    const javascript = project.modules
-      .find((module) => module.source.path === "/main.hex")!.javascript.text;
-    expect(javascript).not.toContain("Seq.js");
-    expect(topLevelBindings(javascript)).not.toContain("length");
+    const main = project.modules.find((module) => module.source.path === "/main.hex")!;
+    expect(main.javascript.text).not.toContain("Seq.js");
+    expect(topLevelBindings(main.javascript.text)).not.toContain("length");
+    expect(synthesizedImportNames(main)).toEqual([]);
     // Not vacuous: with the guard's precondition absent the machinery still
     // fires. This is a function-valued *field* call, not companion dispatch —
     // it is the shape that cannot be decided without the checker, which is
-    // exactly what `#noteCompanionCandidate` stays conservative for.
+    // exactly what `#noteCompanionCandidate` stays conservative for. Read off
+    // the *resolved* tree, because that is where the candidate lives: since #263
+    // emission filters the synthesized import to what Core references, so the
+    // emitted text of this module says nothing about what was registered.
     const fieldCall = compileProject([
       new Source.File(Source.fileId(0), "/main.hex",
         "record Holder = { length: Int -> Int }\n" +
@@ -329,8 +332,10 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
         "export let n: Int = holder.length(3)\n"),
     ]);
     expect(fieldCall.diagnostics).toEqual([]);
-    expect(fieldCall.modules.find((module) => module.source.path === "/main.hex")!
-      .javascript.text).toContain('import { length } from "./Seq.js"');
+    const fieldMain = fieldCall.modules
+      .find((module) => module.source.path === "/main.hex")!;
+    expect(synthesizedImportNames(fieldMain)).toEqual(["./Seq:length"]);
+    expect(fieldMain.javascript.text).not.toContain("Seq.js");
   });
 
   test("suppressing the core call still imports a genuinely dispatched `length`", async () => {
@@ -349,6 +354,22 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     expect(module["dispatched"]).toBe(3);
   });
 });
+
+/**
+ * The prelude terms the *resolver* reached, as `specifier:name` — the
+ * synthesized import items' names, before emission filters them (#263). The one
+ * place a companion candidate is observable, since a registered candidate no
+ * dispatch needed is now dropped before it reaches the emitted text.
+ */
+function synthesizedImportNames(
+  module: { readonly resolved: { readonly items: readonly Resolved.Item[] } },
+): readonly string[] {
+  return module.resolved.items.flatMap((item) =>
+    item.kind === "Import" && item.synthesized && item.form.kind === "Named"
+      ? item.form.names.map(({ imported }) => `${item.specifier}:${imported}`)
+      : []
+  );
+}
 
 /** Every identifier the emitted module binds at top level, imports included. */
 function topLevelBindings(javascript: string): readonly string[] {

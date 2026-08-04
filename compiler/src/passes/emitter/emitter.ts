@@ -451,6 +451,22 @@ class JavaScriptEmitter {
    */
   readonly #referencedDictionaries = new Set<string>();
   /**
+   * Every symbol a rendered `Name` expression named (#263).
+   *
+   * A superset of the imported symbols: it is consulted only for the names on a
+   * *synthesized* prelude import, where an entry that was never referenced is
+   * exactly the over-approximation `#noteCompanionCandidate` warns of. Recorded
+   * at the one expression form that spells an imported symbol, so it cannot
+   * drift from what was written, and read only after every item is rendered.
+   */
+  readonly #referencedSymbols = new Set<Resolved.SymbolId>();
+  /**
+   * The synthesized prelude imports, held back during rendering (#263): their
+   * name lists are decided from `#referencedSymbols`, which only rendering
+   * fills. See `#preludeTermImports`.
+   */
+  readonly #synthesizedImports: Core.ImportItem[] = [];
+  /**
    * Local dictionary names an `Import` item already binds, so the prelude
    * channel never binds one a second time (#153). See `#preludeInstanceImports`.
    */
@@ -558,10 +574,12 @@ class JavaScriptEmitter {
     });
 
     // After rendering, because rendering is what discovers which prelude
-    // dictionaries the body names (#153), and before the rendered entries,
-    // because these are imports.
+    // dictionaries the body names (#153) and which prelude terms it names
+    // (#263), and before the rendered entries, because these are imports.
     const preludeInstanceImports = this.#preludeInstanceImports();
     body.push(...preludeInstanceImports.map(({ line }) => line));
+    const preludeTermImports = this.#preludeTermImports();
+    body.push(...preludeTermImports.map(({ line }) => line));
 
     const seated = this.#docs.seatedComments();
     const entries = sourceEntries(
@@ -599,6 +617,9 @@ class JavaScriptEmitter {
       preludeInstanceImports: [
         ...new Set(preludeInstanceImports.map(({ specifier }) => specifier)),
       ],
+      preludeTermImports: [
+        ...new Set(preludeTermImports.map(({ specifier }) => specifier)),
+      ],
       diagnostics: this.#diagnostics.toArray(),
     };
   }
@@ -613,6 +634,14 @@ class JavaScriptEmitter {
     if (item.kind === "ErrorItem") return [`${prefix}undefined;`];
     if (item.kind === "TypeAlias") return [];
     if (item.kind === "Import") {
+      // A synthesized prelude import is rendered after every item, because its
+      // name list is what the rendered body references and nothing else (#263).
+      // Its `instances` are empty by construction (#153), so holding it back
+      // withholds no evidence.
+      if (item.synthesized) {
+        this.#synthesizedImports.push(item);
+        return [];
+      }
       const specifier = JSON.stringify(emittedModuleSpecifier(item.specifier));
       const instances = item.instances.map(({ importedDictionary, localDictionary }) =>
         importedDictionary === localDictionary
@@ -1305,6 +1334,7 @@ class JavaScriptEmitter {
   ): string {
     switch (expression.kind) {
       case "Name": {
+        this.#referencedSymbols.add(expression.symbol);
         // The pin at the reference site (#147, decisions doc §3.2): `True` emits
         // `true`. Ahead of every other spelling rule, because the constructor
         // never needs a binding, a local, or an import to be named by.
@@ -3136,13 +3166,16 @@ class JavaScriptEmitter {
    * into that item would need a second rendering pass to know what to merge.
    * Duplicate `import` statements from one specifier are ordinary ESM.
    *
-   * The `#importedInstanceLocals` filter is not an optimization. An *explicit*
-   * `import { Less } from "./Prelude"` carries the same instances, and both
-   * channels build the local name the same way from the same file id and the
-   * same dictionary — so the two names are character-for-character equal.
-   * Emitting both is `SyntaxError: Identifier has already been declared` at
-   * load, after a clean compile. The import item owns the emission, exactly as
-   * `#preludeImport` lets an explicit import own a term's.
+   * The `#importedInstanceLocals` filter has nothing left to filter here, and
+   * is kept as the invariant it asserts rather than as a live case. No import
+   * item can bind one of these locals any more: a synthesized import carries no
+   * instances (#153) and an explicit import of a prelude module carries none
+   * either (#263), so the only remaining `Import` instances name non-prelude
+   * modules, whose dictionaries this channel never offers. Were an import item
+   * to bind one, both sides would build the local from the same file id and the
+   * same dictionary — character-for-character equal — and emitting both is
+   * `SyntaxError: Identifier has already been declared` at load, after a clean
+   * compile. The import item would own the emission.
    */
   #preludeInstanceImports(): readonly {
     readonly line: string;
@@ -3164,6 +3197,58 @@ class JavaScriptEmitter {
           specifier,
         };
       });
+  }
+
+  /**
+   * `import` lines for the prelude *terms* this module's body actually names
+   * (#263) — the synthesized import items, rendered from what the elaborated
+   * Core referenced instead of from what the resolver predicted.
+   *
+   * The resolver's name list is an over-approximation and has to be: whether
+   * `x.f(y)` is a companion dispatch or a call of a function-valued field
+   * depends on the receiver's type, which the checker decides long after that
+   * list is built, so `#noteCompanionCandidate` registers the candidate from
+   * syntax alone and fails towards the spare name. Filtering here is the same
+   * structural move `#preludeInstanceImports` makes: the resolver decides
+   * *availability*, emission decides what is imported, and neither is inferred
+   * from the other. It is sound only for a synthesized item — an explicit
+   * import's names were asked for by the source, and are emitted whether the
+   * body names them or not.
+   *
+   * A synthesized item with no surviving name emits nothing at all. It must not
+   * fall through to `import "./Seq.js";`: a bare side-effect import is a
+   * load-order dependency the source never wrote, and it would keep the module
+   * in the emitted graph — which is the whole cost this filter removes.
+   */
+  #preludeTermImports(): readonly {
+    readonly line: string;
+    readonly specifier: string;
+  }[] {
+    return this.#synthesizedImports.flatMap((item) => {
+      // `#preludeImport` builds nothing else; the other forms have no seat here.
+      if (item.form.kind !== "Named") return [];
+      const names = item.form.names.flatMap(({ imported, local, symbol, typeOnly }) => {
+        if (symbol === undefined || !this.#referencedSymbols.has(symbol)) return [];
+        // A pinned `Bool` constructor is emitted as its literal (#147), so the
+        // import that would bind it has nothing to bind.
+        if (this.#pinnedBoolLiteral(symbol) !== undefined) return [];
+        if (typeOnly === true) return [];
+        // The local, never the imported name: a module that binds `map` itself
+        // reaches the prelude's under a distinguished local (Modules §6.4), and
+        // spelling the imported name here would redeclare its binding.
+        const source = this.#constrainedImports.has(symbol)
+          ? internalConstrainedExportName(symbol)
+          : imported;
+        return [source === local ? source : `${source} as ${local}`];
+      });
+      if (names.length === 0) return [];
+      return [{
+        line: `import { ${names.join(", ")} } from ${
+          JSON.stringify(emittedModuleSpecifier(item.specifier))
+        };`,
+        specifier: item.specifier,
+      }];
+    });
   }
 
   #exportEvidence(dictionary: string): void {
