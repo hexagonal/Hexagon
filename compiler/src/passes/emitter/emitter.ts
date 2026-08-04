@@ -440,6 +440,21 @@ class JavaScriptEmitter {
   readonly #helperNames = new Map<Helper, string>();
   readonly #exports: string[] = [];
   readonly #exportedEvidence = new Set<string>();
+  /**
+   * Every module-level dictionary the emitted body actually names (#153).
+   *
+   * Recorded at the one place a dictionary *name* reaches the output — the
+   * `Instance` branch of `#emitEvidence` — rather than reconstructed by walking
+   * Core for identifiers, so it cannot drift from what was written. Read only
+   * after every item has been rendered; nothing is pruned after rendering, so by
+   * then it is exact rather than an over-approximation.
+   */
+  readonly #referencedDictionaries = new Set<string>();
+  /**
+   * Local dictionary names an `Import` item already binds, so the prelude
+   * channel never binds one a second time (#153). See `#preludeInstanceImports`.
+   */
+  readonly #importedInstanceLocals = new Set<string>();
   readonly #module: Core.Module;
   readonly #docs: DocIndex;
   readonly #exportInstanceEvidence: boolean;
@@ -455,6 +470,12 @@ class JavaScriptEmitter {
     this.#prelude = preludeIds(module);
     this.#exportInstanceEvidence = options.exportInstanceEvidence ?? false;
     this.#generatedNames = new GeneratedNames(module.symbols.map(({ name }) => name));
+    for (const item of module.items) {
+      if (item.kind !== "Import") continue;
+      for (const { localDictionary } of item.instances) {
+        this.#importedInstanceLocals.add(localDictionary);
+      }
+    }
     for (const item of module.items) {
       if (item.kind !== "Import" || item.form.kind === "Effect") continue;
       // Namespace members are reached as `Alias.member` and never by bare local.
@@ -536,6 +557,12 @@ class JavaScriptEmitter {
       };
     });
 
+    // After rendering, because rendering is what discovers which prelude
+    // dictionaries the body names (#153), and before the rendered entries,
+    // because these are imports.
+    const preludeInstanceImports = this.#preludeInstanceImports();
+    body.push(...preludeInstanceImports.map(({ line }) => line));
+
     const seated = this.#docs.seatedComments();
     const entries = sourceEntries(
       rendered,
@@ -569,6 +596,9 @@ class JavaScriptEmitter {
       fileId: this.#module.fileId,
       text,
       generatedSections: this.#generatedSections(text),
+      preludeInstanceImports: [
+        ...new Set(preludeInstanceImports.map(({ specifier }) => specifier)),
+      ],
       diagnostics: this.#diagnostics.toArray(),
     };
   }
@@ -3061,6 +3091,8 @@ class JavaScriptEmitter {
       return "({})";
     }
     if (evidence.kind === "Instance") {
+      // The use that decides whether a prelude instance needs an import (#153).
+      this.#referencedDictionaries.add(evidence.dictionary);
       const arguments_ = evidence.arguments.map((argument) =>
         this.#emitEvidence(
           argument.evidence,
@@ -3078,6 +3110,60 @@ class JavaScriptEmitter {
 
   #identifier(symbol: Resolved.SymbolId, sourceName: string): string {
     return isSafeIdentifier(sourceName) ? sourceName : `__hex_binding${Number(symbol)}`;
+  }
+
+  /**
+   * `import` lines for the prelude instances this module's body actually uses
+   * (#153).
+   *
+   * The whole point of the channel is that availability costs nothing: a module
+   * with `Ordering` in scope emits no import, and one that compares two of them
+   * emits exactly one, pointed at the module that *declares* the dictionary
+   * rather than at whatever intermediate happened to re-export it.
+   *
+   * Two properties this must keep:
+   *
+   * - **No re-export.** `#exportEvidence` is deliberately not called. Prelude
+   *   evidence is reachable from every module directly, so a consumer never has
+   *   to ask an intermediate for it — and the transit chain that made `#153`'s
+   *   defect intermittently invisible does not re-form.
+   * - **Deterministic order.** `preludeInstances` arrives in normative prelude
+   *   order and is filtered, never sorted, so the output is a function of the
+   *   prelude list and not of evidence-discovery order during rendering.
+   *
+   * One statement per entry rather than one per specifier: a prelude module may
+   * already be imported for its *terms* by the synthesized import, and merging
+   * into that item would need a second rendering pass to know what to merge.
+   * Duplicate `import` statements from one specifier are ordinary ESM.
+   *
+   * The `#importedInstanceLocals` filter is not an optimization. An *explicit*
+   * `import { Less } from "./Prelude"` carries the same instances, and both
+   * channels build the local name the same way from the same file id and the
+   * same dictionary — so the two names are character-for-character equal.
+   * Emitting both is `SyntaxError: Identifier has already been declared` at
+   * load, after a clean compile. The import item owns the emission, exactly as
+   * `#preludeImport` lets an explicit import own a term's.
+   */
+  #preludeInstanceImports(): readonly {
+    readonly line: string;
+    readonly specifier: string;
+  }[] {
+    return this.#module.preludeInstances
+      .filter(({ localDictionary }) =>
+        this.#referencedDictionaries.has(localDictionary) &&
+        !this.#importedInstanceLocals.has(localDictionary)
+      )
+      .map(({ importedDictionary, localDictionary, specifier }) => {
+        const binding = importedDictionary === localDictionary
+          ? importedDictionary
+          : `${importedDictionary} as ${localDictionary}`;
+        return {
+          line: `import { ${binding} } from ${
+            JSON.stringify(emittedModuleSpecifier(specifier))
+          };`,
+          specifier,
+        };
+      });
   }
 
   #exportEvidence(dictionary: string): void {

@@ -12,6 +12,19 @@ interface Output {
 export interface JavaScript extends Output {
   readonly kind: "JavaScript";
   readonly generatedSections: readonly GeneratedSection[];
+  /**
+   * Specifiers of prelude modules this file imports *only* for instance
+   * evidence (#153), in source form — the same spelling an `Import` item
+   * carries, not the emitted `.js` one.
+   *
+   * Carried for the same reason `Declarations.importsRuntimeTypes` is, and with
+   * the same consequence if it were missing: a prelude module is emitted only
+   * when something emitted imports it, and this channel's imports are decided
+   * during emission rather than declared as `Import` items, so reachability
+   * cannot see them by reading the tree. Without this the project compiles
+   * clean and emits `import … from "./Prelude.js"` beside no `Prelude.js`.
+   */
+  readonly preludeInstanceImports: readonly string[];
 }
 
 /** A generated body that an interactive host may present separately. */

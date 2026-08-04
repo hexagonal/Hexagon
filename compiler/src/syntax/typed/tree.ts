@@ -188,6 +188,8 @@ export interface Module {
   readonly preludeRecords: ReadonlyMap<string, Resolved.RecordId>;
   /** Prelude-supplied union identities by name; see `Resolved.Module`. */
   readonly preludeUnions: ReadonlyMap<string, Resolved.UnionId>;
+  /** Prelude-visible instances (#153); see `Resolved.Module`. */
+  readonly preludeInstances: readonly Resolved.PreludeInstance[];
   readonly externTypes: readonly ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
   /**

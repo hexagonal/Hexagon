@@ -421,48 +421,18 @@ class Checker {
         }
       }
     }
+    // The prelude's instances are in scope by Modules §5.5, not by import, so
+    // they are seeded before anything the import list says (#153). Availability
+    // used to ride the synthesized prelude import, which only a *term* reference
+    // synthesizes — so a module naming only prelude *types* had no evidence for
+    // `Ordering == Ordering`. Seeding first also decides which copy wins when the
+    // same identity arrives twice: an explicit `import { Some } from "./Option"`
+    // carries `Eq<Option>` as well, and `identity` is stable across every hop, so
+    // that copy dedups silently against this one instead of colliding.
+    for (const instance of module.preludeInstances) this.#seedImportedInstance(instance);
     for (const item of module.items) {
       if (item.kind !== "Import") continue;
-      for (const imported of item.instances) {
-        const instance: Resolved.HonorItem = {
-          kind: "Honor",
-          constraint: imported.constraint,
-          typeParameters: imported.typeParameters,
-          subject: imported.subject,
-          derived: false,
-          dictionary: imported.localDictionary,
-          impliedTypes: imported.impliedTypes,
-          members: [],
-          span: imported.span,
-        };
-        const typeParameters = new Map(
-          instance.typeParameters.map(({ name }) => [
-            name,
-            this.#fresh(0, false),
-          ] as const),
-        );
-        this.#instanceTypeParameters.set(instance, typeParameters);
-        const subject = this.#annotationType(
-          instance.subject,
-          0,
-          new Map(),
-          typeParameters,
-        );
-        this.#instanceSubjects.set(instance, subject);
-        const key = this.#instanceKey(instance.constraint, subject);
-        const existingIdentity = this.#instanceIdentities.get(key);
-        if (existingIdentity === imported.identity) continue;
-        if (existingIdentity !== undefined || this.#instances.has(key)) {
-          this.#diagnostics.add({
-            severity: "error",
-            message: `duplicate instance of \`${instance.constraint}<${this.#display(subject)}>\``,
-            primary: imported.span,
-          });
-        } else {
-          this.#instances.set(key, instance);
-          this.#instanceIdentities.set(key, imported.identity);
-        }
-      }
+      for (const imported of item.instances) this.#seedImportedInstance(imported);
     }
     for (const item of module.items) {
       if (item.kind === "Honor") {
@@ -794,6 +764,7 @@ class Checker {
       records: module.records.map((record) => this.#materializeRecord(record)),
       preludeRecords: module.preludeRecords,
       preludeUnions: module.preludeUnions,
+      preludeInstances: module.preludeInstances,
       externTypes: module.externTypes,
       comments: module.comments,
       docs: module.docs,
@@ -4815,6 +4786,56 @@ class Checker {
     return type.kind === "Function"
       ? { parameters: type.parameters, result: type.result }
       : { parameters: [], result: type };
+  }
+
+  /**
+   * Admits one instance this module did not declare into the evidence universe.
+   *
+   * Shared by both channels that supply such evidence: the prelude's §5.5
+   * visibility (`Module.preludeInstances`) and the `instances` an `Import` item
+   * carries. They differ in where they come from and in nothing else, so the
+   * dedup rule is one rule — `identity` is stable across every hop, and a second
+   * arrival of the same declaration is silence, not a collision.
+   */
+  #seedImportedInstance(imported: Resolved.InstanceImport): void {
+    const instance: Resolved.HonorItem = {
+      kind: "Honor",
+      constraint: imported.constraint,
+      typeParameters: imported.typeParameters,
+      subject: imported.subject,
+      derived: false,
+      dictionary: imported.localDictionary,
+      impliedTypes: imported.impliedTypes,
+      members: [],
+      span: imported.span,
+    };
+    const typeParameters = new Map(
+      instance.typeParameters.map(({ name }) => [
+        name,
+        this.#fresh(0, false),
+      ] as const),
+    );
+    this.#instanceTypeParameters.set(instance, typeParameters);
+    const subject = this.#annotationType(
+      instance.subject,
+      0,
+      new Map(),
+      typeParameters,
+    );
+    this.#instanceSubjects.set(instance, subject);
+    const key = this.#instanceKey(instance.constraint, subject);
+    const existingIdentity = this.#instanceIdentities.get(key);
+    if (existingIdentity === imported.identity) return;
+    if (existingIdentity !== undefined || this.#instances.has(key)) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `duplicate instance of \`${instance.constraint}<${this.#display(subject)}>\``,
+        primary: imported.span,
+      });
+      return;
+    }
+    this.#instances.set(key, instance);
+    this.#instanceIdentities.set(key, imported.identity);
   }
 
   #instanceKey(constraint: string, subject: Mono): string {

@@ -74,6 +74,14 @@ export interface Module {
    * union whose values are the JS `boolean` rather than the §6.2 string form.
    */
   readonly preludeUnions: ReadonlyMap<string, Resolved.UnionId>;
+  /**
+   * Prelude-visible instances (#153); see `Resolved.Module`. Emission reads this
+   * as a *candidate* set, never an obligation: an entry becomes an `import` line
+   * only where the elaborated items below actually name its `localDictionary`.
+   * That is what makes this channel free — a module that merely has `Ordering` in
+   * scope emits nothing for it.
+   */
+  readonly preludeInstances: readonly Resolved.PreludeInstance[];
   readonly externTypes: readonly Typed.ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
   /**
