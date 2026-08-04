@@ -148,6 +148,27 @@ export interface Constraint {
   readonly evidencePath?: readonly string[];
   readonly dictionaryArguments?: readonly Constraint[];
   readonly structural?: boolean;
+  /**
+   * The constraint the checker resolved for each direct component of a
+   * structurally satisfied type (#278, `spec/products.md` §2.5's implementer
+   * note). Present exactly when `structural` is, and empty for the `Bool` pin
+   * and `Concat<Vector(a)>`, which raise no component demand.
+   *
+   * Emission renders *these* rather than re-walking the type, so a component
+   * with a hand-written instance is reached through that instance. The key is
+   * the component's position in its container — a tuple index, a record field
+   * name, `element`, `key`, `value`, or `Constructor.field` for a union slot —
+   * because the derived `compare` and `show` bodies visit a record's fields in
+   * name order while this list is in declaration order.
+   */
+  readonly components?: readonly ConstraintComponent[];
+}
+
+/** One direct component of a structural type, or of a derivation subject. */
+export interface ConstraintComponent {
+  /** The component's position: a tuple index, a field name, `element`, … */
+  readonly key: string;
+  readonly constraint: Constraint;
 }
 
 export interface Scheme {
@@ -511,6 +532,12 @@ export interface HonorItem {
   readonly derived: boolean;
   readonly dictionary: string;
   readonly baseConstraints: readonly Constraint[];
+  /**
+   * For a derived instance, the constraint the checker resolved for each
+   * component of the subject — the record's fields, or every constructor slot
+   * of the union (#278). Empty for a hand-written instance, which has a body.
+   */
+  readonly components: readonly ConstraintComponent[];
   readonly impliedTypes: readonly HonorImpliedType[];
   readonly members: readonly HonorMember[];
   readonly span: Source.Span;

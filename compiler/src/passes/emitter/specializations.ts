@@ -281,7 +281,7 @@ function replaceDictionaryEvidence<T>(
     if (replacement === "Unit") {
       // `Unit` evidence is structural since #159 — the automatic tuple
       // instances at arity 0 — because there is no primitive left to name.
-      return { kind: "Structural", type: { kind: "Tuple", elements: [] } } as T;
+      return { kind: "Structural", type: { kind: "Tuple", elements: [] }, components: [] } as T;
     }
     if (replacement !== undefined) {
       return { kind: "Primitive", instance: replacement } as T;

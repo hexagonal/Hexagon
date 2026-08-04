@@ -70,6 +70,23 @@ export function emitTypeScriptPreview(
 type EvidenceNames = ReadonlyMap<string, string>;
 
 /**
+ * The checker's per-component evidence selection for one container, keyed by
+ * component position (#278, `spec/products.md` §2.5's implementer note).
+ *
+ * `undefined` where there is none to render — the `Hash` walk, which is
+ * licensed to stay structural because a `Hash` subject's `Eq` is derived all the
+ * way down (Collections Part 2 §4.3), and the error fallbacks. A derived body
+ * given `undefined` re-walks the type, which is exactly the old behaviour.
+ */
+type ComponentEvidence = ReadonlyMap<string, Core.Evidence> | undefined;
+
+function componentEvidence(
+  components: readonly Core.EvidenceComponent[],
+): ReadonlyMap<string, Core.Evidence> {
+  return new Map(components.map(({ key, evidence }) => [key, evidence]));
+}
+
+/**
  * Documentation, indexed the way emission asks for it: by the span of the
  * declaration a JSDoc block would precede (spec/doc-comments.md §7.1). A seat
  * that finds nothing here emits nothing — documentation is never invented, and
@@ -2802,10 +2819,26 @@ class JavaScriptEmitter {
     return `${this.#dictionary(variable, "Hash", this.#module.span, evidenceNames)}.eq`;
   }
 
+  /**
+   * The members of a derived instance.
+   *
+   * The body expands the subject **one level** — its own fields, or its
+   * constructors' slots — and renders each component from the evidence the
+   * checker selected for it (#278). It does not re-walk the component's type:
+   * that is what silently ignored a hand-written component instance and read
+   * through `opaque`, and `spec/products.md` §2.5's implementer note now pins
+   * the rule the checker already followed.
+   *
+   * `Hash` is the one member still walked structurally, and it is licensed to
+   * be: `Hash` cannot be hand-written, and deriving it requires derived `Eq`
+   * (Collections Part 2 §4.3), so every type reachable from a `Hash` subject
+   * has derived equality and the structural answer *is* the instance's answer.
+   */
   #derivedMembers(item: Core.HonorItem, evidenceNames: EvidenceNames): readonly string[] {
     const subject = item.subject;
+    const components = componentEvidence(item.components);
     const equals = (left: string, right: string): string =>
-      this.#derivedEquals(subject, left, right, evidenceNames);
+      this.#derivedEquals(subject, left, right, evidenceNames, false, components);
     if (item.constraint === "Eq") {
       return [
         `equals: (__hex_left, __hex_right) => ${equals("__hex_left", "__hex_right")}`,
@@ -2813,7 +2846,9 @@ class JavaScriptEmitter {
       ];
     }
     if (item.constraint === "Show") {
-      return [`show: __hex_value => ${this.#derivedShow(subject, "__hex_value", evidenceNames)}`];
+      return [
+        `show: __hex_value => ${this.#derivedShow(subject, "__hex_value", evidenceNames, components)}`,
+      ];
     }
     if (item.constraint === "Ord") {
       return [
@@ -2822,12 +2857,37 @@ class JavaScriptEmitter {
           "__hex_left",
           "__hex_right",
           evidenceNames,
+          components,
         )}`,
       ];
     }
     return [
       `hash: __hex_value => ${this.#derivedHash(subject, "__hex_value", evidenceNames)}`,
     ];
+  }
+
+  /**
+   * The evidence for one component position, or `undefined` to keep the inline
+   * arm (#278).
+   *
+   * A caller in the evidence-directed mode that finds no entry is a compiler
+   * defect — the checker enumerated the components and emission is expanding
+   * the same declaration — and it would silently reinstate the structural
+   * re-derivation, so it says so rather than passing quietly.
+   */
+  #componentEvidenceAt(
+    components: ComponentEvidence,
+    key: string,
+  ): Core.Evidence | undefined {
+    if (components === undefined) return undefined;
+    const evidence = components.get(key);
+    if (evidence === undefined) {
+      this.#reportUnreachableEvidence(
+        `no component evidence for \`${key}\` during JavaScript emission`,
+        this.#module.span,
+      );
+    }
+    return evidence;
   }
 
   /** Builds law-preserving hashes from the same structural components as derived Eq. */
@@ -2853,16 +2913,16 @@ class JavaScriptEmitter {
     if (type.kind === "Set") {
       const dictionary = type.element.kind === "Variable"
         ? this.#dictionary(type.element.id, "Hash", this.#module.span, evidenceNames)
-        : this.#emitEvidence({ kind: "Structural", type: type.element }, "Hash", this.#module.span, evidenceNames);
+        : this.#emitEvidence({ kind: "Structural", type: type.element, components: [] }, "Hash", this.#module.span, evidenceNames);
       return `${this.#useHelper("persistentCollections")}.setHash(${dictionary}, ${this.#useHelper("mixHash")})(${value})`;
     }
     if (type.kind === "Map") {
       const key = type.key.kind === "Variable"
         ? this.#dictionary(type.key.id, "Hash", this.#module.span, evidenceNames)
-        : this.#emitEvidence({ kind: "Structural", type: type.key }, "Hash", this.#module.span, evidenceNames);
+        : this.#emitEvidence({ kind: "Structural", type: type.key, components: [] }, "Hash", this.#module.span, evidenceNames);
       const item = type.value.kind === "Variable"
         ? this.#dictionary(type.value.id, "Hash", this.#module.span, evidenceNames)
-        : this.#emitEvidence({ kind: "Structural", type: type.value }, "Hash", this.#module.span, evidenceNames);
+        : this.#emitEvidence({ kind: "Structural", type: type.value, components: [] }, "Hash", this.#module.span, evidenceNames);
       return `${this.#useHelper("persistentCollections")}.mapHash(${key}, ${item}, ${this.#useHelper("mixHash")})(${value})`;
     }
     if (type.kind === "Record") {
@@ -2907,6 +2967,33 @@ class JavaScriptEmitter {
   }
 
   /**
+   * One component of a derived or structural `compare` (#278).
+   *
+   * `Instance` dispatches — always, whether that instance is hand-written or
+   * derived; the container never re-derives it. `Structural` recurses one level
+   * carrying its own component selection. `Primitive`, `Dictionary` and `Error`
+   * keep the inline arms of `#derivedCompare`: the licensed primitive shortcut,
+   * the type-variable dictionary parameter a factory already receives, and the
+   * best-effort fallback on a module the checker rejected.
+   */
+  #componentCompare(
+    type: Typed.Type,
+    left: string,
+    right: string,
+    evidenceNames: EvidenceNames,
+    evidence: Core.Evidence | undefined,
+  ): string {
+    if (evidence?.kind === "Instance") {
+      const dictionary = this.#emitEvidence(evidence, "Ord", this.#module.span, evidenceNames);
+      return `${dictionary}.compare(${left}, ${right})`;
+    }
+    const components = evidence?.kind === "Structural"
+      ? componentEvidence(evidence.components)
+      : undefined;
+    return this.#derivedCompare(type, left, right, evidenceNames, components);
+  }
+
+  /**
    * The body of a derived `compare`, in the one representation (#275).
    *
    * Every expression this returns evaluates to an `Ordering` — the Unions §6.2
@@ -2926,14 +3013,31 @@ class JavaScriptEmitter {
    * over NaN and `compareString`'s codepoint order are unchanged; only the
    * final step from sign to constructor is new, and `ordering` is the single
    * place it happens.
+   *
+   * `components` (#278) carries the checker's per-component selection: this
+   * expands `type` one level and hands each position to `#componentCompare`.
    */
   #derivedCompare(
     type: Typed.Type,
     left: string,
     right: string,
     evidenceNames: EvidenceNames,
+    components: ComponentEvidence = undefined,
   ): string {
     const fromSign = (sign: string): string => `${this.#useHelper("ordering")}(${sign})`;
+    const component = (
+      key: string,
+      componentType: Typed.Type,
+      componentLeft: string,
+      componentRight: string,
+    ): string =>
+      this.#componentCompare(
+        componentType,
+        componentLeft,
+        componentRight,
+        evidenceNames,
+        this.#componentEvidenceAt(components, key),
+      );
     if (type.kind === "Primitive") {
       if (type.name === "Float") {
         return fromSign(`${this.#useHelper("compareFloat")}(${left}, ${right})`);
@@ -2948,17 +3052,22 @@ class JavaScriptEmitter {
     }
     if (type.kind === "Tuple") {
       return lexicographicComparison(type.elements.map((element, index) =>
-        this.#derivedCompare(element, `${left}[${index}]`, `${right}[${index}]`, evidenceNames)
+        component(String(index), element, `${left}[${index}]`, `${right}[${index}]`)
       ));
     }
     if (type.kind === "Vector") {
-      const elementOrder = this.#derivedCompare(type.element, `${left}[__hex_index]`, `${right}[__hex_index]`, evidenceNames);
+      const elementOrder = component(
+        "element",
+        type.element,
+        `${left}[__hex_index]`,
+        `${right}[__hex_index]`,
+      );
       return `(() => { const __hex_length = Math.min(${left}.length, ${right}.length); for (let __hex_index = 0; __hex_index < __hex_length; __hex_index += 1) { const __hex_order = ${elementOrder}; if (__hex_order !== "Equal") return __hex_order; } return ${fromSign(`${left}.length - ${right}.length`)}; })()`;
     }
     if (type.kind === "Record") {
       return lexicographicComparison(
         [...type.fields].sort((a, b) => a.name.localeCompare(b.name)).map((field) =>
-          this.#derivedCompare(field.type, `${left}.${field.name}`, `${right}.${field.name}`, evidenceNames)
+          component(field.name, field.type, `${left}.${field.name}`, `${right}.${field.name}`)
         ),
       );
     }
@@ -2971,11 +3080,11 @@ class JavaScriptEmitter {
       ]));
       return lexicographicComparison(
         [...record.fields].sort((a, b) => a.name.localeCompare(b.name)).map((field) =>
-          this.#derivedCompare(
+          component(
+            field.name,
             substituteType(field.type, replacements),
             `${left}.${field.name}`,
             `${right}.${field.name}`,
-            evidenceNames,
           )
         ),
       );
@@ -3003,11 +3112,11 @@ class JavaScriptEmitter {
       ]));
       const cases = union.constructors.map((constructor) => {
         const comparison = lexicographicComparison(constructor.slots.map((slot) =>
-          this.#derivedCompare(
+          component(
+            `${constructor.name}.${slot.field}`,
             substituteType(slot.type, replacements),
             `${left}.${slot.field}`,
             `${right}.${slot.field}`,
-            evidenceNames,
           )
         ));
         return `case ${JSON.stringify(constructor.name)}: return ${comparison};`;
@@ -3017,13 +3126,71 @@ class JavaScriptEmitter {
     return '"Equal"';
   }
 
+  /**
+   * A whole dictionary for one component, for the `Set`/`Map` runtime helpers,
+   * which take a dictionary rather than an inline expression.
+   *
+   * The checker's selection when there is one (#278), so a `Map`'s values are
+   * compared by their own `Eq` instance; otherwise the structural dictionary
+   * this used to build unconditionally.
+   */
+  #subDictionary(
+    components: ComponentEvidence,
+    key: string,
+    constraint: Typed.ConstraintName,
+    type: Typed.Type,
+    evidenceNames: EvidenceNames,
+  ): string {
+    const evidence = this.#componentEvidenceAt(components, key) ??
+      ({ kind: "Structural", type, components: [] } as const);
+    return this.#emitEvidence(evidence, constraint, this.#module.span, evidenceNames);
+  }
+
+  /** One component of a derived or structural `equals`; see `#componentCompare`. */
+  #componentEquals(
+    type: Typed.Type,
+    left: string,
+    right: string,
+    evidenceNames: EvidenceNames,
+    hashBacked: boolean,
+    evidence: Core.Evidence | undefined,
+  ): string {
+    if (evidence?.kind === "Instance") {
+      const dictionary = this.#emitEvidence(evidence, "Eq", this.#module.span, evidenceNames);
+      return `${dictionary}.equals(${left}, ${right})`;
+    }
+    const components = evidence?.kind === "Structural"
+      ? componentEvidence(evidence.components)
+      : undefined;
+    return this.#derivedEquals(type, left, right, evidenceNames, hashBacked, components);
+  }
+
   #derivedEquals(
     type: Typed.Type,
     left: string,
     right: string,
     evidenceNames: EvidenceNames,
     hashBacked = false,
+    // Always `undefined` when `hashBacked`: that mode renders the `eq` slot of a
+    // *structural `Hash`* dictionary, which the note licenses to stay
+    // structural, and whose components the checker raised as `Hash` rather than
+    // `Eq` anyway.
+    components: ComponentEvidence = undefined,
   ): string {
+    const component = (
+      key: string,
+      componentType: Typed.Type,
+      componentLeft: string,
+      componentRight: string,
+    ): string =>
+      this.#componentEquals(
+        componentType,
+        componentLeft,
+        componentRight,
+        evidenceNames,
+        hashBacked,
+        hashBacked ? undefined : this.#componentEvidenceAt(components, key),
+      );
     if (type.kind === "Primitive") {
       return type.name === "Float"
         ? `${this.#useHelper("floatEquals")}(${left}, ${right})`
@@ -3037,33 +3204,45 @@ class JavaScriptEmitter {
     }
     if (type.kind === "Tuple") {
       return type.elements.map((element, index) =>
-        this.#derivedEquals(element, `${left}[${index}]`, `${right}[${index}]`, evidenceNames, hashBacked)
+        component(String(index), element, `${left}[${index}]`, `${right}[${index}]`)
       ).join(" && ") || "true";
     }
     if (type.kind === "Vector") {
-      const elementEquals = this.#derivedEquals(type.element, `${left}[__hex_index]`, `${right}[__hex_index]`, evidenceNames, hashBacked);
+      const elementEquals = component(
+        "element",
+        type.element,
+        `${left}[__hex_index]`,
+        `${right}[__hex_index]`,
+      );
       return `${left}.length === ${right}.length && (() => { for (let __hex_index = 0; __hex_index < ${left}.length; __hex_index += 1) if (!(${elementEquals})) return false; return true; })()`;
     }
     if (type.kind === "Set") {
+      // `Hash`, so the structural walk stands where no selection was recorded.
       const hash = type.element.kind === "Variable"
         ? this.#dictionary(type.element.id, "Hash", this.#module.span, evidenceNames)
-        : this.#emitEvidence({ kind: "Structural", type: type.element }, "Hash", this.#module.span, evidenceNames);
+        : this.#subDictionary(components, "element", "Hash", type.element, evidenceNames);
       return `${this.#useHelper("persistentCollections")}.setEquals(${hash})(${left}, ${right})`;
     }
     if (type.kind === "Map") {
       const hash = type.key.kind === "Variable"
         ? this.#dictionary(type.key.id, "Hash", this.#module.span, evidenceNames)
-        : this.#emitEvidence({ kind: "Structural", type: type.key }, "Hash", this.#module.span, evidenceNames);
+        : this.#subDictionary(components, "key", "Hash", type.key, evidenceNames);
       const equals = type.value.kind === "Variable"
         ? hashBacked
           ? `${this.#dictionary(type.value.id, "Hash", this.#module.span, evidenceNames)}.eq`
           : this.#equalityDictionary(type.value.id, evidenceNames)
-        : this.#emitEvidence({ kind: "Structural", type: type.value }, "Eq", this.#module.span, evidenceNames);
+        : this.#subDictionary(
+            hashBacked ? undefined : components,
+            "value",
+            "Eq",
+            type.value,
+            evidenceNames,
+          );
       return `${this.#useHelper("persistentCollections")}.mapEquals(${hash}, ${equals})(${left}, ${right})`;
     }
     if (type.kind === "Record") {
       return type.fields.map((field) =>
-        this.#derivedEquals(field.type, `${left}.${field.name}`, `${right}.${field.name}`, evidenceNames, hashBacked)
+        component(field.name, field.type, `${left}.${field.name}`, `${right}.${field.name}`)
       ).join(" && ") || "true";
     }
     if (type.kind === "NominalRecord") {
@@ -3074,12 +3253,11 @@ class JavaScriptEmitter {
         type.arguments[index] ?? { kind: "Error" as const },
       ]));
       return record.fields.map((field) =>
-        this.#derivedEquals(
+        component(
+          field.name,
           substituteType(field.type, replacements),
           `${left}.${field.name}`,
           `${right}.${field.name}`,
-          evidenceNames,
-          hashBacked,
         )
       ).join(" && ") || "true";
     }
@@ -3094,12 +3272,11 @@ class JavaScriptEmitter {
       ]));
       const cases = union.constructors.map((constructor) => {
         const fields = constructor.slots.map((slot) =>
-          this.#derivedEquals(
+          component(
+            `${constructor.name}.${slot.field}`,
             substituteType(slot.type, replacements),
             `${left}.${slot.field}`,
             `${right}.${slot.field}`,
-            evidenceNames,
-            hashBacked,
           )
         ).join(" && ") || "true";
         return `case ${JSON.stringify(constructor.name)}: return ${fields};`;
@@ -3109,11 +3286,36 @@ class JavaScriptEmitter {
     return `${left} === ${right}`;
   }
 
+  /** One component of a derived or structural `show`; see `#componentCompare`. */
+  #componentShow(
+    type: Typed.Type,
+    value: string,
+    evidenceNames: EvidenceNames,
+    evidence: Core.Evidence | undefined,
+  ): string {
+    if (evidence?.kind === "Instance") {
+      const dictionary = this.#emitEvidence(evidence, "Show", this.#module.span, evidenceNames);
+      return `${dictionary}.show(${value})`;
+    }
+    const components = evidence?.kind === "Structural"
+      ? componentEvidence(evidence.components)
+      : undefined;
+    return this.#derivedShow(type, value, evidenceNames, components);
+  }
+
   #derivedShow(
     type: Typed.Type,
     value: string,
     evidenceNames: EvidenceNames,
+    components: ComponentEvidence = undefined,
   ): string {
+    const component = (key: string, componentType: Typed.Type, componentValue: string): string =>
+      this.#componentShow(
+        componentType,
+        componentValue,
+        evidenceNames,
+        this.#componentEvidenceAt(components, key),
+      );
     if (type.kind === "Primitive") {
       if (type.name === "String") return value;
       return `String(${value})`;
@@ -3123,31 +3325,31 @@ class JavaScriptEmitter {
     }
     if (type.kind === "Tuple") {
       const elements = type.elements.map((element, index) =>
-        this.#derivedShow(element, `${value}[${index}]`, evidenceNames)
+        component(String(index), element, `${value}[${index}]`)
       );
       return elements.length === 0
         ? '"()"'
         : `"(" + ${elements.join(' + ", " + ')} + ")"`;
     }
     if (type.kind === "Vector") {
-      const shown = this.#derivedShow(type.element, "__hex_element", evidenceNames);
+      const shown = component("element", type.element, "__hex_element");
       return `"[" + ${value}.map(__hex_element => ${shown}).join(", ") + "]"`;
     }
     if (type.kind === "Set") {
-      const shown = this.#derivedShow(type.element, "__hex_element", evidenceNames);
+      const shown = component("element", type.element, "__hex_element");
       return `${value}.size === 0 ? "Set.empty" : "Set.fromVector([" + [...${value}].map(__hex_element => ${shown}).join(", ") + "])"`;
     }
     if (type.kind === "Map") {
-      const key = this.#derivedShow(type.key, "__hex_entry[0]", evidenceNames);
-      const item = this.#derivedShow(type.value, "__hex_entry[1]", evidenceNames);
+      const key = component("key", type.key, "__hex_entry[0]");
+      const item = component("value", type.value, "__hex_entry[1]");
       return `${value}.size === 0 ? "Map.empty" : "Map.fromVector([" + [...${value}].map(__hex_entry => "(" + ${key} + ", " + ${item} + ")").join(", ") + "])"`;
     }
     if (type.kind === "Record") {
       const fields = [...type.fields].sort((a, b) => a.name.localeCompare(b.name)).map((field) =>
-        `${JSON.stringify(`${field.name} = `)} + ${this.#derivedShow(
+        `${JSON.stringify(`${field.name} = `)} + ${component(
+          field.name,
           field.type,
           `${value}.${field.name}`,
-          evidenceNames,
         )}`
       );
       return fields.length === 0 ? '"{}"' : `"{" + ${fields.join(' + ", " + ')} + "}"`;
@@ -3160,10 +3362,10 @@ class JavaScriptEmitter {
           type.arguments[index] ?? { kind: "Error" as const },
         ]));
         const fields = [...record.fields].sort((a, b) => a.name.localeCompare(b.name)).map((field) =>
-          `${JSON.stringify(`${field.name} = `)} + ${this.#derivedShow(
+          `${JSON.stringify(`${field.name} = `)} + ${component(
+            field.name,
             substituteType(field.type, replacements),
             `${value}.${field.name}`,
-            evidenceNames,
           )}`
         );
         return fields.length === 0
@@ -3195,10 +3397,10 @@ class JavaScriptEmitter {
         ]));
         const cases = union.constructors.map((constructor) => {
           const payload = constructor.slots.map((slot) =>
-            this.#derivedShow(
+            component(
+              `${constructor.name}.${slot.field}`,
               substituteType(slot.type, replacements),
               `${value}.${slot.field}`,
-              evidenceNames,
             )
           );
           const shown = payload.length === 0
@@ -3235,19 +3437,24 @@ class JavaScriptEmitter {
       );
     }
     if (evidence.kind === "Structural") {
+      // The direct structural use site — `v1 == v2` at `Vector(Metre)`, a tuple
+      // compared inline — runs the same walk a `derives` body does, so it takes
+      // the same component selection (#278). Without it these bypassed a
+      // hand-written component instance exactly as a container's did.
+      const components = componentEvidence(evidence.components);
       if (constraint === "Hash") {
         const equals = this.#derivedEquals(evidence.type, "__hex_left", "__hex_right", evidenceNames, true);
         return `({ eq: { equals: (__hex_left, __hex_right) => ${equals}, notEquals: (__hex_left, __hex_right) => !(${equals}) }, hash: __hex_value => ${this.#derivedHash(evidence.type, "__hex_value", evidenceNames)} })`;
       }
       if (constraint === "Eq") {
-        const equals = this.#derivedEquals(evidence.type, "__hex_left", "__hex_right", evidenceNames);
+        const equals = this.#derivedEquals(evidence.type, "__hex_left", "__hex_right", evidenceNames, false, components);
         return `({ equals: (__hex_left, __hex_right) => ${equals}, notEquals: (__hex_left, __hex_right) => !(${equals}) })`;
       }
       if (constraint === "Ord") {
-        return `({ compare: (__hex_left, __hex_right) => ${this.#derivedCompare(evidence.type, "__hex_left", "__hex_right", evidenceNames)} })`;
+        return `({ compare: (__hex_left, __hex_right) => ${this.#derivedCompare(evidence.type, "__hex_left", "__hex_right", evidenceNames, components)} })`;
       }
       if (constraint === "Show") {
-        return `({ show: __hex_value => ${this.#derivedShow(evidence.type, "__hex_value", evidenceNames)} })`;
+        return `({ show: __hex_value => ${this.#derivedShow(evidence.type, "__hex_value", evidenceNames, components)} })`;
       }
       if (constraint === "Concat" && evidence.type.kind === "Vector") {
         return "({ concat: (__hex_left, __hex_right) => [...__hex_left, ...__hex_right] })";
