@@ -2553,6 +2553,23 @@ class Resolver {
     // would put an instance in the checker's universe that competes with the
     // structural answer, and emitting them would import four dead dictionaries
     // into every module that so much as names `Bool` in a signature.
+    //
+    // What this filter changes, stated exactly, because it is narrower than it
+    // looks. Removing it changes no emission and no accepted program: the
+    // structural answer wins before instance selection in every reachable case,
+    // including a generic dictionary-passing call site (`fun eq<a: Eq>(x, y) =
+    // x == y` applied to `Bool`), and the emitter's referenced-only gate then
+    // drops what is never selected. Its one observable effect is on programs
+    // that already fail: an orphan `honor Eq<Bool>` reports *only* the orphan
+    // error, where without the filter it would also report `duplicate instance
+    // of Eq<Bool>`.
+    //
+    // That is an asymmetry against `Ordering` and `Option`, whose orphan honors
+    // do report the collision (`prelude-instance-availability.test.ts` pins it),
+    // and it is the chosen side. A `Bool` requirement is answered by the pin,
+    // not by an instance — so a universe holding no `Bool` instance is the
+    // truthful description of this compiler, and reporting a collision against
+    // an instance that never participates in selection would not be.
     const boolUnion = this.#preludeUnions.get("Bool");
     const channel: Resolved.PreludeInstance[] = [];
     const seen = new Set<string>();
