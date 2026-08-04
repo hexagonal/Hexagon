@@ -31,6 +31,28 @@ function declarations(source: string): string {
   return main.declarations.text;
 }
 
+/**
+ * Compiles one module and returns *every* emitted module's `.d.ts`, keyed for
+ * `typeScriptErrors`.
+ *
+ * A face naming another module's type is only TypeScript together with the
+ * siblings it imports from. Until #227 it was not: §14.1 could compile only what
+ * stood alone, and the faces that named `Option` were text comparisons. §14.2
+ * discharged that (Part 7 §2.4), and the set below is what discharges it here.
+ */
+function declarationSet(source: string): Record<string, string> {
+  const project = compileProject([
+    new Source.File(Source.fileId(0), "/main.hex", source),
+  ]);
+  expect(project.diagnostics).toEqual([]);
+  const files: Record<string, string> = {};
+  for (const module of project.modules) {
+    files[module.source.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] =
+      module.declarations.text;
+  }
+  return files;
+}
+
 /** Compiles one module and returns the inspection-only preview text (§14.1 scope). */
 function preview(source: string): string {
   const project = compileProject([
@@ -142,6 +164,13 @@ describe("tsc accepts the emitted declarations", () => {
           "export const texts: Iterable<string> = empty;\n",
       }),
     ).toEqual([]);
+  });
+
+  test("a face naming another module's type compiles with its siblings (§14.2)", async () => {
+    const files = declarationSet("export let table: Seq(Option(a)) = Seq.empty\n");
+    expect(files["main.d.ts"]).toContain("export declare const table: Iterable<Option<never>>;");
+
+    expect(await typeScriptErrors(files)).toEqual([]);
   });
 
   test("the pre-fix spelling is rejected — TS2304, the control that makes the check real", async () => {

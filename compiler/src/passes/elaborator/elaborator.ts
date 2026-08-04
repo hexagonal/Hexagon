@@ -18,6 +18,7 @@ export function elaborate(module: Typed.Module): Core.Module {
     preludeRecords: module.preludeRecords,
     preludeUnions: module.preludeUnions,
     preludeInstances: module.preludeInstances,
+    preludeTypeImports: module.preludeTypeImports,
     externTypes: module.externTypes,
     comments: module.comments,
     docs: module.docs,

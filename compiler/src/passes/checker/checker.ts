@@ -765,6 +765,7 @@ class Checker {
       preludeRecords: module.preludeRecords,
       preludeUnions: module.preludeUnions,
       preludeInstances: module.preludeInstances,
+      preludeTypeImports: module.preludeTypeImports,
       externTypes: module.externTypes,
       comments: module.comments,
       docs: module.docs,

@@ -309,6 +309,17 @@ class Resolver {
    * for one module.
    */
   readonly #preludeFileIds = new Set<number>();
+  /**
+   * The prelude's importable type inventory (FFI Part 7 §2.4), accumulated in
+   * `#seedPrelude` and published as `Module.preludeTypeImports`.
+   *
+   * Mutable only in `explicitLocal`, which is settled later: an explicit import
+   * of the same identity takes over the entry's emission, and whether one exists
+   * is not known until the import items have been resolved.
+   */
+  readonly #preludeTypeImports: {
+    -readonly [K in keyof Resolved.PreludeTypeImport]: Resolved.PreludeTypeImport[K];
+  }[] = [];
   readonly #usedPreludeSymbols = new Set<Resolved.SymbolId>();
   readonly #explicitlyImported = new Set<Resolved.SymbolId>();
   readonly #moduleAliases = new Map<string, ModuleInterface>();
@@ -445,11 +456,23 @@ class Resolver {
    * type identities are registered so annotations resolve and the checker sees
    * them. The specifier is recorded per term so the synthesized import points at
    * the module the name actually came from.
+   *
+   * Types are recorded twice, and the second record is the one FFI Part 7 §2.4
+   * reads: `#preludeTypeNames` and friends are keyed by *name*, which occlusion
+   * can move (§5.4), while a face carries an identity. The inventory below is
+   * keyed by identity and ordered — the members arrive in normative prelude
+   * order, and each member's slice is unions, then records, then extern types.
    */
   #seedPrelude(prelude: ModuleInterface, specifier: string): void {
     this.#preludeInterfaceBySpecifier.set(specifier, prelude);
     const seedTypeName = (name: string): void => {
       this.#preludeTypeNames.add(name);
+    };
+    const inventory = (
+      name: string,
+      identity: Pick<Resolved.PreludeTypeImport, "union" | "record" | "externType">,
+    ): void => {
+      this.#preludeTypeImports.push({ ...identity, name, specifier });
     };
     // Modules §6.4: the occlusion rule's "the prelude version stays reachable
     // qualified" only works if the member can be *named*. Registering it under
@@ -475,6 +498,7 @@ class Resolver {
       this.#preludeUnions.set(name, union.id);
       this.#unionNames.set(name, union.id);
       this.#unionArities.set(name, union.parameters.length);
+      inventory(name, { union: union.id });
       if (!this.#unions.some(({ id }) => id === union.id)) {
         this.#unions.push({ ...union, representationVisible: false });
       }
@@ -488,10 +512,14 @@ class Resolver {
       this.#preludeRecords.set(name, record.id);
       this.#recordNames.set(name, record.id);
       this.#recordArities.set(name, record.parameters.length);
+      inventory(name, { record: record.id });
       if (!this.#records.some(({ id }) => id === record.id)) {
         this.#records.push({ ...record, representationVisible: false });
       }
     }
+    // Aliases are seeded but never inventoried: a face carries an alias's
+    // expansion rather than its name (§2.4, Modules §11.4), so no `.d.ts` can
+    // reference one and an entry could only ever produce a dead import.
     for (const [name, alias] of prelude.aliases) {
       seedTypeName(name);
       this.#typeAliases.set(name, { ...alias, name });
@@ -499,6 +527,7 @@ class Resolver {
     for (const [name, externType] of prelude.externTypes) {
       seedTypeName(name);
       this.#externTypeNames.set(name, externType.externType);
+      inventory(name, { externType: externType.externType });
       if (!this.#externTypes.some(({ externType: id }) => id === externType.externType)) {
         this.#externTypes.push({ ...externType, localName: name });
       }
@@ -565,6 +594,10 @@ class Resolver {
       preludeRecords: this.#preludeRecords,
       preludeUnions: this.#preludeUnions,
       preludeInstances: this.#preludeInstanceChannel(module.span),
+      // Read after resolution, never during: `explicitLocal` records that a
+      // source-written import took an entry over (§2.4), and the import items
+      // are only all resolved by now.
+      preludeTypeImports: this.#preludeTypeImports.map((entry) => ({ ...entry })),
       externTypes: this.#externTypes,
       comments: module.comments,
       docs: module.docs,
@@ -931,13 +964,27 @@ class Resolver {
                   }
                 }
               }
+              const typeBinding = union !== undefined || record !== undefined ||
+                alias !== undefined || externType !== undefined;
+              // §2.4 channel 1: this import owns every name it binds, so the
+              // prelude channel must not offer a second line for the same
+              // identity. Matched by identity, never by spelling — a rename
+              // still takes the entry over, and the entry's faces spell the
+              // local the source chose.
+              if (typeBinding) {
+                for (const entry of this.#preludeTypeImports) {
+                  const owned = (union !== undefined && entry.union === union.id) ||
+                    (record !== undefined && entry.record === record.id) ||
+                    (externType !== undefined && entry.externType === externType.externType);
+                  if (owned) entry.explicitLocal = name.local.text;
+                }
+              }
               return {
                 imported: name.imported.text,
                 local: name.local.text,
                 ...(term === undefined ? {} : { symbol: term.id }),
-                ...(term === undefined && (union !== undefined || record !== undefined || alias !== undefined || externType !== undefined)
-                  ? { typeOnly: true }
-                  : {}),
+                ...(term === undefined && typeBinding ? { typeOnly: true } : {}),
+                ...(typeBinding ? { typeBinding: true } : {}),
                 span: name.span,
               };
             })

@@ -59,6 +59,22 @@ export interface Declarations extends Output {
    * recovered by searching the text.
    */
   readonly importsRuntimeTypes: boolean;
+  /**
+   * Specifiers of prelude modules this file takes a type-only named import from
+   * (#227, FFI Part 7 §2.4), in source form — the same spelling an `Import` item
+   * carries, not the emitted `.js` one.
+   *
+   * The third channel decided during emission rather than declared as an
+   * `Import` item, after `JavaScript.preludeInstanceImports` and
+   * `preludeTermImports`, and carried for the same reason: reachability reads
+   * what emission reported, because reading the tree cannot see these edges. It
+   * is the *declarations* that need the target, though — a face naming `Option`
+   * without touching an `Option` term produces no JavaScript edge at all — so
+   * without this the project compiles clean and emits `import type … from
+   * "./Option.js"` beside no `Option.d.ts`, which is #227's own failure in a
+   * new dress.
+   */
+  readonly preludeTypeImports: readonly string[];
 }
 
 /** Inspection-only declarations for every representable top-level binding. */

@@ -82,6 +82,14 @@ export interface Module {
    * scope emits nothing for it.
    */
   readonly preludeInstances: readonly Resolved.PreludeInstance[];
+  /**
+   * Prelude-visible nominal types (#227); see `Resolved.Module`. Read the same
+   * way as `preludeInstances`: a *candidate* set, never an obligation. The
+   * declaration emitter turns an entry into an `import type` line only where a
+   * rendered face carries its identity, so a module that merely has `Option` in
+   * scope emits nothing for it.
+   */
+  readonly preludeTypeImports: readonly Resolved.PreludeTypeImport[];
   readonly externTypes: readonly Typed.ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
   /**

@@ -319,12 +319,113 @@ class RuntimeFaces {
 }
 
 /**
+ * One declaration file's use of the prelude's type inventory (FFI Part 7 §2.4):
+ * which entry each rendered face reached, and under what local.
+ *
+ * `RuntimeFaces`' shape, for `RuntimeFaces`' reason — the local is settled at
+ * the moment of reference, so `reference` returns finished text and nothing is
+ * patched in afterwards. It can be settled that early because the probe's
+ * collision universe is a property of the module (`declarationTopLevelNames`)
+ * plus the locals this sink has already handed out.
+ *
+ * Lookup is by identity, never by name: a module may occlude a prelude type
+ * name with its own declaration (Modules §5.4), and that declaration's faces
+ * must render bare — the discipline the `Bool`/`Seq` pins already follow.
+ */
+class PreludeTypeFaces {
+  readonly #entries: readonly Resolved.PreludeTypeImport[];
+  readonly #taken: Set<string>;
+  /** The local each *referenced* entry renders as, by its index in the inventory. */
+  readonly #locals = new Map<number, string>();
+
+  constructor(entries: readonly Resolved.PreludeTypeImport[], taken: Iterable<string>) {
+    this.#entries = entries;
+    this.#taken = new Set(taken);
+  }
+
+  referenceUnion(id: Resolved.UnionId): string | undefined {
+    return this.#reference((entry) => entry.union === id);
+  }
+
+  referenceRecord(id: Resolved.RecordId): string | undefined {
+    return this.#reference((entry) => entry.record === id);
+  }
+
+  referenceExternType(id: Resolved.ExternTypeId): string | undefined {
+    return this.#reference((entry) => entry.externType === id);
+  }
+
+  /**
+   * The `import type` lines the rendered faces owe, in inventory order — which
+   * is the normative prelude order, not first-use order, so the emitted text
+   * does not depend on where in the module a face happens to sit.
+   *
+   * An entry a source-written import already binds owes nothing: channel 1 took
+   * over its emission, and a second line would be a duplicate identifier.
+   *
+   * Each line's source specifier rides along because these are the only record
+   * of the edge: reachability must emit the module a face imports from, and no
+   * `Import` item carries it (`Emitted.Declarations.preludeTypeImports`).
+   */
+  lines(): readonly { readonly line: string; readonly specifier: string }[] {
+    const lines: { line: string; specifier: string }[] = [];
+    for (const [index, entry] of this.#entries.entries()) {
+      const local = this.#locals.get(index);
+      if (local === undefined || entry.explicitLocal !== undefined) continue;
+      const item = local === entry.name ? entry.name : `${entry.name} as ${local}`;
+      lines.push({
+        line: `import type { ${item} } from ` +
+          `${JSON.stringify(emittedModuleSpecifier(entry.specifier))};`,
+        specifier: entry.specifier,
+      });
+    }
+    return lines;
+  }
+
+  #reference(matches: (entry: Resolved.PreludeTypeImport) => boolean): string | undefined {
+    const index = this.#entries.findIndex(matches);
+    if (index === -1) return undefined;
+    const settled = this.#locals.get(index);
+    if (settled !== undefined) return settled;
+    const entry = this.#entries[index]!;
+    const local = entry.explicitLocal ?? this.#probe(entry.name);
+    this.#locals.set(index, local);
+    this.#taken.add(local);
+    return local;
+  }
+
+  /**
+   * The type's own name, then `Option1`, `Option2`, … — the `Hex` alias probe of
+   * §2.1, on the same rule that only *generated* spellings move (Part 1 §10).
+   *
+   * Nearly unreachable today: a term cannot start with an uppercase letter, and
+   * occlusion forecloses the local-type collision by keeping the occluded
+   * identity out of every exported face. An import alias can spell any
+   * identifier, so this is a guard rather than decoration.
+   */
+  #probe(name: string): string {
+    if (!this.#taken.has(name)) return name;
+    for (let suffix = 1; ; suffix += 1) {
+      const candidate = `${name}${suffix}`;
+      if (!this.#taken.has(candidate)) return candidate;
+    }
+  }
+}
+
+/**
  * What a declaration or preview emitter needs in order to render a type: the
- * prelude identities that pin two faces, and the runtime-face sink.
+ * prelude identities that pin two faces, the runtime-face sink, and the
+ * prelude-type sink.
  */
 interface DeclarationFaces {
   readonly prelude: PreludeIds;
   readonly runtime: RuntimeFaces;
+  /**
+   * §2.4's cross-module type imports. The preview is out of scope and keeps bare
+   * names — it is one pane of text with nothing to import from — so it holds an
+   * empty sink, which matches nothing and emits nothing.
+   */
+  readonly preludeTypes: PreludeTypeFaces;
 }
 
 /**
@@ -3519,9 +3620,25 @@ class DeclarationEmitter {
   constructor(module: Core.Module, options: DeclarationEmissionOptions) {
     this.#module = module;
     this.#opaqueBrands = opaqueBrandNames(module);
+    const runtime = new RuntimeFaces(runtimeFacesAlias(module));
     this.#faces = {
       prelude: preludeIds(module),
-      runtime: new RuntimeFaces(runtimeFacesAlias(module)),
+      runtime,
+      // The settled runtime alias joins the probe's universe: it is a top-level
+      // identifier of this file that `declarationTopLevelNames` deliberately
+      // does not carry, being generated rather than source-derived.
+      //
+      // That universe is a documented *superset* of what the file emits, and it
+      // is one here too — it carries every prelude term name, so a prelude
+      // record whose constructor shares its type's name would take `Name1`
+      // against no real collision. Cosmetic, and it errs the safe way: the cost
+      // of over-claiming is a moved generated spelling, the cost of
+      // under-claiming is a `.d.ts` that does not compile. No prelude type is
+      // affected today (`Seq` is opaque, so no term shares a type's name).
+      preludeTypes: new PreludeTypeFaces(
+        module.preludeTypeImports,
+        [...declarationTopLevelNames(module), runtime.alias],
+      ),
     };
     this.#runtimeSpecifier = options.runtimeSpecifier ?? DEFAULT_RUNTIME_SPECIFIER;
     this.#docs = new DocIndex(module.docs);
@@ -3541,7 +3658,11 @@ class DeclarationEmitter {
           declarations.push(`import type * as ${item.form.alias} from ${specifier};`);
           isExternalModule = true;
         } else if (item.form.kind === "Named") {
-          const names = item.form.names.filter(({ typeOnly }) => typeOnly === true)
+          // Every name that binds a type, not just those binding *only* a type
+          // (§2.4 channel 1): a record's name imports its constructor and its
+          // type at once, and the term half must not cost the `.d.ts` its type
+          // row. The JavaScript side reads `typeOnly` and is untouched.
+          const names = item.form.names.filter(({ typeBinding }) => typeBinding === true)
             .map(({ imported, local }) => imported === local ? imported : `${imported} as ${local}`);
           if (names.length > 0) {
             declarations.push(`import type { ${names.join(", ")} } from ${specifier};`);
@@ -3712,6 +3833,15 @@ class DeclarationEmitter {
         declarations.push(`export { ${local} as ${item.binding.name} };`);
       }
     }
+    // The prelude types the rendered faces actually reached (§2.4). Unshifted
+    // for the reason the runtime import below is: a compiler-written import
+    // precedes the module's own items. They are read only now, when every face
+    // has been rendered and the referenced set is closed.
+    const preludeTypeLines = this.#faces.preludeTypes.lines();
+    if (preludeTypeLines.length > 0) {
+      declarations.unshift(...preludeTypeLines.map(({ line }) => line));
+      isExternalModule = true;
+    }
     // Exactly one type-only import of the runtime declaration module, and only
     // when a `Hex.*` face was actually rendered (FFI Part 1 §8.3 obligation 2).
     // It goes first, ahead of the source-level imports, because it is the
@@ -3732,6 +3862,7 @@ class DeclarationEmitter {
       fileId: this.#module.fileId,
       text: `${declarations.join("\n")}\n`,
       importsRuntimeTypes: this.#faces.runtime.used,
+      preludeTypeImports: [...new Set(preludeTypeLines.map(({ specifier }) => specifier))],
       diagnostics: this.#diagnostics.toArray(),
     };
   }
@@ -3777,6 +3908,8 @@ class TypeScriptPreviewEmitter {
     this.#faces = {
       prelude: preludeIds(module),
       runtime: new RuntimeFaces(runtimeFacesAlias(module)),
+      // Inert: §2.4's Scope keeps the preview on bare names.
+      preludeTypes: new PreludeTypeFaces([], []),
     };
     this.#docs = new DocIndex(module.docs);
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
@@ -5463,6 +5596,23 @@ function renderFunctionDeclaration(
   );
 }
 
+/**
+ * A nominal type under the local it is spelled by — its own name, or the one
+ * §2.4's inventory settled on for a prelude-supplied type.
+ */
+function renderNominal(
+  local: string,
+  args: readonly Typed.Type[],
+  variables: ReadonlyMap<Typed.TypeVariableId, string>,
+  faces: DeclarationFaces,
+): string {
+  return args.length === 0
+    ? local
+    : `${local}<${args.map((argument) =>
+      renderType(argument, variables, faces, false)
+    ).join(", ")}>`;
+}
+
 function renderType(
   type: Typed.Type,
   variables: ReadonlyMap<Typed.TypeVariableId, string>,
@@ -5519,11 +5669,12 @@ function renderType(
       // shape would otherwise produce. Only the prelude's; a user union spelled
       // `Bool` renders as itself.
       if (faces.prelude.bool !== undefined && type.union === faces.prelude.bool) return "boolean";
-      return type.arguments.length === 0
-        ? type.name
-        : `${type.name}<${type.arguments.map((argument) =>
-          renderType(argument, variables, faces, false)
-        ).join(", ")}>`;
+      return renderNominal(
+        faces.preludeTypes.referenceUnion(type.union) ?? type.name,
+        type.arguments,
+        variables,
+        faces,
+      );
     case "NominalRecord":
       // FFI Part 3: `Seq(a)` faces JavaScript as `Iterable<a>`, whatever it is
       // internally. Internal opacity and the boundary face are independent, and
@@ -5533,13 +5684,14 @@ function renderType(
       if (faces.prelude.seq !== undefined && type.record === faces.prelude.seq) {
         return `Iterable<${renderType(type.arguments[0] ?? { kind: "Error" }, variables, faces, false)}>`;
       }
-      return type.arguments.length === 0
-        ? type.name
-        : `${type.name}<${type.arguments.map((argument) =>
-          renderType(argument, variables, faces, false)
-        ).join(", ")}>`;
+      return renderNominal(
+        faces.preludeTypes.referenceRecord(type.record) ?? type.name,
+        type.arguments,
+        variables,
+        faces,
+      );
     case "ExternType":
-      return type.name;
+      return faces.preludeTypes.referenceExternType(type.externType) ?? type.name;
     case "Tuple":
       // The arity-indexed representation's `.d.ts` faces (Products §2.6, #159):
       // at arity 0 the value is `undefined`, never `[]` — a `Unit`-returning
