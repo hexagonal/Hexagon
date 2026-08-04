@@ -287,6 +287,28 @@ export interface Module {
    * *prelude's* `Bool`, which a module declaring its own `Bool` must not move.
    */
   readonly preludeUnions: ReadonlyMap<string, UnionId>;
+  /**
+   * Every coherent instance the visible prelude modules own or carry (#153).
+   *
+   * Instance *availability* used to be a property of the import list: the
+   * checker's evidence universe was this module's `Honor` items plus the
+   * `instances` on its `Import` items, and the prelude's copies rode the
+   * synthesized prelude import — which is term-gated. A module that named only a
+   * prelude *type* (`a: Ordering`, `b: Option(Int)`) synthesized no import and so
+   * had no evidence, and `a == b` failed for want of an instance that is
+   * unconditionally in scope by Modules §5.5.
+   *
+   * This channel is that availability, stated directly instead of inferred from
+   * emission. It is deliberately *not* on an `ImportItem`: what a module can see
+   * and what it must import are now separate questions, answered by separate
+   * passes — the checker seeds from here, and the emitter imports only the
+   * entries the elaborated Core actually references.
+   *
+   * Ordered by the normative prelude order (`compiler/src/prelude.ts`), so the
+   * emitted import lines are deterministic. A prelude module's own slice holds
+   * only the members before it, and `Bool.hex`'s is empty.
+   */
+  readonly preludeInstances: readonly PreludeInstance[];
   readonly externTypes: readonly ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
   /**
@@ -405,6 +427,21 @@ export interface InstanceImport {
   readonly importedDictionary: string;
   readonly localDictionary: string;
   readonly span: Source.Span;
+}
+
+/**
+ * One prelude-owned instance, available by §5.5 visibility rather than by import
+ * (`Module.preludeInstances`, #153).
+ *
+ * Field-for-field an `InstanceImport` plus the `specifier` of the prelude module
+ * that exports the dictionary — which an `InstanceImport` never needs because its
+ * import item already carries one, and this channel has no item to sit on. The
+ * `localDictionary` convention is `InstanceImport`'s, unchanged, so an entry that
+ * does reach emission spells the same name it always did.
+ */
+export interface PreludeInstance extends InstanceImport {
+  /** The prelude module to import `importedDictionary` from, relative to here. */
+  readonly specifier: string;
 }
 
 export type ImportForm =

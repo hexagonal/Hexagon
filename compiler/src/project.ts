@@ -275,10 +275,25 @@ export function compileProject(
   // must still be emitted, or the emitted JavaScript carries an import of a file
   // that was never written — and that failure is silent, because the project
   // compiles clean.
-  const importsOf = (path: string): readonly string[] =>
-    (compiled.get(path)?.resolved.items ?? []).flatMap((item) =>
-      item.kind === "Import" ? [resolveSpecifier(path, item.specifier)] : []
-    );
+  // `Import` items are not the whole answer since #153: a module that names only
+  // a prelude *type* synthesizes no import item at all, yet its emission may
+  // still import a dictionary from the prelude module that declares it. Those
+  // edges are decided during emission, so they are read back from what emission
+  // reported rather than inferred from the tree — the same shape as
+  // `Declarations.importsRuntimeTypes`. Missing them is defect 8 exactly: an
+  // emitted `import … from "./Prelude.js"` next to no `Prelude.js`, on a project
+  // that reported no diagnostic.
+  const importsOf = (path: string): readonly string[] => {
+    const module = compiled.get(path);
+    return [
+      ...(module?.resolved.items ?? []).flatMap((item) =>
+        item.kind === "Import" ? [resolveSpecifier(path, item.specifier)] : []
+      ),
+      ...(module?.javascript.preludeInstanceImports ?? []).map((specifier) =>
+        resolveSpecifier(path, specifier)
+      ),
+    ];
+  };
   const emitted = new Set(ordered.filter((path) => !preludeSet.has(path)));
   const pending = [...emitted];
   for (let path = pending.pop(); path !== undefined; path = pending.pop()) {

@@ -545,6 +545,7 @@ class Resolver {
       records: this.#records,
       preludeRecords: this.#preludeRecords,
       preludeUnions: this.#preludeUnions,
+      preludeInstances: this.#preludeInstanceChannel(module.span),
       externTypes: this.#externTypes,
       comments: module.comments,
       docs: module.docs,
@@ -2518,42 +2519,89 @@ class Resolver {
       names.push({ imported: term.name, local, symbol, span });
       namesBySpecifier.set(specifier, names);
     }
-    return [...namesBySpecifier].map(([specifier, names]) => {
-      // Carry the prelude module's coherent instances (e.g. `Eq`/`Show<Option>`)
-      // the same way an explicit import would, so `a != None` and `show(x)` resolve.
-      const iface = this.#preludeInterfaceBySpecifier.get(specifier);
-      const boolUnion = this.#preludeUnions.get("Bool");
-      const instances = (iface?.instances ?? [])
-        // The pinned `Bool`'s four constraints are satisfied structurally at
-        // every use site (#147 — see the checker's `#resolveRequirement`), so
-        // its dictionaries are never referenced. Dropping them here rather than
-        // after checking is what keeps a module's *interface* honest: consumers
-        // build their own import lists from it, so an instance pruned later
-        // would be a name a consumer asks for and the producer no longer emits.
-        .filter(({ subject }) =>
-          boolUnion === undefined ||
-          subject.kind !== "Union" ||
-          subject.union !== boolUnion
-        )
-        .map((instance) => ({
-        identity: instance.identity,
-        constraint: instance.constraint,
-        typeParameters: instance.typeParameters,
-        subject: instance.subject,
-        impliedTypes: instance.impliedTypes,
-        importedDictionary: instance.dictionary,
-        localDictionary:
-          `__hex_imported_${Number(iface!.module.fileId)}_${instance.dictionary}`,
-        span,
-      }));
-      return {
-        kind: "Import" as const,
-        specifier,
-        form: { kind: "Named" as const, names },
-        instances,
-        span,
-      };
-    });
+    return [...namesBySpecifier].map(([specifier, names]) => ({
+      kind: "Import" as const,
+      specifier,
+      form: { kind: "Named" as const, names },
+      // Deliberately empty (#153). This import exists because a *term* was
+      // referenced, and instance availability must not depend on that: the
+      // prelude's instances ride `Module.preludeInstances` instead, which every
+      // module gets whether or not it names a prelude term. Carrying them here
+      // as well would put a second copy of the same identity into this module's
+      // interface, which consumers would then predict imports of and
+      // intermediates re-export — the transit chain #153 exists to cut.
+      instances: [],
+      span,
+    }));
+  }
+
+  /**
+   * The prelude-owned instances visible here, in normative prelude order (#153).
+   *
+   * Every visible prelude module's interface instances, which is both what it
+   * declares and what it carries. Availability, not emission: nothing here is an
+   * import, and an entry only becomes one if the emitter finds the elaborated
+   * Core actually referencing its dictionary.
+   *
+   * Called after resolution so `#preludeUnions` is fully seeded — the `Bool`
+   * filter below reads it.
+   */
+  #preludeInstanceChannel(span: Source.Span): readonly Resolved.PreludeInstance[] {
+    // The pinned `Bool`'s four constraints are satisfied structurally at every
+    // use site (#147 — see the checker's `#resolveRequirement`), so its
+    // dictionaries are never referenced and must never be offered: seeding them
+    // would put an instance in the checker's universe that competes with the
+    // structural answer, and emitting them would import four dead dictionaries
+    // into every module that so much as names `Bool` in a signature.
+    //
+    // What this filter changes, stated exactly, because it is narrower than it
+    // looks. Removing it changes no emission and no accepted program: the
+    // structural answer wins before instance selection in every reachable case,
+    // including a generic dictionary-passing call site (`fun eq<a: Eq>(x, y) =
+    // x == y` applied to `Bool`), and the emitter's referenced-only gate then
+    // drops what is never selected. Its one observable effect is on programs
+    // that already fail: an orphan `honor Eq<Bool>` reports *only* the orphan
+    // error, where without the filter it would also report `duplicate instance
+    // of Eq<Bool>`.
+    //
+    // That is an asymmetry against `Ordering` and `Option`, whose orphan honors
+    // do report the collision (`prelude-instance-availability.test.ts` pins it),
+    // and it is the chosen side. A `Bool` requirement is answered by the pin,
+    // not by an instance — so a universe holding no `Bool` instance is the
+    // truthful description of this compiler, and reporting a collision against
+    // an instance that never participates in selection would not be.
+    const boolUnion = this.#preludeUnions.get("Bool");
+    const channel: Resolved.PreludeInstance[] = [];
+    const seen = new Set<string>();
+    for (const [specifier, iface] of this.#preludeInterfaceBySpecifier) {
+      for (const instance of iface.instances) {
+        if (
+          boolUnion !== undefined &&
+          instance.subject.kind === "Union" &&
+          instance.subject.union === boolUnion
+        ) continue;
+        // A prelude module's interface carries what it imported as well as what
+        // it declared, so the same identity can arrive from two members. The
+        // checker deduplicates by identity anyway; collapsing here keeps the
+        // emitter's candidate set a set, so one dictionary cannot be imported
+        // twice under two local names.
+        if (seen.has(instance.identity)) continue;
+        seen.add(instance.identity);
+        channel.push({
+          identity: instance.identity,
+          constraint: instance.constraint,
+          typeParameters: instance.typeParameters,
+          subject: instance.subject,
+          impliedTypes: instance.impliedTypes,
+          importedDictionary: instance.dictionary,
+          localDictionary:
+            `__hex_imported_${Number(iface.module.fileId)}_${instance.dictionary}`,
+          specifier,
+          span,
+        });
+      }
+    }
+    return channel;
   }
 
   #findPending(
