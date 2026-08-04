@@ -437,13 +437,32 @@ class Checker {
     for (const item of module.items) {
       if (item.kind === "Honor") {
         this.#checkInstanceHead(item, module.items);
+        // An instance's parameters are declared type variables, exactly as a
+        // lambda's `<a: Render>` binders are: rigid, so `#bind` keeps them as
+        // their class's representative and rejects binding them to a concrete
+        // type. Rigidity is load-bearing, not cosmetic — a plain quantified
+        // variable can be absorbed into a body-side fresh variable (a match
+        // pattern's, for one), after which `#pinInstanceSubject`'s freshening
+        // misses (it is keyed on this variable's id) and the first concrete use
+        // site unifies the shared subject with its own type. Every later use
+        // and the member bodies then compile against that one type, silently.
         const typeParameters = new Map(
-          item.typeParameters.map(({ name }) => [name, this.#fresh(0, false)] as const),
+          item.typeParameters.map((parameter) => [
+            parameter.name,
+            this.#fresh(
+              0,
+              false,
+              parameter.name,
+              parameter.constraints.filter((constraint) =>
+                this.#constraintNames.has(constraint) &&
+                !this.#projectionBearingConstraints.has(constraint)
+              ),
+            ),
+          ] as const),
         );
-        // An instance's parameters are universally quantified by its header,
-        // exactly as a constraint's subject is below: `honor<a: Render>` binds
-        // `a`, so it is never an unresolved variable for defaulting to settle
-        // — nor one for §4's blocked-defaulting report to name.
+        // Quantified besides being rigid: `honor<a: Render>` binds `a`, so it
+        // is never an unresolved variable for defaulting to settle — nor one
+        // for §4's blocked-defaulting report to name.
         for (const variable of typeParameters.values()) this.#quantified.add(variable.id);
         this.#instanceTypeParameters.set(item, typeParameters);
         for (const parameter of item.typeParameters) {
@@ -465,7 +484,7 @@ class Checker {
               });
               continue;
             }
-            this.#require(constraint, variable, parameter.span);
+            this.#require(constraint, variable, parameter.span, "annotation");
           }
         }
         const subject = this.#annotationType(
@@ -493,10 +512,19 @@ class Checker {
     }
     for (const item of module.items) {
       if (item.kind !== "ConstraintDeclaration") continue;
-      const subject = this.#fresh(0, false);
-      // A constraint's subject is universally quantified by the declaration.
-      // It must never participate in ordinary unresolved-variable defaulting,
-      // even when the constraint happens to have an Int instance.
+      // A constraint's subject is a declared type variable and must be rigid
+      // for the same reason an instance's parameters are (see the Honor arm
+      // above): a default member body can absorb the subject into a body-side
+      // fresh variable, after which the first member use at a concrete type
+      // binds the shared subject to that type — every other instance's copied
+      // default then resolves the member against the first use's dictionary.
+      // Declaring the constraint itself covers a default body's own member
+      // uses, and reaches base constraints through `#baseConstraintPath`.
+      const subject = this.#fresh(0, false, item.subject, [item.name]);
+      // Quantified besides being rigid: the subject is bound by the
+      // declaration, so it must never participate in ordinary
+      // unresolved-variable defaulting, even when the constraint happens to
+      // have an Int instance.
       this.#quantified.add(subject.id);
       this.#constraintSubjects.set(item, subject);
       const typeParameters = new Map<string, Mono>([[item.subject, subject]]);

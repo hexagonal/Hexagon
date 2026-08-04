@@ -1124,6 +1124,73 @@ describe("check", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  test("keeps an instance parameter rigid across pattern-bound occurrences", () => {
+    const module = checkSource(
+      "constraint Describe<a> =\n" +
+        "    describe(value: a): String\n" +
+        "union Wrap(a) = Empty | Full(value: a)\n" +
+        "honor<a: Describe> Describe<Wrap(a)> =\n" +
+        "    describe(wrap) = match wrap\n" +
+        '        Empty => "empty"\n' +
+        '        Full(value) => "full(${describe(value)})"',
+    );
+
+    // A match pattern's fresh variable unifies with the instance parameter;
+    // the parameter must stay its class's representative, or the requirement
+    // lands on an undischargeable variable — this module used to report a
+    // blocked default ("cannot default to `Int`") with no use site, and to
+    // absorb the first use site's concrete type with one.
+    expect(module.diagnostics).toEqual([]);
+  });
+
+  test("rejects an instance body demanding a constraint the header does not declare", () => {
+    const module = checkSource(
+      "constraint Describe<a> =\n" +
+        "    describe(value: a): String\n" +
+        "record Box(a) = {value: a}\n" +
+        "honor<a: Describe> Describe<Box(a)> =\n" +
+        '    describe(box) = "${box.value + 1}"',
+    );
+
+    // Rigidity makes the demand reportable at the header instead of silently
+    // binding `a` to the first use's type: interpolation demands `Show`,
+    // arithmetic demands `Num`, and the header declares only `Describe`.
+    expect(module.diagnostics).toMatchObject([
+      {
+        message:
+          "`a` is declared to honor `Describe`, but the body requires `Show`; " +
+          "write `<a: (Describe, Show)>`, or remove the constraint annotation to let it be inferred",
+      },
+      {
+        message:
+          "`a` is declared to honor `Describe`, but the body requires `Num`; " +
+          "write `<a: (Describe, Num)>`, or remove the constraint annotation to let it be inferred",
+      },
+    ]);
+  });
+
+  test("keeps a constraint subject rigid through default member bodies", () => {
+    const module = checkSource(
+      "union Held(a) = Missing | Held2(value: a)\n" +
+        "constraint Pick<a> =\n" +
+        "    pick(value: a): a\n" +
+        "    pickHeld(fallback: a, held: Held(a)): a = match held\n" +
+        "        Missing => fallback\n" +
+        "        Held2(value) => pick(value)\n" +
+        "honor Pick<Int> =\n" +
+        "    pick(value) = value\n" +
+        "honor Pick<String> =\n" +
+        "    pick(value) = value\n" +
+        "let picked: Int = pickHeld(0, Held2(42))\n" +
+        'let name: String = pickHeld("x", Held2("y"))',
+    );
+
+    // The default body's pattern variable used to absorb the subject, and the
+    // first use then bound the shared subject to `Int` — making the second,
+    // String-typed use report a type mismatch against a well-typed program.
+    expect(module.diagnostics).toEqual([]);
+  });
+
   test("checks implied type instances and resolves concrete member results", () => {
     const module = checkSource(
       "constraint Source<a> =\n" +
