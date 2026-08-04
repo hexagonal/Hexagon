@@ -52,7 +52,7 @@ import type * as Hex from "@hexagon/runtime";
 
 giving the faces `Hex.Vector<a>`, `Hex.Map<k, v>`, `Hex.Set<a>`, and `Hex.Range`. The import is type-only and adds no emitted JavaScript dependency. The compiler controls the alias: it tries `Hex`, then `Hex1`, `Hex2`, … and takes the first candidate colliding with no top-level identifier emitted in that `.d.ts`, regardless of TypeScript namespace. Only the generated alias is renamed; user exports never are (Part 1 §10; Part 12 §11.1).
 
-*(Amended 2026-08-04, #227 — see §2.4 and correction record §14.2.)* The `Hex` import is the only **namespace** import the compiler writes, but no longer the only compiler-written import: a face that mentions a type owned by another *Hexagon module* takes a type-only **named** import of it, §2.4.
+*(Amended 2026-08-04, #227 — see §2.4 and correction record §14.2.)* The `Hex` import is the only **namespace** import the compiler *synthesizes* (source-level namespace imports are the module's own lines), but no longer the only import it synthesizes: a face that mentions a type owned by another *Hexagon module* takes a type-only **named** import of it, §2.4.
 
 ### 2.2 Lowercase Hexagon-originated generic binders
 
@@ -86,9 +86,15 @@ Two channels put such a type in scope, and each import is owned by exactly one:
 
 2. **Prelude-supplied types** arrive with no source import to ride (Modules §5.5). The resolver publishes, per module, the prelude's importable type inventory — exported unions, records, and extern types, each with its owning member's specifier, in normative prelude order; type aliases have no entry because faces carry their expansion (§1, Modules §11.4). Emission imports **exactly the entries whose identities the rendered faces reference** — the candidates-then-filter architecture of prelude instance evidence (#153) and the synthesized term import (#263): the resolver decides availability, emission decides what is imported, and neither is inferred from the other. An entry the source also imported explicitly is skipped — channel 1 took over its emission, the same take-over the term side already performs. One import statement per type, not per module; a member contributing two types contributes two statements, which is ordinary ESM (the instance-evidence channel does the same on the JavaScript side).
 
-What is matched is **identity, never spelling** — the discipline of the `Bool`/`Seq` pins. A module whose own declaration occludes a prelude type name (Modules §5.4) renders and exports its *own* type bare; the occluded prelude identity cannot then appear in any exported face, because an export's mandatory complete signature can only spell what is in scope.
+What is matched is **identity, never spelling** — the discipline of the `Bool`/`Seq` pins. A module whose own declaration occludes a prelude type name (Modules §5.4) renders and exports its *own* type bare. Occlusion takes only the bare spelling, though: the prelude identity stays reachable **qualified** (`Prelude.Ordering` — Modules §5.4, §6.4), so it can still appear in an exported face, and it then imports under a probed local, the bare name being the module's own:
 
-**The generated local is probed like `Hex`** (§2.1): the type's own name first, then `Option1`, `Option2`, … against every top-level identifier emitted in that `.d.ts`, the settled runtime alias, and the generated locals already assigned; only generated spellings move, user names never (Part 1 §10). The guard is nearly unreachable today — a term cannot start with an uppercase letter, and occlusion forecloses the local-type collision — but an import alias can spell any identifier, so the probe is a guard, not decoration.
+```ts
+import type { Ordering as Ordering1 } from "./Prelude.js";
+export type Ordering = "Asc" | "Desc";
+export declare const f: (x: Ordering1) => number;
+```
+
+**The generated local is probed like `Hex`** (§2.1): the type's own name first, then `Option1`, `Option2`, … against every top-level identifier emitted in that `.d.ts`, the settled runtime alias, and the generated locals already assigned; only generated spellings move, user names never (Part 1 §10). At least three routes reach the probe today: an exported *constructor* sharing a prelude type's name — constructors are uppercase top-level `.d.ts` identifiers (§3–§4); an occluding declaration beside a qualified face of the occluded identity (above); and an import alias, which can spell any identifier.
 
 **Placement.** Compiler-written imports precede the module's own items: the `Hex` runtime import first (§2.1), then this section's imports in inventory order.
 
@@ -451,7 +457,7 @@ The fourth row is a usability limit, stated so it is not rediscovered as a defec
 
 **Origin.** #132's residue, recorded in §14.1: with the unbound binder fixed, `Seq.d.ts` still failed `tsc --noEmit --strict --lib es2022` on three TS2304s, because its faces name `Option` — `Option.hex`'s type — and the declaration file imported nothing. The sharper half, from the issue: under the *default* lib set the bare name does not fail but **binds**, to `lib.dom.d.ts`'s legacy `Option` constructor. A value in type position is still an error today (TS2749); a cross-module Hexagon *type* whose name matches a global type would bind silently and describe the wrong thing. Which declaration an unimported name means is decided by the consumer's `lib` and `types` settings, not by this compiler — that, not the TS2304, is the defect.
 
-**What investigation narrowed.** The issue's scope claim — "any two-module project where one module's exported signature mentions the other's exported type will emit the same unresolvable name" — is **false as filed**, and the correction matters because it relocates the fix. A source-written `import { Color } from "./lib"` already emitted `import type { Color } from "./lib.js";`, rename included, and that face already compiled (verified on `main` at this ruling). The live routes were exactly two:
+**What investigation narrowed.** The issue's scope claim — "any two-module project where one module's exported signature mentions the other's exported type will emit the same unresolvable name" — is **false as filed**, and the correction matters because it relocates the fix. A source-written `import { Color } from "./lib"` already emitted `import type { Color } from "./lib.js";`, rename included, and that face already compiled (verified on `main` at this ruling). The live routes were exactly two *(falsified below — the namespace-qualified face is a third, #268's)*:
 
 1. **Prelude-supplied types** (Modules §5.5): `Option` and `Ordering` reach every module's scope with no import item for the `.d.ts` to render — the filed instance (`Seq.hex`), and equally any user module writing `export let o: Option(Int) = None`.
 2. **A term+type name on an explicit import**: `import { Point } from "./geometry"` where `Point` is a record binds constructor *and* type; the import name's type-only marking keyed off the term's absence, so the term half silently cost the `.d.ts` the type row.
