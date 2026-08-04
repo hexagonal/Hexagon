@@ -299,14 +299,15 @@ describe("transit shapes keep working and shrink", () => {
   });
 });
 
-describe("the explicit import of a prelude module still owns its emission", () => {
+describe("an explicit import of a prelude module coexists with the channel", () => {
   /**
-   * An explicit `import { Less } from "./Prelude"` carries the same instances,
-   * and *both* channels build the local name from the same file id and the same
-   * dictionary — so the two names are character-for-character equal. Emitting
-   * both is `SyntaxError: Identifier has already been declared` at load, on a
-   * project that compiled clean, which is why this executes rather than reading
-   * the text. The import item wins; the channel stands down.
+   * Exactly one statement may bind the dictionary. Both sides build the local
+   * from the same file id and the same dictionary, so two bindings would be
+   * character-for-character equal and `SyntaxError: Identifier has already been
+   * declared` at load, on a project that compiled clean — which is why this
+   * executes rather than reading the text. Since #263 the channel is the one
+   * that binds it: an explicit import of a prelude module carries no evidence at
+   * all, so there is nothing for it to own.
    */
   test("no duplicate binding when the prelude module is imported explicitly", async () => {
     const source =
@@ -316,13 +317,13 @@ describe("the explicit import of a prelude module still owns its emission", () =
     expect(diagnostics([["/main.hex", source]])).toEqual([]);
 
     const javascript = emitted([["/main.hex", source]], "/main.hex");
-    // Exactly one `import` statement may bind the name. (The import item also
-    // re-exports it, which is the unchanged explicit-import path and #263's
-    // business, so counting every occurrence would count that too.)
     const binding = importLines(javascript).filter((line) =>
       line.includes("as __hex_imported_2___hex_instance_Eq_Ordering")
     );
     expect(binding.length).toBe(1);
+    // And nothing re-exports it: the channel never calls `#exportEvidence`, and
+    // the import item has no evidence to export (#263).
+    expect(exportLines(javascript)).toEqual(["export { f };", "export { first };"]);
 
     const main = await runProject([["/main.hex", source]]);
     expect((main["f"] as (a: string, b: string) => boolean)("Less", "Less")).toBe(true);
@@ -330,24 +331,23 @@ describe("the explicit import of a prelude module still owns its emission", () =
   });
 
   /**
-   * Where the seeding *order* becomes observable, and so the test that pins it.
+   * There is no second copy of a prelude instance to rank any more, which is the
+   * point: `a` imports `./Option` explicitly and still carries no `Eq<Option>`
+   * (#263), so `b` meets the identity once, from the module that declares it.
    *
-   * `a` imports `./Option` explicitly, so its interface carries `Eq<Option>` and
-   * it re-exports the copy — the unchanged explicit-import path, #263's business.
-   * `b` therefore meets the same identity twice: once from the channel, named
+   * Before #263 it met the identity twice — once from the channel, named
    * `__hex_imported_4___…`, and once through `./a.js`, named
-   * `__hex_imported_0___hex_imported_4___…`. `identity` is stable across hops so
-   * one of them is silently dropped, and *which* is decided purely by seeding
-   * order. The channel is seeded first so the direct name wins: `b`'s evidence
-   * comes from the module that declares it, and the transit copy is left as dead
-   * weight rather than becoming the thing `b` depends on.
+   * `__hex_imported_0___hex_imported_4___…` — and which one survived was decided
+   * purely by the channel being seeded first. Both halves are asserted because
+   * either mechanism failing brings the transit copy back.
    */
-  test("a channel copy outranks a transit copy of the same instance", () => {
+  test("a prelude instance reaches a consumer by one name only", () => {
     const files = [
       ["/a.hex", 'import { Some } from "./Option"\nexport fun mk(x: Int): Option(Int) = Some(x)\n'],
       ["/b.hex", 'import { mk } from "./a"\nexport fun g(x: Int): Bool = mk(x) == mk(x)\n'],
     ] as const;
     expect(diagnostics(files)).toEqual([]);
+    expect(exportLines(emitted(files, "/a.hex"))).toEqual(["export { mk };"]);
     const b = emitted(files, "/b.hex");
     expect(b).toContain(
       "return __hex_imported_4___hex_instance_Eq_Option(",

@@ -301,6 +301,14 @@ class Resolver {
   readonly #preludeTypeNames = new Set<string>();
   readonly #preludeSpecifierBySymbol = new Map<Resolved.SymbolId, string>();
   readonly #preludeInterfaceBySpecifier = new Map<string, ModuleInterface>();
+  /**
+   * File ids of the prelude modules visible here — how an *explicit* import is
+   * recognized as naming one (#263). By module identity rather than by
+   * specifier: the same module is `./Option` from the root and `../Option` from
+   * a subdirectory, and a predicate reading the text would answer differently
+   * for one module.
+   */
+  readonly #preludeFileIds = new Set<number>();
   readonly #usedPreludeSymbols = new Set<Resolved.SymbolId>();
   readonly #explicitlyImported = new Set<Resolved.SymbolId>();
   readonly #moduleAliases = new Map<string, ModuleInterface>();
@@ -335,6 +343,7 @@ class Resolver {
     this.#nextRecord = options.recordBase ?? 0;
     this.#nextExternType = options.externTypeBase ?? 0;
     for (const preludeImport of options.prelude ?? []) {
+      this.#preludeFileIds.add(Number(preludeImport.interface.module.fileId));
       this.#seedPrelude(preludeImport.interface, preludeImport.specifier);
     }
   }
@@ -926,6 +935,20 @@ class Resolver {
         const namespaceAlias = item.form.kind === "Namespace"
           ? item.form.alias.text
           : undefined;
+        // An explicit import of a *prelude* module carries no instance evidence
+        // (#263), for the reason `#preludeImport` carries none (#153): the
+        // prelude's instances ride `Module.preludeInstances`, which every module
+        // gets whether or not it imports anything. Carrying them here as well
+        // would put a second copy of the same identity into this module's
+        // interface, which consumers would then predict imports of and
+        // intermediates re-export — the transit #153 cut for the synthesized
+        // channel, cut here for the explicit one.
+        //
+        // Only prelude modules. An ordinary module's `honor` is reachable from a
+        // consumer three hops away *only* through the intermediates, so instance
+        // evidence on a non-prelude import is load-bearing and untouched.
+        const preludeSource = importedModule !== undefined &&
+          this.#preludeFileIds.has(Number(importedModule.module.fileId));
         return {
           kind: "Import",
           specifier: item.specifier,
@@ -948,7 +971,7 @@ class Resolver {
                   kind: "Named",
                   names: names ?? [],
                 },
-          instances: (importedModule?.instances ?? []).map((instance) => ({
+          instances: (preludeSource ? [] : importedModule?.instances ?? []).map((instance) => ({
             identity: instance.identity,
             constraint: instance.constraint,
             typeParameters: instance.typeParameters,
