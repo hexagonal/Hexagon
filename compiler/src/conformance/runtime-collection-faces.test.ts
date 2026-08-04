@@ -282,12 +282,16 @@ describe("the program-scoped runtime declaration module (obligation 3)", () => {
 });
 
 describe("what the ruling leaves alone (obligation 4)", () => {
-  test("`Array(a)` keeps the row §4.1 already gives it — #228 is not this fix", () => {
+  // The brand is what this ruling decided, and `Array(a)` is outside it: a
+  // borrowed foreign JS array is an ordinary array, so its face stays
+  // structural. #228 later corrected the same row's *mutability* — the face is
+  // §4.1's `ReadonlyArray<a>` — which leaves the branding question untouched.
+  test("`Array(a)` stays structural: no brand, whatever its mutability", () => {
     const text = declarations(
       "extern from \"./host.js\"\n" +
         "    export fun rows(): Array(Int)\n",
     );
-    expect(text).toContain("Array<number>");
+    expect(text).toContain("export declare function rows(): ReadonlyArray<number>;");
     expect(text).not.toContain("Hex.");
   });
 

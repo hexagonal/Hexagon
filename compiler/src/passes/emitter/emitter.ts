@@ -5656,7 +5656,11 @@ function renderType(
         renderType(type.value, variables, faces, false),
       );
     case "Array":
-      return `Array<${renderType(type.element, variables, faces, false)}>`;
+      // A borrowed foreign array is readonly to Hexagon and has no mutation
+      // surface (FFI Part 1 §4.1; Part 2 §6.1, §13), so the face is the
+      // immutable spelling. Structural, not branded: the value is an ordinary
+      // foreign JS array, not one of the runtime collections above.
+      return `ReadonlyArray<${renderType(type.element, variables, faces, false)}>`;
     case "Node":
       // The hidden trie node never appears in a public `.d.ts`; its honest JS
       // shape is a fixed-length mutable array of the slot type.
