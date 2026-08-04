@@ -1,6 +1,13 @@
 # Dictionary CSE and letrec-bound evidence — speculative work order
 
-**Status:** Speculative (2026-08-03, Opus in conversation with James). This note
+**Status:** SUPERSEDED (2026-08-05) by `spec/dictionary-sharing.md`, which is
+the decided ruling. Verifying this note's §6 found and fixed #271 (the §3.2
+"per-node allocation" was hiding a miscompilation); the ruling's §12 records
+which of this note's mechanisms were corrected (§4.3/§4.4 — the letrec is
+factory-local, the module level is a DAG, the TDZ hazard dissolves). This note
+is kept for its record of the pre-ruling reasoning and is not edited further.
+
+*(Original status, 2026-08-03:)* Speculative (Opus in conversation with James). This note
 decides nothing and states no language rule. It records an emitter optimization,
 the observations it rests on, and — separately and explicitly — the claims that
 were *not* verified and must be confirmed before any implementation begins.
