@@ -112,6 +112,30 @@ This is the move the checker already makes for tuples, vectors, and structural r
 
 **Motivation, honestly stated.** A module's interface is computed before checking, and consumers *re-export* the instances their imports carry, so pruning an unused instance from an import after checking breaks not the consumer but the consumer's consumers — this was tried and reverted in the ripple commit. Under instance selection, naming `Bool` in any signature would drag four dead dictionary imports into nearly every emitted module, unprunable for that reason. Under this ruling the synthesized prelude imports omit `Bool`'s dictionaries at resolution time — the interface is honest before anyone reads it — and `fun f(a: Bool, b: Bool): Bool = a == b` emits `a === b` with no imports at all. `Bool.js` still exports the four dictionaries; nothing imports them, and their presence is the artifact-level truth of §3.5's claim that the instances are real.
 
+> **Edit note (2026-08-04, #153 / PR #264).** The paragraph above is kept as
+> written because its verified claims still hold; its *mechanism* is
+> superseded. Availability no longer rides the synthesized prelude import at
+> all: every module receives the visible prelude instances directly
+> (`Resolved.Module.preludeInstances`), the synthesized import carries none,
+> interfaces no longer transit them, and emission imports exactly the
+> dictionaries a compiled body references — from the declaring module, with no
+> re-export. Three clauses read differently under that: the "consumers
+> *re-export* the instances their imports carry" motivation is now false for
+> prelude-sourced instances (it stays true of explicit-import carriage until
+> #263 Part 1 removes it); the four-dead-imports scenario cannot occur for
+> *any* prelude module, because an unreferenced dictionary emits nothing; and
+> `Bool`'s exclusion now lives in the availability channel rather than the
+> import, on a changed ground — not unprunability but truthfulness: a `Bool`
+> requirement is answered by the pin, so a universe holding no `Bool` instance
+> is the honest state to report against. Its one observable effect is that an
+> orphan `honor Eq<Bool>` reports only the orphan error, with no
+> duplicate-instance collision. What the paragraph verified is re-verified:
+> `a == b` on `Bool` emits `a === b` with no imports, and `Bool.js` still
+> exports the four dictionaries. Reopener (c)'s fallback below is
+> correspondingly cheaper than recorded: selecting the declared instances
+> would today produce referenced imports at use sites, not dead imports
+> everywhere.
+
 **Pre-registered reopeners**, so a future session need not re-derive them: (a) any feature that makes instance *identity* observable — dictionary reflection, scoped or overridable instances, instance-level FFI export; (b) any divergence between derived-instance emission and structural emission — a hand-tuned `Hash<Bool>`, say, which would also collide with §3.5's door doctrine on its way in; (c) a ruling that §3.5's sentence governs *selection* to the letter, not provenance. In each case the fallback is known and correct: select the declared instances and accept the dead imports until interfaces become prunable — observationally identical today, and strictly worse emission.
 
 ---
