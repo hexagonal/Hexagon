@@ -1533,12 +1533,14 @@ describe("emitJavaScript", () => {
       'const textOrder = __hex_compareString("a", "b") < 0;',
     );
     // `Unit` ordering is the structural tuple comparison at arity 0 (#159):
-    // a constant-`0` compare over the `undefined` representation, with the
-    // operands kept — the retired primitive fast path (`0 <= 0`) discarded
-    // them, which mattered for effectful operands.
+    // a constant compare over the `undefined` representation, with the
+    // operands kept — the retired primitive fast path discarded them, which
+    // mattered for effectful operands. The constant is `"Equal"` and the test
+    // is `!== "Greater"`, because a dictionary's `compare` slot answers with an
+    // `Ordering` and `<=` is a constructor test on it (#275).
     expect(output.text).toContain(
-      "const unitOrder = ({ compare: (__hex_left, __hex_right) => 0 })" +
-        ".compare(undefined, undefined) <= 0;",
+      'const unitOrder = ({ compare: (__hex_left, __hex_right) => "Equal" })' +
+        '.compare(undefined, undefined) !== "Greater";',
     );
     expect(output.diagnostics).toEqual([]);
   });

@@ -2671,7 +2671,7 @@ class JavaScriptEmitter {
       if (step.test === "NotEqual") {
         return `${dictionary}.notEquals(${left}, ${right})`;
       }
-      return comparisonFromOrder(
+      return comparisonFromOrdering(
         step.test,
         `${dictionary}.compare(${left}, ${right})`,
       );
@@ -2701,7 +2701,7 @@ class JavaScriptEmitter {
       );
       if (step.test === "Equal") return `${dictionary}.equals(${left}, ${right})`;
       if (step.test === "NotEqual") return `${dictionary}.notEquals(${left}, ${right})`;
-      return comparisonFromOrder(step.test, `${dictionary}.compare(${left}, ${right})`);
+      return comparisonFromOrdering(step.test, `${dictionary}.compare(${left}, ${right})`);
     }
 
     const instance = step.evidence.instance;
@@ -2715,14 +2715,18 @@ class JavaScriptEmitter {
       return step.test === "Equal" ? equality : `!(${equality})`;
     }
 
+    // The primitive fast path (§5.1 codegen): no dictionary stands between the
+    // comparator and its consumer, so the sign is consumed where it is made and
+    // never becomes an observable `compare` result. §5.1's constructor tests
+    // and this sign test agree by construction.
     if (instance === "Float") {
-      return comparisonFromOrder(
+      return comparisonFromSign(
         step.test,
         `${this.#useHelper("compareFloat")}(${left}, ${right})`,
       );
     }
     if (instance === "String") {
-      return comparisonFromOrder(
+      return comparisonFromSign(
         step.test,
         `${this.#useHelper("compareString")}(${left}, ${right})`,
       );
@@ -2902,16 +2906,42 @@ class JavaScriptEmitter {
     return "0";
   }
 
+  /**
+   * The body of a derived `compare`, in the one representation (#275).
+   *
+   * Every expression this returns evaluates to an `Ordering` — the Unions §6.2
+   * name-string `"Less"`, `"Equal"` or `"Greater"` — because that is what a
+   * dictionary's `compare` slot holds regardless of how the instance was
+   * written. It is also what the recursive calls below receive from each other
+   * and what the `Variable` case receives from another dictionary, so
+   * composition is on the strings and never on a sign.
+   *
+   * Bare string literals rather than imported `Ordering` constructors: this is
+   * the representation, emitted the same way every other all-nullary union
+   * value is, and naming the constructors here would drag a synthesized prelude
+   * import into every deriving module. A hand-written `honor` still imports
+   * them, because its source names them.
+   *
+   * The numeric comparators survive as internals. `compareFloat`'s total order
+   * over NaN and `compareString`'s codepoint order are unchanged; only the
+   * final step from sign to constructor is new, and `ordering` is the single
+   * place it happens.
+   */
   #derivedCompare(
     type: Typed.Type,
     left: string,
     right: string,
     evidenceNames: EvidenceNames,
   ): string {
+    const fromSign = (sign: string): string => `${this.#useHelper("ordering")}(${sign})`;
     if (type.kind === "Primitive") {
-      if (type.name === "Float") return `${this.#useHelper("compareFloat")}(${left}, ${right})`;
-      if (type.name === "String") return `${this.#useHelper("compareString")}(${left}, ${right})`;
-      return `${left} < ${right} ? -1 : ${left} > ${right} ? 1 : 0`;
+      if (type.name === "Float") {
+        return fromSign(`${this.#useHelper("compareFloat")}(${left}, ${right})`);
+      }
+      if (type.name === "String") {
+        return fromSign(`${this.#useHelper("compareString")}(${left}, ${right})`);
+      }
+      return `${left} < ${right} ? "Less" : ${left} > ${right} ? "Greater" : "Equal"`;
     }
     if (type.kind === "Variable") {
       return `${this.#dictionary(type.id, "Ord", this.#module.span, evidenceNames)}.compare(${left}, ${right})`;
@@ -2923,7 +2953,7 @@ class JavaScriptEmitter {
     }
     if (type.kind === "Vector") {
       const elementOrder = this.#derivedCompare(type.element, `${left}[__hex_index]`, `${right}[__hex_index]`, evidenceNames);
-      return `(() => { const __hex_length = Math.min(${left}.length, ${right}.length); for (let __hex_index = 0; __hex_index < __hex_length; __hex_index += 1) { const __hex_order = ${elementOrder}; if (__hex_order !== 0) return __hex_order; } return ${left}.length - ${right}.length; })()`;
+      return `(() => { const __hex_length = Math.min(${left}.length, ${right}.length); for (let __hex_index = 0; __hex_index < __hex_length; __hex_index += 1) { const __hex_order = ${elementOrder}; if (__hex_order !== "Equal") return __hex_order; } return ${fromSign(`${left}.length - ${right}.length`)}; })()`;
     }
     if (type.kind === "Record") {
       return lexicographicComparison(
@@ -2934,7 +2964,7 @@ class JavaScriptEmitter {
     }
     if (type.kind === "NominalRecord") {
       const record = this.#module.records.find(({ id }) => id === type.record);
-      if (record === undefined) return "0";
+      if (record === undefined) return '"Equal"';
       const replacements = new Map(record.parameters.map((parameter, index) => [
         parameter,
         type.arguments[index] ?? { kind: "Error" as const },
@@ -2952,18 +2982,21 @@ class JavaScriptEmitter {
     }
     if (type.kind === "Union") {
       const union = this.#module.unions.find(({ id }) => id === type.union);
-      if (union === undefined) return "0";
+      if (union === undefined) return '"Equal"';
       // Under the pin (#147) the declaration-index table the string case needs
       // is unnecessary: `False | True` and JS `false < true` agree by
-      // construction, so ordering is arithmetic on the booleans themselves.
+      // construction, so ordering reads the booleans themselves.
       if (this.#prelude.bool !== undefined && union.id === this.#prelude.bool) {
-        return `(${left} ? 1 : 0) - (${right} ? 1 : 0)`;
+        return `${left} === ${right} ? "Equal" : ${right} ? "Less" : "Greater"`;
       }
+      // Declaration-index order (Unions §7's implementer note for the §6.2
+      // string case), never JS `<` on the name-strings: the index difference is
+      // the sign, and `ordering` makes it the constructor.
       const tag = (value: string) => union.constructors
         .map((constructor, index) => `${value} === ${JSON.stringify(constructor.name)} ? ${index} : `)
         .join("") + "-1";
       const tagged = union.constructors.some(({ slots }) => slots.length > 0);
-      if (!tagged) return `(${tag(left)}) - (${tag(right)})`;
+      if (!tagged) return fromSign(`(${tag(left)}) - (${tag(right)})`);
       const replacements = new Map(union.parameters.map((parameter, index) => [
         parameter,
         type.arguments[index] ?? { kind: "Error" as const },
@@ -2979,9 +3012,9 @@ class JavaScriptEmitter {
         ));
         return `case ${JSON.stringify(constructor.name)}: return ${comparison};`;
       }).join(" ");
-      return `(() => { const __hex_tagOrder = (${tag(`${left}.tag`)}) - (${tag(`${right}.tag`)}); if (__hex_tagOrder !== 0) return __hex_tagOrder; switch (${left}.tag) { ${cases} default: return 0; } })()`;
+      return `(() => { const __hex_tagOrder = ${fromSign(`(${tag(`${left}.tag`)}) - (${tag(`${right}.tag`)})`)}; if (__hex_tagOrder !== "Equal") return __hex_tagOrder; switch (${left}.tag) { ${cases} default: return "Equal"; } })()`;
     }
-    return "0";
+    return '"Equal"';
   }
 
   #derivedEquals(
@@ -4440,6 +4473,7 @@ type Helper =
   | "checkedPower"
   | "compareFloat"
   | "compareString"
+  | "ordering"
   | "exception"
   | "floatEquals"
   | "range"
@@ -4486,6 +4520,7 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   checkedPower: [],
   compareFloat: [],
   compareString: [],
+  ordering: [],
   exception: [],
   floatEquals: [],
   range: [],
@@ -4752,6 +4787,16 @@ function renderHelper(
         "  if (Number.isNaN(__hex_left)) return Number.isNaN(__hex_right) ? 0 : 1;",
         "  if (Number.isNaN(__hex_right)) return -1;",
         "  return __hex_left < __hex_right ? -1 : __hex_left > __hex_right ? 1 : 0;",
+        "}",
+      ];
+    case "ordering":
+      // The one representation (#275): every `compare` slot answers with an
+      // `Ordering` value, which under Unions §6.2 is the constructor's own
+      // name-string. The numeric comparators above are fast-path internals, so
+      // this is the single place their sign crosses into the dictionary.
+      return [
+        `function ${name}(__hex_sign) {`,
+        '  return __hex_sign < 0 ? "Less" : __hex_sign > 0 ? "Greater" : "Equal";',
         "}",
       ];
     case "compareString":
@@ -5380,12 +5425,18 @@ function substituteType(
   return type;
 }
 
+/**
+ * Composes component `Ordering`s left to right: the first component that is not
+ * `Equal` decides. Nothing here is arithmetic — every operand is already an
+ * `Ordering` name-string (#275), so the empty case (a `Unit`, an empty record, a
+ * nullary constructor's slots) is `"Equal"`, not a zero.
+ */
 function lexicographicComparison(comparisons: readonly string[]): string {
-  if (comparisons.length === 0) return "0";
+  if (comparisons.length === 0) return '"Equal"';
   const statements = comparisons.map((comparison, index) =>
-    `const __hex_order${index} = ${comparison}; if (__hex_order${index} !== 0) return __hex_order${index};`
+    `const __hex_order${index} = ${comparison}; if (__hex_order${index} !== "Equal") return __hex_order${index};`
   );
-  return `(() => { ${statements.join(" ")} return 0; })()`;
+  return `(() => { ${statements.join(" ")} return "Equal"; })()`;
 }
 
 function dictionaryParameterName(
@@ -5426,13 +5477,17 @@ function primitiveDictionary(
         ? "({ equals: (__hex_a, __hex_b) => __hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b), notEquals: (__hex_a, __hex_b) => !(__hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b)) })"
         : "({ equals: (__hex_a, __hex_b) => __hex_a === __hex_b, notEquals: (__hex_a, __hex_b) => __hex_a !== __hex_b })";
     case "Ord":
+      // A `compare` slot answers with an `Ordering`, here as everywhere (#275).
+      // The comparators keep their semantics — `compareFloat`'s total order over
+      // NaN, `compareString`'s codepoint order — and `ordering` turns the sign
+      // they return into the constructor the slot owes its caller.
       if (instance === "Float") {
-        return `({ eq: ${primitiveDictionary("Eq", instance, helperName)}, compare: (__hex_a, __hex_b) => ${helperName("compareFloat")}(__hex_a, __hex_b) })`;
+        return `({ eq: ${primitiveDictionary("Eq", instance, helperName)}, compare: (__hex_a, __hex_b) => ${helperName("ordering")}(${helperName("compareFloat")}(__hex_a, __hex_b)) })`;
       }
       if (instance === "String") {
-        return `({ eq: ${primitiveDictionary("Eq", instance, helperName)}, compare: (__hex_a, __hex_b) => ${helperName("compareString")}(__hex_a, __hex_b) })`;
+        return `({ eq: ${primitiveDictionary("Eq", instance, helperName)}, compare: (__hex_a, __hex_b) => ${helperName("ordering")}(${helperName("compareString")}(__hex_a, __hex_b)) })`;
       }
-      return `({ eq: ${primitiveDictionary("Eq", instance, helperName)}, compare: (__hex_a, __hex_b) => __hex_a < __hex_b ? -1 : __hex_a > __hex_b ? 1 : 0 })`;
+      return `({ eq: ${primitiveDictionary("Eq", instance, helperName)}, compare: (__hex_a, __hex_b) => __hex_a < __hex_b ? "Less" : __hex_a > __hex_b ? "Greater" : "Equal" })`;
     case "Show":
       if (instance === "String") return "({ show: __hex_a => __hex_a })";
       return "({ show: __hex_a => String(__hex_a) })";
@@ -5464,7 +5519,41 @@ function internalConstrainedExportName(symbol: Resolved.SymbolId): string {
   return `__hex_export${Number(symbol)}`;
 }
 
-function comparisonFromOrder(test: Core.ComparisonTest, order: string): string {
+/**
+ * The relational four against an `Ordering` result (Operators §5.1): `a < b` is
+ * `compare(a, b) == Less`, and so on — a **constructor test**, never a sign
+ * test. This is the form every dictionary `compare` call takes, because a
+ * dictionary slot holds `(a, a) -> Ordering` whether the instance was derived
+ * or hand-written (#275). The operand is the Unions §6.2 name-string.
+ *
+ * The `Equal`/`NotEqual` arms are unreachable from the comparison lowering —
+ * those tests go through `Eq`'s `equals`/`notEquals` before any `compare` is
+ * reached — but `ComparisonTest` is a closed set and the switch is total.
+ */
+function comparisonFromOrdering(test: Core.ComparisonTest, ordering: string): string {
+  switch (test) {
+    case "Less":
+      return `${ordering} === "Less"`;
+    case "Greater":
+      return `${ordering} === "Greater"`;
+    case "LessEqual":
+      return `${ordering} !== "Greater"`;
+    case "GreaterEqual":
+      return `${ordering} !== "Less"`;
+    case "Equal":
+      return `${ordering} === "Equal"`;
+    case "NotEqual":
+      return `${ordering} !== "Equal"`;
+  }
+}
+
+/**
+ * The same four against a numeric comparator's sign. Legal only where the
+ * number never crosses a dictionary or FFI boundary — that is, the primitive
+ * fast path, where `#emitComparisonStep` calls `compareFloat`/`compareString`
+ * directly and consumes the result in the same expression.
+ */
+function comparisonFromSign(test: Core.ComparisonTest, order: string): string {
   switch (test) {
     case "Less":
       return `${order} < 0`;
