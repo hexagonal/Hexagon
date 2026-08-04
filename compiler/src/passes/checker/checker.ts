@@ -351,6 +351,14 @@ class Checker {
   #variance = new VarianceTable([], []);
   readonly #variables: Variable[] = [];
   readonly #quantified = new Set<number>();
+  /**
+   * Which rigid variables are `honor` binders and which are constraint
+   * subjects, by variable id. `#acceptRequirement`'s rejection wording is the
+   * only reader: the rewrite a rejection must name differs by declaration site
+   * (Rewrite Rule), and nothing else about rigidity does.
+   */
+  readonly #honorBinderVariables = new Set<number>();
+  readonly #constraintSubjectVariables = new Set<number>();
   readonly #diagnostics: Diagnostics.Bag;
   readonly #importedSchemes: ReadonlyMap<Resolved.SymbolId, Typed.Scheme>;
   readonly #programNominals: VarianceDeclarations;
@@ -463,7 +471,10 @@ class Checker {
         // Quantified besides being rigid: `honor<a: Render>` binds `a`, so it
         // is never an unresolved variable for defaulting to settle — nor one
         // for §4's blocked-defaulting report to name.
-        for (const variable of typeParameters.values()) this.#quantified.add(variable.id);
+        for (const variable of typeParameters.values()) {
+          this.#quantified.add(variable.id);
+          this.#honorBinderVariables.add(variable.id);
+        }
         this.#instanceTypeParameters.set(item, typeParameters);
         for (const parameter of item.typeParameters) {
           const variable = typeParameters.get(parameter.name)!;
@@ -484,6 +495,10 @@ class Checker {
               });
               continue;
             }
+            // The "annotation" origin mirrors the lambda binder's call and is
+            // defensive, not load-bearing: every constraint required here is
+            // also in `declaredConstraints`, so `#acceptRequirement` would
+            // admit it through `#baseConstraintPath(c, c)` regardless.
             this.#require(constraint, variable, parameter.span, "annotation");
           }
         }
@@ -526,6 +541,7 @@ class Checker {
       // unresolved-variable defaulting, even when the constraint happens to
       // have an Int instance.
       this.#quantified.add(subject.id);
+      this.#constraintSubjectVariables.add(subject.id);
       this.#constraintSubjects.set(item, subject);
       const typeParameters = new Map<string, Mono>([[item.subject, subject]]);
       const impliedTypes = new Map(
@@ -3823,6 +3839,40 @@ class Checker {
         : `\`${variable.rigidName}\` is declared to honor ${
           this.#formatConstraintNames(declared)
         }`;
+      // Three binder positions share this rejection, and each names the rewrite
+      // that is actually legal at its declaration site — a constraint cannot
+      // list itself as a base, and an `honor` binder's constraints are written,
+      // never inferred, so the function-binder wording misleads at both.
+      if (this.#constraintSubjectVariables.has(variable.id)) {
+        const constraint = declared[0]!;
+        const bases = this.#maximalConstraintNames([
+          ...this.#baseConstraints(constraint),
+          requirement.name,
+        ]).filter((name) => name !== constraint);
+        const baseList = bases.length === 1 ? bases[0]! : `(${bases.join(", ")})`;
+        this.#diagnostics.add({
+          severity: "error",
+          message:
+            `\`${variable.rigidName}\` is \`${constraint}\`'s subject, so the body reaches ` +
+            `only \`${constraint}\` and its base constraints, but it requires ` +
+            `\`${requirement.name}\`; add \`${requirement.name}\` as a base constraint — ` +
+            `write \`constraint ${constraint}<${variable.rigidName}: ${baseList}>\``,
+          primary: requirement.span,
+        });
+        requirement.reported = true;
+        return;
+      }
+      if (this.#honorBinderVariables.has(variable.id)) {
+        this.#diagnostics.add({
+          severity: "error",
+          message:
+            `${declaration}, but the body requires \`${requirement.name}\`; ` +
+            `write \`<${variable.rigidName}: ${constraintList}>\` on the \`honor\` header`,
+          primary: requirement.span,
+        });
+        requirement.reported = true;
+        return;
+      }
       const inferenceRewrite = declared.length === 0
         ? "remove the explicit type parameter to let it be inferred"
         : "remove the constraint annotation to let it be inferred";

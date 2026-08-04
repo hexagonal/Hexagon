@@ -1152,19 +1152,42 @@ describe("check", () => {
         '    describe(box) = "${box.value + 1}"',
     );
 
-    // Rigidity makes the demand reportable at the header instead of silently
-    // binding `a` to the first use's type: interpolation demands `Show`,
-    // arithmetic demands `Num`, and the header declares only `Describe`.
+    // Rigidity makes the demand reportable — at the body expression that made
+    // it, naming the header rewrite — instead of silently binding `a` to the
+    // first use's type: interpolation demands `Show`, arithmetic demands
+    // `Num`, and the header declares only `Describe`.
     expect(module.diagnostics).toMatchObject([
       {
         message:
           "`a` is declared to honor `Describe`, but the body requires `Show`; " +
-          "write `<a: (Describe, Show)>`, or remove the constraint annotation to let it be inferred",
+          "write `<a: (Describe, Show)>` on the `honor` header",
       },
       {
         message:
           "`a` is declared to honor `Describe`, but the body requires `Num`; " +
-          "write `<a: (Describe, Num)>`, or remove the constraint annotation to let it be inferred",
+          "write `<a: (Describe, Num)>` on the `honor` header",
+      },
+    ]);
+  });
+
+  test("rejects a default body demanding a constraint the subject does not reach", () => {
+    const module = checkSource(
+      "constraint MyEq<a> =\n" +
+        "    eq(left: a, right: a): Bool\n" +
+        "constraint Labelled<a: MyEq> =\n" +
+        "    label(value: a): String\n" +
+        '    shown(value: a): String = "${value}"',
+    );
+
+    // The rewrite must be legal at the declaration site: a constraint cannot
+    // list itself as a base, so the message merges the demand into the
+    // declared base list rather than into a `<a: (…)>` binder.
+    expect(module.diagnostics).toMatchObject([
+      {
+        message:
+          "`a` is `Labelled`'s subject, so the body reaches only `Labelled` and its " +
+          "base constraints, but it requires `Show`; add `Show` as a base constraint — " +
+          "write `constraint Labelled<a: (MyEq, Show)>`",
       },
     ]);
   });

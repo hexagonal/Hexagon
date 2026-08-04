@@ -251,6 +251,8 @@ Diagnostic noun policy (restated from the preamble): the noun is **instance**, t
 | Orphan instance | hard error: "honor `C<T>` in the module declaring `C` or the module declaring `T` — move this declaration there" (§5.3) |
 | Non-constructor or repeated-variable instance head | §5.4 messages, each naming the general head to write (`Show<Vector(a)>`) |
 | Instance head on a bare type variable | "an instance must name a type; constrain the variable at the use site instead (`<a: Show>`)" (§5.4) |
+| `honor` body demands a constraint its binder does not declare | "`a` is declared to honor `Describe`, but the body requires `Num`; write `<a: (Describe, Num)>` on the `honor` header" (#271) |
+| Default member body demands a constraint the subject does not reach | "`a` is `Labelled`'s subject, so the body reaches only `Labelled` and its base constraints, but it requires `Eq`; add `Eq` as a base constraint — write `constraint Labelled<a: Eq>`" — the rewrite merges into the declared base list, since a constraint cannot list itself as a base (#271) |
 | Base constraint cycle | hard error at declaration; remove one of the cycle's base constraint obligations (§2) |
 | Duplicate member name within a constraint / across a module's constraints | hard error, constructor-rule family; rename one member (§2, §2.2) |
 | Member name = lowercased base constraint name | hard error; rename the member (§6.2) |
