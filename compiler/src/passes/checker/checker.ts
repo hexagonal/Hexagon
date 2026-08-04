@@ -351,6 +351,14 @@ class Checker {
   #variance = new VarianceTable([], []);
   readonly #variables: Variable[] = [];
   readonly #quantified = new Set<number>();
+  /**
+   * Which rigid variables are `honor` binders and which are constraint
+   * subjects, by variable id. `#acceptRequirement`'s rejection wording is the
+   * only reader: the rewrite a rejection must name differs by declaration site
+   * (Rewrite Rule), and nothing else about rigidity does.
+   */
+  readonly #honorBinderVariables = new Set<number>();
+  readonly #constraintSubjectVariables = new Set<number>();
   readonly #diagnostics: Diagnostics.Bag;
   readonly #importedSchemes: ReadonlyMap<Resolved.SymbolId, Typed.Scheme>;
   readonly #programNominals: VarianceDeclarations;
@@ -437,14 +445,36 @@ class Checker {
     for (const item of module.items) {
       if (item.kind === "Honor") {
         this.#checkInstanceHead(item, module.items);
+        // An instance's parameters are declared type variables, exactly as a
+        // lambda's `<a: Render>` binders are: rigid, so `#bind` keeps them as
+        // their class's representative and rejects binding them to a concrete
+        // type. Rigidity is load-bearing, not cosmetic — a plain quantified
+        // variable can be absorbed into a body-side fresh variable (a match
+        // pattern's, for one), after which `#pinInstanceSubject`'s freshening
+        // misses (it is keyed on this variable's id) and the first concrete use
+        // site unifies the shared subject with its own type. Every later use
+        // and the member bodies then compile against that one type, silently.
         const typeParameters = new Map(
-          item.typeParameters.map(({ name }) => [name, this.#fresh(0, false)] as const),
+          item.typeParameters.map((parameter) => [
+            parameter.name,
+            this.#fresh(
+              0,
+              false,
+              parameter.name,
+              parameter.constraints.filter((constraint) =>
+                this.#constraintNames.has(constraint) &&
+                !this.#projectionBearingConstraints.has(constraint)
+              ),
+            ),
+          ] as const),
         );
-        // An instance's parameters are universally quantified by its header,
-        // exactly as a constraint's subject is below: `honor<a: Render>` binds
-        // `a`, so it is never an unresolved variable for defaulting to settle
-        // — nor one for §4's blocked-defaulting report to name.
-        for (const variable of typeParameters.values()) this.#quantified.add(variable.id);
+        // Quantified besides being rigid: `honor<a: Render>` binds `a`, so it
+        // is never an unresolved variable for defaulting to settle — nor one
+        // for §4's blocked-defaulting report to name.
+        for (const variable of typeParameters.values()) {
+          this.#quantified.add(variable.id);
+          this.#honorBinderVariables.add(variable.id);
+        }
         this.#instanceTypeParameters.set(item, typeParameters);
         for (const parameter of item.typeParameters) {
           const variable = typeParameters.get(parameter.name)!;
@@ -465,7 +495,11 @@ class Checker {
               });
               continue;
             }
-            this.#require(constraint, variable, parameter.span);
+            // The "annotation" origin mirrors the lambda binder's call and is
+            // defensive, not load-bearing: every constraint required here is
+            // also in `declaredConstraints`, so `#acceptRequirement` would
+            // admit it through `#baseConstraintPath(c, c)` regardless.
+            this.#require(constraint, variable, parameter.span, "annotation");
           }
         }
         const subject = this.#annotationType(
@@ -493,11 +527,21 @@ class Checker {
     }
     for (const item of module.items) {
       if (item.kind !== "ConstraintDeclaration") continue;
-      const subject = this.#fresh(0, false);
-      // A constraint's subject is universally quantified by the declaration.
-      // It must never participate in ordinary unresolved-variable defaulting,
-      // even when the constraint happens to have an Int instance.
+      // A constraint's subject is a declared type variable and must be rigid
+      // for the same reason an instance's parameters are (see the Honor arm
+      // above): a default member body can absorb the subject into a body-side
+      // fresh variable, after which the first member use at a concrete type
+      // binds the shared subject to that type — every other instance's copied
+      // default then resolves the member against the first use's dictionary.
+      // Declaring the constraint itself covers a default body's own member
+      // uses, and reaches base constraints through `#baseConstraintPath`.
+      const subject = this.#fresh(0, false, item.subject, [item.name]);
+      // Quantified besides being rigid: the subject is bound by the
+      // declaration, so it must never participate in ordinary
+      // unresolved-variable defaulting, even when the constraint happens to
+      // have an Int instance.
       this.#quantified.add(subject.id);
+      this.#constraintSubjectVariables.add(subject.id);
       this.#constraintSubjects.set(item, subject);
       const typeParameters = new Map<string, Mono>([[item.subject, subject]]);
       const impliedTypes = new Map(
@@ -3795,6 +3839,40 @@ class Checker {
         : `\`${variable.rigidName}\` is declared to honor ${
           this.#formatConstraintNames(declared)
         }`;
+      // Three binder positions share this rejection, and each names the rewrite
+      // that is actually legal at its declaration site — a constraint cannot
+      // list itself as a base, and an `honor` binder's constraints are written,
+      // never inferred, so the function-binder wording misleads at both.
+      if (this.#constraintSubjectVariables.has(variable.id)) {
+        const constraint = declared[0]!;
+        const bases = this.#maximalConstraintNames([
+          ...this.#baseConstraints(constraint),
+          requirement.name,
+        ]).filter((name) => name !== constraint);
+        const baseList = bases.length === 1 ? bases[0]! : `(${bases.join(", ")})`;
+        this.#diagnostics.add({
+          severity: "error",
+          message:
+            `\`${variable.rigidName}\` is \`${constraint}\`'s subject, so the body reaches ` +
+            `only \`${constraint}\` and its base constraints, but it requires ` +
+            `\`${requirement.name}\`; add \`${requirement.name}\` as a base constraint — ` +
+            `write \`constraint ${constraint}<${variable.rigidName}: ${baseList}>\``,
+          primary: requirement.span,
+        });
+        requirement.reported = true;
+        return;
+      }
+      if (this.#honorBinderVariables.has(variable.id)) {
+        this.#diagnostics.add({
+          severity: "error",
+          message:
+            `${declaration}, but the body requires \`${requirement.name}\`; ` +
+            `write \`<${variable.rigidName}: ${constraintList}>\` on the \`honor\` header`,
+          primary: requirement.span,
+        });
+        requirement.reported = true;
+        return;
+      }
       const inferenceRewrite = declared.length === 0
         ? "remove the explicit type parameter to let it be inferred"
         : "remove the constraint annotation to let it be inferred";

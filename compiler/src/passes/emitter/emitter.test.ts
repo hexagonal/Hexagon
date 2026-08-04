@@ -1721,6 +1721,69 @@ describe("emitJavaScript", () => {
     expect(output.diagnostics).toEqual([]);
   });
 
+  test("threads instance evidence through pattern-bound members and recursive instances", () => {
+    const module = coreSource(
+      "constraint Describe<a> =\n" +
+        "    describe(value: a): String\n" +
+        "honor Describe<Int> =\n" +
+        '    describe(value) = "${value}"\n' +
+        "union Tree(a) = Leaf | Node(left: Tree(a), item: a, right: Tree(a))\n" +
+        "honor<a: Describe> Describe<Tree(a)> =\n" +
+        "    describe(tree) = match tree\n" +
+        '        Leaf => "leaf"\n' +
+        '        Node(left, item, right) => "(${describe(left)} ${describe(item)} ${describe(right)})"\n' +
+        "let tree: Tree(Int) = Node(Leaf, 1, Leaf)\n" +
+        "export let text: String = describe(tree)",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.diagnostics).toEqual([]);
+    // A pattern-bound occurrence of the instance parameter reads the factory's
+    // own evidence parameter. Before the parameter was rigid, the first
+    // concrete use bound it to `Int` and this evidence emitted as a primitive
+    // fallback — `({})` — that threw at runtime after a clean compile.
+    expect(output.text).toMatch(/describe\(item, __hex_dictDescribe_\d+\)/u);
+    // The recursive occurrence re-applies the factory to that same parameter.
+    expect(output.text).toMatch(
+      /describe\(left, __hex_instance_Describe_Tree\(__hex_dictDescribe_\d+\)\)/u,
+    );
+    // A concrete use applies the factory to the selected element instance —
+    // never passes the unapplied factory as the dictionary.
+    expect(output.text).toContain(
+      "describe(tree, __hex_instance_Describe_Tree(__hex_instance_Describe_Int))",
+    );
+    expect(output.text).not.toContain("describe(tree, __hex_instance_Describe_Tree)");
+  });
+
+  test("resolves copied default bodies against each instance's own dictionary", () => {
+    const module = coreSource(
+      "union Held(a) = Missing | Held2(value: a)\n" +
+        "constraint Pick<a> =\n" +
+        "    pick(value: a): a\n" +
+        "    pickHeld(fallback: a, held: Held(a)): a = match held\n" +
+        "        Missing => fallback\n" +
+        "        Held2(value) => pick(value)\n" +
+        "honor Pick<Int> =\n" +
+        "    pick(value) = value\n" +
+        "honor Pick<String> =\n" +
+        "    pick(value) = value\n" +
+        "export let picked: Int = pickHeld(0, Held2(42))\n" +
+        'export let name: String = pickHeld("x", Held2("y"))',
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.diagnostics).toEqual([]);
+    // Before the constraint's subject was rigid, the first use bound it to
+    // `Int`; the String instance's copied default then baked in the Int
+    // dictionary, and both use sites passed no evidence at all.
+    expect(output.text).toContain("pick(value, __hex_instance_Pick_Int)");
+    expect(output.text).toContain("pick(value, __hex_instance_Pick_String)");
+    expect(output.text).toContain("pickHeld(0, Held2(42), __hex_instance_Pick_Int)");
+    expect(output.text).toContain('pickHeld("x", Held2("y"), __hex_instance_Pick_String)');
+  });
+
   test("expands derives headers into structural dictionaries", () => {
     const module = coreSource(
       "record Point derives Eq = {x: Int, y: Int}\n" +
