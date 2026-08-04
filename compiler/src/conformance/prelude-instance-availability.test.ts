@@ -274,8 +274,10 @@ describe("transit shapes keep working and shrink", () => {
    * #263's false-positive companion candidate. The field access `b.map` — not a
    * dispatch — synthesizes an import of `Seq.js`, whose interface used to transit
    * `Eq<Option>`; that accident is what made this defect look like an
-   * `Ordering`-shaped curiosity rather than a general one. The spare `map` import
-   * is #263's business and may remain, but no instance may ride it any more.
+   * `Ordering`-shaped curiosity rather than a general one. No instance may ride
+   * that import, and since #263 the import itself is gone too: emission renders
+   * a synthesized item from the names Core references, and Core references no
+   * `Seq.map` here.
    */
   test("a false companion candidate no longer smuggles evidence", () => {
     const files = [[
@@ -288,9 +290,8 @@ describe("transit shapes keep working and shrink", () => {
     const javascript = emitted(files, "/main.hex");
     expect(importLines(javascript)).toEqual([
       'import { __hex_instance_Eq_Option as __hex_imported_3___hex_instance_Eq_Option } from "./Option.js";',
-      'import { map } from "./Seq.js";',
     ]);
-    expect(javascript).not.toContain("Seq.js\";\nimport { __hex_imported");
+    expect(javascript).not.toContain("Seq.js");
     expect(exportLines(javascript)).toEqual([
       "export { Box };",
       "export { run };",

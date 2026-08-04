@@ -25,6 +25,17 @@ export interface JavaScript extends Output {
    * clean and emits `import … from "./Prelude.js"` beside no `Prelude.js`.
    */
   readonly preludeInstanceImports: readonly string[];
+  /**
+   * Specifiers of prelude modules this file imports for their *terms* (#263),
+   * in source form — the same spelling the synthesized `Import` item carries.
+   *
+   * Carried for the same reason `preludeInstanceImports` is. The synthesized
+   * item's name list is an over-approximation until emission filters it to what
+   * the body references, so a resolved `Import` item is no longer evidence that
+   * anything is imported: reachability that read the tree would keep emitting a
+   * prelude module nothing imports, which is the cost this reports away.
+   */
+  readonly preludeTermImports: readonly string[];
 }
 
 /** A generated body that an interactive host may present separately. */
