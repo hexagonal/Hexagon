@@ -59,7 +59,7 @@ The replacement covers exactly the demands whose evidence is the factory's **ide
 
 ### 3.3 Non-identity evidence inside factory bodies stays call-time
 
-Inside a factory body, evidence over the factory's parameters at anything other than the identity arrangement is not hoistable: module level cannot name the factory's parameter, and hoisting it factory-locally — evaluating a factory at this factory's application — diverges the moment the recursion is mutual (§10.3). It remains constructed at the call, exactly as today. Two shapes fall here: a **different** instance over the parameters (`Show<Forest(a)>`'s body needing `Show<Tree2(a)>` — mutual recursion), and **this** instance at a deeper instantiation (`Describe<Weird(a)>`'s body needing `Describe<Weird(Box(a))>` — non-regular recursion, §3.2).
+Inside a factory body, evidence over the factory's parameters at anything other than the identity arrangement is not hoistable: module level cannot name the factory's parameter, and hoisting it factory-locally — evaluating a factory at this factory's application — diverges whenever the eager construction reaches this factory again: immediately for the self shapes, at one remove when the recursion is mutual (§10.3). It remains constructed at the call, exactly as today. Three shapes fall here: a **different** instance over the parameters (`Show<Forest(a)>`'s body needing `Show<Tree2(a)>` — mutual recursion); **this** instance at a deeper instantiation (`Describe<Weird(a)>`'s body needing `Describe<Weird(Box(a))>` — non-regular recursion, §3.2); and **this** instance at a permuted arrangement (`Swap(a, b)` recursing through `Swap(b, a)`, whose self-demand is the factory over its own parameters reversed — §3.2's "in order" clause is what excludes it from the replacement).
 
 This is the rule's one allocation residue, and it is bounded: it arises only inside parameterized instance bodies, and regular self-recursion — the common case — is fully covered by §3.2. The residue is recorded, not scheduled; a future ruling may close it with lazy slots if a real program ever pays for it.
 
@@ -83,7 +83,7 @@ Recorded first because everything else sits on it. Constraints §5.1 fixes at mo
 
 ### 6.2 The hoistable family is finite — syntactically
 
-Hoisting is keyed on ground evidence trees (§4), and a module has finitely many use sites, each demanding one static tree — so the set of hoisted bindings is finite by construction, independent of how types recurse. The polymorphic-recursion ban buys something narrower and function-shaped: the checker installs provisional monotypes for a strongly-connected component's members before any body is checked, so a recursive **function** occurrence sees a monotype and cannot demand new instantiations — and a polymorphic annotation does not reopen that door (a recursive body demanding a different instantiation reports "`a` is a declared type variable, but the body requires `Vector(…)`"). The ban does not reach demands riding a generalized constraint member: an unbounded *dynamic* evidence family such as `Describe<Weird(a)>`, `Describe<Weird(Box(a))>`, … is legal today (§3.2's non-regular case), constructed call-by-call in the residue (§3.3), and never hoisted — which is why §3.2's identity-arrangement scope is load-bearing rather than decorative.
+Hoisting is keyed on ground evidence trees (§4), and a module has finitely many use sites, each demanding a fixed, finite set of static trees — so the set of hoisted bindings is finite by construction, independent of how types recurse. The polymorphic-recursion ban buys something narrower and function-shaped: the checker installs provisional monotypes for a strongly-connected component's members before any body is checked, so a recursive **function** occurrence sees a monotype and cannot demand new instantiations — and a polymorphic annotation does not reopen that door (a recursive body demanding a different instantiation reports "`a` is a declared type variable, but the body requires `Vector(…)`"). The ban does not reach demands riding a generalized constraint member: an unbounded *dynamic* evidence family such as `Describe<Weird(a)>`, `Describe<Weird(Box(a))>`, … is legal today (§3.2's non-regular case), constructed call-by-call in the residue (§3.3), and never hoisted — which is why §3.2's identity-arrangement scope is load-bearing rather than decorative.
 
 ### 6.3 The remaining restrictions
 
@@ -124,7 +124,7 @@ Bind each shared tree at the innermost dominator of its use sites. Sound, and st
 
 ### 10.3 Eager factory-local hoisting of cross-instance evidence
 
-Hoisting `Show<Tree2(a)>`'s construction to a factory-local `const` of `Show<Forest(a)>`'s factory evaluates the other factory at application time; when the recursion is mutual, each application eagerly applies the other and diverges before any member is called. The current call-time shape is the correct one for v1 (§3.3). Any future closure of the residue must be lazy by construction.
+Hoisting a §3.3 construction to a factory-local `const` evaluates a factory at application time; the moment that evaluation reaches the enclosing factory again — immediately for a non-identity self-demand, at one remove when the recursion is mutual (`Show<Forest(a)>` and `Show<Tree2(a)>` eagerly applying each other) — it diverges before any member is called. The current call-time shape is the correct one for v1 (§3.3). Any future closure of the residue must be lazy by construction.
 
 ### 10.4 The planning note's module-level letrec
 
@@ -134,7 +134,7 @@ The note's §4.3 sketched the recursive case as a module-level binding whose ini
 
 1. **Sharing:** a module demanding the same ground tree at two use sites emits one binding and two references; the inline-application shape (`render(x, __hex_instance_Render_Box(…))`) does not appear. Depth ≥ 2 covered explicitly.
 2. **Fixpoint:** a recursive instance's emitted factory contains the self-reference of §3.2 and no application of its own factory name **as self-evidence at the factory's own parameters** (textual pin — this is what makes a regular traversal allocation-free); an N-node traversal still runs correctly (behavioral, `runMain`).
-3. **Residue:** both §3.3 shapes — mutual recursion, and the non-regular self-demand (`Weird`) — compile and run (the existing baseline behavior, now pinned so the fixpoint rewrite cannot misfire on a self-demand that is not the identity arrangement).
+3. **Residue:** the §3.3 shapes — mutual recursion and the non-identity self-demands (deeper: `Weird`; permuted: `Swap`) — compile and run (the existing baseline behavior, now pinned so the fixpoint rewrite cannot misfire on a self-demand that is not the identity arrangement).
 4. **Determinism:** two compiles of one module yield identical hoisted names and order.
 5. **No export growth:** the hoisted bindings appear in no export list and no `.d.ts`.
 
@@ -142,7 +142,7 @@ Blast radius, budgeted rather than met mid-change: output-pinning tests churn br
 
 ## 12. Supersession and edit notes
 
-`spec/notes/dictionary-cse-plan.md` is superseded by this document: its §6 confirmation list is discharged (#271 settled item 1; §8 answers item 5), its §4.3/§4.4 mechanism is corrected by §3.2/§5/§10.4, and its non-goals are carried in §9.2. The note keeps its Status line plus a pointer here and is not edited further.
+`spec/notes/dictionary-cse-plan.md` is superseded by this document: its §6 confirmation list is discharged (#271 settled item 1; §2 item 2, §6.2, and §4 carry items 2–4's confirmations; §8 answers item 5), its §4.3/§4.4 mechanism is corrected by §3.2/§5/§10.4, and its non-goals are carried in §9.2. The note keeps its Status line plus a pointer here and is not edited further.
 
 **Edit note → Constraints §6.3** (apply on next touch of `constraints.md`): the sentence "composition happens at use sites, not declaration sites" predates this ruling; composition is now *demanded* at use sites and *materialized* once per module (Dictionary Sharing §3.1). The order-independence claim it supports is unaffected.
 
