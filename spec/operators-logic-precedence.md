@@ -159,12 +159,14 @@ Consequently `Bool` is the **sole exception** to Unions §1's "`match` is the on
 
 | Source | Elaboration |
 |---|---|
-| `a < b` | `compare(a, b) == LT` |
-| `a > b` | `compare(a, b) == GT` |
-| `a <= b` | `compare(a, b) != GT` |
-| `a >= b` | `compare(a, b) != LT` |
+| `a < b` | `compare(a, b) == Less` |
+| `a > b` | `compare(a, b) == Greater` |
+| `a <= b` | `compare(a, b) != Greater` |
+| `a >= b` | `compare(a, b) != Less` |
 
 The early draft's primitive-operator table (`<=` as `a < b or a == b`, etc.) is superseded by the `compare`-based story — one member, one instance obligation, derived operators total by construction, and no double evaluation of operands in the derived forms.
+
+**Implementer note (one representation):** the elaborations above are constructor tests on the `Ordering` result — never sign tests on a number; int-returning `compare` is the rejected alternative (Decisions Batch §3). Derived and hand-written instances return the same `Ordering` values under the Unions §6.2 all-nullary representation, and a dictionary's `compare` slot holds exactly that `(a, a) -> Ordering` function (FFI Part 9 faces it so). A numeric comparator is legal only as a fast-path internal whose result never crosses a dictionary or FFI boundary. *(The table's constructor names originally read `LT`/`GT` — the Haskell spelling Decisions Batch §3 rejected; corrected to the pinned `Less`/`Equal`/`Greater`, see #275.)*
 
 Operands normally share one type. Numeric Literals §5.1 applies before the `Eq`/`Ord`
 operation is selected: an established `Nat` may widen through `Num.fromNat`, while an
