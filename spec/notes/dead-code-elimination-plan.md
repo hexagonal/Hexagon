@@ -17,7 +17,7 @@ module's top-level binding set and must not land against the same pinning
 corpus at the same time (§8).
 
 > **Edit note (2026-08-04, #263).** Two of the four defects this note records
-> were fixed before any DCE tier was built: §3.2 by #153/PR #264 and #263
+> were fixed without this plan being taken up: §3.2 by #153/PR #264 and #263
 > Part 1, and §3.1 by #263 Part 2 — which is §4.2's Tier 2, landed in a
 > different shape than proposed. See the notes under those sections. §3.3,
 > §3.4, Tier 1, and Tier 3 are untouched and remain this note's live content.
@@ -99,8 +99,9 @@ then **re-exports the two dead instances**.
 > **Edit note (2026-08-04, #263).** The block above is kept as the record of
 > what was verified on `notes-dictionary-cse-plan`; it is no longer what the
 > compiler emits. The instance half of it died first — #153/PR #264 moved
-> prelude-instance availability onto `Resolved.Module.preludeInstances`, so
-> nothing below the `import { map }` line was emitted even before #263. Then
+> prelude-instance availability onto `Resolved.Module.preludeInstances`, which
+> removed the instance surface (the second import statement and both dead
+> re-exports) while `import { map }` and the ordinary emission survived. Then
 > #263 removed the rest: the same reproduction now emits no import statement
 > at all, and the project emits neither `Seq.js` nor `Bool.js` (conformance:
 > `prelude-import-surface.test.ts`). "Prelude imports are already pruned to
@@ -167,8 +168,10 @@ anything downstream.
 > only when the body references it, from the declaring module, with no
 > re-export. #263 Part 1 cut the last channel — an explicit import of a
 > prelude module now attaches no instance evidence to its import item — so no
-> module's interface carries a prelude instance, no consumer predicts one, and
-> the per-hop `__hex_imported_N_` growth cannot start. Evidence on
+> interface downstream of the declaring module carries a prelude instance, no
+> consumer predicts one, and the per-hop `__hex_imported_N_` growth cannot
+> start. (The declaring prelude module's own interface still carries what it
+> declares — that is the availability channel's source, not residue.) Evidence on
 > **non-prelude** imports is deliberately untouched: an ordinary module's
 > `honor` reaches a consumer three hops away only through the intermediates,
 > and that transit (including its re-export) is load-bearing
@@ -229,17 +232,20 @@ or that it re-derives consumer import lists consistently. The term half
 (`import { map }`) and the instance half (§3.2) may well differ here; they are
 not one change.
 
-> **Edit note (2026-08-04, #263).** Landed — as emission-derived rendering
-> rather than the "later pass narrows the list" shape proposed above, which is
-> #263's option (b) scoped to the synthesized import rather than its option
-> (a). The objection was answered the first way, and separately per half,
+> **Edit note (2026-08-04, #263).** Landed, in a different shape than the
+> "later pass narrows the list" proposed above: emission-derived rendering,
+> which is #263's option (b) scoped to the synthesized import, not its option
+> (a) — the resolved list keeps the over-approximation and no pass rewrites
+> it. The objection was answered the first way, and separately per half,
 > confirming the last sentence above. Term half: a synthesized import's names
 > never enter the module interface — `moduleInterface` builds `terms` from
 > exported items only — so no consumer ever asks for one and filtering them at
-> emission touches nothing anyone reads. Instance half: #153 had already
-> restructured it so that interfaces do not transit prelude instances at all,
-> which answers the objection by removing its subject. The §3.1 note has the
-> mechanism; nothing of this tier remains to build.
+> emission touches nothing anyone reads. Instance half: #153 cut the
+> synthesized channel's transit — all Tier 2's recorded objection concerned —
+> and #263 Part 1 cut the explicit channel's in the same change as this note,
+> so no interface downstream of a declaring prelude module transits its
+> instances. The §3.1 note has the mechanism; nothing of this tier remains to
+> build.
 
 ### 4.3 Tier 3 — whole-program reachability from roots
 
