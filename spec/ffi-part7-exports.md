@@ -92,7 +92,11 @@ What is matched is **identity, never spelling** — the discipline of the `Bool`
 
 **Placement.** Compiler-written imports precede the module's own items: the `Hex` runtime import first (§2.1), then this section's imports in inventory order.
 
+**Reachability.** A member a face imports from is part of the emitted program even when no term reaches it: a face can name `Option` while the JavaScript touches no `Option` term, so this channel's edges — the only ones with no JavaScript counterpart — count toward what gets emitted, or the `.d.ts` would import from a file that was never written. The edge is declaration-side only; no JavaScript import is added (a bare side-effect import is a load-order dependency the source never wrote — the #263 doctrine, unchanged).
+
 **What never imports:** the pinned faces (prelude `Bool` as `boolean`, prelude `Seq(a)` as `Iterable<a>` — §2.3), structural faces, expanded aliases, and the `Hex.*` runtime types (§2.1's namespace owns those). Every import this section emits is satisfiable: an exported face cannot mention a type its owner keeps private — the checker refuses the binding (`` exported binding `probe` exposes private type `Hidden`; export the type, perhaps opaquely, or keep the binding private ``), per §1's boundary rule.
+
+**Fenced out:** a face reached through a *namespace* alias (`Lib.Point`) is neither channel — the import binds the alias, not the member names, and the typed tree keeps no qualifier for emission to spell, so such a face still renders bare. Filed as #268 (§14.2); nothing here decides it.
 
 **Scope.** The shipped `.d.ts`. The inspection-only TypeScript preview keeps bare names: it is one pane of text with nothing to import from (the constraint behind Part 1 §8.3 obligation 6's inline namespace), and the divergence is recorded here rather than left to be rediscovered.
 
@@ -452,6 +456,8 @@ The fourth row is a usability limit, stated so it is not rediscovered as a defec
 1. **Prelude-supplied types** (Modules §5.5): `Option` and `Ordering` reach every module's scope with no import item for the `.d.ts` to render — the filed instance (`Seq.hex`), and equally any user module writing `export let o: Option(Int) = None`.
 2. **A term+type name on an explicit import**: `import { Point } from "./geometry"` where `Point` is a record binds constructor *and* type; the import name's type-only marking keyed off the term's absence, so the term half silently cost the `.d.ts` the type row.
 
+Implementation then surfaced a **third route this record had wrongly excluded** — the first draft here claimed the live routes "were exactly two", from a probe that had misspelled the namespace form and read its parse error as the form's absence. A namespace import (`import * as Lib from "./lib"`) binds the *alias*, so a face reached through `Lib.Point` is outside channel 1, and the typed tree keeps no record of the qualifier for emission to spell: the `.d.ts` imports `Lib` and then names `Point` bare. That is its own decision — the fix is the face spelling `Lib.Point`, not an import — and it is **fenced to #268**, which nothing in §2.4 licenses or forecloses.
+
 The issue is corrected by comment, not by rewriting its body (the #235 precedent).
 
 **The rule** is §2.4's, in place. Identity-keyed candidates published by the resolver, filtered at emission by what the rendered faces reference, aliases probed like `Hex`, explicit imports owning every name they bind.
@@ -461,6 +467,7 @@ The issue is corrected by comment, not by rewriting its body (the #235 precedent
 **Consequences, with owners:**
 
 - `Resolved.Module` grows the prelude type inventory (built where `#seedPrelude` already walks each member's exported unions, records, and extern types), threaded through `Typed.Module` and `Core.Module` exactly as `preludeInstances` is; `Resolved.ImportName` marks type bindings independently of the term's presence, so the declaration emitter stops inferring "type" from "not a term". The declaration emitter routes nominal faces through an identity-keyed sink (the `RuntimeFaces` shape) and prepends the surviving imports after the `Hex` line. The JavaScript emitter is untouched.
+- The ruling as first drafted priced no reachability edge, and implementation found the gap the hard way: a project whose only use of `Option` is a face compiled clean and emitted `import type … from "./Option.js"` beside no `Option.d.ts` — #227's own failure in a new dress. §2.4's Reachability paragraph now carries the obligation; `Emitted.Declarations.preludeTypeImports` records the edges for `compileProject`'s reachability walk, beside `preludeInstanceImports` and `preludeTermImports`.
 - Conformance: `compiler/src/conformance/cross-module-type-imports.test.ts` — the emitted prelude's declaration files pass real `tsc` **as a set** (the filed acceptance: `Seq.d.ts` compiles), plus the term+type route, the explicit-prelude-import single-binding property, occlusion, and a negative control on the pre-fix spelling.
 - §2.1's "exactly one type-only namespace import" is amended in place — it remains the only *namespace* import; §14.1's two expired passages carry discharge notes; Part 1 §8.3's acceptance item strikes #227 from its "may still trip" list (its scope fence already assigned the fix here and is unchanged).
 - The TypeScript **preview** is out of scope and keeps bare names (§2.4 Scope); the shipped `.d.ts` is the boundary artifact, the preview is one importless pane.
