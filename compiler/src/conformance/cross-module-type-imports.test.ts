@@ -235,7 +235,44 @@ describe("placement", () => {
   });
 });
 
+// §2.4 counts at least three routes to the probe, and all three are live. It is
+// a guard rather than decoration, so each is pinned here — the alias one below
+// is the least surprising of them and was the only one the ruling foresaw.
 describe("the generated local is probed, and only it moves", () => {
+  test("an exported constructor sharing a prelude type's name forces `Option1`", async () => {
+    const compiled = project([[
+      "/main.hex",
+      "export union MyU = Option(Int) | Nother\nexport let o: Option(Int) = None\n",
+    ]]);
+    const text = emitted(compiled, "/main.hex").declarations.text;
+
+    // No import alias in sight: a constructor is an uppercase top-level `.d.ts`
+    // identifier (§3–§4), so it collides with a prelude type's name on its own.
+    // The constructor is a user name and keeps its spelling; only the generated
+    // local moves (Part 1 §10).
+    expect(text).toContain('import type { Option as Option1 } from "./Option.js";');
+    expect(text).toContain("export declare const Option: (item1: number) => MyU;");
+    expect(text).toContain("export declare const o: Option1<number>;");
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("an occluding declaration beside a qualified face of the occluded identity", async () => {
+    const compiled = project([[
+      "/main.hex",
+      "export union Ordering = Asc | Desc\nexport let f(x: Prelude.Ordering): Int = 0\n",
+    ]]);
+    const text = emitted(compiled, "/main.hex").declarations.text;
+
+    // Occlusion takes the bare spelling only: `Prelude.Ordering` still names the
+    // prelude union (Modules §5.4, §6.4), so the occluded identity does reach an
+    // exported face. Both types then live in one file — the module's own under
+    // the bare name, the prelude's under a probed local.
+    expect(text).toContain('import type { Ordering as Ordering1 } from "./Prelude.js";');
+    expect(text).toContain('export type Ordering = "Asc" | "Desc";');
+    expect(text).toContain("export declare const f: (x: Ordering1) => number;");
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
   test("a namespace alias spelling a prelude type's name forces `Option1`", async () => {
     const compiled = project([
       ["/lib.hex", "export let one: Int = 1\n"],
@@ -265,8 +302,9 @@ describe("what the rule does not reach", () => {
 
     // Matching is by identity: this `Ordering` is the module's own, so the
     // prelude entry of the same name is never referenced and never imported.
-    // The occluded identity cannot appear in an exported face at all — an
-    // export's complete signature can only spell what is in scope.
+    // Occlusion takes only the *bare spelling*, which is all this pins — the
+    // prelude identity stays reachable qualified (Modules §5.4, §6.4) and can
+    // still appear in an exported face, which the probe block covers.
     expect(text).not.toContain("import");
     expect(text).toContain("export type Ordering =");
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
