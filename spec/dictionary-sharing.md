@@ -1,8 +1,8 @@
 # Hexagon Dictionary Sharing: Module-Level Evidence Materialization
 
-**Status:** Decided (August 2026). Normative promotion of `spec/notes/dictionary-cse-plan.md`, which this document supersedes (§12). Decisions fixed by James 2026-08-05: the sharing rule is a **pinned, normative emitted shape**, not an emitter liberty; placement is **module-level**, with the recursive case bound by a self-reference inside a closure body; sharing is **per module** — program-level deduplication is rejected (§10.1). Authored against the post-#271 baseline (PR #272, merged as `43f2625`); every emitted shape cited as current was probed on that commit.
+**Status:** Decided (August 2026). Normative promotion of `spec/notes/dictionary-cse-plan.md`, which this document supersedes (§12). The sharing rule is a **pinned, normative emitted shape**, not an emitter liberty; placement is **module-level**, with recursion bound by a self-reference inside a closure body; sharing is **per module** (§10.1 records the rejected alternative).
 **Scope:** where constructed constraint evidence is materialized in emitted JavaScript: module-level sharing of ground evidence applications, the factory-local fixpoint for self-referential instances, the canonical key, naming, emission order, and cross-module policy.
-**Not in scope:** which dictionary is selected (Constraints §4–§5 own selection and coherence; nothing here touches them); the specialization set and monomorphic erasure (`ffi-zero-cost-fundamental-exports.md` §2.1, Constraints §6.1 — erasure remains the norm and this document governs only evidence that survives it); the public evidence surface (FFI Part 9 owns handles, factories, and `Dictionary<a>` faces); structural (`derives`-shaped) evidence at use sites (§9.1 defers it with evidence).
+**Not in scope:** which dictionary is selected (Constraints §4–§5 own selection and coherence; nothing here touches them); the specialization set and monomorphic erasure (`ffi-zero-cost-fundamental-exports.md` §2.1 and Constraints §6.1 own them — this document governs evidence as it reaches emission, whatever erasure has removed); the public evidence surface (FFI Part 9 owns handles, factories, and `Dictionary<a>` faces); structural evidence for anonymous shapes at use sites (§9.1 defers it).
 **Companions:** Constraints §5 (coherence — the premise, §6.1), §6.1 (dictionary shapes), §6.3 (evaluation-freeness — the license, and the target of this document's one edit note, §12); Functions §8 (generalization; why no dictionary reappears after erasure); FFI Part 9 §6/§13 (evidence ordering; home modules); issues #271 (the miscompilation fixed beneath this ruling), #274 (recursive `derives`, which wants §3.2's shape).
 
 ---
@@ -17,12 +17,12 @@ There is no language-surface component: no syntax, no type-system change, no dia
 
 ## 2. The baseline this rules on
 
-All of the following are current emitted shapes, probed on `43f2625`:
+The emitted shapes this ruling starts from:
 
 1. **Zero-argument instances are already named module-level constants** (`__hex_instance_Eq_Point`), including derived ones. Nothing changes for them; the rule restates their placement.
 2. **Parameterized instances are factories** applied at use sites: `__hex_instance_Render_Box(__hex_instance_Render_Int)`. Applications appear inline, duplicated per use site, at every depth.
-3. **A recursive instance re-applies its own factory per recursive call**: `Show<Tree(a)>`'s body emits `show(left, __hex_instance_Show_Tree(__hex_dictShow_N))` — one dictionary allocation per node visited, per traversal. (Before #271 this case did not run at all; the planning note's §3.2 feared the allocation and found the miscompilation.)
-4. **Mutually recursive instances construct each other's evidence per call**, inside factory bodies, from their own parameters. Correct, allocating, verified running.
+3. **A recursive instance re-applies its own factory per recursive call**: `Show<Tree(a)>`'s body emits `show(left, __hex_instance_Show_Tree(__hex_dictShow_N))` — one dictionary allocation per node visited, per traversal.
+4. **Mutually recursive instances construct each other's evidence per call**, inside factory bodies, from their own parameters. Correct, allocating.
 
 ## 3. The rule, in three parts
 
@@ -55,13 +55,13 @@ const __hex_instance_Show_Tree = __hex_dictShow_N => {
 
 This is the ruling's letrec: a self-reference that is legal precisely because it sits **inside a member's closure body** and is therefore never evaluated during the factory's application. It is strictly better than sharing a hoisted application: a recursive traversal allocates **zero** additional dictionaries, not one shared one, and the shape is available even when the instantiation is not ground (any caller's `__hex_dictShow_N`).
 
-The replacement is total for self-evidence: within an instance body, a demand for this instance's own constraint at its own type is always at the factory's exact parameters, because a demand at any other instantiation is polymorphic recursion, which the checker forecloses structurally (§6.2). Issue #274's fix (recursive parameterized `derives` currently overflows the emitter) wants exactly this shape and should cite this section.
+The replacement covers exactly the demands whose evidence is the factory's **identity arrangement** — this instance's dictionary applied to the factory's own parameters, in order. For a regular recursive type, that is every self-demand. It is not total in general: a non-regular union (`union Weird(a) = End | W(inner: Weird(Box(a)))` — legal, Unions §2 places no regularity restriction on payload recursion) yields a body whose self-demand is at `Weird(Box(a))`; that evidence applies this factory to constructed argument evidence, is not ground, and remains a call-time application (§3.3). The polymorphic-recursion ban (§6.2) does not reach it: the demand rides the generalized constraint member, which every call instantiates fresh, not a recursive function occurrence. Issue #274's fix (recursive parameterized `derives` currently overflows the emitter) wants exactly the identity-arrangement shape and should cite this section.
 
-### 3.3 Cross-instance evidence inside factory bodies stays call-time
+### 3.3 Non-identity evidence inside factory bodies stays call-time
 
-Inside a factory body, evidence for a **different** instance applied to the factory's parameters (`Show<Forest(a)>`'s body needing `Show<Tree2(a)>`) is not hoistable: module level cannot name the factory's parameter, and hoisting it factory-locally — evaluating the other factory at this factory's application — diverges the moment the recursion is mutual (§10.3). It remains constructed at the call, exactly as today.
+Inside a factory body, evidence over the factory's parameters at anything other than the identity arrangement is not hoistable: module level cannot name the factory's parameter, and hoisting it factory-locally — evaluating a factory at this factory's application — diverges the moment the recursion is mutual (§10.3). It remains constructed at the call, exactly as today. Two shapes fall here: a **different** instance over the parameters (`Show<Forest(a)>`'s body needing `Show<Tree2(a)>` — mutual recursion), and **this** instance at a deeper instantiation (`Describe<Weird(a)>`'s body needing `Describe<Weird(Box(a))>` — non-regular recursion, §3.2).
 
-This is the rule's one allocation residue, and it is bounded: it arises only inside parameterized instance bodies referencing *other* parameterized instances over the same variable, mutual recursion being the canonical case. Self-recursion — the common case — is fully covered by §3.2. The residue is recorded, not scheduled; a future ruling may close it with lazy slots if a real program ever pays for it.
+This is the rule's one allocation residue, and it is bounded: it arises only inside parameterized instance bodies, and regular self-recursion — the common case — is fully covered by §3.2. The residue is recorded, not scheduled; a future ruling may close it with lazy slots if a real program ever pays for it.
 
 ## 4. The canonical key
 
@@ -81,9 +81,9 @@ Evidence containing a free dictionary parameter (`Core`'s `Dictionary` kind) is 
 
 Recorded first because everything else sits on it. Constraints §5.1 fixes at most one instance per (constraint, type constructor) program-wide; §5.2 admits no local and no overlapping instances, so no scope exists in which one use site could lawfully see different evidence than another. That — and only that — is why two occurrences of the same evidence tree denote the same value and may be replaced by one reference to one binding. Constraints §6.3 makes instance construction evaluation-free (a record of lambdas evaluates nothing), which is why *when* the record is built — once at module load rather than per use — is unobservable. Under Scala-style implicits or ML functors the same rewrite is unsound, not merely different.
 
-### 6.2 The evidence family is finite
+### 6.2 The hoistable family is finite — syntactically
 
-Hexagon bans polymorphic recursion structurally: the checker installs provisional monotypes for a strongly-connected component's members before any body is checked, so a recursive occurrence sees a monotype and cannot be instantiated at a second type — and a polymorphic annotation does not reopen the door (a recursive body demanding a different instantiation reports "`a` is a declared type variable, but the body requires `Vector(…)`"; probed). A module's demanded ground evidence trees are therefore a finite set, every one hoistable. Under polymorphic recursion the family `Show<Tree(a)>`, `Show<Tree(Tree(a))>`, … is infinite and constructed at runtime; §3.1 could not terminate and §3.2's totality claim would be false.
+Hoisting is keyed on ground evidence trees (§4), and a module has finitely many use sites, each demanding one static tree — so the set of hoisted bindings is finite by construction, independent of how types recurse. The polymorphic-recursion ban buys something narrower and function-shaped: the checker installs provisional monotypes for a strongly-connected component's members before any body is checked, so a recursive **function** occurrence sees a monotype and cannot demand new instantiations — and a polymorphic annotation does not reopen that door (a recursive body demanding a different instantiation reports "`a` is a declared type variable, but the body requires `Vector(…)`"). The ban does not reach demands riding a generalized constraint member: an unbounded *dynamic* evidence family such as `Describe<Weird(a)>`, `Describe<Weird(Box(a))>`, … is legal today (§3.2's non-regular case), constructed call-by-call in the residue (§3.3), and never hoisted — which is why §3.2's identity-arrangement scope is load-bearing rather than decorative.
 
 ### 6.3 The remaining restrictions
 
@@ -97,13 +97,13 @@ Each module materializes its own hoisted bindings. Two modules demanding `Show<T
 
 ## 8. The exported surface does not grow
 
-Hoisted bindings are internal. They join the module's top-level `const` set but not its export set: FFI Part 9's public evidence closure (handles, factories, `Dictionary<a>` faces, home-module placement per its §13) is computed from the same inputs as before and is unchanged by this ruling. A hoisted application is reachable from an export only in the sense that any internal binding is — through the functions that close over it. Emitted-only-when-needed is preserved: a hoisted binding exists only because a use site demanded its tree (Constraints §6.1's materialization condition, inherited).
+Hoisted bindings are internal. They join the module's top-level `const` set but not its export set: FFI Part 9's public evidence closure (handles, factories, `Dictionary<a>` faces, home-module placement per its §13) is computed from the same inputs as before and is unchanged by this ruling. (The emitter presently exports the `__hex_instance_*` declarations unconditionally as cross-module evidence plumbing, keyed on instance declarations; hoisted applications join neither that sweep nor Part 9's closure.) A hoisted application is reachable from an export only in the sense that any internal binding is — through the functions that close over it. Emitted-only-when-needed is preserved: a hoisted binding exists only because a use site demanded its tree (Constraints §6.1's materialization condition, inherited).
 
 ## 9. Deferrals and non-goals
 
-### 9.1 Structural evidence at use sites — deferred, with evidence
+### 9.1 Structural evidence at use sites — deferred
 
-Derived dictionaries for **declared** types are already named module constants (§2 item 1). But structural evidence for anonymous shapes is rebuilt inline per use site today: `(1, 2) == (1, 2)` twice in one module emits the full `({ equals: …, notEquals: … })` record twice, verbatim (probed on `43f2625`). This is the same defect class as §3.1 in a different evidence kind — its key would need a canonical *type* spelling rather than an instance-name tree, which is why it is not folded in here. Deferred to its own ruling; recorded so the boundary is a decision, not an oversight.
+Derived dictionaries for **declared** types are already named module constants (§2 item 1). But structural evidence for anonymous shapes is rebuilt inline per use site today: `(1, 2) == (1, 2)` twice in one module emits the full `({ equals: …, notEquals: … })` record twice, verbatim. This is the same defect class as §3.1 in a different evidence kind — its key would need a canonical *type* spelling rather than an instance-name tree, which is why it is not folded in here. Deferred to its own ruling; recorded so the boundary is a decision, not an oversight.
 
 ### 9.2 Non-goals, kept from the planning note
 
@@ -116,11 +116,11 @@ Derived dictionaries for **declared** types are already named module constants (
 
 ### 10.1 Program-level deduplication
 
-Rejected by James, 2026-08-05, after analysis. One binding per program breaks per-module compositional emission (which applied dictionaries exist is driven by use sites, so a library module's emitted text would change when a distant consumer adds one — the same instability class as `hex.d.ts`'s `commonRoot` path, made worse by landing in runtime code); it can force import edges between instance home modules that source never had, against acyclicity (Modules §8); it makes cross-module dictionary `===` observable and therefore de-facto ABI at the JS boundary; and it needs a home-module doctrine extension to FFI Part 9 §13 for trees spanning modules. What it buys is the removal of a few duplicated small records per module. Within-module deduplication — where all the readability and allocation cost actually accrues — is the rule (§1).
+One binding per program breaks per-module compositional emission (which applied dictionaries exist is driven by use sites, so a library module's emitted text would change when a distant consumer adds one — the same instability class as `hex.d.ts`'s `commonRoot` path, made worse by landing in runtime code); it can force import edges between instance home modules that source never had, against acyclicity (Modules §8); it makes cross-module dictionary `===` observable and therefore de-facto ABI at the JS boundary; and it needs a home-module doctrine extension to FFI Part 9 §13 for trees spanning modules. What it buys is the removal of a few duplicated small records per module. Within-module deduplication — where all the readability and allocation cost actually accrues — is the rule (§1).
 
 ### 10.2 Dominance-scoped placement
 
-Bind each shared tree at the innermost dominator of its use sites (proposed by Sol against the planning note). Sound, and strictly weaker: dominance is the right bound when a repeated expression may read mutable state, and evidence reads none (Constraints §6.3), so the bound is the module. It cannot express §3.2's fixpoint, leaving the recursive case allocating per call, and "dominance scope" exists nowhere else in the corpus or compiler. Declined with the placement decision (James, 2026-08-05).
+Bind each shared tree at the innermost dominator of its use sites. Sound, and strictly weaker: dominance is the right bound when a repeated expression may read mutable state, and evidence reads none (Constraints §6.3), so the bound is the module. It cannot express §3.2's fixpoint, leaving the recursive case allocating per call, and "dominance scope" exists nowhere else in the corpus or compiler.
 
 ### 10.3 Eager factory-local hoisting of cross-instance evidence
 
@@ -133,8 +133,8 @@ The note's §4.3 sketched the recursive case as a module-level binding whose ini
 ## 11. Conformance obligations
 
 1. **Sharing:** a module demanding the same ground tree at two use sites emits one binding and two references; the inline-application shape (`render(x, __hex_instance_Render_Box(…))`) does not appear. Depth ≥ 2 covered explicitly.
-2. **Fixpoint:** a recursive instance's emitted factory contains the self-reference of §3.2 and no application of its own factory name; a traversal of an N-node structure allocates no dictionary in the loop (behavioral pin, `runMain`).
-3. **Mutual recursion:** the §3.3 residue shape compiles and runs (the existing baseline behavior, now pinned so the fixpoint change cannot silently regress it).
+2. **Fixpoint:** a recursive instance's emitted factory contains the self-reference of §3.2 and no application of its own factory name **as self-evidence at the factory's own parameters** (textual pin — this is what makes a regular traversal allocation-free); an N-node traversal still runs correctly (behavioral, `runMain`).
+3. **Residue:** both §3.3 shapes — mutual recursion, and the non-regular self-demand (`Weird`) — compile and run (the existing baseline behavior, now pinned so the fixpoint rewrite cannot misfire on a self-demand that is not the identity arrangement).
 4. **Determinism:** two compiles of one module yield identical hoisted names and order.
 5. **No export growth:** the hoisted bindings appear in no export list and no `.d.ts`.
 
@@ -142,7 +142,7 @@ Blast radius, budgeted rather than met mid-change: output-pinning tests churn br
 
 ## 12. Supersession and edit notes
 
-`spec/notes/dictionary-cse-plan.md` is superseded by this document: its §6 confirmation list is discharged (items 1–4 verified 2026-08-05 — item 1 by finding and fixing #271 under it; item 5 answered by §8), its §4.3/§4.4 mechanism is corrected by §3.2/§5/§10.4, and its non-goals are carried in §9.2. The note keeps its Status line plus a pointer here and is not edited further.
+`spec/notes/dictionary-cse-plan.md` is superseded by this document: its §6 confirmation list is discharged (#271 settled item 1; §8 answers item 5), its §4.3/§4.4 mechanism is corrected by §3.2/§5/§10.4, and its non-goals are carried in §9.2. The note keeps its Status line plus a pointer here and is not edited further.
 
 **Edit note → Constraints §6.3** (apply on next touch of `constraints.md`): the sentence "composition happens at use sites, not declaration sites" predates this ruling; composition is now *demanded* at use sites and *materialized* once per module (Dictionary Sharing §3.1). The order-independence claim it supports is unaffected.
 
