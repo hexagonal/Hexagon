@@ -264,7 +264,7 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const declarations = emitDeclarations(module).text;
-    expect(declarations).toContain("export declare const count: (xs: Array<number>) => number;");
+    expect(declarations).toContain("export declare const count: (xs: ReadonlyArray<number>) => number;");
     expect(declarations).toContain("export declare const keep: (value: string | null | undefined) => string | null | undefined;");
     expect(emitJavaScript(module).text).toContain("for (const __hex_item");
   });

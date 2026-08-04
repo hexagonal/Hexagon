@@ -9,7 +9,7 @@ import { parse } from "../passes/parser/parser.js";
 import { resolve } from "../passes/resolver/resolver.js";
 import { check } from "../passes/checker/checker.js";
 import { elaborate } from "../passes/elaborator/elaborator.js";
-import { emitJavaScript } from "../passes/emitter/emitter.js";
+import { emitJavaScript, emitTypeScriptPreview } from "../passes/emitter/emitter.js";
 
 /**
  * Behavioural conformance for the hidden `Node` trie intrinsic (persistent-
@@ -225,6 +225,40 @@ describe("Node intrinsic contract (leak-proof rejections)", () => {
       { runtime: true },
     );
     expect(messages).toEqual([]);
+  });
+});
+
+/**
+ * FFI Part 7 §14.1's `Node` bullet. `Array(a)` faces TypeScript as the immutable
+ * `ReadonlyArray<a>` (issue #228), but `Node(a)` keeps the mutable `Array<a>`:
+ * that is the honest shape of the hidden trie node, and nothing about it is a
+ * borrowed foreign view. The face is reachable only through the inspection
+ * preview, which renders a module's private declarations too — every export door
+ * is shut above, so the shipped `.d.ts` never names it. This is the pin
+ * `array-readonly-face.test.ts` defers here for.
+ */
+describe("the `Node(a)` face is the mutable `Array<a>` (FFI Part 7 §14.1)", () => {
+  test("Node-typed bindings preview as `Array<…>`, and reach no shipped `.d.ts`", () => {
+    const compiled = compileFiles(
+      [[
+        "/runtime.hex",
+        "let n = Node.empty()\n" +
+        "let slots: Node(Int) = Node.set(n, 0, 7)\n" +
+        "export let first: Int = Node.get(slots, 0)\n",
+      ]],
+      { runtimePaths: ["/runtime.hex"] },
+    );
+    expect(compiled.diagnostics).toEqual([]);
+    const module = compiled.modules.find(({ source }) => source.path === "/runtime.hex");
+    if (module === undefined) throw new Error("no /runtime.hex in the compiled project");
+    // `n` is generalized and faces as its `never` instantiation (§14.1's third
+    // row); `slots` is the ordinary `Node(Int)`. Both spellings are mutable.
+    expect(emitTypeScriptPreview(module.core).text).toBe(
+      "declare const n: Array<never>;\n" +
+        "declare const slots: Array<number>;\n" +
+        "export declare const first: number;\n",
+    );
+    expect(module.declarations.text).toBe("export declare const first: number;\n");
   });
 });
 
