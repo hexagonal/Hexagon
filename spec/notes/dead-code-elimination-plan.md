@@ -16,6 +16,12 @@ instances and coherence, §8 loading and top-level effects, §11 emission),
 module's top-level binding set and must not land against the same pinning
 corpus at the same time (§8).
 
+> **Edit note (2026-08-04, #263).** Two of the four defects this note records
+> were fixed before any DCE tier was built: §3.2 by #153/PR #264 and #263
+> Part 1, and §3.1 by #263 Part 2 — which is §4.2's Tier 2, landed in a
+> different shape than proposed. See the notes under those sections. §3.3,
+> §3.4, Tier 1, and Tier 3 are untouched and remain this note's live content.
+
 ---
 
 ## 1. What this is
@@ -90,6 +96,18 @@ checker knows it is not a dispatch, and the emitted module still imports
 `Seq.map` — pulling `Seq.hex`, and `Bool.hex` behind it, into the graph — and
 then **re-exports the two dead instances**.
 
+> **Edit note (2026-08-04, #263).** The block above is kept as the record of
+> what was verified on `notes-dictionary-cse-plan`; it is no longer what the
+> compiler emits. The instance half of it died first — #153/PR #264 moved
+> prelude-instance availability onto `Resolved.Module.preludeInstances`, so
+> nothing below the `import { map }` line was emitted even before #263. Then
+> #263 removed the rest: the same reproduction now emits no import statement
+> at all, and the project emits neither `Seq.js` nor `Bool.js` (conformance:
+> `prelude-import-surface.test.ts`). "Prelude imports are already pruned to
+> used names" at the top of this section is true again, and now by a stronger
+> mechanism than it described: the name list is decided at emission, from the
+> elaborated Core, not at resolution from syntax.
+
 **Unreferenced private bindings are emitted.** Both forms, verified:
 
 ```js
@@ -123,6 +141,18 @@ the collisions *deliberate and increasing* — `length`, `prepend`, `map` are
 shared vocabulary on purpose — so this gets worse as the collection APIs
 converge, exactly as the #219 record predicted.
 
+> **Edit note (2026-08-04, #263).** Fixed, by dissolving the ordering rather
+> than beating it: the resolver's candidate registration still runs before the
+> checker and still over-approximates — it must, it guards the silent
+> call-of-a-name-never-imported failure — but it now decides *availability*
+> only. The synthesized import item carries `synthesized: true`
+> (`Resolved.ImportItem`), the emitter holds it back and renders its name list
+> from the symbols the elaborated Core actually references, and project
+> reachability reads the emitted edges back
+> (`Emitted.JavaScript.preludeTermImports`) instead of trusting the resolved
+> tree. A spare candidate now costs one entry in the resolved tree and
+> nothing downstream.
+
 ### 3.2 Dead evidence is re-exported
 
 Worse than the dead import, and the part that was not anticipated. A dead
@@ -130,6 +160,19 @@ instance import becomes part of the emitted module's **public ESM surface**
 (`emitter.ts:595-599`). A downstream bundler cannot drop what a module exports,
 so the leak is not merely un-eliminated — it is *pinned against* elimination by
 anything downstream.
+
+> **Edit note (2026-08-04, #263).** Fixed, in two steps and for prelude
+> instances entirely. #153/PR #264 cut the synthesized channel: availability
+> rides `Resolved.Module.preludeInstances`, and emission imports a dictionary
+> only when the body references it, from the declaring module, with no
+> re-export. #263 Part 1 cut the last channel — an explicit import of a
+> prelude module now attaches no instance evidence to its import item — so no
+> module's interface carries a prelude instance, no consumer predicts one, and
+> the per-hop `__hex_imported_N_` growth cannot start. Evidence on
+> **non-prelude** imports is deliberately untouched: an ordinary module's
+> `honor` reaches a consumer three hops away only through the intermediates,
+> and that transit (including its re-export) is load-bearing
+> (Modules §7).
 
 ### 3.3 Unreferenced private bindings are emitted
 
@@ -185,6 +228,18 @@ narrowing must show either that it never touches the interface consumers read,
 or that it re-derives consumer import lists consistently. The term half
 (`import { map }`) and the instance half (§3.2) may well differ here; they are
 not one change.
+
+> **Edit note (2026-08-04, #263).** Landed — as emission-derived rendering
+> rather than the "later pass narrows the list" shape proposed above, which is
+> #263's option (b) scoped to the synthesized import rather than its option
+> (a). The objection was answered the first way, and separately per half,
+> confirming the last sentence above. Term half: a synthesized import's names
+> never enter the module interface — `moduleInterface` builds `terms` from
+> exported items only — so no consumer ever asks for one and filtering them at
+> emission touches nothing anyone reads. Instance half: #153 had already
+> restructured it so that interfaces do not transit prelude instances at all,
+> which answers the objection by removing its subject. The §3.1 note has the
+> mechanism; nothing of this tier remains to build.
 
 ### 4.3 Tier 3 — whole-program reachability from roots
 

@@ -121,8 +121,11 @@ This is the move the checker already makes for tuples, vectors, and structural r
 > dictionaries a compiled body references — from the declaring module, with no
 > re-export. Three clauses read differently under that: the "consumers
 > *re-export* the instances their imports carry" motivation is now false for
-> prelude-sourced instances (it stays true of explicit-import carriage until
-> #263 Part 1 removes it); the four-dead-imports scenario cannot occur for
+> prelude-sourced instances (#263 Part 1, 2026-08-04, closed the last route —
+> an explicit import of a prelude module now carries no instance evidence
+> either, so no channel transits a prelude instance at all; carriage on
+> non-prelude imports is untouched and remains load-bearing); the
+> four-dead-imports scenario cannot occur for
 > *any* prelude module, because an unreferenced dictionary emits nothing; and
 > `Bool`'s exclusion now lives in the availability channel rather than the
 > import, on a changed ground — not unprunability but truthfulness: a `Bool`
