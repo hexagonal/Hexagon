@@ -37,6 +37,7 @@ describe("displayScheme", () => {
       constraints: [
         {
           name: "Signed",
+          identity: "hex:Signed",
           type: { kind: "Variable", id: variable },
           span: source.span(0, 0),
         },

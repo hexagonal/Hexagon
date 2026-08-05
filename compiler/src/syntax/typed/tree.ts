@@ -141,6 +141,13 @@ export type ConstraintName = string;
 
 export interface Constraint {
   readonly name: ConstraintName;
+  /**
+   * The identity of the constraint declaration demanded (`spec/constraints.md`
+   * §5.1.1). Carried on a scheme so that an importing module discharges the
+   * requirement against the *declaring* module's constraint rather than
+   * against whatever its own source spells with that name.
+   */
+  readonly identity: string;
   readonly type: Type;
   readonly span: Source.Span;
   readonly dictionary?: string;
@@ -503,6 +510,8 @@ export interface ExceptionItem {
 export interface ConstraintItem {
   readonly kind: "ConstraintDeclaration";
   readonly name: string;
+  /** This declaration's identity (`spec/constraints.md` §5.1.1). */
+  readonly identity: string;
   readonly subject: TypeVariableId;
   readonly baseConstraints: readonly ConstraintName[];
   readonly impliedTypes: readonly ConstraintImpliedType[];
@@ -527,6 +536,12 @@ export interface ConstraintMemberDeclaration {
 export interface HonorItem {
   readonly kind: "Honor";
   readonly constraint: string;
+  /**
+   * The identity of the constraint declaration this instance answers
+   * (`spec/constraints.md` §5.1.1), carried through from the Resolved node.
+   * `constraint` is the spelling; this is what coherence compared.
+   */
+  readonly constraintIdentity: string;
   readonly typeParameters: readonly HonorTypeParameter[];
   readonly subject: Type;
   readonly derived: boolean;

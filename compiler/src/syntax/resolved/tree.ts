@@ -455,6 +455,13 @@ export interface InstanceImport {
   /** Stable declaration identity used to deduplicate diamond import paths. */
   readonly identity: string;
   readonly constraint: string;
+  /**
+   * The identity of the constraint this instance answers, minted by the module
+   * that declared the constraint and carried unchanged across every hop
+   * (§5.1.1). Coherence in the importing module compares this, never
+   * `constraint` — two exporting modules may both spell theirs `Describe`.
+   */
+  readonly constraintIdentity: string;
   readonly typeParameters: readonly TypeParameter[];
   readonly subject: TypeAnnotation;
   readonly impliedTypes: readonly HonorImpliedType[];
@@ -751,6 +758,11 @@ export interface ExceptionItem {
 export interface ConstraintItem {
   readonly kind: "ConstraintDeclaration";
   readonly name: string;
+  /**
+   * This declaration's identity (`spec/constraints.md` §5.1.1) — what coherence
+   * keys on, in place of `name`. See `src/constraints.ts` for the two spaces.
+   */
+  readonly identity: string;
   readonly subject: string;
   readonly baseConstraints: readonly string[];
   readonly impliedTypes: readonly ConstraintImpliedType[];
@@ -774,6 +786,14 @@ export interface ConstraintMember {
 export interface HonorItem {
   readonly kind: "Honor";
   readonly constraint: string;
+  /**
+   * The identity of the constraint declaration this instance answers, resolved
+   * at the `honor` site (§5.1.1). `constraint` is the spelling the source used
+   * and what diagnostics print; this is what coherence compares, so an
+   * `honor Describe<Int>` answering one module's `Describe` never collides with
+   * another module's.
+   */
+  readonly constraintIdentity: string;
   readonly typeParameters: readonly TypeParameter[];
   readonly subject: TypeAnnotation;
   readonly derived: boolean;
