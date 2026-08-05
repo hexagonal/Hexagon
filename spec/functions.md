@@ -3,7 +3,7 @@
 **Status:** Decided (July 2026)
 **Scope:** Function definition, lambdas, `let`/`fun` binding of functions, application, arity, generalization, naming, and JS emission.
 **Not in scope:** modules (Modules), operators including `|>` (Operators §8), constraint semantics (Constraints — this doc fixes only the `<a: C>` syntax, §4.2), tuples and records (Products), the pattern grammar and irrefutability (Pattern Matching — §3.1 here takes the lambda-parameter rule by reference), blocks and `var` (Statements, Blocks & Mutability), FFI (ffi.md).
-**Companions:** Statements spec (blocks as lambda bodies; capture sets §7.2 amended to `let`-only by Statements §6.2/§7.3; `var` in full, §8.4 here; joint diagnostics §10), Pattern Matching §6.5 (lambda parameters as patterns; the depth rule), Operators §8 (pipe; subject-first convention made normative), Method Syntax §4.2 (subject-first determines dot-callability), Primitive Types §9 (`Unit`), Declarations Preamble §1.1 (the Rewrite Rule, which §10's diagnostics obey).
+**Companions:** Statements spec (blocks as lambda bodies; `var` in full, §8.4 here; joint diagnostics §10), Pattern Matching §6.5 (lambda parameters as patterns; the depth rule), Operators §8 (pipe; subject-first convention made normative), Method Syntax §4.2 (subject-first determines dot-callability) and §4.4 (dot calls obey §7.2's declaration order), Primitive Types §9 (`Unit`), Declarations Preamble §1.1 (the Rewrite Rule, which §10's diagnostics obey).
 
 ---
 
@@ -44,7 +44,7 @@ x => body                 -- one parameter, no parens needed
 - Parameters are comma-separated inside parens; a **single parameter may omit the parens**. `(x) => e` and `x => e` are the same term — `(x)` is redundant grouping, consistent with "there is no 1-tuple."
 - **Each parameter is a full irrefutable pattern** (Pattern Matching §6.5, the owner of the grammar and the depth rule). In a lambda head the outer parentheses are the parameter list and **top-level commas separate parameters**: `(x, y) => e` is two parameters, permanently; `((x, y)) => e` is one tuple-destructured parameter; `{a, b} => e` is one record-destructured parameter. The zero/one/many arity doctrine here is untouched by pattern syntax. Refutable patterns are rejected by Pattern Matching's irrefutability gate; that spec owns the algorithm and diagnostics.
 - Body is an expression. Block bodies use the language's ordinary block form (Statements spec); the block's final expression is the lambda's value.
-- A lambda is a *syntactic value*: constructing it evaluates nothing. This property is load-bearing for §7 (`fun` hoisting) and §8 (value restriction).
+- A lambda is a *syntactic value*: constructing it evaluates nothing. This property is load-bearing for §7 (`fun` groups) and §8 (value restriction).
 
 ### 3.2 `let`-bound functions
 
@@ -314,7 +314,7 @@ Consequences:
 
 ---
 
-## 7. `fun`: recursive, hoisted, syntactically restricted
+## 7. `fun`: recursive, grouped, syntactically restricted
 
 ### 7.1 RHS restriction
 
@@ -327,44 +327,47 @@ fun x = 5                  -- error
 fun fib = memoize(...)     -- error
 ```
 
-The check is **syntactic** (is the RHS node a lambda?), not semantic ("is this expression of function type?") — the latter cannot be checked before evaluation, which is exactly what hoisting must avoid.
+The check is **syntactic** (is the RHS node a lambda?), not semantic ("is this expression of function type?") — the latter cannot be checked before evaluation, which is exactly what group binding must avoid.
 
-Rationale: a `fun` is hoisted (usable block-wide, §7.2), and hoisting is only sound if creating the function requires **zero evaluation**. A lambda literal has that property; `memoize(...)` does not — it would have to *run* first.
+Rationale: a `fun` group's members are all bound before any member's body can run (§7.3 — mutual visibility requires it), which is only sound if creating each member requires **zero evaluation**. A lambda literal has that property; `memoize(...)` does not — it would have to *run* first.
 
-### 7.2 Scope, capture sets, and the usable-from point
+### 7.2 Declarations are read top-down
 
-A `fun`'s **name** is in scope for its entire enclosing block. Whether it may be *used* (called, or referenced as a value) at a given point is governed by its capture set:
+Every term binding — `let`, `var`, and `fun` alike — is usable only **after** its declaration. There is no hoisting: dependencies sit above their dependents, and a file reads in the order it evaluates. The one exception is the inside of a `fun` group (§7.3), whose members see each other.
 
-- Each `fun` has a **capture set**: the outer-block `let` bindings its body references, computed **transitively** — if `f` calls `g` (a `fun` in the same block), `f` inherits `g`'s captures.
-- Capture sets contain **`let` bindings only, never `var`s**: a lambda may not reference an outer `var` at all (Statements §6.2's boundary error fires before capture analysis ever sees it), and a `fun`'s RHS is a lambda, so `var`s never appear in capture sets (Statements §7.3).
-- Using a `fun` before the textual point at which **all** its captured bindings are initialized is a **compile error**.
-- Computed during name resolution: record outer-block `let` references per `fun`, then close transitively over the within-block `fun` call graph. This reuses the SCC grouping already needed for typechecking mutual recursion.
-
-This is a compile-time guarantee against what would otherwise surface as runtime TDZ errors in the emitted JS.
+The law is uniform across module top level and inner blocks, and it governs every kind of reference — a bare name, and equally a dot call, which is a reference to the operation it dispatches to (Method Syntax §4.4).
 
 ```
-fun greet() = print(message)   -- closes over message
-greet()                        -- ERROR: message not yet initialized
-let message = "hi"
+let use: Int = twice(3)        -- ERROR: `twice` is declared later; move it above this use
+let twice(n: Int): Int = n * 2
 
-fun greet() = print(message)
-let message = "hi"
-greet()                        -- fine — message initialized above
+let twice(n: Int): Int = n * 2
+let use: Int = twice(3)        -- fine
 ```
 
-A `fun` with an empty capture set is usable anywhere in its block, including before its textual definition.
+Consequences:
 
-### 7.3 Mutual recursion
+- **The emitted JavaScript can never trip a temporal-dead-zone error**: every reference a program evaluates points at a binding already initialized. The guarantee holds by construction — no capture analysis, no transitive initialization checks — because the source ordering the compiler enforces is the evaluation ordering the emitted module performs.
+- Type-namespace declarations are untouched: `record`, `union`, `type`, `constraint`, `honor`, and `exception` remain order-insensitive per Declarations Preamble §7.2. Types do not evaluate; only term bindings do.
+- A reference to a name that is declared *later in the same block* is not a bare "unknown name": the resolver knows where the declaration sits and says so (§10).
 
-Mutually recursive `fun`s form a group (an SCC of the call graph):
+### 7.3 Mutual recursion: contiguous `fun` groups
 
-- The group shares **one combined capture set**.
-- The usable-from point for *every* member is where the **whole group's** captures are initialized.
-- References between members **inside their own bodies** are always fine; the restriction applies only to references from ordinary block code.
+An **unbroken run of `fun` declarations** — no other item between them — forms a **group**. Inside the group, every member's body sees every member, earlier and later alike. This is the language's only forward visibility among terms, and it exists because mutual recursion cannot be spelled without it.
+
+```
+fun even(n: Int): Bool = if n == 0 then True else odd(n - 1)
+fun odd(n: Int): Bool = if n == 0 then False else even(n - 1)   -- one group; mutual references fine
+```
+
+- **Any non-`fun` item ends the run.** Splitting a group breaks recursion between the halves: the earlier half can no longer name the later. The forward reference gets §7.2's declared-later diagnostic, extended with the group rule — only an unbroken run of `fun`s recurses together; move the intervening item out of the run (§10).
+- Comments — doc comments included — do not split a group; only items do.
+- To code outside it, a group is ordinary: members are usable after their declarations, per §7.2. (Equivalently, after the group — nothing else can sit between members.)
+- **Grouping bounds visibility, not typing.** The monomorphic knot of §7.4 is still the strongly-connected component of actual references, computed within the group and typed dependencies-first. Two adjacent but independent `fun`s do not restrict each other's generality; a contiguous run is not one typing unit merely by adjacency.
 
 ### 7.4 Recursion is monomorphic
 
-`fun` accepts type parameters freely and generalizes like `let` (§8). But **recursive calls — direct or mutual, within the SCC — are at the definition's own monomorphic type**; no polymorphic recursion. This requires no special enforcement: within the SCC the function's type is a not-yet-generalized monotype, so a recursive use at a different instantiation fails ordinary unification. Generic recursive functions (`map`, `fold`) work fine — the *outside world* instantiates them freshly; only the recursive knot is monomorphic.
+`fun` accepts type parameters freely and generalizes like `let` (§8). But **recursive calls — direct or mutual, within the SCC (computed within the group, §7.3) — are at the definition's own monomorphic type**; no polymorphic recursion. This requires no special enforcement: within the SCC the function's type is a not-yet-generalized monotype, so a recursive use at a different instantiation fails ordinary unification. Generic recursive functions (`map`, `fold`) work fine — the *outside world* instantiates them freshly; only the recursive knot is monomorphic.
 
 ### 7.5 Memoized recursion (the one restricted pattern)
 
@@ -403,7 +406,7 @@ The inference engine uses Algorithm J with union-find type variables and level-b
        (x) => x
    ```
 
-   are one binding written three ways, and all three generalize. Every other rule that reads what a RHS *means* reads it the same way: the exported-signature check (§4.1), the evidence a constrained binding carries (Constraints §6.1), and the emitted shape (§9). Layout is layout; it does not decide whether a binding is polymorphic. §7.1 is the one rule that does not read through, and it asks a different question — what a `fun`'s RHS *is*, on which hoisting depends — so it refuses a wrapped lambda literal in either spelling.
+   are one binding written three ways, and all three generalize. Every other rule that reads what a RHS *means* reads it the same way: the exported-signature check (§4.1), the evidence a constrained binding carries (Constraints §6.1), and the emitted shape (§9). Layout is layout; it does not decide whether a binding is polymorphic. §7.1 is the one rule that does not read through, and it asks a different question — what a `fun`'s RHS *is*, on which group binding depends — so it refuses a wrapped lambda literal in either spelling.
 
    **A block of more than one item is not read through**, and is not a value even when its final expression is a lambda:
 
@@ -415,7 +418,7 @@ The inference engine uses Algorithm J with union-find type variables and level-b
                                      -- the result type: generalizes (item 7)
    ```
 
-   Its earlier items run when the binding is bound, and code that has already run is precisely what *full* generalization is withheld from — the symmetry with hoisting noted at the end of this section. Item 7 still applies per variable *(revised 2026-08-01, #205)*: here the argument variable occurs contravariantly and is pinned by the first use, while the unconstrained result variable generalizes — soundly, because the once-loaded table, typed with no known element type, can by parametricity contain no elements (closure doc §4.4). The rewrite for a pinned variable is the ML one again: lift the earlier items into the enclosing block, where they are bound once and what remains on the right-hand side is a lambda, hence a value.
+   Its earlier items run when the binding is bound, and code that has already run is precisely what *full* generalization is withheld from — the symmetry with §7.3's group visibility noted at the end of this section. Item 7 still applies per variable *(revised 2026-08-01, #205)*: here the argument variable occurs contravariantly and is pinned by the first use, while the unconstrained result variable generalizes — soundly, because the once-loaded table, typed with no known element type, can by parametricity contain no elements (closure doc §4.4). The rewrite for a pinned variable is the ML one again: lift the earlier items into the enclosing block, where they are bound once and what remains on the right-hand side is a lambda, hence a value.
 3. **`fun` generalizes exactly like `let`** — its RHS is always a lambda (§7.1), hence always a value, so `fun` bindings always generalize. Recursive uses are monomorphic per §7.4.
 4. **`var` never generalizes — and nothing else may generalize a `var`'s type** *(completed 2026-08-01, #205/#207)*. The first half is its own rule, independent of the value restriction — see the Statements, Blocks & Mutability spec for `var` in full. The second half is what item 7 makes necessary to state: the variables of a `var`'s monotype belong to the environment for the whole of the `var`'s scope, so no binding in that scope — item 2's values and item 7's expansive bindings alike — may quantify them, and any use anywhere in the scope, an assignment included, pins them (Statements §6.1's first-use-pins rule, unchanged). The case that forces the sentence: `var v = empty`, then `let e = v` — an expansive binding, since a `var` read is not a value (item 2) — with `e` used at two element types and `v` later assigned. Before item 7 no expansive binding quantified anything, so the alias could not leak the `var`'s unsolved variable; now item 7 must **decline** it, or the later assignment pins a variable `e`'s scheme had already quantified — one shared, assignable binding observed at several types at once. Levels are the mechanism (the `var`'s variables sit at its owning block's level, hence in every inner binding's environment); the observable rule is this item's, and a conflicting later use gets the pinning-use diagnostic (§10).
 5. **Lambda parameters are monomorphic within their scope.** Inside `(f) => ...`, the parameter `f` has one type per instantiation of the enclosing function; it cannot be used at two different types. The classic demonstration:
@@ -430,7 +433,7 @@ The inference engine uses Algorithm J with union-find type variables and level-b
 6. Header sugar and explicit-lambda forms generalize identically **by construction** (one AST node, §3.2).
 7. **The relaxed rule *(added 2026-08-01, #205; Garrigue's relaxed value restriction, with a clause OCaml never needed)*:** a `let` RHS that is **not** a syntactic value still generalizes, **per variable**, exactly those type variables of the binding's inferred type that are **(a) unconstrained** — the variable does not occur free in the argument of any residual constraint of the binding (compound arguments included: `Show(Vector(?1))` constrains `?1`) — **and (b) covariant-only** — every occurrence is in a covariant position under the variance analysis (closure doc `decisions-ml-dialect-generalization-2026-08.md` §5: transparent constructors inferred, opaque constructors per their declared claims — Modules §4.2.1 — compiler-known constructors per the compiler-side claim table, closure doc §5.3; `->` flips its argument position) — level admission as always. Every other variable stays an unsolved monomorphic `?n`, first-use-pins-it, per item 2; defaulting does **not** fire on a clause-(a)-declined variable's account — item 7's decision *is* Numeric Literals §4's "would otherwise be quantified" test (closure doc §4.4). An **annotated** expansive binding puts its rigid variables through the same three clauses: all pass and the binding generalizes; any declined is a hard error at the declaration in §4.1's diagnostic family — a rigid variable can neither be quantified nor pinned — with exports inheriting the error through their mandatory signatures (Modules §4.1.1; closure doc §4.1). Soundness rests on three legs, each normative elsewhere: parametricity of pure Hexagon code (exception payloads admit no type variables — Exceptions §2); monomorphic foreign externs (FFI Part 4 §12.4 — lifting that deferral must revisit this item); and the intrinsic parametricity obligation (`intrinsics.md` §4.2). Clause (a) is load-bearing and is Hexagon's own — OCaml ships this rule without it because OCaml has no constraints; dropping it would reopen item 2's coherence dilemma. Decided; do not re-litigate (closure doc §4.3, §9.5).
 
-There is a pleasing symmetry the implementer can lean on: hoisting (§7) and *full* generalization (§8.2) are both privileges of syntactic values — of code that has not executed yet. Item 7's remainder is bounded precisely by what already-executed code can never contain: an element at a type nothing could have produced *(sentence adjusted 2026-08-01, #205)*. Values' privilege carries one bound of its own kind — item 2's evidence-seat rule *(2026-08-01, #205/#207)* — because value-ness is a fact of *timing* and the seat is a fact of *representation*: no amount of not-having-run gives a record somewhere to carry a dictionary.
+There is a pleasing symmetry the implementer can lean on: group visibility (§7.3) and *full* generalization (§8.2) are both privileges of syntactic values — of code that has not executed yet. Item 7's remainder is bounded precisely by what already-executed code can never contain: an element at a type nothing could have produced *(sentence adjusted 2026-08-01, #205)*. Values' privilege carries one bound of its own kind — item 2's evidence-seat rule *(2026-08-01, #205/#207)* — because value-ness is a fact of *timing* and the seat is a fact of *representation*: no amount of not-having-run gives a record somewhere to carry a dictionary.
 
 ---
 
@@ -440,7 +443,7 @@ Readable, idiomatic output is a language goal; emission shape is part of the con
 
 | Hexagon | JS |
 |---|---|
-| `fun f(n) = body` / `fun f = (n) => body` | `function f(n) { ... }` — a hoisted function declaration |
+| `fun f(n) = body` / `fun f = (n) => body` | `function f(n) { ... }` — a function declaration |
 | `let f = () => body` / `let f() = body` | `const f = () => ...` at its textual position |
 | `let f = x => body` / `let f(x) = body` | `const f = x => ...` at its textual position |
 | `let f = (x, y) => body` / `let f(x, y) = body` | `const f = (x, y) => ...` at its textual position |
@@ -450,7 +453,7 @@ Readable, idiomatic output is a language goal; emission shape is part of the con
 
 Notes:
 
-- The `fun` → `function` mapping is sound *because of* §7.1: the lambda-literal restriction guarantees the RHS is evaluation-free, so JS's hoisting of `function` declarations is a faithful translation of `fun`'s block-wide scope. §7.2's capture-set check then guarantees the emitted code never trips a TDZ error at runtime.
+- The `fun` → `function` mapping is sound *because of* §7.1: the lambda-literal restriction guarantees the RHS is evaluation-free, so a group's members all exist before any member's body runs — which is what §7.3's mutual visibility needs. JavaScript hoists `function` declarations further than the language grants, but §7.2's top-down law means no conforming program can observe the difference, and no reference can trip a TDZ error at runtime.
 - The same lambda AST node emits differently depending on its binding (`function` under `fun`, `const` + arrow under `let`); the emitter dispatches on the binding form, not the RHS shape.
 - Arrow emission preserves the zero/one/many visual model: `() =>` for no parameters, `x =>` for one, `(x, y) =>` for several. A grouped unary source lambda, `(x) =>`, and unary header sugar, `f(x)`, therefore emit the canonical `x =>` form; the redundant grouping is not preserved. TypeScript function types still use their grammatically required parenthesized parameter list in `.d.ts`.
 - Names pass through unchanged when legal as JavaScript bindings. JavaScript reserved-word collisions use deterministic `__hex_` locals; Lexer §3 owns that reserved prefix.
@@ -467,7 +470,9 @@ Diagnostics obey the Rewrite Rule (Declarations Preamble §1.1): where a legal s
 | Uppercase-start function/binding name | hard error: term bindings require a non-uppercase-start name (§2) |
 | Self-reference in `let` RHS (any depth) | "`x` is not in scope in its own `let` definition; `let` is non-recursive — use `fun`" (§6) |
 | `fun` RHS not a lambda literal | error, syntactic check (§7.1) |
-| Use of a `fun` before its (group's) captures are initialized | compile error naming the uninitialized capture (§7.2–7.3) |
+| Reference to a term binding declared later in the same block — any binder kind, any reference form | "`twice` is declared later in this block; declarations are read top-down — move its declaration above this use" (§7.2; the dot-call phrasing is Method Syntax §4.4/§9's) |
+| Forward reference to a `fun` across a group split | the declared-later family, extended: "only an unbroken run of `fun`s recurses together; move the intervening declaration out of the run" (§7.3) |
+| Dot call targeting a member of the caller's own `fun` group | Method Syntax §4.4/§9 own it — "a dot call cannot target its own `fun` group; spell the call by name: `twice(b)`" |
 | Lambda (hence any `fun` body) **reads** an outer `var` | Statements §6.2/§9.3 own it — "`shift` is a `var` and cannot be used inside a lambda; copy it to a `let` first: `let s = shift`" |
 | Lambda (hence any `fun` body) **assigns** an outer `var` | Statements §6.2/§9.3 own it — "…cannot be updated inside a lambda; use a `for` loop for mutable iteration, or have the lambda return the updated value and assign it outside" |
 | Call with wrong number of arguments | "`f` expects N arguments, got M" (§5) |

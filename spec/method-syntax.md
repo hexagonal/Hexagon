@@ -184,9 +184,16 @@ identity<a>(x: a): a                         -- excluded: bare type variable, no
 - **A transparent alias inherits the expansion's companion.** `type Name = String` gives `Name`-typed values `String`'s operations, because a `Name` value *is* a `String` (aliases are transparent everywhere — Modules §6.2). An alias never introduces a companion identity of its own; a module declaring `type Name = String` contributes nothing dot-callable to `Name`. *(Clarification: Sol.)*
 - **`export opaque` types are the pattern working at its best**: outside the home module the fields are invisible (Modules §4.2), so no field/companion collision is even possible there, and every dot call is companion dispatch against the exported surface. Inside the home module fields are visible and the collision rule (§6) applies as usual.
 
----
+### 4.4 Declaration order within the home module
 
-## 5. Coverage
+§4.2's candidate set is indexed from declarations and is order-independent — *what* is dot-callable never depends on where in the home module an operation sits. Whether a given call site may **reach** a candidate is a separate question, and it has the same answer as every other reference (Functions §7.2):
+
+- **A dot call is legal exactly where its qualified spelling is legal.** §1's rewrite makes this forced rather than chosen: `e.name(args…)` *is* `CompanionOf(T).name(e, args…)`, and that call's callee must be declared above the call site like any reference. Within the home module, then, a dot call may target only an operation declared **above** it. Call sites in other modules see the whole exported surface, as always — §4.2's import-insensitivity is untouched.
+- **A dot call never targets a member of the caller's own `fun` group** (Functions §7.3): calls within a group are spelled by name. Recursion, direct or mutual, therefore never hides behind a dot — and dispatch can never create a reference-graph cycle the resolver cannot see, which is what keeps §4.2 a declaration-indexing operation with no type-directed feedback into dependency analysis.
+
+Neither rule disturbs §3's order-independence of *inference*: §14(d)'s "evidence anywhere in the region counts" is about where the receiver's **type** becomes known, and stands. Declaration order constrains which declarations a resolved call may name, not how the receiver's head is discovered.
+
+Diagnostics: an operation that exists in the companion but sits below the call site, or inside the caller's own group, is reported as exactly that (§9 rows 12–13) — never as "the companion has no operation", which would be false.
 
 *(Category list: Sol's formulation, adopted with the tuple/record clarifications.)*
 
@@ -288,6 +295,8 @@ Completion after `receiver.` must be driven by **the same resolution model**, at
 | 9 | Tuple receiver, non-`itemN` name | existing tuple-dot errors (Products §2.3), unchanged |
 | 10 | Function-typed receiver | "functions have no fields or companion operations" |
 | 11 | Uppercase name after dot with an argument list where left side is not a module alias | existing Modules §5.1 resolution/errors, unchanged — not this feature |
+| 12 | Companion op exists but is declared below the call site (home module only) | "`Box`'s companion declares `twice` below this call; declarations are read top-down — move the declaration above this call" (§4.4; Functions §7.2 family). Never row 4's "no operation" |
+| 13 | Dot call targets a member of the caller's own `fun` group | "a dot call cannot target its own `fun` group; spell the call by name: `twice(b)`" (§4.4; Functions §7.3) |
 
 Vocabulary rules: diagnostics say **companion operation** (never "method" — nothing method-like exists at runtime, and the noun would teach the wrong model) and never say "row" (Products §4 ban, still in force). "Dot call" is acceptable in hovers and docs.
 
@@ -337,6 +346,7 @@ Any future ergonomic feature that wants the inferencer to postpone a decision ci
 | Decision | Where |
 |---|---|
 | Semantics = one rewrite to companion call; static, erased, no runtime methods/`this`/prototypes | §1, §8 |
+| Home-module dot calls obey declaration order — legal exactly where the qualified spelling is; a dot call never targets the caller's own `fun` group | §4.4 |
 | Type-directed, not lexical; lexical UFCS rejected with reasons | §1, §11.1 |
 | **Member names never nominate nominal types** (doctrine; the anti-overload-search guardrail) | §1, §3.5 |
 | Bare `e.name` is field access always; dispatch exists only in the fused call form; `(e.name)()` is the grammar-level opt-out | §2.1, §11.6 |
@@ -476,6 +486,22 @@ fun f(v) =
 fun w(x) = x.make().run()          -- OK — both goals take the fallback at w's
                                    --   boundary; make's result row unifies with
                                    --   run's receiver row; w is row-polymorphic
+
+-- (r) Home-module declaration order (§4.4): declared-below is its own error
+-- box.hex: export record Box = {value: Int}
+--          export let use(b: Box): Int = b.twice()   -- ERROR (row 12): `Box`'s
+--                                                    --   companion declares `twice`
+--                                                    --   below this call; move it above
+--          export let twice(b: Box): Int = b.value * 2
+-- Reordered (twice above use): OK — and from any OTHER module, b.twice()
+-- is OK regardless of where twice sits in box.hex (§4.2 import-insensitivity).
+
+-- (s) Own-group dispatch ban (§4.4): recursion is spelled by name
+-- seq.hex (home of Seq):
+-- export fun map(s: Seq(a), f: a -> b): Seq(b) =
+--     ... s.map(f) ...                               -- ERROR (row 13): a dot call
+--                                                    --   cannot target its own `fun`
+--                                                    --   group; spell it map(s, f)
 ```
 
 ---

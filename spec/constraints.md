@@ -219,7 +219,7 @@ An extending constraint’s dictionary carries its base-constraint dictionaries 
 
 ### 6.3 Evaluation-freeness and ordering
 
-Instance construction is evaluation-free by construction (§4.1: supplied member RHSs are syntactic lambdas, and default bodies elaborate to lambdas; a record of lambdas evaluates nothing). A default that calls another member reads that slot when the function is called, after the dictionary is complete. Instances are therefore order-independent within a module and require **no capture-set analysis** (unlike `fun`, Functions §7.2) and no initialisation-order story. Instances may reference each other freely (e.g. `Show_Vector` using `dictA` which might be `Show_Vector(Show_Int)` at some call site — composition happens at use sites, not declaration sites).
+Instance construction is evaluation-free by construction (§4.1: supplied member RHSs are syntactic lambdas, and default bodies elaborate to lambdas; a record of lambdas evaluates nothing). A default that calls another member reads that slot when the function is called, after the dictionary is complete. Instances are therefore order-independent within a module and require no initialisation-order story (contrast term bindings, which evaluate and are read top-down — Functions §7.2). Instances may reference each other freely (e.g. `Show_Vector` using `dictA` which might be `Show_Vector(Show_Int)` at some call site — composition happens at use sites, not declaration sites).
 
 ### 6.4 `.d.ts`
 

@@ -3,7 +3,7 @@
 **Status:** Decided (July 2026). With a **hanging-questions** section (§10; §§10.2–10.3 are resolved anchors); nothing there blocks implementation of §1–§9. §5.4 is the permanent rationale anchor for `let`-pattern binders being sequential.
 **Scope:** The expression/binding classification ("everything is an expression except bindings"), block typing (non-final items unify with `Unit`, block-final bindings are errors), the discarded-value rule and the prelude `ignore` function, the two-tier shadowing ban (the Head Binder Shadowing rule: sequential binders may not shadow; head binders may — class decided by position, §5), the `var` declaration, the `:=` assignment expression, the lambda-boundary rule for `var`, JS emission, and edit notes to existing specs.
 **Not in scope:** loop constructs (`for` / `for..in` — loops spec; this doc records one binding constraint on it, §7.4), the pattern grammar (pattern-matching spec; the binder *class* of every pattern position is fixed here, §5), module-level name collisions between local bindings and imports/prelude names (modules spec — decided there, Modules §5.4; consumed here §5.2), ref cells (do not exist; §6.4 records the rejection), lint policy (§10.4).
-**Companions:** Functions spec (blocks as lambda bodies §3.1; capture sets §7.2 — amended by this doc §9.2; generalisation §8 — `var` rule confirmed here), Lexer & Layout spec (blocks as pure layout; "a block's value is its final expression" — refined by this doc §9.2), Unions spec (match-arm binders §4.2 — classified as head binders here), Exceptions spec (catch-arm binders — likewise), Primitive Types spec (§9 `Unit`), Declarations Preamble §1.1 (the Rewrite Rule, which this doc's diagnostics obey).
+**Companions:** Functions spec (blocks as lambda bodies §3.1; the top-down law §7.2; generalisation §8 — `var` rule confirmed here), Lexer & Layout spec (blocks as pure layout; "a block's value is its final expression" — refined by this doc §9.2), Unions spec (match-arm binders §4.2 — classified as head binders here), Exceptions spec (catch-arm binders — likewise), Primitive Types spec (§9 `Unit`), Declarations Preamble §1.1 (the Rewrite Rule, which this doc's diagnostics obey).
 
 ---
 
@@ -189,7 +189,7 @@ That rewrite is for a **read** of the current value. An attempted assignment get
   xs |> map(x => x + s)          -- fine: s is a let
   ```
 
-- **`fun` can never touch a `var`**, as a corollary: a `fun`'s RHS is syntactically a lambda (Functions §7.1), so the rule applies wholesale. Consequently **`var`s never appear in capture sets** — see the edit note §9.2.
+- **`fun` can never touch a `var`**, as a corollary: a `fun`'s RHS is syntactically a lambda (Functions §7.1), so the rule applies wholesale.
 - Enforcement point: name resolution. When a lookup resolves to a `var` binding and the reference site is inside a lambda nested within the `var`'s owning lambda body, emit the error. This is a pure scope-walk check; no dataflow analysis.
 - Rationale, recorded so it is not re-litigated: mutable capture is the ref-cell smuggling route (the counter factory), and it is exactly what the `let mutable` lineage refuses (F# bans capture outright; Roc's `var` is defined by desugaring to pure rebinding). It is also what keeps emission honest (§8): JS closures capture bindings, and if nothing captures a `var`, the semantic gap between Hexagon and its emitted `let` is zero.
 - **Pre-registered rejection — no escape-analysis exception, permanently.** "Lambdas may capture a `var` when the compiler proves the lambda does not escape" is rejected outright, not deferred: escape analysis would make **program legality depend on optimizer cleverness** (a legal program becomes illegal when the analysis gets weaker or the code drifts past its horizon) and on **unverifiable foreign callback behavior** at the JS boundary (whether a lambda escapes through an extern call is exactly what the trusted boundary cannot see). **Any future relaxation must be explicit syntax the programmer writes, never an inferred analysis.** The direction-specific rewrites above apply uniformly whether or not a compiler could prove that a particular lambda stays local.
@@ -231,9 +231,9 @@ Unchanged; this spec merely activates the rules Functions §8 pre-positioned. As
 
 *(Added 2026-08-01, #205/#207.)* Functions §8.7's relaxed rule adds the alias assertion: `var v = emptyList()`, then `let e = v` — expansive, and Functions §8.7 must decline the `var`'s variable, which belongs to the environment for the whole of the `var`'s scope (Functions §8.4, completed under #207). Assert in tests: a use of `e` at one element type pins `?1` for `v` and `e` alike; a use of either at a second type — `:=` included — is the ordinary pinned-type error, and `e` never receives a scheme quantifying the `var`'s variable.
 
-### 7.3 `fun` capture sets
+### 7.3 `fun` in blocks
 
-Simplified: capture sets track **`let` bindings only** (edit note §9.2). A `fun` referencing a `var` is the §6.2 boundary error before capture analysis ever sees it. The transitive-closure and initialized-before-use machinery of Functions §7.2 is otherwise unchanged.
+A `fun` referencing a `var` is the §6.2 boundary error, wholesale — its RHS is a lambda (Functions §7.1). Nothing else is `fun`-specific here: Functions §7.2's top-down law and §7.3's contiguous groups apply in blocks exactly as at module level, and no capture analysis exists.
 
 ### 7.4 Loop-body constraint (discharged; Loops is the owner)
 
@@ -331,10 +331,9 @@ fun h() =
 
 ### 9.2 Edit notes to existing specs (apply on merge)
 
-1. **Functions §7.2:** "the outer-block `let`/`var` bindings its body references" → "`let` bindings" — `var`s can never be referenced across a lambda boundary (this spec §6.2), so they never appear in capture sets.
-2. **Lexer & Layout §1** ("A block's value is its final expression"): add the caveat "the final item must be an expression; a block-final binding is a compile error (Statements spec §3.1)."
-3. **Functions §8.4** ("`var` never generalizes"): add cross-reference "— see the Statements, Blocks & Mutability spec for `var` in full."
-4. **Functions §10** diagnostics table: add rows for the §9.3 entries owned jointly (uppercase rule etc. unaffected).
+1. **Lexer & Layout §1** ("A block's value is its final expression"): add the caveat "the final item must be an expression; a block-final binding is a compile error (Statements spec §3.1)."
+2. **Functions §8.4** ("`var` never generalizes"): add cross-reference "— see the Statements, Blocks & Mutability spec for `var` in full."
+3. **Functions §10** diagnostics table: add rows for the §9.3 entries owned jointly (uppercase rule etc. unaffected).
 
 *Apply on next touch; until then this doc governs:*
 
@@ -405,7 +404,7 @@ fun h() =
 | Lambda boundary: no read or write of an outer `var` from any lambda; read rewrite = copy to `let`; mutation rewrite = `for` or return-and-assign outside; `fun` therefore never touches vars; **no escape-analysis exception, permanently — legality never depends on optimizer cleverness or foreign callback behavior; any relaxation must be explicit syntax** | §6.2 |
 | `:=`: bare-name target, `var`-bound only, RHS unifies with the monotype ("can't change type" is a consequence); no implicit declaration | §6.3 |
 | No ref cells, no mutable fields, no compound assignment, no module-level `var` | §6.4 |
-| Capture sets are `let`-only (Functions §7.2 amended) | §7.3, §9.2 |
+| `fun` in blocks follows Functions §7.2/§7.3 (top-down law, contiguous groups); no capture analysis exists | §7.3 |
 | Loop constraint (discharged into `loops-ranges-iteration.md`): loop bodies are blocks, not lambdas; loop variable is a head binder | §7.4 |
 | Emission: `var`→`let`, `:=`→`=`, `ignore(e)`→`e;`; value-position `:=` must emit honest `Unit` (`void`); soundness of `var`→`let` is coupled to the no-capture rule | §8 |
 | Hanging questions: four open (§10.1, §10.4–§10.6); §10.2 and §10.3 retained as resolved anchors (decided by Modules §5.4 and Operators §11) | §10 |
