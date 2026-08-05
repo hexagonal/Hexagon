@@ -385,12 +385,14 @@ class Resolver {
    * §5.1.1).
    *
    * Pre-registration wins over a module's own declaration, and that order is
-   * load-bearing rather than defensive: the two names a module may still
-   * redeclare (`Iterable`, `Integral` — see `NON_REDECLARABLE_CONSTRAINTS`) are
-   * exactly the ones whose wired-in instance table the checker indexes by the
-   * pre-registered name. Sending such a declaration to a file-scoped identity
-   * would make `honor Iterable<Bag>` answer a constraint no `for … in` demand
-   * can reach.
+   * load-bearing rather than defensive. It applies to exactly the two names a
+   * module may still redeclare (`Iterable`, `Integral` — see
+   * `NON_REDECLARABLE_CONSTRAINTS`), and a pre-registered constraint is
+   * compiler-global: every module means the same declaration by the name,
+   * without importing anything. A source declaration of one is *supplying* that
+   * declaration's members, not minting a rival, so it must land on the same
+   * identity — otherwise `stdlib/Integral.hex`'s constraint and the `Integral`
+   * an importing module demands would be two different constraints.
    *
    * Constraints are module-local in v1, so a name that is neither
    * pre-registered nor declared here names nothing; it is minted file-scoped
