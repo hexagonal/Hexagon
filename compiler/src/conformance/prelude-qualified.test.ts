@@ -303,20 +303,21 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
   });
 
   test("a collection core call registers no companion candidate", async () => {
-    // `Vector.length`/`Vector.prepend` resolve to compiler core operations, but
-    // they share their spelling with real `Seq.hex` exports — deliberately, per
-    // the Collections Part 1 §3.1 naming doctrine. Registering a candidate for
-    // them would put a prelude term the module never names into the used-prelude
-    // set, and with it a claim on the module-level name `length` that
-    // `#preludeImport` would then have to rename around.
+    // `Map.empty`/`Map.isEmpty` resolve to compiler core operations, but they
+    // share their spelling with real `Seq.hex` and `Vector.hex` exports —
+    // deliberately, per the Collections Part 1 §3.1 naming doctrine. Registering
+    // a candidate for them would put prelude terms the module never names into
+    // the used-prelude set, and with them a claim on the module-level names
+    // `empty` and `isEmpty` that `#preludeImport` would have to rename around.
     const project = compileProject([
       new Source.File(Source.fileId(0), "/main.hex",
-        "export let n: Int = Vector.length(Vector.prepend([2, 3], 1))\n"),
+        "let m: Map(Int, Int) = Map.empty()\n" +
+        "export let blank: Bool = Map.isEmpty(m)\n"),
     ]);
     expect(project.diagnostics).toEqual([]);
     const main = project.modules.find((module) => module.source.path === "/main.hex")!;
-    expect(main.javascript.text).not.toContain("Seq.js");
-    expect(topLevelBindings(main.javascript.text)).not.toContain("length");
+    expect(main.javascript.text).not.toContain("Vector.js");
+    expect(topLevelBindings(main.javascript.text)).not.toContain("isEmpty");
     expect(synthesizedImportNames(main)).toEqual([]);
     // Not vacuous: with the guard's precondition absent the machinery still
     // fires. This is a function-valued *field* call, not companion dispatch —
@@ -334,23 +335,31 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     expect(fieldCall.diagnostics).toEqual([]);
     const fieldMain = fieldCall.modules
       .find((module) => module.source.path === "/main.hex")!;
-    expect(synthesizedImportNames(fieldMain)).toEqual(["./Seq:length"]);
+    // *Both* prelude members exporting the name, not the one the bare spelling
+    // resolves to. Dispatch is type-directed, so `Vector.hex`'s `length`
+    // occluding `Seq.hex`'s in the prelude scope says nothing about which one a
+    // receiver can reach; registering only the winner made the
+    // over-approximation an under-approximation and emitted a bare name the
+    // other member's import had bound.
+    expect(synthesizedImportNames(fieldMain)).toEqual(["./Seq:length", "./Vector:length"]);
     expect(fieldMain.javascript.text).not.toContain("Seq.js");
+    expect(fieldMain.javascript.text).not.toContain("Vector.js");
   });
 
   test("suppressing the core call still imports a genuinely dispatched `length`", async () => {
     // The failure the guard could cause if it were ever widened: emitted code
     // that calls a prelude name it never imported (defect log 8/10). One module,
-    // both shapes — a `Vector` core call that must NOT register a candidate, and
-    // a real `Seq` dispatch of the same name that must. Run, not just compiled:
+    // both shapes — a `Map` core call that must NOT register a candidate, and a
+    // real `Seq` dispatch of a colliding name that must. Run, not just compiled:
     // a missing import is a load-time `ReferenceError`, which only linking finds.
     const module = await run([
       ["/main.hex",
         "let source: Seq(Int) = Vector.toSeq([1, 2, 3])\n" +
-        "export let measured: Int = Vector.length([1, 2, 3])\n" +
+        "let m: Map(Int, Int) = Map.empty()\n" +
+        "export let measured: Bool = Map.isEmpty(m)\n" +
         "export let dispatched: Int = source.length()\n"],
     ]);
-    expect(module["measured"]).toBe(3);
+    expect(module["measured"]).toBe(true);
     expect(module["dispatched"]).toBe(3);
   });
 });

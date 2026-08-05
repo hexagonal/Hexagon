@@ -161,10 +161,10 @@ describe("§4.1 the relaxed rule, per variable", () => {
     // pulled from a source that, by parametricity, never produced any.
     expect(
       projectDiagnostics(
-        "let e = empty\n" +
+        "let e = Seq.empty\n" +
           "let m = Seq.memoize(e)\n" +
-          "export let ys: Seq(Int) = prepend(m, 42)\n" +
-          'export let xs: Seq(String) = prepend(m, "Briar")\n',
+          "export let ys: Seq(Int) = Seq.prepend(m, 42)\n" +
+          'export let xs: Seq(String) = Seq.prepend(m, "Briar")\n',
       ),
     ).toEqual([]);
   });
@@ -697,11 +697,17 @@ describe("§13.2 nothing else may generalize a `var`'s type", () => {
 });
 
 describe("the acceptance test still runs", () => {
+  /**
+   * `Seq.`-qualified because `stdlib/Seq.hex` and `stdlib/Vector.hex` both export
+   * `empty` and `prepend` (Collections Part 1 §3.1's shared vocabulary) and the
+   * prelude scope keeps one binding per name. The program is about a generalized
+   * empty sequence, so it names the member it means.
+   */
   test("§1.1's empty-sequence program produces both sequences", async () => {
     const exports = await runMain(
-      "let e = empty\n" +
-        "export let ys: Int = Seq.length(prepend(e, 42))\n" +
-        'export let xs: Int = Seq.length(prepend(e, "Briar"))\n',
+      "let e = Seq.empty\n" +
+        "export let ys: Int = Seq.length(Seq.prepend(e, 42))\n" +
+        'export let xs: Int = Seq.length(Seq.prepend(e, "Briar"))\n',
     );
     expect(exports.ys).toBe(1);
     expect(exports.xs).toBe(1);

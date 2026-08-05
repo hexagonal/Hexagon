@@ -62,7 +62,7 @@ describe("the nearest-key suggestion", () => {
    * intrinsic" than by being pointed at an unrelated one.
    */
   test("declines to guess when nothing is close", () => {
-    expect(nearestIntrinsicKey("vectorAt")).toBeUndefined();
+    expect(nearestIntrinsicKey("mapInsert")).toBeUndefined();
     expect(nearestIntrinsicKey("")).toBeUndefined();
   });
 });

@@ -157,9 +157,11 @@ describe("verification replaces trust (§4.2)", () => {
   test("a key with no near neighbour is refused with the inventory, not a guess", () => {
     expect(privileged(
       'extern from "hex:intrinsic"\n' +
-      "    export fun vectorAt as at<a>(values: Seq(a), index: Int): a\n",
+      "    export fun mapInsert as insert<a>(values: Seq(a), index: Int): a\n",
     )).toEqual([
-      "the compiler provides no intrinsic `vectorAt`; the keys it provides are `seqMemoize`",
+      "the compiler provides no intrinsic `mapInsert`; the keys it provides are " +
+      "`seqMemoize`, `vectorLength`, `vectorAppend`, `vectorPrepend`, `vectorAt`, " +
+      "`vectorSet`, `vectorToSeq`, `vectorFromSeq`",
     ]);
   });
 

@@ -147,15 +147,15 @@ Vector.at : (Vector(a), Int) -> a
 
 ### 5.5 The `IndexError` declaration
 
-Declared here and canonically exported by `stdlib/Vector.hex`. The complete
-package/prelude loader may additionally promote the constructor into the prelude;
-until then its explicit source spelling is `Vector.IndexError`:
+Declared here and canonically exported by `stdlib/Vector.hex`, a prelude member
+(Modules §5.5): the constructor is in scope everywhere, bare as `IndexError` and
+qualified as `Vector.IndexError`:
 
 ```
 exception IndexError(index: Int, size: Int)
 ```
 
-- Concrete payload (satisfies Exceptions §2's no-type-variables rule); named slots per the all-or-none rule; positional construction and catch patterns as always.
+- Concrete payload (satisfies Exceptions §2's no-type-variables rule); named slots per the all-or-none rule; positional construction and catch patterns as always. *(Divergence, #300: the shipped checker admits a `catch` arm only for exceptions the same module declares, so a consumer's `catch IndexError(...)` is refused today — construction and throwing work everywhere. The catch-patterns clause is the target, not the state.)*
 - `index` is the index as passed (§5.3); `size` is the collection's size at fault time. Sufficient for the canonical message ("index 5 out of bounds for size 3") without a `String` slot; message rendering is the reporting layer's business (Exceptions doctrine).
 - **The slot keeps the name `size`** under the 2026-08-02 rename of the operation (`Vector.size` → `Vector.length`) — ruled with reasoning at Part 1 §10.1: `size` is the general cardinality word and `length` its specialization for linear structures, and this one shared declaration is not scoped to linear throwers — a `length` slot would assert a linearity the declaration does not have (that every *current* thrower is linear is recorded there as a fact of today, not of the declaration). The payload names a fact about the collection, not an operation on it; `IndexError(index, size)` remains the declared shape, and `Vector.length` throws it.
 - `KeyError` does not copy this shape — a polymorphic key cannot be a payload (Exceptions §2 bans type variables). It is declared **nullary** in Part 4 §4.3, which owns that decision.
@@ -230,13 +230,16 @@ The core surface, under the Part 1 §3 naming doctrine (subject-first, `Vector.`
 
 *(Amended 2026-08-02: the row now named `length` was `size`; renamed under Part 1 §10.1's `length`/`size` split — `length` for ordered, sequential structures. The `IndexError` payload slot `size` (§5.5) is deliberately unaffected.)*
 
-This surface is implemented by the canonical `stdlib/Vector.hex` module.
+This surface is implemented by the canonical `stdlib/Vector.hex` module, a
+prelude member (Modules §5.5) — in scope in every module with no import line.
 Hexagon source owns `empty`, `singleton`, the total accessors, the forgiving drop
-family, and the public wrappers. Representation-sensitive length and end updates,
+family, and the bound checks. Representation-sensitive length and end updates,
 signed indexed access, persistent indexed update, and the eager/lazy bridge used
-by `toSeq` and `fromSeq` cross the narrow compiler/runtime boundary. An imported
-`Vector` module alias occludes the provisional compiler companion, so user calls
-and dot-call rewrites reach this source module rather than bypassing it.
+by `toSeq` and `fromSeq` cross the narrow boundary as intrinsic-door declarations
+(`spec/intrinsics.md` §3.2). Dot calls on `Vector`-typed receivers dispatch to
+this module (Method Syntax §4.2). The bare names it shares with `Seq.hex` —
+`empty`, `singleton`, `prepend`, `length` — are qualified-only under Modules
+§5.5's collided-name rule; the dot call needs no qualifier.
 
 ### 7.1 `dropFirst`/`dropLast` on empty: total
 

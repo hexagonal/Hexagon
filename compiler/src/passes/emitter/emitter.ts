@@ -1600,7 +1600,6 @@ class JavaScriptEmitter {
           : this.#emitConstrainedValue(expression, name, evidenceNames, bindingRhs);
       }
       case "CollectionOperation": {
-        const needsPersistentRuntime = expression.collection !== "Vector";
         // The producing rows hand their traversal to the inbound adapter; the
         // consuming rows drive their argument through the outbound one. HAMT
         // traversal stays runtime-owned and composes with the pair: for an
@@ -1615,7 +1614,7 @@ class JavaScriptEmitter {
         return collectionOperation(
           expression.collection,
           expression.operation,
-          needsPersistentRuntime ? this.#useHelper("persistentCollections") : "",
+          this.#useHelper("persistentCollections"),
           expression.hashEvidence === undefined
             ? undefined
             : this.#emitEvidence(expression.hashEvidence, "Hash", expression.span, evidenceNames),
@@ -2082,36 +2081,6 @@ class JavaScriptEmitter {
           return `${this.#useHelper("nodeSet")}(${node}, ${index}, ${value})`;
         case "copy":
           return `(${node}).slice()`;
-      }
-    }
-    if (
-      expression.callee.kind === "CollectionOperation" &&
-      expression.callee.collection === "Vector"
-    ) {
-      const arguments_ = expression.arguments.map((argument) =>
-        this.#emitExpr(argument, depth, evidenceNames)
-      );
-      const [values = "undefined", argument = "undefined", value = "undefined"] =
-        arguments_;
-      switch (expression.callee.operation) {
-        case "empty":
-          return "[]";
-        case "length":
-          return `(${values}).length`;
-        case "isEmpty":
-          return `(${values}).length === 0`;
-        case "append":
-          return `[...${values}, ${argument}]`;
-        case "prepend":
-          return `[${argument}, ...${values}]`;
-        case "at":
-          return `${this.#useHelper("vectorAt")}(${values}, ${argument})`;
-        case "set":
-          return `${this.#useHelper("vectorSet")}(${values}, ${argument}, ${value})`;
-        case "toSeq":
-          return `${this.#useHelper("seqFromIterable")}(${values})`;
-        case "fromSeq":
-          return `Array.from(${this.#useHelper("seqToIterable")}(${values}))`;
       }
     }
     const specialization = this.#callSpecialization(expression);
@@ -3974,6 +3943,25 @@ class JavaScriptEmitter {
     switch (key) {
       case "seqMemoize":
         return this.#useHelper("seqMemoize");
+      // Collections Part 3 §7's boundary, over the plain-array representation
+      // §2's emission pins. `at` and `set` reach for helpers because a bounds
+      // check followed by a return is statements, which the arrow expression a
+      // door binding is initialized with cannot hold; `vectorAt` is also where
+      // §5.5's `IndexError` payload is built, so sharing it keeps one shape.
+      case "vectorLength":
+        return "__hex_values => __hex_values.length";
+      case "vectorAppend":
+        return "(__hex_values, __hex_value) => [...__hex_values, __hex_value]";
+      case "vectorPrepend":
+        return "(__hex_values, __hex_value) => [__hex_value, ...__hex_values]";
+      case "vectorAt":
+        return this.#useHelper("vectorAt");
+      case "vectorSet":
+        return this.#useHelper("vectorSet");
+      case "vectorToSeq":
+        return this.#useHelper("seqFromIterable");
+      case "vectorFromSeq":
+        return `__hex_values => Array.from(${this.#useHelper("seqToIterable")}(__hex_values))`;
       default:
         if (INTRINSIC_INVENTORY.has(key)) {
           this.#diagnostics.add({
@@ -5661,19 +5649,6 @@ function collectionOperation(
     if (operation === "fromVector") return `${runtime}.setFrom(${dictionaries})`;
     if (operation === "fromSeq") return `__hex_values => ${runtime}.setFrom(${dictionaries})(${seqTo}(__hex_values))`;
   }
-  if (operation === "empty") return "() => []";
-  if (operation === "length") return "__hex_vector => __hex_vector.length";
-  if (operation === "isEmpty") return "__hex_vector => __hex_vector.length === 0";
-  if (operation === "append") return "(__hex_vector, __hex_value) => [...__hex_vector, __hex_value]";
-  if (operation === "prepend") return "(__hex_vector, __hex_value) => [__hex_value, ...__hex_vector]";
-  if (operation === "at") {
-    return "(__hex_vector, __hex_index) => { const __hex_position = __hex_index < 0 ? __hex_vector.length + __hex_index + 1 : __hex_index; if (__hex_position < 1 || __hex_position > __hex_vector.length) { const __hex_error = new RangeError(`index ${__hex_index} out of bounds for size ${__hex_vector.length}`); __hex_error.name = \"IndexError\"; __hex_error.$hex = true; __hex_error.index = __hex_index; __hex_error.size = __hex_vector.length; throw __hex_error; } return __hex_vector[__hex_position - 1]; }";
-  }
-  if (operation === "set") {
-    return "(__hex_vector, __hex_index, __hex_value) => { if (__hex_index < 1 || __hex_index > __hex_vector.length) { const __hex_error = new RangeError(`index ${__hex_index} out of bounds for size ${__hex_vector.length}`); __hex_error.name = \"IndexError\"; __hex_error.$hex = true; __hex_error.index = __hex_index; __hex_error.size = __hex_vector.length; throw __hex_error; } const __hex_updated = __hex_vector.slice(); __hex_updated[__hex_index - 1] = __hex_value; return __hex_updated; }";
-  }
-  if (operation === "toSeq") return `__hex_vector => ${seqFrom}(__hex_vector)`;
-  if (operation === "fromSeq") return `__hex_values => Array.from(${seqTo}(__hex_values))`;
   return "() => undefined";
 }
 

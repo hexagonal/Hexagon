@@ -32,6 +32,9 @@ export interface PreludeModule {
  * `Bool.hex` is first because everything can use it and it uses nothing: it is the
  * one prelude member with no predecessors, and since #147 made `Bool` a union rather
  * than a primitive, every later member's conditions and predicates depend on it.
+ *
+ * `Vector.hex` is last because it needs the most: `first`/`last`/`get` answer with
+ * `Option`, and `toSeq`/`fromSeq` name `Seq`.
  */
 export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Bool.hex",
@@ -39,4 +42,5 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Option.hex",
   "Seq.hex",
   "Result.hex",
+  "Vector.hex",
 ].map((basename) => ({ basename, source: PRELUDE_SOURCES[basename]! }));

@@ -44,13 +44,13 @@ The block reuses FFI Part 4's grammar and rules wholesale except where §3.3–�
 
 `Seq.hex` gains `memoize` (the decided Loops §6.4 obligation) as the single declaration above. No wrapper, no body, nothing that reads as self-recursion; the implementation is the runtime's memoizing spine (FFI Part 3 §4–§7), and the declaration is the canonical `.hex` spelling stdlib-roadmap §5.1 requires the module to own.
 
-`stdlib/Vector.hex`, at its milestone (§9), converts each public-name-door wrapper to a declaration. Today's
+`stdlib/Vector.hex` declares its seven boundary operations this way — Collections Part 3 §7's crossing set, converted from public-name-door wrappers at its §9 milestone. What was
 
 ```hexagon
 export fun at<a>(values: Vector(a), index: Int): a = Vector.at(values, index)
 ```
 
-becomes
+is
 
 ```hexagon
 extern from "hex:intrinsic"
@@ -162,8 +162,8 @@ Conversion to the intrinsic door is a **prerequisite step of each companion's se
 | Companion | Today's door | Milestone (bound to) | What is removed at the milestone |
 | :--- | :--- | :--- | :--- |
 | `Seq` | none — already self-declared; the old door is closed to it by construction | **immediate**: this ruling unblocks `memoize`, which lands through §3.2's declaration | nothing to remove; `Seq` never gets the old door |
-| `Vector` | ~10 wrapper rows in `stdlib/Vector.hex` via the resolver guard | the `Vector` arc — the next companion arc, already sequenced by James (deintrinsification plan Phase 5 item 11, after `toSeq`/`fromSeq` become real `.hex`) | `"Vector"` leaves the resolver guard list; Vector's checker rows die (§4.2); consumers reach the prelude module |
-| `Map`, `Set` | consumer-side guard rows (no `.hex` companions yet) | the Map/Set arc — after `Vector`, per James's sequencing (2026-07-28), which for the collection companions **supersedes the ledger's preferred-order list** (whose item 3 placed Map/Set before `Vector`, which that list reaches only at item 5); the supersession is recorded as an edit note at stdlib-roadmap §5.2 | their guard entries and the `Map`/`Set`/`Vector` collection rows. The `CollectionOperation` *family* does **not** die with them: `Node` also resolves through it (the resolver's `runtime`-gated guard), and **§3.3 keeps `Node` out of the block** — it remains a deliberate non-declared fallback under Modules §5.5. So the family stands past the Map/Set milestone with `Node` as its sole member, and Modules §5.5's loop closes for the four companions and stays open exactly for `Node`. Whether a one-member family is the intended terminus is **#223** *(corrected 2026-08-02, #223 — this row previously made full-family deletion conditional on #126, which asked whether `Node` should move into the door; #126 closed without moving §3.3)* |
+| `Vector` | none — **landed**; the door closed at its milestone | the `Vector` arc — discharged: `stdlib/Vector.hex` is the last prelude member and declares the seven boundary operations through §3.2's form (`vectorLength` … `vectorFromSeq`, §4.1 keys) | removed as scheduled: `"Vector"` left the resolver guard list, Vector's checker rows died (§4.2), the emitter rows re-keyed to flat inventory keys (§9.3). One consequence was ruled at landing: `Seq.hex` and `Vector.hex` collide on four bare names, and a collided bare prelude name is refused in favor of the qualified spellings and dot call (Modules §5.5) |
+| `Map`, `Set` | consumer-side guard rows (no `.hex` companions yet) | the Map/Set arc — after `Vector`, per James's sequencing (2026-07-28), which for the collection companions **supersedes the ledger's preferred-order list** (whose item 3 placed Map/Set before `Vector`, which that list reaches only at item 5); the supersession is recorded as an edit note at stdlib-roadmap §5.2 | their guard entries and the `Map`/`Set` collection rows (`Vector`'s died at its own milestone, previous row). The `CollectionOperation` *family* does **not** die with them: `Node` also resolves through it (the resolver's `runtime`-gated guard), and **§3.3 keeps `Node` out of the block** — it remains a deliberate non-declared fallback under Modules §5.5. So the family stands past the Map/Set milestone with `Node` as its sole member, and Modules §5.5's loop closes for the four companions and stays open exactly for `Node`. Whether a one-member family is the intended terminus is **#223** *(corrected 2026-08-02, #223 — this row previously made full-family deletion conditional on #126, which asked whether `Node` should move into the door; #126 closed without moving §3.3)* |
 | `BigInt` | the primitive-operation guard (`div`/`mod`/`quot`/`rem`/`gcd`/`lcm`) | stdlib-roadmap §5.2 stages 1–2 — the worked example; item 2's door *is* this door, so no separate design exists to wait for | `BigInt`'s `PrimitiveOperation` guard rows |
 | `Int`, `Float` | the same primitive-operation guard | §5.2 item 7's per-companion template application (preferred-order items 1 and 5). These two have **no independent milestone**: they are bound to the template's one-companion-at-a-time rule, which is bounded but unordered beyond BigInt-first. The fact that would fix an independent milestone is James's sequencing of the primitive arcs after `BigInt.hex`, not yet given | their `PrimitiveOperation` guard rows, per companion as each arc lands; the family dies with the last of them |
 

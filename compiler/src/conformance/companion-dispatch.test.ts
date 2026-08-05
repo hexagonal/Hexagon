@@ -109,51 +109,49 @@ describe("a module-level binding never wins a dot call (#267)", () => {
   });
 });
 
-describe("a receiver with no companion in the graph reports (#217)", () => {
+describe("a built-in receiver reaches the module addressable under its name", () => {
   /**
-   * `Vector`, `Map`, and `Set` are compiler built-ins, and no module supplies
-   * their companion in a bare project, so §4.2's candidate set for them is empty
-   * and every dot call takes the companion diagnostic — which names the
-   * subject-first rewrite, as the Rewrite Rule requires. Before the fix, `length`
-   * and `prepend` were also `stdlib/Seq.hex` exports, so the flat table handed a
-   * `Vector` receiver the `Seq` function and the user got a unification failure
-   * instead.
+   * #217's reproduction, now the other way up. `Vector` is a compiler built-in
+   * declared by no `.hex` file, so §4.1 gives it "the fixed prelude companion
+   * module of the same name" — and `stdlib/Vector.hex` became exactly that at
+   * the intrinsic-door milestone (`spec/intrinsics.md` §9.2). The three calls
+   * below are the issue's own: `length` and `prepend` are `stdlib/Seq.hex`
+   * exports too, so a lexical table handed a `Vector` receiver the `Seq`
+   * function and the user got a unification failure; `isEmpty` was the control,
+   * a `Vector`-only name that reported "no operation" instead.
    *
-   * The receiver is a literal, so its element type is still an unsolved variable
-   * when the message is rendered. The variable's number is an allocation counter,
-   * so it is matched rather than spelled.
+   * Run, not merely compiled: dispatch resolving to the right symbol and the
+   * emitted module *calling* it are separate claims, and the prelude import that
+   * joins them is synthesized (#266).
    */
-  test("`length` on a vector literal reports rather than reaching `Seq.length`", () => {
-    const messages = projectDiagnostics("export let n: Int = [1, 2, 3].length()\n");
+  test("`length` on a vector literal means `Vector.length`", async () => {
+    const source = "export let n: Int = [1, 2, 3].length()\n";
 
-    expect(messages).toHaveLength(1);
-    expect(messages[0]).toMatch(
-      /^the companion of `Vector\(\?\d+\)` has no operation `length`; call an available subject-first function explicitly$/u,
-    );
+    expect(projectDiagnostics(source)).toEqual([]);
+    expect((await runProject([["/main.hex", source]]))["n"]).toBe(3);
   });
 
-  test("`prepend` on a vector literal reports rather than reaching `Seq.prepend`", () => {
-    const messages = projectDiagnostics("export let v: Vector(Int) = [1, 2].prepend(0)\n");
+  test("`prepend` on a vector literal answers with a `Vector`", async () => {
+    const source = "export let v: Vector(Int) = [1, 2].prepend(0)\n";
 
-    expect(messages).toHaveLength(1);
-    expect(messages[0]).toMatch(
-      /^the companion of `Vector\(\?\d+\)` has no operation `prepend`; call an available subject-first function explicitly$/u,
-    );
+    expect(projectDiagnostics(source)).toEqual([]);
+    expect((await runProject([["/main.hex", source]]))["v"]).toEqual([0, 1, 2]);
+  });
+
+  test("`isEmpty`, the control that reported before, dispatches", async () => {
+    const source = "export let blank: Bool = [1, 2].isEmpty()\n";
+
+    expect(projectDiagnostics(source)).toEqual([]);
+    expect((await runProject([["/main.hex", source]]))["blank"]).toBe(false);
   });
 
   /**
-   * The other half of the same rule, and the reason the empty set is *empty*
-   * rather than absent. `Vector` is declared by no `.hex` file, so §4.1 gives it
-   * "the fixed prelude companion module of the same name" and Collections Part 3
-   * §7 lets a module addressable under that name occlude the compiler's own core
-   * inventory. Supply one and its exported subject-first operations become
-   * `Vector`'s; the diagnostic above is what happens when nothing does — which is
-   * the shipped-today configuration, `stdlib/Vector.hex` being in no project's
-   * prelude yet.
-   *
-   * This is not hypothetical: the Playground hosts `stdlib/Vector.hex` and
-   * auto-imports it exactly this way, so `numbers.append(40)` in its `Vectors`
-   * example depends on it.
+   * The other half of the same rule: the prelude member is not privileged here,
+   * *addressability under the name* is. A project's own `import * as Vector`
+   * makes that module addressable too, and its exported subject-first operations
+   * become `Vector`'s alongside the prelude's — which is what keeps the
+   * Playground's `import * as Vector from "/stdlib/Vector.hex"` working, and
+   * what a project replacing the companion depends on.
    */
   test("a module addressable as `Vector` supplies the built-in's operations", async () => {
     const files = [

@@ -103,6 +103,7 @@ describe("the synthesized prelude import is what Core references", () => {
       "export let out: Vector(Int) =\n" +
       "    Vector.fromSeq(Vector.toSeq([1, 2, 3]).map(x => x * 2))\n";
     expect(importLines(emitted([["/main.hex", source]], "/main.hex"))).toEqual([
+      'import { fromSeq, toSeq } from "./Vector.js";',
       'import { map } from "./Seq.js";',
     ]);
     const main = await runProject([["/main.hex", source]]);
@@ -112,7 +113,8 @@ describe("the synthesized prelude import is what Core references", () => {
   /**
    * Both shapes in one module, which is where a filter keyed on anything coarser
    * than the individual name would fail: `Seq.map` is referenced and `Seq.length`
-   * is not, from the same specifier.
+   * is not, from the same specifier. `Vector.hex` exports a `length` too, and it
+   * is filtered out by the same name-level test.
    */
   test("a false candidate and a real dispatch in one module", async () => {
     const source =
@@ -121,7 +123,13 @@ describe("the synthesized prelude import is what Core references", () => {
       "export let out: Vector(Int) =\n" +
       "    Vector.fromSeq(Vector.toSeq([5, 6]).map(x => x * 2))\n";
     const javascript = emitted([["/main.hex", source]], "/main.hex");
-    expect(importLines(javascript)).toEqual(['import { map } from "./Seq.js";']);
+    // `Seq.js` comes first because the `r.length(4)` candidate registered its
+    // `length` before anything named `Vector.hex` — one import item per
+    // specifier, in the order the module first reached that member.
+    expect(importLines(javascript)).toEqual([
+      'import { map } from "./Seq.js";',
+      'import { fromSeq, toSeq } from "./Vector.js";',
+    ]);
     const main = await runProject([["/main.hex", source]]);
     expect(main["out"]).toEqual([10, 12]);
     const run = main["run"] as (r: { length: (n: number) => number }) => number;
@@ -151,6 +159,7 @@ describe("the synthesized prelude import is what Core references", () => {
       "    Vector.fromSeq(Seq.prepend(Seq.map(Vector.toSeq([7, 8]), x => x + 1), 0))\n";
     const javascript = emitted([["/main.hex", source]], "/main.hex");
     expect(importLines(javascript)).toEqual([
+      'import { fromSeq, toSeq } from "./Vector.js";',
       'import { prepend, map as __hex_prelude_map } from "./Seq.js";',
     ]);
     const main = await runProject([["/main.hex", source]]);
@@ -175,6 +184,7 @@ describe("the synthesized prelude import is what Core references", () => {
       "    Vector.fromSeq(Vector.toSeq([9]).map(x => x * 2))\n",
     ]], "/main.hex");
     expect(importLines(javascript)).toEqual([
+      'import { fromSeq, toSeq } from "./Vector.js";',
       'import { map as __hex_prelude_map } from "./Seq.js";',
       'import { map } from "lib";',
     ]);

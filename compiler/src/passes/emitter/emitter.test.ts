@@ -10,6 +10,7 @@ import { lex } from "../lexer/lexer.js";
 import { parse } from "../parser/parser.js";
 import { resolve } from "../resolver/resolver.js";
 import { compileProject } from "../../project.js";
+import { compileFiles, runProject } from "../../support/test-project.js";
 import {
   emitDeclarations,
   emitJavaScript,
@@ -78,27 +79,42 @@ describe("emitJavaScript", () => {
     expect(output.diagnostics).toEqual([]);
   });
 
-  test("executes the Vector representation core without loading the HAMT runtime", () => {
-    const module = preludeSource(
+  /**
+   * The representation core is `stdlib/Vector.hex`'s since the intrinsic-door
+   * milestone (`spec/intrinsics.md` §9.2), so the lowerings are read off *that*
+   * module and the consumer is read for what it now is: an ordinary ESM importer
+   * of a prelude member. The representation itself is unchanged — plain JS
+   * arrays, no HAMT runtime, which is `Map`/`Set`'s.
+   */
+  test("executes the Vector representation core without loading the HAMT runtime", async () => {
+    const files = [[
+      "/main.hex",
       "let values = [10, 20, 30]\n" +
-        "let updated = Vector.set(values, 2, 25)\n" +
-        "let replayed = Vector.fromSeq(Vector.toSeq(updated))\n" +
-        "let joined = [1, 2] ++ [3, 4]\n" +
-        "let result = (values, updated, replayed, Vector.at(values, -1), joined)",
+      "let updated = Vector.set(values, 2, 25)\n" +
+      "let replayed = Vector.fromSeq(Vector.toSeq(updated))\n" +
+      "let joined = [1, 2] ++ [3, 4]\n" +
+      "export let result: (Vector(Int), Vector(Int), Vector(Int), Int, Vector(Int)) =\n" +
+      "    (values, updated, replayed, Vector.at(values, -1), joined)\n",
+    ]] as const;
+    const project = compileFiles(files);
+    expect(project.diagnostics).toEqual([]);
+    const text = (path: string): string =>
+      project.modules.find((module) => module.source.path === path)!.javascript.text;
+
+    expect(text("/main.hex")).not.toContain("const __hex_persistentCollections");
+    expect(text("/Vector.hex")).not.toContain("const __hex_persistentCollections");
+    expect(text("/main.hex")).toContain(
+      'import { set, fromSeq, toSeq, at } from "./Vector.js";',
+    );
+    // `toSeq` lowers to the inbound adapter and `fromSeq` to the outbound
+    // driver, in the module whose door declares them.
+    expect(text("/Vector.hex")).toContain("function __hex_seqFromIterable");
+    expect(text("/Vector.hex")).toContain("function __hex_seqToIterable");
+    expect(text("/Vector.hex")).toContain(
+      "const fromSeq = __hex_values => Array.from(__hex_seqToIterable(__hex_values));",
     );
 
-    expect(module.diagnostics).toEqual([]);
-    const output = emitJavaScript(module);
-    expect(output.text).not.toContain("const __hex_persistentCollections");
-    // `Vector.toSeq` produces through the inbound adapter and `Vector.fromSeq`
-    // consumes through the outbound driver; the round trip names both.
-    expect(output.text).toContain("function __hex_seqFromIterable");
-    expect(output.text).toContain("function __hex_seqToIterable");
-    expect(output.text).toContain(
-      "Array.from(__hex_seqToIterable(__hex_seqFromIterable(updated)))",
-    );
-    const execute = Function(`${output.text}\nreturn result;`) as () => readonly unknown[];
-    expect(execute()).toEqual([
+    expect((await runProject(files))["result"]).toEqual([
       [10, 20, 30],
       [10, 25, 30],
       [10, 25, 30],
@@ -107,12 +123,11 @@ describe("emitJavaScript", () => {
     ]);
   });
 
-  test("brands Vector.at failures and preserves the caller's signed index", () => {
-    const module = coreSource("let impossible = Vector.at([10, 20], -3)");
+  test("brands Vector.at failures and preserves the caller's signed index", async () => {
+    const files = [["/main.hex", "let impossible = Vector.at([10, 20], -3)\n"]] as const;
 
-    expect(module.diagnostics).toEqual([]);
-    const output = emitJavaScript(module);
-    expect(() => Function(output.text)()).toThrowError(
+    expect(compileFiles(files).diagnostics).toEqual([]);
+    await expect(runProject(files)).rejects.toThrowError(
       expect.objectContaining({
         name: "IndexError",
         $hex: true,
@@ -186,8 +201,8 @@ describe("emitJavaScript", () => {
     );
   });
 
-  test("provides extensional Map and Set instances and the core algebra", () => {
-    const module = preludeSource(
+  test("provides extensional Map and Set instances and the core algebra", async () => {
+    const source =
       "let left = Map.fromVector([(1, \"one\"), (2, \"two\")])\n" +
         "let right = Map.fromVector([(2, \"two\"), (1, \"one\")])\n" +
         "fun mapFacts<k: Hash, v: Hash>(a: Map(k, v), b: Map(k, v)) = (a == b, hash(a) == hash(b))\n" +
@@ -201,13 +216,14 @@ describe("emitJavaScript", () => {
         "let keys = Vector.fromSeq(Map.keys(left))\n" +
         "let mapEvidence = mapFacts(left, right)\n" +
         "let setEvidence = setFacts(first, Set.fromVector([3, 2, 1]))\n" +
-        "let result = (left == right, hash(left) == hash(right), Set.size(combined), Set.size(common), Set.size(rest), subset, keys, \"${first}\", \"${left}\", mapEvidence, setEvidence)",
-    );
+        "export let result: (Bool, Bool, Int, Int, Int, Bool, Vector(Int), String, String, (Bool, Bool), (Bool, Bool)) =\n" +
+        "    (left == right, hash(left) == hash(right), Set.size(combined), Set.size(common), Set.size(rest), subset, keys, \"${first}\", \"${left}\", mapEvidence, setEvidence)\n";
+    const files = [["/main.hex", source]] as const;
 
-    expect(module.diagnostics).toEqual([]);
-    const output = emitJavaScript(module);
-    const execute = Function(`${output.text}\nreturn result;`) as () => unknown;
-    const result = execute() as unknown[];
+    // Linked and run rather than evaluated as one text: `Vector.fromSeq` is an
+    // import of the prelude `Vector.hex` now, not an inline lowering.
+    expect(compileFiles(files).diagnostics).toEqual([]);
+    const result = (await runProject(files))["result"] as unknown[];
     // `Map.keys` yields the prelude `Seq` record, so the test converts through
     // `Vector.fromSeq` rather than spreading it — a `Seq` is not itself a JS
     // iterable (see the exported-face note in `seq-unification.test.ts`).
@@ -367,9 +383,15 @@ describe("emitJavaScript", () => {
     expect(output.diagnostics).toEqual([]);
   });
 
+  /**
+   * A `Set` round trip, because the helpers have to be emitted *into this
+   * module* for a local name to collide with them: `Vector`'s door is
+   * `stdlib/Vector.hex`'s now, so a consumer imports its bindings and names no
+   * bridge helper at all.
+   */
   test("keeps bridge helper names clear of a user-name collision", () => {
     const module = preludeSource(
-      "let values: Vector(Int) = Vector.fromSeq(Vector.toSeq([1, 2]))\n",
+      "let values: Set(Int) = Set.fromSeq(Set.toSeq(Set.fromVector([1, 2])))\n",
     );
     const seeded: Core.Module = {
       ...module,
@@ -380,7 +402,7 @@ describe("emitJavaScript", () => {
 
     const javascript = emitJavaScript(seeded).text;
     expect(javascript).toContain("function __hex_seqFromIterable1(__hex_source)");
-    expect(javascript).toContain("__hex_seqToIterable(__hex_seqFromIterable1(");
+    expect(javascript).toContain("__hex_set => __hex_seqFromIterable1(__hex_set)");
   });
 
   test("expands nested or-patterns and emits exhaustive or-pattern bindings", () => {

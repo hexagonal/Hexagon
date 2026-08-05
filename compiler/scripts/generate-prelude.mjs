@@ -13,7 +13,7 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 
-const BASENAMES = ["Bool.hex", "Prelude.hex", "Option.hex", "Seq.hex", "Result.hex"];
+const BASENAMES = ["Bool.hex", "Prelude.hex", "Option.hex", "Seq.hex", "Result.hex", "Vector.hex"];
 
 const destination = new URL("../src/prelude-sources.ts", import.meta.url);
 const lines = [
