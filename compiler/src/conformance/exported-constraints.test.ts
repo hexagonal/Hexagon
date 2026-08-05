@@ -468,11 +468,11 @@ describe("the orphan rule reads files, never imports (Constraints §5.3)", () =>
 describe("defaults hoist once, at home (Constraints §6.5)", () => {
   /** The default body reaches a **private** helper of its own module. */
   const stamps = [
+    "fun decorate(text: String): String = \"<< \" ++ text ++ \" >>\"",
+    "",
     "export constraint Stamp<a> =",
     "    mark(subject: a): String",
     "    stamped(subject: a): String = decorate(mark(subject))",
-    "",
-    "fun decorate(text: String): String = \"<< \" ++ text ++ \" >>\"",
     "",
     "export record Seal = {sigil: String}",
     "",

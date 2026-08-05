@@ -234,101 +234,75 @@ describe("resolve", () => {
     });
   });
 
-  test("delays a function until its later captures are bound", () => {
+  test("a `fun` body may not name a binding written below it", () => {
+    // Functions §7.2: the forward visibility a `fun` has is over its own group,
+    // and nothing else. A `let` below is simply not in scope yet, whether the
+    // `fun` is called before it or after.
     const early = resolveSource(
       "fun announce(): String = message\n" +
         "announce()\n" +
         'let message = "ready"',
     );
-    expect(early.diagnostics.map(({ message }) => message)).toContain(
-      "`announce` cannot be used before captured value `message` is bound",
-    );
+    expect(early.diagnostics.map(({ message }) => message)).toEqual([
+      "`message` is declared later in this block; declarations are read " +
+      "top-down — move its declaration above this use",
+    ]);
 
     const ready = resolveSource(
-      "fun announce(): String = message\n" +
-        'let message = "ready"\n' +
+      'let message = "ready"\n' +
+        "fun announce(): String = message\n" +
         "announce()",
     );
     expect(ready.diagnostics).toEqual([]);
   });
 
-  test("...and does so whichever side of the `fun` the capture is written on", () => {
-    // The guard used to read `#funCaptures`, which is fed from the
-    // *future*-sequential lookup and so records forward references only. A
-    // `fun` naming a binding written above it captured nothing as far as this
-    // check could see, and the cycle below compiled with no diagnostic at all:
-    // `f` hoists in the emitted JavaScript and `a` does not, so the module
-    // threw `ReferenceError` on load. It is the same cycle as the test above,
-    // written in the other order.
-    const cycle = resolveSource(
-      "let a = f()\n" +
-        "fun f() = a\n",
-    );
-    expect(cycle.diagnostics.map(({ message }) => message)).toContain(
-      "`f` cannot be used before captured value `a` is bound",
-    );
+  test("the declared-later report reaches every later binder form", () => {
+    // A destructured binding is a term binding like any other.
+    expect(
+      resolveSource(
+        "fun f(): Int = a\n" +
+          "let (a, b) = (1, 2)\n" +
+          "f()\n",
+      ).diagnostics.map(({ message }) => message),
+    ).toEqual([
+      "`a` is declared later in this block; declarations are read top-down — " +
+      "move its declaration above this use",
+    ]);
 
-    // Transitively, too — `f` reaches `a` only through `g`.
-    const indirect = resolveSource(
-      "let a = f()\n" +
-        "fun g() = a\n" +
-        "fun f() = g()\n",
-    );
-    expect(indirect.diagnostics.map(({ message }) => message)).toContain(
-      "`f` cannot be used before captured value `a` is bound",
-    );
-
-    // A destructured binding is a sequential binding too. `resolvedPatternBindings`
-    // is what puts one in the set the body is intersected against; without it the
-    // cycle below is silent and the emitted module throws on load, with the whole
-    // suite green.
-    const destructured = resolveSource(
-      "let z0 = f()\n" +
-        "let (a, b) = (1, 2)\n" +
-        "fun f(): Int = a\n",
-    );
-    expect(destructured.diagnostics.map(({ message }) => message)).toContain(
-      "`f` cannot be used before captured value `a` is bound",
-    );
-
-    // And through a `fun` nested in the body. `itemNameReferences` skipped `Fun`
-    // items, so the walk stopped at the outer body and this compiled silently,
-    // throwing `ReferenceError: Cannot access 'a' before initialization`.
-    const nested = resolveSource(
-      "let a = f()\n" +
+    // And a `fun` nested in a body reads the enclosing block top-down too.
+    expect(
+      resolveSource(
         "fun f(): Int =\n" +
-        "    fun inner(): Int = a\n" +
-        "    inner()\n",
-    );
-    expect(nested.diagnostics.map(({ message }) => message)).toContain(
-      "`f` cannot be used before captured value `a` is bound",
-    );
+          "    fun inner(): Int = a\n" +
+          "    inner()\n" +
+          "let a = 1\n" +
+          "f()\n",
+      ).diagnostics.map(({ message }) => message),
+    ).toEqual([
+      "`a` is declared later in this block; declarations are read top-down — " +
+      "move its declaration above this use",
+    ]);
   });
 
-  test("the availability guard over-approximates, in both directions, on purpose", () => {
-    // Pinned because it is a real narrowing against `main`, not an accident. The
-    // guard counts a name mentioned anywhere in a body, including inside a lambda
-    // that is never invoked, so this program is rejected although it runs and
-    // `main` compiles it. `main` already rejected the mirror image (the `fun`
-    // written first), so making the guard order-insensitive necessarily made this
-    // side conservative too.
-    //
-    // If this test ever fails because the program started compiling, that is a
-    // real improvement and the comment in `#checkFunctionAvailability` should be
-    // updated with it — but it must be a decision, not a drift.
-    const overApproximated = resolveSource(
-      "let a = f()\n" +
-        "fun f(): Int =\n" +
-        "    let k = () => a\n" +
-        "    1\n",
-    );
-    expect(overApproximated.diagnostics.map(({ message }) => message)).toContain(
-      "`f` cannot be used before captured value `a` is bound",
-    );
+  test("a split `fun` group names the split as the repair", () => {
+    // The two `fun`s would have recursed together; the `let` between them ends
+    // the run (Functions §7.3), so the forward reference is reported with the
+    // rewrite that restores the group.
+    expect(
+      resolveSource(
+        "fun even(n: Int): Int = odd(n - 1)\n" +
+          "let gap = 1\n" +
+          "fun odd(n: Int): Int = even(n - 1)\n" +
+          "even(4)\n",
+      ).diagnostics.map(({ message }) => message),
+    ).toEqual([
+      "`odd` is declared later in this block; only an unbroken run of `fun`s " +
+      "recurses together — move the intervening declaration out of the run, or " +
+      "move `odd`'s declaration above this use",
+    ]);
+  });
 
-    // And the ordinary backward reference stays legal: reading the resolved
-    // bodies would report every one of these if the capture set were not
-    // restricted to the item list's own sequential bindings.
+  test("the ordinary backward reference stays legal", () => {
     expect(resolveSource("let a = 1\nfun f() = a\nf()\n").diagnostics).toEqual([]);
     expect(resolveSource("let a = 1\nfun g() = a\nfun f() = g()\nf()\n").diagnostics)
       .toEqual([]);

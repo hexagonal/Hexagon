@@ -74,13 +74,6 @@ interface Variable {
   readonly rigidName?: string;
   readonly declaredConstraints?: readonly Typed.ConstraintName[];
   /**
-   * Set on the stand-in for a module-level `let`/`var` that a function captures
-   * before the binding itself is checked. It denotes one binding's single type,
-   * so it must neither be quantified by a sibling's generalization (kept out by
-   * its level) nor absorbed by a declared type variable (rejected in `#bind`).
-   */
-  placeholder?: boolean;
-  /**
    * A source-shaped name for a variable that survives into a diagnostic the
    * Rewrite Rule makes mandatory. Numeric Literals §6 requires survivors in
    * those reports to be "named rather than numbered"; `?3` is what this
@@ -474,6 +467,14 @@ class Checker {
    */
   readonly #companionOperations = new Map<string, Map<string, Resolved.Symbol>>();
   readonly #operationSpellings = new Map<Resolved.SymbolId, string>();
+  /**
+   * The `fun` groups whose bodies are currently being checked, innermost last.
+   * A dot call inside one may not target any of their members (Method Syntax
+   * §4.4): a call spelled through a dot is invisible to the reference graph the
+   * resolver and `#inferFunGroup` both read, so allowing it would let dispatch
+   * close a cycle neither can see.
+   */
+  readonly #funGroups: Set<Resolved.SymbolId>[] = [];
   readonly #constraintNames = new Set<string>(PRE_REGISTERED_CONSTRAINTS);
   /**
    * Every constraint name this module can spell, mapped to the identity of the
@@ -1168,6 +1169,37 @@ class Checker {
     return BUILTIN_COMPANIONS.get(actual.kind);
   }
 
+  /**
+   * Why this call site may not reach `operation`, or `undefined` if it may.
+   *
+   * A dot call is legal exactly where its qualified spelling is (Method Syntax
+   * §4.4): within the home module the callee must be declared above the call,
+   * and it is never a member of the caller's own `fun` group. Call sites in
+   * other files see the whole exported surface — same file, not same module,
+   * because textual order is what the rule is about.
+   */
+  #dotCallReachability(
+    operation: Resolved.Symbol,
+    callee: Resolved.AccessExpr,
+    arguments_: readonly Resolved.Expr[],
+    receiverType: Mono,
+  ): string | undefined {
+    if (this.#funGroups.some((members) => members.has(operation.id))) {
+      const spelled = [
+        callee.receiver.kind === "Name" ? callee.receiver.text : "…",
+        ...arguments_.map(() => "…"),
+      ];
+      return "a dot call cannot target its own `fun` group; spell the call by " +
+        `name: \`${operation.name}(${spelled.join(", ")})\``;
+    }
+    const call = callee.field.span;
+    if (Number(operation.bindingSpan.fileId) !== Number(call.fileId)) return undefined;
+    if (operation.bindingSpan.start.offset < call.start.offset) return undefined;
+    return `\`${this.#display(receiverType)}\`'s companion declares ` +
+      `\`${operation.name}\` below this call; declarations are read top-down — ` +
+      "move the declaration above this call";
+  }
+
   #checkInstanceHead(
     item: Resolved.HonorItem,
     moduleItems: readonly Resolved.Item[],
@@ -1241,158 +1273,27 @@ class Checker {
     level: number,
     moduleItems: boolean,
   ): Mono {
-    const sequentialPlaceholders = new Map<Resolved.SymbolId, Variable>();
-    const recursiveTypes = new Map<Resolved.SymbolId, Variable>();
-
-    // The symbols each function references, computed once and reused for both
-    // captured-binding detection and the function dependency graph.
-    const funItems = items.filter((item): item is Resolved.FunItem => item.kind === "Fun");
-    const funReferences = new Map<Resolved.SymbolId, ReadonlySet<Resolved.SymbolId>>(
-      funItems.map((item) => [item.binding.symbol, referencedSymbols(item.value)]),
-    );
-    const funBySymbol = new Map(funItems.map((item) => [item.binding.symbol, item]));
-    const funSymbols = new Set(funBySymbol.keys());
-
-    // A `let`/`var` captured by some function is installed as a monomorphic
-    // placeholder before any function body is checked, so bodies can refer to it.
-    const capturedSequential = new Set<Resolved.SymbolId>();
-    for (const references of funReferences.values()) {
-      for (const symbol of references) capturedSequential.add(symbol);
-    }
-
-    // ...except for `let`s, which generalize. Being captured must not cost one
-    // that: a monomorphic placeholder fuses every caller's use into one type, so
-    // a generic `let helper` called from two functions at two element types — or
-    // from one function under a declared type variable — collapses. Such bindings
-    // join the dependency-ordered pass below instead, generalized before the
-    // bodies that use them.
-    //
-    // Every `let`, not only the ones whose RHS is a syntactic value. That gate
-    // was right while generalization was all-or-nothing, and #205's item 7 made
-    // it wrong: an expansive RHS now generalizes per variable, so a placeheld
-    // expansive binding does not "stay monomorphic", it loses the variables item
-    // 7 would have granted it. The closure doc's own headline example is the
-    // case — `let xs = makeEmpty()` generalizes (§4.4), and under the old gate it
-    // stopped doing so the moment any function mentioned `xs`. Which function
-    // mentions a binding is not something the ruling conditions an answer on.
-    //
-    // What made the gate look load-bearing is that the three ways a binding can
-    // be unsound to share are all item 7's clauses, and it asks them whichever
-    // path the binding took: a constrained variable is declined by clause (a), a
-    // contravariant or invariant one by clause (b), and a declined variable is
-    // sunk back to `level` in `#generalize` — so it can no more be quantified
-    // into a sibling's scheme than a placeholder could. `var` keeps the
-    // placeholder unconditionally: a `var` is a cell, and item 7 governs
-    // generalization, not state.
-    const letBySymbol = new Map(
-      items.flatMap((item) => (item.kind === "Let" ? [[item.binding.symbol, item] as const] : [])),
-    );
-    const promotedLets = new Map<Resolved.SymbolId, Resolved.LetItem>();
-    for (let growing = true; growing;) {
-      growing = false;
-      for (const [symbol, item] of letBySymbol) {
-        if (promotedLets.has(symbol)) continue;
-        if (!capturedSequential.has(symbol)) continue;
-        promotedLets.set(symbol, item);
-        // Whatever the promoted binding itself references is now needed before the
-        // graph runs, so it must be placeheld (or promoted) in turn.
-        for (const referenced of referencedSymbols(item.value)) {
-          if (!capturedSequential.has(referenced)) {
-            capturedSequential.add(referenced);
-            growing = true;
-          }
-        }
-      }
-    }
-
-    for (const item of items) {
-      if (
-        (item.kind === "Let" || item.kind === "Var") &&
-        capturedSequential.has(item.binding.symbol) &&
-        !promotedLets.has(item.binding.symbol)
-      ) {
-        // At `level`, not `level + 1`. A placeholder stands for one binding
-        // holding one value of one type, and `#generalize` quantifies exactly the
-        // variables above the level it generalizes at — so a placeholder one level
-        // deeper would be quantified into any sibling's scheme that mentions it.
-        // Each consumer would then instantiate a fresh copy and the single runtime
-        // value would be handed out at two types, with two evidence dictionaries at
-        // constrained types. A placeholder sits *at* the generalization boundary,
-        // so nothing quantifies it and the value restriction survives being read
-        // through an intermediary.
-        const placeholder = this.#fresh(level, false);
-        placeholder.placeholder = true;
-        sequentialPlaceholders.set(item.binding.symbol, placeholder);
-        this.#schemes.set(item.binding.symbol, { variables: [], type: placeholder });
-      }
-    }
-
-    // Functions are checked in dependency order — the strongly-connected
-    // components of the function-reference graph, dependencies before dependents
-    // (issue #66, functions.md §4.1/§4.2). A reference to a function *outside* the
-    // current component resolves to an already-generalized scheme and is
-    // instantiated fresh per use (let-polymorphism); only genuine mutual recursion
-    // shares a monomorphic component, whose members' provisional monotypes are
-    // installed together before any of their bodies is checked.
-    // The graph carries promoted `let`s alongside the `fun`s, so a generic helper
-    // is generalized before whatever uses it regardless of which keyword declared it.
-    const graphItems: readonly (Resolved.FunItem | Resolved.LetItem)[] = items.flatMap((item) =>
-      item.kind === "Fun" || (item.kind === "Let" && promotedLets.has(item.binding.symbol))
-        ? [item as Resolved.FunItem | Resolved.LetItem]
-        : []
-    );
-    const graphBySymbol = new Map(graphItems.map((item) => [item.binding.symbol, item]));
-    const graphSymbols = new Set(graphBySymbol.keys());
-    const graphReferences = new Map(
-      graphItems.map((item) => [item.binding.symbol, referencedSymbols(item.value)]),
-    );
-    const sourceIndex = new Map(graphItems.map((item, index) => [item.binding.symbol, index]));
-    const bySource = (a: Resolved.SymbolId, b: Resolved.SymbolId): number =>
-      sourceIndex.get(a)! - sourceIndex.get(b)!;
-    const components = stronglyConnectedComponents(
-      graphItems.map((item) => item.binding.symbol),
-      (symbol) => [...(graphReferences.get(symbol) ?? [])].filter((referenced) => graphSymbols.has(referenced)),
-    );
-    for (const component of components) {
-      const ordered = [...component].sort(bySource);
-      for (const symbol of ordered) {
-        const recursiveType = this.#fresh(level + 1, false);
-        recursiveTypes.set(symbol, recursiveType);
-        this.#schemes.set(symbol, { variables: [], type: recursiveType });
-      }
-      for (const symbol of ordered) {
-        const item = graphBySymbol.get(symbol)!;
-        let valueType = this.#inferExpr(item.value, level + 1);
-        if (item.kind === "Let" && item.annotation !== undefined) {
-          const annotationType = this.#annotationType(
-            item.annotation, level + 1, new Map(), this.#annotationVariableScope ?? new Map(),
-          );
-          this.#unifyExpected(annotationType, valueType, item.value, item.annotation.span, true);
-          if (this.#hasNumericWidening(item.value)) valueType = annotationType;
-        }
-        this.#unify(recursiveTypes.get(symbol)!, valueType, item.span);
-      }
-      for (const symbol of ordered) {
-        const item = graphBySymbol.get(symbol)!;
-        this.#schemes.set(
-          symbol,
-          this.#generalize(
-            recursiveTypes.get(symbol)!,
-            level,
-            item.kind === "Fun" ? true : this.#isValue(item.value),
-            item.kind === "Let" ? item.annotation?.span : undefined,
-          ),
-        );
-      }
-    }
-
     for (let index = 0; index < items.length; index += 1) {
       const item = items[index];
       if (item === undefined) continue;
 
+      // A contiguous run of `fun`s is the one place a body may name a binding
+      // written below it (Functions §7.3), so it is the one place inference
+      // cannot simply follow the text. The run is typed as a unit here and the
+      // walk resumes after it; everything outside a run is reached in source
+      // order, which is why every reference lands on a finished scheme.
+      if (item.kind === "Fun") {
+        let end = index;
+        while (items[end]?.kind === "Fun") end += 1;
+        this.#inferFunGroup(
+          items.slice(index, end) as readonly Resolved.FunItem[],
+          level,
+        );
+        index = end - 1;
+        continue;
+      }
+
       if (item.kind === "Let") {
-        // Promoted bindings were inferred and generalized with the graph above.
-        if (promotedLets.has(item.binding.symbol)) continue;
         const inferredValueType = this.#inferExpr(item.value, level + 1);
         let valueType = inferredValueType;
         if (item.annotation !== undefined) {
@@ -1408,8 +1309,6 @@ class Checker {
           );
           if (this.#hasNumericWidening(item.value)) valueType = annotationType;
         }
-        const placeholder = sequentialPlaceholders.get(item.binding.symbol);
-        if (placeholder !== undefined) this.#unify(placeholder, valueType, item.span);
         const scheme = this.#generalize(
           valueType,
           level,
@@ -1638,8 +1537,6 @@ class Checker {
           );
           if (this.#hasNumericWidening(item.value)) valueType = annotationType;
         }
-        const placeholder = sequentialPlaceholders.get(item.binding.symbol);
-        if (placeholder !== undefined) this.#unify(placeholder, valueType, item.span);
         // A `var` holds one value of one type for as long as it is in scope, so
         // its variables belong to the environment and must sit at the block's
         // own level. Functions §8.4 says a `var` never generalizes; this is the
@@ -1649,9 +1546,8 @@ class Checker {
         // quantify, the demotion has to happen where the `var` is bound, or the
         // alias would hand out a polymorphic view of a binding that can still be
         // assigned at one type.
-        const bound = placeholder ?? valueType;
-        this.#lowerLevels(bound, level);
-        this.#schemes.set(item.binding.symbol, { variables: [], type: bound });
+        this.#lowerLevels(valueType, level);
+        this.#schemes.set(item.binding.symbol, { variables: [], type: valueType });
         this.#mutableSymbols.add(item.binding.symbol);
         continue;
       }
@@ -1672,10 +1568,6 @@ class Checker {
           this.#isValue(item.value),
           valueType,
         );
-        continue;
-      }
-
-      if (item.kind === "Fun") {
         continue;
       }
 
@@ -1754,6 +1646,59 @@ class Checker {
       return ERROR;
     }
     return this.#typeOf(finalItem.expression);
+  }
+
+  /**
+   * Types one contiguous `fun` group (Functions §7.3).
+   *
+   * Grouping bounds visibility, not typing: the monomorphic knot is still the
+   * strongly-connected component of the references actually written, computed
+   * *within* the group and typed dependencies-first (§7.4). Two adjacent but
+   * independent members therefore keep their own generality — a member outside
+   * the current component is already generalized and instantiated fresh per use.
+   *
+   * Members of the group are held on `#funGroups` while their bodies are checked,
+   * which is what lets a dot call inside one recognize a sibling as its own group
+   * and refuse it (Method Syntax §4.4).
+   */
+  #inferFunGroup(group: readonly Resolved.FunItem[], level: number): void {
+    const bySymbol = new Map(group.map((item) => [item.binding.symbol, item]));
+    const members = new Set(bySymbol.keys());
+    const references = new Map(
+      group.map((item) => [item.binding.symbol, referencedSymbols(item.value)]),
+    );
+    const sourceIndex = new Map(group.map((item, index) => [item.binding.symbol, index]));
+    const recursiveTypes = new Map<Resolved.SymbolId, Variable>();
+    const components = stronglyConnectedComponents(
+      group.map((item) => item.binding.symbol),
+      (symbol) => [...(references.get(symbol) ?? [])].filter((referenced) => members.has(referenced)),
+    );
+    this.#funGroups.push(members);
+    for (const component of components) {
+      const ordered = [...component].sort(
+        (a, b) => sourceIndex.get(a)! - sourceIndex.get(b)!,
+      );
+      for (const symbol of ordered) {
+        const recursiveType = this.#fresh(level + 1, false);
+        recursiveTypes.set(symbol, recursiveType);
+        this.#schemes.set(symbol, { variables: [], type: recursiveType });
+      }
+      for (const symbol of ordered) {
+        const item = bySymbol.get(symbol)!;
+        this.#unify(
+          recursiveTypes.get(symbol)!,
+          this.#inferExpr(item.value, level + 1),
+          item.span,
+        );
+      }
+      for (const symbol of ordered) {
+        this.#schemes.set(
+          symbol,
+          this.#generalize(recursiveTypes.get(symbol)!, level, true, undefined),
+        );
+      }
+    }
+    this.#funGroups.pop();
   }
 
   /**
@@ -2741,7 +2686,15 @@ class Checker {
               ? undefined
               : this.#companionOperations.get(companion)?.get(expression.callee.field.text);
             const scheme = operation === undefined ? undefined : this.#schemes.get(operation.id);
-            if (operation === undefined || scheme === undefined) {
+            // A candidate that exists but this call site may not reach is never
+            // reported as a missing operation — that claim would be false (§4.4,
+            // §9 rows 12–13).
+            const unreachable = operation === undefined
+              ? undefined
+              : this.#dotCallReachability(
+                  operation, expression.callee, expression.arguments, actual,
+                );
+            if (operation === undefined || scheme === undefined || unreachable !== undefined) {
               // Abandoning the call does not excuse the arguments: materialization
               // walks the whole resolved tree, and an integer literal's `FromNat`
               // requirement exists only if inference recorded one. Skipping them
@@ -2751,7 +2704,8 @@ class Checker {
               }
               type = this.#unsupported(
                 expression.callee.field.span,
-                `the companion of \`${this.#display(actual)}\` has no operation \`${expression.callee.field.text}\`; call an available subject-first function explicitly`,
+                unreachable ??
+                  `the companion of \`${this.#display(actual)}\` has no operation \`${expression.callee.field.text}\`; call an available subject-first function explicitly`,
               );
               break;
             }
@@ -3886,23 +3840,6 @@ class Checker {
     return { kind: "Record", fields };
   }
 
-  /**
-   * A declared type variable tried to stand for a captured module-level binding
-   * whose type the value restriction pinned. Leads with the canonical repair
-   * (Rewrite Rule), then the inference-revealing alternative.
-   */
-  #placeholderEscape(rigidName: string, span: Source.Span): void {
-    this.#diagnostics.add({
-      severity: "error",
-      message:
-        `\`${rigidName}\` is a declared type variable, but the body requires the single ` +
-        "type of a module-level binding that is not generalized; name that concrete type " +
-        `instead of \`${rigidName}\`, or make the binding generalizable by defining it as a ` +
-        "function",
-      primary: span,
-    });
-  }
-
   #recordMismatch(fields: readonly string[], span: Source.Span): void {
     this.#diagnostics.add({
       severity: "error",
@@ -3912,31 +3849,8 @@ class Checker {
   }
 
   #bind(variable: Variable, type: Mono, span: Source.Span): void {
-    // The placeholder may also be the one being bound, to a type that *mentions*
-    // a declared variable (`fun reuse(): Vector(a) = shared`). Binding it would
-    // let `a` be quantified while standing for the pinned binding's element type,
-    // which is the same escape seen from the other direction below.
-    if (variable.placeholder === true) {
-      const declared = this.#collectVariables(type).find(
-        (candidate) => candidate.rigidName !== undefined,
-      );
-      if (declared !== undefined) {
-        this.#placeholderEscape(declared.rigidName!, span);
-        variable.instance = ERROR;
-        return;
-      }
-    }
     if (variable.rigidName !== undefined) {
       if (type.kind === "Variable" && type.rigidName === undefined) {
-        // A placeholder is one binding's single type, so a declared type variable
-        // cannot stand for it: absorbing it would let the annotation generalize
-        // over a value the value restriction pinned, and each caller would receive
-        // a fresh instantiation of one runtime value.
-        if (type.placeholder === true) {
-          this.#placeholderEscape(variable.rigidName, span);
-          variable.instance = ERROR;
-          return;
-        }
         this.#bind(type, variable, span);
         return;
       }
@@ -4797,8 +4711,7 @@ class Checker {
         }
         // Sunk so no enclosing generalization can quantify what this one
         // declined — the same sink the `!allow` branch below performs, and the
-        // handoff's Defect 7 invariant (a declined variable must be no more
-        // quantifiable into a sibling's scheme than a placeholder is).
+        // handoff's Defect 7 invariant.
         //
         // Held by (x-k). Two seats recorded this line as undiscriminable before
         // round 5 found the specimen they had both missed: a *sibling* binding

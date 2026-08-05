@@ -209,27 +209,32 @@ describe("a receiver with no companion in the graph reports (#217)", () => {
 
 describe("the companion is the home module, and only the home module", () => {
   /**
-   * Dispatch inside the declaring file, on an operation written **after** the use
-   * site. §4.2 builds the candidate set by indexing declarations, so nothing here
-   * may depend on source order — and the index cannot be read off schemes, which
-   * are seeded in dependency order during inference.
-   *
-   * `fun`, not the `let` header. The two spellings index identically, but only
-   * `fun` items join the dependency-ordered pass that seeds schemes before the
-   * sequential one, so an `export let twice(b: Box): Int` written below its use
-   * still has no scheme when the dot call asks and the call is abandoned. That is
-   * unchanged by #267 — the old by-name table reached the same bail from the same
-   * cause — and it is a scheme-seeding question, not a resolution one.
+   * Dispatch inside the declaring file reads top-down like every other reference
+   * (Method Syntax §4.4, Functions §7.2): the operation is in §4.2's candidate
+   * set whichever side of the call it sits on — the set is indexed from
+   * declarations — but only a declaration above the call may be reached.
    */
-  test("an operation declared later in the same file still dispatches", async () => {
+  test("an operation declared above its call site dispatches", async () => {
     const main = await runProject([[
       "/main.hex",
       "export record Box = {value: Int}\n" +
-      "export let doubled: Int = Box({value = 21}).twice()\n" +
-      "export fun twice(b: Box): Int = b.value * 2\n",
+      "export fun twice(b: Box): Int = b.value * 2\n" +
+      "export let doubled: Int = Box({value = 21}).twice()\n",
     ]]);
 
     expect(main["doubled"]).toBe(42);
+  });
+
+  /** §9 row 12: the candidate exists, so "has no operation" would be a lie. */
+  test("an operation declared below its call site is refused as such", () => {
+    expect(projectDiagnostics(
+      "export record Box = {value: Int}\n" +
+      "export let doubled: Int = Box({value = 21}).twice()\n" +
+      "export fun twice(b: Box): Int = b.value * 2\n",
+    )).toEqual([
+      "`Box`'s companion declares `twice` below this call; declarations are " +
+      "read top-down — move the declaration above this call",
+    ]);
   });
 
   /**
