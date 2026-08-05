@@ -74,12 +74,17 @@ describe("importing a constraint brings its members (Modules §3.1)", () => {
     );
   });
 
-  test("no constraint machinery reaches the declaration file (§6.4)", () => {
+  test("no constraint machinery reaches either `.d.ts` (§6.4)", () => {
     const project = compileFiles(files);
     const labels = project.modules.find(({ source }) => source.path === "/labels.hex")!;
+    const main = project.modules.find(({ source }) => source.path === "/main.hex")!;
 
     expect(labels.declarations.text).not.toContain("Label");
     expect(labels.declarations.text).not.toContain("label");
+    // Nor at the importing end: neither the constraint name nor the member
+    // forwarder is a face, so neither becomes an `import type` row.
+    expect(main.declarations.text).not.toContain("Label");
+    expect(main.declarations.text).not.toContain("label");
   });
 });
 
