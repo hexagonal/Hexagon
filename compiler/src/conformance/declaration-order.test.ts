@@ -170,6 +170,39 @@ describe("a dot call reads top-down too (Method Syntax §4.4)", () => {
   });
 });
 
+describe("a dot call cannot make a `let` recursive (Functions §6)", () => {
+  // The scheme is seeded when the item is inferred, so a candidate that has none
+  // while still declared above the call can only be the operation whose own
+  // right-hand side the call sits in. Reporting that as a missing operation
+  // would be false — the companion declares it.
+  const SELF =
+    "`dup` is not in scope in its own `let` definition; `let` is non-recursive — use `fun`.";
+
+  test("a self dot call takes the non-recursive-`let` report", () => {
+    expect(projectDiagnostics(
+      BOX + "export let dup(b: Box): Box = b.dup()\n",
+    )).toEqual([SELF]);
+  });
+
+  test("...from an inner block of the same right-hand side too", () => {
+    expect(projectDiagnostics(
+      BOX +
+      "export let dup(b: Box): Box =\n" +
+      "    let again = b.dup()\n" +
+      "    again\n",
+    )).toEqual([SELF]);
+  });
+
+  test("a genuinely absent operation keeps its own report", () => {
+    expect(projectDiagnostics(
+      BOX + "export let use(b: Box): Int = b.nope()\n",
+    )).toEqual([
+      "the companion of `Box` has no operation `nope`; call an available " +
+      "subject-first function explicitly",
+    ]);
+  });
+});
+
 describe("a contiguous `fun` run is one group (Functions §7.3)", () => {
   test("mutual recursion inside the run compiles and runs", async () => {
     const main = await runProject([["/main.hex",
@@ -250,6 +283,19 @@ describe("a dot call never targets its own `fun` group (§9 row 13)", () => {
     ]);
   });
 
+  test("a `let` read from inside a group is not a group member", async () => {
+    // The ban is membership, not enclosure: a body inside the group may still
+    // dot-call anything declared above the group.
+    const main = await runProject([["/main.hex",
+      BOX + TWICE_LET +
+      "export fun go(b: Box, n: Int): Int =\n" +
+      "    if n == 0 then b.twice() else go(b, n - 1)\n" +
+      "export let out: Int = go(Box({value = 3}), 2)\n",
+    ]]);
+
+    expect(main["out"]).toBe(6);
+  });
+
   test("an earlier group is not the caller's own group", async () => {
     const main = await runProject([["/main.hex",
       BOX +
@@ -301,6 +347,32 @@ describe("the term names a type declaration binds read top-down (§7.2)", () => 
       "export let e: Exn = Bad(1)\n" +
       "exception Bad(Int)\n",
     ]])).toEqual([DECLARED_LATER("Bad")]);
+  });
+
+  test("a match arm above the union names the union as the move", () => {
+    expect(diagnostics([["/main.hex",
+      "export fun distance(s: Spot): Int = match s\n" +
+      "    Origin => 0\n" +
+      "    Away(n) => n\n" +
+      "export union Spot = Origin | Away(Int)\n",
+    ]])[0]).toBe(
+      "`Origin` is declared later in this block; declarations are read " +
+      "top-down — move the union's declaration above this use",
+    );
+  });
+
+  test("a catch arm above the exception names the exception", () => {
+    expect(diagnostics([["/main.hex",
+      "export fun safe(): Int =\n" +
+      "    try\n" +
+      "        1\n" +
+      "    catch\n" +
+      "        Bad(n) => n\n" +
+      "exception Bad(Int)\n",
+    ]])[0]).toBe(
+      "`Bad` is declared later in this block; declarations are read " +
+      "top-down — move the exception's declaration above this use",
+    );
   });
 
   test("a constructor named in a `fun` body above the union is the same", () => {

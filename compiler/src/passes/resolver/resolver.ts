@@ -103,20 +103,39 @@ type BinderClass = "sequential" | "head" | "parameter";
  * the actual repair.
  */
 interface BlockDeclarations {
-  readonly later: Map<string, { readonly name: Parsed.Name; readonly fun: boolean }>;
+  readonly later: Map<string, LaterDeclaration>;
   readonly funSymbols: Set<Resolved.SymbolId>;
+}
+
+/**
+ * `owner` is the declaring form for a name a type-namespace declaration binds —
+ * what a diagnostic must tell the reader to move, since the constructor is not
+ * itself movable.
+ */
+interface LaterDeclaration {
+  readonly name: Parsed.Name;
+  readonly fun: boolean;
+  readonly owner?: string;
 }
 
 /**
  * The **term**-namespace names a type-namespace declaration binds: a union's and
  * record's constructors, an exception's, a constraint's members. Functions §7.2
- * governs their value-position uses; the type names beside them are not here,
- * because a type-position mention is order-free.
+ * governs their references — value position, and equally the pattern position a
+ * constructor reaches; the type names beside them are not here, because a
+ * type-position mention is order-free.
  */
-function termNamesBound(item: Parsed.Item): readonly Parsed.Name[] {
-  if (item.kind === "Union") return item.constructors.map(({ name }) => name);
-  if (item.kind === "RecordDeclaration" || item.kind === "Exception") return [item.name];
-  if (item.kind === "ConstraintDeclaration") return item.members.map(({ name }) => name);
+function termNamesBound(
+  item: Parsed.Item,
+): readonly { readonly name: Parsed.Name; readonly owner: string }[] {
+  if (item.kind === "Union") {
+    return item.constructors.map(({ name }) => ({ name, owner: "union" }));
+  }
+  if (item.kind === "RecordDeclaration") return [{ name: item.name, owner: "record" }];
+  if (item.kind === "Exception") return [{ name: item.name, owner: "exception" }];
+  if (item.kind === "ConstraintDeclaration") {
+    return item.members.map(({ name }) => ({ name, owner: "constraint" }));
+  }
   return [];
 }
 
@@ -949,19 +968,19 @@ class Resolver {
     // leave as the walk passes their declaration, so what remains is exactly
     // what is still *later* than the reference being resolved.
     const frame: BlockDeclarations = { later: new Map(), funSymbols: new Set() };
-    const declare = (name: Parsed.Name, fun = false): void => {
-      if (!frame.later.has(name.text)) frame.later.set(name.text, { name, fun });
+    const declare = (later: LaterDeclaration): void => {
+      if (!frame.later.has(later.name.text)) frame.later.set(later.name.text, later);
     };
     for (const item of items) {
       if (item.kind === "Fun" || item.kind === "Let" || item.kind === "Var") {
-        declare(item.name, item.kind === "Fun");
+        declare({ name: item.name, fun: item.kind === "Fun" });
       } else if (item.kind === "LetPattern") {
-        for (const name of Parsed.patternNames(item.pattern)) declare(name);
+        for (const name of Parsed.patternNames(item.pattern)) declare({ name, fun: false });
       } else {
-        // The term names a type-namespace declaration binds. Their *value*-position
-        // uses read top-down like any other term reference (§7.2); the declarations
+        // The term names a type-namespace declaration binds. Their references
+        // read top-down like any other term reference (§7.2); the declarations
         // themselves, and every type-position mention of them, stay order-free.
-        for (const name of termNamesBound(item)) declare(name);
+        for (const { name, owner } of termNamesBound(item)) declare({ name, fun: false, owner });
       }
     }
     this.#blockDeclarations.push(frame);
@@ -995,7 +1014,7 @@ class Resolver {
       } else if (item.kind === "LetPattern") {
         for (const name of Parsed.patternNames(item.pattern)) frame.later.delete(name.text);
       } else {
-        for (const name of termNamesBound(item)) frame.later.delete(name.text);
+        for (const { name } of termNamesBound(item)) frame.later.delete(name.text);
       }
     }
     this.#blockDeclarations.pop();
@@ -2173,11 +2192,25 @@ class Resolver {
     if (pattern.kind === "Constructor") {
       const symbol = scope.lookup(pattern.name.text);
       if (symbol === undefined || this.#symbol(symbol).kind !== "constructor") {
-        this.#diagnostics.add({
-          severity: "error",
-          message: `unknown constructor \`${pattern.name.text}\``,
-          primary: pattern.name.span,
-        });
+        const later = symbol === undefined
+          ? this.#findLaterDeclaration(pattern.name.text)
+          : undefined;
+        this.#diagnostics.add(
+          later === undefined
+            ? {
+                severity: "error",
+                message: `unknown constructor \`${pattern.name.text}\``,
+                primary: pattern.name.span,
+              }
+            : {
+                severity: "error",
+                message: `\`${pattern.name.text}\` is declared later in this block; ` +
+                  "declarations are read top-down — move the " +
+                  `${later.owner ?? "declaration"}'s declaration above this use`,
+                primary: pattern.name.span,
+                labels: [{ span: later.name.span, message: "declared here" }],
+              },
+        );
         return { kind: "Wildcard", span: pattern.span };
       }
       return {
@@ -2380,13 +2413,13 @@ class Resolver {
    */
   #findLaterDeclaration(
     name: string,
-  ): { readonly name: Parsed.Name; readonly split: boolean } | undefined {
+  ): (LaterDeclaration & { readonly split: boolean }) | undefined {
     for (let index = this.#blockDeclarations.length - 1; index >= 0; index -= 1) {
       const frame = this.#blockDeclarations[index];
       const declaration = frame?.later.get(name);
       if (frame === undefined || declaration === undefined) continue;
       return {
-        name: declaration.name,
+        ...declaration,
         split: declaration.fun &&
           this.#currentFunctions.some((symbol) => frame.funSymbols.has(symbol)),
       };

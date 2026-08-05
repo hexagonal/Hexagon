@@ -2694,6 +2694,15 @@ class Checker {
               : this.#dotCallReachability(
                   operation, expression.callee, expression.arguments, actual,
                 );
+            // A candidate whose scheme is still missing, having passed the
+            // reachability test, is the operation whose own right-hand side this
+            // call sits in: a scheme is seeded when its item is inferred, so the
+            // only reference that can precede one is a self-reference. `let` is
+            // non-recursive, and the dot spelling does not change that (Functions
+            // §6) — the resolver says so for the bare spelling, and this says it
+            // in the same words for the dotted one.
+            const selfReference = operation !== undefined && scheme === undefined &&
+              unreachable === undefined;
             if (operation === undefined || scheme === undefined || unreachable !== undefined) {
               // Abandoning the call does not excuse the arguments: materialization
               // walks the whole resolved tree, and an integer literal's `FromNat`
@@ -2705,7 +2714,9 @@ class Checker {
               type = this.#unsupported(
                 expression.callee.field.span,
                 unreachable ??
-                  `the companion of \`${this.#display(actual)}\` has no operation \`${expression.callee.field.text}\`; call an available subject-first function explicitly`,
+                  (selfReference
+                    ? `\`${expression.callee.field.text}\` is not in scope in its own \`let\` definition; \`let\` is non-recursive — use \`fun\`.`
+                    : `the companion of \`${this.#display(actual)}\` has no operation \`${expression.callee.field.text}\`; call an available subject-first function explicitly`),
               );
               break;
             }
