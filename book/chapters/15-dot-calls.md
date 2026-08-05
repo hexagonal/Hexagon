@@ -81,6 +81,12 @@ The rule is based on the receiver's type, not on which unqualified names happen 
 imported. Imports cannot introduce competing method candidates. There is one companion
 module and therefore one operation set to consult.
 
+Inside the home module itself, the familiar top-down rule applies unchanged: a dot
+call is legal exactly where the qualified call would be, so the operation must be
+declared above the call that uses it, like every binding (chapter 3). One further rule
+keeps recursion visible: a dot call never targets a member of its own `fun` group.
+Recursive calls are spelled by name, never hidden behind a dot.
+
 Primitive and prelude types follow the same idea through their fixed companions:
 `String`, `Option`, `Result`, and later `Vector` and `Map` are not special runtime
 objects. Their dot calls are still rewrites to ordinary functions.
