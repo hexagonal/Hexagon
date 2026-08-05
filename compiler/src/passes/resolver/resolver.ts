@@ -31,6 +31,34 @@ export interface ModuleInterface {
   readonly aliases: ReadonlyMap<string, Resolved.TypeAliasItem>;
   readonly externTypes: ReadonlyMap<string, Resolved.ExternTypeDeclaration>;
   readonly instances: readonly InstanceInterface[];
+  /**
+   * Constraints this module exports, by declared name (Modules §4.1) — the ones
+   * an importer may **name**, in a binder or through a module alias.
+   */
+  readonly constraints: ReadonlyMap<string, Resolved.ConstraintItem>;
+  /**
+   * The members of those constraints, by declared name (Modules §3.1: they
+   * arrive with the constraint).
+   *
+   * Deliberately not folded into `terms`. A member is an ordinary module-scope
+   * term once it is in scope, but it is not an independently importable export:
+   * `import { describe }` naming only a member is refused (§3.1's "cannot be
+   * imported severally", §12.4). Qualified access through a module alias reads
+   * this map after `terms`, which is what makes `Geo.describe(x)` an ordinary
+   * term reference (§3.3).
+   */
+  readonly constraintMembers: ReadonlyMap<string, Resolved.Symbol>;
+  /**
+   * Every constraint declaration reachable from this module, **exported or
+   * not**, deduplicated by identity — metadata for the checker, never scope.
+   *
+   * Private ones are here on purpose, and that is the point of the channel: an
+   * exported function's scheme can carry a requirement for a constraint the
+   * importer can never name (`export fun announce<a: Describe>` over a private
+   * `Describe`), and discharging that requirement through a candidate has to
+   * walk *its* base graph. See `Resolved.Module.visibleConstraints`.
+   */
+  readonly visibleConstraints: readonly Resolved.ConstraintItem[];
 }
 
 export interface InstanceInterface {
@@ -198,6 +226,24 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
   const instances = [...new Map(
     discoveredInstances.map((instance) => [instance.identity, instance]),
   ).values()];
+  const constraints = new Map<string, Resolved.ConstraintItem>();
+  const constraintMembers = new Map<string, Resolved.Symbol>();
+  // Local declarations first, then what this module's own imports reached. Both
+  // halves are metadata; only the exported local ones become nameable above.
+  const visible = new Map<string, Resolved.ConstraintItem>();
+  for (const item of module.items) {
+    if (item.kind !== "ConstraintDeclaration") continue;
+    visible.set(item.identity, item);
+    if (!item.exported) continue;
+    constraints.set(item.name, item);
+    for (const member of item.members) {
+      const symbol = symbols.get(member.binding.symbol);
+      if (symbol !== undefined) constraintMembers.set(member.binding.name, symbol);
+    }
+  }
+  for (const declaration of module.visibleConstraints) {
+    if (!visible.has(declaration.identity)) visible.set(declaration.identity, declaration);
+  }
   for (const item of module.items) {
     if (item.kind === "ExternBlock") {
       for (const declaration of item.declarations) {
@@ -233,7 +279,18 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
       if (symbol !== undefined) terms.set(item.binding.name, symbol);
     }
   }
-  return { module, terms, unions, records, aliases, externTypes, instances };
+  return {
+    module,
+    terms,
+    unions,
+    records,
+    aliases,
+    externTypes,
+    instances,
+    constraints,
+    constraintMembers,
+    visibleConstraints: [...visible.values()],
+  };
 }
 
 class Scope {
@@ -348,6 +405,24 @@ class Resolver {
    * refused rather than admitted as a name the wired-in machinery cannot reach.
    */
   readonly #constraintNames = new Set<string>(NON_REDECLARABLE_CONSTRAINTS);
+  /**
+   * The constraint names this module's own `constraint` declarations take,
+   * collected before any item is resolved.
+   *
+   * Read by `#constraintIdentity` so that a module which both declares `C` and
+   * imports one keeps its own declaration's identity for its own text. That the
+   * pair is also a reported collision is beside the point: the identity has to
+   * be a function of the name either way, and answering it from source order
+   * would make the erroneous program's two halves disagree about which `C` they
+   * meant.
+   */
+  readonly #declaredConstraintNames = new Set<string>();
+  /** Imported constraints by the local name they bind (Modules §3.1/§3.2). */
+  readonly #importedConstraints = new Map<string, Resolved.ConstraintItem>();
+  /** Imported constraints by `Alias.Name`, for the §3.3 binder position. */
+  readonly #qualifiedConstraints = new Map<string, Resolved.ConstraintItem>();
+  /** Every constraint declaration the import graph reaches, by identity. */
+  readonly #visibleConstraints = new Map<string, Resolved.ConstraintItem>();
   readonly #impliedTypeOwners = new Map<string, Set<string>>();
   readonly #pending: { readonly name: Parsed.Name; readonly kind: "let" | "var" }[] = [];
   readonly #predeclaredBindings = new WeakMap<Parsed.LetItem | Parsed.VarItem | Parsed.FunItem | Parsed.ExternFunDeclaration | Parsed.ExternLetDeclaration, Resolved.Binding>();
@@ -394,15 +469,32 @@ class Resolver {
    * identity — otherwise `stdlib/Integral.hex`'s constraint and the `Integral`
    * an importing module demands would be two different constraints.
    *
-   * Constraints are module-local in v1, so a name that is neither
-   * pre-registered nor declared here names nothing; it is minted file-scoped
+   * An **imported** constraint keeps the identity its declaring module minted
+   * (§6.5's "an exported constraint crosses as a reference to its
+   * declaration"), which is the whole point: the importer must not mint one of
+   * its own, or the instances the home module already holds would answer a
+   * different constraint. This module's own declarations still win over an
+   * import of the same name — see `#declaredConstraintNames`.
+   *
+   * A name that is none of the three names nothing; it is minted file-scoped
    * anyway, which keeps the checker's unknown-constraint report the only
    * diagnostic for that program rather than adding a second, keying one.
    */
   #constraintIdentity(name: string): string {
-    return isPreRegisteredConstraint(name)
-      ? preRegisteredConstraintIdentity(name)
-      : declaredConstraintIdentity(this.#fileId, name);
+    const qualified = this.#qualifiedConstraints.get(name);
+    if (qualified !== undefined) return qualified.identity;
+    if (isPreRegisteredConstraint(name)) return preRegisteredConstraintIdentity(name);
+    if (this.#declaredConstraintNames.has(name)) {
+      return declaredConstraintIdentity(this.#fileId, name);
+    }
+    return this.#importedConstraints.get(name)?.identity ??
+      declaredConstraintIdentity(this.#fileId, name);
+  }
+
+  /** The declaration a constraint name denotes here, if this module can see it. */
+  #namedConstraint(name: string): Resolved.ConstraintItem | undefined {
+    return this.#qualifiedConstraints.get(name) ??
+      this.#importedConstraints.get(name);
   }
 
   /**
@@ -588,6 +680,7 @@ class Resolver {
     // See Collections Part 2 §6–§7.3.
     for (const item of module.items) {
       if (item.kind !== "ConstraintDeclaration") continue;
+      this.#declaredConstraintNames.add(item.name.text);
       for (const impliedType of item.impliedTypes) {
         const owners = this.#impliedTypeOwners.get(impliedType.name.text) ?? new Set();
         owners.add(item.name.text);
@@ -645,6 +738,7 @@ class Resolver {
       // source-written import took an entry over (§2.4), and the import items
       // are only all resolved by now.
       preludeTypeImports: this.#preludeTypeImports.map((entry) => ({ ...entry })),
+      visibleConstraints: [...this.#visibleConstraints.values()],
       externTypes: this.#externTypes,
       comments: module.comments,
       docs: module.docs,
@@ -920,6 +1014,16 @@ class Resolver {
             primary: item.span,
           });
         }
+        /** What this line put in the constraint namespace; see `ConstraintImport`. */
+        const boundConstraints: Resolved.ConstraintImport[] = [];
+        // Metadata before names, and for every import form including the effect
+        // one: what a module can *see* of the constraint graph is a property of
+        // the graph, not of what this line chose to bind (Modules §6.5).
+        for (const declaration of importedModule?.visibleConstraints ?? []) {
+          if (!this.#visibleConstraints.has(declaration.identity)) {
+            this.#visibleConstraints.set(declaration.identity, declaration);
+          }
+        }
         if (item.form.kind === "Namespace" && importedModule !== undefined) {
           if (this.#moduleAliases.has(item.form.alias.text)) {
             this.#diagnostics.add({
@@ -933,22 +1037,66 @@ class Resolver {
             for (const symbol of importedModule.terms.values()) {
               this.#importedSymbols.set(symbol.id, symbol);
             }
+            // §3.3: a constraint qualifies through the alias in a binder
+            // (`<a: Geo.C>`), and its members through it as ordinary terms
+            // (`Geo.describe(x)`). The alias is the module in both cases.
+            for (const declaration of importedModule.constraints.values()) {
+              const local = `${item.form.alias.text}.${declaration.name}`;
+              this.#qualifiedConstraints.set(local, declaration);
+              boundConstraints.push({ local, declaration });
+            }
+            for (const symbol of importedModule.constraintMembers.values()) {
+              this.#importedSymbols.set(symbol.id, symbol);
+            }
           }
         }
         const names = item.form.kind === "Named"
-          ? item.form.names.map((name) => {
+          ? item.form.names.flatMap((name): Resolved.ImportName[] => {
               const term = importedModule?.terms.get(name.imported.text);
               const union = importedModule?.unions.get(name.imported.text);
               const record = importedModule?.records.get(name.imported.text);
               const alias = importedModule?.aliases.get(name.imported.text);
               const externType = importedModule?.externTypes.get(name.imported.text);
-              if (term === undefined && union === undefined && record === undefined && alias === undefined && externType === undefined) {
+              const constraint = importedModule?.constraints.get(name.imported.text);
+              // §3.1: "Members cannot be imported severally." Naming one is a
+              // near miss with an exact answer, so it gets the answer rather
+              // than the generic does-not-export report.
+              const severalMember = term === undefined && constraint === undefined
+                ? importedModule?.constraintMembers.get(name.imported.text)
+                : undefined;
+              if (severalMember !== undefined) {
+                const owner = [...importedModule!.constraints.values()].find(
+                  (declaration) =>
+                    declaration.members.some(
+                      ({ binding }) => binding.name === name.imported.text,
+                    ),
+                );
+                this.#diagnostics.add({
+                  severity: "error",
+                  message:
+                    `\`${name.imported.text}\` is a member of constraint ` +
+                    `\`${owner?.name ?? "?"}\`; import the constraint — its members ` +
+                    "arrive with it",
+                  primary: name.span,
+                });
+                return [];
+              }
+              if (term === undefined && union === undefined && record === undefined && alias === undefined && externType === undefined && constraint === undefined) {
                 this.#diagnostics.add({
                   severity: "error",
                   message: `module \`${item.specifier}\` does not export \`${name.imported.text}\``,
                   primary: name.span,
                 });
               }
+              const memberNames = constraint === undefined
+                ? []
+                : this.#bindImportedConstraint(
+                    importedModule!,
+                    constraint,
+                    name,
+                    scope,
+                    boundConstraints,
+                  );
               if (term !== undefined) {
                 const existing = scope.lookup(name.local.text);
                 // A prelude name is a shadowable fallback: an explicit import of
@@ -1027,14 +1175,21 @@ class Resolver {
                   if (owned) entry.explicitLocal = name.local.text;
                 }
               }
-              return {
-                imported: name.imported.text,
-                local: name.local.text,
-                ...(term === undefined ? {} : { symbol: term.id }),
-                ...(term === undefined && typeBinding ? { typeOnly: true } : {}),
-                ...(typeBinding ? { typeBinding: true } : {}),
-                span: name.span,
-              };
+              // A constraint name binds in neither the term nor the type
+              // namespace and has no `.js` or `.d.ts` face (Constraints §6.4),
+              // so it contributes no entry of its own — only its members do.
+              const own: readonly Resolved.ImportName[] =
+                term === undefined && !typeBinding && constraint !== undefined
+                  ? []
+                  : [{
+                      imported: name.imported.text,
+                      local: name.local.text,
+                      ...(term === undefined ? {} : { symbol: term.id }),
+                      ...(term === undefined && typeBinding ? { typeOnly: true } : {}),
+                      ...(typeBinding ? { typeBinding: true } : {}),
+                      span: name.span,
+                    }];
+              return [...own, ...memberNames];
             })
           : undefined;
         const namespaceAlias = item.form.kind === "Namespace"
@@ -1064,14 +1219,22 @@ class Resolver {
               ? {
                   kind: "Namespace",
                   alias: namespaceAlias!,
-                  names: [...(importedModule?.terms.entries() ?? [])].map(
-                    ([name, symbol]) => ({
-                      imported: name,
-                      local: `${namespaceAlias}.${name}`,
-                      symbol: symbol.id,
-                      span: item.span,
-                    }),
-                  ),
+                  names: [
+                    ...[...(importedModule?.terms.entries() ?? [])].map(
+                      ([name, symbol]) => ({ name, symbol, member: false }),
+                    ),
+                    // §3.3: `Geo.describe(x)` is an ordinary term reference,
+                    // reached through the alias like any other export.
+                    ...[...(importedModule?.constraintMembers.entries() ?? [])].map(
+                      ([name, symbol]) => ({ name, symbol, member: true }),
+                    ),
+                  ].map(({ name, symbol, member }) => ({
+                    imported: name,
+                    local: `${namespaceAlias}.${name}`,
+                    symbol: symbol.id,
+                    ...(member ? { constraintMember: true } : {}),
+                    span: item.span,
+                  })),
                 }
               : {
                   kind: "Named",
@@ -1089,6 +1252,7 @@ class Resolver {
               `__hex_imported_${Number(importedModule!.module.fileId)}_${instance.dictionary}`,
             span: item.span,
           })),
+          constraints: boundConstraints,
           span: item.span,
         };
       }
@@ -1171,7 +1335,9 @@ class Resolver {
             severity: "error",
             message: isPreRegisteredConstraint(item.name.text)
               ? `constraint \`${item.name.text}\` is pre-registered and cannot be redeclared`
-              : `constraint \`${item.name.text}\` is already declared`,
+              : this.#importedConstraints.has(item.name.text)
+                ? `constraint \`${item.name.text}\` is already declared or imported`
+                : `constraint \`${item.name.text}\` is already declared`,
             primary: item.name.span,
           });
         }
@@ -1211,12 +1377,18 @@ class Resolver {
             span: member.span,
           };
         });
-        return {
+        const declaration: Resolved.ConstraintItem = {
           kind: "ConstraintDeclaration",
+          exported: item.exported,
           name: item.name.text,
           identity: this.#constraintIdentity(item.name.text),
           subject: item.subject.text,
           baseConstraints: item.baseConstraints.map(({ text }) => text),
+          // Resolved here, where the names were written: an importer reading
+          // `baseConstraints` alone could only guess (§6.5).
+          baseConstraintIdentities: item.baseConstraints.map(({ text }) =>
+            this.#constraintIdentity(text)
+          ),
           impliedTypes: item.impliedTypes.map(({ name, span }) => ({
             name: name.text,
             span,
@@ -1224,6 +1396,8 @@ class Resolver {
           members,
           span: item.span,
         };
+        this.#visibleConstraints.set(declaration.identity, declaration);
+        return declaration;
       }
       case "Honor": {
         const typeParameterNames = new Set(item.typeParameters.map(({ name }) => name.text));
@@ -2665,6 +2839,9 @@ class Resolver {
       // interface, which consumers would then predict imports of and
       // intermediates re-export — the transit chain #153 exists to cut.
       instances: [],
+      // Empty for the same reason: the prelude's constraints are the
+      // pre-registered ones, in scope by name in every module with no import.
+      constraints: [],
       synthesized: true,
       span,
     }));
@@ -2831,6 +3008,75 @@ class Resolver {
       if (item.kind === "Let" || item.kind === "Var") available.add(item.binding.symbol);
       if (item.kind === "LetPattern") for (const binding of resolvedPatternBindings(item.pattern)) available.add(binding.symbol);
     }
+  }
+
+  /**
+   * Binds an imported constraint: the name in the constraint namespace, and
+   * **every member** in the term namespace (Modules §3.1).
+   *
+   * An alias renames the constraint only (§3.2) — the members keep the names
+   * their declaration gave them, which is the same reason they cannot be
+   * imported severally: they are module-scope terms belonging to a declaration,
+   * not exports the import list negotiates one at a time.
+   *
+   * Returns the synthesized member entries for the import item. They carry
+   * `constraintMember` so that emission can tell them from names the source
+   * wrote and import only the ones the body reaches.
+   */
+  #bindImportedConstraint(
+    home: ModuleInterface,
+    declaration: Resolved.ConstraintItem,
+    name: Parsed.ImportName,
+    scope: Scope,
+    bound: Resolved.ConstraintImport[],
+  ): readonly Resolved.ImportName[] {
+    const local = name.local.text;
+    // Same-namespace collision, reported at the import line (Modules §5.2). A
+    // pre-registered name is unavailable for the reason a redeclaration is: the
+    // wired-in machinery reaches its constraint by one identity, and a second
+    // meaning for the word would be unreachable by it.
+    if (
+      isPreRegisteredConstraint(local) ||
+      this.#declaredConstraintNames.has(local) ||
+      this.#importedConstraints.has(local)
+    ) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `constraint \`${local}\` is already declared or imported`,
+        primary: name.span,
+      });
+      return [];
+    }
+    this.#importedConstraints.set(local, declaration);
+    this.#constraintNames.add(local);
+    bound.push({ local, declaration });
+    return declaration.members.flatMap((member): Resolved.ImportName[] => {
+      const symbol = home.constraintMembers.get(member.binding.name);
+      if (symbol === undefined) return [];
+      const memberName: Parsed.Name = {
+        text: member.binding.name,
+        startClass: "non-upper",
+        span: name.span,
+      };
+      // A member is an ordinary module-scope term, so §5.4's occlusion rule
+      // governs it exactly as it governs an imported function: it may take a
+      // prelude name over, and may not collide in its own layer.
+      const existing = scope.lookup(member.binding.name);
+      if (existing !== undefined && !this.#preludeTerms.has(existing)) {
+        this.#reportRebinding(memberName, existing);
+      } else {
+        scope.define(member.binding.name, symbol.id);
+      }
+      this.#explicitlyImported.add(symbol.id);
+      this.#importedSymbols.set(symbol.id, symbol);
+      return [{
+        imported: member.binding.name,
+        local: member.binding.name,
+        symbol: symbol.id,
+        constraintMember: true,
+        span: name.span,
+      }];
+    });
   }
 
   #reportRebinding(name: Parsed.Name, existing: Resolved.SymbolId): void {

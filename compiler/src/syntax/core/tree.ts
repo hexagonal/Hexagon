@@ -303,7 +303,19 @@ export type RecordDeclaration = Typed.RecordDeclaration;
 
 export interface RecordItem extends Typed.RecordItem {}
 export interface ExceptionItem extends Typed.ExceptionItem {}
-export interface ConstraintItem extends Typed.ConstraintItem {}
+/**
+ * Constraint declarations reach Core with their **default bodies elaborated**,
+ * because for an exported constraint that body is emitted here — hoisted once as
+ * a helper (Constraints §6.5) rather than copied into every honoring dictionary.
+ */
+export interface ConstraintItem extends Omit<Typed.ConstraintItem, "members"> {
+  readonly members: readonly ConstraintMemberDeclaration[];
+}
+
+export interface ConstraintMemberDeclaration
+  extends Omit<Typed.ConstraintMemberDeclaration, "defaultValue"> {
+  readonly defaultValue?: LambdaExpr;
+}
 export interface HonorItem {
   readonly kind: "Honor";
   readonly constraint: string;
@@ -321,6 +333,10 @@ export interface HonorItem {
   readonly components: readonly EvidenceComponent[];
   readonly impliedTypes: readonly Typed.HonorImpliedType[];
   readonly members: readonly HonorMember[];
+  /** The constraint declaration's subject variable; see `Typed.HonorItem`. */
+  readonly constraintSubject?: Typed.TypeVariableId;
+  /** Defaults filled by reference to the home module's helper (§6.5). */
+  readonly inheritedDefaults: readonly Typed.InheritedDefault[];
   readonly span: Source.Span;
 }
 

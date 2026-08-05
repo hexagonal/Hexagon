@@ -194,6 +194,12 @@ export interface ExceptionItem {
 
 export interface ConstraintItem {
   readonly kind: "ConstraintDeclaration";
+  /**
+   * `export constraint` (Modules §4.1): the constraint name **and** its members
+   * cross. One flag for both, because they are one declaration — §6.5's "an
+   * exported constraint crosses as a reference to its declaration".
+   */
+  readonly exported: boolean;
   readonly name: Name;
   readonly subject: Name;
   readonly baseConstraints: readonly Name[];

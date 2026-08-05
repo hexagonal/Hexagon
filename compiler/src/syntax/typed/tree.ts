@@ -182,6 +182,33 @@ export interface Scheme {
   readonly variables: readonly TypeVariableId[];
   readonly constraints: readonly Constraint[];
   readonly type: Type;
+  /**
+   * Present exactly when this is a **constraint member's** scheme: the identity
+   * of the constraint that declares it, and the subject variable it quantifies
+   * (Constraints §2.2 — members are module-scope terms carrying the constraint).
+   *
+   * Carried across the module boundary because an importing module has no other
+   * way to know that `describe` is `Describe`'s: without it, instantiating an
+   * imported member's scheme projects no implied types (`#instantiate` matches
+   * the requirement against `constraint`) and the member's own requirement is
+   * just another operation constraint.
+   */
+  readonly constraint?: SchemeConstraint;
+}
+
+/** The constraint a constraint member's scheme belongs to; see `Scheme`. */
+export interface SchemeConstraint {
+  readonly name: ConstraintName;
+  readonly identity: string;
+  /** The declaration's subject, as a variable of this scheme. */
+  readonly subject: TypeVariableId;
+  /** The constraint's implied type members, as variables of this scheme. */
+  readonly impliedTypes: readonly SchemeImpliedType[];
+}
+
+export interface SchemeImpliedType {
+  readonly name: string;
+  readonly variable: TypeVariableId;
 }
 
 export interface Symbol {
@@ -509,6 +536,12 @@ export interface ExceptionItem {
 
 export interface ConstraintItem {
   readonly kind: "ConstraintDeclaration";
+  /**
+   * `export constraint` (Modules §4.1). Emission reads it: an exported
+   * constraint's member forwarders and hoisted default helpers gain ESM exports
+   * (Constraints §6.5), and an unexported one emits exactly as before.
+   */
+  readonly exported: boolean;
   readonly name: string;
   /** This declaration's identity (`spec/constraints.md` §5.1.1). */
   readonly identity: string;
@@ -555,6 +588,40 @@ export interface HonorItem {
   readonly components: readonly ConstraintComponent[];
   readonly impliedTypes: readonly HonorImpliedType[];
   readonly members: readonly HonorMember[];
+  /**
+   * The declaration's subject variable, when the checker found the declaration.
+   *
+   * Emission binds the completed dictionary to this variable so that a member
+   * body written in the constraint's generic context — an inherited default, or
+   * a parameterized instance's own recursive member use — resolves its evidence
+   * to the instance under construction. The emitter used to look the declaration
+   * up in its own module-local table, which silently yielded nothing once the
+   * declaration could be an imported one.
+   */
+  readonly constraintSubject?: TypeVariableId;
+  /**
+   * Members inherited from an **exported** constraint's defaults
+   * (Constraints §6.5): the body was hoisted to one helper at home, and every
+   * inheriting instance fills the slot by reference to it rather than by a copy
+   * of the body.
+   *
+   * Separate from `members` because there is no body here to carry — for an
+   * imported constraint the checker could not materialize one anyway, the
+   * default's expressions having been typed in another module. For an
+   * *unexported* constraint this list is empty and the copies stay in `members`,
+   * which is what keeps that emission byte-identical.
+   */
+  readonly inheritedDefaults: readonly InheritedDefault[];
+  readonly span: Source.Span;
+}
+
+/** One default member filled by reference to its home module's helper (§6.5). */
+export interface InheritedDefault {
+  readonly name: string;
+  /** The constraint member's symbol — the helper's identity at home. */
+  readonly member: Resolved.SymbolId;
+  /** The default body's source parameter count; the helper takes one more. */
+  readonly arity: number;
   readonly span: Source.Span;
 }
 
