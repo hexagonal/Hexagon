@@ -326,6 +326,7 @@ Library versus application is therefore not a distinction in Hexagon module sema
 | Module alias used as a value | "modules are not values" |
 | `Name.` where `Name` is a type, not a module | "`Shape` is a type, not a module; …" (§5.1) |
 | Alias case mismatch (`import { area as Area }`) | "alias case must match what it names" |
+| Bare reference to a collided prelude name (§5.5) | ``the prelude name `empty` is ambiguous: exported by `Seq` and `Vector`; write `Seq.empty` or `Vector.empty` `` — every visible home enumerated, in prelude order |
 | Function-local binder occluding any in-scope name incl. prelude | existing Statements §5.1 error, unchanged |
 | `export honor` | "instances are always visible; `export` does not apply" |
 | `export default` | "Hexagon has named exports only" |

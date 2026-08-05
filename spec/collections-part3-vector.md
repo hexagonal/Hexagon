@@ -155,7 +155,7 @@ qualified as `Vector.IndexError`:
 exception IndexError(index: Int, size: Int)
 ```
 
-- Concrete payload (satisfies Exceptions §2's no-type-variables rule); named slots per the all-or-none rule; positional construction and catch patterns as always.
+- Concrete payload (satisfies Exceptions §2's no-type-variables rule); named slots per the all-or-none rule; positional construction and catch patterns as always. *(Divergence, #300: the shipped checker admits a `catch` arm only for exceptions the same module declares, so a consumer's `catch IndexError(...)` is refused today — construction and throwing work everywhere. The catch-patterns clause is the target, not the state.)*
 - `index` is the index as passed (§5.3); `size` is the collection's size at fault time. Sufficient for the canonical message ("index 5 out of bounds for size 3") without a `String` slot; message rendering is the reporting layer's business (Exceptions doctrine).
 - **The slot keeps the name `size`** under the 2026-08-02 rename of the operation (`Vector.size` → `Vector.length`) — ruled with reasoning at Part 1 §10.1: `size` is the general cardinality word and `length` its specialization for linear structures, and this one shared declaration is not scoped to linear throwers — a `length` slot would assert a linearity the declaration does not have (that every *current* thrower is linear is recorded there as a fact of today, not of the declaration). The payload names a fact about the collection, not an operation on it; `IndexError(index, size)` remains the declared shape, and `Vector.length` throws it.
 - `KeyError` does not copy this shape — a polymorphic key cannot be a payload (Exceptions §2 bans type variables). It is declared **nullary** in Part 4 §4.3, which owns that decision.
