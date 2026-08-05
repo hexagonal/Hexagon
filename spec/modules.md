@@ -45,16 +45,18 @@ Imports are module-level declarations; an `import` inside a function body joins 
 
 - `import { Point }` where `Point` is an exported `record` binds `Point` the type *and* `Point` the constructor — one item, two namespaces, matching how the declaration introduced them.
 - `import { Shape }` where `Shape` is a union binds the **type only**. Constructors are separate exports with their own names: `import { Shape, Circle, Rect }`. There is no Haskell-style `Shape(..)` sugar — JS-verbatim has no such form, and the namespace import (§3.3) covers "give me everything" (rejected alternative recorded §9.4).
-- `import { Ord }` where `Ord` is a constraint binds the constraint name **and its members** (`compare`) — the members are the constraint's API and arrive with it, consistent with their module-scope-term status (Constraints §2.2). Members cannot be imported severally (§12.4 records the question; presumption: never needed).
+- `import { Ord }` where `Ord` is a constraint binds the constraint name **and its members** (`compare`) — the members are the constraint's API and arrive with it, consistent with their module-scope-term status (Constraints §2.2). Members cannot be imported severally (§12.4 records the question; presumption: never needed). For collision purposes the import item is the members' declaration site: an arriving member name that collides with another module-level term — a local binding, another import, or another constraint's member — is the Constraints §2.2 hard-error family, **reported at the import item**; a prelude name is merely occluded, per §5.4.
 - Importing a name the module does not export: hard error, with a near-miss suggestion and a note if the name exists unexported ("`helper` exists in `./geometry` but is not exported").
 
 ### 3.2 Aliased imports
 
 `import { area as circleArea }` binds only the alias. The alias obeys the ordinary start-class rules for what it names (a term import must alias to non-uppercase-start, a type/constructor to uppercase-start; violating this is a parse-adjacent error, "alias start class must match what it names"). Aliasing a record's name splits nothing: `import { Point as P }` binds `P` in both namespaces.
 
+Aliasing a constraint renames the constraint name only: `import { Describe as D }` binds `D` in the constraint namespace, and the members arrive under their declared names, as always. Members are independent module-scope terms (Constraints §2.2); they are not renamed at the border, for the same reason they are not imported severally (§12.4).
+
 ### 3.3 Namespace imports
 
-`import * as Geo from "./geometry"` binds the single name `Geo` as a **module alias** giving qualified access to every export: `Geo.area(...)`, and in type position `Geo.Point`, `xs: Vector(Geo.Shape)`. Constructors qualify the same way (`Geo.Circle(1.0)`), including in patterns (`match s` / `Geo.Circle(r) => ...`) (Unions §2). Module aliases are uppercase-start, mandatorily.
+`import * as Geo from "./geometry"` binds the single name `Geo` as a **module alias** giving qualified access to every export: `Geo.area(...)`, and in type position `Geo.Point`, `xs: Vector(Geo.Shape)`. Constructors qualify the same way (`Geo.Circle(1.0)`), including in patterns (`match s` / `Geo.Circle(r) => ...`) (Unions §2). Constraints too: `Geo.Ord` in a binder (`<a: Geo.Ord>`), and a member through the alias as an ordinary term (`Geo.compare(a, b)`) — the left side is the module alias in every case, so §5.1's "types and constraints never take `.`" is untouched: it governs what may stand *left* of the dot. Module aliases are uppercase-start, mandatorily.
 
 **Module aliases are not values.** `let m = Geo` is an error: "modules are not values." No passing, no returning, no storing. This is what keeps the namespace story (§5) honest and forecloses first-class modules by construction.
 
@@ -162,7 +164,7 @@ Hexagon now has **four namespaces**: terms, types, constraints (Constraints §2.
 ### 5.1 Resolution by position
 
 1. **`Name.` — uppercase immediately followed by `.`** resolves in the module-alias namespace **first**. Types and constraints never take `.`, so no genuine ambiguity exists; the ordering is stated so the implementation is deterministic. If no module alias `Name` exists, the error says so, mentioning the type if one exists: "`Shape` is a type, not a module; import its home module with `import * as` for qualified access, or import the constructor/function you need." The `.` token remains the one from Operators §14 — field access and module path, resolved by what the left side names; a module alias on the left makes it a module path.
-2. **`Name` in type position** resolves in the type namespace only. **`Alias.Name` in type position** resolves `Name` in the *exported type namespace* of the aliased module.
+2. **`Name` in type position** resolves in the type namespace only. **`Alias.Name` in type position** resolves `Name` in the *exported type namespace* of the aliased module. Constraint position (a binder's constraint list) is the analog: **`Name`** resolves in the constraint namespace only, **`Alias.Name`** in the aliased module's *exported constraint namespace* (§3.3).
 3. **`Name` in term position** (applied or bare) resolves in the term namespace only — constructors, constraint members, ordinary bindings.
 4. A module alias in any position other than the left of `.` is the "modules are not values" error (§3.3).
 
@@ -234,6 +236,10 @@ Structural types (no home), instances (global, §7), `var` (cannot exist at modu
 
 The occlusion rule's "prelude version stays reachable qualified" only works if **every prelude name has a qualified home** — a companion module it also lives in (`Vector.map` for bare `map`, `String.show`/per-type homes for `show`'s instances, etc.). The stdlib listing **must** maintain this invariant; a bare-only prelude export is a spec violation there. Pre-registered now, subject-first-convention style.
 
+### 6.5 Constraints
+
+An exported constraint crosses as a **reference to its declaration** (identity: Constraints §5.1.1). Subject, base constraints, member schemes, defaults, and implied type members do not travel separately — they are the declaration, and every importing module sees the one declaration the home module made. Its members cross as terms (§6.1) with their constrained schemes. Instances still never cross by name (§6.3): they are global already, and an imported constraint changes nothing about where its instances may lawfully live (§7.2 — the orphan rule's "home module" reads files, not imports).
+
 ---
 
 ## 7. Instances, coherence, and the orphan rule
@@ -264,7 +270,7 @@ Globality (§7.1) plus the orphan rule (§7.2) make discoverability a near-non-p
 
 - **The ordinary case brings both legal homes along.** Source that names `C<T>` resolves `C` through the constraint's home and `T` through the type's home. With no v1 re-exports, both files are therefore already in the import graph (or are the same file), and the one lawful instance arrives without a separate import.
 - **The residual cases** are (a) a value whose nominal type is *inferred* but never named by the consuming module — its own imports need not name either home even though the wider program graph reaches them through intermediaries — and (b) isolated-file checking (an editor or tool checking one file without the whole graph), where "in the graph" is not yet well-defined.
-- **The diagnostic obligation:** a missing-`C<T>` error must name the two legal homes (or the one home when they coincide) — "no `Ord<Config>` instance is in the program; it could only be declared in `./config` (declares `Config`) or the module declaring `Ord`" — so the fix is a lookup, never a search.
+- **The diagnostic obligation:** a missing-`C<T>` error must name the two legal homes (or the one home when they coincide) — "no `Ord<Config>` instance is in the program; it could only be declared in `./config` (declares `Config`) or the module declaring `Ord`" — so the fix is a lookup, never a search. When the required constraint is not itself nameable in the reporting module — a private base constraint reached through an imported constraint's declaration (§6.5) — the two-home template is wrong: the subject's module is a lawful home in which the honor cannot be *written*, since the unexported base is reachable there by no import or alias. The diagnostic names the constraint's declaring module alone and directs the honor there.
 - **The pre-1.0 LSP obligation:** when a lawful instance exists in the *workspace* but outside the current graph, the tooling must detect it and name the activating import.
 - **Effect-import-for-instances is nearly vestigial in v1** as a consequence of the first bullet. Future re-exports or packages can make it load-bearing by separating names in scope from their instance homes; §13(i) records the spelling without presenting it as a daily idiom.
 - **Packages and future re-exports widen the residue** (§12.1–§12.2): a facade that re-exports a type without its home module's instance context, or a package boundary hiding the home, recreates the discoverability gap at larger scale. The package design inherits this alongside §7.5's coherence cost.
@@ -445,6 +451,8 @@ Geo.area(2.0)
 | Private-in-public: hard error for nominal types; transparent aliases exempt (expansion used) | §4.3 |
 | Fourth namespace (module aliases); position-based resolution; `Name.` checks modules first | §5.1 |
 | Collisions: duplicate module aliases error; alias-vs-type/constructor legal (companion idiom blessed); named-import same-namespace collisions error; Elm-strict restriction = v2 candidate | §5.2, §12.3 |
+| Importing a constraint binds the name and its members; aliasing renames the constraint name only, members never rename at the border; member collisions report at the import item; namespace imports qualify constraints and members through the alias | §3.1–§3.3, §5.1 |
+| An exported constraint crosses as a reference to its declaration (identity: Constraints §5.1.1); members cross as terms; instance globality and the orphan rule's file-based home unchanged | §6.5 |
 | Prelude occlusion: module-level bindings may occlude prelude; function-local occludes nothing; explicit imports fight; Head Binder rule untouched in statement | §5.4 |
 | Prelude = ordered set of ordinary `.hex` modules; each sees only earlier members; no `import` lines in prelude source (the header-comment convention that accompanied that rule is **withdrawn 2026-08-01**); type-declaring members ordinary; compiler resolution never outranks declarations (boundary intrinsics = fallback only) | §5.5 |
 | Every prelude name must have a qualified home (stdlib invariant, pre-registered) | §6.4 |

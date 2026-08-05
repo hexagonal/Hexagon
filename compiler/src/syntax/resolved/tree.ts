@@ -324,6 +324,26 @@ export interface Module {
    * members before it, and `Bool.hex`'s is empty.
    */
   readonly preludeTypeImports: readonly PreludeTypeImport[];
+  /**
+   * Every constraint declaration this module can see — its own and everything
+   * its import graph reaches — deduplicated by identity. A wider set than the
+   * ones it can *name* (Modules §3.1 binds only what the module it imported
+   * exports).
+   *
+   * Metadata, never scope, and the width is load-bearing in exactly one shape:
+   * an **intermediate link in a base chain**. A constraint this module named
+   * arrives on `ImportItem.constraints`, and its own bases arrive as identities
+   * on `ConstraintItem.baseConstraintIdentities` — enough to take one hop with
+   * no second declaration in hand. The hop *after* that needs the middle link's
+   * declaration, to read its bases in turn; and a middle link can be private to
+   * the module that wrote the chain, in which case no import anywhere can have
+   * named it. Without this channel the entailment walk stops one hop short,
+   * which surfaces as a demand to declare a constraint the module cannot spell.
+   *
+   * Transitive for the same reason `ImportItem.instances` is: the module that
+   * needs the link need not be the one that imported it.
+   */
+  readonly visibleConstraints: readonly ConstraintItem[];
   readonly externTypes: readonly ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
   /**
@@ -429,6 +449,8 @@ export interface ImportItem {
   readonly form: ImportForm;
   /** Coherent instance evidence made global by loading this module. */
   readonly instances: readonly InstanceImport[];
+  /** Constraints this import binds by name (Modules §3.1/§3.2/§3.3). */
+  readonly constraints: readonly ConstraintImport[];
   /**
    * Whether the resolver synthesized this import rather than the source writing
    * it — the used-names-only import of one prelude module (Modules §5.5, §6.4).
@@ -521,6 +543,18 @@ export type ImportForm =
   | { readonly kind: "Namespace"; readonly alias: string; readonly names: readonly ImportName[] }
   | { readonly kind: "Named"; readonly names: readonly ImportName[] };
 
+/** One constraint an import puts in the constraint namespace. */
+export interface ConstraintImport {
+  /**
+   * The name this module spells it by: the declared name, an `as` alias
+   * (§3.2 — the constraint name only, never its members), or `Alias.Name` for
+   * the namespace form (§3.3).
+   */
+  readonly local: string;
+  /** The declaration itself; an importer sees the one the home module made. */
+  readonly declaration: ConstraintItem;
+}
+
 export interface ImportName {
   readonly imported: string;
   readonly local: string;
@@ -539,6 +573,16 @@ export interface ImportName {
    * half silently cost the `.d.ts` its `import type` row (#227).
    */
   readonly typeBinding?: boolean;
+  /**
+   * The name is a **member of an imported constraint** rather than a name the
+   * source listed (Modules §3.1: importing a constraint imports its members).
+   *
+   * The resolver synthesizes these so the members are in scope and typed; the
+   * JavaScript emitter filters them to the ones the body actually references,
+   * for the reason `ImportItem.synthesized` gives — a name the source never
+   * wrote must not become an import line the source never asked for.
+   */
+  readonly constraintMember?: boolean;
   readonly span: Source.Span;
 }
 
@@ -757,6 +801,8 @@ export interface ExceptionItem {
 
 export interface ConstraintItem {
   readonly kind: "ConstraintDeclaration";
+  /** `export constraint` (Modules §4.1): the name and its members cross. */
+  readonly exported: boolean;
   readonly name: string;
   /**
    * This declaration's identity (`spec/constraints.md` §5.1.1) — what coherence
@@ -765,6 +811,17 @@ export interface ConstraintItem {
   readonly identity: string;
   readonly subject: string;
   readonly baseConstraints: readonly string[];
+  /**
+   * The identity each name in `baseConstraints` denoted **where the declaration
+   * was written**, positionally aligned with it.
+   *
+   * A base constraint is a name in the declaring module's scope, so an importer
+   * cannot re-derive it: `constraint Loud<a: Describe>` exported from one module
+   * says nothing about what the *importer* spells `Describe`. Without this the
+   * importer's entailment walk finds no bases and silently reduces a requirement
+   * to the wrong dictionary — the miscompile #276 names.
+   */
+  readonly baseConstraintIdentities: readonly string[];
   readonly impliedTypes: readonly ConstraintImpliedType[];
   readonly members: readonly ConstraintMember[];
   readonly span: Source.Span;

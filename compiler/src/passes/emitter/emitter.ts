@@ -585,6 +585,19 @@ class JavaScriptEmitter {
    */
   readonly #synthesizedImports: Core.ImportItem[] = [];
   /**
+   * The constraint-member forwarders and hoisted default helpers this module
+   * needs from other modules (Constraints §6.5), decided after rendering for the
+   * reason the synthesized prelude channel is: the resolver puts every member of
+   * an imported constraint in scope, because that is what importing a constraint
+   * does (Modules §3.1), and importing all of them at run time would put lines
+   * the source never wrote — and mostly does not use — into the output.
+   *
+   * A default helper is not a reference at all: it is owed by an `honor` that
+   * inherits the default, and only rendering the instance discovers which.
+   */
+  readonly #usedDefaultHelpers = new Set<Resolved.SymbolId>();
+  readonly #constraintImports: Core.ImportItem[] = [];
+  /**
    * Local dictionary names an `Import` item already binds, so the prelude
    * channel never binds one a second time (#153). See `#preludeInstanceImports`.
    */
@@ -698,6 +711,7 @@ class JavaScriptEmitter {
     body.push(...preludeInstanceImports.map(({ line }) => line));
     const preludeTermImports = this.#preludeTermImports();
     body.push(...preludeTermImports.map(({ line }) => line));
+    body.push(...this.#constraintMemberImports());
 
     const seated = this.#docs.seatedComments();
     const entries = sourceEntries(
@@ -760,6 +774,7 @@ class JavaScriptEmitter {
         this.#synthesizedImports.push(item);
         return [];
       }
+      if (item.constraints.length > 0) this.#constraintImports.push(item);
       const specifier = JSON.stringify(emittedModuleSpecifier(item.specifier));
       const instances = item.instances.map(({ importedDictionary, localDictionary }) =>
         importedDictionary === localDictionary
@@ -780,8 +795,9 @@ class JavaScriptEmitter {
           : instanceImport;
       }
       if (item.form.kind === "Namespace") {
-        const constrained = item.form.names.flatMap(({ symbol }) => {
+        const constrained = item.form.names.flatMap(({ symbol, constraintMember }) => {
           if (symbol === undefined || !this.#constrainedImports.has(symbol)) return [];
+          if (constraintMember === true) return [];
           const name = internalConstrainedExportName(symbol);
           return [name];
         });
@@ -797,6 +813,9 @@ class JavaScriptEmitter {
         // A pinned `Bool` constructor is emitted as its literal (#147), so the
         // import that would bind it has nothing to bind.
         .filter(({ symbol }) => symbol === undefined || this.#pinnedBoolLiteral(symbol) === undefined)
+        // Held back to `#constraintMemberImports`, with the default helpers this
+        // import also owes (§6.5).
+        .filter(({ constraintMember }) => constraintMember !== true)
         .filter(({ typeOnly }) => typeOnly !== true).map(({ imported, local, symbol }) => {
         const source = symbol !== undefined && this.#constrainedImports.has(symbol)
           ? internalConstrainedExportName(symbol)
@@ -961,11 +980,21 @@ class JavaScriptEmitter {
         );
         const dictionary = dictionaries[0] ?? "undefined";
         const parameters = [...sourceParameters, ...dictionaries];
+        if (item.exported) {
+          // §6.5: the forwarder gains an ESM export, which an importing module
+          // that calls the member imports. Hexagon-to-Hexagon evidence plumbing
+          // in the `__hex_instance_*` class, so it takes the internal name and
+          // stays out of the `.d.ts` — §6.4 is untouched.
+          this.#exports.push(
+            `export { ${name} as ${internalConstrainedExportName(member.binding.symbol)} };`,
+          );
+        }
         // A constraint member's `.js` seat is the forwarder emitted for it; the
         // dictionary type it also documents (§7.1) has no `.d.ts` form yet.
         return [
           ...this.#docs.lines(member.span, prefix),
           `${prefix}const ${name} = ${arrowParameters(parameters)} => ${dictionary}.${member.binding.name}(${sourceParameters.join(", ")});`,
+          ...this.#defaultHelper(item, member, depth, evidenceNames),
         ];
       });
     }
@@ -981,10 +1010,14 @@ class JavaScriptEmitter {
       const localDictionary = parameters.length === 0
         ? item.dictionary
         : this.#generatedNames.fresh("instance");
-      const declaration = this.#constraints.get(item.constraint);
-      if (declaration !== undefined) {
+      // The checker's answer, carried on the item. It used to be looked up in a
+      // module-local table keyed by the constraint's *name*, which returned
+      // nothing the moment the declaration could be an imported one — and the
+      // miss was silent, leaving a body that reaches the instance under
+      // construction with no evidence for it (§6.5, #276).
+      if (item.constraintSubject !== undefined) {
         localEvidence.set(
-          evidenceKey(declaration.subject, item.constraint),
+          evidenceKey(item.constraintSubject, item.constraint),
           localDictionary,
         );
       }
@@ -1003,14 +1036,32 @@ class JavaScriptEmitter {
               this.#emitExpr(member.value, depth, localEvidence),
             )
           );
+      // §6.5: a default inherited from an *exported* constraint is a reference
+      // to the home module's helper, applied at call time. Deferring is not
+      // cosmetic — `localDictionary` is the const currently being initialized,
+      // so reading it eagerly here would hit the temporal dead zone.
+      const inheritedDefaults = item.inheritedDefaults.map((inherited) => {
+        this.#usedDefaultHelpers.add(inherited.member);
+        const parameters_ = Array.from(
+          { length: inherited.arity },
+          (_, index) => `__hex_arg${index}`,
+        );
+        return objectProperty(
+          inherited.name,
+          `${arrowParameters(parameters_)} => ${
+            defaultHelperName(inherited.member)
+          }(${[localDictionary, ...parameters_].join(", ")})`,
+        );
+      });
       const completedMembers =
         !item.derived && item.constraint === "Eq" &&
           !item.members.some(({ name }) => name === "notEquals")
           ? [
               ...members,
+              ...inheritedDefaults,
               `notEquals: (__hex_left, __hex_right) => !${localDictionary}.equals(__hex_left, __hex_right)`,
             ]
-          : members;
+          : [...members, ...inheritedDefaults];
       const value = `{ ${[...baseConstraints, ...completedMembers].join(", ")} }`;
       if (this.#exportInstanceEvidence) {
         this.#exportEvidence(item.dictionary);
@@ -1259,6 +1310,50 @@ class JavaScriptEmitter {
         return fields.length === 0 ? "" : `{ ${fields.join(", ")} }`;
       }
     }
+  }
+
+  /**
+   * The hoisted helper for one defaulted member of an **exported** constraint
+   * (Constraints §6.5).
+   *
+   * The body emits **once, at home**, taking the completed instance dictionary
+   * as its first parameter. That is what lets a default use its module's private
+   * bindings and still be inherited by an instance in a module that cannot see
+   * them — the body stays where its free names resolve.
+   *
+   * The dictionary parameter is bound to the *declaration's subject*, which is
+   * the variable the default body's own evidence references: a call to a sibling
+   * member inside the default reads the slot off this parameter, so an override
+   * is respected (§2's "calls from a default dispatch through the completed
+   * instance") and §6.3's evaluation-freeness holds — the helper is applied at
+   * call time, never while the dictionary literal is under construction.
+   *
+   * Nothing is emitted for an unexported constraint: its defaults materialize
+   * into each honoring dictionary as before.
+   */
+  #defaultHelper(
+    item: Core.ConstraintItem,
+    member: Core.ConstraintItem["members"][number],
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string[] {
+    if (!item.exported || member.defaultValue === undefined) return [];
+    const name = defaultHelperName(member.binding.symbol);
+    const dictionary = `__hex_dict`;
+    const localEvidence = new Map(evidenceNames);
+    localEvidence.set(evidenceKey(item.subject, item.name), dictionary);
+    const parameters = [
+      dictionary,
+      ...member.defaultValue.parameters.map((parameter) =>
+        this.#identifier(parameter.symbol, parameter.name)
+      ),
+    ];
+    this.#exports.push(`export { ${name} };`);
+    return [
+      `${indent(depth)}const ${name} = ${arrowParameters(parameters)} => ${
+        this.#emitExpr(member.defaultValue.body, depth, localEvidence)
+      };`,
+    ];
   }
 
   #recordExport(
@@ -3518,6 +3613,46 @@ class JavaScriptEmitter {
    * `SyntaxError: Identifier has already been declared` at load, after a clean
    * compile. The import item would own the emission.
    */
+  /**
+   * `import` lines for the constraint plumbing this module reaches in another
+   * module: member forwarders it calls, and default helpers its instances
+   * inherit (Constraints §6.5).
+   *
+   * Decided after rendering, like the prelude channels. Importing a constraint
+   * puts every member in scope (Modules §3.1) whether or not the module calls
+   * them, so the name list here is what the body reached, never what the
+   * resolver bound — the same discipline #263 applied to companion candidates.
+   *
+   * The names are deduplicated per specifier because a module may reach one
+   * constraint by two routes (a named import beside an `import * as`), and two
+   * `import` statements binding the same identifier is a `SyntaxError` at load,
+   * after a clean compile.
+   */
+  #constraintMemberImports(): readonly string[] {
+    return this.#constraintImports.flatMap((item) => {
+      const names = new Set<string>();
+      if (item.form.kind !== "Effect") {
+        for (const { imported, symbol, constraintMember } of item.form.names) {
+          if (constraintMember !== true || symbol === undefined) continue;
+          if (!this.#referencedSymbols.has(symbol)) continue;
+          const local = this.#constrainedImports.get(symbol) ?? imported;
+          const source = internalConstrainedExportName(symbol);
+          names.add(source === local ? source : `${source} as ${local}`);
+        }
+      }
+      for (const { declaration } of item.constraints) {
+        for (const member of declaration.members) {
+          if (!this.#usedDefaultHelpers.has(member.binding.symbol)) continue;
+          names.add(defaultHelperName(member.binding.symbol));
+        }
+      }
+      if (names.size === 0) return [];
+      return [`import { ${[...names].join(", ")} } from ${
+        JSON.stringify(emittedModuleSpecifier(item.specifier))
+      };`];
+    });
+  }
+
   #preludeInstanceImports(): readonly {
     readonly line: string;
     readonly specifier: string;
@@ -5724,6 +5859,15 @@ function evidenceKey(
 
 function internalConstrainedExportName(symbol: Resolved.SymbolId): string {
   return `__hex_export${Number(symbol)}`;
+}
+
+/**
+ * The home module's hoisted helper for a defaulted constraint member
+ * (Constraints §6.5), named after the member's symbol so every inheriting
+ * instance — in any module — spells the same one.
+ */
+function defaultHelperName(symbol: Resolved.SymbolId): string {
+  return `__hex_default${Number(symbol)}`;
 }
 
 /**

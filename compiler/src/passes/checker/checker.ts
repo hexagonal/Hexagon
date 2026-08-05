@@ -203,6 +203,8 @@ interface Requirement {
   useSpan?: Source.Span;
   readonly impliedTypes?: ReadonlyMap<string, Mono>;
   evidenceConstraint?: Typed.ConstraintName;
+  /** The identity of `evidenceConstraint`; see `#canonicalConstraintName`. */
+  evidenceIdentity?: string;
   evidencePath?: readonly string[];
   reported: boolean;
   dictionary?: string;
@@ -226,7 +228,12 @@ interface RequirementComponent {
 interface Scheme {
   readonly variables: readonly Variable[];
   readonly type: Mono;
+  /** Set on a constraint member's scheme: the constraint it belongs to. */
   readonly constraint?: string;
+  /** That constraint's identity (§5.1.1), so the scheme can cross a boundary. */
+  readonly constraintIdentity?: string;
+  /** That constraint's subject, held rather than positionally implied. */
+  readonly constraintSubject?: Variable;
   readonly impliedTypes?: ReadonlyMap<string, Variable>;
 }
 
@@ -254,6 +261,24 @@ const UNIT: TupleMono = { kind: "Tuple", elements: [] };
 
 /** The constraints every structural product satisfies componentwise (Constraints §4.5). */
 const structuralConstraints = ["Eq", "Ord", "Show", "Hash"];
+
+/**
+ * The base constraints of the pre-registered constraints the compiler holds
+ * declarations for (Constraints §7, `spec/integral-constraint.md`), keyed by the
+ * one identity each of them has.
+ *
+ * A source `constraint Integral<a: (Num, Ord)>` lands on `hex:Integral` and so
+ * takes over this row rather than rivalling it — the name-only pre-registration
+ * of §5.1.1's third bullet. That is why the table is a fallback and not a floor.
+ */
+const PRE_REGISTERED_BASE_CONSTRAINTS: Readonly<Record<string, readonly string[]>> = {
+  "hex:Ord": ["Eq"],
+  "hex:Signed": ["Num"],
+  "hex:Frac": ["Signed"],
+  "hex:Pow": ["Num"],
+  "hex:Hash": ["Eq"],
+  "hex:Integral": ["Num", "Ord"],
+};
 
 function primitive(name: Typed.PrimitiveName): Constructor {
   return { kind: "Constructor", name };
@@ -351,10 +376,15 @@ class Checker {
    * pre-registered inventory — one compiler-held declaration each — and
    * extended by this module's own declarations.
    *
-   * A name, not an identity, is what every requirement and every operator
-   * routing decision carries, and that stays true: the map is what turns one
-   * into the other, and it is total per module because constraints are
-   * module-local in v1.
+   * Extended by imports (Modules §3.1/§3.3): this is the one place an imported
+   * constraint's identity joins, and every name-taking call site below reads it
+   * rather than re-deriving. A qualified `Geo.C` binder enters under that exact
+   * spelling, the alias being part of the name the source wrote.
+   *
+   * Names are what source spells; identities are what the machinery keys on.
+   * The map is the border between them, and it is deliberately *not* total over
+   * requirements: one for a constraint this module cannot spell has no entry
+   * here and carries its identity instead.
    */
   readonly #constraintIdentities = new Map<string, string>(
     PRE_REGISTERED_CONSTRAINTS.map(
@@ -368,7 +398,30 @@ class Checker {
   >();
   readonly #instances = new Map<string, Resolved.HonorItem>();
   readonly #instanceIdentities = new Map<string, string>();
-  readonly #constraintDeclarations = new Map<string, Resolved.ConstraintItem>();
+  /**
+   * The constraints **declared in this module**, by name.
+   *
+   * Ownership, never visibility. Two rules read exactly this set and nothing
+   * wider: the orphan rule's "this module declares `C`" (Constraints §5.3,
+   * Modules §7.2 — the file whose text contains the declaration), and the
+   * base-constraint graph check, which is the home module's business and must
+   * not be re-run — and re-reported — by every importer.
+   */
+  readonly #localConstraints = new Map<string, Resolved.ConstraintItem>();
+  /**
+   * Every constraint declaration this module can see, by identity: its own,
+   * every one its imports name, and every one its import graph merely reaches.
+   *
+   * The last group is why this is keyed on identity rather than name, and it is
+   * not decoration: a base chain's **middle link** can be private to the module
+   * that wrote the chain, so no import anywhere names it, and the entailment
+   * walk still has to read its bases to reach the far end. A name-keyed,
+   * module-local table stops one hop short — which is not a diagnostic but a
+   * demand to declare a constraint the module cannot spell, beside an emitted
+   * `undefined` where the evidence should be (#276).
+   */
+  readonly #constraintsByIdentity = new Map<string, Resolved.ConstraintItem>();
+  /** Identities of constraints carrying implied type members; see §7's binder ban. */
   readonly #projectionBearingConstraints = new Set<string>();
   readonly #instanceTypeParameters = new WeakMap<
     Resolved.HonorItem,
@@ -472,13 +525,35 @@ class Checker {
         item.parameters.map((name) => [name, this.#fresh(0, false)] as const),
       ));
     }
+    // Metadata for everything the import graph reaches, keyed on identity —
+    // including declarations this module can never name, which is the group the
+    // channel exists for (§5.1.1, and `#constraintsByIdentity`).
+    for (const declaration of module.visibleConstraints) {
+      this.#constraintsByIdentity.set(declaration.identity, declaration);
+      if (declaration.impliedTypes.length > 0) {
+        this.#projectionBearingConstraints.add(declaration.identity);
+      }
+    }
     for (const item of module.items) {
       if (item.kind === "ConstraintDeclaration") {
         this.#constraintNames.add(item.name);
         this.#constraintIdentities.set(item.name, item.identity);
-        this.#constraintDeclarations.set(item.name, item);
+        this.#localConstraints.set(item.name, item);
+        this.#constraintsByIdentity.set(item.identity, item);
         if (item.impliedTypes.length > 0) {
-          this.#projectionBearingConstraints.add(item.name);
+          this.#projectionBearingConstraints.add(item.identity);
+        }
+      }
+      // The one place an imported constraint's identity joins the name→identity
+      // view; every name-taking call site downstream reads it unchanged.
+      if (item.kind === "Import") {
+        for (const { local, declaration } of item.constraints) {
+          this.#constraintNames.add(local);
+          this.#constraintIdentities.set(local, declaration.identity);
+          this.#constraintsByIdentity.set(declaration.identity, declaration);
+          if (declaration.impliedTypes.length > 0) {
+            this.#projectionBearingConstraints.add(declaration.identity);
+          }
         }
       }
     }
@@ -516,7 +591,7 @@ class Checker {
               parameter.name,
               parameter.constraints.filter((constraint) =>
                 this.#constraintNames.has(constraint) &&
-                !this.#projectionBearingConstraints.has(constraint)
+                !this.#bearsProjection(constraint)
               ),
             ),
           ] as const),
@@ -540,7 +615,7 @@ class Checker {
               });
               continue;
             }
-            if (this.#projectionBearingConstraints.has(constraint)) {
+            if (this.#bearsProjection(constraint)) {
               this.#diagnostics.add({
                 severity: "error",
                 message: impliedTypeBinderMessage(constraint),
@@ -642,6 +717,8 @@ class Checker {
           variables: [subject, ...impliedTypes.values()],
           type: { kind: "Function", parameters, result },
           constraint: item.name,
+          constraintIdentity: item.identity,
+          constraintSubject: subject,
           impliedTypes,
         });
       }
@@ -922,7 +999,12 @@ class Checker {
       });
     }
 
-    const ownsConstraint = this.#constraintDeclarations.has(item.constraint);
+    // **Declared here**, never merely visible or nameable here. Modules §7.2
+    // defines the orphan rule's home module as the file whose text contains the
+    // declaration, so an imported constraint gives this module no claim: it is
+    // exactly the `honor ImportedC<ImportedT>` a third module must not write
+    // (Constraints §5.3).
+    const ownsConstraint = this.#localConstraints.has(item.constraint);
     const ownsSubject = moduleItems.some((candidate) =>
       (subject.kind === "Union" && candidate.kind === "Union" && candidate.union === subject.union) ||
       (subject.kind === "RecordDeclaration" &&
@@ -1124,7 +1206,10 @@ class Checker {
       if (item.kind === "Import" || item.kind === "ExternBlock" || item.kind === "ExternImport") continue;
       if (item.kind === "ConstraintDeclaration") continue;
       if (item.kind === "Honor") {
-        const declaration = this.#constraintDeclarations.get(item.constraint);
+        // By identity: this instance answers one declaration, which may be an
+        // imported one this module reaches under an alias or through a module
+        // namespace (§6.5's "a reference to its declaration").
+        const declaration = this.#constraintsByIdentity.get(item.constraintIdentity);
         if (item.derived && !["Eq", "Ord", "Show", "Hash"].includes(item.constraint)) {
           this.#diagnostics.add({
             severity: "error",
@@ -1164,15 +1249,20 @@ class Checker {
               item,
               this.#derivationComponents(actual, item.span).map((component) => ({
                 key: component.key,
-                requirement: this.#require(item.constraint, component.type, component.span),
+                requirement: this.#require(
+                  item.constraint,
+                  component.type,
+                  component.span,
+                  "operation",
+                  undefined,
+                  item.constraintIdentity,
+                ),
               })),
             );
           }
           this.#instanceBaseConstraints.set(
             item,
-            this.#baseConstraints(item.constraint).map((baseConstraint) =>
-              this.#require(baseConstraint, instanceSubject, item.span)
-            ),
+            this.#instanceBaseRequirements(item, instanceSubject),
           );
           if (item.constraint === "Hash") {
             const equality = this.#instances.get(this.#instanceKeyFor("Eq", instanceSubject));
@@ -1191,9 +1281,7 @@ class Checker {
         const instanceSubject = this.#instanceSubjects.get(item) ?? ERROR;
         this.#instanceBaseConstraints.set(
           item,
-          this.#baseConstraints(item.constraint).map((baseConstraint) =>
-            this.#require(baseConstraint, instanceSubject, item.span)
-          ),
+          this.#instanceBaseRequirements(item, instanceSubject),
         );
         const impliedTypes = new Map<string, Mono>();
         for (const required of declaration.impliedTypes) {
@@ -1619,9 +1707,7 @@ class Checker {
 
     this.#instanceBaseConstraints.set(
       item,
-      this.#baseConstraints(item.constraint).map((baseConstraint) =>
-        this.#require(baseConstraint, subject, item.span)
-      ),
+      this.#instanceBaseRequirements(item, subject),
     );
     const supplied = new Set(item.members.map(({ name }) => name));
     for (const [name, signature] of members) {
@@ -1668,9 +1754,17 @@ class Checker {
     return true;
   }
 
-  /** Validates the implication DAG before evidence selection begins. */
+  /**
+   * Validates the implication DAG before evidence selection begins.
+   *
+   * Over this module's **own** declarations, and deliberately no wider. An
+   * imported declaration was checked where it was written; re-checking it here
+   * would report the home module's spec violations once per importer, at spans
+   * in a file the reader did not open — and the cycle report would name a
+   * declaration this module may not even be able to spell.
+   */
   #checkBaseConstraintGraph(): void {
-    for (const declaration of this.#constraintDeclarations.values()) {
+    for (const declaration of this.#localConstraints.values()) {
       for (const baseConstraint of declaration.baseConstraints) {
         if (!this.#constraintNames.has(baseConstraint)) {
           this.#diagnostics.add({
@@ -1679,7 +1773,7 @@ class Checker {
             primary: declaration.span,
           });
         }
-        if (this.#projectionBearingConstraints.has(baseConstraint)) {
+        if (this.#bearsProjection(baseConstraint)) {
           this.#diagnostics.add({
             severity: "error",
             message: impliedTypeBinderMessage(baseConstraint),
@@ -1707,20 +1801,20 @@ class Checker {
         this.#diagnostics.add({
           severity: "error",
           message: `base constraint cycle: ${cycle.join(" requires ")}`,
-          primary: this.#constraintDeclarations.get(name)!.span,
+          primary: this.#localConstraints.get(name)!.span,
         });
         return;
       }
       state.set(name, "visiting");
-      const declaration = this.#constraintDeclarations.get(name);
+      const declaration = this.#localConstraints.get(name);
       for (const baseConstraint of declaration?.baseConstraints ?? []) {
-        if (this.#constraintDeclarations.has(baseConstraint)) {
+        if (this.#localConstraints.has(baseConstraint)) {
           visit(baseConstraint, [...path, name]);
         }
       }
       state.set(name, "visited");
     };
-    for (const name of this.#constraintDeclarations.keys()) visit(name, []);
+    for (const name of this.#localConstraints.keys()) visit(name, []);
   }
 
   /**
@@ -1993,7 +2087,7 @@ class Checker {
         for (const parameter of expression.typeParameters ?? []) {
           const declaredConstraints = parameter.constraints.filter((constraint) =>
             this.#constraintNames.has(constraint) &&
-            !this.#projectionBearingConstraints.has(constraint)
+            !this.#bearsProjection(constraint)
           );
           const variable = this.#fresh(
             level + 1,
@@ -2011,7 +2105,7 @@ class Checker {
               });
               continue;
             }
-            if (this.#projectionBearingConstraints.has(constraint)) {
+            if (this.#bearsProjection(constraint)) {
               this.#diagnostics.add({
                 severity: "error",
                 message: impliedTypeBinderMessage(constraint),
@@ -3828,8 +3922,9 @@ class Checker {
     const destination = this.#prune(target);
     return destination.kind === "Variable"
       ? allowVariableTarget && !destination.literalOnly &&
-        destination.requirements.some(({ name }) =>
-          this.#baseConstraintPath(name, constraint) !== undefined
+        destination.requirements.some(({ identity }) =>
+          this.#entailmentPath(identity, this.#constraintIdentity(constraint)) !==
+            undefined
         )
       : destination.kind === "Constructor"
         ? supports(destination.name, constraint)
@@ -3864,22 +3959,28 @@ class Checker {
     }
   }
 
+  // Two requirements, so entailment is asked of the declarations they demand and
+  // never of their spellings: a requirement copied out of an imported scheme
+  // names a constraint this module may not be able to spell, and two that share
+  // a word may be unrelated declarations (§5.1.1).
   #attachRequirement(variable: Variable, requirement: Requirement): void {
     const provider = variable.requirements.find(
       (candidate) =>
-        this.#baseConstraintPath(candidate.name, requirement.name) !== undefined,
+        this.#entailmentPath(candidate.identity, requirement.identity) !== undefined,
     );
     if (provider !== undefined) {
-      if (provider.name === requirement.name) return;
-      const path = this.#baseConstraintPath(provider.name, requirement.name);
+      if (provider.identity === requirement.identity) return;
+      const path = this.#entailmentPath(provider.identity, requirement.identity);
       requirement.evidenceConstraint = provider.name;
+      requirement.evidenceIdentity = provider.identity;
       if (path !== undefined) requirement.evidencePath = path;
       return;
     }
     for (const existing of variable.requirements) {
-      const path = this.#baseConstraintPath(requirement.name, existing.name);
+      const path = this.#entailmentPath(requirement.identity, existing.identity);
       if (path !== undefined) {
         existing.evidenceConstraint = requirement.name;
+        existing.evidenceIdentity = requirement.identity;
         existing.evidencePath = path;
       }
     }
@@ -3891,8 +3992,13 @@ class Checker {
     if (
       declared !== undefined &&
       requirement.origin !== "annotation" &&
+      // `declared` is spelled in this module's source, the requirement is not:
+      // each side is turned into an identity by its own route.
       !declared.some((constraint) =>
-        this.#baseConstraintPath(constraint, requirement.name) !== undefined
+        this.#entailmentPath(
+          this.#constraintIdentity(constraint),
+          requirement.identity,
+        ) !== undefined
       )
     ) {
       if (variable.rejectedConstraints.has(requirement.name)) {
@@ -3981,35 +4087,111 @@ class Checker {
     return constraints.map((constraint) => `\`${constraint}\``).join(" and ");
   }
 
+  /**
+   * §4.2's base-constraint obligations for one instance, as requirements on its
+   * subject.
+   *
+   * Each carries the base's identity as its *declaration* fixed it, not one
+   * re-derived from the base's name here: `honor ImportedLoud<Metre>` owes an
+   * instance of the `Describe` **alpha** declared, which this module may have no
+   * word for at all.
+   */
+  #instanceBaseRequirements(
+    item: Resolved.HonorItem,
+    subject: Mono,
+  ): readonly Requirement[] {
+    return this.#baseConstraintsOf(item.constraintIdentity).map((base) =>
+      this.#require(
+        base.name,
+        subject,
+        item.span,
+        "operation",
+        undefined,
+        base.identity,
+      )
+    );
+  }
+
+  /** Whether a constraint *named* here declares implied type members. */
+  #bearsProjection(constraint: string): boolean {
+    return this.#projectionBearingConstraints.has(
+      this.#constraintIdentity(constraint),
+    );
+  }
+
+  /**
+   * The dictionary slot path from `constraint` down to `target`, or `undefined`
+   * when the first does not entail the second — both **named in this module's
+   * own source**, so both go through `#constraintIdentities`.
+   *
+   * Every call site holding a *requirement* rather than a spelling uses
+   * `#entailmentPath` instead. The distinction is the whole of #276's checker
+   * half: a requirement may name a constraint this module cannot spell, and
+   * asking this question about its name walks the wrong declaration's bases —
+   * or, far worse, no declaration's, which answers "entailed, empty path" for
+   * `constraint === target` and reduces the requirement to a dictionary that is
+   * not the one it asked for.
+   */
   #baseConstraintPath(
     constraint: string,
     target: string,
+  ): readonly string[] | undefined {
+    return this.#entailmentPath(
+      this.#constraintIdentity(constraint),
+      this.#constraintIdentity(target),
+    );
+  }
+
+  /** `#baseConstraintPath` between two constraint **declarations** (§5.1.1). */
+  #entailmentPath(
+    identity: string,
+    target: string,
     seen = new Set<string>(),
   ): readonly string[] | undefined {
-    if (constraint === target) return [];
-    if (seen.has(constraint)) return undefined;
-    seen.add(constraint);
-    for (const baseConstraint of this.#baseConstraints(constraint)) {
-      const suffix = this.#baseConstraintPath(baseConstraint, target, seen);
+    if (identity === target) return [];
+    if (seen.has(identity)) return undefined;
+    seen.add(identity);
+    for (const baseConstraint of this.#baseConstraintsOf(identity)) {
+      const suffix = this.#entailmentPath(baseConstraint.identity, target, seen);
       if (suffix !== undefined) {
-        const slot =
-          (baseConstraint[0]?.toLowerCase() ?? "") + baseConstraint.slice(1);
+        // The slot is the base's name **as its declaration spells it**, which is
+        // the name the home module emitted the slot under. An importer's own
+        // word for the same constraint — or its inability to spell it at all —
+        // must not move the slot.
+        const name = baseConstraint.name;
+        const slot = (name[0]?.toLowerCase() ?? "") + name.slice(1);
         return [slot, ...suffix];
       }
     }
     return undefined;
   }
 
+  /** The base constraints a constraint *named* here declares, by name. */
   #baseConstraints(constraint: string): readonly string[] {
-    const declared = this.#constraintDeclarations.get(constraint);
-    if (declared !== undefined) return declared.baseConstraints;
-    if (constraint === "Ord") return ["Eq"];
-    if (constraint === "Signed") return ["Num"];
-    if (constraint === "Frac") return ["Signed"];
-    if (constraint === "Pow") return ["Num"];
-    if (constraint === "Hash") return ["Eq"];
-    if (constraint === "Integral") return ["Num", "Ord"];
-    return [];
+    return this.#baseConstraintsOf(this.#constraintIdentity(constraint))
+      .map(({ name }) => name);
+  }
+
+  /** The base constraints of a constraint **declaration**, name and identity. */
+  #baseConstraintsOf(
+    identity: string,
+  ): readonly { readonly name: string; readonly identity: string }[] {
+    const declared = this.#constraintsByIdentity.get(identity);
+    if (declared !== undefined) {
+      return declared.baseConstraints.map((name, index) => ({
+        name,
+        // Positional, and minted where the declaration was written. Falling back
+        // to this module's view would be exactly the re-derivation the field
+        // exists to prevent; it is reached only for a tree built before the
+        // field existed.
+        identity: declared.baseConstraintIdentities[index] ??
+          this.#constraintIdentity(name),
+      }));
+    }
+    return (PRE_REGISTERED_BASE_CONSTRAINTS[identity] ?? []).map((name) => ({
+      name,
+      identity: preRegisteredConstraintIdentity(name),
+    }));
   }
 
   #validate(requirement: Requirement): void {
@@ -4777,7 +4959,12 @@ class Checker {
             replacement,
             requirement.span,
             requirement.origin,
-            requirement.name === scheme.constraint ? impliedTypes : undefined,
+            // The member's *own* constraint is what projects the implied types,
+            // matched on the declaration rather than its spelling so an
+            // imported member projects exactly as a local one does.
+            requirement.identity === scheme.constraintIdentity
+              ? impliedTypes
+              : undefined,
             // A copy demands the same *declaration* as its original. Re-deriving
             // the identity from the name would break an imported scheme, whose
             // constraint this module may not be able to spell at all (§5.1.1).
@@ -5128,7 +5315,31 @@ class Checker {
         constraint.identity,
       );
     }
-    return { variables: [...variables.values()], type: copy(scheme.type) };
+    // A constraint member arrives as a member, not merely as a constrained
+    // function (Modules §6.5): the subject and the implied types are variables
+    // of *this* copy, so the projection `#instantiate` performs is the same one
+    // it performs for a locally declared member.
+    const membership = scheme.constraint;
+    const subject = membership === undefined
+      ? undefined
+      : variables.get(membership.subject);
+    return {
+      variables: [...variables.values()],
+      type: copy(scheme.type),
+      ...(membership === undefined || subject === undefined
+        ? {}
+        : {
+            constraint: membership.name,
+            constraintIdentity: membership.identity,
+            constraintSubject: subject,
+            impliedTypes: new Map(
+              membership.impliedTypes.flatMap(({ name, variable }) => {
+                const copied = variables.get(variable);
+                return copied === undefined ? [] : [[name, copied] as const];
+              }),
+            ),
+          }),
+    };
   }
 
   #nominalRecordFields(record: NominalRecordMono): ReadonlyMap<string, Mono> {
@@ -5611,9 +5822,33 @@ class Checker {
     return variable;
   }
 
+  /**
+   * The name a constraint's own **declaration** gives it, which is the name
+   * every module agrees on.
+   *
+   * Diagnostics print the spelling the source used — that is what the reader
+   * wrote — but emission keys evidence by name, and the spelling is no longer a
+   * property of the constraint once modules can rename one at the border: a
+   * function under `<a: Heft>` receives its dictionary as `Heft`'s while the
+   * imported member it calls demands `Weigh`'s, and the two are one constraint.
+   * Canonicalizing here, at the Typed boundary, is what keeps the two sides
+   * naming the same seat without putting the alias into the output.
+   *
+   * Residue, recorded rather than hidden: two *distinct* constraints that
+   * genuinely share a name — reachable only through two imported schemes, since
+   * no module can spell both — still meet in one evidence seat. Their
+   * identities differ and this returns the same word for each.
+   */
+  #canonicalConstraintName(
+    name: Typed.ConstraintName,
+    identity: string,
+  ): Typed.ConstraintName {
+    return this.#constraintsByIdentity.get(identity)?.name ?? name;
+  }
+
   #publicRequirement(requirement: Requirement): Typed.Constraint {
     return {
-      name: requirement.name,
+      name: this.#canonicalConstraintName(requirement.name, requirement.identity),
       identity: requirement.identity,
       type: this.#publicType(requirement.type),
       span: requirement.span,
@@ -5622,7 +5857,14 @@ class Checker {
         : { dictionary: requirement.dictionary }),
       ...(requirement.evidenceConstraint === undefined
         ? {}
-        : { evidenceConstraint: requirement.evidenceConstraint }),
+        : {
+            evidenceConstraint: requirement.evidenceIdentity === undefined
+              ? requirement.evidenceConstraint
+              : this.#canonicalConstraintName(
+                  requirement.evidenceConstraint,
+                  requirement.evidenceIdentity,
+                ),
+          }),
       ...(requirement.evidencePath === undefined
         ? {}
         : { evidencePath: requirement.evidencePath }),
@@ -5667,22 +5909,24 @@ class Checker {
    * argument. Elimination has to be decided among siblings, not per requirement.
    */
   #evidenceRequirements(requirements: readonly Requirement[]): readonly Typed.Constraint[] {
-    const namesByType = new Map<string, Set<string>>();
+    // Siblings are gathered by constraint *declaration*, so two same-named but
+    // unrelated constraints on one variable stay two arguments (§5.1.1).
+    const siblingsByType = new Map<string, Set<string>>();
     const identify = (requirement: Requirement): string => {
       const type = this.#prune(requirement.type);
       return type.kind === "Variable" ? `v${type.id}` : this.#display(type);
     };
     for (const requirement of requirements) {
-      const identity = identify(requirement);
-      const names = namesByType.get(identity) ?? new Set<string>();
-      names.add(requirement.name);
-      namesByType.set(identity, names);
+      const key = identify(requirement);
+      const constraints = siblingsByType.get(key) ?? new Set<string>();
+      constraints.add(requirement.identity);
+      siblingsByType.set(key, constraints);
     }
     return this.#publicRequirements(requirements.filter((requirement) => {
-      const siblings = namesByType.get(identify(requirement)) ?? new Set<string>();
+      const siblings = siblingsByType.get(identify(requirement)) ?? new Set<string>();
       for (const sibling of siblings) {
-        if (sibling === requirement.name) continue;
-        if (this.#baseConstraintPath(sibling, requirement.name) !== undefined) return false;
+        if (sibling === requirement.identity) continue;
+        if (this.#entailmentPath(sibling, requirement.identity) !== undefined) return false;
       }
       return true;
     }));
@@ -5696,7 +5940,7 @@ class Checker {
       const identity = type.kind === "Variable"
         ? `v${type.id}`
         : this.#display(type);
-      unique.set(`${constraint.name}:${identity}`, constraint);
+      unique.set(`${constraint.identity}:${identity}`, constraint);
     }
     return [...unique.values()];
   }
@@ -5713,13 +5957,33 @@ class Checker {
           requirement.evidenceConstraint !== requirement.name
         ) continue;
         const constraint = this.#publicRequirement(requirement);
-        constraints.set(`${constraint.name}:${variable.id}`, constraint);
+        constraints.set(`${constraint.identity}:${variable.id}`, constraint);
       }
     }
     return {
       variables: variables.map(({ id }) => Typed.typeVariableId(id)),
       constraints: [...constraints.values()],
       type: this.#publicType(scheme.type),
+      // A constraint member's scheme says so, so an importer can read it back
+      // (Modules §6.5): without it, `describe` arrives as a function that
+      // happens to be constrained and its implied types never project.
+      ...(scheme.constraint === undefined ||
+          scheme.constraintIdentity === undefined ||
+          scheme.constraintSubject === undefined
+        ? {}
+        : {
+            constraint: {
+              name: scheme.constraint,
+              identity: scheme.constraintIdentity,
+              subject: Typed.typeVariableId(scheme.constraintSubject.id),
+              impliedTypes: [...(scheme.impliedTypes ?? new Map())].map(
+                ([name, variable]) => ({
+                  name,
+                  variable: Typed.typeVariableId(variable.id),
+                }),
+              ),
+            },
+          }),
     };
   }
 
@@ -5781,6 +6045,7 @@ class Checker {
       const subject = this.#constraintSubjects.get(item) ?? this.#fresh(0, false);
       return {
         kind: "ConstraintDeclaration",
+        exported: item.exported,
         name: item.name,
         identity: item.identity,
         subject: Typed.typeVariableId(subject.id),
@@ -5818,25 +6083,58 @@ class Checker {
     }
     if (item.kind === "Honor") {
       const typeParameters = this.#instanceTypeParameters.get(item) ?? new Map();
-      const declaration = this.#constraintDeclarations.get(item.constraint);
+      const declaration = this.#constraintsByIdentity.get(item.constraintIdentity);
       const supplied = new Set(item.members.map(({ name }) => name));
-      const inherited = declaration?.members.flatMap((member) =>
+      const omittedDefaults = (declaration?.members ?? []).filter((member) =>
         member.defaultValue !== undefined && !supplied.has(member.binding.name)
-          ? [{
-              name: member.binding.name,
-              value: this.#materializeLambda(member.defaultValue),
-              span: member.span,
-            }]
-          : []
-      ) ?? [];
+      );
+      // Constraints §6.5's fork. An **exported** constraint's defaults were
+      // hoisted to one helper at home, so every inheriting instance — here or in
+      // an importing module — fills the slot by reference to it. An unexported
+      // one materializes a copy of the body into this dictionary exactly as
+      // before, which is what keeps that emission byte-identical.
+      //
+      // The fork is not merely an optimization. A default body belonging to an
+      // *imported* declaration was typed in another module, so its expressions
+      // have no entry in this checker's tables and `#materializeLambda` cannot
+      // reconstruct it at all.
+      const hoisted = declaration?.exported === true;
+      const inherited = hoisted
+        ? []
+        : omittedDefaults.map((member) => ({
+            name: member.binding.name,
+            value: this.#materializeLambda(member.defaultValue!),
+            span: member.span,
+          }));
+      const inheritedDefaults = hoisted
+        ? omittedDefaults.map((member) => ({
+            name: member.binding.name,
+            member: member.binding.symbol,
+            arity: member.defaultValue!.parameters.length,
+            span: member.span,
+          }))
+        : [];
       return {
         kind: "Honor",
-        constraint: item.constraint,
+        // Canonical for the same reason as the binders below: this name keys the
+        // instance's own evidence seat, and an alias is the importer's word.
+        constraint: this.#canonicalConstraintName(
+          item.constraint,
+          item.constraintIdentity,
+        ),
         constraintIdentity: item.constraintIdentity,
         typeParameters: item.typeParameters.map((parameter) => ({
           name: parameter.name,
           variable: Typed.typeVariableId(typeParameters.get(parameter.name)?.id ?? -1),
-          constraints: parameter.constraints,
+          // Canonical, because these name the evidence *parameters* the instance
+          // takes, and the requirements they must answer arrive under the
+          // declaration's own spelling (see `#canonicalConstraintName`).
+          constraints: parameter.constraints.map((constraint) =>
+            this.#canonicalConstraintName(
+              constraint,
+              this.#constraintIdentity(constraint),
+            )
+          ),
           span: parameter.span,
         })),
         subject: this.#publicType(this.#instanceSubjects.get(item) ?? ERROR),
@@ -5859,6 +6157,19 @@ class Checker {
           })),
           ...inherited,
         ],
+        // The declaration's subject, so emission can bind the dictionary under
+        // construction to it without looking the declaration up in a table of
+        // its own — which was module-local, and so silently empty for an
+        // imported or alias-qualified constraint.
+        ...(declaration === undefined ||
+            this.#constraintSubjects.get(declaration) === undefined
+          ? {}
+          : {
+              constraintSubject: Typed.typeVariableId(
+                this.#constraintSubjects.get(declaration)!.id,
+              ),
+            }),
+        inheritedDefaults,
         span: item.span,
       };
     }

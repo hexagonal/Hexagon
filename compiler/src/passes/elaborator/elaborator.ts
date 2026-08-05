@@ -32,8 +32,24 @@ function elaborateItem(item: Typed.Item): Core.Item {
     case "Import":
     case "ExternBlock":
     case "ExternImport":
-    case "ConstraintDeclaration":
       return item;
+    case "ConstraintDeclaration":
+      // Default bodies are elaborated here, because for an **exported**
+      // constraint this declaration is where the body is emitted — hoisted once
+      // as a helper (Constraints §6.5) rather than copied into each honoring
+      // dictionary. Before §6.5 the only elaborated copy was the one the checker
+      // materialized into each `Honor`, and this one was dead.
+      return {
+        ...item,
+        members: item.members.map((member): Core.ConstraintMemberDeclaration => {
+          const { defaultValue, ...rest } = member;
+          if (defaultValue === undefined) return rest;
+          return {
+            ...rest,
+            defaultValue: { ...defaultValue, body: elaborateExpr(defaultValue.body) },
+          };
+        }),
+      };
     case "Honor":
       return {
         ...item,

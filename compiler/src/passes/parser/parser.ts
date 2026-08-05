@@ -308,7 +308,22 @@ class Parser {
       }
       const opaque = this.#atContextual("opaque");
       if (opaque) this.#advance();
-      if (!this.#at("Let") && !this.#at("Fun") && !this.#at("Type") && !this.#at("Union") && !this.#at("Record") && !this.#at("Exception")) {
+      // `honor` is admitted here only to be refused with Modules §4.1's own
+      // wording. Left out of the list, it would fall to the generic "must be
+      // followed by a declaration" — which is false, and unhelpful precisely
+      // where the author believed instances were an export surface.
+      if (this.#at("Honor")) {
+        this.#errorAt(
+          exportToken.span,
+          "instances are always visible; `export` does not apply",
+        );
+        this.#synchronize(itemEnds);
+        return {
+          kind: "ErrorItem",
+          span: spanFrom(exportToken.span, this.#previous().span),
+        };
+      }
+      if (!this.#at("Let") && !this.#at("Fun") && !this.#at("Type") && !this.#at("Union") && !this.#at("Record") && !this.#at("Exception") && !this.#at("Constraint")) {
         this.#errorAt(
           exportToken.span,
           "`export` must be followed by a declaration",
@@ -320,8 +335,9 @@ class Parser {
         };
       }
       if (opaque && !this.#at("Union") && !this.#at("Record")) {
-        this.#errorAt(exportToken.span, "`opaque` is allowed only on exported records and unions");
+        this.#errorAt(exportToken.span, "`opaque` applies to `record` and `union` declarations");
       }
+      if (this.#at("Constraint")) return this.#parseConstraint(true, exportToken.span);
       if (this.#at("Type")) return this.#parseTypeAlias(true, exportToken.span);
       if (this.#at("Union")) return this.#parseUnion(true, exportToken.span, opaque);
       if (this.#at("Record")) return this.#parseRecordDeclaration(true, exportToken.span, opaque);
@@ -660,7 +676,10 @@ class Parser {
     this.#parseExpression();
   }
 
-  #parseConstraint(): Parsed.ConstraintItem {
+  #parseConstraint(
+    exported = false,
+    itemStart?: Source.Span,
+  ): Parsed.ConstraintItem {
     const start = this.#advance();
     const nameToken = this.#takeName("UpperName", "`constraint` requires an uppercase-start name");
     const fallbackName: Parsed.Name = {
@@ -743,23 +762,33 @@ class Parser {
     if (members.length === 0) this.#errorAt(start.span, "a constraint needs at least one required member");
     return {
       kind: "ConstraintDeclaration",
+      exported,
       name: nameToken === undefined ? fallbackName : parsedName(nameToken),
       subject,
       baseConstraints,
       impliedTypes,
       members,
-      span: spanFrom(start.span, closing?.span ?? members.at(-1)?.span ?? start.span),
+      span: spanFrom(
+        itemStart ?? start.span,
+        closing?.span ?? members.at(-1)?.span ?? start.span,
+      ),
     };
   }
 
   #parseHonor(): Parsed.HonorItem {
     const start = this.#advance();
     const typeParameters = this.#at("Less") ? this.#parseTypeParameters() : [];
-    const constraintToken = this.#takeName("UpperName", "`honor` requires a constraint name");
+    // Qualified by a module alias where the constraint was namespace-imported
+    // (Modules §3.3): `honor Geo.Area<Tile>` is the only spelling available to a
+    // module that reached the constraint that way, and its own type is a lawful
+    // home for the instance (Constraints §5.3).
+    const constraintName = this.#parseConstraintReference(
+      "`honor` requires a constraint name",
+    );
     const fallback: Parsed.Name = {
       text: "Invalid",
       startClass: "upper",
-      span: constraintToken?.span ?? start.span,
+      span: constraintName?.span ?? start.span,
     };
     this.#expect("Less", "instance heads use `<Type>`");
     const subject = this.#parseTypeAnnotation() ?? {
@@ -773,7 +802,7 @@ class Parser {
       this.#advance();
       return {
         kind: "Honor",
-        constraint: constraintToken === undefined ? fallback : parsedName(constraintToken),
+        constraint: constraintName ?? fallback,
         typeParameters,
         subject,
         derived: true,
@@ -833,7 +862,7 @@ class Parser {
     const closing = this.#expect("VClose", "expected the instance body to close");
     return {
       kind: "Honor",
-      constraint: constraintToken === undefined ? fallback : parsedName(constraintToken),
+      constraint: constraintName ?? fallback,
       typeParameters,
       subject,
       derived: false,
@@ -1011,15 +1040,15 @@ class Parser {
       if (this.#at("LeftParen")) {
         this.#advance();
         while (!this.#at("RightParen") && !this.#at("Eof")) {
-          const constraint = this.#takeName("UpperName", "constraint names are uppercase");
-          if (constraint !== undefined) constraints.push(parsedName(constraint));
+          const constraint = this.#parseConstraintReference("constraint names are uppercase");
+          if (constraint !== undefined) constraints.push(constraint);
           if (!this.#at("Comma")) break;
           this.#advance();
         }
         this.#expect("RightParen", "expected `)` after constraints");
       } else {
-        const constraint = this.#takeName("UpperName", "expected a constraint name");
-        if (constraint !== undefined) constraints.push(parsedName(constraint));
+        const constraint = this.#parseConstraintReference("expected a constraint name");
+        if (constraint !== undefined) constraints.push(constraint);
       }
       parameters.push({
         name,
@@ -2845,6 +2874,29 @@ class Parser {
     }
     this.#advance();
     return token;
+  }
+
+  /**
+   * A constraint name in a binder, plain or qualified by a module alias:
+   * `Ord`, `Geo.Ord` (Modules §3.3).
+   *
+   * The qualified form carries its dot in the name's `text`, which is what the
+   * resolver keys the module-alias lookup on. §5.1 is untouched — the alias is
+   * what stands *left* of the dot, and constraints still never take one.
+   */
+  #parseConstraintReference(message: string): Parsed.Name | undefined {
+    const token = this.#takeName("UpperName", message);
+    if (token === undefined) return undefined;
+    if (!this.#at("Dot") || this.#peek(1).kind !== "UpperName") {
+      return parsedName(token);
+    }
+    this.#advance();
+    const qualified = this.#advance();
+    return {
+      text: `${token.text}.${(qualified as Lexed.NameToken).text}`,
+      startClass: "upper",
+      span: spanFrom(token.span, qualified.span),
+    };
   }
 
   #takeAnyName(message: string): Lexed.NameToken | undefined {
