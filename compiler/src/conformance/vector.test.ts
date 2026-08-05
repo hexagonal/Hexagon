@@ -6,8 +6,13 @@ import vectorSource from "../../../stdlib/Vector.hex?raw";
 /**
  * Behavioural conformance for `Vector(a)` (Collections Part 3). Assertions are on
  * the *results* of operations — never the internal representation — so they hold
- * for any spec-following implementation: today's plain-array backing and the
- * persistent 32-way trie deque it must become (§4). Cross-construction `==`
+ * for any spec-following implementation. That was written while the backing was
+ * plain JavaScript arrays and the §4 trie deque was what it "must become"; the
+ * swap has since happened, and this file did not change by a character, which is
+ * the strongest available statement that the two are the same `Vector`. What the
+ * representation costs and which JavaScript it emits are pinned separately, in
+ * `vector-trie-wiring.test.ts`, precisely so this file can go on not looking.
+ * Cross-construction `==`
  * (§8) is the representation-leak detector: a value built by prepends must equal
  * the same value built by appends, and a round-trip must equal its origin — full
  * element-by-element scans, not spot checks. Boundary sizes straddle the 32-branch

@@ -5,6 +5,17 @@ import { PRELUDE_SOURCES } from "../prelude-sources.js";
 import { compileFiles, projectDiagnostics, runProject } from "../support/test-project.js";
 
 /**
+ * A crossed `Vector(a)` as a plain array.
+ *
+ * Readouts that land in a `Vector` go through this since the trie wiring: a
+ * `Vector(a)` is a `TrieVector` record, not a JavaScript array. Spreading is
+ * what the `Hex.Vector<a> extends Iterable<a>` face promises a consumer can do.
+ */
+function elements(value: unknown): unknown[] {
+  return [...(value as Iterable<unknown>)];
+}
+
+/**
  * Conformance for `Vector`'s intrinsic-door milestone (`spec/intrinsics.md`
  * §9.2): `stdlib/Vector.hex` is a prelude module, its seven
  * representation-crossing operations are declared through the door
@@ -69,26 +80,32 @@ describe("the module", () => {
   });
 
   /**
-   * The door's seven lowerings, read off the module that declares them. The
-   * representation is unchanged by this milestone — plain JS arrays, per
-   * Collections Part 3 §2's emission — and the swap to the trie is a later
-   * change to these bodies and nothing else.
+   * The door's seven lowerings, read off the module that declares them —
+   * against the trie (Collections Part 3 §4), which is what the milestone that
+   * pinned these bodies to plain JS arrays said would replace them.
+   *
+   * Four of the seven are now the trie operation itself under its imported
+   * name, and `length` being one of them is the §7 O(1) row: `size` is
+   * `capacity - origin`. `at` and `set` still reach helpers, because a bounds
+   * check followed by a return is statements. Both `Seq` bridges go through the
+   * representation contract rather than the trie — `toSeq` hands the whole
+   * vector to the inbound adapter because a vector is iterable, and `fromSeq`
+   * is the literal builder over a different source.
    */
   test("each declaration binds its lowering", () => {
     const javascript = emitted([["/main.hex", "export let n: Int = Vector.length([1])\n"]], "/Vector.hex");
-    expect(javascript).toContain("const length = __hex_values => __hex_values.length;");
-    expect(javascript).toContain(
-      "const append = (__hex_values, __hex_value) => [...__hex_values, __hex_value];",
-    );
-    expect(javascript).toContain(
-      "const prepend = (__hex_values, __hex_value) => [__hex_value, ...__hex_values];",
-    );
+    expect(javascript).toContain("const length = __hex_trieSize;");
+    expect(javascript).toContain("const append = __hex_trieAppend;");
+    expect(javascript).toContain("const prepend = __hex_triePrepend;");
     expect(javascript).toContain("const at = __hex_vectorAt;");
     expect(javascript).toContain("const set = __hex_vectorSet;");
     expect(javascript).toContain(
-      "const fromSeq = __hex_values => Array.from(__hex_seqToIterable(__hex_values));",
+      "const fromSeq = __hex_values => __hex_vectorOf(__hex_seqToIterable(__hex_values));",
     );
     expect(javascript).toContain("const toSeq = __hex_seqFromIterable;");
+    // The trie arrives as one import line, and `length`'s lowering being an
+    // imported name rather than a body is the whole of what makes it O(1).
+    expect(javascript).toContain('} from "./VectorTrie.js";');
     // `fromSeq` takes a top-level `Seq(a)` *parameter*, so its export site takes
     // FFI Part 7 §7 occasion 1's wrapper exactly as an exported `.hex` function
     // of that signature would (`spec/intrinsics.md` §8.3's edit note). `toSeq`
@@ -115,11 +132,11 @@ describe("consumers see nothing new (§8.2)", () => {
     ]]);
 
     expect(main["size"]).toBe(3);
-    expect(main["ended"]).toEqual([10, 20, 30, 40]);
-    expect(main["begun"]).toEqual([0, 10, 20, 30]);
+    expect(elements(main["ended"])).toEqual([10, 20, 30, 40]);
+    expect(elements(main["begun"])).toEqual([0, 10, 20, 30]);
     expect(main["signed"]).toBe(30);
-    expect(main["replaced"]).toEqual([10, 25, 30]);
-    expect(main["round"]).toEqual([10, 20, 30]);
+    expect(elements(main["replaced"])).toEqual([10, 25, 30]);
+    expect(elements(main["round"])).toEqual([10, 20, 30]);
     expect(main["blank"]).toBe(true);
   });
 
@@ -182,7 +199,7 @@ describe("consumers see nothing new (§8.2)", () => {
       "export let window: Vector(Int) = values[3..1]\n",
     ]]);
 
-    expect(main["window"]).toEqual([]);
+    expect(elements(main["window"])).toEqual([]);
   });
 
   /**
@@ -215,9 +232,16 @@ describe("consumers see nothing new (§8.2)", () => {
 
 describe("membership drags nothing in", () => {
   /**
-   * A vector literal is compiler-lowered to a JS array (Collections Part 3 §2),
-   * so it needs no companion — and a program that names no companion function
-   * must emit no `Vector.js` import and must not pull the module into its graph.
+   * A vector literal is compiler-lowered, so it needs no companion — a program
+   * that names no companion function must emit no `Vector.js` import and must
+   * not pull the module into its graph.
+   *
+   * What it *does* pull in since the trie wiring is `VectorTrie.js`, and the
+   * two halves of that are the point. The runtime module is emitted, because a
+   * literal, a `++`, and a bracket read are all trie operations and the
+   * emitted program cannot run without them. `Vector.js` still is not, because
+   * none of the three is a companion call — the prelude member stays out of a
+   * program that never names it, exactly as before.
    */
   test("a program of literals alone imports no `Vector.js`", () => {
     const files = [[
@@ -227,7 +251,19 @@ describe("membership drags nothing in", () => {
       "export let head: Int = values[1]\n",
     ]] as const;
 
-    expect(emitted(files, "/main.hex")).not.toContain("Vector.js");
+    expect(emitted(files, "/main.hex")).not.toContain('from "./Vector.js"');
+    expect(emittedPaths(files)).toEqual(["/VectorTrie.hex", "/main.hex"]);
+  });
+
+  /**
+   * The other side of that guarantee: no vector, no trie. This is what keeps
+   * the runtime module from being a tax every program pays — it is reached the
+   * way a prelude module is, by something the emitter actually wrote.
+   */
+  test("a program with no vector emits no trie runtime", () => {
+    const files = [["/main.hex", "export let n: Int = 1 + 2\n"]] as const;
+
+    expect(emitted(files, "/main.hex")).not.toContain("VectorTrie");
     expect(emittedPaths(files)).toEqual(["/main.hex"]);
   });
 
@@ -386,7 +422,7 @@ describe("two prelude members exporting one bare name", () => {
 
     expect(main["lazy"]).toBe(1);
     expect(main["eager"]).toBe(1);
-    expect(main["one"]).toEqual([7]);
+    expect(elements(main["one"])).toEqual([7]);
   });
 
   /**
@@ -432,7 +468,7 @@ describe("two prelude members exporting one bare name", () => {
       'import { toSeq, length as __hex_prelude_length } from "./Vector.js";',
     );
     expect(javascript).toContain("const lazy = length(source);");
-    expect(javascript).toContain("const eager = __hex_prelude_length([1, 2]);");
+    expect(javascript).toContain("const eager = __hex_prelude_length(__hex_vectorOf([1, 2]));");
   });
 });
 

@@ -20,8 +20,9 @@ export { parse } from "./passes/parser/parser.js";
 export { resolve } from "./passes/resolver/resolver.js";
 export { check } from "./passes/checker/checker.js";
 export { elaborate } from "./passes/elaborator/elaborator.js";
-export { compileProject } from "./project.js";
+export { compileProject, isInjectedModule } from "./project.js";
 export type { CompiledModule, CompiledProject } from "./project.js";
+export type { VectorRuntime } from "./passes/emitter/emitter.js";
 export {
   collectTypeOccurrences,
   type TypeOccurrence,

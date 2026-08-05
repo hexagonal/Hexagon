@@ -3,6 +3,19 @@ import { describe, expect, test } from "vitest";
 import { compileFiles, projectDiagnostics, runProject } from "../support/test-project.js";
 
 /**
+ * A crossed `Vector(a)` as a plain array.
+ *
+ * Readouts that land in a `Vector` go through this since the trie wiring: a
+ * `Vector(a)` is a `TrieVector` record, not a JavaScript array. The subject of
+ * these tests is unchanged; spreading is what the `Hex.Vector<a> extends
+ * Iterable<a>` face promises a consumer can do, so the readout is now also a
+ * live check of that contract.
+ */
+function elements(value: unknown): unknown[] {
+  return [...(value as Iterable<unknown>)];
+}
+
+/**
  * Conformance for type-directed companion dispatch (Method Syntax §4.1/§4.2).
  *
  * `e.name(args…)` on a nominal receiver means `CompanionOf(T).name(e, args…)`,
@@ -69,7 +82,7 @@ describe("a module-level binding never wins a dot call (#267)", () => {
 
     expect(projectDiagnostics(source)).toEqual([]);
     const main = await runProject([["/main.hex", source]]);
-    expect(main["out"]).toEqual([2, 3]);
+    expect(elements(main["out"])).toEqual([2, 3]);
     // The local kept its name, so the companion is reached under the
     // collision-cleared spelling (Modules §6.4) — the machinery #266 pinned,
     // now exercised by dispatch rather than by a qualified call.
@@ -89,7 +102,7 @@ describe("a module-level binding never wins a dot call (#267)", () => {
 
     expect(projectDiagnostics(source)).toEqual([]);
     const main = await runProject([["/main.hex", source]]);
-    expect(main["out"]).toEqual([2, 3]);
+    expect(elements(main["out"])).toEqual([2, 3]);
   });
 
   /**
@@ -105,7 +118,7 @@ describe("a module-level binding never wins a dot call (#267)", () => {
 
     expect(projectDiagnostics(source)).toEqual([]);
     const main = await runProject([["/main.hex", source]]);
-    expect(main["out"]).toEqual([1, 2]);
+    expect(elements(main["out"])).toEqual([1, 2]);
   });
 });
 
@@ -135,7 +148,7 @@ describe("a built-in receiver reaches the module addressable under its name", ()
     const source = "export let v: Vector(Int) = [1, 2].prepend(0)\n";
 
     expect(projectDiagnostics(source)).toEqual([]);
-    expect((await runProject([["/main.hex", source]]))["v"]).toEqual([0, 1, 2]);
+    expect(elements((await runProject([["/main.hex", source]]))["v"])).toEqual([0, 1, 2]);
   });
 
   test("`isEmpty`, the control that reported before, dispatches", async () => {
@@ -165,7 +178,7 @@ describe("a built-in receiver reaches the module addressable under its name", ()
 
     expect(diagnostics(files)).toEqual([]);
     const main = await runProject(files);
-    expect(main["out"]).toEqual([1, 2]);
+    expect(elements(main["out"])).toEqual([1, 2]);
   });
 
   /**
@@ -330,7 +343,7 @@ describe("what the fix leaves exactly as it was", () => {
       "    Vector.fromSeq(Vector.toSeq([1, 2, 3]).memoize())\n",
     ]]);
 
-    expect(main["out"]).toEqual([1, 2, 3]);
+    expect(elements(main["out"])).toEqual([1, 2, 3]);
   });
 
   /**

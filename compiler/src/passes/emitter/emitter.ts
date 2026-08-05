@@ -21,11 +21,80 @@ import {
   type SpecializableItem,
 } from "./specializations.js";
 
+/**
+ * Every operation the emitted program performs on a `Vector(a)` by calling the
+ * trie runtime, and the name it is exported under from `runtime/VectorTrie.hex`.
+ *
+ * This is the *whole* of what the emitter knows about how a vector is built and
+ * read. Collections Part 3 §4's trie is Hexagon source over the `Node`
+ * intrinsic; nothing here re-implements any of it, and no emitted JavaScript
+ * reads a `TrieVector`'s fields. The one further fact emission relies on is the
+ * representation contract: every vector value carries `[Symbol.iterator]`, which
+ * is why `show`, `hash`, `for x in`, spread, and the `Map`/`Set` `fromVector`
+ * consumers appear nowhere in this list — they iterate, and iterating is not a
+ * call into the runtime.
+ *
+ * `nodeRun` is the exception that proves the rule: it is used only *inside* the
+ * emitted runtime module, by the iterator that makes the contract true.
+ *
+ * The list is fixed rather than derived because it is a contract in both
+ * directions — a name missing from the module would be a JavaScript
+ * `SyntaxError` in the export list rather than a compiler diagnostic, and
+ * `vector-trie-wiring.test.ts` checks the two sides against each other.
+ */
+export const VECTOR_RUNTIME_OPERATIONS = [
+  /** The one shared empty vector (a value, not a function). */
+  "empty",
+  /** `size(trie)` — Collections Part 3 §7's O(1) `length`, two field reads. */
+  "size",
+  /** `get(trie, index)` — 0-based, caller-checked. */
+  "get",
+  /** `set(trie, index, value)` — 0-based, caller-checked, persistent. */
+  "set",
+  "append",
+  "prepend",
+  /** `slice(trie, begin, end)` — 0-based half-open, bounds already in range. */
+  "slice",
+  /** `window(trie, begin, end)` — `slice` with §6.1's clamping applied first. */
+  "window",
+  /** `concat(left, right)` — the `Concat<Vector(a)>` instance (§8). */
+  "concat",
+  /** `nodeRun(trie, index)` — the leaf-run locator the O(n) iterator walks. */
+  "nodeRun",
+] as const;
+
+export type VectorRuntimeOperation = (typeof VECTOR_RUNTIME_OPERATIONS)[number];
+
+/**
+ * How this module reaches the vector trie runtime.
+ *
+ * `"self"` is the runtime module emitting itself: its operations are ordinary
+ * module-level bindings, so they are named bare, and it is here — and only here
+ * — that the emitter writes the JavaScript export list and gives every
+ * constructed `TrieVector` its `[Symbol.iterator]`.
+ *
+ * A specifier is every other module: the operations arrive as named imports.
+ * Absent means no runtime is available, which is what emitting a single module
+ * outside `compileProject` gets; vector emission then names the operations as
+ * if imported from the same directory, which is the shape a one-file program
+ * has, exactly like `DEFAULT_RUNTIME_SPECIFIER` above.
+ */
+export type VectorRuntime = "self" | { readonly specifier: string };
+
+/** What a module at the source common root spells for the trie runtime. */
+export const DEFAULT_VECTOR_RUNTIME_SPECIFIER = "./VectorTrie";
+
 export interface JavaScriptEmissionOptions {
   /** Includes private editions for inspection tools; ordinary builds omit them. */
   readonly previewPrivateSpecializations?: boolean;
   /** Exposes reserved evidence handles needed by dependent Hexagon modules. */
   readonly exportInstanceEvidence?: boolean;
+  /**
+   * Where this module's vector emission finds the trie runtime. Only
+   * `compileProject` knows the program's paths, so only it can compute the
+   * specifier; the default is the same-directory one.
+   */
+  readonly vectorRuntime?: VectorRuntime;
 }
 
 export function emitJavaScript(
@@ -612,6 +681,14 @@ class JavaScriptEmitter {
   readonly #module: Core.Module;
   readonly #docs: DocIndex;
   readonly #exportInstanceEvidence: boolean;
+  readonly #vectorRuntime: VectorRuntime;
+  /**
+   * The trie operations this module's emission reached, and the local each is
+   * named by — the import list, decided by rendering exactly as the prelude
+   * term channel's is (#263). Insertion order is not the emitted order; see
+   * `#vectorRuntimeImport`.
+   */
+  readonly #vectorRuntimeUses = new Map<VectorRuntimeOperation, string>();
   readonly #specializations: readonly FundamentalSpecialization[];
   readonly #generatedBodies: {
     readonly specialization: FundamentalSpecialization;
@@ -623,6 +700,8 @@ class JavaScriptEmitter {
     this.#docs = new DocIndex(module.docs);
     this.#prelude = preludeIds(module);
     this.#exportInstanceEvidence = options.exportInstanceEvidence ?? false;
+    this.#vectorRuntime = options.vectorRuntime ??
+      { specifier: DEFAULT_VECTOR_RUNTIME_SPECIFIER };
     this.#generatedNames = new GeneratedNames(module.symbols.map(({ name }) => name));
     for (const item of module.items) {
       if (item.kind !== "Import") continue;
@@ -711,6 +790,28 @@ class JavaScriptEmitter {
       };
     });
 
+    // Before the import lines, because a helper body may itself call the trie
+    // runtime — `vectorIndex` is a bounds check around `get` — and the import
+    // line has to know that.
+    //
+    // Two facts make the move safe, and both are invariants rather than
+    // conveniences. Rendering a helper adds no *helper*: `#useHelper` closed
+    // the dependency family over at the moment of request, and `renderHelper`
+    // resolves names through `#helperName`, which requests nothing. And no
+    // import renderer below adds one either — they emit `import` lines from
+    // what rendering already recorded, and reach no expression. A renderer that
+    // ever calls `#useHelper` has to move back below this.
+    const helpers = [...this.#helpers]
+      .sort()
+      .flatMap((helper) =>
+        renderHelper(
+          helper,
+          this.#helperName(helper),
+          (dependency) => this.#helperName(dependency),
+          (operation) => this.#useVectorRuntime(operation),
+        )
+      );
+
     // After rendering, because rendering is what discovers which prelude
     // dictionaries the body names (#153) and which prelude terms it names
     // (#263), and before the rendered entries, because these are imports.
@@ -718,6 +819,8 @@ class JavaScriptEmitter {
     body.push(...preludeInstanceImports.map(({ line }) => line));
     const preludeTermImports = this.#preludeTermImports();
     body.push(...preludeTermImports.map(({ line }) => line));
+    const vectorRuntimeImport = this.#vectorRuntimeImport();
+    if (vectorRuntimeImport !== undefined) body.push(vectorRuntimeImport.line);
     body.push(...this.#constraintMemberImports());
 
     // Constraints §6.3: an `honor` may sit below a term binding whose evaluation
@@ -749,14 +852,8 @@ class JavaScriptEmitter {
       previousSpan = entry.span;
     }
     body.push(...this.#exports);
+    body.push(...this.#vectorRuntimeExports());
 
-    const helpers = [...this.#helpers]
-      .sort()
-      .flatMap((helper) =>
-        renderHelper(helper, this.#helperName(helper), (dependency) =>
-          this.#helperName(dependency)
-        )
-      );
     const lines = helpers.length === 0 ? body : [...helpers, "", ...body];
 
     const text = lines.length === 0 ? "" : `${lines.join("\n")}\n`;
@@ -771,6 +868,9 @@ class JavaScriptEmitter {
       preludeTermImports: [
         ...new Set(preludeTermImports.map(({ specifier }) => specifier)),
       ],
+      vectorRuntimeImports: vectorRuntimeImport === undefined
+        ? []
+        : [vectorRuntimeImport.specifier],
       diagnostics: this.#diagnostics.toArray(),
     };
   }
@@ -1644,18 +1744,26 @@ class JavaScriptEmitter {
       case "String":
         return this.#emitString(expression, depth, evidenceNames);
       case "Tuple":
-      case "Vector":
         // The arity-0 tuple's value is `undefined`, never `[]` (Products §2.6,
         // #159). Unreachable from source, where `()` parses as the `Unit`
         // expression above — but this is the representation rule's decision
-        // point, so it carries the arity-0 clause. An empty *vector* really is
-        // `[]`.
-        if (expression.kind === "Tuple" && expression.elements.length === 0) {
-          return "undefined";
-        }
+        // point, so it carries the arity-0 clause.
+        if (expression.elements.length === 0) return "undefined";
         return `[${expression.elements.map((element) =>
           this.#emitExpr(element, depth, evidenceNames)
         ).join(", ")}]`;
+      case "Vector": {
+        // Collections Part 3 §2's literal. `[]` is the one shared empty trie —
+        // a value, not a call, because a `TrieVector` is immutable and there is
+        // nothing to distinguish two of them by. A non-empty literal hands its
+        // elements to one fold over `append`; the array is the argument list,
+        // and never the vector.
+        if (expression.elements.length === 0) return this.#useVectorRuntime("empty");
+        const elements = expression.elements.map((element) =>
+          this.#emitExpr(element, depth, evidenceNames)
+        );
+        return `${this.#useHelper("vectorOf")}([${elements.join(", ")}])`;
+      }
       case "Record":
         return this.#emitRecordLiteral(expression, depth, evidenceNames);
       case "TupleAccess":
@@ -1744,14 +1852,24 @@ class JavaScriptEmitter {
           : undefined;
         if (constructed !== undefined) {
           // A nominal record constructor is the identity, so the construction
-          // inlines to its argument — except for `Seq`, whose representation
-          // includes the boundary traversal method (FFI Part 3 §9.4). This is
-          // one of the two construction sites the ruling names; the other is
-          // the inbound adapter.
-          if (!this.#isSequence(expression.type)) {
+          // inlines to its argument — except for the two records whose
+          // representation *includes* their JavaScript traversal method: `Seq`
+          // (FFI Part 3 §9.4) and `TrieVector`, which is what a `Vector(a)` is
+          // and what `Hex.Vector<a> extends Iterable<a>` promises about it.
+          //
+          // The vector side needs no equivalent of `#isSequence`'s prelude
+          // lookup, and could not have one: `TrieVector` is declared in the
+          // runtime module and exported from nowhere, so the only expression in
+          // any program that can construct one is inside that module. Being
+          // *in* it is therefore the whole test.
+          const face = this.#isSequence(expression.type)
+            ? `[Symbol.iterator]: ${this.#useHelper("seqIterate")}`
+            : this.#isTrieVector(expression.type)
+            ? `[Symbol.iterator]: ${this.#useHelper("vectorIterate")}`
+            : undefined;
+          if (face === undefined) {
             return this.#emitExpr(constructed, depth, evidenceNames);
           }
-          const face = `[Symbol.iterator]: ${this.#useHelper("seqIterate")}`;
           return constructed.kind === "Record"
             ? this.#emitRecordLiteral(constructed, depth, evidenceNames, face)
             // Not a literal (`Seq(existing)`): splice the shared method on
@@ -2399,33 +2517,45 @@ class JavaScriptEmitter {
           ),
         );
       case "Vector": {
+        // Collections Part 3 §3.6's shape, against the trie's 0-based
+        // internals: one length test — `=== n` when the pattern fixes the
+        // length, `>= k` when a rest absorbs the remainder — then an indexed
+        // read per element slot, and a slice for a rest *binder* only, since
+        // §3.5's cost is a cost the pattern should not pay for a `...` that
+        // binds nothing.
+        //
+        // Slots after the rest count from the end, which is what makes
+        // `[...init, last]` and `[first, ..., last]` mean what they say. The
+        // rest's own window closes at the first of them, or at the size when
+        // there is none.
+        const size = (subject: string) => `${this.#useVectorRuntime("size")}(${subject})`;
         const fixed = pattern.elements.length;
         const plans = pattern.elements.map((element, index) => {
           const position = pattern.rest === undefined || index < pattern.rest.index
             ? String(index)
-            : `${value}.length - ${fixed - index}`;
+            : `${size(value)} - ${fixed - index}`;
           return this.#emitPatternPlan(
             element,
-            `${value}[${position}]`,
+            `${this.#useVectorRuntime("get")}(${value}, ${position})`,
             exceptionPatterns,
           );
         });
         const combined = combinePatternPlans(plans);
         const restEnd = pattern.rest === undefined || pattern.rest.index === fixed
-          ? ""
-          : `, ${value}.length - ${fixed - pattern.rest.index}`;
+          ? size(value)
+          : `${size(value)} - ${fixed - pattern.rest.index}`;
         const restPlan = pattern.rest?.pattern === undefined
           ? { tests: [], bindings: [] }
           : this.#emitPatternPlan(
               pattern.rest.pattern,
-              `${value}.slice(${pattern.rest.index}${restEnd})`,
+              `${this.#useVectorRuntime("slice")}(${value}, ${pattern.rest.index}, ${restEnd})`,
               exceptionPatterns,
             );
         return {
           tests: [
             pattern.rest === undefined
-              ? `${value}.length === ${fixed}`
-              : `${value}.length >= ${fixed}`,
+              ? `${size(value)} === ${fixed}`
+              : `${size(value)} >= ${fixed}`,
             ...combined.tests,
             ...restPlan.tests,
           ],
@@ -2996,8 +3126,18 @@ class JavaScriptEmitter {
       ));
     }
     if (type.kind === "Vector") {
-      const elementHash = this.#derivedHash(type.element, "__hex_element", evidenceNames);
-      return `(() => { let __hex_hash = 0; for (const __hex_element of ${value}) __hex_hash = ${this.#useHelper("mixHash")}(__hex_hash, ${elementHash}); return __hex_hash; })()`;
+      // Fresh binders per level. `for (const x of x)` is a TDZ
+      // `ReferenceError` — the head's own scope holds the binding while the
+      // iterable expression is evaluated — so a fixed `__hex_element` faults on
+      // `hash` at `Vector(Vector(a))`, where the inner walk's source *is* the
+      // outer walk's binder. Pre-dates the trie; the representation had nothing
+      // to do with it.
+      const element = this.#generatedNames.fresh("element");
+      const accumulator = this.#generatedNames.fresh("hash");
+      const elementHash = this.#derivedHash(type.element, element, evidenceNames);
+      return `(() => { let ${accumulator} = 0; for (const ${element} of ${value}) ` +
+        `${accumulator} = ${this.#useHelper("mixHash")}(${accumulator}, ${elementHash}); ` +
+        `return ${accumulator}; })()`;
     }
     if (type.kind === "Set") {
       const dictionary = type.element.kind === "Variable"
@@ -3145,13 +3285,28 @@ class JavaScriptEmitter {
       ));
     }
     if (type.kind === "Vector") {
-      const elementOrder = component(
-        "element",
-        type.element,
-        `${left}[__hex_index]`,
-        `${right}[__hex_index]`,
-      );
-      return `(() => { const __hex_length = Math.min(${left}.length, ${right}.length); for (let __hex_index = 0; __hex_index < __hex_length; __hex_index += 1) { const __hex_order = ${elementOrder}; if (__hex_order !== "Equal") return __hex_order; } return ${fromSign(`${left}.length - ${right}.length`)}; })()`;
+      // §8's lexicographic order, zipped through the representation contract
+      // for `#derivedEquals`' reason. Running out of right-hand elements first
+      // decides `Greater` on the spot; running out of left-hand ones falls to
+      // the tail check, where a proper prefix is `Less`. No length is measured:
+      // exhaustion is the comparison.
+      // Fresh binders per level, for `#derivedEquals`' reason: a nested vector
+      // order runs this walk inside itself, and shared names are a TDZ fault.
+      const leftElement = this.#generatedNames.fresh("leftElement");
+      const rightElement = this.#generatedNames.fresh("rightElement");
+      const iterator = this.#generatedNames.fresh("rightStep");
+      const step = this.#generatedNames.fresh("step");
+      const order = this.#generatedNames.fresh("order");
+      const elementOrder = component("element", type.element, leftElement, rightElement);
+      return "(() => { " +
+        `const ${iterator} = ${right}[Symbol.iterator](); ` +
+        `for (const ${leftElement} of ${left}) { ` +
+        `const ${step} = ${iterator}.next(); ` +
+        `if (${step}.done) return "Greater"; ` +
+        `const ${rightElement} = ${step}.value; ` +
+        `const ${order} = ${elementOrder}; ` +
+        `if (${order} !== "Equal") return ${order}; } ` +
+        `return ${iterator}.next().done ? "Equal" : "Less"; })()`;
     }
     if (type.kind === "Record") {
       return lexicographicComparison(
@@ -3297,13 +3452,26 @@ class JavaScriptEmitter {
       ).join(" && ") || "true";
     }
     if (type.kind === "Vector") {
-      const elementEquals = component(
-        "element",
-        type.element,
-        `${left}[__hex_index]`,
-        `${right}[__hex_index]`,
-      );
-      return `${left}.length === ${right}.length && (() => { for (let __hex_index = 0; __hex_index < ${left}.length; __hex_index += 1) if (!(${elementEquals})) return false; return true; })()`;
+      // §8: size check, then elementwise, left to right. The walk is a zip of
+      // the two iterators rather than an index walk — a trie read is
+      // O(log32 n), so indexing would make an equality O(n log32 n) that the
+      // representation contract already offers in O(n). The size check stays,
+      // and stays first: it is what §8 says, and a mismatched pair must not
+      // reach a user `equals` at all.
+      // Fresh binders per level, not fixed ones: `Vector(Vector(a))` nests this
+      // walk inside itself (Constraints §4.3's parameterized instance, resolved
+      // twice), and reused names put the inner `const` in the outer's scope —
+      // where the outer's own initializer already read it. That is a TDZ
+      // `ReferenceError` at run time on a program that compiled clean.
+      const leftElement = this.#generatedNames.fresh("leftElement");
+      const rightElement = this.#generatedNames.fresh("rightElement");
+      const step = this.#generatedNames.fresh("rightStep");
+      const elementEquals = component("element", type.element, leftElement, rightElement);
+      return `${this.#useVectorRuntime("size")}(${left}) === ${this.#useVectorRuntime("size")}(${right}) && ` +
+        `(() => { const ${step} = ${right}[Symbol.iterator](); ` +
+        `for (const ${leftElement} of ${left}) { ` +
+        `const ${rightElement} = ${step}.next().value; ` +
+        `if (!(${elementEquals})) return false; } return true; })()`;
     }
     if (type.kind === "Set") {
       // `Hash`, so the structural walk stands where no selection was recorded.
@@ -3421,8 +3589,12 @@ class JavaScriptEmitter {
         : `"(" + ${elements.join(' + ", " + ')} + ")"`;
     }
     if (type.kind === "Vector") {
+      // §8: rendered as the literal, `[]` for empty — which `join` gives for
+      // free. Spread rather than `map`, because a trie is not an array; the
+      // spread is the representation contract, the same one `Set` and `Map`
+      // below already read through.
       const shown = component("element", type.element, "__hex_element");
-      return `"[" + ${value}.map(__hex_element => ${shown}).join(", ") + "]"`;
+      return `"[" + [...${value}].map(__hex_element => ${shown}).join(", ") + "]"`;
     }
     if (type.kind === "Set") {
       const shown = component("element", type.element, "__hex_element");
@@ -3546,7 +3718,11 @@ class JavaScriptEmitter {
         return `({ show: __hex_value => ${this.#derivedShow(evidence.type, "__hex_value", evidenceNames, components)} })`;
       }
       if (constraint === "Concat" && evidence.type.kind === "Vector") {
-        return "({ concat: (__hex_left, __hex_right) => [...__hex_left, ...__hex_right] })";
+        // The Operators §7 instance, and the whole of it: `concat` is the trie
+        // operation itself, so `++` at `Vector(a)` is documented-linear (Part 1
+        // §2.2) and the result grows out of the left operand's trie rather than
+        // copying it.
+        return `({ concat: ${this.#useVectorRuntime("concat")} })`;
       }
       return "({})";
     }
@@ -3753,6 +3929,23 @@ class JavaScriptEmitter {
   }
 
   /**
+   * Whether `type` is the trie the emitted program's `Vector(a)` values are.
+   *
+   * Recognized by name inside the runtime module and nowhere else, which is not
+   * the weak version of an identity check but the exact one: `TrieVector` is
+   * private to that module — the checker refuses to export a binding exposing
+   * it — so no other module can hold a value of it, name it, or construct one.
+   * The `Bool`/`Seq` pins need a prelude lookup because those types *do* cross
+   * boundaries and a user declaration can occlude the name; this one cannot.
+   */
+  #isTrieVector(type: Typed.Type): boolean {
+    if (this.#vectorRuntime !== "self" || type.kind !== "NominalRecord") return false;
+    return this.#module.records.some(
+      ({ id, name }) => id === type.record && name === "TrieVector",
+    );
+  }
+
+  /**
    * A record literal, with `extra` appended verbatim as a final property when
    * the construction carries something the source fields do not — which today
    * is exactly `Seq`'s boundary traversal method (FFI Part 3 §9.4).
@@ -3943,25 +4136,33 @@ class JavaScriptEmitter {
     switch (key) {
       case "seqMemoize":
         return this.#useHelper("seqMemoize");
-      // Collections Part 3 §7's boundary, over the plain-array representation
-      // §2's emission pins. `at` and `set` reach for helpers because a bounds
-      // check followed by a return is statements, which the arrow expression a
-      // door binding is initialized with cannot hold; `vectorAt` is also where
-      // §5.5's `IndexError` payload is built, so sharing it keeps one shape.
+      // Collections Part 3 §7's boundary. Four of the seven *are* a trie
+      // operation and lower to the imported name itself; `at` and `set` reach
+      // for helpers because a bounds check followed by a return is statements,
+      // which the arrow expression a door binding is initialized with cannot
+      // hold, and `vectorAt` is also where §5.5's `IndexError` payload is
+      // built, so sharing it keeps one shape.
+      //
+      // `length` is the row §7 pins at O(1), and it stays there: `size` is
+      // `capacity - origin`, two field reads, with nothing traversed.
       case "vectorLength":
-        return "__hex_values => __hex_values.length";
+        return this.#useVectorRuntime("size");
       case "vectorAppend":
-        return "(__hex_values, __hex_value) => [...__hex_values, __hex_value]";
+        return this.#useVectorRuntime("append");
       case "vectorPrepend":
-        return "(__hex_values, __hex_value) => [__hex_value, ...__hex_values]";
+        return this.#useVectorRuntime("prepend");
       case "vectorAt":
         return this.#useHelper("vectorAt");
       case "vectorSet":
         return this.#useHelper("vectorSet");
+      // Both bridges go through the representation contract rather than through
+      // the trie: a vector is iterable, so the inbound adapter takes one whole,
+      // and `fromSeq` is the literal builder over a different source (§7.2).
       case "vectorToSeq":
         return this.#useHelper("seqFromIterable");
       case "vectorFromSeq":
-        return `__hex_values => Array.from(${this.#useHelper("seqToIterable")}(__hex_values))`;
+        return `__hex_values => ${this.#useHelper("vectorOf")}(` +
+          `${this.#useHelper("seqToIterable")}(__hex_values))`;
       default:
         if (INTRINSIC_INVENTORY.has(key)) {
           this.#diagnostics.add({
@@ -3991,6 +4192,100 @@ class JavaScriptEmitter {
     const name = this.#generatedNames.fixed(helper);
     this.#helperNames.set(helper, name);
     return name;
+  }
+
+  /**
+   * The name this module spells a trie-runtime operation by, requesting the
+   * import that binds it if this is the first use.
+   *
+   * Inside the runtime module the operation is a module-level binding of its own
+   * source name, so there is nothing to import and nothing to rename. Everywhere
+   * else it arrives as a named import under a generated local: `append` the
+   * import and `append` a user's own function must be able to coexist, and only
+   * the generated spelling ever moves (FFI Part 1 §10's rule, applied to a term).
+   *
+   * The stem is `trie`, not `vector`, and the difference is readability rather
+   * than correctness. Several bracket helpers are already `__hex_vectorX`, and a
+   * shared stem made the probe hand out `__hex_vectorSlice1` to whichever of the
+   * two asked second — a name that says nothing about which it is, and that
+   * moves between modules with the order they happen to reach them. `trie`
+   * names the runtime, so a reader can tell an imported trie operation from a
+   * locally emitted helper at a glance, and neither ever displaces the other.
+   */
+  #useVectorRuntime(operation: VectorRuntimeOperation): string {
+    if (this.#vectorRuntime === "self") return operation;
+    const existing = this.#vectorRuntimeUses.get(operation);
+    if (existing !== undefined) return existing;
+    const name = this.#generatedNames.fixed(
+      `trie${operation[0]!.toUpperCase()}${operation.slice(1)}`,
+    );
+    this.#vectorRuntimeUses.set(operation, name);
+    return name;
+  }
+
+  /**
+   * The single `import` line the reached trie operations owe, or nothing when
+   * none were reached — the whole of "a program with no vectors carries no trie
+   * runtime". The specifier rides along because reachability must emit the
+   * module this points at, and no `Import` item records the edge
+   * (`Emitted.JavaScript.vectorRuntimeImports`).
+   *
+   * Named in `VECTOR_RUNTIME_OPERATIONS` order rather than first-use order, so
+   * the emitted text is a function of what the module uses and not of where in
+   * the module it happens to use it.
+   */
+  #vectorRuntimeImport(): { readonly line: string; readonly specifier: string } | undefined {
+    if (this.#vectorRuntime === "self" || this.#vectorRuntimeUses.size === 0) return undefined;
+    const items = VECTOR_RUNTIME_OPERATIONS.flatMap((operation) => {
+      const local = this.#vectorRuntimeUses.get(operation);
+      return local === undefined ? [] : [`${operation} as ${local}`];
+    });
+    return {
+      line: `import { ${items.join(", ")} } from ` +
+        `${JSON.stringify(emittedModuleSpecifier(this.#vectorRuntime.specifier))};`,
+      specifier: this.#vectorRuntime.specifier,
+    };
+  }
+
+  /**
+   * The runtime module's JavaScript export list.
+   *
+   * `runtime/VectorTrie.hex` exports nothing at the Hexagon level and cannot:
+   * every operation's type names the private `TrieVector`, and the checker
+   * refuses to export a binding that exposes a private type. That refusal is
+   * the feature — it is what makes the trie unreachable by any Hexagon
+   * `import`, however the compiler places the file — so the way out is the
+   * emitted module's own export list, written here.
+   *
+   * An operation the module does not declare is reported rather than exported.
+   * Injection prefers a project's own file at the basename (the rule the
+   * shipped-source sweep compiles `runtime/VectorTrie.hex` in its real role
+   * by), so a project can put an unrelated file in this seat; without the check
+   * the result is a `SyntaxError` in generated JavaScript with no diagnostic
+   * anywhere, which is the worst way to learn it.
+   */
+  #vectorRuntimeExports(): readonly string[] {
+    if (this.#vectorRuntime !== "self") return [];
+    // The module's *own* top-level bindings, never `module.symbols`: that also
+    // carries the prelude's, so a file declaring none of these would still look
+    // as though it had `empty` and `prepend` — `Seq.hex` exports both — and the
+    // export list would name what nothing declares.
+    const declared = new Set(
+      this.#module.items.flatMap((item) =>
+        item.kind === "Let" || item.kind === "Fun" ? [item.binding.name] : []
+      ),
+    );
+    const missing = VECTOR_RUNTIME_OPERATIONS.filter((operation) => !declared.has(operation));
+    if (missing.length > 0) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: "this file sits at the vector runtime's injection path but declares " +
+          `no ${missing.map((operation) => `\`${operation}\``).join(", ")}`,
+        primary: this.#module.span,
+      });
+    }
+    const present = VECTOR_RUNTIME_OPERATIONS.filter((operation) => declared.has(operation));
+    return present.length === 0 ? [] : [`export { ${present.join(", ")} };`];
   }
 }
 
@@ -4877,6 +5172,8 @@ type Helper =
   | "nodeSet"
   | "vectorAt"
   | "vectorIndex"
+  | "vectorIterate"
+  | "vectorOf"
   | "vectorSet"
   | "vectorSlice"
   | "stringIndex"
@@ -4924,10 +5221,17 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   nodeSet: [],
   vectorAt: [],
   vectorIndex: [],
+  vectorIterate: [],
+  vectorOf: [],
   vectorSet: [],
   vectorSlice: [],
-  stringIndex: ["vectorIndex"],
-  stringSlice: ["vectorSlice"],
+  // Empty since the trie: `stringIndex`/`stringSlice` reached the vector
+  // helpers when a `Vector(a)` was a JS array and a codepoint array was one.
+  // Each now carries its own array reading (§9), because a string is not a
+  // trie and re-tying them would put the codepoint path through a trie
+  // build it has no use for.
+  stringIndex: [],
+  stringSlice: [],
   stableHash: [],
   mixHash: [],
   intDiv: [],
@@ -5051,6 +5355,8 @@ function renderHelper(
   helper: Helper,
   name: string,
   dependencyName: (helper: Helper) => string,
+  /** The trie runtime, for the helpers that are bounds checks around it. */
+  runtimeName: (operation: VectorRuntimeOperation) => string,
 ): string[] {
   switch (helper) {
     case "intDiv":
@@ -5227,19 +5533,69 @@ function renderHelper(
         "  };",
         "}",
       ];
+    // ---------------------------------------------------------------------
+    // The vector bracket family (Collections Part 3 §5). Each is a bounds
+    // assertion wrapped around one trie operation, and exists as a helper for
+    // the reason it always did: a check followed by a return is *statements*,
+    // which neither an expression position nor the arrow an intrinsic-door
+    // binding is initialized with can hold.
+    //
+    // They build §5.5's `IndexError` payload directly rather than constructing
+    // the `stdlib/Vector.hex` exception, and that is deliberate. The payload
+    // (`$hex`, `name`, `index`, `size`) and the message are what every catch
+    // site and every diagnostic test reads; routing them through the Hexagon
+    // declaration would change both, for no gain — the trie carries no bounds
+    // policy of its own, which is exactly why its `get`/`set` are documented as
+    // caller-checked.
     case "vectorIndex":
       return [
         `function ${name}(__hex_values, __hex_index) {`,
-        "  if (__hex_index < 1 || __hex_index > __hex_values.length) { const __hex_error = new RangeError(`index ${__hex_index} out of bounds for size ${__hex_values.length}`); __hex_error.name = \"IndexError\"; __hex_error.$hex = true; __hex_error.index = __hex_index; __hex_error.size = __hex_values.length; throw __hex_error; }",
-        "  return __hex_values[__hex_index - 1];",
+        `  const __hex_size = ${runtimeName("size")}(__hex_values);`,
+        "  if (__hex_index < 1 || __hex_index > __hex_size) { const __hex_error = new RangeError(`index ${__hex_index} out of bounds for size ${__hex_size}`); __hex_error.name = \"IndexError\"; __hex_error.$hex = true; __hex_error.index = __hex_index; __hex_error.size = __hex_size; throw __hex_error; }",
+        `  return ${runtimeName("get")}(__hex_values, __hex_index - 1);`,
         "}",
       ];
     case "vectorAt":
       return [
         `function ${name}(__hex_values, __hex_index) {`,
-        "  const __hex_position = __hex_index < 0 ? __hex_values.length + __hex_index + 1 : __hex_index;",
-        "  if (__hex_position < 1 || __hex_position > __hex_values.length) { const __hex_error = new RangeError(`index ${__hex_index} out of bounds for size ${__hex_values.length}`); __hex_error.name = \"IndexError\"; __hex_error.$hex = true; __hex_error.index = __hex_index; __hex_error.size = __hex_values.length; throw __hex_error; }",
-        "  return __hex_values[__hex_position - 1];",
+        `  const __hex_size = ${runtimeName("size")}(__hex_values);`,
+        "  const __hex_position = __hex_index < 0 ? __hex_size + __hex_index + 1 : __hex_index;",
+        "  if (__hex_position < 1 || __hex_position > __hex_size) { const __hex_error = new RangeError(`index ${__hex_index} out of bounds for size ${__hex_size}`); __hex_error.name = \"IndexError\"; __hex_error.$hex = true; __hex_error.index = __hex_index; __hex_error.size = __hex_size; throw __hex_error; }",
+        `  return ${runtimeName("get")}(__hex_values, __hex_position - 1);`,
+        "}",
+      ];
+    case "vectorOf":
+      // The literal `[a, b, c]` (§2) and `Vector.fromSeq` (§7.2) are one
+      // operation over two sources: fold `append` over anything iterable. Both
+      // are eager, and `fromSeq` on an infinite `Seq` diverges here, as §7.2
+      // says it does.
+      return [
+        `function ${name}(__hex_source) {`,
+        `  let __hex_result = ${runtimeName("empty")};`,
+        `  for (const __hex_value of __hex_source) __hex_result = ${runtimeName("append")}(__hex_result, __hex_value);`,
+        "  return __hex_result;",
+        "}",
+      ];
+    case "vectorIterate":
+      // The boundary traversal method every `TrieVector` carries, and the whole
+      // of what makes `Vector<a> extends Iterable<a>` true: `for x in`, spread,
+      // `Array.from`, `Map.fromVector`, `show`, and `hash` all reach a vector
+      // through this and nothing else. Emitted only into the runtime module,
+      // which is the only place a `TrieVector` is constructed.
+      //
+      // It walks *nodes*, not elements: `nodeRun` descends once per 32-element
+      // leaf and reports how far that leaf reaches, so a whole traversal is
+      // O(n). Reading element-at-a-time through `get` would be O(n log32 n) —
+      // correct, and quietly worse on every loop a program writes.
+      return [
+        `function* ${name}() {`,
+        `  const __hex_size = ${runtimeName("size")}(this);`,
+        "  let __hex_index = 0;",
+        "  while (__hex_index < __hex_size) {",
+        `    const [__hex_values, __hex_offset, __hex_run] = ${runtimeName("nodeRun")}(this, __hex_index);`,
+        "    for (let __hex_step = 0; __hex_step < __hex_run; __hex_step += 1) yield __hex_values[__hex_offset + __hex_step];",
+        "    __hex_index += __hex_run;",
+        "  }",
         "}",
       ];
     case "nodeSet":
@@ -5255,30 +5611,43 @@ function renderHelper(
     case "vectorSet":
       return [
         `function ${name}(__hex_values, __hex_index, __hex_value) {`,
-        "  if (__hex_index < 1 || __hex_index > __hex_values.length) { const __hex_error = new RangeError(`index ${__hex_index} out of bounds for size ${__hex_values.length}`); __hex_error.name = \"IndexError\"; __hex_error.$hex = true; __hex_error.index = __hex_index; __hex_error.size = __hex_values.length; throw __hex_error; }",
-        "  const __hex_updated = __hex_values.slice();",
-        "  __hex_updated[__hex_index - 1] = __hex_value;",
-        "  return __hex_updated;",
+        `  const __hex_size = ${runtimeName("size")}(__hex_values);`,
+        "  if (__hex_index < 1 || __hex_index > __hex_size) { const __hex_error = new RangeError(`index ${__hex_index} out of bounds for size ${__hex_size}`); __hex_error.name = \"IndexError\"; __hex_error.$hex = true; __hex_error.index = __hex_index; __hex_error.size = __hex_size; throw __hex_error; }",
+        `  return ${runtimeName("set")}(__hex_values, __hex_index - 1, __hex_value);`,
         "}",
       ];
     case "vectorSlice":
+      // §6.2: direction faults, magnitude clamps. The clamping is the trie's
+      // `window`, so the 1-based-to-0-based shift is all this adds — the
+      // "single call with zero guard code" the spec pins, modulo the offset.
       return [
         `function ${name}(__hex_values, __hex_range) {`,
         "  if (__hex_range.descending) { const __hex_error = new RangeError(\"a slice window cannot descend\"); __hex_error.name = \"SliceError\"; __hex_error.$hex = true; __hex_error.start = __hex_range.start; __hex_error.end = __hex_range.end; throw __hex_error; }",
-        "  return __hex_values.slice(Math.max(0, __hex_range.start - 1), Math.max(0, __hex_range.end));",
+        `  return ${runtimeName("window")}(__hex_values, __hex_range.start - 1, __hex_range.end);`,
         "}",
       ];
+    // ---------------------------------------------------------------------
+    // String indexing (§9) reads the *same* doctrine over a different
+    // representation: 1-based, codepoint-addressed, `IndexError` on the
+    // bracket, clamping windows, `SliceError` on direction. It used to reach
+    // the vector helpers over a codepoint array, and stopped when `Vector(a)`
+    // became a trie — a string is not one, and `Array.from` of one is not a
+    // vector. The duplicated bounds arithmetic below is the price of that, and
+    // the honest price: these two are the only place the array reading lives
+    // now, so nothing about them can drift when the trie changes.
     case "stringIndex":
       return [
         `function ${name}(__hex_text, __hex_index) {`,
         "  const __hex_points = Array.from(__hex_text);",
-        `  return ${dependencyName("vectorIndex")}(__hex_points, __hex_index);`,
+        "  if (__hex_index < 1 || __hex_index > __hex_points.length) { const __hex_error = new RangeError(`index ${__hex_index} out of bounds for size ${__hex_points.length}`); __hex_error.name = \"IndexError\"; __hex_error.$hex = true; __hex_error.index = __hex_index; __hex_error.size = __hex_points.length; throw __hex_error; }",
+        "  return __hex_points[__hex_index - 1];",
         "}",
       ];
     case "stringSlice":
       return [
         `function ${name}(__hex_text, __hex_range) {`,
-        `  return ${dependencyName("vectorSlice")}(Array.from(__hex_text), __hex_range).join("");`,
+        "  if (__hex_range.descending) { const __hex_error = new RangeError(\"a slice window cannot descend\"); __hex_error.name = \"SliceError\"; __hex_error.$hex = true; __hex_error.start = __hex_range.start; __hex_error.end = __hex_range.end; throw __hex_error; }",
+        "  return Array.from(__hex_text).slice(Math.max(0, __hex_range.start - 1), Math.max(0, __hex_range.end)).join(\"\");",
         "}",
       ];
     // ---------------------------------------------------------------------

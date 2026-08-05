@@ -22,14 +22,27 @@ import trieSource from "../../../runtime/VectorTrie.hex?raw";
  * internal declarations; each test appends `export let` probes to its source and
  * compiles the whole as one privileged runtime module, so `Tree`/`Node` never
  * cross a boundary.
+ *
+ * ## Why the probe copy sits at a different path
+ *
+ * `VectorTrie.hex` is now an *injected* basename (`src/runtime-modules.ts`):
+ * the compiler places its own copy at every project's root, and a project file
+ * there replaces it — becoming the module every `Vector(a)` in the program is
+ * built on, and one that is emitted only when something reaches it. A probe
+ * copy in that seat would therefore be measured as the program's runtime rather
+ * than as the module under test, and would go unemitted for want of a vector to
+ * serve. The basename was never the subject; the source is, and this compiles
+ * the same text under its own path beside the injected copy.
  */
+const PROBE_PATH = "/TrieProbe.hex";
+
 async function runTrie(probes: string): Promise<Record<string, unknown>> {
   // Through the whole project, with this file designated a runtime module: the
   // trie's own `isEmpty` returns `Bool`, and since #147 that names a prelude
   // declaration, so a prelude-free compilation of this module no longer typechecks.
   return runProject(
-    [["/VectorTrie.hex", `${trieSource}\n${probes}`]],
-    { runtimePaths: ["/VectorTrie.hex"], entry: "/VectorTrie.hex" },
+    [[PROBE_PATH, `${trieSource}\n${probes}`]],
+    { runtimePaths: [PROBE_PATH], entry: PROBE_PATH },
   );
 }
 
@@ -37,14 +50,14 @@ async function runTrie(probes: string): Promise<Record<string, unknown>> {
 // no fold/recursion at the call site (the trie's insert recurses, bounded by height).
 const BUILD =
   "fun buildTo(n: Int): TrieVector(Int) =\n" +
-  "    var acc: TrieVector(Int) = empty()\n" +
+  "    var acc: TrieVector(Int) = empty\n" +
   "    for i in 1..n\n" +
   "        acc := append(acc, i)\n" +
   "    acc\n" +
   // buildDown(n) yields the same [1, 2, ..., n] by prepending n, n-1, ..., 1 —
   // every element enters at the front, so the whole origin/left-grow path runs.
   "fun buildDown(n: Int): TrieVector(Int) =\n" +
-  "    var acc: TrieVector(Int) = empty()\n" +
+  "    var acc: TrieVector(Int) = empty\n" +
   "    for i in 1..n\n" +
   "        acc := prepend(acc, n - i + 1)\n" +
   "    acc\n" +
@@ -364,6 +377,80 @@ describe("VectorTrie slice (§6 windowing over the shared trie)", () => {
     expect(m.c49).toBe(90);
     expect(m.c50).toBe(1000);
     expect(m.c80).toBe(1030);
+  });
+});
+
+describe("VectorTrie nodeRun (§4 sequential reading)", () => {
+  /**
+   * `nodeRun` is what makes a whole-vector traversal O(n): it answers with the
+   * leaf `Node` holding an index *and how far that leaf reaches*, so a walker
+   * descends once per node rather than once per element. The emitted
+   * `[Symbol.iterator]` is that walk, and this is the pin under it.
+   *
+   * The count is exact and checkable, which is why it is asserted rather than
+   * timed: a walk of `n` elements makes exactly `ceil(n / 32)` calls when every
+   * region is full, and one more only where a region boundary splits a node.
+   * An implementation that answered with a run of 1 — correct, and quietly
+   * O(n log32 n) — would report `n` here.
+   */
+  const WALK =
+    // Counts `nodeRun` calls for a full traversal, and sums the elements it
+    // yields, so a wrong run length shows as a wrong sum rather than passing on
+    // the count alone.
+    "fun walk(v: TrieVector(Int)): (Int, Int) =\n" +
+    "    var calls = 0\n" +
+    "    var total = 0\n" +
+    "    var index = 0\n" +
+    "    for step in 1..size(v)\n" +
+    "        if index < size(v) then\n" +
+    "            let (values, offset, run) = nodeRun(v, index)\n" +
+    "            calls := calls + 1\n" +
+    "            var seen = 0\n" +
+    "            for inner in 1..run\n" +
+    "                total := total + Node.get(values, offset + seen)\n" +
+    "                seen := seen + 1\n" +
+    "            index := index + run\n" +
+    "    (calls, total)\n";
+
+  test("a full walk descends once per node, not once per element", async () => {
+    const m = await runTrie(
+      BUILD + WALK +
+        "export let tiny: (Int, Int) = walk(buildTo(5))\n" +
+        "export let exact: (Int, Int) = walk(buildTo(32))\n" +
+        "export let overflowing: (Int, Int) = walk(buildTo(33))\n" +
+        "export let hundred: (Int, Int) = walk(buildTo(100))\n" +
+        "export let tall: (Int, Int) = walk(buildTo(1100))\n" +
+        "export let blank: (Int, Int) = walk(empty)\n",
+    );
+    const sum = (n: number) => (n * (n + 1)) / 2;
+    // Append-built vectors are left-packed, so every run is a full node except
+    // the last: exactly ceil(n / 32) descents.
+    expect(m.tiny).toEqual([1, sum(5)]);
+    expect(m.exact).toEqual([1, sum(32)]);
+    expect(m.overflowing).toEqual([2, sum(33)]);
+    expect(m.hundred).toEqual([4, sum(100)]);
+    expect(m.tall).toEqual([35, sum(1100)]);
+    expect(m.blank).toEqual([0, 0]);
+  });
+
+  test("a windowed or prepend-built trie still walks by node", async () => {
+    const m = await runTrie(
+      BUILD + WALK +
+        // Prepend-built: the front sits mid-node, so the first run is partial
+        // and every later one is full — 100 elements over 5 descents, not 4.
+        "export let fronted: (Int, Int) = walk(buildDown(100))\n" +
+        // A window whose origin is mid-node: same shape, offset elsewhere.
+        "export let windowed: (Int, Int) = walk(slice(buildTo(100), 40, 90))\n" +
+        // Wholly inside the tail: one descent.
+        "export let inTail: (Int, Int) = walk(slice(buildTo(100), 50, 55))\n",
+    );
+    const sumBetween = (lo: number, hi: number) =>
+      ((lo + hi) * (hi - lo + 1)) / 2;
+    expect((m.fronted as number[])[1]).toBe(sumBetween(1, 100));
+    expect((m.fronted as number[])[0]).toBeLessThanOrEqual(5);
+    expect((m.windowed as number[])[1]).toBe(sumBetween(41, 90));
+    expect((m.windowed as number[])[0]).toBeLessThanOrEqual(3);
+    expect(m.inTail).toEqual([1, sumBetween(51, 55)]);
   });
 });
 
