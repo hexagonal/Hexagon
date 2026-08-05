@@ -82,8 +82,8 @@ imported. Imports cannot introduce competing method candidates. There is one com
 module and therefore one operation set to consult.
 
 Inside the home module itself, the familiar top-down rule applies unchanged: a dot
-call is legal exactly where the qualified call would be, so the operation must be
-declared above the call that uses it, like every binding (chapter 3).
+call is legal exactly where a direct call to the operation would be, so the operation
+must be declared above the call that uses it, like every binding (chapter 3).
 
 One further rule keeps recursion visible: a dot call never targets a member of its own
 `fun` group. Consider a recursive operation in the home module of a recursive union:
