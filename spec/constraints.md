@@ -171,6 +171,16 @@ record Point derives (Eq, Show) = ...  -- header sugar, owned by Declarations Pr
 
 Rationale, recorded so it is not re-litigated: (1) `Ord` feeds sorted collections — two `Ord<String>` instances mean a set built under one and queried under the other is silently corrupt; this is why Primitive Types §5 insists `Ord String` is permanent. (2) Dictionary selection stays trivially decidable at every call site, which is what lets monomorphic code erase dictionaries entirely (Numeric Literals §5); the readable-JS goal is downstream of coherence. (3) No modular-implicits/named-instance machinery, which is a research tarpit.
 
+### 5.1.1 Constraint identity
+
+A constraint **is its declaration**. The (constraint, type constructor) key above holds declarations, not spellings: two `constraint` declarations that happen to share a name are distinct constraints, each honored, entailed, and dispatched independently, and their instances never collide. This mirrors nominal type identity (Modules §6.2 — declaration-site, §2 there), and it is what keeps coherence a property of the program rather than of its vocabulary: no module can invalidate another's instances by choosing the same word.
+
+Consequences, pinned so the implementation cannot drift back to name-keying:
+
+- **Instance identity keys on the declaration.** An `honor Describe<Int>` answering one module's `Describe` and an `honor Describe<Int>` answering another's coexist in one program; §5.1's duplicate error fires only when two instances answer the *same* constraint declaration. In particular, two modules that each declare a private `Describe` and honor it for the same type are both lawful, and a third module importing both compiles — it could not even name either constraint.
+- **Diagnostics disambiguate by home module.** A message that must mention two same-named constraints qualifies each by its declaring module; a message mentioning one constraint uses the bare name. Never report a same-name pair as a duplicate — under this section there is no such thing as a name-level duplicate across modules.
+- **Pre-registered constraints are declarations too** (Modules §6.4): each has exactly one identity, held by the compiler's pre-registration. Every pre-registered constraint name (`Num`, `Signed`, `Frac`, `Pow`, `Concat`, `Eq`, `Ord`, `Show`, `Hash`, `Iterable`, `Integral`) is non-redeclarable — a module-level `constraint Eq<a> = ...` is an error naming the pre-registered constraint, not a second `Eq`. The wired-in machinery (operator routing, derivation, collection contracts) reaches these constraints by their one identity; a user-spelled twin would be unreachable by that machinery and is refused rather than admitted as a trap.
+
 ### 5.2 No local instances, no overlapping instances
 
 No instance may be declared inside a function or block; `honor` is a module-level declaration only. No two instances may overlap (which, given §5.4, reduces to: same constraint + same outermost constructor = duplicate = error).
@@ -298,6 +308,7 @@ Numbers are kept because companion specs cite them; §§9.1–9.3, 9.5, 9.7 are 
 | Base constraint obligations existence-checked, never restated | §4.2 |
 | Parameterized instances via prefix `<...>` binders; entailment via base constraint DAG, search-free | §4.3 |
 | Global coherence: one instance per (constraint, constructor); no local/overlapping/named instances | §5.1–5.2 |
+| A constraint is its declaration: same-name constraints are distinct, coherence and instance identity key on the declaration, pre-registered names non-redeclarable | §5.1.1 |
 | Orphan rule (Rust-style); instances global, never imported/hidden | §5.3 |
 | Instance heads: one constructor, distinct variables (H98-style) | §5.4 |
 | Dictionaries: records / dictionary-functions; trailing maximal-evidence suffix ordered by type-variable ordinal then constraint name; monomorphic erasure | §6.1; FFI Part 9 §6–§7 |
