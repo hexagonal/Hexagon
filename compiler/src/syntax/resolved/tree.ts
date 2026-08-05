@@ -330,13 +330,18 @@ export interface Module {
    * ones it can *name* (Modules §3.1 binds only what the module it imported
    * exports).
    *
-   * Metadata, never scope. It exists because a scheme can carry a requirement
-   * for a constraint the importer never names — `announce<a: Describe>` crossing
-   * two hops — and discharging one through a candidate has to walk that
-   * constraint's *base* graph. Name-keyed, module-local declarations answered
-   * that walk with the empty path and reduced the requirement to the wrong
-   * dictionary; this is the channel that makes the walk possible, on the same
-   * transitive footing as `ImportItem.instances`.
+   * Metadata, never scope, and the width is load-bearing in exactly one shape:
+   * an **intermediate link in a base chain**. A constraint this module named
+   * arrives on `ImportItem.constraints`, and its own bases arrive as identities
+   * on `ConstraintItem.baseConstraintIdentities` — enough to take one hop with
+   * no second declaration in hand. The hop *after* that needs the middle link's
+   * declaration, to read its bases in turn; and a middle link can be private to
+   * the module that wrote the chain, in which case no import anywhere can have
+   * named it. Without this channel the entailment walk stops one hop short,
+   * which surfaces as a demand to declare a constraint the module cannot spell.
+   *
+   * Transitive for the same reason `ImportItem.instances` is: the module that
+   * needs the link need not be the one that imported it.
    */
   readonly visibleConstraints: readonly ConstraintItem[];
   readonly externTypes: readonly ExternTypeDeclaration[];

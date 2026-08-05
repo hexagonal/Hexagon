@@ -412,13 +412,13 @@ class Checker {
    * Every constraint declaration this module can see, by identity: its own,
    * every one its imports name, and every one its import graph merely reaches.
    *
-   * The last group is why this is keyed on identity rather than name. A scheme
-   * can carry a requirement for a constraint this module cannot spell — the
-   * exporter's private `Describe`, riding `announce<a: Describe>` — and
-   * discharging it through a candidate has to walk *that* declaration's base
-   * graph. A name-keyed, module-local table answers that walk with the empty
-   * path, which silently reduces the requirement to the wrong dictionary
-   * instead of reporting anything (#276).
+   * The last group is why this is keyed on identity rather than name, and it is
+   * not decoration: a base chain's **middle link** can be private to the module
+   * that wrote the chain, so no import anywhere names it, and the entailment
+   * walk still has to read its bases to reach the far end. A name-keyed,
+   * module-local table stops one hop short — which is not a diagnostic but a
+   * demand to declare a constraint the module cannot spell, beside an emitted
+   * `undefined` where the evidence should be (#276).
    */
   readonly #constraintsByIdentity = new Map<string, Resolved.ConstraintItem>();
   /** Identities of constraints carrying implied type members; see §7's binder ban. */

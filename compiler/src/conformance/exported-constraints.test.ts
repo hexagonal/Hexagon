@@ -287,6 +287,102 @@ describe("base-constraint entailment through an imported constraint", () => {
   });
 });
 
+/**
+ * A three-link chain whose **middle** link is private: `Tiny <- Small <- Big`,
+ * with only `Big` exported.
+ *
+ * Legal, and §6.5 says why: "subject, base constraints, member schemes,
+ * defaults, and implied type members do not travel separately — they are the
+ * declaration, and every importing module sees the one declaration the home
+ * module made." There is no private-in-public rule for constraints (Modules
+ * §4.3 governs *types* in exported term signatures), so a base constraint
+ * crosses whether or not the importer could ever spell it.
+ */
+const chain = [
+  "constraint Tiny<a> =",
+  "    tiny(subject: a): String",
+  "",
+  "constraint Small<a: Tiny> =",
+  "    small(subject: a): String",
+  "",
+  "export constraint Big<a: Small> =",
+  "    big(subject: a): String",
+  "",
+  "export record Gram = {mass: Int}",
+  "",
+  "honor Tiny<Gram> =",
+  "    tiny(g) = \"tiny\"",
+  "",
+  "honor Small<Gram> =",
+  "    small(g) = \"small\"",
+  "",
+  "honor Big<Gram> =",
+  "    big(g) = \"big\"",
+  "",
+  "export fun weigh<a: Tiny>(subject: a): String = tiny(subject)",
+  "",
+  "export fun oneGram(): Gram = Gram({mass = 1})",
+  "",
+].join("\n");
+
+describe("a base chain whose middle link the importer cannot name", () => {
+  const files = [
+    ["/scales.hex", chain],
+    ["/main.hex", [
+      "import { Big, weigh, oneGram } from \"./scales\"",
+      "",
+      "export fun report<a: Big>(subject: a): String =",
+      "    big(subject) ++ \"/\" ++ weigh(subject)",
+      "",
+      "export fun run(): String = report(oneGram())",
+      "",
+    ].join("\n")],
+  ] as const;
+
+  test("the two-hop slot path is built through the private middle link", () => {
+    // This is what the transitive metadata channel exists for, and the *only*
+    // shape that needs it. A directly imported extending constraint carries its
+    // bases' identities on `baseConstraintIdentities`, which is enough to take
+    // one hop — `Big` to `Small` — with no declaration of `Small` at all. The
+    // second hop is where a declaration is unavoidable: reaching `Tiny` means
+    // reading `Small`'s own bases, and `Small` is private to `./scales`, so no
+    // import of this module can ever have named it.
+    expect(emitted(files, "/main.hex")).toMatch(
+      /weigh\(subject, __hex_dictBig_\d+\.small\.tiny\)/u,
+    );
+  });
+
+  test("and the program compiles and runs", async () => {
+    // Without the channel the checker instead demands `<a: (Big, Tiny)>` — a
+    // rewrite this module cannot perform, since neither `Small` nor `Tiny` is
+    // nameable here — and emission passes `undefined` for the evidence. The
+    // execution is the half that shows the path is the right one and not merely
+    // a path.
+    const exports = await runProject(files);
+
+    expect((exports.run as () => string)()).toBe("big/tiny");
+  });
+
+  test("the base obligation is still checked when the base is unnameable", () => {
+    // The consequence of the shape above, recorded rather than assumed: an
+    // exported constraint with a private base can only be honored where that
+    // base can be honored too, which is its own module. §4.2's obligation is
+    // checked here — it is not skipped for want of a name.
+    expect(messagesOf([
+      ["/scales.hex", chain],
+      ["/main.hex", [
+        "import { Big } from \"./scales\"",
+        "",
+        "record Ounce = {drams: Int}",
+        "",
+        "honor Big<Ounce> =",
+        "    big(o) = \"ounce\"",
+        "",
+      ].join("\n")],
+    ])).toEqual(["type `Ounce` has no `Small` instance"]);
+  });
+});
+
 describe("the orphan rule reads files, never imports (Constraints §5.3)", () => {
   test("`honor ImportedC<LocalT>` is lawful — the subject's home is this file", () => {
     expect(messagesOf([

@@ -52,11 +52,11 @@ export interface ModuleInterface {
    * Every constraint declaration reachable from this module, **exported or
    * not**, deduplicated by identity — metadata for the checker, never scope.
    *
-   * Private ones are here on purpose, and that is the point of the channel: an
-   * exported function's scheme can carry a requirement for a constraint the
-   * importer can never name (`export fun announce<a: Describe>` over a private
-   * `Describe`), and discharging that requirement through a candidate has to
-   * walk *its* base graph. See `Resolved.Module.visibleConstraints`.
+   * Private ones are here on purpose, and they are the point of the channel: a
+   * base constraint crosses because it *is* part of the declaration (§6.5), so
+   * `export constraint Big<a: Small>` over a private `Small` puts `Small` in
+   * every importer's base graph while leaving it unnameable everywhere. See
+   * `Resolved.Module.visibleConstraints` for why one hop is not enough.
    */
   readonly visibleConstraints: readonly Resolved.ConstraintItem[];
 }
@@ -1018,7 +1018,9 @@ class Resolver {
         const boundConstraints: Resolved.ConstraintImport[] = [];
         // Metadata before names, and for every import form including the effect
         // one: what a module can *see* of the constraint graph is a property of
-        // the graph, not of what this line chose to bind (Modules §6.5).
+        // the graph, not of what this line chose to bind (Modules §6.5). The
+        // declarations that only arrive here are the ones no import could name —
+        // a private middle link in a base chain; see `Module.visibleConstraints`.
         for (const declaration of importedModule?.visibleConstraints ?? []) {
           if (!this.#visibleConstraints.has(declaration.identity)) {
             this.#visibleConstraints.set(declaration.identity, declaration);
