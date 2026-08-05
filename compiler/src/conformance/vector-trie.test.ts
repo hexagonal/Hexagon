@@ -380,6 +380,80 @@ describe("VectorTrie slice (§6 windowing over the shared trie)", () => {
   });
 });
 
+describe("VectorTrie nodeRun (§4 sequential reading)", () => {
+  /**
+   * `nodeRun` is what makes a whole-vector traversal O(n): it answers with the
+   * leaf `Node` holding an index *and how far that leaf reaches*, so a walker
+   * descends once per node rather than once per element. The emitted
+   * `[Symbol.iterator]` is that walk, and this is the pin under it.
+   *
+   * The count is exact and checkable, which is why it is asserted rather than
+   * timed: a walk of `n` elements makes exactly `ceil(n / 32)` calls when every
+   * region is full, and one more only where a region boundary splits a node.
+   * An implementation that answered with a run of 1 — correct, and quietly
+   * O(n log32 n) — would report `n` here.
+   */
+  const WALK =
+    // Counts `nodeRun` calls for a full traversal, and sums the elements it
+    // yields, so a wrong run length shows as a wrong sum rather than passing on
+    // the count alone.
+    "fun walk(v: TrieVector(Int)): (Int, Int) =\n" +
+    "    var calls = 0\n" +
+    "    var total = 0\n" +
+    "    var index = 0\n" +
+    "    for step in 1..size(v)\n" +
+    "        if index < size(v) then\n" +
+    "            let (values, offset, run) = nodeRun(v, index)\n" +
+    "            calls := calls + 1\n" +
+    "            var seen = 0\n" +
+    "            for inner in 1..run\n" +
+    "                total := total + Node.get(values, offset + seen)\n" +
+    "                seen := seen + 1\n" +
+    "            index := index + run\n" +
+    "    (calls, total)\n";
+
+  test("a full walk descends once per node, not once per element", async () => {
+    const m = await runTrie(
+      BUILD + WALK +
+        "export let tiny: (Int, Int) = walk(buildTo(5))\n" +
+        "export let exact: (Int, Int) = walk(buildTo(32))\n" +
+        "export let overflowing: (Int, Int) = walk(buildTo(33))\n" +
+        "export let hundred: (Int, Int) = walk(buildTo(100))\n" +
+        "export let tall: (Int, Int) = walk(buildTo(1100))\n" +
+        "export let blank: (Int, Int) = walk(empty)\n",
+    );
+    const sum = (n: number) => (n * (n + 1)) / 2;
+    // Append-built vectors are left-packed, so every run is a full node except
+    // the last: exactly ceil(n / 32) descents.
+    expect(m.tiny).toEqual([1, sum(5)]);
+    expect(m.exact).toEqual([1, sum(32)]);
+    expect(m.overflowing).toEqual([2, sum(33)]);
+    expect(m.hundred).toEqual([4, sum(100)]);
+    expect(m.tall).toEqual([35, sum(1100)]);
+    expect(m.blank).toEqual([0, 0]);
+  });
+
+  test("a windowed or prepend-built trie still walks by node", async () => {
+    const m = await runTrie(
+      BUILD + WALK +
+        // Prepend-built: the front sits mid-node, so the first run is partial
+        // and every later one is full — 100 elements over 5 descents, not 4.
+        "export let fronted: (Int, Int) = walk(buildDown(100))\n" +
+        // A window whose origin is mid-node: same shape, offset elsewhere.
+        "export let windowed: (Int, Int) = walk(slice(buildTo(100), 40, 90))\n" +
+        // Wholly inside the tail: one descent.
+        "export let inTail: (Int, Int) = walk(slice(buildTo(100), 50, 55))\n",
+    );
+    const sumBetween = (lo: number, hi: number) =>
+      ((lo + hi) * (hi - lo + 1)) / 2;
+    expect((m.fronted as number[])[1]).toBe(sumBetween(1, 100));
+    expect((m.fronted as number[])[0]).toBeLessThanOrEqual(5);
+    expect((m.windowed as number[])[1]).toBe(sumBetween(41, 90));
+    expect((m.windowed as number[])[0]).toBeLessThanOrEqual(3);
+    expect(m.inTail).toEqual([1, sumBetween(51, 55)]);
+  });
+});
+
 describe("VectorTrie prepend after slice (§4 states only slice can reach)", () => {
   // prepend's tail branch (origin > tailOffset) and, more generally, prepend onto
   // a nonzero origin, are unreachable by building alone: appends hold origin

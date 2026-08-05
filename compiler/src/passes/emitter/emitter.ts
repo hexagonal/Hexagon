@@ -3121,8 +3121,18 @@ class JavaScriptEmitter {
       ));
     }
     if (type.kind === "Vector") {
-      const elementHash = this.#derivedHash(type.element, "__hex_element", evidenceNames);
-      return `(() => { let __hex_hash = 0; for (const __hex_element of ${value}) __hex_hash = ${this.#useHelper("mixHash")}(__hex_hash, ${elementHash}); return __hex_hash; })()`;
+      // Fresh binders per level. `for (const x of x)` is a TDZ
+      // `ReferenceError` — the head's own scope holds the binding while the
+      // iterable expression is evaluated — so a fixed `__hex_element` faults on
+      // `hash` at `Vector(Vector(a))`, where the inner walk's source *is* the
+      // outer walk's binder. Pre-dates the trie; the representation had nothing
+      // to do with it.
+      const element = this.#generatedNames.fresh("element");
+      const accumulator = this.#generatedNames.fresh("hash");
+      const elementHash = this.#derivedHash(type.element, element, evidenceNames);
+      return `(() => { let ${accumulator} = 0; for (const ${element} of ${value}) ` +
+        `${accumulator} = ${this.#useHelper("mixHash")}(${accumulator}, ${elementHash}); ` +
+        `return ${accumulator}; })()`;
     }
     if (type.kind === "Set") {
       const dictionary = type.element.kind === "Variable"
@@ -3275,21 +3285,23 @@ class JavaScriptEmitter {
       // decides `Greater` on the spot; running out of left-hand ones falls to
       // the tail check, where a proper prefix is `Less`. No length is measured:
       // exhaustion is the comparison.
-      const elementOrder = component(
-        "element",
-        type.element,
-        "__hex_leftElement",
-        "__hex_rightElement",
-      );
+      // Fresh binders per level, for `#derivedEquals`' reason: a nested vector
+      // order runs this walk inside itself, and shared names are a TDZ fault.
+      const leftElement = this.#generatedNames.fresh("leftElement");
+      const rightElement = this.#generatedNames.fresh("rightElement");
+      const iterator = this.#generatedNames.fresh("rightStep");
+      const step = this.#generatedNames.fresh("step");
+      const order = this.#generatedNames.fresh("order");
+      const elementOrder = component("element", type.element, leftElement, rightElement);
       return "(() => { " +
-        `const __hex_rightStep = ${right}[Symbol.iterator](); ` +
-        `for (const __hex_leftElement of ${left}) { ` +
-        "const __hex_step = __hex_rightStep.next(); " +
-        'if (__hex_step.done) return "Greater"; ' +
-        "const __hex_rightElement = __hex_step.value; " +
-        `const __hex_order = ${elementOrder}; ` +
-        'if (__hex_order !== "Equal") return __hex_order; } ' +
-        'return __hex_rightStep.next().done ? "Equal" : "Less"; })()';
+        `const ${iterator} = ${right}[Symbol.iterator](); ` +
+        `for (const ${leftElement} of ${left}) { ` +
+        `const ${step} = ${iterator}.next(); ` +
+        `if (${step}.done) return "Greater"; ` +
+        `const ${rightElement} = ${step}.value; ` +
+        `const ${order} = ${elementOrder}; ` +
+        `if (${order} !== "Equal") return ${order}; } ` +
+        `return ${iterator}.next().done ? "Equal" : "Less"; })()`;
     }
     if (type.kind === "Record") {
       return lexicographicComparison(
@@ -3441,16 +3453,19 @@ class JavaScriptEmitter {
       // representation contract already offers in O(n). The size check stays,
       // and stays first: it is what §8 says, and a mismatched pair must not
       // reach a user `equals` at all.
-      const elementEquals = component(
-        "element",
-        type.element,
-        "__hex_leftElement",
-        "__hex_rightElement",
-      );
+      // Fresh binders per level, not fixed ones: `Vector(Vector(a))` nests this
+      // walk inside itself (Constraints §4.3's parameterized instance, resolved
+      // twice), and reused names put the inner `const` in the outer's scope —
+      // where the outer's own initializer already read it. That is a TDZ
+      // `ReferenceError` at run time on a program that compiled clean.
+      const leftElement = this.#generatedNames.fresh("leftElement");
+      const rightElement = this.#generatedNames.fresh("rightElement");
+      const step = this.#generatedNames.fresh("rightStep");
+      const elementEquals = component("element", type.element, leftElement, rightElement);
       return `${this.#useVectorRuntime("size")}(${left}) === ${this.#useVectorRuntime("size")}(${right}) && ` +
-        `(() => { const __hex_rightStep = ${right}[Symbol.iterator](); ` +
-        `for (const __hex_leftElement of ${left}) { ` +
-        "const __hex_rightElement = __hex_rightStep.next().value; " +
+        `(() => { const ${step} = ${right}[Symbol.iterator](); ` +
+        `for (const ${leftElement} of ${left}) { ` +
+        `const ${rightElement} = ${step}.next().value; ` +
         `if (!(${elementEquals})) return false; } return true; })()`;
     }
     if (type.kind === "Set") {
@@ -4238,7 +4253,15 @@ class JavaScriptEmitter {
    */
   #vectorRuntimeExports(): readonly string[] {
     if (this.#vectorRuntime !== "self") return [];
-    const declared = new Set(this.#module.symbols.map(({ name }) => name));
+    // The module's *own* top-level bindings, never `module.symbols`: that also
+    // carries the prelude's, so a file declaring none of these would still look
+    // as though it had `empty` and `prepend` — `Seq.hex` exports both — and the
+    // export list would name what nothing declares.
+    const declared = new Set(
+      this.#module.items.flatMap((item) =>
+        item.kind === "Let" || item.kind === "Fun" ? [item.binding.name] : []
+      ),
+    );
     const missing = VECTOR_RUNTIME_OPERATIONS.filter((operation) => !declared.has(operation));
     if (missing.length > 0) {
       this.#diagnostics.add({
