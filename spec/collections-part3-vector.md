@@ -147,9 +147,9 @@ Vector.at : (Vector(a), Int) -> a
 
 ### 5.5 The `IndexError` declaration
 
-Declared here and canonically exported by `stdlib/Vector.hex`. The complete
-package/prelude loader may additionally promote the constructor into the prelude;
-until then its explicit source spelling is `Vector.IndexError`:
+Declared here and canonically exported by `stdlib/Vector.hex`, a prelude member
+(Modules §5.5): the constructor is in scope everywhere, bare as `IndexError` and
+qualified as `Vector.IndexError`:
 
 ```
 exception IndexError(index: Int, size: Int)
@@ -230,13 +230,16 @@ The core surface, under the Part 1 §3 naming doctrine (subject-first, `Vector.`
 
 *(Amended 2026-08-02: the row now named `length` was `size`; renamed under Part 1 §10.1's `length`/`size` split — `length` for ordered, sequential structures. The `IndexError` payload slot `size` (§5.5) is deliberately unaffected.)*
 
-This surface is implemented by the canonical `stdlib/Vector.hex` module.
+This surface is implemented by the canonical `stdlib/Vector.hex` module, a
+prelude member (Modules §5.5) — in scope in every module with no import line.
 Hexagon source owns `empty`, `singleton`, the total accessors, the forgiving drop
-family, and the public wrappers. Representation-sensitive length and end updates,
+family, and the bound checks. Representation-sensitive length and end updates,
 signed indexed access, persistent indexed update, and the eager/lazy bridge used
-by `toSeq` and `fromSeq` cross the narrow compiler/runtime boundary. An imported
-`Vector` module alias occludes the provisional compiler companion, so user calls
-and dot-call rewrites reach this source module rather than bypassing it.
+by `toSeq` and `fromSeq` cross the narrow boundary as intrinsic-door declarations
+(`spec/intrinsics.md` §3.2). Dot calls on `Vector`-typed receivers dispatch to
+this module (Method Syntax §4.2). The bare names it shares with `Seq.hex` —
+`empty`, `singleton`, `prepend`, `length` — are qualified-only under Modules
+§5.5's collided-name rule; the dot call needs no qualifier.
 
 ### 7.1 `dropFirst`/`dropLast` on empty: total
 

@@ -24,12 +24,12 @@
 James, on hitting the original rejection: *"If code works in OCaml and SML and fails in Hexagon, this is a sign that I have wandered off the path somewhere."* Hexagon's §8.2 list was SML '97's non-expansive list with variables deleted; this ruling puts them back, then takes the OCaml step too. The empty-sequence program — the exact shape a JavaScript developer writes on day one — is the acceptance test:
 
 ```hexagon
-let e = empty
-let ys = prepend(e, 42n)
-let xs = prepend(e, "Briar")      -- accepted after Step 1
+let e = Seq.empty
+let ys = e.prepend(42n)
+let xs = e.prepend("Briar")       -- accepted after Step 1
 ```
 
-*(Restated 2026-08-02 in the renamed surface — `Seq.cons` became the subject-first `Seq.prepend(rest, value)`, Collections Part 1 §10.1. James's original programs, in era syntax with their observed diagnostics, are preserved in the provenance note.)*
+*(Restated 2026-08-02 in the renamed surface — `Seq.cons` became the subject-first `Seq.prepend(rest, value)`, Collections Part 1 §10.1. Restated again under Modules §5.5's collided-name rule: `empty` and `prepend` gained a second prelude exporter with `Vector.hex`, so the bare spellings are qualified-only, and the dot call — dispatched on the receiver's type, no qualifier needed — is the surface a day-one program reaches for. What the program tests is unchanged: `Seq.empty` is Step 1's module-qualified reference, and `e` generalizes exactly as before. James's original programs, in era syntax with their observed diagnostics, are preserved in the provenance note.)*
 
 ### 1.2 Provenance, and what the review corrected
 
