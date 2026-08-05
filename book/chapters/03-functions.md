@@ -274,27 +274,25 @@ A non-function right-hand side is not legal under `fun`. Nor can an arbitrary fu
 producing call be placed there. This syntactic rule ensures that creating a recursive
 binding performs no computation before the function exists.
 
-### Captured values must be ready
+### Declarations are read top-down
 
-A `fun` name is in scope throughout its enclosing block, supporting direct and mutual
-recursion. A function with no outer local dependencies can even be called before its
-textual definition.
-
-When a recursive function uses a value from its surrounding block, that value must
-already be bound before the function is called:
+A binding — `let` or `fun` alike — can be used only after its declaration. A Hexagon
+file reads in the order it runs: the values a function needs are declared above it,
+and the code that ties everything together tends to sit at the bottom.
 
 ```hexagon
-fun announce() = print(message)
 let message = "Orders are ready"
+fun announce() = print(message)
 announce()
 ```
 
-This order is valid. Moving `announce()` above the `message` binding is an error:
-`message` would not yet be ready at the call.
+Reversing the first two lines is an error: `announce`'s body would name `message`
+before it exists. The compiler points at the reference and says where the declaration
+actually sits — below — so the fix is always the same: move the declaration up.
 
-A `fun` that uses no later local values may be called anywhere in its block. A `fun`
-that captures local values becomes usable after those values have been bound. The same
-rule includes values needed indirectly through another local recursive function.
+This is the discipline of the ML family, and it buys a guarantee worth having: the
+JavaScript a module emits can never read a binding before it is initialized, because
+the order the compiler enforces in the source is the order the emitted module runs.
 
 ### Mutual recursion
 
@@ -320,9 +318,13 @@ fun isOdd(n: Int): Bool =
             isEven(n + 1)
 ```
 
-The pair forms one recursive group. Calls between their bodies are valid regardless of
-textual order. If either function captures an outer local value, the combined group is
-usable only after all captured values required by either function have been bound.
+The pair forms one recursive group: an **unbroken run of `fun` declarations**, whose
+bodies see every member of the run, earlier and later alike. This is the one place a
+name may be used above its declaration, and it exists because mutual recursion cannot
+be written without it. The run is what defines the group — placing any other
+declaration between two `fun`s splits them into separate groups, and a forward
+reference across the split is an error that says exactly that: only an unbroken run of
+`fun`s recurses together.
 
 ## The JavaScript remains direct
 
@@ -347,12 +349,12 @@ function factorial(n) {
 ```
 
 `let` becomes a `const` holding an arrow function at its textual position. Recursive
-`fun` becomes a hoisted JavaScript function declaration. Calls remain ordinary n-ary
+`fun` becomes a JavaScript function declaration. Calls remain ordinary n-ary
 calls; no argument-packing, currying helper, or wrapper object appears.
 
 This output is not only pleasant to inspect. Its shape explains the source rules:
-`let` has sequential initialization, while `fun` receives the hoisted form recursion
-requires.
+`let` has sequential initialization, while the function-declaration form lets the
+members of a recursive group call each other.
 
 ## Summary
 
@@ -366,8 +368,9 @@ requires.
 - Annotations document or restrict types, while inference remains the normal source of
   polymorphism.
 - Subject-first parameter order prepares APIs for pipes and dot calls.
-- `fun` supports direct and mutual recursion while requiring captured values to be bound
-  before use.
+- Declarations are read top-down: every binding is used after its declaration.
+- `fun` supports direct and mutual recursion; an unbroken run of `fun` declarations
+  forms the one scope where names are visible before their declarations.
 
 We can now write useful transformations, callbacks, and recursive definitions. A later
 chapter will explain more fully what Hexagon has already been doing in these examples:
