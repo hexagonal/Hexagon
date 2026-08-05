@@ -223,6 +223,13 @@ Instance construction is evaluation-free by construction (§4.1: supplied member
 
 Constraint and `honor` declarations have no ordinary JavaScript or `.d.ts` export face, and instances remain unnameable in Hexagon source. The JavaScript boundary has one deliberate public evidence surface (FFI Parts 8–9): a generic constrained export exposes trailing `Constraint.Dictionary<a>` parameters; public nameable instances produce generated handles/factories such as `Signed.int`, `Rat.signed`, and `Vector.show(...)`; dictionary interfaces carry non-exported-symbol TypeScript brands. Fundamental specializations remain dictionary-free. No other constraint machinery appears in `.d.ts`.
 
+### 6.5 Exported constraints
+
+Exporting a constraint (Modules §4.1) adds cross-module plumbing to the shapes above; it changes no semantics.
+
+- **Member forwarders are exported.** The forwarder §6.1's convention emits for each member — source parameters plus trailing evidence — gains an ESM export in the constraint's home module, and an importing module that calls the member imports it. This is Hexagon-to-Hexagon evidence plumbing in the same class as the `__hex_instance_*` exports (Dictionary Sharing §8), not a public face; §6.4 stands — no constraint machinery appears in `.d.ts`.
+- **Default bodies emit once, at home.** For an exported constraint, each default member body is hoisted to a single module-level helper in the home module, exported alongside the forwarders and taking the instance dictionary as a parameter. Every honor that inherits the default — in the home module or an importing one — fills the slot by reference to that helper rather than by re-emitting the body. The body thereby stays where its free names resolve (a default may use its module's private bindings), and §6.3 is preserved unchanged: the slot's reference applies the helper at call time, sibling members are reached through the completed dictionary, and nothing is captured while the dictionary literal is still under construction. For an unexported constraint nothing changes: defaults materialize into each honoring dictionary as before.
+
 ---
 
 ## 7. Prelude constraints owned here (member lists) — and the ones owned elsewhere
@@ -312,6 +319,7 @@ Numbers are kept because companion specs cite them; §§9.1–9.3, 9.5, 9.7 are 
 | Parameterized instances via prefix `<...>` binders; entailment via base constraint DAG, search-free | §4.3 |
 | Global coherence: one instance per (constraint, constructor); no local/overlapping/named instances | §5.1–5.2 |
 | A constraint is its declaration: same-name constraints are distinct, coherence and instance identity key on the declaration, pre-registered names non-redeclarable (name-only `Iterable`/`Integral` excepted until compiler-held) | §5.1.1 |
+| Exported constraints: member forwarders exported as internal plumbing; defaults hoisted once to the home module; no `.d.ts` face | §6.5 |
 | Orphan rule (Rust-style); instances global, never imported/hidden | §5.3 |
 | Instance heads: one constructor, distinct variables (H98-style) | §5.4 |
 | Dictionaries: records / dictionary-functions; trailing maximal-evidence suffix ordered by type-variable ordinal then constraint name; monomorphic erasure | §6.1; FFI Part 9 §6–§7 |

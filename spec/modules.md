@@ -52,9 +52,11 @@ Imports are module-level declarations; an `import` inside a function body joins 
 
 `import { area as circleArea }` binds only the alias. The alias obeys the ordinary start-class rules for what it names (a term import must alias to non-uppercase-start, a type/constructor to uppercase-start; violating this is a parse-adjacent error, "alias start class must match what it names"). Aliasing a record's name splits nothing: `import { Point as P }` binds `P` in both namespaces.
 
+Aliasing a constraint renames the constraint name only: `import { Describe as D }` binds `D` in the constraint namespace, and the members arrive under their declared names, as always. Members are independent module-scope terms (Constraints §2.2); they are not renamed at the border, for the same reason they are not imported severally (§12.4).
+
 ### 3.3 Namespace imports
 
-`import * as Geo from "./geometry"` binds the single name `Geo` as a **module alias** giving qualified access to every export: `Geo.area(...)`, and in type position `Geo.Point`, `xs: Vector(Geo.Shape)`. Constructors qualify the same way (`Geo.Circle(1.0)`), including in patterns (`match s` / `Geo.Circle(r) => ...`) (Unions §2). Module aliases are uppercase-start, mandatorily.
+`import * as Geo from "./geometry"` binds the single name `Geo` as a **module alias** giving qualified access to every export: `Geo.area(...)`, and in type position `Geo.Point`, `xs: Vector(Geo.Shape)`. Constructors qualify the same way (`Geo.Circle(1.0)`), including in patterns (`match s` / `Geo.Circle(r) => ...`) (Unions §2). Constraints too: `Geo.Ord` in a binder (`<a: Geo.Ord>`), and a member through the alias as an ordinary term (`Geo.compare(a, b)`) — the left side is the module alias in every case, so §5.1's "types and constraints never take `.`" is untouched: it governs what may stand *left* of the dot. Module aliases are uppercase-start, mandatorily.
 
 **Module aliases are not values.** `let m = Geo` is an error: "modules are not values." No passing, no returning, no storing. This is what keeps the namespace story (§5) honest and forecloses first-class modules by construction.
 
@@ -233,6 +235,10 @@ Structural types (no home), instances (global, §7), `var` (cannot exist at modu
 ### 6.4 Pre-registered stdlib constraint
 
 The occlusion rule's "prelude version stays reachable qualified" only works if **every prelude name has a qualified home** — a companion module it also lives in (`Vector.map` for bare `map`, `String.show`/per-type homes for `show`'s instances, etc.). The stdlib listing **must** maintain this invariant; a bare-only prelude export is a spec violation there. Pre-registered now, subject-first-convention style.
+
+### 6.5 Constraints
+
+An exported constraint crosses as a **reference to its declaration** (identity: Constraints §5.1.1). Subject, base constraints, member schemes, defaults, and implied type members do not travel separately — they are the declaration, and every importing module sees the one declaration the home module made. Its members cross as terms (§6.1) with their constrained schemes. Instances still never cross by name (§6.3): they are global already, and an imported constraint changes nothing about where its instances may lawfully live (§7.2 — the orphan rule's "home module" reads files, not imports).
 
 ---
 
