@@ -119,7 +119,9 @@ describe("a user record occludes a same-named intrinsic, coherently", () => {
     expect(diagnostics(
       "export record Vector(a) = { item: a }\n" +
       "export fun doubled(box: Vector(Int)): Int = box.item * 2\n" +
-      "export fun use(box: Vector(Int)): Int = box.doubled()\n",
+      // A `let` header, so the caller sits outside `doubled`'s group: a dot call
+      // may not reach into the group that contains it (Method Syntax §4.4).
+      "export let use(box: Vector(Int)): Int = box.doubled()\n",
     )).toEqual([]);
   });
 

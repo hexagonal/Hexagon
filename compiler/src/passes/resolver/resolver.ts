@@ -95,6 +95,50 @@ export interface InstanceInterface {
  */
 type BinderClass = "sequential" | "head" | "parameter";
 
+/**
+ * A block's term declarations that the walk has not reached yet, plus the `fun`
+ * symbols the block declares. Both exist for one diagnostic: a name that is not
+ * in scope but *is* declared further down reads top-down (Functions §7.2), and
+ * when both sides are `fun`s of the same block the split-group rule (§7.3) is
+ * the actual repair.
+ */
+interface BlockDeclarations {
+  readonly later: Map<string, LaterDeclaration>;
+  readonly funSymbols: Set<Resolved.SymbolId>;
+}
+
+/**
+ * `owner` is the declaring form for a name a type-namespace declaration binds —
+ * what a diagnostic must tell the reader to move, since the constructor is not
+ * itself movable.
+ */
+interface LaterDeclaration {
+  readonly name: Parsed.Name;
+  readonly fun: boolean;
+  readonly owner?: string;
+}
+
+/**
+ * The **term**-namespace names a type-namespace declaration binds: a union's and
+ * record's constructors, an exception's, a constraint's members. Functions §7.2
+ * governs their references — value position, and equally the pattern position a
+ * constructor reaches; the type names beside them are not here, because a
+ * type-position mention is order-free.
+ */
+function termNamesBound(
+  item: Parsed.Item,
+): readonly { readonly name: Parsed.Name; readonly owner: string }[] {
+  if (item.kind === "Union") {
+    return item.constructors.map(({ name }) => ({ name, owner: "union" }));
+  }
+  if (item.kind === "RecordDeclaration") return [{ name: item.name, owner: "record" }];
+  if (item.kind === "Exception") return [{ name: item.name, owner: "exception" }];
+  if (item.kind === "ConstraintDeclaration") {
+    return item.members.map(({ name }) => ({ name, owner: "constraint" }));
+  }
+  return [];
+}
+
 /** Sequential binders are `let`s; both head classes are pattern binders. */
 function declaredKind(binderClass: BinderClass): Resolved.SymbolKind {
   return binderClass === "sequential" ? "let" : "pattern";
@@ -425,11 +469,9 @@ class Resolver {
   readonly #visibleConstraints = new Map<string, Resolved.ConstraintItem>();
   readonly #impliedTypeOwners = new Map<string, Set<string>>();
   readonly #pending: { readonly name: Parsed.Name; readonly kind: "let" | "var" }[] = [];
-  readonly #predeclaredBindings = new WeakMap<Parsed.LetItem | Parsed.VarItem | Parsed.FunItem | Parsed.ExternFunDeclaration | Parsed.ExternLetDeclaration, Resolved.Binding>();
-  readonly #futureSequential: Map<string, Resolved.Binding>[] = [];
+  readonly #predeclaredBindings = new WeakMap<Parsed.FunItem | Parsed.ExternFunDeclaration | Parsed.ExternLetDeclaration, Resolved.Binding>();
+  readonly #blockDeclarations: BlockDeclarations[] = [];
   readonly #currentFunctions: Resolved.SymbolId[] = [];
-  readonly #funCaptures = new Map<Resolved.SymbolId, Set<Resolved.SymbolId>>();
-  readonly #funDependencies = new Map<Resolved.SymbolId, Set<Resolved.SymbolId>>();
   readonly #varOwners = new Map<Resolved.SymbolId, number>();
   readonly #diagnostics: Diagnostics.Bag;
   /** This module's file id, held for identity minting; set by `resolve`. */
@@ -920,29 +962,62 @@ class Resolver {
     items: readonly Parsed.Item[],
     scope: Scope,
   ): readonly Resolved.Item[] {
-    const future = new Map<string, Resolved.Binding>();
+    // Everything the block declares, so a reference that finds nothing in scope
+    // can be told it is reading a declaration that has not happened yet
+    // (Functions §7.2/§10) instead of being told the name is unknown. Entries
+    // leave as the walk passes their declaration, so what remains is exactly
+    // what is still *later* than the reference being resolved.
+    const frame: BlockDeclarations = { later: new Map(), funSymbols: new Set() };
+    const declare = (later: LaterDeclaration): void => {
+      if (!frame.later.has(later.name.text)) frame.later.set(later.name.text, later);
+    };
     for (const item of items) {
-      if (item.kind === "Fun") {
-        const existing = scope.lookupLocal(item.name.text);
-        if (existing !== undefined) this.#reportRebinding(item.name, existing);
-        const binding = this.#declare(item.name, "fun");
-        this.#predeclaredBindings.set(item, binding);
-        if (existing === undefined) scope.define(item.name.text, binding.symbol);
-      } else if (item.kind === "Let" || item.kind === "Var") {
-        const binding = this.#declare(item.name, item.kind === "Let" ? "let" : "var");
-        this.#predeclaredBindings.set(item, binding);
-        if (!future.has(item.name.text)) future.set(item.name.text, binding);
+      if (item.kind === "Fun" || item.kind === "Let" || item.kind === "Var") {
+        declare({ name: item.name, fun: item.kind === "Fun" });
+      } else if (item.kind === "LetPattern") {
+        for (const name of Parsed.patternNames(item.pattern)) declare({ name, fun: false });
+      } else {
+        // The term names a type-namespace declaration binds. Their references
+        // read top-down like any other term reference (§7.2); the declarations
+        // themselves, and every type-position mention of them, stay order-free.
+        for (const { name, owner } of termNamesBound(item)) declare({ name, fun: false, owner });
       }
     }
-    this.#futureSequential.push(future);
+    this.#blockDeclarations.push(frame);
     const resolved: Resolved.Item[] = [];
-    for (const item of items) {
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index];
+      if (item === undefined) continue;
+      // A contiguous run of `fun`s is one group (Functions §7.3): every member
+      // is bound before the first body is walked, so the bodies see each other
+      // in both directions. Any other item ends the run, and the next run binds
+      // where it starts — which is what makes forward visibility stop there.
+      if (item.kind === "Fun" && !this.#predeclaredBindings.has(item)) {
+        for (let scan = index; scan < items.length; scan += 1) {
+          const member = items[scan];
+          if (member?.kind !== "Fun") break;
+          const existing = scope.lookupLocal(member.name.text);
+          if (existing !== undefined) this.#reportRebinding(member.name, existing);
+          const binding = this.#declare(member.name, "fun");
+          this.#predeclaredBindings.set(member, binding);
+          frame.funSymbols.add(binding.symbol);
+          frame.later.delete(member.name.text);
+          if (existing === undefined) {
+            scope.define(member.name.text, binding.symbol, item.span.start.offset);
+          }
+        }
+      }
       const resolvedItem = this.#resolveItem(item, scope);
       resolved.push(resolvedItem, ...this.#derivedHonors(resolvedItem));
-      if (item.kind === "Let" || item.kind === "Var") future.delete(item.name.text);
+      if (item.kind === "Fun" || item.kind === "Let" || item.kind === "Var") {
+        frame.later.delete(item.name.text);
+      } else if (item.kind === "LetPattern") {
+        for (const name of Parsed.patternNames(item.pattern)) frame.later.delete(name.text);
+      } else {
+        for (const { name } of termNamesBound(item)) frame.later.delete(name.text);
+      }
     }
-    this.#futureSequential.pop();
-    this.#checkFunctionAvailability(resolved);
+    this.#blockDeclarations.pop();
     return resolved;
   }
 
@@ -1469,7 +1544,7 @@ class Resolver {
           : scope.lookup(item.name.text);
         if (existing !== undefined) this.#reportRebinding(item.name, existing);
 
-        const binding = this.#predeclaredBindings.get(item) ?? this.#declare(item.name, "let");
+        const binding = this.#declare(item.name, "let");
         this.#pending.push({ name: item.name, kind: "let" });
         const value = this.#resolveExpr(Parsed.unwrapBindingValue(item.value), scope);
         this.#pending.pop();
@@ -1529,7 +1604,7 @@ class Resolver {
             primary: item.name.span,
           });
         }
-        const binding = this.#predeclaredBindings.get(item) ?? this.#declare(item.name, "var");
+        const binding = this.#declare(item.name, "var");
         this.#varOwners.set(binding.symbol, this.#lambdaDepth);
         this.#pending.push({ name: item.name, kind: "var" });
         const value = this.#resolveExpr(Parsed.unwrapBindingValue(item.value), scope);
@@ -2117,11 +2192,25 @@ class Resolver {
     if (pattern.kind === "Constructor") {
       const symbol = scope.lookup(pattern.name.text);
       if (symbol === undefined || this.#symbol(symbol).kind !== "constructor") {
-        this.#diagnostics.add({
-          severity: "error",
-          message: `unknown constructor \`${pattern.name.text}\``,
-          primary: pattern.name.span,
-        });
+        const later = symbol === undefined
+          ? this.#findLaterDeclaration(pattern.name.text)
+          : undefined;
+        this.#diagnostics.add(
+          later === undefined
+            ? {
+                severity: "error",
+                message: `unknown constructor \`${pattern.name.text}\``,
+                primary: pattern.name.span,
+              }
+            : {
+                severity: "error",
+                message: `\`${pattern.name.text}\` is declared later in this block; ` +
+                  "declarations are read top-down — move the " +
+                  `${later.owner ?? "declaration"}'s declaration above this use`,
+                primary: pattern.name.span,
+                labels: [{ span: later.name.span, message: "declared here" }],
+              },
+        );
         return { kind: "Wildcard", span: pattern.span };
       }
       return {
@@ -2258,25 +2347,8 @@ class Resolver {
   }
 
   #resolveName(expression: Parsed.NameExpr, scope: Scope): Resolved.Expr {
-    let symbol = scope.lookup(expression.name.text);
-    const currentFunction = this.#currentFunctions.at(-1);
-    if (symbol === undefined && currentFunction !== undefined) {
-      for (let index = this.#futureSequential.length - 1; index >= 0; index -= 1) {
-        const future = this.#futureSequential[index]?.get(expression.name.text);
-        if (future === undefined) continue;
-        symbol = future.symbol;
-        const captures = this.#funCaptures.get(currentFunction) ?? new Set();
-        captures.add(symbol);
-        this.#funCaptures.set(currentFunction, captures);
-        break;
-      }
-    }
+    const symbol = scope.lookup(expression.name.text);
     if (symbol !== undefined) {
-      if (currentFunction !== undefined && this.#symbol(symbol).kind === "fun" && symbol !== currentFunction) {
-        const dependencies = this.#funDependencies.get(currentFunction) ?? new Set();
-        dependencies.add(symbol);
-        this.#funDependencies.set(currentFunction, dependencies);
-      }
       const owner = this.#varOwners.get(symbol);
       if (owner !== undefined && owner < this.#lambdaDepth) {
         this.#diagnostics.add({
@@ -2305,15 +2377,54 @@ class Resolver {
         primary: expression.span,
         labels: [{ span: pending.name.span, message: "binding declared here" }],
       });
-    } else {
-      this.#diagnostics.add({
-        severity: "error",
-        message: `unknown name \`${expression.name.text}\``,
-        primary: expression.span,
-      });
+      return { kind: "ErrorExpr", span: expression.span };
     }
 
+    const later = this.#findLaterDeclaration(expression.name.text);
+    this.#diagnostics.add(
+      later === undefined
+        ? {
+            severity: "error",
+            message: `unknown name \`${expression.name.text}\``,
+            primary: expression.span,
+          }
+        : {
+            severity: "error",
+            message: `\`${expression.name.text}\` is declared later in this block; ` +
+              (later.split
+                ? "only an unbroken run of `fun`s recurses together — move the " +
+                  `intervening declaration out of the run, or move \`${expression.name.text}\`'s ` +
+                  "declaration above this use"
+                : "declarations are read top-down — move its declaration above this use"),
+            primary: expression.span,
+            labels: [{ span: later.name.span, message: "declared here" }],
+          },
+    );
+
     return { kind: "ErrorExpr", span: expression.span };
+  }
+
+  /**
+   * The declaration of `name` further down an enclosing block, if there is one.
+   *
+   * `split` marks the case §7.3 owns rather than §7.2: both sides are `fun`s of
+   * the same block, so they would have recursed together had an item not been
+   * written between them.
+   */
+  #findLaterDeclaration(
+    name: string,
+  ): (LaterDeclaration & { readonly split: boolean }) | undefined {
+    for (let index = this.#blockDeclarations.length - 1; index >= 0; index -= 1) {
+      const frame = this.#blockDeclarations[index];
+      const declaration = frame?.later.get(name);
+      if (frame === undefined || declaration === undefined) continue;
+      return {
+        ...declaration,
+        split: declaration.fun &&
+          this.#currentFunctions.some((symbol) => frame.funSymbols.has(symbol)),
+      };
+    }
+    return undefined;
   }
 
   #resolveLambda(
@@ -2945,89 +3056,6 @@ class Resolver {
     return undefined;
   }
 
-  #checkFunctionAvailability(items: readonly Resolved.Item[]): void {
-    // The sequential bindings this item list introduces.
-    const sequential = new Set<Resolved.SymbolId>();
-    for (const item of items) {
-      if (item.kind === "Let" || item.kind === "Var") sequential.add(item.binding.symbol);
-      if (item.kind === "LetPattern") {
-        for (const binding of resolvedPatternBindings(item.pattern)) {
-          sequential.add(binding.symbol);
-        }
-      }
-    }
-    // A `fun` body that names one of them has captured it, whichever side of
-    // the `fun` the binding was written on. `#funCaptures` alone cannot say
-    // that: it is fed from the *future*-sequential lookup, which ordinary scope
-    // resolution never reaches for a binding already in scope, so it records
-    // forward references only. That made this guard order-sensitive, and
-    //
-    //     let a = f()
-    //     fun f() = a
-    //
-    // compiled with no diagnostic while the same two lines swapped reported
-    // properly — `f` hoists in the emitted JavaScript and `a` does not, so the
-    // module threw `ReferenceError` on load. Reading the resolved bodies makes
-    // the two orders the same cycle.
-    //
-    // Restricting to `sequential` keeps a body's own parameters, inner `let`s and
-    // pattern binders out of the set — they are different symbols. It does **not**
-    // make the guard exact, and an earlier version of this comment claimed it did.
-    // The check counts a name mentioned anywhere in the body, a lambda that is
-    // never invoked included, so
-    //
-    //     let a = f()
-    //     fun f(): Int =
-    //         let k = () => a
-    //         1
-    //
-    // is rejected although it runs. `main` already rejected the mirror image of
-    // that program, so this is the existing conservatism made order-insensitive
-    // rather than a new rule — but it is over-approximate in both directions now,
-    // and that is a deliberate choice, not a property of the intersection.
-    // Narrowing it would mean deciding which mentions are reachable at call time,
-    // which `(() => a)()` shows is not a syntactic question.
-    const captured = new Map<Resolved.SymbolId, Set<Resolved.SymbolId>>();
-    for (const item of items) {
-      if (item.kind !== "Fun") continue;
-      const captures = new Set(this.#funCaptures.get(item.binding.symbol) ?? []);
-      for (const reference of expressionNames(item.value.body)) {
-        if (sequential.has(reference.symbol)) captures.add(reference.symbol);
-      }
-      captured.set(item.binding.symbol, captures);
-    }
-    const required = (symbol: Resolved.SymbolId, visiting = new Set<Resolved.SymbolId>()): Set<Resolved.SymbolId> => {
-      if (visiting.has(symbol)) return new Set();
-      const next = new Set(visiting);
-      next.add(symbol);
-      const captures = new Set(captured.get(symbol) ?? this.#funCaptures.get(symbol) ?? []);
-      for (const dependency of this.#funDependencies.get(symbol) ?? []) {
-        for (const capture of required(dependency, next)) captures.add(capture);
-      }
-      return captures;
-    };
-    const available = new Set<Resolved.SymbolId>();
-    for (const item of items) if (item.kind === "Fun") available.add(item.binding.symbol);
-    for (const item of items) {
-      if (item.kind !== "Fun") {
-        for (const reference of itemNameReferences(item)) {
-          if (this.#symbol(reference.symbol).kind !== "fun") continue;
-          const missing = [...required(reference.symbol)].find((capture) => !available.has(capture));
-          if (missing === undefined) continue;
-          const captured = this.#symbol(missing);
-          this.#diagnostics.add({
-            severity: "error",
-            message: `\`${reference.text}\` cannot be used before captured value \`${captured.name}\` is bound`,
-            primary: reference.span,
-            labels: [{ span: captured.bindingSpan, message: "captured value is bound here" }],
-          });
-        }
-      }
-      if (item.kind === "Let" || item.kind === "Var") available.add(item.binding.symbol);
-      if (item.kind === "LetPattern") for (const binding of resolvedPatternBindings(item.pattern)) available.add(binding.symbol);
-    }
-  }
-
   /**
    * Binds an imported constraint: the name in the constraint namespace, and
    * **every member** in the term namespace (Modules §3.1).
@@ -3248,62 +3276,4 @@ function substituteResolvedType(
     return { ...type, arguments: type.arguments.map((argument) => substituteResolvedType(argument, replacements)), span };
   }
   return { ...type, span };
-}
-
-function itemNameReferences(item: Resolved.Item): readonly Resolved.NameExpr[] {
-  if (item.kind === "Let" || item.kind === "Var" || item.kind === "LetPattern") return expressionNames(item.value);
-  if (item.kind === "ExprItem") return expressionNames(item.expression);
-  if (item.kind === "Honor") return item.members.flatMap((member) => expressionNames(member.value.body));
-  // A `fun` nested in a block is walked too. Both callers are
-  // `#checkFunctionAvailability`, and skipping these left it blind to a `fun`
-  // whose *inner* `fun` names the binding: `let a = f()` above a `f` whose body
-  // declares `fun inner() = a` reported nothing and threw `ReferenceError` on
-  // load, while the same program with `f` written first reported properly —
-  // which is the order-sensitivity the guard was repaired to remove. Module-level
-  // `fun`s are unaffected: the caller at the module level skips them and reaches
-  // them through `#funDependencies` instead.
-  if (item.kind === "Fun") return expressionNames(item.value.body);
-  return [];
-}
-
-function expressionNames(expression: Resolved.Expr): Resolved.NameExpr[] {
-  if (expression.kind === "Name") return [expression];
-  if (expression.kind === "Unit" || expression.kind === "Integer" || expression.kind === "BigInt" || expression.kind === "Float" || expression.kind === "ErrorExpr" || expression.kind === "CollectionOperation" || expression.kind === "PrimitiveOperation") return [];
-  if (expression.kind === "String") return expression.parts.flatMap((part) => part.kind === "Interpolation" ? expressionNames(part.expression) : []);
-  if (expression.kind === "Tuple" || expression.kind === "Vector") return expression.elements.flatMap(expressionNames);
-  if (expression.kind === "Record") return [...(expression.spread === undefined ? [] : expressionNames(expression.spread)), ...expression.fields.flatMap((field) => expressionNames(field.value))];
-  if (expression.kind === "Group") return expressionNames(expression.expression);
-  if (expression.kind === "Block") return expression.items.flatMap(itemNameReferences);
-  if (expression.kind === "Lambda") return expressionNames(expression.body);
-  if (expression.kind === "If") return [...expressionNames(expression.condition), ...expressionNames(expression.consequence), ...expressionNames(expression.alternative)];
-  if (expression.kind === "While") return [...expressionNames(expression.condition), ...expressionNames(expression.body)];
-  if (expression.kind === "For") return [...expressionNames(expression.iterable), ...expressionNames(expression.body)];
-  if (expression.kind === "Match") return [
-    ...expressionNames(expression.scrutinee),
-    ...expression.arms.flatMap((arm) => [...(arm.guard === undefined ? [] : expressionNames(arm.guard)), ...expressionNames(arm.body)]),
-  ];
-  if (expression.kind === "Try") return [...expressionNames(expression.body), ...expression.arms.flatMap((arm) => expressionNames(arm.body))];
-  if (expression.kind === "Throw") return expressionNames(expression.exception);
-  if (expression.kind === "Call") return [...expressionNames(expression.callee), ...expression.arguments.flatMap(expressionNames)];
-  if (expression.kind === "ConsoleLog") return expression.arguments.flatMap(expressionNames);
-  if (expression.kind === "Access") return expressionNames(expression.receiver);
-  if (expression.kind === "Hash") return expressionNames(expression.value);
-  if (expression.kind === "Index") return [...expressionNames(expression.receiver), ...expressionNames(expression.index)];
-  if (expression.kind === "Unary") return expressionNames(expression.operand);
-  if (expression.kind === "Binary") return [...expressionNames(expression.left), ...expressionNames(expression.right)];
-  if (expression.kind === "Comparison") return expression.operands.flatMap(expressionNames);
-  return [...expressionNames(expression.target), ...expressionNames(expression.value)];
-}
-
-function resolvedPatternBindings(pattern: Resolved.Pattern): readonly Resolved.Binding[] {
-  if (pattern.kind === "Binding") return [pattern.binding];
-  if (pattern.kind === "As") return [...resolvedPatternBindings(pattern.pattern), pattern.binding];
-  if (pattern.kind === "Or") return pattern.alternatives[0] === undefined ? [] : resolvedPatternBindings(pattern.alternatives[0]);
-  if (pattern.kind === "Tuple" || pattern.kind === "Vector") return [
-    ...pattern.elements.flatMap(resolvedPatternBindings),
-    ...(pattern.kind === "Vector" && pattern.rest?.pattern !== undefined ? resolvedPatternBindings(pattern.rest.pattern) : []),
-  ];
-  if (pattern.kind === "Record") return pattern.fields.flatMap((field) => resolvedPatternBindings(field.pattern));
-  if (pattern.kind === "Constructor") return pattern.arguments.flatMap(resolvedPatternBindings);
-  return [];
 }

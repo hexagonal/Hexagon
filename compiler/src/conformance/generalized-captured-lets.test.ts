@@ -6,19 +6,14 @@ import { compileProject, Source } from "../index";
  * Conformance for the value restriction across the capture boundary (Functions §8;
  * `spec/notes/compiler-conformance-defects.md`, 2026-07-26 defect 1).
  *
- * A module-level `let` whose value is a syntactic value generalizes. Being
- * *captured by a function* must not cost it that generalization. The checker used
- * to install every captured `let` as a monomorphic placeholder before checking any
- * function body, which fused all of that binding's uses into a single type — so a
- * generic helper called from two functions, or from one function under a declared
- * type variable, collapsed.
+ * A module-level `let` whose value is a syntactic value generalizes, and being
+ * read by a function below it must not cost it that generalization: a generic
+ * helper called from two functions, or from one function under a declared type
+ * variable, keeps its scheme and is instantiated fresh per use.
  *
- * The defect was first found as "recursive functions cannot call `Seq.next`", and
- * was originally logged that way. Both halves of that description were wrong, and
- * the tests below pin the corrected characterisation: neither recursion nor
- * annotations are required — only that the callee is a captured `let` and the
- * caller is a `fun`. `var`s and non-value `let`s stay monomorphic, which is
- * correct and is pinned too.
+ * Neither recursion nor annotations are required to reach the property — only
+ * that the callee is a `let` and the caller a `fun`. `var`s and non-value `let`s
+ * stay monomorphic, which is correct and is pinned too.
  */
 
 function diagnostics(source: string): readonly string[] {
