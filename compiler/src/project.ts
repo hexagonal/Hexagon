@@ -14,6 +14,7 @@ import { moduleInterface, resolve } from "./passes/resolver/resolver.js";
 import { check } from "./passes/checker/checker.js";
 import { elaborate } from "./passes/elaborator/elaborator.js";
 import {
+  DEFAULT_VECTOR_RUNTIME_SPECIFIER,
   emitDeclarations,
   emitJavaScript,
   emittedModuleSpecifier,
@@ -501,7 +502,9 @@ function weaveInjected(
  * emitter never has to hold a fourth case.
  */
 function vectorRuntimeFor(path: string, vectorTriePath: string | undefined): VectorRuntime {
-  if (vectorTriePath === undefined) return { specifier: "./VectorTrie" };
+  if (vectorTriePath === undefined) {
+    return { specifier: DEFAULT_VECTOR_RUNTIME_SPECIFIER };
+  }
   return path === vectorTriePath
     ? "self"
     : { specifier: relativeSpecifier(path, vectorTriePath) };

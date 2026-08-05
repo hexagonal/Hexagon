@@ -82,7 +82,7 @@ export type VectorRuntimeOperation = (typeof VECTOR_RUNTIME_OPERATIONS)[number];
 export type VectorRuntime = "self" | { readonly specifier: string };
 
 /** What a module at the source common root spells for the trie runtime. */
-const DEFAULT_VECTOR_RUNTIME_SPECIFIER = "./VectorTrie";
+export const DEFAULT_VECTOR_RUNTIME_SPECIFIER = "./VectorTrie";
 
 export interface JavaScriptEmissionOptions {
   /** Includes private editions for inspection tools; ordinary builds omit them. */
@@ -792,10 +792,15 @@ class JavaScriptEmitter {
 
     // Before the import lines, because a helper body may itself call the trie
     // runtime — `vectorIndex` is a bounds check around `get` — and the import
-    // line has to know that. Rendering a helper adds no *helper*, so pulling
-    // this ahead of the imports cannot lose one: `#useHelper` closed the
-    // dependency family over when the helper was requested, and `renderHelper`
-    // resolves names through `#helperName` rather than requesting anything.
+    // line has to know that.
+    //
+    // Two facts make the move safe, and both are invariants rather than
+    // conveniences. Rendering a helper adds no *helper*: `#useHelper` closed
+    // the dependency family over at the moment of request, and `renderHelper`
+    // resolves names through `#helperName`, which requests nothing. And no
+    // import renderer below adds one either — they emit `import` lines from
+    // what rendering already recorded, and reach no expression. A renderer that
+    // ever calls `#useHelper` has to move back below this.
     const helpers = [...this.#helpers]
       .sort()
       .flatMap((helper) =>
