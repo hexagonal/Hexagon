@@ -188,12 +188,16 @@ identity<a>(x: a): a                         -- excluded: bare type variable, no
 
 §4.2's candidate set is indexed from declarations and is order-independent — *what* is dot-callable never depends on where in the home module an operation sits. Whether a given call site may **reach** a candidate is a separate question, and it has the same answer as every other reference (Functions §7.2):
 
-- **A dot call is legal exactly where its qualified spelling is legal.** §1's rewrite makes this forced rather than chosen: `e.name(args…)` *is* `CompanionOf(T).name(e, args…)`, and that call's callee must be declared above the call site like any reference. Within the home module, then, a dot call may target only an operation declared **above** it. Call sites in other modules see the whole exported surface, as always — §4.2's import-insensitivity is untouched.
-- **A dot call never targets a member of the caller's own `fun` group** (Functions §7.3): calls within a group are spelled by name. Recursion, direct or mutual, therefore never hides behind a dot — and dispatch can never create a reference-graph cycle the resolver cannot see, which is what keeps §4.2 a declaration-indexing operation with no type-directed feedback into dependency analysis.
+- **A dot call is legal exactly where a reference to the operation is legal.** §1's rewrite makes this forced rather than chosen: `e.name(args…)` *is* a call of the companion operation — spelled qualified from other modules, bare in the home module, which cannot name itself — and that callee must be declared above the call site like any reference. Within the home module, then, a dot call may target only an operation declared **above** it. Call sites in other modules see the whole exported surface, as always — §4.2's import-insensitivity is untouched.
+- **A dot call never targets a member of the caller's own `fun` group** (Functions §7.3): calls within a group are spelled by name. "Within" reads textually and at any depth — a dot call anywhere inside a member's body, a nested lambda or inner `fun` included, never targets that group, because any such call is a group edge the reference graph cannot see. Recursion, direct or mutual, therefore never hides behind a dot — and dispatch can never create a reference-graph cycle the resolver cannot see, which is what keeps §4.2 a declaration-indexing operation with no type-directed feedback into dependency analysis.
 
 Neither rule disturbs §3's order-independence of *inference*: §14(d)'s "evidence anywhere in the region counts" is about where the receiver's **type** becomes known, and stands. Declaration order constrains which declarations a resolved call may name, not how the receiver's head is discovered.
 
 Diagnostics: an operation that exists in the companion but sits below the call site, or inside the caller's own group, is reported as exactly that (§9 rows 12–13) — never as "the companion has no operation", which would be false.
+
+---
+
+## 5. Coverage
 
 *(Category list: Sol's formulation, adopted with the tuple/record clarifications.)*
 
@@ -296,7 +300,7 @@ Completion after `receiver.` must be driven by **the same resolution model**, at
 | 10 | Function-typed receiver | "functions have no fields or companion operations" |
 | 11 | Uppercase name after dot with an argument list where left side is not a module alias | existing Modules §5.1 resolution/errors, unchanged — not this feature |
 | 12 | Companion op exists but is declared below the call site (home module only) | "`Box`'s companion declares `twice` below this call; declarations are read top-down — move the declaration above this call" (§4.4; Functions §7.2 family). Never row 4's "no operation" |
-| 13 | Dot call targets a member of the caller's own `fun` group | "a dot call cannot target its own `fun` group; spell the call by name: `twice(b)`" (§4.4; Functions §7.3) |
+| 13 | Dot call targets a member of the caller's own `fun` group | "a dot call cannot target its own `fun` group; spell the call by name: `map(s, f)`" (§4.4; Functions §7.3) |
 
 Vocabulary rules: diagnostics say **companion operation** (never "method" — nothing method-like exists at runtime, and the noun would teach the wrong model) and never say "row" (Products §4 ban, still in force). "Dot call" is acceptable in hovers and docs.
 

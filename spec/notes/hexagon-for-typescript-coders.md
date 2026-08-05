@@ -165,7 +165,7 @@ fun fib(n) =
     if n < 2 then n else fib(n - 1) + fib(n - 2)
 ```
 
-`fun` is hoisted (like a JS `function` declaration) and supports self- and mutual recursion. That's its entire job — it's the special case, not the default. Everyday Hexagon is `let` all the way down, and you'll notice every other function in this book is one; recursion is rarer than you'd think in a language with `for`, `while`, and a pipeline-friendly stdlib.
+`fun` supports self- and mutual recursion — its body sees itself, and an unbroken run of `fun`s see each other. That's its entire job — it's the special case, not the default. Unlike a JS `function` declaration it does not hoist: like everything else in a Hexagon file, it can only be used below its declaration (group members excepted — that's what makes mutual recursion work). Everyday Hexagon is `let` all the way down, and you'll notice every other function in this book is one; recursion is rarer than you'd think in a language with `for`, `while`, and a pipeline-friendly stdlib.
 
 Note the string: `"Hello, ${who}!"` — interpolation works the way your fingers already type it.
 
