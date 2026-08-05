@@ -500,6 +500,31 @@ describe("aliased and namespace imports (Modules §3.2, §3.3)", () => {
     expect((exports.run as () => number)()).toBe(40);
   });
 
+  test("a namespace-imported constraint may be honored for a local type", async () => {
+    // The only spelling available to a module that reached the constraint this
+    // way, and its own type is a lawful home for the instance (§5.3).
+    const exports = await runProject([
+      ["/geo.hex", [
+        "export constraint Perimeter<a> =",
+        "    around(subject: a): Int",
+        "",
+      ].join("\n")],
+      ["/main.hex", [
+        "import * as Geo from \"./geo\"",
+        "",
+        "record Triangle = {side: Int}",
+        "",
+        "honor Geo.Perimeter<Triangle> =",
+        "    around(t) = t.side * 3",
+        "",
+        "export fun run(): Int = Geo.around(Triangle({side = 5}))",
+        "",
+      ].join("\n")],
+    ]);
+
+    expect((exports.run as () => number)()).toBe(15);
+  });
+
   test("a namespace import qualifies the constraint in a binder and its member as a term", async () => {
     const exports = await runProject([
       ["/geo.hex", [
@@ -553,6 +578,29 @@ describe("implied types project through an imported member", () => {
 
   test("the member's result is the instance's implied type", () => {
     expect(messagesOf(files)).toEqual([]);
+  });
+
+  test("an importing module can honor it and bind the implied type", async () => {
+    // The `type Item = ...` binding names a member of the *imported*
+    // declaration, so the resolver's owner table — which knows only this
+    // module's own constraints — is not the place to look it up.
+    const exports = await runProject([
+      files[0],
+      ["/main.hex", [
+        "import { Source } from \"./streams\"",
+        "",
+        "record Register = {rows: Int}",
+        "",
+        "honor Source<Register> =",
+        "    type Item = Int",
+        "    peek(r) = r.rows",
+        "",
+        "export fun rows(): Int = peek(Register({rows = 9}))",
+        "",
+      ].join("\n")],
+    ]);
+
+    expect((exports.rows as () => number)()).toBe(9);
   });
 
   test("and a wrongly typed use is caught against it", () => {

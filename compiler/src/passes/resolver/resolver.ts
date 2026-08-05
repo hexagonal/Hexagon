@@ -1403,11 +1403,17 @@ class Resolver {
         const typeParameterNames = new Set(item.typeParameters.map(({ name }) => name.text));
         const subject = this.#resolveTypeAnnotation(item.subject, typeParameterNames);
         const declaration = this.#impliedTypeOwners;
-        const names = new Set(
-          [...declaration.entries()]
-            .filter(([, owners]) => owners.has(item.constraint.text))
-            .map(([name]) => name),
-        );
+        // An imported constraint's implied types come from its declaration —
+        // the local owner table only knows this module's own (§6.5: the implied
+        // type members do not travel separately, they *are* the declaration).
+        const imported = this.#namedConstraint(item.constraint.text);
+        const names = imported !== undefined
+          ? new Set(imported.impliedTypes.map(({ name }) => name))
+          : new Set(
+              [...declaration.entries()]
+                .filter(([, owners]) => owners.has(item.constraint.text))
+                .map(([name]) => name),
+            );
         const impliedContext = { owner: item.constraint.text, names };
         return {
           kind: "Honor",
@@ -1420,7 +1426,13 @@ class Resolver {
           })),
           subject,
           derived: item.derived,
-          dictionary: `__hex_instance_${item.constraint.text}_${annotationHeadName(subject)}`,
+          // The constraint's *declared* name, never the importer's spelling: an
+          // alias or an `Alias.Name` qualification is this module's word for
+          // someone else's declaration, and the second is not even a legal
+          // JavaScript identifier.
+          dictionary: `__hex_instance_${
+            this.#namedConstraint(item.constraint.text)?.name ?? item.constraint.text
+          }_${annotationHeadName(subject)}`,
           impliedTypes: item.impliedTypes.map((impliedType) => ({
             name: impliedType.name.text,
             annotation: this.#resolveTypeAnnotation(

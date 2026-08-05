@@ -778,11 +778,17 @@ class Parser {
   #parseHonor(): Parsed.HonorItem {
     const start = this.#advance();
     const typeParameters = this.#at("Less") ? this.#parseTypeParameters() : [];
-    const constraintToken = this.#takeName("UpperName", "`honor` requires a constraint name");
+    // Qualified by a module alias where the constraint was namespace-imported
+    // (Modules §3.3): `honor Geo.Area<Tile>` is the only spelling available to a
+    // module that reached the constraint that way, and its own type is a lawful
+    // home for the instance (Constraints §5.3).
+    const constraintName = this.#parseConstraintReference(
+      "`honor` requires a constraint name",
+    );
     const fallback: Parsed.Name = {
       text: "Invalid",
       startClass: "upper",
-      span: constraintToken?.span ?? start.span,
+      span: constraintName?.span ?? start.span,
     };
     this.#expect("Less", "instance heads use `<Type>`");
     const subject = this.#parseTypeAnnotation() ?? {
@@ -796,7 +802,7 @@ class Parser {
       this.#advance();
       return {
         kind: "Honor",
-        constraint: constraintToken === undefined ? fallback : parsedName(constraintToken),
+        constraint: constraintName ?? fallback,
         typeParameters,
         subject,
         derived: true,
@@ -856,7 +862,7 @@ class Parser {
     const closing = this.#expect("VClose", "expected the instance body to close");
     return {
       kind: "Honor",
-      constraint: constraintToken === undefined ? fallback : parsedName(constraintToken),
+      constraint: constraintName ?? fallback,
       typeParameters,
       subject,
       derived: false,
