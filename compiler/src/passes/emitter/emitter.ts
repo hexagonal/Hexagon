@@ -569,6 +569,13 @@ class JavaScriptEmitter {
    */
   readonly #referencedDictionaries = new Set<string>();
   /**
+   * What each unparameterized instance reads while its own `const` initializes:
+   * the rendered base-constraint evidence, and nothing else. Instance
+   * dictionaries are emitted ahead of every term binding (Constraints §6.3), and
+   * this is what orders them among themselves.
+   */
+  readonly #directEvidence = new Map<Core.Item, readonly string[]>();
+  /**
    * Every symbol a rendered `Name` expression named (#263).
    *
    * A superset of the imported symbols: it is consulted only for the names on a
@@ -713,9 +720,21 @@ class JavaScriptEmitter {
     body.push(...preludeTermImports.map(({ line }) => line));
     body.push(...this.#constraintMemberImports());
 
+    // Constraints §6.3: an `honor` may sit below a term binding whose evaluation
+    // demands its dictionary, and no source-ordering law forbids that, so the
+    // dictionaries go out ahead of every term binding. Building one evaluates
+    // nothing — a record of lambdas — which is what makes the move legal.
+    const instances = orderInstances(
+      rendered.filter(({ item }) => item.kind === "Honor"),
+      this.#directEvidence,
+    );
+    if (instances.length > 0) {
+      body.push(...instances.flatMap(({ lines }) => lines), "");
+    }
+
     const seated = this.#docs.seatedComments();
     const entries = sourceEntries(
-      rendered,
+      rendered.filter(({ item }) => item.kind !== "Honor"),
       this.#module.comments.filter((comment) => !seated.has(comment)),
       trailing,
     );
@@ -1021,13 +1040,19 @@ class JavaScriptEmitter {
           localDictionary,
         );
       }
-      const baseConstraints = item.baseConstraints.map(({ name, evidence }) => {
-        const slot = (name[0]?.toLowerCase() ?? "") + name.slice(1);
-        return objectProperty(
-          slot,
-          this.#emitEvidence(evidence, name, item.span, localEvidence),
-        );
-      });
+      // The one part of a dictionary that is read while the `const` initializes:
+      // members and inherited defaults are lambdas, so the dictionaries they
+      // name are read at call time and order nothing (Constraints §6.3).
+      const baseEvidence = item.baseConstraints.map(({ name, evidence }) => ({
+        name,
+        rendered: this.#emitEvidence(evidence, name, item.span, localEvidence),
+      }));
+      if (parameters.length === 0) {
+        this.#directEvidence.set(item, baseEvidence.map(({ rendered }) => rendered));
+      }
+      const baseConstraints = baseEvidence.map(({ name, rendered }) =>
+        objectProperty((name[0]?.toLowerCase() ?? "") + name.slice(1), rendered)
+      );
       const members = item.derived
         ? this.#derivedMembers(item, localEvidence)
         : item.members.map((member) =>
@@ -4716,6 +4741,42 @@ function trailingComments(
     result.set(item, existing);
   }
   return result;
+}
+
+/**
+ * Instance dictionaries in an order that satisfies their direct references:
+ * source order, delayed only where one dictionary is read while another
+ * initializes. A reference from inside a member lambda is read at call time and
+ * constrains nothing, so it is not among the edges here (Constraints §6.3).
+ *
+ * A cycle cannot arise from direct references — a dictionary that read itself
+ * into being could not be built at all — so an item whose dependencies never
+ * arrive is emitted in source order rather than dropped.
+ */
+function orderInstances(
+  instances: readonly RenderedItem[],
+  directEvidence: ReadonlyMap<Core.Item, readonly string[]>,
+): readonly RenderedItem[] {
+  const names = new Map(
+    instances.flatMap((rendered) =>
+      rendered.item.kind === "Honor" ? [[rendered.item.dictionary, rendered] as const] : []
+    ),
+  );
+  const emitted = new Set<RenderedItem>();
+  const ordered: RenderedItem[] = [];
+  const place = (rendered: RenderedItem, visiting: ReadonlySet<RenderedItem>): void => {
+    if (emitted.has(rendered) || visiting.has(rendered)) return;
+    const next = new Set(visiting).add(rendered);
+    for (const evidence of directEvidence.get(rendered.item) ?? []) {
+      for (const [name, dependency] of names) {
+        if (evidence.includes(name)) place(dependency, next);
+      }
+    }
+    emitted.add(rendered);
+    ordered.push(rendered);
+  };
+  for (const rendered of instances) place(rendered, new Set());
+  return ordered;
 }
 
 function sourceEntries(

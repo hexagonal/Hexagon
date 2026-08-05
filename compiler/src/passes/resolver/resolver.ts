@@ -107,6 +107,19 @@ interface BlockDeclarations {
   readonly funSymbols: Set<Resolved.SymbolId>;
 }
 
+/**
+ * The **term**-namespace names a type-namespace declaration binds: a union's and
+ * record's constructors, an exception's, a constraint's members. Functions §7.2
+ * governs their value-position uses; the type names beside them are not here,
+ * because a type-position mention is order-free.
+ */
+function termNamesBound(item: Parsed.Item): readonly Parsed.Name[] {
+  if (item.kind === "Union") return item.constructors.map(({ name }) => name);
+  if (item.kind === "RecordDeclaration" || item.kind === "Exception") return [item.name];
+  if (item.kind === "ConstraintDeclaration") return item.members.map(({ name }) => name);
+  return [];
+}
+
 /** Sequential binders are `let`s; both head classes are pattern binders. */
 function declaredKind(binderClass: BinderClass): Resolved.SymbolKind {
   return binderClass === "sequential" ? "let" : "pattern";
@@ -936,15 +949,19 @@ class Resolver {
     // leave as the walk passes their declaration, so what remains is exactly
     // what is still *later* than the reference being resolved.
     const frame: BlockDeclarations = { later: new Map(), funSymbols: new Set() };
+    const declare = (name: Parsed.Name, fun = false): void => {
+      if (!frame.later.has(name.text)) frame.later.set(name.text, { name, fun });
+    };
     for (const item of items) {
       if (item.kind === "Fun" || item.kind === "Let" || item.kind === "Var") {
-        if (!frame.later.has(item.name.text)) {
-          frame.later.set(item.name.text, { name: item.name, fun: item.kind === "Fun" });
-        }
+        declare(item.name, item.kind === "Fun");
       } else if (item.kind === "LetPattern") {
-        for (const name of Parsed.patternNames(item.pattern)) {
-          if (!frame.later.has(name.text)) frame.later.set(name.text, { name, fun: false });
-        }
+        for (const name of Parsed.patternNames(item.pattern)) declare(name);
+      } else {
+        // The term names a type-namespace declaration binds. Their *value*-position
+        // uses read top-down like any other term reference (§7.2); the declarations
+        // themselves, and every type-position mention of them, stay order-free.
+        for (const name of termNamesBound(item)) declare(name);
       }
     }
     this.#blockDeclarations.push(frame);
@@ -977,6 +994,8 @@ class Resolver {
         frame.later.delete(item.name.text);
       } else if (item.kind === "LetPattern") {
         for (const name of Parsed.patternNames(item.pattern)) frame.later.delete(name.text);
+      } else {
+        for (const name of termNamesBound(item)) frame.later.delete(name.text);
       }
     }
     this.#blockDeclarations.pop();
