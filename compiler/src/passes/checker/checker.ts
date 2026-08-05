@@ -192,6 +192,19 @@ interface Requirement {
   dictionary?: string;
   structural?: boolean;
   dictionaryArguments?: readonly Requirement[];
+  /**
+   * The requirement raised for each direct component of a structurally
+   * satisfied type, kept rather than discarded (#278). Emission renders this
+   * selection instead of re-deriving the component structurally, which is what
+   * let a hand-written component instance be ignored.
+   */
+  components?: readonly RequirementComponent[];
+}
+
+/** One direct component of a structural type, or of a derivation subject. */
+interface RequirementComponent {
+  readonly key: string;
+  readonly requirement: Requirement;
 }
 
 interface Scheme {
@@ -333,6 +346,12 @@ class Checker {
   >();
   readonly #instanceSubjects = new WeakMap<Resolved.HonorItem, Mono>();
   readonly #instanceBaseConstraints = new WeakMap<Resolved.HonorItem, readonly Requirement[]>();
+  /**
+   * The component demands a derived instance raised, kept rather than discarded
+   * (#278). Emission renders this selection instead of re-deriving each
+   * component structurally.
+   */
+  readonly #instanceComponents = new WeakMap<Resolved.HonorItem, readonly RequirementComponent[]>();
   readonly #mutableSymbols = new Set<Resolved.SymbolId>();
   /**
    * Every symbol this module can name, imports included (the resolver puts both
@@ -1103,9 +1122,13 @@ class Checker {
               primary: item.span,
             });
           } else {
-            for (const component of this.#derivationComponents(actual, item.span)) {
-              this.#require(item.constraint, component.type, component.span);
-            }
+            this.#instanceComponents.set(
+              item,
+              this.#derivationComponents(actual, item.span).map((component) => ({
+                key: component.key,
+                requirement: this.#require(item.constraint, component.type, component.span),
+              })),
+            );
           }
           this.#instanceBaseConstraints.set(
             item,
@@ -1391,14 +1414,22 @@ class Checker {
     return this.#typeOf(finalItem.expression);
   }
 
+  /**
+   * The subject's direct components, each with the key emission expands it
+   * under (#278): a field name for a record, `Constructor.field` for a union
+   * slot. The keys, not the positions, are what pair the checker's selection
+   * with the emitter's walk — the derived `compare` and `show` bodies visit a
+   * record's fields in *name* order while this list is in declaration order.
+   */
   #derivationComponents(
     subject: UnionMono | NominalRecordMono,
     fallbackSpan: Source.Span,
-  ): readonly { readonly type: Mono; readonly span: Source.Span }[] {
+  ): readonly { readonly key: string; readonly type: Mono; readonly span: Source.Span }[] {
     if (subject.kind === "NominalRecord") {
       const fields = this.#nominalRecordFields(subject);
       const declaration = this.#records.get(subject.record);
       return [...fields].map(([name, type]) => ({
+        key: name,
         type,
         span: declaration?.fields.find((field) => field.name === name)?.span ??
           declaration?.span ?? fallbackSpan,
@@ -1411,6 +1442,7 @@ class Checker {
     const union = this.#unions.get(subject.union);
     return union?.constructors.flatMap((constructor) =>
       constructor.slots.map((slot) => ({
+        key: `${constructor.binding.name}.${slot.field}`,
         type: this.#replaceVariables(
           this.#annotationType(
             slot.annotation,
@@ -3948,34 +3980,57 @@ class Checker {
       structuralConstraints.includes(requirement.name) &&
       (type.kind === "Tuple" || type.kind === "Record" || type.kind === "Vector")
     ) {
-      const components = type.kind === "Tuple"
-        ? type.elements
+      // The component requirements are *kept* (#278). Each one names the
+      // instance the component contributes, and emission renders that selection
+      // rather than re-walking the type — the re-walk is what silently ignored a
+      // hand-written component instance and read through `opaque`.
+      const components: readonly (readonly [string, Mono])[] = type.kind === "Tuple"
+        ? type.elements.map((element, index) => [String(index), element] as const)
         : type.kind === "Record"
-        ? [...type.fields.values()]
-        : [type.element];
-      for (const component of components) {
-        this.#require(requirement.name, component, requirement.span);
-      }
+        ? [...type.fields.entries()]
+        : [["element", type.element] as const];
+      requirement.components = components.map(([key, component]) => ({
+        key,
+        requirement: this.#require(requirement.name, component, requirement.span),
+      }));
       requirement.structural = true;
       return;
     }
     if (requirement.name === "Concat" && type.kind === "Vector") {
+      // No component demand: concatenation is on the spine alone.
+      requirement.components = [];
       requirement.structural = true;
       return;
     }
     if (["Eq", "Show", "Hash"].includes(requirement.name) && type.kind === "Set") {
-      this.#require(requirement.name === "Show" ? "Show" : "Hash", type.element, requirement.span);
+      requirement.components = [{
+        key: "element",
+        requirement: this.#require(
+          requirement.name === "Show" ? "Show" : "Hash",
+          type.element,
+          requirement.span,
+        ),
+      }];
       requirement.structural = true;
       return;
     }
     if (["Eq", "Show", "Hash"].includes(requirement.name) && type.kind === "Map") {
-      if (requirement.name === "Show") {
-        this.#require("Show", type.key, requirement.span);
-        this.#require("Show", type.value, requirement.span);
-      } else {
-        this.#require("Hash", type.key, requirement.span);
-        this.#require(requirement.name === "Hash" ? "Hash" : "Eq", type.value, requirement.span);
-      }
+      requirement.components = requirement.name === "Show"
+        ? [
+            { key: "key", requirement: this.#require("Show", type.key, requirement.span) },
+            { key: "value", requirement: this.#require("Show", type.value, requirement.span) },
+          ]
+        : [
+            { key: "key", requirement: this.#require("Hash", type.key, requirement.span) },
+            {
+              key: "value",
+              requirement: this.#require(
+                requirement.name === "Hash" ? "Hash" : "Eq",
+                type.value,
+                requirement.span,
+              ),
+            },
+          ];
       requirement.structural = true;
       return;
     }
@@ -4003,6 +4058,9 @@ class Checker {
       type.union === this.#boolUnion &&
       ["Eq", "Ord", "Show", "Hash"].includes(requirement.name)
     ) {
+      // No component demand: the pin satisfies the constraint outright, and
+      // emission's `Bool` arms are the licensed inline shortcut (#278).
+      requirement.components = [];
       requirement.structural = true;
       return;
     }
@@ -5478,7 +5536,20 @@ class Checker {
             this.#publicRequirement(argument)
           ) }),
       ...(requirement.structural === true ? { structural: true } : {}),
+      ...(requirement.components === undefined
+        ? {}
+        : { components: this.#publicComponents(requirement.components) }),
     };
+  }
+
+  /** #278: the component selection, in the order the container enumerates it. */
+  #publicComponents(
+    components: readonly RequirementComponent[],
+  ): readonly Typed.ConstraintComponent[] {
+    return components.map(({ key, requirement }) => ({
+      key,
+      constraint: this.#publicRequirement(requirement),
+    }));
   }
 
   /**
@@ -5676,6 +5747,7 @@ class Checker {
         baseConstraints: this.#publicRequirements(
           this.#instanceBaseConstraints.get(item) ?? [],
         ),
+        components: this.#publicComponents(this.#instanceComponents.get(item) ?? []),
         impliedTypes: item.impliedTypes.map((impliedType) => ({
           name: impliedType.name,
           type: this.#publicType(this.#annotationType(impliedType.annotation)),

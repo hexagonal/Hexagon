@@ -41,6 +41,7 @@ function elaborateItem(item: Typed.Item): Core.Item {
           name: constraint.name,
           evidence: evidence(constraint),
         })),
+        components: evidenceComponents(item.components),
         members: item.members.map((member) => ({
           ...member,
           value: {
@@ -405,6 +406,16 @@ function elaborateInteger(expression: Typed.FromNatExpr): Core.Expr {
   };
 }
 
+/** #278: the checker's per-component selection, carried to emission verbatim. */
+function evidenceComponents(
+  components: readonly Typed.ConstraintComponent[] | undefined,
+): readonly Core.EvidenceComponent[] {
+  return (components ?? []).map((component) => ({
+    key: component.key,
+    evidence: evidence(component.constraint),
+  }));
+}
+
 function evidence(requirement: Typed.Constraint | undefined): Core.Evidence {
   if (requirement === undefined) return { kind: "Error" };
   if (requirement.dictionary !== undefined) {
@@ -418,7 +429,11 @@ function evidence(requirement: Typed.Constraint | undefined): Core.Evidence {
     };
   }
   if (requirement.structural === true) {
-    return { kind: "Structural", type: requirement.type };
+    return {
+      kind: "Structural",
+      type: requirement.type,
+      components: evidenceComponents(requirement.components),
+    };
   }
   switch (requirement.type.kind) {
     case "Primitive":

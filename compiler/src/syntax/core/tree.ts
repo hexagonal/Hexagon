@@ -37,6 +37,27 @@ export interface InstanceEvidence {
 export interface StructuralEvidence {
   readonly kind: "Structural";
   readonly type: Typed.Type;
+  /**
+   * The evidence the checker selected for each direct component of `type`
+   * (#278, `spec/products.md` §2.5's implementer note). Emission renders these
+   * instead of re-walking `type`, so a nominal component is reached through its
+   * own instance — hand-written or derived — and never through its
+   * representation. Nested structural components recurse: the element of
+   * `Vector((Metre, Int))` is itself `Structural`, with its own components.
+   *
+   * Empty where the type raised no component demand: the `Bool` pin, and
+   * `Concat<Vector(a)>`. Also empty on the evidence the emitter synthesizes for
+   * a `Set`/`Map` sub-dictionary, which is `Hash`-shaped and so licensed to
+   * walk structurally.
+   */
+  readonly components: readonly EvidenceComponent[];
+}
+
+/** One direct component's evidence, keyed by its position in the container. */
+export interface EvidenceComponent {
+  /** The component's position: a tuple index, a field name, `element`, … */
+  readonly key: string;
+  readonly evidence: Evidence;
 }
 
 export interface EvidenceArgument {
@@ -291,6 +312,13 @@ export interface HonorItem {
   readonly derived: boolean;
   readonly dictionary: string;
   readonly baseConstraints: readonly HonorBaseConstraint[];
+  /**
+   * For a derived instance, the evidence for each component of the subject —
+   * the record's fields, or every constructor slot of the union (#278). The
+   * derived body expands the subject one level and renders each component from
+   * here. Empty for a hand-written instance, which has a body.
+   */
+  readonly components: readonly EvidenceComponent[];
   readonly impliedTypes: readonly Typed.HonorImpliedType[];
   readonly members: readonly HonorMember[];
   readonly span: Source.Span;
