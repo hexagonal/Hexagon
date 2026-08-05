@@ -14,9 +14,21 @@ import { compileFiles, runProject } from "../support/test-project.js";
  */
 
 function emitted(files: readonly (readonly [string, string])[], path: string): string {
-  const module = compileFiles(files).modules.find(({ source }) => source.path === path);
+  const project = compileFiles(files);
+  // An ordering pin reads `indexOf`, which answers -1 for a binding that was
+  // never emitted — so a rejected source would satisfy every `toBeLessThan`
+  // below. The compile has to be clean before its text means anything.
+  expect(project.diagnostics).toEqual([]);
+  const module = project.modules.find(({ source }) => source.path === path);
   if (module === undefined) throw new Error(`${path} was not emitted`);
   return module.javascript.text;
+}
+
+/** The offset of `needle` in `javascript`, asserted present so -1 cannot pass an ordering pin. */
+function offsetOf(javascript: string, needle: string): number {
+  const offset = javascript.indexOf(needle);
+  expect(offset, `${needle} was not emitted`).toBeGreaterThanOrEqual(0);
+  return offset;
 }
 
 describe("evidence is emitted before the module's term bindings", () => {
@@ -81,8 +93,8 @@ describe("evidence is emitted before the module's term bindings", () => {
       "    size(b) = b.v\n",
     ]], "/main.hex");
 
-    expect(javascript.indexOf("const __hex_instance_Small_Box"))
-      .toBeLessThan(javascript.indexOf("const __hex_instance_Big_Box"));
+    expect(offsetOf(javascript, "const __hex_instance_Small_Box"))
+      .toBeLessThan(offsetOf(javascript, "const __hex_instance_Big_Box"));
   });
 
   test("a derived instance rides the same channel", () => {
@@ -91,12 +103,12 @@ describe("evidence is emitted before the module's term bindings", () => {
     // pinned here is channel membership: it precedes *every* term binding, the
     // record's own constructor included.
     const javascript = emitted([["/main.hex",
-      "export record Box = {v: Int} derives Eq\n" +
-      "export let same: Bool = equals(Box({v = 1}), Box({v = 1}))\n",
+      "export record Box derives Eq = {v: Int}\n" +
+      "export let same: Bool = Box({v = 1}) == Box({v = 1})\n",
     ]], "/main.hex");
 
-    expect(javascript.indexOf("const __hex_instance_Eq_Box"))
-      .toBeLessThan(javascript.indexOf("const Box ="));
+    expect(offsetOf(javascript, "const __hex_instance_Eq_Box"))
+      .toBeLessThan(offsetOf(javascript, "const Box ="));
   });
 
   test("a derived factory rides it too", () => {
@@ -106,7 +118,7 @@ describe("evidence is emitted before the module's term bindings", () => {
     ]], "/main.hex");
 
     expect(javascript).toMatch(/const __hex_instance_Eq_Box = \S+ => \{/u);
-    expect(javascript.indexOf("const __hex_instance_Eq_Box"))
-      .toBeLessThan(javascript.indexOf("const Box ="));
+    expect(offsetOf(javascript, "const __hex_instance_Eq_Box"))
+      .toBeLessThan(offsetOf(javascript, "const Box ="));
   });
 });
