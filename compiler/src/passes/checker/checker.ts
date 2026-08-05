@@ -2515,6 +2515,13 @@ class Checker {
             const operation = this.#operationsByName.get(expression.callee.field.text);
             const scheme = operation === undefined ? undefined : this.#schemes.get(operation.id);
             if (operation === undefined || scheme === undefined) {
+              // Abandoning the call does not excuse the arguments: materialization
+              // walks the whole resolved tree, and an integer literal's `FromNat`
+              // requirement exists only if inference recorded one. Skipping them
+              // leaves a bare literal with no requirement to dereference (#212).
+              for (const argument of expression.arguments) {
+                this.#inferExpr(argument, level);
+              }
               type = this.#unsupported(
                 expression.callee.field.span,
                 `the companion of \`${this.#display(actual)}\` has no operation \`${expression.callee.field.text}\`; call an available subject-first function explicitly`,
