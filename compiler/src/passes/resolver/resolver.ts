@@ -1946,7 +1946,11 @@ class Resolver {
           }
           const importedModule = this.#namedModule(expression.receiver.name.text);
           if (importedModule !== undefined) {
-            const symbol = importedModule.terms.get(expression.field.text);
+            // §3.3: a constraint member qualifies through the alias like any
+            // other export. Read after `terms`, never merged into it — a member
+            // is not an independently importable name (§3.1).
+            const symbol = importedModule.terms.get(expression.field.text) ??
+              importedModule.constraintMembers.get(expression.field.text);
             if (symbol === undefined) {
               this.#diagnostics.add({
                 severity: "error",

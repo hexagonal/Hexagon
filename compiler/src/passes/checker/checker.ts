@@ -203,6 +203,8 @@ interface Requirement {
   useSpan?: Source.Span;
   readonly impliedTypes?: ReadonlyMap<string, Mono>;
   evidenceConstraint?: Typed.ConstraintName;
+  /** The identity of `evidenceConstraint`; see `#canonicalConstraintName`. */
+  evidenceIdentity?: string;
   evidencePath?: readonly string[];
   reported: boolean;
   dictionary?: string;
@@ -3970,6 +3972,7 @@ class Checker {
       if (provider.identity === requirement.identity) return;
       const path = this.#entailmentPath(provider.identity, requirement.identity);
       requirement.evidenceConstraint = provider.name;
+      requirement.evidenceIdentity = provider.identity;
       if (path !== undefined) requirement.evidencePath = path;
       return;
     }
@@ -3977,6 +3980,7 @@ class Checker {
       const path = this.#entailmentPath(requirement.identity, existing.identity);
       if (path !== undefined) {
         existing.evidenceConstraint = requirement.name;
+        existing.evidenceIdentity = requirement.identity;
         existing.evidencePath = path;
       }
     }
@@ -5818,9 +5822,33 @@ class Checker {
     return variable;
   }
 
+  /**
+   * The name a constraint's own **declaration** gives it, which is the name
+   * every module agrees on.
+   *
+   * Diagnostics print the spelling the source used — that is what the reader
+   * wrote — but emission keys evidence by name, and the spelling is no longer a
+   * property of the constraint once modules can rename one at the border: a
+   * function under `<a: Heft>` receives its dictionary as `Heft`'s while the
+   * imported member it calls demands `Weigh`'s, and the two are one constraint.
+   * Canonicalizing here, at the Typed boundary, is what keeps the two sides
+   * naming the same seat without putting the alias into the output.
+   *
+   * Residue, recorded rather than hidden: two *distinct* constraints that
+   * genuinely share a name — reachable only through two imported schemes, since
+   * no module can spell both — still meet in one evidence seat. Their
+   * identities differ and this returns the same word for each.
+   */
+  #canonicalConstraintName(
+    name: Typed.ConstraintName,
+    identity: string,
+  ): Typed.ConstraintName {
+    return this.#constraintsByIdentity.get(identity)?.name ?? name;
+  }
+
   #publicRequirement(requirement: Requirement): Typed.Constraint {
     return {
-      name: requirement.name,
+      name: this.#canonicalConstraintName(requirement.name, requirement.identity),
       identity: requirement.identity,
       type: this.#publicType(requirement.type),
       span: requirement.span,
@@ -5829,7 +5857,14 @@ class Checker {
         : { dictionary: requirement.dictionary }),
       ...(requirement.evidenceConstraint === undefined
         ? {}
-        : { evidenceConstraint: requirement.evidenceConstraint }),
+        : {
+            evidenceConstraint: requirement.evidenceIdentity === undefined
+              ? requirement.evidenceConstraint
+              : this.#canonicalConstraintName(
+                  requirement.evidenceConstraint,
+                  requirement.evidenceIdentity,
+                ),
+          }),
       ...(requirement.evidencePath === undefined
         ? {}
         : { evidencePath: requirement.evidencePath }),
@@ -6081,12 +6116,25 @@ class Checker {
         : [];
       return {
         kind: "Honor",
-        constraint: item.constraint,
+        // Canonical for the same reason as the binders below: this name keys the
+        // instance's own evidence seat, and an alias is the importer's word.
+        constraint: this.#canonicalConstraintName(
+          item.constraint,
+          item.constraintIdentity,
+        ),
         constraintIdentity: item.constraintIdentity,
         typeParameters: item.typeParameters.map((parameter) => ({
           name: parameter.name,
           variable: Typed.typeVariableId(typeParameters.get(parameter.name)?.id ?? -1),
-          constraints: parameter.constraints,
+          // Canonical, because these name the evidence *parameters* the instance
+          // takes, and the requirements they must answer arrive under the
+          // declaration's own spelling (see `#canonicalConstraintName`).
+          constraints: parameter.constraints.map((constraint) =>
+            this.#canonicalConstraintName(
+              constraint,
+              this.#constraintIdentity(constraint),
+            )
+          ),
           span: parameter.span,
         })),
         subject: this.#publicType(this.#instanceSubjects.get(item) ?? ERROR),
