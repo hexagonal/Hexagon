@@ -147,7 +147,7 @@ the element type directly and lets each caller convert its concrete source at th
 boundary:
 
 ```hexagon
-let consume<a>(source: Seq(a)): Unit =
+let consume(source: Seq(a)): Unit =
     for item in source
         item |> ignore
 ```

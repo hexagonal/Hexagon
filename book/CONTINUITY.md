@@ -548,7 +548,7 @@ late pedagogy pass, not a commitment to the current order.
   parameter cannot change type within a call.
 - `makeIdentity()` is the canonical fixed-variable example: `a` appears on both sides
   of the returned function's arrow, so the binding holds one function of one type and
-  a use fixes which. Written with an explicit signature (`fun makeIdentity<a>(): (a -> a)`)
+  a use fixes which. Written with an explicit signature (`let makeIdentity(): (a -> a)`)
   so the reader can see both occurrences.
 - **Do not put `// error` on the second call.** The compiler currently reports the
   conflict against the *first* use, which #206 owns; the prose says the pair is

@@ -89,11 +89,11 @@ export declare const between: (
 Inferred polymorphism becomes an ordinary generic signature:
 
 ```hexagon
-export let chooseFirst<a>(first: a, second: a): a = first
+export let chooseFirst(first: a, second: a): a = first
 ```
 
 ```ts
-export declare const chooseFirst: <a, b>(first: a, second: b) => a;
+export declare const chooseFirst: <a>(first: a, second: a) => a;
 ```
 
 Generated binders retain Hexagon's lowercase style: `<a>`, `<k>`, and `<v>`. They are

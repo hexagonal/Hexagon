@@ -124,7 +124,7 @@ type variable at a time, and a variable is still reusable when nothing in the va
 could be holding one:
 
 ```hexagon
-fun makeEmpty<a>(): Vector(a) = []
+let makeEmpty(): Vector(a) = []
 
 let blank = makeEmpty()
 
@@ -144,7 +144,7 @@ might already hold something at that type, or might demand one.
 side is the one that takes something in:
 
 ```hexagon
-fun makeIdentity<a>(): (a -> a) = x => x
+let makeIdentity(): (a -> a) = x => x
 
 let generatedIdentity = makeIdentity()
 let number = generatedIdentity(1)
@@ -161,7 +161,7 @@ that carries operations, and those operations are chosen once, when the right-ha
 side runs:
 
 ```hexagon
-fun double<a: Num>(value: a): a = value + value
+let double<a: Num>(value: a): a = value + value
 
 let doubled = double(42)
 ```

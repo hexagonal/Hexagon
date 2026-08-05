@@ -203,7 +203,7 @@ Consider a sequence type whose parameter appears only in what it hands out:
 ```hexagon
 export opaque record Box(a) = {open: () -> Option(a)}
 
-export fun emptyBox<a>(): Box(a) = Box({open = () => None})
+export let emptyBox(): Box(a) = Box({open = () => None})
 ```
 
 Inside this module the compiler can see that a `Box` only ever produces an `a`. Outside
