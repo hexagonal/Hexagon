@@ -144,6 +144,23 @@ function declaredKind(binderClass: BinderClass): Resolved.SymbolKind {
   return binderClass === "sequential" ? "let" : "pattern";
 }
 
+/**
+ * An English list of **two or more** parts — `a and b`, `a, b, and c` — for a
+ * diagnostic that must enumerate rather than pick. A caller with one part has
+ * nothing to enumerate and does not reach here.
+ *
+ * The conjunction is the caller's, because one list reads two ways in one
+ * message: the homes a name has are *all* of them, the rewrites offered are any
+ * *one* of them.
+ */
+function conjoin(parts: readonly string[], conjunction: "and" | "or"): string {
+  const last = parts.at(-1)!;
+  const leading = parts.slice(0, -1);
+  return leading.length === 1
+    ? `${leading[0]} ${conjunction} ${last}`
+    : `${leading.join(", ")}, ${conjunction} ${last}`;
+}
+
 /** Two spans in the order a reader meets them, so a diagnostic can point in source order. */
 function orderedBySource(a: Source.Span, b: Source.Span): readonly [Source.Span, Source.Span] {
   return a.start.offset <= b.start.offset ? [a, b] : [b, a];
@@ -376,6 +393,17 @@ class Scope {
   lookup(name: string): Resolved.SymbolId | undefined {
     return this.#bindings.get(name) ?? this.parent?.lookup(name);
   }
+
+  /**
+   * The scope `lookup` would answer from, or `undefined` if nothing binds the
+   * name. What the symbol alone cannot tell a caller: a prelude term and an
+   * explicit import of that same term are one `SymbolId`, so "did this reference
+   * land on the prelude layer?" is a question about the *layer* that held it.
+   */
+  lookupOwner(name: string): Scope | undefined {
+    if (this.#bindings.has(name)) return this;
+    return this.parent?.lookupOwner(name);
+  }
 }
 
 class Resolver {
@@ -448,6 +476,25 @@ class Resolver {
    * many later members occlude the bare name.
    */
   readonly #preludeTermsByName = new Map<string, Resolved.SymbolId[]>();
+  /**
+   * The qualified home of every prelude term of a given name, in prelude order —
+   * the module names `#preludeModuleAliases` binds, which are what a rewrite of a
+   * bare reference has to be spelled with.
+   *
+   * Two or more homes is a **collision**, and a bare reference to a collided name
+   * is refused: neither member owns the spelling, so the reference is an error
+   * that names every home (the F#/ML answer — `List.map` and `Seq.map` coexist
+   * and the use site qualifies). The alternative the scope gives for free, last
+   * member wins, silently changes what a bare `empty` means in every program
+   * already written the moment a member joins the prelude.
+   *
+   * Keyed by *visible* homes, not by the prelude list: this map is filled from
+   * the members seeded into this resolver, and a prelude member is seeded only
+   * the members before it (Modules §5.5). So `empty` is ambiguous in a consumer,
+   * which sees `Seq.hex` and `Vector.hex` both, and ordinary inside `Result.hex`,
+   * which sees only the first.
+   */
+  readonly #preludeHomesByName = new Map<string, string[]>();
   readonly #explicitlyImported = new Set<Resolved.SymbolId>();
   readonly #moduleAliases = new Map<string, ModuleInterface>();
   /** Prelude members addressable by name — a fallback layer, so an explicit
@@ -685,6 +732,15 @@ class Resolver {
       this.#preludeTermsByName.set(name, [
         ...this.#preludeTermsByName.get(name) ?? [],
         symbol.id,
+      ]);
+      // The home a refused bare reference is rewritten to. `moduleName` is the
+      // same string `#preludeModuleAliases` was keyed by just above, so the
+      // diagnostic's suggestion is a spelling that resolves rather than a guess
+      // at one; the specifier stands in only if a member has no basename to be
+      // named by, which no injection path produces.
+      this.#preludeHomesByName.set(name, [
+        ...this.#preludeHomesByName.get(name) ?? [],
+        moduleName === "" ? specifier : moduleName,
       ]);
       this.#preludeTerms.set(symbol.id, symbol);
       this.#preludeSpecifierBySymbol.set(symbol.id, specifier);
@@ -2369,9 +2425,49 @@ class Resolver {
     return false;
   }
 
+  /**
+   * Refuses a bare reference that landed on the prelude layer for a name two or
+   * more visible members export, reporting every qualified home.
+   *
+   * The test is on the *layer the name resolved in*, not on the symbol: a
+   * prelude term and an explicit import of it are one `SymbolId`, and an
+   * explicit import is a module-level binding (Modules §5.4). So is a local
+   * declaration of the name. Both occlude the prelude layer whole, collided or
+   * not, and both are rewrites this diagnostic does not need to name — the
+   * reference in front of the reader is bare, and the local, obvious fix for a
+   * bare reference is to qualify it.
+   *
+   * The refusal reaches the bare spelling and nothing else. `Seq.empty` never
+   * comes through here (the `Access` case resolves a qualifier against
+   * `#namedModule`), and neither does `values.length()`: dispatch is
+   * type-directed (Method Syntax §1) and reads `#preludeTermsByName`, which holds
+   * every member's term precisely so an occluded one stays reachable. Dot call is
+   * the mitigation this ruling leans on, so it must not be collateral.
+   */
+  #refusedAmbiguousPrelude(name: Parsed.Name, scope: Scope): boolean {
+    if (scope.lookupOwner(name.text) !== this.#preludeScope) return false;
+    const homes = this.#preludeHomesByName.get(name.text) ?? [];
+    if (homes.length < 2) return false;
+    this.#diagnostics.add({
+      severity: "error",
+      message: `the prelude name \`${name.text}\` is ambiguous: exported by ` +
+        `${conjoin(homes.map((home) => `\`${home}\``), "and")}; write ` +
+        `${conjoin(homes.map((home) => `\`${home}.${name.text}\``), "or")}`,
+      primary: name.span,
+    });
+    return true;
+  }
+
   #resolveName(expression: Parsed.NameExpr, scope: Scope): Resolved.Expr {
     const symbol = scope.lookup(expression.name.text);
     if (symbol !== undefined) {
+      // Before anything is made of the symbol: a refused reference names no
+      // term, so it must not join the used-prelude set the synthesized import is
+      // built from, and `ErrorExpr` poisons the checker's view of it the way an
+      // unknown name does — one diagnostic for the program, not a cascade.
+      if (this.#refusedAmbiguousPrelude(expression.name, scope)) {
+        return { kind: "ErrorExpr", span: expression.span };
+      }
       const owner = this.#varOwners.get(symbol);
       if (owner !== undefined && owner < this.#lambdaDepth) {
         this.#diagnostics.add({

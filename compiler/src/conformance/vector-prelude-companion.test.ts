@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { PRELUDE_MODULES } from "../prelude.js";
+import { PRELUDE_SOURCES } from "../prelude-sources.js";
 import { compileFiles, projectDiagnostics, runProject } from "../support/test-project.js";
 
 /**
@@ -23,8 +24,9 @@ import { compileFiles, projectDiagnostics, runProject } from "../support/test-pr
  *    a `Vector.js` import (the failure #263 fixed for `Seq.hex`).
  * 3. **Two prelude members now export the same bare names.** `empty`,
  *    `singleton`, `prepend`, and `length` are `Seq.hex`'s and `Vector.hex`'s
- *    alike (Collections Part 1 §3.1's naming doctrine). What the resolver does
- *    with that is pinned below, because nothing in Modules §5.5 states it.
+ *    alike (Collections Part 1 §3.1's naming doctrine). A collided bare name is
+ *    *refused*, naming every qualified home; the section below pins the rule and
+ *    the two spellings that survive it.
  */
 
 /** One project's emitted JavaScript, by source path. */
@@ -239,49 +241,163 @@ describe("membership drags nothing in", () => {
 
 describe("two prelude members exporting one bare name", () => {
   /**
-   * **The observed rule: the later member wins, silently.** Prelude terms are
-   * seeded into one fallback scope in normative prelude order, and the scope
-   * keeps one binding per name (`Scope.define` overwrites), so `Vector.hex`
-   * being last makes the bare `empty`, `singleton`, `prepend`, and `length` its
-   * own. There is no diagnostic and no ambiguity report; Modules §5.5 states
-   * ordered *visibility* between members and says nothing about a collision
-   * between them.
+   * **The rule: a collided bare prelude name is refused.** `empty`,
+   * `singleton`, `prepend`, and `length` are exported by both `Seq.hex` and
+   * `Vector.hex`, and neither member owns the bare spelling: a reference to one
+   * is an error, and the diagnostic names every qualified home so the rewrite is
+   * local and obvious (the house Rewrite Rule). This is the F#/ML answer to the
+   * same collision — `List.map` and `Seq.map` coexist and you qualify — and it
+   * is the only answer that does not silently change what a bare `empty` meant
+   * the moment a member joins the prelude.
    *
-   * This is pinned as measured, not endorsed: it silently changes what a bare
-   * `empty` meant in every program written before the milestone.
+   * Refusal is the *bare* spelling's alone. Qualification answers, a module's
+   * own declaration occludes the whole layer as it always did (Modules §5.4),
+   * and dot call is untouched, because dispatch is type-directed (Method Syntax
+   * §1) and never consults this scope at all.
    */
-  test("the bare name is the later member's", async () => {
-    const main = await runProject([[
-      "/main.hex",
-      "let e = empty\n" +
-      "export let grown: Vector(Int) = prepend(e, 1)\n" +
-      "export let one: Vector(Int) = singleton(7)\n" +
-      "export let n: Int = length(grown)\n",
-    ]]);
-
-    expect(main["grown"]).toEqual([1]);
-    expect(main["one"]).toEqual([7]);
-    expect(main["n"]).toBe(1);
+  test("the bare name is refused, and the diagnostic names every home", () => {
+    expect(projectDiagnostics("export let e: Vector(Int) = empty\n")).toEqual([
+      "the prelude name `empty` is ambiguous: exported by `Seq` and `Vector`; " +
+      "write `Seq.empty` or `Vector.empty`",
+    ]);
   });
 
-  /** Modules §6.4's qualified home is what keeps the occluded member reachable. */
-  test("the occluded member is reachable qualified", async () => {
+  /**
+   * All four collided names, and only those: `isEmpty` is `Vector.hex`'s alone
+   * and `map` is `Seq.hex`'s alone, so both stay bare-legal in the same module
+   * that four refusals are reported against. One diagnostic per reference, and
+   * nothing downstream — the refused reference resolves to an error the checker
+   * treats as poisoned, so no type error piles on behind it.
+   */
+  test("every collided name is refused, and only those", () => {
+    expect(projectDiagnostics(
+      "export let a: Vector(Int) = empty\n" +
+      "export let b: Vector(Int) = singleton(1)\n" +
+      "export let c: Vector(Int) = prepend(b, 1)\n" +
+      "export let d: Int = length(b)\n" +
+      "export let e: Bool = isEmpty(b)\n" +
+      "export let f: Seq(Int) = map(Seq.empty, (x: Int): Int => x)\n",
+    )).toEqual([
+      "the prelude name `empty` is ambiguous: exported by `Seq` and `Vector`; " +
+      "write `Seq.empty` or `Vector.empty`",
+      "the prelude name `singleton` is ambiguous: exported by `Seq` and `Vector`; " +
+      "write `Seq.singleton` or `Vector.singleton`",
+      "the prelude name `prepend` is ambiguous: exported by `Seq` and `Vector`; " +
+      "write `Seq.prepend` or `Vector.prepend`",
+      "the prelude name `length` is ambiguous: exported by `Seq` and `Vector`; " +
+      "write `Seq.length` or `Vector.length`",
+    ]);
+  });
+
+  /**
+   * Modules §5.4's occlusion is unchanged and is the second rewrite: a module
+   * that declares the name means its own, with no ambiguity to report — the
+   * prelude layer is occluded whole, collided or not.
+   */
+  test("a module's own declaration still occludes the whole layer", async () => {
     const main = await runProject([[
       "/main.hex",
-      "export let n: Int = Seq.length(Seq.prepend(Seq.empty, 1))\n",
+      "let empty: Int = 0\n" +
+      "export let mine: Int = empty\n",
     ]]);
 
-    expect(main["n"]).toBe(1);
+    expect(main["mine"]).toBe(0);
+  });
+
+  /**
+   * An explicit import of one member's term is a module-level binding too
+   * (§5.4), so it occludes the layer exactly as a declaration does and the bare
+   * spelling means the member the reader chose. This is the pin that keeps the
+   * refusal keyed to the *layer a name resolved in* rather than to the symbol: a
+   * prelude term and an explicit import of that term are one `SymbolId`, and a
+   * test on the symbol would refuse this program, which names no ambiguity at
+   * all.
+   */
+  test("an explicit import of one member settles the name", async () => {
+    const main = await runProject([[
+      "/main.hex",
+      "import { empty, length } from \"./Seq\"\n" +
+      "export let n: Int = length(empty)\n",
+    ]]);
+
+    expect(main["n"]).toBe(0);
+  });
+
+  /**
+   * **The collision set is computed from the members *visible here*, not from
+   * the prelude list.** A prelude member sees the members before it and only
+   * those (Modules §5.5), so inside `Result.hex` exactly one member exports
+   * `empty` and the bare spelling is ordinary — while the same spelling in a
+   * consumer, which sees `Vector.hex` too, is refused. One project, one name,
+   * two verdicts.
+   *
+   * `Result.hex` is supplied by the project rather than embedded, the idiom the
+   * prelude injection path already carries; its real source is extended rather
+   * than replaced, so this pins the rule and not a transcription.
+   */
+  test("a member that sees one exporter keeps the name bare", () => {
+    const compiled = compileFiles([
+      ["/main.hex", "export let consumer: Vector(Int) = empty\n"],
+      [
+        "/Result.hex",
+        `${PRELUDE_SOURCES["Result.hex"]!}\n` +
+        "export let member: Seq(Int) = empty\n",
+      ],
+    ]);
+
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      "the prelude name `empty` is ambiguous: exported by `Seq` and `Vector`; " +
+      "write `Seq.empty` or `Vector.empty`",
+    ]);
+  });
+
+  /**
+   * **Every home, in prelude order — not the two the prelude happens to have
+   * today.** A third exporter is reachable only through a supplied member, and
+   * it is worth reaching: with two homes the message is a pair, and a rule that
+   * only ever prints pairs is indistinguishable from one that names the winner
+   * and the runner-up. Three shows the enumeration is the whole visible set, and
+   * shows the list reading as English on both sides of the semicolon.
+   */
+  test("a third exporter joins the enumeration in prelude order", () => {
+    const compiled = compileFiles([
+      ["/main.hex", "export let e: Vector(Int) = empty\n"],
+      [
+        "/Result.hex",
+        `${PRELUDE_SOURCES["Result.hex"]!}\n` +
+        "export let empty: Int = 0\n",
+      ],
+    ]);
+
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      "the prelude name `empty` is ambiguous: exported by `Seq`, `Result`, and " +
+      "`Vector`; write `Seq.empty`, `Result.empty`, or `Vector.empty`",
+    ]);
+  });
+
+  /** Modules §6.4's qualified home is the rewrite the diagnostic points at. */
+  test("the qualified spellings answer", async () => {
+    const main = await runProject([[
+      "/main.hex",
+      "export let lazy: Int = Seq.length(Seq.prepend(Seq.empty, 1))\n" +
+      "export let eager: Int = Vector.length(Vector.prepend(Vector.empty, 1))\n" +
+      "export let one: Vector(Int) = Vector.singleton(7)\n",
+    ]]);
+
+    expect(main["lazy"]).toBe(1);
+    expect(main["eager"]).toBe(1);
+    expect(main["one"]).toEqual([7]);
   });
 
   /**
    * Dispatch does not consult the prelude scope at all (Method Syntax §1:
-   * type-directed, never lexical), so occlusion must not reach it. Both
-   * receivers in one module, run: the two `length`s cannot share an emitted
-   * name, and the module that gets that wrong compiles clean and calls the
-   * wrong function.
+   * type-directed, never lexical), so the refusal must not reach it — dot call
+   * is the sanctioned mitigation, and a receiver answers whichever member owns
+   * its type. Both receivers in one module, run: the two `length`s cannot share
+   * an emitted name, and the module that gets that wrong compiles clean and
+   * calls the wrong function.
    */
-  test("occlusion does not decide a dot call", async () => {
+  test("the refusal does not decide a dot call", async () => {
     const main = await runProject([[
       "/main.hex",
       "let source: Seq(Int) = Vector.toSeq([1, 2, 3])\n" +
@@ -296,10 +412,12 @@ describe("two prelude members exporting one bare name", () => {
   /**
    * The same claim on the emitted text: one of the two takes a distinguished
    * local (Modules §6.4's mechanism, reused here for a prelude-internal
-   * collision rather than a module-level one). Which one is whichever the
-   * module reached second — not a rule worth having, but a spelling neither may
-   * share, since two `const length`s at one top level is a `SyntaxError` at load
-   * after a clean compile.
+   * collision rather than a module-level one). Which one is whichever the module
+   * reached second — an emission detail and not a rule worth having, but a
+   * spelling neither may share, since two `const length`s at one top level is a
+   * `SyntaxError` at load after a clean compile. Refusing the *bare* spelling
+   * does not retire this: the two routes that survive, qualification and dot
+   * call, are exactly the two that reach both members from one module.
    */
   test("both reach their own import when both are used", () => {
     const javascript = emitted([[
