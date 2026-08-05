@@ -398,8 +398,23 @@ fun window<a>(trie: TrieVector(a), begin: Int, end: Int): TrieVector(a) =
 // in order. Linear in `right` as Part 1 §2.2 documents, times `append`'s
 // amortized-constant cost. `left` is not copied — the result grows out of it,
 // sharing its whole trie — so `xs ++ []` is `xs` itself.
+//
+// `right` is read in leaf runs, not element by element: `nodeRun` descends once
+// per 32-slot `Node` and reports how far that node reaches, and the inner loop
+// then reads the run out of it with no further descent. A `get` per element
+// would be a fresh O(log32 m) descent each time — correct, and quietly
+// O(m log32 m) against Part 1 §2.2's linear `++`. The descent count for a whole
+// concat is therefore ceil(m / 32) (one more wherever a region boundary splits a
+// node), which `vector-trie-wiring.test.ts` pins by counting the descents a
+// whole concat makes.
 fun concat<a>(left: TrieVector(a), right: TrieVector(a)): TrieVector(a) =
+    let count = size(right)
     var result: TrieVector(a) = left
-    for index in 0..(size(right) - 1)
-        result := append(result, get(right, index))
+    var index = 0
+    while index < count
+        let (values, offset, run) = nodeRun(right, index)
+        // `run` is at least 1, so this range is never empty.
+        for step in 0..(run - 1)
+            result := append(result, Node.get(values, offset + step))
+        index := index + run
     result

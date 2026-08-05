@@ -1,14 +1,17 @@
 import { describe, expect, test } from "vitest";
 
 import { compileFiles, runMain, runProject } from "../support/test-project.js";
+import { COMPILER_CLAIMS } from "../passes/checker/variance.js";
+import { RUNTIME_MODULES } from "../runtime-modules.js";
 import { VECTOR_RUNTIME_OPERATIONS } from "../passes/emitter/emitter.js";
+import type * as Typed from "../syntax/typed/index.js";
 import trieSource from "../../../runtime/VectorTrie.hex?raw";
 
 /**
  * Conformance for the wiring that makes a `Vector(a)` the Collections Part 3 §4
  * trie: the representation contract, the emission shapes §3.6 and §6.2 pin, the
- * complexity §4 and §7 pin, and the import surface the runtime module is
- * reached through.
+ * complexity §4 and §7 pin, the import surface the runtime module is reached
+ * through, and the `Vector(+a)` variance claim the wiring makes checkable.
  *
  * This is deliberately not a second `vector.test.ts`. That file asserts on the
  * *results* of operations and never on the representation, which is what lets it
@@ -60,6 +63,31 @@ describe("the runtime module's two-sided contract", () => {
       expect(trieSource).toMatch(new RegExp(`^(fun|let) ${operation}\\b`, "mu"));
     }
   });
+
+  /**
+   * The compile stays filesystem-free, so `runtime/VectorTrie.hex` is embedded
+   * into `runtime-sources.ts` by `npm run generate:prelude` — and *that* copy is
+   * what every project's injected seat holds. The prelude set has carried this
+   * guard since #147 (`prelude-mechanism.test.ts`); the runtime set arrived
+   * without one, so an edit to the `.hex` file that skipped the regeneration
+   * would leave the suite testing the file through `?raw` while the compiler
+   * shipped the stale text. Written over `RUNTIME_MODULES` rather than over the
+   * one basename, so a second runtime module is covered the day it lands.
+   */
+  const runtimeSources = import.meta.glob("../../../runtime/*.hex", {
+    eager: true,
+    query: "?raw",
+    import: "default",
+  }) as Record<string, string>;
+
+  test.each(RUNTIME_MODULES.map(({ basename, source }) => [basename, source] as const))(
+    "the embedded %s is byte-identical to its runtime/ original",
+    (basename, source) => {
+      const entry = Object.entries(runtimeSources)
+        .find(([path]) => path.endsWith(`/${basename}`));
+      expect(entry?.[1]).toBe(source);
+    },
+  );
 
   test("the emitted runtime module exports exactly the inventory", () => {
     const javascript = emitted([["/main.hex", "export let v: Vector(Int) = [1]\n"]], "/VectorTrie.hex");
@@ -200,7 +228,7 @@ describe("§3.6 pattern emission", () => {
       "fun build(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
         "    for i in 1..n\n" +
-        "        acc := Vector.append(acc, i)\n" +
+        "        acc := acc.append(i)\n" +
         "    acc\n" +
         "let big = build(100)\n" +
         "export let firstOf: Int = match big\n" +
@@ -247,7 +275,7 @@ describe("the representation contract", () => {
       "fun build(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
         "    for i in 1..n\n" +
-        "        acc := Vector.append(acc, i)\n" +
+        "        acc := acc.append(i)\n" +
         "    acc\n" +
         "export let small: Vector(Int) = [10, 20, 30]\n" +
         "export let blank: Vector(Int) = []\n" +
@@ -273,12 +301,14 @@ describe("the representation contract", () => {
     const main = await runMain(
       "export let literal: Vector(Int) = [1]\n" +
         "export let blank: Vector(Int) = []\n" +
-        "export let grown: Vector(Int) = Vector.append([1], 2)\n" +
-        "export let fronted: Vector(Int) = Vector.prepend([1], 0)\n" +
+        "export let grown: Vector(Int) = [1].append(2)\n" +
+        "export let fronted: Vector(Int) = [1].prepend(0)\n" +
         "export let windowed: Vector(Int) = [1, 2, 3][2..3]\n" +
-        "export let replaced: Vector(Int) = Vector.set([1, 2], 1, 9)\n" +
+        "export let replaced: Vector(Int) = [1, 2].set(1, 9)\n" +
         "export let joined: Vector(Int) = [1] ++ [2]\n" +
-        "export let converted: Vector(Int) = Vector.fromSeq(Vector.toSeq([1, 2]))\n",
+        // `fromSeq` stays qualified: its receiver is a `Seq`, so a dot-call
+        // would dispatch to `Seq`'s companion, not `Vector`'s.
+        "export let converted: Vector(Int) = Vector.fromSeq([1, 2].toSeq())\n",
     );
     for (const name of [
       "literal", "blank", "grown", "fronted", "windowed", "replaced", "joined", "converted",
@@ -321,10 +351,10 @@ describe("§4/§7 complexity", () => {
       "fun build(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
         "    for i in 1..n\n" +
-        "        acc := Vector.append(acc, i)\n" +
+        "        acc := acc.append(i)\n" +
         "    acc\n" +
         "export let big: Vector(Int) = build(5000)\n" +
-        "export fun measure(values: Vector(Int)): Int = Vector.length(values)\n" +
+        "export fun measure(values: Vector(Int)): Int = values.length()\n" +
         "export fun render(values: Vector(Int)): String = \"${values}\"\n",
     );
     // Delegates every field to a real trie, and refuses to be walked.
@@ -367,12 +397,12 @@ describe("§4/§7 complexity", () => {
       "fun build(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
         "    for i in 1..n\n" +
-        "        acc := Vector.append(acc, i)\n" +
+        "        acc := acc.append(i)\n" +
         "    acc\n" +
         "export let base: Vector(Int) = build(100)\n" +
-        "export let grown: Vector(Int) = Vector.append(base, 101)\n" +
-        "export let dropped: Vector(Int) = Vector.dropLast(base)\n" +
-        "export let front: Vector(Int) = Vector.dropFirst(base)\n",
+        "export let grown: Vector(Int) = base.append(101)\n" +
+        "export let dropped: Vector(Int) = base.dropLast()\n" +
+        "export let front: Vector(Int) = base.dropFirst()\n",
     );
     const trie = (name: string) => main[name] as { root: unknown; tail: unknown };
     // The base is deep enough to have a tree of its own.
@@ -419,6 +449,255 @@ describe("§4/§7 complexity", () => {
     expect(javascript).toContain("nodeRun(this, __hex_index)");
     expect(javascript).toContain("__hex_index += __hex_run;");
   });
+
+  /**
+   * `++` is linear in its right operand (Collections Part 1 §2.2), and the pin
+   * is the *descent count*, not a stopwatch. A `concat` that read `right` with
+   * `get` per element would be correct, pass every behavioural test in this file
+   * and in `vector.test.ts`, and quietly cost an O(log32 m) descent per element
+   * — the same defect the emitted iterator's pin above exists to foreclose, one
+   * operation over.
+   *
+   * `nodeRun` is what makes the walk linear, so counting its calls is what makes
+   * the claim checkable. The counter cannot be installed from Hexagon — `concat`
+   * calls the module's own `nodeRun`, not an importable one — so the emitted
+   * runtime module is instrumented at the source level: the definition is
+   * renamed and a counting wrapper takes its name. Function declarations hoist,
+   * so every call site in the file, `concat`'s included, reaches the wrapper.
+   *
+   * This is representation knowledge of the emitted JavaScript, which is what
+   * this file is for. Nothing else in the suite may hold it.
+   */
+  interface CountingTrie {
+    readonly empty: unknown;
+    readonly size: (values: unknown) => number;
+    readonly get: (values: unknown, index: number) => number;
+    readonly append: (values: unknown, value: number) => unknown;
+    readonly window: (values: unknown, begin: number, end: number) => unknown;
+    readonly concat: (left: unknown, right: unknown) => unknown;
+    readonly nodeRun: (values: unknown, index: number) => readonly [unknown, number, number];
+    readonly descents: () => number;
+    readonly resetDescents: () => void;
+  }
+
+  /**
+   * The emitted trie runtime, loaded with `nodeRun` counted.
+   *
+   * The instrumented text is identical on every call, so the ESM `data:` URL
+   * cache hands back one module instance and one counter for the whole file —
+   * hence `resetDescents()` immediately before each measurement rather than a
+   * fresh module per test.
+   */
+  async function countingTrie(): Promise<CountingTrie> {
+    const javascript = emitted(
+      [["/main.hex", "export let v: Vector(Int) = [1]\n"]],
+      "/VectorTrie.hex",
+    );
+    const definition = "function nodeRun(trie, index) {";
+    // Exactly one definition, so the rename below cannot leave a call site
+    // reaching an uncounted implementation.
+    expect(javascript.split(definition)).toHaveLength(2);
+    const instrumented =
+      javascript.replace(definition, "function __probeNodeRun(trie, index) {") +
+      "\nlet __probeDescents = 0;\n" +
+      "function nodeRun(trie, index) {\n" +
+      "  __probeDescents += 1;\n" +
+      "  return __probeNodeRun(trie, index);\n" +
+      "}\n" +
+      "export function descents() { return __probeDescents; }\n" +
+      "export function resetDescents() { __probeDescents = 0; }\n";
+    return (await import(
+      /* @vite-ignore */ `data:text/javascript;charset=utf-8,${encodeURIComponent(instrumented)}`
+    )) as CountingTrie;
+  }
+
+  test("concat descends once per leaf node of its right operand", async () => {
+    const trie = await countingTrie();
+    const build = (n: number): unknown => {
+      let values = trie.empty;
+      for (let index = 1; index <= n; index += 1) values = trie.append(values, index);
+      return values;
+    };
+
+    // The instrument, shown live before anything is measured through it: one
+    // direct call is one descent, and `append` makes none. Without this the
+    // counts below could all be readings of a counter wired to nothing — except
+    // that they are exact positive numbers, which is the second guard.
+    trie.resetDescents();
+    expect(trie.size(build(64))).toBe(64);
+    expect(trie.descents()).toBe(0);
+    trie.nodeRun(build(64), 0);
+    expect(trie.descents()).toBe(1);
+
+    const left = build(100);
+    // Append-built operands are left-packed, so every run is a full node but the
+    // last: exactly ceil(m / 32) descents, at every height. An element-at-a-time
+    // `get` walk reports 0 (it never descends through `nodeRun` at all), and a
+    // node walk that answered with a run of 1 reports m.
+    for (const m of [0, 1, 32, 33, 100, 1100, 5000]) {
+      const right = build(m);
+      trie.resetDescents();
+      const joined = trie.concat(left, right);
+      expect([m, trie.descents()]).toEqual([m, Math.ceil(m / 32)]);
+      expect(trie.size(joined)).toBe(100 + m);
+      // …and the elements are the ones the count is being claimed for.
+      expect(trie.get(joined, 0)).toBe(1);
+      expect(trie.get(joined, 99)).toBe(100);
+      if (m > 0) {
+        expect(trie.get(joined, 100)).toBe(1);
+        expect(trie.get(joined, 100 + m - 1)).toBe(m);
+      }
+    }
+  });
+
+  test("a right operand whose front sits mid-node costs at most one descent more", async () => {
+    const trie = await countingTrie();
+    const build = (n: number): unknown => {
+      let values = trie.empty;
+      for (let index = 1; index <= n; index += 1) values = trie.append(values, index);
+      return values;
+    };
+    // A window starting at logical 40 puts the first element mid-node, so the
+    // opening run is partial and every later one is full — the boundary case the
+    // ceiling does not cover, bounded rather than pinned exactly.
+    const right = trie.window(build(100), 40, 90);
+    expect(trie.size(right)).toBe(50);
+    trie.resetDescents();
+    const joined = trie.concat(build(100), right);
+    expect(trie.descents()).toBeGreaterThan(0);
+    expect(trie.descents()).toBeLessThanOrEqual(Math.ceil(50 / 32) + 1);
+    expect(trie.size(joined)).toBe(150);
+    expect(trie.get(joined, 100)).toBe(41);
+    expect(trie.get(joined, 149)).toBe(90);
+  });
+});
+
+describe("§5.3 the `Vector(+a)` claim, verified against the representation", () => {
+  /**
+   * The generalization closure doc (`decisions-ml-dialect-generalization-2026-08.md`
+   * §5.3) carries `Vector(+a)` in the compiler-side claim table, and it carried
+   * it as a **trusted** row: `runtime/VectorTrie.hex` wrote a representation, but
+   * nothing wired it to the emitter, so there was no representation for §6.3 to
+   * check the claim against and the row rested on argument alone. This milestone
+   * is the wiring, so the row upgrades to **verified** — and §11.1 (ix) requires
+   * that it "recomputes on every `runtime/VectorTrie.hex` edit", which is what
+   * this is.
+   *
+   * ## The variance is read, never re-derived
+   *
+   * A test that walked `VectorTrie.hex`'s field annotations itself and concluded
+   * "covariant" would prove only that this file and the spec agree — and would
+   * keep agreeing after an edit that broke the module, because the walk would be
+   * the same walk. So the answer comes out of the checker's own machinery: the
+   * `VarianceTable` (`passes/checker/variance.ts`) computes each declaration's
+   * variance in `#solve`'s fixpoint, and the checker publishes it per parameter
+   * on `Typed.RecordDeclaration.variance` / `Typed.Union.variance` — the single
+   * channel §8.2's code action and hover read, with nothing downstream
+   * recomputing it. This reads that field and nothing else.
+   *
+   * `TrieVector` is *transparent*, so its effective variance is its computed one
+   * (§6.2: only an opaque type's claim is what its author wrote). That is why
+   * this is a verification and not a comparison of two written things.
+   */
+  const PROBE_PATH = "/TrieProbe.hex";
+
+  interface TrieVariance {
+    readonly diagnostics: readonly string[];
+    readonly trieVector: readonly Typed.ParameterVariance[];
+    readonly tree: readonly Typed.ParameterVariance[];
+  }
+
+  /** `TrieVector`'s and `Tree`'s parameter variance in the module at `path`. */
+  function varianceIn(
+    files: readonly (readonly [string, string])[],
+    path: string,
+    runtimePaths?: readonly string[],
+  ): TrieVariance {
+    const project = compileFiles(
+      files,
+      runtimePaths === undefined ? {} : { runtimePaths },
+    );
+    const module = project.modules.find(({ source }) => source.path === path);
+    if (module === undefined) throw new Error(`${path} was not compiled`);
+    const record = module.typed.records.find(({ name }) => name === "TrieVector");
+    const union = module.typed.unions.find(({ name }) => name === "Tree");
+    if (record === undefined || union === undefined) {
+      throw new Error(`${path} declares no TrieVector/Tree`);
+    }
+    return {
+      diagnostics: project.diagnostics.map(({ message }) => message),
+      trieVector: record.variance,
+      tree: union.variance,
+    };
+  }
+
+  const positions = (variance: readonly Typed.ParameterVariance[]) =>
+    variance.map(({ name, computed }) => [name, computed]);
+
+  /**
+   * The shipping route: the injected `/VectorTrie.hex` a real vector program is
+   * built on — the embedded copy from `runtime-sources.ts`, which the drift
+   * guard above holds equal to `runtime/VectorTrie.hex`.
+   */
+  test("the trie every vector is built on is covariant in its element", () => {
+    const shipped = varianceIn(
+      [["/main.hex", "export let v: Vector(Int) = [1]\n"]],
+      "/VectorTrie.hex",
+    );
+    expect(shipped.diagnostics).toEqual([]);
+    // §6.3's derivation, as the checker computes it: `a` reaches `TrieVector`
+    // through `tail: Node(a)` and `root: Tree(a)`, and `Tree`'s own `a` sits in
+    // `Leaf(values: Node(a))` and under `Branch(children: Node(Tree(a)))` — Node
+    // slots all the way down, every one of them covariant.
+    expect(positions(shipped.tree)).toEqual([["a", "co"]]);
+    expect(positions(shipped.trieVector)).toEqual([["a", "co"]]);
+    // Transparent and unsigilled, so this *is* what every consumer reads: there
+    // is no written claim standing between the representation and §6.4.
+    expect(shipped.trieVector[0]?.declared).toBeUndefined();
+  });
+
+  /** The row and the representation, side by side — which is all "verified" means. */
+  test("the claim table's `Vector` row is what the representation computes", () => {
+    const shipped = varianceIn(
+      [["/main.hex", "export let v: Vector(Int) = [1]\n"]],
+      "/VectorTrie.hex",
+    );
+    expect(COMPILER_CLAIMS.get("Vector")).toEqual(["co"]);
+    expect(shipped.trieVector.map(({ computed }) => computed))
+      .toEqual(COMPILER_CLAIMS.get("Vector"));
+  });
+
+  /**
+   * The control, and the whole reason the two tests above are not decoration:
+   * an edit to `VectorTrie.hex` that puts `a` in argument position must turn
+   * them red. Both halves go through the same probe route — the file's own text
+   * compiled as a privileged runtime module at its own path — so the only
+   * difference between the readings is the one field.
+   *
+   * The sabotage also breaks the module outright, which is the machinery
+   * biting rather than merely reporting: `let empty: TrieVector(a)` is a
+   * generalization site, and §5's Step 2 declines to generalize a variable that
+   * occurs invariantly. That is the failure a real edit would meet first.
+   */
+  test("an `a` in argument position turns the row red", () => {
+    const baseline = varianceIn([[PROBE_PATH, trieSource]], PROBE_PATH, [PROBE_PATH]);
+    expect(baseline.diagnostics).toEqual([]);
+    expect(positions(baseline.trieVector)).toEqual([["a", "co"]]);
+
+    // One added field, `a` under a function arrow, plus the value every
+    // construction site now has to supply.
+    const sabotaged = "fun sink<a>(value: a): Int = 0\n\n" +
+      trieSource
+        .replace("    tail: Node(a),\n}", "    tail: Node(a),\n    consume: a -> Int,\n}")
+        .replaceAll("TrieVector({", "TrieVector({\n        consume = sink,");
+    expect(sabotaged).not.toBe(trieSource);
+
+    const broken = varianceIn([[PROBE_PATH, sabotaged]], PROBE_PATH, [PROBE_PATH]);
+    expect(positions(broken.trieVector)).toEqual([["a", "inv"]]);
+    expect(broken.trieVector.map(({ computed }) => computed))
+      .not.toEqual(COMPILER_CLAIMS.get("Vector"));
+    expect(broken.diagnostics.join("\n")).toContain("`a` occurs in an invariant position");
+  });
 });
 
 describe("§5 indexed access over the trie", () => {
@@ -427,10 +706,10 @@ describe("§5 indexed access over the trie", () => {
     ["bracket, past the end", "values[9]", 9, 3],
     ["bracket, zero", "values[0]", 0, 3],
     ["bracket, negative", "values[-1]", -1, 3],
-    ["at, zero", "Vector.at(values, 0)", 0, 3],
-    ["at, past the end from the front", "Vector.at(values, 4)", 4, 3],
-    ["at, past the start from the end", "Vector.at(values, -4)", -4, 3],
-    ["set, past the end", "Vector.length(Vector.set(values, 9, 0))", 9, 3],
+    ["at, zero", "values.at(0)", 0, 3],
+    ["at, past the end from the front", "values.at(4)", 4, 3],
+    ["at, past the start from the end", "values.at(-4)", -4, 3],
+    ["set, past the end", "values.set(9, 0).length()", 9, 3],
   ])("%s", async (_label, expression, index, size) => {
     const main = await runMain(
       "let values: Vector(Int) = [10, 20, 30]\n" +
@@ -457,7 +736,7 @@ describe("§5 indexed access over the trie", () => {
       "fun build(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
         "    for i in 1..n\n" +
-        "        acc := Vector.append(acc, i)\n" +
+        "        acc := acc.append(i)\n" +
         "    acc\n" +
         "let big = build(1100)\n" +
         "export fun boom(ignored: Int): Int = big[1101]\n" +
@@ -524,7 +803,7 @@ describe("§6 slicing over the trie", () => {
       "fun build(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
         "    for i in 1..n\n" +
-        "        acc := Vector.append(acc, i)\n" +
+        "        acc := acc.append(i)\n" +
         "    acc\n" +
         "let big = build(1100)\n" +
         "export let mid: Vector(Int) = big[500..520]\n" +
@@ -556,12 +835,12 @@ describe("§8 instances over the trie", () => {
       "fun ups(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
         "    for i in 1..n\n" +
-        "        acc := Vector.append(acc, i)\n" +
+        "        acc := acc.append(i)\n" +
         "    acc\n" +
         "fun downs(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
         "    for i in 1..n\n" +
-        "        acc := Vector.prepend(acc, n - i + 1)\n" +
+        "        acc := acc.prepend(n - i + 1)\n" +
         "    acc\n" +
         "export let sameHundred: Bool = ups(100) == downs(100)\n" +
         "export let sameHash: Bool = hash(ups(100)) == hash(downs(100))\n" +
@@ -671,7 +950,7 @@ describe("the trie runtime is reached from wherever a module sits", () => {
     const files = [
       ["/src/deep/leaf.hex", "export let values: Vector(Int) = [1, 2]\n"],
       ["/src/main.hex", 'import { values } from "./deep/leaf"\n' +
-        "export let total: Int = Vector.length(values)\n"],
+        "export let total: Int = values.length()\n"],
     ] as const;
     const javascript = emitted(files, "/src/deep/leaf.hex");
     expect(javascript).toContain('from "../VectorTrie.js"');
