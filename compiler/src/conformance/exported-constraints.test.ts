@@ -84,14 +84,19 @@ describe("importing a constraint brings its members (Modules §3.1)", () => {
     // their own. The *public* face of an exported constraint is FFI Part 9's
     // public-evidence closure, owned there and neither added to nor subtracted
     // from here — so this must not be read as "an exported constraint never
-    // reaches a `.d.ts`".
+    // reaches a `.d.ts`". In particular `/labels.hex` is NOT asserted free of
+    // the member's name: `Label` is public and `Label<Int>` satisfies Part 9
+    // §5's closure, so the owed (unbuilt) surface there — `Label.Dictionary`,
+    // the `Label<Int>` handle — would lawfully carry it.
     for (const text of [labels.declarations.text, main.declarations.text]) {
       expect(text).not.toContain("__hex_export");
       expect(text).not.toContain("__hex_default");
-      expect(text).not.toContain("label");
     }
-    // Nor is the constraint name itself a type: it binds in neither namespace a
-    // face is built from, so it cannot become an `import type` row.
+    // `/main.hex` declares only the private `Room`, so Part 9's closure fires
+    // for nothing here: neither the member name nor the constraint may appear.
+    // The constraint name binds in neither namespace a face is built from, so
+    // it cannot become an `import type` row either.
+    expect(main.declarations.text).not.toContain("label");
     expect(main.declarations.text).not.toContain("Label");
   });
 });
