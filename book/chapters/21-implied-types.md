@@ -28,7 +28,7 @@ A normal type parameter is chosen at a use of a generic declaration. In this fun
 each caller may choose `a`:
 
 ```hexagon
-let identity<a>(value: a): a = value
+let identity(value: a): a = value
 ```
 
 An implied type works in the opposite direction. Once the subject is
@@ -204,7 +204,7 @@ The diagnostic points reusable iteration code toward the concrete currency alrea
 established:
 
 ```hexagon
-let collect<a>(source: Seq(a)): Vector(a) = Vector.fromSeq(source)
+let collect(source: Seq(a)): Vector(a) = Vector.fromSeq(source)
 ```
 
 Callers convert at the boundary:

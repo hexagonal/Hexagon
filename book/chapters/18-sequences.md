@@ -139,7 +139,7 @@ Because `Seq(a)` states its element type directly, it is also the idiomatic para
 for generic iteration:
 
 ```hexagon
-let count<a>(values: Seq(a)): Int =
+let count(values: Seq(a)): Int =
     var total = 0
     for _ in values
         total := total + 1

@@ -241,7 +241,7 @@ This shared route avoids a web of pairwise conversions. It also gives reusable
 consumers a simple signature:
 
 ```hexagon
-let countItems<a>(items: Seq(a)): Int = ...
+let countItems(items: Seq(a)): Int = ...
 ```
 
 Callers convert at the edge instead of requiring the function to abstract over every
