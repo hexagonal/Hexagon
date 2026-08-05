@@ -74,8 +74,22 @@ extern from "tiny-json"
 ```
 
 The name after `as` is the local Hexagon name. `fun` declares a callable export; `let`
-declares a non-callable value. Unlike an ordinary Hexagon function declaration, an
-extern `fun` has no body and says nothing about recursion.
+declares a non-callable value.
+
+These are the same two keywords ordinary declarations use, doing a different job, and
+the first extern block you read may earn a double take: in ordinary declarations,
+`let` is the everyday form and `fun` is reserved for recursion. That division works
+because an ordinary definition has a body, and the body shows whether it is a function.
+An extern declaration has no body, so the keyword says what a body would have
+shown: at the boundary, `fun` means *callable* — and says nothing about recursion. The
+compiler keeps the two spellings honest in both directions; a `let` with a parameter
+list and a `fun` without one are each errors that name the correct rewrite, and a
+`let` whose annotation is a function type counts as the first case.
+
+Extern `let` also promises more than punctuation. It asserts that the foreign value is
+stable: a JavaScript module that reassigns an export you declared `extern let` has
+broken the declaration. A genuinely time-varying foreign value belongs behind an
+accessor function on the JavaScript side, declared here with `fun`.
 
 Bindings are private unless individually exported:
 
@@ -429,7 +443,7 @@ exception failure instead of hiding validation inside every extern call.
 - an `extern` declaration introduces checked Hexagon bindings under a trusted foreign
   implementation contract;
 - foreign `fun`, `let`, `type`, default, alias, and effect forms remain close to
-  JavaScript module vocabulary;
+  JavaScript module vocabulary, with `fun` marking callables and `let` stable values;
 - representation-direct values cross unchanged, while explicit narrowing operations
   perform checks;
 - `Nullable(a)` is the nullish foreign door and remains distinct from `Option(a)`;

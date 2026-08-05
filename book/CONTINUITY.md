@@ -404,6 +404,9 @@ late pedagogy pass, not a commitment to the current order.
   exceptions, sequences, collections, JavaScript output, and TypeScript declarations.
 - Establishes `extern from` bindings as checked declarations under a trusted foreign
   implementation contract.
+- Establishes extern-block `fun`/`let` as contextual callable/value vocabulary (extern
+  declarations have no bodies), and extern `let` as a stability assertion over the
+  foreign value.
 - Establishes representation-direct values, `Nullable(a)` as the explicit nullish
   door, `Array(a)` as a readonly borrowed view, and top-level `Seq(a)` as an adapted
   persistent sequence.
