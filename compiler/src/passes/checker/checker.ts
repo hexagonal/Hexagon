@@ -18,6 +18,11 @@ import {
   type Variance,
   VarianceTable,
 } from "./variance.js";
+import {
+  declaredConstraintIdentity,
+  PRE_REGISTERED_CONSTRAINTS,
+  preRegisteredConstraintIdentity,
+} from "../../constraints.js";
 import { isIntrinsicScheme } from "../../intrinsics.js";
 import type * as Source from "../../support/source.js";
 import { displayParameterName } from "../../support/synthetic.js";
@@ -173,6 +178,17 @@ interface ErrorMono {
 
 interface Requirement {
   readonly name: Typed.ConstraintName;
+  /**
+   * The identity of the constraint declaration this requirement demands
+   * (`spec/constraints.md` §5.1.1) — what instance selection keys on.
+   *
+   * Distinct from `name` for exactly one reason, and it is the reason the field
+   * exists: a requirement copied out of an *imported* scheme names a constraint
+   * this module cannot spell, so re-deriving the identity from the name here
+   * would mint one this module owns and find no instance. The defining module's
+   * identity rides along instead (`#importScheme`).
+   */
+  readonly identity: string;
   readonly type: Mono;
   readonly span: Source.Span;
   readonly origin: "annotation" | "literal" | "operation" | "interpolation";
@@ -328,9 +344,23 @@ class Checker {
   readonly #exceptions = new Map<Resolved.SymbolId, Resolved.ExceptionItem>();
   readonly #operationsByName = new Map<string, Resolved.Symbol>();
   readonly #operationSpellings = new Map<Resolved.SymbolId, string>();
-  readonly #constraintNames = new Set<string>([
-    "Num", "Signed", "Frac", "Pow", "Concat", "Eq", "Ord", "Show", "Hash", "Iterable", "Integral",
-  ]);
+  readonly #constraintNames = new Set<string>(PRE_REGISTERED_CONSTRAINTS);
+  /**
+   * Every constraint name this module can spell, mapped to the identity of the
+   * declaration it denotes (`spec/constraints.md` §5.1.1). Seeded with the
+   * pre-registered inventory — one compiler-held declaration each — and
+   * extended by this module's own declarations.
+   *
+   * A name, not an identity, is what every requirement and every operator
+   * routing decision carries, and that stays true: the map is what turns one
+   * into the other, and it is total per module because constraints are
+   * module-local in v1.
+   */
+  readonly #constraintIdentities = new Map<string, string>(
+    PRE_REGISTERED_CONSTRAINTS.map(
+      (name) => [name, preRegisteredConstraintIdentity(name)] as const,
+    ),
+  );
   readonly #constraintSubjects = new WeakMap<Resolved.ConstraintItem, Variable>();
   readonly #constraintImpliedTypes = new WeakMap<
     Resolved.ConstraintItem,
@@ -381,6 +411,8 @@ class Checker {
   readonly #diagnostics: Diagnostics.Bag;
   readonly #importedSchemes: ReadonlyMap<Resolved.SymbolId, Typed.Scheme>;
   readonly #programNominals: VarianceDeclarations;
+  /** This module's file id, held for constraint identity; set by `check`. */
+  #fileId = 0;
   #nextVariable = 0;
 
   constructor(diagnostics: Diagnostics.Bag, options: CheckOptions) {
@@ -390,6 +422,7 @@ class Checker {
   }
 
   check(module: Resolved.Module): Typed.Module {
+    this.#fileId = Number(module.fileId);
     for (const symbol of module.symbols) this.#symbolKinds.set(symbol.id, symbol.kind);
     // This module's own view first — its copy of a declaration is authoritative
     // — then the whole program's, which is what §6.4's uniformity needs and what
@@ -442,6 +475,7 @@ class Checker {
     for (const item of module.items) {
       if (item.kind === "ConstraintDeclaration") {
         this.#constraintNames.add(item.name);
+        this.#constraintIdentities.set(item.name, item.identity);
         this.#constraintDeclarations.set(item.name, item);
         if (item.impliedTypes.length > 0) {
           this.#projectionBearingConstraints.add(item.name);
@@ -528,8 +562,12 @@ class Checker {
           typeParameters,
         );
         this.#instanceSubjects.set(item, subject);
-        const key = this.#instanceKey(item.constraint, subject);
+        const key = this.#instanceKey(item.constraintIdentity, subject);
         if (this.#instances.has(key)) {
+          // Both instances answer the *same* declaration — that is what a key
+          // collision now means — so §5.1.1's disambiguation rule leaves the
+          // name bare: there is one constraint to name, and qualifying it by
+          // declaring module would print the same module twice.
           this.#diagnostics.add({
             severity: "error",
             message: `duplicate instance of \`${item.constraint}<${this.#display(subject)}>\``,
@@ -1137,7 +1175,7 @@ class Checker {
             ),
           );
           if (item.constraint === "Hash") {
-            const equality = this.#instances.get(this.#instanceKey("Eq", instanceSubject));
+            const equality = this.#instances.get(this.#instanceKeyFor("Eq", instanceSubject));
             if (equality !== undefined && !equality.derived) {
               this.#diagnostics.add({
                 severity: "error",
@@ -3710,9 +3748,12 @@ class Checker {
     span: Source.Span,
     origin: Requirement["origin"] = "operation",
     impliedTypes?: ReadonlyMap<string, Mono>,
+    /** Only `#importScheme` passes this; see `Requirement.identity`. */
+    identity: string = this.#constraintIdentity(name),
   ): Requirement {
     const requirement: Requirement = {
       name,
+      identity,
       type,
       span,
       origin,
@@ -3792,7 +3833,7 @@ class Checker {
         )
       : destination.kind === "Constructor"
         ? supports(destination.name, constraint)
-        : this.#instances.has(this.#instanceKey(constraint, destination));
+        : this.#instances.has(this.#instanceKeyFor(constraint, destination));
   }
 
   #supportsSignedTarget(target: Mono, allowVariableTarget = false): boolean {
@@ -4064,7 +4105,7 @@ class Checker {
       requirement.structural = true;
       return;
     }
-    const instance = this.#instances.get(this.#instanceKey(requirement.name, type));
+    const instance = this.#instances.get(this.#instanceKey(requirement.identity, type));
     if (instance !== undefined) {
       this.#pinInstanceSubject(instance, type, requirement.span);
       requirement.dictionary = instance.dictionary;
@@ -4650,7 +4691,7 @@ class Checker {
   #satisfiedAt(name: Typed.ConstraintName, subject: "Int" | "Unit"): boolean {
     if (subject === "Unit") return structuralConstraints.includes(name);
     return supports(subject, name) ||
-      this.#instances.has(this.#instanceKey(name, primitive(subject)));
+      this.#instances.has(this.#instanceKeyFor(name, primitive(subject)));
   }
 
   /**
@@ -4737,6 +4778,10 @@ class Checker {
             requirement.span,
             requirement.origin,
             requirement.name === scheme.constraint ? impliedTypes : undefined,
+            // A copy demands the same *declaration* as its original. Re-deriving
+            // the identity from the name would break an imported scheme, whose
+            // constraint this module may not be able to spell at all (§5.1.1).
+            requirement.identity,
           );
           // The copy keeps the definition-site span, so it keeps the digits
           // that span points at too (§6's report names both) — and records
@@ -4938,6 +4983,7 @@ class Checker {
     const instance: Resolved.HonorItem = {
       kind: "Honor",
       constraint: imported.constraint,
+      constraintIdentity: imported.constraintIdentity,
       typeParameters: imported.typeParameters,
       subject: imported.subject,
       derived: false,
@@ -4960,10 +5006,14 @@ class Checker {
       typeParameters,
     );
     this.#instanceSubjects.set(instance, subject);
-    const key = this.#instanceKey(instance.constraint, subject);
+    const key = this.#instanceKey(imported.constraintIdentity, subject);
     const existingIdentity = this.#instanceIdentities.get(key);
     if (existingIdentity === imported.identity) return;
     if (existingIdentity !== undefined || this.#instances.has(key)) {
+      // As above: one constraint declaration, so the bare name is the right
+      // spelling. Before identity keying this report could name a constraint
+      // *neither* module could see — two private `Describe`s colliding on the
+      // word — which is what §5.1.1 forbids outright (#276).
       this.#diagnostics.add({
         severity: "error",
         message: `duplicate instance of \`${instance.constraint}<${this.#display(subject)}>\``,
@@ -4975,13 +5025,48 @@ class Checker {
     this.#instanceIdentities.set(key, imported.identity);
   }
 
-  #instanceKey(constraint: string, subject: Mono): string {
+  /**
+   * The coherence key: (constraint **declaration**, type constructor).
+   *
+   * The first component is a declaration identity, never a name
+   * (`spec/constraints.md` §5.1.1) — two modules that each declare their own
+   * `Describe` and each honor it for `Int` are both lawful, and a third module
+   * importing both must not see a duplicate. Only `#seedImportedInstance` can
+   * hold instances answering two same-named constraints at once, but keying
+   * *every* lookup on the identity is what makes that seeding sound rather than
+   * a special case.
+   *
+   * `#instanceKeyFor` is the name-taking entry point for the many call sites
+   * that hold only a constraint name; this one takes the identity so the two
+   * cross-module channels can pass the identity they were given.
+   */
+  #instanceKey(constraintIdentity: string, subject: Mono): string {
     const type = this.#prune(subject);
-    if (type.kind === "Constructor") return `${constraint}:primitive:${type.name}`;
-    if (type.kind === "NominalRecord") return `${constraint}:record:${Number(type.record)}`;
-    if (type.kind === "Union") return `${constraint}:union:${Number(type.union)}`;
-    if (type.kind === "Range") return `${constraint}:range`;
-    return `${constraint}:${this.#display(type)}`;
+    if (type.kind === "Constructor") return `${constraintIdentity}:primitive:${type.name}`;
+    if (type.kind === "NominalRecord") return `${constraintIdentity}:record:${Number(type.record)}`;
+    if (type.kind === "Union") return `${constraintIdentity}:union:${Number(type.union)}`;
+    if (type.kind === "Range") return `${constraintIdentity}:range`;
+    return `${constraintIdentity}:${this.#display(type)}`;
+  }
+
+  /**
+   * The coherence key for a constraint *named* in this module's own source.
+   *
+   * Sound because constraints are module-local in v1: within one module a
+   * constraint name denotes at most one declaration, so name → identity is a
+   * function here (`#constraintIdentities`). It is not sound across a module
+   * boundary, which is why the two seeding channels carry an identity instead
+   * of a name. When stage 2 makes constraints importable, this map is where an
+   * imported constraint's identity joins — the call sites need not change.
+   */
+  #instanceKeyFor(constraint: string, subject: Mono): string {
+    return this.#instanceKey(this.#constraintIdentity(constraint), subject);
+  }
+
+  /** This module's name → declaration-identity map; see `#instanceKeyFor`. */
+  #constraintIdentity(constraint: string): string {
+    return this.#constraintIdentities.get(constraint) ??
+      declaredConstraintIdentity(this.#fileId, constraint);
   }
 
   #importScheme(scheme: Typed.Scheme): Scheme {
@@ -5031,7 +5116,17 @@ class Checker {
       }
     };
     for (const constraint of scheme.constraints) {
-      this.#require(constraint.name, copy(constraint.type), constraint.span);
+      // The identity travels with the imported constraint: this module may not
+      // be able to spell the name at all, and if it can, the spelling may be
+      // its own unrelated declaration (§5.1.1).
+      this.#require(
+        constraint.name,
+        copy(constraint.type),
+        constraint.span,
+        "operation",
+        undefined,
+        constraint.identity,
+      );
     }
     return { variables: [...variables.values()], type: copy(scheme.type) };
   }
@@ -5519,6 +5614,7 @@ class Checker {
   #publicRequirement(requirement: Requirement): Typed.Constraint {
     return {
       name: requirement.name,
+      identity: requirement.identity,
       type: this.#publicType(requirement.type),
       span: requirement.span,
       ...(requirement.dictionary === undefined
@@ -5686,6 +5782,7 @@ class Checker {
       return {
         kind: "ConstraintDeclaration",
         name: item.name,
+        identity: item.identity,
         subject: Typed.typeVariableId(subject.id),
         baseConstraints: item.baseConstraints,
         impliedTypes: item.impliedTypes.map((impliedType) => ({
@@ -5735,6 +5832,7 @@ class Checker {
       return {
         kind: "Honor",
         constraint: item.constraint,
+        constraintIdentity: item.constraintIdentity,
         typeParameters: item.typeParameters.map((parameter) => ({
           name: parameter.name,
           variable: Typed.typeVariableId(typeParameters.get(parameter.name)?.id ?? -1),
@@ -6432,7 +6530,12 @@ class Checker {
       member,
       requirement:
         requirement === undefined
-          ? { name: constraint, type: { kind: "Error" }, span: expression.span }
+          ? {
+              name: constraint,
+              identity: this.#constraintIdentity(constraint),
+              type: { kind: "Error" },
+              span: expression.span,
+            }
           : this.#publicRequirement(requirement),
       arguments: arguments_.map((argument) => this.#materializeExpr(argument)),
       type: this.#publicType(this.#typeOf(expression)),
@@ -6768,7 +6871,7 @@ function supports(
 }
 
 function isConstraintName(name: string): name is Typed.ConstraintName {
-  return ["Num", "Signed", "Frac", "Pow", "Concat", "Eq", "Ord", "Show", "Hash", "Iterable", "Integral"].includes(name);
+  return PRE_REGISTERED_CONSTRAINTS.includes(name);
 }
 
 function inferredTypeVariableName(index: number): string {

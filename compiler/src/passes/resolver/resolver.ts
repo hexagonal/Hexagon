@@ -8,6 +8,12 @@
 
 import * as Diagnostics from "../../support/diagnostics.js";
 import {
+  declaredConstraintIdentity,
+  isPreRegisteredConstraint,
+  NON_REDECLARABLE_CONSTRAINTS,
+  preRegisteredConstraintIdentity,
+} from "../../constraints.js";
+import {
   INTRINSIC_INVENTORY,
   INTRINSIC_SPECIFIER,
   isIntrinsicScheme,
@@ -30,6 +36,13 @@ export interface ModuleInterface {
 export interface InstanceInterface {
   readonly identity: string;
   readonly constraint: string;
+  /**
+   * The identity of the constraint declaration this instance answers
+   * (`spec/constraints.md` §5.1.1). Minted by the declaring module and passed
+   * through untouched, like `identity` — an importer that re-derived it from
+   * `constraint` would be back to keying coherence on a spelling.
+   */
+  readonly constraintIdentity: string;
   readonly typeParameters: readonly Resolved.TypeParameter[];
   readonly subject: Resolved.TypeAnnotation;
   readonly impliedTypes: readonly Resolved.HonorImpliedType[];
@@ -162,6 +175,7 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
       return [{
         identity: `${Number(module.fileId)}:${item.dictionary}`,
         constraint: item.constraint,
+        constraintIdentity: item.constraintIdentity,
         typeParameters: item.typeParameters,
         subject: item.subject,
         impliedTypes: item.impliedTypes,
@@ -173,6 +187,7 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
     return item.instances.map((instance) => ({
       identity: instance.identity,
       constraint: instance.constraint,
+      constraintIdentity: instance.constraintIdentity,
       typeParameters: instance.typeParameters,
       subject: instance.subject,
       impliedTypes: instance.impliedTypes,
@@ -326,9 +341,13 @@ class Resolver {
   /** Prelude members addressable by name — a fallback layer, so an explicit
    *  `import * as` of the same name is a module-level binding and wins (§5.4). */
   readonly #preludeModuleAliases = new Map<string, ModuleInterface>();
-  readonly #constraintNames = new Set<string>([
-    "Num", "Signed", "Frac", "Pow", "Concat", "Eq", "Ord", "Show",
-  ]);
+  /**
+   * The names a `constraint` declaration may not take, growing as the module's
+   * own declarations are resolved. Seeded from the pre-registered inventory,
+   * whose one declaration the compiler holds (§5.1.1) — a module-level twin is
+   * refused rather than admitted as a name the wired-in machinery cannot reach.
+   */
+  readonly #constraintNames = new Set<string>(NON_REDECLARABLE_CONSTRAINTS);
   readonly #impliedTypeOwners = new Map<string, Set<string>>();
   readonly #pending: { readonly name: Parsed.Name; readonly kind: "let" | "var" }[] = [];
   readonly #predeclaredBindings = new WeakMap<Parsed.LetItem | Parsed.VarItem | Parsed.FunItem | Parsed.ExternFunDeclaration | Parsed.ExternLetDeclaration, Resolved.Binding>();
@@ -338,6 +357,8 @@ class Resolver {
   readonly #funDependencies = new Map<Resolved.SymbolId, Set<Resolved.SymbolId>>();
   readonly #varOwners = new Map<Resolved.SymbolId, number>();
   readonly #diagnostics: Diagnostics.Bag;
+  /** This module's file id, held for identity minting; set by `resolve`. */
+  #fileId = 0;
   #lambdaDepth = 0;
   #nextSymbol: number;
   #nextUnion: number;
@@ -357,6 +378,31 @@ class Resolver {
       this.#preludeFileIds.add(Number(preludeImport.interface.module.fileId));
       this.#seedPrelude(preludeImport.interface, preludeImport.specifier);
     }
+  }
+
+  /**
+   * The identity a constraint *name* denotes here (`spec/constraints.md`
+   * §5.1.1).
+   *
+   * Pre-registration wins over a module's own declaration, and that order is
+   * load-bearing rather than defensive. It applies to exactly the two names a
+   * module may still redeclare (`Iterable`, `Integral` — see
+   * `NON_REDECLARABLE_CONSTRAINTS`), and a pre-registered constraint is
+   * compiler-global: every module means the same declaration by the name,
+   * without importing anything. A source declaration of one is *supplying* that
+   * declaration's members, not minting a rival, so it must land on the same
+   * identity — otherwise `stdlib/Integral.hex`'s constraint and the `Integral`
+   * an importing module demands would be two different constraints.
+   *
+   * Constraints are module-local in v1, so a name that is neither
+   * pre-registered nor declared here names nothing; it is minted file-scoped
+   * anyway, which keeps the checker's unknown-constraint report the only
+   * diagnostic for that program rather than adding a second, keying one.
+   */
+  #constraintIdentity(name: string): string {
+    return isPreRegisteredConstraint(name)
+      ? preRegisteredConstraintIdentity(name)
+      : declaredConstraintIdentity(this.#fileId, name);
   }
 
   /**
@@ -535,6 +581,7 @@ class Resolver {
   }
 
   resolve(module: Parsed.Module): Resolved.Module {
+    this.#fileId = Number(module.fileId);
     this.#predeclareTypes(module.items);
     // Implied type names have owner-relative identity, but failed uses outside
     // an owner still receive the knowing v1 diagnostic even before declaration.
@@ -840,6 +887,7 @@ class Resolver {
     return item.derives.map((constraint) => ({
       kind: "Honor",
       constraint,
+      constraintIdentity: this.#constraintIdentity(constraint),
       typeParameters: item.parameters.map((name) => ({
         name,
         constraints: requiredParameters.has(name) ? [constraint] : [],
@@ -1032,6 +1080,7 @@ class Resolver {
           instances: (preludeSource ? [] : importedModule?.instances ?? []).map((instance) => ({
             identity: instance.identity,
             constraint: instance.constraint,
+            constraintIdentity: instance.constraintIdentity,
             typeParameters: instance.typeParameters,
             subject: instance.subject,
             impliedTypes: instance.impliedTypes,
@@ -1120,7 +1169,9 @@ class Resolver {
         if (this.#constraintNames.has(item.name.text)) {
           this.#diagnostics.add({
             severity: "error",
-            message: `constraint \`${item.name.text}\` is already declared`,
+            message: isPreRegisteredConstraint(item.name.text)
+              ? `constraint \`${item.name.text}\` is pre-registered and cannot be redeclared`
+              : `constraint \`${item.name.text}\` is already declared`,
             primary: item.name.span,
           });
         }
@@ -1163,6 +1214,7 @@ class Resolver {
         return {
           kind: "ConstraintDeclaration",
           name: item.name.text,
+          identity: this.#constraintIdentity(item.name.text),
           subject: item.subject.text,
           baseConstraints: item.baseConstraints.map(({ text }) => text),
           impliedTypes: item.impliedTypes.map(({ name, span }) => ({
@@ -1186,6 +1238,7 @@ class Resolver {
         return {
           kind: "Honor",
           constraint: item.constraint.text,
+          constraintIdentity: this.#constraintIdentity(item.constraint.text),
           typeParameters: item.typeParameters.map((parameter) => ({
             name: parameter.name.text,
             constraints: parameter.constraints.map(({ text }) => text),
@@ -2672,6 +2725,7 @@ class Resolver {
         channel.push({
           identity: instance.identity,
           constraint: instance.constraint,
+          constraintIdentity: instance.constraintIdentity,
           typeParameters: instance.typeParameters,
           subject: instance.subject,
           impliedTypes: instance.impliedTypes,
