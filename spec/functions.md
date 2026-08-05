@@ -107,6 +107,12 @@ pins type structure; it does not suppress demands discovered in the body.
 The literature term *skolem* may be used once to anchor the implementation
 technique, but Hexagon diagnostics say **declared type variable**.
 
+Ascription — `(e: Type)`, the Ascription spec — is a fourth annotation
+position under this same contract: type variables written anywhere in one
+declaration (parameter annotations, the return annotation, and ascriptions in
+its body) are the same variables, and a name not written elsewhere introduces
+rigid, scoped to that declaration.
+
 A type position inside an annotation may instead be left unwritten with a
 **type hole**, spelled `_`: `xs: Vector(_)` claims the constructor and infers
 the element. A hole elaborates to an ordinary inference variable — never
