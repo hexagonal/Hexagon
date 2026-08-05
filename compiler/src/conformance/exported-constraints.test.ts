@@ -213,6 +213,45 @@ describe("base-constraint entailment through an imported constraint", () => {
     expect((exports.run as () => string)()).toBe("1m (1m)");
   });
 
+  test("the base is the declaration's, even where the importer's word for it is another constraint", async () => {
+    // `/middle.hex` declares its own `Describe`, unrelated to `/units.hex`'s.
+    // Accepting `tell`'s requirement under the `<a: Loud>` binder means walking
+    // `Loud`'s bases, and the base is a name in *units'* scope: re-deriving it
+    // here lands on middle's own declaration and the binder is refused for a
+    // program that is well typed. This is the case `baseConstraintIdentities`
+    // exists for, and the only one where the two answers differ.
+    const exports = await runProject([
+      ["/units.hex", [
+        hierarchy,
+        "export fun tell<a: Describe>(subject: a): String = describe(subject)",
+        "",
+      ].join("\n")],
+      ["/middle.hex", [
+        "import { Loud, tell } from \"./units\"",
+        "",
+        "constraint Describe<a> =",
+        "    narrate(subject: a): String",
+        "",
+        "record Note = {body: String}",
+        "",
+        "honor Describe<Note> =",
+        "    narrate(n) = \"note\"",
+        "",
+        "export fun banner<a: Loud>(subject: a): String = tell(subject)",
+        "",
+      ].join("\n")],
+      ["/main.hex", [
+        "import { banner } from \"./middle\"",
+        "import { Metre } from \"./units\"",
+        "",
+        "export fun run(): String = banner(Metre({span = 2}))",
+        "",
+      ].join("\n")],
+    ]);
+
+    expect((exports.run as () => string)()).toBe("2m");
+  });
+
   test("a local constraint of the same name does not answer the imported one", () => {
     // §5.1.1 across the export boundary: `main`'s own `Loud` is a different
     // declaration, so the imported `banner`'s requirement is not satisfied by
