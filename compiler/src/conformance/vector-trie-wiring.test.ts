@@ -112,7 +112,7 @@ describe("the import surface", () => {
     expect(emittedPaths(files)).toEqual(["/VectorTrie.hex", "/main.hex"]);
     const javascript = emitted(files, "/main.hex");
     expect(javascript).toContain(
-      'import { empty as __hex_vectorEmpty, append as __hex_vectorAppend } from "./VectorTrie.js";',
+      'import { empty as __hex_trieEmpty, append as __hex_trieAppend } from "./VectorTrie.js";',
     );
     expect(javascript).not.toContain('from "./Vector.js"');
   });
@@ -123,8 +123,8 @@ describe("the import surface", () => {
       "let v: Vector(Int) = [1, 2, 3]\nexport let head: Int = v[1]\n",
     );
     expect(javascript).toContain(
-      'import { empty as __hex_vectorEmpty, size as __hex_vectorSize, ' +
-        'get as __hex_vectorGet, append as __hex_vectorAppend } from "./VectorTrie.js";',
+      'import { empty as __hex_trieEmpty, size as __hex_trieSize, ' +
+        'get as __hex_trieGet, append as __hex_trieAppend } from "./VectorTrie.js";',
     );
   });
 });
@@ -150,9 +150,9 @@ describe("§3.6 pattern emission", () => {
         "    [a, b] => a + b\n" +
         "    _ => 0\n",
     );
-    expect(javascript).toMatch(/__hex_vectorSize\(__hex_match0\) === 2/u);
-    expect(javascript).toContain("const a = __hex_vectorGet(__hex_match0, 0);");
-    expect(javascript).toContain("const b = __hex_vectorGet(__hex_match0, 1);");
+    expect(javascript).toMatch(/__hex_trieSize\(__hex_match0\) === 2/u);
+    expect(javascript).toContain("const a = __hex_trieGet(__hex_match0, 0);");
+    expect(javascript).toContain("const b = __hex_trieGet(__hex_match0, 1);");
     expect(javascript).not.toContain("__hex_vectorSlice");
   });
 
@@ -162,9 +162,9 @@ describe("§3.6 pattern emission", () => {
         "    [a, b, ...rest] => a + b\n" +
         "    _ => 0\n",
     );
-    expect(javascript).toMatch(/__hex_vectorSize\(__hex_match0\) >= 2/u);
+    expect(javascript).toMatch(/__hex_trieSize\(__hex_match0\) >= 2/u);
     expect(javascript).toContain(
-      "const rest = __hex_vectorSlice(__hex_match0, 2, __hex_vectorSize(__hex_match0));",
+      "const rest = __hex_trieSlice(__hex_match0, 2, __hex_trieSize(__hex_match0));",
     );
   });
 
@@ -175,7 +175,7 @@ describe("§3.6 pattern emission", () => {
         "    [a, ...] => a\n" +
         "    _ => 0\n",
     );
-    expect(javascript).toMatch(/__hex_vectorSize\(__hex_match0\) >= 1/u);
+    expect(javascript).toMatch(/__hex_trieSize\(__hex_match0\) >= 1/u);
     expect(javascript).not.toContain("__hex_vectorSlice");
   });
 
@@ -187,10 +187,10 @@ describe("§3.6 pattern emission", () => {
         "    _ => 0\n",
     );
     expect(javascript).toContain(
-      "const last = __hex_vectorGet(__hex_match0, __hex_vectorSize(__hex_match0) - 1);",
+      "const last = __hex_trieGet(__hex_match0, __hex_trieSize(__hex_match0) - 1);",
     );
     expect(javascript).toContain(
-      "const init = __hex_vectorSlice(__hex_match0, 0, __hex_vectorSize(__hex_match0) - 1);",
+      "const init = __hex_trieSlice(__hex_match0, 0, __hex_trieSize(__hex_match0) - 1);",
     );
   });
 
@@ -507,7 +507,7 @@ describe("§6 slicing over the trie", () => {
     expect(body).toContain('__hex_error.name = "SliceError"');
     expect(body).toContain("__hex_error.start = __hex_range.start");
     expect(body).toContain("__hex_error.end = __hex_range.end");
-    expect(body.indexOf("descending")).toBeLessThan(body.indexOf("__hex_vectorWindow"));
+    expect(body.indexOf("descending")).toBeLessThan(body.indexOf("__hex_trieWindow"));
   });
 
   /** §6.2's shape: one call, the runtime's own clamping, modulo the 0-based offset. */
@@ -516,7 +516,7 @@ describe("§6 slicing over the trie", () => {
       "let v: Vector(Int) = [1, 2, 3]\nexport let w: Vector(Int) = v[2..3]\n",
     );
     expect(javascript).toContain("__hex_vectorSlice(v, __hex_range(2, 3))");
-    expect(javascript).toContain("__hex_vectorWindow(__hex_values, __hex_range.start - 1, __hex_range.end)");
+    expect(javascript).toContain("__hex_trieWindow(__hex_values, __hex_range.start - 1, __hex_range.end)");
   });
 
   test("windows of a large trie clamp at both ends", async () => {

@@ -80,7 +80,7 @@ describe("emitJavaScript", () => {
     expect(output.text).toContain("__hex_vectorSlice(values, __hex_range(2, 99))");
     expect(output.text).toContain('__hex_stringIndex("héllo", 2)');
     expect(output.text).toContain("function __hex_stableHash");
-    expect(output.text).toContain("__hex_vectorSize(__hex_match0) >= 1");
+    expect(output.text).toContain("__hex_trieSize(__hex_match0) >= 1");
     expect(emitDeclarations(module).text).toContain("Hex.Vector<number>");
     expect(output.diagnostics).toEqual([]);
   });

@@ -423,12 +423,12 @@ export function compileProject(
  * the emitted ones, and the superset is the safe direction: over-claiming only
  * ever moves the generated file, which nothing outside this compile names,
  * while under-claiming would silently overwrite a user's. It costs nothing
- * today, because a source goes unemitted only by being an unreached prelude
+ * today, because a source goes unemitted only by being an unreached *injected*
  * module, and those basenames are fixed to `Bool`, `Prelude`, `Option`, `Seq`,
- * and `Result` — never `hex`. Nothing else drops out: `emitted` is seeded with
- * every non-prelude path in `ordered`, and `ordered` holds every source,
- * including the members of an import cycle (`visit` returns early only from the
- * re-entrant frame, so the outer one still pushes).
+ * `Result`, `Vector`, and `VectorTrie` — never `hex`. Nothing else drops out:
+ * `emitted` is seeded with every non-injected path in `ordered`, and `ordered`
+ * holds every source, including the members of an import cycle (`visit` returns
+ * early only from the re-entrant frame, so the outer one still pushes).
  */
 function runtimeDeclarationsBasename(paths: Iterable<string>, root: string): string {
   const claimed = new Set<string>();

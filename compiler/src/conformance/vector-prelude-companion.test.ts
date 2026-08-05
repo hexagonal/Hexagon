@@ -94,9 +94,9 @@ describe("the module", () => {
    */
   test("each declaration binds its lowering", () => {
     const javascript = emitted([["/main.hex", "export let n: Int = Vector.length([1])\n"]], "/Vector.hex");
-    expect(javascript).toContain("const length = __hex_vectorSize;");
-    expect(javascript).toContain("const append = __hex_vectorAppend;");
-    expect(javascript).toContain("const prepend = __hex_vectorPrepend;");
+    expect(javascript).toContain("const length = __hex_trieSize;");
+    expect(javascript).toContain("const append = __hex_trieAppend;");
+    expect(javascript).toContain("const prepend = __hex_triePrepend;");
     expect(javascript).toContain("const at = __hex_vectorAt;");
     expect(javascript).toContain("const set = __hex_vectorSet;");
     expect(javascript).toContain(

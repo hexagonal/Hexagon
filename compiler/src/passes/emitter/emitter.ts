@@ -4198,13 +4198,21 @@ class JavaScriptEmitter {
    * else it arrives as a named import under a generated local: `append` the
    * import and `append` a user's own function must be able to coexist, and only
    * the generated spelling ever moves (FFI Part 1 §10's rule, applied to a term).
+   *
+   * The stem is `trie`, not `vector`, and the difference is readability rather
+   * than correctness. Several bracket helpers are already `__hex_vectorX`, and a
+   * shared stem made the probe hand out `__hex_vectorSlice1` to whichever of the
+   * two asked second — a name that says nothing about which it is, and that
+   * moves between modules with the order they happen to reach them. `trie`
+   * names the runtime, so a reader can tell an imported trie operation from a
+   * locally emitted helper at a glance, and neither ever displaces the other.
    */
   #useVectorRuntime(operation: VectorRuntimeOperation): string {
     if (this.#vectorRuntime === "self") return operation;
     const existing = this.#vectorRuntimeUses.get(operation);
     if (existing !== undefined) return existing;
     const name = this.#generatedNames.fixed(
-      `vector${operation[0]!.toUpperCase()}${operation.slice(1)}`,
+      `trie${operation[0]!.toUpperCase()}${operation.slice(1)}`,
     );
     this.#vectorRuntimeUses.set(operation, name);
     return name;
