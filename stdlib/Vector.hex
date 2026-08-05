@@ -1,44 +1,75 @@
 // The public Vector companion over the compiler's representation core.
 
+(** Raised when an asserted index addresses no element, from `values[index]`,
+    `at`, `set`, or String indexing. `index` is the index as passed and `size`
+    the collection's size at the fault. *)
 export exception IndexError(index: Int, size: Int)
+
+(** Raised when a slice is taken with a descending range: a window has no
+    direction. `start` and `end` are the range's endpoints as supplied. *)
 export exception SliceError(start: Int, end: Int)
 
 // The whole boundary Collections Part 3 section 7 pins: representation-sensitive
 // length and end updates, signed indexed access, persistent indexed update, and
 // the eager/lazy bridge. Everything below is ordinary Hexagon over these.
 extern from "hex:intrinsic"
+    (** How many elements `values` holds, in constant time. *)
     export fun vectorLength as length<a>(values: Vector(a)): Int
+
+    (** `values` with `value` added after its last element. *)
     export fun vectorAppend as append<a>(values: Vector(a), value: a): Vector(a)
+
+    (** `values` with `value` added before its first element. *)
     export fun vectorPrepend as prepend<a>(values: Vector(a), value: a): Vector(a)
+
+    (** The element at a signed `index`: 1-based from the start, or from the end
+        when negative, so `at(values, -1)` is the last element. Raises
+        `IndexError` when no such element exists — zero never addresses one. *)
     export fun vectorAt as at<a>(values: Vector(a), index: Int): a
+
+    (** `values` with the element at 1-based `index` replaced by `value`. Raises
+        `IndexError` when `index` is out of range; it never extends the vector. *)
     export fun vectorSet as set<a>(values: Vector(a), index: Int, value: a): Vector(a)
+
+    (** The elements of `values` as a sequence, in order. *)
     export fun vectorToSeq as toSeq<a>(values: Vector(a)): Seq(a)
-    // Eager by design: converting an infinite Seq does not terminate.
+
+    (** The elements of `values` collected into a vector. It forces the whole
+        sequence, so it does not terminate on an infinite one. *)
     export fun vectorFromSeq as fromSeq<a>(values: Seq(a)): Vector(a)
 
+(** The empty vector. *)
 export let empty: Vector(a) = []
 
-export fun singleton<a>(value: a): Vector(a) = [value]
+(** A vector with a single value. *)
+export let singleton<a>(value: a): Vector(a) = [value]
 
-export fun isEmpty<a>(values: Vector(a)): Bool = length(values) == 0
+(** Whether `values` holds no elements. *)
+export let isEmpty<a>(values: Vector(a)): Bool = length(values) == 0
 
-export fun first<a>(values: Vector(a)): Option(a) = match values
+(** The first element of `values`, or `None` when it is empty. *)
+export let first<a>(values: Vector(a)): Option(a) = match values
     [] => None
     [value, ...] => Some(value)
 
-export fun last<a>(values: Vector(a)): Option(a) = match values
+(** The last element of `values`, or `None` when it is empty. *)
+export let last<a>(values: Vector(a)): Option(a) = match values
     [] => None
     [..., value] => Some(value)
 
-export fun dropFirst<a>(values: Vector(a)): Vector(a) = match values
+(** `values` without its first element. The empty vector stays empty. *)
+export let dropFirst<a>(values: Vector(a)): Vector(a) = match values
     [] => []
     [_, ...rest] => rest
 
-export fun dropLast<a>(values: Vector(a)): Vector(a) = match values
+(** `values` without its last element. The empty vector stays empty. *)
+export let dropLast<a>(values: Vector(a)): Vector(a) = match values
     [] => []
     [...rest, _] => rest
 
-export fun get<a>(values: Vector(a), index: Int): Option(a) =
+(** The element at 1-based `index`, or `None` when there is none. The total
+    accessor: out of bounds is an answer, not a fault. *)
+export let get<a>(values: Vector(a), index: Int): Option(a) =
     if index < 1 or index > length(values) then
         None
     else

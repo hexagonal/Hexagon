@@ -19,8 +19,10 @@ export let next(source: Seq(a)): Option((a, Seq(a))) = (source.pull)()
 
 // Producers, and combinators whose step yields at most one element per pull.
 
+(** The empty sequence. *)
 export let empty: Seq(a) = Seq({ pull = () => None })
 
+(** A sequence with a single value. *)
 export let singleton(value: a): Seq(a) = Seq({ pull = () => Some((value, empty)) })
 
 (** The sequence that yields `value`, then everything in `rest`. *)
