@@ -5380,8 +5380,23 @@ class Checker {
     );
   }
 
+  /**
+   * Whether this module may see a record's fields — Modules §4.1/§4.2.
+   *
+   * The stored `representationVisible` flag answers a narrower question: the
+   * resolver stamps every imported copy `false` regardless of opacity, so it
+   * means "this copy is the declaring module's own". Only `export opaque`
+   * hides fields (§4.2); a plain `export record` carries construction, `p.x`,
+   * patterns, and update across the import (§4.1). So the home module always
+   * sees, and everyone else sees exactly when the declaration is not opaque.
+   *
+   * `#checkPublicSignatures` still reads the raw flag, deliberately: there it
+   * is the locality signal that keeps an imported type out of the
+   * private-in-public check (§4.3).
+   */
   #recordRepresentationVisible(record: Resolved.RecordId): boolean {
-    return this.#records.get(record)?.representationVisible ?? true;
+    const declaration = this.#records.get(record);
+    return declaration === undefined || declaration.representationVisible || !declaration.opaque;
   }
 
   /** Whether the hidden `Node` intrinsic appears directly in a (signature) type. */
