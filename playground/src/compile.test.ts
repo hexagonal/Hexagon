@@ -70,7 +70,30 @@ describe("compileSource", () => {
         );
       }
       await import(/* @vite-ignore */ moduleUrls.get(response.entryPath)!);
-      expect(log).toHaveBeenCalledWith([
+      // The tuple crosses as a JavaScript array, but each `Vector` in it is the
+      // Collections Part 3 §4 trie, so the vector-valued slots are read through
+      // the representation contract's `[Symbol.iterator]` — which is the same
+      // spread a user of the emitted program would write.
+      const logged = log.mock.calls[0]![0] as unknown[];
+      const vector = (index: number): unknown[] => [...(logged[index] as Iterable<unknown>)];
+      expect([
+        vector(0),
+        vector(1),
+        logged[2],
+        logged[3],
+        vector(4),
+        vector(5),
+        logged[6],
+        logged[7],
+        vector(8),
+        vector(9),
+        logged[10],
+        logged[11],
+        logged[12],
+        vector(13),
+        vector(14),
+        vector(15),
+      ]).toEqual([
         [],
         [7],
         true,
@@ -155,10 +178,14 @@ describe("compileSource", () => {
     expect(response.javascript).toContain('import * as Mगणित from "./Mगणित.js";');
     expect(response.javascript).toContain("console.log(展示(用户,");
     expect(response.javascript).toContain("Mगणित.जोड़(20, 22)");
-    // `/Prelude.hex` is emitted because the always-supplied `Rat.hex` uses `Ordering`.
+    // `/Prelude.hex` is emitted because the always-supplied `Rat.hex` uses
+    // `Ordering`, and `/VectorTrie.hex` because `Vector.hex` is built on it —
+    // the trie runtime is reached the way a prelude member is, by an emitted
+    // import rather than by a source one.
     expect(response.executionModules.map(({ path }) => path)).toEqual([
       "/Prelude.hex",
       "/stdlib/Option.hex",
+      "/VectorTrie.hex",
       "/stdlib/Vector.hex",
       "/stdlib/Rat.hex",
       "/Mगणित.hex",
@@ -429,6 +456,7 @@ describe("compileSource", () => {
     if (response.kind !== "compile-success") return;
     expect(response.executionModules.map(({ path }) => path)).toEqual([
       "/stdlib/Option.hex",
+      "/VectorTrie.hex",
       "/stdlib/Vector.hex",
       "/Rat.hex",
       "/main.hex",

@@ -4,6 +4,7 @@ import {
   compileProject,
   emitJavaScript,
   emitTypeScriptPreview,
+  isInjectedModule,
   type Diagnostics,
 } from "../../compiler/src/index";
 
@@ -44,6 +45,12 @@ function compileWorkspace(
     javascript: emitJavaScript(module.core, {
       previewPrivateSpecializations: true,
       exportInstanceEvidence: module.source.path !== entryPath,
+      // Re-emitting has to keep the trie runtime's placement, which only
+      // `compileProject` knows: guessing it would give the runtime module
+      // itself an importer's emission — no export list — and give every
+      // consumer an import of a path that is not there. Both compile clean and
+      // fail at load, which is the failure mode this pane exists to catch.
+      vectorRuntime: module.vectorRuntime,
     }),
   }));
   const main = outputs.find(({ module }) => module.source.path === entryPath);
@@ -87,8 +94,14 @@ function compileWorkspace(
     entryPath,
     generatedJavaScript: main.javascript.generatedSections,
     typeScriptPreview: preview.text,
+    // Type occurrences are for the editor's buffer, so they cover what the user
+    // wrote: the hosted `/stdlib/` copies are out, and so is anything the
+    // compiler injected — the trie runtime is real source with real bindings
+    // (`radix`, `empty`, `nodeRun`) that belong to no position in the buffer.
     types: project.modules.flatMap(({ source, typed }) =>
-      source.path.startsWith("/stdlib/") ? [] : collectBindingTypes(typed, mapOffset)
+      source.path.startsWith("/stdlib/") || isInjectedModule(source.path)
+        ? []
+        : collectBindingTypes(typed, mapOffset)
     ),
     diagnostics,
   };

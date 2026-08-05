@@ -33,6 +33,29 @@ export interface CompiledModule {
   readonly core: Core.Module;
   readonly javascript: Emitted.JavaScript;
   readonly declarations: Emitted.Declarations;
+  /**
+   * Where this module's vector emission found the trie runtime, so a host that
+   * re-emits it (the Playground, for its private-specialization preview) gets
+   * the same answer rather than the same-directory default.
+   *
+   * Carried rather than recomputed because only `compileProject` knows where
+   * the runtime module was injected, and a host that guessed would emit a
+   * runtime module with no export list, or a consumer importing a path that
+   * does not exist — both of which compile clean and fail at load.
+   */
+  readonly vectorRuntime: VectorRuntime;
+}
+
+/**
+ * Whether a module is an injected one the host should treat as compiler-owned
+ * rather than as the user's source: the prelude members and the runtime
+ * modules. A host presenting declarations, bindings, or an outline lists what
+ * the user wrote, and these are not that.
+ */
+export function isInjectedModule(path: string): boolean {
+  const basename = path.slice(path.lastIndexOf("/") + 1);
+  return PRELUDE_MODULES.some((module) => module.basename === basename) ||
+    RUNTIME_MODULES.some((module) => module.basename === basename);
 }
 
 export interface CompiledProject {
@@ -259,15 +282,17 @@ export function compileProject(
     programNominals.unions.push(...resolved.unions);
     programNominals.records.push(...resolved.records);
     const core = elaborate(typed);
+    const vectorRuntime = vectorRuntimeFor(path, vectorTriePath);
     const result: CompiledModule = {
       source,
       parsed: parsedModule,
       resolved,
       typed,
       core,
+      vectorRuntime,
       javascript: emitJavaScript(core, {
         exportInstanceEvidence: true,
-        vectorRuntime: vectorRuntimeFor(path, vectorTriePath),
+        vectorRuntime,
       }),
       declarations: emitDeclarations(core, {
         runtimeSpecifier: emittedModuleSpecifier(
