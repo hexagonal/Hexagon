@@ -92,7 +92,7 @@ Length test + indexed reads, readable:
 // match xs with [a, b, ...rest] => …
 if (__hex_trieSize(xs) >= 2) {
     const a = __hex_trieGet(xs, 0), b = __hex_trieGet(xs, 1);
-    const rest = __hex_trieSlice(xs, 2);
+    const rest = __hex_trieSlice(xs, 2, __hex_trieSize(xs));
     …
 }
 ```
@@ -226,7 +226,7 @@ The core surface, under the Part 1 §3 naming doctrine (subject-first, `Vector.`
 | `at` | `(Vector(a), Int) -> a` | §5.3, throws |
 | `set` | `(Vector(a), Int, a) -> Vector(a)` | §5.4, throws |
 | `toSeq` / `fromSeq` | `Vector(a) -> Seq(a)` / `Seq(a) -> Vector(a)` | §7.2 |
-| `of`-style construction | — | the literal is the constructor; no public variadic `of` (emission detail, §2) |
+| `of`-style construction | — | the literal is the constructor; no public variadic `of` (the emitted fold is `__hex_vectorOf`, §2) |
 
 *(Amended 2026-08-02: the row now named `length` was `size`; renamed under Part 1 §10.1's `length`/`size` split — `length` for ordered, sequential structures. The `IndexError` payload slot `size` (§5.5) is deliberately unaffected.)*
 
