@@ -1,5 +1,5 @@
 .DS_Store
 book/DRAFT-*.md
 book/DRAFT-*.pdf
-node_modules/
+node_modules
 scratch/
