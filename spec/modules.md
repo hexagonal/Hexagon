@@ -285,7 +285,7 @@ An import cycle anywhere in the graph is a **hard error** naming the cycle: "imp
 
 ### 8.2 Top-level effects and load order
 
-Non-binding `Unit`-typed expressions are **legal at module top level** (`print("loaded")` — JS-style, per the existing block rules: Statements §3.2 polices non-`Unit` discards there exactly as in any block). Load order is fixed: **a module's imports are loaded depth-first in source order, each module exactly once, before the module's own top level runs** — ESM's order minus the cycle cases, well-defined because §8.1 bans those. Within a module, top-level items run in source order (type-namespace declarations are order-insensitive per their specs — they do not evaluate; term bindings are read top-down, Functions §7.2, and `let`s and effects run in order).
+Non-binding `Unit`-typed expressions are **legal at module top level** (`print("loaded")` — JS-style, per the existing block rules: Statements §3.2 polices non-`Unit` discards there exactly as in any block). Load order is fixed: **a module's imports are loaded depth-first in source order, each module exactly once, before the module's own top level runs** — ESM's order minus the cycle cases, well-defined because §8.1 bans those. Within a module, top-level items run in source order (type-namespace declarations are order-insensitive per their specs; term bindings — and value-position uses of constructors and constraint members — are read top-down, Functions §7.2; `let`s and effects run in order, with instance dictionaries emitted ahead of them all, Constraints §6.3).
 
 ### 8.3 Root modules; no special `main`
 

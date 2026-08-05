@@ -335,10 +335,12 @@ Rationale: a `fun` group's members are all bound before any member's body can ru
 
 Every term binding — `let`, `var`, and `fun` alike — is usable only **after** its declaration. There is no hoisting: dependencies sit above their dependents, and a file reads in the order it evaluates. The one exception is the inside of a `fun` group (§7.3), whose members see each other.
 
-The law is uniform across module top level and inner blocks, and it governs every kind of reference — a bare name, and equally a dot call, which is a reference to the operation it dispatches to (Method Syntax §4.4).
+The law is uniform across module top level and inner blocks, and it governs every kind of reference — a bare name, and equally a dot call, which is a reference to the operation it dispatches to (Method Syntax §4.4). It also governs every term-namespace name a type-namespace declaration binds — a union's or record's **constructors**, a `constraint`'s **members** — in **value position**: `Box({value = 1})` above `record Box` is the same declared-later error as any other. A *type-position* reference (`b: Box`) is free, per the declarations' own order-insensitivity (Declarations Preamble §7.2). An instance member body is an ordinary reference site under this law; the `honor` declaration's placement freedom is its own, and the evidence it emits is ordered by Constraints §6.3 (below).
 
 ```
-let use: Int = twice(3)        -- ERROR: `twice` is declared later; move it above this use
+let use: Int = twice(3)        -- ERROR: `twice` is declared later in this block;
+                               --   declarations are read top-down — move its
+                               --   declaration above this use
 let twice(n: Int): Int = n * 2
 
 let twice(n: Int): Int = n * 2
@@ -347,13 +349,13 @@ let use: Int = twice(3)        -- fine
 
 Consequences:
 
-- **The emitted JavaScript can never trip a temporal-dead-zone error**: every reference a program evaluates points at a binding already initialized. The guarantee holds by construction — no capture analysis, no transitive initialization checks — because the source ordering the compiler enforces is the evaluation ordering the emitted module performs.
-- Type-namespace declarations are untouched: `record`, `union`, `type`, `constraint`, `honor`, and `exception` remain order-insensitive per Declarations Preamble §7.2. Types do not evaluate; only term bindings do.
+- **The emitted JavaScript can never trip a temporal-dead-zone error.** The guarantee has two legs. Term bindings and value-position constructor and member references are safe by enforced source order — the ordering the compiler enforces is the ordering the emitted module evaluates, with no capture analysis and no transitive initialization checks. Instance dictionaries, the one term-level artifact whose declaration (`honor`) carries no source-ordering law, are safe by emission position: they construct nothing when built and are emitted before all term bindings (Constraints §6.3).
+- Type-namespace declarations are untouched: `record`, `union`, `type`, `constraint`, `honor`, and `exception` remain order-insensitive among themselves per Declarations Preamble §7.2. What obeys this section is the *value-position use* of the term names they bind, per the paragraph above.
 - A reference to a name that is declared *later in the same block* is not a bare "unknown name": the resolver knows where the declaration sits and says so (§10).
 
 ### 7.3 Mutual recursion: contiguous `fun` groups
 
-An **unbroken run of `fun` declarations** — no other item between them — forms a **group**. Inside the group, every member's body sees every member, earlier and later alike. This is the language's only forward visibility among terms, and it exists because mutual recursion cannot be spelled without it.
+An **unbroken run of `fun` declarations** — no other item between them — forms a **group**. Inside the group, every member's body sees every member, earlier and later alike. This is the language's only forward visibility among terms, and it exists because mutual recursion cannot be spelled without it. A lone `fun` is a group of one — its self-visibility (§3.3) is this same rule at its smallest. An *item* here is any declaration or statement of the enclosing block or module; modifiers (`export`) and attached doc comments ride their declaration, so `export fun` continues a run.
 
 ```
 fun even(n: Int): Bool = if n == 0 then True else odd(n - 1)
@@ -470,7 +472,7 @@ Diagnostics obey the Rewrite Rule (Declarations Preamble §1.1): where a legal s
 | Uppercase-start function/binding name | hard error: term bindings require a non-uppercase-start name (§2) |
 | Self-reference in `let` RHS (any depth) | "`x` is not in scope in its own `let` definition; `let` is non-recursive — use `fun`" (§6) |
 | `fun` RHS not a lambda literal | error, syntactic check (§7.1) |
-| Reference to a term binding declared later in the same block — any binder kind, any reference form | "`twice` is declared later in this block; declarations are read top-down — move its declaration above this use" (§7.2; the dot-call phrasing is Method Syntax §4.4/§9's) |
+| Value-position reference to a term name declared later in the same block — binding, constructor, or constraint member; any reference form | "`twice` is declared later in this block; declarations are read top-down — move its declaration above this use" (§7.2; the dot-call phrasing is Method Syntax §4.4/§9's) |
 | Forward reference to a `fun` across a group split | the declared-later family, extended: "only an unbroken run of `fun`s recurses together; move the intervening declaration out of the run" (§7.3) |
 | Dot call targeting a member of the caller's own `fun` group | Method Syntax §4.4/§9 own it — "a dot call cannot target its own `fun` group; spell the call by name: `twice(b)`" |
 | Lambda (hence any `fun` body) **reads** an outer `var` | Statements §6.2/§9.3 own it — "`shift` is a `var` and cannot be used inside a lambda; copy it to a `let` first: `let s = shift`" |
