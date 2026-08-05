@@ -74,17 +74,25 @@ describe("importing a constraint brings its members (Modules §3.1)", () => {
     );
   });
 
-  test("no constraint machinery reaches either `.d.ts` (§6.4)", () => {
+  test("the forwarder and the constraint name carry no `.d.ts` face (§6.5)", () => {
     const project = compileFiles(files);
     const labels = project.modules.find(({ source }) => source.path === "/labels.hex")!;
     const main = project.modules.find(({ source }) => source.path === "/main.hex")!;
 
-    expect(labels.declarations.text).not.toContain("Label");
-    expect(labels.declarations.text).not.toContain("label");
-    // Nor at the importing end: neither the constraint name nor the member
-    // forwarder is a face, so neither becomes an `import type` row.
+    // Scoped to what §6.5 claims, which is narrower than it first read: the
+    // forwarder and default-helper ESM exports are plumbing with no face of
+    // their own. The *public* face of an exported constraint is FFI Part 9's
+    // public-evidence closure, owned there and neither added to nor subtracted
+    // from here — so this must not be read as "an exported constraint never
+    // reaches a `.d.ts`".
+    for (const text of [labels.declarations.text, main.declarations.text]) {
+      expect(text).not.toContain("__hex_export");
+      expect(text).not.toContain("__hex_default");
+      expect(text).not.toContain("label");
+    }
+    // Nor is the constraint name itself a type: it binds in neither namespace a
+    // face is built from, so it cannot become an `import type` row.
     expect(main.declarations.text).not.toContain("Label");
-    expect(main.declarations.text).not.toContain("label");
   });
 });
 
@@ -665,6 +673,28 @@ describe("aliased and namespace imports (Modules §3.2, §3.3)", () => {
     expect((exports.run as () => number)()).toBe(15);
   });
 
+  test("a qualified binder reads the aliased module's *exported* constraint namespace", () => {
+    // Modules §5.1 rule 2's constraint analog. An unexported constraint is not
+    // in that namespace, so `Geo.Hidden` names nothing — the same answer a
+    // module gets for any constraint it cannot see.
+    expect(messagesOf([
+      ["/atlas.hex", [
+        "constraint Hidden<a> =",
+        "    trace(subject: a): String",
+        "",
+        "export constraint Plotted<a> =",
+        "    plot(subject: a): String",
+        "",
+      ].join("\n")],
+      ["/main.hex", [
+        "import * as Atlas from \"./atlas\"",
+        "",
+        "export fun draw<a: Atlas.Hidden>(subject: a): String = \"x\"",
+        "",
+      ].join("\n")],
+    ])).toContain("unknown constraint `Atlas.Hidden`");
+  });
+
   test("a namespace import qualifies the constraint in a binder and its member as a term", async () => {
     const exports = await runProject([
       ["/geo.hex", [
@@ -802,6 +832,31 @@ describe("collisions (Modules §5.2)", () => {
         "",
       ].join("\n")],
     ]).some((message) => message.startsWith("`describe` is already bound"))).toBe(true);
+  });
+
+  test("a member arriving over a prelude name is occluded, not a collision", () => {
+    // §3.1's other half, and the one that must *not* error: the import item is
+    // the members' declaration site for collision purposes, but a prelude name
+    // is a shadowable outer layer (§5.4), so a constraint whose member is called
+    // `show` imports cleanly and takes the name module-wide.
+    expect(messagesOf([
+      ["/emblems.hex", [
+        "export constraint Emblem<a> =",
+        "    singleton(subject: a): String",
+        "",
+      ].join("\n")],
+      ["/main.hex", [
+        "import { Emblem } from \"./emblems\"",
+        "",
+        "record Crest = {motto: String}",
+        "",
+        "honor Emblem<Crest> =",
+        "    singleton(c) = c.motto",
+        "",
+        "export fun motto(): String = singleton(Crest({motto = \"ever\"}))",
+        "",
+      ].join("\n")],
+    ])).toEqual([]);
   });
 
   test("a local term of the member's name collides too", () => {
