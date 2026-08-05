@@ -883,12 +883,17 @@ export class AnalysisSession {
    * test is the one that matters, because capture produces no diagnostic at all.
    *
    * It is deliberately asked of *every* site rather than only of the renamed
-   * identity's own mentions. The narrower question misses the case that motivated
-   * this: `x.op()` is companion dispatch, which the checker settles **by name**
-   * against the operations in scope, so introducing a second `tag` can silently
-   * move `Pale.tag()` from one function to another. That site is a mention of
-   * neither the old name nor the new one — it is spelled however its own module
-   * spells it — and no test confined to the renamed identity can see it.
+   * identity's own mentions. A site that mentions neither spelling can still
+   * change meaning: shadowing moves a reference to an *outer* binding the moment
+   * a rename gives an inner one that name, and the moved reference spells only
+   * the new name, never the old.
+   *
+   * The case that originally motivated the width was narrower and no longer
+   * exists: `x.op()` used to be settled **by name** against every operation in
+   * scope, so introducing a second `tag` anywhere moved `Pale.tag()` from one
+   * function to another. #267 made dispatch type-directed — one companion,
+   * decided by the receiver's head — so no rename outside the receiver's home
+   * module can reach a dot call at all.
    */
   #verifyRename(
     name: string,

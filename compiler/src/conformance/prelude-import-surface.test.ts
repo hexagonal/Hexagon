@@ -134,11 +134,15 @@ describe("the synthesized prelude import is what Core references", () => {
    * keep the *local*, not fall back to the imported name — falling back would
    * redeclare the module's own binding, a `SyntaxError` at load.
    *
-   * Reached qualified rather than by dispatch: a module-level `fun map` also
-   * occludes companion dispatch of `map` (the checker resolves a dot call
-   * through its by-name operation table, which the local wins), so the dispatch
-   * spelling cannot reach a renamed prelude local at all. The dispatch flavour of
-   * this collision is the compile-only test below.
+   * Reached qualified here because that is the spelling this collision was first
+   * observed through. A module-level `fun map` used to occlude companion dispatch
+   * of `map` as well — the checker resolved a dot call through a flat by-name
+   * table, which the local won — so the dispatch spelling could not reach a
+   * renamed prelude local at all. #267 ended that: dispatch consults the
+   * receiver's companion, so a `Seq` receiver reaches the prelude's `map` under
+   * `__hex_prelude_map` whatever the module binds at top level. Both dispatch
+   * flavours are below — the `extern` one here, the `fun` one in
+   * `companion-dispatch.test.ts`.
    */
   test("a distinguished local survives the filter and runs", async () => {
     const source =
@@ -156,8 +160,10 @@ describe("the synthesized prelude import is what Core references", () => {
 
   /**
    * The dispatch flavour of the same collision: an `extern` binding takes the
-   * top-level name without entering the checker's operation table, so `.map`
-   * dispatches to the prelude and is spelled by the distinguished local.
+   * top-level name, so `.map` is spelled by the distinguished local. The
+   * `extern` is load-bearing for a second reason since #267 — an ordinary
+   * foreign binding is symbol kind `extern`, not `fun`, which is what keeps it
+   * out of §4.2's candidate set even before the home-module filter is asked.
    * Compiled, not run — the foreign module is not linkable here.
    */
   test("a dispatch through a distinguished local keeps the local", () => {

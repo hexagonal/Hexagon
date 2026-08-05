@@ -13,9 +13,10 @@ export interface TypeOccurrence {
    * Whether this is a dot-call's operation name — `source.map(f)`.
    *
    * Such a name exists only in the typed tree. The checker resolves companion
-   * dispatch by *name* against the operations in scope and materializes the
-   * result as an ordinary `Name` at the field's span, so the resolved tree has
-   * only an `Access` whose field nothing has yet decided the meaning of. Any
+   * dispatch against the *receiver's* companion (Method Syntax §4.2) and
+   * materializes the result as an ordinary `Name` at the field's span, so the
+   * resolved tree has only an `Access` whose field nothing has yet decided the
+   * meaning of. Any
    * query that wants to know what `map` denotes there has to read it from here.
    */
   readonly receiverBound?: boolean;
