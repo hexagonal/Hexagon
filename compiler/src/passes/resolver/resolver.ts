@@ -450,7 +450,7 @@ class Resolver {
   readonly #visibleConstraints = new Map<string, Resolved.ConstraintItem>();
   readonly #impliedTypeOwners = new Map<string, Set<string>>();
   readonly #pending: { readonly name: Parsed.Name; readonly kind: "let" | "var" }[] = [];
-  readonly #predeclaredBindings = new WeakMap<Parsed.LetItem | Parsed.VarItem | Parsed.FunItem | Parsed.ExternFunDeclaration | Parsed.ExternLetDeclaration, Resolved.Binding>();
+  readonly #predeclaredBindings = new WeakMap<Parsed.FunItem | Parsed.ExternFunDeclaration | Parsed.ExternLetDeclaration, Resolved.Binding>();
   readonly #blockDeclarations: BlockDeclarations[] = [];
   readonly #currentFunctions: Resolved.SymbolId[] = [];
   readonly #varOwners = new Map<Resolved.SymbolId, number>();
@@ -1525,7 +1525,7 @@ class Resolver {
           : scope.lookup(item.name.text);
         if (existing !== undefined) this.#reportRebinding(item.name, existing);
 
-        const binding = this.#predeclaredBindings.get(item) ?? this.#declare(item.name, "let");
+        const binding = this.#declare(item.name, "let");
         this.#pending.push({ name: item.name, kind: "let" });
         const value = this.#resolveExpr(Parsed.unwrapBindingValue(item.value), scope);
         this.#pending.pop();
@@ -1585,7 +1585,7 @@ class Resolver {
             primary: item.name.span,
           });
         }
-        const binding = this.#predeclaredBindings.get(item) ?? this.#declare(item.name, "var");
+        const binding = this.#declare(item.name, "var");
         this.#varOwners.set(binding.symbol, this.#lambdaDepth);
         this.#pending.push({ name: item.name, kind: "var" });
         const value = this.#resolveExpr(Parsed.unwrapBindingValue(item.value), scope);

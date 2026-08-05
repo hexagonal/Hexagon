@@ -4768,8 +4768,9 @@ function orderInstances(
     if (emitted.has(rendered) || visiting.has(rendered)) return;
     const next = new Set(visiting).add(rendered);
     for (const evidence of directEvidence.get(rendered.item) ?? []) {
-      for (const [name, dependency] of names) {
-        if (evidence.includes(name)) place(dependency, next);
+      for (const identifier of evidence.match(/[A-Za-z_$][\w$]*/gu) ?? []) {
+        const dependency = names.get(identifier);
+        if (dependency !== undefined) place(dependency, next);
       }
     }
     emitted.add(rendered);
