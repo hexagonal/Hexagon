@@ -2,6 +2,19 @@ import { describe, expect, test } from "vitest";
 
 import { compileProject, type Resolved, Source } from "../index";
 
+/**
+ * A crossed `Vector(a)` as a plain array.
+ *
+ * Readouts that land in a `Vector` go through this since the trie wiring: a
+ * `Vector(a)` is a `TrieVector` record, not a JavaScript array. The subject of
+ * these tests is unchanged; spreading is what the `Hex.Vector<a> extends
+ * Iterable<a>` face promises a consumer can do, so the readout is now also a
+ * live check of that contract.
+ */
+function elements(value: unknown): unknown[] {
+  return [...(value as Iterable<unknown>)];
+}
+
 /** Minimal ESM linker: rewrite compiler-owned relative imports to data-URL modules. */
 function resolveModulePath(importer: string, specifier: string): string | undefined {
   if (!specifier.startsWith("./") && !specifier.startsWith("../")) return undefined;
@@ -253,7 +266,7 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
         "export let theirs: Vector(Int) = Vector.fromSeq(Seq.take(source, 2))\n"],
     ]);
     expect(module["mine"]).toBe(2);
-    expect(module["theirs"]).toEqual([1, 2]);
+    expect(elements(module["theirs"])).toEqual([1, 2]);
   });
 
   test("a constraint member does not collide with a companion candidate", async () => {
@@ -283,7 +296,7 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
         "export let theirs: Vector(Int) = Vector.fromSeq(Seq.take(source, 2))\n"],
     ]);
     expect(module["mine"]).toBe(12);
-    expect(module["theirs"]).toEqual([1, 2]);
+    expect(elements(module["theirs"])).toEqual([1, 2]);
   });
 
   test("an extern binding does not collide with a qualified prelude term", async () => {

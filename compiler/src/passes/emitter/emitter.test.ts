@@ -69,12 +69,18 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
-    expect(output.text).toContain("const values = [10, 20, 30];");
+    // Collections Part 3 §2's literal is one fold over `append`, and §3.6's
+    // pattern is a length test against the trie's own `size`. The bracket and
+    // slice helpers are unmoved — each is a bounds assertion around one trie
+    // operation — and `__hex_stringIndex` is unmoved for the opposite reason:
+    // a string is not a trie, so §9's codepoint reading stayed on arrays when
+    // the vector one left them.
+    expect(output.text).toContain("const values = __hex_vectorOf([10, 20, 30]);");
     expect(output.text).toContain("__hex_vectorIndex(values, 2)");
     expect(output.text).toContain("__hex_vectorSlice(values, __hex_range(2, 99))");
     expect(output.text).toContain('__hex_stringIndex("héllo", 2)');
     expect(output.text).toContain("function __hex_stableHash");
-    expect(output.text).toContain(".length >= 1");
+    expect(output.text).toContain("__hex_vectorSize(__hex_match0) >= 1");
     expect(emitDeclarations(module).text).toContain("Hex.Vector<number>");
     expect(output.diagnostics).toEqual([]);
   });
@@ -83,8 +89,9 @@ describe("emitJavaScript", () => {
    * The representation core is `stdlib/Vector.hex`'s since the intrinsic-door
    * milestone (`spec/intrinsics.md` §9.2), so the lowerings are read off *that*
    * module and the consumer is read for what it now is: an ordinary ESM importer
-   * of a prelude member. The representation itself is unchanged — plain JS
-   * arrays, no HAMT runtime, which is `Map`/`Set`'s.
+   * of a prelude member. The representation is the Collections Part 3 §4 trie,
+   * which `Vector.hex` reaches through one more ESM import — and still no HAMT
+   * runtime, which remains `Map`/`Set`'s alone.
    */
   test("executes the Vector representation core without loading the HAMT runtime", async () => {
     const files = [[
@@ -111,10 +118,23 @@ describe("emitJavaScript", () => {
     expect(text("/Vector.hex")).toContain("function __hex_seqFromIterable");
     expect(text("/Vector.hex")).toContain("function __hex_seqToIterable");
     expect(text("/Vector.hex")).toContain(
-      "const fromSeq = __hex_values => Array.from(__hex_seqToIterable(__hex_values));",
+      "const fromSeq = __hex_values => __hex_vectorOf(__hex_seqToIterable(__hex_values));",
     );
+    // The trie is the third module in the graph, and only `Vector.hex` and the
+    // literal-holding consumer import it.
+    expect(text("/Vector.hex")).toContain('} from "./VectorTrie.js";');
+    expect(text("/VectorTrie.hex")).toContain("export { empty, size, get, set,");
 
-    expect((await runProject(files))["result"]).toEqual([
+    // The tuple crosses as a JS array; each `Vector` inside it is a trie, read
+    // back through the representation contract's `[Symbol.iterator]`.
+    const result = (await runProject(files))["result"] as unknown[];
+    expect([
+      [...(result[0] as Iterable<number>)],
+      [...(result[1] as Iterable<number>)],
+      [...(result[2] as Iterable<number>)],
+      result[3],
+      [...(result[4] as Iterable<number>)],
+    ]).toEqual([
       [10, 20, 30],
       [10, 25, 30],
       [10, 25, 30],
@@ -227,7 +247,7 @@ describe("emitJavaScript", () => {
     // `Map.keys` yields the prelude `Seq` record, so the test converts through
     // `Vector.fromSeq` rather than spreading it — a `Seq` is not itself a JS
     // iterable (see the exported-face note in `seq-unification.test.ts`).
-    expect(result[6]).toEqual([1, 2]);
+    expect([...(result[6] as Iterable<number>)]).toEqual([1, 2]);
     expect([...result.slice(0, 6), ...result.slice(7)]).toEqual([
       true,
       true,
@@ -264,7 +284,10 @@ describe("emitJavaScript", () => {
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
     expect(output.text).toContain("__hex_instance_Iterable_Bag.iterate(bag)");
-    expect(output.text).toContain("for (const value of [1, 2])");
+    // `for x in` over a vector asks for no `Iterable` evidence and never did:
+    // it is a native `for…of`, and it keeps working over the trie because every
+    // vector value carries `[Symbol.iterator]` as part of its representation.
+    expect(output.text).toContain("for (const value of __hex_vectorOf([1, 2]))");
     expect(output.text).toContain("for (const __hex_item");
   });
 

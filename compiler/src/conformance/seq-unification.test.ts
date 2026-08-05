@@ -19,6 +19,20 @@ import { compileProject, Source } from "../index";
  * loudly instead of silently producing a `Seq` no `.hex` code can destructure.
  */
 
+/**
+ * A crossed `Vector(a)` as a plain array.
+ *
+ * Every readout below that lands in a `Vector` goes through this rather than
+ * comparing the value itself: since the trie wiring a `Vector(a)` is a
+ * `TrieVector` record, not a JavaScript array. Nothing about these tests'
+ * subject changed — they are about `Seq` — but the readout is now also a live
+ * check of the representation contract, because spreading is exactly what the
+ * `Hex.Vector<a> extends Iterable<a>` face promises a consumer can do.
+ */
+function elements(value: unknown): unknown[] {
+  return [...(value as Iterable<unknown>)];
+}
+
 /** Minimal ESM linker: rewrite compiler-owned relative imports to data-URL modules. */
 function resolveModulePath(importer: string, specifier: string): string | undefined {
   if (!specifier.startsWith("./") && !specifier.startsWith("../")) return undefined;
@@ -119,7 +133,7 @@ describe("Seq is one type", () => {
     const exports = await main(
       "export let rebuilt: Vector(Int) = Vector.fromSeq(Seq.take(Seq.iterate(1, x => x * 2), 4))\n",
     );
-    expect(exports["rebuilt"]).toEqual([1, 2, 4, 8]);
+    expect(elements(exports["rebuilt"])).toEqual([1, 2, 4, 8]);
   });
 });
 
@@ -134,14 +148,14 @@ describe("the bare compiler-known rows (R4)", () => {
     const exports = await main(
       "export let replayed: Vector(Int) = Vector.fromSeq(Vector.toSeq([1, 2, 3]))\n",
     );
-    expect(exports["replayed"]).toEqual([1, 2, 3]);
+    expect(elements(exports["replayed"])).toEqual([1, 2, 3]);
   });
 
   test("Vector.fromSeq consumes a lazily built infinite Seq", async () => {
     const exports = await main(
       "export let firstFive: Vector(Int) = Vector.fromSeq(Seq.take(Seq.iterate(0, x => x + 3), 5))\n",
     );
-    expect(exports["firstFive"]).toEqual([0, 3, 6, 9, 12]);
+    expect(elements(exports["firstFive"])).toEqual([0, 3, 6, 9, 12]);
   });
 
   test("Set and Map producers yield the same Seq", async () => {
@@ -152,7 +166,7 @@ describe("the bare compiler-known rows (R4)", () => {
       "export let keyCount: Int = Seq.length(Map.keys(table))\n" +
       "export let valueTotal: Int = Seq.fold(Map.values(table), 0, (total, value) => total + value)\n",
     );
-    expect((exports["sorted"] as number[]).slice().sort()).toEqual([1, 2, 3]);
+    expect((elements(exports["sorted"]) as number[]).slice().sort()).toEqual([1, 2, 3]);
     expect(exports["keyCount"]).toBe(2);
     expect(exports["valueTotal"]).toBe(3);
   });
@@ -223,7 +237,7 @@ describe("compiler-known operation spellings keep working (step 8 item 1)", () =
       "export let values: Vector(Int) =\n" +
       "    Vector.fromSeq(Seq.take(Seq.filter(Seq.map(Seq.iterate(1, x => x + 1), x => x * 3), x => x > 4), 3))\n",
     );
-    expect(exports["values"]).toEqual([6, 9, 12]);
+    expect(elements(exports["values"])).toEqual([6, 9, 12]);
   });
 
   test("subject-first dot calls dispatch to the prelude companion", async () => {
@@ -231,7 +245,7 @@ describe("compiler-known operation spellings keep working (step 8 item 1)", () =
       "let source: Seq(Int) = Seq.iterate(1, x => x + 1)\n" +
       "export let values: Vector(Int) = Vector.fromSeq(source.map(x => x * 2).filter(x => x > 4).take(3))\n",
     );
-    expect(exports["values"]).toEqual([6, 8, 10]);
+    expect(elements(exports["values"])).toEqual([6, 8, 10]);
   });
 
   test("a module-level binding occludes the companion of the same name", async () => {
@@ -248,7 +262,7 @@ describe("compiler-known operation spellings keep working (step 8 item 1)", () =
       "    Vector.fromSeq(Seq.map(Vector.toSeq([1, 2]), x => x * 2))\n",
     );
     expect(exports["shadowed"]).toBe(101);
-    expect(exports["qualified"]).toEqual([2, 4]);
+    expect(elements(exports["qualified"])).toEqual([2, 4]);
   });
 });
 
@@ -260,7 +274,7 @@ describe("laziness survives the unification", () => {
     );
     // An infinite source: reaching this value at all proves `take` bounded the
     // drive rather than the producer running to exhaustion.
-    expect(exports["firstTwo"]).toEqual([10, 20]);
+    expect(elements(exports["firstTwo"])).toEqual([10, 20]);
   });
 
   test("a Seq is persistent — driving it twice does not consume it", async () => {
@@ -269,8 +283,8 @@ describe("laziness survives the unification", () => {
       "export let first: Vector(Int) = Vector.fromSeq(shared)\n" +
       "export let second: Vector(Int) = Vector.fromSeq(shared)\n",
     );
-    expect(exports["first"]).toEqual([1, 2, 3]);
-    expect(exports["second"]).toEqual([1, 2, 3]);
+    expect(elements(exports["first"])).toEqual([1, 2, 3]);
+    expect(elements(exports["second"])).toEqual([1, 2, 3]);
   });
 
   test("a compiler-produced Seq is replayable across independent traversals", async () => {
@@ -587,8 +601,8 @@ describe("the boundary face (FFI Part 3)", () => {
         numbers: "export function counter() { return [1, 2, 3]; }",
       },
     );
-    expect(exports["firstPass"]).toEqual([1, 2, 3]);
-    expect(exports["secondPass"]).toEqual([1, 2, 3]);
+    expect(elements(exports["firstPass"])).toEqual([1, 2, 3]);
+    expect(elements(exports["secondPass"])).toEqual([1, 2, 3]);
   });
 });
 
@@ -625,7 +639,7 @@ describe("the inbound adapter's protocol access order (FFI Part 3 §7.2)", () =>
         ].join("\n"),
       },
     );
-    expect(exports["collected"]).toEqual([1, 2]);
+    expect(elements(exports["collected"])).toEqual([1, 2]);
   });
 
   test("`value` is not read when the step is done", async () => {
@@ -654,7 +668,7 @@ describe("the inbound adapter's protocol access order (FFI Part 3 §7.2)", () =>
         ].join("\n"),
       },
     );
-    expect(exports["collected"]).toEqual([1, 2]);
+    expect(elements(exports["collected"])).toEqual([1, 2]);
     // Two reads, not three: the terminating step must not touch `value`.
     expect(exports["reads"]).toBe(2);
   });
@@ -1222,7 +1236,7 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
     sourceBody: string,
     reenterBody: string,
   ): Promise<{
-    drained: () => number[];
+    drained: () => unknown[];
     reentry: () => string;
     handOut: () => Iterable<number>;
   }> {
@@ -1232,7 +1246,7 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
     );
     (exports["armIt"] as (ignored: number) => void)(0);
     return {
-      drained: () => (exports["drained"] as (ignored: number) => number[])(0),
+      drained: () => elements((exports["drained"] as (ignored: number) => unknown)(0)),
       reentry: () => (exports["reentry"] as (ignored: number) => string)(0),
       handOut: () => (exports["handOut"] as (ignored: number) => Iterable<number>)(0),
     };

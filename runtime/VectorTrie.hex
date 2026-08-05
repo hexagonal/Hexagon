@@ -2,9 +2,23 @@
 // Part 3 §4), written over the hidden fixed-32 `Node` intrinsic. This is a
 // runtime-internal module: it is compiled only as a privileged runtime module,
 // and `Tree`, `Node`, and `TrieVector` never cross a module boundary — the
-// public face is `Vector(a)`, wired by the emitter (a later milestone). Index
-// math uses `Int.div`/`Int.mod` by the branch factor; Hexagon has no bitwise
-// operators, and none are needed.
+// public face is `Vector(a)`, and the emitter is what wires the two together.
+// Index math uses `Int.div`/`Int.mod` by the branch factor; Hexagon has no
+// bitwise operators, and none are needed.
+//
+// Nothing here is `export`ed, and it could not be: every operation's type names
+// `TrieVector`, and exporting one is refused as exposing a private type. The
+// emitted JavaScript is what carries the operations out, under an export list
+// the emitter writes — so no Hexagon module can import this one, by name or by
+// accident, however the compiler happens to place the file.
+//
+// **This module must not reference anything the prelude's `Vector` machinery
+// reaches.** It sees the whole prelude, and a vector literal, bracket, pattern,
+// or `Vector.` call written here would make the emitted `VectorTrie.js` import
+// `Vector.js`, which already imports this one — a module cycle nothing in the
+// compiler would report, because it is created at emission and not by any
+// `import` item. `vector-trie-wiring.test.ts` pins the emitted module's import
+// list empty, which is that rule made checkable.
 
 // A trie node is either a leaf holding up to 32 values, or a branch holding up
 // to 32 child subtrees. Both are 32-slot `Node`s; which slots are populated is
@@ -44,7 +58,10 @@ exception TrieCorruption(message: String)
 // The branch factor. A `Node` is always exactly this wide.
 let radix: Int = 32
 
-fun empty<a>(): TrieVector(a) =
+// The one empty vector. A `TrieVector` is immutable, so every empty vector in a
+// program can be this same value rather than a fresh five-field record over two
+// fresh 32-slot `Node`s.
+let empty: TrieVector(a) =
     TrieVector({
         origin = 0,
         capacity = 0,
@@ -103,6 +120,41 @@ fun readInternal<a>(trie: TrieVector(a), internal: Int): a =
 // `index + origin`. Callers guarantee `0 <= index < size`.
 fun get<a>(trie: TrieVector(a), index: Int): a =
     readInternal(trie, index + trie.origin)
+
+// Locates 0-based logical `index` for *sequential* reading: the 32-slot `Node`
+// that holds it, the offset of `index` within that node, and the run — how many
+// consecutive elements starting at `index` that same node holds. A traversal
+// that asks again at `index + run` visits each node once and descends once per
+// node, so a whole vector costs O(n) rather than the O(n log32 n) an
+// element-at-a-time `get` walk would. Callers guarantee `0 <= index < size`, and
+// the returned run is always at least 1.
+//
+// The descent is `readInternal`'s; only the last step differs, returning the
+// leaf's whole `Node` instead of one slot. The run is capped twice: by what is
+// left of the node (`radix - remaining`), and by the region boundary — the tail
+// ends at `capacity`, a tree leaf ends where the tail begins.
+fun nodeRun<a>(trie: TrieVector(a), index: Int): (Node(a), Int, Int) =
+    let internal = index + trie.origin
+    let off = tailOffset(trie.capacity)
+    if internal >= off then
+        (trie.tail, internal - off, trie.capacity - internal)
+    else
+        var node: Tree(a) = trie.root
+        var span = pow32(trie.height - 1)
+        var remaining = internal
+        for level in 2..trie.height
+            node := match node
+                Branch(children) => Node.get(children, Int.div(remaining, span))
+                Leaf(_) => node
+            remaining := Int.mod(remaining, span)
+            span := Int.div(span, radix)
+        let inNode = radix - remaining
+        let inRegion = off - internal
+        let run = if inNode < inRegion then inNode else inRegion
+        match node
+            Leaf(values) => (values, remaining, run)
+            // Unreachable for a populated path (the loop always lands on a leaf).
+            Branch(_) => throw(TrieCorruption("nodeRun: descent did not reach a leaf"))
 
 // Wraps `leaf` in `levels` fresh branch nodes, forming the left spine of a new
 // subtree. `newPath(0, leaf) = leaf`.
@@ -297,7 +349,7 @@ fun set<a>(trie: TrieVector(a), index: Int, value: a): TrieVector(a) =
 // rebuilt from their current positions; the tree is shared untouched.
 fun slice<a>(trie: TrieVector(a), begin: Int, end: Int): TrieVector(a) =
     if begin >= end then
-        empty()
+        empty
     else
         let newOrigin = trie.origin + begin
         let newCapacity = trie.origin + end
@@ -327,3 +379,27 @@ fun slice<a>(trie: TrieVector(a), begin: Int, end: Int): TrieVector(a) =
                 root = trie.root,
                 tail = newTail,
             })
+
+// `slice` with the bounds intersected against `[0, size)` first, which is the
+// clamping the public bracket promises (Collections Part 3 §6.1): a window that
+// runs off either end keeps only the part that exists, and one wholly outside is
+// the empty vector. Direction is not this function's business — a descending
+// `Range` never reaches here, it faults at the bracket (§6.3).
+fun window<a>(trie: TrieVector(a), begin: Int, end: Int): TrieVector(a) =
+    let count = size(trie)
+    let low = if begin < 0 then 0 else begin
+    let high = if end > count then count else end
+    if low >= high then
+        empty
+    else
+        slice(trie, low, high)
+
+// `++` at `Vector(a)` (Operators §7): the elements of `right` appended to `left`
+// in order. Linear in `right` as Part 1 §2.2 documents, times `append`'s
+// amortized-constant cost. `left` is not copied — the result grows out of it,
+// sharing its whole trie — so `xs ++ []` is `xs` itself.
+fun concat<a>(left: TrieVector(a), right: TrieVector(a)): TrieVector(a) =
+    var result: TrieVector(a) = left
+    for index in 0..(size(right) - 1)
+        result := append(result, get(right, index))
+    result

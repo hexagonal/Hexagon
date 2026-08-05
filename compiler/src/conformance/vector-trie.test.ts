@@ -22,14 +22,27 @@ import trieSource from "../../../runtime/VectorTrie.hex?raw";
  * internal declarations; each test appends `export let` probes to its source and
  * compiles the whole as one privileged runtime module, so `Tree`/`Node` never
  * cross a boundary.
+ *
+ * ## Why the probe copy sits at a different path
+ *
+ * `VectorTrie.hex` is now an *injected* basename (`src/runtime-modules.ts`):
+ * the compiler places its own copy at every project's root, and a project file
+ * there replaces it — becoming the module every `Vector(a)` in the program is
+ * built on, and one that is emitted only when something reaches it. A probe
+ * copy in that seat would therefore be measured as the program's runtime rather
+ * than as the module under test, and would go unemitted for want of a vector to
+ * serve. The basename was never the subject; the source is, and this compiles
+ * the same text under its own path beside the injected copy.
  */
+const PROBE_PATH = "/TrieProbe.hex";
+
 async function runTrie(probes: string): Promise<Record<string, unknown>> {
   // Through the whole project, with this file designated a runtime module: the
   // trie's own `isEmpty` returns `Bool`, and since #147 that names a prelude
   // declaration, so a prelude-free compilation of this module no longer typechecks.
   return runProject(
-    [["/VectorTrie.hex", `${trieSource}\n${probes}`]],
-    { runtimePaths: ["/VectorTrie.hex"], entry: "/VectorTrie.hex" },
+    [[PROBE_PATH, `${trieSource}\n${probes}`]],
+    { runtimePaths: [PROBE_PATH], entry: PROBE_PATH },
   );
 }
 
@@ -37,14 +50,14 @@ async function runTrie(probes: string): Promise<Record<string, unknown>> {
 // no fold/recursion at the call site (the trie's insert recurses, bounded by height).
 const BUILD =
   "fun buildTo(n: Int): TrieVector(Int) =\n" +
-  "    var acc: TrieVector(Int) = empty()\n" +
+  "    var acc: TrieVector(Int) = empty\n" +
   "    for i in 1..n\n" +
   "        acc := append(acc, i)\n" +
   "    acc\n" +
   // buildDown(n) yields the same [1, 2, ..., n] by prepending n, n-1, ..., 1 —
   // every element enters at the front, so the whole origin/left-grow path runs.
   "fun buildDown(n: Int): TrieVector(Int) =\n" +
-  "    var acc: TrieVector(Int) = empty()\n" +
+  "    var acc: TrieVector(Int) = empty\n" +
   "    for i in 1..n\n" +
   "        acc := prepend(acc, n - i + 1)\n" +
   "    acc\n" +

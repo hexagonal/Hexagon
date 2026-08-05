@@ -3,6 +3,33 @@ import { describe, expect, test } from "vitest";
 import { compileFiles, runProject } from "../support/test-project.js";
 
 /**
+ * A crossed `Vector(a)` as a plain array.
+ *
+ * Readouts that land in a `Vector` go through this since the trie wiring: a
+ * `Vector(a)` is a `TrieVector` record, not a JavaScript array. The subject of
+ * these tests is unchanged; spreading is what the `Hex.Vector<a> extends
+ * Iterable<a>` face promises a consumer can do, so the readout is now also a
+ * live check of that contract.
+ */
+function elements(value: unknown): unknown[] {
+  return [...(value as Iterable<unknown>)];
+}
+
+/**
+ * The trie runtime's import line, as a module holding a vector *literal* spells
+ * it: the literal builder needs the shared empty and `append`, and nothing else.
+ *
+ * It appears in the expectations below because these pin the whole emitted
+ * import surface, and the trie is a channel of it — the fourth, after the two
+ * prelude ones and the `.d.ts` type one. It is a *runtime* module rather than a
+ * prelude one, so it is never subject to the name filtering these tests are
+ * about; it is here so that the filtering is asserted against the real list
+ * rather than against a convenient subset of it.
+ */
+const VECTOR_LITERAL_IMPORT =
+  'import { empty as __hex_vectorEmpty, append as __hex_vectorAppend } from "./VectorTrie.js";';
+
+/**
  * Conformance for what a module's synthesized and explicit prelude imports put
  * on its public ESM surface (#263).
  *
@@ -105,9 +132,10 @@ describe("the synthesized prelude import is what Core references", () => {
     expect(importLines(emitted([["/main.hex", source]], "/main.hex"))).toEqual([
       'import { fromSeq, toSeq } from "./Vector.js";',
       'import { map } from "./Seq.js";',
+      VECTOR_LITERAL_IMPORT,
     ]);
     const main = await runProject([["/main.hex", source]]);
-    expect(main["out"]).toEqual([2, 4, 6]);
+    expect(elements(main["out"])).toEqual([2, 4, 6]);
   });
 
   /**
@@ -129,9 +157,10 @@ describe("the synthesized prelude import is what Core references", () => {
     expect(importLines(javascript)).toEqual([
       'import { map } from "./Seq.js";',
       'import { fromSeq, toSeq } from "./Vector.js";',
+      VECTOR_LITERAL_IMPORT,
     ]);
     const main = await runProject([["/main.hex", source]]);
-    expect(main["out"]).toEqual([10, 12]);
+    expect(elements(main["out"])).toEqual([10, 12]);
     const run = main["run"] as (r: { length: (n: number) => number }) => number;
     expect(run({ length: (n) => n + 1 })).toBe(5);
   });
@@ -161,9 +190,10 @@ describe("the synthesized prelude import is what Core references", () => {
     expect(importLines(javascript)).toEqual([
       'import { fromSeq, toSeq } from "./Vector.js";',
       'import { prepend, map as __hex_prelude_map } from "./Seq.js";',
+      VECTOR_LITERAL_IMPORT,
     ]);
     const main = await runProject([["/main.hex", source]]);
-    expect(main["out"]).toEqual([0, 8, 9]);
+    expect(elements(main["out"])).toEqual([0, 8, 9]);
     expect((main["map"] as (x: number) => number)(3)).toBe(30);
   });
 
@@ -186,6 +216,7 @@ describe("the synthesized prelude import is what Core references", () => {
     expect(importLines(javascript)).toEqual([
       'import { fromSeq, toSeq } from "./Vector.js";',
       'import { map as __hex_prelude_map } from "./Seq.js";',
+      VECTOR_LITERAL_IMPORT,
       'import { map } from "lib";',
     ]);
     expect(javascript).toContain("__hex_prelude_map(");
@@ -273,7 +304,7 @@ describe("an explicit import of a prelude module carries no evidence", () => {
       "export let out: Vector(Int) =\n" +
       "    Vector.fromSeq(Seq.take(Seq.iterate(30, x => x + 1), 3))\n",
     ]]);
-    expect(main["out"]).toEqual([30, 31, 32]);
+    expect(elements(main["out"])).toEqual([30, 31, 32]);
   });
 
   /**

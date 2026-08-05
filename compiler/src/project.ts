@@ -21,7 +21,9 @@ import {
   RUNTIME_DECLARATIONS_STEM,
 } from "./passes/emitter/emitter.js";
 import type { PreludeImport } from "./passes/resolver/resolver.js";
+import type { VectorRuntime } from "./passes/emitter/emitter.js";
 import { PRELUDE_MODULES } from "./prelude.js";
+import { RUNTIME_MODULES, VECTOR_TRIE_BASENAME } from "./runtime-modules.js";
 
 export interface CompiledModule {
   readonly source: Source.File;
@@ -70,8 +72,20 @@ export function compileProject(
   const diagnostics = new Diagnostics.Bag();
   const sources = new Map(files.map((file) => [normalizePath(file.path), file]));
   const root = commonRoot([...sources.keys()]);
-  const preludePaths = injectPrelude(sources, root);
+  // One injected list, prelude and runtime members woven together, in the order
+  // that makes each see the members before it and only those (Modules §5.5, and
+  // `RuntimeModule.precedes` for what the runtime seats decide).
+  const injectedModules = weaveInjected(PRELUDE_MODULES, RUNTIME_MODULES);
+  const injectedPaths = injectEmbedded(sources, root, injectedModules);
+  const preludePaths = injectedPaths.filter((_, index) => !injectedModules[index]!.runtime);
   const preludeSet = new Set(preludePaths);
+  const runtimeModulePaths = injectedPaths.filter((_, index) => injectedModules[index]!.runtime);
+  const runtimeModuleSet = new Set(runtimeModulePaths);
+  /** Each injected path's seat, for the "sees only what precedes it" slice. */
+  const injectedSeats = new Map(injectedPaths.map((path, index) => [path, index]));
+  const vectorTriePath = injectedPaths.find((path, index) =>
+    injectedModules[index]!.runtime && path.endsWith(`/${VECTOR_TRIE_BASENAME}`)
+  );
   // The runtime declaration module's basename, settled before any module is
   // emitted because every importer has to spell the same one (FFI Part 1 §8.3).
   const runtimeBasename = runtimeDeclarationsBasename(sources.keys(), root);
@@ -132,11 +146,15 @@ export function compileProject(
   for (const path of sources.keys()) visit(path);
   // Prelude modules compile before their consumers, and their identities live in a
   // reserved high range so consumer ids stay stable whether or not a prelude is present.
-  for (const path of preludePaths) {
+  // The runtime modules sit among them on both counts, for the same reasons: a
+  // module has to compile behind everything it sees, and a project's own symbol
+  // ids must not shift because the compiler injects a trie the project may not
+  // even reach.
+  for (const path of injectedPaths) {
     const index = ordered.indexOf(path);
     if (index >= 0) ordered.splice(index, 1);
   }
-  ordered.unshift(...preludePaths);
+  ordered.unshift(...injectedPaths);
 
   const compiled = new Map<string, CompiledModule>();
   // Every nominal the program has resolved, dependencies first. `ordered` is a
@@ -160,6 +178,10 @@ export function compileProject(
   let preludeExternTypeBase = PRELUDE_ID_BASE;
   for (const path of ordered) {
     const isPrelude = preludeSet.has(path);
+    const isRuntimeModule = runtimeModuleSet.has(path);
+    // Both injected sets take their identities from the reserved range, so a
+    // project's own ids are what a compilation with neither would have given it.
+    const isInjected = isPrelude || isRuntimeModule;
     const source = sources.get(path)!;
     const parsedModule = parsed.get(path)!;
     const imports = new Map<string, ReturnType<typeof moduleInterface>>();
@@ -173,14 +195,17 @@ export function compileProject(
         importedSchemes.set(symbol.id, symbol.scheme);
       }
     }
-    // Consumers see every prelude module; a prelude module sees the members
-    // *before it* in the list, and only those (Modules §5.5). Ordering the set
-    // this way is what makes cycles impossible by construction, and it is why the
-    // list order is normative rather than incidental. A prelude module never sees
-    // itself or anything later, so the first member sees nothing.
-    const preludeVisible = isPrelude
-      ? preludePaths.slice(0, preludePaths.indexOf(path))
-      : preludePaths;
+    // Consumers see every prelude module; an *injected* module sees the members
+    // before its own seat, and only those (Modules §5.5). Ordering the set this
+    // way is what makes cycles impossible by construction, and it is why the
+    // list order is normative rather than incidental. An injected module never
+    // sees itself or anything later, so the first member sees nothing — and a
+    // runtime module is bound by the same rule, which is what keeps
+    // `VectorTrie.hex` from naming the `Vector` its own emission serves.
+    const seat = injectedSeats.get(path);
+    const preludeVisible = seat === undefined
+      ? preludePaths
+      : preludePaths.filter((preludePath) => injectedSeats.get(preludePath)! < seat);
     const preludeImports: PreludeImport[] = preludeVisible.flatMap((preludePath) => {
       const preludeCompiled = compiled.get(preludePath);
       if (preludeCompiled === undefined) return [];
@@ -194,19 +219,23 @@ export function compileProject(
     });
     const resolved = resolve(parsedModule, {
       imports,
-      symbolBase: isPrelude ? preludeSymbolBase : symbolBase,
-      unionBase: isPrelude ? preludeUnionBase : unionBase,
-      recordBase: isPrelude ? preludeRecordBase : recordBase,
-      externTypeBase: isPrelude ? preludeExternTypeBase : externTypeBase,
+      symbolBase: isInjected ? preludeSymbolBase : symbolBase,
+      unionBase: isInjected ? preludeUnionBase : unionBase,
+      recordBase: isInjected ? preludeRecordBase : recordBase,
+      externTypeBase: isInjected ? preludeExternTypeBase : externTypeBase,
       // v1's standard-library privilege is prelude membership (`spec/intrinsics.md`
       // §5.2). It follows the *path*, so a project supplying its own file at a
       // prelude injection path is privileged in it — the stdlib-developing-itself
       // path, carrying the same trust model as the `Node` runtime flag precedent.
       privileged: isPrelude,
-      ...(runtimePaths.has(path) ? { runtime: true } : {}),
+      // The `Node(a)` privilege is the other one, and a runtime module holds it
+      // by being one. A host may still grant it by path (`hexagon.json`), which
+      // is how `runtime/VectorTrie.hex` compiles under its own repository path
+      // rather than at the injection basename.
+      ...(runtimePaths.has(path) || isRuntimeModule ? { runtime: true } : {}),
       ...(preludeImports.length === 0 ? {} : { prelude: preludeImports }),
     });
-    if (isPrelude) {
+    if (isInjected) {
       preludeSymbolBase = nextId(resolved.symbols.map(({ id }) => Number(id)), preludeSymbolBase);
       preludeUnionBase = nextId(resolved.unions.map(({ id }) => Number(id)), preludeUnionBase);
       preludeRecordBase = nextId(resolved.records.map(({ id }) => Number(id)), preludeRecordBase);
@@ -236,7 +265,10 @@ export function compileProject(
       resolved,
       typed,
       core,
-      javascript: emitJavaScript(core, { exportInstanceEvidence: true }),
+      javascript: emitJavaScript(core, {
+        exportInstanceEvidence: true,
+        vectorRuntime: vectorRuntimeFor(path, vectorTriePath),
+      }),
       declarations: emitDeclarations(core, {
         runtimeSpecifier: emittedModuleSpecifier(
           relativeSpecifier(path, `${root}/${runtimeBasename}.hex`),
@@ -306,10 +338,19 @@ export function compileProject(
         // nothing else. Its target must still be emitted, or the declarations
         // import from a file that was never written.
         ...(module?.declarations.preludeTypeImports ?? []),
+        // The trie runtime (Collections Part 3 §4) is the fourth such channel
+        // and the one with no `Import` item anywhere in the program to fall
+        // back on: `runtime/VectorTrie.hex` exports nothing at the Hexagon
+        // level, so emission's report is not merely the better answer, it is
+        // the only one. A program that touches no `Vector(a)` reports none and
+        // writes no `VectorTrie.js`.
+        ...(module?.javascript.vectorRuntimeImports ?? []),
       ].map((specifier) => resolveSpecifier(path, specifier)),
     ];
   };
-  const emitted = new Set(ordered.filter((path) => !preludeSet.has(path)));
+  const emitted = new Set(
+    ordered.filter((path) => !preludeSet.has(path) && !runtimeModuleSet.has(path)),
+  );
   const pending = [...emitted];
   for (let path = pending.pop(); path !== undefined; path = pending.pop()) {
     for (const target of importsOf(path)) {
@@ -385,17 +426,81 @@ function nextId(ids: readonly number[], fallback: number): number {
   return ids.length === 0 ? fallback : Math.max(fallback, ...ids.map((id) => id + 1));
 }
 
+/** One member of the injected list, and which of the two kinds it is. */
+interface InjectedModule {
+  readonly basename: string;
+  readonly source: string;
+  readonly runtime: boolean;
+}
+
 /**
- * Injects each implicit prelude module at the common root of the project's
- * sources, unless the project already supplies a file there (e.g. compiling the
- * stdlib itself, where the on-disk copy wins). Returns the normalized prelude
- * paths in compilation order; empty for an empty project.
+ * The prelude and runtime module sets as one ordered list, each runtime member
+ * taking the seat its `precedes` names.
+ *
+ * A `precedes` naming no prelude member would silently put the module last,
+ * which is the one placement its seat exists to forbid, so it lands at the end
+ * only when that is what the list already says. There is no such member today
+ * and the conformance test pins the resulting order.
+ */
+function weaveInjected(
+  prelude: readonly { readonly basename: string; readonly source: string }[],
+  runtime: readonly {
+    readonly basename: string;
+    readonly source: string;
+    readonly precedes: string;
+  }[],
+): readonly InjectedModule[] {
+  const woven: InjectedModule[] = [];
+  for (const member of prelude) {
+    for (const module of runtime) {
+      if (module.precedes === member.basename) {
+        woven.push({ basename: module.basename, source: module.source, runtime: true });
+      }
+    }
+    woven.push({ basename: member.basename, source: member.source, runtime: false });
+  }
+  const seated = new Set(woven.map(({ basename }) => basename));
+  for (const module of runtime) {
+    if (seated.has(module.basename)) continue;
+    woven.push({ basename: module.basename, source: module.source, runtime: true });
+  }
+  return woven;
+}
+
+/**
+ * Where a module finds the vector trie runtime: it *is* the runtime module, or
+ * the specifier that reaches it from here.
+ *
+ * A project with no trie path is one with no sources at all, and its (empty)
+ * module list needs no runtime; the same-directory default stands in so the
+ * emitter never has to hold a fourth case.
+ */
+function vectorRuntimeFor(path: string, vectorTriePath: string | undefined): VectorRuntime {
+  if (vectorTriePath === undefined) return { specifier: "./VectorTrie" };
+  return path === vectorTriePath
+    ? "self"
+    : { specifier: relativeSpecifier(path, vectorTriePath) };
+}
+
+/**
+ * Injects each implicit prelude or runtime module at the common root of the
+ * project's sources, unless the project already supplies a file there (e.g.
+ * compiling the stdlib itself, where the on-disk copy wins). Returns the
+ * normalized paths in compilation order; empty for an empty project.
  *
  * `root` is the caller's, not recomputed here: the runtime declaration module
  * is placed at the same root (FFI Part 1 §8.3) and the two must not be able to
  * disagree about where that is.
+ *
+ * Called once per injected set, in compilation order, so that each set's ids
+ * continue from the one before: `maxId` is read from the sources map, which the
+ * earlier call has already grown.
  */
-function injectPrelude(sources: Map<string, Source.File>, root: string): readonly string[] {
+function injectEmbedded(
+  sources: Map<string, Source.File>,
+  root: string,
+  modules: readonly { readonly basename: string; readonly source: string }[],
+): readonly string[] {
   const paths = [...sources.keys()];
   if (paths.length === 0) return [];
   // Prefer a project file that already provides a prelude module (by basename,
@@ -407,7 +512,7 @@ function injectPrelude(sources: Map<string, Source.File>, root: string): readonl
     if (!existingByBasename.has(basename)) existingByBasename.set(basename, path);
   }
   let maxId = Math.max(-1, ...[...sources.values()].map((file) => Number(file.id)));
-  return PRELUDE_MODULES.map((module) => {
+  return modules.map((module) => {
     const existing = existingByBasename.get(module.basename);
     if (existing !== undefined) return existing;
     const path = normalizePath(`${root}/${module.basename}`);

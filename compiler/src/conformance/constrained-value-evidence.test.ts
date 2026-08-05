@@ -3,6 +3,19 @@ import { describe, expect, test } from "vitest";
 import { compileProject, Source } from "../index";
 
 /**
+ * A crossed `Vector(a)` as a plain array.
+ *
+ * Readouts that land in a `Vector` go through this since the trie wiring: a
+ * `Vector(a)` is a `TrieVector` record, not a JavaScript array. The subject of
+ * these tests is unchanged; spreading is what the `Hex.Vector<a> extends
+ * Iterable<a>` face promises a consumer can do, so the readout is now also a
+ * live check of that contract.
+ */
+function elements(value: unknown): unknown[] {
+  return [...(value as Iterable<unknown>)];
+}
+
+/**
  * Conformance for evidence on a constrained generic function used as a **value**
  * (`spec/notes/compiler-conformance-defects.md` defect 4).
  *
@@ -131,7 +144,7 @@ describe("a constrained function carries its evidence into value position", () =
       "let double(x) = x + x\n" +
       "export let out: Vector(Int) = Vector.fromSeq(Seq.map(Vector.toSeq([1, 2, 3]), double))\n",
     );
-    expect(exports["out"]).toEqual([2, 4, 6]);
+    expect(elements(exports["out"])).toEqual([2, 4, 6]);
   });
 
   test("at two different types from two value positions", async () => {

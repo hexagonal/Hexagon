@@ -3,6 +3,19 @@ import { describe, expect, test } from "vitest";
 import { compileProject, Source } from "../index";
 
 /**
+ * A crossed `Vector(a)` as a plain array.
+ *
+ * Readouts that land in a `Vector` go through this since the trie wiring: a
+ * `Vector(a)` is a `TrieVector` record, not a JavaScript array. The subject of
+ * these tests is unchanged; spreading is what the `Hex.Vector<a> extends
+ * Iterable<a>` face promises a consumer can do, so the readout is now also a
+ * live check of that contract.
+ */
+function elements(value: unknown): unknown[] {
+  return [...(value as Iterable<unknown>)];
+}
+
+/**
  * Behavioural conformance for `Seq.memoize` (Loops §6.4), the explicit opt-in
  * out of the re-derivation default, and for the intrinsic door it is declared
  * through (`spec/intrinsics.md` §3.2).
@@ -436,8 +449,8 @@ describe("§7: `memoize` moves values, and does nothing else to them", () => {
         "export let second: Vector(Cell) = Vector.fromSeq(memoized)\n"]],
     );
     const originals = [exports["one"], exports["two"], exports["three"]];
-    const first = exports["first"] as readonly unknown[];
-    const second = exports["second"] as readonly unknown[];
+    const first = elements(exports["first"]);
+    const second = elements(exports["second"]);
     // Nothing fabricated: the counts match, so no element appeared from nowhere
     // and none was dropped.
     expect(first.length).toBe(3);
@@ -463,8 +476,8 @@ describe("§7: `memoize` moves values, and does nothing else to them", () => {
         "export let first: Vector(Cell) = Vector.fromSeq(memoized)\n" +
         "export let second: Vector(Cell) = Vector.fromSeq(memoized)\n"]],
     );
-    const first = exports["first"] as readonly unknown[];
-    const second = exports["second"] as readonly unknown[];
+    const first = elements(exports["first"]);
+    const second = elements(exports["second"]);
     expect(first.length).toBe(2);
     expect(second.length).toBe(2);
     expect(second[0]).toBe(first[0]);
@@ -483,6 +496,6 @@ describe("§7: `memoize` moves values, and does nothing else to them", () => {
         "let applied: Seq(Int) = Seq.map(memoized, f => f(10))\n" +
         "export let results: Vector(Int) = Vector.fromSeq(applied)\n"]],
     );
-    expect(exports["results"]).toEqual([11, 20]);
+    expect(elements(exports["results"])).toEqual([11, 20]);
   });
 });
