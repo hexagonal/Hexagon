@@ -30,7 +30,7 @@ The parenthesized expression production (`()` / group / tuple) gains one clause:
 
 ### 2.2 The colon ends the element
 
-Within an element, `:` binds loosest: the entire element expression is ascribed. The eats-right forms (Operators §7 — lambda, `if`, `match`) stop at the element's `:` exactly as they stop at its `,` or `)`:
+Within an element, `:` binds loosest: the entire element expression is ascribed. This is the element grammar's own rule, stated here as its owner: an element's delimiters — `,`, `)`, and now `:` — end whatever expression form is open, including the eats-right forms (Operators §3.2 — lambda, `if`, `match`, which that section bounds by closing delimiters and layout; the comma-stop inside brackets has always been the parenthesized form's own behavior, and the colon-stop joins it):
 
 ```
 (x => x : a -> a)          -- the LAMBDA is ascribed: ((x => x) : a -> a)
@@ -39,9 +39,11 @@ Within an element, `:` binds loosest: the entire element expression is ascribed.
 
 To ascribe something *inside* such a form, parenthesize inside it: `x => (x: Int)`. This is the same resolution the comma already imposes on eats-right forms in tuples, applied to the same delimiter set.
 
-### 2.3 The lambda-header lookalike — no change
+### 2.3 The lambda-header lookalike
 
-`(a: Int, b)` is also the prefix of a lambda header. Nothing changes: the parser decides lambda-versus-expression solely on the `=>` after the matching `)` — the arrow is the entire signal (the same doctrine as Pattern Matching §6.5's paren-free lookahead), and it never committed on a `name :` inside the parentheses. Parameter lists already parse each element as `pattern (: Type)?`, so after this spec the one spelling has two established readings distinguished by the one token that already distinguishes them: annotated parameters before an arrow, ascribed components without one.
+`(a: Int, b)` is also the prefix of a lambda header. The disambiguation doctrine is unchanged: the parser decides lambda-versus-expression on what follows the matching `)` — the arrow is the signal (the same doctrine as Pattern Matching §6.5's paren-free lookahead), and it never commits on a `name :` inside the parentheses. Parameter lists already parse each element as `pattern (: Type)?`, so after this spec the one spelling has two established readings distinguished by the token that already distinguishes them: annotated parameters before an arrow, ascribed components without one.
+
+One piece of the *implementation* does change, recorded here because the doctrine sentence above previously oversimplified it: the lookahead's return-annotation arm (`(params): T => body`) scans from a post-`)` colon to a `=>` bounded only by the layout boundary. Today no inner `(...):` sequence is legal, so the arm cannot misfire; this spec makes such sequences legal — `((a, b): (Int, String)) |> map(x => x)` puts a colon after an inner `)` with an *unrelated* arrow later in the line. The scan must tighten to accept the arrow only when it immediately follows one well-formed type (§9.1); with that, the doctrine sentence is true again.
 
 ### 2.4 Parens-only, deliberately, v1
 
@@ -56,6 +58,7 @@ An ascription checks and pins exactly as a `let` annotation does (Functions §4.
 - The ascribed expression's type unifies with the written type. Failure is an ordinary type mismatch reported at the ascription (§5).
 - A successful ascription **pins**: `let n = (42: Nat)` gives `n : Nat`; the literal's `Num` variable was settled by unification, so Numeric Literals §4's defaulting never has a variable to consult (§6.2).
 - There is **no coercion**. `(x : Float)` with `x : Int` is a type mismatch, not a conversion — conversions are named functions, as everywhere.
+- **An ascription of a syntactic value is itself a syntactic value.** Functions §8's read-through includes the ascription wrapper alongside grouping parentheses (edit note, §8): `let id = (x => x : a -> a)` generalizes exactly as `let id = (x => x)` does. An ascription wraps; it does not evaluate.
 
 ### 3.1 Type variables are rigid — the annotation scope
 
@@ -72,7 +75,7 @@ let id = (x => x : a -> a)    -- fine: the identity genuinely is that general
 let inc = (x => x + 1 : a -> a) -- ERROR: only Num types support +
 ```
 
-Rigid ascription variables accumulate inferred constraints exactly as §4.1's do — rigidity pins structure, not demands. Nested declarations chain lexically: an ascription inside an inner `let` may name the enclosing declaration's variables; a fresh name introduces at the declaration whose body the ascription appears in.
+Rigid ascription variables accumulate inferred constraints exactly as §4.1's do — rigidity pins structure, not demands. The scope rule above is stated for one declaration; the exact chaining across *nested* declarations (which enclosing scope a fresh name introduced inside an inner `let` joins, and how inner `<a: C>` binders shadow) is **deferred to the checker arc** — the implementation must surface the question rather than invent the answer silently.
 
 This is a **deliberate divergence from OCaml**, whose annotation variables are uniformly unification holes (`(3 : 'a)` succeeds there, `'a` silently `int`). Hexagon's annotations are uniformly contracts; ascription joins them. One spelling, one meaning. (§7; the language-wide doctrine record is #315's.)
 
@@ -115,9 +118,9 @@ Numeric Literals §4 defaults a literal variable that is *still unresolved* at g
 
 ## 7. Rejected and reserved alternatives
 
-1. **Unifiable ascription variables** (OCaml: `(3 : 'a)` succeeds). Rejected — James's ruling, on consistency: every other Hexagon annotation is a contract, and the unifiable reading's lone power (asserting two positions share a type without claiming generality) is nearly always discovered by inference. The classic footgun — `(fun x -> x + 1 : 'a -> 'a)` looking like a polymorphism claim and checking nothing — is the price of that convention, and Hexagon declines to pay it. The language-wide contracts-versus-constraints doctrine record is #315's business.
+1. **Unifiable ascription variables** (OCaml: `(3 : 'a)` succeeds). Rejected, on consistency: every other Hexagon annotation is a contract, and the unifiable reading's lone power (asserting two positions share a type without claiming generality) is nearly always discovered by inference. The classic footgun — `(fun x -> x + 1 : 'a -> 'a)` looking like a polymorphism claim while OCaml silently monomorphizes `'a` — is the price of that convention, and Hexagon declines to pay it. The language-wide contracts-versus-constraints doctrine record is #315's business.
 2. **General postfix ascription** (`e : T` anywhere). **Reserved, not rejected** — v1 is parens-only (§2.4); revisit on demonstrated safe contexts.
-3. **Type holes** (`(e : Vector(_))`, the exists-reading). **Reserved** — the honest spelling for partial annotations if they are ever wanted; holes should look like holes, not like promises. Not in v1.
+3. **Type holes** (partial annotations, the exists-reading — `(e : Vector(□))` for some hole spelling). **Reserved, spelling unsettled.** The leading candidate spelling `_` is **contested**: a forthcoming default-parameters proposal is a rival claimant for that token, so this spec deliberately reserves the *capability* without the *character*. Not in v1 either way; the design discussion is #315's.
 4. **A dedicated AST-visible coercion or conversion reading.** Rejected without discussion — nothing in the ML family reads ascription as conversion, and Hexagon's conversions are named functions.
 
 ---
@@ -126,14 +129,15 @@ Numeric Literals §4 defaults a literal variable that is *still unresolved* at g
 
 - **Products §2.1**: the arity bullet gains a pointer — the parenthesized form's element grammar (and the ascription reading of the one-element case) is this spec's.
 - **Functions §4.1**: gains a sentence noting ascription (this spec) as a fourth annotation position sharing the same rigidity contract and the declaration-wide variable scope.
+- **Functions §8 item 2**: the read-through clause ("parentheses only group…") gains the ascription wrapper — an ascription of a syntactic value is a syntactic value (§3 here).
 
-No other document changes. Method Syntax and Numeric Literals are consulted by §6 but need no text: their rules already quantify over "head-known" and "still unresolved" without caring how the state arose.
+Method Syntax and Numeric Literals are consulted by §6 but need no text: their rules already quantify over "head-known" and "still unresolved" without caring how the state arose.
 
 ---
 
 ## 9. Implementation obligations
 
-1. **Parser:** the element rule in the parenthesized production — parse the element expression with `Colon` added to its stop set, then an optional `: Type` via the existing annotation-type parser; a new `Ascription { expression, annotation }` expression node. The lambda lookahead (`#isParenthesizedLambda`) is untouched — verify by test that `(a: Int, b)` parses as a tuple and `(a: Int, b) => e` as a lambda, unchanged.
+1. **Parser:** the element rule in the parenthesized production — after the element expression, an optional `: Type` via the existing annotation-type parser, checked before the closing-paren expectation (the `Colon` token already halts the expression loop, so the load-bearing change is the new arm, not the stop set); a new `Ascription { expression, annotation }` expression node. The lambda lookahead's return-annotation arm **must tighten** per §2.3: accept the arrow only when it immediately follows one well-formed balanced type after the colon, so an inner `(...):` with an unrelated later `=>` on the line does not misparse as a lambda head. Tests: `(a: Int, b)` as tuple and `(a: Int, b) => e` as lambda; `((a, b): (Int, String)) |> map(x => x)` and `f(((a, b): (Int, String)), z => z)` parse as ascriptions, not lambda heads; `(params): T => body` still parses as an annotated lambda.
 2. **Resolver:** walk the node; type names in the ascribed type resolve through the ordinary annotation path (occurrence identity included, for the LSP).
 3. **Checker:** reuse the annotation path — elaborate the written type in the enclosing declaration's annotation-variable scope (introducing unseen names rigid, per §3.1), unify with the expression's type. No new unification machinery.
 4. **Emitter:** erase (§4).
