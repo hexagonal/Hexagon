@@ -72,17 +72,21 @@ describe("completions", () => {
   test("a sequential binder is not offered before its own declaration", () => {
     // Statements §5.1: a `let` scopes over the rest of its block. Before that
     // point the name is not merely unhelpful to offer — using it is an error.
+    // The binders are named off the prelude's own vocabulary on purpose: a
+    // fixture name a prelude member also exports (`first`, `last`) would be
+    // offered from the prelude layer whatever the binder does, and the
+    // assertion would pass or fail for the wrong reason.
     const source = [
       "fun compute(seed: Int): Int =",
-      "    let first: Int = ‸seed",
-      "    let second: Int = first",
-      "    second",
+      "    let earlier: Int = ‸seed",
+      "    let later: Int = earlier",
+      "    later",
       "",
     ].join("\n");
     const offered = namesIn(source);
     expect(offered).toContain("seed");
-    expect(offered).not.toContain("first");
-    expect(offered).not.toContain("second");
+    expect(offered).not.toContain("earlier");
+    expect(offered).not.toContain("later");
   });
 
   test("an inner binding shadows an outer one rather than appearing twice", () => {

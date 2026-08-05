@@ -21,10 +21,11 @@ import { compileFiles, projectDiagnostics } from "../support/test-project.js";
  *
  * How a module-level binding came to shadow an operation was #267, since fixed:
  * dispatch is resolved from the receiver's companion, not from the names in
- * scope, and the `take` case below now binds `Seq.take`. Whether dot call should
- * someday reach the compiler-core inventory (§4) is still open — #217 is closed
- * on the diagnostic, not on the feature. What is pinned here is only: a
- * diagnostic, never a throw.
+ * scope, and the `take` case below now binds `Seq.take`. #217's residue — that a
+ * correctly-spelled `Vector` operation was out of dot call's reach — closed with
+ * the intrinsic-door milestone, which put `stdlib/Vector.hex` in the prelude and
+ * so gave the built-in head a companion (`companion-dispatch.test.ts`). What is
+ * pinned here is only: a diagnostic, never a throw.
  */
 
 /** Every diagnostic message a multi-module project produced, in order. */
@@ -65,30 +66,28 @@ describe("a missing companion operation reports rather than crashing (#212)", ()
   });
 });
 
-describe("correctly-spelled core operations are out of dot call's reach", () => {
-  // `append` and `at` exist — they are compiler-core `Vector` operations — but
-  // `Vector`'s home module is not in the prelude, so the receiver names no
-  // companion and its operation set is empty. The pin is that this is a
-  // diagnostic; that dot call cannot reach the core inventory is #217's residue.
-  //
+describe("a misspelling beside a correctly-spelled operation", () => {
+  // The two spellings must part company: `append` and `at` are `Vector`
+  // operations and now dispatch (their semantics are pinned in
+  // `companion-dispatch.test.ts`), while a name the companion does not export
+  // still takes the diagnostic — with a bare integer argument, the shape that
+  // used to crash the compile.
+  test("a correctly-spelled core operation reports nothing", () => {
+    expect(projectDiagnostics(
+      "export let v: Vector(Int) = [1, 2].append(3)\n" +
+        "export let n: Int = [1, 2].at(1)\n",
+    )).toEqual([]);
+  });
+
   // The receiver is a literal, so its element type is still an unsolved variable
   // when the message is rendered (`Vector(?n)`). The variable's number is an
   // allocation counter, not behaviour, so it is matched rather than spelled.
-  test("`append` on a vector literal reports", () => {
-    const messages = projectDiagnostics("export let v: Vector(Int) = [1, 2].append(3)\n");
+  test("a misspelled one on the same receiver still reports", () => {
+    const messages = projectDiagnostics("export let v: Vector(Int) = [1, 2].appendd(3)\n");
 
     expect(messages).toHaveLength(1);
     expect(messages[0]).toMatch(
-      /^the companion of `Vector\(\?\d+\)` has no operation `append`; call an available subject-first function explicitly$/u,
-    );
-  });
-
-  test("`at` on a vector literal reports", () => {
-    const messages = projectDiagnostics("export let n: Int = [1, 2].at(1)\n");
-
-    expect(messages).toHaveLength(1);
-    expect(messages[0]).toMatch(
-      /^the companion of `Vector\(\?\d+\)` has no operation `at`; call an available subject-first function explicitly$/u,
+      /^the companion of `Vector\(\?\d+\)` has no operation `appendd`; call an available subject-first function explicitly$/u,
     );
   });
 });
@@ -166,10 +165,10 @@ describe("the controls that already reported before the fix", () => {
     expect(
       projectDiagnostics(
         "let xs: Vector(Int) = [1, 2]\n" +
-          "export let empty = xs.isEmpty()\n",
+          "export let blank = xs.vacant()\n",
       ),
     ).toContain(
-      "the companion of `Vector(Int)` has no operation `isEmpty`; call an available subject-first function explicitly",
+      "the companion of `Vector(Int)` has no operation `vacant`; call an available subject-first function explicitly",
     );
   });
 });

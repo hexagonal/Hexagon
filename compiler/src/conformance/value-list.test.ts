@@ -47,21 +47,29 @@ function schemeOf(
   return symbol.scheme;
 }
 
+/**
+ * `empty` and `prepend` are qualified throughout. Both are exported by
+ * `stdlib/Seq.hex` *and* by `stdlib/Vector.hex` (Collections Part 1 §3.1's
+ * shared vocabulary), and the prelude scope keeps one binding per name, so the
+ * bare spellings resolve to the later member. The programs below are about
+ * generalization, not about which member a bare name reaches, so they name the
+ * one they mean.
+ */
 describe("Step 1: the completed syntactic-value list", () => {
   // (i) The motivating snippets. This is the program §1.1 calls the acceptance
   // test — the shape a JavaScript developer writes on day one.
   test("(i) a reference to an immutable binding generalizes: the empty-sequence program", () => {
     expect(
       diagnostics(
-        "let e = empty\n" +
-          "export let ys: Seq(Int) = prepend(e, 42)\n" +
-          'export let xs: Seq(String) = prepend(e, "Briar")\n',
+        "let e = Seq.empty\n" +
+          "export let ys: Seq(Int) = Seq.prepend(e, 42)\n" +
+          'export let xs: Seq(String) = Seq.prepend(e, "Briar")\n',
       ),
     ).toEqual([]);
   });
 
   test("(i) the same program without Step 1 would have collapsed: `e` is polymorphic", () => {
-    expect(scheme("let e = empty\nexport let n: Int = 1\n", "e").variables.length).toBe(1);
+    expect(scheme("let e = Seq.empty\nexport let n: Int = 1\n", "e").variables.length).toBe(1);
   });
 
   // (ii) "Possibly module-qualified" is load-bearing: SML's non-expansive
@@ -72,8 +80,8 @@ describe("Step 1: the completed syntactic-value list", () => {
       "/main.hex":
         'import * as Lib from "./lib.hex"\n' +
         "let e = Lib.empty\n" +
-        "export let ys: Seq(Int) = prepend(e, 42)\n" +
-        'export let xs: Seq(String) = prepend(e, "Briar")\n',
+        "export let ys: Seq(Int) = Seq.prepend(e, 42)\n" +
+        'export let xs: Seq(String) = Seq.prepend(e, "Briar")\n',
     });
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
     expect(schemeOf(compiled, "/main.hex", "e").variables.length).toBe(1);
@@ -85,9 +93,9 @@ describe("Step 1: the completed syntactic-value list", () => {
   test("(iii) an annotated reference generalizes for the same reason the bare one does", () => {
     const compiled = project({
       "/main.hex":
-        "let e: Seq(a) = empty\n" +
-        "export let ys: Seq(Int) = prepend(e, 42)\n" +
-        'export let xs: Seq(String) = prepend(e, "Briar")\n',
+        "let e: Seq(a) = Seq.empty\n" +
+        "export let ys: Seq(Int) = Seq.prepend(e, 42)\n" +
+        'export let xs: Seq(String) = Seq.prepend(e, "Briar")\n',
     });
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
     expect(schemeOf(compiled, "/main.hex", "e").variables.length).toBe(1);
@@ -584,9 +592,9 @@ describe("Step 1: the completed syntactic-value list", () => {
     // `e` is unconstrained, so it quantifies and serves two element types.
     expect(
       diagnostics(
-        "let (e, n) = (empty, 1)\n" +
-          "export let a: Int = Seq.length(prepend(e, 1))\n" +
-          'export let b: Int = Seq.length(prepend(e, "x"))\n',
+        "let (e, n) = (Seq.empty, 1)\n" +
+          "export let a: Int = Seq.length(Seq.prepend(e, 1))\n" +
+          'export let b: Int = Seq.length(Seq.prepend(e, "x"))\n',
       ),
     ).toEqual([]);
   });
@@ -605,9 +613,9 @@ describe("Step 1: the completed syntactic-value list", () => {
     expect(
       diagnostics(
         "union Box(a) = Box(a)\n" +
-          "let Box(e) = Box(empty)\n" +
-          "export let x: Int = Seq.length(prepend(e, 1))\n" +
-          'export let y: Int = Seq.length(prepend(e, "s"))\n',
+          "let Box(e) = Box(Seq.empty)\n" +
+          "export let x: Int = Seq.length(Seq.prepend(e, 1))\n" +
+          'export let y: Int = Seq.length(Seq.prepend(e, "s"))\n',
       ),
     ).toEqual([]);
   });
@@ -661,9 +669,9 @@ describe("Step 1: the completed syntactic-value list", () => {
     expect(
       diagnostics(
         "let use = () =>\n" +
-          "    var v = empty\n" +
+          "    var v = Seq.empty\n" +
           "    let e = v\n" +
-          '    (prepend(e, 1), prepend(e, "a"))\n',
+          '    (Seq.prepend(e, 1), Seq.prepend(e, "a"))\n',
       ).length,
     ).toBeGreaterThan(0);
   });
