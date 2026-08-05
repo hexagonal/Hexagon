@@ -1667,9 +1667,15 @@ function typeName(type: Typed.Type): string {
   return type.kind;
 }
 
+// The module's own `let`, never a prelude one of the same name: a project-checked
+// module carries the prelude's symbols too, and the stdlib shares plain vocabulary
+// (`first`, `empty`, `get`, …) with the sources these tests write.
 function letSymbol(module: Typed.Module, name: string): Typed.Symbol {
   const symbol = module.symbols.find(
-    (candidate) => candidate.kind === "let" && candidate.name === name,
+    (candidate) =>
+      candidate.kind === "let" &&
+      candidate.name === name &&
+      candidate.bindingSpan.fileId === module.fileId,
   );
   if (symbol === undefined) throw new Error(`expected let symbol ${name}`);
   return symbol;

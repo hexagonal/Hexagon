@@ -11,7 +11,7 @@ export opaque record Seq(+a) = { pull: () -> Option((a, Seq(a))) }
 extern from "hex:intrinsic"
     (** Computes each element of `source` at most once however often the result
         is traversed, at the cost of retaining what has been produced. *)
-    export fun seqMemoize as memoize<a>(source: Seq(a)): Seq(a)
+    export fun seqMemoize as memoize(source: Seq(a)): Seq(a)
 
 (** Drives one step: the head element and the successor sequence, or `None` when
     exhausted. `source` itself is unchanged. *)
@@ -19,8 +19,10 @@ export let next(source: Seq(a)): Option((a, Seq(a))) = (source.pull)()
 
 // Producers, and combinators whose step yields at most one element per pull.
 
+(** The empty sequence. *)
 export let empty: Seq(a) = Seq({ pull = () => None })
 
+(** A sequence with a single value. *)
 export let singleton(value: a): Seq(a) = Seq({ pull = () => Some((value, empty)) })
 
 (** The sequence that yields `value`, then everything in `rest`. *)

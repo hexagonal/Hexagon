@@ -70,9 +70,9 @@ let empty: TrieVector(a) =
         tail = Node.empty(),
     })
 
-fun size<a>(trie: TrieVector(a)): Int = trie.capacity - trie.origin
+fun size(trie: TrieVector(a)): Int = trie.capacity - trie.origin
 
-fun isEmpty<a>(trie: TrieVector(a)): Bool = trie.capacity == trie.origin
+fun isEmpty(trie: TrieVector(a)): Bool = trie.capacity == trie.origin
 
 // The internal index at which the `tail` begins: the largest multiple of `radix`
 // not exceeding the last populated internal index. The tree holds `[0, tailOffset)`
@@ -97,7 +97,7 @@ fun pow32(exponent: Int): Int =
 // `tailOffset` live in the tail; the rest descend `root` one branch level per
 // iteration to the owning leaf, then select the low digit within it. Callers
 // guarantee the index is populated, so no empty `Node` slot is ever read.
-fun readInternal<a>(trie: TrieVector(a), internal: Int): a =
+fun readInternal(trie: TrieVector(a), internal: Int): a =
     if internal >= tailOffset(trie.capacity) then
         Node.get(trie.tail, internal - tailOffset(trie.capacity))
     else
@@ -118,7 +118,7 @@ fun readInternal<a>(trie: TrieVector(a), internal: Int): a =
 
 // Reads the element at 0-based logical `index`; the internal index is
 // `index + origin`. Callers guarantee `0 <= index < size`.
-fun get<a>(trie: TrieVector(a), index: Int): a =
+fun get(trie: TrieVector(a), index: Int): a =
     readInternal(trie, index + trie.origin)
 
 // Locates 0-based logical `index` for *sequential* reading: the 32-slot `Node`
@@ -133,7 +133,7 @@ fun get<a>(trie: TrieVector(a), index: Int): a =
 // leaf's whole `Node` instead of one slot. The run is capped twice: by what is
 // left of the node (`radix - remaining`), and by the region boundary — the tail
 // ends at `capacity`, a tree leaf ends where the tail begins.
-fun nodeRun<a>(trie: TrieVector(a), index: Int): (Node(a), Int, Int) =
+fun nodeRun(trie: TrieVector(a), index: Int): (Node(a), Int, Int) =
     let internal = index + trie.origin
     let off = tailOffset(trie.capacity)
     if internal >= off then
@@ -158,7 +158,7 @@ fun nodeRun<a>(trie: TrieVector(a), index: Int): (Node(a), Int, Int) =
 
 // Wraps `leaf` in `levels` fresh branch nodes, forming the left spine of a new
 // subtree. `newPath(0, leaf) = leaf`.
-fun newPath<a>(levels: Int, leaf: Tree(a)): Tree(a) =
+fun newPath(levels: Int, leaf: Tree(a)): Tree(a) =
     var node: Tree(a) = leaf
     for step in 1..levels
         node := Branch(Node.set(Node.empty(), 0, node))
@@ -168,7 +168,7 @@ fun newPath<a>(levels: Int, leaf: Tree(a)): Tree(a) =
 // subtree with room for it). Left-packed: `p`'s digit at this level is a new
 // child exactly when the position within that child is 0. Recursion depth is
 // bounded by `h` (<= ~7 for billions of elements), so this is stack-safe.
-fun insertLeaf<a>(node: Tree(a), height: Int, p: Int, leaf: Tree(a)): Tree(a) =
+fun insertLeaf(node: Tree(a), height: Int, p: Int, leaf: Tree(a)): Tree(a) =
     match node
         // Only reached at height 1: the empty root leaf is replaced by the first
         // flushed leaf.
@@ -187,7 +187,7 @@ fun insertLeaf<a>(node: Tree(a), height: Int, p: Int, leaf: Tree(a)): Tree(a) =
 // its height. `treeExtent` is the internal extent already held by `root` (a
 // multiple of 32 — the internal index where the flushed leaf lands). When `root`
 // is full at its height, the trie grows one level at the right (append's end).
-fun flushLeaf<a>(root: Tree(a), height: Int, treeExtent: Int, leaf: Tree(a)): (Tree(a), Int) =
+fun flushLeaf(root: Tree(a), height: Int, treeExtent: Int, leaf: Tree(a)): (Tree(a), Int) =
     let leafPos = Int.div(treeExtent, radix)
     let capacity = pow32(height - 1)
     if leafPos == capacity then
@@ -198,7 +198,7 @@ fun flushLeaf<a>(root: Tree(a), height: Int, treeExtent: Int, leaf: Tree(a)): (T
     else
         (insertLeaf(root, height, leafPos, leaf), height)
 
-fun append<a>(trie: TrieVector(a), value: a): TrieVector(a) =
+fun append(trie: TrieVector(a), value: a): TrieVector(a) =
     let cap = trie.capacity
     let off = tailOffset(cap)
     let tailLen = cap - off
@@ -224,7 +224,7 @@ fun append<a>(trie: TrieVector(a), value: a): TrieVector(a) =
 
 // A fresh, empty subtree of the given height, ready to be filled: a `Leaf` at
 // height 1, a `Branch` at any greater height.
-fun freshSubtree<a>(height: Int): Tree(a) =
+fun freshSubtree(height: Int): Tree(a) =
     if height == 1 then
         Leaf(Node.empty())
     else
@@ -236,7 +236,7 @@ fun freshSubtree<a>(height: Int): Tree(a) =
 // lands at that child's top slot (`childPos == span - 1`) — the signal that the
 // child is fresh; every lower position reuses the child a previous prepend made.
 // Recursion depth is bounded by `h`, so this is stack-safe.
-fun writeValue<a>(node: Tree(a), height: Int, index: Int, value: a): Tree(a) =
+fun writeValue(node: Tree(a), height: Int, index: Int, value: a): Tree(a) =
     match node
         // Height 1: `index` selects the slot within the leaf directly.
         Leaf(values) => Leaf(Node.set(values, index, value))
@@ -251,7 +251,7 @@ fun writeValue<a>(node: Tree(a), height: Int, index: Int, value: a): Tree(a) =
                 let child = Node.get(children, childIndex)
                 Branch(Node.set(children, childIndex, writeValue(child, height - 1, childPos, value)))
 
-fun prepend<a>(trie: TrieVector(a), value: a): TrieVector(a) =
+fun prepend(trie: TrieVector(a), value: a): TrieVector(a) =
     if trie.capacity == trie.origin then
         // Empty: the sole element is both front and back, so it lands in the tail
         // (the favoured end) as a singleton — growing a tree here would leave
@@ -308,7 +308,7 @@ fun prepend<a>(trie: TrieVector(a), value: a): TrieVector(a) =
 // Replaces the element at internal `index` (a populated position) in a copy of
 // `node`, descending to its leaf. Unlike `writeValue` every node on the path
 // already exists, so no slot is created — a persistent overwrite.
-fun updateAt<a>(node: Tree(a), height: Int, index: Int, value: a): Tree(a) =
+fun updateAt(node: Tree(a), height: Int, index: Int, value: a): Tree(a) =
     match node
         Leaf(values) => Leaf(Node.set(values, index, value))
         Branch(children) =>
@@ -320,7 +320,7 @@ fun updateAt<a>(node: Tree(a), height: Int, index: Int, value: a): Tree(a) =
 // Persistent update at 0-based logical `index` (caller guarantees it is in range;
 // the public `Vector.set` owns the `IndexError` bounds assertion). A tail slot is
 // rewritten directly; a tree position descends via `updateAt`.
-fun set<a>(trie: TrieVector(a), index: Int, value: a): TrieVector(a) =
+fun set(trie: TrieVector(a), index: Int, value: a): TrieVector(a) =
     let internal = index + trie.origin
     let off = tailOffset(trie.capacity)
     if internal >= off then
@@ -347,7 +347,7 @@ fun set<a>(trie: TrieVector(a), index: Int, value: a): TrieVector(a) =
 // prefix of the current one — end slices, `dropFirst`/`dropLast` — is O(1). When
 // the new capacity lands the tail elsewhere, only the tail (<= 32 elements) is
 // rebuilt from their current positions; the tree is shared untouched.
-fun slice<a>(trie: TrieVector(a), begin: Int, end: Int): TrieVector(a) =
+fun slice(trie: TrieVector(a), begin: Int, end: Int): TrieVector(a) =
     if begin >= end then
         empty
     else
@@ -385,7 +385,7 @@ fun slice<a>(trie: TrieVector(a), begin: Int, end: Int): TrieVector(a) =
 // runs off either end keeps only the part that exists, and one wholly outside is
 // the empty vector. Direction is not this function's business — a descending
 // `Range` never reaches here, it faults at the bracket (§6.3).
-fun window<a>(trie: TrieVector(a), begin: Int, end: Int): TrieVector(a) =
+fun window(trie: TrieVector(a), begin: Int, end: Int): TrieVector(a) =
     let count = size(trie)
     let low = if begin < 0 then 0 else begin
     let high = if end > count then count else end
@@ -407,7 +407,7 @@ fun window<a>(trie: TrieVector(a), begin: Int, end: Int): TrieVector(a) =
 // concat is therefore ceil(m / 32) (one more wherever a region boundary splits a
 // node), which `vector-trie-wiring.test.ts` pins by counting the descents a
 // whole concat makes.
-fun concat<a>(left: TrieVector(a), right: TrieVector(a)): TrieVector(a) =
+fun concat(left: TrieVector(a), right: TrieVector(a)): TrieVector(a) =
     let count = size(right)
     var result: TrieVector(a) = left
     var index = 0
