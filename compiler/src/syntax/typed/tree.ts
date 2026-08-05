@@ -902,7 +902,7 @@ export interface HashExpr extends ExpressionFields {
 
 export interface CollectionOperationExpr extends ExpressionFields {
   readonly kind: "CollectionOperation";
-  readonly collection: "Map" | "Set" | "Vector" | "Node";
+  readonly collection: "Map" | "Set" | "Node";
   readonly operation: string;
   readonly requirements: readonly Constraint[];
 }

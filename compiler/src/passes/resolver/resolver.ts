@@ -437,6 +437,17 @@ class Resolver {
     -readonly [K in keyof Resolved.PreludeTypeImport]: Resolved.PreludeTypeImport[K];
   }[] = [];
   readonly #usedPreludeSymbols = new Set<Resolved.SymbolId>();
+  /**
+   * Every prelude term of a given name, in prelude order — *not* only the one
+   * `#preludeScope` holds. Two prelude members may export the same bare name
+   * (`length`, `prepend`, `empty` are `Seq.hex`'s and `Vector.hex`'s alike, per
+   * Collections Part 1 §3.1's naming doctrine), and the scope keeps the last,
+   * which is the answer to the *bare* spelling and to nothing else.
+   * `#noteCompanionCandidate` needs them all: dot call is type-directed
+   * (Method Syntax §1), so a `Seq` receiver reaches `Seq.hex`'s `length` however
+   * many later members occlude the bare name.
+   */
+  readonly #preludeTermsByName = new Map<string, Resolved.SymbolId[]>();
   readonly #explicitlyImported = new Set<Resolved.SymbolId>();
   readonly #moduleAliases = new Map<string, ModuleInterface>();
   /** Prelude members addressable by name — a fallback layer, so an explicit
@@ -584,6 +595,13 @@ class Resolver {
    * imported. `Seq.hex` is the first prelude module to export dispatchable
    * lowercase operations, so nothing exercised this before.
    *
+   * **Every prelude term of the name, not the one the bare spelling resolves
+   * to.** Dispatch consults the receiver's type, so an occluded member is as
+   * reachable as the occluding one; registering only `#preludeScope`'s winner
+   * made the over-approximation an *under*-approximation the moment two members
+   * shared a name, and produced exactly the failure above — a `Seq` receiver's
+   * `length` emitted as a bare name that `Vector.hex`'s import had bound.
+   *
    * What a spare candidate costs is bounded at one entry in the resolved tree
    * (#263). Registration is *availability* only: emission renders the
    * synthesized import from the names the elaborated Core references, so a
@@ -592,8 +610,9 @@ class Resolver {
    * public ESM surface. The over-approximation used to pay all three.
    */
   #noteCompanionCandidate(field: string): void {
-    const symbol = this.#preludeScope.lookupLocal(field);
-    if (symbol !== undefined) this.#reachPreludeTerm(symbol);
+    for (const symbol of this.#preludeTermsByName.get(field) ?? []) {
+      this.#reachPreludeTerm(symbol);
+    }
   }
 
   /**
@@ -609,8 +628,8 @@ class Resolver {
    * still buys is in the resolved tree: no spare entry in the used-prelude set,
    * and no spare claim on a module-level name, which is what would otherwise
    * push `#preludeImport` into renaming a local it never needed to rename. The
-   * collection cores and `Seq.hex` share vocabulary on purpose (`length`,
-   * `prepend` — Collections Part 1 §3.1's naming doctrine), so `Vector.length(v)`
+   * collection cores and `Seq.hex` share vocabulary on purpose (`isEmpty`,
+   * `empty` — Collections Part 1 §3.1's naming doctrine), so `Map.isEmpty(m)`
    * is an ordinary spelling and not a rarity.
    *
    * The guards mirror the `Access` case below, and must keep mirroring it: a
@@ -625,7 +644,7 @@ class Resolver {
     const name = receiver.name.text;
     if (scope.lookup(name) !== undefined) return false;
     if (this.#namedModule(name) !== undefined) return false;
-    if (["Map", "Set", "Vector"].includes(name)) return true;
+    if (["Map", "Set"].includes(name)) return true;
     return this.#runtime && name === "Node" &&
       ["empty", "get", "set", "copy"].includes(field);
   }
@@ -663,6 +682,10 @@ class Resolver {
     if (moduleName !== "") this.#preludeModuleAliases.set(moduleName, prelude);
     for (const [name, symbol] of prelude.terms) {
       this.#preludeScope.define(name, symbol.id);
+      this.#preludeTermsByName.set(name, [
+        ...this.#preludeTermsByName.get(name) ?? [],
+        symbol.id,
+      ]);
       this.#preludeTerms.set(symbol.id, symbol);
       this.#preludeSpecifierBySymbol.set(symbol.id, specifier);
       // Registered eagerly so `#symbol` resolves prelude references during body
@@ -1995,13 +2018,13 @@ class Resolver {
           // order Modules §5.5 forbids — and it is what kept `Seq.map` bound to
           // the intrinsic family after `Seq.hex` joined the set.
           if (
-            ["Map", "Set", "Vector"].includes(expression.receiver.name.text) &&
+            ["Map", "Set"].includes(expression.receiver.name.text) &&
             scope.lookup(expression.receiver.name.text) === undefined &&
             this.#namedModule(expression.receiver.name.text) === undefined
           ) {
             return {
               kind: "CollectionOperation",
-              collection: expression.receiver.name.text as "Map" | "Set" | "Vector",
+              collection: expression.receiver.name.text as "Map" | "Set",
               operation: expression.field.text,
               span: expression.span,
             };

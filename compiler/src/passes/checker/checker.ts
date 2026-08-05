@@ -2005,7 +2005,15 @@ class Checker {
     return actual.arguments[0] ?? ERROR;
   }
 
-  /** Gives compiler-known persistent collection operations their ordinary function types. */
+  /**
+   * Gives compiler-known persistent collection operations their ordinary function
+   * types.
+   *
+   * `Vector`'s rows are gone: `stdlib/Vector.hex` declares that surface itself,
+   * so the declaration owns the type (`spec/intrinsics.md` §4.2, §9.2). What is
+   * left is the two companions with no `.hex` module yet and the `Node` trie
+   * intrinsic, which by §3.3 never gets one.
+   */
   #collectionOperationType(
     collection: Resolved.CollectionOperationExpr["collection"],
     operation: string,
@@ -2051,7 +2059,7 @@ class Checker {
       if (operation === "toSeq") return { kind: "Function", parameters: [set], result: this.#sequence(element, span) };
       if (operation === "fromVector") return { kind: "Function", parameters: [{ kind: "Vector", element }], result: set };
       if (operation === "fromSeq") return { kind: "Function", parameters: [this.#sequence(element, span)], result: set };
-    } else if (collection === "Node") {
+    } else {
       // The hidden fixed-32 trie node: 32 slots of `element`, addressed 0..31.
       // `set`/`copy` are immutable (return a fresh node); see the design note §4.
       const element = this.#fresh(level, false);
@@ -2060,18 +2068,6 @@ class Checker {
       if (operation === "get") return { kind: "Function", parameters: [node, primitive("Int")], result: element };
       if (operation === "set") return { kind: "Function", parameters: [node, primitive("Int"), element], result: node };
       if (operation === "copy") return { kind: "Function", parameters: [node], result: node };
-    } else {
-      const element = this.#fresh(level, false);
-      const vector: VectorMono = { kind: "Vector", element };
-      if (operation === "empty") return { kind: "Function", parameters: [], result: vector };
-      if (operation === "length") return { kind: "Function", parameters: [vector], result: primitive("Int") };
-      if (operation === "isEmpty") return { kind: "Function", parameters: [vector], result: this.#boolType(span) };
-      if (operation === "append") return { kind: "Function", parameters: [vector, element], result: vector };
-      if (operation === "prepend") return { kind: "Function", parameters: [vector, element], result: vector };
-      if (operation === "at") return { kind: "Function", parameters: [vector, primitive("Int")], result: element };
-      if (operation === "set") return { kind: "Function", parameters: [vector, primitive("Int"), element], result: vector };
-      if (operation === "toSeq") return { kind: "Function", parameters: [vector], result: this.#sequence(element, span) };
-      if (operation === "fromSeq") return { kind: "Function", parameters: [this.#sequence(element, span)], result: vector };
     }
     return this.#unsupported(span, `the companion of \`${collection}\` has no core operation \`${operation}\``);
   }

@@ -37,9 +37,22 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * memoizing spine, the same mechanism as FFI Part 3's inbound adapter. Declared
  * by `stdlib/Seq.hex` per `spec/intrinsics.md` §3.2; lowered by the emitter's
  * helper of the same name.
+ *
+ * The `vector*` family is exactly Collections Part 3 §7's boundary crossing —
+ * representation-sensitive length and end updates, signed indexed access,
+ * persistent indexed update, and the eager/lazy bridge. Everything else in that
+ * table is Hexagon source in `stdlib/Vector.hex`, which declares these seven and
+ * owns the public surface over them (§9.2's `Vector` milestone).
  */
 export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["seqMemoize", 1],
+  ["vectorLength", 1],
+  ["vectorAppend", 2],
+  ["vectorPrepend", 2],
+  ["vectorAt", 2],
+  ["vectorSet", 3],
+  ["vectorToSeq", 1],
+  ["vectorFromSeq", 1],
 ]);
 
 /**

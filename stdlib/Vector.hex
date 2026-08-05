@@ -3,19 +3,24 @@
 export exception IndexError(index: Int, size: Int)
 export exception SliceError(start: Int, end: Int)
 
+// The whole boundary Collections Part 3 section 7 pins: representation-sensitive
+// length and end updates, signed indexed access, persistent indexed update, and
+// the eager/lazy bridge. Everything below is ordinary Hexagon over these.
+extern from "hex:intrinsic"
+    export fun vectorLength as length<a>(values: Vector(a)): Int
+    export fun vectorAppend as append<a>(values: Vector(a), value: a): Vector(a)
+    export fun vectorPrepend as prepend<a>(values: Vector(a), value: a): Vector(a)
+    export fun vectorAt as at<a>(values: Vector(a), index: Int): a
+    export fun vectorSet as set<a>(values: Vector(a), index: Int, value: a): Vector(a)
+    export fun vectorToSeq as toSeq<a>(values: Vector(a)): Seq(a)
+    // Eager by design: converting an infinite Seq does not terminate.
+    export fun vectorFromSeq as fromSeq<a>(values: Seq(a)): Vector(a)
+
 export let empty: Vector(a) = []
 
 export fun singleton<a>(value: a): Vector(a) = [value]
 
-export fun isEmpty<a>(values: Vector(a)): Bool = Vector.length(values) == 0
-
-export fun length<a>(values: Vector(a)): Int = Vector.length(values)
-
-export fun append<a>(values: Vector(a), value: a): Vector(a) =
-    Vector.append(values, value)
-
-export fun prepend<a>(values: Vector(a), value: a): Vector(a) =
-    Vector.prepend(values, value)
+export fun isEmpty<a>(values: Vector(a)): Bool = length(values) == 0
 
 export fun first<a>(values: Vector(a)): Option(a) = match values
     [] => None
@@ -34,17 +39,7 @@ export fun dropLast<a>(values: Vector(a)): Vector(a) = match values
     [...rest, _] => rest
 
 export fun get<a>(values: Vector(a), index: Int): Option(a) =
-    if index < 1 or index > Vector.length(values) then
+    if index < 1 or index > length(values) then
         None
     else
         Some(values[index])
-
-export fun at<a>(values: Vector(a), index: Int): a = Vector.at(values, index)
-
-export fun set<a>(values: Vector(a), index: Int, value: a): Vector(a) =
-    Vector.set(values, index, value)
-
-export fun toSeq<a>(values: Vector(a)): Seq(a) = Vector.toSeq(values)
-
-// Eager by design: converting an infinite Seq does not terminate.
-export fun fromSeq<a>(values: Seq(a)): Vector(a) = Vector.fromSeq(values)
