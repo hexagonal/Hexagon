@@ -81,6 +81,31 @@ The rule is based on the receiver's type, not on which unqualified names happen 
 imported. Imports cannot introduce competing method candidates. There is one companion
 module and therefore one operation set to consult.
 
+Inside the home module itself, the familiar top-down rule applies unchanged: a dot
+call is legal exactly where a direct call to the operation would be, so the operation
+must be declared above the call that uses it, like every binding (chapter 3).
+
+One further rule keeps recursion visible: a dot call never targets a member of its own
+`fun` group. Consider a recursive operation in the home module of a recursive union:
+
+```hexagon
+union Route =
+    | Arrive(destination: String)
+    | Leg(stop: String, rest: Route)
+
+export fun describe(route: Route): String =
+    match route
+        Arrive(destination) => destination
+        Leg(stop, rest) => "${stop} -> ${rest.describe()}"   // error
+```
+
+`describe` is subject-first and exported from `Route`'s home module, so elsewhere
+`rest.describe()` would be an ordinary dot call. Here it is the recursive call, and the
+compiler rejects it: a dot call cannot target its own `fun` group; spell the call by
+name — `describe(rest)`. The same rule covers every member of the group, so two
+mutually recursive operations call each other by name as well. Recursion is always
+visible as recursion, never hidden behind a dot.
+
 Primitive and prelude types follow the same idea through their fixed companions:
 `String`, `Option`, `Result`, and later `Vector` and `Map` are not special runtime
 objects. Their dot calls are still rewrites to ordinary functions.

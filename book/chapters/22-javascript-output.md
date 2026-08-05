@@ -46,7 +46,7 @@ preserves Hexagon's rule rather than using a deceptively similar JavaScript oper
 ## Functions keep their calling shape
 
 Ordinary `let`-bound functions emit as arrow functions. Recursive `fun` declarations
-emit as hoisted function declarations:
+emit as function declarations:
 
 ```hexagon
 let double(x: Int): Int = x * 2
