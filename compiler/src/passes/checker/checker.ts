@@ -285,6 +285,81 @@ function primitive(name: Typed.PrimitiveName): Constructor {
 }
 
 /**
+ * The two nominal identity spaces are separate counters, so a record and a union
+ * can share a number. These two functions are the only place either becomes a
+ * companion key, which is what keeps `record:3` and `union:3` apart.
+ */
+function recordCompanionKey(record: Resolved.RecordId): string {
+  return `record:${Number(record)}`;
+}
+
+function unionCompanionKey(union: Resolved.UnionId): string {
+  return `union:${Number(union)}`;
+}
+
+/**
+ * The compiler-built-in heads that have a companion module rather than a
+ * declaration: `Vector`, `Map`, `Set`. §4.1 gives them "the fixed prelude
+ * companion module of the same name", and Collections Part 3 §7 says which
+ * module that is at any moment — the one addressable under the name here, which
+ * is how `stdlib/Vector.hex` occludes the compiler's own core inventory today.
+ *
+ * They are keyed by name because there is no declaration to key on: no `.hex`
+ * file declares `Vector`, so `bindingSpan.fileId` cannot answer "is this
+ * operation the companion's?" the way it does for a nominal type. The module
+ * alias answers instead. When nothing supplies one — the shipped-today
+ * configuration, where `stdlib/Vector.hex` is in `stdlib/` but in no project's
+ * prelude — the set is empty and every dot call on such a receiver reports,
+ * which is #217's fix.
+ */
+const BUILTIN_COMPANIONS: ReadonlyMap<string, string> = new Map([
+  ["Vector", "builtin:Vector"],
+  ["Map", "builtin:Map"],
+  ["Set", "builtin:Set"],
+]);
+
+/**
+ * §4.2's `T`-headed test, run on a declaration: the outermost type constructor of
+ * a first parameter's annotation, when that constructor is a nominal one.
+ *
+ * A built-in collection head answers with its named companion instead
+ * (`BUILTIN_COMPANIONS`). Anything else is `undefined` and therefore dot-callable
+ * on nothing — a bare type variable (`identity(x: a)`), a primitive, a function,
+ * a structural record. Aliases never reach here unexpanded: the resolver expands
+ * them in place (§4.3), so `type Name = String` contributes a `String` head and
+ * no companion of its own.
+ */
+function companionKeyOfAnnotation(
+  annotation: Resolved.TypeAnnotation | undefined,
+): string | undefined {
+  if (annotation === undefined) return undefined;
+  if (annotation.kind === "RecordDeclaration") return recordCompanionKey(annotation.record);
+  if (annotation.kind === "Union") return unionCompanionKey(annotation.union);
+  return BUILTIN_COMPANIONS.get(annotation.kind);
+}
+
+/**
+ * The first parameter's annotation of a module-level function declaration.
+ *
+ * Two spellings reach here. A header form (`fun map(s: Seq(a), …)`, and the
+ * `let` header the stdlib uses just as often — `export let length(source:
+ * Seq(a)): Int`) carries its parameters on the lambda the parser built. A `let`
+ * bound to a written function *type* carries them on the annotation instead.
+ * Both are functions with a first parameter, so §4.2 asks the same question of
+ * both; a `let` whose value is an unannotated lambda answers with nothing, which
+ * is the same "no declared head, no candidacy" the syntactic test gives a bare
+ * type variable.
+ */
+function firstParameterAnnotation(
+  item: Resolved.FunItem | Resolved.LetItem,
+): Resolved.TypeAnnotation | undefined {
+  if (item.kind === "Let" && item.annotation !== undefined) {
+    return item.annotation.kind === "Function" ? item.annotation.parameters[0] : undefined;
+  }
+  return item.value.kind === "Lambda" ? item.value.parameters[0]?.annotation : undefined;
+}
+
+/**
  * A compiler-known constructor's claim (closure doc §5.3). A constructor with
  * no row is invariant, and item 7 declines its variables — the answer that
  * withholds generalization rather than granting it on a claim nobody made.
@@ -367,7 +442,37 @@ class Checker {
   readonly #recordConstructors = new Set<Resolved.SymbolId>();
   readonly #aliasParameters = new WeakMap<Resolved.TypeAliasItem, ReadonlyMap<string, Variable>>();
   readonly #exceptions = new Map<Resolved.SymbolId, Resolved.ExceptionItem>();
-  readonly #operationsByName = new Map<string, Resolved.Symbol>();
+  /**
+   * The dot-callable operations of each nominal type, by that type's identity
+   * (Method Syntax §4.1/§4.2).
+   *
+   * `CompanionOf` is a function of the **receiver's head constructor**, so this
+   * is keyed on the receiver's identity and not on the operation's name. What a
+   * key answers is §4.2's set verbatim: the functions *exported by the type's
+   * home module* whose *first parameter is `T`-headed*. Two independent filters,
+   * both of them required — an exported subject-first `double(b: Box)` written
+   * in a module that merely imports `Box` is not `Box`'s, and neither is a
+   * private one written in `Box`'s own file (§4.2's "exported only, uniformly").
+   * A head with no declaration to be the home of — `Vector`, `Map`, `Set` —
+   * substitutes the module addressable under its own name; see
+   * `BUILTIN_COMPANIONS`.
+   *
+   * This replaces a flat name table over every `fun`/`let` symbol in scope,
+   * last-wins (#267). That table made dispatch **lexical**, which §1 forbids in
+   * as many words: a module-level `map` won `s.map(f)` outright, and the program
+   * silently called it instead of the companion's. Three other binder kinds
+   * produced three other wrong answers, and a `Vector` receiver reached prelude
+   * `Seq.length` for a type mismatch where a companion diagnostic belonged
+   * (#217).
+   *
+   * Candidates are drawn from the symbols this module already has in hand — its
+   * own declarations plus everything it imports, the prelude included — exactly
+   * as the name table was. §4.2's import-insensitivity is therefore still only
+   * as wide as the symbol table: an operation in a home module this file never
+   * imports has no symbol here to bind and no local spelling to emit, which is a
+   * plumbing question this fix deliberately does not open.
+   */
+  readonly #companionOperations = new Map<string, Map<string, Resolved.Symbol>>();
   readonly #operationSpellings = new Map<Resolved.SymbolId, string>();
   readonly #constraintNames = new Set<string>(PRE_REGISTERED_CONSTRAINTS);
   /**
@@ -741,11 +846,6 @@ class Checker {
         this.#expressionTypes.set(member.defaultValue, expected);
       }
     }
-    for (const symbol of module.symbols) {
-      if (symbol.kind === "fun" || symbol.kind === "let") {
-        this.#operationsByName.set(symbol.name, symbol);
-      }
-    }
     for (const item of module.items) {
       if (item.kind !== "Exception") continue;
       this.#exceptions.set(item.binding.symbol, item);
@@ -924,6 +1024,7 @@ class Checker {
         });
       }
     }
+    this.#indexCompanionOperations(module);
     this.#inferItems(module.items, 0, true);
     this.#defaultRemainingVariables();
     this.#checkPublicSignatures(module.items);
@@ -950,6 +1051,121 @@ class Checker {
       span: module.span,
       diagnostics: this.#diagnostics.toArray(),
     };
+  }
+
+  /**
+   * Builds §4.2's companion operation set for every nominal type this module can
+   * name (`#companionOperations`).
+   *
+   * Run after the record and union loops above, so a nominal's *home file* — the
+   * file its declaration's span points into, which is what `CompanionOf` means
+   * by home module (§4.1, Modules §7.2) — is already known for imported copies
+   * too, and before `#inferItems`, so every dot call in the module sees the
+   * finished index.
+   *
+   * **Order-independence within the file is the point of reading annotations
+   * rather than schemes.** A local `fun`'s scheme does not exist yet here: it is
+   * seeded in `#inferItems`, in dependency order, so an index built from schemes
+   * would answer differently depending on where in the file an operation was
+   * written. §4.2 anticipates exactly this — `T`-headed "is a syntactic test, not
+   * a unification question", and building the set is "a declaration-indexing
+   * operation". Transparent aliases were already expanded by the resolver, which
+   * is where §4.3's expansion happens.
+   *
+   * Imported operations have no declaration here to read, so their subject comes
+   * from the imported scheme's first parameter — the head constructor of a type
+   * the *exporting* module built from that same annotation. Reading a head is
+   * not unification, and no candidate reaches this path without having crossed
+   * an export boundary, which is where `#checkPublicSignatures` has already
+   * demanded an annotation.
+   */
+  #indexCompanionOperations(module: Resolved.Module): void {
+    const symbols = new Map(module.symbols.map((symbol) => [symbol.id, symbol]));
+    const home = new Map<string, number>();
+    for (const record of module.records) {
+      home.set(recordCompanionKey(record.id), Number(record.span.fileId));
+    }
+    for (const union of module.unions) {
+      home.set(unionCompanionKey(union.id), Number(union.span.fileId));
+    }
+    // A built-in head's companion is the module addressable under its name
+    // (`BUILTIN_COMPANIONS`), so membership is the alias's export list rather
+    // than a file. An alias is the only evidence the checker has here, and it is
+    // the same evidence `Vector.append(v, x)` already resolves through.
+    const addressed = new Map<string, Set<Resolved.SymbolId>>();
+    for (const alias of module.moduleAliases) {
+      const key = BUILTIN_COMPANIONS.get(alias.alias);
+      if (key === undefined) continue;
+      const members = addressed.get(key) ?? new Set<Resolved.SymbolId>();
+      for (const member of alias.members) members.add(member.symbol);
+      addressed.set(key, members);
+    }
+    const admit = (symbol: Resolved.Symbol | undefined, subject: string | undefined): void => {
+      if (symbol === undefined || subject === undefined) return;
+      // Symbol kind, not declaration shape: an intrinsic `extern fun` binds as
+      // kind `fun` precisely so that it lands here (#134, `intrinsics.md` §8.1 —
+      // `Seq.memoize` is the case), while an ordinary foreign `extern` binds as
+      // kind `extern` and stays out, which is what makes a distinguished local
+      // dispatch to the prelude (#266).
+      if (symbol.kind !== "fun" && symbol.kind !== "let") return;
+      // The home-module filter. Without it any module that merely *imports* `Box`
+      // could add operations to it — the orphan-rule analogue §1 calls "one
+      // companion, no search". A built-in head answers through its alias
+      // instead; with no alias the lookup fails and its set stays empty.
+      const members = addressed.get(subject);
+      if (
+        members === undefined
+          ? home.get(subject) !== Number(symbol.bindingSpan.fileId)
+          : !members.has(symbol.id)
+      ) return;
+      let operations = this.#companionOperations.get(subject);
+      if (operations === undefined) {
+        operations = new Map();
+        this.#companionOperations.set(subject, operations);
+      }
+      operations.set(symbol.name, symbol);
+    };
+
+    for (const item of module.items) {
+      if (item.kind === "ExternBlock") {
+        for (const declaration of item.declarations) {
+          if (declaration.kind !== "ExternFun" || !declaration.exported) continue;
+          admit(
+            symbols.get(declaration.binding.symbol),
+            companionKeyOfAnnotation(declaration.parameters[0]?.annotation),
+          );
+        }
+        continue;
+      }
+      if (item.kind !== "Fun" && item.kind !== "Let") continue;
+      if (!item.exported) continue;
+      admit(
+        symbols.get(item.binding.symbol),
+        companionKeyOfAnnotation(firstParameterAnnotation(item)),
+      );
+    }
+
+    for (const symbol of module.symbols) {
+      // Everything this file declared has already been offered above, under the
+      // export flag its item carries. A symbol from another file is in the table
+      // only because an import put it there, and only exported names cross
+      // (`moduleInterface`), so exportedness needs no second test here.
+      if (Number(symbol.bindingSpan.fileId) === Number(module.fileId)) continue;
+      const scheme = this.#schemes.get(symbol.id);
+      if (scheme === undefined) continue;
+      const type = this.#prune(scheme.type);
+      if (type.kind !== "Function") continue;
+      const first = type.parameters[0];
+      admit(symbol, first === undefined ? undefined : this.#companionKeyOfType(first));
+    }
+  }
+
+  /** The companion identity a receiver's head names, or none for a headless one. */
+  #companionKeyOfType(type: Mono): string | undefined {
+    const actual = this.#prune(type);
+    if (actual.kind === "NominalRecord") return recordCompanionKey(actual.record);
+    if (actual.kind === "Union") return unionCompanionKey(actual.union);
+    return BUILTIN_COMPANIONS.get(actual.kind);
   }
 
   #checkInstanceHead(
@@ -2512,7 +2728,18 @@ class Checker {
             this.#recordRepresentationVisible(actual.record) &&
             this.#nominalRecordFields(actual).has(expression.callee.field.text);
           if (nominal && !recordHasField) {
-            const operation = this.#operationsByName.get(expression.callee.field.text);
+            // Type-directed, never lexical (§1): the receiver's head names one
+            // companion, and only that companion's exported subject-first
+            // operations are candidates (§4.2, `#companionOperations`). A
+            // `Vector`, `Set`, or `Map` receiver reaches whatever module is
+            // addressable under that name and nothing else, so in a project that
+            // supplies none its set is empty and this takes the diagnostic below
+            // rather than binding whatever prelude function happens to share the
+            // name (#217).
+            const companion = this.#companionKeyOfType(actual);
+            const operation = companion === undefined
+              ? undefined
+              : this.#companionOperations.get(companion)?.get(expression.callee.field.text);
             const scheme = operation === undefined ? undefined : this.#schemes.get(operation.id);
             if (operation === undefined || scheme === undefined) {
               // Abandoning the call does not excuse the arguments: materialization

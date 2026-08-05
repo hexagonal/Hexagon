@@ -701,13 +701,18 @@ describe("AnalysisSession.rename", () => {
   test("rewrites a dot call, which only the checker knows the meaning of", () => {
     // `Pale.brighten()` is companion dispatch. The resolved tree has only an
     // `Access` whose field nobody has decided the meaning of yet — the checker
-    // settles it by name — so without the typed tree in the index this call site
-    // is a mention of nothing, and the rename walks straight past it.
+    // settles it against `Shade`'s companion — so without the typed tree in the
+    // index this call site is a mention of nothing, and the rename walks
+    // straight past it.
+    //
+    // Both declarations are exported because Method Syntax §4.2 admits only
+    // exported functions to a companion's operation set, home module included;
+    // they were private while dispatch ran off a flat name table (#267).
     const source = [
-      "union Shade =",
+      "export union Shade =",
       "    | Pale",
       "",
-      "fun brighten(s: Shade): Shade = s",
+      "export fun brighten(s: Shade): Shade = s",
       "",
       "let x: Shade = Pale.brighten()",
       "",
@@ -718,13 +723,20 @@ describe("AnalysisSession.rename", () => {
     expect(applied(texts, plan)["/main.hex"]).toBe(source.replaceAll("brighten", "lighten"));
   });
 
-  test("refuses a rename that moves a dot call to a different function", () => {
-    // The case no test confined to the renamed identity can see. `Pale.tag()`
-    // resolves by name, so giving `/b.hex`'s function the name `tag` moves that
-    // call from `/a.hex`'s function to `/b.hex`'s — with every type still
-    // checking, no diagnostic anywhere, and the moved site spelled neither
-    // `mark` nor `tag` in its own module. Verified by hand before this was
-    // caught: the emitted `x` changed from `tag(Pale)` to `m(Pale)`.
+  test("a rename outside the receiver's home module cannot move a dot call", () => {
+    // This test used to *refuse* this rename, and refusing was right while
+    // dispatch ran off a flat by-name table: giving `/b.hex`'s function the name
+    // `tag` moved `Pale.tag()` from `/a.hex`'s function to `/b.hex`'s, with every
+    // type still checking and no diagnostic anywhere — the emitted `x` changed
+    // from `tag(Pale)` to `m(Pale)`.
+    //
+    // #267 made dispatch type-directed (Method Syntax §4.1/§4.2): `Shade`'s
+    // companion is the module that declares `Shade`, so a subject-first function
+    // written anywhere else is not a candidate however it is spelled. There is
+    // nothing left for the rename to move, and refusing it would now be a refusal
+    // with no cause. The whole-project sweep that caught the old case stays —
+    // capture still moves names that mention neither spelling — and its other
+    // clients are the refusal tests below.
     const a = ["export union Shade =", "    | Pale", "", "export fun tag(s: Shade): Int = 1", ""]
       .join("\n");
     const b = ['import {Shade} from "./a"', "", "export fun mark(s: Shade): Int = 2", ""].join("\n");
@@ -735,10 +747,15 @@ describe("AnalysisSession.rename", () => {
       "let x: Int = Pale.tag()",
       "",
     ].join("\n");
-    const { session } = sessionOf({ "/a.hex": a, "/b.hex": b, "/main.hex": main });
+    const { session, texts } = sessionOf({ "/a.hex": a, "/b.hex": b, "/main.hex": main });
     expect(session.allDiagnostics().get("/main.hex")).toEqual([]);
-    expect(refusal(session.rename("/b.hex", at(b, "mark"), "tag")))
-      .toContain("would change what the code means");
+    const plan = session.rename("/b.hex", at(b, "mark"), "tag");
+    const after = applied(texts, plan);
+    expect(after["/b.hex"]).toBe(b.replace("mark", "tag"));
+    // `/main.hex` renames only its own import of `/b.hex`'s function; the dot
+    // call is left alone because it never meant that function.
+    expect(after["/main.hex"]).toContain('import {tag as m} from "./b"');
+    expect(after["/main.hex"]).toContain("let x: Int = Pale.tag()");
   });
 
   test("a dot call reached through an alias keeps its own spelling", () => {

@@ -5,10 +5,10 @@ import { compileFiles, projectDiagnostics } from "../support/test-project.js";
 /**
  * Conformance for the dot call whose companion has no such operation (#212).
  *
- * A dot call on a nominal receiver looks the field up in the checker's by-name
- * operation table; when nothing answers, the call is abandoned and the companion
- * diagnostic is reported. The defect was that abandoning it skipped the
- * *arguments*, and an integer literal only records its `Num`/`FromNat`
+ * A dot call on a nominal receiver looks the field up in the receiver's own
+ * companion (Method Syntax §4.2); when nothing answers, the call is abandoned
+ * and the companion diagnostic is reported. The defect was that abandoning it
+ * skipped the *arguments*, and an integer literal only records its `Num`/`FromNat`
  * requirement when it is inferred. Materialization walks the whole resolved tree
  * regardless of who abandoned what, so a bare `1` in such a call took down the
  * entire compile with `Cannot read properties of undefined (reading '0')` — the
@@ -19,10 +19,12 @@ import { compileFiles, projectDiagnostics } from "../support/test-project.js";
  * whether the compiler reported or threw, so a control with a `Float` or a named
  * binding argument passed throughout.
  *
- * Whether dot call should someday reach the compiler-core inventory (§4) or how
- * a module-level binding comes to shadow an operation (§5) are separate
- * questions — #217/#267. What is pinned here is only: a diagnostic, never a
- * throw.
+ * How a module-level binding came to shadow an operation was #267, since fixed:
+ * dispatch is resolved from the receiver's companion, not from the names in
+ * scope, and the `take` case below now binds `Seq.take`. Whether dot call should
+ * someday reach the compiler-core inventory (§4) is still open — #217 is closed
+ * on the diagnostic, not on the feature. What is pinned here is only: a
+ * diagnostic, never a throw.
  */
 
 /** Every diagnostic message a multi-module project produced, in order. */
@@ -65,9 +67,9 @@ describe("a missing companion operation reports rather than crashing (#212)", ()
 
 describe("correctly-spelled core operations are out of dot call's reach", () => {
   // `append` and `at` exist — they are compiler-core `Vector` operations — but
-  // they are not module-level functions, so the by-name table has no row for
-  // them and the dot call takes the same bail. The pin is that this is a
-  // diagnostic; that dot call cannot reach the core inventory is #217/#267.
+  // `Vector`'s home module is not in the prelude, so the receiver names no
+  // companion and its operation set is empty. The pin is that this is a
+  // diagnostic; that dot call cannot reach the core inventory is #217's residue.
   //
   // The receiver is a literal, so its element type is still an unsolved variable
   // when the message is rendered (`Vector(?n)`). The variable's number is an
@@ -92,30 +94,30 @@ describe("correctly-spelled core operations are out of dot call's reach", () => 
 });
 
 describe("a module-level binding that shadows a real operation", () => {
-  // `take` is a genuine `Seq` operation, occluded here by a module-level `let`
-  // of the same name — and the occluding binding is not itself an operation, so
-  // the by-name table answers with nothing and the call reaches the same bail as
-  // an outright misspelling. Why a module-level binding gets to occlude a
-  // companion operation at all is #267; what is pinned here is only that the
-  // argument is still inferred, so this reports instead of throwing.
-  test("`s.take(1)` under `let take: Int` reports rather than crashing", () => {
+  // `take` is a genuine `Seq` operation, and a module-level `let take: Int` used
+  // to knock it out: the by-name table answered with the `let`, whose scheme is
+  // not a function, so the call reached the same bail as an outright misspelling
+  // and the compiler said something false about the companion. #267 replaced the
+  // table with the receiver's own companion, so the `let` is not a candidate for
+  // anything and `Seq.take` answers. What this route contributed to #212 — that
+  // a bare `1` in an *abandoned* dot call is still inferred — is covered by every
+  // other case here; this one no longer abandons.
+  test("`s.take(1)` under `let take: Int` reaches `Seq.take`", () => {
     expect(
       projectDiagnostics(
         "export let take: Int = 5\n" +
           "export fun go(s: Seq(Int)): Seq(Int) = s.take(1)\n",
       ),
-    ).toEqual([
-      "the companion of `Seq(Int)` has no operation `take`; call an available subject-first function explicitly",
-    ]);
+    ).toEqual([]);
   });
 });
 
 describe("a constraint member is not a companion operation", () => {
   // The receiver is opaque, so the field is not a record field; `show` *is* a
-  // real name in the prelude, but as a constraint member rather than a
-  // module-level `fun`/`let` it has no row in the by-name operation table. So
-  // this reaches the same bail as an outright misspelling — it does not route
-  // to `Show.show`.
+  // real name in the prelude, but constraint members are not companion
+  // operations and dot syntax never reaches them (Method Syntax §7). `Token`'s
+  // companion is `/vault.hex`, which exports no `show`, so this reaches the same
+  // bail as an outright misspelling — it does not route to `Show.show`.
   test("an imported opaque record's `show` reports rather than crashing", () => {
     expect(
       diagnostics([

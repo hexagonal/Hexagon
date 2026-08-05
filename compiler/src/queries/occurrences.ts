@@ -22,8 +22,8 @@
  *   Reading the text to find a name the tree already told us is there is not a
  *   textual guess about meaning; the meaning arrived with the identity.
  * - `typed` owns one thing and only one: the operation name of a dot call.
- *   `source.map(f)` is companion dispatch, which the *checker* resolves by name
- *   against the operations in scope; in `resolved` it is still an `Access` whose
+ *   `source.map(f)` is companion dispatch, which the *checker* resolves against
+ *   the receiver's companion; in `resolved` it is still an `Access` whose
  *   field nobody has decided the meaning of. Left out, `map` there is a mention
  *   of nothing — find-references misses it, and a rename walks straight past it
  *   while every other mention moves.

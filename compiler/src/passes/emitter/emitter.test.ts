@@ -706,9 +706,13 @@ describe("emitJavaScript", () => {
   });
 
   test("resolves nominal dot calls to subject-first companion operations", () => {
+    // `translate` is exported because Method Syntax §4.2 admits only exported
+    // functions to a companion's operation set, "uniformly — including inside the
+    // home module itself". It used to be private here and dispatched anyway,
+    // which was the by-name table's doing (#267).
     const module = coreSource(
       "export record Point = {x: Int, y: Int}\n" +
-        "fun translate(point: Point, dx: Int): Point = {point with x = point.x + dx}\n" +
+        "export fun translate(point: Point, dx: Int): Point = {point with x = point.x + dx}\n" +
         "export let shifted: Point = Point({x = 1, y = 2}).translate(3)",
     );
 

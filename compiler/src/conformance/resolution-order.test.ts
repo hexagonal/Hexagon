@@ -256,8 +256,15 @@ describe("still-intrinsic names keep working — this phase changes order, not m
     )).toEqual([]);
   });
 
+  // Qualified, like the `Set` row above it. This used to be spelled `m.size()`,
+  // which proved nothing about `Map` staying intrinsic: dot call resolved through
+  // a flat by-name table, so `size` found this module's own `size` and the test
+  // passed on a self-recursive call (#267). A `Map` receiver now names no
+  // companion at all — `stdlib/Vector.hex` and its siblings are not in the
+  // prelude yet — so the dot spelling reports, and only the core inventory
+  // answers for `Map`.
   test("`Map`", () => {
-    expect(diagnostics("export fun size(m: Map(String, Int)): Int = m.size()\n")).toEqual([]);
+    expect(diagnostics("export fun size(m: Map(String, Int)): Int = Map.size(m)\n")).toEqual([]);
   });
 
   test("`Seq`, through the compiler-known operation family", () => {
