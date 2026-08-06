@@ -180,6 +180,13 @@ export interface HoleTypeAnnotation {
    * in two different definitions through the same alias agree on it.
    */
   readonly id: number;
+  /**
+   * The written constraint list of `_ : C` (§4.4), by name — resolved as binder
+   * lists resolve theirs, which is to say carried through for the checker to
+   * look up. Empty for a bare `_`. The list rides the hole node, so the copies
+   * substitution makes share the seed exactly as they share the id.
+   */
+  readonly constraints: readonly string[];
   readonly span: Source.Span;
 }
 

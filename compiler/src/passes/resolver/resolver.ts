@@ -2678,8 +2678,13 @@ class Resolver {
     if (annotation.kind === "Hole") {
       // Minted per *written* `_`, which is the only place a hole enters the
       // resolved tree: every later copy is made by substitution, which spreads
-      // the node and so carries this id with it.
-      return { kind: "Hole", id: this.#nextHole++, span: annotation.span };
+      // the node and so carries this id — and its seeded constraints — with it.
+      return {
+        kind: "Hole",
+        id: this.#nextHole++,
+        constraints: annotation.constraints.map(({ text }) => text),
+        span: annotation.span,
+      };
     }
     if (annotation.kind === "TypeVariable") {
       const replacement = substitutions.get(annotation.name.text);

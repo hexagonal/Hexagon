@@ -592,6 +592,58 @@
       "match": "[\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*"
     },
 
+    "hole-constraints": {
+      "//": [
+        "A constrained hole, `_ : Show` and `_ : (Eq, Show)` (closure doc",
+        "decisions-ml-dialect-annotations-2026-08.md §4.4). Two things need rules of",
+        "their own here. The `_` stands before a colon, so the record-type field rule",
+        "below would take it for a field name — `_` is its own token and can never be",
+        "one (spec/lexer.md §3.2) — and the names after the colon are constraints,",
+        "which #constraint-name scopes and the plain type rule does not.",
+        "",
+        "The suffix is bounded: one reference or one balanced parenthesized list. So",
+        "the single form needs no context at all, and only the parenthesized form",
+        "opens one — bounded-only, its bail-out arms copied from #type-parameter-bound's",
+        "nested group, which is the same conjunction in the binder position. See the",
+        "//line-bail-guard note."
+      ],
+      "patterns": [
+        {
+          "begin": "(_)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]*(:)(?!=)[ \\t]*(\\()(?!\\*)",
+          "beginCaptures": {
+            "1": { "name": "entity.name.type.parameter.hexagon" },
+            "2": { "name": "punctuation.separator.colon.hexagon" },
+            "3": { "name": "punctuation.section.parens.begin.hexagon" }
+          },
+          "end": "\\)|$|(?=^\\S|^[ \\t]*(?:(?:let|var|fun|record|union|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|\\|(?!>)))",
+          "endCaptures": {
+            "0": { "name": "punctuation.section.parens.end.hexagon" }
+          },
+          "patterns": [
+            { "include": "#comments" },
+            { "include": "#constraint-name" },
+            { "include": "#punctuation" }
+          ]
+        },
+        {
+          "//": "The single reference, plain or qualified by a module alias (spec/modules.md §3.3). `(?!\\.)` keeps a range's `..` out of the qualifier.",
+          "match": "(_)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]*(:)(?!=)[ \\t]*(?:([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)(\\.)(?!\\.))?([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)",
+          "captures": {
+            "1": { "name": "entity.name.type.parameter.hexagon" },
+            "2": { "name": "punctuation.separator.colon.hexagon" },
+            "3": { "name": "entity.name.namespace.hexagon" },
+            "4": { "name": "punctuation.accessor.hexagon" },
+            "5": { "name": "entity.name.type.constraint.hexagon" }
+          }
+        },
+        {
+          "//": "`_ :` with the constraint not typed yet: the hole keeps its own scope while the line is half-written, rather than flickering to a field name.",
+          "name": "entity.name.type.parameter.hexagon",
+          "match": "_(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?=[ \\t]*:(?!=))"
+        }
+      ]
+    },
+
     "annotation-type": {
       "//": [
         "A colon that is not `:=` opens a type annotation. The surrounding",
@@ -621,6 +673,7 @@
       ],
       "patterns": [
         { "include": "#comments" },
+        { "include": "#hole-constraints" },
         {
           "name": "variable.parameter.hexagon",
           "match": "(?![\\p{Uppercase}\\p{Lt}])([\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)(?=[ \\t]*:(?!=))"

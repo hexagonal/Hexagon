@@ -1028,28 +1028,14 @@ class Parser {
       const name = parsedName(token);
       if (seen.has(name.text)) this.#errorAt(name.span, `duplicate type parameter \`${name.text}\``);
       seen.add(name.text);
-      const constraints: Parsed.Name[] = [];
-      if (this.#at("Colon")) {
-        this.#advance();
-      } else {
-        parameters.push({ name, constraints, span: name.span });
+      if (!this.#at("Colon")) {
+        parameters.push({ name, constraints: [], span: name.span });
         if (!this.#at("Comma")) break;
         this.#advance();
         continue;
       }
-      if (this.#at("LeftParen")) {
-        this.#advance();
-        while (!this.#at("RightParen") && !this.#at("Eof")) {
-          const constraint = this.#parseConstraintReference("constraint names are uppercase");
-          if (constraint !== undefined) constraints.push(constraint);
-          if (!this.#at("Comma")) break;
-          this.#advance();
-        }
-        this.#expect("RightParen", "expected `)` after constraints");
-      } else {
-        const constraint = this.#parseConstraintReference("expected a constraint name");
-        if (constraint !== undefined) constraints.push(constraint);
-      }
+      this.#advance();
+      const constraints = this.#parseConstraintList();
       parameters.push({
         name,
         constraints,
@@ -2804,7 +2790,23 @@ class Parser {
     }
     if (token.kind === "Wildcard") {
       this.#advance();
-      return { annotation: { kind: "Hole", span: token.span } };
+      // A hole is the only operand that admits a constraint suffix (closure doc
+      // §4.4). The suffix is bounded — one reference or one balanced
+      // parenthesized list — so consuming it here ends the operand: `_ : Num ->
+      // a` is `(_ : Num) -> a`, and a tuple's `,` still belongs to the tuple.
+      // The span stays the `_`'s: it is what hover points at, and what the
+      // fence carets (§7, §5.4).
+      if (!this.#at("Colon")) {
+        return { annotation: { kind: "Hole", constraints: [], span: token.span } };
+      }
+      this.#advance();
+      return {
+        annotation: {
+          kind: "Hole",
+          constraints: this.#parseConstraintList(),
+          span: token.span,
+        },
+      };
     }
     if (token.kind === "NonUpperName") {
       this.#advance();
@@ -2888,6 +2890,31 @@ class Parser {
    * resolver keys the module-alias lookup on. §5.1 is untouched — the alias is
    * what stands *left* of the dot, and constraints still never take one.
    */
+  /**
+   * The obligation side of a binder, after its `:`: one constraint reference,
+   * or a parenthesized conjunction — `Ord`, `(Num, Ord)` (Functions §4.2).
+   *
+   * Shared with the constrained hole `_ : C` (closure doc §4.4), which reuses
+   * the form wholesale rather than growing a second spelling of it.
+   */
+  #parseConstraintList(): readonly Parsed.Name[] {
+    const constraints: Parsed.Name[] = [];
+    if (this.#at("LeftParen")) {
+      this.#advance();
+      while (!this.#at("RightParen") && !this.#at("Eof")) {
+        const constraint = this.#parseConstraintReference("constraint names are uppercase");
+        if (constraint !== undefined) constraints.push(constraint);
+        if (!this.#at("Comma")) break;
+        this.#advance();
+      }
+      this.#expect("RightParen", "expected `)` after constraints");
+      return constraints;
+    }
+    const constraint = this.#parseConstraintReference("expected a constraint name");
+    if (constraint !== undefined) constraints.push(constraint);
+    return constraints;
+  }
+
   #parseConstraintReference(message: string): Parsed.Name | undefined {
     const token = this.#takeName("UpperName", message);
     if (token === undefined) return undefined;

@@ -412,6 +412,13 @@ export interface FunctionType {
 /** A type hole, `_` (closure doc `decisions-ml-dialect-annotations-2026-08.md`). */
 export interface HoleType {
   readonly kind: "Hole";
+  /**
+   * The written constraint list of a constrained hole — `_ : Show`,
+   * `_ : (Eq, Show)` — empty for a bare `_` (closure doc §4.4). A hole is the
+   * only type operand that admits the suffix; the list itself is Functions
+   * §4.2's, parsed by the sub-grammar binder lists use.
+   */
+  readonly constraints: readonly Name[];
   readonly span: Source.Span;
 }
 

@@ -354,3 +354,199 @@ describe("§8.8 hover reports the filled type (§7)", () => {
     expect(session.hover("/main.hex", source.indexOf("_)"))?.name).toBe("_");
   });
 });
+
+/**
+ * Constrained holes, `_ : C` (§4.4). The list seeds the hole's constraint set at
+ * introduction and then gets out of the way: accumulation, defaulting,
+ * generalization and instance resolution are the same machinery reading the same
+ * register, which is why the assertions below are again mostly equalities with a
+ * program that reaches the constraint some other way.
+ */
+
+const TAIL = "export let out: Int = 1\n";
+
+describe("§8.10 a seeded constraint reaches the scheme", () => {
+  test("§4.4 `let f(x: _ : Show) = x` receives `Show a => a -> a`", () => {
+    // Seeded, not accumulated: the body demands nothing of `x`, so the written
+    // list is the only place the constraint can have come from.
+    expect(scheme(`let f(x: _ : Show) = x\n${TAIL}`, "f")).toBe("Show a => a -> a");
+    expect(scheme(`let f(x: _) = x\n${TAIL}`, "f")).toBe("a -> a");
+  });
+
+  test("§4.4 the seed is what a binder would have stated, and states it the same way", () => {
+    // The complementary split's claim in one line: the two forms are the same
+    // fact written at the only home each has.
+    expect(scheme(`let f(x: _ : Show) = x\n${TAIL}`, "f"))
+      .toBe(scheme(`let f<a: Show>(x: a) = x\n${TAIL}`, "f"));
+  });
+
+  test("§4.4 a floor, never a cap: accumulation continues past the seed", () => {
+    // §9 item 10. A cap would reject this — and rejecting a program the bare
+    // `_` accepts is what makes the cap reading incoherent.
+    expect(scheme(`let f(x: _ : Show) = x + 1\n${TAIL}`, "f")).toBe("Num a, Show a => a -> a");
+  });
+
+  test("§4.4 base constraints ride along unstated", () => {
+    // The constraint-list form is reused wholesale, entailment included: `Hash`
+    // has `Eq` as a base, so `==` is reachable and adds nothing to the scheme.
+    expect(projectDiagnostics(`let f(x: _ : Hash) = x == x\n${TAIL}`)).toEqual([]);
+    expect(scheme(`let f(x: _ : Hash) = x == x\n${TAIL}`, "f")).toBe("Hash a => a -> Bool");
+  });
+});
+
+describe("§8.11 a seeded constraint refuses a bad fill", () => {
+  test("§6.1 `_ : Num` filled at `Bool` is the ordinary missing-instance error", () => {
+    // No new diagnostic family (§6.1): the error arises at the use that fixes
+    // the fill, from ordinary instance resolution, and says only what it says.
+    expect(projectDiagnostics(`let f(x: _ : Num) = x and True\n${TAIL}`))
+      .toEqual(["type `Bool` has no `Num` instance"]);
+  });
+
+  test("§6.1 the same message an accumulated `Num` gets at the same fill", () => {
+    // Seeded and accumulated are one register (§2.1), so the two must be
+    // indistinguishable here. The binder is *not* the twin to compare against:
+    // a written variable is rigid, and rigidity answers first with Functions
+    // §10's forced-to-a-concrete-type row — §3's divergence, not this one.
+    expect(projectDiagnostics(`let f(x: _ : Num) = x and True\n${TAIL}`))
+      .toEqual(projectDiagnostics(`let f(x: _) = x + x and True\n${TAIL}`));
+    expect(projectDiagnostics(`let f(x: _ : Num) = x and True\n${TAIL}`))
+      .toEqual(projectDiagnostics(`let f(x: Bool) = x + x\n${TAIL}`));
+  });
+
+  test("§4.4 a fill that satisfies the seed is accepted, dictionary and all", () => {
+    expect(projectDiagnostics(
+      "let double(x: _ : Num) = x + x\nexport let out: Int = double(21)\n",
+    )).toEqual([]);
+  });
+});
+
+describe("§8.12 defaulting through a constrained hole", () => {
+  test("§4.4 `let n: _ : Num = 42` gives `n : Int`", () => {
+    // Numeric Literals §4 consults the constraint set as always; it does not
+    // care that this member of the set was written rather than accumulated.
+    expect(scheme(`let n: _ : Num = 42\nexport let out: Int = n\n`, "n")).toBe("Int");
+  });
+
+  test("§4.4 the seed alone does not force a default", () => {
+    // Defaulting needs a literal to reach; a seeded `Num` with nothing numeric
+    // in the body generalizes, exactly as an accumulated one does.
+    expect(scheme(`let f(x: _ : Num) = x\n${TAIL}`, "f")).toBe("Num a => a -> a");
+  });
+});
+
+describe("§8.13 grammar boundaries", () => {
+  test("§4.4 `_ : Num -> a` is `(_ : Num) -> a` — the suffix is bounded", () => {
+    // The operand ends when the suffix does, so the arrow is the enclosing type's.
+    // The parenthesized twin is the falsifier: were the arrow swallowed, the two
+    // would not agree, and neither would name a function *from* the hole.
+    expect(scheme(`let f(g: _ : Num -> Bool) = g\n${TAIL}`, "f"))
+      .toBe(scheme(`let f(g: (_ : Num) -> Bool) = g\n${TAIL}`, "f"));
+    expect(scheme(`let f(g: _ : Num -> Bool) = g\n${TAIL}`, "f"))
+      .toBe("Num a => (a -> Bool) -> a -> Bool");
+  });
+
+  test("§4.4 in a tuple type the `,` belongs to the tuple", () => {
+    expect(scheme(`let f(p: (_ : Num, Int)) = p\n${TAIL}`, "f"))
+      .toBe("Num a => ((a, Int)) -> (a, Int)");
+  });
+
+  test("§4.4 the conjunction `_ : (Eq, Show)` seeds both", () => {
+    expect(scheme(`let f(x: _ : (Eq, Show)) = x\n${TAIL}`, "f")).toBe("Eq a, Show a => a -> a");
+  });
+
+  test("§9 item 9 `x: Int : Num` is a parse error", () => {
+    // Only a hole admits the suffix. A written type's instances are facts the
+    // checker already knows, so the claim would be redundant where it is true.
+    const messages = projectDiagnostics(`let f(x: Int : Num) = x\n${TAIL}`);
+    expect(messages).toContain("expected `)` after parameters");
+  });
+
+  test("§9 item 9 `Vector(a : Show)` is a parse error", () => {
+    // The named variable's constraint home is its binder, and nothing changed
+    // about that: the suffix rides the hole, not the type-argument position.
+    const messages = projectDiagnostics(`let f(xs: Vector(a : Show)) = xs\n${TAIL}`);
+    expect(messages).toContain("expected `)` after type arguments");
+  });
+
+  test("§5.3 the binder list still refuses both hole shapes", () => {
+    // §8.7's pins restated against the new grammar: adding the suffix to the
+    // hole must not have opened a hole-shaped position inside `<...>`.
+    expect(projectDiagnostics("let f<a: _>(x: a) = x\n")).toContain("expected a constraint name");
+    expect(projectDiagnostics("let f<_: Num>(x: Int) = x\n")).toContain(
+      "type parameters must be non-uppercase-start names",
+    );
+  });
+
+  test("§4.4 an unknown constraint reads exactly as it does in a binder", () => {
+    expect(projectDiagnostics(`let f(x: _ : Nope) = x\n${TAIL}`))
+      .toEqual(projectDiagnostics(`let f<a: Nope>(x: a) = x\n${TAIL}`));
+    expect(projectDiagnostics(`let f(x: _ : Nope) = x\n${TAIL}`))
+      .toContain("unknown constraint `Nope`");
+  });
+
+  test("§5.1 the suffix reaches every type position a hole reaches", () => {
+    for (const annotation of [
+      "_ : Show",
+      "Vector(_ : Show)",
+      "(_ : Show, Int)",
+      "{ name: _ : Show }",
+      "Map(String, _ : Show)",
+    ]) {
+      expect(projectDiagnostics(`let f(x: ${annotation}) = x\n${TAIL}`), annotation).toEqual([]);
+    }
+  });
+});
+
+describe("§8.14 seeding survives substitution as one obligation", () => {
+  const PAIR = "type Pair(a) = (a, a)\n";
+
+  test("§4.4 `Pair(_ : Num)` schemes as one shared `Num`-constrained variable", () => {
+    // Two copies of one written hole, so one metavariable (§4.1) carrying one
+    // seed. `Num a, Num b => ((a, b)) -> (a, b)` is the shape this rules out.
+    expect(scheme(`${PAIR}let g(p: Pair(_ : Num)) = p\n${TAIL}`, "g"))
+      .toBe("Num a => ((a, a)) -> (a, a)");
+  });
+
+  test("§4.4 one obligation, not two — one dictionary reaches the emitted function", () => {
+    // The scheme's display would dedupe a doubled obligation; the evidence
+    // parameter list is where a second variable would actually show.
+    const compiled = compileMain(`${PAIR}let g(p: Pair(_ : Num)) = p\n${TAIL}`);
+    expect(compiled.diagnostics).toEqual([]);
+    const emitted = compiled.modules.find(({ source }) => source.path === "/main.hex")!.javascript;
+    expect(emitted.text.match(/__hex_dictNum_/g) ?? []).toHaveLength(1);
+  });
+
+  test("§4.4 the shared seed is checked once, at whatever fixes the fill", () => {
+    expect(projectDiagnostics(
+      `${PAIR}let g(p: Pair(_ : Num)): Int = 1\nexport let out: Int = g(("a", "b"))\n`,
+    )).toEqual(["type `String` has no `Num` instance"]);
+  });
+});
+
+describe("§8 residue: the fence and hover need no new case (§5.4, §7)", () => {
+  test("§5.4 a constrained hole in a fenced position still errors", () => {
+    // The suffix rides the hole, so the existing sweep already sees it.
+    expect(projectDiagnostics("export let f(x: _ : Show): Int = 1\n")).toContain(
+      "an exported signature is complete (Modules §4.1.1); replace `_` with the intended type",
+    );
+    expect(projectDiagnostics(`type T = Vector(_ : Show)\n${TAIL}`)).toContain(
+      "a `type` declaration writes its types in full; replace `_` with the intended type",
+    );
+  });
+
+  test("§7 hover shows the seeded constraint, through the existing scheme display", () => {
+    const source = `let f(x: _ : Show) = x\n${TAIL}`;
+    const session = new AnalysisSession();
+    session.setFile("/main.hex", source);
+    const hover = session.hover("/main.hex", source.indexOf("_"));
+    expect(hover?.name).toBe("_");
+    expect(hover?.displayedType).toBe("Show a => a");
+  });
+
+  test("§7 hover at a constrained hole the body fixed shows the fill", () => {
+    const source = "let n: _ : Num = 42\nexport let out: Int = n\n";
+    const session = new AnalysisSession();
+    session.setFile("/main.hex", source);
+    expect(session.hover("/main.hex", source.indexOf("_"))?.displayedType).toBe("Int");
+  });
+});
