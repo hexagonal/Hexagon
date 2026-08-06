@@ -1,7 +1,7 @@
 # Hexagon Spec: Decisions — The Annotation Doctrine, and Type Holes
 
-**Status:** Decided (August 2026; ruling on #317, carrying #315's record obligation). Closure document, authoritative until consolidated into host specs per README authority rule 3 — this document is added to rule 3's closure-document list in this same change; the standing is conferred there, not claimed here.
-**Scope:** the annotation doctrine record — rigid variables, the two registers, the accumulate default (§2–§3); type holes `_` in type position: semantics (§4), positions (§5), diagnostics (§6), reporting (§7), conformance obligations (§8); rejected alternatives (§9); the edit-notes ledger (§10); implementation notes for `hexc` (§11).
+**Status:** Decided (August 2026; rulings on #317 and #326, carrying #315's record obligation). Closure document, authoritative until consolidated into host specs per README authority rule 3 — this document is added to rule 3's closure-document list in this same change; the standing is conferred there, not claimed here.
+**Scope:** the annotation doctrine record — rigid variables, the two registers, the accumulate default (§2–§3); type holes `_` in type position: semantics (§4), constrained holes `_ : C` (§4.4), positions (§5), diagnostics (§6), reporting (§7), conformance obligations (§8); rejected alternatives (§9); the edit-notes ledger (§10); implementation notes for `hexc` (§11).
 **Not in scope:** expression ascription (#307, its arc paused; §5.5 records the interaction without pre-ruling it); rank-2 annotation pathways (Functions §4.2's position restriction is untouched); the export completeness rule itself (Modules §4.1.1 owns it; §5.4 here only confirms holes do not satisfy it).
 **Companions:** Functions §4.1–§4.2.1, §5, §8, §10; Modules §4.1.1; Numeric Literals §4; Lexer §3.2; Statements & Mutability (binding annotations on `let`/`var`); Declarations Preamble §1.1 (the Rewrite Rule); `notes/default-parameters-plan.md` §7.1 (the term-position claim on `_`, declined there).
 
@@ -12,6 +12,8 @@
 > **Type holes.** A `_` in type position inside an annotation elaborates to a **fresh unification metavariable** — exactly the variable inference already creates for an unannotated position. It is never rigid, participates in unification, constraint accumulation, and numeric defaulting like any inference variable, and is subject to generalization (§8 of Functions) like any inference variable. The one normative fence: **a hole is filled with a monotype (plus whatever constraints accumulate on it), never a scheme** (§4.2).
 >
 > **Positions.** Holes are legal in every type position inside an **inference-checked annotation** — parameter annotations, return annotations, and binding annotations on `let`/`var` — including nested type arguments, function-type components, tuple elements, and structural-record field types. The degenerate whole-type hole (`x: _`) is **legal and inert, and canonical formatting normalizes it to omission** (§5.2). Holes are rejected in every **total-contract position**: exported signatures, type-alias right-hand sides, record and union declarations, extern signatures, and constraint declarations (§5.4).
+>
+> **Constrained holes.** A hole — and only a hole — may carry a written constraint list: `_ : Show`, `_ : (Eq, Hash)`, the constraint-list form of Functions §4.2. The list **seeds the metavariable's constraint set at introduction**: a requirement the fill must satisfy — a floor, never a cap — with everything downstream (accumulation, defaulting, generalization, instance checking) the ordinary machinery (§4.4). A named variable constrains at its binder, the one home a name affords, and a constraint suffix after any written type is a parse error (§4.4; §9 items 8–9).
 >
 > **Diagnostics and reporting.** An unfillable hole is an ordinary unification error; a hole that reaches generalization is governed by the ordinary generalization and defaulting rules. No new diagnostic family exists. The filled type is surfaced by hover, not by any warning (§7).
 >
@@ -36,7 +38,7 @@ The written/unwritten axis previously operated per annotation slot: a parameter 
 
 ### 2.3 Equality without generality is inference's business
 
-There is no instrument that links two positions' types **without** claiming generality — a hypothetical "these two parameters have the same type, whatever it is." A written variable claims generality (§2.1); a hole claims nothing and links nothing (two holes are two independent metavariables). The gap is deliberate and permanent: inference already discovers equalities the body forces, and a linking-only annotation form is rejected in §9.6.
+There is no instrument that links two positions' types **without** claiming generality — a hypothetical "these two parameters have the same type, whatever it is." A written variable claims generality (§2.1); a hole claims no shape and links nothing (two holes are two independent metavariables; a constrained hole, §4.4, adds obligations to its one hole without linking it to anything). The gap is deliberate and permanent: inference already discovers equalities the body forces, and a linking-only annotation form is rejected in §9.6.
 
 ## 3. The Haskell characterization
 
@@ -83,6 +85,24 @@ Everything else follows from existing rules with no new clauses:
 
 Lexer §3.2's bare-`_` wildcard token is reused; this is a type-grammar extension, not a lexer change. The token's three roles are in disjoint contexts: pattern position (the pattern wildcard), digit-flanked inside numeric literals (the separator, lexed away), and now type position (the hole). Pattern `_` and type `_` are cognates — "I decline to specify this position" — the pairing Haskell, Rust, and Scala all run. Term-position `_` remains dead: Functions §5 rejects placeholder shorthand, and the default-parameters plan (§7.1 there) declines `_` as an argument-position marker, so no term-position claim on the token survives.
 
+### 4.4 Constrained holes
+
+**Form.** A hole may carry a written constraint list: `_ : C` with a single constraint reference, `_ : (C1, C2)` with the parenthesized conjunction — Functions §4.2's constraint-list form, reused wholesale, base-constraint entailment included (a listed constraint's bases ride along unstated). The suffix is bounded — one constraint reference or one balanced parenthesized list — so the constrained hole is a closed type operand: `_ : Num -> a` is `(_ : Num) -> a`, and grouping parentheses remain available where a reader wants them. Only a hole admits the suffix. A constraint suffix after any written type — `x: Int : Num`, `Vector(a : Show)` — is a parse error (§9 items 8–9): a written type's honors are facts the checker already knows, and a named variable's constraint home is its binder.
+
+**Why inline, and why only for holes — the complementary split.** A name is what lets several occurrences share one constraint statement: `<a: Num>(x: a, y: a)` states the fact once, at the variable's own level, indifferent to parameter order, gathered where exports publish their contract (Modules §4.1.1). Inline attachment on a named variable would either restate the constraint per occurrence or make its location an accident of which parameter mentions the variable first — so it is rejected (§9 item 8). A hole is nameless: no binder can reach it, so the inline suffix is not a second spelling of anything. It is the only possible constraint position for an unwritten type. Each form exists exactly where the other cannot: names constrain at binders, holes constrain inline.
+
+**Semantics.** The listed constraints are added to the hole's fresh metavariable at introduction. This seeds the ordinary accumulation register (§2.1) — it is not a new judgment, and everything §4.1 says continues to hold. Discharge is by the ordinary machinery:
+
+- A concrete fill meets ordinary instance resolution: `let f(x: _ : Num) = x and true` fails with the ordinary missing-instance error — the body fills the hole at `Bool`, and no `Num<Bool>` instance exists.
+- A hole that generalizes carries its seeded constraints into the scheme alongside any accumulated ones: `let f(x: _ : Show) = x` receives `Show a => a -> a`.
+- Defaulting consults the accumulated set as always: `let n: _ : Num = 42` gives `n : Int`.
+
+**A floor, never a cap.** The written list is a requirement the fill must satisfy, not a completeness contract: accumulation continues past it (§9 item 10 rejects the cap reading). Completeness is a property of a *claimed scheme*; a fill is a monotype that honors whatever it honors — `Int` honors far more than `Num`. The no-silent-strengthening contract stays where schemes are claimed: written binder lists (Functions §4.2) and exports (Modules §4.1.1).
+
+**Substitution.** The unit is the written hole (§4.1), constraints included: when alias substitution copies `Pair(_ : Num)`'s hole into both components of `type Pair(a) = (a, a)`, the copies share the one metavariable and its one seeded constraint — one `Num` obligation, not two.
+
+**Style.** A constrained hole is never inert, so S11's normalization does not touch it (§5.2). S12 extends by its own words: where a constrained hole would generalize, the variable-plus-binder was writable, and canonical Hexagon writes it — `f<a: Show>(x: a)`, not `f(x: _ : Show)`; the constrained hole is canonical exactly where the variable would be refused, the concrete-but-inferred position carrying an honors requirement — `entries: Vector(_ : Num)` whose body fixes the element at `Int`. Canonical formatting never rewrites one form into the other: that transform invents a name and edits a binder list, which is authorship, not formatting. Canonical spacing sets the constraint colon off with spaces — `x: _ : Num`, never `x: _: Num` — keeping the annotation colon and the constraint colon visually distinct; binder lists are untouched (`<a: Num>`).
+
 ## 5. Positions
 
 ### 5.1 Legal positions
@@ -97,11 +117,11 @@ Within such an annotation, every type position admits a hole: type arguments (`M
 
 ### 5.2 The degenerate whole-type hole
 
-A bare `_` as the entire annotation — `x: _` in a parameter list, `let n: _ = 42` — is **legal and inert**: it means exactly what omitting the annotation means. Canonical Hexagon **normalizes it away**: the formatter drops the degenerate annotation, leaving the bare binder — `f(x: _, y)` becomes `f(x, y)` (review-package item S11 in `notes/canonical-formatting-and-naming.md`). Legality is uniformity — a hole is a type expression, and no position carve-out exists; it also keeps annotations editable (deleting `Vector(...)` around a hole must not manufacture a parse error) and gives the proof pair (§6.2) its binding-annotation spelling while expression ascription is out of the language. Holes *inside* a written type (`Vector(_)`) are ordinary canonical Hexagon and are not normalized.
+A bare `_` as the entire annotation — `x: _` in a parameter list, `let n: _ = 42` — is **legal and inert**: it means exactly what omitting the annotation means. Canonical Hexagon **normalizes it away**: the formatter drops the degenerate annotation, leaving the bare binder — `f(x: _, y)` becomes `f(x, y)` (review-package item S11 in `notes/canonical-formatting-and-naming.md`). Legality is uniformity — a hole is a type expression, and no position carve-out exists; it also keeps annotations editable (deleting `Vector(...)` around a hole must not manufacture a parse error) and gives the proof pair (§6.2) its binding-annotation spelling while expression ascription is out of the language. Holes *inside* a written type (`Vector(_)`) are ordinary canonical Hexagon and are not normalized. A **constrained** whole-type hole is different: `x: _ : C` carries a claim, is not inert, and is kept (§4.4).
 
 ### 5.3 Constraint binder lists
 
-No hole may appear in a `<...>` binder list — a written list is a contract (Functions §4.2), and a hole would un-write it. The accumulate default already expresses "infer my constraints": omit the binder. No new rule is needed to enforce this: the grammar has no hole-shaped position in a binder list (the binder is a name, and a constraint reference is an uppercase name), so `<a: _>` and `<_: C>` are parse errors today and remain so.
+No hole may appear in a `<...>` binder list — a written list is a contract (Functions §4.2), and a hole would un-write it. The accumulate default already expresses "infer my constraints": omit the binder. No new rule is needed to enforce this: the grammar has no hole-shaped position in a binder list (the binder is a name, and a constraint reference is an uppercase name), so `<a: _>` and `<_: C>` are parse errors today and remain so. The complement — a constraint written *on* a hole — lives inline (§4.4) precisely because no binder can name a hole; the two rules are one split, names at binders and holes inline, with no position where both forms are writable.
 
 ### 5.4 The fence: total-contract positions
 
@@ -136,6 +156,7 @@ Where a written variable would hold — the position is genuinely generic — ca
 
 - **Unfillable hole:** an ordinary unification error. The hole's span is a valid attribution site; the existing conflict-attribution machinery (Functions §10's rows) governs which end of the conflict the caret lands on.
 - **Hole undetermined at generalization:** the ordinary rules apply — the variable generalizes if Functions §8 permits, or defaulting (Numeric Literals §4) or the ambiguity rules take it. Leaving a hole unresolved is not an error; it is inference.
+- **Unsatisfiable seeded constraint** (§4.4): the ordinary missing-instance error, arising at whatever use fixes the fill; the hole's span is a valid attribution site, as above.
 - There is no "unfilled hole" warning and no hole-specific error family.
 
 ### 6.2 The proof pair
@@ -174,6 +195,11 @@ The filled type is surfaced by **hover, not diagnostics**. Hexagon has no warnin
 7. `<a: _>` and `<_: C>` remain parse errors.
 8. Hover at a hole's span reports the filled type.
 9. One written hole is one metavariable through alias substitution: with `type Pair(a) = (a, a)`, a `Pair(_)` parameter rejects `(1, "two")`, and its unfixed element schemes as one shared variable.
+10. A seeded constraint reaches the scheme: `let f(x: _ : Show) = x` receives `Show a => a -> a` — seeded, not accumulated, since the body demands nothing.
+11. A seeded constraint refuses a bad fill: `let f(x: _ : Num) = x and true` errors with the ordinary missing-instance diagnostic.
+12. Defaulting through a constrained hole: `let n: _ : Num = 42` gives `n : Int`.
+13. Grammar boundaries: `_ : Num -> a` parses as `(_ : Num) -> a`; in a tuple type, `(_ : Num, Int)`'s comma belongs to the tuple; the conjunction `_ : (Eq, Show)` seeds both constraints; `x: Int : Num` and `Vector(a : Show)` are parse errors.
+14. Seeding survives substitution as one obligation: with `type Pair(a) = (a, a)`, a `Pair(_ : Num)` parameter left unfixed schemes as one shared `Num`-constrained variable.
 
 ## 9. Rejected alternatives (do not re-litigate)
 
@@ -184,10 +210,13 @@ The filled type is surfaced by **hover, not diagnostics**. Hexagon has no warnin
 5. **Term-position holes** (placeholder arguments, partial-application shorthand). Already rejected at Functions §5 and declined again by the default-parameters plan; the type-position meaning now standing makes any future term-position claim on `_` a re-litigation of both.
 6. **A linking-without-generality instrument** (§2.3). Inference already links what the body forces; an annotation form that links without claiming would be a third variable-like concept with no claim semantics. Permanently declined.
 7. **Rejecting the degenerate whole-type hole.** Considered (a bare `_` claims nothing, so forcing its deletion keeps every annotation meaningful) and declined for the position carve-out it requires and the editing hazard. What the rejection wanted, canonical formatting delivers without a language rule: the degenerate hole is legal, inert, and normalized to omission (§5.2).
+8. **Inline constraint attachment on named variables** — `(x: a : Num)` — and the full binder elimination it invites (inline replacing `<...>` on function headers and `honor` prefixes, angle brackets contracting to `constraint`/`honor` heads). Rejected on the name's power: a name states a constraint once for all occurrences, at the variable's own level; first-occurrence inline attachment relocates the statement whenever parameters reorder, per-occurrence attachment is restatement, and exports gather constraints as front-matter (Modules §4.1.1) — the same gathering pressure that produced `where` clauses elsewhere. The binder remains the one constraint home for named variables. `constraint` heads were never in question: their `<...>` is the application-form kind distinction (Constraints §1), not binder ceremony.
+9. **Constraint claims on written types** — `x: Int : Num`, `Vector(a : Show)`. Parse error. Where the claim is true it is redundant (a written type's instances are facts the checker already knows), and the named-variable spelling is item 8's rejection; a claim form that is either redundant or refused earns no grammar.
+10. **Cap semantics for the seeded list** (reading `_ : C` as a completeness contract on the fill). Rejected: completeness governs claimed schemes, and a fill is a monotype that honors whatever it honors. A cap would also make `_ : C` reject programs a bare `_` accepts — a form that *adds* rejections by claiming *less* than a binder does would be incoherent.
 
 ## 10. Edit-notes ledger
 
-Applied in this change:
+Applied in the #317 change:
 
 - **Functions §4.1** gains the hole surface paragraph (pointer here for semantics, positions, fence).
 - **Functions §11** gains the cross-reference entry.
@@ -196,21 +225,28 @@ Applied in this change:
 - **Book, Functions chapter**: **rigid** named where the declared-variable trio is first taught.
 - **Book, Polymorphism chapter**: the rigid-variable deepening, the type-holes section, the OCaml/F# contrast, the Summary additions, and the continuity record's new commitments.
 
+Applied in the #326 change:
+
+- **Functions §4.1**: the hole surface paragraph gains the constrained-hole sentence (pointer here).
+- **`notes/canonical-formatting-and-naming.md`**: S11 gains the not-inert clause for constrained holes; S12 gains the constrained-hole extension and the constraint-colon spacing.
+
 To apply on next touch of the target:
 
 - **Modules §4.1.1**: one sentence — a hole does not satisfy the completeness requirement (this document §5.4).
 - **Lexer §3.2** (or its §14 summary table): the wildcard token's roles now include type position; pointer here.
 - **Numeric Literals §4**: optionally cite the proof pair (§6.2) as an example of defaulting reaching a hole.
 - **Functions §10**: on consolidation, the fence rows (§6.3) and the proof-pair rows (§6.2) join the diagnostics checklist.
+- **Constraints §1**: the "one grammar for binders" bullet gains a pointer — the constraint-list form also attaches inline to holes (§4.4 here); binders themselves are unchanged.
+- **Book, Polymorphism chapter**: a constrained-holes paragraph beside the type-holes section (`Vector(_ : Num)` as the showcase).
 
 ## 11. Implementation notes for `hexc`
 
 Non-normative; recorded so the implementation lands where the ruling points.
 
 - **Lexer:** no change. The `Wildcard` token exists (Lexer §3.2).
-- **Parser:** the type-operand grammar gains a `Wildcard` case producing a `Hole` annotation node carrying its span. No auto-closing, layout, or precedence interaction.
-- **Resolver:** `Hole` passes through. The fence (§5.4) is enforced where each total-contract surface is classified — resolver or checker, implementer's choice, provided the error carries the hole's span.
-- **Checker:** `Hole` elaborates as a fresh non-rigid variable at the current level — the same freshening as an unannotated position, with no declared name attached. No unification, generalization, defaulting, or evidence change follows; rigidity attaches only to named annotation variables, which holes are not.
-- **Hover:** resolve a hole's span to its elaborated type as generalized at the binding; schemes display with the existing machinery.
-- **TextMate grammar / Playground:** color a type-position `_` with the type-variable scope. Pattern-position `_` is unaffected.
+- **Parser:** the type-operand grammar gains a `Wildcard` case producing a `Hole` annotation node carrying its span. No auto-closing, layout, or precedence interaction. For §4.4: after the `Wildcard` operand, an optional `:` followed by a constraint list — the same constraint-list sub-grammar binder lists use — stored on the `Hole` node; the suffix is bounded (one reference or one balanced parenthesized list), so it introduces no arrow or precedence interaction. No other type operand admits the suffix.
+- **Resolver:** `Hole` passes through. The fence (§5.4) is enforced where each total-contract surface is classified — resolver or checker, implementer's choice, provided the error carries the hole's span. A constrained hole's constraint references resolve exactly as binder-list references do; the fence needs no new case, since the suffix rides the hole.
+- **Checker:** `Hole` elaborates as a fresh non-rigid variable at the current level — the same freshening as an unannotated position, with no declared name attached. No unification, generalization, defaulting, or evidence change follows; rigidity attaches only to named annotation variables, which holes are not. For §4.4: seed the freshened metavariable's constraint set with the resolved list at elaboration; the per-written-hole metavariable identity (§4.1) already carries the set through alias substitution, and everything downstream is unchanged.
+- **Hover:** resolve a hole's span to its elaborated type as generalized at the binding; schemes display with the existing machinery (constraints included, so a constrained hole needs nothing new).
+- **TextMate grammar / Playground:** color a type-position `_` with the type-variable scope. Pattern-position `_` is unaffected. A constrained hole's constraint reference should color as binder-list references do — expected already covered by the existing rules; verify against the Playground.
 - **Conformance:** §8's list, one observation per item.
