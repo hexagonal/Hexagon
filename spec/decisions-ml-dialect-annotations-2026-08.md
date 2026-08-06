@@ -66,7 +66,7 @@ Draw: the skolem-checking technique for rigid variables (the literature anchor F
 
 ### 4.1 Elaboration
 
-A `_` in type position elaborates to a fresh unification metavariable at the enclosing definition's level — the same variable, created the same way, as for an unannotated position. It carries no `declared` identity: it is never rigid, and no two holes are related (each `_` is its own metavariable; `(_, _)` may fill as `(Int, String)`).
+A `_` in type position elaborates to a fresh unification metavariable at the enclosing definition's level — the same variable, created the same way, as for an unannotated position. It carries no `declared` identity: it is never rigid, and no two holes are related (each `_` is its own metavariable; `(_, _)` may fill as `(Int, String)`). The unit is the **written** hole: when substitution copies an annotation into several positions — a parameterized type alias applied at a hole, `type Pair(a) = (a, a)` used as `Pair(_)` — every copy shares the one metavariable the written hole introduced. `Pair(_)` is a pair of one type, exactly as `Pair(Int)` is; two independent element types would un-write the alias's own contract.
 
 Everything else follows from existing rules with no new clauses:
 
@@ -115,8 +115,10 @@ A hole is rejected in every position the corpus defines as a **total written con
 | Extern signatures, all FFI declaration forms | FFI Parts 4–5 |
 | Constraint declarations (member signatures, subjects) | Constraints |
 | `honor` instance heads (the subject type and its arguments) | Constraints |
+| `exception` declaration slot types | Exceptions |
+| `honor` implied-type choices | Constraints / Collections Part 2 |
 
-These are declaration surfaces, not inference surfaces: nothing checks a body against them from which a hole could be filled — or, for exports, the completeness requirement is the point and a hole would un-write part of the module's contract. Rejecting holes at exports also keeps them entirely out of the `.d.ts` facing machinery (FFI Part 7): no emitted face can contain a hole.
+The `exception` and implied-type rows follow from the same sentence that admits the others: written types checked against no body, where an unsolved variable would seat silently. These are declaration surfaces, not inference surfaces: nothing checks a body against them from which a hole could be filled — or, for exports, the completeness requirement is the point and a hole would un-write part of the module's contract. Rejecting holes at exports also keeps them entirely out of the `.d.ts` facing machinery (FFI Part 7): no emitted face can contain a hole.
 
 Each fence rejection is a hard error naming the rewrite (§6.3), per the Rewrite Rule.
 
@@ -167,6 +169,7 @@ The filled type is surfaced by **hover, not diagnostics**. Hexagon has no warnin
 6. Fence errors at each §5.4 position — including an `honor` head — each naming its rewrite.
 7. `<a: _>` and `<_: C>` remain parse errors.
 8. Hover at a hole's span reports the filled type.
+9. One written hole is one metavariable through alias substitution: with `type Pair(a) = (a, a)`, a `Pair(_)` parameter rejects `(1, "two")`, and its unfixed element schemes as one shared variable.
 
 ## 9. Rejected alternatives (do not re-litigate)
 
