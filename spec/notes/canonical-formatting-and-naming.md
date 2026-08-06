@@ -63,6 +63,11 @@ declarations through this list before considering the segment done.
   `export let id(x: a): a = x`, never `export let id<a>(x: a): a = x`.
   A mixed binder list drops its unconstrained elements the same way:
   `tag<a: Show>(x: a, y: b)`, never `tag<a: Show, b>(x: a, y: b)`.
+  Signature and scheme notation follow the same rule — the canonical
+  cannot abide the redundant, and a `<a>` that only repeats what an
+  annotation introduces is redundant in any notation:
+  `JsValue.from(value: a) -> JsValue`, never
+  `JsValue.from<a>(value: a) -> JsValue`.
   Spec and conformance specimens carry no exemption: a specimen writes a
   bare binder only where the bare form is itself the demonstrated subject
   (a rule naming it to license or reject it); demonstrating anything else,
