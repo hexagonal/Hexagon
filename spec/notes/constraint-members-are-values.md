@@ -246,13 +246,23 @@ Each item here needs either a bit more stealing or a deliberate extension.
    to the sanctioned forms. The declaring-module qualified spelling
    (`Show.show(kid)`) and interpolation both exist at PR α and serve as
    interim spellings, with the caveat that both re-enter evidence selection —
-   acceptable in a pinned baseline, not as the end state. One question the
-   ruling inherits from #293 without yet answering: *where member bindings
-   sit in the top-down declaration order* — Functions §7.2 gives `honor`
-   blocks placement freedom while making member bodies ordinary reference
-   sites, so whether a `Frac<Rat>` block above the `Num<Rat>` block may name
-   `multiply` needs the ordering half of the letrec law stated for members.
-   Graduation owes that sentence.
+   acceptable in a pinned baseline, not as the end state.
+
+   **The ordering half, ruled:** member bindings enter the module's top-down
+   order *at their honor block's textual position*. A member is a `let`
+   function; a `let` function's body may name only bindings that precede it;
+   honor blocks are ordered like any other declarations. A `Frac<Rat>` block
+   above the `Num<Rat>` block may **not** name `multiply` — the ordinary
+   declared-later error, and the fix is the ordinary one: order the blocks.
+   (`Rat.hex`'s existing order — Num before Signed before Frac — already
+   complies; the fold-in migration needs no reordering.) The law governs
+   *name references* only: mutually referencing instances reach each other
+   through evidence — interpolation today, dispatch at PR γ — which names no
+   binding and evaluates at call time, so instance-level mutual recursion
+   (the item 9 pins) was never inside this ruling's jurisdiction. The
+   dot-call-vs-own-position interplay (#293 ruled a group-wide dot ban for
+   `fun` groups; whether an honor block needs its analog) is PR γ's spec
+   work.
 
    The same ruling settles what a member's spelling means in the *rest* of the
    honoring module: **a member definition is a module-level binding**, and
