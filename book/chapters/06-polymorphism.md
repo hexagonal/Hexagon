@@ -307,6 +307,53 @@ omitting the annotation means — canonical Hexagon simply omits it. And where a
 must be complete, a hole is not accepted: an exported function still writes its full
 type, because a hole would un-write part of the module's contract.
 
+## Constraining a hole
+
+`increment` showed one way an obligation reaches a type: the body demands it, and the
+constraint attaches unwritten. `display` previewed the other: `<a: Show>` writes the
+obligation by hand. Both of those attach to a *named* variable. A hole can carry an
+obligation too — and it is written right where the hole is:
+
+```hexagon
+let padded(entries: Vector(_ : Num)): Vector(Int) = entries.append(0)
+```
+
+Read `_ : Num` as "some type, inference's to find, that honors `Num`." The written
+constraint is a requirement the filled type must satisfy: here inference fills the hole
+with `Int`, `Int` honors `Num`, and the claim holds. It is a floor, not a ceiling — the
+body stays free to demand more, exactly as `increment`'s body did.
+
+`padded`'s parameter now has three possible spellings, and they form a ladder of claims:
+
+```hexagon
+entries: Vector(a)          // every element type — refused: this body delivers only Int
+entries: Vector(_ : Num)    // some numeric element type — the strongest true claim
+entries: Vector(_)          // some element type — true, but says less
+```
+
+Write the strongest claim that is true. The variable over-claims here, the bare hole
+under-claims; the constrained hole says what this function asks of its elements before
+the body says the rest.
+
+Why does the hole's constraint sit *inside* the annotation, when `display` wrote its own
+up front in angle brackets? Because a constraint's home follows from whether the thing it
+governs has a **name**. A name lets several positions share one obligation, stated once:
+
+```hexagon
+let clamp<a: Ord>(value: a, low: a, high: a): a =
+    if value < low then low
+    else if value > high then high
+    else value
+```
+
+Four positions, one `a`, one `<a: Ord>` — read it provisionally, as with `display`, as
+“any type that can be ordered” — stated at the variable itself, not at whichever
+parameter happens to mention it first. A hole has no name: there is nothing
+for a binder to hold onto, so its obligation lives in the one place the hole exists.
+Each form is at home exactly where the other cannot go — a named variable gathers its
+constraints at the binder, and `Vector(a : Num)` is a parse error; a hole carries its
+constraints inline, and a binder list cannot name a hole.
+
 ## Recursive calls keep one type
 
 A recursive `fun` may be reusable at several types from the outside, just like another
@@ -352,7 +399,10 @@ the JavaScript boundary.
 - a written type variable is **rigid**: the shape claim holds, constraints accumulate
   beside it, and it never collapses to one concrete type;
 - a **type hole** `_` leaves one position of a written annotation to inference —
-  written is claimed, unwritten is inferred; and
+  written is claimed, unwritten is inferred;
+- a hole may carry a written constraint — `Vector(_ : Num)` — a floor its filled type
+  must satisfy: named variables take their constraints at the binder, holes take
+  theirs inline, and each form lives exactly where the other cannot; and
 - recursive calls within one `fun` group keep one consistent type.
 
 With these rules in place, compound values can be introduced without stopping to label

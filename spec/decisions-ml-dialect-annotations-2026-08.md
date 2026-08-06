@@ -229,6 +229,8 @@ Applied in the #326 change:
 
 - **Functions §4.1**: the hole surface paragraph gains the constrained-hole sentence (pointer here).
 - **`notes/canonical-formatting-and-naming.md`**: S11 gains the not-inert clause for constrained holes; S12 gains the constrained-hole extension and the constraint-colon spacing.
+- **Book, Polymorphism chapter**: the constrained-holes section beside the type-holes section — `Vector(_ : Num)` on the established `padded` example, the claim-ladder, and the complementary split taught against a multi-occurrence binder.
+- **Book, Constraints chapter**: the contract sentence scoped to binder lists, with the constrained-hole floor noted as the deliberate contrast.
 
 To apply on next touch of the target:
 
@@ -237,8 +239,6 @@ To apply on next touch of the target:
 - **Numeric Literals §4**: optionally cite the proof pair (§6.2) as an example of defaulting reaching a hole.
 - **Functions §10**: on consolidation, the fence rows (§6.3) and the proof-pair rows (§6.2) join the diagnostics checklist.
 - **Constraints §1**: the "one grammar for binders" bullet gains a pointer — the constraint-list form also attaches inline to holes (§4.4 here); binders themselves are unchanged.
-- **Book, Polymorphism chapter**: a constrained-holes paragraph beside the type-holes section (`Vector(_ : Num)` as the showcase).
-- **Book, Constraints chapter**: the sentence "A written constraint list is a contract, not a starting point for inference to strengthen" scopes to binder lists ("A written binder list is a contract…") — a constrained hole's list is exactly a starting point inference strengthens past (§4.4).
 
 ## 11. Implementation notes for `hexc`
 
