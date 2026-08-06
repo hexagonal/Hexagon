@@ -2280,6 +2280,15 @@ class Checker {
         // binding's own sequence — infer, elaborate, unify — with the written
         // type elaborated in the *declaration's* annotation-variable scope, so a
         // name written here is the same variable the signature's is (§3.1).
+        //
+        // §3.1 defers the exact chaining across *nested* declarations, and this
+        // invents nothing: the scope is whatever the enclosing definition
+        // already had, so an ascription reaches a name exactly as a body-local
+        // `let x: a` annotation has always reached it. Consequences, surfaced
+        // rather than ruled — a fresh name first written inside an inner lambda
+        // joins that lambda's map (its copy of the enclosing one) and does not
+        // escape outward, and an inner `<a: C>` binder shadows by overwriting
+        // its copy. Both are the pre-existing behaviour of the same map.
         const inferred = this.#inferExpr(expression.expression, level);
         const enclosingAscribedType = this.#ascribedTypeSpan;
         this.#ascribedTypeSpan = expression.annotation.span;
