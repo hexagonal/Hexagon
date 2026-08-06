@@ -73,3 +73,16 @@ describe("qualified access: `Show.show` is ordinary module-qualified access to a
     expect(exports.r).toBe("42");
   });
 });
+
+describe("the member is one value, instantiated per use (no monomorphic access system)", () => {
+  test("an unapplied `show` binds at a concrete type", async () => {
+    const exports = await runMain([
+      "let renderInt: Int -> String = show",
+      "",
+      "export let r: String = renderInt(6)",
+      "",
+    ].join("\n"));
+
+    expect(exports.r).toBe("6");
+  });
+});
