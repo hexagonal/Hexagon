@@ -5298,6 +5298,30 @@ class Checker {
       const variable = this.#fresh(level, false);
       holes.set(annotation.id, variable);
       this.#typeHoles.push({ span: annotation.span, type: variable });
+      // A written list seeds the accumulation register (§4.4) — no
+      // `declaredConstraints`, which is what would make it a cap: seeding is a
+      // floor, accumulation continues past it, and everything downstream reads
+      // the one set. Seeded inside the memo, so an alias applied at one written
+      // hole raises one obligation however many positions the body has.
+      for (const constraint of annotation.constraints) {
+        if (!this.#constraintNames.has(constraint)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `unknown constraint \`${constraint}\``,
+            primary: annotation.span,
+          });
+          continue;
+        }
+        if (this.#bearsProjection(constraint)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: impliedTypeBinderMessage(constraint),
+            primary: annotation.span,
+          });
+          continue;
+        }
+        this.#require(constraint, variable, annotation.span, "annotation");
+      }
       return variable;
     }
     if (annotation.kind === "ImpliedType") {

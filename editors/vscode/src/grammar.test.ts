@@ -459,6 +459,52 @@ describe("type variables are nominal-coloured in type positions", () => {
     expect(await scope("let f(x): _ = x", "_")).toBe("entity.name.type.parameter.hexagon");
   });
 
+  it("colours a constrained hole's `_` and its constraints (#326)", async () => {
+    // The suffix is Functions §4.2's constraint list attached to a hole
+    // (`decisions-ml-dialect-annotations-2026-08.md` §4.4), so it must read as the
+    // binder bound does: the hole keeps the type-variable scope, and the names
+    // after the colon are constraints. Neither was free — a `_` before a colon
+    // is what the record-type field rule looks for, and an uppercase name in a
+    // type expression is an ordinary type until a rule says otherwise.
+    for (const source of [
+      "let f(x: _ : Show) = x",
+      "let n: _ : Show = x",
+      "let f(xs: Vector(_ : Show)) = xs",
+      "let f(g: _ : Show -> Bool) = g",
+      "let f(r: {name: _ : Show}) = r",
+    ]) {
+      expect(await scope(source, "_"), source).toBe("entity.name.type.parameter.hexagon");
+      expect(await scope(source, "Show"), source)
+        .toBe("entity.name.type.constraint.hexagon");
+    }
+    // The same scope the binder writes it in — the two forms are one grammar.
+    expect(await scope("let f<a: Show>(x: a) = x", "Show"))
+      .toBe(await scope("let f(x: _ : Show) = x", "Show"));
+  });
+
+  it("colours a constrained hole's parenthesized conjunction (#326)", async () => {
+    const pairs = await scopePairs("let f(x: _ : (Eq, Show)) = x");
+    expect(pairs.filter(([, s]) => s === "entity.name.type.constraint.hexagon")).toEqual([
+      ["Eq", "entity.name.type.constraint.hexagon"],
+      ["Show", "entity.name.type.constraint.hexagon"],
+    ]);
+    expect(pairs.find(([text]) => text === "_")?.[1])
+      .toBe("entity.name.type.parameter.hexagon");
+  });
+
+  it("qualifies a constrained hole's constraint by a module alias (#326)", async () => {
+    const pairs = await scopePairs("let f(x: _ : Geo.Ord) = x");
+    expect(pairs.find(([text]) => text === "Geo")?.[1]).toBe("entity.name.namespace.hexagon");
+    expect(pairs.find(([text]) => text === "Ord")?.[1])
+      .toBe("entity.name.type.constraint.hexagon");
+  });
+
+  it("keeps a half-typed `_ :` a hole rather than a field name (#326)", async () => {
+    // `_` is its own token (spec/lexer.md §3.2) and can never be a record-type
+    // field name, so the paint should not flicker while the constraint is typed.
+    expect(await scope("let f(x: _ : ", "_")).toBe("entity.name.type.parameter.hexagon");
+  });
+
   it("leaves a pattern-position `_` alone", async () => {
     expect(await scope("match x\n    _ => 1", "_")).toBe("variable.language.wildcard.hexagon");
     // Not the wildcard scope — the `let` binder rule claims this one, and has
@@ -622,9 +668,10 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
     const grammar = JSON.parse(await readFile(grammarPath, "utf8"));
     const guarded = beginPatterns(grammar).filter((begin) => begin.includes("(?!\\*)"));
 
-    // Three hanging groups and four bounded ones, across the type-declaration,
-    // type-expression, binder-bound, and `derives` rules.
-    expect(guarded).toHaveLength(7);
+    // Three hanging groups and five bounded ones, across the type-declaration,
+    // type-expression, binder-bound, `derives`, and constrained-hole rules — the
+    // last being the conjunction `_ : (Eq, Show)`, the binder bound's twin.
+    expect(guarded).toHaveLength(8);
     for (const begin of guarded) {
       // The guard sits immediately after the `(` the rule consumes, captured or not.
       expect(begin.includes("\\((?!\\*)") || begin.includes("(\\()(?!\\*)"), begin).toBe(true);
@@ -639,9 +686,9 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
       .filter((end) => end.includes("(?=^\\S"))
       .map((end) => end.slice(end.indexOf("(?=^\\S")));
 
-    // Five hanging groups, six bounded ones, the two contexts that enclose them, and
+    // Five hanging groups, seven bounded ones, the two contexts that enclose them, and
     // the JavaScript-comment region, which is a half-typed `/*` away from the same leak.
-    expect(guards).toHaveLength(14);
+    expect(guards).toHaveLength(15);
     expect(new Set(guards).size).toBe(1);
   });
 
