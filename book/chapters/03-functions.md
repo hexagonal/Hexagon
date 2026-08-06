@@ -188,19 +188,24 @@ collapse to one concrete type. Such a variable may still acquire constraints fro
 operations in the body; the polymorphism chapter returns to exactly how much a rigid
 variable can absorb without giving up its generality.
 
-Explicit type variables use angle brackets:
+A type variable can also relate positions to one another:
 
 ```hexagon
-let chooseFirst<a>(first: a, second: a): a = first
+let chooseFirst(first: a, second: a): a = first
 ```
 
 The lowercase `a` means one type chosen afresh by each caller. Both parameters must
-have that same type, and the result has it too. The body would support this without the
-explicit `<a>`; naming it makes the relationship visible.
+have that same type, and the result has it too. Writing `a` in its first position is
+all it takes to introduce it — lowercase already marks a type variable, so `first: a`
+says everything there is to say — and each repetition says “the same type here.”
 
-Constraints can be attached in the same position—`<a: Show>`, for example—but their
-meaning belongs in the constraints chapter. Explicit type parameters name or restrict
-polymorphism; they do not manufacture it. The inference chapter will explain how an
+When a type variable must also carry an obligation, the obligation is attached in an
+explicit binder, written in angle brackets before the parameter list:
+`let display<a: Show>(value: a): String` requires `a` to be a type that can be
+displayed. Attaching constraints is the binder's entire job. It does not manufacture
+polymorphism — `chooseFirst` is already generic without one — and a bare `<a>` binder
+would only repeat what `first: a` has said, so it is never written. What `<a: Show>`
+means belongs in the constraints chapter; the inference chapter will explain how an
 unannotated function such as `x => x` becomes reusable at many types.
 
 ## Put the subject first
