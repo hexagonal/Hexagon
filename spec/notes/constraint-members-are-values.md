@@ -138,7 +138,10 @@ Nothing more. The consequences do the rest:
    §3.1's named-import rule. Two same-spelled members declared in one module
    collide the same way at the second declaration. Neither refusal is new law,
    and neither dents the consequence: the qualified spellings are the
-   namespace ones.)*
+   namespace ones. One more consequence of the shapes: the "bare use where
+   both are visible" refusal above is realizable only at the prelude layer —
+   which is §5.5's actual jurisdiction — since namespace imports put no
+   member in bare scope and named imports refuse before any use.)*
 
 ## 4. What is fixed
 
