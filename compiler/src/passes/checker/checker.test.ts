@@ -1113,15 +1113,21 @@ describe("check", () => {
   });
 
   test("keeps compiler-supported constraint subjects universally quantified", () => {
+    // Spelled with names of the module's own since #335 banned redeclaring
+    // `Integral` — the compiler holds its declaration now (`stdlib/Integral.hex`
+    // is a prelude member, and so is a `gcd` this lookup would find first). The
+    // observation is unchanged and is about the *bases*: a subject constrained
+    // by the compiler's own pre-registered constraints is still universally
+    // quantified, not pinned to a specimen.
     const module = checkSource(
-      "constraint Integral<a: (Num, Ord)> =\n" +
-        "    gcd(left: a, right: a): a",
+      "constraint Divisor<a: (Num, Ord)> =\n" +
+        "    greatest(left: a, right: a): a",
     );
-    const gcd = module.symbols.find(({ name }) => name === "gcd");
+    const greatest = module.symbols.find(({ name }) => name === "greatest");
 
-    expect(gcd?.scheme).toMatchObject({
+    expect(greatest?.scheme).toMatchObject({
       variables: [expect.any(Number)],
-      constraints: [{ name: "Integral", type: { kind: "Variable" } }],
+      constraints: [{ name: "Divisor", type: { kind: "Variable" } }],
       type: {
         kind: "Function",
         parameters: [{ kind: "Variable" }, { kind: "Variable" }],
@@ -1492,11 +1498,12 @@ describe("check", () => {
     // The closed set is the compiler's table, so the builtin constraints on it
     // still default — including `Integral`, whose bare-call literal case its
     // own spec (Integral §8) expects to resolve to `Int` as usual.
-    const integral = checkSource(
-      "constraint Integral<a: (Num, Ord)> =\n" +
-        "    gcd(left: a, right: a): a\n" +
-        "let common = gcd(4, 6)",
-    );
+    //
+    // The bare `gcd` needs no declaration to reach any more, which is the
+    // spelling Integral §8 always described: `stdlib/Integral.hex` is a prelude
+    // member since #335, so its members are exports in bare scope and a
+    // module-level redeclaration is refused.
+    const integral = checkSource("let common = gcd(4, 6)");
     expect(integral.diagnostics).toEqual([]);
     expect(letSymbol(integral, "common").scheme.type).toEqual({
       kind: "Primitive",

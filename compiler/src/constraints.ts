@@ -49,21 +49,25 @@ export const PRE_REGISTERED_CONSTRAINTS: readonly string[] = [
  * The pre-registered names a module may not redeclare.
  *
  * §5.1.1 pins all eleven: "a module-level `constraint Eq<a> = ...` is an error
- * naming the pre-registered constraint, not a second `Eq`". Two are held back,
- * and the reason is a gap in the compiler rather than a reading of the spec:
- * `Iterable` and `Integral` are pre-registered by *name* only — the compiler
- * holds no declaration for either, so their members are reachable in v1 solely
- * through a source `constraint Iterable<c> = ...` / `constraint Integral<a> =
- * ...`, which is what `stdlib/Integral.hex` is and what `for value in bag` over
- * a user `honor Iterable<Bag>` needs. Banning the redeclaration before the
- * compiler holds those two declarations would not refuse a twin; it would
- * delete the only spelling the feature has. The ban belongs with the
- * declarations, not before them.
+ * naming the pre-registered constraint, not a second `Eq`". Ten of them are
+ * banned. The ban follows the declaration, and never precedes it: banning a
+ * redeclaration the compiler holds no declaration for would not refuse a twin,
+ * it would delete the only spelling the feature has.
+ *
+ * `Integral` was held back for exactly that reason and is held back no longer.
+ * Since #335 the compiler holds its declaration — `stdlib/Integral.hex` is a
+ * prelude member, so `div`/`mod`/`quot`/`rem`/`gcd` are in bare scope and
+ * `Integral.div` is qualified access to an export — and a module-level
+ * `constraint Integral<a> = ...` is now the ordinary twin the ban exists for.
+ *
+ * `Iterable` is the one remaining name-only remnant. The compiler holds no
+ * declaration for it: its members are reachable in v1 solely through a source
+ * `constraint Iterable<c> = ...`, which is what `for value in bag` over a user
+ * `honor Iterable<Bag>` needs. It is owed to the collections arc (#283), and
+ * its ban lands with its declaration.
  */
 export const NON_REDECLARABLE_CONSTRAINTS: readonly string[] =
-  PRE_REGISTERED_CONSTRAINTS.filter(
-    (name) => name !== "Iterable" && name !== "Integral",
-  );
+  PRE_REGISTERED_CONSTRAINTS.filter((name) => name !== "Iterable");
 
 export function isPreRegisteredConstraint(name: string): boolean {
   return PRE_REGISTERED_CONSTRAINTS.includes(name);
