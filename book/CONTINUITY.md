@@ -498,6 +498,11 @@ late pedagogy pass, not a commitment to the current order.
   **Rigid** is established here as the bolded technical term for this (#317);
   `takesInt`/`inferred`/`rejected` is the canonical trio, and the Polymorphism
   chapter owns the deepening (constraint accumulation, the OCaml/F# contrast).
+- `chooseFirst(first: a, second: a): a` is the canonical shared-type-variable example
+  and is written binder-free: the first annotation introduces the variable, and a
+  bare `<a>` binder is never written (S3 canon). Angle-bracket binders are previewed
+  here as the constraint-attachment position only (`display<a: Show>`), with their
+  meaning deferred to the Constraints chapter.
 - JS emission convention established: `let` function → `const` arrow; `fun` → hoisted
   function declaration.
 - Reader-facing capture rule: **captured values must be ready**. Keep temporal-dead-zone
