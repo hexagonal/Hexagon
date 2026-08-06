@@ -495,6 +495,9 @@ late pedagogy pass, not a commitment to the current order.
 - A declared type variable such as `value: a` is a polymorphism firewall: it may
   collect inferred constraints but cannot collapse silently to a concrete type.
   An unannotated parameter remains flexible and may infer that concrete type.
+  **Rigid** is established here as the bolded technical term for this (#317);
+  `takesInt`/`inferred`/`rejected` is the canonical trio, and the Polymorphism
+  chapter owns the deepening (constraint accumulation, the OCaml/F# contrast).
 - JS emission convention established: `let` function → `const` arrow; `fun` → hoisted
   function declaration.
 - Reader-facing capture rule: **captured values must be ready**. Keep temporal-dead-zone
@@ -567,6 +570,20 @@ late pedagogy pass, not a commitment to the current order.
   select another numeric type.
 - Polymorphic recursion is rejected and taught here, after ordinary recursion and
   generalization are available.
+- **Type hole** is established here as a bolded technical term, and **rigid**
+  (established in Functions, #317) is deepened here: the shape claim holds while
+  constraints still attach as the body demands (`increment(value: a) = value + 1`
+  stays general). The OCaml/F# contrast — silent narrowing there, contract here —
+  lives in this chapter. The rigid section calls back to Chapter 3's `rejected`
+  rather than re-showing the trio.
+- `identity` is written binder-free (`let identity(x: a): a = x`); a `<...>` binder
+  first appears on `display<a: Show>`, where it carries a constraint (S3 canon).
+- A type hole `_` is an ordinary inference position inside a written annotation;
+  `count(entries: Vector(_))` is the canonical partial-claim example, and
+  `let answer: _ = 42` (fine, `Int`) versus `let general: a = 42` (error) is the
+  canonical proof pair. **Written is claimed, unwritten is inferred** is this
+  chapter's closing formulation. A whole-annotation hole is legal but canonical
+  Hexagon omits it; exported signatures never contain holes.
 
 ### Tuples
 

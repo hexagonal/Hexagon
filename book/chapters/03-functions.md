@@ -182,9 +182,11 @@ let rejected(value: a) = takesInt(value) // error: a cannot quietly become Int
 
 The unannotated `inferred` parameter becomes `Int` because its body requires `Int`.
 The declared type variable in `rejected` says that the function is generic on purpose,
-so the checker holds the body to that contract. Such a variable may still acquire
-constraints from operations in the body; it simply cannot collapse to one concrete
-type.
+so the checker holds the body to that contract: while the definition is checked, a
+written type variable is **rigid** — it stands for an arbitrary type and cannot
+collapse to one concrete type. Such a variable may still acquire constraints from
+operations in the body; the polymorphism chapter returns to exactly how much a rigid
+variable can absorb without giving up its generality.
 
 Explicit type variables use angle brackets:
 
