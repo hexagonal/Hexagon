@@ -89,10 +89,10 @@ For an eligible export `f` with type variables `v1 … vn` **in declared order**
 
 ### 3.3 Unconstrained type variables *(normative clarification — see §13.1)*
 
-An unconstrained variable needs no evidence and therefore gains nothing from specialization; it stays a lowercase generic binder in every generated signature and contributes **no suffix element** to the name:
+An unconstrained variable needs no evidence and therefore gains nothing from specialization; it stays a lowercase generic binder in every generated signature and contributes **no suffix element** to the name. In the Hexagon source it takes no binder at all — its annotation introduces it (Functions §4.2.1):
 
 ```hexagon
-export let tag<a: Show, b>(x: a, y: b): String = ...
+export let tag<a: Show>(x: a, y: b): String = ...
 ```
 
 ```ts
@@ -415,7 +415,7 @@ export let combine<a: Show, b: Eq>(x: a, y: b): String = ...
 -- combineStringBigInt, ...  Never combineStringInt for (a=Int, b=String).
 
 -- (f) Unconstrained variables stay generic
-export let tag<a: Show, b>(x: a, y: b): String = ...
+export let tag<a: Show>(x: a, y: b): String = ...
 --   export declare function tagInt<b>(x: number, y: b): string;
 -- one suffix element only; `b` is a lowercase binder in .d.ts.
 
