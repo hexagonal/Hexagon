@@ -129,7 +129,16 @@ Nothing more. The consequences do the rest:
    both — legal, and `Loud.volume` / `Soft.volume` select correctly. A bare use
    where both are visible takes Modules §5.5's existing law: refuse, name the
    qualified homes. No renaming, no priority order, no resolution order to
-   specify.
+   specify. *(PR β measurement repair: the measured-legal program is
+   namespace-import-shaped — `import * as Loud` — and that is the shape the
+   coexistence claim covers. Importing both constraints by* name *collides at
+   the second import item, because a named constraint import carries its
+   members and an arriving member name that meets another module-level term is
+   the Constraints §2.2 hard-error family reported at the import — Modules
+   §3.1's named-import rule. Two same-spelled members declared in one module
+   collide the same way at the second declaration. Neither refusal is new law,
+   and neither dents the consequence: the qualified spellings are the
+   namespace ones.)*
 
 ## 4. What is fixed
 
