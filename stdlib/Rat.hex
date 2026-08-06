@@ -22,30 +22,6 @@ export let create(top: BigInt, bottom: BigInt): Rat =
 export let top(value: Rat): BigInt = value.top
 export let bottom(value: Rat): BigInt = value.bottom
 
-export let add(left: Rat, right: Rat): Rat =
-    create(
-        left.top * right.bottom + right.top * left.bottom,
-        left.bottom * right.bottom
-    )
-
-export let subtract(left: Rat, right: Rat): Rat =
-    create(
-        left.top * right.bottom - right.top * left.bottom,
-        left.bottom * right.bottom
-    )
-
-export let multiply(left: Rat, right: Rat): Rat =
-    create(left.top * right.top, left.bottom * right.bottom)
-
-export let divide(left: Rat, right: Rat): Rat =
-    if right.top == 0 then
-        throw(DivideByZeroError("Rat.divide: divisor is zero"))
-    else
-        create(left.top * right.bottom, left.bottom * right.top)
-
-export let negate(value: Rat): Rat =
-    Rat({top = -value.top, bottom = value.bottom})
-
 export let reciprocal(value: Rat): Rat = create(value.bottom, value.top)
 
 honor Ord<Rat> =
@@ -64,14 +40,27 @@ honor Show<Rat> =
     show(value) = "${value.top}/${value.bottom}"
 
 honor Num<Rat> =
-    add(left, right) = add(left, right)
-    multiply(left, right) = multiply(left, right)
+    add(left, right) =
+        create(
+            left.top * right.bottom + right.top * left.bottom,
+            left.bottom * right.bottom
+        )
+    multiply(left, right) =
+        create(left.top * right.top, left.bottom * right.bottom)
     fromNat(value) = create(value, 1)
 
 honor Signed<Rat> =
-    subtract(left, right) = subtract(left, right)
-    negate(value) = negate(value)
+    subtract(left, right) =
+        create(
+            left.top * right.bottom - right.top * left.bottom,
+            left.bottom * right.bottom
+        )
+    negate(value) = Rat({top = -value.top, bottom = value.bottom})
     fromInt(value) = create(value, 1)
 
 honor Frac<Rat> =
-    divide(left, right) = divide(left, right)
+    divide(left, right) =
+        if right.top == 0 then
+            throw(DivideByZeroError("Rat.divide: divisor is zero"))
+        else
+            create(left.top * right.bottom, left.bottom * right.top)
