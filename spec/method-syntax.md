@@ -444,7 +444,7 @@ fun cmp<a: Ord>(x: a, y: a) =
                                    --   call it directly: `compare(x, y)`
 
 -- (j2) Declared type variable, no matching member: the options message
-fun go<a>(x: a) =
+fun go(x: a) =
     x.process()                      -- ERROR (row 7): `a` is a declared type variable,
                                    --   so the compiler cannot select a companion
                                    --   operation for `.process`; require a callable

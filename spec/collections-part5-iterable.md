@@ -197,7 +197,7 @@ export fun fromSeq<a: Hash>(items: Seq(a)): Bag(a) = ...
 export fun add<a: Hash>(bag: Bag(a), x: a): Bag(a) = ...
 export fun count<a: Hash>(bag: Bag(a), x: a): Int = ...   -- 0 when absent
 export fun size(bag: Bag(a)): Int = ...                    -- total multiplicity
-export fun toSeq<a>(bag: Bag(a)): Seq(a) = ...
+export fun toSeq(bag: Bag(a)): Seq(a) = ...
     -- each element repeated `count` times, elements grouped; see order note below
 
 honor<a> Iterable<Bag(a)> =
@@ -421,7 +421,7 @@ for x in bag                                -- iteration needs no Hash
 -- emits: const s = Bag_toSeq(bag); for (const x of s) { total = total + x; }
 
 -- (e) Rigid vs unsolved: two different errors
-fun f<c>(xs: c) =
+fun f(xs: c) =
     for x in xs                               -- ERROR: `xs` has the generic type `c`, and
         ...                                     --   Iterable cannot constrain a type variable
                                             --   in v1; take a Seq(a) parameter instead

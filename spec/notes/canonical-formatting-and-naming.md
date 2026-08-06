@@ -61,6 +61,12 @@ declarations through this list before considering the segment done.
   `<a>` binder. The binder attaches constraints; case already classifies
   `a` as a variable (Lexer §3), and the annotation `x: a` introduces it.
   `export let id(x: a): a = x`, never `export let id<a>(x: a): a = x`.
+  A mixed binder list drops its unconstrained elements the same way:
+  `tag<a: Show>(x: a, y: b)`, never `tag<a: Show, b>(x: a, y: b)`.
+  Spec and conformance specimens carry no exemption: a specimen writes a
+  bare binder only where the bare form is itself the demonstrated subject
+  (a rule naming it to license or reject it); demonstrating anything else,
+  the specimen is written canonically.
   (Functions §4.2.1)
 - **S4 [canonical]** A private module-level function annotates every
   parameter — including generic structure, `xs: Vector(a)` — and leaves

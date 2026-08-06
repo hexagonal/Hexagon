@@ -381,7 +381,7 @@ honor Signed<P> = derive                            -- ERROR: only Eq, Ord, Show
 
 -- (8) A user collection joins for..in (operational check in Part 5)
 union Bag(a) = MkBag(Vector(a))
-let toSeq<a>(b: Bag(a)): Seq(a) = ...
+let toSeq(b: Bag(a)): Seq(a) = ...
 honor<a> Iterable<Bag(a)> =
     type Item = a
     iterate(xs) = toSeq(xs)                        -- OK; instance row: Bag → Item = a

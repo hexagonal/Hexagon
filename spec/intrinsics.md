@@ -35,7 +35,7 @@ An intrinsic declaration appears in an `extern from` block whose specifier is th
 
 ```hexagon
 extern from "hex:intrinsic"
-    export fun seqMemoize as memoize<a>(source: Seq(a)): Seq(a)
+    export fun seqMemoize as memoize(source: Seq(a)): Seq(a)
 ```
 
 The block reuses FFI Part 4's grammar and rules wholesale except where §3.3–§3.4 state a delta: bodyless declarations, one per line under ordinary layout; full type annotations (nothing to infer from); the foreign-name-first `as` order (Part 4 §3.1), where the left side is the intrinsic **key** (§4) and the right side — or the sole name, when no `as` appears — is the ordinary local Hexagon binding; the per-declaration `export` modifier (Part 4 §7). After the declaration, the binding is an **ordinary module-level binding**: same typing, visibility, collision, and occlusion rules as any other. Inside the module it is referred to unqualified, matching the prior art; consumers reach it qualified through the companion idiom exactly as before.
@@ -47,14 +47,14 @@ The block reuses FFI Part 4's grammar and rules wholesale except where §3.3–�
 `stdlib/Vector.hex` declares its seven boundary operations this way — Collections Part 3 §7's crossing set, converted from public-name-door wrappers at its §9 milestone. What was
 
 ```hexagon
-export fun at<a>(values: Vector(a), index: Int): a = Vector.at(values, index)
+export fun at(values: Vector(a), index: Int): a = Vector.at(values, index)
 ```
 
 is
 
 ```hexagon
 extern from "hex:intrinsic"
-    export fun vectorAt as at<a>(values: Vector(a), index: Int): a
+    export fun vectorAt as at(values: Vector(a), index: Int): a
 ```
 
 A wrapper whose body is exactly the door call collapses to its declaration. A wrapper with Hexagon-expressible logic on top keeps that logic in ordinary source and declares the door **unexported** beneath it — the roadmap's "visible call into the narrow private boundary" (§5.1). Which shape to use is the ordinary §5.1 doctrine, not a new rule.
