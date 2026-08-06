@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { projectDiagnostics, runMain, runProject } from "../support/test-project.js";
+import { compileMain, projectDiagnostics, runMain, runProject } from "../support/test-project.js";
 
 /**
  * PR β of #335: **every** shipped constraint is declared by a `.hex` module in
@@ -154,6 +154,47 @@ describe("`Eq`'s defaulted `notEquals` (Constraints §2's first default)", () =>
     expect(exports.differ).toBe(true);
     expect(exports.agree).toBe(false);
     expect(exports.viaOperator).toBe(true);
+  });
+
+  /**
+   * *How* the inheritance is emitted, not just that it answers — because the
+   * two are separable, and running the program does not tell them apart.
+   *
+   * Constraints §6.5 gives an exported declaration's default a **hoisted
+   * helper**: the home module emits one `__hex_default<symbol>` function and
+   * every inheriting instance fills its slot by reference to it, importing the
+   * helper through the constraint's import item. A prelude declaration has no
+   * such item — the synthesized prelude import deliberately carries no
+   * constraints (#153) — so the reference has no route and the checker keeps
+   * prelude defaults out of that fork entirely, leaving the emitter's wired-in
+   * completion to answer them (`#reachableConstraintHelpers`).
+   *
+   * Without that gate the instance literal carries **both**: a `notEquals` key
+   * calling an unbound `__hex_default…`, and the wired-in `notEquals` key
+   * beside it. It is a duplicate JavaScript key, so which one survives is
+   * decided by emission order — at this shape the wired one happens to come
+   * last and win, leaving the broken reference dangling and harmless, and at
+   * other shapes it does not and the call throws a `ReferenceError`. A
+   * behavioural pin therefore cannot see this: it has to read the text.
+   */
+  test("the inherited default emits no reference to a helper that cannot travel", () => {
+    const project = compileMain([
+      "export record Pair = {n: Int}",
+      "",
+      "honor Eq<Pair> =",
+      "    equals(left, right) = left.n == right.n",
+      "",
+      "export let differ: Bool = notEquals(Pair({n = 1}), Pair({n = 2}))",
+      "",
+    ].join("\n"));
+
+    expect(project.diagnostics).toEqual([]);
+    const text = project.modules
+      .find(({ source }) => source.path === "/main.hex")!.javascript.text;
+
+    expect(text).not.toContain("__hex_default");
+    // One key, not two: a duplicate is a silent shadow, not a syntax error.
+    expect(text.match(/notEquals:/gu) ?? []).toHaveLength(1);
   });
 
   /**

@@ -577,6 +577,16 @@ class Checker {
    * inventory means: `Eq`'s `notEquals` is completed by the emitter for every
    * instance that omits it, declaration or no declaration.
    *
+   * Without this gate the two answers are emitted *both*, as duplicate keys of
+   * one instance literal — a hoisted-fork `notEquals` calling an unbound
+   * `__hex_default…` beside the wired-in one. JavaScript takes the last key, so
+   * the damage depends on emission order: usually the wired one wins and the
+   * broken reference dangles unreachable, but where the order runs the other
+   * way the call is a `ReferenceError` after a clean compile. Neither shape is
+   * visible to a test that only runs the program, which is why the pin for this
+   * reads the emitted text (`constraint-member-exports.test.ts`, "the inherited
+   * default emits no reference to a helper that cannot travel").
+   *
    * The consequence to know when adding a prelude constraint (#335): a
    * *defaulted* member of one needs wired-in completion to match, because the
    * declaration's own body will not travel.
