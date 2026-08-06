@@ -237,6 +237,91 @@ describe("§8.6 the total-contract fence (§5.4)", () => {
       'extern from "./foreign.js"\n    fun f(x: a): Int\nexport let out: Int = 1\n',
     )).toContain("generic extern declarations are not part of Hexagon v1");
   });
+
+  // The fence reports the *written* hole (§4.1's unit), not the nodes alias
+  // substitution made from it. Every surface below reached a hole through
+  // `Pair`, whose body mentions its parameter twice, and said the same sentence
+  // twice.
+  describe("one written hole is one fence error, through an alias", () => {
+    const PAIR = "type Pair(a) = (a, a)\n";
+    const fences = (source: string): readonly string[] =>
+      projectDiagnostics(source).filter((message) => message.includes(rewrite));
+
+    test("an exported signature reports `Pair(_)` once", () => {
+      expect(fences(`${PAIR}export let h(q: Pair(_)): Int = 1\n`)).toEqual([
+        `an exported signature is complete (Modules §4.1.1); ${rewrite}`,
+      ]);
+    });
+
+    test("a constrained hole reports once too — the suffix rides the one node", () => {
+      // `Pair(_ : Num)` also draws the undeclared-constraint error, which is a
+      // different rule and not what this counts.
+      expect(fences(`${PAIR}export let h(q: Pair(_ : Num)): Int = 1\n`)).toEqual([
+        `an exported signature is complete (Modules §4.1.1); ${rewrite}`,
+      ]);
+    });
+
+    test("an alias defined through another still reports once", () => {
+      expect(fences(
+        `${PAIR}type Same(b) = Pair(b)\nexport let h(q: Same(_)): Int = 1\n`,
+      )).toHaveLength(1);
+    });
+
+    test("every non-export fence surface reports once as well", () => {
+      // The duplication was never about exports: it is one walk, shared by all
+      // of §5.4's rows.
+      const cases: readonly (readonly [string, string])[] = [
+        [`type T = Pair(_)\n${TAIL}`, "a `type` declaration"],
+        [`record R = { a: Pair(_) }\n${TAIL}`, "a `record` declaration"],
+        [`union U = A(Pair(_))\n${TAIL}`, "a `union` declaration"],
+        [`exception Boom(payload: Pair(_))\n${TAIL}`, "an `exception` declaration"],
+        [
+          `extern from "./foreign.js"\n    fun f(x: Pair(_)): Int\n${TAIL}`,
+          "an `extern` declaration",
+        ],
+        [`extern from "./foreign.js"\n    let v: Pair(_)\n${TAIL}`, "an `extern` declaration"],
+        [`constraint C<a> =\n    m(x: Pair(_)): Int\n${TAIL}`, "a `constraint` declaration"],
+        [
+          `constraint C<a> =\n    m(x: a): Int\nhonor C<Pair(_)> =\n    m(x) = 1\n${TAIL}`,
+          "an `honor` declaration names its subject in full;",
+        ],
+      ];
+      for (const [source, form] of cases) {
+        const message = form.endsWith(";")
+          ? `${form} ${rewrite}`
+          : `${form} writes its types in full; ${rewrite}`;
+        expect(fences(`${PAIR}${source}`), form).toEqual([message]);
+      }
+    });
+
+    test("two written holes are still two errors", () => {
+      // The guard against over-deduping: `Both`'s body mentions each parameter
+      // once, so nothing is copied, and two `_` must stay two.
+      expect(fences(
+        `type Both(a, b) = (a, b)\nexport let h(q: Both(_, _)): Int = 1\n`,
+      )).toHaveLength(2);
+      expect(fences("export let h(q: Map(_, _)): Int = 1\n")).toHaveLength(2);
+    });
+
+    test("two declarations each get their own hole's error", () => {
+      // Written holes are distinct ids however they agree on anything else, so
+      // sharing an alias does not merge two declarations' complaints.
+      expect(fences(
+        `${PAIR}export let g(p: Pair(_)): Int = 1\nexport let h(q: Pair(_)): Int = 1\n`,
+      )).toHaveLength(2);
+    });
+
+    test("the surviving error still carets the written `_`", () => {
+      // What changed is the count. The copies always carried the written span —
+      // `withTypeSpan` exempts holes from substitution's re-pointing — so the
+      // one error left is the one that was always right.
+      const source = `${PAIR}export let h(q: Pair(_)): Int = 1\n`;
+      const { diagnostics } = compileMain(source);
+      expect(diagnostics).toHaveLength(1);
+      const { start, end } = diagnostics[0]!.primary;
+      expect(source.split("\n")[start.line]!.slice(start.column, end.column)).toBe("_");
+    });
+  });
 });
 
 describe("§8.7 no hole in a constraint binder list (§5.3)", () => {
