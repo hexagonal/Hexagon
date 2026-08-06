@@ -50,11 +50,13 @@ The angle brackets introduce a type variable and its obligations. Parentheses st
 apply a type constructor: `Option(a)` is a type, while `<a: Show>` introduces a type
 variable that must be displayable.
 
-A written constraint list is a contract, not a starting point for inference to
+A written binder list is a contract, not a starting point for inference to
 strengthen. If a body uses `hash(value)`, `<a: Eq>` is rejected because `Eq` does not
 provide `Hash`; the canonical repair is `<a: Hash>`. In the other direction,
 `<a: Hash>` already provides `Eq` through its base constraint, so equality needs no
-repeated `Eq` entry.
+repeated `Eq` entry. (The one written constraint list that *is* a starting point is a
+type hole's — the polymorphism chapter's `Vector(_ : Num)` — a floor inference may
+build past, because a hole claims no scheme for a contract to complete.)
 
 ## A constraint declares the required operations
 

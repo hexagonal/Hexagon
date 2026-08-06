@@ -592,6 +592,16 @@ late pedagogy pass, not a commitment to the current order.
   canonical proof pair. **Written is claimed, unwritten is inferred** is this
   chapter's unifying formulation, restated in its Summary. A whole-annotation hole is legal but canonical
   Hexagon omits it; exported signatures never contain holes.
+- A **constrained hole** extends `padded` to `Vector(_ : Num)` (#326): the written
+  list is a floor the filled type must satisfy, never a ceiling, and the
+  claim-ladder — variable over-claims, bare hole under-claims, constrained hole is
+  the strongest true claim — is taught on the same example. "Write the strongest
+  claim that is true" is the chapter's style rule for choosing among the three.
+- The **complementary split** is taught here: a named variable gathers its
+  constraints at the binder (`clamp<a: Ord>` — four positions, one statement),
+  a hole carries its constraints inline; `Vector(a : Num)` is a parse error and a
+  binder list cannot name a hole. `clamp` joins `display` as a provisional
+  constraint preview deferring mechanism to the constraints chapter.
 
 ### Tuples
 
