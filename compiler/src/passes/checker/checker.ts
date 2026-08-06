@@ -7339,8 +7339,9 @@ const EXPORTED_SIGNATURE =
  * `type Pair(a) = (a, a)` reached as `Pair(_)` puts two nodes in the tree for
  * the one `_`. The copies share the id they were minted with, so collapsing on
  * it says the written hole once, which is what the fence has to say. The span
- * cannot serve: every copy keeps the written `_`'s span, so two holes written
- * through the same alias in different declarations would collide.
+ * must not serve, though today it would coincide: a copy keeps the written
+ * `_`'s span only because `withTypeSpan` exempts holes, and identity cannot
+ * rest on that choice (see `HoleTypeAnnotation.id`).
  */
 function typeAnnotationHoles(
   annotation: Resolved.TypeAnnotation,
