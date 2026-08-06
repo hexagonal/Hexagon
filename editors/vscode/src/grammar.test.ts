@@ -443,6 +443,30 @@ describe("type variables are nominal-coloured in type positions", () => {
     ]);
   });
 
+  it("colours a type hole with the type-variable scope (#317)", async () => {
+    // A hole is a type-position `_` (`decisions-ml-dialect-annotations-2026-08.md`
+    // §11): the type-variable scope is what it should read as, and it already
+    // does — `_` is in the same start class the type-variable rule matches, so
+    // no rule was added and none of #162's bail-out guards were disturbed.
+    expect(await scope("let f(x: _) = x", "_")).toBe("entity.name.type.parameter.hexagon");
+    expect(await scope("let n: _ = 42", "_")).toBe("entity.name.type.parameter.hexagon");
+    expect(await scope("let f(xs: Vector(_)) = xs", "_"))
+      .toBe("entity.name.type.parameter.hexagon");
+    expect(await scope("let f(g: _ -> Bool) = g", "_"))
+      .toBe("entity.name.type.parameter.hexagon");
+    expect(await scope("let f(r: {name: _}) = r", "_"))
+      .toBe("entity.name.type.parameter.hexagon");
+    expect(await scope("let f(x): _ = x", "_")).toBe("entity.name.type.parameter.hexagon");
+  });
+
+  it("leaves a pattern-position `_` alone", async () => {
+    expect(await scope("match x\n    _ => 1", "_")).toBe("variable.language.wildcard.hexagon");
+    // Not the wildcard scope — the `let` binder rule claims this one, and has
+    // since before holes existed. What matters here is that the type-position
+    // meaning did not reach into pattern position.
+    expect(await scope("let _ = 1", "_")).not.toBe("entity.name.type.parameter.hexagon");
+  });
+
   it("treats a `>=` tail as the comparison it is", async () => {
     const pairs = await scopePairs("let ok = a<b and c >= d");
     expect(pairs.filter(([, s]) => s.startsWith("entity.name.type"))).toEqual([]);

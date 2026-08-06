@@ -2802,6 +2802,10 @@ class Parser {
       };
       return { annotation, parameters: elements };
     }
+    if (token.kind === "Wildcard") {
+      this.#advance();
+      return { annotation: { kind: "Hole", span: token.span } };
+    }
     if (token.kind === "NonUpperName") {
       this.#advance();
       const name = parsedName(token);

@@ -505,6 +505,15 @@ class Checker {
   readonly #instances = new Map<string, Resolved.HonorItem>();
   readonly #instanceIdentities = new Map<string, string>();
   /**
+   * Every type hole elaborated in this module, with the variable it became.
+   *
+   * Hover is the only reporting channel a hole has (closure doc §7), and a hole
+   * is not a name, so the occurrence index — which is keyed on names — cannot
+   * answer about one. The spans are recorded here as they are elaborated and
+   * read back at materialization, once the variable has been solved.
+   */
+  readonly #typeHoles: { readonly span: Source.Span; readonly type: Mono }[] = [];
+  /**
    * The constraints **declared in this module**, by name.
    *
    * Ownership, never visibility. Two rules read exactly this set and nothing
@@ -608,6 +617,7 @@ class Checker {
         : undefined);
     this.#verifyPinnedBoolShape(module);
     this.#verifyVarianceClaims(module);
+    this.#rejectTypeHoles(module);
     for (const externType of module.externTypes) {
       this.#externTypes.set(externType.externType, externType);
     }
@@ -1049,6 +1059,7 @@ class Checker {
       externTypes: module.externTypes,
       comments: module.comments,
       docs: module.docs,
+      typeHoles: this.#materializeTypeHoles(),
       span: module.span,
       diagnostics: this.#diagnostics.toArray(),
     };
@@ -5179,6 +5190,16 @@ class Checker {
     namedTails = new Map<string, Variable>(),
     typeParameters: ReadonlyMap<string, Mono> = new Map(),
     impliedTypes: ReadonlyMap<string, Mono> = new Map(),
+    /**
+     * The variable each **written** hole has been given, by `id` (§4.1). Its
+     * lifetime is `namedTails`': one map per elaboration of one annotation,
+     * defaulted here so every caller gets a fresh one. That is exactly the scope
+     * the rule needs — an alias applied at a hole copies the node into several
+     * positions of the *same* annotation, so the copies share, while the same
+     * alias applied in a second definition elaborates separately and shares
+     * nothing with the first.
+     */
+    holes = new Map<number, Variable>(),
   ): Mono {
     if (annotation.kind === "Primitive") {
       // The `Unit` spelling is surface syntax for the empty tuple (#159): the
@@ -5190,27 +5211,27 @@ class Checker {
     if (annotation.kind === "Vector") {
       return {
         kind: "Vector",
-        element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes),
+        element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes),
       };
     }
     if (annotation.kind === "Set") {
-      return { kind: "Set", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes) };
+      return { kind: "Set", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes) };
     }
-    if (annotation.kind === "Array") return { kind: "Array", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes) };
-    if (annotation.kind === "Node") return { kind: "Node", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes) };
-    if (annotation.kind === "Nullable") return { kind: "Nullable", value: this.#annotationType(annotation.value, level, namedTails, typeParameters, impliedTypes) };
+    if (annotation.kind === "Array") return { kind: "Array", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes) };
+    if (annotation.kind === "Node") return { kind: "Node", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes) };
+    if (annotation.kind === "Nullable") return { kind: "Nullable", value: this.#annotationType(annotation.value, level, namedTails, typeParameters, impliedTypes, holes) };
     if (annotation.kind === "Map") {
       return {
         kind: "Map",
-        key: this.#annotationType(annotation.key, level, namedTails, typeParameters, impliedTypes),
-        value: this.#annotationType(annotation.value, level, namedTails, typeParameters, impliedTypes),
+        key: this.#annotationType(annotation.key, level, namedTails, typeParameters, impliedTypes, holes),
+        value: this.#annotationType(annotation.value, level, namedTails, typeParameters, impliedTypes, holes),
       };
     }
     if (annotation.kind === "Function") {
       return {
         kind: "Function",
         parameters: annotation.parameters.map((parameter) =>
-          this.#annotationType(parameter, level, namedTails, typeParameters, impliedTypes)
+          this.#annotationType(parameter, level, namedTails, typeParameters, impliedTypes, holes)
         ),
         result: this.#annotationType(
           annotation.result,
@@ -5218,6 +5239,7 @@ class Checker {
           namedTails,
           typeParameters,
           impliedTypes,
+          holes,
         ),
       };
     }
@@ -5227,7 +5249,7 @@ class Checker {
         union: annotation.union,
         name: annotation.name,
         arguments: annotation.arguments.map((argument) =>
-          this.#annotationType(argument, level, namedTails, typeParameters, impliedTypes)
+          this.#annotationType(argument, level, namedTails, typeParameters, impliedTypes, holes)
         ),
       };
     }
@@ -5237,7 +5259,7 @@ class Checker {
         record: annotation.record,
         name: annotation.name,
         arguments: annotation.arguments.map((argument) =>
-          this.#annotationType(argument, level, namedTails, typeParameters, impliedTypes)
+          this.#annotationType(argument, level, namedTails, typeParameters, impliedTypes, holes)
         ),
       };
     }
@@ -5258,6 +5280,26 @@ class Checker {
       }
       return ERROR;
     }
+    if (annotation.kind === "Hole") {
+      // The whole of a hole's semantics (closure doc §4.1): the same variable,
+      // created the same way, as for an unannotated position. No `rigidName`, so
+      // unification, accumulation, defaulting and generalization all reach it as
+      // they reach any inference variable — there is no hole-specific clause
+      // anywhere downstream, and there must not be one.
+      //
+      // Once per *written* hole, not once per node. `type Pair(a) = (a, a)`
+      // applied as `Pair(_)` substitutes one written hole into both element
+      // positions, and freshening per node would make `Pair(_)` a pair of two
+      // unrelated types — un-writing the alias's own contract, and accepting
+      // `(1, "two")`. The same memoization named variables already get from
+      // `typeParameters`; holes key on `id` because they have no name.
+      const existing = holes.get(annotation.id);
+      if (existing !== undefined) return existing;
+      const variable = this.#fresh(level, false);
+      holes.set(annotation.id, variable);
+      this.#typeHoles.push({ span: annotation.span, type: variable });
+      return variable;
+    }
     if (annotation.kind === "ImpliedType") {
       return impliedTypes.get(annotation.name) ?? ERROR;
     }
@@ -5265,7 +5307,7 @@ class Checker {
       return {
         kind: "Tuple",
         elements: annotation.elements.map((element) =>
-          this.#annotationType(element, level, namedTails, typeParameters, impliedTypes)
+          this.#annotationType(element, level, namedTails, typeParameters, impliedTypes, holes)
         ),
       };
     }
@@ -5274,7 +5316,7 @@ class Checker {
         kind: "Record",
         fields: new Map(annotation.fields.map((field) => [
           field.name,
-          this.#annotationType(field.annotation, level, namedTails, typeParameters, impliedTypes),
+          this.#annotationType(field.annotation, level, namedTails, typeParameters, impliedTypes, holes),
         ])),
         ...(annotation.open
           ? { tail: this.#annotationTail(annotation.tail, level, namedTails) }
@@ -5702,6 +5744,137 @@ class Checker {
             });
           }
         }
+      }
+    }
+  }
+
+  /**
+   * Each recorded hole, read back once inference has finished with it.
+   *
+   * The scheme quantifies whatever variables are still unsolved, so a hole the
+   * body fixed reads `Int` and one nothing fixed reads `a` — which is what the
+   * enclosing binding's own scheme shows at that position. It is not the
+   * binding's scheme, though: a hole under a `var`, or one the value restriction
+   * declined, is unsolved without being quantified anywhere, and displaying it
+   * as a variable is still the honest answer.
+   *
+   * Deduplicated by span, first writer winning. Elaboration now records one
+   * entry per *written* hole (§4.1's rule, memoized in `#annotationType`), so
+   * this no longer collapses anything in practice; it is kept as the guard that
+   * hover answers one caret once, whatever later re-elaborates an annotation.
+   */
+  #materializeTypeHoles(): readonly Typed.TypeHole[] {
+    const holes = new Map<string, Typed.TypeHole>();
+    for (const { span, type } of this.#typeHoles) {
+      const key = `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
+      if (holes.has(key)) continue;
+      holes.set(key, {
+        span,
+        scheme: this.#publicScheme({ variables: this.#collectVariables(type), type }),
+      });
+    }
+    return [...holes.values()];
+  }
+
+  /**
+   * The total-contract fence (closure doc §5.4): a hole is an inference
+   * instrument, and these surfaces are checked against no body from which one
+   * could be filled — or, at an export, the completeness requirement *is* the
+   * point and a hole would un-write part of the module's contract.
+   *
+   * Run before anything elaborates an annotation, so the fence speaks first: an
+   * `extern fun f(x: _)` is refused here rather than reaching the generic-extern
+   * refusal, which asks a different question and would name the wrong rewrite.
+   *
+   * Only signatures. An exported function's *body* is an inference surface like
+   * any other, so a `let n: _ = 42` inside one stays legal.
+   */
+  #rejectTypeHoles(module: Resolved.Module): void {
+    const reject = (
+      annotation: Resolved.TypeAnnotation | undefined,
+      message: string,
+    ): void => {
+      if (annotation === undefined) return;
+      for (const span of typeAnnotationHoles(annotation)) {
+        this.#diagnostics.add({ severity: "error", message, primary: span });
+      }
+    };
+    const declaration = (article: "a" | "an", form: string): string =>
+      `${article} \`${form}\` declaration writes its types in full; replace \`_\` with the intended type`;
+    const signature = (lambda: Resolved.LambdaExpr): void => {
+      for (const parameter of lambda.parameters) reject(parameter.annotation, EXPORTED_SIGNATURE);
+      reject(lambda.returnAnnotation, EXPORTED_SIGNATURE);
+    };
+
+    for (const item of module.items) {
+      switch (item.kind) {
+        case "TypeAlias":
+          reject(item.annotation, declaration("a", "type"));
+          break;
+        case "RecordDeclaration":
+          for (const field of item.fields) reject(field.annotation, declaration("a", "record"));
+          break;
+        case "Union":
+          for (const constructor of item.constructors) {
+            for (const slot of constructor.slots) reject(slot.annotation, declaration("a", "union"));
+          }
+          break;
+        // §5.4's `exception` slot-types row: written types checked against no
+        // body, where an unsolved variable would seat silently.
+        case "Exception":
+          for (const slot of item.slots) reject(slot.annotation, declaration("an", "exception"));
+          break;
+        case "ExternBlock":
+          // Every FFI declaration form, the intrinsic door included: §3.4 of
+          // `spec/intrinsics.md` grants the door *genericity*, which a hole is
+          // not (closure doc §2.3), and the door is still a declaration surface.
+          for (const external of item.declarations) {
+            if (external.kind === "ExternFun") {
+              for (const parameter of external.parameters) {
+                reject(parameter.annotation, declaration("an", "extern"));
+              }
+              reject(external.returnAnnotation, declaration("an", "extern"));
+            } else if (external.kind === "ExternLet") {
+              reject(external.annotation, declaration("an", "extern"));
+            }
+          }
+          break;
+        case "ConstraintDeclaration":
+          // Member *signatures* only. A member's default value is an ordinary
+          // body, and its annotations are inference-checked like any other's.
+          for (const member of item.members) {
+            for (const parameter of member.parameters) {
+              reject(parameter.annotation, declaration("a", "constraint"));
+            }
+            reject(member.returnAnnotation, declaration("a", "constraint"));
+          }
+          break;
+        case "Honor":
+          // §5.4's instance-head row, which owns its own §6.3 wording: an
+          // instance keyed on an unsolved variable is exactly what coherence
+          // cannot have. The subject's *arguments* are inside its annotation, so
+          // `honor Show<Vector(_)>` is reached by the same walk.
+          reject(
+            item.subject,
+            "an `honor` declaration names its subject in full; replace `_` with the intended type",
+          );
+          // §5.4's implied-type-choices row, which is the same sentence again:
+          // an unsolved projection would be silent.
+          for (const implied of item.impliedTypes) {
+            reject(implied.annotation, declaration("an", "honor"));
+          }
+          break;
+        case "Let":
+          if (!item.exported) break;
+          reject(item.annotation, EXPORTED_SIGNATURE);
+          if (item.value.kind === "Lambda") signature(item.value);
+          break;
+        case "Fun":
+          if (!item.exported) break;
+          signature(item.value);
+          break;
+        default:
+          break;
       }
     }
   }
@@ -7130,6 +7303,50 @@ function coverageAlternatives(
     : [unwrapped];
 }
 
+const EXPORTED_SIGNATURE =
+  "an exported signature is complete (Modules §4.1.1); replace `_` with the intended type";
+
+/** Every type hole's span inside one resolved annotation, outermost first. */
+function typeAnnotationHoles(
+  annotation: Resolved.TypeAnnotation,
+): readonly Source.Span[] {
+  switch (annotation.kind) {
+    case "Hole":
+      return [annotation.span];
+    case "Function":
+      return [
+        ...annotation.parameters.flatMap(typeAnnotationHoles),
+        ...typeAnnotationHoles(annotation.result),
+      ];
+    case "Vector":
+    case "Set":
+    case "Array":
+    case "Node":
+      return typeAnnotationHoles(annotation.element);
+    case "Nullable":
+      return typeAnnotationHoles(annotation.value);
+    case "Map":
+      return [
+        ...typeAnnotationHoles(annotation.key),
+        ...typeAnnotationHoles(annotation.value),
+      ];
+    case "Tuple":
+      return annotation.elements.flatMap(typeAnnotationHoles);
+    case "Record":
+      return annotation.fields.flatMap((field) => typeAnnotationHoles(field.annotation));
+    case "Union":
+    case "RecordDeclaration":
+      return annotation.arguments.flatMap(typeAnnotationHoles);
+    case "ExternType":
+    case "Primitive":
+    case "Range":
+    case "TypeVariable":
+    case "ImpliedType":
+    case "ErrorType":
+      return [];
+  }
+}
+
 function annotationHasTypeVariable(
   annotation: Resolved.TypeAnnotation,
 ): boolean {
@@ -7162,6 +7379,12 @@ function annotationHasTypeVariable(
     case "Primitive":
     case "Range":
     case "ImpliedType":
+    // A hole is not a type variable: it claims no generality (closure doc §2.3),
+    // so it does not make a declaration generic. Every surface that reads this
+    // predicate is a total-contract position, where `#rejectTypeHoles` has
+    // already refused the hole outright with the diagnostic that names its
+    // rewrite — so answering `true` here would only add a second, worse report.
+    case "Hole":
     case "ErrorType":
       return false;
   }
@@ -7201,6 +7424,7 @@ function annotationMentionsNode(annotation: Resolved.TypeAnnotation): boolean {
     case "ExternType":
     case "TypeVariable":
     case "ImpliedType":
+    case "Hole":
     case "ErrorType":
       return false;
   }

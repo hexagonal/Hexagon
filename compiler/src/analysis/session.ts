@@ -367,6 +367,10 @@ export class AnalysisSession {
     // facts: the declared claim, and what the representation supports (§8.2).
     const variance = this.#varianceHover(analysis, normalized, offset);
     if (variance !== undefined) return variance;
+    // For the same reason: a hole is not a name, so nothing in the occurrence
+    // index denotes one, and hover is the hole's only reporting channel.
+    const hole = this.#holeHover(analysis, normalized, offset);
+    if (hole !== undefined) return hole;
     if (candidates.length === 0) return this.#documentedName(analysis, normalized, offset);
     const typed = candidates
       .map((occurrence) => ({
@@ -402,6 +406,30 @@ export class AnalysisSession {
       name: site.parameter.name,
       span: site.span,
       documentation: varianceHover(site),
+    };
+  }
+
+  /**
+   * A type hole, hovered: what inference filled it with
+   * (`decisions-ml-dialect-annotations-2026-08.md` §7).
+   *
+   * The answer has no `target` — a hole denotes nothing the index can name — so
+   * it renders as the bare `_: T`, which is exactly the sentence wanted. There
+   * is no documentation to attach: a hole is not a declaration.
+   */
+  #holeHover(analysis: Analysis, path: string, offset: number): Hover | undefined {
+    const fileId = this.#fileIds.get(path);
+    const typed = analysis.typedOf(path);
+    if (fileId === undefined || typed === undefined) return undefined;
+    const hole = typed.typeHoles.find(({ span }) =>
+      span.fileId === fileId &&
+      offset >= span.start.offset && offset <= span.end.offset
+    );
+    if (hole === undefined) return undefined;
+    return {
+      name: "_",
+      span: hole.span,
+      displayedType: Typed.displayScheme(hole.scheme),
     };
   }
 
@@ -466,7 +494,7 @@ export class AnalysisSession {
    * pointer and the caret is the only thing that moves — and which therefore has
    * to decide whether to open one before it has an answer to show.
    *
-   * The three sources below are `hover`'s own three, read from the same arrays
+   * The four sources below are `hover`'s own four, read from the same arrays
    * with the same containment rule, so the two agree by construction. That is
    * the whole point of the method: the Playground previously gated on the type
    * occurrence table, which answers a different question and so both over- and
@@ -477,7 +505,7 @@ export class AnalysisSession {
    * Order is not reproduced. `hover` short-circuits — a variance site wins
    * outright, and a documented name is consulted only where the occurrence index
    * is silent — but the *set of offsets it answers at* is the plain union of the
-   * three, and that set is all a gate needs.
+   * four, and that set is all a gate needs.
    *
    * Every span returned lies in the queried file, which is worth knowing rather
    * than assuming: `collectOccurrences` drops any span whose file is not the
@@ -493,13 +521,16 @@ export class AnalysisSession {
     const spans: OffsetRange[] = [];
     const fileId = this.#fileIds.get(normalized);
     if (fileId !== undefined) {
-      // Each branch carries the guard its answer carries — `#varianceHover`
-      // needs the typed tree, `#documentedName` needs the text it slices the
-      // name out of — rather than one guard covering both, so a file the session
-      // holds only half of gates exactly where it would answer.
+      // Each branch carries the guard its answer carries — `#varianceHover` and
+      // `#holeHover` need the typed tree, `#documentedName` needs the text it
+      // slices the name out of — rather than one guard covering both, so a file
+      // the session holds only half of gates exactly where it would answer.
       const typed = analysis.typedOf(normalized);
       if (typed !== undefined) {
         for (const site of parameterSites(typed, fileId)) spans.push(offsetsOf(site.span));
+        for (const hole of typed.typeHoles) {
+          if (hole.span.fileId === fileId) spans.push(offsetsOf(hole.span));
+        }
       }
       if (this.#texts.has(normalized)) {
         for (const name of analysis.documentation.namesIn(fileId)) {

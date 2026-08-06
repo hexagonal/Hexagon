@@ -535,6 +535,8 @@ class Resolver {
   /** This module's file id, held for identity minting; set by `resolve`. */
   #fileId = 0;
   #lambdaDepth = 0;
+  /** Written-hole identities; see `Resolved.HoleTypeAnnotation.id`. */
+  #nextHole = 0;
   #nextSymbol: number;
   #nextUnion: number;
   #nextRecord: number;
@@ -2673,6 +2675,12 @@ class Resolver {
         span: annotation.span,
       };
     }
+    if (annotation.kind === "Hole") {
+      // Minted per *written* `_`, which is the only place a hole enters the
+      // resolved tree: every later copy is made by substitution, which spreads
+      // the node and so carries this id with it.
+      return { kind: "Hole", id: this.#nextHole++, span: annotation.span };
+    }
     if (annotation.kind === "TypeVariable") {
       const replacement = substitutions.get(annotation.name.text);
       if (replacement !== undefined) return withTypeSpan(replacement, annotation.span);
@@ -3305,6 +3313,7 @@ function annotationHeadName(annotation: Resolved.TypeAnnotation): string {
     case "Record": return "Record";
     case "TypeVariable": return annotation.name;
     case "ImpliedType": return annotation.name;
+    case "Hole": return "_";
     case "ErrorType": return "Error";
   }
 }
@@ -3336,6 +3345,9 @@ function annotationTypeVariables(annotation: Resolved.TypeAnnotation): readonly 
     case "Primitive":
     case "Range":
     case "ImpliedType":
+    // A hole names no variable: it claims nothing and links nothing (closure
+    // doc §2.3), so it contributes no name to any declaration head's inventory.
+    case "Hole":
     case "ErrorType":
       return [];
   }
@@ -3358,6 +3370,11 @@ function parsedAnnotationTypeVariables(annotation: Parsed.TypeAnnotation): Reado
 }
 
 function withTypeSpan(type: Resolved.TypeAnnotation, span: Source.Span): Resolved.TypeAnnotation {
+  // A substituted type is re-pointed at the position it was substituted *into*,
+  // so a diagnostic about an alias body carets the alias body. A hole keeps its
+  // own span instead: the `_` the user wrote is the only thing hover can point
+  // at, and an alias body has no `_` in it to caret (§5.4 fences one out).
+  if (type.kind === "Hole") return type;
   return { ...type, span };
 }
 
@@ -3366,6 +3383,7 @@ function substituteResolvedType(
   replacements: ReadonlyMap<string, Resolved.TypeAnnotation>,
   span = type.span,
 ): Resolved.TypeAnnotation {
+  if (type.kind === "Hole") return type;
   if (type.kind === "TypeVariable") return withTypeSpan(replacements.get(type.name) ?? type, span);
   if (type.kind === "Tuple") return { ...type, elements: type.elements.map((element) => substituteResolvedType(element, replacements)), span };
   if (type.kind === "Record") return {
