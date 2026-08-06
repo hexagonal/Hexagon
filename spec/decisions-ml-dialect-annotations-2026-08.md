@@ -2,7 +2,7 @@
 
 **Status:** Decided (August 2026; rulings on #317 and #326, carrying #315's record obligation). Closure document, authoritative until consolidated into host specs per README authority rule 3 — this document is added to rule 3's closure-document list in this same change; the standing is conferred there, not claimed here.
 **Scope:** the annotation doctrine record — rigid variables, the two registers, the accumulate default (§2–§3); type holes `_` in type position: semantics (§4), constrained holes `_ : C` (§4.4), positions (§5), diagnostics (§6), reporting (§7), conformance obligations (§8); rejected alternatives (§9); the edit-notes ledger (§10); implementation notes for `hexc` (§11).
-**Not in scope:** expression ascription (#307, its arc paused; §5.5 records the interaction without pre-ruling it); rank-2 annotation pathways (Functions §4.2's position restriction is untouched); the export completeness rule itself (Modules §4.1.1 owns it; §5.4 here only confirms holes do not satisfy it).
+**Not in scope:** expression ascription's own form and variable semantics (the Ascription spec, #307; §5.5 records only that ascription is a hole position); rank-2 annotation pathways (Functions §4.2's position restriction is untouched); the export completeness rule itself (Modules §4.1.1 owns it; §5.4 here only confirms holes do not satisfy it).
 **Companions:** Functions §4.1–§4.2.1, §5, §8, §10; Modules §4.1.1; Constraints §1–§2.1 (the kind distinction and base-constraint entailment §4.4 and §9 lean on); Numeric Literals §4; Lexer §3.2; Statements & Mutability (binding annotations on `let`/`var`); Declarations Preamble §1.1 (the Rewrite Rule); `notes/default-parameters-plan.md` §7.1 (the term-position claim on `_`, declined there).
 
 ---
@@ -111,13 +111,14 @@ A hole may appear in **any type position inside an inference-checked annotation*
 
 - parameter annotations (`x: Vector(_)`),
 - return annotations (`let f(x): _ -> Bool = ...` and plain `let f(x): Vector(_) = ...`),
-- binding annotations on `let` and `var` statements (`let n: _ = 42`).
+- binding annotations on `let` and `var` statements (`let n: _ = 42`),
+- expression ascriptions (`(parse(raw) : Vector(_))` — the Ascription spec; §5.5). *(added 2026-08-06, #307)*
 
 Within such an annotation, every type position admits a hole: type arguments (`Map(String, _)`), function-type parameters and results (`(_ -> Bool)`), tuple elements (`(_, Int)`), structural-record field types (`{ name: _ }`), and nesting of all of these.
 
 ### 5.2 The degenerate whole-type hole
 
-A bare `_` as the entire annotation — `x: _` in a parameter list, `let n: _ = 42` — is **legal and inert**: it means exactly what omitting the annotation means. Canonical Hexagon **normalizes it away**: the formatter drops the degenerate annotation, leaving the bare binder — `f(x: _, y)` becomes `f(x, y)` (review-package item S11 in `notes/canonical-formatting-and-naming.md`). Legality is uniformity — a hole is a type expression, and no position carve-out exists; it also keeps annotations editable (deleting `Vector(...)` around a hole must not manufacture a parse error) and gives the proof pair (§6.2) its binding-annotation spelling while expression ascription is out of the language. Holes *inside* a written type (`Vector(_)`) are ordinary canonical Hexagon and are not normalized. A **constrained** whole-type hole is different: `x: _ : C` carries a claim, is not inert, and is kept (§4.4).
+A bare `_` as the entire annotation — `x: _` in a parameter list, `let n: _ = 42` — is **legal and inert**: it means exactly what omitting the annotation means. Canonical Hexagon **normalizes it away**: the formatter drops the degenerate annotation, leaving the bare binder — `f(x: _, y)` becomes `f(x, y)` (review-package item S11 in `notes/canonical-formatting-and-naming.md`). Legality is uniformity — a hole is a type expression, and no position carve-out exists; it also keeps annotations editable (deleting `Vector(...)` around a hole must not manufacture a parse error) and gives the proof pair (§6.2) its binding-annotation spelling (chosen while expression ascription was out of the language; the ascription spelling exists now — Ascription spec §3.2 — and the pair stands as written). Holes *inside* a written type (`Vector(_)`) are ordinary canonical Hexagon and are not normalized. A **constrained** whole-type hole is different: `x: _ : C` carries a claim, is not inert, and is kept (§4.4).
 
 ### 5.3 Constraint binder lists
 
@@ -142,9 +143,9 @@ The `exception` and implied-type rows follow from the same sentence that admits 
 
 Each fence rejection is a hard error naming the rewrite (§6.3), per the Rewrite Rule.
 
-### 5.5 Expression ascription (deferred, not pre-ruled)
+### 5.5 Expression ascription
 
-When the paused ascription arc (#307) resumes, an ascription `(e : T)` is an inference-checked annotation position and holes apply there by this ruling's §5.1 rule — `(e : Vector(_))` claims the constructor and infers the element. Nothing else about that arc — in particular its variable semantics — is decided here.
+An ascription `(e : T)` is an inference-checked annotation position and holes apply there by this ruling's §5.1 rule — `(e : Vector(_))` claims the constructor and infers the element. *(This section pre-committed the rule while the ascription arc was paused; the arc resumed and ruled 2026-08-06, #307 — the Ascription spec now cites this rule and owns everything else about the form, its variable semantics included.)*
 
 ### 5.6 Canonical choice: the variable, not the hole, where the claim is true
 
