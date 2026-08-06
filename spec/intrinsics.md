@@ -65,7 +65,7 @@ A wrapper whose body is exactly the door call collapses to its declaration. A wr
 
 ### 3.4 Genericity — granted inside this boundary only
 
-Intrinsic declarations may be type-parameterized (`<a>` on the local name, as in §3.1). This does **not** reopen FFI Part 4 §12.4, which defers generic *foreign* externs over a real representation question: a polymorphic contract with an untrusted foreign implementer requires a representation story for unknown instantiations. Here the implementer is the compiler, which owns the representation of every Hexagon type because it emits them; the question §12.4 defers does not arise inside the trust boundary. Foreign extern declarations remain monomorphic in v1.
+Intrinsic declarations may be type-parameterized (a type variable in the declared annotation, as `a` in §3.1's `memoize`). This does **not** reopen FFI Part 4 §12.4, which defers generic *foreign* externs over a real representation question: a polymorphic contract with an untrusted foreign implementer requires a representation story for unknown instantiations. Here the implementer is the compiler, which owns the representation of every Hexagon type because it emits them; the question §12.4 defers does not arise inside the trust boundary. Foreign extern declarations remain monomorphic in v1.
 
 ---
 

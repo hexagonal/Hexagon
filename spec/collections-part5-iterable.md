@@ -67,7 +67,7 @@ The single Loops §7.1 unsolved-case message is hereby **split**: an annotation 
 | τ at step 2/3 | Error |
 |---|---|
 | Unsolved inference variable | "cannot determine what `xs` iterates over; add a type annotation" (unchanged) |
-| Declared type variable (a binder of the enclosing function or instance) | "`xs` has the generic type `c`, and `Iterable` cannot constrain a type variable in v1; take a `Seq(a)` parameter instead" |
+| Declared type variable (written in the enclosing function's annotations or binders, or an instance binder) | "`xs` has the generic type `c`, and `Iterable` cannot constrain a type variable in v1; take a `Seq(a)` parameter instead" |
 | Concrete constructor, no instance, **not** a user nominal type | "`Int` is not iterable" + a conversion hint where one exists |
 | Concrete constructor, no instance, **user nominal type** | the two-legal-homes form, §3.3 |
 
@@ -291,7 +291,7 @@ New rows first; inherited rows by reference (unchanged, listed for the consolida
 | Situation | Error / hint | § |
 |---|---|---|
 | `for x in xs`, `xs` an unsolved inference variable | "cannot determine what `xs` iterates over; add a type annotation" | §3.2 (Loops §7.1, unchanged) |
-| `for x in xs`, `xs : c` a rigid binder variable | "`xs` has the generic type `c`, and `Iterable` cannot constrain a type variable in v1; take a `Seq(a)` parameter instead" | **§3.2 (new split)** |
+| `for x in xs`, `xs : c` a rigid declared variable | "`xs` has the generic type `c`, and `Iterable` cannot constrain a type variable in v1; take a `Seq(a)` parameter instead" | **§3.2 (new split)** |
 | Non-iterable concrete type, not user-nominal | "`Int` is not iterable" (+ conversion hint where one exists) | §3.2 |
 | Non-iterable user nominal type | two-legal-homes form: the type's home file with the `honor` fixit, the prelude as the only other legal home, and the `toSeq`/`Seq(a)` alternatives | **§3.3 (new)** |
 | `honor` of a provided-row head outside the prelude | orphan-rule error + "the prelude already provides `Iterable<Vector(a)>`" | **§7.3 (new hint)** |
