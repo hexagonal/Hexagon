@@ -505,6 +505,15 @@ class Checker {
   readonly #instances = new Map<string, Resolved.HonorItem>();
   readonly #instanceIdentities = new Map<string, string>();
   /**
+   * Every type hole elaborated in this module, with the variable it became.
+   *
+   * Hover is the only reporting channel a hole has (closure doc §7), and a hole
+   * is not a name, so the occurrence index — which is keyed on names — cannot
+   * answer about one. The spans are recorded here as they are elaborated and
+   * read back at materialization, once the variable has been solved.
+   */
+  readonly #typeHoles: { readonly span: Source.Span; readonly type: Mono }[] = [];
+  /**
    * The constraints **declared in this module**, by name.
    *
    * Ownership, never visibility. Two rules read exactly this set and nothing
@@ -608,6 +617,7 @@ class Checker {
         : undefined);
     this.#verifyPinnedBoolShape(module);
     this.#verifyVarianceClaims(module);
+    this.#rejectTypeHoles(module);
     for (const externType of module.externTypes) {
       this.#externTypes.set(externType.externType, externType);
     }
@@ -1049,6 +1059,7 @@ class Checker {
       externTypes: module.externTypes,
       comments: module.comments,
       docs: module.docs,
+      typeHoles: this.#materializeTypeHoles(),
       span: module.span,
       diagnostics: this.#diagnostics.toArray(),
     };
@@ -5258,6 +5269,16 @@ class Checker {
       }
       return ERROR;
     }
+    if (annotation.kind === "Hole") {
+      // The whole of a hole's semantics (closure doc §4.1): the same variable,
+      // created the same way, as for an unannotated position. No `rigidName`, so
+      // unification, accumulation, defaulting and generalization all reach it as
+      // they reach any inference variable — there is no hole-specific clause
+      // anywhere downstream, and there must not be one.
+      const variable = this.#fresh(level, false);
+      this.#typeHoles.push({ span: annotation.span, type: variable });
+      return variable;
+    }
     if (annotation.kind === "ImpliedType") {
       return impliedTypes.get(annotation.name) ?? ERROR;
     }
@@ -5702,6 +5723,138 @@ class Checker {
             });
           }
         }
+      }
+    }
+  }
+
+  /**
+   * Each recorded hole, read back once inference has finished with it.
+   *
+   * The scheme quantifies whatever variables are still unsolved, so a hole the
+   * body fixed reads `Int` and one nothing fixed reads `a` — which is what the
+   * enclosing binding's own scheme shows at that position. It is not the
+   * binding's scheme, though: a hole under a `var`, or one the value restriction
+   * declined, is unsolved without being quantified anywhere, and displaying it
+   * as a variable is still the honest answer.
+   *
+   * Deduplicated by span, first writer winning: an annotation elaborated twice —
+   * a type alias inlined at two use sites collapses onto one written `_` — must
+   * not give hover two answers for one caret.
+   */
+  #materializeTypeHoles(): readonly Typed.TypeHole[] {
+    const holes = new Map<string, Typed.TypeHole>();
+    for (const { span, type } of this.#typeHoles) {
+      const key = `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
+      if (holes.has(key)) continue;
+      holes.set(key, {
+        span,
+        scheme: this.#publicScheme({ variables: this.#collectVariables(type), type }),
+      });
+    }
+    return [...holes.values()];
+  }
+
+  /**
+   * The total-contract fence (closure doc §5.4): a hole is an inference
+   * instrument, and these surfaces are checked against no body from which one
+   * could be filled — or, at an export, the completeness requirement *is* the
+   * point and a hole would un-write part of the module's contract.
+   *
+   * Run before anything elaborates an annotation, so the fence speaks first: an
+   * `extern fun f(x: _)` is refused here rather than reaching the generic-extern
+   * refusal, which asks a different question and would name the wrong rewrite.
+   *
+   * Only signatures. An exported function's *body* is an inference surface like
+   * any other, so a `let n: _ = 42` inside one stays legal.
+   */
+  #rejectTypeHoles(module: Resolved.Module): void {
+    const reject = (
+      annotation: Resolved.TypeAnnotation | undefined,
+      message: string,
+    ): void => {
+      if (annotation === undefined) return;
+      for (const span of typeAnnotationHoles(annotation)) {
+        this.#diagnostics.add({ severity: "error", message, primary: span });
+      }
+    };
+    const declaration = (article: "a" | "an", form: string): string =>
+      `${article} \`${form}\` declaration writes its types in full; replace \`_\` with the intended type`;
+    const signature = (lambda: Resolved.LambdaExpr): void => {
+      for (const parameter of lambda.parameters) reject(parameter.annotation, EXPORTED_SIGNATURE);
+      reject(lambda.returnAnnotation, EXPORTED_SIGNATURE);
+    };
+
+    for (const item of module.items) {
+      switch (item.kind) {
+        case "TypeAlias":
+          reject(item.annotation, declaration("a", "type"));
+          break;
+        case "RecordDeclaration":
+          for (const field of item.fields) reject(field.annotation, declaration("a", "record"));
+          break;
+        case "Union":
+          for (const constructor of item.constructors) {
+            for (const slot of constructor.slots) reject(slot.annotation, declaration("a", "union"));
+          }
+          break;
+        // Not in §5.4's table, which names records and unions; the same sentence
+        // governs, an exception being the third nominal declaration whose slots
+        // are written types checked against no body. Recorded on the PR.
+        case "Exception":
+          for (const slot of item.slots) reject(slot.annotation, declaration("an", "exception"));
+          break;
+        case "ExternBlock":
+          // Every FFI declaration form, the intrinsic door included: §3.4 of
+          // `spec/intrinsics.md` grants the door *genericity*, which a hole is
+          // not (closure doc §2.3), and the door is still a declaration surface.
+          for (const external of item.declarations) {
+            if (external.kind === "ExternFun") {
+              for (const parameter of external.parameters) {
+                reject(parameter.annotation, declaration("an", "extern"));
+              }
+              reject(external.returnAnnotation, declaration("an", "extern"));
+            } else if (external.kind === "ExternLet") {
+              reject(external.annotation, declaration("an", "extern"));
+            }
+          }
+          break;
+        case "ConstraintDeclaration":
+          // Member *signatures* only. A member's default value is an ordinary
+          // body, and its annotations are inference-checked like any other's.
+          for (const member of item.members) {
+            for (const parameter of member.parameters) {
+              reject(parameter.annotation, declaration("a", "constraint"));
+            }
+            reject(member.returnAnnotation, declaration("a", "constraint"));
+          }
+          break;
+        case "Honor":
+          // §5.4's instance-head row, which owns its own §6.3 wording: an
+          // instance keyed on an unsolved variable is exactly what coherence
+          // cannot have. The subject's *arguments* are inside its annotation, so
+          // `honor Show<Vector(_)>` is reached by the same walk.
+          reject(
+            item.subject,
+            "an `honor` declaration names its subject in full; replace `_` with the intended type",
+          );
+          // Not in §5.4's table. An implied-type choice is a written type with
+          // no body to check it against, exactly like the rows that are, and an
+          // unsolved projection would be silent. Recorded on the PR.
+          for (const implied of item.impliedTypes) {
+            reject(implied.annotation, declaration("an", "honor"));
+          }
+          break;
+        case "Let":
+          if (!item.exported) break;
+          reject(item.annotation, EXPORTED_SIGNATURE);
+          if (item.value.kind === "Lambda") signature(item.value);
+          break;
+        case "Fun":
+          if (!item.exported) break;
+          signature(item.value);
+          break;
+        default:
+          break;
       }
     }
   }
@@ -7130,6 +7283,50 @@ function coverageAlternatives(
     : [unwrapped];
 }
 
+const EXPORTED_SIGNATURE =
+  "an exported signature is complete (Modules §4.1.1); replace `_` with the intended type";
+
+/** Every type hole's span inside one resolved annotation, outermost first. */
+function typeAnnotationHoles(
+  annotation: Resolved.TypeAnnotation,
+): readonly Source.Span[] {
+  switch (annotation.kind) {
+    case "Hole":
+      return [annotation.span];
+    case "Function":
+      return [
+        ...annotation.parameters.flatMap(typeAnnotationHoles),
+        ...typeAnnotationHoles(annotation.result),
+      ];
+    case "Vector":
+    case "Set":
+    case "Array":
+    case "Node":
+      return typeAnnotationHoles(annotation.element);
+    case "Nullable":
+      return typeAnnotationHoles(annotation.value);
+    case "Map":
+      return [
+        ...typeAnnotationHoles(annotation.key),
+        ...typeAnnotationHoles(annotation.value),
+      ];
+    case "Tuple":
+      return annotation.elements.flatMap(typeAnnotationHoles);
+    case "Record":
+      return annotation.fields.flatMap((field) => typeAnnotationHoles(field.annotation));
+    case "Union":
+    case "RecordDeclaration":
+      return annotation.arguments.flatMap(typeAnnotationHoles);
+    case "ExternType":
+    case "Primitive":
+    case "Range":
+    case "TypeVariable":
+    case "ImpliedType":
+    case "ErrorType":
+      return [];
+  }
+}
+
 function annotationHasTypeVariable(
   annotation: Resolved.TypeAnnotation,
 ): boolean {
@@ -7162,6 +7359,12 @@ function annotationHasTypeVariable(
     case "Primitive":
     case "Range":
     case "ImpliedType":
+    // A hole is not a type variable: it claims no generality (closure doc §2.3),
+    // so it does not make a declaration generic. Every surface that reads this
+    // predicate is a total-contract position, where `#rejectTypeHoles` has
+    // already refused the hole outright with the diagnostic that names its
+    // rewrite — so answering `true` here would only add a second, worse report.
+    case "Hole":
     case "ErrorType":
       return false;
   }
@@ -7201,6 +7404,7 @@ function annotationMentionsNode(annotation: Resolved.TypeAnnotation): boolean {
     case "ExternType":
     case "TypeVariable":
     case "ImpliedType":
+    case "Hole":
     case "ErrorType":
       return false;
   }

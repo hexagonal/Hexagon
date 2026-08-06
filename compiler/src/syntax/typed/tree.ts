@@ -256,8 +256,26 @@ export interface Module {
    * it, and none may branch on it.
    */
   readonly docs: readonly Documentation[];
+  /**
+   * Every type hole this module wrote, with what it was filled with.
+   *
+   * Hover is a hole's only reporting channel (`decisions-ml-dialect-annotations-2026-08.md`
+   * §7) and a hole is not a name, so the occurrence index cannot answer about
+   * one. Metadata, like `docs`: nothing between here and emission reads it.
+   */
+  readonly typeHoles: readonly TypeHole[];
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
+}
+
+/**
+ * A `_` in an annotation and the type it elaborated to, generalized over
+ * whatever variables survived at the binding — so a hole nothing fixed reads as
+ * the variable it is rather than as an internal identity.
+ */
+export interface TypeHole {
+  readonly span: Source.Span;
+  readonly scheme: Scheme;
 }
 
 export type Item =

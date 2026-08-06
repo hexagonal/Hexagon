@@ -409,13 +409,20 @@ export interface FunctionType {
   readonly span: Source.Span;
 }
 
+/** A type hole, `_` (closure doc `decisions-ml-dialect-annotations-2026-08.md`). */
+export interface HoleType {
+  readonly kind: "Hole";
+  readonly span: Source.Span;
+}
+
 export type TypeAnnotation =
   | NamedType
   | AppliedType
   | TypeVariable
   | TupleType
   | RecordType
-  | FunctionType;
+  | FunctionType
+  | HoleType;
 
 export interface Parameter {
   readonly name: Name;

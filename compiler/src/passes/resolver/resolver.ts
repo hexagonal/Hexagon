@@ -2673,6 +2673,9 @@ class Resolver {
         span: annotation.span,
       };
     }
+    if (annotation.kind === "Hole") {
+      return { kind: "Hole", span: annotation.span };
+    }
     if (annotation.kind === "TypeVariable") {
       const replacement = substitutions.get(annotation.name.text);
       if (replacement !== undefined) return withTypeSpan(replacement, annotation.span);
@@ -3305,6 +3308,7 @@ function annotationHeadName(annotation: Resolved.TypeAnnotation): string {
     case "Record": return "Record";
     case "TypeVariable": return annotation.name;
     case "ImpliedType": return annotation.name;
+    case "Hole": return "_";
     case "ErrorType": return "Error";
   }
 }
@@ -3336,6 +3340,9 @@ function annotationTypeVariables(annotation: Resolved.TypeAnnotation): readonly 
     case "Primitive":
     case "Range":
     case "ImpliedType":
+    // A hole names no variable: it claims nothing and links nothing (closure
+    // doc §2.3), so it contributes no name to any declaration head's inventory.
+    case "Hole":
     case "ErrorType":
       return [];
   }

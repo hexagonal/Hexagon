@@ -57,6 +57,7 @@ export type TypeAnnotation =
   | FunctionTypeAnnotation
   | TypeVariableAnnotation
   | ImpliedTypeAnnotation
+  | HoleTypeAnnotation
   | ErrorTypeAnnotation;
 
 export interface PrimitiveTypeAnnotation {
@@ -157,6 +158,16 @@ export interface ImpliedTypeAnnotation {
   readonly kind: "ImpliedType";
   readonly constraint: string;
   readonly name: string;
+  readonly span: Source.Span;
+}
+
+/**
+ * A type hole, `_`. It resolves to nothing — there is no name to look up — and
+ * the checker elaborates it to a fresh non-rigid variable, which is the whole of
+ * its semantics (closure doc `decisions-ml-dialect-annotations-2026-08.md` §4).
+ */
+export interface HoleTypeAnnotation {
+  readonly kind: "Hole";
   readonly span: Source.Span;
 }
 
