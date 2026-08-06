@@ -579,7 +579,10 @@ late pedagogy pass, not a commitment to the current order.
 - `identity` is written binder-free (`let identity(x: a): a = x`); `<...>` binders
   appear in this chapter only where they carry a constraint (S3 canon).
 - A type hole `_` is an ordinary inference position inside a written annotation;
-  `count(entries: Vector(_))` is the canonical partial-claim example, and
+  `padded(entries: Vector(_)): Vector(Int) = entries.append(0)` is the canonical
+  partial-claim example — chosen because its body *fixes* the element, the one
+  position where a hole is canonical: a hole is never written where a type
+  variable would hold (S12); `Vector(a)` is the canonical generic spelling. And
   `let answer: _ = 42` (fine, `Int`) versus `let general: a = 42` (error) is the
   canonical proof pair. **Written is claimed, unwritten is inferred** is this
   chapter's unifying formulation, restated in its Summary. A whole-annotation hole is legal but canonical

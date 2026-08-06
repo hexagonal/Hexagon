@@ -275,13 +275,19 @@ a `Vector`, and its element type is inference's business. A **type hole**, writt
 leaves one position inside a written type to inference:
 
 ```hexagon
-let count(entries: Vector(_)): Int = Vector.length(entries)
+let padded(entries: Vector(_)): Vector(Int) = entries.append(0)
 ```
 
 The hole holds an ordinary inference variable — exactly what an unannotated position
-receives. Here nothing in the body fixes the element type, so `count` generalizes and
-accepts a `Vector` of any element, while still promising callers that a `Vector` is what
-it takes.
+receives. Here the body settles it: appending `0` under a `Vector(Int)` result fixes the
+element type, so `padded` takes a `Vector(Int)` — the annotation claims the constructor
+and leaves the element to inference. Writing `entries: Vector(a)` here would be an
+over-claim: `a` promises every element type, and this body cannot deliver that.
+
+That is also the rule for choosing between the two spellings. When the position *is*
+genuinely generic — nothing in the body fixes it — write the variable: `Vector(a)` makes
+the checked claim, costs nothing, and is already the form an `export` would require. A
+hole is the right spelling exactly where a variable would be refused.
 
 One principle runs through everything this chapter has shown: **written is claimed,
 unwritten is inferred**. A hole is how you write "unwritten" inside an annotation, and

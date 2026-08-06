@@ -126,6 +126,10 @@ Each fence rejection is a hard error naming the rewrite (§6.3), per the Rewrite
 
 When the paused ascription arc (#307) resumes, an ascription `(e : T)` is an inference-checked annotation position and holes apply there by this ruling's §5.1 rule — `(e : Vector(_))` claims the constructor and infers the element. Nothing else about that arc — in particular its variable semantics — is decided here.
 
+### 5.6 Canonical choice: the variable, not the hole, where the claim is true
+
+Where a written variable would hold — the position is genuinely generic — canonical Hexagon writes the variable, not a hole (review-package item S12). The two spellings scheme identically there, and the variable is the checked claim: a later edit that fixes the position fails at the definition instead of quietly monomorphizing a private helper, and a signature written with variables promotes to `export` unchanged (Modules §4.1.1 demands the total claim there anyway). A hole is canonical exactly where a variable would be refused — the concrete-but-inferred position: claim the constructor, leave the element to the body that fixes it. Scratch text mid-edit is not governed; canonical formatting never was a typing aid's business. This is §2's axis applied to style: write the strongest true claim.
+
 ## 6. Diagnostics
 
 ### 6.1 No new family
@@ -188,7 +192,7 @@ Applied in this change:
 - **Functions §4.1** gains the hole surface paragraph (pointer here for semantics, positions, fence).
 - **Functions §11** gains the cross-reference entry.
 - **README** registers this document (authority rule 3 and the closure-docs ownership row).
-- **`notes/canonical-formatting-and-naming.md`** gains item S11 (degenerate holes normalize to omission; §5.2).
+- **`notes/canonical-formatting-and-naming.md`** gains items S11 (degenerate holes normalize to omission; §5.2) and S12 (the variable, not the hole, where the claim is true; §5.6).
 - **Book, Functions chapter**: **rigid** named where the declared-variable trio is first taught.
 - **Book, Polymorphism chapter**: the rigid-variable deepening, the type-holes section, the OCaml/F# contrast, the Summary additions, and the continuity record's new commitments.
 
