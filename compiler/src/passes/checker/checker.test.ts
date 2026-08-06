@@ -853,9 +853,16 @@ describe("check", () => {
         "let numeric<a>(thing: a) = thing + 1",
     );
 
+    // Not source order, and that is the ordinary order for a constraint member:
+    // since `stdlib/Hash.hex` joined the prelude (#335), `hash(thing)` is a call
+    // to the member export rather than the resolver's wired `hash` form (which
+    // yields to any binding of the name), so its rejection arrives with the
+    // deferred requirement discharges instead of during item 1's inference. The
+    // same program written with `show(thing)` under `<a: Eq>` — a member that
+    // never had a wired form — reports in exactly this order too.
     expect(rejected.diagnostics.map(({ message }) => message)).toEqual([
-      "`a` is declared to honor `Eq`, but the body requires `Hash`; write `<a: Hash>`, or remove the constraint annotation to let it be inferred",
       "`a` is declared without constraints, but the body requires `Num`; write `<a: Num>`, or remove the explicit type parameter to let it be inferred",
+      "`a` is declared to honor `Eq`, but the body requires `Hash`; write `<a: Hash>`, or remove the constraint annotation to let it be inferred",
     ]);
 
     const accepted = checkSource(

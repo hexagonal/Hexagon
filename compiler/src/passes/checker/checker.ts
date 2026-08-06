@@ -558,6 +558,30 @@ class Checker {
    * `undefined` where the evidence should be (#276).
    */
   readonly #constraintsByIdentity = new Map<string, Resolved.ConstraintItem>();
+  /**
+   * The constraints whose **default-body helper** this module could name in
+   * emitted JavaScript: the ones it declares (the helper is emitted beside the
+   * instance, in this file) and the ones an `import` item names (that item is
+   * the route the emitter renders the helper's import on).
+   *
+   * A declaration reached only through the visible-constraints *metadata*
+   * channel is not here, and that group is exactly the prelude's: the
+   * synthesized prelude import deliberately carries no constraints (#153,
+   * `#preludeImport`), so there is no import statement to hang a helper on, and
+   * the declaration is in another file so no local helper is emitted either.
+   * §6.5's fork therefore cannot apply to a prelude declaration in either
+   * direction — not hoisted (no route) and not materialized (its default body
+   * was typed in another module, so this checker's tables cannot reconstruct
+   * it). What answers those defaults instead is the compiler's own wired-in
+   * completion, which predates the declarations and is what the pre-registered
+   * inventory means: `Eq`'s `notEquals` is completed by the emitter for every
+   * instance that omits it, declaration or no declaration.
+   *
+   * The consequence to know when adding a prelude constraint (#335): a
+   * *defaulted* member of one needs wired-in completion to match, because the
+   * declaration's own body will not travel.
+   */
+  readonly #reachableConstraintHelpers = new Set<string>();
   /** Identities of constraints carrying implied type members; see §7's binder ban. */
   readonly #projectionBearingConstraints = new Set<string>();
   readonly #instanceTypeParameters = new WeakMap<
@@ -678,6 +702,7 @@ class Checker {
         this.#constraintIdentities.set(item.name, item.identity);
         this.#localConstraints.set(item.name, item);
         this.#constraintsByIdentity.set(item.identity, item);
+        this.#reachableConstraintHelpers.add(item.identity);
         if (item.impliedTypes.length > 0) {
           this.#projectionBearingConstraints.add(item.identity);
         }
@@ -689,6 +714,7 @@ class Checker {
           this.#constraintNames.add(local);
           this.#constraintIdentities.set(local, declaration.identity);
           this.#constraintsByIdentity.set(declaration.identity, declaration);
+          this.#reachableConstraintHelpers.add(declaration.identity);
           if (declaration.impliedTypes.length > 0) {
             this.#projectionBearingConstraints.add(declaration.identity);
           }
@@ -6595,9 +6621,16 @@ class Checker {
       const typeParameters = this.#instanceTypeParameters.get(item) ?? new Map();
       const declaration = this.#constraintsByIdentity.get(item.constraintIdentity);
       const supplied = new Set(item.members.map(({ name }) => name));
-      const omittedDefaults = (declaration?.members ?? []).filter((member) =>
-        member.defaultValue !== undefined && !supplied.has(member.binding.name)
-      );
+      // Only a declaration whose helper this module could name (see
+      // `#reachableConstraintHelpers`) enters §6.5's fork at all. A prelude
+      // declaration's defaults are the compiler's wired-in completion's
+      // business, which is what they were before the declaration existed.
+      const omittedDefaults =
+        this.#reachableConstraintHelpers.has(item.constraintIdentity)
+          ? (declaration?.members ?? []).filter((member) =>
+              member.defaultValue !== undefined && !supplied.has(member.binding.name)
+            )
+          : [];
       // Constraints §6.5's fork. An **exported** constraint's defaults were
       // hoisted to one helper at home, so every inheriting instance — here or in
       // an importing module — fills the slot by reference to it. An unexported

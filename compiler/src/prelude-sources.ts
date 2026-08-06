@@ -11,18 +11,100 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "export constraint Show<a> =\n"
     + "    (** The canonical textual form of `value`. *)\n"
     + "    show(value: a): String\n",
+  "Num.hex":
+    "(** The polymorphic face of addition and multiplication. Honoring `Num` gives a\n"
+    + "    type the `+` and `*` operators. *)\n"
+    + "export constraint Num<a> =\n"
+    + "    (** The sum of `left` and `right`. *)\n"
+    + "    add(left: a, right: a): a\n"
+    + "    (** The product of `left` and `right`. *)\n"
+    + "    multiply(left: a, right: a): a\n"
+    + "    (** The natural number `value` at this type. A bare non-negative literal\n"
+    + "        reaches an instance through it. *)\n"
+    + "    fromNat(value: Nat): a\n",
+  "Signed.hex":
+    "(** The polymorphic face of subtraction and sign. Honoring `Signed` gives a type\n"
+    + "    the binary and unary `-` operators. *)\n"
+    + "export constraint Signed<a: Num> =\n"
+    + "    (** The difference of `left` and `right`. *)\n"
+    + "    subtract(left: a, right: a): a\n"
+    + "    (** The additive inverse of `value`. *)\n"
+    + "    negate(value: a): a\n"
+    + "    (** The integer `value` at this type. A bare negative literal reaches an\n"
+    + "        instance through it. *)\n"
+    + "    fromInt(value: Int): a\n",
+  "Frac.hex":
+    "(** The polymorphic face of division. Honoring `Frac` gives a type the `/`\n"
+    + "    operator; the quotient is exact where the type is exact and rounded where\n"
+    + "    it is not. *)\n"
+    + "export constraint Frac<a: Signed> =\n"
+    + "    (** `left` divided by `right`. *)\n"
+    + "    divide(left: a, right: a): a\n",
+  "Pow.hex":
+    "(** The polymorphic face of exponentiation. Honoring `Pow` gives a type the `**`\n"
+    + "    operator. *)\n"
+    + "export constraint Pow<a: Num> =\n"
+    + "    (** `left` raised to the power `right`. *)\n"
+    + "    pow(left: a, right: a): a\n",
+  "Concat.hex":
+    "(** The polymorphic face of concatenation. Honoring `Concat` gives a type the\n"
+    + "    `++` operator. *)\n"
+    + "export constraint Concat<a> =\n"
+    + "    (** `left` followed by `right`. *)\n"
+    + "    concat(left: a, right: a): a\n",
   "Bool.hex":
     "// The boolean type. Constructor order `False | True` is normative: it is what makes\n"
     + "// the derived `Ord` order `False < True`.\n"
     + "export union Bool derives (Eq, Ord, Show, Hash) =\n"
     + "    | False\n"
     + "    | True\n",
+  "Eq.hex":
+    "(** The polymorphic face of equality. Honoring `Eq` gives a type the `==` and\n"
+    + "    `!=` operators, and admits it as a component of a derived equality elsewhere. *)\n"
+    + "export constraint Eq<a> =\n"
+    + "    (** Whether `left` and `right` are equal. *)\n"
+    + "    equals(left: a, right: a): Bool\n"
+    + "    (** Whether `left` and `right` differ. An instance may override this for\n"
+    + "        efficiency, but the override must equal the negation of `equals`. *)\n"
+    + "    notEquals(left: a, right: a): Bool = not equals(left, right)\n",
+  "Hash.hex":
+    "(** The polymorphic face of hashing, and the key contract of the hash-backed\n"
+    + "    collections. Instances are derived rather than hand-written, which is what\n"
+    + "    keeps the law below true by construction. *)\n"
+    + "export constraint Hash<a: Eq> =\n"
+    + "    (** A hash of `value`. Equal values hash equally; unequal values may collide,\n"
+    + "        and the hash is not resistant to an adversary choosing them. *)\n"
+    + "    hash(value: a): Int\n",
   "Prelude.hex":
     "// The outcome of comparing two values, as produced by `Ord.compare`.\n"
     + "export union Ordering derives (Eq, Show) =\n"
     + "    | Less\n"
     + "    | Equal\n"
     + "    | Greater\n",
+  "Ord.hex":
+    "(** The polymorphic face of ordering. Honoring `Ord` gives a type the `<`, `<=`,\n"
+    + "    `>`, and `>=` operators. *)\n"
+    + "export constraint Ord<a: Eq> =\n"
+    + "    (** How `left` orders against `right`. *)\n"
+    + "    compare(left: a, right: a): Ordering\n",
+  "Integral.hex":
+    "(** The polymorphic face of exact integer division. Honoring `Integral` gives a\n"
+    + "    type both division conventions — Euclidean `div`/`mod` and truncated\n"
+    + "    `quot`/`rem` — along with greatest common divisors. *)\n"
+    + "export constraint Integral<a: (Num, Ord)> =\n"
+    + "    (** The Euclidean quotient of `left` divided by `right`. *)\n"
+    + "    div(left: a, right: a): a\n"
+    + "    (** The Euclidean remainder of `left` divided by `right`, always in\n"
+    + "        `[0, abs(right))` whatever the signs. *)\n"
+    + "    mod(left: a, right: a): a\n"
+    + "    (** The truncated quotient of `left` divided by `right`, rounding toward\n"
+    + "        zero. *)\n"
+    + "    quot(left: a, right: a): a\n"
+    + "    (** The truncated remainder of `left` divided by `right`, taking the sign of\n"
+    + "        `left`. *)\n"
+    + "    rem(left: a, right: a): a\n"
+    + "    (** The greatest common divisor of `left` and `right`, never negative. *)\n"
+    + "    gcd(left: a, right: a): a\n",
   "Option.hex":
     "// The canonical optional-value union used by total standard-library accessors.\n"
     + "export union Option(a) derives (Eq, Show) =\n"

@@ -1,0 +1,10 @@
+(** The polymorphic face of addition and multiplication. Honoring `Num` gives a
+    type the `+` and `*` operators. *)
+export constraint Num<a> =
+    (** The sum of `left` and `right`. *)
+    add(left: a, right: a): a
+    (** The product of `left` and `right`. *)
+    multiply(left: a, right: a): a
+    (** The natural number `value` at this type. A bare non-negative literal
+        reaches an instance through it. *)
+    fromNat(value: Nat): a

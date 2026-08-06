@@ -29,24 +29,58 @@ export interface PreludeModule {
  * construction. Adding a member means placing it after everything it uses —
  * `Seq.hex` sits after `Option.hex` because a pull step returns an `Option`.
  *
- * `Show.hex` is first because it declares and uses nothing but the `Show`
- * constraint itself (its one signature names only the primitive `String`), while
- * nearly everything after it answers `Show`: `Bool.hex` derives it two lines in,
- * and `Prelude.hex`'s `Ordering` does the same. Its seat is what puts the
- * member `show` into bare scope everywhere (the constraint-members-are-values
- * direction note, #335).
+ * ## The constraint declarations come first (#335)
  *
- * `Bool.hex` sits directly after it: everything else can use `Bool` and it uses
- * nothing but `Show`'s seat, and since #147 made `Bool` a union rather than a
- * primitive, every later member's conditions and predicates depend on it.
+ * A constraint member is an export of its declaring module, so the ten
+ * declarations the compiler holds are `.hex` files here, and their seats are
+ * what put `show`, `equals`, `compare`, `add`, `div` and the rest into bare
+ * scope everywhere. The rule placing them is the same seats-before-uses rule as
+ * for any other member, read through a declaration's *signature types*: **a
+ * constraint declaration sits as early as the types its member headers name
+ * allow**, and no earlier.
+ *
+ * - `Show.hex` is first: its one signature names only the primitive `String`.
+ * - `Num.hex`, `Signed.hex`, `Frac.hex`, `Pow.hex` and `Concat.hex` follow
+ *   directly, because their headers name only primitives (`Nat`, `Int`) and the
+ *   subject variable. Their own order among themselves is base-constraint order
+ *   (`Signed` extends `Num`, `Frac` extends `Signed`, `Pow` extends `Num`).
+ * - `Bool.hex` then seats the `Bool` union, since #147 made it a union rather
+ *   than a primitive and every later condition and predicate depends on it.
+ * - `Eq.hex` must follow `Bool.hex`, because `equals` answers `Bool`. That
+ *   `Bool` itself *derives* `Eq` two lines earlier is not a cycle: a `derives`
+ *   never consults the source declaration — the checker's derived path proceeds
+ *   without one — so the derivation needs only the pre-registered `hex:Eq`
+ *   identity, which is import-free.
+ * - `Hash.hex` follows `Eq.hex`, its base constraint.
+ * - `Prelude.hex` seats `Ordering`, so `Ord.hex` must follow it: `compare`
+ *   answers `Ordering`. `Ord` is also why `Eq` had to be seated by here.
+ * - `Integral.hex` follows both of its bases, `Num` and `Ord`.
+ *
+ * `Iterable` has no file: it is pre-registered by name only, owned by the
+ * collections arc (#283), and reachable in v1 solely through a user's own
+ * source declaration.
+ *
+ * ## Then the data modules
+ *
+ * `Option.hex` and the rest follow in the order their uses demand — `Seq.hex`
+ * sits after `Option.hex` because a pull step returns an `Option`.
  *
  * `Vector.hex` is last because it needs the most: `first`/`last`/`get` answer with
  * `Option`, and `toSeq`/`fromSeq` name `Seq`.
  */
 export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Show.hex",
+  "Num.hex",
+  "Signed.hex",
+  "Frac.hex",
+  "Pow.hex",
+  "Concat.hex",
   "Bool.hex",
+  "Eq.hex",
+  "Hash.hex",
   "Prelude.hex",
+  "Ord.hex",
+  "Integral.hex",
   "Option.hex",
   "Seq.hex",
   "Result.hex",
