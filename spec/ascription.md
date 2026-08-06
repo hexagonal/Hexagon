@@ -3,7 +3,7 @@
 **Status:** Decided (August 2026). Ruled on issue #307: the expression form `(e: Type)` — quintessential ML, previously absent from the language entirely — is active in v1. The design settled across the #307 discussion and its resume after the type-holes arc: one element grammar, parens-only, and ascription as a fourth annotation position under Functions §4.1's one contract — rigid variables that accumulate inferred constraints, holes legal by the annotation doctrine's own rule.
 **Scope:** The ascription form's grammar as an extension of the parenthesized element (§2); its typing as the annotation contract at expression granularity, variables and holes included (§3); emission (§4); diagnostics (§5); interactions with dot-call dispatch, literal defaulting, and the lambda-header lookahead (§6); rejected and reserved alternatives (§7); edit notes (§8); implementation obligations (§9).
 **Not in scope:** Binding, parameter, and return annotations — Functions §4 owns them, unchanged; ascription reuses their semantics rather than restating them. Pattern annotations — the parameter element (Pattern Matching §6.5's pattern, Functions §4.1's annotation) is untouched. Type-level parentheses — grouping `(T)`, tuple types, and parameter-list domains stay exactly as Products §2 and Functions §5 have them; ascription is a **term** form only. Type-hole semantics — `decisions-ml-dialect-annotations-2026-08.md` owns them entirely; §3.2 here only records that ascription is one of its positions.
-**Companions:** Functions §3.1 (grouping; no 1-tuples), §4.1 (the rigidity-with-accumulation contract this form extends), §4.2 (constraint attachment on names stays the binder's job), §8 (generalization and the evidence seat, which decide what an ascription's accumulated constraints become); `decisions-ml-dialect-annotations-2026-08.md` (holes, constrained holes, S11/S12 style); Products §2.1 (the tuple side of the parenthesized form; edit note §8); Pattern Matching §6.5 (the parameter element this form rhymes with); Operators §10 (postfix positions; a parenthesized expression remains a level-1 operand); Method Syntax §3 (head evidence for dot-call goals); Numeric Literals §3–§4 (what an ascription settles before defaulting is consulted).
+**Companions:** Functions §3.1 (grouping; no 1-tuples), §4.1 (the rigidity-with-accumulation contract this form extends), §4.2 (constraint attachment on names stays the binder's job), §8 (generalization and the evidence seat, which decide what an ascription's accumulated constraints become); `decisions-ml-dialect-annotations-2026-08.md` (holes, constrained holes, S11/S12 style); Products §2.1 (the tuple side of the parenthesized form; edit note §8); Pattern Matching §6.5 (the parameter element this form rhymes with); Operators §10 (postfix positions; a parenthesized expression remains a level-1 operand); Method Syntax §3 (head evidence for dot-call goals); Numeric Literals §3–§5.1 (what an ascription settles before defaulting is consulted; the widening §3 admits).
 
 ---
 
@@ -11,7 +11,7 @@
 
 > Inside parentheses, every element is `expression (: Type)?`. One unascribed element is grouping, as always. One **ascribed** element is the **ascription expression**: `(42: Nat)` means `42`, checked against and pinned to `Nat`. Two or more elements form a tuple whose components may each carry an ascription: `(a: Int, b)` is precisely `((a: Int), b)` with the inner parentheses dropped. Ascription has no other position in v1 — there is no bare `e : Type` in open expression space.
 
-The form introduces **zero new semantics**. An ascription does to an expression exactly what a `let` annotation does to a binding: unify, pin, no coercion, no runtime content. Everything below is bookkeeping for that sentence.
+The form introduces **zero new semantics**. An ascription does to an expression exactly what a `let` annotation does to a binding: unify, pin, nothing of the ascription's own — no coercion and no runtime content beyond what the equivalent annotation admits (§3, §4). Everything below is bookkeeping for that sentence.
 
 ---
 
@@ -57,7 +57,7 @@ An ascription checks and pins exactly as a `let` annotation does (Functions §4.
 
 - The ascribed expression's type unifies with the written type. Failure is an ordinary type mismatch reported at the ascription (§5).
 - A successful ascription **pins**: `let n = (42: Nat)` gives `n : Nat`; the literal's `Num` variable was settled by unification, so Numeric Literals §4's defaulting never has a variable to consult (§6.2).
-- There is **no coercion of the ascription's own**. An ascription admits exactly what the equivalent `let` annotation admits and nothing besides — Numeric Literals §1's contextual numeric widening included, which reaches every annotated position identically: `(x : Float)` with `x : Int` compiles here exactly because `let y: Float = x` does, through `Signed`'s injection at an independently established target, never by the ascription itself. What no annotation admits is a type mismatch, not a conversion — conversions are named functions, as everywhere: `("s" : Float)` is an error.
+- There is **no coercion of the ascription's own**. An ascription admits exactly what the equivalent `let` annotation admits and nothing besides — Numeric Literals §1/§5.1's contextual numeric widening included, which reaches every annotated position identically: `(x : Float)` with `x : Int` compiles here exactly because `let y: Float = x` does, through `Signed`'s injection at an independently established target, never by the ascription itself. What no annotation admits is a type mismatch, not a conversion — conversions are named functions, as everywhere: `("s" : Float)` is an error.
 - **An ascription of a syntactic value is itself a syntactic value.** Functions §8's read-through includes the ascription wrapper alongside grouping parentheses (edit note, §8): `let id = (x => x : a -> a)` generalizes exactly as `let id = (x => x)` does. An ascription wraps; it does not evaluate.
 
 ### 3.1 Type variables: rigid, accumulating — the annotation scope
@@ -109,7 +109,7 @@ Nothing here is this spec's to define: hole semantics (fresh metavariable, monot
 
 ## 4. Emission
 
-Ascription **erases**. `(e: T)` emits exactly as `(e)` would: the expression, parenthesized only where precedence already demanded it. No wrapper, no comment, no `.d.ts` trace — the declaration surfaces of FFI Part 7 are computed from types, which the ascription only influenced through ordinary unification.
+Ascription **erases**: no emission of the ascription's own. The node's contents emit as elaboration left them — Numeric Literals §5.1's injections included, exactly as at the equivalent annotated binding: `(x : Float)` with `x : Int` emits `x` (the `Int -> Float` injection erases), `(x : BigInt)` emits `BigInt(x)` — parenthesized only where precedence already demanded it. No wrapper, no comment, no `.d.ts` trace — the declaration surfaces of FFI Part 7 are computed from types, which the ascription only influenced through ordinary unification.
 
 ---
 
