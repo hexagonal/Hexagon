@@ -492,6 +492,54 @@ describe("type variables are nominal-coloured in type positions", () => {
       .toBe("entity.name.type.parameter.hexagon");
   });
 
+  it("colours an ascribed type in expression position (#307)", async () => {
+    // The Ascription spec's §9.7 warns against assuming the parameter-annotation
+    // rule covers this — the constrained-holes arc falsified exactly that
+    // assumption once. It does not cover it, and nothing needed it to:
+    // `#annotation-type` opens on any `:` that is not `:=`, with no identifier
+    // required before it, so `(42 : Nat)` and `((a, b) : T)` — neither of which
+    // has one — colour their types as types.
+    expect(await scope("let q = (42 : Nat)", "Nat")).toBe("entity.name.type.hexagon");
+    const tuple = await scopePairs("let t = ((a, b) : (Int, String))");
+    expect(tuple.filter(([, s]) => s === "entity.name.type.hexagon").map(([text]) => text))
+      .toEqual(["Int", "String"]);
+    // The ascribed element's own tokens keep their expression colouring.
+    expect(tuple.find(([text]) => text === "a")?.[1]).toBe("variable.other.hexagon");
+  });
+
+  it("colours holes and constrained holes in an ascription (#307)", async () => {
+    // The annotation grammar is one grammar: the ascribed position gets the hole
+    // rules the binder position already had, without a rule of its own.
+    expect(await scope("let v = (xs : Vector(_))", "_"))
+      .toBe("entity.name.type.parameter.hexagon");
+    expect(await scope("let s = (v : _ : Num)", "Num"))
+      .toBe("entity.name.type.constraint.hexagon");
+  });
+
+  it("colours the ascribed type of an eats-right element (#307)", async () => {
+    // §2.2: the colon ends the *element*, so what is ascribed here is the lambda
+    // and `a -> a` is one type — which is what the annotation context reads it as.
+    const pairs = await scopePairs("let f = (x => x : a -> a)");
+    expect(pairs.filter(([, s]) => s === "entity.name.type.parameter.hexagon"))
+      .toHaveLength(2);
+    expect(pairs.find(([text]) => text === "->")?.[1])
+      .toBe("keyword.operator.type.arrow.hexagon");
+  });
+
+  it("paints a bare-name ascribed element as a binder, deliberately (#307)", async () => {
+    // `(x : Int)` is the ascription reading and `(x : Int) => e` the parameter
+    // one, and only the token *after* the matching `)` tells them apart — a
+    // lookahead a TextMate rule cannot perform. The grammar keys on local shape
+    // and so paints both as the binder. Recorded rather than fixed: the
+    // alternative loses the parameter colour in every lambda head, and Ascription
+    // §6.3 already calls the shared surface a feature. The *type* side, which is
+    // what §9.7 requires, is right in both readings.
+    expect(await scope("let p = (x : Int)", "x")).toBe("variable.parameter.hexagon");
+    expect((await scopePairs("let p = (x : Int) => y")).find(([text]) => text === "x")?.[1])
+      .toBe("variable.parameter.hexagon");
+    expect(await scope("let p = (x : Int)", "Int")).toBe("entity.name.type.hexagon");
+  });
+
   it("qualifies a constrained hole's constraint by a module alias (#326)", async () => {
     const pairs = await scopePairs("let f(x: _ : Geo.Ord) = x");
     expect(pairs.find(([text]) => text === "Geo")?.[1]).toBe("entity.name.namespace.hexagon");

@@ -1301,6 +1301,110 @@ describe("parse", () => {
       expect(module.diagnostics).toEqual([]);
     });
   });
+
+  /**
+   * The parenthesized element rule (Ascription §2.1): every element is
+   * `expression (: Type)?`. The two readings of `(a: Int, b)` are told apart by
+   * the token that already told them apart — the arrow after the matching `)` —
+   * and nothing inside the parentheses decides it (§2.3).
+   */
+  describe("ascription", () => {
+    test("`(e: T)` is an ascription, not a group around something", () => {
+      // The group parentheses *are* the ascription's delimiters: one form
+      // written, one node parsed.
+      expect(expression(parseSource("(42: Nat)"))).toMatchObject({
+        kind: "Ascription",
+        expression: { kind: "Integer", decimal: "42" },
+        annotation: { kind: "NamedType", name: { text: "Nat" } },
+      });
+    });
+
+    test("`(e)` with no colon is still grouping", () => {
+      expect(expression(parseSource("(42)"))).toMatchObject({ kind: "Group" });
+    });
+
+    test("`(a: Int, b)` is a tuple whose first component is ascribed", () => {
+      expect(expression(parseSource("(a: Int, b)"))).toMatchObject({
+        kind: "Tuple",
+        elements: [
+          { kind: "Ascription", expression: { kind: "Name" } },
+          { kind: "Name", name: { text: "b" } },
+        ],
+      });
+    });
+
+    test("`(a: Int, b) => e` is a lambda — the arrow is the entire signal", () => {
+      expect(expression(parseSource("(a: Int, b) => a"))).toMatchObject({
+        kind: "Lambda",
+        parameters: [
+          { name: { text: "a" }, annotation: { kind: "NamedType", name: { text: "Int" } } },
+          { name: { text: "b" } },
+        ],
+      });
+    });
+
+    test("`(params): T => body` is still an annotated lambda", () => {
+      expect(expression(parseSource("(x): Int => x"))).toMatchObject({
+        kind: "Lambda",
+        returnAnnotation: { kind: "NamedType", name: { text: "Int" } },
+      });
+    });
+
+    test("an inner `(...):` with an unrelated later `=>` is not a lambda head", () => {
+      // §2.3: the return-annotation lookahead accepts the arrow only when it
+      // immediately follows one well-formed type. A loose scan reads the whole
+      // line as a lambda head off the `x => x` at the end.
+      const module = parseSource("((a, b): (Int, String)) |> map(x => x)");
+      expect(module.diagnostics).toEqual([]);
+      expect(expression(module)).toMatchObject({
+        kind: "Binary",
+        operator: "Pipe",
+        left: { kind: "Ascription", annotation: { kind: "Tuple" } },
+      });
+    });
+
+    test("the colon ends the element, so an eats-right form is what gets ascribed", () => {
+      // §2.2: `(x => x : a -> a)` is `((x => x) : a -> a)`, never
+      // `x => (x : a -> a)`.
+      expect(expression(parseSource("(x => x : a -> a)"))).toMatchObject({
+        kind: "Ascription",
+        expression: { kind: "Lambda" },
+        annotation: { kind: "Function" },
+      });
+    });
+
+    test("holes and constrained holes come free with the annotation grammar", () => {
+      expect(expression(parseSource("(xs : Vector(_))"))).toMatchObject({
+        kind: "Ascription",
+        annotation: { kind: "AppliedType", arguments: [{ kind: "Hole", constraints: [] }] },
+      });
+      expect(expression(parseSource("(v : _ : Num)"))).toMatchObject({
+        kind: "Ascription",
+        annotation: { kind: "Hole", constraints: [{ text: "Num" }] },
+      });
+    });
+
+    test("`(x: 1, y: 2)` reports Products §2.2's hint at the term, not the colon", () => {
+      const module = parseSource("(x: 1, y: 2)");
+      const hint = module.diagnostics.find(({ message }) =>
+        message.startsWith("tuples are positional")
+      );
+      expect(hint?.message).toBe(
+        "tuples are positional; for named fields use a record: `{x = 1, y = 2}`",
+      );
+      expect(hint?.primary.start.offset).toBe("(x: ".length);
+    });
+
+    test("a non-name element ascribed to a term gets the ordinary type error", () => {
+      // The record hint is reserved for the shape the C# habit produces. `(1: 2)`
+      // is not that shape, and telling its author about named fields would name a
+      // rewrite that has nothing to do with what they wrote.
+      const module = parseSource("(1: 2)");
+      expect(module.diagnostics.map(({ message }) => message)).toContain(
+        "expected a type annotation",
+      );
+    });
+  });
 });
 
 function parseSource(text: string): Parsed.Module {
