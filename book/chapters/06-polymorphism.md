@@ -342,7 +342,11 @@ the JavaScript boundary.
   variable is fixed when the value could consume it, or when it carries a capability
   that was chosen while the initializer ran;
 - unconstrained whole-number literals default to `Int`;
-- annotations document, resolve, or deliberately narrow inferred types; and
+- annotations document, resolve, or deliberately narrow inferred types;
+- a written type variable is **rigid**: the shape claim holds, constraints accumulate
+  beside it, and it never collapses to one concrete type;
+- a **type hole** `_` leaves one position of a written annotation to inference —
+  written is claimed, unwritten is inferred; and
 - recursive calls within one `fun` group keep one consistent type.
 
 With these rules in place, compound values can be introduced without stopping to label

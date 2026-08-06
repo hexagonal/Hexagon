@@ -109,11 +109,12 @@ A hole is rejected in every position the corpus defines as a **total written con
 
 | Position | Owner of the totality rule |
 |---|---|
-| Exported signatures (parameters, result, binders) | Modules §4.1.1 |
-| Type-alias right-hand sides | Type Aliases (declarations corpus) |
+| Exported signatures — function parameters, results, binders, and an exported value binding's annotation | Modules §4.1.1 |
+| Type-alias right-hand sides | Declarations Preamble §4–§5 |
 | `record` and `union` declaration field/slot types | Products / Unions |
 | Extern signatures, all FFI declaration forms | FFI Parts 4–5 |
 | Constraint declarations (member signatures, subjects) | Constraints |
+| `honor` instance heads (the subject type and its arguments) | Constraints |
 
 These are declaration surfaces, not inference surfaces: nothing checks a body against them from which a hole could be filled — or, for exports, the completeness requirement is the point and a hole would un-write part of the module's contract. Rejecting holes at exports also keeps them entirely out of the `.d.ts` facing machinery (FFI Part 7): no emitted face can contain a hole.
 
@@ -137,10 +138,10 @@ Two annotations, one principle, different answers — normative examples for spe
 
 ```hexagon
 let n: _ = 42    -- legal: the hole is an inference variable; Numeric Literals §4 defaults it, n : Int
-let n: a = 42    -- error: a declared type variable claims a generality the binding cannot carry
+let n: a = 42    -- error: defaulting reaches the declared variable, and rigidity refuses the narrowing
 ```
 
-The first is inference wearing an annotation. The second fails under existing rules — the declared-variable family of Functions §10 (a non-function value binding cannot carry the accumulated `Num` constraint; the diagnostic names the rewrite). No clause anywhere mentions holes and defaulting together; the different answers fall out of *written is claimed, unwritten is inferred*.
+The two halves meet the **same rule** and diverge there. At a value binding, Numeric Literals §4's defaulting reaches the variable in both cases: the hole is an ordinary inference variable and accepts the default (`n : Int`); the declared variable is rigid, so the attempted `a := Int` fails as Functions §10's *forced-to-a-concrete-type* row ("`a` is a declared type variable, but the body requires `Int`…", naming the rewrite). The evidence-seat row (Functions §8.2, §10) is a different member of the declared-variable family: it governs constraints defaulting cannot discharge on a non-function value binding, and expansive bindings answer to §8.7 — a hole is indifferent to all of this, because it is never rigid. No clause anywhere mentions holes and defaulting together; the different answers fall out of *written is claimed, unwritten is inferred* meeting one defaulting rule.
 
 ### 6.3 Fence diagnostics
 
@@ -148,6 +149,7 @@ A hole in a total-contract position is a hard error at the hole's span, naming t
 
 - Export: "an exported signature is complete (Modules §4.1.1); replace `_` with the intended type."
 - Declaration surfaces (alias / record / union / extern / constraint): "a `T` declaration writes its types in full; replace `_` with the intended type."
+- `honor` heads: "an `honor` declaration names its subject in full; replace `_` with the intended type."
 
 The exact wording is the implementation's, the two obligations — name the totality rule, name the rewrite — are not.
 
@@ -157,12 +159,12 @@ The filled type is surfaced by **hover, not diagnostics**. Hexagon has no warnin
 
 ## 8. Conformance obligations
 
-1. The proof pair (§6.2), both halves, with the second half's diagnostic in the declared-variable family.
+1. The proof pair (§6.2), both halves, with the second half's diagnostic pinned to Functions §10's forced-to-a-concrete-type row.
 2. Degenerate-hole inertness: `let f(x: _) = x` and `let f(x) = x` receive identical schemes; likewise for a binding annotation.
 3. A constructor-claim hole: `xs: Vector(_)` accepts a vector argument, rejects a non-vector, and generalizes the element when nothing fixes it.
 4. Independence: two holes in one annotation fill independently (`(_, _)` at `(Int, String)`).
 5. Accumulation through a hole: a body applying `+` to a hole-typed parameter yields a `Num`-constrained scheme, not an error and not `Int` (absent defaulting pressure).
-6. Fence errors at each §5.4 position, each naming its rewrite.
+6. Fence errors at each §5.4 position — including an `honor` head — each naming its rewrite.
 7. `<a: _>` and `<_: C>` remain parse errors.
 8. Hover at a hole's span reports the filled type.
 
@@ -184,7 +186,8 @@ Applied in this change:
 - **Functions §11** gains the cross-reference entry.
 - **README** registers this document (authority rule 3 and the closure-docs ownership row).
 - **`notes/canonical-formatting-and-naming.md`** gains item S11 (degenerate holes normalize to omission; §5.2).
-- **Book, Polymorphism chapter**: the rigid-variable section, the type-holes section, the OCaml/F# contrast, and the continuity record's new commitments.
+- **Book, Functions chapter**: **rigid** named where the declared-variable trio is first taught.
+- **Book, Polymorphism chapter**: the rigid-variable deepening, the type-holes section, the OCaml/F# contrast, the Summary additions, and the continuity record's new commitments.
 
 To apply on next touch of the target:
 

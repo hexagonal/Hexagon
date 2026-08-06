@@ -576,13 +576,13 @@ late pedagogy pass, not a commitment to the current order.
   stays general). The OCaml/F# contrast — silent narrowing there, contract here —
   lives in this chapter. The rigid section calls back to Chapter 3's `rejected`
   rather than re-showing the trio.
-- `identity` is written binder-free (`let identity(x: a): a = x`); a `<...>` binder
-  first appears on `display<a: Show>`, where it carries a constraint (S3 canon).
+- `identity` is written binder-free (`let identity(x: a): a = x`); `<...>` binders
+  appear in this chapter only where they carry a constraint (S3 canon).
 - A type hole `_` is an ordinary inference position inside a written annotation;
   `count(entries: Vector(_))` is the canonical partial-claim example, and
   `let answer: _ = 42` (fine, `Int`) versus `let general: a = 42` (error) is the
   canonical proof pair. **Written is claimed, unwritten is inferred** is this
-  chapter's closing formulation. A whole-annotation hole is legal but canonical
+  chapter's unifying formulation, restated in its Summary. A whole-annotation hole is legal but canonical
   Hexagon omits it; exported signatures never contain holes.
 
 ### Tuples
