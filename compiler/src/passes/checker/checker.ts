@@ -7330,37 +7330,60 @@ function coverageAlternatives(
 const EXPORTED_SIGNATURE =
   "an exported signature is complete (Modules §4.1.1); replace `_` with the intended type";
 
-/** Every type hole's span inside one resolved annotation, outermost first. */
+/**
+ * One span per **written** hole inside one resolved annotation, outermost
+ * first.
+ *
+ * §4.1's unit is the written `_`, and alias substitution copies one written
+ * hole's node into every position the alias body mentions its parameter —
+ * `type Pair(a) = (a, a)` reached as `Pair(_)` puts two nodes in the tree for
+ * the one `_`. The copies share the id they were minted with, so collapsing on
+ * it says the written hole once, which is what the fence has to say. The span
+ * must not serve, though today it would coincide: a copy keeps the written
+ * `_`'s span only because `withTypeSpan` exempts holes, and identity cannot
+ * rest on that choice (see `HoleTypeAnnotation.id`).
+ */
 function typeAnnotationHoles(
   annotation: Resolved.TypeAnnotation,
 ): readonly Source.Span[] {
+  const written = new Map<number, Source.Span>();
+  for (const hole of typeAnnotationHoleNodes(annotation)) {
+    if (!written.has(hole.id)) written.set(hole.id, hole.span);
+  }
+  return [...written.values()];
+}
+
+/** Every hole node inside one resolved annotation, copies included. */
+function typeAnnotationHoleNodes(
+  annotation: Resolved.TypeAnnotation,
+): readonly Resolved.HoleTypeAnnotation[] {
   switch (annotation.kind) {
     case "Hole":
-      return [annotation.span];
+      return [annotation];
     case "Function":
       return [
-        ...annotation.parameters.flatMap(typeAnnotationHoles),
-        ...typeAnnotationHoles(annotation.result),
+        ...annotation.parameters.flatMap(typeAnnotationHoleNodes),
+        ...typeAnnotationHoleNodes(annotation.result),
       ];
     case "Vector":
     case "Set":
     case "Array":
     case "Node":
-      return typeAnnotationHoles(annotation.element);
+      return typeAnnotationHoleNodes(annotation.element);
     case "Nullable":
-      return typeAnnotationHoles(annotation.value);
+      return typeAnnotationHoleNodes(annotation.value);
     case "Map":
       return [
-        ...typeAnnotationHoles(annotation.key),
-        ...typeAnnotationHoles(annotation.value),
+        ...typeAnnotationHoleNodes(annotation.key),
+        ...typeAnnotationHoleNodes(annotation.value),
       ];
     case "Tuple":
-      return annotation.elements.flatMap(typeAnnotationHoles);
+      return annotation.elements.flatMap(typeAnnotationHoleNodes);
     case "Record":
-      return annotation.fields.flatMap((field) => typeAnnotationHoles(field.annotation));
+      return annotation.fields.flatMap((field) => typeAnnotationHoleNodes(field.annotation));
     case "Union":
     case "RecordDeclaration":
-      return annotation.arguments.flatMap(typeAnnotationHoles);
+      return annotation.arguments.flatMap(typeAnnotationHoleNodes);
     case "ExternType":
     case "Primitive":
     case "Range":

@@ -175,9 +175,11 @@ export interface HoleTypeAnnotation {
    * `Pair(_)` yields two nodes — and every copy carries the id the written hole
    * was minted with, so elaboration gives them one metavariable.
    *
-   * The span cannot serve: substitution re-points a copy at the *alias body's*
-   * variable, so copies of one written hole disagree on span while holes written
-   * in two different definitions through the same alias agree on it.
+   * The id, not the span, is the identity. A copy does keep the written `_`'s
+   * span, but only because `withTypeSpan` exempts holes from the re-pointing it
+   * gives every other substituted node, and what one written hole *is* must not
+   * rest on that choice. Diagnostics that report per written hole — §5.4's
+   * fence — collapse on the id for the same reason.
    */
   readonly id: number;
   /**
