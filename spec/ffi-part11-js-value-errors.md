@@ -26,7 +26,7 @@ Fixed here, from the approved package:
 - **Representation:** any JavaScript value whatsoever, held unchanged and crossing **by identity** — representation-direct, zero-copy, no wrapper. Finalizes Part 1 §4.1's provisional row (edit note, §10).
 - **`.d.ts` face:** `unknown` — TypeScript's own type for exactly this contract. Never `any`: `unknown` forces the foreign consumer through the same narrowing discipline Hexagon imposes on itself.
 - **`JsValue` includes `null` and `undefined`.** A `JsValue`-typed position accepts every JS value including both nullish forms; APIs returning "anything or nothing" are declared as plain `JsValue`, not `Nullable(JsValue)`. Nullishness is one more thing `kind` reports (§3), not a separate wrapper layer. (The `Nullable(JsValue)` spelling itself: §13.3.)
-- **The injection is total and free:** `JsValue.from<a>(value: a) -> JsValue` — every Hexagon value already is a JS value, so `from` is the representation-honest identity, erased in emission. There is no checked path *into* `JsValue` because none is needed. *(Approved at review, §12.4.)*
+- **The injection is total and free:** `JsValue.from(value: a) -> JsValue` — every Hexagon value already is a JS value, so `from` is the representation-honest identity, erased in emission. There is no checked path *into* `JsValue` because none is needed. *(Approved at review, §12.4.)*
 
 `JsValue` is not iterable, not comparable, not showable — it has no instances. Everything one does with it goes through `kind`, a decoder, or a trusted re-declaration at a boundary.
 
