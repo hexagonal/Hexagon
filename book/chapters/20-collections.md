@@ -201,7 +201,7 @@ Maps and sets are hash-backed. Operations that inspect or place keys therefore r
 the key type to honor `Hash`:
 
 ```hexagon
-let remember<k: Hash, v>(cache: Map(k, v), key: k, value: v): Map(k, v) =
+let remember<k: Hash>(cache: Map(k, v), key: k, value: v): Map(k, v) =
     Map.set(cache, key, value)
 ```
 
