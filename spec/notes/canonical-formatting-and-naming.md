@@ -89,6 +89,19 @@ declarations through this list before considering the segment done.
   must reach a generic `a -> b` slot, the bridge is the eta-wrap
   `_ => thunk()`.
   (Functions §5.3)
+- **S11 [canonical]** A degenerate whole-type hole is normalized to omission:
+  `x: _` and `let n: _ = ...` are legal and inert, and the formatter drops
+  the annotation, leaving the bare binder — `f(x: _, y)` becomes `f(x, y)`,
+  `let n: _ = ...` becomes `let n = ...`. Holes *inside* a written type —
+  `xs: Vector(_)` — are ordinary canonical Hexagon and stay written.
+  (`decisions-ml-dialect-annotations-2026-08.md` §5.2)
+- **S12 [canonical]** A hole is never written where a type variable would
+  hold. If the position is genuinely generic, write the variable — the
+  claim is checked, and the signature is export-ready: `xs: Vector(a)`,
+  never `xs: Vector(_)`. A hole is the canonical spelling exactly where a
+  variable would be refused — the concrete-but-inferred position:
+  `rows: Vector(_)` whose body fixes the element.
+  (`decisions-ml-dialect-annotations-2026-08.md` §5.6)
 
 ## 3. Literals
 

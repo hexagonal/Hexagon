@@ -225,11 +225,12 @@ rest.
 Explicit type variables make relationships visible:
 
 ```hexagon
-let identity<a>(x: a): a = x
+let identity(x: a): a = x
 ```
 
-The lowercase `a` names the type chosen by each use. This annotation documents the same
-polymorphism inferred for `let identity(x) = x`; it does not create a new power.
+The lowercase `a` names the type chosen by each use — writing it in one position
+introduces it, and repeating it says "the same type here." This annotation documents the
+same polymorphism inferred for `let identity(x) = x`; it does not create a new power.
 
 Later, constraints will refine the relationship:
 
@@ -239,6 +240,72 @@ let display<a: Show>(value: a): String = "${value}"
 
 Read this provisionally as “for any displayable type `a`.” The constraints chapter will
 explain how such obligations are declared and satisfied.
+
+## A rigid variable bends without breaking
+
+The functions chapter made the promise concrete: a written type variable is **rigid**
+while its definition is checked — `rejected(value: a)` could not pass `value` to a
+function demanding `Int`, because `a` stands for every type and cannot collapse to one.
+Now that generalization is on the table, the interesting question is the other
+direction: how much can a body ask of a rigid variable before the promise breaks?
+
+More than you might expect:
+
+```hexagon
+let increment(value: a) = value + 1
+```
+
+This is legal. The `+` asks `a` to be numeric, and that requirement attaches to `a` as a
+constraint — the same kind of obligation `display` wrote by hand as `<a: Show>` —
+without ever narrowing `a` to one concrete type. Rigidity pins the *shape* of a type;
+requirements discovered in the body accumulate beside it as constraints. `increment`
+remains reusable at every numeric type, and `a` never stopped meaning "any type the
+caller chooses."
+
+If you come to Hexagon from OCaml or F#, pause here: this is a stronger promise than the
+annotation you are used to. OCaml compiles `let f (x : 'a) = x + 1` by silently deciding
+`'a` meant `int` all along. Hexagon never narrows a written variable — it either holds
+the claim, gathering constraints as the body demands them, or rejects the definition.
+
+## Leaving a hole in an annotation
+
+Each parameter and result may be annotated or left off, and inference fills whatever is
+unwritten. Sometimes the claim worth writing is only *part* of a type: this parameter is
+a `Vector`, and its element type is inference's business. A **type hole**, written `_`,
+leaves one position inside a written type to inference:
+
+```hexagon
+let padded(entries: Vector(_)): Vector(Int) = entries.append(0)
+```
+
+The hole holds an ordinary inference variable — exactly what an unannotated position
+receives. Here the body settles it: appending `0` under a `Vector(Int)` result fixes the
+element type, so `padded` takes a `Vector(Int)` — the annotation claims the constructor
+and leaves the element to inference. Writing `entries: Vector(a)` here would be an
+over-claim: `a` promises every element type, and this body cannot deliver that.
+
+That is also the rule for choosing between the two spellings. When the position *is*
+genuinely generic — nothing in the body fixes it — write the variable: `Vector(a)` makes
+the checked claim, costs nothing, and is already the form an `export` would require. A
+hole is the right spelling exactly where a variable would be refused.
+
+One principle runs through everything this chapter has shown: **written is claimed,
+unwritten is inferred**. A hole is how you write "unwritten" inside an annotation, and
+the contrast with a type variable makes the principle visible:
+
+```hexagon
+let answer: _ = 42      // fine: the hole is filled by inference; answer is an Int
+let general: a = 42     // error: a claims every type, and one number cannot deliver that
+```
+
+The hole leaves the type to inference, which defaults the bare literal to `Int`. The
+variable claims generality — `general` at every type `a` — and `42` is not a value of
+every type. Same position, one principle, different answers.
+
+A hole covering an entire annotation, as in `answer: _`, is legal and means exactly what
+omitting the annotation means — canonical Hexagon simply omits it. And where a signature
+must be complete, a hole is not accepted: an exported function still writes its full
+type, because a hole would un-write part of the module's contract.
 
 ## Recursive calls keep one type
 
@@ -281,7 +348,11 @@ the JavaScript boundary.
   variable is fixed when the value could consume it, or when it carries a capability
   that was chosen while the initializer ran;
 - unconstrained whole-number literals default to `Int`;
-- annotations document, resolve, or deliberately narrow inferred types; and
+- annotations document, resolve, or deliberately narrow inferred types;
+- a written type variable is **rigid**: the shape claim holds, constraints accumulate
+  beside it, and it never collapses to one concrete type;
+- a **type hole** `_` leaves one position of a written annotation to inference —
+  written is claimed, unwritten is inferred; and
 - recursive calls within one `fun` group keep one consistent type.
 
 With these rules in place, compound values can be introduced without stopping to label

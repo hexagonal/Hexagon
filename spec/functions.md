@@ -107,6 +107,16 @@ pins type structure; it does not suppress demands discovered in the body.
 The literature term *skolem* may be used once to anchor the implementation
 technique, but Hexagon diagnostics say **declared type variable**.
 
+A type position inside an annotation may instead be left unwritten with a
+**type hole**, spelled `_`: `xs: Vector(_)` claims the constructor and infers
+the element. A hole elaborates to an ordinary inference variable — never
+rigid, filled with a monotype, never a scheme. The bare whole-type hole
+(`x: _`) is legal and inert — it means exactly what omitting the annotation
+means, and canonical formatting drops it, leaving the bare binder `x`.
+Semantics, legal positions, and the
+total-contract fence (no holes in exported signatures or declaration
+surfaces) are owned by `decisions-ml-dialect-annotations-2026-08.md`.
+
 ### 4.2 Explicit type parameters
 
 Angle-bracket syntax, settled form:
@@ -504,6 +514,7 @@ Diagnostics obey the Rewrite Rule (Declarations Preamble §1.1): where a legal s
 - **Polymorphism over parameter lists** (a type variable ranging over a *sequence* of parameter types, so one signature covers `() -> b`, `Int -> b`, and `(Int, String) -> b` alike): **post-v1**, recorded in §5.2. It is the form worth exploring for arity abstraction, and the same feature FFI variadics would need; a pseudo-type for the zero-ary domain alone is rejected in its favour. Until then, the seam is the eta-wrap (§5.3).
 - **Constraint display in tooling**: open at Constraints §9.4 (LSP display format). The function arrow shape itself is fixed here (§5.1).
 - **Type-system internals** (Algorithm J, levels, union-find, bidirectional checking for rank-2): compiler architecture, not additional language surface. §8 owns the observable rules.
+- **Type holes** (`_` in annotation type positions): `decisions-ml-dialect-annotations-2026-08.md` owns semantics, positions, the total-contract fence, diagnostics, and the annotation-doctrine record; §4.1 notes only the surface.
 
 ---
 
