@@ -448,6 +448,7 @@ export type Expr =
   | TupleExpr
   | RecordExpr
   | GroupExpr
+  | AscriptionExpr
   | BlockExpr
   | LambdaExpr
   | IfExpr
@@ -548,6 +549,23 @@ export interface GroupExpr {
   readonly span: Source.Span;
 }
 
+/**
+ * `(e: T)` — the ascription expression (Ascription §2.1). One parenthesized
+ * *element* carrying a type; a tuple's components each get their own node, so
+ * `(a: Int, b)` is a `Tuple` whose first element is an `Ascription`.
+ *
+ * The node wraps rather than replaces: `expression` is the element exactly as it
+ * would have parsed unascribed, and `annotation` is the ordinary annotation
+ * grammar's type, so holes and constrained holes arrive here for free. Nothing
+ * downstream of the checker sees the node — an ascription erases (§4).
+ */
+export interface AscriptionExpr {
+  readonly kind: "Ascription";
+  readonly expression: Expr;
+  readonly annotation: TypeAnnotation;
+  readonly span: Source.Span;
+}
+
 export interface BlockExpr {
   readonly kind: "Block";
   readonly items: readonly Item[];
@@ -587,6 +605,25 @@ export function unwrapBindingValue(expression: Expr): Expr {
     if (only?.kind !== "ExprItem") return unwrapped;
     unwrapped = only.expression;
   }
+}
+
+/**
+ * The same peel, plus the ascription wrapper (Ascription §3): an ascription of a
+ * syntactic value is itself a syntactic value, so a rule that asks what the
+ * right-hand side *is* must see through it exactly as it sees through grouping
+ * parentheses.
+ *
+ * Kept separate from `unwrapBindingValue` because the resolver *replaces* a
+ * binding's value with that peel's result, and an ascription is not a wrapper
+ * the resolver may drop — its type still has to be checked. Only the callers
+ * that merely *classify* a right-hand side use this one.
+ */
+export function unwrapSyntacticValue(expression: Expr): Expr {
+  let unwrapped = unwrapBindingValue(expression);
+  while (unwrapped.kind === "Ascription") {
+    unwrapped = unwrapBindingValue(unwrapped.expression);
+  }
+  return unwrapped;
 }
 
 export interface LambdaExpr {

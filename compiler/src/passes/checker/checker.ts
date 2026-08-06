@@ -74,6 +74,20 @@ interface Variable {
   readonly rigidName?: string;
   readonly declaredConstraints?: readonly Typed.ConstraintName[];
   /**
+   * Where an **ascription** declared this variable — the written type's span
+   * (Ascription §3.1). Present only when the ascription is where the name was
+   * first written in its declaration; a variable a binder or a parameter
+   * annotation declared and an ascription merely re-names keeps `undefined`,
+   * because it is that binder's variable.
+   *
+   * Functions §8's arms key on an annotated binding's declared variable, and a
+   * right-hand-side ascription now declares one where the binder has no
+   * annotation of its own — declaredness, not the binder's punctuation, is the
+   * key (edit note, Ascription §8). This is how those arms find the span to
+   * report at.
+   */
+  readonly ascribedAt?: Source.Span;
+  /**
    * A source-shaped name for a variable that survives into a diagnostic the
    * Rewrite Rule makes mandatory. Numeric Literals §6 requires survivors in
    * those reports to be "named rather than numbered"; `?3` is what this
@@ -396,6 +410,14 @@ class Checker {
   // `a` as the signature (functions.md §4.1). `undefined` at module level, where each
   // binding is its own definition and gets a fresh scope. Saved/restored per lambda.
   #annotationVariableScope: Map<string, Variable> | undefined = undefined;
+  /**
+   * The span of the ascribed type currently being elaborated, or `undefined`
+   * outside one. Read only by `#annotationType`'s type-variable arm, to mark the
+   * variables an ascription *declares* (Ascription §3.1). A field rather than a
+   * parameter because elaboration never re-enters expression inference, so there
+   * is exactly one ascription in flight at a time.
+   */
+  #ascribedTypeSpan: Source.Span | undefined = undefined;
   readonly #unions = new Map<Resolved.UnionId, Resolved.Union>();
   readonly #constructorUnions = new Map<Resolved.SymbolId, Resolved.UnionId>();
   readonly #unionParameters = new Map<Resolved.UnionId, ReadonlyMap<string, Variable>>();
@@ -1284,9 +1306,18 @@ class Checker {
     level: number,
     moduleItems: boolean,
   ): Mono {
+    // Ascription §3.1 scopes annotation variables to a *declaration*. Inside a
+    // definition that scope already exists and every item shares it — a
+    // body-local `let x: a` has always named the signature's `a`. At the top
+    // level there is no enclosing definition, so each item is its own
+    // declaration and starts its own scope; without this, two module-level
+    // bindings that both write `a` would share one rigid variable, and the
+    // second would meet one the first had already quantified.
+    const enclosingVariableScope = this.#annotationVariableScope;
     for (let index = 0; index < items.length; index += 1) {
       const item = items[index];
       if (item === undefined) continue;
+      if (enclosingVariableScope === undefined) this.#annotationVariableScope = new Map();
 
       // A contiguous run of `fun`s is the one place a body may name a binding
       // written below it (Functions §7.3), so it is the one place inference
@@ -1601,6 +1632,7 @@ class Checker {
       if (item.kind === "TypeAlias") continue;
       if (item.kind === "Exception") continue;
     }
+    this.#annotationVariableScope = enclosingVariableScope;
 
     if (moduleItems) return UNIT;
     const finalItem = items.at(-1);
@@ -2243,6 +2275,42 @@ class Checker {
       case "Group":
         type = this.#inferExpr(expression.expression, level);
         break;
+      case "Ascription": {
+        // Ascription introduces zero new semantics (§1): this is the annotated
+        // binding's own sequence — infer, elaborate, unify — with the written
+        // type elaborated in the *declaration's* annotation-variable scope, so a
+        // name written here is the same variable the signature's is (§3.1).
+        //
+        // §3.1 defers the exact chaining across *nested* declarations, and this
+        // invents nothing: the scope is whatever the enclosing definition
+        // already had, so an ascription reaches a name exactly as a body-local
+        // `let x: a` annotation has always reached it. Consequences, surfaced
+        // rather than ruled — a fresh name first written inside an inner lambda
+        // joins that lambda's map (its copy of the enclosing one) and does not
+        // escape outward, and an inner `<a: C>` binder shadows by overwriting
+        // its copy. Both are the pre-existing behaviour of the same map.
+        const inferred = this.#inferExpr(expression.expression, level);
+        const enclosingAscribedType = this.#ascribedTypeSpan;
+        this.#ascribedTypeSpan = expression.annotation.span;
+        const annotationType = this.#annotationType(
+          expression.annotation,
+          level,
+          new Map(),
+          this.#annotationVariableScope ?? new Map(),
+        );
+        this.#ascribedTypeSpan = enclosingAscribedType;
+        this.#unifyExpected(
+          annotationType,
+          inferred,
+          expression.expression,
+          expression.annotation.span,
+          true,
+        );
+        // The widened form is the ascribed one, exactly as at an annotated
+        // binding: `(1 : Float)` is the `Float` the writer claimed.
+        type = this.#hasNumericWidening(expression.expression) ? annotationType : inferred;
+        break;
+      }
       case "Block":
         type = this.#inferItems(expression.items, level, false);
         break;
@@ -3621,12 +3689,14 @@ class Checker {
     literalOnly: boolean,
     rigidName?: string,
     declaredConstraints?: readonly Typed.ConstraintName[],
+    ascribedAt?: Source.Span,
   ): Variable {
     const variable: Variable = {
       kind: "Variable",
       id: this.#nextVariable++,
       ...(rigidName === undefined ? {} : { rigidName }),
       ...(declaredConstraints === undefined ? {} : { declaredConstraints }),
+      ...(ascribedAt === undefined ? {} : { ascribedAt }),
       level,
       literalOnly,
       requirements: [],
@@ -3864,6 +3934,40 @@ class Checker {
       message: `record fields do not match; unexpected ${fields.map((field) => `\`${field}\``).join(", ")}`,
       primary: span,
     });
+  }
+
+  /**
+   * Defaulting's proposal of `Int` (Numeric Literals §4), which a declared type
+   * variable refuses.
+   *
+   * For a variable a *binder* declared, refusing is `#bind`'s own rigid arm —
+   * Functions §10's forced-to-a-concrete-type row, unchanged. For one an
+   * **ascription** declared, that row is worded for this spelling (Ascription
+   * §5): no body demanded `Int`, defaulting proposed it, so the report says what
+   * the claim got wrong and names this form's rewrites. Both rewrites compile,
+   * which is what the Rewrite Rule asks of them.
+   */
+  #refuseOrDefault(variable: Variable, span: Source.Span): void {
+    const literal = variable.ascribedAt === undefined
+      ? undefined
+      : variable.requirements.find(
+          (requirement) => requirement.origin === "literal" && requirement.literal !== undefined,
+        );
+    if (literal?.literal === undefined) {
+      this.#bind(variable, primitive("Int"), span);
+      return;
+    }
+    this.#diagnostics.add({
+      severity: "error",
+      message:
+        `\`${variable.rigidName}\` is a declared type variable, but \`${literal.literal}\` ` +
+        `can be only a \`${literal.name}\` type; ascribe the concrete type you mean — ` +
+        `\`(${literal.literal} : Int)\` — or remove the ascription to let the literal ` +
+        "default to `Int`",
+      primary: span,
+    });
+    for (const requirement of variable.requirements) requirement.reported = true;
+    variable.instance = ERROR;
   }
 
   #bind(variable: Variable, type: Mono, span: Source.Span): void {
@@ -4672,7 +4776,7 @@ class Checker {
         variable.requirements.length > 0 &&
         this.#canDefaultToInt(variable)
       ) {
-        this.#bind(variable, primitive("Int"), variable.requirements[0]!.span);
+        this.#refuseOrDefault(variable, variable.requirements[0]!.span);
       }
     }
     variables = this.#collectVariables(type).filter(
@@ -4710,7 +4814,8 @@ class Checker {
         // declaration. Both exits are legal at every arity and depth (§13.5's
         // bar): a concrete annotation compiles, and removing the annotation
         // lands on decline-and-pin.
-        if (variable.rigidName !== undefined && annotation !== undefined) {
+        const seatReport = annotation ?? variable.ascribedAt;
+        if (variable.rigidName !== undefined && seatReport !== undefined) {
           const names = [
             ...new Set(variable.requirements.map(({ name: constraint }) => constraint)),
           ];
@@ -4722,7 +4827,7 @@ class Checker {
               `constraint${names.length === 1 ? "" : "s"} — evidence rides only a ` +
               "function's trailing parameters; annotate at a concrete type, or " +
               "remove the annotation",
-            primary: annotation,
+            primary: seatReport,
           });
           variable.instance = ERROR;
           continue;
@@ -4762,7 +4867,8 @@ class Checker {
         // hard error at the declaration, in Functions §4.1's family, naming the
         // clause that actually fired (closure doc §4.1). Exports inherit it
         // through their mandatory signatures (Modules §4.1.1).
-        if (variable.rigidName !== undefined && annotation !== undefined) {
+        const declineReport = annotation ?? variable.ascribedAt;
+        if (variable.rigidName !== undefined && declineReport !== undefined) {
           this.#diagnostics.add({
             severity: "error",
             message:
@@ -4770,7 +4876,7 @@ class Checker {
               `side is a computation that cannot be generalized in \`${variable.rigidName}\` ` +
               `(${this.#declineReason(variable.rigidName, variable, declined)}); ` +
               "bind where the type is known, or remove the annotation",
-            primary: annotation,
+            primary: declineReport,
           });
           // The binding has no legal reading, so nothing downstream should try
           // to give it one. Left unsolved, the variable goes on to be defaulted
@@ -4918,7 +5024,28 @@ class Checker {
       seen.add(actual.id);
       if (actual.requirements.length === 0) continue;
       if (this.#canDefaultToInt(actual)) {
-        this.#bind(actual, primitive("Int"), actual.requirements[0]!.span);
+        this.#refuseOrDefault(actual, actual.requirements[0]!.span);
+        continue;
+      }
+      // Ascription §3.1's orphaned variable: a declared variable that occurs
+      // nowhere in the declaration's type, so nothing generalized it and no call
+      // site could ever determine its evidence. Reaching here means the
+      // constraint is not one defaulting could have discharged either — the
+      // refusal above handles those — and `#reportBlockedDefaulting` is silent
+      // about declared variables by design, so without this the declaration
+      // compiles with an obligation nothing can meet.
+      if (actual.ascribedAt !== undefined && !actual.requirements.every(({ reported }) => reported)) {
+        const names = [...new Set(actual.requirements.map(({ name }) => name))];
+        for (const requirement of actual.requirements) requirement.reported = true;
+        this.#diagnostics.add({
+          severity: "error",
+          message:
+            `\`${actual.rigidName}\` is a declared type variable that this declaration's ` +
+            `type does not mention, so no call site can determine its \`${names.join("`, `")}\` ` +
+            `evidence; ascribe a concrete type, or name a type variable the declaration uses`,
+          primary: actual.ascribedAt,
+        });
+        actual.instance = ERROR;
         continue;
       }
       // Nothing generalised this variable and §4 will not default it, so this
@@ -5274,7 +5401,19 @@ class Checker {
       const existing = typeParameters.get(annotation.name);
       if (existing !== undefined) return existing;
       if (typeParameters instanceof Map) {
-        const variable = this.#fresh(level, false, annotation.name);
+        // `#ascribedTypeSpan` is set exactly while an *ascription's* type is
+        // being elaborated, so only a name this ascription is the first to write
+        // in its declaration is marked as ascription-declared. A name the
+        // signature already wrote is found above and returns that variable
+        // untouched — it is the binder's, and Functions §8's arms already reach
+        // it through the binding's own annotation.
+        const variable = this.#fresh(
+          level,
+          false,
+          annotation.name,
+          undefined,
+          this.#ascribedTypeSpan,
+        );
         typeParameters.set(annotation.name, variable);
         return variable;
       }
@@ -6069,6 +6208,11 @@ class Checker {
             this.#recordConstructors.has(expression.callee.symbol)) &&
           expression.arguments.every((argument) => this.#isValue(argument));
       case "Group":
+      // Functions §8 item 2's read-through, extended by Ascription §3: an
+      // ascription of a syntactic value is a syntactic value. It wraps; it does
+      // not evaluate, so `let id = (x => x : a -> a)` generalizes exactly as
+      // `let id = (x => x)` does.
+      case "Ascription":
         return this.#isValue(expression.expression);
       default:
         return false;
@@ -6907,6 +7051,7 @@ class Checker {
           span: expression.span,
         };
       case "Group":
+      case "Ascription":
         return { ...expression, type, expression: this.#materializeExpr(expression.expression) };
       case "Block":
         return { ...expression, type, items: expression.items.map((item) => this.#materializeItem(item)) };

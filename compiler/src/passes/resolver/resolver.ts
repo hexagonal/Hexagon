@@ -1907,6 +1907,18 @@ class Resolver {
           ...expression,
           expression: this.#resolveExpr(expression.expression, scope),
         };
+      case "Ascription":
+        // The ordinary annotation path, deliberately: type names get their
+        // identities (so the occurrence index reaches them) and holes get
+        // resolver-assigned ids through the same mint, so an alias applied at a
+        // hole shares seed and id exactly as it does in a binding annotation
+        // (Ascription §9.2).
+        return {
+          kind: "Ascription",
+          expression: this.#resolveExpr(expression.expression, scope),
+          annotation: this.#resolveTypeAnnotation(expression.annotation),
+          span: expression.span,
+        };
       case "Block": {
         const blockScope = this.#openScope(scope, expression.span, true);
         return {

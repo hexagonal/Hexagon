@@ -691,6 +691,7 @@ export type Expr =
   | TupleExpr
   | RecordExpr
   | GroupExpr
+  | AscriptionExpr
   | BlockExpr
   | LambdaExpr
   | IfExpr
@@ -813,6 +814,16 @@ export interface RecordField {
 
 export interface GroupExpr extends ExpressionFields {
   readonly kind: "Group";
+  readonly expression: Expr;
+}
+
+/**
+ * `(e: T)` (Ascription §2.1). It survives to here so the analysis layer can find
+ * an ascription by span; the elaborator then erases it, and no Core node, emitted
+ * expression, or `.d.ts` entry records that it was written (§4).
+ */
+export interface AscriptionExpr extends ExpressionFields {
+  readonly kind: "Ascription";
   readonly expression: Expr;
 }
 

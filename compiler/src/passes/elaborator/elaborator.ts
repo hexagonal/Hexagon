@@ -180,6 +180,10 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
         span: expression.span,
       };
     case "Group":
+    // Ascription §4: an ascription erases. `(e: T)` emits exactly as `(e)`
+    // would — the type only ever acted through unification — so the wrapper
+    // stops here and no Core node records that it was written.
+    case "Ascription":
       return elaborateExpr(expression.expression);
     case "Block":
       return { ...expression, items: expression.items.map(elaborateItem) };

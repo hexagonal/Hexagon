@@ -70,6 +70,21 @@ const typeParameterListKinds = new Set<TokenKind>([
   "RightParen",
 ]);
 
+/**
+ * Tokens that can begin a type operand (`#parseTypeOperand`'s own arms). Read by
+ * the parenthesized element rule, which needs to know whether a term stands
+ * where the ascribed type must (Products §2.2's named-tuple hint) before the
+ * type parser reports a less specific failure — and by the lambda lookahead's
+ * type skipper.
+ */
+const typeOperandStarts = new Set<TokenKind>([
+  "LeftBrace",
+  "LeftParen",
+  "Wildcard",
+  "NonUpperName",
+  "UpperName",
+]);
+
 /** Nesting bracketry, so the record-update scan reads only its own brace's depth. */
 const opensNesting = new Set<TokenKind>(["LeftParen", "LeftBracket", "LeftBrace", "VOpen"]);
 const closesNesting = new Set<TokenKind>(["RightParen", "RightBracket", "RightBrace", "VClose"]);
@@ -2040,6 +2055,13 @@ class Parser {
     return { kind: "String", parts, span: token.span };
   }
 
+  /**
+   * The parenthesized form: `()`, a group, an ascription, or a tuple
+   * (Ascription §2.1, Products §2.1). Every element is `expression (: Type)?`;
+   * one *ascribed* element is the ascription expression, and the rest is
+   * unchanged — there are no 1-tuples, so `(e)` can only be grouping and
+   * `(e: T)` can only be ascription (§2.1's conflict-free argument).
+   */
   #parseParenthesized(stops: ReadonlySet<TokenKind>): Parsed.Expr {
     const opening = this.#advance();
     if (this.#at("RightParen")) {
@@ -2047,10 +2069,7 @@ class Parser {
       return { kind: "Unit", span: spanFrom(opening.span, closing.span) };
     }
 
-    const expression = this.#parseExpression(
-      0,
-      insideBrackets(stops, "Comma", "RightParen"),
-    );
+    const expression = this.#parseElement(stops);
     if (this.#at("Comma")) {
       const elements: Parsed.Expr[] = [expression];
       while (this.#at("Comma")) {
@@ -2060,12 +2079,7 @@ class Parser {
           const closing = this.#advance();
           return { kind: "ErrorExpr", span: spanFrom(opening.span, closing.span) };
         }
-        elements.push(
-          this.#parseExpression(
-            0,
-            insideBrackets(stops, "Comma", "RightParen"),
-          ),
-        );
+        elements.push(this.#parseElement(stops));
       }
       const closing = this.#expect("RightParen", "expected `)` after tuple elements");
       return {
@@ -2075,11 +2089,64 @@ class Parser {
       };
     }
     const closing = this.#expect("RightParen", "expected `)` after expression");
+    if (expression.kind === "Ascription") {
+      // The group parentheses *are* the ascription's delimiters (§2.1): wrapping
+      // it in a `Group` too would leave two nodes where the source wrote one
+      // form, and every read-through would have to know about both.
+      return { ...expression, span: spanFrom(opening.span, closing?.span ?? expression.span) };
+    }
     return {
       kind: "Group",
       expression,
       span: spanFrom(opening.span, closing?.span ?? expression.span),
     };
+  }
+
+  /**
+   * One parenthesized element: `expression (: Type)?` (Ascription §2.1).
+   *
+   * The colon binds loosest within the element (§2.2) — it ends whatever
+   * expression form is open, the eats-right forms included — which falls out of
+   * parsing the element expression to completion first: `Colon` already halts
+   * the expression loop, so the whole element is in hand when the colon is
+   * reached.
+   */
+  #parseElement(stops: ReadonlySet<TokenKind>): Parsed.Expr {
+    const expression = this.#parseExpression(
+      0,
+      insideBrackets(stops, "Comma", "RightParen"),
+    );
+    if (!this.#at("Colon")) return expression;
+    this.#advance();
+    if (!this.#startsType()) {
+      // Products §2.2: `(x: 1, y: 2)` is the C# named-tuple habit. The element
+      // colon is grammar now, so the failure lands one token later — on the term
+      // standing where a type must — and the hint is the one that spec has
+      // always carried. Reserved for the shape that habit actually produces: a
+      // bare lowercase name ascribed to something that cannot be a type.
+      const message = expression.kind === "Name" && expression.name.startClass === "non-upper"
+        ? "tuples are positional; for named fields use a record: `{x = 1, y = 2}`"
+        : "expected a type annotation";
+      this.#error(message);
+      this.#synchronize(insideBrackets(stops, "Comma", "RightParen", "Eof"));
+      return { kind: "ErrorExpr", span: expression.span };
+    }
+    const annotation = this.#parseTypeAnnotation();
+    if (annotation === undefined) {
+      this.#synchronize(insideBrackets(stops, "Comma", "RightParen", "Eof"));
+      return { kind: "ErrorExpr", span: expression.span };
+    }
+    return {
+      kind: "Ascription",
+      expression,
+      annotation,
+      span: spanFrom(expression.span, annotation.span),
+    };
+  }
+
+  /** Whether the current token can begin a type (Functions §5's operand set). */
+  #startsType(): boolean {
+    return typeOperandStarts.has(this.#current().kind);
   }
 
   #parseCall(callee: Parsed.Expr): Parsed.Expr {
@@ -2629,7 +2696,10 @@ class Parser {
    * question the same way, which is why the walk is now one shared helper.
    */
   #dischargeTypeParameterLambda(value: Parsed.Expr): void {
-    this.#pendingTypeParameterLambdas.delete(Parsed.unwrapBindingValue(value));
+    // Through the ascription wrapper too: an ascription of a syntactic value is
+    // a syntactic value (Ascription §3), so `let f = (<a>(x: a) => x : a -> a)`
+    // is the same right-hand side written with its type claimed.
+    this.#pendingTypeParameterLambdas.delete(Parsed.unwrapSyntacticValue(value));
   }
 
   #reportMisplacedTypeParameterLambdas(): void {
@@ -2643,6 +2713,20 @@ class Parser {
     this.#pendingTypeParameterLambdas.clear();
   }
 
+  /**
+   * A parenthesized lambda head: the arrow after the matching `)`, optionally
+   * across a return annotation (Functions §4.1). The doctrine is that the parser
+   * decides on what follows the matching `)` and never on a `name :` inside it
+   * (Ascription §2.3).
+   *
+   * The return-annotation arm has to step over *one well-formed type* and then
+   * find the arrow immediately. It formerly scanned from the colon to any `=>`
+   * before the layout boundary, which was answer-preserving only while every
+   * legal inner `(...):` was itself a lambda head's return annotation. Ascription
+   * makes non-lambda ones legal, and the loose scan then reads
+   * `((a, b): (Int, String)) |> map(x => x)` as a lambda head off an unrelated
+   * arrow later in the line (§2.3).
+   */
   #isParenthesizedLambda(): boolean {
     if (!this.#at("LeftParen")) {
       return false;
@@ -2659,16 +2743,59 @@ class Parser {
     } while (depth > 0);
     // `index` points one token beyond the matching parameter `)`.
     if (this.#tokens[index]?.kind === "Colon") {
-      index += 1;
-      const annotationStart = index;
-      while (this.#tokens[index]?.kind !== "FatArrow") {
-        const kind = this.#tokens[index]?.kind;
-        if (kind === "Eof" || kind === "VSep" || kind === undefined) return false;
-        index += 1;
-      }
-      if (index === annotationStart) return false;
+      index = this.#skipType(index + 1);
+      if (index < 0) return false;
     }
     return this.#tokens[index]?.kind === "FatArrow";
+  }
+
+  /**
+   * Steps over one well-formed type, or returns -1 if these tokens are not one.
+   *
+   * A token-level walk of the type grammar, in the shape `#skipPattern` already
+   * established: tight, because it commits only on a type the type parser would
+   * accept, and cheap, because it steps *over* bracket pairs rather than into
+   * them.
+   */
+  #skipType(index: number): number {
+    let scan = this.#skipTypeOperand(index);
+    while (scan >= 0 && this.#tokens[scan]?.kind === "Arrow") {
+      scan = this.#skipTypeOperand(scan + 1);
+    }
+    return scan;
+  }
+
+  /** One type operand, constrained-hole suffix included (closure doc §4.4). */
+  #skipTypeOperand(index: number): number {
+    const kind = this.#tokens[index]?.kind;
+    if (kind === "LeftBrace" || kind === "LeftParen") return this.#skipBracketed(index);
+    if (kind === "Wildcard") {
+      const next = index + 1;
+      // The suffix is bounded — one reference, or one balanced list — so
+      // consuming it here ends the operand, exactly as the parser does.
+      return this.#tokens[next]?.kind === "Colon"
+        ? this.#skipConstraintList(next + 1)
+        : next;
+    }
+    if (kind === "NonUpperName") return index + 1;
+    if (kind !== "UpperName") return -1;
+    let scan = this.#skipQualifiedTypeName(index);
+    if (this.#tokens[scan]?.kind === "LeftParen") return this.#skipBracketed(scan);
+    return scan;
+  }
+
+  #skipConstraintList(index: number): number {
+    if (this.#tokens[index]?.kind === "LeftParen") return this.#skipBracketed(index);
+    if (this.#tokens[index]?.kind !== "UpperName") return -1;
+    return this.#skipQualifiedTypeName(index);
+  }
+
+  /** `Box`, or the module-qualified `M.Box` (Modules §3.3). */
+  #skipQualifiedTypeName(index: number): number {
+    const scan = index + 1;
+    return this.#tokens[scan]?.kind === "Dot" && this.#tokens[scan + 1]?.kind === "UpperName"
+      ? scan + 2
+      : scan;
   }
 
   #parseTypeAnnotation(): Parsed.TypeAnnotation | undefined {

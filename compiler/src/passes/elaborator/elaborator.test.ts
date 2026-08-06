@@ -297,7 +297,7 @@ describe("elaborate", () => {
 type TypedOnlyKind = Exclude<Typed.Expr["kind"], Core.Expr["kind"]>;
 
 // Sound: `satisfies` rejects a kind Core also has, which is what #198 was.
-const TYPED_ONLY_KINDS = ["FromNat", "Group", "Access"] as const satisfies readonly TypedOnlyKind[];
+const TYPED_ONLY_KINDS = ["FromNat", "Group", "Ascription", "Access"] as const satisfies readonly TypedOnlyKind[];
 
 // Complete: a fourth Typed-only kind has to be listed above rather than go
 // silently unchecked, so this resolves to `never` and fails to accept `true`.

@@ -534,6 +534,14 @@ class Collector {
       case "Group":
         this.#visitExpr(expression.expression);
         return;
+      case "Ascription":
+        // An ascribed type is an annotation, so its type names are ordinary type
+        // occurrences: go-to-definition, find-references, rename and the
+        // semantic-token classification all reach them through this one call
+        // (Ascription §9.5).
+        this.#visitAnnotation(expression.annotation);
+        this.#visitExpr(expression.expression);
+        return;
       case "Block":
         for (const item of expression.items) this.#visitItem(item);
         return;
@@ -708,6 +716,7 @@ class Collector {
         for (const item of expression.items) this.#visitParsedItem(item);
         return;
       case "Group":
+      case "Ascription":
         this.#visitParsedExpr(expression.expression);
         return;
       case "If":
