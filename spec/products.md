@@ -29,7 +29,7 @@
 (1, "a", true)           -- arity 3; no upper cap
 ```
 
-- **Arity 0, or 2 and above — every arity except one.** `()` is the empty tuple, whose type is named `Unit` (§2.7; formerly a primitive — Primitive Types §9 is now the pointer); `(e)` is grouping — there are no 1-tuples (Functions spec §3.1). No maximum arity. *(corrected 2026-07-30, #159 — record §10)*
+- **Arity 0, or 2 and above — every arity except one.** `()` is the empty tuple, whose type is named `Unit` (§2.7; formerly a primitive — Primitive Types §9 is now the pointer); `(e)` is grouping — there are no 1-tuples (Functions spec §3.1). No maximum arity. *(corrected 2026-07-30, #159 — record §10)* The parenthesized form's element grammar — every element is `expression (: Type)?`, including the ascription reading of the one-element case `(e: T)` — is the Ascription spec's.
 - Structural: no declaration; two tuple types unify iff same arity and componentwise unification succeeds. Arity mismatch is reported as such, not as a component error.
 - Immutable, like everything else.
 - **No tuple↔argument-list conversion in either direction** (Functions spec §5 is authoritative). `plus(t)` where `t = (3, 7)` is an arity error with a destructuring hint.
@@ -38,7 +38,7 @@
 
 ### 2.2 No named elements (decided)
 
-C#-style `(x: 1, y: 2)` is a **parse error** with the hint: "tuples are positional; for named fields use a record: `{x = 1, y = 2}`." Rationale: records already are the anonymous named product; a second one with subtly different semantics is pure confusion surface.
+C#-style `(x: 1, y: 2)` is a **parse error** with the hint: "tuples are positional; for named fields use a record: `{x = 1, y = 2}`." Rationale: records already are the anonymous named product; a second one with subtly different semantics is pure confusion surface. The mechanism moved with the Ascription spec — the element colon is now grammar, so the failure is the type parse (`1` is a term where a type must stand) — while this error and its hint stand; `(x: Int, y: String)` is that spec's tuple of ascribed components, not named elements.
 
 ### 2.3 Positional access: `itemN`
 
