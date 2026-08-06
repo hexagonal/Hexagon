@@ -1,0 +1,5 @@
+(** The polymorphic face of textual rendering. Honoring `Show` gives a type one
+    canonical textual form — the form string interpolation produces. *)
+export constraint Show<a> =
+    (** The canonical textual form of `value`. *)
+    show(value: a): String

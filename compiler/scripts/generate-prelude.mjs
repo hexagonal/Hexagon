@@ -21,7 +21,7 @@ const EMBEDDINGS = [
     destination: "prelude-sources.ts",
     binding: "PRELUDE_SOURCES",
     what: "prelude",
-    basenames: ["Bool.hex", "Prelude.hex", "Option.hex", "Seq.hex", "Result.hex", "Vector.hex"],
+    basenames: ["Show.hex", "Bool.hex", "Prelude.hex", "Option.hex", "Seq.hex", "Result.hex", "Vector.hex"],
   },
   {
     directory: "runtime",

@@ -280,7 +280,7 @@ describe("an explicit import of a prelude module carries no evidence", () => {
       "export fun mk(x: Int): Option(Int) = Some(x + 20)\n";
     const javascript = emitted([["/main.hex", source]], "/main.hex");
     expect(importLines(javascript)).toEqual([
-      'import { __hex_instance_Eq_Option as __hex_imported_3___hex_instance_Eq_Option } from "./Option.js";',
+      'import { __hex_instance_Eq_Option as __hex_imported_4___hex_instance_Eq_Option } from "./Option.js";',
       'import { Some } from "./Option.js";',
     ]);
     expect(exportLines(javascript)).toEqual(["export { same };", "export { mk };"]);
