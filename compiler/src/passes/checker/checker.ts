@@ -5190,6 +5190,16 @@ class Checker {
     namedTails = new Map<string, Variable>(),
     typeParameters: ReadonlyMap<string, Mono> = new Map(),
     impliedTypes: ReadonlyMap<string, Mono> = new Map(),
+    /**
+     * The variable each **written** hole has been given, by `id` (§4.1). Its
+     * lifetime is `namedTails`': one map per elaboration of one annotation,
+     * defaulted here so every caller gets a fresh one. That is exactly the scope
+     * the rule needs — an alias applied at a hole copies the node into several
+     * positions of the *same* annotation, so the copies share, while the same
+     * alias applied in a second definition elaborates separately and shares
+     * nothing with the first.
+     */
+    holes = new Map<number, Variable>(),
   ): Mono {
     if (annotation.kind === "Primitive") {
       // The `Unit` spelling is surface syntax for the empty tuple (#159): the
@@ -5201,27 +5211,27 @@ class Checker {
     if (annotation.kind === "Vector") {
       return {
         kind: "Vector",
-        element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes),
+        element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes),
       };
     }
     if (annotation.kind === "Set") {
-      return { kind: "Set", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes) };
+      return { kind: "Set", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes) };
     }
-    if (annotation.kind === "Array") return { kind: "Array", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes) };
-    if (annotation.kind === "Node") return { kind: "Node", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes) };
-    if (annotation.kind === "Nullable") return { kind: "Nullable", value: this.#annotationType(annotation.value, level, namedTails, typeParameters, impliedTypes) };
+    if (annotation.kind === "Array") return { kind: "Array", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes) };
+    if (annotation.kind === "Node") return { kind: "Node", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes) };
+    if (annotation.kind === "Nullable") return { kind: "Nullable", value: this.#annotationType(annotation.value, level, namedTails, typeParameters, impliedTypes, holes) };
     if (annotation.kind === "Map") {
       return {
         kind: "Map",
-        key: this.#annotationType(annotation.key, level, namedTails, typeParameters, impliedTypes),
-        value: this.#annotationType(annotation.value, level, namedTails, typeParameters, impliedTypes),
+        key: this.#annotationType(annotation.key, level, namedTails, typeParameters, impliedTypes, holes),
+        value: this.#annotationType(annotation.value, level, namedTails, typeParameters, impliedTypes, holes),
       };
     }
     if (annotation.kind === "Function") {
       return {
         kind: "Function",
         parameters: annotation.parameters.map((parameter) =>
-          this.#annotationType(parameter, level, namedTails, typeParameters, impliedTypes)
+          this.#annotationType(parameter, level, namedTails, typeParameters, impliedTypes, holes)
         ),
         result: this.#annotationType(
           annotation.result,
@@ -5229,6 +5239,7 @@ class Checker {
           namedTails,
           typeParameters,
           impliedTypes,
+          holes,
         ),
       };
     }
@@ -5238,7 +5249,7 @@ class Checker {
         union: annotation.union,
         name: annotation.name,
         arguments: annotation.arguments.map((argument) =>
-          this.#annotationType(argument, level, namedTails, typeParameters, impliedTypes)
+          this.#annotationType(argument, level, namedTails, typeParameters, impliedTypes, holes)
         ),
       };
     }
@@ -5248,7 +5259,7 @@ class Checker {
         record: annotation.record,
         name: annotation.name,
         arguments: annotation.arguments.map((argument) =>
-          this.#annotationType(argument, level, namedTails, typeParameters, impliedTypes)
+          this.#annotationType(argument, level, namedTails, typeParameters, impliedTypes, holes)
         ),
       };
     }
@@ -5275,7 +5286,17 @@ class Checker {
       // unification, accumulation, defaulting and generalization all reach it as
       // they reach any inference variable — there is no hole-specific clause
       // anywhere downstream, and there must not be one.
+      //
+      // Once per *written* hole, not once per node. `type Pair(a) = (a, a)`
+      // applied as `Pair(_)` substitutes one written hole into both element
+      // positions, and freshening per node would make `Pair(_)` a pair of two
+      // unrelated types — un-writing the alias's own contract, and accepting
+      // `(1, "two")`. The same memoization named variables already get from
+      // `typeParameters`; holes key on `id` because they have no name.
+      const existing = holes.get(annotation.id);
+      if (existing !== undefined) return existing;
       const variable = this.#fresh(level, false);
+      holes.set(annotation.id, variable);
       this.#typeHoles.push({ span: annotation.span, type: variable });
       return variable;
     }
@@ -5286,7 +5307,7 @@ class Checker {
       return {
         kind: "Tuple",
         elements: annotation.elements.map((element) =>
-          this.#annotationType(element, level, namedTails, typeParameters, impliedTypes)
+          this.#annotationType(element, level, namedTails, typeParameters, impliedTypes, holes)
         ),
       };
     }
@@ -5295,7 +5316,7 @@ class Checker {
         kind: "Record",
         fields: new Map(annotation.fields.map((field) => [
           field.name,
-          this.#annotationType(field.annotation, level, namedTails, typeParameters, impliedTypes),
+          this.#annotationType(field.annotation, level, namedTails, typeParameters, impliedTypes, holes),
         ])),
         ...(annotation.open
           ? { tail: this.#annotationTail(annotation.tail, level, namedTails) }
@@ -5737,9 +5758,10 @@ class Checker {
    * declined, is unsolved without being quantified anywhere, and displaying it
    * as a variable is still the honest answer.
    *
-   * Deduplicated by span, first writer winning: an annotation elaborated twice —
-   * a type alias inlined at two use sites collapses onto one written `_` — must
-   * not give hover two answers for one caret.
+   * Deduplicated by span, first writer winning. Elaboration now records one
+   * entry per *written* hole (§4.1's rule, memoized in `#annotationType`), so
+   * this no longer collapses anything in practice; it is kept as the guard that
+   * hover answers one caret once, whatever later re-elaborates an annotation.
    */
   #materializeTypeHoles(): readonly Typed.TypeHole[] {
     const holes = new Map<string, Typed.TypeHole>();
@@ -5797,9 +5819,8 @@ class Checker {
             for (const slot of constructor.slots) reject(slot.annotation, declaration("a", "union"));
           }
           break;
-        // Not in §5.4's table, which names records and unions; the same sentence
-        // governs, an exception being the third nominal declaration whose slots
-        // are written types checked against no body. Recorded on the PR.
+        // §5.4's `exception` slot-types row: written types checked against no
+        // body, where an unsolved variable would seat silently.
         case "Exception":
           for (const slot of item.slots) reject(slot.annotation, declaration("an", "exception"));
           break;
@@ -5837,9 +5858,8 @@ class Checker {
             item.subject,
             "an `honor` declaration names its subject in full; replace `_` with the intended type",
           );
-          // Not in §5.4's table. An implied-type choice is a written type with
-          // no body to check it against, exactly like the rows that are, and an
-          // unsolved projection would be silent. Recorded on the PR.
+          // §5.4's implied-type-choices row, which is the same sentence again:
+          // an unsolved projection would be silent.
           for (const implied of item.impliedTypes) {
             reject(implied.annotation, declaration("an", "honor"));
           }

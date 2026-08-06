@@ -108,6 +108,15 @@ describe("§8.4 holes are independent", () => {
     )).toEqual([]);
   });
 
+  test("§4.1 independence is between *written* holes, not between nodes", () => {
+    // The companion to §8.9 below: two `_` written side by side are two holes,
+    // and an alias that mentions its parameter twice is still one.
+    expect(scheme(
+      "type Both(a, b) = (a, b)\nlet g(p: Both(_, _)) = p\nexport let out: Int = 1\n",
+      "g",
+    )).toBe("((a, b)) -> (a, b)");
+  });
+
   test("§2.3 a hole links nothing — unlike a written variable", () => {
     // The same two positions, written `a` twice, claim generality *and* link.
     // The contrast is the point: no annotation form links without claiming.
@@ -244,6 +253,49 @@ describe("§8.7 no hole in a constraint binder list (§5.3)", () => {
   });
 });
 
+describe("§8.9 one written hole is one metavariable through substitution", () => {
+  const PAIR = "type Pair(a) = (a, a)\n";
+
+  test("§4.1 `Pair(_)` rejects a mixed tuple — it is a pair of one type", () => {
+    // The alias body mentions `a` twice, so substitution copies the hole into
+    // both positions. Freshening per copy would make `Pair(_)` mean `(a, b)`
+    // and accept this, un-writing the alias's own contract.
+    const messages = projectDiagnostics(
+      `${PAIR}let f(p: Pair(_)): Int = 1\nexport let out: Int = f((1, "two"))\n`,
+    );
+    expect(messages.length).toBeGreaterThan(0);
+  });
+
+  test("§4.1 `Pair(_)` accepts a tuple of one type", () => {
+    expect(projectDiagnostics(
+      `${PAIR}let f(p: Pair(_)): Int = 1\nexport let out: Int = f((1, 2))\n`,
+    )).toEqual([]);
+  });
+
+  test("§4.1 the unfixed element schemes as one shared variable", () => {
+    // `((a, b)) -> (a, b)` is the shape this rules out, and the shape the
+    // implementation produced before the rule was pinned.
+    expect(scheme(`${PAIR}let g(p: Pair(_)) = p\nexport let out: Int = 1\n`, "g"))
+      .toBe("((a, a)) -> (a, a)");
+  });
+
+  test("§4.1 sharing does not leak between two definitions using the alias", () => {
+    // The copies carry the *written* hole's identity, not the alias body's
+    // position — which two definitions would otherwise agree on.
+    const source = `${PAIR}let g(p: Pair(_)): Int = 1\n` +
+      "let h(q: Pair(String)): Int = 1\n" +
+      "export let out: Int = g((1, 2)) + h((\"a\", \"b\"))\n";
+    expect(projectDiagnostics(source)).toEqual([]);
+  });
+
+  test("§4.1 sharing survives an alias defined in terms of another", () => {
+    expect(scheme(
+      `${PAIR}type Same(b) = Pair(b)\nlet g(p: Same(_)) = p\nexport let out: Int = 1\n`,
+      "g",
+    )).toBe("((a, a)) -> (a, a)");
+  });
+});
+
 describe("§8.8 hover reports the filled type (§7)", () => {
   const hoverAt = (source: string, nth = 1): { name?: string; displayedType?: string } => {
     const session = new AnalysisSession();
@@ -265,6 +317,23 @@ describe("§8.8 hover reports the filled type (§7)", () => {
         "export let out: Int = count([1])\n",
     );
     expect(hover.displayedType).toBe("a");
+  });
+
+  test("a substituted hole hovers at the `_` the user wrote", () => {
+    // Substitution re-points a copy at the alias body's variable; a hole keeps
+    // its own span, or hover would answer inside the alias declaration — at an
+    // offset with no `_` at it — and say nothing at the one the user can see.
+    const source = "type Pair(a) = (a, a)\nlet p: Pair(_) = (1, 2)\n" +
+      "export let out: Int = 1\n";
+    const session = new AnalysisSession();
+    session.setFile("/main.hex", source);
+    const hover = session.hover("/main.hex", source.indexOf("Pair(_)") + 5);
+    expect(hover?.name).toBe("_");
+    expect(hover?.displayedType).toBe("Int");
+    // One answer, not one per substituted copy.
+    const holeSpan = source.indexOf("Pair(_)") + 5;
+    expect(session.hoverSpans("/main.hex").filter(({ start }) => start === holeSpan))
+      .toHaveLength(1);
   });
 
   test("two holes in one annotation hover separately", () => {

@@ -168,6 +168,18 @@ export interface ImpliedTypeAnnotation {
  */
 export interface HoleTypeAnnotation {
   readonly kind: "Hole";
+  /**
+   * Which **written** `_` this node came from (§4.1: the unit is the written
+   * hole). Type-alias substitution copies one hole node into every position the
+   * alias body mentions its parameter — `type Pair(a) = (a, a)` applied as
+   * `Pair(_)` yields two nodes — and every copy carries the id the written hole
+   * was minted with, so elaboration gives them one metavariable.
+   *
+   * The span cannot serve: substitution re-points a copy at the *alias body's*
+   * variable, so copies of one written hole disagree on span while holes written
+   * in two different definitions through the same alias agree on it.
+   */
+  readonly id: number;
   readonly span: Source.Span;
 }
 

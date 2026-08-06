@@ -535,6 +535,8 @@ class Resolver {
   /** This module's file id, held for identity minting; set by `resolve`. */
   #fileId = 0;
   #lambdaDepth = 0;
+  /** Written-hole identities; see `Resolved.HoleTypeAnnotation.id`. */
+  #nextHole = 0;
   #nextSymbol: number;
   #nextUnion: number;
   #nextRecord: number;
@@ -2674,7 +2676,10 @@ class Resolver {
       };
     }
     if (annotation.kind === "Hole") {
-      return { kind: "Hole", span: annotation.span };
+      // Minted per *written* `_`, which is the only place a hole enters the
+      // resolved tree: every later copy is made by substitution, which spreads
+      // the node and so carries this id with it.
+      return { kind: "Hole", id: this.#nextHole++, span: annotation.span };
     }
     if (annotation.kind === "TypeVariable") {
       const replacement = substitutions.get(annotation.name.text);
@@ -3365,6 +3370,11 @@ function parsedAnnotationTypeVariables(annotation: Parsed.TypeAnnotation): Reado
 }
 
 function withTypeSpan(type: Resolved.TypeAnnotation, span: Source.Span): Resolved.TypeAnnotation {
+  // A substituted type is re-pointed at the position it was substituted *into*,
+  // so a diagnostic about an alias body carets the alias body. A hole keeps its
+  // own span instead: the `_` the user wrote is the only thing hover can point
+  // at, and an alias body has no `_` in it to caret (§5.4 fences one out).
+  if (type.kind === "Hole") return type;
   return { ...type, span };
 }
 
@@ -3373,6 +3383,7 @@ function substituteResolvedType(
   replacements: ReadonlyMap<string, Resolved.TypeAnnotation>,
   span = type.span,
 ): Resolved.TypeAnnotation {
+  if (type.kind === "Hole") return type;
   if (type.kind === "TypeVariable") return withTypeSpan(replacements.get(type.name) ?? type, span);
   if (type.kind === "Tuple") return { ...type, elements: type.elements.map((element) => substituteResolvedType(element, replacements)), span };
   if (type.kind === "Record") return {
