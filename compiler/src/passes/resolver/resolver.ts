@@ -3345,7 +3345,7 @@ function annotationTypeVariables(annotation: Resolved.TypeAnnotation): readonly 
     case "Primitive":
     case "Range":
     case "ImpliedType":
-    // A hole names no variable: it claims nothing and links nothing (closure
+    // A hole names no variable: it claims no shape and links nothing (closure
     // doc §2.3), so it contributes no name to any declaration head's inventory.
     case "Hole":
     case "ErrorType":

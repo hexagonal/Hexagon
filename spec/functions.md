@@ -113,7 +113,11 @@ the element. A hole elaborates to an ordinary inference variable — never
 rigid, filled with a monotype, never a scheme. The bare whole-type hole
 (`x: _`) is legal and inert — it means exactly what omitting the annotation
 means, and canonical formatting drops it, leaving the bare binder `x`.
-Semantics, legal positions, and the
+A hole — and only a hole — may carry a written constraint list, the §4.2
+form: `x: _ : Show`, or `xs: Vector(_ : Num)` for an element. The list is a
+requirement the fill must satisfy — a floor, never a cap; a named variable
+instead constrains at its binder (§4.2), the one home a name affords.
+Semantics, legal positions, constrained holes, and the
 total-contract fence (no holes in exported signatures or declaration
 surfaces) are owned by `decisions-ml-dialect-annotations-2026-08.md`.
 
@@ -131,7 +135,7 @@ let plus = <a: Num>(x: a, y: a): a => x + y      -- equivalent, same AST node
 - An unconstrained variable may be written bare: `<a>` (legal; never canonical on functions — §4.2.1).
 - Type variables are non-uppercase-start; lowercase `a`, `b`, `k`, and `v` remain the ML-family cultural convention.
 - **Explicit type parameters do not create polymorphism** — inference generalizes anyway (§8). Their one added power over the bare lowercase spelling is to attach constraints; they do not name the variables into existence, since the lowercase case already classifies them as variables (§4.2.1). If the declared type is *less* general than the body supports, the declaration wins (the function is deliberately restricted). If it is *more* general than the body supports, that is a type error.
-- A written constraint list is also checked as a contract. Every constraint
+- A written binder's constraint list is also checked as a contract. Every constraint
   demanded by the body must be entailed by a declared constraint; the checker
   must not silently strengthen the list. Thus a body that uses `hash(value)`
   is rejected under `<a: Eq>` and accepted under `<a: Hash>`. Because `Hash`

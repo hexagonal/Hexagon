@@ -104,15 +104,24 @@ declarations through this list before considering the segment done.
   `x: _` and `let n: _ = ...` are legal and inert, and the formatter drops
   the annotation, leaving the bare binder — `f(x: _, y)` becomes `f(x, y)`,
   `let n: _ = ...` becomes `let n = ...`. Holes *inside* a written type —
-  `xs: Vector(_)` — are ordinary canonical Hexagon and stay written.
-  (`decisions-ml-dialect-annotations-2026-08.md` §5.2)
+  `xs: Vector(_)` — are ordinary canonical Hexagon and stay written. A
+  **constrained** hole is never inert and is never dropped: `x: _ : Show`
+  carries a claim and stays written.
+  (`decisions-ml-dialect-annotations-2026-08.md` §5.2, §4.4)
 - **S12 [canonical]** A hole is never written where a type variable would
   hold. If the position is genuinely generic, write the variable — the
   claim is checked, and the signature is export-ready: `xs: Vector(a)`,
   never `xs: Vector(_)`. A hole is the canonical spelling exactly where a
   variable would be refused — the concrete-but-inferred position:
-  `rows: Vector(_)` whose body fixes the element.
-  (`decisions-ml-dialect-annotations-2026-08.md` §5.6)
+  `rows: Vector(_)` whose body fixes the element. The same rule governs
+  constrained holes: where `_ : C` would generalize, write the binder and
+  the variable (`f<a: Show>(x: a)`, never `f(x: _ : Show)`); `_ : C` is
+  canonical exactly where the variable is refused. The formatter never
+  rewrites one into the other — that transform invents a name, which is
+  authorship, not formatting. Constraint-colon spacing: `x: _ : Num`,
+  never `x: _: Num` — the annotation colon hugs its binder, the constraint
+  colon stands off; binder lists are untouched (`<a: Num>`).
+  (`decisions-ml-dialect-annotations-2026-08.md` §5.6, §4.4)
 
 ## 3. Literals
 
