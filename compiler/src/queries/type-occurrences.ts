@@ -167,6 +167,7 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
         }
         return;
       case "Group":
+      case "Ascription":
         visitExpr(expression.expression);
         return;
       case "Block":

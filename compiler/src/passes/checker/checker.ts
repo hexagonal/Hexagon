@@ -1284,9 +1284,18 @@ class Checker {
     level: number,
     moduleItems: boolean,
   ): Mono {
+    // Ascription §3.1 scopes annotation variables to a *declaration*. Inside a
+    // definition that scope already exists and every item shares it — a
+    // body-local `let x: a` has always named the signature's `a`. At the top
+    // level there is no enclosing definition, so each item is its own
+    // declaration and starts its own scope; without this, two module-level
+    // bindings that both write `a` would share one rigid variable, and the
+    // second would meet one the first had already quantified.
+    const enclosingVariableScope = this.#annotationVariableScope;
     for (let index = 0; index < items.length; index += 1) {
       const item = items[index];
       if (item === undefined) continue;
+      if (enclosingVariableScope === undefined) this.#annotationVariableScope = new Map();
 
       // A contiguous run of `fun`s is the one place a body may name a binding
       // written below it (Functions §7.3), so it is the one place inference
@@ -1601,6 +1610,7 @@ class Checker {
       if (item.kind === "TypeAlias") continue;
       if (item.kind === "Exception") continue;
     }
+    this.#annotationVariableScope = enclosingVariableScope;
 
     if (moduleItems) return UNIT;
     const finalItem = items.at(-1);
@@ -2243,6 +2253,30 @@ class Checker {
       case "Group":
         type = this.#inferExpr(expression.expression, level);
         break;
+      case "Ascription": {
+        // Ascription introduces zero new semantics (§1): this is the annotated
+        // binding's own sequence — infer, elaborate, unify — with the written
+        // type elaborated in the *declaration's* annotation-variable scope, so a
+        // name written here is the same variable the signature's is (§3.1).
+        const inferred = this.#inferExpr(expression.expression, level);
+        const annotationType = this.#annotationType(
+          expression.annotation,
+          level,
+          new Map(),
+          this.#annotationVariableScope ?? new Map(),
+        );
+        this.#unifyExpected(
+          annotationType,
+          inferred,
+          expression.expression,
+          expression.annotation.span,
+          true,
+        );
+        // The widened form is the ascribed one, exactly as at an annotated
+        // binding: `(1 : Float)` is the `Float` the writer claimed.
+        type = this.#hasNumericWidening(expression.expression) ? annotationType : inferred;
+        break;
+      }
       case "Block":
         type = this.#inferItems(expression.items, level, false);
         break;
@@ -6069,6 +6103,11 @@ class Checker {
             this.#recordConstructors.has(expression.callee.symbol)) &&
           expression.arguments.every((argument) => this.#isValue(argument));
       case "Group":
+      // Functions §8 item 2's read-through, extended by Ascription §3: an
+      // ascription of a syntactic value is a syntactic value. It wraps; it does
+      // not evaluate, so `let id = (x => x : a -> a)` generalizes exactly as
+      // `let id = (x => x)` does.
+      case "Ascription":
         return this.#isValue(expression.expression);
       default:
         return false;
@@ -6907,6 +6946,7 @@ class Checker {
           span: expression.span,
         };
       case "Group":
+      case "Ascription":
         return { ...expression, type, expression: this.#materializeExpr(expression.expression) };
       case "Block":
         return { ...expression, type, items: expression.items.map((item) => this.#materializeItem(item)) };

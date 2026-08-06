@@ -926,6 +926,7 @@ export type Expr =
   | TupleExpr
   | RecordExpr
   | GroupExpr
+  | AscriptionExpr
   | BlockExpr
   | LambdaExpr
   | IfExpr
@@ -1029,6 +1030,19 @@ export interface RecordField {
 export interface GroupExpr {
   readonly kind: "Group";
   readonly expression: Expr;
+  readonly span: Source.Span;
+}
+
+/**
+ * `(e: T)` (Ascription §2.1). The written type has been through the ordinary
+ * annotation path, so its type names carry their identities for the occurrence
+ * index and its holes carry resolver-assigned ids — an ascribed type is an
+ * annotation, and nothing here is special-cased.
+ */
+export interface AscriptionExpr {
+  readonly kind: "Ascription";
+  readonly expression: Expr;
+  readonly annotation: TypeAnnotation;
   readonly span: Source.Span;
 }
 
