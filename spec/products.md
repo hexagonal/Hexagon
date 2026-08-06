@@ -38,7 +38,7 @@
 
 ### 2.2 No named elements (decided)
 
-C#-style `(x: 1, y: 2)` is a **parse error** with the hint: "tuples are positional; for named fields use a record: `{x = 1, y = 2}`." Rationale: records already are the anonymous named product; a second one with subtly different semantics is pure confusion surface.
+C#-style `(x: 1, y: 2)` is a **parse error** with the hint: "tuples are positional; for named fields use a record: `{x = 1, y = 2}`." Rationale: records already are the anonymous named product; a second one with subtly different semantics is pure confusion surface. The mechanism moved with the Ascription spec — the element colon is now grammar, so the failure is the type parse (`1` is a term where a type must stand) — while this error and its hint stand; `(x: Int, y: String)` is that spec's tuple of ascribed components, not named elements.
 
 ### 2.3 Positional access: `itemN`
 

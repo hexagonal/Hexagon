@@ -106,7 +106,8 @@ declarations through this list before considering the segment done.
   `let n: _ = ...` becomes `let n = ...`. Holes *inside* a written type —
   `xs: Vector(_)` — are ordinary canonical Hexagon and stay written. A
   **constrained** hole is never inert and is never dropped: `x: _ : Show`
-  carries a claim and stays written.
+  carries a claim and stays written. The ascription's degenerate spelling
+  normalizes the same way: `(e : _)` becomes `(e)` (Ascription spec §3.2).
   (`decisions-ml-dialect-annotations-2026-08.md` §5.2, §4.4)
 - **S12 [canonical]** A hole is never written where a type variable would
   hold. If the position is genuinely generic, write the variable — the
@@ -120,7 +121,8 @@ declarations through this list before considering the segment done.
   rewrites one into the other — that transform invents a name, which is
   authorship, not formatting. Constraint-colon spacing: `x: _ : Num`,
   never `x: _: Num` — the annotation colon hugs its binder, the constraint
-  colon stands off; binder lists are untouched (`<a: Num>`).
+  colon stands off; binder lists are untouched (`<a: Num>`). The rule
+  reaches ascribed types (Ascription spec §3.2).
   (`decisions-ml-dialect-annotations-2026-08.md` §5.6, §4.4)
 
 ## 3. Literals
