@@ -72,20 +72,31 @@ The language's own bones already half-agree:
 Nothing more. The consequences do the rest:
 
 1. **The shipped constraints get declaring modules** — `Show.hex`, `Eq.hex`,
-   `Ord.hex`, `Num.hex`, `Hash.hex`, `Signed.hex`, `Frac.hex`, `Pow.hex`
-   (`Integral.hex` already exists) — and those modules join the prelude. This is
+   `Ord.hex`, `Num.hex`, `Hash.hex`, `Signed.hex`, `Frac.hex`, `Pow.hex`,
+   `Concat.hex` (the `++` face; the ninth compiler-held declaration, which an
+   earlier draft omitted) — `Integral.hex` already exists; `Iterable` stays
+   name-only per #283, collections-owned — and those modules join the prelude. This is
    stdlib-roadmap §5.2 preferred-order **item 1**, the oldest unpaid item in the
    migration plan, arriving with a purpose rather than as hygiene: prelude
    membership is what puts `show` into bare scope everywhere.
 2. **One system.** `show(42)` bare (defaulting settles Int), `show(v)` at
-   `Vector`, `values.map(show)`, `42 |> show`, `Show.show` qualified — all the
-   same value, instantiated per use. There is no second, monomorphic access
+   `Vector`, `values.toSeq().map(show)` (spelled through `Seq` — `Vector` has
+   no `map` combinator yet; its ship-list is the listing session's separate
+   obligation), `42 |> show`, `Show.show` qualified — all the same value,
+   instantiated per use. There is no second, monomorphic access
    system to design, name, or keep coherent with the first.
-3. **An honored member's spelling occupies the honoring module's term space.**
-   Hexagon has no overloading: a binding cannot be rebound. Honoring a
-   constraint places each member's name in the module's space, so *any*
-   module-level binding of that spelling — exported or private — is the ordinary
-   rebinding error, no new rule needed. This makes the current delegation
+3. **An honored member's spelling is claimed against ordinary bindings.**
+   Hexagon has no overloading: honoring a constraint claims each member's name
+   in the module's term space, so an *ordinary* module-level binding of that
+   spelling — a `let`, exported or private — is the ordinary rebinding error,
+   no new rule needed. The claim is against ordinary bindings only: member
+   definitions from *distinct honor blocks* **coexist** — one module honoring
+   two constraints with same-spelled members (consequence 5's cross-module
+   case) is legal today and stays legal, disambiguated by evidence at use, by
+   qualification, or by the §5.5 refusal where a bare use is genuinely
+   ambiguous. *(Cold-review repair: an earlier draft said "any module-level
+   binding," which would have refused consequence 5's measured-legal program
+   and made consequence 4's several-types ambiguity unreachable.)* This makes the current delegation
    pattern (`add(left, right) = add(left, right)` beside a module-level `let
    add`) ill-formed, not merely unfashionable: the member's body is written in
    the honor block, and a genuinely shared helper takes a different name. It
@@ -108,6 +119,11 @@ Nothing more. The consequences do the rest:
    posture. Companions honor at one type, so the common case is never
    ambiguous. And the member→function direction can narrow a signature — call
    sites at the module's own type survive; that is the set `M.f` addresses.)
+   On the declaring module itself the polymorphic read wins: `Show.show`
+   denotes the declaration's export even if `Show.hex` also comes to hold
+   honor blocks (§5 item 4). This consequence is implementation work and has a
+   home: it lands with PR γ's dispatch, and the §5 item 8 own-name refusal is
+   sequenced after it for that reason.
 5. **Same-spelled members across modules are ordinary collisions.** Measured:
    two constraints in separate modules, both with `volume`, one type honoring
    both — legal, and `Loud.volume` / `Soft.volume` select correctly. A bare use
@@ -121,7 +137,12 @@ Nothing more. The consequences do the rest:
   rule rather than an aspiration.
 - Generic constraint-member calls exist: `display`, a generic `compare`, a
   generic `div` — previously unspellable in any form.
-- Higher-order and pipe positions work: `values.map(show)`, `x |> show`.
+- Higher-order and pipe positions work: `values.toSeq().map(show)`, `x |> show`.
+- Method Syntax's own broken promises are discharged: §7's closing sentence
+  already teaches "prelude constraint members are called bare (`show(x)`) or
+  piped (`x |> show`)", and §9 row 6's redirect tells the user to "call it
+  directly: `compare(x, y)`" — both spellings are `unknown name` today, so the
+  *spec*, not just the book, asserts the rule this note adopts.
 - The polymorphic/monomorphic split disappears as an architecture (consequence 2
   above).
 - The silent export/member divergence becomes unwritable (consequence 3).
@@ -151,19 +172,33 @@ Each item here needs either a bit more stealing or a deliberate extension.
    guaranteed errors today.
 3. **Prelude ordering.** The constraint modules sit early (nearly everything
    uses them), and among themselves need a seats-before-uses order (`Eq` before
-   `Ord`; `Ord` answers with `Ordering`, which lives in `Prelude.hex`; `Bool.hex`
-   stays first). Needs the usual weave design, not just a list.
+   `Ord`; `Ord` answers with `Ordering`, which lives in `Prelude.hex`). The
+   pilot already seated `Show.hex` *first* — before `Bool.hex`, which derives
+   Show two lines in — so the weave design PR β owes starts from that fait
+   accompli, not from Bool-first. Needs the usual weave design, not just a
+   list.
 4. **Where primitive instances live.** The roadmap's row says constraint sources
    carry "declarations and primitive `honor` blocks"; whether `Show<Int>` lands
-   in `Show.hex` or waits for `Int.hex` affects only file placement, not the
-   design, but must be decided per constraint.
+   in `Show.hex` or waits for `Int.hex` must be decided per constraint — and it
+   is a *design* interaction, not mere file placement *(cold-review repair)*:
+   a declaring module that also honors holds the member spelling twice (the
+   declaration's export and the instance's binding), which consequence 3's
+   coexistence carve-out permits and consequence 4's precedence sentence
+   resolves (the polymorphic read wins on the declaring module). The pilot
+   answered "wait" for Show: primitive instances stay compiler-wired,
+   `Show.hex` carries no honor blocks, and nothing observable depended on the
+   choice.
 5. **The JS/`.d.ts` face.** A member call in emitted JS goes through evidence
    (`__hex_instance_…`); what a TypeScript consumer sees when the flat export no
    longer exists needs measuring against the exported-dictionary machinery
    (FFI Part 9 / the #276–#282 arc). Likely already answered there; unverified.
 6. **Occlusion and shadowing.** A user module that exports its own `show`
    occludes the prelude member under §5.4 (layer test) — this appears correct
-   and needs pinning, not design. A local `let show` likewise shadows lexically.
+   and needs pinning, not design. A parameter or other head binder likewise
+   shadows (Statements §5.1); a function-local `let show` is the ordinary
+   rebinding refusal, prelude membership notwithstanding (§5.4: "a
+   function-local binder may occlude nothing") — *(cold-review repair: an
+   earlier draft wrongly said a local `let` shadows lexically)*.
 7. **Existing corpus contact points.** `Rat.hex` exports `add`/`subtract`/
    `multiply`/`divide`/`negate` while honoring `Num`/`Signed`/`Frac` at `Rat` —
    legal today via the delegation pattern, refused under consequence 3. The
@@ -185,7 +220,7 @@ Each item here needs either a bit more stealing or a deliberate extension.
    `fun`, and a non-`fun` binding cannot call its own name.** The top-down
    ruling (#293) already decided this for every other binding in the language;
    honor blocks simply inherit it. Within a member's body its own spelling is
-   refused, with a rewrite diagnostic naming the two sanctioned forms:
+   refused, with a rewrite diagnostic naming the sanctioned forms:
 
    ```text
    honor Show<Box> =
@@ -199,10 +234,31 @@ Each item here needs either a bit more stealing or a deliberate extension.
    the explicit spellings are the recursion story. The book's nested example
    is invalid as written and rewrites to the dot-call form.
 
+   **Sequencing (cold-review repair).** The refusal's sanctioned rewrites do
+   not exist until PR γ lands member dot-call dispatch (§5 item 1) and
+   consequence 4's qualified access — so the refusal itself belongs to PR γ,
+   *after* both, or source-declared constraints are left with no recursion
+   spelling at all. PR α therefore pins today's behavior as an explicit
+   baseline (bare own-name inside a member body is the polymorphic export,
+   reading (i)) that PR γ deliberately flips, rewriting the baseline pins and
+   the pre-existing evidence-threading pin (`emitter.test.ts` ~1775, whose
+   `Describe<Tree(a)>` instance uses exactly the spelling the ruling refuses)
+   to the sanctioned forms. The declaring-module qualified spelling
+   (`Show.show(kid)`) and interpolation both exist at PR α and serve as
+   interim spellings, with the caveat that both re-enter evidence selection —
+   acceptable in a pinned baseline, not as the end state. One question the
+   ruling inherits from #293 without yet answering: *where member bindings
+   sit in the top-down declaration order* — Functions §7.2 gives `honor`
+   blocks placement freedom while making member bodies ordinary reference
+   sites, so whether a `Frac<Rat>` block above the `Num<Rat>` block may name
+   `multiply` needs the ordering half of the letrec law stated for members.
+   Graduation owes that sentence.
+
    The same ruling settles what a member's spelling means in the *rest* of the
    honoring module: **a member definition is a module-level binding**, and
-   every consequence is an existing law applied to that one sentence. It
-   cannot be rebound (the no-overloading refusal — consequence 3). Its own
+   every consequence is an existing law applied to that one sentence. Its
+   spelling cannot be taken by an ordinary binding (the claim — consequence 3,
+   which also states the member-vs-member coexistence carve-out). Its own
    body cannot call its own name (#293's non-`fun` law — this item). A
    sibling member or any other code in the module using the bare spelling gets
    *this* binding — `divide(left, right) = multiply(left, reciprocal(right))`
@@ -228,8 +284,10 @@ Each item here needs either a bit more stealing or a deliberate extension.
    anywhere. This mirrors the existing rule that a member is not an
    independently importable name.
 9. **The emission fault line for recursive instances.** Evidence-dispatched
-   recursion means an instance references itself. The governing line, proven by
-   the `Vector(Vector(a))` faults (commit `6a34584`): **anything an instance
+   recursion means an instance references itself. The governing line,
+   illustrated by the `Vector(Vector(a))` faults (commit `6a34584` — those
+   were generated-binder TDZ, a cousin, not this law itself): **anything an
+   instance
    needs before its own `const` finishes initializing is a fault; anything
    inside a member's lambda is safe** (lambdas evaluate at call time). Plain
    self-recursion and mutual recursion between members sit on the safe side.
@@ -238,8 +296,8 @@ Each item here needs either a bit more stealing or a deliberate extension.
    lambda it is safe; pre-composed outside it, it is the #306 crash wearing
    evidence clothes — a clean compile and a load-time `ReferenceError`. Both
    #306 faults were clean compiles found only when a pin finally executed the
-   nested shape, and one of the two (`Hash`) was pre-existing and years
-   untested. The step-2 pilot therefore owes three **executed** conformance
+   nested shape, and one of the two (`Hash`) was pre-existing and never
+   executed by a test. The step-2 pilot therefore owes three **executed** conformance
    pins before anything ships: a recursive member, mutually recursive members
    of one block, and a recursive parameterized instance. The last may well
    catch a real pre-existing defect, as the equality pin caught `Hash`.
@@ -257,16 +315,22 @@ Each step lands alone, measurable, and reversible before the next.
 2. **PR α — the steal, piloted on one constraint.** `Show.hex` declares `Show`
    with `show` as an export; joins the prelude; the checker treats it as the
    canonical `Show` (the intrinsic-door pattern, applied to a constraint
-   declaration). Acceptance: the book's `display` compiles; `values.map(show)`
-   compiles; `show(42)` compiles and means `Int` by defaulting; and the three
-   executed recursion pins of §5 item 9 pass. The fixed/broken report from
-   this pilot decides whether the design generalizes as-is.
+   declaration). Acceptance: the book's `display` compiles; higher-order use
+   compiles as `values.toSeq().map(show)`; `show(42)` compiles and means `Int`
+   by defaulting; and the three executed recursion pins of §5 item 9 pass,
+   spelled in the interim forms item 8's sequencing paragraph sanctions. The
+   fixed/broken report from this pilot decides whether the design generalizes
+   as-is.
 3. **PR β — the remaining constraint modules**, one weave, same pattern, plus
    the redeclaration refusal (consequence 3) and the `Rat.hex` migration as its
    worked example.
 4. **PR γ — #304 dispatch.** The §3.5 defaulting amendment; the operation-set
-   extension to honored members; the refusal diagnostics that name qualified
-   homes. The four-row table goes green here.
+   extension to honored members; consequence 4's qualified access through
+   honoring modules; then — after both spellings exist — the §5 item 8
+   own-name refusal, flipping PR α's reading-(i) baseline pins and rewriting
+   the pre-existing `Describe` evidence-threading pin to the sanctioned
+   spellings. The refusal diagnostics name qualified homes throughout. The
+   four-row table goes green here.
 5. **PR δ — the companion arc** (`BigInt.hex`, `Int.hex`, `Float.hex`,
    `String.hex`, `Nat.hex`): non-member operations, intrinsic-door migration,
    guard retirement per intrinsics §9.2, doc comments per house canon. Smaller
