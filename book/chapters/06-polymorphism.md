@@ -332,7 +332,8 @@ entries: Vector(_)          // some element type — true, but says less
 ```
 
 Write the strongest claim that is true. The variable over-claims here, the bare hole
-under-claims; the constrained hole says exactly what this function asks of its elements.
+under-claims; the constrained hole says what this function asks of its elements before
+the body says the rest.
 
 Why does the hole's constraint sit *inside* the annotation, when `display` wrote its own
 up front in angle brackets? Because a constraint's home follows from whether the thing it
@@ -345,8 +346,9 @@ let clamp<a: Ord>(value: a, low: a, high: a): a =
     else value
 ```
 
-Four positions, one `a`, one `<a: Ord>` — stated at the variable itself, not at
-whichever parameter happens to mention it first. A hole has no name: there is nothing
+Four positions, one `a`, one `<a: Ord>` — read it provisionally, as with `display`, as
+"any type that can be ordered" — stated at the variable itself, not at whichever
+parameter happens to mention it first. A hole has no name: there is nothing
 for a binder to hold onto, so its obligation lives in the one place the hole exists.
 Each form is at home exactly where the other cannot go — a named variable gathers its
 constraints at the binder, and `Vector(a : Num)` is a parse error; a hole carries its
