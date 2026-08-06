@@ -5,6 +5,12 @@
  */
 
 export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
+  "Show.hex":
+    "(** The polymorphic face of textual rendering. Honoring `Show` gives a type one\n"
+    + "    canonical textual form — the form string interpolation produces. *)\n"
+    + "export constraint Show<a> =\n"
+    + "    (** The canonical textual form of `value`. *)\n"
+    + "    show(value: a): String\n",
   "Bool.hex":
     "// The boolean type. Constructor order `False | True` is normative: it is what makes\n"
     + "// the derived `Ord` order `False < True`.\n"

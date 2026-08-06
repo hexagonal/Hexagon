@@ -505,8 +505,20 @@ class Resolver {
    * own declarations are resolved. Seeded from the pre-registered inventory,
    * whose one declaration the compiler holds (§5.1.1) — a module-level twin is
    * refused rather than admitted as a name the wired-in machinery cannot reach.
+   *
+   * **Not seeded in privileged (standard-library) source.** A privileged
+   * declaration of a pre-registered name is not a twin; it is the stdlib
+   * *supplying* the declaration the compiler pre-registered by name — the
+   * intrinsic-door move applied to a constraint declaration (the
+   * constraint-members-are-values note §6 step 2, #335). `#constraintIdentity`'s
+   * pre-registration-wins rule then lands the declaration on the compiler-global
+   * `hex:` identity, so the wired-in machinery and the source declaration are
+   * one constraint by construction, exactly as `stdlib/Integral.hex`'s already
+   * is. The privilege carries the same trust model as the rest of `privileged`:
+   * it attaches to how the module is compiled, and the embedded-source drift
+   * guard pins what that source says.
    */
-  readonly #constraintNames = new Set<string>(NON_REDECLARABLE_CONSTRAINTS);
+  readonly #constraintNames = new Set<string>();
   /**
    * The constraint names this module's own `constraint` declarations take,
    * collected before any item is resolved.
@@ -551,6 +563,9 @@ class Resolver {
     this.#nextUnion = options.unionBase ?? 0;
     this.#nextRecord = options.recordBase ?? 0;
     this.#nextExternType = options.externTypeBase ?? 0;
+    if (!this.#privileged) {
+      for (const name of NON_REDECLARABLE_CONSTRAINTS) this.#constraintNames.add(name);
+    }
     for (const preludeImport of options.prelude ?? []) {
       this.#preludeFileIds.add(Number(preludeImport.interface.module.fileId));
       this.#seedPrelude(preludeImport.interface, preludeImport.specifier);
@@ -750,6 +765,39 @@ class Resolver {
       // resolution; unused entries never reach emission (the import lists only
       // the terms actually referenced) and are excluded from id-base progression.
       this.#importedSymbols.set(symbol.id, symbol);
+    }
+    // A constraint member is an export of its declaring module (#335), and a
+    // prelude module's exports are in bare scope everywhere — so the members
+    // seed exactly as the terms above do: same fallback scope, same collision
+    // arithmetic, same synthesized-import channel. `constraintMembers` holds
+    // only the members of constraints this module *declares* (see
+    // `ModuleInterface`), never the member bindings of an `honor` block, which
+    // is the boundary the note's §5 item 8 requires: bare `show` in a consumer
+    // has exactly one exporter, `Show.hex` — an honoring module's binding is
+    // reached only qualified, or bare from inside that module.
+    for (const [name, symbol] of prelude.constraintMembers) {
+      this.#preludeScope.define(name, symbol.id);
+      this.#preludeTermsByName.set(name, [
+        ...this.#preludeTermsByName.get(name) ?? [],
+        symbol.id,
+      ]);
+      this.#preludeHomesByName.set(name, [
+        ...this.#preludeHomesByName.get(name) ?? [],
+        moduleName === "" ? specifier : moduleName,
+      ]);
+      this.#preludeTerms.set(symbol.id, symbol);
+      this.#preludeSpecifierBySymbol.set(symbol.id, specifier);
+      this.#importedSymbols.set(symbol.id, symbol);
+    }
+    // The declarations themselves ride the metadata channel, so the checker
+    // validates an `honor` against the source declaration rather than its
+    // wired-in fallback table. Metadata only, never scope — a consumer's binder
+    // `<a: Show>` still resolves through pre-registration, and nothing here
+    // makes a prelude constraint importable severally.
+    for (const declaration of prelude.visibleConstraints) {
+      if (!this.#visibleConstraints.has(declaration.identity)) {
+        this.#visibleConstraints.set(declaration.identity, declaration);
+      }
     }
     for (const [name, union] of prelude.unions) {
       seedTypeName(name);

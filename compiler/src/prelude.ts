@@ -29,14 +29,22 @@ export interface PreludeModule {
  * construction. Adding a member means placing it after everything it uses —
  * `Seq.hex` sits after `Option.hex` because a pull step returns an `Option`.
  *
- * `Bool.hex` is first because everything can use it and it uses nothing: it is the
- * one prelude member with no predecessors, and since #147 made `Bool` a union rather
- * than a primitive, every later member's conditions and predicates depend on it.
+ * `Show.hex` is first because it declares and uses nothing but the `Show`
+ * constraint itself (its one signature names only the primitive `String`), while
+ * nearly everything after it answers `Show`: `Bool.hex` derives it two lines in,
+ * and `Prelude.hex`'s `Ordering` does the same. Its seat is what puts the
+ * member `show` into bare scope everywhere (the constraint-members-are-values
+ * direction note, #335).
+ *
+ * `Bool.hex` sits directly after it: everything else can use `Bool` and it uses
+ * nothing but `Show`'s seat, and since #147 made `Bool` a union rather than a
+ * primitive, every later member's conditions and predicates depend on it.
  *
  * `Vector.hex` is last because it needs the most: `first`/`last`/`get` answer with
  * `Option`, and `toSeq`/`fromSeq` name `Seq`.
  */
 export const PRELUDE_MODULES: readonly PreludeModule[] = [
+  "Show.hex",
   "Bool.hex",
   "Prelude.hex",
   "Option.hex",
