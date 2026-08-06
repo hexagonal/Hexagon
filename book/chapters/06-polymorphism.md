@@ -347,7 +347,7 @@ let clamp<a: Ord>(value: a, low: a, high: a): a =
 ```
 
 Four positions, one `a`, one `<a: Ord>` — read it provisionally, as with `display`, as
-"any type that can be ordered" — stated at the variable itself, not at whichever
+“any type that can be ordered” â stated at the variable itself, not at whichever
 parameter happens to mention it first. A hole has no name: there is nothing
 for a binder to hold onto, so its obligation lives in the one place the hole exists.
 Each form is at home exactly where the other cannot go — a named variable gathers its
