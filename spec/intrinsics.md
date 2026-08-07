@@ -40,7 +40,7 @@ extern from "hex:intrinsic"
 
 The block reuses FFI Part 4's grammar and rules wholesale except where §3.3–§3.4 state a delta: bodyless declarations, one per line under ordinary layout; full type annotations (nothing to infer from); the foreign-name-first `as` order (Part 4 §3.1), where the left side is the intrinsic **key** (§4) and the right side — or the sole name, when no `as` appears — is the ordinary local Hexagon binding; the per-declaration `export` modifier (Part 4 §7). After the declaration, the binding is an **ordinary module-level binding**: same typing, visibility, collision, and occlusion rules as any other. Inside the module it is referred to unqualified, matching the prior art; consumers reach it qualified through the companion idiom exactly as before.
 
-### 3.2 Worked examples — the live customers *(originally two; the companions keep joining)*
+### 3.2 Worked examples — the live customers *(originally two; the primitive companions have all joined, #344)*
 
 `Seq.hex` gains `memoize` (the decided Loops §6.4 obligation) as the single declaration above. No wrapper, no body, nothing that reads as self-recursion; the implementation is the runtime's memoizing spine (FFI Part 3 §4–§7), and the declaration is the canonical `.hex` spelling stdlib-roadmap §5.1 requires the module to own.
 

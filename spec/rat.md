@@ -49,9 +49,9 @@ Rat.bottom(value: Rat): BigInt
 
 `create` throws `DivideByZeroError` when the bottom is zero. Otherwise it:
 
-1. computes `g = BigInt.gcd(top, bottom)` with the Euclidean
+1. computes `g = top.gcd(bottom)` — `Integral<BigInt>`'s member, spelled as the dot call per the house style (#344) — with the Euclidean
    algorithm and its non-negative Euclidean remainder step;
-2. divides both values by `g` with `BigInt.quot`; and
+2. divides both values by `g` with `.quot`; and
 3. negates both results when the reduced bottom is negative, so the canonical bottom
    is always positive and any negative sign is always carried by the top.
 
