@@ -276,6 +276,12 @@ describe("elaborate", () => {
   // fixing only the two that failed would have left this as the next to break.
   // Explicit per test rather than a global testTimeout, so the other 680 keep the
   // tight default.
+  //
+  // Raised to 60s with #344's last landing: `Float.hex` and `String.hex` joined
+  // the prelude, so each of these 250 compiles carries two more modules and the
+  // test measures ~25s alone against the old 30s budget — passing in isolation
+  // and failing under the full suite's parallel load, which is the same thin
+  // margin the note above was written about, one prelude growth later.
   test("never leaks Typed-only surface nodes from arbitrary input", () => {
     fc.assert(
       fc.property(fc.string(), (text) => {
@@ -286,7 +292,7 @@ describe("elaborate", () => {
       }),
       { numRuns: 250 },
     );
-  }, 30_000);
+  }, 60_000);
 });
 
 /**

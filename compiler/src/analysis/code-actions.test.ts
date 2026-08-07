@@ -708,6 +708,12 @@ describe("code actions: infer return type", () => {
     }
   });
 
+  // Fourteen sessions, each a full project compile. Given an explicit budget with
+  // #344's last landing: `Float.hex` and `String.hex` joined the prelude, so
+  // every one of those compiles carries two more modules, and at ~3s alone the
+  // test had no room left in the default 5s under the full suite's parallel
+  // load. Explicit per test rather than a global testTimeout, so the rest of the
+  // file keeps the tight default.
   test("but a declaration that ended where one may end still gets its repair", () => {
     // A `;` is a separator, so the item ended; `@@@` does not lex, so nothing
     // was abandoned; a new declaration at the block's own column gets its `VSep`
@@ -736,7 +742,7 @@ describe("code actions: infer return type", () => {
       expect(action.disabled, source).toBeUndefined();
       expect(applied(source, action), source).toContain("export fun m(x: Int): Int =");
     }
-  });
+  }, 30_000);
 
   test("waits for a body that never closed, wherever the parser reported it", () => {
     // The one the diagnostics cannot answer. A body that stops parsing takes
