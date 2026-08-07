@@ -286,7 +286,12 @@ describe("Primitive Types §2.1's checked family", () => {
       "    overflowed(Int.checkedMul(94906266, 94906266)),",
       "    overflowed(Int.checkedMul(67108864, 134217728)),",
       "    overflowed(Int.checkedAdd(limit, 1)),",
-      "    overflowed(Int.checkedAdd(limit, 0))]",
+      "    overflowed(Int.checkedAdd(limit, 0)),",
+      "// A zero *right* operand answers through the zero arm, never through the",
+      "// magnitude compare — `quot(limit, 0)` would throw, and a left-zero case",
+      "// cannot prove the arm exists because the compare also answers it.",
+      "    overflowed(Int.checkedMul(limit, 0)),",
+      "    overflowed(Int.checkedMul(0, 0))]",
       "export let values: Vector(Int) = [",
       "    orZero(Int.checkedMul(0, limit)), orZero(Int.checkedMul(3, -4)),",
       "    orZero(Int.checkedMul(-3, -4)), orZero(Int.checkedAdd(limit, 0)),",
@@ -295,7 +300,7 @@ describe("Primitive Types §2.1's checked family", () => {
     ].join("\n"));
 
     expect([...(exports["edge"] as Iterable<unknown>)])
-      .toEqual([false, true, true, true, false]);
+      .toEqual([false, true, true, true, false, false, false]);
     expect([...(exports["values"] as Iterable<unknown>)])
       .toEqual([0, -12, 12, 9007199254740991, -9007199254740990]);
   });

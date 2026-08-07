@@ -333,9 +333,10 @@ const BUILTIN_COMPANIONS: ReadonlyMap<string, string> = new Map([
  * alone and the export clause of §4.2 had nothing to draw on. `BigInt.hex` is
  * the first that does — `4n.lcm(6n)` and `5n.toInt()` are its ordinary exports,
  * reached exactly as `Vector`'s are through the alias its prelude seat binds.
- * `Int.hex` and `Nat.hex` followed, bringing `9.checkedMul(9)` and
- * `(-1).fromInt()`-shaped surfaces of their own. `Float` and `String` join at
- * their milestones, in that migration order.
+ * `Int.hex` and `Nat.hex` followed, bringing `9.checkedMul(9)`-shaped surfaces
+ * of their own (`Nat.hex`'s one export takes an `Int` first, so it is reached
+ * qualified — `Nat.fromInt(-1)` — not as a dot call on a `Nat`). `Float` and
+ * `String` join at their milestones, in that migration order.
  */
 const PRIMITIVE_COMPANIONS: ReadonlyMap<string, string> = new Map([
   ["BigInt", "primitive:BigInt"],
