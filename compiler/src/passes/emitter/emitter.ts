@@ -5530,8 +5530,9 @@ function renderHelper(
   switch (helper) {
     case "floatMod":
     case "floatRem": {
-      const [primitive, operation] = primitiveOperationFromHelper(helper);
-      return [`const ${name} = ${primitiveOperation(primitive, operation)};`];
+      return [
+        `const ${name} = ${primitiveOperation(primitiveOperationFromHelper(helper))};`,
+      ];
     }
     case "persistentCollections":
       return [
@@ -6245,10 +6246,8 @@ function componentInstance(
  * Hexagon in the companions now (#344), where the guard names its own member.
  */
 function primitiveOperation(
-  primitive: Core.PrimitiveOperationExpr["primitive"],
   operation: Core.PrimitiveOperationExpr["operation"],
 ): string {
-  void primitive;
   if (operation === "rem") return "(__hex_a, __hex_b) => __hex_a % __hex_b";
   // `mod`, and the total-switch tail: the checker refuses `div`, `quot`, `gcd`,
   // and `lcm` at `Float` before emission ever sees them.
@@ -6274,9 +6273,8 @@ function primitiveOperationHelper(
 
 function primitiveOperationFromHelper(
   helper: PrimitiveOperationHelper,
-): readonly [Core.PrimitiveOperationExpr["primitive"], Core.PrimitiveOperationExpr["operation"]] {
-  const operation = helper.slice("float".length).toLowerCase() as Core.PrimitiveOperationExpr["operation"];
-  return ["Float", operation];
+): Core.PrimitiveOperationExpr["operation"] {
+  return helper.slice("float".length).toLowerCase() as Core.PrimitiveOperationExpr["operation"];
 }
 
 class GeneratedNames {
