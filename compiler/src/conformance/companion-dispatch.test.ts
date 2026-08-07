@@ -198,7 +198,7 @@ describe("a built-in receiver reaches the module addressable under its name", ()
 
     expect(messages).toHaveLength(1);
     expect(messages[0]).toMatch(
-      /^the companion of `Vector\(\?\d+\)` has no operation `doubled`; call an available subject-first function explicitly$/u,
+      /^`Vector\(\?\d+\)` has no field `doubled`, its companion exports no operation `doubled`, and no constraint honored at `Vector\(\?\d+\)` has a subject-first member `doubled`; call an available subject-first function explicitly$/u,
     );
   });
 
@@ -213,7 +213,7 @@ describe("a built-in receiver reaches the module addressable under its name", ()
         "export fun probe(o: Option(Int)): Option(Int) = o.map(x => x + 1)\n",
       ),
     ).toEqual([
-      "the companion of `Option(Int)` has no operation `map`; call an available subject-first function explicitly",
+      "`Option(Int)` has no field `map`, its companion exports no operation `map`, and no constraint honored at `Option(Int)` has a subject-first member `map`; call an available subject-first function explicitly",
     ]);
   });
 });
@@ -289,7 +289,7 @@ describe("the companion is the home module, and only the home module", () => {
         "export let n: Int = Box({value = 1}).secret() + secret(Box({value = 0}))\n",
       ),
     ).toEqual([
-      "the companion of `Box` has no operation `secret`; call an available subject-first function explicitly",
+      "`Box` has no field `secret`, its companion exports no operation `secret`, and no constraint honored at `Box` has a subject-first member `secret`; call an available subject-first function explicitly",
     ]);
   });
 
@@ -306,7 +306,7 @@ describe("the companion is the home module, and only the home module", () => {
         "export let n: Int = make(1).make()\n",
       ),
     ).toEqual([
-      "the companion of `Box` has no operation `make`; call an available subject-first function explicitly",
+      "`Box` has no field `make`, its companion exports no operation `make`, and no constraint honored at `Box` has a subject-first member `make`; call an available subject-first function explicitly",
     ]);
   });
 
