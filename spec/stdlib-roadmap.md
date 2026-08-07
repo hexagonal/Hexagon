@@ -119,7 +119,7 @@ The current compiler-owned surface yields this migration inventory:
 
 | Canonical source | Hexagon-owned behavior | Narrow intrinsic/runtime residue |
 | :--- | :--- | :--- |
-| `BigInt.hex` | Euclidean `div`/`mod`, iterative `gcd`, divide-first `lcm`, guards, public instances | native truncated quotient/remainder |
+| `BigInt.hex` | **landed** (#344): Euclidean `div`/`mod`, iterative `gcd`, divide-first `lcm`, zero guards, `toInt`'s range check, and the public instances (`Num`, `Signed`, `Eq`, `Ord`, `Show`, `Pow`, `Hash`, `Integral`) as source `honor` blocks | native truncated quotient/remainder, the representation crossings (`fromNat`, `fromInt`, `toIntUnchecked`, `toFloat`, `hash`) — all through the intrinsic door |
 | `Int.hex` | Euclidean family, `gcd`, checked arithmetic, public instances | native remainder/truncation and representation-sensitive operations |
 | `Float.hex` | public wrappers and instances | IEEE/NaN and selected `Math` primitives |
 | `String.hex` | companion algorithms and public instances | efficient JS UTF-16/codepoint bridge primitives |
@@ -162,10 +162,14 @@ semantics.
 
 Proceed a piece at a time:
 
-1. **Stage 1 — `BigInt.hex`:** establish the package/prelude loader boundary that
-   makes `stdlib/BigInt.hex` the canonical home of the existing `BigInt.*` surface
-   without inventing a runtime namespace object. It is the first worked example of
-   the all-companions rule, not a one-off cleanup.
+1. **Stage 1 — `BigInt.hex`:** establish `stdlib/BigInt.hex` as the canonical home
+   of the existing `BigInt.*` surface without inventing a runtime namespace object.
+   It is the first worked example of the all-companions rule, not a one-off cleanup.
+   *(Amended and discharged, #344: the "package/prelude loader boundary" this stage
+   anticipated is not how the home was established — the primitive companions join
+   the **prelude set** itself, so prelude membership supplies both the module and
+   the door privilege (intrinsics §5.2), and no loader-designation mechanism
+   exists or is owed.)*
 2. Reduce BigInt's compiler-owned boundary to the genuinely irreducible native
    operations that public Hexagon cannot express (`BigInt` truncated
    quotient/remainder while `BigInt` has no `/` and Hexagon has no `%`). Give those
@@ -178,16 +182,26 @@ Proceed a piece at a time:
    **Implemented 2026-07-28**: the form, the gate, and inventory verification are
    in the compiler, with `Seq.memoize` as the first customer through it. `BigInt`
    inherits the *form* with no new machinery — it adds inventory keys and their
-   lowerings. It does need the **gate** widened: v1 privilege is prelude
-   membership (`spec/intrinsics.md` §5.2's first bullet) and `BigInt.hex` is not a
-   prelude member, so this stage must extend privilege to the modules the loader
-   designates as canonical companion source, which is §5.2's second bullet and
-   was always this stage's own work.)*
+   lowerings. **Superseded on the gate (#344):** this note anticipated widening
+   privilege to loader-designated modules because `BigInt.hex` would not be a
+   prelude member; it is one (stage 1 as amended), so the first bullet's prelude
+   privilege covers it and no widening happened — intrinsics §5.2 records the
+   reconciliation.)* **Discharged (#344)** — the keys landed with `BigInt.hex`
+   (intrinsics §3.2's third worked example).
 3. Move derived operations into understandable Hexagon source: Euclidean `div`/`mod`,
    iterative `gcd`, divide-first `lcm`, zero checks, and Hexagon exception branding.
+   *(Discharged, #344: all of these are ordinary source in `BigInt.hex`, including
+   `export exception DivideByZeroError` with the division-remainder §7 message
+   shapes.)*
 4. Move the coherent `Integral<BigInt>` instance to the appropriate canonical source
    home once prelude instance loading supports it; preserve the one-implementation,
    two-spellings contract between the companion functions and constraint members.
+   *(Discharged, and strengthened, #344: **every** `BigInt` instance is a source
+   `honor` block in `BigInt.hex`, not `Integral` alone — the member-is-real law
+   (Constraints §4.6) leaves no coherent halfway point, since a companion cannot
+   export a member's spelling beside its wired instance. The one-implementation,
+   two-spellings contract survives as Modules §5.3's uniform access: `BigInt.div`
+   *is* the member, qualified.)*
 5. Retain compiler inlining/specialization latitude and readable generated JavaScript;
    a function being authored in `BigInt.hex` must not forbid an optimized helper or
    direct native operation after checking.
@@ -201,7 +215,7 @@ Proceed a piece at a time:
 
 After the BigInt worked example, the preferred order is:
 
-1. primitive constraint declarations and their canonical instances — the declarations half is discharged (#335): every pre-registered constraint with a compiler-held declaration has canonical prelude source (`Show.hex`, `Num.hex`, `Signed.hex`, `Frac.hex`, `Pow.hex`, `Concat.hex`, `Eq.hex`, `Hash.hex`, `Ord.hex`, `Integral.hex`; `Iterable` is name-only, collections-owned); the canonical primitive instances remain compiler-wired, owed to the companion arc;
+1. primitive constraint declarations and their canonical instances — the declarations half is discharged (#335): every pre-registered constraint with a compiler-held declaration has canonical prelude source (`Show.hex`, `Num.hex`, `Signed.hex`, `Frac.hex`, `Pow.hex`, `Concat.hex`, `Eq.hex`, `Hash.hex`, `Ord.hex`, `Integral.hex`; `Iterable` is name-only, collections-owned); the instances half is the companion arc (#344), landing per companion in the fixed order `BigInt` (landed), `Int`+`Nat`, `Float`+`String` — Constraints §5.3's wired-row-retirement law governs each landing;
 2. `Seq.hex`, retaining only the memoizing spine and iterator bridge — **advanced from preference to decided obligation (2026-07-26): `Seq.hex` declares the type itself and joins the prelude set, before and as the pilot for `Vector`/`Set`/`Map`; see the §2 obligation row and `spec/notes/seq-deintrinsification-plan.md`**;
 3. Map/Set algebra over a retained tuned HAMT core;
 4. `Option.hex` and `Result.hex`; and
