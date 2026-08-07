@@ -66,16 +66,16 @@ Consequences, normative:
 
 ### 2.5 Provided instances (primitives and structural types)
 
-The following instances are **compiler/runtime-provided** (§4.4 wording; no source form) — with one recorded exception: this table is the exhaustive **status map** of core-type `Hash`, and since #147 the `Bool` row records a *derived* instance, not a provided one (§18) *(lead-in amended 2026-07-29, #147)*:
+The following instances are **compiler/runtime-provided** (§4.4 wording; no source form) — with recorded exceptions: this table is the exhaustive **status map** of core-type `Hash`; since #147 the `Bool` row records a *derived* instance, not a provided one (§18), and since #344 the migrated primitive companions' rows (`Nat`, `Int`, `BigInt`) record *hand-written source* instances under the companion privilege carve-out (§4.4) *(lead-in amended 2026-07-29, #147; widened, #344)*:
 
 | Type | Notes |
 |---|---|
-| `Hash<Nat>` | value-based; `Nat` is the non-negative refinement of `Int`'s f64-integer representation (Primitive Types §1), so the `Int` triviality carries over, and agreement with `Eq<Nat>` — plain-number SameValueZero on the same values — is trivial for the same reason *(row added 2026-07-28, #139 — record in §17)* |
-| `Hash<Int>` | value-based; the f64-integer-invariant makes this trivial |
+| `Hash<Nat>` | value-based; `Nat` is the non-negative refinement of `Int`'s f64-integer representation (Primitive Types §1), so the `Int` triviality carries over, and agreement with `Eq<Nat>` — plain-number SameValueZero on the same values — is trivial for the same reason *(row added 2026-07-28, #139 — record in §17; provenance corrected, #344: hand-written source in `stdlib/Nat.hex` under the §4.4 carve-out — row retained as the status map)* |
+| `Hash<Int>` | value-based; the f64-integer-invariant makes this trivial *(provenance corrected, #344: hand-written source in `stdlib/Int.hex` under the §4.4 carve-out — row retained as the status map)* |
 | `Hash<Float>` | §2.3: `-0` ≡ `+0`, all NaNs one value — SameValueZero-consistent |
 | `Hash<Bool>` | **no longer provided here** — `Bool` is the prelude union `False \| True` declared in real prelude source, and its `Hash` arrives through the ordinary §4.3 derivation door (`derives (Eq, Ord, Show, Hash)`, `Eq` derived in the same header); agreement with `Eq<Bool>` is §4.3's by-construction guarantee, and the derived hash operates over the pinned `boolean` representation (Unions §6.2/§8) *(provenance corrected 2026-07-29, #147 — record in §18; row retained so this table stays the exhaustive map of core-type `Hash` status)* |
 | `Hash<String>` | agrees with `Eq<String>` (JS `===` string equality); algorithm unspecified (runtime-owned) |
-| `Hash<BigInt>` | folds the arbitrary-precision value into `Int`; collisions inevitable and lawful |
+| `Hash<BigInt>` | folds the arbitrary-precision value into `Int`; collisions inevitable and lawful *(provenance corrected, #344: hand-written source in `stdlib/BigInt.hex` under the §4.4 carve-out — row retained as the status map)* |
 | `Hash<Unit>` | constant |
 
 **Structural types** follow the `Eq` pattern exactly (Products §2.5/§3.4 family): tuples and structural records receive **automatic compiler-derived `Hash`**, conditional on every component/field type having `Hash`. Users cannot honor structural types (Constraints §9.3 presumption, unchanged); their `Hash`, like their `Eq`, is exclusively compiler-derived — and therefore mutually consistent by construction.

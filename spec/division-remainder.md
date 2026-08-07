@@ -163,7 +163,7 @@ isEven = n => Int.mod(n, 2) == 0    -- correct for negative n; with rem it would
 | `Float.mod` (Euclidean) and `Float.rem` (truncated, bare `%`) provided; NaN on zero divisor; no throw | §5 |
 | No `Float.quot`, no Euclidean float division | §5.3 |
 | `Float.mod` invariant is `0 <= r <= abs(b)` (boundary via rounding only); `Float.rem` is IEEE-exact | §5.1 |
-| Emission via named runtime helpers; inlining is QoI latitude *(for the `BigInt` family, superseded by #344: bodies live in `stdlib/BigInt.hex`, natives through the intrinsic door; the §6 shapes stay normative for behaviour)* | §6 |
+| Emission via named runtime helpers; inlining is QoI latitude *(for the `BigInt` family and, on the second landing, the `Int` family and `Nat`'s honoring, superseded by #344: bodies live in the companions, natives through the intrinsic door; the §6 shapes stay normative for behaviour — `Float`'s rows remain the helpers)* | §6 |
 
 ## 11. Edit notes to existing specs
 
@@ -171,5 +171,5 @@ isEven = n => Int.mod(n, 2) == 0    -- correct for negative n; with rem it would
 - **Operators §6.1:** "(floored, `DivideByZeroError` on zero divisor)" → "(Euclidean — see Division & Remainder spec; `DivideByZeroError` on zero divisor)"; extend the `intA / intB` diagnostic hint per §7 here.
 - **Operators §13 (`%` row):** "…`Int.mod` (floored) is the way" → "…`Int.mod` (Euclidean) and `Int.rem` (truncated) are the way — two conventions, two names."
 - **Primitive Types §2 (Division paragraph):** "deliberately chosen (floored) semantics" → "deliberately chosen **Euclidean** semantics"; add the `Int.quot`/`Int.rem` pair to the sentence.
-- **Exceptions spec (registry):** `DivideByZeroError` throwers now: `Int.div`, `Int.mod`, `Int.quot`, `Int.rem`, the four `BigInt` counterparts, `Rat.divide`, and the Rat construction boundary reached by `Rat.create` and reciprocal.
+- **Exceptions spec (registry):** `DivideByZeroError` throwers now: `Int.div`, `Int.mod`, `Int.quot`, `Int.rem`, the four `BigInt` counterparts, the four `Nat` counterparts *(added with the second landing, #344 — their messages name `Nat`)*, `Rat.divide`, and the Rat construction boundary reached by `Rat.create` and reciprocal.
 - **hexagon-for-typescript-coders Ch. 3.4:** optional one-liner when next touched: "`Int.mod` is always non-negative (unlike JS's `%`); `Int.rem` is JS's `%` under an honest name."

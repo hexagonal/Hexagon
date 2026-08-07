@@ -138,7 +138,7 @@ Int.lcm             -- ERROR: name not found + curated hint (§8)
 | `gcd` non-negative; `gcd(a,0)=abs(a)`; `gcd(0,0)=0`; never throws | §4 |
 | `Int.gcd`/`BigInt.gcd` added to the monomorphic families | §3 |
 | `lcm` not in the constraint; `Int.lcm` does not exist; `BigInt.lcm` monomorphic, divide-first, `lcm(a,0)=0` | §5 |
-| Monomorphic functions double as instance bodies (two-tier pattern, now precedented) | §7 |
+| Monomorphic functions double as instance bodies (two-tier pattern, now precedented) *(superseded at migrated companions, #335/#344: the member is the one implementation, the qualified spelling reaches it — §7's addendum)* | §7 |
 | `gcd` helpers may use native `%` internally post-`abs` | §6 |
 
 Edit notes:
