@@ -68,7 +68,13 @@ describe("the four spellings are one implementation", () => {
       "let seventeen: Nat = 17",
       "let five: Nat = 5",
       "export let dotted: Nat = seventeen.rem(five)",
-      "export let bound<a: Integral>(left: a, right: a): a = rem(left, right)",
+      // The bare spelling is gone since the last landing: `stdlib/Float.hex`
+      // exports a `rem` of its own, so `rem` has two visible exporters and
+      // Modules §5.5 refuses the bare name (Division & Remainder §5). The dot
+      // call is type-directed and never reads the bare layer, so it is the
+      // generic route now — and it is still one implementation with the two
+      // spellings above.
+      "export let bound<a: Integral>(left: a, right: a): a = left.rem(right)",
       "export let generic: Nat = bound(seventeen, five)",
       "",
     ].join("\n"));

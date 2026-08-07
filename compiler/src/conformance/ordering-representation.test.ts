@@ -388,13 +388,14 @@ describe("one representation, observable from JS (FFI Part 9)", () => {
     );
   });
 
-  test("the primitive `Ord` dictionary wraps its comparator rather than leaking the sign", async () => {
-    // The primitive dictionary is built inline, and a *ground* call of a
-    // constrained function is specialized away before one is needed — so the
-    // route to it is a parameterized instance applied at a primitive, where the
-    // argument is a real dictionary whose slot the derived body calls. That is
-    // also why this test pins a shape: no program can name the dictionary.
-    // The comparators themselves are untouched; `ordering` is the only new step.
+  test("a primitive `Ord` dictionary wraps its comparator rather than leaking the sign", async () => {
+    // Every primitive's dictionary is its companion's export since #344's last
+    // landing, so the route to one is a parameterized instance applied at a
+    // primitive: the argument is a real, imported dictionary whose slot the
+    // derived body calls. That is also why this test pins a shape — no program
+    // can name the dictionary. The comparators themselves are untouched;
+    // `ordering` is the only step the representation ruling added, and it is
+    // the *companions* that now hold the wrapping.
     const source = "export record Cell(a) derives (Eq, Ord) = {item: a}\n" +
       "export let fractional: Bool = Cell({item = 1.5}) < Cell({item = 2.5})\n" +
       "export let textual: Bool = Cell({item = \"b\"}) <= Cell({item = \"a\"})\n" +
@@ -407,27 +408,31 @@ describe("one representation, observable from JS (FFI Part 9)", () => {
 
     const text = javascript(source);
 
-    expect(text).toContain(
-      "compare: (__hex_a, __hex_b) => __hex_ordering(__hex_compareFloat(__hex_a, __hex_b))",
-    );
-    expect(text).toContain(
-      "compare: (__hex_a, __hex_b) => __hex_ordering(__hex_compareString(__hex_a, __hex_b))",
-    );
-    // At `Int` the argument is no longer a literal built here: since #344 it is
-    // `stdlib/Int.hex`'s exported dictionary, imported. The shape it holds is
-    // the same name-string comparator, pinned at its new home below.
+    // None of the three arguments is a literal built here any more: since #344
+    // each is its companion's exported dictionary, imported. The shapes they
+    // hold are the same comparators, pinned at their new homes below.
     expect(text).toContain("__hex_instance_Ord_Cell(__hex_imported_");
     expect(text).toContain('__hex_instance_Ord_Int } from "./Int.js"');
+    expect(text).toContain('__hex_instance_Ord_Float } from "./Float.js"');
+    expect(text).toContain('__hex_instance_Ord_String } from "./String.js"');
     expect(companionText(source, "Int.hex")).toContain(
       '(__hex_a, __hex_b) => __hex_a < __hex_b ? "Less" : __hex_a > __hex_b ? "Greater" : "Equal"',
     );
-    expect(text).toContain(
+    expect(companionText(source, "Float.hex")).toContain(
+      "(__hex_a, __hex_b) => __hex_ordering(__hex_compareFloat(__hex_a, __hex_b))",
+    );
+    expect(companionText(source, "String.hex")).toContain(
+      "(__hex_a, __hex_b) => __hex_ordering(__hex_compareString(__hex_a, __hex_b))",
+    );
+    // And `ordering` and the comparators travelled with them, bodies and all,
+    // into the companions that call them.
+    expect(companionText(source, "Float.hex")).toContain(
       'function __hex_ordering(__hex_sign) {\n' +
         '  return __hex_sign < 0 ? "Less" : __hex_sign > 0 ? "Greater" : "Equal";\n' +
         "}",
     );
-    // The comparators keep their own bodies, sign and all.
-    expect(text).toContain("  if (Number.isNaN(__hex_left)) return Number.isNaN(__hex_right) ? 0 : 1;");
+    expect(companionText(source, "Float.hex"))
+      .toContain("  if (Number.isNaN(__hex_left)) return Number.isNaN(__hex_right) ? 0 : 1;");
   });
 });
 

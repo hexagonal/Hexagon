@@ -335,13 +335,18 @@ const BUILTIN_COMPANIONS: ReadonlyMap<string, string> = new Map([
  * reached exactly as `Vector`'s are through the alias its prelude seat binds.
  * `Int.hex` and `Nat.hex` followed, bringing `9.checkedMul(9)`-shaped surfaces
  * of their own (`Nat.hex`'s one export takes an `Int` first, so it is reached
- * qualified — `Nat.fromInt(-1)` — not as a dot call on a `Nat`). `Float` and
- * `String` join at their milestones, in that migration order.
+ * qualified — `Nat.fromInt(-1)` — not as a dot call on a `Nat`). `Float.hex`
+ * and `String.hex` closed the migration: `Float`'s companion surface is `mod`
+ * and `rem` (Division & Remainder §5), reached on a receiver as
+ * `theta.mod(tau)`, and `String.hex` exports nothing at all — its entry earns
+ * its keep entirely by being the home an honored member is read from.
  */
 const PRIMITIVE_COMPANIONS: ReadonlyMap<string, string> = new Map([
   ["BigInt", "primitive:BigInt"],
   ["Int", "primitive:Int"],
   ["Nat", "primitive:Nat"],
+  ["Float", "primitive:Float"],
+  ["String", "primitive:String"],
 ]);
 
 /**
@@ -1390,12 +1395,10 @@ class Checker {
     for (const identity of this.#instancesBySubject.get(this.#subjectKey(actual)) ?? []) {
       admit(identity);
     }
-    if (actual.kind === "Constructor") {
-      for (const name of PRE_REGISTERED_CONSTRAINTS) {
-        if (!isConstraintName(name) || !supports(actual.name, name)) continue;
-        admit(preRegisteredConstraintIdentity(name));
-      }
-    }
+    // A primitive needs no second channel since #344's last landing: its
+    // instances are its companion's source `honor` blocks, which the
+    // `#instancesBySubject` walk above already found. The wired table that used
+    // to be consulted here for one is gone with the last companion.
     // `Bool` honors its four through the `derives` clause in `stdlib/Bool.hex`,
     // and the compiler answers requirements at it from the pin rather than from
     // those instances (#147, `#resolveRequirement`) — the prelude channel does
@@ -2794,23 +2797,6 @@ class Checker {
         );
         this.#requirements.set(expression, collectionRequirements);
         break;
-      case "PrimitiveOperation": {
-        const subject = primitive(expression.primitive);
-        // `Float` is the one row left. `BigInt` left this form entirely at its
-        // milestone (#344) and `Int` at the one after — the resolver mints no
-        // such node for either now, and their families are ordinary members and
-        // exports of `stdlib/BigInt.hex` and `stdlib/Int.hex`. `Float` is not
-        // `Integral`, so it never had more than the two: `div`, `quot`, `gcd`,
-        // and `lcm` at `Float` are refused here and always were.
-        const permitted = ["mod", "rem"];
-        type = permitted.includes(expression.operation)
-          ? { kind: "Function", parameters: [subject, subject], result: subject }
-          : this.#unsupported(
-              expression.span,
-              `the companion of \`${expression.primitive}\` has no operation \`${expression.operation}\``,
-            );
-        break;
-      }
       case "Name":
         const requirements: Requirement[] = [];
         type = this.#instantiate(
@@ -4847,14 +4833,12 @@ class Checker {
           this.#entailmentPath(identity, this.#constraintIdentity(constraint)) !==
             undefined
         )
-      // A primitive answers from either channel, and the two never both answer
-      // for one (constraint, type) pair (#344): a wired row for the companions
-      // still transitional, the source `honor` block for the ones that have
-      // migrated. Before the companion arc the `Constructor` arm read `supports`
-      // alone, which is why `Rat.fromNat`'s widening into `BigInt` was the first
-      // thing to break when that row retired.
-      : this.#instances.has(this.#instanceKeyFor(constraint, destination)) ||
-        (destination.kind === "Constructor" && supports(destination.name, constraint));
+      // One channel, for every subject there is (#344): the instance table. A
+      // primitive used to answer from a wired row instead, which is why
+      // `Rat.fromNat`'s widening into `BigInt` was the first thing to break
+      // when the first of those rows retired — and why the widenings into
+      // `Float` are the last, arriving here with the last companion.
+      : this.#instances.has(this.#instanceKeyFor(constraint, destination));
   }
 
   #supportsSignedTarget(target: Mono, allowVariableTarget = false): boolean {
@@ -5124,7 +5108,11 @@ class Checker {
     if (requirement.reported) return;
     const type = this.#prune(requirement.type);
     if (type.kind === "Variable" || type.kind === "Error") return;
-    if (type.kind === "Constructor" && supports(type.name, requirement.name)) return;
+    // No early return for a primitive since #344's last landing. A requirement
+    // at one discharges through `#instances` below, exactly as a requirement at
+    // a nominal type does — this line used to answer first, from the wired
+    // table, and answering was what left the requirement without the
+    // dictionary emission needs.
     if (
       structuralConstraints.includes(requirement.name) &&
       (type.kind === "Tuple" || type.kind === "Record" || type.kind === "Vector")
@@ -5824,8 +5812,7 @@ class Checker {
 
   #satisfiedAt(name: Typed.ConstraintName, subject: "Int" | "Unit"): boolean {
     if (subject === "Unit") return structuralConstraints.includes(name);
-    return supports(subject, name) ||
-      this.#instances.has(this.#instanceKeyFor(name, primitive(subject)));
+    return this.#instances.has(this.#instanceKeyFor(name, primitive(subject)));
   }
 
   /**
@@ -5833,8 +5820,8 @@ class Checker {
    * constraint is defaultable exactly when **the prelude** supplies its `Int`
    * instance. The rule did not change; where the `Int` instances live did. A
    * wired row answered while `Int` was compiler-wired; since `Int.hex` took its
-   * seat, the source `honor` block answers, and the test has to consult both or
-   * it would report every numeric literal as ambiguous.
+   * seat, the source `honor` block answers, and reading the retired table here
+   * would report every numeric literal in the language as ambiguous.
    *
    * §7 still rejects Haskell-style extensible defaulting, and the set is still
    * closed against user code — now structurally rather than by decree, with two
@@ -5861,13 +5848,12 @@ class Checker {
 
   /**
    * Whether this requirement's constraint is one the prelude honors at `Int`,
-   * read through the two channels a primitive instance can take (#344) and
-   * gated on the constraint being pre-registered.
+   * read from the one channel a primitive instance now takes (#344) and gated
+   * on the constraint being pre-registered.
    */
   #defaultableAtInt(requirement: Requirement): boolean {
     if (requirement.identity !== preRegisteredConstraintIdentity(requirement.name)) return false;
-    return supports("Int", requirement.name) ||
-      this.#instances.has(this.#instanceKey(requirement.identity, primitive("Int")));
+    return this.#instances.has(this.#instanceKey(requirement.identity, primitive("Int")));
   }
 
   #collectVariables(type: Mono, found = new Map<number, Variable>()): Variable[] {
@@ -7087,6 +7073,9 @@ class Checker {
       ...(requirement.dictionary === undefined
         ? {}
         : { dictionary: requirement.dictionary }),
+      ...(requirement.reported && requirement.dictionary === undefined
+        ? { unsatisfied: true }
+        : {}),
       ...(requirement.evidenceConstraint === undefined
         ? {}
         : {
@@ -7715,7 +7704,6 @@ class Checker {
           : { ...expression, type, requirements };
       }
       case "CollectionOperation":
-      case "PrimitiveOperation":
       case "Unit":
       case "BigInt":
       case "Float":
@@ -8470,39 +8458,6 @@ function isStructurallyIrrefutablePattern(pattern: Resolved.Pattern): boolean {
     case "Constructor":
       return false;
   }
-}
-
-function supports(
-  type: Typed.PrimitiveName,
-  constraint: Typed.ConstraintName,
-): boolean {
-  const instances: Record<Typed.PrimitiveName, readonly Typed.ConstraintName[]> = {
-    // No `Nat` or `Int` row since #344's second landing, for the reason the
-    // `BigInt` note below gives: their instances are source `honor` blocks in
-    // `stdlib/Nat.hex` and `stdlib/Int.hex`, selected from `#instances`.
-    Nat: [],
-    Int: [],
-    Float: ["Num", "Signed", "Frac", "Eq", "Ord", "Show", "Pow", "Hash"],
-    // No `Bool` row (#147): its four instances are *derived* from the `derives`
-    // clause in `stdlib/Bool.hex`, through the same door a user's union uses,
-    // rather than decreed here. That is the whole point of the declaration being
-    // real prelude source — see Collections Part 2 §4.4.
-    //
-    // No `Unit` row either (#159): `Unit` is the empty tuple, so its four
-    // instances are the automatic structural tuple instances, vacuous at zero
-    // components — `#validate`'s structural branch, not a decree here.
-    String: ["Eq", "Ord", "Show", "Concat", "Hash"],
-    // No `BigInt` row since #344: its eight instances are source `honor` blocks
-    // in `stdlib/BigInt.hex`, selected from `#instances` like `Rat`'s. A wired
-    // row and a source instance never coexist for one (constraint, type) pair —
-    // that is Constraints §5.1's coherence applied to the compiler itself, and a
-    // compile in which both answer is a conformance defect. `Int` and `Nat`
-    // retired the same way one milestone later; `Float` and `String` follow at
-    // theirs (`spec/intrinsics.md` §9.2), and this table dies with the last.
-    BigInt: [],
-    Exn: [],
-  };
-  return instances[type].includes(constraint);
 }
 
 function isConstraintName(name: string): name is Typed.ConstraintName {

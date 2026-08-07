@@ -1723,8 +1723,6 @@ class JavaScriptEmitter {
           consumes ? this.#useHelper("seqToIterable") : undefined,
         );
       }
-      case "PrimitiveOperation":
-        return this.#useHelper(primitiveOperationHelper(expression.primitive, expression.operation));
       case "Unit":
       case "ErrorExpr":
         return "undefined";
@@ -3742,6 +3740,46 @@ class JavaScriptEmitter {
     )?.localDictionary;
   }
 
+  /**
+   * A dictionary whose slots are the derived walks over a type, rather than a
+   * definition read from a module.
+   *
+   * One renderer for the two callers that need it: structural evidence at a
+   * tuple, record, or `Vector`, and the `Bool` editions the specialization
+   * planner asks for. Constraints §6.1's licence is what makes this a
+   * *rendering* rather than a second instance — the same licence the operator
+   * fast paths take.
+   */
+  #derivedDictionary(
+    constraint: Typed.ConstraintName,
+    type: Typed.Type,
+    components: ComponentEvidence,
+    evidenceNames: EvidenceNames,
+  ): string {
+    if (constraint === "Hash") {
+      const equals = this.#derivedEquals(type, "__hex_left", "__hex_right", evidenceNames, true);
+      return `({ eq: { equals: (__hex_left, __hex_right) => ${equals}, notEquals: (__hex_left, __hex_right) => !(${equals}) }, hash: __hex_value => ${this.#derivedHash(type, "__hex_value", evidenceNames)} })`;
+    }
+    if (constraint === "Eq") {
+      const equals = this.#derivedEquals(type, "__hex_left", "__hex_right", evidenceNames, false, components);
+      return `({ equals: (__hex_left, __hex_right) => ${equals}, notEquals: (__hex_left, __hex_right) => !(${equals}) })`;
+    }
+    if (constraint === "Ord") {
+      return `({ compare: (__hex_left, __hex_right) => ${this.#derivedCompare(type, "__hex_left", "__hex_right", evidenceNames, components)} })`;
+    }
+    if (constraint === "Show") {
+      return `({ show: __hex_value => ${this.#derivedShow(type, "__hex_value", evidenceNames, components)} })`;
+    }
+    if (constraint === "Concat" && type.kind === "Vector") {
+      // The Operators §7 instance, and the whole of it: `concat` is the trie
+      // operation itself, so `++` at `Vector(a)` is documented-linear (Part 1
+      // §2.2) and the result grows out of the left operand's trie rather than
+      // copying it.
+      return `({ concat: ${this.#useVectorRuntime("concat")} })`;
+    }
+    return "({})";
+  }
+
   #emitEvidence(
     evidence: Core.Evidence,
     constraint: Typed.ConstraintName,
@@ -3758,9 +3796,9 @@ class JavaScriptEmitter {
       );
     }
     if (evidence.kind === "Primitive") {
-      // A migrated companion's dictionary is its source instance's, never a
-      // literal built here (#344). Primitive evidence still reaches this branch
-      // from the specialization planner, which rewrites a monomorphic edition's
+      // A companion's dictionary is its source instance's, never a literal
+      // built here (#344). Primitive evidence still reaches this branch from
+      // the specialization planner, which rewrites a monomorphic edition's
       // dictionary parameters by primitive name; for `BigInt` the answer is
       // `stdlib/BigInt.hex`'s exported dictionary, and materializing a second
       // one would be the wired row the ruling retired, rebuilt under another
@@ -3770,56 +3808,56 @@ class JavaScriptEmitter {
         this.#referencedDictionaries.add(sourced);
         return sourced;
       }
-      // The invariant, made checkable (#344). A migrated companion's instance
-      // is source, so falling through to the wired table for one would be the
-      // retired row rebuilt under another name — Constraints §5.1's coherence
-      // broken against the compiler itself, and silently: the `Integral` arm no
-      // longer exists at all, so the fallthrough would be an empty dictionary
-      // whose first slot read is a `TypeError` at run time.
-      if (MIGRATED_COMPANIONS.has(evidence.instance)) {
-        this.#diagnostics.add({
-          severity: "error",
-          message: `compiler defect: \`${constraint}<${evidence.instance}>\` is a source ` +
-            "instance of a migrated primitive companion, but no dictionary for it " +
-            "reached this module",
-          primary: span,
-        });
-        return "undefined";
+      // `Bool` is **fundamental but not primitive** (#147), and the
+      // specialization planner names its editions by that name all the same, so
+      // it arrives in this branch with no module to have exported it: its four
+      // instances are `stdlib/Bool.hex`'s *derived* ones, rendered inline at
+      // every use like any other derived leaf. Render them here the same way.
+      // The retired wired table answered `String(__hex_a)` for this, which is
+      // the host's `"true"` rather than `Show<Bool>`'s `"True"` — a monomorphic
+      // edition disagreeing with every other spelling of the same call.
+      // The name is a `PrimitiveName` in the type, and `Bool` is not one — the
+      // planner writes it there deliberately, because an edition is named by
+      // its *fundamental* type and `Bool` is fundamental. Read it as the string
+      // it is rather than widening the union and inviting every other reader to
+      // handle a case that only arrives here.
+      if ((evidence.instance as string) === "Bool" && this.#prelude.bool !== undefined) {
+        return this.#derivedDictionary(
+          constraint,
+          { kind: "Union", union: this.#prelude.bool, name: "Bool", arguments: [] },
+          undefined,
+          evidenceNames,
+        );
       }
-      return primitiveDictionary(
-        constraint,
-        evidence.instance,
-        (helper) => this.#useHelper(helper),
-      );
+      // The invariant, made checkable (#344), and with the last landing there
+      // is nothing left for it to fall through *to*: every primitive that
+      // honors anything is a source companion, so the wired table this branch
+      // used to end in is gone. Reaching here is a plumbing failure, and it has
+      // to be loud — a silent empty dictionary's first slot read is a
+      // `TypeError` at run time, a long way from the cause.
+      this.#diagnostics.add({
+        severity: "error",
+        message: MIGRATED_COMPANIONS.has(evidence.instance)
+          ? `compiler defect: \`${constraint}<${evidence.instance}>\` is a source ` +
+            "instance of a migrated primitive companion, but no dictionary for it " +
+            "reached this module"
+          : `compiler defect: no module supplies \`${constraint}<${evidence.instance}>\`, ` +
+            "and no wired instance exists to stand in for one",
+        primary: span,
+      });
+      return "undefined";
     }
     if (evidence.kind === "Structural") {
       // The direct structural use site — `v1 == v2` at `Vector(Metre)`, a tuple
       // compared inline — runs the same walk a `derives` body does, so it takes
       // the same component selection (#278). Without it these bypassed a
       // hand-written component instance exactly as a container's did.
-      const components = componentEvidence(evidence.components);
-      if (constraint === "Hash") {
-        const equals = this.#derivedEquals(evidence.type, "__hex_left", "__hex_right", evidenceNames, true);
-        return `({ eq: { equals: (__hex_left, __hex_right) => ${equals}, notEquals: (__hex_left, __hex_right) => !(${equals}) }, hash: __hex_value => ${this.#derivedHash(evidence.type, "__hex_value", evidenceNames)} })`;
-      }
-      if (constraint === "Eq") {
-        const equals = this.#derivedEquals(evidence.type, "__hex_left", "__hex_right", evidenceNames, false, components);
-        return `({ equals: (__hex_left, __hex_right) => ${equals}, notEquals: (__hex_left, __hex_right) => !(${equals}) })`;
-      }
-      if (constraint === "Ord") {
-        return `({ compare: (__hex_left, __hex_right) => ${this.#derivedCompare(evidence.type, "__hex_left", "__hex_right", evidenceNames, components)} })`;
-      }
-      if (constraint === "Show") {
-        return `({ show: __hex_value => ${this.#derivedShow(evidence.type, "__hex_value", evidenceNames, components)} })`;
-      }
-      if (constraint === "Concat" && evidence.type.kind === "Vector") {
-        // The Operators §7 instance, and the whole of it: `concat` is the trie
-        // operation itself, so `++` at `Vector(a)` is documented-linear (Part 1
-        // §2.2) and the result grows out of the left operand's trie rather than
-        // copying it.
-        return `({ concat: ${this.#useVectorRuntime("concat")} })`;
-      }
-      return "({})";
+      return this.#derivedDictionary(
+        constraint,
+        evidence.type,
+        componentEvidence(evidence.components),
+        evidenceNames,
+      );
     }
     if (evidence.kind === "Instance") {
       // The use that decides whether a prelude instance needs an import (#153).
@@ -4344,6 +4382,53 @@ class JavaScriptEmitter {
       // the unchecked core `Nat.fromInt`'s sign check sits above.
       case "intFromNat":
       case "natFromIntUnchecked":
+        return "__hex_a => __hex_a";
+      // `stdlib/Float.hex`'s and `stdlib/String.hex`'s natives (#344, the third
+      // landing and the last), in the same primop shape. Three rows are not
+      // bare operators, and each is that way because the operator would be
+      // *wrong*: `floatEquals` is SameValueZero rather than `===`, so `NaN`
+      // equals itself and the two zeroes agree; `floatCompare` and
+      // `stringCompare` are the decided total order and the codepoint order,
+      // through the comparators that already serve the operator fast paths,
+      // wrapped in the `Ordering` name-string a `compare` slot owes its caller
+      // (#275). Nothing here guards, because nothing at either type can:
+      // `Float`'s partiality is `NaN`, and `String` has no partial operation.
+      case "floatAdd":
+        return "(__hex_a, __hex_b) => __hex_a + __hex_b";
+      case "floatMultiply":
+        return "(__hex_a, __hex_b) => __hex_a * __hex_b";
+      case "floatSubtract":
+        return "(__hex_a, __hex_b) => __hex_a - __hex_b";
+      case "floatNegate":
+        return "__hex_a => -__hex_a";
+      case "floatDivide":
+        return "(__hex_a, __hex_b) => __hex_a / __hex_b";
+      case "floatPow":
+        return "(__hex_a, __hex_b) => __hex_a ** __hex_b";
+      // The `rem` half of Division & Remainder §5, and the only half of it that
+      // crosses: bare `%`, no guard and no helper, with `Float.mod` written
+      // over it in the companion's own Hexagon.
+      case "floatRem":
+        return "(__hex_a, __hex_b) => __hex_a % __hex_b";
+      case "floatEquals":
+        return "(__hex_a, __hex_b) => __hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b)";
+      case "floatCompare":
+        return `(__hex_a, __hex_b) => ${this.#useHelper("ordering")}(${this.#useHelper("compareFloat")}(__hex_a, __hex_b))`;
+      case "floatShow":
+        return "__hex_a => String(__hex_a)";
+      case "floatHash":
+      case "stringHash":
+        return `__hex_a => ${this.#useHelper("stableHash")}(__hex_a)`;
+      case "stringConcat":
+        return "(__hex_a, __hex_b) => __hex_a + __hex_b";
+      case "stringEquals":
+        return "(__hex_a, __hex_b) => __hex_a === __hex_b";
+      case "stringCompare":
+        return `(__hex_a, __hex_b) => ${this.#useHelper("ordering")}(${this.#useHelper("compareString")}(__hex_a, __hex_b))`;
+      // `floatFromInt` is the identity over the one shared `number`
+      // representation, exactly as `intFromNat` is; it is keyed only because a
+      // Hexagon body for it would elaborate through the slot being defined.
+      case "floatFromInt":
         return "__hex_a => __hex_a";
       default:
         if (INTRINSIC_INVENTORY.has(key)) {
@@ -5367,8 +5452,6 @@ type Helper =
   | "stringSlice"
   | "stableHash"
   | "mixHash"
-  | "floatMod"
-  | "floatRem"
   | "persistentCollections";
 
 /**
@@ -5409,8 +5492,6 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   stringSlice: [],
   stableHash: [],
   mixHash: [],
-  floatMod: [],
-  floatRem: [],
   persistentCollections: [],
 };
 
@@ -5502,7 +5583,6 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
     }
     case "Name":
     case "CollectionOperation":
-    case "PrimitiveOperation":
     case "Unit":
     case "Number":
     case "BigInt":
@@ -5528,12 +5608,6 @@ function renderHelper(
   runtimeName: (operation: VectorRuntimeOperation) => string,
 ): string[] {
   switch (helper) {
-    case "floatMod":
-    case "floatRem": {
-      return [
-        `const ${name} = ${primitiveOperation(primitiveOperationFromHelper(helper))};`,
-      ];
-    }
     case "persistentCollections":
       return [
         `const ${name} = (() => {`,
@@ -6204,10 +6278,12 @@ const INLINED_OPERATOR_MEMBERS: readonly string[] = [
 ];
 
 /**
- * The primitives whose instances are source `honor` blocks rather than the
- * wired table below (#344), read from the one list that decides it so the two
- * cannot drift. `primitiveDictionary` has no row for any of them, and reaching
- * it for one is a compiler defect rather than a fallback.
+ * The primitives whose instances are source `honor` blocks (#344), read from
+ * the one list that decides it so the two cannot drift. With the last landing
+ * that is all of them, which is exactly why the set still earns its keep: it
+ * names the primitives whose dictionary must have arrived from their own
+ * module, so `#emitEvidence` can say which failure it is looking at instead of
+ * emitting an empty object and letting a `TypeError` report it later.
  */
 const MIGRATED_COMPANIONS: ReadonlySet<string> = new Set(
   PRIMITIVE_COMPANION_BASENAMES.values(),
@@ -6234,47 +6310,6 @@ function componentInstance(
   evidence: Core.Evidence | undefined,
 ): evidence is Core.InstanceEvidence {
   return evidence?.kind === "Instance" && evidence.primitive === undefined;
-}
-
-/**
- * Emits the fixed primitive companion families without inventing runtime
- * objects — `Float`'s two, and only those.
- *
- * `Float` is not `Integral`, so it never had a zero-divisor guard: JS `%` at a
- * `number` answers `NaN` on a zero divisor, and that is `Float`'s documented
- * arithmetic. The guarded integer bodies that used to share this function are
- * Hexagon in the companions now (#344), where the guard names its own member.
- */
-function primitiveOperation(
-  operation: Core.PrimitiveOperationExpr["operation"],
-): string {
-  if (operation === "rem") return "(__hex_a, __hex_b) => __hex_a % __hex_b";
-  // `mod`, and the total-switch tail: the checker refuses `div`, `quot`, `gcd`,
-  // and `lcm` at `Float` before emission ever sees them.
-  return "(__hex_a, __hex_b) => { const __hex_r = __hex_a % __hex_b; return __hex_r < 0 ? __hex_r + Math.abs(__hex_b) : __hex_r; }";
-}
-
-/**
- * `BigInt`'s six rows retired with its wired instances (#344): the Euclidean
- * pair, `gcd`, and `lcm` are Hexagon in `stdlib/BigInt.hex`, and the truncated
- * pair is its intrinsic-door declaration. `Int`'s five went the same way one
- * milestone later, into `stdlib/Int.hex`. `Float`'s two are what is left, and
- * they follow at its own milestone (`spec/intrinsics.md` §9.2).
- */
-type PrimitiveOperationHelper = Extract<Helper, "floatMod" | "floatRem">;
-
-function primitiveOperationHelper(
-  primitive: Core.PrimitiveOperationExpr["primitive"],
-  operation: Core.PrimitiveOperationExpr["operation"],
-): PrimitiveOperationHelper {
-  const owner = primitive.toLowerCase();
-  return `${owner}${operation[0]!.toUpperCase()}${operation.slice(1)}` as PrimitiveOperationHelper;
-}
-
-function primitiveOperationFromHelper(
-  helper: PrimitiveOperationHelper,
-): Core.PrimitiveOperationExpr["operation"] {
-  return helper.slice("float".length).toLowerCase() as Core.PrimitiveOperationExpr["operation"];
 }
 
 class GeneratedNames {
@@ -6385,61 +6420,6 @@ function dictionaryParameterName(
   variable: Typed.TypeVariableId,
 ): string {
   return `__hex_dict${constraint}_${Number(variable)}`;
-}
-
-function primitiveDictionary(
-  constraint: Typed.ConstraintName,
-  instance: Typed.PrimitiveName,
-  helperName: (helper: Helper) => string,
-): string {
-  switch (constraint) {
-    case "Num":
-      return "({ add: (__hex_a, __hex_b) => __hex_a + __hex_b, multiply: (__hex_a, __hex_b) => __hex_a * __hex_b, fromNat: __hex_a => __hex_a })";
-    case "Signed":
-      return `({ num: ${primitiveDictionary("Num", instance, helperName)}, subtract: (__hex_a, __hex_b) => __hex_a - __hex_b, negate: __hex_a => -__hex_a, fromInt: __hex_a => __hex_a })`;
-    case "Frac":
-      return `({ signed: ${primitiveDictionary("Signed", instance, helperName)}, divide: (__hex_a, __hex_b) => __hex_a / __hex_b })`;
-    case "Concat":
-      return "({ concat: (__hex_a, __hex_b) => __hex_a + __hex_b })";
-    // `Float` is the only wired `Pow` left (#344): the negative-exponent guard
-    // the integer types needed is Hexagon in their companions now, and `Float`
-    // never needed one — a negative float power is an ordinary float.
-    case "Pow":
-      return `({ num: ${primitiveDictionary("Num", instance, helperName)}, pow: (__hex_a, __hex_b) => __hex_a ** __hex_b })`;
-    case "Eq":
-      return instance === "Float"
-        ? "({ equals: (__hex_a, __hex_b) => __hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b), notEquals: (__hex_a, __hex_b) => !(__hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b)) })"
-        : "({ equals: (__hex_a, __hex_b) => __hex_a === __hex_b, notEquals: (__hex_a, __hex_b) => __hex_a !== __hex_b })";
-    case "Ord":
-      // A `compare` slot answers with an `Ordering`, here as everywhere (#275).
-      // The comparators keep their semantics — `compareFloat`'s total order over
-      // NaN, `compareString`'s codepoint order — and `ordering` turns the sign
-      // they return into the constructor the slot owes its caller.
-      if (instance === "Float") {
-        return `({ eq: ${primitiveDictionary("Eq", instance, helperName)}, compare: (__hex_a, __hex_b) => ${helperName("ordering")}(${helperName("compareFloat")}(__hex_a, __hex_b)) })`;
-      }
-      if (instance === "String") {
-        return `({ eq: ${primitiveDictionary("Eq", instance, helperName)}, compare: (__hex_a, __hex_b) => ${helperName("ordering")}(${helperName("compareString")}(__hex_a, __hex_b)) })`;
-      }
-      return `({ eq: ${primitiveDictionary("Eq", instance, helperName)}, compare: (__hex_a, __hex_b) => __hex_a < __hex_b ? "Less" : __hex_a > __hex_b ? "Greater" : "Equal" })`;
-    case "Show":
-      if (instance === "String") return "({ show: __hex_a => __hex_a })";
-      return "({ show: __hex_a => String(__hex_a) })";
-    case "Hash":
-      return instance === "Float"
-        ? `({ eq: { equals: (__hex_a, __hex_b) => __hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b), notEquals: (__hex_a, __hex_b) => !(__hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b)) }, hash: __hex_a => ${helperName("stableHash")}(__hex_a) })`
-        : `({ eq: { equals: (__hex_a, __hex_b) => __hex_a === __hex_b, notEquals: (__hex_a, __hex_b) => __hex_a !== __hex_b }, hash: __hex_a => ${helperName("stableHash")}(__hex_a) })`;
-    // No `Integral` arm since #344's second landing. It hard-coded `Int`'s five
-    // helpers, and it was the last wired `Integral` at any primitive: `Nat`,
-    // `Int`, and `BigInt` are the only `Integral` types the language has, and
-    // all three are source companions now, so their dictionary is the one their
-    // own module exports (`#sourceInstanceDictionary`). `Float` is permanently
-    // not `Integral` (Integral §3). A call reaching here for it would be a
-    // wired row rebuilt beside a source instance, which Constraints §5.1
-    // forbids — so it falls to the tail below rather than being kept warm.
-    default:
-      return "({})";
-  }
 }
 
 function evidenceKey(

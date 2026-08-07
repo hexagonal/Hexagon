@@ -151,6 +151,16 @@ export interface Constraint {
   readonly type: Type;
   readonly span: Source.Span;
   readonly dictionary?: string;
+  /**
+   * Set when the checker has already **reported** this requirement as
+   * unsatisfied. Emission needs no evidence for it and must invent none: the
+   * program is erroneous, one diagnostic already says so, and a second one
+   * describing the missing dictionary would be the same failure told twice
+   * (#344 — with every primitive's instances in source, a primitive
+   * requirement that reaches emission without a dictionary is exactly this
+   * case).
+   */
+  readonly unsatisfied?: boolean;
   readonly evidenceConstraint?: ConstraintName;
   readonly evidencePath?: readonly string[];
   readonly dictionaryArguments?: readonly Constraint[];
@@ -706,7 +716,6 @@ export type Expr =
   | IndexExpr
   | HashExpr
   | CollectionOperationExpr
-  | PrimitiveOperationExpr
   | LogicalNotExpr
   | LogicalExpr
   | ConstraintCallExpr
@@ -934,19 +943,6 @@ export interface CollectionOperationExpr extends ExpressionFields {
   readonly collection: "Map" | "Set" | "Node";
   readonly operation: string;
   readonly requirements: readonly Constraint[];
-}
-
-/** A checked compiler-known operation in a primitive type's companion. */
-export interface PrimitiveOperationExpr extends ExpressionFields {
-  readonly kind: "PrimitiveOperation";
-  /**
-   * `BigInt` left this union at its milestone (`spec/intrinsics.md` §9.2,
-   * #344) and `Int` at the one after: their families are `stdlib/BigInt.hex`'s
-   * and `stdlib/Int.hex`'s source, so no such node is ever minted for them.
-   * `Float` follows at its own, and the form dies with it.
-   */
-  readonly primitive: "Float";
-  readonly operation: "div" | "mod" | "quot" | "rem" | "gcd" | "lcm";
 }
 
 export interface LogicalNotExpr extends ExpressionFields {

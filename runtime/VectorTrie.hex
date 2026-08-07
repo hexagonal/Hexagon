@@ -3,10 +3,12 @@
 // runtime-internal module: it is compiled only as a privileged runtime module,
 // and `Tree`, `Node`, and `TrieVector` never cross a module boundary — the
 // public face is `Vector(a)`, and the emitter is what wires the two together.
-// Index math uses `Int.div`/`Int.mod` by the branch factor; Hexagon has no
+// Index math divides and takes remainders by the branch factor; Hexagon has no
 // bitwise operators, and none are needed. Since #344 those two are
 // `Integral<Int>`'s members at `stdlib/Int.hex`, so the emitted module imports
-// them and that companion's dictionary rather than inlining a compiler helper.
+// them and that companion's dictionary rather than inlining a compiler helper —
+// and every site here spells them as the dot call the receiver already earns,
+// `remaining.div(span)` rather than `Int.div(remaining, span)`.
 //
 // Nothing here is `export`ed, and it could not be: every operation's type names
 // `TrieVector`, and exporting one is refused as exposing a private type. The
@@ -85,7 +87,7 @@ fun tailOffset(capacity: Int): Int =
     if capacity == 0 then
         0
     else
-        Int.div(capacity - 1, radix) * radix
+        (capacity - 1).div(radix) * radix
 
 // `radix` raised to `exponent` (exponent >= 0), computed without a power
 // operator. `leafCapacity(height) = pow32(height - 1)` is the number of leaves a
@@ -110,10 +112,10 @@ fun readInternal(trie: TrieVector(a), internal: Int): a =
         // A height-`h` trie has `h - 1` branch levels above its leaves.
         for level in 2..trie.height
             node := match node
-                Branch(children) => Node.get(children, Int.div(remaining, span))
+                Branch(children) => Node.get(children, remaining.div(span))
                 Leaf(_) => node
-            remaining := Int.mod(remaining, span)
-            span := Int.div(span, radix)
+            remaining := remaining.mod(span)
+            span := span.div(radix)
         match node
             Leaf(values) => Node.get(values, remaining)
             // Unreachable for a populated path (the loop always lands on a leaf).
@@ -147,10 +149,10 @@ fun nodeRun(trie: TrieVector(a), index: Int): (Node(a), Int, Int) =
         var remaining = internal
         for level in 2..trie.height
             node := match node
-                Branch(children) => Node.get(children, Int.div(remaining, span))
+                Branch(children) => Node.get(children, remaining.div(span))
                 Leaf(_) => node
-            remaining := Int.mod(remaining, span)
-            span := Int.div(span, radix)
+            remaining := remaining.mod(span)
+            span := span.div(radix)
         let inNode = radix - remaining
         let inRegion = off - internal
         let run = if inNode < inRegion then inNode else inRegion
@@ -178,8 +180,8 @@ fun insertLeaf(node: Tree(a), height: Int, p: Int, leaf: Tree(a)): Tree(a) =
         Leaf(_) => leaf
         Branch(children) =>
             let childLeaves = pow32(height - 2)
-            let childIndex = Int.div(p, childLeaves)
-            let childPos = Int.mod(p, childLeaves)
+            let childIndex = p.div(childLeaves)
+            let childPos = p.mod(childLeaves)
             if childPos == 0 then
                 Branch(Node.set(children, childIndex, newPath(height - 2, leaf)))
             else
@@ -191,7 +193,7 @@ fun insertLeaf(node: Tree(a), height: Int, p: Int, leaf: Tree(a)): Tree(a) =
 // multiple of 32 — the internal index where the flushed leaf lands). When `root`
 // is full at its height, the trie grows one level at the right (append's end).
 fun flushLeaf(root: Tree(a), height: Int, treeExtent: Int, leaf: Tree(a)): (Tree(a), Int) =
-    let leafPos = Int.div(treeExtent, radix)
+    let leafPos = treeExtent.div(radix)
     let capacity = pow32(height - 1)
     if leafPos == capacity then
         // Root is full: a new level whose slot 0 is the old root and slot 1 is a
@@ -245,8 +247,8 @@ fun writeValue(node: Tree(a), height: Int, index: Int, value: a): Tree(a) =
         Leaf(values) => Leaf(Node.set(values, index, value))
         Branch(children) =>
             let span = pow32(height - 1)
-            let childIndex = Int.div(index, span)
-            let childPos = Int.mod(index, span)
+            let childIndex = index.div(span)
+            let childPos = index.mod(span)
             if childPos == span - 1 then
                 // First write into this child: it is fresh.
                 Branch(Node.set(children, childIndex, writeValue(freshSubtree(height - 1), height - 1, childPos, value)))
@@ -316,8 +318,8 @@ fun updateAt(node: Tree(a), height: Int, index: Int, value: a): Tree(a) =
         Leaf(values) => Leaf(Node.set(values, index, value))
         Branch(children) =>
             let span = pow32(height - 1)
-            let childIndex = Int.div(index, span)
-            let childPos = Int.mod(index, span)
+            let childIndex = index.div(span)
+            let childPos = index.mod(span)
             Branch(Node.set(children, childIndex, updateAt(Node.get(children, childIndex), height - 1, childPos, value)))
 
 // Persistent update at 0-based logical `index` (caller guarantees it is in range;

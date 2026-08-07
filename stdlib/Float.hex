@@ -1,0 +1,110 @@
+// The public `Float` companion. A primitive's home module is its fixed prelude
+// companion (Constraints §5.3), so this file is where `Float`'s instances are
+// declared and where the orphan rule lets them be declared.
+
+// The natives, and only the natives. An own-operation member body cannot be
+// written in operators or interpolation — that sugar selects the very slot being
+// defined (Constraints §6.1) — so every such member is a one-line delegation to
+// one of the declarations below. The one thing above the door here is `mod`, the
+// Euclidean adjustment over `rem`; there is no guard anywhere in this file,
+// because float partiality is `NaN` rather than a throw.
+//
+// `Num<Float>`'s `fromNat` is absent from this block on purpose: it composes out
+// of two slots that already exist beneath it — `Signed.fromInt` over
+// `Int.fromNat`, each piece exact, total, and a different slot than the one
+// being defined — and the strictly-simpler doctrine sends such a body to
+// ordinary Hexagon (`spec/intrinsics.md` §3.2). The conversion is reached
+// through its declaring module rather than bare because bare `fromInt` has two
+// exporters and is refused (Modules §5.5 — `Signed.hex`'s member and
+// `Nat.hex`'s function, the regression ratified with the second landing); the
+// `Signed` block is written above the `Num` block anyway, so a reader meets
+// the composition's pieces in the order it uses them. `floatFromInt` *does*
+// cross: any Hexagon body for `Int` -> `Float` typechecks only through Numeric
+// Literals §5.1's contextual widening, which elaborates through
+// `Signed<Float>`'s `fromInt`, the very slot being defined.
+extern from "hex:intrinsic"
+    fun floatAdd as nativeAdd(left: Float, right: Float): Float
+    fun floatMultiply as nativeMultiply(left: Float, right: Float): Float
+    fun floatSubtract as nativeSubtract(left: Float, right: Float): Float
+    fun floatNegate as nativeNegate(value: Float): Float
+    fun floatFromInt as nativeFromInt(value: Int): Float
+    fun floatDivide as nativeDivide(left: Float, right: Float): Float
+    fun floatEquals as nativeEquals(left: Float, right: Float): Bool
+    fun floatCompare as nativeCompare(left: Float, right: Float): Ordering
+    fun floatShow as nativeShow(value: Float): String
+    fun floatPow as nativePow(left: Float, right: Float): Float
+    fun floatHash as nativeHash(value: Float): Int
+
+    (** The truncated remainder of `left` divided by `right`, taking the sign of
+        `left` — this is JS's `%`, and C's `fmod`. It is exact: the true
+        remainder of two floats is always a float, so nothing rounds. It never
+        throws; a zero divisor or a non-finite operand answers `NaN`, exactly as
+        float division does. *)
+    export fun floatRem as rem(left: Float, right: Float): Float
+
+honor Eq<Float> =
+    (** Whether `left` and `right` are the same float, by SameValueZero: `NaN`
+        equals itself and `-0.0` equals `0.0`. This is deliberately not the
+        host's `===`, so that a float can key a hash table. *)
+    equals(left, right) = nativeEquals(left, right)
+
+honor Ord<Float> =
+    (** How `left` orders against `right`: a total order, so every float has a
+        place. `NaN` sorts last, after `+Infinity`, and `-0.0` compares equal to
+        `0.0`. *)
+    compare(left, right) = nativeCompare(left, right)
+
+honor Show<Float> =
+    (** The host's decimal form of `value`, warts and all: `4.0` shows as `4`,
+        `-0.0` as `0`, and the non-finite floats as `NaN`, `Infinity`, and
+        `-Infinity`. *)
+    show(value) = nativeShow(value)
+
+honor Hash<Float> =
+    (** A hash of `value`, normalized to agree with `Eq` above: every `NaN`
+        hashes alike, and `-0.0` hashes as `0.0`. *)
+    hash(value) = nativeHash(value)
+
+honor Signed<Float> =
+    (** The difference of `left` and `right`, rounded to the nearest float. *)
+    subtract(left, right) = nativeSubtract(left, right)
+    (** The additive inverse of `value`. Total, and it does distinguish the
+        zeroes: negating `0.0` gives `-0.0`. *)
+    negate(value) = nativeNegate(value)
+    (** The integer `value` as a `Float`. Total and exact: the range an `Int`
+        holds is exactly the range a float holds without rounding. *)
+    fromInt(value) = nativeFromInt(value)
+
+honor Num<Float> =
+    (** The sum of `left` and `right`, rounded to the nearest float. *)
+    add(left, right) = nativeAdd(left, right)
+    (** The product of `left` and `right`, rounded to the nearest float. *)
+    multiply(left, right) = nativeMultiply(left, right)
+    (** The natural number `value` as a `Float`, through the two conversions
+        beneath it: every `Nat` is an `Int`, and every `Int` is a `Float`. *)
+    fromNat(value) = Signed.fromInt(Int.fromNat(value))
+
+honor Frac<Float> =
+    (** `left` divided by `right`, following IEEE 754. It never throws: a zero
+        divisor answers an infinity, or `NaN` when the dividend is zero too. *)
+    divide(left, right) = nativeDivide(left, right)
+
+honor Pow<Float> =
+    (** `left` raised to the power `right`. It never throws: a negative float
+        exponent is an ordinary float operation, so the guard the integer types
+        carry does not exist here. *)
+    pow(left, right) = nativePow(left, right)
+
+(** The Euclidean remainder of `left` divided by `right`: never negative,
+    whatever the signs — which is what angle wrapping, phase accumulation, and
+    hue rotation want. It never throws, answering `NaN` wherever `rem` does. One
+    honest caveat at this type: the adjustment that lifts a negative remainder
+    can round up to the magnitude of `right` itself when the remainder is tiny
+    and the divisor is large, so the bound is `0.0 <= result <= abs(right)`
+    rather than the strict one `Int.mod` keeps. *)
+export let mod(left: Float, right: Float): Float =
+    let remainder = rem(left, right)
+    if remainder < 0.0 then
+        remainder + (if right < 0.0 then -right else right)
+    else
+        remainder

@@ -87,7 +87,7 @@ type name from a type variable and enables implicit generalisation without `fora
 
 **Semantics:** IEEE 754 binary64, i.e. exactly a JS `number`, warts included.
 
-**Value space includes `NaN`, `Infinity`, `-Infinity`, `-0`.** There is **no literal syntax** for the special values; the stdlib provides named constants `Float.nan`, `Float.infinity` (and negation covers the rest). Comparison/equality semantics around `NaN` and `-0` are specified in the constraint (Eq/Ord) spec, not here.
+**Value space includes `NaN`, `Infinity`, `-Infinity`, `-0`.** There is **no literal syntax** for the special values; the stdlib **owes** named constants `Float.nan`, `Float.infinity` (and negation covers the rest) — a stdlib-listing item not yet shipped: `stdlib/Float.hex` landed with the ruled minimal surface (instances plus `mod`/`rem`, #344), and the constants join it at the listing's discretion. *(Implementers: a lexer diagnostic already points at `Float.infinity`; until the constant ships, that hint names a spelling that does not resolve.)* Comparison/equality semantics around `NaN` and `-0` are specified in the constraint (Eq/Ord) spec, not here.
 
 **Literals:** monomorphic, always `Float` — a literal is a Float literal iff it contains a `.` or an exponent (`1.5`, `0.0`, `1e9`, `2.5e-3`). `_` separators allowed per §8. Decimal literals do **not** participate in the polymorphic literal scheme in v1 (deferred; the blocker is that `Rat`'s exact-binary `fromFloat` is not what a user writing `0.1` means — see Numeric Literals spec §7).
 

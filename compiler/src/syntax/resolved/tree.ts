@@ -961,7 +961,6 @@ export type Expr =
   | IndexExpr
   | HashExpr
   | CollectionOperationExpr
-  | PrimitiveOperationExpr
   | UnaryExpr
   | BinaryExpr
   | ComparisonExpr
@@ -1202,20 +1201,6 @@ export interface CollectionOperationExpr {
   readonly kind: "CollectionOperation";
   readonly collection: "Map" | "Set" | "Node";
   readonly operation: string;
-  readonly span: Source.Span;
-}
-
-/** A compiler-known operation in a primitive type's companion. */
-export interface PrimitiveOperationExpr {
-  readonly kind: "PrimitiveOperation";
-  /**
-   * `BigInt` left this union at its milestone (`spec/intrinsics.md` §9.2,
-   * #344) and `Int` at the one after: their families are `stdlib/BigInt.hex`'s
-   * and `stdlib/Int.hex`'s source, so no such node is ever minted for them.
-   * `Float` follows at its own, and the form dies with it.
-   */
-  readonly primitive: "Float";
-  readonly operation: "div" | "mod" | "quot" | "rem" | "gcd" | "lcm";
   readonly span: Source.Span;
 }
 

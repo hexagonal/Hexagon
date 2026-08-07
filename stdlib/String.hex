@@ -1,0 +1,47 @@
+// The public `String` companion. A primitive's home module is its fixed prelude
+// companion (Constraints §5.3), so this file is where `String`'s instances are
+// declared and where the orphan rule lets them be declared.
+
+// The natives, and only the natives. An own-operation member body cannot be
+// written in operators or interpolation — that sugar selects the very slot being
+// defined (Constraints §6.1) — so every such member is a one-line delegation to
+// one of the declarations below. `compare` is here for a second reason as well:
+// its codepoint walk has no strictly simpler Hexagon to be written in, because
+// the language has no codepoint API.
+//
+// `Show<String>`'s `show` is absent from this block on purpose: it is the
+// identity by ruling (Primitive Types §7), so its body is the plain binding
+// `value` — no operator, no interpolation, nothing that selects its own slot —
+// and the strictly-simpler doctrine sends such a body to ordinary Hexagon
+// (`spec/intrinsics.md` §3.2). Everything a string's *contents* can be asked —
+// length, slicing, joining — belongs to the listing and collections surfaces,
+// not here.
+extern from "hex:intrinsic"
+    fun stringConcat as nativeConcat(left: String, right: String): String
+    fun stringEquals as nativeEquals(left: String, right: String): Bool
+    fun stringCompare as nativeCompare(left: String, right: String): Ordering
+    fun stringHash as nativeHash(value: String): Int
+
+honor Eq<String> =
+    (** Whether `left` and `right` are the same text. *)
+    equals(left, right) = nativeEquals(left, right)
+
+honor Ord<String> =
+    (** How `left` orders against `right`, by Unicode code point. An astral
+        character therefore orders after every character of the basic plane,
+        which is where a host's own string comparison disagrees. *)
+    compare(left, right) = nativeCompare(left, right)
+
+honor Show<String> =
+    (** `value` itself: a string's canonical textual form is the string, with no
+        quoting and no escaping. *)
+    show(value) = value
+
+honor Concat<String> =
+    (** `left` followed by `right`. *)
+    concat(left, right) = nativeConcat(left, right)
+
+honor Hash<String> =
+    (** A hash of `value`. Equal strings hash equally, which is what `Eq` above
+        is checked against. *)
+    hash(value) = nativeHash(value)

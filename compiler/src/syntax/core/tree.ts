@@ -398,7 +398,6 @@ export type Expr =
   | IndexExpr
   | HashExpr
   | CollectionOperationExpr
-  | PrimitiveOperationExpr
   | ConvertNatExpr
   | WidenNatExpr
   | WidenIntExpr
@@ -524,19 +523,6 @@ export interface CollectionOperationExpr extends ExpressionFields {
   readonly collection: "Map" | "Set" | "Node";
   readonly operation: string;
   readonly hashEvidence?: Evidence;
-}
-
-/** A compiler-owned primitive companion operation awaiting JavaScript lowering. */
-export interface PrimitiveOperationExpr extends ExpressionFields {
-  readonly kind: "PrimitiveOperation";
-  /**
-   * `BigInt` left this union at its milestone (`spec/intrinsics.md` §9.2,
-   * #344) and `Int` at the one after: their families are `stdlib/BigInt.hex`'s
-   * and `stdlib/Int.hex`'s source, so no such node is ever minted for them.
-   * `Float` follows at its own, and the form dies with it.
-   */
-  readonly primitive: "Float";
-  readonly operation: "div" | "mod" | "quot" | "rem" | "gcd" | "lcm";
 }
 
 /** A non-representationally-trivial `Num.fromNat` application. */

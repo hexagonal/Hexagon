@@ -168,7 +168,11 @@ describe("verification replaces trust (§4.2)", () => {
       "`intAdd`, `intMultiply`, `intFromNat`, `intSubtract`, `intNegate`, " +
       "`intEquals`, `intCompare`, `intShow`, `intPow`, `intHash`, `intQuot`, " +
       "`intRem`, `natAdd`, `natMultiply`, `natEquals`, `natCompare`, `natShow`, " +
-      "`natPow`, `natHash`, `natQuot`, `natRem`, `natFromIntUnchecked`",
+      "`natPow`, `natHash`, `natQuot`, `natRem`, `natFromIntUnchecked`, " +
+      "`floatAdd`, `floatMultiply`, `floatSubtract`, `floatNegate`, " +
+      "`floatFromInt`, `floatDivide`, `floatEquals`, `floatCompare`, " +
+      "`floatShow`, `floatPow`, `floatHash`, `floatRem`, `stringConcat`, " +
+      "`stringEquals`, `stringCompare`, `stringHash`",
     ]);
   });
 
