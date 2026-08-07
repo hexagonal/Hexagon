@@ -181,10 +181,16 @@ describe("compileSource", () => {
     // `/Prelude.hex` is emitted because the always-supplied `Rat.hex` uses
     // `Ordering`, and `/VectorTrie.hex` because `Vector.hex` is built on it —
     // the trie runtime is reached the way a prelude member is, by an emitted
-    // import rather than by a source one.
+    // import rather than by a source one. `/BigInt.hex` joins for the same
+    // reason since #344: `Rat.hex` normalizes through `Integral<BigInt>`'s
+    // members, so the companion's dictionary and the constraint homes that
+    // declare what it throws (`/Integral.hex`, `/Pow.hex`) are emitted with it.
     expect(response.executionModules.map(({ path }) => path)).toEqual([
+      "/Pow.hex",
       "/Prelude.hex",
+      "/Integral.hex",
       "/stdlib/Option.hex",
+      "/BigInt.hex",
       "/VectorTrie.hex",
       "/stdlib/Vector.hex",
       "/stdlib/Rat.hex",
@@ -364,7 +370,12 @@ describe("compileSource", () => {
     );
     expect(ratModule?.javascript).toContain('bottom === 0n');
     expect(ratModule?.javascript).toContain('reducedBottom < 0n');
-    expect(ratModule?.javascript).toContain('name = "DivideByZeroError"');
+    // The brand is `Integral.hex`'s `exception` declaration now, reached by
+    // import (#344), rather than a helper branding an `Error` in place. The
+    // observable — name, message, `$hex` — is pinned by the executed test
+    // below, which is where it belongs.
+    expect(ratModule?.javascript).toContain("DivideByZeroError(\"Rat.create: bottom is zero\")");
+    expect(ratModule?.javascript).toContain('from "../Integral.js"');
     expect(ratModule?.javascript).toContain(
       "const __hex_instance_Frac_Rat = { signed: __hex_instance_Signed_Rat, divide:",
     );

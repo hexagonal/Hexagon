@@ -326,6 +326,20 @@ const BUILTIN_COMPANIONS: ReadonlyMap<string, string> = new Map([
 ]);
 
 /**
+ * The fixed prelude companion of each primitive that exists as source (#344).
+ *
+ * Method Syntax §4.1 always gave every primitive a companion; until the arc, no
+ * such module existed, so a primitive's dot surface was its honored members
+ * alone and the export clause of §4.2 had nothing to draw on. `BigInt.hex` is
+ * the first that does — `4n.lcm(6n)` and `5n.toInt()` are its ordinary exports,
+ * reached exactly as `Vector`'s are through the alias its prelude seat binds.
+ * The remaining companions join at their milestones, in that migration order.
+ */
+const PRIMITIVE_COMPANIONS: ReadonlyMap<string, string> = new Map([
+  ["BigInt", "primitive:BigInt"],
+]);
+
+/**
  * §4.2's `T`-headed test, run on a declaration: the outermost type constructor of
  * a first parameter's annotation, when that constructor is a nominal one.
  *
@@ -342,6 +356,7 @@ function companionKeyOfAnnotation(
   if (annotation === undefined) return undefined;
   if (annotation.kind === "RecordDeclaration") return recordCompanionKey(annotation.record);
   if (annotation.kind === "Union") return unionCompanionKey(annotation.union);
+  if (annotation.kind === "Primitive") return PRIMITIVE_COMPANIONS.get(annotation.name);
   return BUILTIN_COMPANIONS.get(annotation.kind);
 }
 
@@ -1273,7 +1288,8 @@ class Checker {
     // the same evidence `Vector.append(v, x)` already resolves through.
     const addressed = new Map<string, Set<Resolved.SymbolId>>();
     for (const alias of module.moduleAliases) {
-      const key = BUILTIN_COMPANIONS.get(alias.alias);
+      const key = BUILTIN_COMPANIONS.get(alias.alias) ??
+        PRIMITIVE_COMPANIONS.get(alias.alias);
       if (key === undefined) continue;
       const members = addressed.get(key) ?? new Set<Resolved.SymbolId>();
       for (const member of alias.members) members.add(member.symbol);
@@ -1426,6 +1442,7 @@ class Checker {
     const actual = this.#prune(type);
     if (actual.kind === "NominalRecord") return recordCompanionKey(actual.record);
     if (actual.kind === "Union") return unionCompanionKey(actual.union);
+    if (actual.kind === "Constructor") return PRIMITIVE_COMPANIONS.get(actual.name);
     return BUILTIN_COMPANIONS.get(actual.kind);
   }
 

@@ -295,6 +295,18 @@ function replaceDictionaryEvidence<T>(
   ) as T;
 }
 
+/**
+ * Which fundamental types honor which constraint, for planning the monomorphic
+ * editions (FFI's zero-cost fundamental exports).
+ *
+ * *(#344.)* The table asks what a type honors, not where the instance lives, so
+ * `BigInt`'s row is unchanged by the companion arc — but what an edition's
+ * evidence *renders* to did change: a substituted dictionary at a migrated
+ * companion resolves to that module's exported instance rather than to a
+ * literal built at the use site, which is `#emitEvidence`'s business, not this
+ * table's. `Int`, `Nat`, `Float`, and `String` follow at their milestones with
+ * no row here moving either.
+ */
 function fundamentalSupports(
   type: FundamentalType,
   constraint: Typed.ConstraintName,
