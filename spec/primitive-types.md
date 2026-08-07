@@ -32,7 +32,13 @@ deliberately not the default for bare literals: `let count = 3` remains `Int`, w
 
 Nat honors `Num`, `Eq`, `Ord`, `Show`, `Hash`, `Pow`, and `Integral`, but not `Signed`
 or `Frac`. Generic addition and multiplication therefore accept Nat; subtraction and
-negation do not. `Nat.fromInt : Int -> Option(Nat)` is the checked boundary conversion,
+negation do not. `Nat.fromInt : Int -> Option(Nat)` is the checked boundary conversion
+*(#344: built — an ordinary export of `stdlib/Nat.hex`, a sign check in Hexagon over its
+unexported unchecked core. One consequence rode in with it: `fromInt` gained a second
+exporter beside `Signed.hex`'s member, so the bare spelling is refused per Modules §5.5
+in favor of the qualified homes — `Signed.fromInt` for the polymorphic member,
+`Nat.fromInt` for this conversion. The corpus had zero bare uses; the same accepted
+trade `Concat`'s member and `Seq.concat` made when their spellings met)*,
 while an established Nat can widen exactly through `Num.fromNat` when another numeric
 type is independently established. Nat is intended for values whose non-negativity is
 the invariant—terminal counts, retry limits, page sizes, and checked parse boundaries—
@@ -57,7 +63,7 @@ type name from a type variable and enables implicit generalisation without `fora
 
 **Literals:** decimal digits, optional `_` separators (§8), no decimal point, no exponent, no `n` suffix. Per the Numeric Literals spec: a bare integer literal is *polymorphic* — it elaborates to `fromNat(k) : α` with constraint `Num α`, defaulting to `Int` at generalisation. The lexer range-checks the payload against 2^53 − 1 and errors with an "add `n`" fixit beyond that. **This doc does not restate that machinery; the Numeric Literals spec is authoritative for elaboration, defaulting, and codegen erasure.**
 
-**Division:** `Int` honors `Num` and `Signed` (add/multiply plus subtract/negate/fromInt) but **not** `Frac` — there is no generic `divide` at Int (decided when `divide` was evicted from `Signed`). Integer division/modulo are the monomorphic `Int.div` / `Int.mod` with deliberately chosen (floored) semantics — see the Signed/Frac constraint notes.
+**Division:** `Int` honors `Num` and `Signed` (add/multiply plus subtract/negate/fromInt) but **not** `Frac` — there is no generic `divide` at Int (decided when `divide` was evicted from `Signed`). Integer division/modulo are `Integral<Int>`'s `div`/`mod`, **Euclidean**, per the Division & Remainder spec — the owning doc; `Int.div`/`Int.mod` are those members qualified *(#344 — this sentence previously said "monomorphic" and "(floored)": it predated both the `Integral` constraint and the Euclidean ruling, and the members now live as source `honor` blocks in `stdlib/Int.hex`)*.
 
 **Standard constraints:** `Num`, `Signed`, `Eq`, `Ord`, `Show`, `Pow` (Operators §6.3), `Hash` (Collections Part 2 §2.5), `Integral` (Integral §3) *(corrected 2026-07-28, #137 — record in §11)*.
 
@@ -66,6 +72,8 @@ type name from a type variable and enables implicit generalisation without `fora
 **v1 default: silent, contract documented.** `Int` arithmetic is exact within ±(2^53 − 1). Outside that range, results are whatever f64 arithmetic produces (silent rounding). Default operators compile to plain JS operators — `x + y` emits `x + y`, no wrapper, no check. This is the Elm/Gleam position, chosen with eyes open: it is the least safe option on the menu, taken because (a) it is the only policy compatible with the readable-JS goal at the most common expressions in the language, and (b) the safe range is ~9·10^15 — four orders of magnitude above where ordinary application values (indexes, counters, money-in-cents, millisecond timestamps) live.
 
 **Checked stdlib variants** for call sites near the edge: `Int.checkedAdd`, `Int.checkedSub`, `Int.checkedMul : Int -> Int -> Option(Int)` (naming per the standard partiality story). Implementation: `Number.isSafeInteger` on the result — **except `checkedMul`, which must pre-check operand magnitudes**, because an oversized product rounds *before* a post-hoc check can see it (same trap as the fixed-width Rat discussion). Multiplication is also the op that overflows in practice (two ~10^8 operands suffice).
+
+*(#344: built — ordinary exports of `stdlib/Int.hex`. The landed implementation pre-checks all three, not only `checkedMul`: the post-hoc `isSafeInteger` note above would need a host predicate at the door and an out-of-range value transiting an `Int`-typed binding, and the door-backed law (intrinsics §3.2) forecloses both, while an exact pre-check needs neither. The forms, with `limit` = 2^53 − 1, every intermediate inside the safe range: addition overflows iff `right > 0 and left > limit - right` (that difference lies in `[0, limit)`) or `right < 0 and left < negate(limit) - right` (in `(negate(limit), 0]`); subtraction is `checkedAdd(left, negate(right))`, negation being total on the symmetric range; multiplication answers `Some(0)` on a zero operand and otherwise overflows iff `abs(left) > quot(limit, abs(right))` — the integer-division form of `abs(left) * abs(right) > limit`, exact without computing the product. The observable contract is exactly as decided; only the strategy note is superseded, in the pre-check direction it already pointed.)*
 
 **Reserved for later:** a compiler flag (working name `--checked-int`) routing all Int operators through the checked helpers — the Rust debug/release split — arriving if/when `hexc` grows build profiles. Not v1, but **implementers: write codegen with a pluggable arithmetic-emission point** rather than hardcoding `+`, so the flag is a configuration change, not a rewrite.
 
@@ -176,7 +184,7 @@ Human-facing sorting ("é" before "f", locale digraph rules) is **collation**, i
 
 **Conversions:** Numeric Literals §5.1 applies from established `Nat` and `Int` expressions into `BigInt`, through `Num.fromNat` and `Signed.fromInt` respectively; emission is `BigInt(value)` and is exact. There is no conversion in the other direction and no implicit conversion between `BigInt` and `Float`. Explicit stdlib conversions are provided by `stdlib/BigInt.hex` *(#344 — this sentence previously said "remain", with nothing built)*: `BigInt.fromInt : Int -> BigInt` (total — it **is** `Signed<BigInt>`'s member, reached qualified per Modules §5.3; one implementation, two spellings), `BigInt.toInt : BigInt -> Option(Int)` (partial per the standard partiality story — Unions spec, the `Option` this always meant), and `BigInt.toFloat : BigInt -> Float` (total, lossy, documented).
 
-**Division:** honors `Signed` but **not** `Frac` — BigInt division is truncating-toward-zero in JS, unlawful for generic `divide`. Monomorphic `BigInt.div` / `BigInt.mod` with the **same** floored convention as `Int.div`/`Int.mod`, uniformly wrapped in codegen.
+**Division:** honors `Signed` but **not** `Frac` — BigInt division is truncating-toward-zero in JS, unlawful for generic `divide`. `Integral<BigInt>`'s `div`/`mod`, the **same Euclidean** convention as at `Int`, per the Division & Remainder spec *(#344 — this sentence previously said "floored" and "uniformly wrapped in codegen": the convention's name was corrected when Division & Remainder ruled Euclidean, and the wrapping is now `stdlib/BigInt.hex`'s ordinary source, the Euclidean family in Hexagon over the truncated door pair)*.
 
 **FFI:** appears as `bigint` in emitted `.d.ts`. Known landmine, documented once in FFI docs: `JSON.stringify` throws on bigint — but only records that explicitly contain BigInt fields carry it, which is the point of keeping BigInt out of `Int`.
 
