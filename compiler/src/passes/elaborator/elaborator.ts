@@ -446,6 +446,12 @@ function evidence(requirement: Typed.Constraint | undefined): Core.Evidence {
         constraint: argument.name,
         evidence: evidence(argument),
       })),
+      // A source instance at a primitive head (#344). The selection is the
+      // instance's, and the note travels so emission can still inline the slots
+      // the monomorphic tables cover — Constraints §6.1's last sentence.
+      ...(requirement.type.kind === "Primitive"
+        ? { primitive: requirement.type.name }
+        : {}),
     };
   }
   if (requirement.structural === true) {

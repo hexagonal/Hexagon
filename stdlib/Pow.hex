@@ -1,3 +1,7 @@
+(** Raised when an integer type is raised to a negative power, which has no
+    answer at that type. `message` names the operation that threw. *)
+export exception NegativeExponentError(message: String)
+
 (** The polymorphic face of exponentiation. Honoring `Pow` gives a type the `**`
     operator. *)
 export constraint Pow<a: Num> =

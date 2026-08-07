@@ -65,6 +65,12 @@ export interface PreludeModule {
  * `Option.hex` and the rest follow in the order their uses demand — `Seq.hex`
  * sits after `Option.hex` because a pull step returns an `Option`.
  *
+ * `BigInt.hex` (#344) is the first **primitive companion** — a primitive's home
+ * module, where its instances are ordinary `honor` blocks rather than compiler
+ * rows (Constraints §5.3). It sits after every constraint declaration because it
+ * honors eight of them, and after `Option.hex` because `toInt` answers with one;
+ * nothing before it names a `BigInt`.
+ *
  * `Vector.hex` is last because it needs the most: `first`/`last`/`get` answer with
  * `Option`, and `toSeq`/`fromSeq` name `Seq`.
  */
@@ -82,7 +88,28 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Ord.hex",
   "Integral.hex",
   "Option.hex",
+  "BigInt.hex",
   "Seq.hex",
   "Result.hex",
   "Vector.hex",
 ].map((basename) => ({ basename, source: PRELUDE_SOURCES[basename]! }));
+
+/**
+ * The **fixed prelude companion** of each primitive (Method Syntax §4.1's table;
+ * Constraints §5.3 — #344), by the basename its module is injected at.
+ *
+ * A primitive type's home module is its companion, which is what lets the orphan
+ * rule read for primitives exactly as it always has for nominal types, and what
+ * lets Modules §5.3's "a type it declares" read as "the primitive it companions".
+ * A primitive has no declaration, so this fact cannot come from a module's text:
+ * it comes from the injection path, the same shape the intrinsic door's privilege
+ * takes (`spec/intrinsics.md` §5.2).
+ *
+ * Only the companions that exist as source are here. `Int`, `Nat`, `Float`, and
+ * `String` join at their own milestones, in that migration order; until then
+ * their instances are compiler-wired and their qualified spellings are the
+ * resolver's transitional ones (Modules §5.3's note).
+ */
+export const PRIMITIVE_COMPANION_BASENAMES: ReadonlyMap<string, string> = new Map([
+  ["BigInt.hex", "BigInt"],
+]);

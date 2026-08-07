@@ -225,6 +225,13 @@ export interface ResolveOptions {
    * closed with a named rewrite.
    */
   readonly privileged?: boolean;
+  /**
+   * The primitive this module is the fixed prelude companion of, when it is one
+   * (`Resolved.Module.companionPrimitive` — #344). Settled by the caller from
+   * the injection path and never from the module's text, because a primitive has
+   * no declaration for text to point at.
+   */
+  readonly companionPrimitive?: Resolved.PrimitiveName;
 }
 
 export function resolve(
@@ -436,6 +443,7 @@ class Resolver {
   readonly #imports: ReadonlyMap<string, ModuleInterface>;
   readonly #runtime: boolean;
   readonly #privileged: boolean;
+  readonly #companionPrimitive: Resolved.PrimitiveName | undefined;
   readonly #preludeScope = new Scope();
   /** Every scope opened, in the order they were opened — see `Module.scopes`. */
   readonly #openScopes: Scope[] = [];
@@ -566,6 +574,7 @@ class Resolver {
     this.#imports = options.imports ?? new Map();
     this.#runtime = options.runtime ?? false;
     this.#privileged = options.privileged ?? false;
+    this.#companionPrimitive = options.companionPrimitive;
     this.#nextSymbol = options.symbolBase ?? 0;
     this.#nextUnion = options.unionBase ?? 0;
     this.#nextRecord = options.recordBase ?? 0;
@@ -922,6 +931,9 @@ class Resolver {
       externTypes: this.#externTypes,
       comments: module.comments,
       docs: module.docs,
+      ...(this.#companionPrimitive === undefined
+        ? {}
+        : { companionPrimitive: this.#companionPrimitive }),
       span: module.span,
       diagnostics: this.#diagnostics.toArray(),
     };
@@ -2176,15 +2188,21 @@ class Resolver {
               span: expression.span,
             };
           }
+          // The primitive door, now `Int` and `Float` alone: `"BigInt"` left this
+          // list at its milestone (`spec/intrinsics.md` §9.2, #344), where
+          // `stdlib/BigInt.hex` took over the whole family as source. The guard
+          // would already have declined — a companion module claims the name, so
+          // `#namedModule` answers — but a list that still named `BigInt` would
+          // say the door was merely dormant rather than removed.
           if (
-            ["Int", "BigInt", "Float"].includes(expression.receiver.name.text) &&
+            ["Int", "Float"].includes(expression.receiver.name.text) &&
             scope.lookup(expression.receiver.name.text) === undefined &&
             this.#namedModule(expression.receiver.name.text) === undefined &&
             ["div", "mod", "quot", "rem", "gcd", "lcm"].includes(expression.field.text)
           ) {
             return {
               kind: "PrimitiveOperation",
-              primitive: expression.receiver.name.text as "Int" | "BigInt" | "Float",
+              primitive: expression.receiver.name.text as "Int" | "Float",
               operation: expression.field.text as "div" | "mod" | "quot" | "rem" | "gcd" | "lcm",
               span: expression.span,
             };
@@ -3592,11 +3610,21 @@ class Resolver {
     alias: string,
     field: Parsed.Name,
   ): Resolved.Expr | undefined {
+    // "A type it declares" — read for a **fixed prelude companion** as *the
+    // primitive it companions* (Modules §5.3 as amended by #344; Constraints
+    // §5.3 makes the companion the primitive's home module). `BigInt.gcd`
+    // denotes `Integral<BigInt>`'s member exactly as `Rat.add` denotes
+    // `Num<Rat>`'s, and the conversions ride the same read. The fact comes from
+    // the module's compilation, not its text, so a user module honoring at a
+    // primitive it does not companion is unaffected — as is the several-own-types
+    // ambiguity refusal below, which a companion honoring at one type never meets.
     const declares = (subject: Resolved.TypeAnnotation): boolean =>
       (subject.kind === "RecordDeclaration" &&
         [...iface.records.values()].some(({ id }) => id === subject.record)) ||
       (subject.kind === "Union" &&
-        [...iface.unions.values()].some(({ id }) => id === subject.union));
+        [...iface.unions.values()].some(({ id }) => id === subject.union)) ||
+      (subject.kind === "Primitive" &&
+        subject.name === iface.module.companionPrimitive);
     const candidates = iface.instances.flatMap((instance) => {
       if (!declares(instance.subject)) return [];
       const declaration = iface.visibleConstraints.find(
@@ -3776,8 +3804,14 @@ function isResolvedTypeAlias(
  * The primitives Modules §5.3's transitional note names: the companions with no
  * `.hex` module, whose qualified member spellings are wired until the companion
  * arc supplies real ones.
+ *
+ * `BigInt` left the list at its milestone (#344): `stdlib/BigInt.hex` is real
+ * source, so `BigInt.show(3n)` is Modules §5.3's ordinary honored-member read
+ * through `#honoredMemberAccess`, not a wired spelling. The list would already
+ * have declined for it — every entry is guarded on no module claiming the name —
+ * so this is hygiene, and it is what keeps the list meaning "not yet migrated".
  */
-const PRIMITIVE_COMPANIONS: readonly string[] = ["Int", "Nat", "BigInt", "Float", "String"];
+const PRIMITIVE_COMPANIONS: readonly string[] = ["Int", "Nat", "Float", "String"];
 
 /** One `honor` declaration's binding of one member spelling (Constraints §4.6). */
 interface HonoredMemberLine {

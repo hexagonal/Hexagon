@@ -43,6 +43,16 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * persistent indexed update, and the eager/lazy bridge. Everything else in that
  * table is Hexagon source in `stdlib/Vector.hex`, which declares these seven and
  * owns the public surface over them (§9.2's `Vector` milestone).
+ *
+ * The `bigInt*` family is the door's third customer and the primitive template's
+ * worked example (§3.2, #344), in the **primop shape**: every own-operation
+ * member of `stdlib/BigInt.hex`'s eight instances crosses here, because an
+ * operator- or interpolation-form body would denote only the slot it defines
+ * (Constraints §6.1). What sits *above* those operations is ordinary Hexagon in
+ * that file and therefore absent here — the Euclidean pair over the truncated
+ * one, `gcd`, `lcm`, `toInt`'s range check, and every zero-divisor and
+ * negative-exponent guard. `bigIntPow` is the raw native `**`, unguarded, for
+ * the same reason.
  */
 export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["seqMemoize", 1],
@@ -53,6 +63,21 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["vectorSet", 3],
   ["vectorToSeq", 1],
   ["vectorFromSeq", 1],
+  ["bigIntAdd", 2],
+  ["bigIntMultiply", 2],
+  ["bigIntFromNat", 1],
+  ["bigIntSubtract", 2],
+  ["bigIntNegate", 1],
+  ["bigIntFromInt", 1],
+  ["bigIntEquals", 2],
+  ["bigIntCompare", 2],
+  ["bigIntShow", 1],
+  ["bigIntPow", 2],
+  ["bigIntHash", 1],
+  ["bigIntQuot", 2],
+  ["bigIntRem", 2],
+  ["bigIntToIntUnchecked", 1],
+  ["bigIntToFloat", 1],
 ]);
 
 /**

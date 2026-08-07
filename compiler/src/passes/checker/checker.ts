@@ -511,6 +511,19 @@ class Checker {
    */
   #boolUnion: Resolved.UnionId | undefined;
   /**
+   * The primitive this module is the fixed prelude companion of, when it is one
+   * (`Resolved.Module.companionPrimitive`; Constraints §5.3, #344).
+   *
+   * A primitive has no declaration, so the orphan rule's "the module that
+   * declares `T`" had nothing to point at for a primitive head, and `Hash`'s
+   * derivable-only law had no `derives` clause to send a companion to. The
+   * companion module is the home the ruling supplies, and this is the whole of
+   * what the checker reads it for — two carve-outs, each scoped to *this*
+   * primitive, and neither reachable from a user module, whose compilation never
+   * sets the field.
+   */
+  #companionPrimitive: Resolved.PrimitiveName | undefined;
+  /**
    * Per intrinsic declaration, the variables its annotations introduced. Shared
    * between scheme construction and materialization so both name the same
    * variables — without it the materialized result type would carry a fresh
@@ -756,6 +769,7 @@ class Checker {
     // satisfies the guard: `stdlib/Bool.hex`, declaring what the prelude cannot
     // yet supply to it. The emitter and the specialization planner use the same
     // form; they must agree, or one pass pins what another does not.
+    this.#companionPrimitive = module.companionPrimitive;
     this.#boolUnion = module.preludeUnions.get("Bool")
       ?? (module.preludeUnions.size === 0
         ? module.unions.find((union) => union.name === "Bool")?.id
@@ -1834,6 +1848,22 @@ class Checker {
     return result;
   }
 
+  /**
+   * Whether this instance head names the primitive this module companions
+   * (Constraints §5.3's "a primitive type's home module is its fixed prelude
+   * companion" — #344).
+   *
+   * The one predicate behind both primitive carve-outs, so they cannot drift:
+   * the orphan rule reads it as `ownsSubject`, and `Hash`'s derivable-only law
+   * reads it as the privilege that admits a hand-written instance. It is false
+   * in every module the compilation did not seat at a primitive's own injection
+   * path — a user module honoring at `BigInt` is the orphan it always was, and a
+   * user `honor Hash<BigInt>` keeps the refusal.
+   */
+  #companionsPrimitive(subject: Resolved.TypeAnnotation): boolean {
+    return subject.kind === "Primitive" && subject.name === this.#companionPrimitive;
+  }
+
   #checkInstanceHead(
     item: Resolved.HonorItem,
     moduleItems: readonly Resolved.Item[],
@@ -1887,12 +1917,13 @@ class Checker {
     // exactly the `honor ImportedC<ImportedT>` a third module must not write
     // (Constraints §5.3).
     const ownsConstraint = this.#localConstraints.has(item.constraint);
-    const ownsSubject = moduleItems.some((candidate) =>
-      (subject.kind === "Union" && candidate.kind === "Union" && candidate.union === subject.union) ||
-      (subject.kind === "RecordDeclaration" &&
-        candidate.kind === "RecordDeclaration" &&
-        candidate.record === subject.record)
-    );
+    const ownsSubject = this.#companionsPrimitive(subject) ||
+      moduleItems.some((candidate) =>
+        (subject.kind === "Union" && candidate.kind === "Union" && candidate.union === subject.union) ||
+        (subject.kind === "RecordDeclaration" &&
+          candidate.kind === "RecordDeclaration" &&
+          candidate.record === subject.record)
+      );
     if (!ownsConstraint && !ownsSubject) {
       this.#diagnostics.add({
         severity: "error",
@@ -1976,7 +2007,18 @@ class Checker {
           });
           continue;
         }
-        if (!item.derived && item.constraint === "Hash") {
+        // Constraints §4.5's carve-out (#344): a **privileged prelude companion
+        // honoring at its own primitive** may hand-write `Hash`, because a
+        // primitive has no declaration to hang `derives` on and the refusal's
+        // own rewrite therefore names nothing writable. The
+        // hash-agrees-with-`Eq` obligation transfers to that file, where both
+        // instances sit side by side. Every user module keeps the refusal
+        // verbatim: the carve-out follows compilation privilege, exactly as the
+        // intrinsic door's gate does.
+        if (
+          !item.derived && item.constraint === "Hash" &&
+          !this.#companionsPrimitive(item.subject)
+        ) {
           this.#diagnostics.add({
             severity: "error",
             message: "`Hash` instances cannot be hand-written; use `derives Hash` on the declaration of the subject type",
@@ -2732,11 +2774,14 @@ class Checker {
         break;
       case "PrimitiveOperation": {
         const subject = primitive(expression.primitive);
+        // `lcm` is `BigInt`'s alone (Integral §5: `Int.lcm` does not exist), and
+        // `BigInt` left this form entirely at its milestone (#344) — the
+        // resolver mints no such node for it now, and `BigInt.lcm` is an
+        // ordinary export of `stdlib/BigInt.hex`. So the two rows left are the
+        // two companions still transitional.
         const permitted = expression.primitive === "Float"
           ? ["mod", "rem"]
-          : expression.primitive === "Int"
-          ? ["div", "mod", "quot", "rem", "gcd"]
-          : ["div", "mod", "quot", "rem", "gcd", "lcm"];
+          : ["div", "mod", "quot", "rem", "gcd"];
         type = permitted.includes(expression.operation)
           ? { kind: "Function", parameters: [subject, subject], result: subject }
           : this.#unsupported(
@@ -4781,9 +4826,14 @@ class Checker {
           this.#entailmentPath(identity, this.#constraintIdentity(constraint)) !==
             undefined
         )
-      : destination.kind === "Constructor"
-        ? supports(destination.name, constraint)
-        : this.#instances.has(this.#instanceKeyFor(constraint, destination));
+      // A primitive answers from either channel, and the two never both answer
+      // for one (constraint, type) pair (#344): a wired row for the companions
+      // still transitional, the source `honor` block for the ones that have
+      // migrated. Before the companion arc the `Constructor` arm read `supports`
+      // alone, which is why `Rat.fromNat`'s widening into `BigInt` was the first
+      // thing to break when that row retired.
+      : this.#instances.has(this.#instanceKeyFor(constraint, destination)) ||
+        (destination.kind === "Constructor" && supports(destination.name, constraint));
   }
 
   #supportsSignedTarget(target: Mono, allowVariableTarget = false): boolean {
@@ -8395,7 +8445,14 @@ function supports(
     // instances are the automatic structural tuple instances, vacuous at zero
     // components — `#validate`'s structural branch, not a decree here.
     String: ["Eq", "Ord", "Show", "Concat", "Hash"],
-    BigInt: ["Num", "Signed", "Eq", "Ord", "Show", "Pow", "Hash", "Integral"],
+    // No `BigInt` row since #344: its eight instances are source `honor` blocks
+    // in `stdlib/BigInt.hex`, selected from `#instances` like `Rat`'s. A wired
+    // row and a source instance never coexist for one (constraint, type) pair —
+    // that is Constraints §5.1's coherence applied to the compiler itself, and a
+    // compile in which both answer is a conformance defect. `Int`, `Nat`,
+    // `Float`, and `String` retire the same way at their milestones, in that
+    // order (`spec/intrinsics.md` §9.2), and this table dies with the last.
+    BigInt: [],
     Exn: [],
   };
   return instances[type].includes(constraint);

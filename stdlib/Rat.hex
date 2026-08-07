@@ -4,7 +4,9 @@ export opaque record Rat derives (Eq, Hash) = {
     bottom: BigInt,
 }
 
-export exception DivideByZeroError(message: String)
+// `DivideByZeroError` is `Integral.hex`'s, in scope through the prelude: one
+// declaration for every type whose division is partial, rather than one per
+// honoring module (#344).
 
 export let create(top: BigInt, bottom: BigInt): Rat =
     if bottom == 0 then

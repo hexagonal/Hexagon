@@ -1,3 +1,7 @@
+(** Raised when a division or remainder is asked for with a zero divisor, at any
+    integer type. `message` names the operation that threw. *)
+export exception DivideByZeroError(message: String)
+
 (** The polymorphic face of exact integer division. Honoring `Integral` gives a
     type both division conventions — Euclidean `div`/`mod` and truncated
     `quot`/`rem` — along with greatest common divisors. *)
