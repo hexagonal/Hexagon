@@ -137,6 +137,9 @@ describe("a type-only prelude mention has its instances", () => {
     expect(diagnostics([["/main.hex", source]])).toEqual([]);
     expect(importLines(emitted([["/main.hex", source]], "/main.hex"))).toEqual([
       'import { __hex_instance_Eq_Option as __hex_imported_13___hex_instance_Eq_Option } from "./Option.js";',
+      // The component instance `Eq<Option(Int)>` selects (#278), an import
+      // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
+      'import { __hex_instance_Eq_Int as __hex_imported_15___hex_instance_Eq_Int } from "./Int.js";',
     ]);
     expect(danglingImports([["/main.hex", source]])).toEqual([]);
 
@@ -221,6 +224,9 @@ describe("transit shapes keep working and shrink", () => {
     const b = emitted(files, "/b.hex");
     expect(importLines(b)).toEqual([
       'import { __hex_instance_Eq_Option as __hex_imported_14___hex_instance_Eq_Option } from "./Option.js";',
+      // The component instance `Eq<Option(Int)>` selects (#278), an import
+      // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
+      'import { __hex_instance_Eq_Int as __hex_imported_16___hex_instance_Eq_Int } from "./Int.js";',
       'import { mk } from "./a.js";',
     ]);
     // The point of the fix: no evidence re-export anywhere on the path.
@@ -246,6 +252,9 @@ describe("transit shapes keep working and shrink", () => {
     expect(diagnostics(files)).toEqual([]);
     expect(importLines(emitted(files, "/b.hex"))).toEqual([
       'import { __hex_instance_Eq_Option as __hex_imported_14___hex_instance_Eq_Option } from "./Option.js";',
+      // The component instance `Eq<Option(Int)>` selects (#278), an import
+      // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
+      'import { __hex_instance_Eq_Int as __hex_imported_16___hex_instance_Eq_Int } from "./Int.js";',
       'import "./a.js";',
     ]);
     expect(exportLines(emitted(files, "/a.hex"))).toEqual(["export { mk };"]);
@@ -265,6 +274,9 @@ describe("transit shapes keep working and shrink", () => {
     expect(diagnostics(files)).toEqual([]);
     expect(importLines(emitted(files, "/c.hex"))).toEqual([
       'import { __hex_instance_Eq_Option as __hex_imported_15___hex_instance_Eq_Option } from "./Option.js";',
+      // The component instance `Eq<Option(Int)>` selects (#278), an import
+      // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
+      'import { __hex_instance_Eq_Int as __hex_imported_17___hex_instance_Eq_Int } from "./Int.js";',
       'import { h } from "./b.js";',
     ]);
     expect(exportLines(emitted(files, "/b.hex"))).toEqual(["export { h };"]);
@@ -290,6 +302,9 @@ describe("transit shapes keep working and shrink", () => {
     const javascript = emitted(files, "/main.hex");
     expect(importLines(javascript)).toEqual([
       'import { __hex_instance_Eq_Option as __hex_imported_13___hex_instance_Eq_Option } from "./Option.js";',
+      // The component instance `Eq<Option(Int)>` selects (#278), an import
+      // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
+      'import { __hex_instance_Eq_Int as __hex_imported_15___hex_instance_Eq_Int } from "./Int.js";',
     ]);
     expect(javascript).not.toContain("Seq.js");
     expect(exportLines(javascript)).toEqual([

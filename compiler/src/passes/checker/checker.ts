@@ -333,10 +333,15 @@ const BUILTIN_COMPANIONS: ReadonlyMap<string, string> = new Map([
  * alone and the export clause of §4.2 had nothing to draw on. `BigInt.hex` is
  * the first that does — `4n.lcm(6n)` and `5n.toInt()` are its ordinary exports,
  * reached exactly as `Vector`'s are through the alias its prelude seat binds.
- * The remaining companions join at their milestones, in that migration order.
+ * `Int.hex` and `Nat.hex` followed, bringing `9.checkedMul(9)`-shaped surfaces
+ * of their own (`Nat.hex`'s one export takes an `Int` first, so it is reached
+ * qualified — `Nat.fromInt(-1)` — not as a dot call on a `Nat`). `Float` and
+ * `String` join at their milestones, in that migration order.
  */
 const PRIMITIVE_COMPANIONS: ReadonlyMap<string, string> = new Map([
   ["BigInt", "primitive:BigInt"],
+  ["Int", "primitive:Int"],
+  ["Nat", "primitive:Nat"],
 ]);
 
 /**
@@ -2791,14 +2796,13 @@ class Checker {
         break;
       case "PrimitiveOperation": {
         const subject = primitive(expression.primitive);
-        // `lcm` is `BigInt`'s alone (Integral §5: `Int.lcm` does not exist), and
-        // `BigInt` left this form entirely at its milestone (#344) — the
-        // resolver mints no such node for it now, and `BigInt.lcm` is an
-        // ordinary export of `stdlib/BigInt.hex`. So the two rows left are the
-        // two companions still transitional.
-        const permitted = expression.primitive === "Float"
-          ? ["mod", "rem"]
-          : ["div", "mod", "quot", "rem", "gcd"];
+        // `Float` is the one row left. `BigInt` left this form entirely at its
+        // milestone (#344) and `Int` at the one after — the resolver mints no
+        // such node for either now, and their families are ordinary members and
+        // exports of `stdlib/BigInt.hex` and `stdlib/Int.hex`. `Float` is not
+        // `Integral`, so it never had more than the two: `div`, `quot`, `gcd`,
+        // and `lcm` at `Float` are refused here and always were.
+        const permitted = ["mod", "rem"];
         type = permitted.includes(expression.operation)
           ? { kind: "Function", parameters: [subject, subject], result: subject }
           : this.#unsupported(
@@ -5825,13 +5829,25 @@ class Checker {
   }
 
   /**
-   * Numeric Literals §4's defaulting rule: the defaultable set is closed and
-   * hard-coded, "not user-extensible" — §7 rejects Haskell-style extensible
-   * defaulting outright. So the test reads the compiler's own `Int` instance
-   * table and never `#instances`, which a user `honor Conjure<Int>` extends:
-   * consulting that table would make defaulting user-extensible, which is
-   * exactly what §4 forbids. Contrast `#satisfiedAt`, which answers §6's
-   * different, *semantic* question and does consult user instances.
+   * Numeric Literals §4's defaulting rule, as its #344 edit note amends it: a
+   * constraint is defaultable exactly when **the prelude** supplies its `Int`
+   * instance. The rule did not change; where the `Int` instances live did. A
+   * wired row answered while `Int` was compiler-wired; since `Int.hex` took its
+   * seat, the source `honor` block answers, and the test has to consult both or
+   * it would report every numeric literal as ambiguous.
+   *
+   * §7 still rejects Haskell-style extensible defaulting, and the set is still
+   * closed against user code — now structurally rather than by decree, with two
+   * independent guarantees. The **belt** is `#defaultableAtInt`'s
+   * pre-registered test: a user's `Conjure` has a declared identity, not
+   * `hex:Conjure`, so `honor Conjure<Int>` never enters the set however it is
+   * spelled. The **suspenders** is the orphan rule (Constraints §5.3, with the
+   * companion as `Int`'s home module), which leaves no site where user source
+   * could legally honor a pre-registered constraint at `Int` in the first
+   * place.
+   *
+   * Contrast `#satisfiedAt`, which answers §6's different, *semantic* question
+   * and deliberately does consult user instances.
    */
   #canDefaultToInt(variable: Variable): boolean {
     return variable.requirements.length > 0 &&
@@ -5840,7 +5856,18 @@ class Checker {
 
   /** The first constraint outside §4's closed set, which blocks defaulting. */
   #blockingConstraint(variable: Variable): Requirement | undefined {
-    return variable.requirements.find(({ name }) => !supports("Int", name));
+    return variable.requirements.find((requirement) => !this.#defaultableAtInt(requirement));
+  }
+
+  /**
+   * Whether this requirement's constraint is one the prelude honors at `Int`,
+   * read through the two channels a primitive instance can take (#344) and
+   * gated on the constraint being pre-registered.
+   */
+  #defaultableAtInt(requirement: Requirement): boolean {
+    if (requirement.identity !== preRegisteredConstraintIdentity(requirement.name)) return false;
+    return supports("Int", requirement.name) ||
+      this.#instances.has(this.#instanceKey(requirement.identity, primitive("Int")));
   }
 
   #collectVariables(type: Mono, found = new Map<number, Variable>()): Variable[] {
@@ -8450,8 +8477,11 @@ function supports(
   constraint: Typed.ConstraintName,
 ): boolean {
   const instances: Record<Typed.PrimitiveName, readonly Typed.ConstraintName[]> = {
-    Nat: ["Num", "Eq", "Ord", "Show", "Pow", "Hash", "Integral"],
-    Int: ["Num", "Signed", "Eq", "Ord", "Show", "Pow", "Hash", "Integral"],
+    // No `Nat` or `Int` row since #344's second landing, for the reason the
+    // `BigInt` note below gives: their instances are source `honor` blocks in
+    // `stdlib/Nat.hex` and `stdlib/Int.hex`, selected from `#instances`.
+    Nat: [],
+    Int: [],
     Float: ["Num", "Signed", "Frac", "Eq", "Ord", "Show", "Pow", "Hash"],
     // No `Bool` row (#147): its four instances are *derived* from the `derives`
     // clause in `stdlib/Bool.hex`, through the same door a user's union uses,
@@ -8466,9 +8496,9 @@ function supports(
     // in `stdlib/BigInt.hex`, selected from `#instances` like `Rat`'s. A wired
     // row and a source instance never coexist for one (constraint, type) pair —
     // that is Constraints §5.1's coherence applied to the compiler itself, and a
-    // compile in which both answer is a conformance defect. `Int`, `Nat`,
-    // `Float`, and `String` retire the same way at their milestones, in that
-    // order (`spec/intrinsics.md` §9.2), and this table dies with the last.
+    // compile in which both answer is a conformance defect. `Int` and `Nat`
+    // retired the same way one milestone later; `Float` and `String` follow at
+    // theirs (`spec/intrinsics.md` §9.2), and this table dies with the last.
     BigInt: [],
     Exn: [],
   };

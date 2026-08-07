@@ -263,9 +263,9 @@ constraint Pow<a: Num> =
 
 | Instance | Semantics | Emission |
 |---|---|---|
-| `Nat` | non-negative exponent; exact within the safe range under Nat's ordinary overflow contract | checked numeric `**` helper |
+| `Nat` | non-negative exponent; exact within the safe range under Nat's ordinary overflow contract | native `**` *(#344: the source `Pow<Nat>` member in `stdlib/Nat.hex` is the raw-native door key `natPow` with nothing above it — a `Nat` exponent cannot be negative, so the guard the checked helper carried was dead by typing here; this row previously said "checked numeric `**` helper", and behaviour is unchanged because the removed guard was unreachable)* |
 | `Float` | IEEE 754, JS `**` exactly (including `NaN` edges) | native `**` |
-| `Int` | exact for `y >= 0` within the safe range (overflow policy = ordinary Int arithmetic, Primitive Types §2.1); **`y < 0` throws `NegativeExponentError`** — a fractional result cannot be an `Int`, same species of partiality as `Int.div`'s zero check | `Int.pow(x, y)` helper (carries the guard) |
+| `Int` | exact for `y >= 0` within the safe range (overflow policy = ordinary Int arithmetic, Primitive Types §2.1); **`y < 0` throws `NegativeExponentError`** — a fractional result cannot be an `Int`, same species of partiality as `Int.div`'s zero check | `Int.pow(x, y)` *(#344: now the source `Pow<Int>` member in `stdlib/Int.hex` — Hexagon guard over the raw-native door key `intPow`, exactly `BigInt`'s shape in the row below; this cell previously said "helper (carries the guard)"; behaviour and message unchanged)* |
 | `BigInt` | exact; `y < 0` throws `NegativeExponentError` (JS `**` on bigints throws `RangeError`; we brand our own — Exceptions edit note §14.2) | `BigInt.pow(x, y)` helper *(#344: now the source `Pow<BigInt>` member in `stdlib/BigInt.hex` — Hexagon guard over the raw-native door key `bigIntPow`; the exception's declared home is `stdlib/Pow.hex`; behaviour and message unchanged)* |
 
 The polymorphic case is the ordinary dictionary call. `pow` is also directly callable as a member, like every constraint member.

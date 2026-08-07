@@ -89,19 +89,20 @@ describe("Node intrinsic conformance", () => {
     expect(m.independent).toBe(true);
   });
 
-  test("emits raw array operations and the copy-on-write helper", async () => {
-    const file = new Source.File(
-      Source.fileId(0),
-      "/runtime.hex",
-      "export let one: Int = Node.get(Node.copy(Node.set(Node.empty(), 0, 1)), 0)\n",
+  // Through the project, not the bare passes: the module's `Int` literals need
+  // `stdlib/Int.hex`'s `Num<Int>` since #344, exactly as its `Bool` needed
+  // `stdlib/Bool.hex` since #147.
+  test("emits raw array operations and the copy-on-write helper", () => {
+    const project = compileFiles(
+      [["/runtime.hex", "export let one: Int = Node.get(Node.copy(Node.set(Node.empty(), 0, 1)), 0)\n"]],
+      { runtimePaths: ["/runtime.hex"] },
     );
-    const javascript = emitJavaScript(
-      elaborate(check(resolve(parse(applyLayout(lex(file))), { runtime: true }))),
-    );
-    expect(javascript.diagnostics).toEqual([]);
-    expect(javascript.text).toContain("new Array(32)");
-    expect(javascript.text).toMatch(/\.slice\(\)/u);
-    expect(javascript.text).toMatch(/function \w*nodeSet/u);
+    expect(project.diagnostics).toEqual([]);
+    const text = project.modules
+      .find(({ source }) => source.path === "/runtime.hex")!.javascript.text;
+    expect(text).toContain("new Array(32)");
+    expect(text).toMatch(/\.slice\(\)/u);
+    expect(text).toMatch(/function \w*nodeSet/u);
   });
 });
 

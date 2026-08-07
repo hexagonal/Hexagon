@@ -45,6 +45,14 @@ function javascript(source: string): string {
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
 }
 
+/** A prelude companion's own emitted JavaScript, as that project compiled it. */
+function companionText(source: string, basename: string): string {
+  const project = compileMain(source);
+  expect(project.diagnostics).toEqual([]);
+  return project.modules
+    .find(({ source: file }) => file.path.endsWith(`/${basename}`))!.javascript.text;
+}
+
 describe("the issue specimen: a hand-written `honor Ord` answers the operators", () => {
   test("`<` and `>` are what the hand-written `compare` says", async () => {
     // Verbatim from #275, plus the export the issue's reporter did not need.
@@ -405,8 +413,13 @@ describe("one representation, observable from JS (FFI Part 9)", () => {
     expect(text).toContain(
       "compare: (__hex_a, __hex_b) => __hex_ordering(__hex_compareString(__hex_a, __hex_b))",
     );
-    expect(text).toContain(
-      'compare: (__hex_a, __hex_b) => __hex_a < __hex_b ? "Less" : __hex_a > __hex_b ? "Greater" : "Equal"',
+    // At `Int` the argument is no longer a literal built here: since #344 it is
+    // `stdlib/Int.hex`'s exported dictionary, imported. The shape it holds is
+    // the same name-string comparator, pinned at its new home below.
+    expect(text).toContain("__hex_instance_Ord_Cell(__hex_imported_");
+    expect(text).toContain('__hex_instance_Ord_Int } from "./Int.js"');
+    expect(companionText(source, "Int.hex")).toContain(
+      '(__hex_a, __hex_b) => __hex_a < __hex_b ? "Less" : __hex_a > __hex_b ? "Greater" : "Equal"',
     );
     expect(text).toContain(
       'function __hex_ordering(__hex_sign) {\n' +

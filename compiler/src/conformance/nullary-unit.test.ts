@@ -6,19 +6,15 @@
  */
 import { describe, expect, test } from "vitest";
 
-import * as Source from "../support/source.js";
-import { lex } from "../passes/lexer/lexer.js";
-import { applyLayout } from "../passes/layout/layout.js";
-import { parse } from "../passes/parser/parser.js";
-import { resolve } from "../passes/resolver/resolver.js";
-import { check } from "../passes/checker/checker.js";
+import { projectDiagnostics } from "../support/test-project.js";
 
-function diagnostics(source: string): string[] {
-  const file = new Source.File(Source.fileId(0), "/probe.hex", source);
-  const resolved = resolve(parse(applyLayout(lex(file))), {});
-  const typed = check(resolved);
-  return [...resolved.diagnostics, ...typed.diagnostics].map(({ message }) => message);
-}
+/**
+ * Through `compileProject`, prelude included: since #344's companion arc an
+ * integer literal's `Num<Int>` is `stdlib/Int.hex`'s `honor` block, so a
+ * prelude-free harness cannot type the `Int` these probes are written over —
+ * the same reason #147 gave for `Bool` (`test-project.ts`).
+ */
+const diagnostics = (source: string): readonly string[] => projectDiagnostics(source);
 
 // Proves this file's harness can observe a failure.
 test("the harness reports a broken module rather than passing it", () => {

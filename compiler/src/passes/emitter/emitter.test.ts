@@ -177,46 +177,38 @@ describe("emitJavaScript", () => {
     expect(emitDeclarations(module).text).toContain("Hex.Set<[number, number]>");
   });
 
-  test("executes persistent Map and Set updates, lookup, and bracket failure", () => {
-    const module = coreSource(
+  test("executes persistent Map and Set updates, lookup, and bracket failure", async () => {
+    // Linked and run rather than evaluated as one text with its imports
+    // stripped. The stripping worked while every import this module carried was
+    // a name nothing executed read; since #344 the `Hash<Int>` a `Map(Int, _)`
+    // hashes its keys with is `stdlib/Int.hex`'s exported dictionary, which the
+    // running code does read.
+    const files = [["/main.hex",
       "let m0: Map(Int, String) = Map.empty()\n" +
         "let m1 = Map.set(m0, 1, \"one\")\n" +
         "let m2 = Map.set(m1, 33, \"thirty-three\")\n" +
-        "let m3 = Map.set(m2, 1, \"replaced\")\n" +
-        "let unchanged = Map.remove(m3, 99)\n" +
+        "export let m3: Map(Int, String) = Map.set(m2, 1, \"replaced\")\n" +
+        "export let unchanged: Map(Int, String) = Map.remove(m3, 99)\n" +
         "let s0: Set(Int) = Set.empty()\n" +
         "let s1 = Set.add(Set.add(s0, 1), 33)\n" +
         "let s2 = Set.add(s1, 1)\n" +
-        "let result = (m3[1], m3[33], Map.size(m0), Map.size(m3), unchanged, m3, Set.size(s2), Set.contains(s2, 33))",
-    );
+        "export let looked: (String, String) = (m3[1], m3[33])\n" +
+        "export let counted: (Int, Int, Int) = (Map.size(m0), Map.size(m3), Set.size(s2))\n" +
+        "export let holds: Bool = Set.contains(s2, 33)\n",
+    ]] as const;
+    const exports = await runProject(files);
 
-    expect(module.diagnostics).toEqual([]);
-    const output = emitJavaScript(module);
-    // `Function` cannot take ESM, and this module now carries a prelude import
-    // (`Set.contains` returns a `Bool`, which is a prelude declaration since
-    // #147). Stripping the import statements is enough here: nothing this test
-    // executes reads a name they bind.
-    const executable = output.text
-      .split("\n")
-      .filter((line) => !line.startsWith("import "))
-      .join("\n");
-    const execute = Function(`${executable}\nreturn result;`) as () => unknown;
-    const result = execute() as unknown[];
-    expect(result.slice(0, 4)).toEqual(["replaced", "thirty-three", 0, 2]);
-    expect(result[4]).toBe(result[5]);
-    expect(result.slice(6)).toEqual([2, true]);
+    expect(exports["looked"]).toEqual(["replaced", "thirty-three"]);
+    expect(exports["counted"]).toEqual([0, 2, 2]);
+    expect(exports["holds"]).toBe(true);
+    // Removing an absent key answers the same map, not a copy of it.
+    expect(exports["unchanged"]).toBe(exports["m3"]);
 
-    const missingModule = coreSource(
+    const missing = await runProject([["/main.hex",
       "let values: Map(Int, String) = Map.empty()\n" +
-        "let missing = values[99]",
-    );
-    expect(missingModule.diagnostics).toEqual([]);
-    const missingOutput = emitJavaScript(missingModule);
-    const missingExecutable = missingOutput.text
-      .split("\n")
-      .filter((line) => !line.startsWith("import "))
-      .join("\n");
-    expect(() => Function(missingExecutable)()).toThrowError(
+        "export let missing(): String = values[99]\n",
+    ]]);
+    expect(missing["missing"] as () => unknown).toThrowError(
       expect.objectContaining({ name: "KeyError" }),
     );
   });
@@ -1263,25 +1255,23 @@ describe("emitJavaScript", () => {
   });
 
   test("executes the primitive division families with their specified conventions", () => {
-    // `Int` and `Float` only. `BigInt`'s family left the compiler at its
-    // milestone (#344) — `BigInt.div` is `Integral<BigInt>`'s member and
-    // `BigInt.lcm` an export of `stdlib/BigInt.hex`, so the emitted module
-    // imports rather than inlines them, and the row moved to the linked test
-    // below. The helpers pinned here are exactly the two companions still
-    // transitional (`spec/intrinsics.md` §9.2).
+    // `Float` alone. `BigInt`'s family left the compiler at its milestone
+    // (#344) and `Int`'s at the one after — `Int.div` is `Integral<Int>`'s
+    // member and `Int.gcd` its sibling, so the emitted module imports rather
+    // than inlines them, and both rows moved to the linked tests below.
+    // `Float` is the last wired row, and it is only ever the two: `Float` is
+    // not `Integral` (Integral §3), so it has no `div`, `quot`, or `gcd`.
     const output = emitJavaScript(
-      coreSource(
-        "let result = (" +
-          "Int.div(-7, 3), Int.mod(-7, 3), Int.quot(-7, 3), Int.rem(-7, 3), Int.gcd(-12, 18), " +
-          "Float.mod(-7.0, 3.0), Float.rem(-7.0, 3.0))",
-      ),
+      coreSource("let result = (Float.mod(-7.0, 3.0), Float.rem(-7.0, 3.0))"),
     );
 
     expect(output.diagnostics).toEqual([]);
-    expect(output.text).toContain("const __hex_intGcd");
+    expect(output.text).toContain("const __hex_floatMod");
+    expect(output.text).toContain("const __hex_floatRem");
+    expect(output.text).not.toContain("__hex_int");
     expect(output.text).not.toContain("__hex_bigInt");
     const execute = Function(`${output.text}\nreturn result;`) as () => readonly unknown[];
-    expect(execute()).toEqual([-3, 2, -2, -1, 6, 2, -1]);
+    expect(execute()).toEqual([2, -1]);
   });
 
   test("executes the BigInt division family out of its companion module", async () => {
@@ -1303,16 +1293,40 @@ describe("emitJavaScript", () => {
     expect((await runProject(files))["result"]).toEqual([-2n, 1n, -2n, 1n, 6n, 12n]);
   });
 
-  test("brands integer division by zero as DivideByZeroError", () => {
-    const output = emitJavaScript(coreSource("Int.mod(1, 0)"));
+  test("executes the Int division family out of its companion module", async () => {
+    // The row the `Int` half of the original case measured, at its new home
+    // (#344): `stdlib/Int.hex`. The conventions are unchanged — Euclidean
+    // `div`/`mod`, truncated `quot`/`rem`, non-negative `gcd` — and no
+    // `__hex_int*` helper survives to carry them.
+    const files = [["/main.hex",
+      "export let result: (Int, Int, Int, Int, Int) = (\n" +
+        "    Int.div(-7, 3), Int.mod(-7, 3), Int.quot(-7, 3), Int.rem(-7, 3), Int.gcd(-12, 18))\n",
+    ]] as const;
+    const project = compileFiles(files);
+
+    expect(project.diagnostics).toEqual([]);
+    const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    expect(text).not.toContain("__hex_int");
+    expect(text).toContain('from "./Int.js"');
+    expect((await runProject(files))["result"]).toEqual([-3, 2, -2, -1, 6]);
+  });
+
+  test("brands integer division by zero as DivideByZeroError", async () => {
+    // The guard is `stdlib/Int.hex`'s Hexagon `throw` now, above a door binding
+    // that is the raw `%` (#344), so the module is linked and run rather than
+    // evaluated as one text — and the error is `$hex`-branded because it is an
+    // ordinary `Integral.hex` exception rather than a helper's hand-built one.
+    const files = [["/main.hex", "export let boom(): Int = Int.mod(1, 0)\n"]] as const;
+    const boom = (await runProject(files))["boom"] as () => unknown;
     let thrown: unknown;
     try {
-      Function(output.text)();
+      boom();
     } catch (error) {
       thrown = error;
     }
     expect(thrown).toBeInstanceOf(Error);
     expect(thrown).toMatchObject({ name: "DivideByZeroError", $hex: true });
+    expect((thrown as Error).message).toBe("Int.mod: divisor is zero");
   });
 
   test("passes complete Integral dictionaries through generic code", async () => {
@@ -1388,32 +1402,38 @@ describe("emitJavaScript", () => {
     expect((await runProject(files))["result"]).toEqual([5n, 6n, true, 1n, -1n, 2n]);
   });
 
-  test("checks negative exponents through a genuine Pow<Int> dictionary", () => {
-    const output = emitJavaScript(
-      coreSource(
-        "let raise<a: Pow>(base: a, exponent: a): a = base ** exponent\n" +
-          "let result = raise(2, -1)",
-      ),
-    );
+  test("checks negative exponents through a genuine Pow<Int> dictionary", async () => {
+    // The `checkedPower` helper is gone entirely since #344's second landing:
+    // the guard is Hexagon in `stdlib/Int.hex` now, above a door binding that
+    // is the raw `**`, and the exception it throws is `Pow.hex`'s declaration.
+    // Same message, same name, one implementation — and a `$hex`-branded one,
+    // which the helper never was. Linked and run for that reason.
+    const files = [["/main.hex",
+      "let raise<a: Pow>(base: a, exponent: a): a = base ** exponent\n" +
+        "export let boom(): Int = raise(2, -1)\n",
+    ]] as const;
+    const project = compileFiles(files);
 
-    expect(output.text).toContain("function __hex_checkedPower(");
+    expect(project.diagnostics).toEqual([]);
+    const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    expect(text).not.toContain("__hex_checkedPower");
+    expect(text).toContain("__hex_instance_Pow_Int");
+    const boom = (await runProject(files))["boom"] as () => unknown;
     let thrown: unknown;
     try {
-      Function(output.text)();
+      boom();
     } catch (error) {
       thrown = error;
     }
     expect(thrown).toBeInstanceOf(Error);
-    expect((thrown as Error).name).toBe("NegativeExponentError");
-    expect(output.diagnostics).toEqual([]);
+    expect(thrown).toMatchObject({ name: "NegativeExponentError", $hex: true });
+    expect((thrown as Error).message).toBe("an integer exponent cannot be negative");
   });
 
   test("checks negative exponents at BigInt through the companion's own guard", async () => {
-    // The `checkedPower` helper is `Int`'s alone since #344: at `BigInt` the
-    // guard is Hexagon in `stdlib/BigInt.hex`, above a door binding that is the
-    // raw `**`, and the exception it throws is `Pow.hex`'s declaration. Same
-    // message, same name, one implementation — and now a `$hex`-branded one,
-    // which the helper never was.
+    // The same, at `BigInt`, whose companion migrated one milestone earlier
+    // (#344) — the guard is `stdlib/BigInt.hex`'s and throws the same
+    // `Pow.hex` exception.
     const files = [["/main.hex",
       "let raise<a: Pow>(base: a, exponent: a): a = base ** exponent\n" +
         "export let boom(): BigInt = raise(2n, -1n)\n",

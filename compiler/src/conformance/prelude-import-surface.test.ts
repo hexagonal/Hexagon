@@ -279,8 +279,13 @@ describe("an explicit import of a prelude module carries no evidence", () => {
       "export fun same(a: Option(Int), b: Option(Int)): Bool = a == b\n" +
       "export fun mk(x: Int): Option(Int) = Some(x + 20)\n";
     const javascript = emitted([["/main.hex", source]], "/main.hex");
+    // The `Eq<Int>` line is the *component* instance `Eq<Option(Int)>` selects
+    // (#278), and it is an import since #344 because `Int`'s instances are
+    // `stdlib/Int.hex`'s source. The point of the case is the `Option.js` pair:
+    // one dictionary binding, not two.
     expect(importLines(javascript)).toEqual([
       'import { __hex_instance_Eq_Option as __hex_imported_13___hex_instance_Eq_Option } from "./Option.js";',
+      'import { __hex_instance_Eq_Int as __hex_imported_15___hex_instance_Eq_Int } from "./Int.js";',
       'import { Some } from "./Option.js";',
     ]);
     expect(exportLines(javascript)).toEqual(["export { same };", "export { mk };"]);

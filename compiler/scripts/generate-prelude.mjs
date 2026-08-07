@@ -36,6 +36,8 @@ const EMBEDDINGS = [
       "Integral.hex",
       "Option.hex",
       "BigInt.hex",
+      "Int.hex",
+      "Nat.hex",
       "Seq.hex",
       "Result.hex",
       "Vector.hex",

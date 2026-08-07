@@ -520,11 +520,13 @@ describe("the wired rows are gone, not dormant", () => {
   });
 
   /**
-   * The other direction: `Int` and `Float` are untouched. Their guard rows are
-   * still the compiler's until their own milestones, so `Int.div` still resolves
-   * to a `PrimitiveOperation` and still emits its helper.
+   * The other direction, as of #344's second landing: `Int` followed `BigInt`
+   * out of the door, so its helper family is gone too and `Int.div` is
+   * `Integral<Int>`'s member at `stdlib/Int.hex`. `Float` is what is left —
+   * its guard row is still the compiler's until its own milestone, and it was
+   * only ever `mod` and `rem`, `Float` not being `Integral`.
    */
-  test("`Int` and `Float` keep their doors and their helpers", () => {
+  test("`Float` keeps its door and its helpers, and `Int` no longer does", () => {
     const text = emitted([
       "export let a: Int = Int.div(-7, 2)",
       "export let b: Int = Int.gcd(12, 18)",
@@ -533,8 +535,8 @@ describe("the wired rows are gone, not dormant", () => {
       "",
     ].join("\n"));
 
-    expect(text).toContain("const __hex_intDiv");
-    expect(text).toContain("const __hex_intGcd");
+    expect(text).not.toContain("__hex_int");
+    expect(text).toContain('from "./Int.js"');
     expect(text).toContain("const __hex_floatMod");
     expect(text).toContain("const __hex_floatRem");
   });

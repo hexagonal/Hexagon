@@ -77,6 +77,8 @@ describe("the module", () => {
       "Integral.hex",
       "Option.hex",
       "BigInt.hex",
+      "Int.hex",
+      "Nat.hex",
       "Seq.hex",
       "Result.hex",
       "Vector.hex",
@@ -263,7 +265,13 @@ describe("membership drags nothing in", () => {
     ]] as const;
 
     expect(emitted(files, "/main.hex")).not.toContain('from "./Vector.js"');
-    expect(emittedPaths(files)).toEqual(["/VectorTrie.hex", "/main.hex"]);
+    // The trie brings its own dependencies since #344: its index arithmetic is
+    // `Integral<Int>`'s members at `stdlib/Int.hex`, which in turn names
+    // `Pow.hex`'s and `Integral.hex`'s exceptions and `Option.hex`'s answer for
+    // the checked family. `Vector.hex` is what must stay out, and does.
+    expect(emittedPaths(files)).toEqual([
+      "/Pow.hex", "/Integral.hex", "/Option.hex", "/Int.hex", "/VectorTrie.hex", "/main.hex",
+    ]);
   });
 
   /**

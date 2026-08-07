@@ -53,6 +53,31 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * one, `gcd`, `lcm`, `toInt`'s range check, and every zero-divisor and
  * negative-exponent guard. `bigIntPow` is the raw native `**`, unguarded, for
  * the same reason.
+ *
+ * The `int*` and `nat*` families are the second landing (§3.2, #344) and take
+ * the same primop shape, with three deltas that are each an **absence**.
+ *
+ * - The **self-identities take no key**. `Signed<Int>`'s `fromInt` and
+ *   `Num<Nat>`'s `fromNat` convert a type to itself, so each body is the plain
+ *   binding `value` — nothing that selects its own slot — and the
+ *   strictly-simpler doctrine sends such a body to ordinary Hexagon. There is
+ *   no `intFromInt` and no `natFromNat`. `intFromNat` *does* cross: any Hexagon
+ *   body for `Nat` -> `Int` typechecks only through Numeric Literals §5.1's
+ *   contextual widening, which elaborates through `Num<Int>.fromNat`, the very
+ *   slot being defined; its lowering is the identity over the one shared
+ *   `number` representation.
+ * - **`natPow` has no guard above it.** A `Nat` exponent cannot be negative, so
+ *   the negative-exponent guard `Int` and `BigInt` carry in source is dead by
+ *   typing at `Nat` and is not written (Operators §6.3).
+ * - **The checked family never reaches the door.** `Int.checkedAdd`,
+ *   `checkedSub`, and `checkedMul` (Primitive Types §2.1) are ordinary Hexagon
+ *   over the ordinary members: every overflow test is an exact pre-check
+ *   phrased inside the safe range, so there is no unchecked core and no host
+ *   predicate to declare.
+ *
+ * `natFromIntUnchecked` is the one conversion core in the pair, sitting beneath
+ * `Nat.fromInt`'s sign check exactly as `bigIntToIntUnchecked` sits beneath
+ * `BigInt.toInt`'s range check.
  */
 export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["seqMemoize", 1],
@@ -78,6 +103,28 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["bigIntRem", 2],
   ["bigIntToIntUnchecked", 1],
   ["bigIntToFloat", 1],
+  ["intAdd", 2],
+  ["intMultiply", 2],
+  ["intFromNat", 1],
+  ["intSubtract", 2],
+  ["intNegate", 1],
+  ["intEquals", 2],
+  ["intCompare", 2],
+  ["intShow", 1],
+  ["intPow", 2],
+  ["intHash", 1],
+  ["intQuot", 2],
+  ["intRem", 2],
+  ["natAdd", 2],
+  ["natMultiply", 2],
+  ["natEquals", 2],
+  ["natCompare", 2],
+  ["natShow", 1],
+  ["natPow", 2],
+  ["natHash", 1],
+  ["natQuot", 2],
+  ["natRem", 2],
+  ["natFromIntUnchecked", 1],
 ]);
 
 /**
