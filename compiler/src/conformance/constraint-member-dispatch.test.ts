@@ -116,6 +116,68 @@ describe("#304's expected-outcome table, executed", () => {
   });
 });
 
+describe("only subject-first members are in the operation set (§4.2)", () => {
+  /**
+   * "A subject-first member is one whose first parameter's declared type is the
+   * constraint's subject variable itself … `fromNat(value: Nat): a` does not
+   * qualify (the subject appears only in the return), so `42.fromNat(…)` is not
+   * a spelling and never will be."
+   *
+   * Pinned with §9 row 5's near-miss, which is the half a reader can act on: the
+   * member exists and has a spelling, just not this one.
+   */
+  test("a member whose subject appears only in the return is not a spelling", () => {
+    expect(projectDiagnostics("export let n: Int = 3.fromNat(2)\n")).toEqual([
+      "`Int` has no field `fromNat`, its companion exports no operation `fromNat`, " +
+      "and no constraint honored at `Int` has a subject-first member `fromNat`; " +
+      "`Num`'s member `fromNat` does not take its constraint's subject first — " +
+      "call it as `fromNat(…)`",
+    ]);
+  });
+
+  /**
+   * The filter's teeth, and the reason a near-miss message is not the whole of
+   * it. `wrap`'s first parameter is `Int` — not the subject — and the constraint
+   * is honored **at `Int`**, so the parameter's type coincides with the
+   * receiver's. Drop the subject-first test and `3.wrap()` does not merely lose
+   * a hint: it *dispatches*, silently, as `wrap(3)`. The companion pin below
+   * proves the call it would have become is well-typed, which is what makes the
+   * refusal load-bearing rather than incidental.
+   */
+  test("a coincidental first-parameter type is refused, not dispatched", () => {
+    expect(projectDiagnostics([
+      "constraint Wrap<a> =",
+      "    wrap(count: Int): a",
+      "",
+      "honor Wrap<Int> =",
+      "    wrap(count) = count * 2",
+      "",
+      "export let doubled: Int = 3.wrap()",
+      "",
+    ].join("\n"))).toEqual([
+      "`Int` has no field `wrap`, its companion exports no operation `wrap`, and " +
+      "no constraint honored at `Int` has a subject-first member `wrap`; " +
+      "`Wrap`'s member `wrap` does not take its constraint's subject first — " +
+      "call it as `wrap(…)`",
+    ]);
+  });
+
+  test("the same member is well-typed and runs under its bare spelling", async () => {
+    const exports = await runMain([
+      "constraint Wrap<a> =",
+      "    wrap(count: Int): a",
+      "",
+      "honor Wrap<Int> =",
+      "    wrap(count) = count * 3",
+      "",
+      "export let tripled: Int = wrap(3)",
+      "",
+    ].join("\n"));
+
+    expect(exports.tripled).toBe(9);
+  });
+});
+
 describe("declared type variables dispatch their bounds' members (§3.4)", () => {
   test("`value.show()` under `a: Show`, executed at two types", async () => {
     const exports = await runMain([
@@ -182,6 +244,28 @@ describe("declared type variables dispatch their bounds' members (§3.4)", () =>
 
     expect(exports.shallow).toBe("[#4]");
     expect(exports.nested).toBe("[[#5]]");
+  });
+
+  /**
+   * The bounds arm carries §4.2's subject-first filter too, and it has to: the
+   * candidate set here is the *whole* of what a declared variable can reach, so
+   * a member the binder does hold but that does not take its constraint's
+   * subject first must fall out before dispatch is attempted, not after.
+   * `Tag`'s `tag` is in `a`'s bounds by name and absent from its operation set.
+   */
+  test("a bound member that is not subject-first is no spelling on the variable either", () => {
+    expect(projectDiagnostics([
+      "constraint Tag<a> =",
+      "    tag(label: String, value: a): String",
+      "",
+      'export let describe<a: Tag>(value: a): String = value.tag("x")',
+      "",
+    ].join("\n"))).toEqual([
+      "`a` is a declared type variable, so `.tag` can only be one of its " +
+      "constraints' members, and none of `a`'s constraints has a subject-first " +
+      "member `tag`; add the constraint to the parameter's binder, use a " +
+      "concrete nominal type, or call a qualified function",
+    ]);
   });
 
   test("a bound with no such member takes §9 row 7's options message, never a row", () => {
@@ -589,6 +673,48 @@ describe("member bindings enter the module's order at their own line (§4.6)", (
     // A sibling member's bare spelling, below its line, means that binding —
     // and `subtract` reaches it, so the dot call on the result reads `hi`.
     expect(exports.joined).toBe(6);
+  });
+});
+
+describe("what a bare in-module member spelling means today (§4.6, deferred)", () => {
+  /**
+   * **A deliberately overturnable baseline, in PR α's style.**
+   *
+   * Constraints §4.6 rules that a bare use elsewhere in the honoring module
+   * means *this binding* — monomorphic, at the honored type, occluding the
+   * prelude's polymorphic export under Modules §5.4. PR γ implements every
+   * consequence of that sentence a reference can observe (the ordering law, the
+   * ambiguity refusal, the own-name refusal) but **not the denotation itself**:
+   * a member binding has no represented scheme, so a bare use is still the
+   * polymorphic member instantiated at the use site.
+   *
+   * One program distinguishes the two readings, and it is the one below: a bare
+   * `show` inside a module honoring `Show<Crate>`, applied to something that is
+   * not a `Crate`. Under the ruled reading it is refused — the binding is at
+   * `Crate` and `42` is not one. Today it compiles and dispatches `Show<Int>`.
+   *
+   * Pinned rather than left silent, so the flip is a visible change to a stated
+   * expectation rather than a discovery. The follow-up issue for the §4.6
+   * monomorphic-denotation gap owns the reversal; representing the binding needs
+   * a scheme for it, which for a parameterized instance has no obvious
+   * monomorphic form — which is why it is deferred and not merely unfinished.
+   */
+  test("a bare use at another type still resolves polymorphically — the reading γ leaves open", async () => {
+    const exports = await runMain([
+      "export record Crate = {v: Int}",
+      "",
+      "honor Show<Crate> =",
+      '    show(crate) = "Crate"',
+      "",
+      "export let elsewhere: String = show(42)",
+      "export let honored: String = show(Crate({v = 1}))",
+      "",
+    ].join("\n"));
+
+    // Both run, and that is exactly the point: under §4.6's monomorphic reading
+    // the first line has no meaning at all and the module is refused.
+    expect(exports.elsewhere).toBe("42");
+    expect(exports.honored).toBe("Crate");
   });
 });
 
