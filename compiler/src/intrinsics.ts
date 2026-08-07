@@ -78,6 +78,27 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * `natFromIntUnchecked` is the one conversion core in the pair, sitting beneath
  * `Nat.fromInt`'s sign check exactly as `bigIntToIntUnchecked` sits beneath
  * `BigInt.toInt`'s range check.
+ *
+ * The `float*` and `string*` families are the third landing and the last (§3.2,
+ * #344), in the same primop shape, with three things worth naming.
+ *
+ * - **`floatRem` is a plain export's core, not a member's.** `Float` is never
+ *   `Integral` (Integral §1), so `Float.rem` is an ordinary exported function
+ *   whose lowering is the bare `a % b` of Division & Remainder §6, and
+ *   `Float.mod` is the Euclidean adjustment written over it in Hexagon. There
+ *   is no `floatMod` key, and no guard anywhere in either companion: float
+ *   partiality is `NaN`, and `String` has no partial operation.
+ * - **One `Float` conversion crosses and one does not.** `floatFromInt` is
+ *   keyed, for `intFromNat`'s exact argument: any Hexagon body for `Int` ->
+ *   `Float` typechecks only through Numeric Literals §5.1's contextual
+ *   widening, which elaborates through the very slot being defined.
+ *   `Num<Float>`'s `fromNat` composes out of two slots that already exist —
+ *   `fromInt(Int.fromNat(value))` — so it is ordinary Hexagon and takes no key.
+ * - **`Show<String>` has the keyless body.** `show` at `String` is the identity
+ *   by ruling (Primitive Types §7), the plain binding `value`, so it goes the
+ *   way `Signed<Int>`'s `fromInt` went. `stringCompare` is at the other
+ *   extreme: its codepoint walk has no strictly simpler Hexagon to be written
+ *   in, because the language has no codepoint API.
  */
 export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["seqMemoize", 1],
@@ -125,6 +146,22 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["natQuot", 2],
   ["natRem", 2],
   ["natFromIntUnchecked", 1],
+  ["floatAdd", 2],
+  ["floatMultiply", 2],
+  ["floatSubtract", 2],
+  ["floatNegate", 1],
+  ["floatFromInt", 1],
+  ["floatDivide", 2],
+  ["floatEquals", 2],
+  ["floatCompare", 2],
+  ["floatShow", 1],
+  ["floatPow", 2],
+  ["floatHash", 1],
+  ["floatRem", 2],
+  ["stringConcat", 2],
+  ["stringEquals", 2],
+  ["stringCompare", 2],
+  ["stringHash", 1],
 ]);
 
 /**

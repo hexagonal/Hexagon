@@ -80,6 +80,15 @@ export interface PreludeModule {
  * the wired rows are gone. Everything from `Seq.hex` onward sees both, which is
  * what lets `runtime/VectorTrie.hex`'s index arithmetic reach `Integral<Int>`.
  *
+ * `Float.hex` and `String.hex` are the fourth and fifth, and the last: with
+ * them every primitive companion is source and no instance in the language is
+ * compiler-wired. `Float.hex` sits after `Int.hex` because `Num<Float>`'s
+ * `fromNat` composes through `Int.fromNat`, which is `Num<Int>`'s member at its
+ * own companion. `String.hex` needs nothing later than `Ord.hex` and is seated
+ * beside `Float.hex` because the two landed together. Nothing before them names
+ * a `Float` instance or interpolates a string, which is what lets the numerics
+ * stay contiguous rather than being split around them.
+ *
  * `Vector.hex` is last because it needs the most: `first`/`last`/`get` answer with
  * `Option`, and `toSeq`/`fromSeq` name `Seq`.
  */
@@ -100,6 +109,8 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "BigInt.hex",
   "Int.hex",
   "Nat.hex",
+  "Float.hex",
+  "String.hex",
   "Seq.hex",
   "Result.hex",
   "Vector.hex",
@@ -116,13 +127,14 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
  * it comes from the injection path, the same shape the intrinsic door's privilege
  * takes (`spec/intrinsics.md` §5.2).
  *
- * Only the companions that exist as source are here. `Float` and `String` join
- * at their own milestones, in that migration order; until then their instances
- * are compiler-wired and their qualified spellings are the resolver's
- * transitional ones (Modules §5.3's note).
+ * Every companion the language has is here (#344): `Float.hex` and `String.hex`
+ * closed the migration, so no primitive's instances are compiler-wired and
+ * Modules §5.3's transitional spellings have nothing left to serve.
  */
 export const PRIMITIVE_COMPANION_BASENAMES: ReadonlyMap<string, string> = new Map([
   ["BigInt.hex", "BigInt"],
   ["Int.hex", "Int"],
   ["Nat.hex", "Nat"],
+  ["Float.hex", "Float"],
+  ["String.hex", "String"],
 ]);
