@@ -7,37 +7,18 @@
  */
 import { describe, expect, test } from "vitest";
 
-import * as Source from "../support/source.js";
-import { lex } from "../passes/lexer/lexer.js";
-import { applyLayout } from "../passes/layout/layout.js";
-import { parse } from "../passes/parser/parser.js";
-import { resolve } from "../passes/resolver/resolver.js";
-import { check } from "../passes/checker/checker.js";
-import { elaborate } from "../passes/elaborator/elaborator.js";
-import { emitJavaScript } from "../passes/emitter/emitter.js";
+import { projectDiagnostics, runMain } from "../support/test-project.js";
 
-function typecheck(source: string) {
-  const file = new Source.File(Source.fileId(0), "/probe.hex", source);
-  const resolved = resolve(parse(applyLayout(lex(file))), {});
-  const typed = check(resolved);
-  return { resolved, typed };
-}
-
-/** Every diagnostic raised from lexing through checking. */
-function diagnostics(source: string): string[] {
-  const { resolved, typed } = typecheck(source);
-  return [...resolved.diagnostics, ...typed.diagnostics].map(({ message }) => message);
-}
-
-async function run(source: string): Promise<Record<string, unknown>> {
-  const { resolved, typed } = typecheck(source);
-  expect(resolved.diagnostics).toEqual([]);
-  expect(typed.diagnostics).toEqual([]);
-  const javascript = emitJavaScript(elaborate(typed));
-  expect(javascript.diagnostics).toEqual([]);
-  const url = `data:text/javascript;charset=utf-8,${encodeURIComponent(javascript.text)}`;
-  return (await import(/* @vite-ignore */ url)) as Record<string, unknown>;
-}
+/**
+ * Through `compileProject`, prelude included, for the reason `test-project.ts`
+ * gives: a module compiled with no prelude cannot type what these programs are
+ * written in. #147 made that true of every condition when `Bool` became a
+ * prelude union; #344's companion arc made it true of every integer literal as
+ * well, since `Num<Int>` is `stdlib/Int.hex`'s `honor` block rather than a
+ * compiler row.
+ */
+const diagnostics = (source: string): readonly string[] => projectDiagnostics(source);
+const run = (source: string): Promise<Record<string, unknown>> => runMain(source);
 
 // Proves this file's harness can observe a failure (see emission-shapes).
 test("the harness reports a broken module rather than passing it", async () => {

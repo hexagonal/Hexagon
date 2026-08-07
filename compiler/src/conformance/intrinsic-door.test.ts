@@ -164,7 +164,11 @@ describe("verification replaces trust (§4.2)", () => {
       "`vectorSet`, `vectorToSeq`, `vectorFromSeq`, `bigIntAdd`, `bigIntMultiply`, " +
       "`bigIntFromNat`, `bigIntSubtract`, `bigIntNegate`, `bigIntFromInt`, " +
       "`bigIntEquals`, `bigIntCompare`, `bigIntShow`, `bigIntPow`, `bigIntHash`, " +
-      "`bigIntQuot`, `bigIntRem`, `bigIntToIntUnchecked`, `bigIntToFloat`",
+      "`bigIntQuot`, `bigIntRem`, `bigIntToIntUnchecked`, `bigIntToFloat`, " +
+      "`intAdd`, `intMultiply`, `intFromNat`, `intSubtract`, `intNegate`, " +
+      "`intEquals`, `intCompare`, `intShow`, `intPow`, `intHash`, `intQuot`, " +
+      "`intRem`, `natAdd`, `natMultiply`, `natEquals`, `natCompare`, `natShow`, " +
+      "`natPow`, `natHash`, `natQuot`, `natRem`, `natFromIntUnchecked`",
     ]);
   });
 

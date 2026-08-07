@@ -73,7 +73,16 @@ export function projectDiagnostics(source: string): readonly string[] {
  */
 export async function runProject(
   files: readonly (readonly [string, string])[],
-  options: ProjectOptions & { readonly entry?: string } = {},
+  options: ProjectOptions & {
+    readonly entry?: string;
+    /**
+     * Rewrites one module's emitted JavaScript before it is linked, for a
+     * harness that has to instrument the compiler's own output — counting a
+     * runtime module's descents, say. The rewrite happens *before* linking, so
+     * the instrumented text keeps whatever imports the module was emitted with.
+     */
+    readonly transform?: (path: string, javascript: string) => string;
+  } = {},
 ): Promise<Record<string, unknown>> {
   const project = compileFiles(files, options);
   if (project.diagnostics.length > 0) {
@@ -85,7 +94,10 @@ export async function runProject(
   }
   const moduleUrls = new Map<string, string>();
   for (const module of project.modules) {
-    const linked = link(module.javascript.text, module.source.path, moduleUrls);
+    const text = options.transform === undefined
+      ? module.javascript.text
+      : options.transform(module.source.path, module.javascript.text);
+    const linked = link(text, module.source.path, moduleUrls);
     moduleUrls.set(
       module.source.path,
       `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,

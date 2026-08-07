@@ -90,12 +90,15 @@ describe("ordered intra-prelude visibility", () => {
     // *nothing*; it must now fail specifically because `Result` comes later.
     expect(diagnostics([
       ORDERING,
+      // The error payload is a `String`, not an `Int`: this stand-in sits at
+      // `Option.hex`'s seat, which is *before* `stdlib/Int.hex`'s (#344), so an
+      // integer literal here would raise its own — true, and beside the point.
       ["/Option.hex",
         "export union Option(a) = Some(value: a) | None\n" +
-        "export fun toResult(option: Option(a)): Result(a, Int) =\n" +
+        "export fun toResult(option: Option(a)): Result(a, String) =\n" +
         "    match option\n" +
         "        Some(value) => Ok(value)\n" +
-        "        None => Err(0)\n"],
+        "        None => Err(\"none\")\n"],
       RESULT,
       ENTRY,
     ])).toEqual([
@@ -125,9 +128,11 @@ describe("ordered intra-prelude visibility", () => {
     // construction" as an executable statement.
     expect(diagnostics([
       ORDERING,
+      // No integer literal, for the reason the case above gives: this seat is
+      // before `stdlib/Int.hex`'s.
       ["/Option.hex",
         "export union Option(a) = Some(value: a) | None\n" +
-        "export fun peek(result: Result(Int, Int)): Int = 0\n"],
+        "export fun peek(result: Result(Int, Int), fallback: Int): Int = fallback\n"],
       RESULT_USING_OPTION,
       ENTRY,
     ])).toEqual(["unknown generic type `Result`"]);

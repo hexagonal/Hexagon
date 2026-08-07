@@ -128,7 +128,10 @@ describe("elaborate", () => {
           {
             kind: "Show",
             expression: { kind: "Number", representation: "Int" },
-            evidence: { kind: "Primitive", instance: "Int" },
+            // `Show<Int>` is `stdlib/Int.hex`'s source instance since #344, so
+            // the evidence is that instance's dictionary, tagged with the
+            // primitive it is honored at so emission can still inline the slot.
+            evidence: { kind: "Instance", primitive: "Int" },
           },
         ],
       },
@@ -210,8 +213,20 @@ describe("elaborate", () => {
           { kind: "Number", decimal: "2" },
           { kind: "Number", decimal: "3" },
         ],
+        // `Ord<Int>` is `stdlib/Int.hex`'s source instance since #344 (see the
+        // interpolation case above); the comparison still inlines to `<`/`<=`.
+        //
+        // The two steps carry *different* evidence shapes, and that is the
+        // truth rather than an accident worth hiding: one chain over one
+        // literal-only variable raises two identical `Ord` requirements, and
+        // `#attachRequirement` keeps the first and drops the second as already
+        // provided — so only the first is discharged against the instance
+        // table, and the second falls to the elaborator's by-type fallback.
+        // Both name the same instance and both emit the same operator; the
+        // difference became visible only when the wired `Int` row retired and
+        // the fallback stopped being the *same* object as the resolution.
         steps: [
-          { test: "Less", evidence: { kind: "Primitive", instance: "Int" } },
+          { test: "Less", evidence: { kind: "Instance", primitive: "Int" } },
           { test: "LessEqual", evidence: { kind: "Primitive", instance: "Int" } },
         ],
       },

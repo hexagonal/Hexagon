@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { compileFiles, runMain, runProject } from "../support/test-project.js";
 import { COMPILER_CLAIMS } from "../passes/checker/variance.js";
+import { PRELUDE_MODULES } from "../prelude.js";
 import { RUNTIME_MODULES } from "../runtime-modules.js";
 import { VECTOR_RUNTIME_OPERATIONS } from "../passes/emitter/emitter.js";
 import type * as Typed from "../syntax/typed/index.js";
@@ -100,12 +101,30 @@ describe("the runtime module's two-sided contract", () => {
    * bracket, pattern, or `Vector.` call written in it would make the emitted
    * `VectorTrie.js` import `Vector.js` — which already imports this one. That
    * cycle is created at emission and recorded by no `Import` item, so the
-   * module graph's own acyclicity check cannot see it. An empty import list is
-   * the property that forecloses it.
+   * module graph's own acyclicity check cannot see it.
+   *
+   * *(#344.)* The pin used to be an *empty* import list, which was the same
+   * rule read through a stronger proxy: nothing the trie named crossed a module
+   * boundary at all, because `Int.div`/`Int.mod` were compiler helpers. They are
+   * `Integral<Int>`'s members at `stdlib/Int.hex` now, so the emitted module
+   * imports them and the companion's dictionary. The rule is unchanged and is
+   * now stated directly — every import must name a module seated *before* this
+   * one, and `Vector.js` above all must not appear.
    */
-  test("the emitted runtime module imports nothing", () => {
+  test("the emitted runtime module imports only modules seated before it", () => {
     const javascript = emitted([["/main.hex", "export let v: Vector(Int) = [1]\n"]], "/VectorTrie.hex");
-    expect(javascript.match(/^\s*import\b.*$/gmu) ?? []).toEqual([]);
+    const specifiers = [...javascript.matchAll(/^\s*import\b[^;\n]*?from\s+"([^"]+)";/gmu)]
+      .map((match) => match[1]!);
+
+    expect(specifiers).not.toContain("./Vector.js");
+    // Everything it does import is a prelude member seated before its own seat
+    // (`RUNTIME_MODULES`' `precedes`), so nothing it names can import it back.
+    const seatedBefore = PRELUDE_MODULES
+      .map(({ basename }) => `./${basename.replace(/\.hex$/u, ".js")}`)
+      .slice(0, PRELUDE_MODULES.findIndex(({ basename }) => basename === "Vector.hex"));
+    for (const specifier of specifiers) expect(seatedBefore).toContain(specifier);
+    // And it really does import: the index arithmetic reaches its companion.
+    expect(specifiers).toContain("./Int.js");
   });
 
   /** A file in the injection seat that is not the trie is reported, not emitted broken. */
@@ -137,7 +156,14 @@ describe("the import surface", () => {
 
   test("a literal alone carries the trie and not the companion", () => {
     const files = [["/main.hex", "export let v: Vector(Int) = [1, 2, 3]\n"]] as const;
-    expect(emittedPaths(files)).toEqual(["/VectorTrie.hex", "/main.hex"]);
+    // The trie brings its own dependencies with it since #344: its index
+    // arithmetic is `Integral<Int>`'s members at `stdlib/Int.hex`, and that
+    // companion in turn names `Pow.hex`'s and `Integral.hex`'s exceptions and
+    // `Option.hex`'s answer for the checked family. `Vector.hex` is still
+    // absent, which is what this case is about.
+    expect(emittedPaths(files)).toEqual([
+      "/Pow.hex", "/Integral.hex", "/Option.hex", "/Int.hex", "/VectorTrie.hex", "/main.hex",
+    ]);
     const javascript = emitted(files, "/main.hex");
     expect(javascript).toContain(
       'import { empty as __hex_trieEmpty, append as __hex_trieAppend } from "./VectorTrie.js";',
@@ -489,26 +515,31 @@ describe("§4/§7 complexity", () => {
    * fresh module per test.
    */
   async function countingTrie(): Promise<CountingTrie> {
-    const javascript = emitted(
-      [["/main.hex", "export let v: Vector(Int) = [1]\n"]],
-      "/VectorTrie.hex",
-    );
     const definition = "function nodeRun(trie, index) {";
-    // Exactly one definition, so the rename below cannot leave a call site
-    // reaching an uncounted implementation.
-    expect(javascript.split(definition)).toHaveLength(2);
-    const instrumented =
-      javascript.replace(definition, "function __probeNodeRun(trie, index) {") +
-      "\nlet __probeDescents = 0;\n" +
-      "function nodeRun(trie, index) {\n" +
-      "  __probeDescents += 1;\n" +
-      "  return __probeNodeRun(trie, index);\n" +
-      "}\n" +
-      "export function descents() { return __probeDescents; }\n" +
-      "export function resetDescents() { __probeDescents = 0; }\n";
-    return (await import(
-      /* @vite-ignore */ `data:text/javascript;charset=utf-8,${encodeURIComponent(instrumented)}`
-    )) as CountingTrie;
+    // Linked through the whole project rather than imported standalone: since
+    // #344 the emitted `VectorTrie.js` imports `Integral<Int>`'s member and its
+    // dictionary for the index arithmetic, so a bare `data:` URL for this one
+    // module cannot resolve its own imports.
+    return (await runProject(
+      [["/main.hex", "export let v: Vector(Int) = [1]\n"]],
+      {
+        entry: "/VectorTrie.hex",
+        transform: (path, javascript) => {
+          if (path !== "/VectorTrie.hex") return javascript;
+          // Exactly one definition, so the rename below cannot leave a call
+          // site reaching an uncounted implementation.
+          expect(javascript.split(definition)).toHaveLength(2);
+          return javascript.replace(definition, "function __probeNodeRun(trie, index) {") +
+            "\nlet __probeDescents = 0;\n" +
+            "function nodeRun(trie, index) {\n" +
+            "  __probeDescents += 1;\n" +
+            "  return __probeNodeRun(trie, index);\n" +
+            "}\n" +
+            "export function descents() { return __probeDescents; }\n" +
+            "export function resetDescents() { __probeDescents = 0; }\n";
+        },
+      },
+    )) as unknown as CountingTrie;
   }
 
   test("concat descends once per leaf node of its right operand", async () => {
