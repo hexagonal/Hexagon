@@ -12,7 +12,8 @@ import trieSource from "../../../runtime/VectorTrie.hex?raw";
  * the headroom below the live range and grows a fresh level at the *left* when it
  * runs out. The *update* path: `set` (§5.4) is a persistent overwrite; `slice`
  * (§6) re-windows `origin`/`capacity` over the shared trie, rebuilding only the
- * (<= 32-element) tail when the window moves it. Vectors are built with the
+ * (<= 32-element) tail when the window moves it and then *trimming* the result's
+ * height to the window's own. Vectors are built with the
  * spec-blessed `for i in 1..n` + `var`/`:=` accumulate and read back with
  * `get`/`size`, straddling the 32 and 32² = 1024 branch boundaries so real tail
  * flushes and level growth at both ends are exercised. Nothing here touches
@@ -73,7 +74,34 @@ const BUILD =
   "    var acc: TrieVector(Int) = v\n" +
   "    for i in 1..n\n" +
   "        acc := prepend(acc, 2000 - i)\n" +
-  "    acc\n";
+  "    acc\n" +
+  // state(v) is the representation a derivation is actually stated in:
+  // `(origin, capacity, height, tailOffset(capacity))`. A probe is compiled as
+  // part of the module, so it reads the private fields directly — and a height
+  // asserted without its origin is not a claim about which elements the window
+  // reads, which is why all four travel together.
+  "fun state(v: TrieVector(Int)): (Int, Int, Int, Int) =\n" +
+  "    (v.origin, v.capacity, v.height, tailOffset(v.capacity))\n";
+
+// Counts `nodeRun` calls for a full traversal, and sums the elements it yields,
+// so a wrong run length shows as a wrong sum rather than passing on the count
+// alone. Shared by the `nodeRun` describe, which is what it was written for, and
+// by the trim's, which asks the same question of a window's own shape.
+const WALK =
+  "fun walk(v: TrieVector(Int)): (Int, Int) =\n" +
+  "    var calls = 0\n" +
+  "    var total = 0\n" +
+  "    var index = 0\n" +
+  "    for step in 1..size(v)\n" +
+  "        if index < size(v) then\n" +
+  "            let (values, offset, run) = nodeRun(v, index)\n" +
+  "            calls := calls + 1\n" +
+  "            var seen = 0\n" +
+  "            for inner in 1..run\n" +
+  "                total := total + Node.get(values, offset + seen)\n" +
+  "                seen := seen + 1\n" +
+  "            index := index + run\n" +
+  "    (calls, total)\n";
 
 describe("VectorTrie build path (append + tail flush + growth)", () => {
   test("§2 tail-only vectors (size <= 32) round-trip through append", async () => {
@@ -335,33 +363,49 @@ describe("VectorTrie slice (§6 windowing over the shared trie)", () => {
   });
 
   test("append onto a slice shares and correctly overwrites the trie", async () => {
-    // A slice shares the original (untrimmed) tree; appending onto it must land
-    // disjoint values without ever reading a stale shared slot. Values 1000+ are
-    // disjoint from the 1..100 source so any mis-read shows.
+    // A slice shares whatever subtree the trim left it holding, so appending onto
+    // it must land disjoint values without ever reading a stale shared slot —
+    // and now the trie it grows is the *small* one. `slice(buildTo(100), 0, 50)`
+    // takes the rebuild path (newOff = tailOffset(50) = 32, the original's is 96)
+    // and then trims: its tree range [0, 32) is under root child 0, so the root
+    // becomes that shared leaf and the window is (0, 50, height 1, tailOffset 32).
+    // `slice(buildTo(100), 40, 90)` likewise trims to (8, 58, height 1, 32).
+    // Both therefore *regrow* — the flushes below fill a fresh height-1 root and
+    // then grow it a level — where before the trim they overwrote slots of the
+    // original height-2 tree. Values 1000+ are disjoint from the 1..100 source so
+    // any mis-read shows.
     const m = await runTrie(
       BUILD +
         // no flush: a couple of appends stay in the rebuilt tail
         "let a = appendRange(slice(buildTo(100), 0, 50), 1000, 1001)\n" +
+        "export let ashape: (Int, Int, Int, Int) = state(slice(buildTo(100), 0, 50))\n" +
         "export let as: Int = size(a)\n" +
         "export let a49: Int = get(a, 49)\n" +
         "export let a50: Int = get(a, 50)\n" +
         "export let a51: Int = get(a, 51)\n" +
-        // 56 appends: cross tail flushes that rewrite shared tree slots 1 and 2
+        // 56 appends: two tail flushes. The first fills the trimmed height-1 root
+        // (leafPos 1 == its capacity) and so grows a level; the second inserts at
+        // leaf 2 of the new height-2 root. Both write slots the window owns.
         "let b = appendRange(slice(buildTo(100), 0, 50), 1000, 1055)\n" +
+        "export let bshape: (Int, Int, Int, Int) = state(b)\n" +
         "export let bs: Int = size(b)\n" +
         "export let b0: Int = get(b, 0)\n" +
         "export let b49: Int = get(b, 49)\n" +
         "export let b50: Int = get(b, 50)\n" +
-        "export let b70: Int = get(b, 70)\n" + // internal 70 -> a flush-rewritten slot
+        "export let b70: Int = get(b, 70)\n" + // internal 70 -> a flushed leaf
         "export let b105: Int = get(b, 105)\n" +
-        // append onto an origin > 0 window
+        // append onto an origin > 0 window, itself trimmed to height 1
         "let c = appendRange(slice(buildTo(100), 40, 90), 1000, 1030)\n" +
+        "export let cshape: (Int, Int, Int, Int) = state(c)\n" +
         "export let cs: Int = size(c)\n" +
         "export let c0: Int = get(c, 0)\n" +
         "export let c49: Int = get(c, 49)\n" +
         "export let c50: Int = get(c, 50)\n" +
         "export let c80: Int = get(c, 80)\n",
     );
+    expect(m.ashape).toEqual([0, 50, 1, 32]);
+    expect(m.bshape).toEqual([0, 106, 2, 96]);
+    expect(m.cshape).toEqual([8, 89, 2, 64]);
     expect(m.as).toBe(52);
     expect(m.a49).toBe(50);
     expect(m.a50).toBe(1000);
@@ -380,6 +424,312 @@ describe("VectorTrie slice (§6 windowing over the shared trie)", () => {
   });
 });
 
+describe("VectorTrie slice height trim (§6 a window pays its own logarithm)", () => {
+  /**
+   * A window re-windows over the original trie, and keeping the original's
+   * `height` made every later `get`/`set` on it descend levels the window does
+   * not span: a ten-element window of a height-3 vector charged three levels per
+   * read for the rest of its life, and held the whole original tree live against
+   * collection. `slice` now trims — while the window's *tree* range
+   * `[origin, tailOffset(capacity))` lies under a single child of the root, that
+   * child becomes the root and `origin`/`capacity` rebase by its offset; a range
+   * that is empty (a wholly tail-resident window) drops the tree outright.
+   *
+   * The fit check is over the tree range and not over `capacity - 1`, because
+   * `capacity` may exceed `radix^height` by up to 32 — the tail can sit past the
+   * root's address space — and the last-index form would refuse sound trims.
+   *
+   * `height` is representation, and reading it is the only way to make the claim
+   * at all; the probes therefore assert the whole state tuple, and pin values at
+   * both window ends and inside alongside. A height right for the wrong origin
+   * is a trie that reads the wrong elements, and only the values catch that.
+   */
+  test("§6 the tree range decides: one child descends, two children do not", async () => {
+    // buildTo(100) is (0, 100, height 2, tailOffset 96): the tree holds internal
+    // [0, 96) as three leaves, the tail [96, 100).
+    const m = await runTrie(
+      BUILD +
+        "let big = buildTo(100)\n" +
+        // [40, 90): rebuild path (newOff = tailOffset(90) = 64 != 96). Tree range
+        // [40, 64): 40/32 = 1 and 63/32 = 1, one child, so the root becomes leaf 1
+        // and all three indices rebase by 1*32 -> (8, 58, height 1, tailOffset 32).
+        "export let mid: (Int, Int, Int, Int) = state(slice(big, 40, 90))\n" +
+        "export let mid0: Int = get(slice(big, 40, 90), 0)\n" +
+        "export let mid23: Int = get(slice(big, 40, 90), 23)\n" + // last tree element
+        "export let mid24: Int = get(slice(big, 40, 90), 24)\n" + // first tail element
+        "export let mid49: Int = get(slice(big, 40, 90), 49)\n" +
+        // [30, 70): tree range [30, 64) straddles leaves 0 and 1 (30/32 = 0,
+        // 63/32 = 1), so the loop exits on its first check and nothing is trimmed.
+        "export let straddle: (Int, Int, Int, Int) = state(slice(big, 30, 70))\n" +
+        "export let str0: Int = get(slice(big, 30, 70), 0)\n" +
+        "export let str39: Int = get(slice(big, 30, 70), 39)\n" +
+        // The end slices: reuse path, and their tree ranges [0, 96) / [1, 96) span
+        // leaves 0..2, so they trim nothing and hand `root`/`tail` back untouched.
+        // That is what keeps §4's "effectively O(1)" note — and the object-identity
+        // pins in `vector-trie-wiring.test.ts` — true.
+        "export let dropLast: (Int, Int, Int, Int) = state(slice(big, 0, 99))\n" +
+        "export let dropFirst: (Int, Int, Int, Int) = state(slice(big, 1, 100))\n" +
+        // A height-3 source: buildTo(1100) is (0, 1100, 3, 1088). Tree range
+        // [100, 896) is under top child 0 (100/1024 = 895/1024 = 0), a rebase of
+        // 0 that still drops a level; the next check straddles (100/32 = 3,
+        // 895/32 = 27), so exactly one level goes.
+        "let tall = buildTo(1100)\n" +
+        "export let one: (Int, Int, Int, Int) = state(slice(tall, 100, 900))\n" +
+        "export let one0: Int = get(slice(tall, 100, 900), 0)\n" +
+        "export let one799: Int = get(slice(tall, 100, 900), 799)\n" +
+        // Two levels in one slice: tree range [1050, 1056) is under top child 1
+        // (both /1024 = 1) -> rebase 1024 giving (26, 36, 2, 32); then [26, 32) is
+        // under sub-child 0 (both /32 = 0) -> rebase 0, height 1.
+        "export let two: (Int, Int, Int, Int) = state(slice(tall, 1050, 1060))\n" +
+        "export let two0: Int = get(slice(tall, 1050, 1060), 0)\n" +
+        "export let two5: Int = get(slice(tall, 1050, 1060), 5)\n" + // last tree element
+        "export let two6: Int = get(slice(tall, 1050, 1060), 6)\n" + // first tail element
+        "export let two9: Int = get(slice(tall, 1050, 1060), 9)\n",
+    );
+    expect(m.mid).toEqual([8, 58, 1, 32]);
+    expect(m.mid0).toBe(41);
+    expect(m.mid23).toBe(64);
+    expect(m.mid24).toBe(65);
+    expect(m.mid49).toBe(90);
+    expect(m.straddle).toEqual([30, 70, 2, 64]);
+    expect(m.str0).toBe(31);
+    expect(m.str39).toBe(70);
+    expect(m.dropLast).toEqual([0, 99, 2, 96]);
+    expect(m.dropFirst).toEqual([1, 100, 2, 96]);
+    expect(m.one).toEqual([100, 900, 2, 896]);
+    expect(m.one0).toBe(101);
+    expect(m.one799).toBe(900);
+    expect(m.two).toEqual([26, 36, 1, 32]);
+    expect(m.two0).toBe(1051);
+    expect(m.two5).toBe(1056);
+    expect(m.two6).toBe(1057);
+    expect(m.two9).toBe(1060);
+  });
+
+  test("§6 the child-span boundary and its neighbours", async () => {
+    // The three windows either side of the leaf-1 boundary of buildTo(100), each
+    // derived from the algorithm rather than from the shape of its neighbours.
+    const m = await runTrie(
+      BUILD +
+        "let big = buildTo(100)\n" +
+        // [32, 64): newOff = tailOffset(64) = 32, so the tail is rebuilt from
+        // internal [32, 64) — the whole window. treeEnd 32 <= origin 32, so the
+        // tail-only collapse fires: indices rebase by 32 and the tree is dropped,
+        // giving (0, 32, 1, 0) — a full 32-slot pure-tail window.
+        "export let atBoundary: (Int, Int, Int, Int) = state(slice(big, 32, 64))\n" +
+        "export let ab0: Int = get(slice(big, 32, 64), 0)\n" +
+        "export let ab31: Int = get(slice(big, 32, 64), 31)\n" +
+        "export let abn: Int = size(slice(big, 32, 64))\n" +
+        // [31, 64): one element earlier, and the collapse no longer applies —
+        // treeEnd 32 > origin 31. Tree range [31, 32) is under leaf 0 (both
+        // /32 = 0), a rebase of 0, so the descent leaves (31, 64, 1, 32): a
+        // one-element tree residue with the other 32 in the tail.
+        "export let below: (Int, Int, Int, Int) = state(slice(big, 31, 64))\n" +
+        "export let bl0: Int = get(slice(big, 31, 64), 0)\n" + // the tree residue
+        "export let bl1: Int = get(slice(big, 31, 64), 1)\n" + // first tail element
+        "export let bl32: Int = get(slice(big, 31, 64), 32)\n" +
+        "export let bln: Int = size(slice(big, 31, 64))\n" +
+        // [32, 65): one element later, and newOff = tailOffset(65) = 64 moves the
+        // tail. Tree range [32, 64) is under leaf 1 (32/32 = 63/32 = 1), so the
+        // root becomes leaf 1 and everything rebases by 32 -> (0, 33, 1, 32).
+        "export let above: (Int, Int, Int, Int) = state(slice(big, 32, 65))\n" +
+        "export let av0: Int = get(slice(big, 32, 65), 0)\n" +
+        "export let av31: Int = get(slice(big, 32, 65), 31)\n" + // last tree element
+        "export let av32: Int = get(slice(big, 32, 65), 32)\n" + // the single tail element
+        "export let avn: Int = size(slice(big, 32, 65))\n",
+    );
+    expect(m.atBoundary).toEqual([0, 32, 1, 0]);
+    expect(m.ab0).toBe(33);
+    expect(m.ab31).toBe(64);
+    expect(m.abn).toBe(32);
+    expect(m.below).toEqual([31, 64, 1, 32]);
+    expect(m.bl0).toBe(32);
+    expect(m.bl1).toBe(33);
+    expect(m.bl32).toBe(64);
+    expect(m.bln).toBe(33);
+    expect(m.above).toEqual([0, 33, 1, 32]);
+    expect(m.av0).toBe(33);
+    expect(m.av31).toBe(64);
+    expect(m.av32).toBe(65);
+    expect(m.avn).toBe(33);
+  });
+
+  test("§6 a wholly tail-resident window drops the tree, on both slice paths", async () => {
+    const m = await runTrie(
+      BUILD +
+        "let big = buildTo(100)\n" +
+        // Rebuild path. [50, 55): newOff = tailOffset(55) = 32, the tail is rebuilt
+        // at slots 18..22, and treeEnd 32 <= origin 50 collapses to (18, 23, 1, 0)
+        // — `tailOffset(23)` is 0, and 23 - 32... the rebase by 32 is what leaves
+        // the tail's own slot indices (internal - tailOffset) unchanged.
+        "export let small: (Int, Int, Int, Int) = state(slice(big, 50, 55))\n" +
+        "export let sm0: Int = get(slice(big, 50, 55), 0)\n" +
+        "export let sm4: Int = get(slice(big, 50, 55), 4)\n" +
+        "export let smn: Int = size(slice(big, 50, 55))\n" +
+        // Reuse path. [97, 100): newOff = tailOffset(100) = 96 is the original's,
+        // so `root` and `tail` are handed over as-is; then treeEnd 96 <= origin 97
+        // collapses to (1, 4, 1, 0), sharing that very tail node — old slot
+        // `internal - 96` and new slot `internal - 96 - 0` are the same slot.
+        "export let end: (Int, Int, Int, Int) = state(slice(big, 97, 100))\n" +
+        "export let en0: Int = get(slice(big, 97, 100), 0)\n" +
+        "export let en2: Int = get(slice(big, 97, 100), 2)\n" +
+        "export let enn: Int = size(slice(big, 97, 100))\n" +
+        // A prepend-built source, whose origin is large: buildDown(100) is
+        // (957, 1057, 3, 1056). [10, 20) gives internal [967, 977), newOff =
+        // tailOffset(977) = 960, and treeEnd 960 <= origin 967 collapses it to
+        // (7, 17, 1, 0) — a height-3 trie reduced to a bare tail node.
+        "export let down: (Int, Int, Int, Int) = state(slice(buildDown(100), 10, 20))\n" +
+        "export let dn0: Int = get(slice(buildDown(100), 10, 20), 0)\n" +
+        "export let dn9: Int = get(slice(buildDown(100), 10, 20), 9)\n",
+    );
+    expect(m.small).toEqual([18, 23, 1, 0]);
+    expect(m.sm0).toBe(51);
+    expect(m.sm4).toBe(55);
+    expect(m.smn).toBe(5);
+    expect(m.end).toEqual([1, 4, 1, 0]);
+    expect(m.en0).toBe(98);
+    expect(m.en2).toBe(100);
+    expect(m.enn).toBe(3);
+    expect(m.down).toEqual([7, 17, 1, 0]);
+    expect(m.dn0).toBe(11);
+    expect(m.dn9).toBe(20);
+  });
+
+  test("§6 slicing an already-trimmed window trims again from its own root", async () => {
+    const m = await runTrie(
+      BUILD +
+        "let big = buildTo(100)\n" +
+        "let tall = buildTo(1100)\n" +
+        // slice(big, 40, 90) is (8, 58, 1, 32). Slicing [10, 20) of *that* gives
+        // internal [18, 28) with newOff = tailOffset(28) = 0, so the tail is
+        // rebuilt at slots 18..27 from the window's own leaf, and treeEnd 0 <=
+        // origin 18 collapses -> (18, 28, 1, 0). The second slice reads through
+        // the first's trimmed root, not the original's.
+        "let inner = slice(slice(big, 40, 90), 10, 20)\n" +
+        "export let innerState: (Int, Int, Int, Int) = state(inner)\n" +
+        "export let in0: Int = get(inner, 0)\n" +
+        "export let in9: Int = get(inner, 9)\n" +
+        "export let inn: Int = size(inner)\n" +
+        // slice(tall, 100, 900) is (100, 900, 2, 896). Slicing [0, 700) of it is
+        // internal [100, 800), newOff = tailOffset(800) = 768; the tree range
+        // [100, 768) straddles (100/32 = 3, 767/32 = 23), so this one does not
+        // trim — a second slice is not obliged to shrink, only permitted to.
+        "let outer = slice(slice(tall, 100, 900), 0, 700)\n" +
+        "export let outerState: (Int, Int, Int, Int) = state(outer)\n" +
+        "export let ou0: Int = get(outer, 0)\n" +
+        "export let ou699: Int = get(outer, 699)\n" +
+        "export let oun: Int = size(outer)\n",
+    );
+    expect(m.innerState).toEqual([18, 28, 1, 0]);
+    expect(m.in0).toBe(51);
+    expect(m.in9).toBe(60);
+    expect(m.inn).toBe(10);
+    expect(m.outerState).toEqual([100, 800, 2, 768]);
+    expect(m.ou0).toBe(101);
+    expect(m.ou699).toBe(800);
+    expect(m.oun).toBe(700);
+  });
+
+  test("§5.4 get and set on a trimmed window reach both regions", async () => {
+    const m = await runTrie(
+      BUILD +
+        "let big = buildTo(100)\n" +
+        // slice(big, 90, 100) takes the reuse path (newOff 96 is the original's)
+        // and trims: tree range [90, 96) is under leaf 2 (both /32 = 2), rebase 64
+        // -> (26, 36, 1, 32). Logical 0 is internal 26, in the height-1 tree;
+        // logical 9 is internal 35, in the tail.
+        "let w = slice(big, 90, 100)\n" +
+        "export let wState: (Int, Int, Int, Int) = state(w)\n" +
+        "let u = set(set(w, 0, 111), 9, 222)\n" +
+        "export let u0: Int = get(u, 0)\n" +
+        "export let u1: Int = get(u, 1)\n" +
+        "export let u8: Int = get(u, 8)\n" +
+        "export let u9: Int = get(u, 9)\n" +
+        // The original is untouched: `set` is persistent through the trim too.
+        "export let w0: Int = get(w, 0)\n" +
+        "export let w9: Int = get(w, 9)\n" +
+        // And on the two-level descent, whose root is a leaf two levels down.
+        "let t = slice(buildTo(1100), 1050, 1060)\n" +
+        "export let t5: Int = get(set(t, 5, 9999), 5)\n" +
+        "export let t4: Int = get(set(t, 5, 9999), 4)\n",
+    );
+    expect(m.wState).toEqual([26, 36, 1, 32]);
+    expect(m.u0).toBe(111);
+    expect(m.u1).toBe(92);
+    expect(m.u8).toBe(99);
+    expect(m.u9).toBe(222);
+    expect(m.w0).toBe(91);
+    expect(m.w9).toBe(100);
+    expect(m.t5).toBe(9999);
+    expect(m.t4).toBe(1055);
+  });
+
+  test("§4 appends onto a collapsed window flush into its own small tree", async () => {
+    // slice(buildTo(100), 50, 55) is (18, 23, 1, 0): no tree at all. 21 appends
+    // fill the tail to internal 31 (capacity 32, tailOffset still 0, a full tail),
+    // the next flushes it as the root leaf — `insertLeaf` at height 1 replacing
+    // the empty root — and the rest start a fresh tail, ending at (18, 44, 1, 32).
+    // The flushed leaf is the node that already held the window, so the values
+    // below the origin ride along dead and the live ones must still read out.
+    const m = await runTrie(
+      BUILD +
+        "let f = appendRange(slice(buildTo(100), 50, 55), 1000, 1020)\n" +
+        "export let fState: (Int, Int, Int, Int) = state(f)\n" +
+        "export let fn: Int = size(f)\n" +
+        "export let f0: Int = get(f, 0)\n" + // internal 18, in the flushed leaf
+        "export let f4: Int = get(f, 4)\n" + // internal 22, the window's last
+        "export let f5: Int = get(f, 5)\n" + // internal 23, the first append
+        "export let f13: Int = get(f, 13)\n" + // internal 31, the last pre-flush slot
+        "export let f14: Int = get(f, 14)\n" + // internal 32, first of the fresh tail
+        "export let f25: Int = get(f, 25)\n",
+    );
+    expect(m.fState).toEqual([18, 44, 1, 32]);
+    expect(m.fn).toBe(26);
+    expect(m.f0).toBe(51);
+    expect(m.f4).toBe(55);
+    expect(m.f5).toBe(1000);
+    expect(m.f13).toBe(1008);
+    expect(m.f14).toBe(1009);
+    expect(m.f25).toBe(1020);
+  });
+
+  test("§4 concat and nodeRun still walk a trimmed window by node", async () => {
+    const m = await runTrie(
+      BUILD + WALK +
+        "let big = buildTo(100)\n" +
+        // Left is (8, 58, 1, 32), right is (0, 10, 1, 0) — both trimmed, and
+        // disjoint in value. `concat` appends 10 elements onto the left: six fill
+        // its tail to capacity 64, the flush of that full tail fills its height-1
+        // root and grows a level, and the last three start the new tail, ending at
+        // (8, 68, 2, 64). `nodeRun` must report runs over that new shape.
+        "let cc = concat(slice(big, 40, 90), slice(big, 0, 10))\n" +
+        "export let ccState: (Int, Int, Int, Int) = state(cc)\n" +
+        "export let ccn: Int = size(cc)\n" +
+        "export let cc0: Int = get(cc, 0)\n" +
+        "export let cc49: Int = get(cc, 49)\n" + // last of the left window
+        "export let cc50: Int = get(cc, 50)\n" + // first of the right window
+        "export let cc59: Int = get(cc, 59)\n" +
+        "export let ccWalk: (Int, Int) = walk(cc)\n" +
+        // The trimmed windows themselves: [40, 90) walks its leaf residue (24) and
+        // then its tail (26) — 2 descents for 50 elements; the two-level descent
+        // walks 6 then 4.
+        "export let midWalk: (Int, Int) = walk(slice(big, 40, 90))\n" +
+        "export let twoWalk: (Int, Int) = walk(slice(buildTo(1100), 1050, 1060))\n",
+    );
+    const sumBetween = (lo: number, hi: number) =>
+      ((lo + hi) * (hi - lo + 1)) / 2;
+    expect(m.ccState).toEqual([8, 68, 2, 64]);
+    expect(m.ccn).toBe(60);
+    expect(m.cc0).toBe(41);
+    expect(m.cc49).toBe(90);
+    expect(m.cc50).toBe(1);
+    expect(m.cc59).toBe(10);
+    expect(m.ccWalk).toEqual([3, sumBetween(41, 90) + sumBetween(1, 10)]);
+    expect(m.midWalk).toEqual([2, sumBetween(41, 90)]);
+    expect(m.twoWalk).toEqual([2, sumBetween(1051, 1060)]);
+  });
+});
+
 describe("VectorTrie nodeRun (§4 sequential reading)", () => {
   /**
    * `nodeRun` is what makes a whole-vector traversal O(n): it answers with the
@@ -393,25 +743,6 @@ describe("VectorTrie nodeRun (§4 sequential reading)", () => {
    * An implementation that answered with a run of 1 — correct, and quietly
    * O(n log32 n) — would report `n` here.
    */
-  const WALK =
-    // Counts `nodeRun` calls for a full traversal, and sums the elements it
-    // yields, so a wrong run length shows as a wrong sum rather than passing on
-    // the count alone.
-    "fun walk(v: TrieVector(Int)): (Int, Int) =\n" +
-    "    var calls = 0\n" +
-    "    var total = 0\n" +
-    "    var index = 0\n" +
-    "    for step in 1..size(v)\n" +
-    "        if index < size(v) then\n" +
-    "            let (values, offset, run) = nodeRun(v, index)\n" +
-    "            calls := calls + 1\n" +
-    "            var seen = 0\n" +
-    "            for inner in 1..run\n" +
-    "                total := total + Node.get(values, offset + seen)\n" +
-    "                seen := seen + 1\n" +
-    "            index := index + run\n" +
-    "    (calls, total)\n";
-
   test("a full walk descends once per node, not once per element", async () => {
     const m = await runTrie(
       BUILD + WALK +
@@ -439,9 +770,12 @@ describe("VectorTrie nodeRun (§4 sequential reading)", () => {
         // Prepend-built: the front sits mid-node, so the first run is partial
         // and every later one is full — 100 elements over 5 descents, not 4.
         "export let fronted: (Int, Int) = walk(buildDown(100))\n" +
-        // A window whose origin is mid-node: same shape, offset elsewhere.
+        // A window whose origin is mid-node: same shape, offset elsewhere. The
+        // trim leaves it (8, 58, height 1, 32), so the two runs are its leaf
+        // residue and its tail.
         "export let windowed: (Int, Int) = walk(slice(buildTo(100), 40, 90))\n" +
-        // Wholly inside the tail: one descent.
+        // Wholly inside the tail — one descent, and after the collapse there is
+        // no tree left to descend at all.
         "export let inTail: (Int, Int) = walk(slice(buildTo(100), 50, 55))\n",
     );
     const sumBetween = (lo: number, hi: number) =>
@@ -455,40 +789,58 @@ describe("VectorTrie nodeRun (§4 sequential reading)", () => {
 });
 
 describe("VectorTrie prepend after slice (§4 states only slice can reach)", () => {
-  // prepend's tail branch (origin > tailOffset) and, more generally, prepend onto
-  // a nonzero origin, are unreachable by building alone: appends hold origin
-  // fixed, prepends drive it below the tail offset, tail-only vectors have offset
-  // 0. Only a slice leaves the live range wholly tail-resident, so these cases
-  // exercise state families the build/update paths never produce.
-  test("§4 the tail branch of prepend (a window with origin > tailOffset)", async () => {
-    // slice(buildTo(100), 50, 55): origin 50 > tailOffset 32, so the whole window
-    // lives in the tail; prepend writes into the rebuilt tail, not the tree.
+  // Prepend onto a nonzero origin is unreachable by building alone: appends hold
+  // origin fixed and prepends drive it downward from a level's top slot, so the
+  // arms that meet an origin left *mid-structure* by something else are a slice's
+  // to reach. Since the trim, a non-collapsed window always has
+  // `origin < tailOffset(capacity)` — the descent stops at the smallest covering
+  // root, whose tree range still contains the origin — and a collapsed one always
+  // has `tailOffset(capacity) == 0`, its capacity being 1..32. So prepend's tail
+  // branch (`newOrigin >= off`) is now reached only with `off == 0`, and each test
+  // below states the state family it lands in rather than the one a window used
+  // to have.
+  test("§4 the tail branch of prepend (a collapsed window with origin > 0)", async () => {
+    // slice(buildTo(100), 50, 55) collapses to (18, 23, height 1, tailOffset 0):
+    // the whole window is tail-resident and the tree was dropped. prepend sees
+    // origin 18 > 0 and newOrigin 17 >= off 0, so it writes tail slot 17.
     const m = await runTrie(
       BUILD +
-        "let v = prepend(slice(buildTo(100), 50, 55), 999)\n" +
+        "let w = slice(buildTo(100), 50, 55)\n" +
+        "export let wState: (Int, Int, Int, Int) = state(w)\n" +
+        "let v = prepend(w, 999)\n" +
+        "export let vState: (Int, Int, Int, Int) = state(v)\n" +
         "export let s: Int = size(v)\n" +
         "export let e0: Int = get(v, 0)\n" +
         "export let e1: Int = get(v, 1)\n" +
         "export let e5: Int = get(v, 5)\n",
     );
+    expect(m.wState).toEqual([18, 23, 1, 0]);
+    expect(m.vState).toEqual([17, 23, 1, 0]);
     expect(m.s).toBe(6);
     expect(m.e0).toBe(999);
     expect(m.e1).toBe(51);
     expect(m.e5).toBe(55);
   });
 
-  test("§4 prepends walk from the tail region across the offset into the tree", async () => {
-    // 20 prepends take origin from 50 down to 30, crossing tailOffset 32; the tree
-    // writes discard the stale shared leaf 0 (below the window) and fill downward.
+  test("§4 prepends exhaust a collapsed window's tail and force a left regrow", async () => {
+    // From (18, 23, 1, 0), 18 prepends walk origin down to 0 through the tail.
+    // The 19th has no headroom, so it grows a level at the left: span = 32^1 = 32,
+    // the (empty) root drops into slot 1, and origin/capacity rebase by 32 to give
+    // (31, 55, height 2, tailOffset 32) — the front now sits in the tree, and the
+    // tail's slots are unmoved because 32 is a multiple of radix. The 20th writes
+    // internal 30 < 32, so it descends: root childPos 30 != span - 1, meaning it
+    // must read the child the 19th just created. Ending state (30, 55, 2, 32).
     const m = await runTrie(
       BUILD +
         "let v = prependN(slice(buildTo(100), 50, 55), 20)\n" +
+        "export let vState: (Int, Int, Int, Int) = state(v)\n" +
         "export let s: Int = size(v)\n" +
         "export let e0: Int = get(v, 0)\n" + // final front = 2000 - 20
         "export let e19: Int = get(v, 19)\n" +
         "export let e20: Int = get(v, 20)\n" + // start of the original window
         "export let e24: Int = get(v, 24)\n",
     );
+    expect(m.vState).toEqual([30, 55, 2, 32]);
     expect(m.s).toBe(25);
     expect(m.e0).toBe(1980);
     expect(m.e19).toBe(1999);
@@ -496,28 +848,115 @@ describe("VectorTrie prepend after slice (§4 states only slice can reach)", () 
     expect(m.e24).toBe(55);
   });
 
-  test("§4 tail-resident boundary slices of a prepend-built height-3 trie", async () => {
-    // buildDown(60) is height 3 with a partially-populated left child. Window
-    // [27,40) has origin == tailOffset (1024): prepend writes at root childPos =
-    // span-1 -> fresh spine, discarding the stale partial child. Window [59,60)
-    // has origin == tailOffset (1056): prepend writes at root childPos = 31 !=
-    // span-1 -> it must READ child 1 (an absent-child read would crash).
+  test("§4 the tree branch of prepend: a leaf slot, a fresh child, an existing child", async () => {
+    // Three windows, three arms of the write, each derived from its own state.
+    //
+    // (a) slice(buildTo(100), 40, 90) trims to (8, 58, height 1, 32). newOrigin 7
+    //     is below the offset, so it descends — onto a `Leaf` root, where the
+    //     write is the slot directly. Slot 7 held internal 39 (value 40), dead
+    //     below the window, and is overwritten.
+    //
+    // (b) slice(buildTo(100), 32, 100) takes the reuse path (newOff 96 is the
+    //     original's) and does *not* trim: its tree range [32, 96) straddles
+    //     leaves 1 and 2, leaving (32, 100, height 2, 96). newOrigin 31 gives
+    //     childIndex 0 and childPos 31 == span - 1, the fresh-child arm — so the
+    //     stale shared leaf 0 (values 1..32, all below the window) is discarded
+    //     rather than read, which is exactly what that arm is for.
+    //
+    // (c) slice(buildTo(1100), 1050, 1090) also takes the reuse path (newOff 1088)
+    //     and then trims one level: tree range [1050, 1088) is under top child 1,
+    //     rebase 1024 -> (26, 66, height 2, 64), where [26, 64) straddles and the
+    //     descent stops. newOrigin 25 gives childIndex 0 and childPos 25 !=
+    //     span - 1, so the write must READ the existing child 0 — the arm an
+    //     absent-child read would crash on.
     const m = await runTrie(
       BUILD +
-        "let c = prepend(slice(buildDown(60), 27, 40), 888)\n" + // window 28..40
+        "let a = slice(buildTo(100), 40, 90)\n" +
+        "export let aState: (Int, Int, Int, Int) = state(a)\n" +
+        "let ap = prepend(a, 777)\n" +
+        "export let apState: (Int, Int, Int, Int) = state(ap)\n" +
+        "export let as: Int = size(ap)\n" +
+        "export let a0: Int = get(ap, 0)\n" +
+        "export let a1: Int = get(ap, 1)\n" +
+        "export let a50: Int = get(ap, 50)\n" +
+        "let b = slice(buildTo(100), 32, 100)\n" +
+        "export let bState: (Int, Int, Int, Int) = state(b)\n" +
+        "let bp = prepend(b, 888)\n" +
+        "export let bpState: (Int, Int, Int, Int) = state(bp)\n" +
+        "export let bs: Int = size(bp)\n" +
+        "export let b0: Int = get(bp, 0)\n" +
+        "export let b1: Int = get(bp, 1)\n" +
+        "export let b68: Int = get(bp, 68)\n" +
+        "let c = slice(buildTo(1100), 1050, 1090)\n" +
+        "export let cState: (Int, Int, Int, Int) = state(c)\n" +
+        "let cp = prepend(c, 999)\n" +
+        "export let cpState: (Int, Int, Int, Int) = state(cp)\n" +
+        "export let cs: Int = size(cp)\n" +
+        "export let c0: Int = get(cp, 0)\n" +
+        "export let c1: Int = get(cp, 1)\n" +
+        "export let c40: Int = get(cp, 40)\n",
+    );
+    expect(m.aState).toEqual([8, 58, 1, 32]);
+    expect(m.apState).toEqual([7, 58, 1, 32]);
+    expect(m.as).toBe(51);
+    expect(m.a0).toBe(777);
+    expect(m.a1).toBe(41);
+    expect(m.a50).toBe(90);
+    expect(m.bState).toEqual([32, 100, 2, 96]);
+    expect(m.bpState).toEqual([31, 100, 2, 96]);
+    expect(m.bs).toBe(69);
+    expect(m.b0).toBe(888);
+    expect(m.b1).toBe(33);
+    expect(m.b68).toBe(100);
+    expect(m.cState).toEqual([26, 66, 2, 64]);
+    expect(m.cpState).toEqual([25, 66, 2, 64]);
+    expect(m.cs).toBe(41);
+    expect(m.c0).toBe(999);
+    expect(m.c1).toBe(1051);
+    expect(m.c40).toBe(1090);
+  });
+
+  test("§4 tail-resident boundary slices of a prepend-built height-3 trie", async () => {
+    // buildDown(60) is (997, 1057, height 3, tailOffset 1056): a left-grown trie
+    // with a partially-populated left child. Both windows below are wholly
+    // tail-resident, so the trim collapses them and the partial child — most of
+    // it dead headroom — is released rather than carried.
+    //
+    // [27, 40) is internal [1024, 1037); newOff = tailOffset(1037) = 1024, so the
+    // tail is rebuilt at slots 0..12 and treeEnd 1024 <= origin 1024 collapses to
+    // (0, 13, 1, 0). [59, 60) is internal [1056, 1057), which is the reuse path
+    // (newOff 1056 is the original's) and collapses to (0, 1, 1, 0), sharing that
+    // tail node. Both then have origin 0, so prepend takes the left-grow arm:
+    // span 32, the empty root into slot 1, and a fresh spine written at
+    // newOrigin = span - 1 = 31.
+    const m = await runTrie(
+      BUILD +
+        "export let source: (Int, Int, Int, Int) = state(buildDown(60))\n" +
+        "let cw = slice(buildDown(60), 27, 40)\n" + // window 28..40
+        "export let cwState: (Int, Int, Int, Int) = state(cw)\n" +
+        "let c = prepend(cw, 888)\n" +
+        "export let cState: (Int, Int, Int, Int) = state(c)\n" +
         "export let cs: Int = size(c)\n" +
         "export let c0: Int = get(c, 0)\n" +
         "export let c1: Int = get(c, 1)\n" +
         "export let c13: Int = get(c, 13)\n" +
-        "let d = prepend(slice(buildDown(60), 59, 60), 777)\n" + // window [60]
+        "let dw = slice(buildDown(60), 59, 60)\n" + // window [60]
+        "export let dwState: (Int, Int, Int, Int) = state(dw)\n" +
+        "let d = prepend(dw, 777)\n" +
+        "export let dState: (Int, Int, Int, Int) = state(d)\n" +
         "export let ds: Int = size(d)\n" +
         "export let d0: Int = get(d, 0)\n" +
         "export let d1: Int = get(d, 1)\n",
     );
+    expect(m.source).toEqual([997, 1057, 3, 1056]);
+    expect(m.cwState).toEqual([0, 13, 1, 0]);
+    expect(m.cState).toEqual([31, 45, 2, 32]);
     expect(m.cs).toBe(14);
     expect(m.c0).toBe(888);
     expect(m.c1).toBe(28);
     expect(m.c13).toBe(40);
+    expect(m.dwState).toEqual([0, 1, 1, 0]);
+    expect(m.dState).toEqual([31, 33, 2, 32]);
     expect(m.ds).toBe(2);
     expect(m.d0).toBe(777);
     expect(m.d1).toBe(60);

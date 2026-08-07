@@ -345,13 +345,74 @@ fun set(trie: TrieVector(a), index: Int, value: a): TrieVector(a) =
             tail = trie.tail,
         })
 
+// Descends `root` to the smallest subtree that still covers a window, so the
+// window's own reads cost `log32` of *its* size rather than of the trie it came
+// from. The fit check is over the **tree** range `[origin, tailOffset(capacity))`
+// and not over the whole window: the tail may extend past the root's address
+// space, so asking whether `capacity - 1` sits under one child would refuse
+// trims that are sound. While that range lies under a single child, that child
+// becomes the root and `origin`/`capacity` rebase by the child's offset. At
+// height >= 2 a child's span is a multiple of `radix`, so each rebase moves
+// `tailOffset` by exactly the same amount and every tail slot index is unmoved.
+// The record's `tailOffset(capacity) <= radix^height` invariant survives with it:
+// the rebased tree range fits inside the span the new root addresses. A window
+// lying wholly in the tail is the descent's limit — the tree is dead, so it is
+// dropped for the empty leaf and the indices rebase by the whole tail offset,
+// leaving a capacity of 1..32 whose own `tailOffset` is 0.
+let trimHeight(origin: Int, capacity: Int, height: Int, root: Tree(a), tail: Node(a)): TrieVector(a) =
+    let treeEnd = tailOffset(capacity)
+    if treeEnd <= origin then
+        TrieVector({
+            origin = origin - treeEnd,
+            capacity = capacity - treeEnd,
+            height = 1,
+            root = Leaf(Node.empty()),
+            tail = tail,
+        })
+    else
+        var node: Tree(a) = root
+        var low = origin
+        var high = treeEnd
+        var cap = capacity
+        var level = height
+        var descending = True
+        while descending and level >= 2
+            let span = pow32(level - 1)
+            let child = low.div(span)
+            if child == (high - 1).div(span) then
+                let delta = child * span
+                node := match node
+                    Branch(children) => Node.get(children, child)
+                    // A branch level always holds branches above height 1.
+                    Leaf(_) => throw(TrieCorruption("trimHeight: a leaf above height 1"))
+                low := low - delta
+                high := high - delta
+                cap := cap - delta
+                level := level - 1
+            else
+                // The range straddles two children: this root is the smallest
+                // one that covers it.
+                descending := False
+        TrieVector({
+            origin = low,
+            capacity = cap,
+            height = level,
+            root = node,
+            tail = tail,
+        })
+
 // Returns the sub-vector over 0-based half-open logical window `[begin, end)`
 // (caller guarantees `0 <= begin <= end <= size`; the public `Vector` bracket
 // owns clamping and the descending-range `SliceError`). The window becomes a new
-// `origin`/`capacity` over the *same* trie, so any window whose tail region is a
-// prefix of the current one — end slices, `dropFirst`/`dropLast` — is O(1). When
-// the new capacity lands the tail elsewhere, only the tail (<= 32 elements) is
-// rebuilt from their current positions; the tree is shared untouched.
+// `origin`/`capacity` over the same trie: the tree is never copied, and when the
+// new capacity lands the tail elsewhere only the tail (<= 32 elements) is rebuilt
+// from its elements' current positions. The result is then *trimmed* — while the
+// live tree range fits under one child of the root the root descends into it, and
+// a wholly tail-resident window drops the tree altogether — so the window's own
+// reads pay its own logarithm and the parts of the trie it left behind are
+// released. A window whose tail region is a prefix of the current one — end
+// slices, `dropFirst`/`dropLast` — still reuses both fields untouched, and its
+// tree range spans more than one child, so nothing trims and it stays O(1).
 fun slice(trie: TrieVector(a), begin: Int, end: Int): TrieVector(a) =
     if begin >= end then
         empty
@@ -362,13 +423,7 @@ fun slice(trie: TrieVector(a), begin: Int, end: Int): TrieVector(a) =
         if newOff == tailOffset(trie.capacity) and newCapacity <= trie.capacity then
             // The new tail is a prefix of the current one: reuse both fields as-is
             // (any tail slots past the new capacity are simply never addressed).
-            TrieVector({
-                origin = newOrigin,
-                capacity = newCapacity,
-                height = trie.height,
-                root = trie.root,
-                tail = trie.tail,
-            })
+            trimHeight(newOrigin, newCapacity, trie.height, trie.root, trie.tail)
         else
             // Rebuild the tail from internal `[liveStart, newCapacity)`. When the
             // window is shorter than a full tail, `newOff` sits below `newOrigin`;
@@ -377,13 +432,10 @@ fun slice(trie: TrieVector(a), begin: Int, end: Int): TrieVector(a) =
             var newTail: Node(a) = Node.empty()
             for internal in liveStart..(newCapacity - 1)
                 newTail := Node.set(newTail, internal - newOff, readInternal(trie, internal))
-            TrieVector({
-                origin = newOrigin,
-                capacity = newCapacity,
-                height = trie.height,
-                root = trie.root,
-                tail = newTail,
-            })
+            // Rebuild first, then trim: the rebuilt tail is filled at alignment
+            // `newOff`, and every rebase the trim then applies is a multiple of
+            // `radix`, so its slots stay where this loop put them.
+            trimHeight(newOrigin, newCapacity, trie.height, trie.root, newTail)
 
 // `slice` with the bounds intersected against `[0, size)` first, which is the
 // clamping the public bracket promises (Collections Part 3 §6.1): a window that

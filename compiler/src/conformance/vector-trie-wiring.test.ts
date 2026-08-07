@@ -406,7 +406,11 @@ describe("§4/§7 complexity", () => {
    * shares the original's `root` — the whole point of a persistent trie, and the
    * property a copying implementation would silently lose while passing every
    * behavioural test. An end `slice` re-windows over the same trie, so it shares
-   * `root` *and* `tail`, which is §4's "effectively O(1)" note made visible.
+   * `root` *and* `tail`, which is §4's "effectively O(1)" note made visible —
+   * `dropLast`/`dropFirst` of 100 elements still span all three of the root's
+   * leaves, so §6's height trim finds nothing to descend into and hands both
+   * fields back untouched. (A short enough end window *is* trimmed to a subtree
+   * of its own, and `vector-trie.test.ts` is where that is derived and pinned.)
    *
    * Reading `.root` is representation knowledge, and this is the one place the
    * suite has it: a sharing claim cannot be made from the outside.
@@ -442,8 +446,9 @@ describe("§4/§7 complexity", () => {
     expect([...(main["base"] as Iterable<number>)]).toEqual(
       Array.from({ length: 100 }, (_, index) => index + 1),
     );
-    // §4's end-slice note: a window that leaves the tail where it was reuses
-    // both fields, which is what "effectively O(1)" means.
+    // §4's end-slice note: a window that leaves the tail where it was and still
+    // straddles the root's children reuses both fields, which is what
+    // "effectively O(1)" means.
     expect(trie("dropped").root).toBe(trie("base").root);
     expect(trie("dropped").tail).toBe(trie("base").tail);
     expect(trie("front").root).toBe(trie("base").root);
