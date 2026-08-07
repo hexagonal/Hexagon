@@ -101,6 +101,8 @@ No `%` operator exists in Hexagon, so every one of these is an ordinary prelude 
 
 Inlining latitude (quality-of-implementation, not spec): where the divisor is a positive constant, `Int.mod(a, k)` may inline as `((a % k) + k) % k`, and where the dividend is provably non-negative, as bare `a % k`; `Int.rem` with a provably nonzero divisor may drop the guard. The helper-call form is the required baseline and is itself acceptable readable-JS — a named call that says `mod` is more readable than an inlined double-`%` trick.
 
+*(Edit note, #344.)* The `BigInt` rows above are no longer runtime helpers: `BigInt.div`/`BigInt.mod`/`BigInt.gcd`/`BigInt.lcm` and the zero guards are ordinary Hexagon in `stdlib/BigInt.hex`, and `BigInt.quot`/`BigInt.rem` are its intrinsic-door declarations, whose lowerings keep exactly the shapes tabled here (intrinsics §3.2). The shapes stay normative for behaviour; where the body now lives is stdlib-roadmap §5.1's business. The `Int` and `Float` rows follow at their own milestones (intrinsics §9.2).
+
 ## 7. Diagnostics
 
 | Situation | Message (shape) |

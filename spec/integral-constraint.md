@@ -36,7 +36,7 @@ honor Integral<Int>    -- members are Int.div, Int.mod, Int.quot, Int.rem, Int.g
 honor Integral<BigInt> -- members are the BigInt counterparts
 ```
 
-- The instance bodies **are** the monomorphic functions — one implementation, two spellings. `Int.gcd` and `BigInt.gcd` are hereby added to the monomorphic families as the fifth member each.
+- The instance bodies **are** the monomorphic functions — one implementation, two spellings. `Int.gcd` and `BigInt.gcd` are hereby added to the monomorphic families as the fifth member each. *(Edit note, #344: for `BigInt` this sentence is now literal — `honor Integral<BigInt>` is source in `stdlib/BigInt.hex`, bodies folded into the block per Constraints §4.6, and the qualified spellings are the members per Modules §5.3. `Int` and `Nat` follow at their milestone.)*
 - **`Float` is permanently not `Integral`**, and `gcd` is a member here precisely so that `gcd(1.5, 2.0)` fails with the exactly-right message: "`Float` is not `Integral`." This is also why `gcd` must not hang off the broader `Num` constraint.
 
 ## 4. `gcd` semantics
