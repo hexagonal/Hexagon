@@ -410,6 +410,12 @@ class Scope {
 class Resolver {
   readonly #symbols = new Map<Resolved.SymbolId, Resolved.Symbol>();
   readonly #importedSymbols = new Map<Resolved.SymbolId, Resolved.Symbol>();
+  /** The honor-block member currently being resolved (Constraints §4.6). */
+  readonly #honorMembers: string[] = [];
+  /** Whether resolution is inside a constraint declaration's default body. */
+  #inDefaultBody = false;
+  /** Where this module's `honor` declarations bind each spelling (§4.6). */
+  readonly #honoredMemberLines = new Map<string, HonoredMemberLine[]>();
   readonly #unions: Resolved.Union[] = [];
   readonly #records: Resolved.RecordDeclaration[] = [];
   readonly #externTypes: Resolved.ExternTypeDeclaration[] = [];
@@ -874,6 +880,7 @@ class Resolver {
     // absolute.
     this.#moduleScope = scope;
     this.#predeclareExternTerms(module.items, scope);
+    this.#indexHonoredMemberLines(module.items);
     const resolvedItems = this.#resolveItems(module.items, scope);
     this.#claimHonoredMembers(resolvedItems, scope);
     // After resolution, never before: the synthesized import's local names have
@@ -1581,7 +1588,7 @@ class Resolver {
             returnAnnotation: this.#resolveTypeAnnotation(member.returnAnnotation, typeParameters, impliedContext),
             ...(member.defaultValue === undefined
               ? {}
-              : { defaultValue: this.#resolveLambda(member.defaultValue, scope, impliedContext) }),
+              : { defaultValue: this.#resolveDefaultBody(member.defaultValue, scope, impliedContext) }),
             span: member.span,
           };
         });
@@ -1649,11 +1656,17 @@ class Resolver {
             ),
             span: impliedType.span,
           })),
-          members: item.members.map((member) => ({
-            name: member.name.text,
-            value: this.#resolveLambda(member.value, scope, impliedContext),
-            span: member.span,
-          })),
+          members: item.members.map((member) => {
+            // Constraints §4.6: a member definition is a `let` header, not a
+            // `fun`, so its own body may not call its own name. The stack is what
+            // tells a reference which name that is; a constraint *declaration's*
+            // default body never pushes onto it, which is the exemption stated
+            // in the same bullet.
+            this.#honorMembers.push(member.name.text);
+            const value = this.#resolveLambda(member.value, scope, impliedContext);
+            this.#honorMembers.pop();
+            return { name: member.name.text, value, span: member.span };
+          }),
           span: item.span,
         };
       }
@@ -2549,6 +2562,9 @@ class Resolver {
       if (this.#refusedAmbiguousPrelude(expression.name, scope)) {
         return { kind: "ErrorExpr", span: expression.span };
       }
+      if (this.#refusedMemberReference(expression.name, symbol)) {
+        return { kind: "ErrorExpr", span: expression.span };
+      }
       const owner = this.#varOwners.get(symbol);
       if (owner !== undefined && owner < this.#lambdaDepth) {
         this.#diagnostics.add({
@@ -3337,6 +3353,168 @@ class Resolver {
   }
 
   /**
+   * A constraint declaration's default member body, marked as such.
+   *
+   * The mark is the whole point: §4.6's reference laws govern honor blocks, and
+   * a default lives in the declaration. Its member references reach whichever
+   * instance completes it, at call time — an evidence route, which names no
+   * binding, so a self-recursive default is as legal as it ever was.
+   */
+  #resolveDefaultBody(
+    value: Parsed.LambdaExpr,
+    scope: Scope,
+    impliedContext?: { readonly owner: string; readonly names: ReadonlySet<string> },
+  ): Resolved.LambdaExpr {
+    this.#inDefaultBody = true;
+    const resolved = this.#resolveLambda(value, scope, impliedContext);
+    this.#inDefaultBody = false;
+    return resolved;
+  }
+
+  /**
+   * Constraints §4.6's ordering half, indexed before any body is resolved: for
+   * each spelling this module's `honor` declarations bind, where each binding's
+   * line is.
+   *
+   * A member definition **enters the module's top-down order at its own line**,
+   * so a bare reference to one is legal exactly where any binding reference is:
+   * after that line. The index is built from the parsed items because the law is
+   * about text, and because a reference in the first honor block has to be able
+   * to ask about the last one — which resolution has not reached yet.
+   *
+   * Three sources of member names per block, because the claim covers every
+   * member the instance binds and not only the ones the block writes: the
+   * written members, a locally declared constraint's list, and the compiler's
+   * table for a pre-registered name. A defaulted member of an *imported* user
+   * constraint is the residue, and it can only under-report — never refuse a
+   * program §4.6 permits.
+   */
+  #indexHonoredMemberLines(items: readonly Parsed.Item[]): void {
+    const declared = new Map<string, readonly string[]>();
+    for (const item of items) {
+      if (item.kind !== "ConstraintDeclaration") continue;
+      declared.set(
+        item.name.text,
+        item.members.map((member) => member.name.text),
+      );
+    }
+    const record = (name: string, entry: HonoredMemberLine): void => {
+      this.#honoredMemberLines.set(name, [
+        ...this.#honoredMemberLines.get(name) ?? [],
+        entry,
+      ]);
+    };
+    for (const item of items) {
+      if (item.kind === "Union" || item.kind === "RecordDeclaration") {
+        for (const derive of item.derives) {
+          for (const member of PRE_REGISTERED_CONSTRAINT_MEMBERS[derive.text] ?? []) {
+            record(member, { constraint: derive.text, span: item.span });
+          }
+        }
+        continue;
+      }
+      if (item.kind !== "Honor") continue;
+      const constraint = item.constraint.text;
+      const names = new Set([
+        ...item.members.map((member) => member.name.text),
+        ...declared.get(constraint) ?? [],
+        ...PRE_REGISTERED_CONSTRAINT_MEMBERS[constraint] ?? [],
+      ]);
+      for (const name of names) {
+        const written = item.members.find((member) => member.name.text === name);
+        record(name, { constraint, span: written?.span ?? item.span });
+      }
+    }
+  }
+
+  /**
+   * Constraints §4.6, at a bare reference to a spelling this module honors.
+   *
+   * Three refusals, all of them the law applied to one sentence — a member
+   * definition is a module-level binding:
+   *
+   * - **Its own body cannot call its own name** (#293's non-`fun` law). The
+   *   rewrite diagnostic names the sanctioned forms, and the qualified one only
+   *   where it exists: a constraint declared in this module has no qualified
+   *   spelling, because a module cannot name itself.
+   * - **Two blocks binding one spelling** make the bare use genuinely ambiguous.
+   *   The coexistence carve-out keeps both definitions legal; it is the bare
+   *   *use* that is refused, naming the routes that are not ambiguous.
+   * - **A reference above the binding's line** is the ordinary declared-later
+   *   error — never "unknown name", which would be false.
+   *
+   * Evidence routes are not references and never reach here: interpolation, an
+   * operator face, and a member-resolved dot call name no binding (Method Syntax
+   * §4.4), which is what keeps mutually recursive instances legal in either
+   * order.
+   */
+  #refusedMemberReference(name: Parsed.Name, symbol: Resolved.SymbolId): boolean {
+    const declaration = this.#symbol(symbol);
+    if (declaration.kind !== "constraint-member") return false;
+    // A constraint *declaration's* default body is not an honor block. Its
+    // member references — its own name included — reach the completed instance
+    // through evidence, so none of the laws below governs them (§4.6's third
+    // bullet, and Method Syntax §4.4's exemption for evidence routes).
+    if (this.#inDefaultBody) return false;
+    const bindings = this.#honoredMemberLines.get(name.text);
+    if (bindings === undefined || bindings.length === 0) return false;
+    if (this.#honorMembers.at(-1) === name.text) {
+      const qualified = this.#declaredConstraintNames.has(bindings[0]!.constraint)
+        ? ""
+        : `, or qualify the instance you mean: \`${bindings[0]!.constraint}.${name.text}(…)\``;
+      this.#diagnostics.add({
+        severity: "error",
+        message: `\`${name.text}\` is this member's own name, and a member cannot ` +
+          "call itself bare; recursion is spelled through dispatch — write the " +
+          `dot call \`value.${name.text}()\`${qualified}`,
+        primary: name.span,
+      });
+      return true;
+    }
+    // On the **declaring** module the polymorphic read wins (the note's
+    // consequence 4): a module that declares a constraint and also honors it
+    // holds the spelling twice on purpose, and bare use means the declaration's
+    // export — ordered at the declaration's own line, which the ordinary
+    // top-down machinery already governs. Only where the instance binding is the
+    // spelling's one meaning do the two laws below have anything to say.
+    if (Number(declaration.bindingSpan.fileId) === this.#fileId) return false;
+    // Ambiguity is between **constraints**, never between instances. Two blocks
+    // honoring one constraint at two of the module's types bind one declaration's
+    // member twice, and evidence at the argument's type tells them apart — which
+    // is what §4.6's carve-out means by "disambiguated by evidence". Two
+    // *constraints* whose members share a spelling is the case with no such
+    // discriminator, and it is the one refused.
+    const constraints = [...new Set(bindings.map(({ constraint }) => constraint))];
+    if (constraints.length > 1) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `\`${name.text}\` is ambiguous here: this module binds it as a ` +
+          `member of ${constraints.map((constraint) => `\`${constraint}\``).join(" and ")}. ` +
+          "Write the dot call on a value, or qualify the instance you mean.",
+        primary: name.span,
+      });
+      return true;
+    }
+    // A reference above **every** binding of the spelling is the ordinary
+    // declared-later error — never "unknown name", which would be false.
+    const earliest = bindings.reduce((first, binding) =>
+      binding.span.start.offset < first.span.start.offset ? binding : first
+    );
+    if (name.span.start.offset < earliest.span.start.offset) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `\`${name.text}\` is bound by the \`${earliest.constraint}\` instance ` +
+          "below this use; declarations are read top-down — move the instance " +
+          "above this use, or reach it through dispatch",
+        primary: name.span,
+        labels: [{ span: earliest.span, message: "the member is bound here" }],
+      });
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * The module-less primitive companions, for Modules §5.3's transitional note.
    *
    * `Int`, `Nat`, `BigInt`, `Float`, and `String` have no `.hex` module yet, so
@@ -3600,6 +3778,12 @@ function isResolvedTypeAlias(
  * arc supplies real ones.
  */
 const PRIMITIVE_COMPANIONS: readonly string[] = ["Int", "Nat", "BigInt", "Float", "String"];
+
+/** One `honor` declaration's binding of one member spelling (Constraints §4.6). */
+interface HonoredMemberLine {
+  readonly constraint: string;
+  readonly span: Source.Span;
+}
 
 function annotationHeadName(annotation: Resolved.TypeAnnotation): string {
   switch (annotation.kind) {

@@ -12,11 +12,14 @@ import { compileMain, runMain } from "../support/test-project.js";
  * rather than stopping at diagnostics.
  *
  * The recursive step in each body is spelled with string interpolation
- * (`"${kid}"`), which reaches `Show` evidence. In PR α that is the sanctioned
- * recursion spelling; the dot-call and honoring-module-qualified forms the
- * note's §5 item 8 names arrive with later PRs, and the own-name refusal that
- * ruling also carries is deferred with them — see the bare-spelling pin at the
- * bottom for what the spelling means today.
+ * (`"${kid}"`), which reaches `Show` evidence and names no binding. That was PR
+ * α's only sanctioned spelling; since PR γ the dot call (`kid.show()`) and the
+ * qualified form (`Show.show(kid)`) exist beside it, and the own-name refusal
+ * α deferred has landed — see the bottom describe, which replaces α's
+ * deliberately-overturnable baseline pin with the ruling it was waiting for.
+ * Interpolation stays here unchanged: these three are emission pins, and the
+ * fault line they measure is about *when* an instance is read, not how it is
+ * spelled.
  */
 
 describe("a recursive member executes (pin 1)", () => {
@@ -114,28 +117,71 @@ describe("a recursive parameterized instance executes (pin 3)", () => {
   });
 });
 
-describe("what the bare member spelling means inside an instance body today", () => {
+describe("a member's own name in its own body (Constraints §4.6)", () => {
   /**
-   * The note's §5 item 8 rules that a member's own bare spelling is refused in
-   * its own body (#293's non-`fun` law applied to members), rewriting to the
-   * dot-call or qualified forms. Those forms arrive with later PRs, and until
-   * they exist the refusal would leave recursion with no spelling at all — so
-   * PR α defers it, and this pin is the baseline it will overturn: today the
-   * bare spelling inside the body is the polymorphic export, evidence-selected
-   * at the argument's type (the note's rejected reading (i)), exactly as the
-   * pre-existing `Describe<Tree(a)>` emitter pin already relies on.
+   * PR α pinned the opposite of this — the note's reading (i), where the bare
+   * spelling inside the body was the polymorphic export, evidence-selected at
+   * the argument's type — as an explicit baseline for PR γ to overturn once the
+   * rewrites the refusal names existed. They do now, so the refusal lands:
+   * a member definition is a `let` header, not a `fun` (#293's non-`fun` law),
+   * and its own body may not call its own name.
+   *
+   * The refusal is what makes recursion *spelled*. Under reading (i) the same
+   * spelling would evidence-select a different instance depending on the
+   * argument's type inside its own definition — a subtlety wearing an innocent
+   * face, which is exactly what James ruled against.
    */
-  test("bare `show` inside `Show<Wrap>`'s body evidence-selects today", async () => {
-    const exports = await runMain([
+  test("bare `show` inside `Show<Wrap>`'s body is refused with the rewrite", () => {
+    const project = compileMain([
       "export record Wrap = {inner: Int}",
       "",
       "honor Show<Wrap> =",
       "    show(wrap) = \"Wrap(\" ++ show(wrap.inner) ++ \")\"",
+      "",
+    ].join("\n"));
+
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([
+      "`show` is this member's own name, and a member cannot call itself bare; " +
+      "recursion is spelled through dispatch — write the dot call `value.show()`, " +
+      "or qualify the instance you mean: `Show.show(…)`",
+    ]);
+  });
+
+  /** The sanctioned rewrite, executed — a refusal whose fixit does not run is half a ruling. */
+  test("the ruled dot-call rewrite compiles and runs", async () => {
+    const exports = await runMain([
+      "export record Wrap = {inner: Int}",
+      "",
+      "honor Show<Wrap> =",
+      "    show(wrap) = \"Wrap(\" ++ wrap.inner.show() ++ \")\"",
       "",
       "export let shown: String = show(Wrap({inner = 5}))",
       "",
     ].join("\n"));
 
     expect(exports.shown).toBe("Wrap(5)");
+  });
+
+  /**
+   * The exemption in the same bullet: a constraint *declaration's* default body
+   * is not an honor block. Its member references reach whichever instance
+   * completes it, at call time — an evidence route, which names no binding — so
+   * a default that names its own member is as legal as it ever was.
+   */
+  test("a declaration default naming its own member is not refused", async () => {
+    const exports = await runMain([
+      "constraint Countdown<a> =",
+      "    step(value: a): a",
+      "    down(value: a, times: Int): a =",
+      "        if times <= 0 then value else down(step(value), times - 1)",
+      "",
+      "honor Countdown<Int> =",
+      "    step(value) = value - 1",
+      "",
+      "export let landed: Int = down(10, 4)",
+      "",
+    ].join("\n"));
+
+    expect(exports.landed).toBe(6);
   });
 });

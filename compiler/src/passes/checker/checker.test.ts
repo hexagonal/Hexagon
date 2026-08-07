@@ -1145,7 +1145,11 @@ describe("check", () => {
         "honor<a: Describe> Describe<Wrap(a)> =\n" +
         "    describe(wrap) = match wrap\n" +
         '        Empty => "empty"\n' +
-        '        Full(value) => "full(${describe(value)})"',
+        // The dot call, not the bare own name: Constraints §4.6 refuses a
+        // member's own spelling in its own body, and `value: a` dispatches
+        // through the instance's binder evidence — which is the occurrence this
+        // test is about.
+        '        Full(value) => "full(${value.describe()})"',
     );
 
     // A match pattern's fresh variable unifies with the instance parameter;
