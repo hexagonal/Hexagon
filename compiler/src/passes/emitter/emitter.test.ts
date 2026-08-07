@@ -1754,7 +1754,10 @@ describe("emitJavaScript", () => {
         '    render(value) = "${value}"\n' +
         "record Box(a) = {value: a}\n" +
         "honor<a: Render> Render<Box(a)> =\n" +
-        '    render(box) = "Box(${render(box.value)})"\n' +
+        // The dot call is the ruled recursion spelling (Constraints §4.6): the
+        // member's own name is refused in its own body, and `box.value: a`
+        // dispatches through the factory's own evidence parameter.
+        '    render(box) = "Box(${box.value.render()})"\n' +
         // The annotation is required, not decorative: the literal's variable
         // carries `Render` as well as `Num`, and `Render` is outside §4's
         // closed defaultable set, so nothing defaults it to `Int` — a user
@@ -1785,7 +1788,15 @@ describe("emitJavaScript", () => {
         "honor<a: Describe> Describe<Tree(a)> =\n" +
         "    describe(tree) = match tree\n" +
         '        Leaf => "leaf"\n' +
-        '        Node(left, item, right) => "(${describe(left)} ${describe(item)} ${describe(right)})"\n' +
+        // Rewritten for #304/#335: the member's own name is refused in its own
+        // body (Constraints §4.6), and the dot call is the ruled form. `left`
+        // and `right` are `Tree(a)`, so they dispatch through this instance
+        // under construction; `item` is the declared variable `a`, so it
+        // dispatches through the binder — Method Syntax §3.4's bounds row,
+        // exercised here at the rigid position that forced that row to exist
+        // (§16.2's exhibit). Every expectation below is unchanged, which is the
+        // point of §8.1: member dispatch emits what the bare call emitted.
+        '        Node(left, item, right) => "(${left.describe()} ${item.describe()} ${right.describe()})"\n' +
         "let tree: Tree(Int) = Node(Leaf, 1, Leaf)\n" +
         "export let text: String = describe(tree)",
     );

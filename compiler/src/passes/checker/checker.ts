@@ -367,6 +367,65 @@ function firstParameterAnnotation(
 }
 
 /**
+ * One constraint member a dot call could mean (Method Syntax §4.2).
+ *
+ * `subjectFirst` is the section's syntactic test, decided once per declaration:
+ * the first parameter's written type is the constraint's subject variable
+ * itself. `show(value: a)` and `compare(left: a, right: a)` qualify; `fromNat(
+ * value: Nat): a` does not — the subject appears only in the return, so
+ * `42.fromNat(…)` is not a spelling and never will be.
+ */
+interface MemberCandidate {
+  /** The constraint's declared name — also the qualified home a fixit spells. */
+  readonly constraint: string;
+  readonly identity: string;
+  readonly member: string;
+  readonly symbol: Resolved.SymbolId;
+  readonly subjectFirst: boolean;
+}
+
+/**
+ * One dot call whose receiver was not head-known when elaboration reached it
+ * (Method Syntax §2.2, §3.1).
+ *
+ * The arguments are inferred once, at the dot, and carried: evaluation order is
+ * receiver-then-arguments (§2.3), and deferring their *inference* as well would
+ * make the meaning of a program depend on when a goal happened to settle.
+ */
+interface DotCallGoal {
+  readonly expression: Resolved.CallExpr;
+  readonly callee: Resolved.AccessExpr;
+  readonly receiver: Mono;
+  readonly argumentTypes: readonly Mono[];
+  /** Pinned to the receiver's region, per §3.1's pinning rule. */
+  readonly result: Mono;
+  readonly level: number;
+}
+
+/** The module a receiver head's companion is addressed under (§4.1's table). */
+function companionHeadName(type: Mono): string | undefined {
+  if (type.kind === "NominalRecord" || type.kind === "Union") return type.name;
+  if (type.kind === "Vector" || type.kind === "Set" || type.kind === "Map") return type.kind;
+  if (type.kind === "Constructor") return type.name;
+  return undefined;
+}
+
+function constraintMemberCandidates(
+  declaration: Resolved.ConstraintItem,
+): readonly MemberCandidate[] {
+  return declaration.members.map((member) => {
+    const first = member.parameters[0]?.annotation;
+    return {
+      constraint: declaration.name,
+      identity: declaration.identity,
+      member: member.binding.name,
+      symbol: member.binding.symbol,
+      subjectFirst: first?.kind === "TypeVariable" && first.name === declaration.subject,
+    };
+  });
+}
+
+/**
  * A compiler-known constructor's claim (closure doc §5.3). A constructor with
  * no row is invariant, and item 7 declines its variables — the answer that
  * withholds generalization rather than granting it on a claim nobody made.
@@ -395,7 +454,15 @@ class Checker {
   readonly #callRequirements = new WeakMap<Resolved.CallExpr, readonly Requirement[]>();
   readonly #pipeCalls = new WeakMap<Resolved.BinaryExpr, Resolved.CallExpr>();
   readonly #dotCalls = new WeakMap<Resolved.CallExpr, {
-    readonly symbol: Resolved.Symbol;
+    readonly symbol: Resolved.SymbolId;
+    /** The declared name the call dispatched on, before any local re-spelling. */
+    readonly name: string;
+    /**
+     * The evidence this call supplies, for a member-resolved dot call. A
+     * companion-resolved one carries none: its scheme's constraints are the
+     * callee's own business, exactly as they were before this spec.
+     */
+    readonly requirements: readonly Requirement[];
     readonly callee: Mono;
     readonly receiver: Resolved.Expr;
   }>();
@@ -526,6 +593,28 @@ class Checker {
   >();
   readonly #instances = new Map<string, Resolved.HonorItem>();
   readonly #instanceIdentities = new Map<string, string>();
+  /**
+   * The same instances, keyed the other way round: subject key → the constraint
+   * identities honored at it.
+   *
+   * §4.2's second clause asks "which constraints are honored at `T`", which the
+   * forward table cannot answer without scanning it. Both tables are written by
+   * `#admitInstance` from one `#subjectKey`, so the reverse view cannot drift
+   * from the coherence key selection uses.
+   */
+  readonly #instancesBySubject = new Map<string, Set<string>>();
+  /**
+   * §3's deferred DotCall goals: the dot calls whose receiver was still an
+   * unsolved variable when elaboration reached them.
+   *
+   * The goal is what lets the receiver's type arrive from *anywhere* in its
+   * owner region — before the call or after it — and what puts the defaulting
+   * step ahead of the row fallback (§3.3/§3.5). Nothing about a resolved goal
+   * differs from a dot call that resolved at the dot; monotonicity is what
+   * guarantees that (§3.2), and it is why deferral needs no re-checking of the
+   * ones that never pended.
+   */
+  readonly #dotCallGoals: DotCallGoal[] = [];
   /**
    * Every type hole elaborated in this module, with the variable it became.
    *
@@ -823,7 +912,7 @@ class Checker {
             primary: item.span,
           });
         } else {
-          this.#instances.set(key, item);
+          this.#admitInstance(key, item.constraintIdentity, subject, item);
           this.#instanceIdentities.set(
             key,
             `${Number(module.fileId)}:${item.dictionary}`,
@@ -1095,6 +1184,12 @@ class Checker {
     }
     this.#indexCompanionOperations(module);
     this.#inferItems(module.items, 0, true);
+    // The outermost deadline. Every region has finalised by now, so a goal still
+    // pending here belongs to one that never generalises — a module-level
+    // expression item, an honor block's member — and its receiver will never
+    // become known: it takes the defaulting step and the fallback like any other
+    // survivor, before the remaining variables settle.
+    this.#resolveDotCallGoals(-1);
     this.#defaultRemainingVariables();
     this.#checkPublicSignatures(module.items);
 
@@ -1230,6 +1325,88 @@ class Checker {
     }
   }
 
+  /**
+   * §4.2's second clause: the constraint members a receiver's type can be
+   * dot-called through, by member name.
+   *
+   * Two sources, and both are table lookups — the section's "membership stays a
+   * declaration-indexing operation". Instances honored at the type come from the
+   * coherence table's reverse view; the compiler's **wired** primitive instances
+   * (`Show<Int>`, `Integral<Int>`, …) come from `supports`, which is the same
+   * table selection consults for them, so `42n.show()` needs no `BigInt.hex`.
+   *
+   * Non-subject-first members are collected too, flagged rather than dropped:
+   * `fromNat` is not a spelling after a dot (§4.2), but §9 row 5 owes the reader
+   * the near-miss rather than the flat "no such member".
+   */
+  #honoredMembers(type: Mono): ReadonlyMap<string, MemberCandidate[]> {
+    const found = new Map<string, MemberCandidate[]>();
+    const seen = new Set<string>();
+    const admit = (identity: string): void => {
+      if (seen.has(identity)) return;
+      seen.add(identity);
+      const declaration = this.#constraintsByIdentity.get(identity);
+      if (declaration === undefined) return;
+      for (const candidate of constraintMemberCandidates(declaration)) {
+        found.set(candidate.member, [...found.get(candidate.member) ?? [], candidate]);
+      }
+    };
+    const actual = this.#prune(type);
+    for (const identity of this.#instancesBySubject.get(this.#subjectKey(actual)) ?? []) {
+      admit(identity);
+    }
+    if (actual.kind === "Constructor") {
+      for (const name of PRE_REGISTERED_CONSTRAINTS) {
+        if (!isConstraintName(name) || !supports(actual.name, name)) continue;
+        admit(preRegisteredConstraintIdentity(name));
+      }
+    }
+    // `Bool` honors its four through the `derives` clause in `stdlib/Bool.hex`,
+    // and the compiler answers requirements at it from the pin rather than from
+    // those instances (#147, `#resolveRequirement`) — the prelude channel does
+    // not even carry them. Honoring is what §4.2's clause asks about, and the
+    // declaration honors, so the dot reaches the members either way.
+    if (actual.kind === "Union" && actual.union === this.#boolUnion) {
+      for (const name of ["Eq", "Ord", "Show", "Hash"]) {
+        admit(preRegisteredConstraintIdentity(name));
+      }
+    }
+    return found;
+  }
+
+  /**
+   * §3.4's amended declared-type-variable row: the members a written binder puts
+   * within reach, by member name.
+   *
+   * The bounds are the *entire* candidate set — no instance table is consulted
+   * and no companion exists — and base constraints come with them (Constraints
+   * §2.1: `a: Ord` entails `Eq`, so `x.equals(y)` is as available as
+   * `x.compare(y)`).
+   */
+  #boundMembers(variable: Variable): ReadonlyMap<string, MemberCandidate[]> {
+    const found = new Map<string, MemberCandidate[]>();
+    const seen = new Set<string>();
+    const admit = (identity: string): void => {
+      if (seen.has(identity)) return;
+      seen.add(identity);
+      const declaration = this.#constraintsByIdentity.get(identity);
+      if (declaration === undefined) {
+        for (const base of PRE_REGISTERED_BASE_CONSTRAINTS[identity] ?? []) {
+          admit(preRegisteredConstraintIdentity(base));
+        }
+        return;
+      }
+      for (const candidate of constraintMemberCandidates(declaration)) {
+        found.set(candidate.member, [...found.get(candidate.member) ?? [], candidate]);
+      }
+      for (const base of declaration.baseConstraintIdentities) admit(base);
+    };
+    for (const constraint of variable.declaredConstraints ?? []) {
+      admit(this.#constraintIdentity(constraint));
+    }
+    return found;
+  }
+
   /** The companion identity a receiver's head names, or none for a headless one. */
   #companionKeyOfType(type: Mono): string | undefined {
     const actual = this.#prune(type);
@@ -1267,6 +1444,394 @@ class Checker {
     return `\`${this.#display(receiverType)}\`'s companion declares ` +
       `\`${operation.name}\` below this call; declarations are read top-down — ` +
       "move the declaration above this call";
+  }
+
+  /**
+   * §3.4's resolution table, for the receiver shapes that dispatch.
+   *
+   * Answers with the call's type when the dot resolved — to a companion
+   * operation, to an honored member, to a bound member, or to a refusal — and
+   * with `undefined` when the receiver is none of the dispatching shapes, which
+   * is the caller's signal to let ordinary field and row machinery have the
+   * expression (§3.5's fallback, byte for byte what it always was).
+   */
+  #dispatchDotCall(
+    expression: Resolved.CallExpr,
+    callee: Resolved.AccessExpr,
+    receiver: Mono,
+    level: number,
+    cachedArguments?: readonly Mono[],
+  ): Mono | undefined {
+    const actual = this.#prune(receiver);
+    const name = callee.field.text;
+    if (actual.kind === "Variable") {
+      // A **declared** variable dispatches through its written bounds and
+      // nothing else (§3.4, amended 2026-08-07).
+      if (actual.rigidName !== undefined) {
+        return this.#dispatchBoundMember(
+          expression, callee, receiver, actual, level, cachedArguments,
+        );
+      }
+      // A *flexible* one pends: the receiver's type may still arrive from
+      // anywhere in its owner region, and only at that region's deadline does
+      // the defaulting step, and then the fallback, decide what it meant (§3.1).
+      // `itemN` is not this table's business at all — tuple positional access is
+      // its own row, and it errors on an unsolved receiver as it always has.
+      if (cachedArguments !== undefined || /^item\d+$/u.test(name)) return undefined;
+      const argumentTypes = expression.arguments.map((argument) =>
+        this.#inferExpr(argument, level)
+      );
+      const result = this.#fresh(actual.level, false);
+      this.#dotCallGoals.push({
+        expression, callee, receiver, argumentTypes, result, level,
+      });
+      return result;
+    }
+    // `Seq` is a nominal record like any other, so `source.map(f)` is
+    // ordinary companion dispatch (Products §3.2) against prelude
+    // `Seq.hex` — no dedicated dot-call path, and no fixed operation list.
+    const nominal =
+      actual.kind === "NominalRecord" ||
+      actual.kind === "Union" ||
+      actual.kind === "Vector" ||
+      actual.kind === "Set" ||
+      actual.kind === "Map";
+    // Primitives join the table for the member clause alone (§3.4's Primitive
+    // row): they have no fields and no companion module, so the wired instances
+    // are their whole dot surface — `42n.show()` is `Show`'s member at `BigInt`.
+    const primitive_ = actual.kind === "Constructor";
+    if (!nominal && !primitive_) return undefined;
+    const recordHasField = actual.kind === "NominalRecord" &&
+      this.#recordRepresentationVisible(actual.record) &&
+      this.#nominalRecordFields(actual).has(name);
+    // Type-directed, never lexical (§1): the receiver's head names one
+    // companion, and only that companion's exported subject-first
+    // operations are candidates (§4.2, `#companionOperations`). A
+    // `Vector`, `Set`, or `Map` receiver reaches whatever module is
+    // addressable under that name and nothing else, so in a project that
+    // supplies none its set is empty and this takes the diagnostic below
+    // rather than binding whatever prelude function happens to share the
+    // name (#217).
+    const companion = this.#companionKeyOfType(actual);
+    const operation = companion === undefined
+      ? undefined
+      : this.#companionOperations.get(companion)?.get(name);
+    const claimed = this.#honoredMembers(actual).get(name) ?? [];
+    const members = claimed.filter(({ subjectFirst }) => subjectFirst);
+    if (members.length > 0) {
+      const claimants = [
+        ...(recordHasField ? [`a field \`${name}\``] : []),
+        ...(operation === undefined
+          ? []
+          : [`a companion operation \`${this.#display(actual)}.${name}\``]),
+        ...members.map((member) => `\`${member.constraint}\`'s member \`${name}\``),
+      ];
+      if (claimants.length > 1) {
+        this.#dotCallArguments(expression, level, cachedArguments);
+        return this.#unsupported(
+          callee.field.span,
+          `\`${name}\` after a dot is ambiguous at \`${this.#display(actual)}\`: ` +
+            `${claimants.join(", ")}. Write ` +
+            `${members.map((member) => this.#memberSpelling(member)).join(" or ")}` +
+            `${
+              operation === undefined
+                ? ""
+                : `, or \`${this.#display(actual)}.${name}(…)\` for the companion operation`
+            }${recordHasField ? `, or \`(…​.${name})\` for the field` : ""}.`,
+        );
+      }
+      return this.#elaborateMemberCall(
+        expression, callee, receiver, members[0]!, level, cachedArguments,
+      );
+    }
+    // A visible field still wins the fused form outright, exactly as it did
+    // before members joined the candidate set. §6 makes field-versus-companion a
+    // hard error too; that half is its own issue and nothing here changes it.
+    if (recordHasField) return undefined;
+    const scheme = operation === undefined ? undefined : this.#schemes.get(operation.id);
+    // A candidate that exists but this call site may not reach is never
+    // reported as a missing operation — that claim would be false (§4.4,
+    // §9 rows 12–13).
+    const unreachable = operation === undefined
+      ? undefined
+      : this.#dotCallReachability(operation, callee, expression.arguments, actual);
+    // A candidate whose scheme is still missing, having passed the
+    // reachability test, is the operation whose own right-hand side this
+    // call sits in: a scheme is seeded when its item is inferred, so the
+    // only reference that can precede one is a self-reference. `let` is
+    // non-recursive, and the dot spelling does not change that (Functions
+    // §6) — the resolver says so for the bare spelling, and this says it
+    // in the same words for the dotted one.
+    const selfReference = operation !== undefined && scheme === undefined &&
+      unreachable === undefined;
+    if (operation === undefined || scheme === undefined || unreachable !== undefined) {
+      // Abandoning the call does not excuse the arguments: materialization
+      // walks the whole resolved tree, and an integer literal's `FromNat`
+      // requirement exists only if inference recorded one. Skipping them
+      // leaves a bare literal with no requirement to dereference (#212).
+      this.#dotCallArguments(expression, level, cachedArguments);
+      return this.#unsupported(
+        callee.field.span,
+        unreachable ??
+          (selfReference
+            ? `\`${name}\` is not in scope in its own \`let\` definition; \`let\` is non-recursive — use \`fun\`.`
+            : this.#noSuchOperation(actual, name, claimed)),
+      );
+    }
+    const calleeType = this.#instantiate(scheme, level, undefined, callee.field.span);
+    const arguments_ = [
+      receiver,
+      ...this.#dotCallArguments(expression, level, cachedArguments),
+    ];
+    const result = this.#fresh(level, false);
+    this.#unify(
+      calleeType,
+      { kind: "Function", parameters: arguments_, result },
+      expression.span,
+    );
+    this.#dotCalls.set(expression, {
+      symbol: operation.id,
+      name: operation.name,
+      requirements: [],
+      callee: calleeType,
+      receiver: callee.receiver,
+    });
+    return result;
+  }
+
+  /**
+   * The argument types of a dot call — inferred here, or replayed from the goal
+   * that inferred them at the dot. Inferring twice would record a second copy of
+   * every literal's requirement, so a goal carries what it measured.
+   */
+  #dotCallArguments(
+    expression: Resolved.CallExpr,
+    level: number,
+    cached: readonly Mono[] | undefined,
+  ): readonly Mono[] {
+    return cached ??
+      expression.arguments.map((argument) => this.#inferExpr(argument, level));
+  }
+
+  /**
+   * §3.3's deadline: the fixpoint, the defaulting step, then the fallback.
+   *
+   * Run at every generalisation boundary, over the goals that boundary **owns** —
+   * the ones whose receiver lives in the region being finalised. A goal on an
+   * outer-level receiver survives an inner `let`'s boundary untouched, which is
+   * exactly what §11.10 rejects the per-binding deadline for: firing the
+   * fallback there would make the meaning of independent sibling statements
+   * depend on their order.
+   *
+   * The three steps are ordered, and the order is the amendment (§3.5): a
+   * receiver whose constraint set is non-empty and entirely defaultable settles
+   * to `Int` *before* any row is imposed, so `42.show()` is `Show`'s member at
+   * `Int` exactly as bare `show(42)` is. Settling is the head-known trigger, so
+   * the fixpoint runs again before the survivors take the fallback.
+   */
+  #resolveDotCallGoals(level: number): void {
+    if (this.#dotCallGoals.length === 0) return;
+    const owned = (goal: DotCallGoal): boolean => {
+      const receiver = this.#prune(goal.receiver);
+      return receiver.kind !== "Variable" || receiver.level > level;
+    };
+    // Chains make this a fixpoint, not a pass: resolving `v.map(f)` solves the
+    // tyvar that is `take`'s receiver, which fires that goal's trigger in turn.
+    const fixpoint = (): void => {
+      for (let settled = true; settled;) {
+        settled = false;
+        for (const goal of [...this.#dotCallGoals]) {
+          if (!owned(goal) || this.#prune(goal.receiver).kind === "Variable") continue;
+          this.#dotCallGoals.splice(this.#dotCallGoals.indexOf(goal), 1);
+          this.#settleDotCallGoal(goal);
+          settled = true;
+        }
+      }
+    };
+    fixpoint();
+    for (const goal of this.#dotCallGoals) {
+      if (!owned(goal)) continue;
+      const receiver = this.#prune(goal.receiver);
+      if (
+        receiver.kind === "Variable" && receiver.rigidName === undefined &&
+        this.#canDefaultToInt(receiver)
+      ) {
+        this.#bind(receiver, primitive("Int"), goal.callee.field.span);
+      }
+    }
+    fixpoint();
+    for (const goal of [...this.#dotCallGoals]) {
+      if (!owned(goal)) continue;
+      this.#dotCallGoals.splice(this.#dotCallGoals.indexOf(goal), 1);
+      this.#fallbackDotCallGoal(goal);
+    }
+  }
+
+  /** A goal whose receiver became head-known: §3.4's table, replayed. */
+  #settleDotCallGoal(goal: DotCallGoal): void {
+    const type = this.#dispatchDotCall(
+      goal.expression,
+      goal.callee,
+      goal.receiver,
+      goal.level,
+      goal.argumentTypes,
+    );
+    this.#unify(goal.result, type ?? ERROR, goal.expression.span);
+    this.#expressionTypes.set(goal.expression, this.#prune(goal.result));
+  }
+
+  /**
+   * §3.5's fallback: the surviving goal *is* a field call, and imposing the
+   * callable-field requirement is the whole of it. It never rejects — an
+   * unsatisfiable row errors through ordinary constraint discharge, in the
+   * phrasing that machinery already owns (§11.8).
+   */
+  #fallbackDotCallGoal(goal: DotCallGoal): void {
+    const field = this.#fresh(goal.level, false);
+    this.#unify(
+      goal.receiver,
+      {
+        kind: "Record",
+        fields: new Map([[goal.callee.field.text, field]]),
+        tail: this.#fresh(goal.level, false),
+      },
+      goal.callee.span,
+    );
+    this.#recordAccesses.set(goal.callee, goal.callee.field.text);
+    this.#expressionTypes.set(goal.callee, field);
+    this.#unify(
+      field,
+      { kind: "Function", parameters: goal.argumentTypes, result: goal.result },
+      goal.expression.span,
+    );
+    this.#expressionTypes.set(goal.expression, this.#prune(goal.result));
+  }
+
+  /**
+   * The spelling a refusal offers for one member — the qualified home, or the
+   * **bare** name where the constraint's declaring module is this one.
+   *
+   * A module cannot name itself (Method Syntax §16.2), so `Loud.volume(x)` is
+   * not a rewrite a reader of `loud.hex` can take. Inside the declaring module
+   * the bare spelling is the member's own, and it is the one that resolves.
+   */
+  #memberSpelling(candidate: MemberCandidate): string {
+    const local = [...this.#localConstraints.values()].some(
+      (declaration) => declaration.identity === candidate.identity,
+    );
+    return local
+      ? `\`${candidate.member}(…)\``
+      : `\`${candidate.constraint}.${candidate.member}(…)\``;
+  }
+
+  /**
+   * §9 row 4, now that the candidate set has three sources: the message must
+   * account for all three, or it asserts something false about the two it does
+   * not mention. Row 5's near-miss rides along — a member that exists but does
+   * not take its constraint's subject first has a spelling, just not this one.
+   */
+  #noSuchOperation(
+    actual: Mono,
+    name: string,
+    claimed: readonly MemberCandidate[],
+  ): string {
+    const display = this.#display(actual);
+    const nearMiss = claimed[0];
+    return `\`${display}\` has no field \`${name}\`, its companion exports no ` +
+      `operation \`${name}\`, and no constraint honored at \`${display}\` has a ` +
+      `subject-first member \`${name}\`` +
+      (nearMiss === undefined
+        ? "; call an available subject-first function explicitly"
+        : `; \`${nearMiss.constraint}\`'s member \`${name}\` does not take its ` +
+          `constraint's subject first — call it as \`${name}(…)\``);
+  }
+
+  /** §3.4's declared-type-variable row: the bounds, and nothing else. */
+  #dispatchBoundMember(
+    expression: Resolved.CallExpr,
+    callee: Resolved.AccessExpr,
+    receiver: Mono,
+    variable: Variable,
+    level: number,
+    cachedArguments?: readonly Mono[],
+  ): Mono {
+    const name = callee.field.text;
+    const claimed = this.#boundMembers(variable).get(name) ?? [];
+    const members = claimed.filter(({ subjectFirst }) => subjectFirst);
+    if (members.length === 1) {
+      return this.#elaborateMemberCall(
+        expression, callee, receiver, members[0]!, level, cachedArguments,
+      );
+    }
+    this.#dotCallArguments(expression, level, cachedArguments);
+    if (members.length > 1) {
+      return this.#unsupported(
+        callee.field.span,
+        `\`${name}\` after a dot is ambiguous on \`${variable.rigidName}\`: ` +
+          `${members.map(({ constraint }) => `\`${constraint}\``).join(" and ")} each ` +
+          `declare a member \`${name}\`. Write ` +
+          `${members.map((member) => this.#memberSpelling(member)).join(" or ")}.`,
+      );
+    }
+    // §9 row 7. The bounds are the entire candidate set, so the message says so
+    // and offers the three ways out — never the row constraint, which a declared
+    // variable never takes.
+    return this.#unsupported(
+      callee.field.span,
+      `\`${variable.rigidName}\` is a declared type variable, so \`.${name}\` can ` +
+        "only be one of its constraints' members, and none of " +
+        `\`${variable.rigidName}\`'s constraints has a subject-first member ` +
+        `\`${name}\`; add the constraint to the parameter's binder, use a concrete ` +
+        "nominal type, or call a qualified function",
+    );
+  }
+
+  /**
+   * Member dispatch's elaboration: the member applied to `(receiver, args…)`,
+   * with the evidence its own scheme demands.
+   *
+   * "The same elaboration as the bare call at that type" (§3.4) is not a
+   * resemblance — this instantiates the member's scheme and collects its
+   * requirements exactly as a `Name` callee does, so selection, erasure, and
+   * emission are the bare call's and the dot adds no shape of its own (§8.1).
+   */
+  #elaborateMemberCall(
+    expression: Resolved.CallExpr,
+    callee: Resolved.AccessExpr,
+    receiver: Mono,
+    candidate: MemberCandidate,
+    level: number,
+    cachedArguments?: readonly Mono[],
+  ): Mono {
+    const scheme = this.#schemes.get(candidate.symbol);
+    if (scheme === undefined) {
+      this.#dotCallArguments(expression, level, cachedArguments);
+      return this.#unsupported(
+        callee.field.span,
+        `\`${candidate.constraint}\`'s member \`${candidate.member}\` has no ` +
+          "signature here; call it by name",
+      );
+    }
+    const requirements: Requirement[] = [];
+    const calleeType = this.#instantiate(scheme, level, requirements, callee.field.span);
+    const arguments_ = [
+      receiver,
+      ...this.#dotCallArguments(expression, level, cachedArguments),
+    ];
+    const result = this.#fresh(level, false);
+    this.#unify(
+      calleeType,
+      { kind: "Function", parameters: arguments_, result },
+      expression.span,
+    );
+    this.#dotCalls.set(expression, {
+      symbol: candidate.symbol,
+      name: candidate.member,
+      requirements,
+      callee: calleeType,
+      receiver: callee.receiver,
+    });
+    return result;
   }
 
   #checkInstanceHead(
@@ -2187,6 +2752,22 @@ class Checker {
           level,
           requirements,
           expression.span,
+          // Modules §5.3: `Rat.add` is the member **at `Rat`**, not the
+          // polymorphic export the resolver found it through. Pinning the
+          // subject is what makes that sentence true of the type as well as of
+          // the reader's expectation.
+          expression.instanceSubject === undefined
+            ? undefined
+            : this.#annotationType(
+                expression.instanceSubject.annotation,
+                level,
+                new Map(),
+                new Map(
+                  expression.instanceSubject.typeParameters.map(({ name }) =>
+                    [name, this.#fresh(level, false)] as const
+                  ),
+                ),
+              ),
         );
         this.#nameRequirements.set(expression, requirements);
         break;
@@ -2770,89 +3351,14 @@ class Checker {
       case "Call": {
         if (expression.callee.kind === "Access") {
           const receiver = this.#inferExpr(expression.callee.receiver, level);
-          const actual = this.#prune(receiver);
-          // `Seq` is a nominal record like any other, so `source.map(f)` is
-          // ordinary companion dispatch (Products §3.2) against prelude
-          // `Seq.hex` — no dedicated dot-call path, and no fixed operation list.
-          const nominal =
-            actual.kind === "NominalRecord" ||
-            actual.kind === "Union" ||
-            actual.kind === "Vector" ||
-            actual.kind === "Set" ||
-            actual.kind === "Map";
-          const recordHasField = actual.kind === "NominalRecord" &&
-            this.#recordRepresentationVisible(actual.record) &&
-            this.#nominalRecordFields(actual).has(expression.callee.field.text);
-          if (nominal && !recordHasField) {
-            // Type-directed, never lexical (§1): the receiver's head names one
-            // companion, and only that companion's exported subject-first
-            // operations are candidates (§4.2, `#companionOperations`). A
-            // `Vector`, `Set`, or `Map` receiver reaches whatever module is
-            // addressable under that name and nothing else, so in a project that
-            // supplies none its set is empty and this takes the diagnostic below
-            // rather than binding whatever prelude function happens to share the
-            // name (#217).
-            const companion = this.#companionKeyOfType(actual);
-            const operation = companion === undefined
-              ? undefined
-              : this.#companionOperations.get(companion)?.get(expression.callee.field.text);
-            const scheme = operation === undefined ? undefined : this.#schemes.get(operation.id);
-            // A candidate that exists but this call site may not reach is never
-            // reported as a missing operation — that claim would be false (§4.4,
-            // §9 rows 12–13).
-            const unreachable = operation === undefined
-              ? undefined
-              : this.#dotCallReachability(
-                  operation, expression.callee, expression.arguments, actual,
-                );
-            // A candidate whose scheme is still missing, having passed the
-            // reachability test, is the operation whose own right-hand side this
-            // call sits in: a scheme is seeded when its item is inferred, so the
-            // only reference that can precede one is a self-reference. `let` is
-            // non-recursive, and the dot spelling does not change that (Functions
-            // §6) — the resolver says so for the bare spelling, and this says it
-            // in the same words for the dotted one.
-            const selfReference = operation !== undefined && scheme === undefined &&
-              unreachable === undefined;
-            if (operation === undefined || scheme === undefined || unreachable !== undefined) {
-              // Abandoning the call does not excuse the arguments: materialization
-              // walks the whole resolved tree, and an integer literal's `FromNat`
-              // requirement exists only if inference recorded one. Skipping them
-              // leaves a bare literal with no requirement to dereference (#212).
-              for (const argument of expression.arguments) {
-                this.#inferExpr(argument, level);
-              }
-              type = this.#unsupported(
-                expression.callee.field.span,
-                unreachable ??
-                  (selfReference
-                    ? `\`${expression.callee.field.text}\` is not in scope in its own \`let\` definition; \`let\` is non-recursive — use \`fun\`.`
-                    : `the companion of \`${this.#display(actual)}\` has no operation \`${expression.callee.field.text}\`; call an available subject-first function explicitly`),
-              );
-              break;
-            }
-            const callee = this.#instantiate(
-              scheme,
-              level,
-              undefined,
-              expression.callee.field.span,
-            );
-            const arguments_ = [
-              receiver,
-              ...expression.arguments.map((argument) => this.#inferExpr(argument, level)),
-            ];
-            const result = this.#fresh(level, false);
-            this.#unify(
-              callee,
-              { kind: "Function", parameters: arguments_, result },
-              expression.span,
-            );
-            this.#dotCalls.set(expression, {
-              symbol: operation,
-              callee,
-              receiver: expression.callee.receiver,
-            });
-            type = result;
+          const dispatched = this.#dispatchDotCall(
+            expression,
+            expression.callee,
+            receiver,
+            level,
+          );
+          if (dispatched !== undefined) {
+            type = dispatched;
             break;
           }
         }
@@ -3898,12 +4404,55 @@ class Checker {
 
     this.#diagnostics.add({
       severity: "error",
-      message:
+      message: this.#postFinalisationRedirect(actualLeft, actualRight) ??
         message?.() ??
         `type mismatch: expected ${this.#display(actualLeft)}, found ` +
           this.#display(actualRight),
       primary: span,
     });
+  }
+
+  /**
+   * §3.6's mandatory enrichment — the worst error this feature can produce, at
+   * maximal distance from its cause.
+   *
+   * A binding whose receiver was never head-known finalises at the row the
+   * fallback imposed; the contradiction then surfaces at a *use*, where the
+   * naive message ("`Vector` is not a record") says nothing about why the row
+   * exists or what to do. The rescue fires whenever the demanded field's name
+   * matches an exported companion operation of the failing nominal **or a
+   * subject-first member of a constraint honored at it** *(the member clause is
+   * 2026-08-07's: `fun f(v) = v.show()` finalised at the row type, then applied
+   * to an `Int`, deserves the same rescue)*.
+   *
+   * Keyed on the name match, not on where the failure surfaced: same module or
+   * across the program, the cause and the fixit are identical.
+   */
+  #postFinalisationRedirect(left: Mono, right: Mono): string | undefined {
+    const row = left.kind === "Record" ? left : right.kind === "Record" ? right : undefined;
+    const nominal = row === left ? right : left;
+    if (row === undefined || row === nominal || row.tail === undefined) return undefined;
+    if (nominal.kind === "Record" || nominal.kind === "Variable") return undefined;
+    const display = this.#display(nominal);
+    for (const name of row.fields.keys()) {
+      const companion = this.#companionKeyOfType(nominal);
+      const operation = companion === undefined
+        ? undefined
+        : this.#companionOperations.get(companion)?.get(name);
+      const member = (this.#honoredMembers(nominal).get(name) ?? [])
+        .find(({ subjectFirst }) => subjectFirst);
+      if (operation === undefined && member === undefined) continue;
+      return `this value's type was inferred as a record with a \`${name}\` field ` +
+        `because its type was unknown where it was written; \`${display}\` is not a ` +
+        `record. Annotate it to use dispatch, or call ${
+          member === undefined
+            // The companion is named by the type's head, never by its display:
+            // `Vector.length`, not `Vector(Int).length`, which resolves nowhere.
+            ? `\`${companionHeadName(nominal) ?? display}.${name}(…)\` directly`
+            : `${this.#memberSpelling(member)} directly`
+        }.`;
+    }
+    return undefined;
   }
 
   #unifyRecords(left: RecordMono, right: RecordMono, span: Source.Span): void {
@@ -4793,6 +5342,10 @@ class Checker {
      */
     evaluated?: Mono,
   ): Scheme {
+    // The deadline (§3.1): no DotCall goal may escape its owner region's
+    // finalisation, and the defaulting step below must see the receivers those
+    // goals settle.
+    this.#resolveDotCallGoals(level);
     let variables = this.#collectVariables(type).filter(
       (variable) => variable.level > level,
     );
@@ -5260,6 +5813,13 @@ class Checker {
     level: number,
     collected?: Requirement[],
     useSpan?: Source.Span,
+    /**
+     * The type a **constraint member's** subject is pinned at for this one
+     * reference (Modules §5.3's qualified access through an honoring module).
+     * Applied before the copy walks, so the requirement the copy records is
+     * already the concrete one selection will answer.
+     */
+    pinnedSubject?: Mono,
   ): Mono {
     const replacements = new Map<number, Variable>();
     const copiedRequirements = new Set<number>();
@@ -5339,7 +5899,14 @@ class Checker {
       }
       return actual;
     };
-    return copy(scheme.type);
+    const instantiated = copy(scheme.type);
+    const subject = scheme.constraintSubject === undefined
+      ? undefined
+      : replacements.get(scheme.constraintSubject.id);
+    if (pinnedSubject !== undefined && subject !== undefined && useSpan !== undefined) {
+      this.#unify(subject, pinnedSubject, useSpan);
+    }
+    return instantiated;
   }
 
   #unsupported(span: Source.Span, message: string): ErrorMono {
@@ -5603,7 +6170,7 @@ class Checker {
       });
       return;
     }
-    this.#instances.set(key, instance);
+    this.#admitInstance(key, imported.constraintIdentity, subject, instance);
     this.#instanceIdentities.set(key, imported.identity);
   }
 
@@ -5623,12 +6190,37 @@ class Checker {
    * cross-module channels can pass the identity they were given.
    */
   #instanceKey(constraintIdentity: string, subject: Mono): string {
+    return `${constraintIdentity}:${this.#subjectKey(subject)}`;
+  }
+
+  /**
+   * The type-constructor half of the coherence key, alone.
+   *
+   * Split out of `#instanceKey` rather than written beside it: the reverse index
+   * (`#instancesBySubject`) has to agree with selection exactly, and one function
+   * is the only way to keep them from drifting apart.
+   */
+  #subjectKey(subject: Mono): string {
     const type = this.#prune(subject);
-    if (type.kind === "Constructor") return `${constraintIdentity}:primitive:${type.name}`;
-    if (type.kind === "NominalRecord") return `${constraintIdentity}:record:${Number(type.record)}`;
-    if (type.kind === "Union") return `${constraintIdentity}:union:${Number(type.union)}`;
-    if (type.kind === "Range") return `${constraintIdentity}:range`;
-    return `${constraintIdentity}:${this.#display(type)}`;
+    if (type.kind === "Constructor") return `primitive:${type.name}`;
+    if (type.kind === "NominalRecord") return `record:${Number(type.record)}`;
+    if (type.kind === "Union") return `union:${Number(type.union)}`;
+    if (type.kind === "Range") return "range";
+    return this.#display(type);
+  }
+
+  /** Records an instance in both directions; the one writer of either table. */
+  #admitInstance(
+    key: string,
+    constraintIdentity: string,
+    subject: Mono,
+    instance: Resolved.HonorItem,
+  ): void {
+    this.#instances.set(key, instance);
+    const subjectKey = this.#subjectKey(subject);
+    const honored = this.#instancesBySubject.get(subjectKey) ?? new Set<string>();
+    honored.add(constraintIdentity);
+    this.#instancesBySubject.set(subjectKey, honored);
   }
 
   /**
@@ -7176,8 +7768,8 @@ class Checker {
             kind: "Call",
             callee: {
               kind: "Name",
-              symbol: dotCall.symbol.id,
-              text: this.#operationSpellings.get(dotCall.symbol.id) ?? dotCall.symbol.name,
+              symbol: dotCall.symbol,
+              text: this.#operationSpellings.get(dotCall.symbol) ?? dotCall.name,
               type: this.#publicType(dotCall.callee),
               receiverBound: true,
               span: expression.callee.kind === "Access"
@@ -7188,7 +7780,7 @@ class Checker {
               this.#materializeExpr(dotCall.receiver),
               ...expression.arguments.map((argument) => this.#materializeExpr(argument)),
             ],
-            requirements: [],
+            requirements: this.#evidenceRequirements(dotCall.requirements),
             type,
             span: expression.span,
           };

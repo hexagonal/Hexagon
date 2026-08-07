@@ -81,9 +81,10 @@ let reportArea(shape: a) =
 ```
 
 The default calls the `area` operation from whichever instance is in use. Call
-`area(shape)` or `describeArea(shape)` directly. Constraint members are not object
-methods and do not use dot-call syntax. That distinction will matter in the Dot Calls
-chapter.
+`area(shape)` or `describeArea(shape)` directly — and on a value whose type is known,
+the dot spelling works too: `shape.area()` means the same call. Constraint members are
+ordinary functions either way, not object methods; the Dot Calls chapter explains how
+the dot finds them.
 
 ## `honor` supplies an instance
 
@@ -160,7 +161,7 @@ true of the contained types:
 
 ```hexagon
 honor<a: Show> Show<Box(a)> =
-    show(box) = "Box(${show(box.value)})"
+    show(box) = "Box(${box.value.show()})"
 ```
 
 Read the header in two parts:
@@ -181,12 +182,16 @@ states the new obligation being supplied: a `Show` instance for `Box(a)`.
 The body provides `Show`'s required member:
 
 ```hexagon
-show(box) = "Box(${show(box.value)})"
+show(box) = "Box(${box.value.show()})"
 ```
 
-The outer `show` defines how to display the box. The inner `show(box.value)` displays
+The outer `show` defines how to display the box. The inner `box.value.show()` displays
 the value inside it, using the `Show<a>` instance required by the first part of the
-header.
+header. Why the dot call and not a bare `show(box.value)`? Inside this body, `show` is
+the very member being defined, and a definition that is not a `fun` cannot call its own
+name — the same top-down rule every other binding follows. Recursion into `Show` is
+spelled through dispatch instead: the dot call says "use the instance for this value's
+type," which is exactly what is meant.
 
 Put together, the declaration says: **if `a` can be displayed, then `Box(a)` can be
 displayed**. `Box(Int)` uses the existing `Show<Int>` instance; `Box(String)` uses

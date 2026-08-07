@@ -5,6 +5,17 @@ read, poked, and either graduated into the #304 ruling or corrected by it. All
 measurements were taken 2026-08-06 on main `846fb4f`, each probe run against a
 known-failing control program.
 
+**Graduation record:** PR α (#336) landed the steal for `Show`; PR β (#339) the
+remaining declaring modules, consequence 3, and the `Rat.hex` fold-in. **PR γ
+graduated the dispatch half into normative text (2026-08-07):** §5 items 1–2 and
+consequence 4 into Method Syntax §3.4/§3.5/§4.2/§7 (reversal record §16.2) and
+Modules §5.3; item 8's own-name refusal and the member-binding law into
+Constraints §4.6. One extension beyond this note, ruled by James on the
+parameterized-recursion exhibit: **dot calls dispatch bound members on declared
+type variables** (the note's §1 table listed that row as refused; the book's
+nested-example rewrite silently required it — Method Syntax §16.2 records the
+forcing argument). The companion arc (PR δ) remains.
+
 ## 1. The problem, measured
 
 A constraint member currently has no spelling in term position. Every route a

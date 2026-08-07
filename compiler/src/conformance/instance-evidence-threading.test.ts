@@ -28,7 +28,10 @@ describe("instance evidence threads at runtime", () => {
         "honor<a: Describe> Describe<Tree(a)> =\n" +
         "    describe(tree) = match tree\n" +
         '        Leaf => "leaf"\n' +
-        '        Node(left, item, right) => "(${describe(left)} ${describe(item)} ${describe(right)})"\n' +
+        // Constraints §4.6: the member's own name is refused in its own body,
+        // and the dot call is the ruled rewrite. `left`/`right` dispatch through
+        // this instance under construction; `item: a` through the binder.
+        '        Node(left, item, right) => "(${left.describe()} ${item.describe()} ${right.describe()})"\n' +
         "let tree: Tree(Int) = Node(Leaf, 1, Leaf)\n" +
         "export let text: String = describe(tree)",
     );

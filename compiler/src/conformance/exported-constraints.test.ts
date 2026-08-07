@@ -585,8 +585,12 @@ describe("a parameterized honor of an imported constraint", () => {
         "honor<a: Render> Render<Nest(a)> =",
         "    render(n) =",
         "        match n",
-        "            Leaf(value) => render(value)",
-        "            Wrap(inner) => \"(\" ++ render(inner) ++ \")\"",
+        // The sanctioned recursion spelling since #304/#335: a member cannot
+        // call its own name (Constraints §4.6), and the dot call is the route
+        // — `inner: Nest(a)` dispatches through this instance's own evidence,
+        // `value: a` through the binder's (Method Syntax §3.4's bounds row).
+        "            Leaf(value) => value.render()",
+        "            Wrap(inner) => \"(\" ++ inner.render() ++ \")\"",
         "",
         "let three: Int = 3",
         "export fun run(): String = render(Wrap(Wrap(Leaf(three))))",

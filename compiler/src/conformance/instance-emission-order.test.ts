@@ -55,7 +55,9 @@ describe("evidence is emitted before the module's term bindings", () => {
       "export let boxed: Box(Int) = Box({v = 1})\n" +
       "export let label: Int = render(boxed)\n" +
       "honor<a: Render> Render<Box(a)> =\n" +
-      "    render(box) = render(box.v)\n",
+      // A member cannot call its own name (Constraints §4.6); `box.v: a`
+      // dispatches through the instance's binder evidence.
+      "    render(box) = box.v.render()\n",
     ]]);
 
     expect(main["label"]).toBe(1);

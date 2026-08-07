@@ -128,7 +128,7 @@ Ascription **erases**: no emission of the ascription's own. The node's contents 
 
 ### 6.1 Dot-call head evidence
 
-An ascription is **independent evidence** in Method Syntax §3.1's sense: `(42: Nat)` is head-known `Nat` at the dot, so `(42: Nat).dotCall()` resolves through `CompanionOf(Nat)` — once the Primitive-row implementation lands and §3.4/§4.1 gain their `Nat` row (#304's arc, not this spec's). This spec only guarantees the receiver spelling exists and pins.
+An ascription is **independent evidence** in Method Syntax §3.1's sense: `(42: Nat)` is head-known `Nat` at the dot, so `(42: Nat).show()` resolves per Method Syntax §3.4's Primitive row — since #304/#335 that row holds `Nat`, and the operation set reaches the wired instances' members (`Show<Nat>`), no companion module required. This spec only guarantees the receiver spelling exists and pins.
 
 ### 6.2 Literal defaulting
 

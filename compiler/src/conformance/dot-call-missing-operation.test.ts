@@ -38,7 +38,7 @@ describe("a missing companion operation reports rather than crashing (#212)", ()
     expect(
       projectDiagnostics("export fun go(s: Seq(Int)): Seq(Int) = s.bogus(1)\n"),
     ).toEqual([
-      "the companion of `Seq(Int)` has no operation `bogus`; call an available subject-first function explicitly",
+      "`Seq(Int)` has no field `bogus`, its companion exports no operation `bogus`, and no constraint honored at `Seq(Int)` has a subject-first member `bogus`; call an available subject-first function explicitly",
     ]);
   });
 
@@ -49,7 +49,7 @@ describe("a missing companion operation reports rather than crashing (#212)", ()
           "export let counts: Vector(Int) = blank.nope(1)\n",
       ),
     ).toEqual([
-      "the companion of `Vector(Int)` has no operation `nope`; call an available subject-first function explicitly",
+      "`Vector(Int)` has no field `nope`, its companion exports no operation `nope`, and no constraint honored at `Vector(Int)` has a subject-first member `nope`; call an available subject-first function explicitly",
     ]);
   });
 
@@ -61,7 +61,7 @@ describe("a missing companion operation reports rather than crashing (#212)", ()
           "export let q = p.nope(1)\n",
       ),
     ).toContain(
-      "the companion of `P` has no operation `nope`; call an available subject-first function explicitly",
+      "`P` has no field `nope`, its companion exports no operation `nope`, and no constraint honored at `P` has a subject-first member `nope`; call an available subject-first function explicitly",
     );
   });
 });
@@ -87,7 +87,7 @@ describe("a misspelling beside a correctly-spelled operation", () => {
 
     expect(messages).toHaveLength(1);
     expect(messages[0]).toMatch(
-      /^the companion of `Vector\(\?\d+\)` has no operation `appendd`; call an available subject-first function explicitly$/u,
+      /^`Vector\(\?\d+\)` has no field `appendd`, its companion exports no operation `appendd`, and no constraint honored at `Vector\(\?\d+\)` has a subject-first member `appendd`; call an available subject-first function explicitly$/u,
     );
   });
 });
@@ -111,12 +111,14 @@ describe("a module-level binding that shadows a real operation", () => {
   });
 });
 
-describe("a constraint member is not a companion operation", () => {
-  // The receiver is opaque, so the field is not a record field; `show` *is* a
-  // real name in the prelude, but constraint members are not companion
-  // operations and dot syntax never reaches them (Method Syntax §7). `Token`'s
-  // companion is `/vault.hex`, which exports no `show`, so this reaches the same
-  // bail as an outright misspelling — it does not route to `Show.show`.
+describe("a member name with no instance behind it is still a misspelling", () => {
+  // Dot syntax reaches constraint members since #304/#335 — but through the
+  // instances the receiver's type honors, never through the name (Method Syntax
+  // §7: "the dot never *discovers* a member"). `Token` honors nothing, its
+  // companion `/vault.hex` exports no `show`, and its one field is invisible
+  // outside the home module, so all three candidate sources are empty and the
+  // call reaches the same bail as an outright misspelling. That the prelude has
+  // a `show` changes nothing: the member is `Show`'s, and `Token` has no `Show`.
   test("an imported opaque record's `show` reports rather than crashing", () => {
     expect(
       diagnostics([
@@ -132,7 +134,7 @@ describe("a constraint member is not a companion operation", () => {
         ],
       ]),
     ).toContain(
-      "the companion of `Token` has no operation `show`; call an available subject-first function explicitly",
+      "`Token` has no field `show`, its companion exports no operation `show`, and no constraint honored at `Token` has a subject-first member `show`; call an available subject-first function explicitly",
     );
   });
 });
@@ -145,7 +147,7 @@ describe("the controls that already reported before the fix", () => {
     expect(
       projectDiagnostics("export fun go(s: Seq(Int)): Seq(Int) = s.bogus(1.5)\n"),
     ).toEqual([
-      "the companion of `Seq(Int)` has no operation `bogus`; call an available subject-first function explicitly",
+      "`Seq(Int)` has no field `bogus`, its companion exports no operation `bogus`, and no constraint honored at `Seq(Int)` has a subject-first member `bogus`; call an available subject-first function explicitly",
     ]);
   });
 
@@ -157,7 +159,7 @@ describe("the controls that already reported before the fix", () => {
           "export let counts: Vector(Int) = blank.nope(one)\n",
       ),
     ).toContain(
-      "the companion of `Vector(Int)` has no operation `nope`; call an available subject-first function explicitly",
+      "`Vector(Int)` has no field `nope`, its companion exports no operation `nope`, and no constraint honored at `Vector(Int)` has a subject-first member `nope`; call an available subject-first function explicitly",
     );
   });
 
@@ -168,7 +170,7 @@ describe("the controls that already reported before the fix", () => {
           "export let blank = xs.vacant()\n",
       ),
     ).toContain(
-      "the companion of `Vector(Int)` has no operation `vacant`; call an available subject-first function explicitly",
+      "`Vector(Int)` has no field `vacant`, its companion exports no operation `vacant`, and no constraint honored at `Vector(Int)` has a subject-first member `vacant`; call an available subject-first function explicitly",
     );
   });
 });
