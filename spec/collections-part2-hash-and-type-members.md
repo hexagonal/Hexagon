@@ -262,7 +262,7 @@ Noun policy: the noun for the `type`-declared member is **implied type**; the in
 | Situation | Error / hint | Provenance |
 |---|---|---|
 | Unsatisfied `Hash` at a call/use site | standard unsatisfied-constraint phrasing ("`Point` has no `Hash` instance, required by `Map.set`") **plus** fixit: "add `derives Hash` to the declaration of `Point`" | Constraints §8 pattern + this doc |
-| Member-block `honor Hash<T>` | "`Hash` instances cannot be hand-written; use `derives Hash` on the declaration of `T`" | §4.1 |
+| Member-block `honor Hash<T>` | "`Hash` instances cannot be hand-written; use `derives Hash` on the declaration of `T`" *(carve-out, #344: not emitted for privileged prelude companion source honoring at its own primitive — `BigInt.hex`'s `honor Hash<BigInt>` is legal there and nowhere else; Constraints §4.5)* | §4.1 |
 | `honor Hash<T> = derive` with hand-written `Eq<T>` | "cannot derive `Hash<Weird>`: `Weird` has a hand-written `Eq` instance; a derived hash is only consistent with a derived equality" | §4.3 |
 | `derives Hash` with no `Eq` in scope | error for a missing base constraint + "add `Eq` to the `derives` list" | §3.1 |
 | Underivable field/slot for `Hash` | "cannot derive `Hash<Point>`: field `f` has type `T`, which has no `Hash` instance" | §3.1 |

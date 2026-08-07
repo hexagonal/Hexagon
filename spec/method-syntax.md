@@ -215,7 +215,7 @@ Diagnostics: an operation that exists in the companion but sits below the call s
 - nominal unions — no field access exists on union values, so no collision surface; the cleanest receivers the feature has (`option.getOrElse(default)`, `result.map(f)` — still static companion calls, not object methods);
 - extern nominal types and extern class types — their binding module is the companion, and their opaque values expose no Hexagon fields (FFI Part 5 §9);
 - prelude nominal collection and utility types (`Vector`, `Map`, `Set`, `Option`, `Result`, `Range`, `Seq`, …);
-- primitives, through the fixed prelude companions (`"a,b".split(",")`, `n.toFloat()` — inventory per stdlib listing) and their wired constraint instances (`42n.show()`, `n.div(2)` — §3.4's primitive row);
+- primitives, through the fixed prelude companions (`"a,b".split(",")`, `n.toFloat()` — inventory per stdlib listing) and their constraint instances — source at migrated companions, wired at the rest, #344 (`42n.show()`, `n.div(2)` — §3.4's primitive row);
 - **declared type variables, for bound-member dispatch only** *(moved from the ineligible list for #304/#335 — §16.2)*: `x.compare(y)` under `a: Ord` dispatches through the binder's evidence; the candidate set is the declared bounds and nothing else — no companion exists or is consulted;
 - transparent aliases of any of the above, via expansion (§4.3).
 

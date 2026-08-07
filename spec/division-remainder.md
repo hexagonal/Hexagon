@@ -108,7 +108,7 @@ Inlining latitude (quality-of-implementation, not spec): where the divisor is a 
 | Situation | Message (shape) |
 |---|---|
 | `intA / intB` (existing, Operators §6.1) | unchanged, but the hint now reads: "`Int` has no `/`; use `Int.div`/`Int.mod` (Euclidean), or `Int.quot`/`Int.rem` for JS's truncating `%` semantics" |
-| Zero divisor at runtime, any integer function | `DivideByZeroError`; message names the function that threw (`Int.rem: divisor is zero`), per the provenance-tagged phrasing rule |
+| Zero divisor at runtime, any integer function | `DivideByZeroError`; message names the function that threw (`Int.rem: divisor is zero`), per the provenance-tagged phrasing rule. *(#344: the exception's declared home is `stdlib/Integral.hex` — the constraint whose members the guards protect — one declaration for every honoring companion; `BigInt`'s guards throw it from source, `Int`'s helpers still throw the brand-compatible shape until their milestone)* |
 
 Docs (not compiler) obligations: `rem`'s doc line says "this is JS's `%`"; `mod`'s says "always non-negative"; `Float.mod`'s notes the rounding boundary (§5.1).
 
@@ -163,7 +163,7 @@ isEven = n => Int.mod(n, 2) == 0    -- correct for negative n; with rem it would
 | `Float.mod` (Euclidean) and `Float.rem` (truncated, bare `%`) provided; NaN on zero divisor; no throw | §5 |
 | No `Float.quot`, no Euclidean float division | §5.3 |
 | `Float.mod` invariant is `0 <= r <= abs(b)` (boundary via rounding only); `Float.rem` is IEEE-exact | §5.1 |
-| Emission via named runtime helpers; inlining is QoI latitude | §6 |
+| Emission via named runtime helpers; inlining is QoI latitude *(for the `BigInt` family, superseded by #344: bodies live in `stdlib/BigInt.hex`, natives through the intrinsic door; the §6 shapes stay normative for behaviour)* | §6 |
 
 ## 11. Edit notes to existing specs
 

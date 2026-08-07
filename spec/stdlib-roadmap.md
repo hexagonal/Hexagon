@@ -119,7 +119,7 @@ The current compiler-owned surface yields this migration inventory:
 
 | Canonical source | Hexagon-owned behavior | Narrow intrinsic/runtime residue |
 | :--- | :--- | :--- |
-| `BigInt.hex` | **landed** (#344): Euclidean `div`/`mod`, iterative `gcd`, divide-first `lcm`, zero guards, `toInt`'s range check, and the public instances (`Num`, `Signed`, `Eq`, `Ord`, `Show`, `Pow`, `Hash`, `Integral`) as source `honor` blocks | native truncated quotient/remainder, the representation crossings (`fromNat`, `fromInt`, `toIntUnchecked`, `toFloat`, `hash`) — all through the intrinsic door |
+| `BigInt.hex` | **landed** (#344): Euclidean `div`/`mod`, iterative `gcd`, divide-first `lcm`, the zero-divisor and negative-exponent guards, `toInt`'s range check, and the public instances (`Num`, `Signed`, `Eq`, `Ord`, `Show`, `Pow`, `Hash`, `Integral`) as source `honor` blocks | the fifteen-key primop inventory of intrinsics §3.2 — every own-operation member body plus the conversions' cores (`bigIntAdd` … `bigIntToFloat`), per Constraints §6.1's door-backed law |
 | `Int.hex` | Euclidean family, `gcd`, checked arithmetic, public instances | native remainder/truncation and representation-sensitive operations |
 | `Float.hex` | public wrappers and instances | IEEE/NaN and selected `Math` primitives |
 | `String.hex` | companion algorithms and public instances | efficient JS UTF-16/codepoint bridge primitives |
@@ -190,9 +190,10 @@ Proceed a piece at a time:
    (intrinsics §3.2's third worked example).
 3. Move derived operations into understandable Hexagon source: Euclidean `div`/`mod`,
    iterative `gcd`, divide-first `lcm`, zero checks, and Hexagon exception branding.
-   *(Discharged, #344: all of these are ordinary source in `BigInt.hex`, including
-   `export exception DivideByZeroError` with the division-remainder §7 message
-   shapes.)*
+   *(Discharged, #344: all of these are ordinary source in `BigInt.hex`; the
+   branded exceptions live in their constraint homes — `DivideByZeroError` in
+   `Integral.hex`, `NegativeExponentError` in `Pow.hex` — with the
+   division-remainder §7 message shapes.)*
 4. Move the coherent `Integral<BigInt>` instance to the appropriate canonical source
    home once prelude instance loading supports it; preserve the one-implementation,
    two-spellings contract between the companion functions and constraint members.
