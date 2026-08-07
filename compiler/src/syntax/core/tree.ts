@@ -32,6 +32,22 @@ export interface InstanceEvidence {
   readonly kind: "Instance";
   readonly dictionary: string;
   readonly arguments: readonly EvidenceArgument[];
+  /**
+   * The primitive this instance is honored at, when its subject is one (#344).
+   *
+   * Carried so that emission can keep doing what Constraints §6.1 calls
+   * *inlining of the door-backed slots*: `a + b` at `BigInt` is `Num<BigInt>`'s
+   * `add` selected by coherence, and the monomorphic lowering tables (Primitive
+   * Types §7; Operators) render that selection as the operator rather than as a
+   * slot read. That is quality-of-implementation over one implementation, never
+   * a second definition — a *materialized* dictionary still comes from the
+   * source instance, which is why the field marks the evidence rather than
+   * replacing it.
+   *
+   * Absent for every nominal subject, and absent for the primitives still
+   * compiler-wired, whose evidence is `PrimitiveEvidence` outright.
+   */
+  readonly primitive?: Typed.PrimitiveName;
 }
 
 export interface StructuralEvidence {
@@ -513,7 +529,13 @@ export interface CollectionOperationExpr extends ExpressionFields {
 /** A compiler-owned primitive companion operation awaiting JavaScript lowering. */
 export interface PrimitiveOperationExpr extends ExpressionFields {
   readonly kind: "PrimitiveOperation";
-  readonly primitive: "Int" | "BigInt" | "Float";
+  /**
+   * `BigInt` left this union at its milestone (`spec/intrinsics.md` §9.2,
+   * #344): its family is `stdlib/BigInt.hex`'s source, so no such node is
+   * ever minted for it. `Int` and `Float` follow at theirs, and the form
+   * dies with the last of them.
+   */
+  readonly primitive: "Int" | "Float";
   readonly operation: "div" | "mod" | "quot" | "rem" | "gcd" | "lcm";
 }
 

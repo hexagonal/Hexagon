@@ -23,7 +23,7 @@ import {
 } from "./passes/emitter/emitter.js";
 import type { PreludeImport } from "./passes/resolver/resolver.js";
 import type { VectorRuntime } from "./passes/emitter/emitter.js";
-import { PRELUDE_MODULES } from "./prelude.js";
+import { PRELUDE_MODULES, PRIMITIVE_COMPANION_BASENAMES } from "./prelude.js";
 import { RUNTIME_MODULES, VECTOR_TRIE_BASENAME } from "./runtime-modules.js";
 
 export interface CompiledModule {
@@ -252,6 +252,16 @@ export function compileProject(
       // prelude injection path is privileged in it — the stdlib-developing-itself
       // path, carrying the same trust model as the `Node` runtime flag precedent.
       privileged: isPrelude,
+      // A primitive's home module is its fixed prelude companion (Constraints
+      // §5.3), and nothing in the module's text can say so — a primitive has no
+      // declaration. Like the privilege above, the fact follows the *path*.
+      ...(isPrelude && PRIMITIVE_COMPANION_BASENAMES.has(path.slice(path.lastIndexOf("/") + 1))
+        ? {
+          companionPrimitive: PRIMITIVE_COMPANION_BASENAMES.get(
+            path.slice(path.lastIndexOf("/") + 1),
+          )! as Resolved.PrimitiveName,
+        }
+        : {}),
       // The `Node(a)` privilege is the other one, and a runtime module holds it
       // by being one. A host may still grant it by path (`hexagon.json`), which
       // is how `runtime/VectorTrie.hex` compiles under its own repository path

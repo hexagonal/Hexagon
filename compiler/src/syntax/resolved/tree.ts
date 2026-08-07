@@ -385,6 +385,26 @@ export interface Module {
    * it, and none may branch on it.
    */
   readonly docs: readonly Documentation[];
+  /**
+   * The primitive this module is the **fixed prelude companion** of, when it is
+   * one (Method Syntax §4.1's table, Constraints §5.3 — #344).
+   *
+   * A primitive has no declaration, so nothing in a module's *text* can say it
+   * is that primitive's home. The fact is a compilation one — the module is a
+   * prelude member injected at the primitive's own basename — which is the same
+   * shape the intrinsic door's privilege takes (`spec/intrinsics.md` §5.2), and
+   * it is settled in `project.ts` for the same reason: privilege attaches to how
+   * a module is compiled, never to what it says about itself.
+   *
+   * Three rules read it, each for exactly the primitive named here: the orphan
+   * rule ("the module that declares `T`" — this file *is* `BigInt`'s home),
+   * `Hash`'s derivable-only carve-out (Constraints §4.5 — a primitive has no
+   * declaration to hang `derives` on), and Modules §5.3's qualified access to
+   * honored members, where "a type it declares" reads as "the primitive it
+   * companions". Every other module sees a primitive subject as one it does not
+   * own, unchanged.
+   */
+  readonly companionPrimitive?: PrimitiveName;
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }
@@ -1188,7 +1208,13 @@ export interface CollectionOperationExpr {
 /** A compiler-known operation in a primitive type's companion. */
 export interface PrimitiveOperationExpr {
   readonly kind: "PrimitiveOperation";
-  readonly primitive: "Int" | "BigInt" | "Float";
+  /**
+   * `BigInt` left this union at its milestone (`spec/intrinsics.md` §9.2,
+   * #344): its family is `stdlib/BigInt.hex`'s source, so no such node is
+   * ever minted for it. `Int` and `Float` follow at theirs, and the form
+   * dies with the last of them.
+   */
+  readonly primitive: "Int" | "Float";
   readonly operation: "div" | "mod" | "quot" | "rem" | "gcd" | "lcm";
   readonly span: Source.Span;
 }

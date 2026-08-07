@@ -2235,10 +2235,11 @@ class JavaScriptEmitter {
     const assignments = new Map<Typed.TypeVariableId, Typed.PrimitiveName>();
     for (const [index, entry] of entries.entries()) {
       const evidence = expression.evidence[index]?.value;
-      if (evidence?.kind !== "Primitive") return undefined;
+      const instance = evidence === undefined ? undefined : primitiveInstance(evidence);
+      if (instance === undefined) return undefined;
       const previous = assignments.get(entry.variable);
-      if (previous !== undefined && previous !== evidence.instance) return undefined;
-      assignments.set(entry.variable, evidence.instance);
+      if (previous !== undefined && previous !== instance) return undefined;
+      assignments.set(entry.variable, instance);
     }
 
     return candidates.find((candidate) =>
@@ -2606,10 +2607,11 @@ class JavaScriptEmitter {
     expression: Core.ConvertNatExpr,
     evidenceNames: EvidenceNames,
   ): string {
-    if (expression.evidence.kind === "Primitive") {
+    const converted = primitiveInstance(expression.evidence);
+    if (converted !== undefined) {
       const literal = cleanNumber(expression.decimal);
-      if (expression.evidence.instance === "BigInt") return `${literal}n`;
-      if (expression.evidence.instance === "Float") return `${literal}.0`;
+      if (converted === "BigInt") return `${literal}n`;
+      if (converted === "Float") return `${literal}.0`;
       return literal;
     }
     if (expression.evidence.kind === "Instance" || expression.evidence.kind === "Structural") {
@@ -2638,10 +2640,9 @@ class JavaScriptEmitter {
     evidenceNames: EvidenceNames,
   ): string {
     const value = this.#emitExpr(expression.value, depth, evidenceNames);
-    if (expression.evidence.kind === "Primitive") {
-      return expression.evidence.instance === "BigInt"
-        ? `BigInt(${value})`
-        : value;
+    const widened = primitiveInstance(expression.evidence);
+    if (widened !== undefined) {
+      return widened === "BigInt" ? `BigInt(${value})` : value;
     }
     if (expression.evidence.kind === "Dictionary") {
       const dictionary = this.#dictionary(
@@ -2671,10 +2672,9 @@ class JavaScriptEmitter {
     evidenceNames: EvidenceNames,
   ): string {
     const value = this.#emitExpr(expression.value, depth, evidenceNames);
-    if (expression.evidence.kind === "Primitive") {
-      return expression.evidence.instance === "BigInt"
-        ? `BigInt(${value})`
-        : value;
+    const widened = primitiveInstance(expression.evidence);
+    if (widened !== undefined) {
+      return widened === "BigInt" ? `BigInt(${value})` : value;
     }
     if (expression.evidence.kind === "Dictionary") {
       const dictionary = this.#dictionary(
@@ -2716,17 +2716,12 @@ class JavaScriptEmitter {
         );
         return `${dictionary}.show(${value})`;
       }
-      if (part.evidence.kind === "Instance" || part.evidence.kind === "Structural") {
-        const dictionary = this.#emitEvidence(
-          part.evidence,
-          "Show",
-          part.span,
-          evidenceNames,
-        );
-        return `${dictionary}.show(${value})`;
-      }
-      if (part.evidence.kind === "Primitive") {
-        if (part.evidence.instance === "String") {
+      // Primitive Types §7's table, as the inlining of `Show`'s slot at a
+      // primitive that Constraints §6.1 licenses — the same string whether the
+      // instance is wired or `stdlib/BigInt.hex`'s source (#344).
+      const shown = primitiveInstance(part.evidence);
+      if (shown !== undefined) {
+        if (shown === "String") {
           return this.#emitOperand(
             part.expression,
             Precedence.Additive,
@@ -2735,6 +2730,15 @@ class JavaScriptEmitter {
           );
         }
         return `String(${value})`;
+      }
+      if (part.evidence.kind === "Instance" || part.evidence.kind === "Structural") {
+        const dictionary = this.#emitEvidence(
+          part.evidence,
+          "Show",
+          part.span,
+          evidenceNames,
+        );
+        return `${dictionary}.show(${value})`;
       }
       return `(${value}, undefined)`;
     });
@@ -2760,7 +2764,30 @@ class JavaScriptEmitter {
       return `${dictionary}.${expression.member}(${arguments_.join(", ")})`;
     }
     if (expression.evidence.kind === "Error") return "undefined";
-    if (expression.evidence.kind === "Instance" || expression.evidence.kind === "Structural") {
+    // The operator faces at a primitive, inlined (Constraints §6.1's last
+    // sentence; Primitive Types §7; Operators). The selection is the instance's
+    // either way — a wired row for the companions still transitional, and
+    // `stdlib/BigInt.hex`'s `honor` block for the one that migrated (#344) —
+    // and the table below renders that one selection as the JavaScript operator
+    // rather than as a slot read. Only the members the switch covers are
+    // inlinable; everything else (`div` and its family, most of all) takes the
+    // dictionary route below, which is where its implementation actually lives.
+    //
+    // `pow` is the one member that inlines only for a *wired* instance. Its
+    // integer lowering is the `checkedPower` helper, whose negative-exponent
+    // guard is compiler-owned; at `BigInt` that guard is Hexagon in the
+    // companion now (#344, delta 4), so inlining would reinstate the retired
+    // implementation beside the source one.
+    const candidate = INLINED_OPERATOR_MEMBERS.includes(expression.member)
+      ? primitiveInstance(expression.evidence)
+      : undefined;
+    const instance = candidate === "BigInt" && expression.member === "pow"
+      ? undefined
+      : candidate;
+    if (instance === undefined) {
+      // `Dictionary` and `Error` returned above, so what is left is an instance
+      // — nominal, structural, or a primitive companion's source one, which
+      // `#emitEvidence` resolves to the dictionary that module exports.
       const dictionary = this.#emitEvidence(
         expression.evidence,
         expression.constraint,
@@ -2769,8 +2796,6 @@ class JavaScriptEmitter {
       );
       return `${dictionary}.${expression.member}(${arguments_.join(", ")})`;
     }
-
-    const instance = expression.evidence.instance;
     const [leftExpression, rightExpression] = expression.arguments;
     const operand = (
       argument: Core.Expr | undefined,
@@ -2928,19 +2953,26 @@ class JavaScriptEmitter {
       if (step.test === "NotEqual") return `${left} !== ${right}`;
       return `${left} ${comparisonOperator(step.test)} ${right}`;
     }
-    if (step.evidence.kind === "Instance" || step.evidence.kind === "Structural") {
-      const dictionary = this.#emitEvidence(
-        step.evidence,
-        constraint,
-        step.span,
-        evidenceNames,
-      );
-      if (step.test === "Equal") return `${dictionary}.equals(${left}, ${right})`;
-      if (step.test === "NotEqual") return `${dictionary}.notEquals(${left}, ${right})`;
-      return comparisonFromOrdering(step.test, `${dictionary}.compare(${left}, ${right})`);
+    // The comparison faces at a primitive, inlined — the same licence the
+    // operator table above takes (Constraints §6.1), and the same lowering
+    // whether the instance is a wired row or `stdlib/BigInt.hex`'s source
+    // (#344). The fast path below is the point: no dictionary stands between
+    // the comparator and its consumer.
+    const instance = primitiveInstance(step.evidence);
+    if (instance === undefined) {
+      if (step.evidence.kind === "Instance" || step.evidence.kind === "Structural") {
+        const dictionary = this.#emitEvidence(
+          step.evidence,
+          constraint,
+          step.span,
+          evidenceNames,
+        );
+        if (step.test === "Equal") return `${dictionary}.equals(${left}, ${right})`;
+        if (step.test === "NotEqual") return `${dictionary}.notEquals(${left}, ${right})`;
+        return comparisonFromOrdering(step.test, `${dictionary}.compare(${left}, ${right})`);
+      }
+      return "false";
     }
-
-    const instance = step.evidence.instance;
     if (step.test === "Equal" || step.test === "NotEqual") {
       let equality: string;
       if (instance === "Float") {
@@ -3675,6 +3707,28 @@ class JavaScriptEmitter {
     return `JSON.stringify(${value})`;
   }
 
+  /**
+   * The dictionary a **source** instance at this primitive exports, if one
+   * exists (#344).
+   *
+   * Read from `preludeInstances`, which is where a companion module's instances
+   * reach every consumer (#153) — so the lookup answers exactly for the
+   * companions that have migrated, and answers nothing for the ones still wired.
+   * A module's own instances never appear here and never need to: inside the
+   * companion the checker selects them directly, and their evidence is
+   * `Instance` before emission sees it.
+   */
+  #sourceInstanceDictionary(
+    constraint: Typed.ConstraintName,
+    instance: Typed.PrimitiveName,
+  ): string | undefined {
+    return this.#module.preludeInstances.find((available) =>
+      available.constraint === constraint &&
+      available.subject.kind === "Primitive" &&
+      available.subject.name === instance
+    )?.localDictionary;
+  }
+
   #emitEvidence(
     evidence: Core.Evidence,
     constraint: Typed.ConstraintName,
@@ -3691,6 +3745,18 @@ class JavaScriptEmitter {
       );
     }
     if (evidence.kind === "Primitive") {
+      // A migrated companion's dictionary is its source instance's, never a
+      // literal built here (#344). Primitive evidence still reaches this branch
+      // from the specialization planner, which rewrites a monomorphic edition's
+      // dictionary parameters by primitive name; for `BigInt` the answer is
+      // `stdlib/BigInt.hex`'s exported dictionary, and materializing a second
+      // one would be the wired row the ruling retired, rebuilt under another
+      // name.
+      const sourced = this.#sourceInstanceDictionary(constraint, evidence.instance);
+      if (sourced !== undefined) {
+        this.#referencedDictionaries.add(sourced);
+        return sourced;
+      }
       return primitiveDictionary(
         constraint,
         evidence.instance,
@@ -4163,6 +4229,45 @@ class JavaScriptEmitter {
       case "vectorFromSeq":
         return `__hex_values => ${this.#useHelper("vectorOf")}(` +
           `${this.#useHelper("seqToIterable")}(__hex_values))`;
+      // `stdlib/BigInt.hex`'s natives (#344), in the primop shape: every one is
+      // a JavaScript operator or one-call conversion, so each lowers to a bare
+      // arrow with no helper behind it. Nothing here guards, converts a sign, or
+      // branches on a range — those are Hexagon in the companion, which is the
+      // point of the split (`spec/intrinsics.md` §3.2). Two rows are worth
+      // spelling out: `bigIntCompare` answers with the Unions §6.2 name-strings
+      // an `Ordering` *is* (#275), and `bigIntPow` is the **raw** `**`, because
+      // the negative-exponent guard sits above it in source.
+      case "bigIntAdd":
+        return "(__hex_a, __hex_b) => __hex_a + __hex_b";
+      case "bigIntMultiply":
+        return "(__hex_a, __hex_b) => __hex_a * __hex_b";
+      case "bigIntSubtract":
+        return "(__hex_a, __hex_b) => __hex_a - __hex_b";
+      case "bigIntNegate":
+        return "__hex_a => -__hex_a";
+      case "bigIntQuot":
+        return "(__hex_a, __hex_b) => __hex_a / __hex_b";
+      case "bigIntRem":
+        return "(__hex_a, __hex_b) => __hex_a % __hex_b";
+      case "bigIntPow":
+        return "(__hex_a, __hex_b) => __hex_a ** __hex_b";
+      case "bigIntEquals":
+        return "(__hex_a, __hex_b) => __hex_a === __hex_b";
+      case "bigIntCompare":
+        return '(__hex_a, __hex_b) => __hex_a < __hex_b ? "Less" : __hex_a > __hex_b ? "Greater" : "Equal"';
+      case "bigIntShow":
+        return "__hex_a => String(__hex_a)";
+      case "bigIntHash":
+        return `__hex_a => ${this.#useHelper("stableHash")}(__hex_a)`;
+      // The conversions (Primitive Types §6). `fromNat`/`fromInt` are exact and
+      // total; `toIntUnchecked` is the unchecked core `toInt`'s range check
+      // sits above, and `toFloat` is the documented lossy one.
+      case "bigIntFromNat":
+      case "bigIntFromInt":
+        return "__hex_a => BigInt(__hex_a)";
+      case "bigIntToIntUnchecked":
+      case "bigIntToFloat":
+        return "__hex_a => Number(__hex_a)";
       default:
         if (INTRINSIC_INVENTORY.has(key)) {
           this.#diagnostics.add({
@@ -5185,12 +5290,6 @@ type Helper =
   | "intQuot"
   | "intRem"
   | "intGcd"
-  | "bigIntDiv"
-  | "bigIntMod"
-  | "bigIntQuot"
-  | "bigIntRem"
-  | "bigIntGcd"
-  | "bigIntLcm"
   | "floatMod"
   | "floatRem"
   | "persistentCollections";
@@ -5239,12 +5338,6 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   intQuot: [],
   intRem: [],
   intGcd: [],
-  bigIntDiv: [],
-  bigIntMod: [],
-  bigIntQuot: [],
-  bigIntRem: [],
-  bigIntGcd: [],
-  bigIntLcm: [],
   floatMod: [],
   floatRem: [],
   persistentCollections: [],
@@ -5293,8 +5386,9 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
       return Precedence.Unary;
     case "Record":
       return Precedence.Primary;
-    case "ConstraintCall":
-      if (expression.evidence.kind !== "Primitive") return Precedence.Call;
+    case "ConstraintCall": {
+      const inlined = primitiveInstance(expression.evidence);
+      if (inlined === undefined) return Precedence.Call;
       switch (expression.member) {
         case "add":
         case "subtract":
@@ -5304,12 +5398,15 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
         case "divide":
           return Precedence.Multiplicative;
         case "pow":
-          return expression.evidence.instance === "Float"
+          return inlined === "Float"
             ? Precedence.Exponentiation
             : Precedence.Call;
         case "negate":
           return Precedence.Unary;
+        default:
+          return Precedence.Call;
       }
+    }
     case "ComparisonChain":
       return expression.steps.length === 1
         ? comparisonPrecedence(expression.steps[0]!)
@@ -5326,11 +5423,12 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
     case "Block":
       return Precedence.Call;
     case "WidenNat":
-    case "WidenInt":
-      return expression.evidence.kind === "Primitive" &&
-          expression.evidence.instance !== "BigInt"
+    case "WidenInt": {
+      const widened = primitiveInstance(expression.evidence);
+      return widened !== undefined && widened !== "BigInt"
         ? expressionPrecedence(expression.value)
         : Precedence.Call;
+    }
     case "Name":
     case "CollectionOperation":
     case "PrimitiveOperation":
@@ -5364,12 +5462,6 @@ function renderHelper(
     case "intQuot":
     case "intRem":
     case "intGcd":
-    case "bigIntDiv":
-    case "bigIntMod":
-    case "bigIntQuot":
-    case "bigIntRem":
-    case "bigIntGcd":
-    case "bigIntLcm":
     case "floatMod":
     case "floatRem": {
       const [primitive, operation] = primitiveOperationFromHelper(helper);
@@ -6021,12 +6113,51 @@ function collectionOperation(
   return "() => undefined";
 }
 
+/**
+ * The primitive an evidence value's instance is honored at, or `undefined`.
+ *
+ * One reader for the two shapes a primitive instance now takes: the wired rows
+ * of the companions that have not migrated (`PrimitiveEvidence`), and the source
+ * `honor` blocks of the ones that have, which are ordinary `InstanceEvidence`
+ * carrying the primitive alongside their dictionary (#344).
+ *
+ * Every call site of this function is a **call-site inlining** — Constraints
+ * §6.1's "the monomorphic lowering tables … remain true as inlining of the
+ * door-backed slots". Materializing a whole dictionary is deliberately not one
+ * of them: that reads `#emitEvidence`, where a migrated companion's dictionary
+ * is the source instance's and nothing is inlined, because a second dictionary
+ * literal would be a second definition rather than a rendering of one.
+ */
+/**
+ * The constraint members whose call at a known primitive instance emits as a
+ * JavaScript operator rather than as a dictionary slot read.
+ *
+ * Exactly the arms of `#emitConstraintCall`'s switch, and deliberately not one
+ * more: `div`, `mod`, `quot`, `rem`, and `gcd` have no operator to be, and their
+ * implementation is `stdlib/BigInt.hex`'s source, so a member outside this list
+ * reaches its instance the ordinary way.
+ */
+const INLINED_OPERATOR_MEMBERS: readonly string[] = [
+  "negate",
+  "add",
+  "subtract",
+  "multiply",
+  "divide",
+  "concat",
+  "pow",
+];
+
+function primitiveInstance(evidence: Core.Evidence): Typed.PrimitiveName | undefined {
+  if (evidence.kind === "Primitive") return evidence.instance;
+  return evidence.kind === "Instance" ? evidence.primitive : undefined;
+}
+
 /** Emits the fixed primitive companion families without inventing runtime objects. */
 function primitiveOperation(
   primitive: Core.PrimitiveOperationExpr["primitive"],
   operation: Core.PrimitiveOperationExpr["operation"],
 ): string {
-  const zero = primitive === "BigInt" ? "0n" : "0";
+  const zero = "0";
   if (primitive === "Float") {
     if (operation === "rem") return "(__hex_a, __hex_b) => __hex_a % __hex_b";
     return "(__hex_a, __hex_b) => { const __hex_r = __hex_a % __hex_b; return __hex_r < 0 ? __hex_r + Math.abs(__hex_b) : __hex_r; }";
@@ -6034,9 +6165,7 @@ function primitiveOperation(
   const guard = `if (__hex_b === ${zero}) { const __hex_error = new Error(${JSON.stringify(`${primitive}.${operation}: divisor is zero`)}); __hex_error.name = \"DivideByZeroError\"; __hex_error.$hex = true; throw __hex_error; }`;
   if (operation === "rem") return `(__hex_a, __hex_b) => { ${guard} return __hex_a % __hex_b; }`;
   if (operation === "quot") {
-    return primitive === "BigInt"
-      ? `(__hex_a, __hex_b) => { ${guard} return __hex_a / __hex_b; }`
-      : `(__hex_a, __hex_b) => { ${guard} return Math.trunc(__hex_a / __hex_b); }`;
+    return `(__hex_a, __hex_b) => { ${guard} return Math.trunc(__hex_a / __hex_b); }`;
   }
   if (operation === "mod") {
     return `(__hex_a, __hex_b) => { ${guard} const __hex_r = __hex_a % __hex_b; const __hex_abs = __hex_b < ${zero} ? -__hex_b : __hex_b; return __hex_r < ${zero} ? __hex_r + __hex_abs : __hex_r; }`;
@@ -6045,21 +6174,26 @@ function primitiveOperation(
     return `(__hex_a, __hex_b) => { ${guard} const __hex_r0 = __hex_a % __hex_b; const __hex_abs = __hex_b < ${zero} ? -__hex_b : __hex_b; const __hex_r = __hex_r0 < ${zero} ? __hex_r0 + __hex_abs : __hex_r0; return (__hex_a - __hex_r) / __hex_b; }`;
   }
   if (operation === "gcd") {
-    const left = primitive === "BigInt"
-      ? "(__hex_a < 0n ? -__hex_a : __hex_a)"
-      : "Math.abs(__hex_a)";
-    const right = primitive === "BigInt"
-      ? "(__hex_b < 0n ? -__hex_b : __hex_b)"
-      : "Math.abs(__hex_b)";
+    const left = "Math.abs(__hex_a)";
+    const right = "Math.abs(__hex_b)";
     return `(__hex_a, __hex_b) => { let __hex_x = ${left}; let __hex_y = ${right}; while (__hex_y !== ${zero}) { const __hex_t = __hex_x % __hex_y; __hex_x = __hex_y; __hex_y = __hex_t; } return __hex_x; }`;
   }
-  return `(__hex_a, __hex_b) => { if (__hex_a === ${zero} || __hex_b === ${zero}) return ${zero}; const __hex_gcd = ${primitiveOperation(primitive, "gcd")}; const __hex_value = (__hex_a / __hex_gcd(__hex_a, __hex_b)) * __hex_b; return __hex_value < ${zero} ? -__hex_value : __hex_value; }`;
+  // `lcm` reached this function only at `BigInt`, whose family is now
+  // `stdlib/BigInt.hex`'s source (#344); `Int.lcm` deliberately does not exist
+  // (Integral §5). The checker refuses the spelling before emission, so this is
+  // the total-switch tail rather than a row.
+  return "(__hex_a, __hex_b) => { void __hex_a; void __hex_b; return undefined; }";
 }
 
+/**
+ * `BigInt`'s six rows retired with its wired instances (#344): the Euclidean
+ * pair, `gcd`, and `lcm` are Hexagon in `stdlib/BigInt.hex`, and the truncated
+ * pair is its intrinsic-door declaration. `Int` and `Float` follow at their
+ * milestones (`spec/intrinsics.md` §9.2).
+ */
 type PrimitiveOperationHelper = Extract<
   Helper,
   | "intDiv" | "intMod" | "intQuot" | "intRem" | "intGcd"
-  | "bigIntDiv" | "bigIntMod" | "bigIntQuot" | "bigIntRem" | "bigIntGcd" | "bigIntLcm"
   | "floatMod" | "floatRem"
 >;
 
@@ -6067,19 +6201,15 @@ function primitiveOperationHelper(
   primitive: Core.PrimitiveOperationExpr["primitive"],
   operation: Core.PrimitiveOperationExpr["operation"],
 ): PrimitiveOperationHelper {
-  const owner = primitive === "BigInt" ? "bigInt" : primitive.toLowerCase();
+  const owner = primitive.toLowerCase();
   return `${owner}${operation[0]!.toUpperCase()}${operation.slice(1)}` as PrimitiveOperationHelper;
 }
 
 function primitiveOperationFromHelper(
   helper: PrimitiveOperationHelper,
 ): readonly [Core.PrimitiveOperationExpr["primitive"], Core.PrimitiveOperationExpr["operation"]] {
-  const primitive = helper.startsWith("bigInt")
-    ? "BigInt"
-    : helper.startsWith("float")
-    ? "Float"
-    : "Int";
-  const ownerLength = primitive === "BigInt" ? 6 : primitive === "Float" ? 5 : 3;
+  const primitive = helper.startsWith("float") ? "Float" : "Int";
+  const ownerLength = primitive === "Float" ? 5 : 3;
   const operation = helper.slice(ownerLength).toLowerCase() as Core.PrimitiveOperationExpr["operation"];
   return [primitive, operation];
 }
@@ -6200,18 +6330,10 @@ function primitiveDictionary(
   helperName: (helper: Helper) => string,
 ): string {
   switch (constraint) {
-    case "Num": {
-      const fromNat = instance === "BigInt"
-        ? "BigInt(__hex_a)"
-        : "__hex_a";
-      return `({ add: (__hex_a, __hex_b) => __hex_a + __hex_b, multiply: (__hex_a, __hex_b) => __hex_a * __hex_b, fromNat: __hex_a => ${fromNat} })`;
-    }
-    case "Signed": {
-      const fromInt = instance === "BigInt"
-        ? "BigInt(__hex_a)"
-        : "__hex_a";
-      return `({ num: ${primitiveDictionary("Num", instance, helperName)}, subtract: (__hex_a, __hex_b) => __hex_a - __hex_b, negate: __hex_a => -__hex_a, fromInt: __hex_a => ${fromInt} })`;
-    }
+    case "Num":
+      return "({ add: (__hex_a, __hex_b) => __hex_a + __hex_b, multiply: (__hex_a, __hex_b) => __hex_a * __hex_b, fromNat: __hex_a => __hex_a })";
+    case "Signed":
+      return `({ num: ${primitiveDictionary("Num", instance, helperName)}, subtract: (__hex_a, __hex_b) => __hex_a - __hex_b, negate: __hex_a => -__hex_a, fromInt: __hex_a => __hex_a })`;
     case "Frac":
       return `({ signed: ${primitiveDictionary("Signed", instance, helperName)}, divide: (__hex_a, __hex_b) => __hex_a / __hex_b })`;
     case "Concat":
@@ -6246,9 +6368,8 @@ function primitiveDictionary(
     case "Integral": {
       const num = primitiveDictionary("Num", instance, helperName);
       const ordering = primitiveDictionary("Ord", instance, helperName);
-      const operationOwner = instance === "Nat" ? "Int" : instance;
       const member = (operation: Core.PrimitiveOperationExpr["operation"]): string =>
-        helperName(primitiveOperationHelper(operationOwner as "Int" | "BigInt", operation));
+        helperName(primitiveOperationHelper("Int", operation));
       return `({ num: ${num}, ord: ${ordering}, div: ${member("div")}, mod: ${member("mod")}, quot: ${member("quot")}, rem: ${member("rem")}, gcd: ${member("gcd")} })`;
     }
     default:

@@ -161,7 +161,10 @@ describe("verification replaces trust (§4.2)", () => {
     )).toEqual([
       "the compiler provides no intrinsic `mapInsert`; the keys it provides are " +
       "`seqMemoize`, `vectorLength`, `vectorAppend`, `vectorPrepend`, `vectorAt`, " +
-      "`vectorSet`, `vectorToSeq`, `vectorFromSeq`",
+      "`vectorSet`, `vectorToSeq`, `vectorFromSeq`, `bigIntAdd`, `bigIntMultiply`, " +
+      "`bigIntFromNat`, `bigIntSubtract`, `bigIntNegate`, `bigIntFromInt`, " +
+      "`bigIntEquals`, `bigIntCompare`, `bigIntShow`, `bigIntPow`, `bigIntHash`, " +
+      "`bigIntQuot`, `bigIntRem`, `bigIntToIntUnchecked`, `bigIntToFloat`",
     ]);
   });
 

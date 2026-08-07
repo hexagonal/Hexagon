@@ -939,7 +939,13 @@ export interface CollectionOperationExpr extends ExpressionFields {
 /** A checked compiler-known operation in a primitive type's companion. */
 export interface PrimitiveOperationExpr extends ExpressionFields {
   readonly kind: "PrimitiveOperation";
-  readonly primitive: "Int" | "BigInt" | "Float";
+  /**
+   * `BigInt` left this union at its milestone (`spec/intrinsics.md` §9.2,
+   * #344): its family is `stdlib/BigInt.hex`'s source, so no such node is
+   * ever minted for it. `Int` and `Float` follow at theirs, and the form
+   * dies with the last of them.
+   */
+  readonly primitive: "Int" | "Float";
   readonly operation: "div" | "mod" | "quot" | "rem" | "gcd" | "lcm";
 }
 

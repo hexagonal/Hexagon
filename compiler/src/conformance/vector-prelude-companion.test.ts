@@ -76,6 +76,7 @@ describe("the module", () => {
       "Ord.hex",
       "Integral.hex",
       "Option.hex",
+      "BigInt.hex",
       "Seq.hex",
       "Result.hex",
       "Vector.hex",

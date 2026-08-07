@@ -266,7 +266,7 @@ constraint Pow<a: Num> =
 | `Nat` | non-negative exponent; exact within the safe range under Nat's ordinary overflow contract | checked numeric `**` helper |
 | `Float` | IEEE 754, JS `**` exactly (including `NaN` edges) | native `**` |
 | `Int` | exact for `y >= 0` within the safe range (overflow policy = ordinary Int arithmetic, Primitive Types §2.1); **`y < 0` throws `NegativeExponentError`** — a fractional result cannot be an `Int`, same species of partiality as `Int.div`'s zero check | `Int.pow(x, y)` helper (carries the guard) |
-| `BigInt` | exact; `y < 0` throws `NegativeExponentError` (JS `**` on bigints throws `RangeError`; we brand our own — Exceptions edit note §14.2) | `BigInt.pow(x, y)` helper |
+| `BigInt` | exact; `y < 0` throws `NegativeExponentError` (JS `**` on bigints throws `RangeError`; we brand our own — Exceptions edit note §14.2) | `BigInt.pow(x, y)` helper *(#344: now the source `Pow<BigInt>` member in `stdlib/BigInt.hex` — Hexagon guard over the raw-native door key `bigIntPow`; the exception's declared home is `stdlib/Pow.hex`; behaviour and message unchanged)* |
 
 The polymorphic case is the ordinary dictionary call. `pow` is also directly callable as a member, like every constraint member.
 
@@ -453,7 +453,7 @@ Semantics live in Statements/Blocks/Mutability (`var`-only target, `Unit`-typed,
 - **Loops §4:** the `while` condition grammar reference resolves to §11.1 here.
 
 ### 14.2 Exceptions spec
-- Add **`NegativeExponentError`** to the exception registry (thrown by `Int.pow`/`BigInt.pow` on `y < 0`; the `**` operator reaches it through those instances). Same branding scheme (`$hex: true`, `name` discriminant) as `IndexError`/`DivideByZeroError`.
+- Add **`NegativeExponentError`** to the exception registry (thrown by `Int.pow`/`BigInt.pow` on `y < 0`; the `**` operator reaches it through those instances). Same branding scheme (`$hex: true`, `name` discriminant) as `IndexError`/`DivideByZeroError`. *(#344: its declared home is `stdlib/Pow.hex`.)*
 
 ### 14.3 Constraints spec §7 (prelude listing)
 - Add `Pow<a: Num>` with member `pow(x: a, y: a): a`; instances `Nat`, `Int`, `Float`, `BigInt` (§6.3).

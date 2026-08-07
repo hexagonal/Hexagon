@@ -1207,19 +1207,25 @@ describe("emitJavaScript", () => {
     expect(output.diagnostics).toEqual([]);
   });
 
-  test("executes BigInt widening through a genuine primitive Signed dictionary", () => {
-    const output = emitJavaScript(
-      coreSource(
-        "let scale<a: Signed>(count: Int, value: a): a = count * value\n" +
-          "let count: Int = 3\n" +
-          "let result = scale(count, 2n)",
-      ),
-    );
+  test("executes BigInt widening through a genuine primitive Signed dictionary", async () => {
+    // The dictionary is `stdlib/BigInt.hex`'s `Signed<BigInt>` since #344, so
+    // the widening slot is its `fromInt` member — the door binding over
+    // `BigInt(x)` — reached through an import instead of a literal built here.
+    const files = [["/main.hex",
+      "let scale<a: Signed>(count: Int, value: a): a = count * value\n" +
+        "let count: Int = 3\n" +
+        "export let result: BigInt = scale(count, 2n)\n",
+    ]] as const;
+    const project = compileFiles(files);
 
-    expect(output.text).toContain("fromInt: __hex_a => BigInt(__hex_a)");
-    const execute = Function(`${output.text}\nreturn result;`) as () => bigint;
-    expect(execute()).toBe(6n);
-    expect(output.diagnostics).toEqual([]);
+    expect(project.diagnostics).toEqual([]);
+    const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    expect(text).not.toContain("fromInt: __hex_a => BigInt(__hex_a)");
+    expect(text).toContain("__hex_instance_Signed_BigInt");
+    const companion = project.modules
+      .find(({ source }) => source.path.endsWith("BigInt.hex"))!.javascript.text;
+    expect(companion).toContain("const nativeFromInt = __hex_a => BigInt(__hex_a);");
+    expect((await runProject(files))["result"]).toBe(6n);
   });
 
   test("preserves primitive Ord semantics through genuine dictionaries", () => {
@@ -1257,21 +1263,44 @@ describe("emitJavaScript", () => {
   });
 
   test("executes the primitive division families with their specified conventions", () => {
+    // `Int` and `Float` only. `BigInt`'s family left the compiler at its
+    // milestone (#344) — `BigInt.div` is `Integral<BigInt>`'s member and
+    // `BigInt.lcm` an export of `stdlib/BigInt.hex`, so the emitted module
+    // imports rather than inlines them, and the row moved to the linked test
+    // below. The helpers pinned here are exactly the two companions still
+    // transitional (`spec/intrinsics.md` §9.2).
     const output = emitJavaScript(
       coreSource(
         "let result = (" +
-          "Int.div(-7, 3), Int.mod(-7, 3), Int.quot(-7, 3), Int.rem(-7, 3), " +
-          "BigInt.div(7n, -3n), BigInt.mod(7n, -3n), BigInt.gcd(-12n, 18n), BigInt.lcm(4n, 6n), " +
+          "Int.div(-7, 3), Int.mod(-7, 3), Int.quot(-7, 3), Int.rem(-7, 3), Int.gcd(-12, 18), " +
           "Float.mod(-7.0, 3.0), Float.rem(-7.0, 3.0))",
       ),
     );
 
     expect(output.diagnostics).toEqual([]);
-    expect(output.text).toContain("const __hex_bigIntGcd");
-    expect(output.text).toContain("const __hex_bigIntLcm");
-    expect(output.text).not.toContain("const __hex_bigIntRem");
+    expect(output.text).toContain("const __hex_intGcd");
+    expect(output.text).not.toContain("__hex_bigInt");
     const execute = Function(`${output.text}\nreturn result;`) as () => readonly unknown[];
-    expect(execute()).toEqual([-3, 2, -2, -1, -2n, 1n, 6n, 12n, 2, -1]);
+    expect(execute()).toEqual([-3, 2, -2, -1, 6, 2, -1]);
+  });
+
+  test("executes the BigInt division family out of its companion module", async () => {
+    // The same conventions the row above pinned, now measured where they live:
+    // `stdlib/BigInt.hex`. Linked and run rather than evaluated as one text,
+    // because the emitted module imports the members' forwarders and the
+    // instance dictionary (#344).
+    const files = [["/main.hex",
+      "export let result: (BigInt, BigInt, BigInt, BigInt, BigInt, BigInt) = (\n" +
+        "    BigInt.div(7n, -3n), BigInt.mod(7n, -3n), BigInt.quot(7n, -3n),\n" +
+        "    BigInt.rem(7n, -3n), BigInt.gcd(-12n, 18n), BigInt.lcm(4n, 6n))\n",
+    ]] as const;
+    const project = compileFiles(files);
+
+    expect(project.diagnostics).toEqual([]);
+    const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    expect(text).not.toContain("__hex_bigInt");
+    expect(text).toContain('from "./BigInt.js"');
+    expect((await runProject(files))["result"]).toEqual([-2n, 1n, -2n, 1n, 6n, 12n]);
   });
 
   test("brands integer division by zero as DivideByZeroError", () => {
@@ -1309,17 +1338,27 @@ describe("emitJavaScript", () => {
 
     expect(project.diagnostics).toEqual([]);
     const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
-    expect(text).toContain("gcd:");
-    expect(text).toContain("ord:");
-    expect(text).toContain("num:");
+    // The dictionary is `stdlib/BigInt.hex`'s since #344, so what crosses into
+    // this module is the import of it rather than a literal built here — which
+    // is the whole of the wired row's retirement, seen from the consumer.
+    expect(text).toContain("__hex_instance_Integral_BigInt");
+    expect(text).toContain('from "./BigInt.js"');
+    const companion = project.modules
+      .find(({ source }) => source.path.endsWith("BigInt.hex"))!.javascript.text;
+    expect(companion).toContain("gcd:");
+    expect(companion).toContain("ord:");
+    expect(companion).toContain("num:");
     expect((await runProject(files))["result"]).toEqual([2n, 3n]);
   });
 
-  test("executes Rat normalization and arithmetic through Euclidean BigInt machinery", () => {
-    const output = emitJavaScript(
-      coreSource(
-        "record Rat derives Eq = {top: BigInt, bottom: BigInt}\n" +
-          "exception DivideByZeroError(message: String)\n" +
+  test("executes Rat normalization and arithmetic through Euclidean BigInt machinery", async () => {
+    // Linked and run since #344: `BigInt.gcd`/`BigInt.quot` are
+    // `Integral<BigInt>`'s members in `stdlib/BigInt.hex`, so the emitted
+    // module imports their forwarders and the instance rather than carrying a
+    // helper. `DivideByZeroError` comes from the prelude's `Integral.hex` for
+    // the same reason, so the program no longer declares one.
+    const files = [["/main.hex",
+      "record Rat derives Eq = {top: BigInt, bottom: BigInt}\n" +
           "let create(top: BigInt, bottom: BigInt): Rat =\n" +
           "    if bottom == 0n then\n" +
           "        throw(DivideByZeroError(\"Rat.create: bottom is zero\"))\n" +
@@ -1337,43 +1376,68 @@ describe("emitJavaScript", () => {
           "let third = create(1n, 3n)\n" +
           "let fiveSixths = add(half, third)\n" +
           "let negative = create(1n, -2n)\n" +
-          "let result = (fiveSixths.top, fiveSixths.bottom, fiveSixths == create(10n, 12n), create(0n, -99n).bottom, negative.top, negative.bottom)",
+          "export let result: (BigInt, BigInt, Bool, BigInt, BigInt, BigInt) = " +
+          "(fiveSixths.top, fiveSixths.bottom, fiveSixths == create(10n, 12n), create(0n, -99n).bottom, negative.top, negative.bottom)\n",
+    ]] as const;
+    const project = compileFiles(files);
+
+    expect(project.diagnostics).toEqual([]);
+    const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    expect(text).not.toContain("__hex_bigInt");
+    expect(text).toContain("__hex_instance_Integral_BigInt");
+    expect((await runProject(files))["result"]).toEqual([5n, 6n, true, 1n, -1n, 2n]);
+  });
+
+  test("checks negative exponents through a genuine Pow<Int> dictionary", () => {
+    const output = emitJavaScript(
+      coreSource(
+        "let raise<a: Pow>(base: a, exponent: a): a = base ** exponent\n" +
+          "let result = raise(2, -1)",
       ),
     );
 
+    expect(output.text).toContain("function __hex_checkedPower(");
+    let thrown: unknown;
+    try {
+      Function(output.text)();
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).name).toBe("NegativeExponentError");
     expect(output.diagnostics).toEqual([]);
-    expect(output.text).toContain("const __hex_bigIntGcd");
-    expect(output.text).toContain("const __hex_bigIntQuot");
-    expect(output.text).not.toContain("const __hex_bigIntLcm");
-    const execute = Function(`${output.text}\nreturn result;`) as () => readonly unknown[];
-    expect(execute()).toEqual([5n, 6n, true, 1n, -1n, 2n]);
   });
 
-  test.each([
-    ["Int", "2", "-1"],
-    ["BigInt", "2n", "-1n"],
-  ])(
-    "checks negative exponents through a genuine Pow<%s> dictionary",
-    (_, base, exponent) => {
-      const output = emitJavaScript(
-        coreSource(
-          "let raise<a: Pow>(base: a, exponent: a): a = base ** exponent\n" +
-            `let result = raise(${base}, ${exponent})`,
-        ),
-      );
+  test("checks negative exponents at BigInt through the companion's own guard", async () => {
+    // The `checkedPower` helper is `Int`'s alone since #344: at `BigInt` the
+    // guard is Hexagon in `stdlib/BigInt.hex`, above a door binding that is the
+    // raw `**`, and the exception it throws is `Pow.hex`'s declaration. Same
+    // message, same name, one implementation — and now a `$hex`-branded one,
+    // which the helper never was.
+    const files = [["/main.hex",
+      "let raise<a: Pow>(base: a, exponent: a): a = base ** exponent\n" +
+        "export let boom(): BigInt = raise(2n, -1n)\n",
+    ]] as const;
+    const project = compileFiles(files);
 
-      expect(output.text).toContain("function __hex_checkedPower(");
-      let thrown: unknown;
-      try {
-        Function(output.text)();
-      } catch (error) {
-        thrown = error;
-      }
-      expect(thrown).toBeInstanceOf(Error);
-      expect((thrown as Error).name).toBe("NegativeExponentError");
-      expect(output.diagnostics).toEqual([]);
-    },
-  );
+    expect(project.diagnostics).toEqual([]);
+    const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    expect(text).not.toContain("__hex_checkedPower");
+    expect(text).toContain("__hex_instance_Pow_BigInt");
+    const boom = (await runProject(files))["boom"] as () => unknown;
+    let thrown: unknown;
+    try {
+      boom();
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown).toMatchObject({
+      name: "NegativeExponentError",
+      message: "an integer exponent cannot be negative",
+      $hex: true,
+    });
+  });
 
   test("calls a nominal Signed instance when widening Int into its subject", () => {
     const output = emitJavaScript(
@@ -1556,8 +1620,11 @@ describe("emitJavaScript", () => {
     expect(output.text).toContain("const negative = -1;");
     expect(output.text).toContain("const quotient = 4.0 / 2.0;");
     expect(output.text).toContain('const joined = "a" + "b";');
-    expect(output.text).toContain("function __hex_checkedPower(__hex_base, __hex_exponent)");
-    expect(output.text).toContain("const powered = __hex_checkedPower(2n, 3n);");
+    // `**` at `BigInt` reaches `Pow<BigInt>`'s member now, whose body is the
+    // negative-exponent guard over the raw native (#344) — the helper the row
+    // used to name is `Int`'s alone.
+    expect(output.text).not.toContain("__hex_checkedPower");
+    expect(output.text).toContain("const powered = __hex_imported_14___hex_instance_Pow_BigInt.pow(2n, 3n);");
     expect(output.text).toContain(
       "const logic = !false && true || false;",
     );
