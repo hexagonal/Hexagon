@@ -699,8 +699,10 @@ describe("VectorTrie slice height trim (§6 a window pays its own logarithm)", (
         "let big = buildTo(100)\n" +
         // Left is (8, 58, 1, 32), right is (0, 10, 1, 0) — both trimmed, and
         // disjoint in value. `concat` appends 10 elements onto the left: six fill
-        // its tail to capacity 64, the flush of that full tail fills its height-1
-        // root and grows a level, and the last three start the new tail, ending at
+        // its tail (capacity 64, tail full at 32). The seventh finds it full, so
+        // it flushes the tail as a leaf — which fills the height-1 root, and
+        // `flushLeaf` grows a level — and seeds the fresh tail with that seventh
+        // value; the last three follow it there, leaving four in the tail at
         // (8, 68, 2, 64). `nodeRun` must report runs over that new shape.
         "let cc = concat(slice(big, 40, 90), slice(big, 0, 10))\n" +
         "export let ccState: (Int, Int, Int, Int) = state(cc)\n" +
