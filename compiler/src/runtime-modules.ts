@@ -44,6 +44,12 @@ export interface RuntimeModule {
    * `Import` item records it — so the module graph's own acyclicity check
    * cannot police it, and the seat is what keeps it honest: everything the trie
    * can name is emitted before the trie, and nothing it can name imports it.
+   *
+   * That last clause is what the seat *buys*, and since #344 the trie collects
+   * on it: its index arithmetic is `Integral<Int>`'s members at `stdlib/Int.hex`
+   * now, so the emitted `VectorTrie.js` really does import — and every specifier
+   * it carries names a member seated before this one, which is why the emission
+   * cycle still cannot form.
    */
   readonly precedes: string;
 }

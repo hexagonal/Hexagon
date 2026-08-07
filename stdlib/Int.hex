@@ -1,0 +1,165 @@
+// The public `Int` companion. A primitive's home module is its fixed prelude
+// companion (Constraints §5.3), so this file is where `Int`'s instances are
+// declared and where the orphan rule lets them be declared.
+
+// The natives, and only the natives. An own-operation member body cannot be
+// written in operators or interpolation — that sugar selects the very slot being
+// defined (Constraints §6.1) — so every such member is a one-line delegation to
+// one of the declarations below. Everything expressible over strictly simpler
+// operations is ordinary Hexagon further down: the Euclidean pair over the
+// truncated one, `gcd`'s loop over `rem`, the checked family's pre-checks, and
+// every guard.
+//
+// Two members are absent from this block on purpose. `Signed<Int>`'s `fromInt`
+// converts `Int` to itself, so its body is the plain binding `value` — no
+// operator, no interpolation, no widening, nothing that selects its own slot —
+// and the strictly-simpler doctrine sends such a body to ordinary Hexagon
+// (`spec/intrinsics.md` §3.2). `intFromNat` does cross: any Hexagon body for
+// `Nat` -> `Int` typechecks only through Numeric Literals §5.1's contextual
+// widening, which elaborates through `Num<Int>.fromNat`, the very slot being
+// defined.
+extern from "hex:intrinsic"
+    fun intAdd as nativeAdd(left: Int, right: Int): Int
+    fun intMultiply as nativeMultiply(left: Int, right: Int): Int
+    fun intFromNat as nativeFromNat(value: Nat): Int
+    fun intSubtract as nativeSubtract(left: Int, right: Int): Int
+    fun intNegate as nativeNegate(value: Int): Int
+    fun intEquals as nativeEquals(left: Int, right: Int): Bool
+    fun intCompare as nativeCompare(left: Int, right: Int): Ordering
+    fun intShow as nativeShow(value: Int): String
+    fun intPow as nativePow(left: Int, right: Int): Int
+    fun intHash as nativeHash(value: Int): Int
+    fun intQuot as nativeQuot(left: Int, right: Int): Int
+    fun intRem as nativeRem(left: Int, right: Int): Int
+
+honor Num<Int> =
+    (** The sum of `left` and `right`, exact within the safe range. *)
+    add(left, right) = nativeAdd(left, right)
+    (** The product of `left` and `right`, exact within the safe range. *)
+    multiply(left, right) = nativeMultiply(left, right)
+    (** The natural number `value` as an `Int`. Total: every `Nat` is an `Int`. *)
+    fromNat(value) = nativeFromNat(value)
+
+honor Signed<Int> =
+    (** The difference of `left` and `right`, exact within the safe range. *)
+    subtract(left, right) = nativeSubtract(left, right)
+    (** The additive inverse of `value`. Total: the safe range is symmetric. *)
+    negate(value) = nativeNegate(value)
+    (** The integer `value` as an `Int`, which is `value` itself. *)
+    fromInt(value) = value
+
+honor Eq<Int> =
+    (** Whether `left` and `right` are the same integer. *)
+    equals(left, right) = nativeEquals(left, right)
+
+honor Ord<Int> =
+    (** How `left` orders against `right`, by numeric value. *)
+    compare(left, right) = nativeCompare(left, right)
+
+honor Show<Int> =
+    (** The decimal form of `value`, with a leading `-` when it is negative. *)
+    show(value) = nativeShow(value)
+
+honor Pow<Int> =
+    (** `left` raised to the power `right`. Raises `NegativeExponentError` when
+        `right` is negative: a negative power of an integer is not an integer. *)
+    pow(left, right) =
+        if right < 0 then
+            throw(NegativeExponentError("an integer exponent cannot be negative"))
+        else
+            nativePow(left, right)
+
+honor Hash<Int> =
+    (** A hash of `value`. Equal `Int`s hash equally, which is what `Eq` above
+        is checked against. *)
+    hash(value) = nativeHash(value)
+
+honor Integral<Int> =
+    (** The truncated quotient of `left` divided by `right`, rounding toward
+        zero. Raises `DivideByZeroError` when `right` is zero. *)
+    quot(left, right) =
+        if right == 0 then
+            throw(DivideByZeroError("Int.quot: divisor is zero"))
+        else
+            nativeQuot(left, right)
+
+    (** The truncated remainder of `left` divided by `right`, taking the sign of
+        `left` — this is JS's `%`. Raises `DivideByZeroError` when `right` is
+        zero, where JS would answer `NaN`. *)
+    rem(left, right) =
+        if right == 0 then
+            throw(DivideByZeroError("Int.rem: divisor is zero"))
+        else
+            nativeRem(left, right)
+
+    (** The Euclidean remainder of `left` divided by `right`: always
+        non-negative, whatever the signs. Raises `DivideByZeroError` when
+        `right` is zero. *)
+    mod(left, right) =
+        if right == 0 then
+            throw(DivideByZeroError("Int.mod: divisor is zero"))
+        else
+            let remainder = rem(left, right)
+            if remainder < 0 then
+                remainder + (if right < 0 then -right else right)
+            else
+                remainder
+
+    (** The Euclidean quotient of `left` divided by `right`: the unique partner
+        of `mod` satisfying `div(l, r) * r + mod(l, r) == l`. Raises
+        `DivideByZeroError` when `right` is zero. *)
+    div(left, right) =
+        if right == 0 then
+            throw(DivideByZeroError("Int.div: divisor is zero"))
+        else
+            quot(left - mod(left, right), right)
+
+    (** The greatest common divisor of `left` and `right`, never negative.
+        `gcd(value, 0)` is the magnitude of `value`, so `gcd(0, 0)` is zero; it
+        never throws. *)
+    gcd(left, right) =
+        var larger = if left < 0 then -left else left
+        var smaller = if right < 0 then -right else right
+        // Both operands are non-negative from here, so the loop's `rem` never
+        // sees a zero divisor: a zero `smaller` is the exit condition.
+        while smaller != 0
+            let next = rem(larger, smaller)
+            larger := smaller
+            smaller := next
+        larger
+
+// The largest magnitude an `Int` holds exactly, in either direction: 2^53 - 1.
+// The range being symmetric is what lets `checkedSub` negate its right operand
+// and hand the result to `checkedAdd`.
+let intLimit: Int = 9_007_199_254_740_991
+
+(** The sum of `left` and `right`, or `None` when it would leave the range an
+    `Int` holds exactly. The test is a pre-check, so no intermediate here ever
+    leaves that range (Primitive Types §2.1). *)
+export let checkedAdd(left: Int, right: Int): Option(Int) =
+    if right > 0 and left > intLimit - right then
+        None
+    else if right < 0 and left < -intLimit - right then
+        None
+    else
+        Some(left + right)
+
+(** The difference of `left` and `right`, or `None` when it would leave the
+    range an `Int` holds exactly. Negating `right` is total on that symmetric
+    range, so this is the sum with the sign turned around. *)
+export let checkedSub(left: Int, right: Int): Option(Int) =
+    checkedAdd(left, -right)
+
+(** The product of `left` and `right`, or `None` when it would leave the range
+    an `Int` holds exactly. The magnitudes are compared before multiplying,
+    because an oversized product rounds before any check could see it. *)
+export let checkedMul(left: Int, right: Int): Option(Int) =
+    if left == 0 or right == 0 then
+        Some(0)
+    else
+        let leftMagnitude = if left < 0 then -left else left
+        let rightMagnitude = if right < 0 then -right else right
+        if leftMagnitude > quot(intLimit, rightMagnitude) then
+            None
+        else
+            Some(left * right)

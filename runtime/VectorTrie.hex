@@ -4,7 +4,9 @@
 // and `Tree`, `Node`, and `TrieVector` never cross a module boundary — the
 // public face is `Vector(a)`, and the emitter is what wires the two together.
 // Index math uses `Int.div`/`Int.mod` by the branch factor; Hexagon has no
-// bitwise operators, and none are needed.
+// bitwise operators, and none are needed. Since #344 those two are
+// `Integral<Int>`'s members at `stdlib/Int.hex`, so the emitted module imports
+// them and that companion's dictionary rather than inlining a compiler helper.
 //
 // Nothing here is `export`ed, and it could not be: every operation's type names
 // `TrieVector`, and exporting one is refused as exposing a private type. The
@@ -17,8 +19,9 @@
 // or `Vector.` call written here would make the emitted `VectorTrie.js` import
 // `Vector.js`, which already imports this one — a module cycle nothing in the
 // compiler would report, because it is created at emission and not by any
-// `import` item. `vector-trie-wiring.test.ts` pins the emitted module's import
-// list empty, which is that rule made checkable.
+// `import` item. `vector-trie-wiring.test.ts` pins every specifier in the
+// emitted module's import list to a prelude member seated *before* this one,
+// and `Vector.js` out of it, which is that rule made checkable.
 
 // A trie node is either a leaf holding up to 32 values, or a branch holding up
 // to 32 child subtrees. Both are 32-slot `Node`s; which slots are populated is

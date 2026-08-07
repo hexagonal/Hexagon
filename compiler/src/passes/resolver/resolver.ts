@@ -2188,21 +2188,23 @@ class Resolver {
               span: expression.span,
             };
           }
-          // The primitive door, now `Int` and `Float` alone: `"BigInt"` left this
-          // list at its milestone (`spec/intrinsics.md` §9.2, #344), where
-          // `stdlib/BigInt.hex` took over the whole family as source. The guard
-          // would already have declined — a companion module claims the name, so
-          // `#namedModule` answers — but a list that still named `BigInt` would
+          // The primitive door, now `Float` alone: `"BigInt"` left this list at
+          // its milestone (`spec/intrinsics.md` §9.2, #344) and `"Int"` at the
+          // one after, where `stdlib/BigInt.hex` and `stdlib/Int.hex` took over
+          // their families as source. `Float` keeps `mod` and `rem` only — it is
+          // not `Integral`, so it never had the rest. The guard would already
+          // have declined for a migrated companion — its module claims the name,
+          // so `#namedModule` answers — but a list that still named them would
           // say the door was merely dormant rather than removed.
           if (
-            ["Int", "Float"].includes(expression.receiver.name.text) &&
+            expression.receiver.name.text === "Float" &&
             scope.lookup(expression.receiver.name.text) === undefined &&
             this.#namedModule(expression.receiver.name.text) === undefined &&
             ["div", "mod", "quot", "rem", "gcd", "lcm"].includes(expression.field.text)
           ) {
             return {
               kind: "PrimitiveOperation",
-              primitive: expression.receiver.name.text as "Int" | "Float",
+              primitive: "Float",
               operation: expression.field.text as "div" | "mod" | "quot" | "rem" | "gcd" | "lcm",
               span: expression.span,
             };
@@ -2234,7 +2236,11 @@ class Resolver {
               if (honored !== undefined) return honored;
               this.#diagnostics.add({
                 severity: "error",
-                message: `module \`${expression.receiver.name.text}\` does not export \`${expression.field.text}\``,
+                message: curatedCompanionMiss(
+                  importedModule.module.companionPrimitive,
+                  expression.field.text,
+                ) ??
+                  `module \`${expression.receiver.name.text}\` does not export \`${expression.field.text}\``,
                 primary: expression.field.span,
               });
               return { kind: "ErrorExpr", span: expression.span };
@@ -3805,13 +3811,43 @@ function isResolvedTypeAlias(
  * `.hex` module, whose qualified member spellings are wired until the companion
  * arc supplies real ones.
  *
- * `BigInt` left the list at its milestone (#344): `stdlib/BigInt.hex` is real
- * source, so `BigInt.show(3n)` is Modules §5.3's ordinary honored-member read
- * through `#honoredMemberAccess`, not a wired spelling. The list would already
- * have declined for it — every entry is guarded on no module claiming the name —
- * so this is hygiene, and it is what keeps the list meaning "not yet migrated".
+ * `BigInt` left the list at its milestone (#344), and `Int` and `Nat` at the
+ * one after: their `.hex` files are real source, so `Int.show(42)` is Modules
+ * §5.3's ordinary honored-member read through `#honoredMemberAccess`, not a
+ * wired spelling. The list would already have declined for them — every entry
+ * is guarded on no module claiming the name — so this is hygiene, and it is
+ * what keeps the list meaning "not yet migrated".
  */
-const PRIMITIVE_COMPANIONS: readonly string[] = ["Int", "Nat", "Float", "String"];
+const PRIMITIVE_COMPANIONS: readonly string[] = ["Float", "String"];
+
+/**
+ * The operations a primitive companion is asked for and deliberately does not
+ * have, with the sentence that says why (Integral §8's diagnostics row).
+ *
+ * A name-not-found hint is cheap, and this one is worth its keep: the obvious
+ * hand-rolled `a * b / gcd(a, b)` at `Int` overflows the safe range for
+ * ordinary inputs, silently, which is exactly the mistake the missing member is
+ * refusing to make. The row survived the re-homing (#344) — the spelling now
+ * misses as an ordinary does-not-export at a real module rather than at the
+ * wired route — because the obligation is the row, not the mechanism that
+ * carried it.
+ */
+const CURATED_COMPANION_MISSES: ReadonlyMap<string, string> = new Map([
+  [
+    "Int.lcm",
+    "`Int` has no `lcm` — its results overflow `Int`'s safe range for ordinary " +
+      "inputs; use `BigInt.lcm`",
+  ],
+]);
+
+function curatedCompanionMiss(
+  companion: string | undefined,
+  field: string,
+): string | undefined {
+  return companion === undefined
+    ? undefined
+    : CURATED_COMPANION_MISSES.get(`${companion}.${field}`);
+}
 
 /** One `honor` declaration's binding of one member spelling (Constraints §4.6). */
 interface HonoredMemberLine {

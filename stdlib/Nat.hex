@@ -1,0 +1,116 @@
+// The public `Nat` companion. A primitive's home module is its fixed prelude
+// companion (Constraints §5.3), so this file is where `Nat`'s instances are
+// declared and where the orphan rule lets them be declared.
+
+// The natives, and only the natives. An own-operation member body cannot be
+// written in operators or interpolation — that sugar selects the very slot being
+// defined (Constraints §6.1) — so every such member is a one-line delegation to
+// one of the declarations below. Everything expressible over strictly simpler
+// operations is ordinary Hexagon further down: `gcd`'s loop over `rem`,
+// `fromInt`'s sign check, and every zero-divisor guard.
+//
+// `Num<Nat>`'s `fromNat` is absent from this block on purpose: it converts `Nat`
+// to itself, so its body is the plain binding `value` — no operator, no
+// interpolation, no widening, nothing that selects its own slot — and the
+// strictly-simpler doctrine sends such a body to ordinary Hexagon
+// (`spec/intrinsics.md` §3.2).
+extern from "hex:intrinsic"
+    fun natAdd as nativeAdd(left: Nat, right: Nat): Nat
+    fun natMultiply as nativeMultiply(left: Nat, right: Nat): Nat
+    fun natEquals as nativeEquals(left: Nat, right: Nat): Bool
+    fun natCompare as nativeCompare(left: Nat, right: Nat): Ordering
+    fun natShow as nativeShow(value: Nat): String
+    fun natPow as nativePow(left: Nat, right: Nat): Nat
+    fun natHash as nativeHash(value: Nat): Int
+    fun natQuot as nativeQuot(left: Nat, right: Nat): Nat
+    fun natRem as nativeRem(left: Nat, right: Nat): Nat
+    fun natFromIntUnchecked as fromIntUnchecked(value: Int): Nat
+
+honor Num<Nat> =
+    (** The sum of `left` and `right`, exact within the safe range. *)
+    add(left, right) = nativeAdd(left, right)
+    (** The product of `left` and `right`, exact within the safe range. *)
+    multiply(left, right) = nativeMultiply(left, right)
+    (** The natural number `value` as a `Nat`, which is `value` itself. *)
+    fromNat(value) = value
+
+honor Eq<Nat> =
+    (** Whether `left` and `right` are the same natural number. *)
+    equals(left, right) = nativeEquals(left, right)
+
+honor Ord<Nat> =
+    (** How `left` orders against `right`, by numeric value. *)
+    compare(left, right) = nativeCompare(left, right)
+
+honor Show<Nat> =
+    (** The decimal form of `value`, which never carries a sign. *)
+    show(value) = nativeShow(value)
+
+honor Pow<Nat> =
+    (** `left` raised to the power `right`. It never throws: the guard `Int` and
+        `BigInt` carry is dead here, because a `Nat` exponent cannot be
+        negative. *)
+    pow(left, right) = nativePow(left, right)
+
+honor Hash<Nat> =
+    (** A hash of `value`. Equal `Nat`s hash equally, which is what `Eq` above
+        is checked against. *)
+    hash(value) = nativeHash(value)
+
+honor Integral<Nat> =
+    (** The truncated quotient of `left` divided by `right`, which at `Nat` is
+        the Euclidean one. Raises `DivideByZeroError` when `right` is zero. *)
+    quot(left, right) =
+        if right == 0 then
+            throw(DivideByZeroError("Nat.quot: divisor is zero"))
+        else
+            nativeQuot(left, right)
+
+    (** The truncated remainder of `left` divided by `right`, which at `Nat` is
+        the Euclidean one. Raises `DivideByZeroError` when `right` is zero. *)
+    rem(left, right) =
+        if right == 0 then
+            throw(DivideByZeroError("Nat.rem: divisor is zero"))
+        else
+            nativeRem(left, right)
+
+    (** The Euclidean remainder of `left` divided by `right`. Neither operand
+        can be negative, so it is the truncated remainder value for value, and
+        it carries its own guard so a zero divisor names this member. Raises
+        `DivideByZeroError` when `right` is zero. *)
+    mod(left, right) =
+        if right == 0 then
+            throw(DivideByZeroError("Nat.mod: divisor is zero"))
+        else
+            nativeRem(left, right)
+
+    (** The Euclidean quotient of `left` divided by `right`, equal to the
+        truncated quotient at this type and guarded in its own name. Raises
+        `DivideByZeroError` when `right` is zero. *)
+    div(left, right) =
+        if right == 0 then
+            throw(DivideByZeroError("Nat.div: divisor is zero"))
+        else
+            nativeQuot(left, right)
+
+    (** The greatest common divisor of `left` and `right`. `gcd(value, 0)` is
+        `value`, so `gcd(0, 0)` is zero; it never throws. *)
+    gcd(left, right) =
+        var larger = left
+        var smaller = right
+        // Both operands are non-negative by their type, so the loop's `rem`
+        // never sees a zero divisor: a zero `smaller` is the exit condition.
+        while smaller != 0
+            let next = rem(larger, smaller)
+            larger := smaller
+            smaller := next
+        larger
+
+(** The integer `value` as a `Nat`, or `None` when it is negative. The total
+    direction is `Num.fromNat`, which widens an established `Nat` into any
+    numeric type. *)
+export let fromInt(value: Int): Option(Nat) =
+    if value < 0 then
+        None
+    else
+        Some(fromIntUnchecked(value))

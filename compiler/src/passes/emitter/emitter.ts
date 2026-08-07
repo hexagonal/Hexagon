@@ -5,6 +5,7 @@
 
 import * as Diagnostics from "../../support/diagnostics.js";
 import { INTRINSIC_INVENTORY, isIntrinsicScheme } from "../../intrinsics.js";
+import { PRIMITIVE_COMPANION_BASENAMES } from "../../prelude.js";
 import type { Documentation } from "../../support/documentation.js";
 import type * as Source from "../../support/source.js";
 import { isSyntheticParameterName } from "../../support/synthetic.js";
@@ -2773,15 +2774,18 @@ class JavaScriptEmitter {
     // inlinable; everything else (`div` and its family, most of all) takes the
     // dictionary route below, which is where its implementation actually lives.
     //
-    // `pow` is the one member that inlines only for a *wired* instance. Its
-    // integer lowering is the `checkedPower` helper, whose negative-exponent
-    // guard is compiler-owned; at `BigInt` that guard is Hexagon in the
-    // companion now (#344, delta 4), so inlining would reinstate the retired
-    // implementation beside the source one.
+    // `pow` is the one member whose inlining depends on where its guard lives.
+    // At `BigInt` and at `Int` the negative-exponent guard is Hexagon in the
+    // companion now (#344), so inlining `a ** b` would reinstate the retired
+    // implementation beside the source one — those two take the dictionary
+    // route to the member their own module exports. `Nat` and `Float` still
+    // inline, and correctly: at `Nat` the guard is dead by typing, so the raw
+    // `**` *is* the slot, and `Float` never had a guard at all.
     const candidate = INLINED_OPERATOR_MEMBERS.includes(expression.member)
       ? primitiveInstance(expression.evidence)
       : undefined;
-    const instance = candidate === "BigInt" && expression.member === "pow"
+    const instance = expression.member === "pow" &&
+        (candidate === "BigInt" || candidate === "Int")
       ? undefined
       : candidate;
     if (instance === undefined) {
@@ -2841,19 +2845,20 @@ class JavaScriptEmitter {
           `${operand(leftExpression, Precedence.Additive)} + ` +
           operand(rightExpression, Precedence.Additive)
         );
-      case "pow":
-        if (instance === "Float") {
-          const left = leftExpression === undefined
-            ? "undefined"
-            : expressionPrecedence(leftExpression) === Precedence.Unary
-              ? `(${this.#emitExpr(leftExpression, depth, evidenceNames)})`
-              : operand(leftExpression, Precedence.Exponentiation, true);
-          return (
-            `${left} ** ` +
-            operand(rightExpression, Precedence.Exponentiation)
-          );
-        }
-        return `${this.#useHelper("checkedPower")}(${arguments_[0] ?? "undefined"}, ${arguments_[1] ?? "undefined"})`;
+      case "pow": {
+        // Every instance still reaching this arm inlines to the raw operator
+        // (#344): `BigInt` and `Int` were routed to their companions' guarded
+        // members above, so what is left is `Nat`, whose guard is dead by
+        // typing, and `Float`, which never had one. JS `**` refuses an
+        // unparenthesized unary left operand, so a negated base gets its
+        // parentheses here rather than from the precedence table.
+        const left = leftExpression === undefined
+          ? "undefined"
+          : expressionPrecedence(leftExpression) === Precedence.Unary
+            ? `(${this.#emitExpr(leftExpression, depth, evidenceNames)})`
+            : operand(leftExpression, Precedence.Exponentiation, true);
+        return `${left} ** ` + operand(rightExpression, Precedence.Exponentiation);
+      }
     }
   }
 
@@ -3236,6 +3241,14 @@ class JavaScriptEmitter {
    * keep the inline arms of `#derivedCompare`: the licensed primitive shortcut,
    * the type-variable dictionary parameter a factory already receives, and the
    * best-effort fallback on a module the checker rejected.
+   *
+   * *(#344.)* An instance **honored at a primitive** keeps the inline arm too,
+   * which is `#componentInstance`'s whole job: a migrated companion's evidence
+   * is an ordinary `Instance` now, but Constraints §6.1's last sentence licenses
+   * the monomorphic tables as *inlining of the door-backed slots* wherever the
+   * instance stands, and coherence says there is exactly one to render. Reading
+   * `kind === "Instance"` alone would have made a `{x: Int}` record's derived
+   * `equals` a call into `Int.js` where it had always been `===`.
    */
   #componentCompare(
     type: Typed.Type,
@@ -3244,7 +3257,7 @@ class JavaScriptEmitter {
     evidenceNames: EvidenceNames,
     evidence: Core.Evidence | undefined,
   ): string {
-    if (evidence?.kind === "Instance") {
+    if (componentInstance(evidence)) {
       const dictionary = this.#emitEvidence(evidence, "Ord", this.#module.span, evidenceNames);
       return `${dictionary}.compare(${left}, ${right})`;
     }
@@ -3431,7 +3444,7 @@ class JavaScriptEmitter {
     hashBacked: boolean,
     evidence: Core.Evidence | undefined,
   ): string {
-    if (evidence?.kind === "Instance") {
+    if (componentInstance(evidence)) {
       const dictionary = this.#emitEvidence(evidence, "Eq", this.#module.span, evidenceNames);
       return `${dictionary}.equals(${left}, ${right})`;
     }
@@ -3582,7 +3595,7 @@ class JavaScriptEmitter {
     evidenceNames: EvidenceNames,
     evidence: Core.Evidence | undefined,
   ): string {
-    if (evidence?.kind === "Instance") {
+    if (componentInstance(evidence)) {
       const dictionary = this.#emitEvidence(evidence, "Show", this.#module.span, evidenceNames);
       return `${dictionary}.show(${value})`;
     }
@@ -3756,6 +3769,22 @@ class JavaScriptEmitter {
       if (sourced !== undefined) {
         this.#referencedDictionaries.add(sourced);
         return sourced;
+      }
+      // The invariant, made checkable (#344). A migrated companion's instance
+      // is source, so falling through to the wired table for one would be the
+      // retired row rebuilt under another name — Constraints §5.1's coherence
+      // broken against the compiler itself, and silently: the `Integral` arm no
+      // longer exists at all, so the fallthrough would be an empty dictionary
+      // whose first slot read is a `TypeError` at run time.
+      if (MIGRATED_COMPANIONS.has(evidence.instance)) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `compiler defect: \`${constraint}<${evidence.instance}>\` is a source ` +
+            "instance of a migrated primitive companion, but no dictionary for it " +
+            "reached this module",
+          primary: span,
+        });
+        return "undefined";
       }
       return primitiveDictionary(
         constraint,
@@ -4268,6 +4297,54 @@ class JavaScriptEmitter {
       case "bigIntToIntUnchecked":
       case "bigIntToFloat":
         return "__hex_a => Number(__hex_a)";
+      // `stdlib/Int.hex`'s and `stdlib/Nat.hex`'s natives (#344, the second
+      // landing), in the same primop shape: a JavaScript operator or a one-call
+      // conversion apiece, each a bare arrow with no helper behind it. Nothing
+      // here guards or branches on a range — the zero-divisor guards, the
+      // Euclidean pair, `gcd`, `Nat.fromInt`'s sign check, and the checked
+      // family are all Hexagon in the companions. `intPow` is the **raw** `**`
+      // because its negative-exponent guard sits above it in source; `natPow`
+      // is raw because at `Nat` there is no guard to write.
+      case "intAdd":
+      case "natAdd":
+        return "(__hex_a, __hex_b) => __hex_a + __hex_b";
+      case "intMultiply":
+      case "natMultiply":
+        return "(__hex_a, __hex_b) => __hex_a * __hex_b";
+      case "intSubtract":
+        return "(__hex_a, __hex_b) => __hex_a - __hex_b";
+      case "intNegate":
+        return "__hex_a => -__hex_a";
+      // The truncated quotient at a `number` is `Math.trunc` of the real one:
+      // JS `/` is float division, so the rounding has to be asked for. The
+      // remainder is `%`, which already truncates.
+      case "intQuot":
+      case "natQuot":
+        return "(__hex_a, __hex_b) => Math.trunc(__hex_a / __hex_b)";
+      case "intRem":
+      case "natRem":
+        return "(__hex_a, __hex_b) => __hex_a % __hex_b";
+      case "intPow":
+      case "natPow":
+        return "(__hex_a, __hex_b) => __hex_a ** __hex_b";
+      case "intEquals":
+      case "natEquals":
+        return "(__hex_a, __hex_b) => __hex_a === __hex_b";
+      case "intCompare":
+      case "natCompare":
+        return '(__hex_a, __hex_b) => __hex_a < __hex_b ? "Less" : __hex_a > __hex_b ? "Greater" : "Equal"';
+      case "intShow":
+      case "natShow":
+        return "__hex_a => String(__hex_a)";
+      case "intHash":
+      case "natHash":
+        return `__hex_a => ${this.#useHelper("stableHash")}(__hex_a)`;
+      // `Nat` and `Int` share one `number` representation, so both conversions
+      // are the identity: the widening one is total, and the narrowing one is
+      // the unchecked core `Nat.fromInt`'s sign check sits above.
+      case "intFromNat":
+      case "natFromIntUnchecked":
+        return "__hex_a => __hex_a";
       default:
         if (INTRINSIC_INVENTORY.has(key)) {
           this.#diagnostics.add({
@@ -5261,8 +5338,13 @@ function objectProperty(name: string, value: string): string {
   return name === value ? name : `${name}: ${value}`;
 }
 
+// `checkedPower` left this family with #344's second landing: it was the
+// integer `pow` lowering, and its negative-exponent guard is Hexagon in
+// `stdlib/Int.hex` and `stdlib/BigInt.hex` now. `Nat` needs no guard and
+// `Float` never had one, so both inline the raw `**` and nothing calls it.
+// The same landing retired `intDiv`, `intMod`, `intQuot`, `intRem`, and
+// `intGcd` into `stdlib/Int.hex`'s `honor Integral<Int>` block.
 type Helper =
-  | "checkedPower"
   | "compareFloat"
   | "compareString"
   | "ordering"
@@ -5285,11 +5367,6 @@ type Helper =
   | "stringSlice"
   | "stableHash"
   | "mixHash"
-  | "intDiv"
-  | "intMod"
-  | "intQuot"
-  | "intRem"
-  | "intGcd"
   | "floatMod"
   | "floatRem"
   | "persistentCollections";
@@ -5305,7 +5382,6 @@ type Helper =
  * three are a cycle that neither eager `add` calls nor recursion can express.
  */
 const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
-  checkedPower: [],
   compareFloat: [],
   compareString: [],
   ordering: [],
@@ -5333,11 +5409,6 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   stringSlice: [],
   stableHash: [],
   mixHash: [],
-  intDiv: [],
-  intMod: [],
-  intQuot: [],
-  intRem: [],
-  intGcd: [],
   floatMod: [],
   floatRem: [],
   persistentCollections: [],
@@ -5457,11 +5528,6 @@ function renderHelper(
   runtimeName: (operation: VectorRuntimeOperation) => string,
 ): string[] {
   switch (helper) {
-    case "intDiv":
-    case "intMod":
-    case "intQuot":
-    case "intRem":
-    case "intGcd":
     case "floatMod":
     case "floatRem": {
       const [primitive, operation] = primitiveOperationFromHelper(helper);
@@ -5602,17 +5668,6 @@ function renderHelper(
         "    if (__hex_leftPoint > __hex_rightPoint) return 1;",
         "  }",
         "  return __hex_leftPoints.length < __hex_rightPoints.length ? -1 : __hex_leftPoints.length > __hex_rightPoints.length ? 1 : 0;",
-        "}",
-      ];
-    case "checkedPower":
-      return [
-        `function ${name}(__hex_base, __hex_exponent) {`,
-        "  if (__hex_exponent < 0) {",
-        '    const __hex_error = new Error("an integer exponent cannot be negative");',
-        '    __hex_error.name = "NegativeExponentError";',
-        "    throw __hex_error;",
-        "  }",
-        "  return __hex_base ** __hex_exponent;",
         "}",
       ];
     case "range":
@@ -6147,55 +6202,67 @@ const INLINED_OPERATOR_MEMBERS: readonly string[] = [
   "pow",
 ];
 
+/**
+ * The primitives whose instances are source `honor` blocks rather than the
+ * wired table below (#344), read from the one list that decides it so the two
+ * cannot drift. `primitiveDictionary` has no row for any of them, and reaching
+ * it for one is a compiler defect rather than a fallback.
+ */
+const MIGRATED_COMPANIONS: ReadonlySet<string> = new Set(
+  PRIMITIVE_COMPANION_BASENAMES.values(),
+);
+
 function primitiveInstance(evidence: Core.Evidence): Typed.PrimitiveName | undefined {
   if (evidence.kind === "Primitive") return evidence.instance;
   return evidence.kind === "Instance" ? evidence.primitive : undefined;
 }
 
-/** Emits the fixed primitive companion families without inventing runtime objects. */
+/**
+ * Whether a derived container's component evidence is an instance the container
+ * must **dispatch** to rather than re-derive (#278) — a nominal one.
+ *
+ * An instance honored at a primitive is not one of those. Its evidence became
+ * an ordinary `Instance` when that primitive's companion migrated (#344), but
+ * the leaf arms of `#derivedEquals`, `#derivedCompare`, and `#derivedShow` are
+ * that instance rendered, not a second definition of it — Constraints §6.1's
+ * last sentence, the same licence `#emitConstraintCall` takes for `+` and
+ * `#emitComparison` for `<`. #278's hazard was a hand-written *component*
+ * instance being bypassed, and a primitive has exactly one instance to bypass.
+ */
+function componentInstance(
+  evidence: Core.Evidence | undefined,
+): evidence is Core.InstanceEvidence {
+  return evidence?.kind === "Instance" && evidence.primitive === undefined;
+}
+
+/**
+ * Emits the fixed primitive companion families without inventing runtime
+ * objects — `Float`'s two, and only those.
+ *
+ * `Float` is not `Integral`, so it never had a zero-divisor guard: JS `%` at a
+ * `number` answers `NaN` on a zero divisor, and that is `Float`'s documented
+ * arithmetic. The guarded integer bodies that used to share this function are
+ * Hexagon in the companions now (#344), where the guard names its own member.
+ */
 function primitiveOperation(
   primitive: Core.PrimitiveOperationExpr["primitive"],
   operation: Core.PrimitiveOperationExpr["operation"],
 ): string {
-  const zero = "0";
-  if (primitive === "Float") {
-    if (operation === "rem") return "(__hex_a, __hex_b) => __hex_a % __hex_b";
-    return "(__hex_a, __hex_b) => { const __hex_r = __hex_a % __hex_b; return __hex_r < 0 ? __hex_r + Math.abs(__hex_b) : __hex_r; }";
-  }
-  const guard = `if (__hex_b === ${zero}) { const __hex_error = new Error(${JSON.stringify(`${primitive}.${operation}: divisor is zero`)}); __hex_error.name = \"DivideByZeroError\"; __hex_error.$hex = true; throw __hex_error; }`;
-  if (operation === "rem") return `(__hex_a, __hex_b) => { ${guard} return __hex_a % __hex_b; }`;
-  if (operation === "quot") {
-    return `(__hex_a, __hex_b) => { ${guard} return Math.trunc(__hex_a / __hex_b); }`;
-  }
-  if (operation === "mod") {
-    return `(__hex_a, __hex_b) => { ${guard} const __hex_r = __hex_a % __hex_b; const __hex_abs = __hex_b < ${zero} ? -__hex_b : __hex_b; return __hex_r < ${zero} ? __hex_r + __hex_abs : __hex_r; }`;
-  }
-  if (operation === "div") {
-    return `(__hex_a, __hex_b) => { ${guard} const __hex_r0 = __hex_a % __hex_b; const __hex_abs = __hex_b < ${zero} ? -__hex_b : __hex_b; const __hex_r = __hex_r0 < ${zero} ? __hex_r0 + __hex_abs : __hex_r0; return (__hex_a - __hex_r) / __hex_b; }`;
-  }
-  if (operation === "gcd") {
-    const left = "Math.abs(__hex_a)";
-    const right = "Math.abs(__hex_b)";
-    return `(__hex_a, __hex_b) => { let __hex_x = ${left}; let __hex_y = ${right}; while (__hex_y !== ${zero}) { const __hex_t = __hex_x % __hex_y; __hex_x = __hex_y; __hex_y = __hex_t; } return __hex_x; }`;
-  }
-  // `lcm` reached this function only at `BigInt`, whose family is now
-  // `stdlib/BigInt.hex`'s source (#344); `Int.lcm` deliberately does not exist
-  // (Integral §5). The checker refuses the spelling before emission, so this is
-  // the total-switch tail rather than a row.
-  return "(__hex_a, __hex_b) => { void __hex_a; void __hex_b; return undefined; }";
+  void primitive;
+  if (operation === "rem") return "(__hex_a, __hex_b) => __hex_a % __hex_b";
+  // `mod`, and the total-switch tail: the checker refuses `div`, `quot`, `gcd`,
+  // and `lcm` at `Float` before emission ever sees them.
+  return "(__hex_a, __hex_b) => { const __hex_r = __hex_a % __hex_b; return __hex_r < 0 ? __hex_r + Math.abs(__hex_b) : __hex_r; }";
 }
 
 /**
  * `BigInt`'s six rows retired with its wired instances (#344): the Euclidean
  * pair, `gcd`, and `lcm` are Hexagon in `stdlib/BigInt.hex`, and the truncated
- * pair is its intrinsic-door declaration. `Int` and `Float` follow at their
- * milestones (`spec/intrinsics.md` §9.2).
+ * pair is its intrinsic-door declaration. `Int`'s five went the same way one
+ * milestone later, into `stdlib/Int.hex`. `Float`'s two are what is left, and
+ * they follow at its own milestone (`spec/intrinsics.md` §9.2).
  */
-type PrimitiveOperationHelper = Extract<
-  Helper,
-  | "intDiv" | "intMod" | "intQuot" | "intRem" | "intGcd"
-  | "floatMod" | "floatRem"
->;
+type PrimitiveOperationHelper = Extract<Helper, "floatMod" | "floatRem">;
 
 function primitiveOperationHelper(
   primitive: Core.PrimitiveOperationExpr["primitive"],
@@ -6208,10 +6275,8 @@ function primitiveOperationHelper(
 function primitiveOperationFromHelper(
   helper: PrimitiveOperationHelper,
 ): readonly [Core.PrimitiveOperationExpr["primitive"], Core.PrimitiveOperationExpr["operation"]] {
-  const primitive = helper.startsWith("float") ? "Float" : "Int";
-  const ownerLength = primitive === "Float" ? 5 : 3;
-  const operation = helper.slice(ownerLength).toLowerCase() as Core.PrimitiveOperationExpr["operation"];
-  return [primitive, operation];
+  const operation = helper.slice("float".length).toLowerCase() as Core.PrimitiveOperationExpr["operation"];
+  return ["Float", operation];
 }
 
 class GeneratedNames {
@@ -6338,10 +6403,11 @@ function primitiveDictionary(
       return `({ signed: ${primitiveDictionary("Signed", instance, helperName)}, divide: (__hex_a, __hex_b) => __hex_a / __hex_b })`;
     case "Concat":
       return "({ concat: (__hex_a, __hex_b) => __hex_a + __hex_b })";
+    // `Float` is the only wired `Pow` left (#344): the negative-exponent guard
+    // the integer types needed is Hexagon in their companions now, and `Float`
+    // never needed one — a negative float power is an ordinary float.
     case "Pow":
-      return instance === "Float"
-        ? `({ num: ${primitiveDictionary("Num", instance, helperName)}, pow: (__hex_a, __hex_b) => __hex_a ** __hex_b })`
-        : `({ num: ${primitiveDictionary("Num", instance, helperName)}, pow: (__hex_a, __hex_b) => ${helperName("checkedPower")}(__hex_a, __hex_b) })`;
+      return `({ num: ${primitiveDictionary("Num", instance, helperName)}, pow: (__hex_a, __hex_b) => __hex_a ** __hex_b })`;
     case "Eq":
       return instance === "Float"
         ? "({ equals: (__hex_a, __hex_b) => __hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b), notEquals: (__hex_a, __hex_b) => !(__hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b)) })"
@@ -6365,13 +6431,14 @@ function primitiveDictionary(
       return instance === "Float"
         ? `({ eq: { equals: (__hex_a, __hex_b) => __hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b), notEquals: (__hex_a, __hex_b) => !(__hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b)) }, hash: __hex_a => ${helperName("stableHash")}(__hex_a) })`
         : `({ eq: { equals: (__hex_a, __hex_b) => __hex_a === __hex_b, notEquals: (__hex_a, __hex_b) => __hex_a !== __hex_b }, hash: __hex_a => ${helperName("stableHash")}(__hex_a) })`;
-    case "Integral": {
-      const num = primitiveDictionary("Num", instance, helperName);
-      const ordering = primitiveDictionary("Ord", instance, helperName);
-      const member = (operation: Core.PrimitiveOperationExpr["operation"]): string =>
-        helperName(primitiveOperationHelper("Int", operation));
-      return `({ num: ${num}, ord: ${ordering}, div: ${member("div")}, mod: ${member("mod")}, quot: ${member("quot")}, rem: ${member("rem")}, gcd: ${member("gcd")} })`;
-    }
+    // No `Integral` arm since #344's second landing. It hard-coded `Int`'s five
+    // helpers, and it was the last wired `Integral` at any primitive: `Nat`,
+    // `Int`, and `BigInt` are the only `Integral` types the language has, and
+    // all three are source companions now, so their dictionary is the one their
+    // own module exports (`#sourceInstanceDictionary`). `Float` is permanently
+    // not `Integral` (Integral §3). A call reaching here for it would be a
+    // wired row rebuilt beside a source instance, which Constraints §5.1
+    // forbids — so it falls to the tail below rather than being kept warm.
     default:
       return "({})";
   }

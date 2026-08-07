@@ -71,6 +71,15 @@ export interface PreludeModule {
  * honors eight of them, and after `Option.hex` because `toInt` answers with one;
  * nothing before it names a `BigInt`.
  *
+ * `Int.hex` and `Nat.hex` are the second and third, and their seats follow the
+ * same reading. `Int.hex` sits after every constraint declaration it honors and
+ * after `Option.hex`, because the checked family (`checkedAdd` and its two
+ * siblings) answers with an `Option(Int)`. `Nat.hex` sits after `Int.hex`:
+ * `Nat.fromInt`'s sign check is `value < 0` at `Int`, so it consumes
+ * `Ord<Int>` and `Num<Int>` evidence, which only `Int.hex` supplies now that
+ * the wired rows are gone. Everything from `Seq.hex` onward sees both, which is
+ * what lets `runtime/VectorTrie.hex`'s index arithmetic reach `Integral<Int>`.
+ *
  * `Vector.hex` is last because it needs the most: `first`/`last`/`get` answer with
  * `Option`, and `toSeq`/`fromSeq` name `Seq`.
  */
@@ -89,6 +98,8 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Integral.hex",
   "Option.hex",
   "BigInt.hex",
+  "Int.hex",
+  "Nat.hex",
   "Seq.hex",
   "Result.hex",
   "Vector.hex",
@@ -105,11 +116,13 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
  * it comes from the injection path, the same shape the intrinsic door's privilege
  * takes (`spec/intrinsics.md` §5.2).
  *
- * Only the companions that exist as source are here. `Int`, `Nat`, `Float`, and
- * `String` join at their own milestones, in that migration order; until then
- * their instances are compiler-wired and their qualified spellings are the
- * resolver's transitional ones (Modules §5.3's note).
+ * Only the companions that exist as source are here. `Float` and `String` join
+ * at their own milestones, in that migration order; until then their instances
+ * are compiler-wired and their qualified spellings are the resolver's
+ * transitional ones (Modules §5.3's note).
  */
 export const PRIMITIVE_COMPANION_BASENAMES: ReadonlyMap<string, string> = new Map([
   ["BigInt.hex", "BigInt"],
+  ["Int.hex", "Int"],
+  ["Nat.hex", "Nat"],
 ]);
