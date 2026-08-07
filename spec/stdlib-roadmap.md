@@ -17,7 +17,7 @@
 | Rule the listing must honor | Owner |
 |---|---|
 | Naming doctrine: subject-first, companion-qualified, cost-honest names | `collections-part1-decisions.md` §3; `functions.md` §5.4 |
-| Subject-first now also determines **dot-callability** (exported ∧ first-parameter-`T`-headed) | `method-syntax.md` §4.2/§15 |
+| Subject-first now also determines **dot-callability** (exported ∧ first-parameter-`T`-headed, unioned with honored subject-first members since #304/#335) | `method-syntax.md` §4.2/§15 |
 | Accessor pair: `[]` throws / `get` returns `Option`; `try` prefix, if ever used, means "does not throw" | `collections-part1-decisions.md` §3.3 |
 | Every prelude name needs a **qualified home** | `modules.md` §6.4 |
 | `NullableCase.*` and `JsKind.*` constructors are **qualified-only** (no bare prelude auto-import) | `ffi.md` §12 |
@@ -62,7 +62,7 @@
 | `toJsMap`/`toJsSet` classification decoders | `ffi.md` §9.1.3; `ffi-part11-js-value-errors.md` §13.1 | strict, non-coercing decoding returning `Result(_, JsConversionError)`; `Err` = data wrongness, hostile throws travel `JsError` (`ffi-part11-js-value-errors.md` §1) | **absence of a portable property-free classifier**: `instanceof` fails cross-realm; the workable intrinsic brand checks are awkward throw-based probes | listing: FFI/decoding |
 | `JsMap.keys`/`JsMap.values` projections; `JsSet` algebra reads | `ffi.md` §9.1.4; `ffi-part10-js-map-set.md` §9.1–9.2 | derivable via `toSeq` combinators or conversion; borrowed-view semantics fixed by `ffi-part10-js-map-set.md` | field demand | listing: FFI collections |
 | `Nullable` conveniences / conversion aliases | `ffi.md` §9.1.5 | must honor `ffi-part2-nullable-array.md`'s companion surface and its supersession of Unions §8 spellings | — | listing: FFI/Nullable |
-| Monomorphic per-type `show`/`toString`-style companion exports (`Int.show` etc.) | `method-syntax.md` §7/§12.4 | mechanism indifferent (ordinary companion call if shipped; never constraint dispatch via dot) | — | listing: per-type companions |
+| ~~Monomorphic per-type `show`/`toString`-style companion exports~~ **settled by construction (#304/#335)**: `3.show()` is `Show`'s member at `Int` and `Int.show` its qualified spelling; a duplicate monomorphic export is the rebinding error in the honoring module, the refusal across modules | `method-syntax.md` §7/§12.4; `constraints.md` §4.6 | nothing left for the listing to decide | — | listing: per-type companions |
 | `String.join(sep, xs)` and string conveniences | `collections-part5-iterable.md` §5.3/§14.2 | `String.fromSeq` concatenation contract fixed (§5.3, incl. linear-complexity implementation note); `join` supplements, never replaces | — | listing: String |
 | `Hash` for prelude unions (`Ordering` et al., via `derives` on prelude declarations) | `collections-part2-hash-and-type-members.md` §12.3 | derivable-only `Hash` doctrine (§4) | — | listing: prelude instances |
 | Numeric narrowing set (`Int.fromFloat`, kin) | `ffi-part1-boundary.md` §6 ("if included") | checked, `Option`-returning, `Number.isSafeInteger` discipline; `BigInt.toInt` already core | — | listing: numeric |

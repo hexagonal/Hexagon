@@ -257,8 +257,9 @@ representations.
 
 The editor can still offer method-like completion. After a receiver of known type, it
 can combine visible fields, exported subject-first companion operations, and the
-members of honored constraints, and label which is which. This discoverability is a source-language service built on static type
-information, not a sign of runtime objects.
+members of honored constraints, and label which is which. This discoverability is a
+source-language service built on static type information, not a sign of runtime
+objects.
 
 ## Summary
 

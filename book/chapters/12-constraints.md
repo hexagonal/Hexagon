@@ -81,9 +81,10 @@ let reportArea(shape: a) =
 ```
 
 The default calls the `area` operation from whichever instance is in use. Call
-`area(shape)` or `describeArea(shape)` directly. Constraint members are not object
-methods and do not use dot-call syntax. That distinction will matter in the Dot Calls
-chapter.
+`area(shape)` or `describeArea(shape)` directly — and on a value whose type is known,
+the dot spelling works too: `shape.area()` means the same call. Constraint members are
+ordinary functions either way, not object methods; the Dot Calls chapter explains how
+the dot finds them.
 
 ## `honor` supplies an instance
 
