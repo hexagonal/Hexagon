@@ -200,10 +200,10 @@ interface MarkObligation {
 }
 
 /**
- * Whether an annotation writes a `=>` or `=>!` anywhere inside it. The linked
- * reading needs one *in parameter position*; `#linkedSignature` asks that.
+ * Whether an annotation writes a linked `=>` anywhere inside it. `=>!` does not
+ * count: it is the constant, so it links nothing and offers no inlet.
  */
-function annotationWritesArrow(annotation: Resolved.TypeAnnotation): boolean {
+function annotationWritesLinkedArrow(annotation: Resolved.TypeAnnotation): boolean {
   let found = false;
   const walk = (node: unknown): void => {
     if (found || node === null || typeof node !== "object") return;
@@ -212,7 +212,7 @@ function annotationWritesArrow(annotation: Resolved.TypeAnnotation): boolean {
       return;
     }
     const record = node as { kind?: unknown; effect?: unknown };
-    if (record.kind === "Function" && record.effect !== undefined) {
+    if (record.kind === "Function" && record.effect === "linked") {
       found = true;
       return;
     }
@@ -234,7 +234,7 @@ function annotationWritesArrow(annotation: Resolved.TypeAnnotation): boolean {
  */
 function linkedSignature(parameters: readonly (Resolved.TypeAnnotation | undefined)[]): boolean {
   return parameters.some((parameter) =>
-    parameter !== undefined && annotationWritesArrow(parameter)
+    parameter !== undefined && annotationWritesLinkedArrow(parameter)
   );
 }
 
@@ -619,8 +619,17 @@ class Checker {
    */
   #pendingInlet = false;
   readonly #effectFrames: EffectFrame[] = [];
-  /** Frames in the order they closed — innermost first, which is settling order. */
-  readonly #closedFrames: EffectFrame[] = [];
+  /**
+   * The outer colour a *binding annotation* fixes for the lambda that is its
+   * right-hand side, read syntactically so it is in hand before the body is
+   * inferred. This is what lets `=>!` mean what ruling 9 says: the outer arrow
+   * is the impure constant from the start, so the body's own effects are
+   * absorbed by a colour that is already constant and the callback's colour is
+   * left free — the round-up applies to the function, not to what it forwards.
+   */
+  #pendingOwnEffect: Mono | undefined;
+  /** Signature colours a face report has already condemned; see `#checkMarks`. */
+  readonly #reportedFaces = new Set<Variable>();
   readonly #frameByLambda = new WeakMap<Resolved.LambdaExpr, EffectFrame>();
   /**
    * The frame a call was *written* in. Dot calls may be elaborated later, from
@@ -2204,11 +2213,27 @@ class Checker {
         const annotation = item.annotation;
         const linked = this.#effectsOn && annotation !== undefined &&
           annotation.kind === "Function" && linkedSignature(annotation.parameters);
-        const enclosingSignature = this.#openSignature(linked, level + 1, item.span);
+        const enclosingSignature = this.#openSignature(
+          linked ? "open" : annotation === undefined ? "inherit" : "clear",
+          level + 1,
+          item.span,
+        );
         if (linked && annotation?.kind === "Function" && annotation.effect === "linked") {
           this.#signatureFace!.outer = annotation.arrowSpan;
         }
         this.#pendingInlet = linked;
+        // The outer arrow, read from the face rather than inferred. A `->` face
+        // is a pure demand on the body; `=>!` is the impure constant; a linked
+        // `=>` is the signature's own variable, which is the one-variable rule.
+        this.#pendingOwnEffect = this.#effectsOn && annotation?.kind === "Function"
+          ? (annotation.effect === "constant"
+            ? IMPURE
+            : annotation.effect === "linked" && linked
+              ? this.#signatureFace!.effect
+              : annotation.effect === undefined
+                ? PURE
+                : IMPURE)
+          : undefined;
         if (
           this.#effectsOn && annotation?.kind === "Function" &&
           annotation.effect === "constant" && annotation.arrowSpan !== undefined &&
@@ -2221,6 +2246,7 @@ class Checker {
         }
         const inferredValueType = this.#inferExpr(item.value, level + 1);
         this.#pendingInlet = false;
+        this.#pendingOwnEffect = undefined;
         let valueType = inferredValueType;
         if (item.annotation !== undefined) {
           const annotationType = this.#annotationType(
@@ -3219,15 +3245,32 @@ class Checker {
         // rather than merely tolerant. A lambda with no `=>` of its own keeps
         // the enclosing scope (nothing in it can read the variable anyway) and
         // takes a fresh colour of its own, which the body then decides.
+        const writtenOwn = this.#pendingOwnEffect;
+        this.#pendingOwnEffect = undefined;
         const ownLinked = this.#effectsOn &&
           linkedSignature(expression.parameters.map((parameter) => parameter.annotation));
-        const enclosingSignature = this.#openSignature(ownLinked, level + 1, expression.span);
+        // A lambda whose colour a binding annotation already wrote *is* that
+        // signature — `let f: (Tx => a) =>! a = (run: Tx => a): a => …` writes
+        // one signature twice, and opening a second scope here would give the
+        // same defect two reports and the same `=>` two variables.
+        const enclosingSignature = this.#openSignature(
+          writtenOwn !== undefined ? "inherit" : ownLinked ? "open" : "clear",
+          level + 1,
+          expression.span,
+        );
         const inheritedInlet = this.#pendingInlet;
         this.#pendingInlet = false;
         const enclosingFrame = this.#effectFrames.at(-1);
         const effectFrame: EffectFrame | undefined = this.#effectsOn
           ? {
-            own: ownLinked ? this.#signatureFace!.effect : this.#fresh(level + 1, false),
+            // Never the signature's variable outright: a function whose body
+            // performs no call at that colour is *pure*, however many `=>`s its
+            // parameters wear. Ruling 6's `compose` is exactly that shape —
+            // two impure functions move through, a closure comes out, the world
+            // untouched — and taking the signature's variable here would make
+            // its call site shout. Absorption identifies the two when the body
+            // really does forward, which is how `fold` becomes polymorphic.
+            own: writtenOwn ?? this.#fresh(level + 1, false),
             inlet: ownLinked || inheritedInlet || enclosingFrame?.inlet === true,
             enclosing: enclosingFrame,
             absorbed: [],
@@ -3318,7 +3361,13 @@ class Checker {
         }
         if (effectFrame !== undefined) {
           this.#effectFrames.pop();
-          this.#closedFrames.push(effectFrame);
+          // Settled here rather than at the end of the module: a function's
+          // colour has to be decided *before* it is generalized, or its callers
+          // instantiate a fresh unsolved variable and every pure call in the
+          // corpus reads as a conductor. Bodies close innermost-first, and a
+          // declaration closes before anything that can call it, so a callee's
+          // colour is always known by the time a caller absorbs it.
+          this.#settleFrame(effectFrame);
         }
         this.#closeSignature(enclosingSignature);
         type = {
@@ -4583,14 +4632,25 @@ class Checker {
     return face.effect;
   }
 
-  /** Opens a signature scope, returning what `#closeSignature` must restore. */
+  /**
+   * Enters a signature scope, returning what `#closeSignature` must restore.
+   *
+   * `"open"` mints this signature's shared colour. `"clear"` is the
+   * else-constant rule in force — a signature of its own with nothing in
+   * parameter position to link to, so its `=>`s are the constant. `"inherit"`
+   * is for a form that is *not* a second signature: a lambda whose colour a
+   * binding annotation already wrote is that annotation's signature, and giving
+   * it a scope of its own would mint a second variable for one `=>` and report
+   * one defect twice.
+   */
   #openSignature(
-    linked: boolean,
+    mode: "open" | "clear" | "inherit",
     level: number,
     declaration: Source.Span,
   ): SignatureFace | undefined {
     const previous = this.#signatureFace;
-    this.#signatureFace = linked
+    if (mode === "inherit") return previous;
+    this.#signatureFace = mode === "open"
       ? { effect: this.#fresh(level, false), arrows: [], declaration }
       : undefined;
     if (this.#signatureFace !== undefined) this.#signatureFaces.push(this.#signatureFace);
@@ -4636,50 +4696,70 @@ class Checker {
    * finally has. Runs once, after all inference and before any scheme is
    * externalised, so an exported face carries the colour its body proved.
    */
+  /**
+   * One body's colour, decided the moment the body closes: absorb what it
+   * calls, then default what nothing constrained.
+   */
+  #settleFrame(frame: EffectFrame): void {
+    // Constants first: they are the only thing that can *force* a colour, and a
+    // forced `own` then satisfies every remaining `⊒` outright — which is what
+    // keeps a `=>!` face from constantifying the callback it forwards.
+    for (const { effect, span } of frame.absorbed) {
+      if (this.#prune(effect) !== IMPURE) continue;
+      frame.sourced = true;
+      const own = this.#prune(frame.own);
+      if (own === IMPURE) continue;
+      if (own.kind === "Effect") {
+        this.#diagnostics.add({
+          severity: "error",
+          message:
+            "this call performs effects, and the enclosing function's face is the " +
+            "pure arrow `->` — a pure face cannot run effects",
+          primary: span,
+        });
+        continue;
+      }
+      this.#unify(frame.own, IMPURE, span);
+    }
+    // Then the conductors. A body is at least as effectful as anything it
+    // calls, and with two points and no subtyping the join is unification —
+    // which is also how one variable per signature emerges rather than being
+    // imposed.
+    for (const { effect, span } of frame.absorbed) {
+      const colour = this.#prune(effect);
+      if (colour.kind === "Effect") continue;
+      if (this.#prune(frame.own) === IMPURE) continue;
+      this.#unify(frame.own, colour, span);
+    }
+    // The defaulting clause. A colour this body owns, with no inlet to make it
+    // a conductor and nothing to make it a source, is unconstrained — and pure
+    // instantiates anywhere, so pure is the harmless answer.
+    const own = this.#prune(frame.own);
+    if (own.kind === "Variable" && !frame.inlet && !this.#ownedByEnclosing(frame, own)) {
+      own.instance = PURE;
+    }
+  }
+
+  /** The reports, once every body has closed and every colour is final. */
   #settleEffects(): void {
     if (!this.#effectsOn) return;
-    // Innermost first. A body's own colour has to be settled before the body
-    // that *calls* it absorbs the call, and `#closedFrames` is already in that
-    // order because a frame is recorded when it pops.
-    for (const frame of this.#closedFrames) {
-      // Constants first: they are the only thing that can force a colour, and
-      // a forced `own` then satisfies every remaining `⊒` outright — which is
-      // what keeps a `=>!` face from constantifying the callback it forwards.
-      for (const { effect, span } of frame.absorbed) {
-        if (this.#prune(effect) !== IMPURE) continue;
-        frame.sourced = true;
-        const own = this.#prune(frame.own);
-        if (own === IMPURE) continue;
-        if (own.kind === "Effect") {
-          this.#diagnostics.add({
-            severity: "error",
-            message:
-              "this call performs effects, and the enclosing function's face is the " +
-              "pure arrow `->` — a pure face cannot run effects",
-            primary: span,
-          });
-          continue;
-        }
-        this.#unify(frame.own, IMPURE, span);
-      }
-      for (const { effect, span } of frame.absorbed) {
-        const colour = this.#prune(effect);
-        if (colour.kind === "Effect") continue;
-        const own = this.#prune(frame.own);
-        if (own === IMPURE) continue;
-        this.#unify(frame.own, colour, span);
-      }
-      // The defaulting clause. A colour this body owns, with no inlet to make
-      // it a conductor and nothing to make it a source, is unconstrained — and
-      // pure instantiates anywhere, so pure is the harmless answer.
-      const own = this.#prune(frame.own);
-      if (own.kind === "Variable" && !frame.inlet && !this.#ownedByEnclosing(frame, own)) {
-        if (own.kind === "Variable") own.instance = PURE;
-      }
-    }
     this.#checkConstantFaces();
-    this.#checkMarks();
     this.#checkSignatureFaces();
+    this.#checkMarks();
+  }
+
+  /**
+   * Whether a call's colour is one of the signature variables a face report has
+   * already condemned — followed along the binding chain, since absorption is
+   * what turned the variable into the constant being complained about.
+   */
+  #namesReportedFace(effect: Mono): boolean {
+    for (let node: Mono | undefined = effect; node !== undefined;) {
+      if (node.kind !== "Variable") return false;
+      if (this.#reportedFaces.has(node)) return true;
+      node = node.instance;
+    }
+    return false;
   }
 
   /** Whether a settled colour belongs to a frame further out than this one. */
@@ -4706,6 +4786,10 @@ class Checker {
         required = undefined;
       }
       if (required === obligation.mark) continue;
+      // A call whose colour *is* a signature variable the face report has
+      // already condemned is the same defect told twice: the face is what went
+      // wrong, and the marks in the body follow from it.
+      if (this.#namesReportedFace(obligation.effect)) continue;
       this.#diagnostics.add({
         severity: "error",
         message: markMessage(obligation.callee, obligation.mark, required),
@@ -4731,6 +4815,7 @@ class Checker {
     for (const face of this.#signatureFaces) {
       const colour = this.#prune(face.effect);
       if (colour.kind !== "Effect") continue;
+      this.#reportedFaces.add(face.effect);
       const target = face.outer ?? face.arrows[0] ?? face.declaration;
       const rewritable = face.outer !== undefined;
       this.#diagnostics.add({
@@ -5899,6 +5984,9 @@ class Checker {
           this.#replaceVariables(parameter, replacements)
         ),
         result: this.#replaceVariables(actual.result, replacements),
+        ...(actual.effect === undefined
+          ? {}
+          : { effect: this.#replaceVariables(actual.effect, replacements) }),
       };
     }
     return actual;
@@ -6970,6 +7058,11 @@ class Checker {
           kind: "Function",
           parameters: actual.parameters.map(copy),
           result: copy(actual.result),
+          // A declared field's arrow keeps the colour it was written with. A
+          // record has no signature to quantify over, so that colour is always
+          // a constant (#355's data-position posture) — but dropping it here
+          // silently reads every `=>` field as `->`.
+          ...(actual.effect === undefined ? {} : { effect: copy(actual.effect) }),
         };
       }
       return actual;
