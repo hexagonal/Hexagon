@@ -1284,6 +1284,27 @@ describe("emitJavaScript", () => {
     expect((await runProject(files))["result"]).toEqual([2, -1]);
   });
 
+  test("a Bool edition renders the derived instances, not the host's", async () => {
+    // `Bool` is fundamental but not primitive (#147): the specialization
+    // planner names its editions all the same, and with the wired table gone
+    // (#344) an edition's dictionary comes from the derived walk. The retired
+    // table answered `String(__hex_a)` here — the host's `"true"` where
+    // `Show<Bool>` says `"True"` — so a monomorphic edition disagreed with
+    // every other spelling of the same call. This run is the agreement,
+    // measured through both spellings: the ground call and the edition itself.
+    const files = [["/main.hex",
+      "export let describe = (<a: Show>(value: a): String => show(value))\n" +
+      "export let direct: String = describe(True)\n",
+    ]] as const;
+    const project = compileFiles(files);
+    expect(project.diagnostics).toEqual([]);
+    const module = project.modules.find(({ source }) => source.path === "/main.hex")!;
+    expect(module.declarations.text).toContain("describeBool");
+    const exports = await runProject(files);
+    expect(exports["direct"]).toBe("True");
+    expect((exports["describeBool"] as (value: boolean) => string)(true)).toBe("True");
+  });
+
   test("executes the BigInt division family out of its companion module", async () => {
     // The same conventions the row above pinned, now measured where they live:
     // `stdlib/BigInt.hex`. Linked and run rather than evaluated as one text,
