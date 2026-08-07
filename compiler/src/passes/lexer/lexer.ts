@@ -87,10 +87,28 @@ const punctuation: readonly (readonly [string, Lexed.PunctuationKind])[] = [
   ["_", "Wildcard"],
 ];
 
-export function lex(source: Source.File): Lexed.File {
+/**
+ * The `=>!` row, spliced in ahead of `=>` so maximal munch reaches it. Only the
+ * effects prototype's table carries it.
+ */
+const effectsPunctuation: readonly (readonly [string, Lexed.PunctuationKind])[] =
+  punctuation.flatMap((row) =>
+    row[0] === "=>" ? [["=>!", "FatArrowBang"] as const, row] : [row]
+  );
+
+export interface LexOptions {
+  /**
+   * The #355 effects prototype's token inventory: `=>!`, and the bare `!` and
+   * `?` call marks. Off — the default, and every caller that does not opt in —
+   * the scanner is the one this repository shipped.
+   */
+  readonly effects?: boolean;
+}
+
+export function lex(source: Source.File, options: LexOptions = {}): Lexed.File {
   const diagnostics = new Diagnostics.Bag();
   validateSourceCharacters(source, diagnostics);
-  const scanner = new Scanner(source, diagnostics);
+  const scanner = new Scanner(source, diagnostics, options.effects === true);
   const { tokens } = scanner.scanSequence(false);
 
   return {
@@ -113,14 +131,16 @@ class Scanner {
 
   readonly #source: Source.File;
   readonly #diagnostics: Diagnostics.Bag;
+  readonly #effects: boolean;
 
   #offset = 0;
   #atLineStart = true;
   #suppressNewlines = 0;
 
-  constructor(source: Source.File, diagnostics: Diagnostics.Bag) {
+  constructor(source: Source.File, diagnostics: Diagnostics.Bag, effects = false) {
     this.#source = source;
     this.#diagnostics = diagnostics;
+    this.#effects = effects;
   }
 
   /** Scans either a complete file or one interpolation's balanced token stream. */
@@ -416,9 +436,24 @@ class Scanner {
     }
 
     if (codeUnit === 0x21 && !this.#startsWith("!=")) {
+      // Under the effects prototype a lone `!` is the impure call mark. The
+      // parser, not the scanner, decides where it is grammatical — a mark
+      // governs an argument list (#355 ruling 2) or carries a pipe stage
+      // (ruling 1), and anywhere else it is a parse error. The bang of `=>!` is
+      // never seen here: that token is scanned from its `=`, by the punctuation
+      // table, which lists `=>!` ahead of `=>`.
+      if (this.#effects) {
+        this.#offset += 1;
+        return { kind: "Bang", span: this.#source.span(start, this.#offset) };
+      }
       this.#offset += 1;
       this.#error(start, this.#offset, "Hexagon spells logical negation `not`");
       return undefined;
+    }
+
+    if (this.#effects && codeUnit === 0x3f) {
+      this.#offset += 1;
+      return { kind: "Question", span: this.#source.span(start, this.#offset) };
     }
 
     if (codeUnit === 0x22) {
@@ -465,7 +500,7 @@ class Scanner {
       return undefined;
     }
 
-    for (const [spelling, kind] of punctuation) {
+    for (const [spelling, kind] of this.#effects ? effectsPunctuation : punctuation) {
       if (this.#startsWith(spelling)) {
         this.#offset += spelling.length;
         return { kind, span: this.#source.span(start, this.#offset) };

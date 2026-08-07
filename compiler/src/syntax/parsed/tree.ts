@@ -63,6 +63,12 @@ export type ExternDeclaration =
 interface ExternDeclarationFields {
   readonly exported: boolean;
   readonly default: boolean;
+  /**
+   * The #355 trusted purity claim (`pure fun …`), on a user-written extern.
+   * Absent everywhere the effects flag is off, and meaningless on an intrinsic
+   * row, whose purity comes from intrinsics §4.2's verification.
+   */
+  readonly pure?: true;
   readonly foreignName?: Name;
   readonly localName: Name;
   readonly span: Source.Span;
@@ -402,10 +408,26 @@ export interface RecordTypeField {
   readonly span: Source.Span;
 }
 
+/**
+ * How a function type's arrow was written, under #355's effects prototype.
+ * Absent means `->`, which is every arrow this repository can write with the
+ * flag off — the pure constant, and the pure *demand*.
+ *
+ * `linked` is `=>`: one implicitly quantified effect variable shared across the
+ * whole signature, or the impure constant when the signature has no
+ * parameter-position occurrence for it to link to (the else-constant rule).
+ * `constant` is `=>!`: the impure constant, always.
+ */
+export type ArrowEffect = "linked" | "constant";
+
 export interface FunctionType {
   readonly kind: "Function";
   readonly parameters: readonly TypeAnnotation[];
   readonly result: TypeAnnotation;
+  /** Absent for `->`; see `ArrowEffect`. */
+  readonly effect?: ArrowEffect;
+  /** The arrow token itself, so a face fixit can replace exactly it. */
+  readonly arrowSpan?: Source.Span;
   readonly span: Source.Span;
 }
 
@@ -704,10 +726,20 @@ export interface MatchArm {
   readonly span: Source.Span;
 }
 
+/**
+ * A call's effect mark (#355). `bang` is `f!(x)` — effects run here; `question`
+ * is `f?(x)` — this call is as effectful as the enclosing instantiation made
+ * it. Absent is the bare call: pure, guaranteed.
+ */
+export type CallMark = "bang" | "question";
+
 export interface CallExpr {
   readonly kind: "Call";
   readonly callee: Expr;
   readonly arguments: readonly Expr[];
+  /** #355 ruling 2: the mark sits before *this* argument list. */
+  readonly mark?: CallMark;
+  readonly markSpan?: Source.Span;
   readonly span: Source.Span;
 }
 
@@ -753,6 +785,13 @@ export interface BinaryExpr {
   readonly operator: BinaryOperator;
   readonly left: Expr;
   readonly right: Expr;
+  /**
+   * A `|>` stage's own mark, when the stage supplied no argument list —
+   * `x |> save!` (#355 ruling 1). The pipe rewrite manufactures `save!(x)` and
+   * carries it onto the call it creates. Only ever set on a `Pipe`.
+   */
+  readonly mark?: CallMark;
+  readonly markSpan?: Source.Span;
   readonly span: Source.Span;
 }
 

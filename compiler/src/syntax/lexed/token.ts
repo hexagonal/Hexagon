@@ -76,6 +76,18 @@ export const punctuationKinds = [
   "Assign",
   "Bar",
   "Wildcard",
+  // The three tokens of the #355 effects prototype. They are lexed only when
+  // the `effects` option is on; with it off `!` and `?` keep their current
+  // answers (the `not` redirect and the invalid-character report) and `=>!`
+  // cannot arise, so the inventory below is unreachable and the token stream is
+  // byte-identical to today's.
+  //
+  // `=>!` is one glued token rather than `=>` followed by `!` because the bang
+  // trails the arrow it condemns (#355 ruling 9); `!=>` is not admitted at all,
+  // since `!=` would win maximal munch.
+  "FatArrowBang",
+  "Bang",
+  "Question",
 ] as const;
 
 export type PunctuationKind = (typeof punctuationKinds)[number];
