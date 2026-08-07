@@ -53,7 +53,7 @@ Int.rem(a: Int, b: Int): Int      -- truncated remainder (JS's `%` exactly)
 - **All four throw `DivideByZeroError` on `b == 0`.** JS's `a % 0` is `NaN`, which would silently break the Int-is-a-whole-JS-number invariant; the truncated pair gets no IEEE exemption just because its convention matches JS — the *type* is `Int`, and `Int` partiality throws (same doctrine as `Int.div` always had, and as `IndexError`).
 - `quot`/`rem` satisfy their own identity (`quot(a,b) * b + rem(a,b) == a`) with `abs(rem(a,b)) < abs(b)` and `rem` taking the dividend's sign. Names per the Haskell (`quot`/`rem` vs `div`/`mod`) and Rust lineage.
 - **Why `quot`/`rem` exist at all:** interop and porting. `Int.rem(a, b)` is bit-for-bit JS's `a % b` (for valid `Int` inputs), so code transliterated from JS/TS — or any C-family source — can keep its remainder semantics under a name that *says* it's the machine convention. The docs for `rem` state "this is JS's `%`" in those words.
-- All four are monomorphic `Int` functions, not constraint members — same status as `Int.div` always had (`Int` is `Signed` but not `Frac`; Operators §6.1).
+- All four are monomorphic `Int` functions, not constraint members — same status as `Int.div` always had (`Int` is `Signed` but not `Frac`; Operators §6.1). *(Superseded by the Integral constraint, and the spellings survived it: the four are `Integral<Int>`'s members, `Int.div` is the member qualified (Modules §5.3), and since #344 the bodies are source `honor` blocks in `stdlib/Int.hex`. The conventions, identities, and guards above are unchanged — the Integral spec's reconciliation section governs.)*
 
 ## 4. `BigInt` mirrors `Int`
 
@@ -101,14 +101,14 @@ No `%` operator exists in Hexagon, so every one of these is an ordinary prelude 
 
 Inlining latitude (quality-of-implementation, not spec): where the divisor is a positive constant, `Int.mod(a, k)` may inline as `((a % k) + k) % k`, and where the dividend is provably non-negative, as bare `a % k`; `Int.rem` with a provably nonzero divisor may drop the guard. The helper-call form is the required baseline and is itself acceptable readable-JS — a named call that says `mod` is more readable than an inlined double-`%` trick.
 
-*(Edit note, #344.)* The `BigInt` rows above are no longer runtime helpers: `BigInt.div`/`BigInt.mod`/`BigInt.gcd`/`BigInt.lcm` and the zero guards are ordinary Hexagon in `stdlib/BigInt.hex`, and `BigInt.quot`/`BigInt.rem` are its intrinsic-door declarations, whose lowerings keep exactly the shapes tabled here (intrinsics §3.2). The shapes stay normative for behaviour; where the body now lives is stdlib-roadmap §5.1's business. The `Int` and `Float` rows follow at their own milestones (intrinsics §9.2).
+*(Edit note, #344.)* The `BigInt` rows above are no longer runtime helpers: `BigInt.div`/`BigInt.mod`/`BigInt.gcd`/`BigInt.lcm` and the zero guards are ordinary Hexagon in `stdlib/BigInt.hex`, and `BigInt.quot`/`BigInt.rem` are its intrinsic-door declarations, whose lowerings keep exactly the shapes tabled here (intrinsics §3.2). The shapes stay normative for behaviour; where the body now lives is stdlib-roadmap §5.1's business. *(Second landing, #344.)* The `Int` rows followed: the Euclidean pair, `gcd`, and the zero guards are ordinary Hexagon in `stdlib/Int.hex`, over its door pair `intQuot`/`intRem`, whose lowerings keep exactly the shapes tabled here. `stdlib/Nat.hex` honors `Integral` the same way (the Integral spec owns the `Nat` instance; at `Nat` the Euclidean and truncated conventions coincide value-wise, and the guards' messages name `Nat`). The `Float` rows follow at their milestone (intrinsics §9.2), the last.
 
 ## 7. Diagnostics
 
 | Situation | Message (shape) |
 |---|---|
 | `intA / intB` (existing, Operators §6.1) | unchanged, but the hint now reads: "`Int` has no `/`; use `Int.div`/`Int.mod` (Euclidean), or `Int.quot`/`Int.rem` for JS's truncating `%` semantics" |
-| Zero divisor at runtime, any integer function | `DivideByZeroError`; message names the function that threw (`Int.rem: divisor is zero`), per the provenance-tagged phrasing rule. *(#344: the exception's declared home is `stdlib/Integral.hex` — the constraint whose members the guards protect — one declaration for every honoring companion; `BigInt`'s guards throw it from source, `Int`'s helpers still throw the brand-compatible shape until their milestone)* |
+| Zero divisor at runtime, any integer function | `DivideByZeroError`; message names the function that threw (`Int.rem: divisor is zero`), per the provenance-tagged phrasing rule. *(#344: the exception's declared home is `stdlib/Integral.hex` — the constraint whose members the guards protect — one declaration for every honoring companion; `BigInt`'s, `Int`'s, and `Nat`'s guards throw it from source — a `Nat` division's message now names `Nat`, where the shared wired helper once said `Int` — and `Float` has no integer functions to guard)* |
 
 Docs (not compiler) obligations: `rem`'s doc line says "this is JS's `%`"; `mod`'s says "always non-negative"; `Float.mod`'s notes the rounding boundary (§5.1).
 

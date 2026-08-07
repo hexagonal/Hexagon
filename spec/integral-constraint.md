@@ -36,7 +36,7 @@ honor Integral<Int>    -- members are Int.div, Int.mod, Int.quot, Int.rem, Int.g
 honor Integral<BigInt> -- members are the BigInt counterparts
 ```
 
-- The instance bodies **are** the monomorphic functions — one implementation, two spellings. `Int.gcd` and `BigInt.gcd` are hereby added to the monomorphic families as the fifth member each. *(Edit note, #344: for `BigInt` this sentence is now literal — `honor Integral<BigInt>` is source in `stdlib/BigInt.hex`, bodies folded into the block per Constraints §4.6, and the qualified spellings are the members per Modules §5.3. `Int` and `Nat` follow at their milestone.)*
+- The instance bodies **are** the monomorphic functions — one implementation, two spellings. `Int.gcd` and `BigInt.gcd` are hereby added to the monomorphic families as the fifth member each. *(Edit note, #344: for `BigInt` this sentence is now literal — `honor Integral<BigInt>` is source in `stdlib/BigInt.hex`, bodies folded into the block per Constraints §4.6, and the qualified spellings are the members per Modules §5.3. Second landing: `Int` and `Nat` are now literal the same way — `stdlib/Int.hex` owns the Euclidean pair, `gcd`, and the zero guards in Hexagon over its truncated door pair, and `stdlib/Nat.hex` honors `Integral` with the same member set; at `Nat` the Euclidean and truncated conventions coincide value-wise on the non-negative domain, the guards remain per-member, and their messages name `Nat` — while the wired route stood, a `Nat` division's zero-divisor message named `Int`, the artifact of a shared helper, corrected by the migration.)*
 - **`Float` is permanently not `Integral`**, and `gcd` is a member here precisely so that `gcd(1.5, 2.0)` fails with the exactly-right message: "`Float` is not `Integral`." This is also why `gcd` must not hang off the broader `Num` constraint.
 
 ## 4. `gcd` semantics
@@ -88,14 +88,14 @@ function gcd(a, b) {
 
 ## 7. Reconciliation with the Division & Remainder spec
 
-That spec's §3 says the four functions are "monomorphic `Int` functions, not constraint members." **Softened, not reversed:** they remain the primary spellings and the recommended form in all concrete code; this spec adds that they also serve as the `Integral` instance bodies, giving generic code a door. The two-tier pattern — monomorphic module functions doubling as instance members — is now precedented for any future case (edit note §10). Everyday code keeps writing `Int.mod`; only `<a: Integral>` signatures touch the constraint.
+That spec's §3 says the four functions are "monomorphic `Int` functions, not constraint members." **Softened, not reversed:** they remain the primary spellings and the recommended form in all concrete code; this spec adds that they also serve as the `Integral` instance bodies, giving generic code a door. The two-tier pattern — monomorphic module functions doubling as instance members — is now precedented for any future case (edit note §10). Everyday code keeps writing `Int.mod`; only `<a: Integral>` signatures touch the constraint. *(Then the member became the real one, #335/#344: at a migrated companion there is no module function to double as anything — the `honor` block's member is the one implementation, and `Int.mod` is that member qualified (Modules §5.3's uniform access). The consumer-facing sentence survives unchanged; the two-tier description of what stands behind it is superseded by the one-tier fact.)*
 
 ## 8. Diagnostics
 
 | Situation | Message (shape) |
 |---|---|
 | `gcd`/`div`/`mod`/`quot`/`rem` at `Float` | ordinary missing-instance error: "`Float` is not `Integral`"; for `gcd` add "gcd is defined for integer types (`Nat`, `Int`, `BigInt`)" — never suggest rounding |
-| Name `Int.lcm` not found | curated hint: "`Int` has no `lcm` — its results overflow `Int`'s safe range for ordinary inputs; use `BigInt.lcm`" (name-not-found hints are cheap; this one prevents a hand-rolled `a * b / gcd` with the overflow bug) |
+| Name `Int.lcm` not found | curated hint: "`Int` has no `lcm` — its results overflow `Int`'s safe range for ordinary inputs; use `BigInt.lcm`" (name-not-found hints are cheap; this one prevents a hand-rolled `a * b / gcd` with the overflow bug) *(#344: with `Int.hex` source, the spelling now misses as an ordinary does-not-export error at a real module rather than at the wired route — the curated hint survives the re-homing; the obligation is this row, not the mechanism that once carried it)* |
 | Unsolved tyvar at a bare `gcd(x, y)` call with no other constraint source | standard ambiguity error per Numeric Literals §6 machinery; `Num` base constraint defaulting resolves the literal-only case to `Int` as usual |
 
 ## 9. Acceptance tests
