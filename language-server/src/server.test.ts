@@ -128,12 +128,24 @@ function decodeTokens(
   return decoded;
 }
 
+/**
+ * How long a wait for a particular publication gives up after. Generous next to
+ * the server's diagnostic debounce, and short enough to fail with its own
+ * message rather than as an anonymous test timeout.
+ */
+const PUBLICATION_TIMEOUT_MS = 3_000;
+
 interface Harness {
   readonly client: ProtocolConnection;
   readonly capabilities: InitializeResult["capabilities"];
   readonly root: string;
   readonly uriOf: (name: string) => string;
   readonly diagnosticsFor: (uri: string) => Promise<readonly Diagnostic[]>;
+  readonly diagnosticsUntil: (
+    uri: string,
+    matches: (diagnostics: readonly Diagnostic[]) => boolean,
+    waitingFor: string,
+  ) => Promise<readonly Diagnostic[]>;
   /** Whatever has already arrived for a URI, without waiting for more. */
   readonly publishedFor: (uri: string) => readonly Diagnostic[] | undefined;
   readonly dispose: () => Promise<void>;
@@ -191,21 +203,50 @@ async function harness(
   }) as InitializeResult;
   await client.sendNotification(InitializedNotification.type, {});
 
+  /** The next publication for a URI, or the one already received. */
+  const nextPublication = (uri: string, take: (diagnostics: Diagnostic[]) => void): void => {
+    const seen = latest.get(uri);
+    if (seen !== undefined) {
+      latest.delete(uri);
+      take(seen);
+      return;
+    }
+    waiting.set(uri, take);
+  };
+
   return {
     client,
     capabilities: initialized.capabilities,
     root,
     uriOf: (name) => pathToFileURL(join(root, name)).toString(),
-    /** The next publication for a URI, or the one already received. */
-    diagnosticsFor: (uri) =>
-      new Promise((resolve) => {
-        const seen = latest.get(uri);
-        if (seen !== undefined) {
-          latest.delete(uri);
-          resolve(seen);
-          return;
-        }
-        waiting.set(uri, resolve);
+    diagnosticsFor: (uri) => new Promise((resolve) => nextPublication(uri, resolve)),
+    /**
+     * Publications for a URI, consumed in order until one matches.
+     *
+     * The protocol carries no version on a publication and the server sends
+     * none — deliberately, for the reason `server.ts` gives. So a test cannot
+     * ask "the diagnostics for *my* edit"; the honest question is "the first
+     * publication that says what I am waiting for", with everything before it
+     * consumed rather than left behind to answer somebody else's wait. A server
+     * that never says it fails here by timing out, naming what it was owed.
+     */
+    diagnosticsUntil: (uri, matches, waitingFor) =>
+      new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          waiting.delete(uri);
+          reject(new Error(
+            `no publication for ${uri} was ${waitingFor} within ${PUBLICATION_TIMEOUT_MS}ms`,
+          ));
+        }, PUBLICATION_TIMEOUT_MS);
+        const consider = (diagnostics: Diagnostic[]): void => {
+          if (!matches(diagnostics)) {
+            nextPublication(uri, consider);
+            return;
+          }
+          clearTimeout(timer);
+          resolve(diagnostics);
+        };
+        nextPublication(uri, consider);
       }),
     publishedFor: (uri) => latest.get(uri),
     dispose: async () => {
@@ -462,7 +503,23 @@ describe("the Hexagon language server", () => {
       const unqualified = await completeAt(start);
       expect(unqualified!.some((item) => item.label === "start")).toBe(true);
     } finally {
+      // Both edits provoke diagnostics nobody here asks about, and a
+      // publication left unconsumed is the answer some later test's first wait
+      // receives. Taking the probe's *before* restoring the text also keeps the
+      // two edits out of one debounce window, so the restore is sure to publish
+      // the clearing this then consumes.
+      await hex.diagnosticsUntil(
+        uri,
+        (published) => published.length > 0,
+        "reporting the half-typed `Option.`",
+      );
+      // Restored because every test after this one asks about `MAIN`.
       await send(MAIN, 100);
+      await hex.diagnosticsUntil(
+        uri,
+        (published) => published.length === 0,
+        "clearing the restored text",
+      );
     }
   });
 
@@ -537,7 +594,11 @@ describe("the Hexagon language server", () => {
       textDocument: { uri, version: 2 },
       contentChanges: [{ text: broken }],
     });
-    const reported = await hex.diagnosticsFor(uri);
+    const reported = await hex.diagnosticsUntil(
+      uri,
+      (published) => published.length > 0,
+      "reporting the broken edit",
+    );
     expect(reported.map(({ message }) => message)).toEqual(["unknown name `Purple`"]);
     expect(reported[0]!.source).toBe("hexagon");
     expect(reported[0]!.severity).toBe(1);
@@ -548,8 +609,13 @@ describe("the Hexagon language server", () => {
       contentChanges: [{ text: MAIN }],
     });
     // Clearing is explicit: an editor removes squiggles only on an empty
-    // publish, never by the server going quiet.
-    expect(await hex.diagnosticsFor(uri)).toEqual([]);
+    // publish, never by the server going quiet — so it is the wait itself that
+    // carries the claim, and a server that went quiet times out here.
+    expect(await hex.diagnosticsUntil(
+      uri,
+      (published) => published.length === 0,
+      "clearing the fixed edit",
+    )).toEqual([]);
   });
 
   test("a broken workspace reports before any document is opened", async () => {
