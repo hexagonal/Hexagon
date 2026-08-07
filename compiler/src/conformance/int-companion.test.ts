@@ -413,16 +413,22 @@ describe("the wired rows are gone, not dormant", () => {
     expect(text).toContain('from "./Int.js"');
   });
 
-  /** The other direction: `Float`'s two rows are still the compiler's. */
-  test("`Float` keeps `mod` and `rem` as helpers", () => {
+  /**
+   * And there is no other direction left to check: `Float` was the last owner
+   * of the `PrimitiveOperation` family, and it left at its own milestone, so
+   * `Float.mod` and `Float.rem` are `stdlib/Float.hex`'s plain exports reached
+   * by import — the two helpers that carried them are gone with the family.
+   */
+  test("`Float`'s two are exports of its companion, not helpers", () => {
     const text = emitted([
       "export let a: Float = Float.mod(-7.0, 3.0)",
       "export let b: Float = Float.rem(-7.0, 3.0)",
       "",
     ].join("\n"));
 
-    expect(text).toContain("const __hex_floatMod");
-    expect(text).toContain("const __hex_floatRem");
+    expect(text).not.toContain("__hex_floatMod");
+    expect(text).not.toContain("__hex_floatRem");
+    expect(text).toContain('from "./Float.js"');
   });
 
   /**

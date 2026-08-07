@@ -79,6 +79,8 @@ describe("the module", () => {
       "BigInt.hex",
       "Int.hex",
       "Nat.hex",
+      "Float.hex",
+      "String.hex",
       "Seq.hex",
       "Result.hex",
       "Vector.hex",

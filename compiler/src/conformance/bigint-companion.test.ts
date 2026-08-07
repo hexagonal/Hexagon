@@ -520,13 +520,14 @@ describe("the wired rows are gone, not dormant", () => {
   });
 
   /**
-   * The other direction, as of #344's second landing: `Int` followed `BigInt`
-   * out of the door, so its helper family is gone too and `Int.div` is
-   * `Integral<Int>`'s member at `stdlib/Int.hex`. `Float` is what is left —
-   * its guard row is still the compiler's until its own milestone, and it was
-   * only ever `mod` and `rem`, `Float` not being `Integral`.
+   * The other direction has run out: `Int` followed `BigInt` out of the door at
+   * the second landing, and `Float` followed both at the third, taking the
+   * whole `PrimitiveOperation` family with it — the guard, the checker row, the
+   * emitter rows, and the tree node. Every one of these four calls is now a
+   * companion's member or export, reached by import, and no helper of any of
+   * the three families survives in a consumer's output.
    */
-  test("`Float` keeps its door and its helpers, and `Int` no longer does", () => {
+  test("no primitive family is left in the compiler, `Float`'s least of all", () => {
     const text = emitted([
       "export let a: Int = Int.div(-7, 2)",
       "export let b: Int = Int.gcd(12, 18)",
@@ -536,9 +537,10 @@ describe("the wired rows are gone, not dormant", () => {
     ].join("\n"));
 
     expect(text).not.toContain("__hex_int");
+    expect(text).not.toContain("__hex_float");
+    expect(text).not.toContain("__hex_bigInt");
     expect(text).toContain('from "./Int.js"');
-    expect(text).toContain("const __hex_floatMod");
-    expect(text).toContain("const __hex_floatRem");
+    expect(text).toContain('from "./Float.js"');
   });
 
   /**
