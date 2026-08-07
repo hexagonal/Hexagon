@@ -402,6 +402,14 @@ interface DotCallGoal {
   readonly level: number;
 }
 
+/** The module a receiver head's companion is addressed under (§4.1's table). */
+function companionHeadName(type: Mono): string | undefined {
+  if (type.kind === "NominalRecord" || type.kind === "Union") return type.name;
+  if (type.kind === "Vector" || type.kind === "Set" || type.kind === "Map") return type.kind;
+  if (type.kind === "Constructor") return type.name;
+  return undefined;
+}
+
 function constraintMemberCandidates(
   declaration: Resolved.ConstraintItem,
 ): readonly MemberCandidate[] {
@@ -4396,12 +4404,55 @@ class Checker {
 
     this.#diagnostics.add({
       severity: "error",
-      message:
+      message: this.#postFinalisationRedirect(actualLeft, actualRight) ??
         message?.() ??
         `type mismatch: expected ${this.#display(actualLeft)}, found ` +
           this.#display(actualRight),
       primary: span,
     });
+  }
+
+  /**
+   * §3.6's mandatory enrichment — the worst error this feature can produce, at
+   * maximal distance from its cause.
+   *
+   * A binding whose receiver was never head-known finalises at the row the
+   * fallback imposed; the contradiction then surfaces at a *use*, where the
+   * naive message ("`Vector` is not a record") says nothing about why the row
+   * exists or what to do. The rescue fires whenever the demanded field's name
+   * matches an exported companion operation of the failing nominal **or a
+   * subject-first member of a constraint honored at it** *(the member clause is
+   * 2026-08-07's: `fun f(v) = v.show()` finalised at the row type, then applied
+   * to an `Int`, deserves the same rescue)*.
+   *
+   * Keyed on the name match, not on where the failure surfaced: same module or
+   * across the program, the cause and the fixit are identical.
+   */
+  #postFinalisationRedirect(left: Mono, right: Mono): string | undefined {
+    const row = left.kind === "Record" ? left : right.kind === "Record" ? right : undefined;
+    const nominal = row === left ? right : left;
+    if (row === undefined || row === nominal || row.tail === undefined) return undefined;
+    if (nominal.kind === "Record" || nominal.kind === "Variable") return undefined;
+    const display = this.#display(nominal);
+    for (const name of row.fields.keys()) {
+      const companion = this.#companionKeyOfType(nominal);
+      const operation = companion === undefined
+        ? undefined
+        : this.#companionOperations.get(companion)?.get(name);
+      const member = (this.#honoredMembers(nominal).get(name) ?? [])
+        .find(({ subjectFirst }) => subjectFirst);
+      if (operation === undefined && member === undefined) continue;
+      return `this value's type was inferred as a record with a \`${name}\` field ` +
+        `because its type was unknown where it was written; \`${display}\` is not a ` +
+        `record. Annotate it to use dispatch, or call ${
+          member === undefined
+            // The companion is named by the type's head, never by its display:
+            // `Vector.length`, not `Vector(Int).length`, which resolves nowhere.
+            ? `\`${companionHeadName(nominal) ?? display}.${name}(…)\` directly`
+            : `${this.#memberSpelling(member)} directly`
+        }.`;
+    }
+    return undefined;
   }
 
   #unifyRecords(left: RecordMono, right: RecordMono, span: Source.Span): void {
