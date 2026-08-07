@@ -185,12 +185,15 @@ describe("compileSource", () => {
     // reason since #344: `Rat.hex` normalizes through `Integral<BigInt>`'s
     // members, so the companion's dictionary and the constraint homes that
     // declare what it throws (`/Integral.hex`, `/Pow.hex`) are emitted with it.
+    // `/Int.hex` joins at the second landing: `/VectorTrie.hex`'s index
+    // arithmetic is `Integral<Int>`'s members at that companion now.
     expect(response.executionModules.map(({ path }) => path)).toEqual([
       "/Pow.hex",
       "/Prelude.hex",
       "/Integral.hex",
       "/stdlib/Option.hex",
       "/BigInt.hex",
+      "/Int.hex",
       "/VectorTrie.hex",
       "/stdlib/Vector.hex",
       "/stdlib/Rat.hex",
@@ -465,8 +468,14 @@ describe("compileSource", () => {
 
     expect(response.kind).toBe("compile-success");
     if (response.kind !== "compile-success") return;
+    // `/Int.hex` and the constraint homes its guards throw from arrive with
+    // `/VectorTrie.hex`, whose index arithmetic reaches `Integral<Int>` at that
+    // companion since #344.
     expect(response.executionModules.map(({ path }) => path)).toEqual([
+      "/Pow.hex",
+      "/Integral.hex",
       "/stdlib/Option.hex",
+      "/Int.hex",
       "/VectorTrie.hex",
       "/stdlib/Vector.hex",
       "/Rat.hex",
