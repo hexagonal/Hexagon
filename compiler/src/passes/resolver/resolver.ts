@@ -2176,14 +2176,31 @@ class Resolver {
               span: expression.span,
             };
           }
+          // The module-less primitive companions get the qualified member
+          // spellings their real modules will carry (Modules §5.3's transitional
+          // note): `Int.show(42)` is `Show<Int>`'s member through the wired
+          // instance, until the companion arc supplies `Int.hex`. Same guard
+          // discipline as the operation family above — only where no user
+          // declaration and no module claims the name.
+          const primitiveMember = this.#primitiveCompanionMember(expression, scope);
+          if (primitiveMember !== undefined) return primitiveMember;
           const importedModule = this.#namedModule(expression.receiver.name.text);
           if (importedModule !== undefined) {
-            // §3.3: a constraint member qualifies through the alias like any
-            // other export. Read after `terms`, never merged into it — a member
-            // is not an independently importable name (§3.1).
+            // §3.3/§5.3, in order: the module's exported terms, then the members
+            // of constraints it **declares** — the polymorphic read, which is
+            // why a declaring module that also honors answers with the
+            // declaration — then the members of instances it honors at a type of
+            // its own. Read after `terms`, never merged into it: a member is not
+            // an independently importable name (§3.1).
             const symbol = importedModule.terms.get(expression.field.text) ??
               importedModule.constraintMembers.get(expression.field.text);
             if (symbol === undefined) {
+              const honored = this.#honoredMemberAccess(
+                importedModule,
+                expression.receiver.name.text,
+                expression.field,
+              );
+              if (honored !== undefined) return honored;
               this.#diagnostics.add({
                 severity: "error",
                 message: `module \`${expression.receiver.name.text}\` does not export \`${expression.field.text}\``,
@@ -3320,6 +3337,137 @@ class Resolver {
   }
 
   /**
+   * The module-less primitive companions, for Modules §5.3's transitional note.
+   *
+   * `Int`, `Nat`, `BigInt`, `Float`, and `String` have no `.hex` module yet, so
+   * §6.4's qualified-home guarantee has nothing to route through — and the
+   * guarantee now covers members (`Int.show(42)`). The companion arc replaces
+   * this with real modules on the intrinsics §9.2 schedule; until then the
+   * spellings are wired here, under the same discipline as the operation guard
+   * above: only where no user declaration and no module claims the name.
+   *
+   * Nothing here asks whether the primitive *has* the instance. The reference is
+   * pinned at the primitive and the requirement is validated where every other
+   * requirement is — so `String.div(1, 2)` is the ordinary missing-instance
+   * report rather than a second, resolver-shaped opinion about the same fact.
+   */
+  #primitiveCompanionMember(
+    expression: Parsed.AccessExpr,
+    scope: Scope,
+  ): Resolved.Expr | undefined {
+    if (expression.receiver.kind !== "Name") return undefined;
+    const name = expression.receiver.name.text;
+    if (!PRIMITIVE_COMPANIONS.includes(name)) return undefined;
+    if (scope.lookup(name) !== undefined) return undefined;
+    if (this.#namedModule(name) !== undefined) return undefined;
+    const found = this.#preRegisteredMember(expression.field.text);
+    if (found === undefined) return undefined;
+    this.#importedSymbols.set(found.id, found);
+    const local = this.#reachPreludeTerm(found.id);
+    if (local === undefined) return undefined;
+    return {
+      kind: "Name",
+      symbol: found.id,
+      text: local,
+      instanceSubject: {
+        annotation: {
+          kind: "Primitive",
+          name: name as Resolved.PrimitiveName,
+          span: expression.receiver.name.span,
+        },
+        typeParameters: [],
+      },
+      span: expression.span,
+    };
+  }
+
+  /** The prelude declaration's member of this name, if exactly one declares it. */
+  #preRegisteredMember(member: string): Resolved.Symbol | undefined {
+    const found = [...this.#visibleConstraints.values()].flatMap((declaration) =>
+      declaration.identity.startsWith("hex:")
+        ? declaration.members.filter(({ binding }) => binding.name === member)
+        : []
+    );
+    if (found.length !== 1) return undefined;
+    return this.#preludeTerms.get(found[0]!.binding.symbol);
+  }
+
+  /**
+   * Consequence 4 of the members-as-values ruling, as Modules §5.3 graduates it:
+   * **qualified access reaches an honoring module's members.**
+   *
+   * `Rat.add(r1, r2)` denotes `Num<Rat>`'s member; `Bool.show(flag)` denotes
+   * derived `Show<Bool>`'s. The governing principle is uniform access — a
+   * consumer's `M.f(…)` survives `f` migrating between a plain module function
+   * and a constraint member, in either direction, with no call site changing —
+   * which is why this read comes *after* `terms` and after the module's own
+   * declared members, and never merges with either.
+   *
+   * Only instances at a type the module **declares**: an instance merely passing
+   * through its import graph is not its member to offer. A module honoring one
+   * constraint at several of its own types makes the spelling ambiguous and
+   * takes §5.5's refusal posture, naming each honored type and the routes that
+   * are not ambiguous.
+   */
+  #honoredMemberAccess(
+    iface: ModuleInterface,
+    alias: string,
+    field: Parsed.Name,
+  ): Resolved.Expr | undefined {
+    const declares = (subject: Resolved.TypeAnnotation): boolean =>
+      (subject.kind === "RecordDeclaration" &&
+        [...iface.records.values()].some(({ id }) => id === subject.record)) ||
+      (subject.kind === "Union" &&
+        [...iface.unions.values()].some(({ id }) => id === subject.union));
+    const candidates = iface.instances.flatMap((instance) => {
+      if (!declares(instance.subject)) return [];
+      const declaration = iface.visibleConstraints.find(
+        (item) => item.identity === instance.constraintIdentity,
+      );
+      const member = declaration?.members.find(
+        ({ binding }) => binding.name === field.text,
+      );
+      if (member === undefined) return [];
+      return [{ instance, member }];
+    });
+    if (candidates.length === 0) return undefined;
+    if (candidates.length > 1) {
+      const types = candidates.map(({ instance }) => `\`${annotationHeadName(instance.subject)}\``);
+      this.#diagnostics.add({
+        severity: "error",
+        message: `\`${alias}.${field.text}\` is ambiguous: \`${alias}\` honors a ` +
+          `constraint with a member \`${field.text}\` at ${types.join(" and ")}. ` +
+          `Write the dot call on a value of the type you mean, the bare ` +
+          `\`${field.text}(…)\`, or the declaring module's qualified spelling.`,
+        primary: field.span,
+      });
+      return { kind: "ErrorExpr", span: field.span };
+    }
+    const { instance, member } = candidates[0]!;
+    const symbol = iface.module.symbols.find(({ id }) => id === member.binding.symbol);
+    if (symbol === undefined) return undefined;
+    this.#importedSymbols.set(symbol.id, symbol);
+    // The member is the *declaring* module's binding, so the spelling this
+    // module emits has to be one it can reach: the prelude local for a prelude
+    // constraint, or the local a real import of the declaration already bound.
+    // Nothing else has an import to render, and inventing one is the companion
+    // arc's business, not this read's.
+    const local = this.#reachPreludeTerm(symbol.id) ??
+      (this.#explicitlyImported.has(symbol.id) ? symbol.name : undefined);
+    if (local === undefined) return undefined;
+    return {
+      kind: "Name",
+      symbol: symbol.id,
+      text: local,
+      instanceSubject: {
+        annotation: instance.subject,
+        typeParameters: instance.typeParameters,
+      },
+      span: field.span,
+    };
+  }
+
+  /**
    * Consequence 3 of the constraint-members-are-values note (#335): **an
    * honored member's spelling is claimed in the honoring module's term space.**
    *
@@ -3445,6 +3593,13 @@ function isResolvedTypeAlias(
 ): alias is Resolved.TypeAliasItem {
   return typeof alias.name === "string";
 }
+
+/**
+ * The primitives Modules §5.3's transitional note names: the companions with no
+ * `.hex` module, whose qualified member spellings are wired until the companion
+ * arc supplies real ones.
+ */
+const PRIMITIVE_COMPANIONS: readonly string[] = ["Int", "Nat", "BigInt", "Float", "String"];
 
 function annotationHeadName(annotation: Resolved.TypeAnnotation): string {
   switch (annotation.kind) {

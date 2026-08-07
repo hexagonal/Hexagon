@@ -2744,6 +2744,22 @@ class Checker {
           level,
           requirements,
           expression.span,
+          // Modules §5.3: `Rat.add` is the member **at `Rat`**, not the
+          // polymorphic export the resolver found it through. Pinning the
+          // subject is what makes that sentence true of the type as well as of
+          // the reader's expectation.
+          expression.instanceSubject === undefined
+            ? undefined
+            : this.#annotationType(
+                expression.instanceSubject.annotation,
+                level,
+                new Map(),
+                new Map(
+                  expression.instanceSubject.typeParameters.map(({ name }) =>
+                    [name, this.#fresh(level, false)] as const
+                  ),
+                ),
+              ),
         );
         this.#nameRequirements.set(expression, requirements);
         break;
@@ -5746,6 +5762,13 @@ class Checker {
     level: number,
     collected?: Requirement[],
     useSpan?: Source.Span,
+    /**
+     * The type a **constraint member's** subject is pinned at for this one
+     * reference (Modules §5.3's qualified access through an honoring module).
+     * Applied before the copy walks, so the requirement the copy records is
+     * already the concrete one selection will answer.
+     */
+    pinnedSubject?: Mono,
   ): Mono {
     const replacements = new Map<number, Variable>();
     const copiedRequirements = new Set<number>();
@@ -5825,7 +5848,14 @@ class Checker {
       }
       return actual;
     };
-    return copy(scheme.type);
+    const instantiated = copy(scheme.type);
+    const subject = scheme.constraintSubject === undefined
+      ? undefined
+      : replacements.get(scheme.constraintSubject.id);
+    if (pinnedSubject !== undefined && subject !== undefined && useSpan !== undefined) {
+      this.#unify(subject, pinnedSubject, useSpan);
+    }
+    return instantiated;
   }
 
   #unsupported(span: Source.Span, message: string): ErrorMono {

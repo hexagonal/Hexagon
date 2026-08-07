@@ -952,7 +952,24 @@ export interface NameExpr {
   readonly kind: "Name";
   readonly symbol: SymbolId;
   readonly text: string;
+  /**
+   * The instance subject this reference is pinned at, for a member reached
+   * through **qualified access to an honoring module** (Modules §5.3).
+   *
+   * `Rat.add` denotes `Num<Rat>`'s member, not `Num`'s polymorphic export — that
+   * is what "the member at the type `M` honors" means, and it is what makes
+   * `Rat.add(1, 2)` the type error a reader expects rather than a silent
+   * `Num<Int>` call. The symbol is the declaration's member either way; this
+   * says which instance the reference means.
+   */
+  readonly instanceSubject?: InstanceSubjectPin;
   readonly span: Source.Span;
+}
+
+export interface InstanceSubjectPin {
+  readonly annotation: TypeAnnotation;
+  /** The instance's own parameters, fresh per reference (`honor<a: Show> …`). */
+  readonly typeParameters: readonly TypeParameter[];
 }
 
 export interface UnitExpr {
