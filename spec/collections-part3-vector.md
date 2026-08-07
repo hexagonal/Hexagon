@@ -180,7 +180,7 @@ xs[3..1]      -- []              (empty ascending range: lo > hi)
 
 ### 6.2 Complexity and emission
 
-O(log₃₂ n) per §4. Emission: `xs.slice(lo - 1, hi)` — the runtime's slice clamps natively, so the ascending path is a single call with zero guard code, modulo the 0-based offset. General `Range`-valued slices go through a small runtime helper that reads the range's bounds and direction (and implements §6.3).
+O(log₃₂ n) per §4 — and the returned window is **trimmed**: while its live tree range fits under a single child of the root, the representation descends into that child (a wholly tail-resident window drops the tree outright), so a slice's own `get`/`set` pay O(log₃₂) of the *window's* size, not its source's, and the parts of the source trie the window left behind are released rather than held live. The descent costs only the levels it removes, so §4's bound — and its end-slice note — stand unchanged. Emission: `xs.slice(lo - 1, hi)` — the runtime's slice clamps natively, so the ascending path is a single call with zero guard code, modulo the 0-based offset. General `Range`-valued slices go through a small runtime helper that reads the range's bounds and direction (and implements §6.3).
 
 ### 6.3 Descending ranges: `SliceError` — windows have no direction
 
