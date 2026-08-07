@@ -1,0 +1,5 @@
+(** The polymorphic face of exponentiation. Honoring `Pow` gives a type the `**`
+    operator. *)
+export constraint Pow<a: Num> =
+    (** `left` raised to the power `right`. *)
+    pow(left: a, right: a): a

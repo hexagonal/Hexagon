@@ -201,7 +201,7 @@ Proceed a piece at a time:
 
 After the BigInt worked example, the preferred order is:
 
-1. primitive constraint declarations and their canonical instances;
+1. primitive constraint declarations and their canonical instances — the declarations half is discharged (#335): every pre-registered constraint with a compiler-held declaration has canonical prelude source (`Show.hex`, `Num.hex`, `Signed.hex`, `Frac.hex`, `Pow.hex`, `Concat.hex`, `Eq.hex`, `Hash.hex`, `Ord.hex`, `Integral.hex`; `Iterable` is name-only, collections-owned); the canonical primitive instances remain compiler-wired, owed to the companion arc;
 2. `Seq.hex`, retaining only the memoizing spine and iterator bridge — **advanced from preference to decided obligation (2026-07-26): `Seq.hex` declares the type itself and joins the prelude set, before and as the pilot for `Vector`/`Set`/`Map`; see the §2 obligation row and `spec/notes/seq-deintrinsification-plan.md`**;
 3. Map/Set algebra over a retained tuned HAMT core;
 4. `Option.hex` and `Result.hex`; and

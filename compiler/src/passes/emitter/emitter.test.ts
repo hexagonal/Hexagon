@@ -1286,30 +1286,33 @@ describe("emitJavaScript", () => {
     expect(thrown).toMatchObject({ name: "DivideByZeroError", $hex: true });
   });
 
-  test("passes complete Integral dictionaries through generic code", () => {
-    const output = emitJavaScript(
-      coreSource(
-        "constraint Integral<a: (Num, Ord)> =\n" +
-          "    div(x: a, y: a): a\n" +
-          "    mod(x: a, y: a): a\n" +
-          "    quot(x: a, y: a): a\n" +
-          "    rem(x: a, y: a): a\n" +
-          "    gcd(x: a, y: a): a\n" +
-          "fun normalize<a: Integral>(n: a, d: a): (a, a) =\n" +
-          "    let g = gcd(n, d)\n" +
-          "    let n2 = quot(n, g)\n" +
-          "    let d2 = quot(d, g)\n" +
-          "    (n2, d2)\n" +
-          "let result = normalize(4n, 6n)",
-      ),
-    );
+  test("passes complete Integral dictionaries through generic code", async () => {
+    // No declaration in the program: `stdlib/Integral.hex` is a prelude member
+    // since #335, so `Integral` and its five members arrive the way `Num` and
+    // `Ord` always did, and a module-level redeclaration is now refused. What
+    // is measured is unchanged — a generic body reaching `gcd`/`quot` gets a
+    // dictionary carrying every member and both base-constraint slots.
+    //
+    // Linked and run rather than evaluated as one text, for the reason the
+    // Map/Set case above is: the bare members are imports of `./Integral.js`
+    // now (the declaring module emits each member as an evidence-taking
+    // function), so the emitted module is a real ES module.
+    const files = [["/main.hex",
+      "fun normalize<a: Integral>(n: a, d: a): (a, a) =\n" +
+        "    let g = gcd(n, d)\n" +
+        "    let n2 = quot(n, g)\n" +
+        "    let d2 = quot(d, g)\n" +
+        "    (n2, d2)\n" +
+        "export let result: (BigInt, BigInt) = normalize(4n, 6n)\n",
+    ]] as const;
+    const project = compileFiles(files);
 
-    expect(output.diagnostics).toEqual([]);
-    expect(output.text).toContain("gcd:");
-    expect(output.text).toContain("ord:");
-    expect(output.text).toContain("num:");
-    const execute = Function(`${output.text}\nreturn result;`) as () => readonly bigint[];
-    expect(execute()).toEqual([2n, 3n]);
+    expect(project.diagnostics).toEqual([]);
+    const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    expect(text).toContain("gcd:");
+    expect(text).toContain("ord:");
+    expect(text).toContain("num:");
+    expect((await runProject(files))["result"]).toEqual([2n, 3n]);
   });
 
   test("executes Rat normalization and arithmetic through Euclidean BigInt machinery", () => {

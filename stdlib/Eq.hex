@@ -1,0 +1,8 @@
+(** The polymorphic face of equality. Honoring `Eq` gives a type the `==` and
+    `!=` operators, and admits it as a component of a derived equality elsewhere. *)
+export constraint Eq<a> =
+    (** Whether `left` and `right` are equal. *)
+    equals(left: a, right: a): Bool
+    (** Whether `left` and `right` differ. An instance may override this for
+        efficiency, but the override must equal the negation of `equals`. *)
+    notEquals(left: a, right: a): Bool = not equals(left, right)

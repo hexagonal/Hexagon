@@ -108,8 +108,8 @@ Inference attaches constraints without annotation (`fun plus(x, y) = add(x, y)` 
 honor Show<Point> =
     show(p) = "(${p.x}, ${p.y})"
 
-honor Ord<Int> =
-    compare(x, y) = ...
+honor Ord<Point> =
+    compare(p, q) = ...
 ```
 
 - **Head:** `honor ConstraintName<Type>`. The subject slot that held a variable-being-introduced in `constraint` holds a concrete-type-being-supplied in `honor`. Declaration/use duality, deliberately.
@@ -120,9 +120,9 @@ honor Ord<Int> =
 
 ### 4.2 Base constraint obligations: checked, never restated
 
-`honor Ord<Int>` does **not** name or restate the `Eq<Int>` instance. The compiler checks that the base constraint instance *exists* (ground case) or *is derivable from the instance's own binders* (parameterized case, §4.3), and errors otherwise:
+`honor Ord<Point>` does **not** name or restate the `Eq<Point>` instance. The compiler checks that the base constraint instance *exists* (ground case) or *is derivable from the instance's own binders* (parameterized case, §4.3), and errors otherwise:
 
-> cannot honor `Ord<Int>`: `Ord` requires `Eq`, and no `Eq<Int>` instance exists.
+> cannot honor `Ord<Point>`: `Ord` requires `Eq`, and no `Eq<Point>` instance exists.
 
 Naming instances would only make sense under multiple candidate instances, which coherence (§5) forbids; existence-checking is therefore complete.
 
@@ -159,7 +159,7 @@ record Point derives (Eq, Show) = ...  -- header sugar, owned by Declarations Pr
 - **`derive` is a keyword valid only as the complete RHS of an `honor`** (parallel to §4.1's lambda-literal rule); anywhere else it is a parse error with the fixit "`derive` is only legal as the body of an `honor`".
 - **Derivable in v1: `Eq`, `Ord`, `Show`** (structural semantics fixed by Products/Unions) **and `Hash`** — which is *derivable-only*: `Hash` instances cannot be hand-written, and deriving `Hash<T>` additionally requires a derived `Eq<T>` (Collections Part 2 §4 owns both rules and `Hash`'s semantics).
 - **Structural types are untouched and user-closed**: tuples and structural records keep their automatic compiler-derived instances — they have no constructor name to key an instance on (§5.4) and no home module for the orphan rule (Modules §2: structural types belong to no module). Users cannot write instances for them (§9.3, resolved).
-- Derivation on a parameterized nominal type produces the expected parameterized instance (slot types' instances become instance-context obligations, §4.3). Emission is exactly what the structural semantics dictate; nothing new.
+- Derivation on a parameterized nominal type produces the expected parameterized instance (slot types' instances become instance-context obligations, §4.3). Emission is exactly what the structural semantics dictate — and what that dictates is owned by Products §2.5's implementer note (a component means its *instance*; emission must render the checker's selection); nothing new.
 
 ---
 
@@ -179,8 +179,8 @@ Consequences, pinned so the implementation cannot drift back to name-keying:
 
 - **Instance identity keys on the declaration.** An `honor Describe<Int>` answering one module's `Describe` and an `honor Describe<Int>` answering another's coexist in one program; §5.1's duplicate error fires only when two instances answer the *same* constraint declaration. In particular, two modules that each declare a private `Describe` and honor it for the same type are both lawful, and a third module importing both compiles — it could not even name either constraint.
 - **Diagnostics disambiguate by home module.** A message that must mention two same-named constraints qualifies each by its declaring module; a message mentioning one constraint uses the bare name. Never report two *distinct declarations* as duplicates because they share a name — under this section there is no name-level duplicate across modules. (Two source declarations landing on one shared identity — the name-only case below — are not a same-name pair of distinct constraints; their collisions are genuine.)
-- **Pre-registered constraints are declarations too.** The compiler pre-registers eleven constraint names — `Num`, `Signed`, `Frac`, `Pow`, `Concat`, `Eq`, `Ord`, `Show`, `Hash`, `Iterable`, `Integral`; that inventory's normative home is this section — and each denotes exactly one compiler-global identity, in every module, with no import. For the nine whose declarations the compiler holds (all but `Iterable` and `Integral`), the name is non-redeclarable: a module-level `constraint Eq<a> = ...` is an error naming the pre-registered constraint, not a second `Eq`. The wired-in machinery (operator routing, derivation, collection contracts) reaches these constraints by their one identity, and a user-spelled twin would be unreachable by that machinery, so it is refused rather than admitted as a trap. The refusal is a declaration-form error, not a resolution priority: no name ever resolves *past* a user declaration to compiler machinery (Modules §5.5's no-outranking rule is untouched — the declaration is simply not available to write), and a pre-registered constraint name is not a prelude name for Modules §5.4's occlusion rule — it has no companion-module home to stay reachable in. Member names are unaffected either way: `show` the term occludes per §5.4 as it always did; `Show` the constraint is what this bullet governs.
-- **Two pre-registrations are name-only in v1**: for `Iterable` and `Integral` the compiler holds the name but no declaration, so a source `constraint Iterable<c> = ...` lands on the pre-registered identity rather than minting a rival — identification, not occlusion, and the module's own text is the member list the checker reads (there is no compiler-held list to check it against). Two sharp edges follow from the gap, recorded rather than blessed (#283): *concurrent supply* — two modules may each declare a name-only constraint with different member lists, and both land on the one identity, making them the same constraint with unreconciled members, whose honors for one type collide as genuine §5.1 duplicates; and *orphan-rule license* — any module whose text declares a name-only constraint is "the module that declares `C`" for §5.3, an authority the pre-registration was never meant to hand out per module. The redeclaration ban extends to both names when the compiler holds their declarations; the name-only state is a compiler gap, not a spec freedom, and no third kind of pre-registration exists.
+- **Pre-registered constraints are declarations too.** The compiler pre-registers eleven constraint names — `Num`, `Signed`, `Frac`, `Pow`, `Concat`, `Eq`, `Ord`, `Show`, `Hash`, `Iterable`, `Integral`; that inventory's normative home is this section — and each denotes exactly one compiler-global identity, in every module, with no import. For the ten whose declarations the compiler holds (all but `Iterable`), the name is non-redeclarable: a module-level `constraint Eq<a> = ...` is an error naming the pre-registered constraint, not a second `Eq`. The wired-in machinery (operator routing, derivation, collection contracts) reaches these constraints by their one identity, and a user-spelled twin would be unreachable by that machinery, so it is refused rather than admitted as a trap. The refusal is a declaration-form error, not a resolution priority: no name ever resolves *past* a user declaration to compiler machinery (Modules §5.5's no-outranking rule is untouched — the declaration is simply not available to write), and such a name is not a prelude name for Modules §5.4's occlusion rule — the refusal leaves nothing an occlusion could mean. Member names are unaffected either way: `show` the term occludes per §5.4 as it always did; `Show` the constraint is what this bullet governs.
+- **One pre-registration is name-only in v1**: for `Iterable` the compiler holds the name but no declaration, so a source `constraint Iterable<c> = ...` lands on the pre-registered identity rather than minting a rival — identification, not occlusion, and the module's own text is the member list the checker reads (there is no compiler-held list to check it against). Two sharp edges follow from the gap, recorded rather than blessed (#283): *concurrent supply* — two modules may each declare the name-only constraint with different member lists, and both land on the one identity, making them the same constraint with unreconciled members, whose honors for one type collide as genuine §5.1 duplicates; and *orphan-rule license* — any module whose text declares the name-only constraint is "the module that declares `C`" for §5.3, an authority the pre-registration was never meant to hand out per module. The redeclaration ban extends to it when the compiler holds its declaration; the name-only state is a compiler gap, not a spec freedom, and no third kind of pre-registration exists. (`Integral` was the other name-only registration until `stdlib/Integral.hex` joined the prelude and its ban landed with its declaration; #283's remnant is `Iterable`, owed to the collections arc.)
 
 ### 5.2 No local instances, no overlapping instances
 
@@ -265,12 +265,12 @@ Diagnostic noun policy (restated from the preamble): the noun is **instance**, t
 
 | Situation | Error / hint |
 |---|---|
-| Missing member in `honor` | "the `Ord<Int>` instance is missing `compare`" |
+| Missing member in `honor` | "the `Ord<Point>` instance is missing `compare`" |
 | Omitted defaulted member | accepted; the constraint body supplies it |
 | Override of a defaulted member | accepted when its type matches the declared member type |
 | Extra member | "`Ord` has no member `compere`" (+ near-miss suggestion) |
 | Member type mismatch | ordinary type error, phrased against the constraint's declared header |
-| Missing base constraint instance | "cannot honor `Ord<Int>`: `Ord` requires `Eq`, and no `Eq<Int>` instance exists" (§4.2) |
+| Missing base constraint instance | "cannot honor `Ord<Point>`: `Ord` requires `Eq`, and no `Eq<Point>` instance exists" (§4.2) |
 | Duplicate instance | hard error at second declaration, naming the first (§5.1); remove one or delete the duplicate module's copy |
 | Orphan instance | hard error: "honor `C<T>` in the module declaring `C` or the module declaring `T` — move this declaration there" (§5.3) |
 | Non-constructor or repeated-variable instance head | §5.4 messages, each naming the general head to write (`Show<Vector(a)>`) |
@@ -282,7 +282,7 @@ Diagnostic noun policy (restated from the preamble): the noun is **instance**, t
 | Member name = lowercased base constraint name | hard error; rename the member (§6.2) |
 | Non-lambda member RHS in `honor` | the `fun` §7.1-style syntactic error; write the member as a lambda or header-sugar definition (§4.1) |
 | Unsatisfied constraint at a call site | phrased per Numeric Literals §6 where a literal is involved; otherwise "`T` has no `Ord` instance, required by `sort`" — with the derivation fixit where `Ord` is derivable: "add `derives Ord` to the declaration of `T`" (§4.5) |
-| Redeclaring a pre-registered constraint name | hard error: "constraint `Hash` is pre-registered and cannot be redeclared" (§5.1.1; the nine compiler-held names — name-only `Iterable`/`Integral` excepted until #283 closes) |
+| Redeclaring a pre-registered constraint name | hard error: "constraint `Hash` is pre-registered and cannot be redeclared" (§5.1.1; the ten compiler-held names — name-only `Iterable` excepted until #283 closes) |
 | A message naming two same-named constraints | qualify each by its declaring module; a message naming one constraint keeps the bare name (§5.1.1) |
 | Instance for a structural type (tuple / structural record) | "instances are keyed on type constructors; tuples and structural records have compiler-derived instances only — declare a nominal `record` or `union` for a type you control" (§5.4, §9.3) |
 | `honor C<Alias>` on a transparent alias | "`Meters` is an alias of `Float`; aliases cannot carry their own instances — use a `record` or a single-constructor `union`" (Declarations Preamble §4 owns) |
@@ -324,7 +324,7 @@ Numbers are kept because companion specs cite them; §§9.1–9.3, 9.5, 9.7 are 
 | Base constraint obligations existence-checked, never restated | §4.2 |
 | Parameterized instances via prefix `<...>` binders; entailment via base constraint DAG, search-free | §4.3 |
 | Global coherence: one instance per (constraint, constructor); no local/overlapping/named instances | §5.1–5.2 |
-| A constraint is its declaration: same-name constraints are distinct, coherence and instance identity key on the declaration, pre-registered names non-redeclarable (name-only `Iterable`/`Integral` excepted until compiler-held) | §5.1.1 |
+| A constraint is its declaration: same-name constraints are distinct, coherence and instance identity key on the declaration, pre-registered names non-redeclarable (name-only `Iterable` excepted until compiler-held) | §5.1.1 |
 | Orphan rule (Rust-style); instances global, never imported/hidden | §5.3 |
 | Instance heads: one constructor, distinct variables (H98-style) | §5.4 |
 | Dictionaries: records / dictionary-functions; trailing maximal-evidence suffix ordered by type-variable ordinal then constraint name; monomorphic erasure | §6.1; FFI Part 9 §6–§7 |

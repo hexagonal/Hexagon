@@ -11,6 +11,7 @@ import {
   declaredConstraintIdentity,
   isPreRegisteredConstraint,
   NON_REDECLARABLE_CONSTRAINTS,
+  PRE_REGISTERED_CONSTRAINT_MEMBERS,
   preRegisteredConstraintIdentity,
 } from "../../constraints.js";
 import {
@@ -874,6 +875,7 @@ class Resolver {
     this.#moduleScope = scope;
     this.#predeclareExternTerms(module.items, scope);
     const resolvedItems = this.#resolveItems(module.items, scope);
+    this.#claimHonoredMembers(resolvedItems, scope);
     // After resolution, never before: the synthesized import's local names have
     // to dodge every name the emitted module binds, and that set is only closed
     // once every declaration has been through `#declare` (PR #91 finding F1).
@@ -3315,6 +3317,90 @@ class Resolver {
         span: name.span,
       }];
     });
+  }
+
+  /**
+   * Consequence 3 of the constraint-members-are-values note (#335): **an
+   * honored member's spelling is claimed in the honoring module's term space.**
+   *
+   * A member definition is a module-level binding. Hexagon has no overloading,
+   * so a module that honors `Show<Box>` and also binds an ordinary `show` has
+   * bound one name twice, and that is the rebinding error the language already
+   * owns — no new rule, only a new pair of things that collide. The defect it
+   * retires was writable and silent: a module could export `show(box) =
+   * "export"` *while* honoring `Show<Box>` with `show(box) = "member"`, compile
+   * clean, and split the spellings (a dot call and an in-module bare use took
+   * the export; interpolation took the member).
+   *
+   * Three boundaries, each load-bearing:
+   *
+   * - **Members from distinct honor blocks coexist.** One module honoring two
+   *   constraints that share a member name is legal and stays legal (note
+   *   consequence 5), disambiguated by evidence, by qualification, or by
+   *   Modules §5.5 where a bare use is genuinely ambiguous. That falls out of
+   *   the claim being read against *bindings*: an honor block binds nothing in
+   *   the module scope, so no claim can meet another claim.
+   * - **A declaring module's own declaration is not an honor.** `Show.hex`
+   *   binds `show` as a `constraint-member` of its declaration; a module that
+   *   both declares and honors holds the spelling twice on purpose (note §5
+   *   item 4), so a `constraint-member` binding is never the collision.
+   * - **The claim covers every member of the constraint**, not the ones the
+   *   block writes: a defaulted member the instance inherits is bound just as
+   *   much as an overridden one, and a `derives` clause is honoring too.
+   *
+   * Run once, after every item is resolved, which is what makes the claim
+   * order-free — a `let` before the block and a `let` after it are the same
+   * collision, and each is reported at whichever of the two the reader would
+   * fix. Only the module layer: an inner-layer binder is refused by §5.4's
+   * absolute ban long before it could reach here.
+   */
+  #claimHonoredMembers(items: readonly Resolved.Item[], scope: Scope): void {
+    for (const item of items) {
+      if (item.kind !== "Honor") continue;
+      const instance = `${item.constraint}<${annotationHeadName(item.subject)}>`;
+      for (const member of this.#honoredMemberNames(item)) {
+        const existing = scope.lookupLocal(member);
+        if (existing === undefined) continue;
+        const previous = this.#symbol(existing);
+        if (previous.kind === "constraint-member") continue;
+        const bound = previous.bindingSpan;
+        const rebinding = "Hexagon does not allow rebinding — choose a different name.";
+        const claimFirst = item.span.start.offset < bound.start.offset;
+        this.#diagnostics.add({
+          severity: "error",
+          message: claimFirst
+            ? `\`${member}\` is already bound: the \`${instance}\` instance binds it ` +
+              `as a member (line ${item.span.start.line + 1}); ${rebinding}`
+            : `the \`${instance}\` instance binds \`${member}\`, which is already ` +
+              `bound (line ${bound.start.line + 1}); ${rebinding}`,
+          primary: claimFirst ? bound : item.span,
+          labels: claimFirst
+            ? [{ span: item.span, message: "the member is bound here" }]
+            : [{ span: bound, message: "previous binding" }],
+        });
+      }
+    }
+  }
+
+  /**
+   * The member names an `honor` binds: the constraint's declaration, wherever
+   * it is visible from — this module's own, an imported one, or a prelude one
+   * riding the visible-constraints metadata channel.
+   *
+   * The fallback is for a compile with no prelude at all (the pass-level unit
+   * harnesses), where a pre-registered name still means the compiler's
+   * constraint but no declaration is in view. See
+   * `PRE_REGISTERED_CONSTRAINT_MEMBERS` for why answering from a table there is
+   * better than answering from the honor block's own member list, which would
+   * silently let an inherited default's spelling escape the claim.
+   */
+  #honoredMemberNames(item: Resolved.HonorItem): readonly string[] {
+    const declaration = this.#visibleConstraints.get(item.constraintIdentity) ??
+      this.#namedConstraint(item.constraint);
+    if (declaration !== undefined) {
+      return declaration.members.map(({ binding }) => binding.name);
+    }
+    return PRE_REGISTERED_CONSTRAINT_MEMBERS[item.constraint] ?? [];
   }
 
   #reportRebinding(name: Parsed.Name, existing: Resolved.SymbolId): void {

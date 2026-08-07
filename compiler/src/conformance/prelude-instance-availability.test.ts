@@ -115,7 +115,7 @@ describe("a type-only prelude mention has its instances", () => {
     // Imported from `Prelude.js`, which declares it — not from an intermediate,
     // and not re-exported onward.
     expect(importLines(javascript)).toEqual([
-      'import { __hex_instance_Eq_Ordering as __hex_imported_3___hex_instance_Eq_Ordering } from "./Prelude.js";',
+      'import { __hex_instance_Eq_Ordering as __hex_imported_10___hex_instance_Eq_Ordering } from "./Prelude.js";',
     ]);
     expect(exportLines(javascript)).toEqual(["export { f };"]);
     expect(danglingImports([["/main.hex", source]])).toEqual([]);
@@ -136,7 +136,7 @@ describe("a type-only prelude mention has its instances", () => {
     const source = "export fun f(a: Option(Int), b: Option(Int)): Bool = a == b\n";
     expect(diagnostics([["/main.hex", source]])).toEqual([]);
     expect(importLines(emitted([["/main.hex", source]], "/main.hex"))).toEqual([
-      'import { __hex_instance_Eq_Option as __hex_imported_4___hex_instance_Eq_Option } from "./Option.js";',
+      'import { __hex_instance_Eq_Option as __hex_imported_13___hex_instance_Eq_Option } from "./Option.js";',
     ]);
     expect(danglingImports([["/main.hex", source]])).toEqual([]);
 
@@ -163,7 +163,7 @@ describe("a type-only prelude mention has its instances", () => {
     const source = 'export fun f(a: Ordering): String = "v: ${a}"\n';
     expect(diagnostics([["/main.hex", source]])).toEqual([]);
     expect(importLines(emitted([["/main.hex", source]], "/main.hex"))).toEqual([
-      'import { __hex_instance_Show_Ordering as __hex_imported_3___hex_instance_Show_Ordering } from "./Prelude.js";',
+      'import { __hex_instance_Show_Ordering as __hex_imported_10___hex_instance_Show_Ordering } from "./Prelude.js";',
     ]);
   });
 
@@ -220,7 +220,7 @@ describe("transit shapes keep working and shrink", () => {
 
     const b = emitted(files, "/b.hex");
     expect(importLines(b)).toEqual([
-      'import { __hex_instance_Eq_Option as __hex_imported_5___hex_instance_Eq_Option } from "./Option.js";',
+      'import { __hex_instance_Eq_Option as __hex_imported_14___hex_instance_Eq_Option } from "./Option.js";',
       'import { mk } from "./a.js";',
     ]);
     // The point of the fix: no evidence re-export anywhere on the path.
@@ -245,7 +245,7 @@ describe("transit shapes keep working and shrink", () => {
     ] as const;
     expect(diagnostics(files)).toEqual([]);
     expect(importLines(emitted(files, "/b.hex"))).toEqual([
-      'import { __hex_instance_Eq_Option as __hex_imported_5___hex_instance_Eq_Option } from "./Option.js";',
+      'import { __hex_instance_Eq_Option as __hex_imported_14___hex_instance_Eq_Option } from "./Option.js";',
       'import "./a.js";',
     ]);
     expect(exportLines(emitted(files, "/a.hex"))).toEqual(["export { mk };"]);
@@ -253,7 +253,7 @@ describe("transit shapes keep working and shrink", () => {
 
   /**
    * Two hops. The old chain re-exported through every intermediate and named the
-   * dictionary `__hex_imported_1___hex_imported_0___hex_imported_6___…`; `c` now
+   * dictionary `__hex_imported_1___hex_imported_0___hex_imported_15___…`; `c` now
    * imports the declaring module directly and `b` carries nothing.
    */
   test("a two-hop chain reaches the declaring module in one hop", () => {
@@ -264,7 +264,7 @@ describe("transit shapes keep working and shrink", () => {
     ] as const;
     expect(diagnostics(files)).toEqual([]);
     expect(importLines(emitted(files, "/c.hex"))).toEqual([
-      'import { __hex_instance_Eq_Option as __hex_imported_6___hex_instance_Eq_Option } from "./Option.js";',
+      'import { __hex_instance_Eq_Option as __hex_imported_15___hex_instance_Eq_Option } from "./Option.js";',
       'import { h } from "./b.js";',
     ]);
     expect(exportLines(emitted(files, "/b.hex"))).toEqual(["export { h };"]);
@@ -289,7 +289,7 @@ describe("transit shapes keep working and shrink", () => {
     expect(diagnostics(files)).toEqual([]);
     const javascript = emitted(files, "/main.hex");
     expect(importLines(javascript)).toEqual([
-      'import { __hex_instance_Eq_Option as __hex_imported_4___hex_instance_Eq_Option } from "./Option.js";',
+      'import { __hex_instance_Eq_Option as __hex_imported_13___hex_instance_Eq_Option } from "./Option.js";',
     ]);
     expect(javascript).not.toContain("Seq.js");
     expect(exportLines(javascript)).toEqual([
@@ -319,7 +319,7 @@ describe("an explicit import of a prelude module coexists with the channel", () 
 
     const javascript = emitted([["/main.hex", source]], "/main.hex");
     const binding = importLines(javascript).filter((line) =>
-      line.includes("as __hex_imported_3___hex_instance_Eq_Ordering")
+      line.includes("as __hex_imported_10___hex_instance_Eq_Ordering")
     );
     expect(binding.length).toBe(1);
     // And nothing re-exports it: the channel never calls `#exportEvidence`, and
@@ -337,8 +337,8 @@ describe("an explicit import of a prelude module coexists with the channel", () 
    * (#263), so `b` meets the identity once, from the module that declares it.
    *
    * Before #263 it met the identity twice — once from the channel, named
-   * `__hex_imported_5___…`, and once through `./a.js`, named
-   * `__hex_imported_0___hex_imported_5___…` — and which one survived was decided
+   * `__hex_imported_14___…`, and once through `./a.js`, named
+   * `__hex_imported_0___hex_imported_14___…` — and which one survived was decided
    * purely by the channel being seeded first. Both halves are asserted because
    * either mechanism failing brings the transit copy back.
    */
@@ -351,10 +351,10 @@ describe("an explicit import of a prelude module coexists with the channel", () 
     expect(exportLines(emitted(files, "/a.hex"))).toEqual(["export { mk };"]);
     const b = emitted(files, "/b.hex");
     expect(b).toContain(
-      "return __hex_imported_5___hex_instance_Eq_Option(",
+      "return __hex_imported_14___hex_instance_Eq_Option(",
     );
     expect(b).not.toContain(
-      "return __hex_imported_0___hex_imported_5___hex_instance_Eq_Option(",
+      "return __hex_imported_0___hex_imported_14___hex_instance_Eq_Option(",
     );
   });
 });

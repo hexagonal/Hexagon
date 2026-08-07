@@ -1,0 +1,6 @@
+(** The polymorphic face of division. Honoring `Frac` gives a type the `/`
+    operator; the quotient is exact where the type is exact and rounded where
+    it is not. *)
+export constraint Frac<a: Signed> =
+    (** `left` divided by `right`. *)
+    divide(left: a, right: a): a

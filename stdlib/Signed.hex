@@ -1,0 +1,10 @@
+(** The polymorphic face of subtraction and sign. Honoring `Signed` gives a type
+    the binary and unary `-` operators. *)
+export constraint Signed<a: Num> =
+    (** The difference of `left` and `right`. *)
+    subtract(left: a, right: a): a
+    (** The additive inverse of `value`. *)
+    negate(value: a): a
+    (** The integer `value` at this type. A bare negative literal reaches an
+        instance through it. *)
+    fromInt(value: Int): a

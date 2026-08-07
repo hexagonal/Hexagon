@@ -10,10 +10,10 @@ import { compileFiles, projectDiagnostics, runProject, runMain } from "../suppor
  * bindings into bare scope, Modules §5.5 would refuse the name everywhere and
  * recreate the collision explosion the design eliminates.
  *
- * The second half of this file is PR β's baseline: the occlusion and
- * split-spelling behaviors the note's consequence 3 will overturn, measured
- * and pinned as they stand today so β's change is a visible diff rather than
- * an assumed one.
+ * The second half of this file was PR β's baseline. Consequence 3 has landed,
+ * so the split-spelling defect is now the refusal the baseline predicted; the
+ * reading-(i) pin beneath it stands until PR γ, whose own-name refusal flips
+ * it. Occlusion (§5 item 6) was never β's to change and is unmoved.
  */
 
 describe("an honoring module's member is not a bare export (the §5 item 8 boundary)", () => {
@@ -90,40 +90,48 @@ describe("occlusion and shadowing (the note's §5 item 6, pinned)", () => {
   });
 });
 
-describe("PR β's baseline: the split-spelling defect still compiles today", () => {
+describe("the split-spelling defect is now refused (consequence 3)", () => {
   /**
-   * The measured defect the note's consequence 3 retires: a module exporting a
-   * `show` *while* honoring `Show` at its own type compiles with the spellings
-   * split — the module-level binding takes bare use and export position, the
-   * honor member takes interpolation. Two meanings, silently. Under consequence
-   * 3 this becomes the ordinary rebinding refusal; until β lands, this pin is
-   * the record of what that change repairs.
+   * What the baseline measured: a module exporting a `show` *while* honoring
+   * `Show` at its own type compiled with the spellings split — the module-level
+   * binding took bare use and export position, the honor member took
+   * interpolation. Two meanings, silently. The program is now unwritable, and
+   * the diagnostic is the one the language already owns for binding a name
+   * twice.
+   *
+   * Both orders, because the claim is order-free: a member binding enters the
+   * module's term space wherever its block sits, so a `let` before the block
+   * and a `let` after it are the same collision. Each is reported at the
+   * *later* of the two, which is where a reader would make the fix.
    */
-  test("`export let show` beside `honor Show<Box>` compiles, spellings split", async () => {
-    const exports = await runProject([
-      ["/box.hex", [
-        "export record Box = {value: Int}",
-        "",
-        "honor Show<Box> =",
-        "    show(box) = \"member ${box.value}\"",
-        "",
-        "export let show(box: Box): String = \"export ${box.value}\"",
-        "",
-        "export let bareInModule: String = show(Box({value = 1}))",
-        "export let interpolated: String = \"${Box({value = 2})}\"",
-        "",
-      ].join("\n")],
-      ["/main.hex", [
-        "import { bareInModule, interpolated } from \"./box\"",
-        "",
-        "export let bare: String = bareInModule",
-        "export let member: String = interpolated",
-        "",
-      ].join("\n")],
+  test("`honor Show<Box>` then `export let show` is refused", () => {
+    expect(projectDiagnostics([
+      "export record Box = {value: Int}",
+      "",
+      "honor Show<Box> =",
+      "    show(box) = \"member ${box.value}\"",
+      "",
+      "export let show(box: Box): String = \"export ${box.value}\"",
+      "",
+    ].join("\n"))).toEqual([
+      "`show` is already bound: the `Show<Box>` instance binds it as a member " +
+        "(line 3); Hexagon does not allow rebinding — choose a different name.",
     ]);
+  });
 
-    expect(exports.bare).toBe("export 1");
-    expect(exports.member).toBe("member 2");
+  test("`export let show` then `honor Show<Box>` is refused", () => {
+    expect(projectDiagnostics([
+      "export record Box = {value: Int}",
+      "",
+      "export let show(box: Box): String = \"export ${box.value}\"",
+      "",
+      "honor Show<Box> =",
+      "    show(box) = \"member ${box.value}\"",
+      "",
+    ].join("\n"))).toEqual([
+      "the `Show<Box>` instance binds `show`, which is already bound (line 3); " +
+        "Hexagon does not allow rebinding — choose a different name.",
+    ]);
   });
 
   /**
@@ -132,7 +140,8 @@ describe("PR β's baseline: the split-spelling defect still compiles today", () 
    * *prelude's* polymorphic member, which evidence-selects the module's own
    * instance at its own type. The note's §5 item 8 re-reads this spelling as
    * the member binding itself (monomorphic); at this shape the two readings
-   * agree observationally, so β's change here is doctrine rather than output.
+   * agree observationally, so the change here is doctrine rather than output,
+   * and it is PR γ's — β claims the spelling without binding it.
    */
   test("bare `show` inside an honoring module reaches the honored instance via evidence", async () => {
     const exports = await runMain([

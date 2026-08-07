@@ -853,9 +853,16 @@ describe("check", () => {
         "let numeric<a>(thing: a) = thing + 1",
     );
 
+    // Not source order, and that is the ordinary order for a constraint member:
+    // since `stdlib/Hash.hex` joined the prelude (#335), `hash(thing)` is a call
+    // to the member export rather than the resolver's wired `hash` form (which
+    // yields to any binding of the name), so its rejection arrives with the
+    // deferred requirement discharges instead of during item 1's inference. The
+    // same program written with `show(thing)` under `<a: Eq>` — a member that
+    // never had a wired form — reports in exactly this order too.
     expect(rejected.diagnostics.map(({ message }) => message)).toEqual([
-      "`a` is declared to honor `Eq`, but the body requires `Hash`; write `<a: Hash>`, or remove the constraint annotation to let it be inferred",
       "`a` is declared without constraints, but the body requires `Num`; write `<a: Num>`, or remove the explicit type parameter to let it be inferred",
+      "`a` is declared to honor `Eq`, but the body requires `Hash`; write `<a: Hash>`, or remove the constraint annotation to let it be inferred",
     ]);
 
     const accepted = checkSource(
@@ -1106,15 +1113,21 @@ describe("check", () => {
   });
 
   test("keeps compiler-supported constraint subjects universally quantified", () => {
+    // Spelled with names of the module's own since #335 banned redeclaring
+    // `Integral` — the compiler holds its declaration now (`stdlib/Integral.hex`
+    // is a prelude member, and so is a `gcd` this lookup would find first). The
+    // observation is unchanged and is about the *bases*: a subject constrained
+    // by the compiler's own pre-registered constraints is still universally
+    // quantified, not pinned to a specimen.
     const module = checkSource(
-      "constraint Integral<a: (Num, Ord)> =\n" +
-        "    gcd(left: a, right: a): a",
+      "constraint Divisor<a: (Num, Ord)> =\n" +
+        "    greatest(left: a, right: a): a",
     );
-    const gcd = module.symbols.find(({ name }) => name === "gcd");
+    const greatest = module.symbols.find(({ name }) => name === "greatest");
 
-    expect(gcd?.scheme).toMatchObject({
+    expect(greatest?.scheme).toMatchObject({
       variables: [expect.any(Number)],
-      constraints: [{ name: "Integral", type: { kind: "Variable" } }],
+      constraints: [{ name: "Divisor", type: { kind: "Variable" } }],
       type: {
         kind: "Function",
         parameters: [{ kind: "Variable" }, { kind: "Variable" }],
@@ -1485,11 +1498,12 @@ describe("check", () => {
     // The closed set is the compiler's table, so the builtin constraints on it
     // still default — including `Integral`, whose bare-call literal case its
     // own spec (Integral §8) expects to resolve to `Int` as usual.
-    const integral = checkSource(
-      "constraint Integral<a: (Num, Ord)> =\n" +
-        "    gcd(left: a, right: a): a\n" +
-        "let common = gcd(4, 6)",
-    );
+    //
+    // The bare `gcd` needs no declaration to reach any more, which is the
+    // spelling Integral §8 always described: `stdlib/Integral.hex` is a prelude
+    // member since #335, so its members are exports in bare scope and a
+    // module-level redeclaration is refused.
+    const integral = checkSource("let common = gcd(4, 6)");
     expect(integral.diagnostics).toEqual([]);
     expect(letSymbol(integral, "common").scheme.type).toEqual({
       kind: "Primitive",

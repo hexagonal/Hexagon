@@ -49,21 +49,63 @@ export const PRE_REGISTERED_CONSTRAINTS: readonly string[] = [
  * The pre-registered names a module may not redeclare.
  *
  * §5.1.1 pins all eleven: "a module-level `constraint Eq<a> = ...` is an error
- * naming the pre-registered constraint, not a second `Eq`". Two are held back,
- * and the reason is a gap in the compiler rather than a reading of the spec:
- * `Iterable` and `Integral` are pre-registered by *name* only — the compiler
- * holds no declaration for either, so their members are reachable in v1 solely
- * through a source `constraint Iterable<c> = ...` / `constraint Integral<a> =
- * ...`, which is what `stdlib/Integral.hex` is and what `for value in bag` over
- * a user `honor Iterable<Bag>` needs. Banning the redeclaration before the
- * compiler holds those two declarations would not refuse a twin; it would
- * delete the only spelling the feature has. The ban belongs with the
- * declarations, not before them.
+ * naming the pre-registered constraint, not a second `Eq`". Ten of them are
+ * banned. The ban follows the declaration, and never precedes it: banning a
+ * redeclaration the compiler holds no declaration for would not refuse a twin,
+ * it would delete the only spelling the feature has.
+ *
+ * `Integral` was held back for exactly that reason and is held back no longer.
+ * Since #335 the compiler holds its declaration — `stdlib/Integral.hex` is a
+ * prelude member, so `div`/`mod`/`quot`/`rem`/`gcd` are in bare scope and
+ * `Integral.div` is qualified access to an export — and a module-level
+ * `constraint Integral<a> = ...` is now the ordinary twin the ban exists for.
+ *
+ * `Iterable` is the one remaining name-only remnant. The compiler holds no
+ * declaration for it: its members are reachable in v1 solely through a source
+ * `constraint Iterable<c> = ...`, which is what `for value in bag` over a user
+ * `honor Iterable<Bag>` needs. It is owed to the collections arc (#283), and
+ * its ban lands with its declaration.
  */
 export const NON_REDECLARABLE_CONSTRAINTS: readonly string[] =
-  PRE_REGISTERED_CONSTRAINTS.filter(
-    (name) => name !== "Iterable" && name !== "Integral",
-  );
+  PRE_REGISTERED_CONSTRAINTS.filter((name) => name !== "Iterable");
+
+/**
+ * The member names of the pre-registered constraints, for the one question that
+ * has to be answerable **without** a declaration in view: which spellings does
+ * honoring a constraint claim in the honoring module (`#claimHonoredMembers`,
+ * consequence 3 of #335)?
+ *
+ * In a real compile the declarations are here — they are prelude members — and
+ * the claim reads the declaration, which is the only thing that can be right
+ * for a constraint the user wrote. This table is the fallback for a compile
+ * with no prelude at all: the checker and resolver unit harnesses assemble a
+ * module by calling the passes directly, and a pre-registered name still means
+ * the compiler's constraint there. Without it the same program would be legal
+ * in the harness and refused in a real compile, which is the one difference
+ * worth spending a table to avoid.
+ *
+ * Names only, deliberately: the signatures live in the checker's
+ * `#checkPreludeHonor`, which is the other wired-in fallback of the same shape,
+ * and a second copy of them here would be a second thing to keep true.
+ *
+ * `Iterable` is absent for the reason it is absent from the redeclaration ban:
+ * the compiler holds no declaration for it, so a user's source declaration is
+ * the only statement of its members, and the lookup above finds that.
+ */
+export const PRE_REGISTERED_CONSTRAINT_MEMBERS: Readonly<
+  Record<string, readonly string[]>
+> = {
+  Num: ["add", "multiply", "fromNat"],
+  Signed: ["subtract", "negate", "fromInt"],
+  Frac: ["divide"],
+  Pow: ["pow"],
+  Concat: ["concat"],
+  Eq: ["equals", "notEquals"],
+  Ord: ["compare"],
+  Show: ["show"],
+  Hash: ["hash"],
+  Integral: ["div", "mod", "quot", "rem", "gcd"],
+};
 
 export function isPreRegisteredConstraint(name: string): boolean {
   return PRE_REGISTERED_CONSTRAINTS.includes(name);

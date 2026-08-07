@@ -461,6 +461,32 @@ describe("resolve", () => {
     });
   });
 
+  /**
+   * The honored-member claim (#335 consequence 3) in a module compiled with no
+   * prelude at all — the shape this harness assembles, and the one shape where
+   * no declaration of a pre-registered constraint is in view. It answers from
+   * `PRE_REGISTERED_CONSTRAINT_MEMBERS` there, so the same program is refused
+   * here and in a real compile; a harness that quietly accepted it would be a
+   * second language.
+   *
+   * `notEquals` rather than `equals`, because the defaulted member is the one
+   * an honor block's own member list cannot supply — reading the block instead
+   * of the constraint would let this spelling escape the claim.
+   */
+  test("an honored member's spelling is claimed with no prelude in view", () => {
+    const module = resolveSource(
+      "record Odd = {n: Int}\n" +
+        "let notEquals(left: Odd, right: Odd): Bool = True\n" +
+        "honor Eq<Odd> =\n" +
+        "    equals(left, right) = True",
+    );
+
+    expect(module.diagnostics.map(({ message }) => message)).toContain(
+      "the `Eq<Odd>` instance binds `notEquals`, which is already bound (line 2); " +
+        "Hexagon does not allow rebinding — choose a different name.",
+    );
+  });
+
   test("never crashes on arbitrary parser output and preserves valid symbols", () => {
     fc.assert(
       fc.property(fc.string(), (text) => {

@@ -64,8 +64,17 @@ describe("the module", () => {
   test("`Vector.hex` is the last prelude member", () => {
     expect(PRELUDE_MODULES.map(({ basename }) => basename)).toEqual([
       "Show.hex",
+      "Num.hex",
+      "Signed.hex",
+      "Frac.hex",
+      "Pow.hex",
+      "Concat.hex",
       "Bool.hex",
+      "Eq.hex",
+      "Hash.hex",
       "Prelude.hex",
+      "Ord.hex",
+      "Integral.hex",
       "Option.hex",
       "Seq.hex",
       "Result.hex",
