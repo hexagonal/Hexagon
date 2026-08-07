@@ -2188,35 +2188,11 @@ class Resolver {
               span: expression.span,
             };
           }
-          // The primitive door, now `Float` alone: `"BigInt"` left this list at
-          // its milestone (`spec/intrinsics.md` §9.2, #344) and `"Int"` at the
-          // one after, where `stdlib/BigInt.hex` and `stdlib/Int.hex` took over
-          // their families as source. `Float` keeps `mod` and `rem` only — it is
-          // not `Integral`, so it never had the rest. The guard would already
-          // have declined for a migrated companion — its module claims the name,
-          // so `#namedModule` answers — but a list that still named them would
-          // say the door was merely dormant rather than removed.
-          if (
-            expression.receiver.name.text === "Float" &&
-            scope.lookup(expression.receiver.name.text) === undefined &&
-            this.#namedModule(expression.receiver.name.text) === undefined &&
-            ["div", "mod", "quot", "rem", "gcd", "lcm"].includes(expression.field.text)
-          ) {
-            return {
-              kind: "PrimitiveOperation",
-              primitive: "Float",
-              operation: expression.field.text as "div" | "mod" | "quot" | "rem" | "gcd" | "lcm",
-              span: expression.span,
-            };
-          }
-          // The module-less primitive companions get the qualified member
-          // spellings their real modules will carry (Modules §5.3's transitional
-          // note): `Int.show(42)` is `Show<Int>`'s member through the wired
-          // instance, until the companion arc supplies `Int.hex`. Same guard
-          // discipline as the operation family above — only where no user
-          // declaration and no module claims the name.
-          const primitiveMember = this.#primitiveCompanionMember(expression, scope);
-          if (primitiveMember !== undefined) return primitiveMember;
+          // No primitive door here, and no transitional companion spelling
+          // either: both died with the last companion (`spec/intrinsics.md`
+          // §9.2, #344). Every primitive has a real module now, so `Float.mod`
+          // and `Int.show` are the ordinary reads below — the module's exported
+          // terms, then Modules §5.3's honored members.
           const importedModule = this.#namedModule(expression.receiver.name.text);
           if (importedModule !== undefined) {
             // §3.3/§5.3, in order: the module's exported terms, then the members
@@ -3539,62 +3515,6 @@ class Resolver {
   }
 
   /**
-   * The module-less primitive companions, for Modules §5.3's transitional note.
-   *
-   * `Int`, `Nat`, `BigInt`, `Float`, and `String` have no `.hex` module yet, so
-   * §6.4's qualified-home guarantee has nothing to route through — and the
-   * guarantee now covers members (`Int.show(42)`). The companion arc replaces
-   * this with real modules on the intrinsics §9.2 schedule; until then the
-   * spellings are wired here, under the same discipline as the operation guard
-   * above: only where no user declaration and no module claims the name.
-   *
-   * Nothing here asks whether the primitive *has* the instance. The reference is
-   * pinned at the primitive and the requirement is validated where every other
-   * requirement is — so `String.div(1, 2)` is the ordinary missing-instance
-   * report rather than a second, resolver-shaped opinion about the same fact.
-   */
-  #primitiveCompanionMember(
-    expression: Parsed.AccessExpr,
-    scope: Scope,
-  ): Resolved.Expr | undefined {
-    if (expression.receiver.kind !== "Name") return undefined;
-    const name = expression.receiver.name.text;
-    if (!PRIMITIVE_COMPANIONS.includes(name)) return undefined;
-    if (scope.lookup(name) !== undefined) return undefined;
-    if (this.#namedModule(name) !== undefined) return undefined;
-    const found = this.#preRegisteredMember(expression.field.text);
-    if (found === undefined) return undefined;
-    this.#importedSymbols.set(found.id, found);
-    const local = this.#reachPreludeTerm(found.id);
-    if (local === undefined) return undefined;
-    return {
-      kind: "Name",
-      symbol: found.id,
-      text: local,
-      instanceSubject: {
-        annotation: {
-          kind: "Primitive",
-          name: name as Resolved.PrimitiveName,
-          span: expression.receiver.name.span,
-        },
-        typeParameters: [],
-      },
-      span: expression.span,
-    };
-  }
-
-  /** The prelude declaration's member of this name, if exactly one declares it. */
-  #preRegisteredMember(member: string): Resolved.Symbol | undefined {
-    const found = [...this.#visibleConstraints.values()].flatMap((declaration) =>
-      declaration.identity.startsWith("hex:")
-        ? declaration.members.filter(({ binding }) => binding.name === member)
-        : []
-    );
-    if (found.length !== 1) return undefined;
-    return this.#preludeTerms.get(found[0]!.binding.symbol);
-  }
-
-  /**
    * Consequence 4 of the members-as-values ruling, as Modules §5.3 graduates it:
    * **qualified access reaches an honoring module's members.**
    *
@@ -3805,20 +3725,6 @@ function isResolvedTypeAlias(
 ): alias is Resolved.TypeAliasItem {
   return typeof alias.name === "string";
 }
-
-/**
- * The primitives Modules §5.3's transitional note names: the companions with no
- * `.hex` module, whose qualified member spellings are wired until the companion
- * arc supplies real ones.
- *
- * `BigInt` left the list at its milestone (#344), and `Int` and `Nat` at the
- * one after: their `.hex` files are real source, so `Int.show(42)` is Modules
- * §5.3's ordinary honored-member read through `#honoredMemberAccess`, not a
- * wired spelling. The list would already have declined for them — every entry
- * is guarded on no module claiming the name — so this is hygiene, and it is
- * what keeps the list meaning "not yet migrated".
- */
-const PRIMITIVE_COMPANIONS: readonly string[] = ["Float", "String"];
 
 /**
  * The operations a primitive companion is asked for and deliberately does not

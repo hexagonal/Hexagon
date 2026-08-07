@@ -464,7 +464,6 @@ function visitExpr(expression: Core.Expr, visit: (expression: Core.Expr) => void
     case "BigInt":
     case "Float":
     case "CollectionOperation":
-    case "PrimitiveOperation":
     case "ConvertNat":
     case "ErrorExpr":
       return;

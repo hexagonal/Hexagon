@@ -105,7 +105,6 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
         })),
       };
     }
-    case "PrimitiveOperation":
     case "Unit":
     case "BigInt":
     case "Float":
@@ -438,6 +437,12 @@ function evidenceComponents(
 
 function evidence(requirement: Typed.Constraint | undefined): Core.Evidence {
   if (requirement === undefined) return { kind: "Error" };
+  // A requirement the checker has already reported gets no evidence at all.
+  // The program is erroneous and one diagnostic already says why; inventing a
+  // dictionary here would only give emission a second, quieter way to report
+  // the same failure — which is what a missing primitive instance did once
+  // every primitive's instances became source (#344).
+  if (requirement.unsatisfied === true) return { kind: "Error" };
   if (requirement.dictionary !== undefined) {
     return {
       kind: "Instance",

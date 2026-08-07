@@ -1220,58 +1220,68 @@ describe("emitJavaScript", () => {
     expect((await runProject(files))["result"]).toBe(6n);
   });
 
-  test("preserves primitive Ord semantics through genuine dictionaries", () => {
-    const output = emitJavaScript(
-      coreSource(
-        "let before<a: Ord>(left: a, right: a): Bool = left < right\n" +
-          "let finiteBeforeNaN = before(1.0, 0.0 / 0.0)\n" +
-          'let bmpBeforeAstral = before("\\u{FFFF}", "\\u{10000}")',
-      ),
-    );
+  test("preserves primitive Ord semantics through genuine dictionaries", async () => {
+    // The comparators are `stdlib/Float.hex`'s and `stdlib/String.hex`'s since
+    // #344's last landing, so the module is linked and run rather than
+    // evaluated as one text — and the semantics they carry are the ones that
+    // matter: NaN is the greatest `Float`, and `String` orders by code point,
+    // where the host's own `<` would put the astral character first.
+    const files = [["/main.hex",
+      "let before<a: Ord>(left: a, right: a): Bool = left < right\n" +
+        "export let finiteBeforeNaN: Bool = before(1.0, 0.0 / 0.0)\n" +
+        'export let bmpBeforeAstral: Bool = before("\\u{FFFF}", "\\u{10000}")\n',
+    ]] as const;
+    const project = compileFiles(files);
 
-    expect(output.text).toContain("function __hex_compareFloat(");
-    expect(output.text).toContain("function __hex_compareString(");
-    const execute = Function(
-      `${output.text}\nreturn [finiteBeforeNaN, bmpBeforeAstral];`,
-    ) as () => readonly [boolean, boolean];
-    expect(execute()).toEqual([true, true]);
-    expect(output.diagnostics).toEqual([]);
+    expect(project.diagnostics).toEqual([]);
+    const companion = (basename: string): string =>
+      project.modules.find(({ source }) => source.path.endsWith(basename))!.javascript.text;
+    expect(companion("Float.hex")).toContain("function __hex_compareFloat(");
+    expect(companion("String.hex")).toContain("function __hex_compareString(");
+    const exports = await runProject(files);
+    expect([exports["finiteBeforeNaN"], exports["bmpBeforeAstral"]]).toEqual([true, true]);
   });
 
-  test("selects primitive base-constraint evidence through composed dictionaries", () => {
-    const output = emitJavaScript(
-      coreSource(
-        "let orderedEqual<a: Ord>(left: a, right: a): Bool = left == right\n" +
-          "let addRatio<a: Frac>(left: a, right: a): a = left + right\n" +
-          "let result = (orderedEqual(0.0, -0.0), addRatio(1.5, 2.5))",
-      ),
-    );
+  test("selects primitive base-constraint evidence through composed dictionaries", async () => {
+    // A base-constraint slot is reached through the chain the dictionary
+    // carries — `Ord`'s `eq`, `Frac`'s `signed` — and since #344 that chain is
+    // built in `stdlib/Float.hex` rather than at the use site. `0.0 == -0.0` is
+    // the case worth executing: SameValueZero says the two zeroes agree, and a
+    // dictionary that lost the base link would answer through the wrong slot.
+    const files = [["/main.hex",
+      "let orderedEqual<a: Ord>(left: a, right: a): Bool = left == right\n" +
+        "let addRatio<a: Frac>(left: a, right: a): a = left + right\n" +
+        "export let result: (Bool, Float) = (orderedEqual(0.0, -0.0), addRatio(1.5, 2.5))\n",
+    ]] as const;
+    const project = compileFiles(files);
 
-    expect(output.diagnostics).toEqual([]);
-    expect(output.text).toContain("eq:");
-    expect(output.text).toContain("signed:");
-    const execute = Function(`${output.text}\nreturn result;`) as () => readonly unknown[];
-    expect(execute()).toEqual([true, 4]);
+    expect(project.diagnostics).toEqual([]);
+    const companion = project.modules
+      .find(({ source }) => source.path.endsWith("Float.hex"))!.javascript.text;
+    expect(companion).toContain("eq:");
+    expect(companion).toContain("signed:");
+    expect((await runProject(files))["result"]).toEqual([true, 4]);
   });
 
-  test("executes the primitive division families with their specified conventions", () => {
-    // `Float` alone. `BigInt`'s family left the compiler at its milestone
-    // (#344) and `Int`'s at the one after — `Int.div` is `Integral<Int>`'s
-    // member and `Int.gcd` its sibling, so the emitted module imports rather
-    // than inlines them, and both rows moved to the linked tests below.
-    // `Float` is the last wired row, and it is only ever the two: `Float` is
-    // not `Integral` (Integral §3), so it has no `div`, `quot`, or `gcd`.
-    const output = emitJavaScript(
-      coreSource("let result = (Float.mod(-7.0, 3.0), Float.rem(-7.0, 3.0))"),
-    );
+  test("executes the Float division family out of its companion module", async () => {
+    // The last of the three families to leave the compiler (#344). `Float.rem`
+    // is `stdlib/Float.hex`'s door binding over the bare `%` and `Float.mod` is
+    // the Euclidean adjustment written above it, both plain exports rather than
+    // members — `Float` is not `Integral` (Integral §3), so there is no `div`,
+    // `quot`, or `gcd` here and never was. The `__hex_floatMod`/`__hex_floatRem`
+    // helpers that used to carry them are gone with the whole family.
+    const files = [["/main.hex",
+      "export let result: (Float, Float) = (Float.mod(-7.0, 3.0), Float.rem(-7.0, 3.0))\n",
+    ]] as const;
+    const project = compileFiles(files);
 
-    expect(output.diagnostics).toEqual([]);
-    expect(output.text).toContain("const __hex_floatMod");
-    expect(output.text).toContain("const __hex_floatRem");
-    expect(output.text).not.toContain("__hex_int");
-    expect(output.text).not.toContain("__hex_bigInt");
-    const execute = Function(`${output.text}\nreturn result;`) as () => readonly unknown[];
-    expect(execute()).toEqual([2, -1]);
+    expect(project.diagnostics).toEqual([]);
+    const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    expect(text).not.toContain("__hex_float");
+    expect(text).not.toContain("__hex_int");
+    expect(text).not.toContain("__hex_bigInt");
+    expect(text).toContain('from "./Float.js"');
+    expect((await runProject(files))["result"]).toEqual([2, -1]);
   });
 
   test("executes the BigInt division family out of its companion module", async () => {
