@@ -427,6 +427,107 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
     ]);
   });
 
+  /**
+   * A module cannot name itself, so a claimant whose constraint this module
+   * declares has no qualified spelling — the refusal offers the bare one in its
+   * place. Written with one local declaration and one namespace-imported: two
+   * same-spelled members declared in *one* module collide at the second
+   * declaration, so this is the only shape the case has.
+   */
+  test("a refusal inside the declaring module spells its own claimant bare", () => {
+    expect(diagnostics([
+      ["/quiet.hex", [
+        "export constraint Quiet<a> =",
+        "    level(value: a): Int",
+        "",
+      ].join("\n")],
+      ["/main.hex", [
+        'import * as Quiet from "./quiet"',
+        "",
+        "constraint Brash<a> =",
+        "    level(value: a): Int",
+        "",
+        "export record Meter = {ticks: Int}",
+        "",
+        "honor Brash<Meter> =",
+        "    level(meter) = meter.ticks",
+        "",
+        "honor Quiet.Quiet<Meter> =",
+        "    level(meter) = 0",
+        "",
+        "export let reading: Int = Meter({ticks = 5}).level()",
+        "",
+      ].join("\n")],
+    ])).toEqual([
+      "`level` after a dot is ambiguous at `Meter`: `Brash`'s member `level`, " +
+      "`Quiet`'s member `level`. Write `level(…)` or `Quiet.level(…)`.",
+    ]);
+  });
+
+  /**
+   * Constraints §4.6's ambiguity arm, in the module itself. The definitions
+   * coexist — that is the carve-out — and it is the bare *use* that has no
+   * discriminator, so it is refused naming the routes that do.
+   *
+   * The shape is forced. A namespace import puts no member in bare scope, and
+   * two same-spelled members declared in one module collide at the second
+   * declaration — so the only way one module holds two bare-visible bindings of
+   * a spelling is a **named** constraint import beside a prelude one, whose
+   * member the import occludes (Modules §5.4).
+   */
+  test("two constraints binding one spelling refuse the bare in-module use", () => {
+    expect(diagnostics([
+      ["/warm.hex", [
+        "export constraint Warm<a> =",
+        "    show(value: a): String",
+        "",
+      ].join("\n")],
+      ["/main.hex", [
+        'import { Warm } from "./warm"',
+        "",
+        "export record Probe = {reading: Int}",
+        "",
+        "honor Warm<Probe> =",
+        '    show(probe) = "warm"',
+        "",
+        "honor Show<Probe> =",
+        '    show(probe) = "shown"',
+        "",
+        "export let taken: String = show(Probe({reading = 2}))",
+        "",
+      ].join("\n")],
+    ])).toEqual([
+      "`show` is ambiguous here: this module binds it as a member of `Warm` " +
+      "and `Show`. Write the dot call on a value, or qualify the instance you mean.",
+    ]);
+  });
+
+  /**
+   * The counter-shape, and the reason the arm above needs one: where the
+   * spelling is the module's **own declaration's**, the polymorphic read wins
+   * (the note's consequence 4) — there is one denotation, so nothing is
+   * ambiguous, and the honor block below binds no second meaning.
+   */
+  test("a locally declared constraint's own member is not made ambiguous by honoring", async () => {
+    const exports = await runMain([
+      "constraint Brash<a> =",
+      "    show(value: a): String",
+      "",
+      "export record Meter = {ticks: Int}",
+      "",
+      "honor Brash<Meter> =",
+      '    show(meter) = "brash"',
+      "",
+      "honor Show<Meter> =",
+      '    show(meter) = "polite"',
+      "",
+      "export let read: String = show(Meter({ticks = 1}))",
+      "",
+    ].join("\n"));
+
+    expect(exports.read).toBe("brash");
+  });
+
   test("a visible field and an honored member collide at the fused form", () => {
     expect(projectDiagnostics([
       "export record Label = {show: Int}",
