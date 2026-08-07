@@ -199,24 +199,40 @@ a diagnostic that might otherwise be surprising: a generic function inferred fro
 silently become the structural record that function requested. Add the annotation or
 write `Parcel.status(value)` inside the function.
 
-## Constraint members use direct calls
+## Constraint members take the dot too
 
-Constraint members are deliberately separate from companion operations:
+Constraint members are not companion operations, but dot syntax reaches both. On a
+value whose type is known, a dot call may name a member of any constraint that type
+honors:
 
 ```hexagon
-let display<a: Show>(value: a): String = show(value)
+let label = 42.show()
 ```
 
-Do not write `value.show()`. A declared type variable does not identify one companion
-module, and dot syntax does not search instances. Call `show(value)` directly or pipe
-to the bare constrained function when it reads well:
+`Show` is honored at `Int`, so `42.show()` means exactly what `show(42)` means — one
+operation, two spellings. The same works through a declared type variable, using the
+constraint written in the binder:
 
 ```hexagon
+let display<a: Show>(value: a): String = value.show()
+```
+
+The binder says `a` has `Show`, so `.show()` dispatches through that evidence. The
+candidate list is exactly the constraints written in the binder — the compiler never
+goes looking through instances to guess a type from a member name. A variable with no
+matching constraint gets an error naming the options, not a guess.
+
+The bare call and the pipe remain just as idiomatic:
+
+```hexagon
+show(value)
 value |> show
 ```
 
-A concrete type could have an ordinary companion function also named `show`, but that
-would be a separate monomorphic operation—not constraint dispatch in disguise.
+Pick whichever reads best; all three are the same call. One thing no type can have is
+a *second* operation with a member's name: a module that honors `Show` cannot also
+define its own `show`, so a dot call that resolves to a member never has a monomorphic
+twin hiding behind it.
 
 ## Dot calls disappear before JavaScript
 
@@ -240,20 +256,24 @@ retain their ordinary function signatures; records and unions retain their estab
 representations.
 
 The editor can still offer method-like completion. After a receiver of known type, it
-can combine visible fields with exported subject-first companion operations and label
-which is which. This discoverability is a source-language service built on static type
+can combine visible fields, exported subject-first companion operations, and the
+members of honored constraints, and label which is which. This discoverability is a source-language service built on static type
 information, not a sign of runtime objects.
 
 ## Summary
 
 - `value.operation(args)` rewrites to a subject-first companion call;
 - qualified, pipe, and dot spellings express the same underlying function call;
-- only exported functions headed by the companion type are dot-callable;
+- exported functions headed by the companion type are dot-callable, and so are the
+  subject-first members of constraints the type honors;
 - a bare `value.name` is always field access, never a bound method;
 - structural records have callable fields but no companion operations;
-- field/operation name collisions are errors with explicit alternative spellings;
-- a companion receiver type must be known independently of the member name;
-- constraint members such as `show` remain direct calls; and
+- name collisions between fields, operations, and members are errors with explicit
+  alternative spellings;
+- a receiver's type must be known independently of the member name — from its
+  inferred type or, for a declared type variable, from the constraints in its binder;
+- constraint members such as `show` answer to the bare call, the pipe, and the dot
+  alike; and
 - dot calls add no runtime methods, `this`, prototypes, or TypeScript methods.
 
 Together, constraints, derivation, modules, and dot calls form Hexagon's capability
