@@ -3,7 +3,7 @@
 **Status:** Decided (#355). The two-point effect discipline ships in v1. The checker ships flag-gated; §10 lists what must land before the flag defaults on. Nothing here has a warning tier.
 **Scope:** What an effect is; the three arrows (`->`, `=>`, `=>!`) and their readings; the call-mark trichotomy (bare, `!`, `?`); effect variables in inference; symmetric enforcement at calls and faces; the extern ownership split and trusted purity claims; the `Seq`/`Stream` posture.
 **Not in scope:** Exceptions — deliberately outside the effect (§1); `Stream`'s module surface (`stream.md`); token shapes (Lexer §8); the pipe rewrite (Operators §8); the dot-call form (Method Syntax §2); display grammar for arrows (Functions §5.1).
-**Companions:** Functions (§4.1 annotations, §5.1 displayed types, §7.4 the monomorphic knot, §8 generalization), Statements, Blocks & Mutability (§6.2 — the coupling §7.4 here names), Constraints (§2 — members are pure), Intrinsics (§4.2 verification), FFI Part 4 (extern bindings; the `pure` claim), FFI Part 3 (the `Seq` launder; the `Stream` crossing), Loops (§6 `Seq`, §7 `Iterable`), `stream.md`.
+**Companions:** Functions (§4.1 annotations, §5.1 displayed types, §7.4 the monomorphic knot, §8 generalization), Statements, Blocks & Mutability (§6.2 — the coupling §7's last bullet names), Constraints (§2 — members are pure), Intrinsics (§4.2 verification), FFI Part 4 (extern bindings; the `pure` claim), FFI Part 3 (the `Seq` launder; the `Stream` crossing), Loops (§6 `Seq`, §7 `Iterable`), `stream.md`.
 
 ---
 
@@ -34,12 +34,12 @@ A `->` function performs no observable effect at any instantiation. As a demand 
 Every `=>` written in one signature denotes **the same, single, implicitly quantified effect variable** — the signature's colour. One variable per signature, never two (§2.4). The linked reading is what makes higher-order functions effect-polymorphic for free:
 
 ```text
-fold : (Seq(a), b, (b, a) => b) -> b
+fold : (Seq(a), b, (b, a) => b) => b
 ```
 
-`fold`'s callback arrow and — if the signature had more `=>` positions — every other `=>` in it share one colour. Instantiated with a pure `combine`, the whole call is pure; instantiated impure, the call is impure. The signature never says "impure"; it says "as impure as you make it". (`fold`'s own outer arrow is `->`: running `fold` performs nothing the callback doesn't — see §3.3 for why the outer arrow is the one a call mark reads.)
+`fold`'s callback arrow and every other `=>` in its signature — here, its own outer arrow — share one colour. The outer arrow is linked because `fold`'s body is a conductor: its `?` call on the callback (§3.1) joins the body's own colour to the signature's variable, so running `fold` is exactly as effectful as the callback makes it. Instantiated with a pure `combine`, the whole call is pure and bare; instantiated impure, the call is impure and wears `!` (§3.3, §4.1). The signature never says "impure"; it says "as impure as you make it".
 
-**The else-constant rule.** A `=>` with nothing to link through is the impure constant. The linked reading requires **at least one `=>` in a parameter position** — a slot through which a caller's instantiation can flow. Two positions therefore take the constant: a data-declaration field (§2.5, where the rule is load-bearing), and a signature whose `=>` occurrences stand only in result or outer position — `(): String` faced with a result-only `=>` has no inlet for a caller to choose its colour through, so it is constantly impure. A `=>` in *parameter* position is always linked, even when it is the signature's only one: `store(callback: () => String): Int` is polymorphic in `callback`'s colour and accepts pure and impure arguments alike — the variable, if nothing ever observes it, simply generalizes unconstrained (§3.4); it is never rounded up to the constant, which is §2.4's own rationale applied. In everyday code the rule rarely decides anything: the common source of constant impurity is a user extern, and those are impure by the ownership split (§6.1), not by this rule. The weight is carried by §6.1; the else-constant rule's indispensable clients are the data field and the result-only face.
+**The else-constant rule.** A `=>` with nothing to link through is the impure constant. The linked reading requires **an inlet: at least one `=>` in a parameter position** — a slot through which a caller's instantiation can flow. Two positions therefore take the constant: a data-declaration field (§2.5, where the rule is load-bearing), and a written type whose `=>` occurrences stand only in result or outer position — in `(seed: String): (String => String) => …`, the return annotation's arrow is the annotation's only `=>` and no parameter offers an inlet, so that face is constantly impure. A `=>` in *parameter* position is always linked, even when it is the signature's only one: `store(callback: () => String): Int` is polymorphic in `callback`'s colour and accepts pure and impure arguments alike — the variable, if nothing ever observes it, simply generalizes unconstrained (§3.4); it is never rounded up to the constant, which is §2.4's own rationale applied. In everyday code the rule rarely decides anything: the common source of constant impurity is a user extern, and those are impure by the ownership split (§6.1), not by this rule. The weight is carried by §6.1; the else-constant rule's indispensable clients are the data field and the result-only face.
 
 ### 2.3 `=>!` — the impure constant, spelled
 
@@ -118,7 +118,9 @@ wired!(document)                      -- the composite's own invocation is the e
 compose(save2, audit2)!(document)     -- both in one expression: outer call bare, inner list marked
 ```
 
-`compose`'s outer arrow is pure — it allocates a closure and touches nothing — so its call is bare even when the composite it returns is impure. The effect surfaces where the composite is *invoked*, and the mark surfaces with it. Read it as order of operations for marks: each argument list is marked for the arrow it discharges.
+Evaluating `compose` allocates a closure and touches nothing — its body is neither a source nor a conductor, so its own colour is unconstrained and, at call sites like these, resolves pure (§3.4's defaulting) — the call is bare even when the composite it returns is impure. The effect surfaces where the composite is *invoked*, and the mark surfaces with it. Read it as order of operations for marks: each argument list is marked for the arrow it discharges.
+
+One conservatism qualifies the example: **inside an inlet-bearing body** (a signature with a linked `=>` parameter, §2.2), a call whose colour is still undetermined is treated as a conductor and wears `?` rather than defaulting pure (§3.4) — pinning it pure there would quietly weaken the enclosing face. `compose(save2, audit2)` is bare in the plain bodies shown; the same call inside `fold`'s body would conduct.
 
 ### 3.4 Effect variables are type variables
 
@@ -126,13 +128,14 @@ The effect component rides the ordinary machinery — unification, levels, gener
 
 - **Monomorphic in the knot.** Within a `fun` group's strongly-connected component, a signature's effect variable is a not-yet-generalized monotype like every other variable (Functions §7.4); recursive calls share it. It generalizes per member, when that member's binding generalizes.
 - **Settled at body close.** A declaration's own colour and its calls' mark obligations are resolved when its body closes, not at module end. This is required, not latitude: under end-of-module settling, a module-internal call to a not-yet-generalized neighbour would see a still-linked variable, and the pure corpus would read as conductors — every bare call in `Seq.hex` would demand `?`.
-- **The defaulting clause.** An effect colour still unconstrained when its owner settles defaults to **pure**. Its subjects are a body's own colour and a call's colour that nothing constrained — harmless by construction, since nothing observed the variable and nothing distinguishes the choice. A **signature parameter's** effect variable is not a subject: it generalizes with the binding like any type variable, which is exactly what keeps `store(callback: () => String)` polymorphic (§2.2) rather than quietly pure-pinned.
+- **A body's own colour is solved by three arms, in order.** A body that absorbs an impure-constant call is a **source**: its own colour is the impure constant (and if its written face is `->`, that is §4.2's pure-face error, at the offending call). A body whose `?` call absorbs the signature's variable is a **conductor**: its own colour *unifies with* that variable — this is how one-variable-per-signature emerges rather than being imposed, and why `fold`'s outer arrow is linked (§2.2). A body that is neither keeps an **unconstrained** colour, and what happens next depends on the signature: with **no inlet** (no parameter-position `=>`), the colour defaults to **pure** — harmless, since nothing observed it; with an inlet, it is **not** defaulted — the face stays `=>`, effect-polymorphic, rather than being pure-pinned by omission.
+- **The defaulting clause, at calls.** A call's colour still undetermined when marks are checked defaults to **pure** (bare) in an inlet-less body; in an inlet-bearing body it is conservatively a **conductor** and the call wears `?` (§3.3's qualification — pinning it pure inside a linked body would weaken the enclosing face). A **signature parameter's** effect variable is never defaulted by either clause: it generalizes with the binding like any type variable, which is exactly what keeps `store(callback: () => String)` polymorphic (§2.2).
 
 ## 4. Enforcement is symmetric, and error-grade
 
 ### 4.1 At calls: six directions, one-token fixits
 
-The required mark at a call is computed from the callee's outermost arrow colour at this instantiation: impure constant → `!`, the enclosing signature's variable → `?`, pure → bare. **Any other mark is an error — including a mark on a provably pure call.** A tolerated-but-wrong mark would rot into noise; symmetric enforcement is what keeps silence meaningful. All six wrong-mark directions report the same shape, each with a one-token fixit:
+The required mark at a call is computed from the callee's outermost arrow colour at this instantiation: impure constant → `!`; the enclosing signature's variable — or a colour still undetermined inside an inlet-bearing body (§3.4) — → `?`; pure → bare. **Any other mark is an error — including a mark on a provably pure call.** A tolerated-but-wrong mark would rot into noise; symmetric enforcement is what keeps silence meaningful. All six wrong-mark directions report the same shape, each with a one-token fixit:
 
 > this call runs effects, so `save` wants `!`, not no mark
 > this call is as effectful as the enclosing instantiation makes it, so `combine` wants `?`, not `!`
@@ -240,6 +243,7 @@ The shipped checker implements this ruling behind a project flag; flag-off compi
 - **The deferred dot-call goal path** (Method Syntax §3) must be exercised against marks — a goal resolved at the deadline anchors its mark to the same argument list.
 - **Declaration-site variance analysis** must include effect slots (it currently skips them — over-restriction, not unsoundness).
 - **The glued-mark rule must be enforced** — Lexer §8.1 says a mark is written glued immediately before `(` (or at a stage's end), and the prototype accepts `readLine ! ()` with interior whitespace.
+- **`pure` must be refused off `fun`** — FFI Part 4 §4.5 confines the claim to extern `fun` declarations; the prototype's parser currently accepts it on extern `let` and `type` rows without complaint.
 
 ## 11. Rejected alternatives (do not re-litigate without new information)
 
@@ -262,7 +266,7 @@ The shipped checker implements this ruling behind a project flag; flag-off compi
 | Lambdas always the term `=>`; colour inferred; references colourless; demands via ascription/unification; return-annotation parens | §2.6 |
 | Call trichotomy bare/`!`/`?`; pipe teaching model; mark anchors the argument list; pipe stages are calls | §3.1–§3.2 |
 | The outermost-arrow sentence: a mark describes this call only | §3.3 |
-| Effect variables are tyvars: monomorphic in the SCC knot, settled at body close, unconstrained defaults pure | §3.4 |
+| Effect variables are tyvars: monomorphic in the SCC knot, settled at body close; source/conductor/unconstrained arms; defaulting is pure only where no inlet exists — inlet-bearing bodies stay polymorphic and their undetermined calls conduct | §3.4 |
 | Symmetric enforcement, error-grade, at calls (six directions) and faces (both directions) | §4 |
 | Four unmarkable call forms ⇒ constraint members `->`-demanded; `Iterable` instances pure; `for` heads never marked | §5 |
 | Extern ownership split: intrinsics verified, user externs impure by default with contextual `pure` claim | §6.1 |

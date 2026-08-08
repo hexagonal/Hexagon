@@ -248,7 +248,7 @@ apply   : (String -> String) -> String
 - *(#355.)* **Every arrow carries its effect colour**, and the display renders the trio: `->` pure, `=>` this signature's linked effect variable, `=>!` the impure constant (Effects §2, the owner of the readings). The three are the same zero/one/many grammar with a different arrow head:
 
   ```text
-  fold            : (Seq(a), b, (b, a) => b) -> b
+  fold            : (Seq(a), b, (b, a) => b) => b
   withTransaction : (String => String) =>! String
   Stream.next     : Stream(a) =>! Option(a)
   ```
