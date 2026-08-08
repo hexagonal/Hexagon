@@ -478,6 +478,8 @@ interface ExternDeclarationFields {
 export interface ExternFunDeclaration extends ExternDeclarationFields {
   readonly kind: "ExternFun";
   readonly binding: Binding;
+  /** The declared binders and their bounds (#370); see the parsed tree's field. */
+  readonly typeParameters?: readonly TypeParameter[];
   readonly parameters: readonly Parameter[];
   readonly returnAnnotation: TypeAnnotation;
 }

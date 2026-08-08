@@ -1546,6 +1546,18 @@ class Resolver {
           return {
             kind: "ExternFun",
             ...common,
+            // #370: an intrinsic row's constraint brackets ride the §3.4 grant.
+            // The parser records them only inside the reserved boundary, so
+            // nothing here has to re-derive the gate's answer.
+            ...(declaration.typeParameters === undefined
+              ? {}
+              : {
+                typeParameters: declaration.typeParameters.map((parameter) => ({
+                  name: parameter.name.text,
+                  constraints: parameter.constraints.map(({ text }) => text),
+                  span: parameter.span,
+                })),
+              }),
             parameters,
             returnAnnotation: this.#resolveTypeAnnotation(declaration.returnAnnotation),
           };

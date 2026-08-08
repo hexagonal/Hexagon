@@ -67,23 +67,129 @@ export const VECTOR_RUNTIME_OPERATIONS = [
 export type VectorRuntimeOperation = (typeof VECTOR_RUNTIME_OPERATIONS)[number];
 
 /**
- * How this module reaches the vector trie runtime.
+ * Every operation the emitted program performs on a `Map(k, v)` by calling the
+ * hash-trie runtime, and the name it is exported under from
+ * `runtime/HashTrie.hex` (#370).
+ *
+ * Read `VECTOR_RUNTIME_OPERATIONS`' block for what a list like this is and why
+ * it is fixed rather than derived; everything there applies here verbatim, with
+ * one difference worth naming. The vector list is what the *emitter* reaches
+ * for on its own account — a literal, a bracket, a pattern. This list is
+ * `stdlib/Map.hex`'s seven door keys (`spec/intrinsics.md` §3.2), so almost
+ * every member is here because a `map*` intrinsic lowers to it, and the emitter
+ * itself reaches only two directly: `get`, for the bracket's throwing read and
+ * the derived `Eq`, and `entries`, for the iteration face.
+ *
+ * `containsKey` and `isEmpty` are declared in the runtime module and are
+ * deliberately **not** here: `Map.hex` writes both in ordinary Hexagon over
+ * `get` and `size`, so nothing outside the trie calls them, and an export list
+ * naming operations no consumer imports is a claim the wiring has no reason to
+ * make. The Set step will decide their fate on its own evidence.
+ */
+export const HASH_TRIE_RUNTIME_OPERATIONS = [
+  /** The one shared empty trie (a value, not a function). */
+  "empty",
+  /** `singleton(key, value)` — the unplaced one-entry trie (Part 4 §12.4). */
+  "singleton",
+  /** `size(trie)` — the maintained field, O(1). */
+  "size",
+  /** `get(trie, key)` — `<k: Hash>`, so its compiled form takes evidence. */
+  "get",
+  /** `set(trie, key, value)` — `<k: Hash>`, upsert, persistent. */
+  "set",
+  /** `remove(trie, key)` — `<k: Hash>`, forgiving. */
+  "remove",
+  /** `entries(trie)` — the lazy depth-first walk, as a `Seq((k, v))`. */
+  "entries",
+] as const;
+
+export type HashTrieRuntimeOperation = (typeof HASH_TRIE_RUNTIME_OPERATIONS)[number];
+
+/**
+ * How this module reaches one runtime module.
  *
  * `"self"` is the runtime module emitting itself: its operations are ordinary
  * module-level bindings, so they are named bare, and it is here — and only here
  * — that the emitter writes the JavaScript export list and gives every
- * constructed `TrieVector` its `[Symbol.iterator]`.
+ * constructed representation record its `[Symbol.iterator]`.
  *
  * A specifier is every other module: the operations arrive as named imports.
  * Absent means no runtime is available, which is what emitting a single module
- * outside `compileProject` gets; vector emission then names the operations as
- * if imported from the same directory, which is the shape a one-file program
- * has, exactly like `DEFAULT_RUNTIME_SPECIFIER` above.
+ * outside `compileProject` gets; emission then names the operations as if
+ * imported from the same directory, which is the shape a one-file program has,
+ * exactly like `DEFAULT_RUNTIME_SPECIFIER` above.
  */
-export type VectorRuntime = "self" | { readonly specifier: string };
+export type RuntimeLocation = "self" | { readonly specifier: string };
 
-/** What a module at the source common root spells for the trie runtime. */
+/** Where each runtime module sits, from this module, by injected basename. */
+export type RuntimeLocations = ReadonlyMap<string, RuntimeLocation>;
+
+/**
+ * One runtime module's wiring, in the one record that decides all of it (#370).
+ *
+ * There used to be a quintet of vector-shaped members — an operations list, a
+ * default specifier, a use map, an import renderer, an export renderer — and a
+ * second runtime module could not simply have a second copy: the export
+ * renderer keyed off `"self"` alone, so whichever module was emitting itself
+ * got *the vector list* written as its export list, and the other got none.
+ * Generalizing was therefore forced rather than tidy. Each channel below is the
+ * same one channel it always was, now indexed by `basename`.
+ */
+export interface RuntimeModuleWiring {
+  /** The injected basename (`runtime-modules.ts`), and this record's key. */
+  readonly basename: string;
+  /**
+   * The operations, in the order the emitted export list and every consumer's
+   * import list name them — a function of what a module uses, never of where in
+   * the module it happens to use it.
+   */
+  readonly operations: readonly string[];
+  /**
+   * The stem a generated import local takes, per FFI Part 1 §10 applied to a
+   * term: the import and a user's own function of the same name must coexist,
+   * and only the generated spelling ever moves. The stems name the *runtime*
+   * rather than the public type, so a reader can tell an imported runtime
+   * operation from a locally emitted helper at a glance, and two runtimes that
+   * share an operation name (`size`, `get`, `set`, `empty` — all four are in
+   * both lists) never hand each other's local out.
+   */
+  readonly localStem: string;
+  /** What a module at the source common root spells for it. */
+  readonly defaultSpecifier: string;
+  /**
+   * The representation record whose construction carries the boundary traversal
+   * method, and the helper that method is. Present for a runtime module whose
+   * public type is `Iterable`; absent for one whose is not.
+   */
+  readonly iterable?: {
+    readonly record: string;
+    readonly helper: "vectorIterate" | "hashTrieIterate";
+  };
+}
+
+/** What a module at the source common root spells for the vector trie runtime. */
 export const DEFAULT_VECTOR_RUNTIME_SPECIFIER = "./VectorTrie";
+
+/** Every runtime module the emitter wires, in injection order. */
+export const RUNTIME_WIRINGS: readonly RuntimeModuleWiring[] = [
+  {
+    basename: "VectorTrie.hex",
+    operations: VECTOR_RUNTIME_OPERATIONS,
+    localStem: "trie",
+    defaultSpecifier: DEFAULT_VECTOR_RUNTIME_SPECIFIER,
+    iterable: { record: "TrieVector", helper: "vectorIterate" },
+  },
+  {
+    basename: "HashTrie.hex",
+    operations: HASH_TRIE_RUNTIME_OPERATIONS,
+    localStem: "hashTrie",
+    defaultSpecifier: "./HashTrie",
+    iterable: { record: "HashTrie", helper: "hashTrieIterate" },
+  },
+];
+
+const VECTOR_WIRING = RUNTIME_WIRINGS[0]!;
+const HASH_TRIE_WIRING = RUNTIME_WIRINGS[1]!;
 
 export interface JavaScriptEmissionOptions {
   /** Includes private editions for inspection tools; ordinary builds omit them. */
@@ -91,11 +197,11 @@ export interface JavaScriptEmissionOptions {
   /** Exposes reserved evidence handles needed by dependent Hexagon modules. */
   readonly exportInstanceEvidence?: boolean;
   /**
-   * Where this module's vector emission finds the trie runtime. Only
+   * Where this module's emission finds each runtime module. Only
    * `compileProject` knows the program's paths, so only it can compute the
-   * specifier; the default is the same-directory one.
+   * specifiers; a basename with no entry takes the same-directory default.
    */
-  readonly vectorRuntime?: VectorRuntime;
+  readonly runtimes?: RuntimeLocations;
 }
 
 export function emitJavaScript(
@@ -682,14 +788,14 @@ class JavaScriptEmitter {
   readonly #module: Core.Module;
   readonly #docs: DocIndex;
   readonly #exportInstanceEvidence: boolean;
-  readonly #vectorRuntime: VectorRuntime;
+  readonly #runtimes: RuntimeLocations;
   /**
-   * The trie operations this module's emission reached, and the local each is
-   * named by — the import list, decided by rendering exactly as the prelude
-   * term channel's is (#263). Insertion order is not the emitted order; see
-   * `#vectorRuntimeImport`.
+   * The runtime operations this module's emission reached, and the local each
+   * is named by — the import lists, decided by rendering exactly as the prelude
+   * term channel's is (#263). Keyed by runtime basename; insertion order is not
+   * the emitted order, see `#runtimeImports`.
    */
-  readonly #vectorRuntimeUses = new Map<VectorRuntimeOperation, string>();
+  readonly #runtimeUses = new Map<string, Map<string, string>>();
   readonly #specializations: readonly FundamentalSpecialization[];
   readonly #generatedBodies: {
     readonly specialization: FundamentalSpecialization;
@@ -701,8 +807,7 @@ class JavaScriptEmitter {
     this.#docs = new DocIndex(module.docs);
     this.#prelude = preludeIds(module);
     this.#exportInstanceEvidence = options.exportInstanceEvidence ?? false;
-    this.#vectorRuntime = options.vectorRuntime ??
-      { specifier: DEFAULT_VECTOR_RUNTIME_SPECIFIER };
+    this.#runtimes = options.runtimes ?? new Map();
     this.#generatedNames = new GeneratedNames(module.symbols.map(({ name }) => name));
     for (const item of module.items) {
       if (item.kind !== "Import") continue;
@@ -810,6 +915,7 @@ class JavaScriptEmitter {
           this.#helperName(helper),
           (dependency) => this.#helperName(dependency),
           (operation) => this.#useVectorRuntime(operation),
+          (operation) => this.#useHashTrieRuntime(operation),
         )
       );
 
@@ -820,8 +926,8 @@ class JavaScriptEmitter {
     body.push(...preludeInstanceImports.map(({ line }) => line));
     const preludeTermImports = this.#preludeTermImports();
     body.push(...preludeTermImports.map(({ line }) => line));
-    const vectorRuntimeImport = this.#vectorRuntimeImport();
-    if (vectorRuntimeImport !== undefined) body.push(vectorRuntimeImport.line);
+    const runtimeImports = this.#runtimeImports();
+    body.push(...runtimeImports.map(({ line }) => line));
     body.push(...this.#constraintMemberImports());
 
     // Constraints §6.3: an `honor` may sit below a term binding whose evaluation
@@ -853,7 +959,7 @@ class JavaScriptEmitter {
       previousSpan = entry.span;
     }
     body.push(...this.#exports);
-    body.push(...this.#vectorRuntimeExports());
+    body.push(...this.#runtimeExports());
 
     const lines = helpers.length === 0 ? body : [...helpers, "", ...body];
 
@@ -869,9 +975,7 @@ class JavaScriptEmitter {
       preludeTermImports: [
         ...new Set(preludeTermImports.map(({ specifier }) => specifier)),
       ],
-      vectorRuntimeImports: vectorRuntimeImport === undefined
-        ? []
-        : [vectorRuntimeImport.specifier],
+      runtimeImports: runtimeImports.map(({ specifier }) => specifier),
       diagnostics: this.#diagnostics.toArray(),
     };
   }
@@ -1011,6 +1115,21 @@ class JavaScriptEmitter {
           // best-effort must not mean functional-but-forbidden.
           const key = declaration.foreignName ?? declaration.localName;
           lines.push(`${prefix}const ${local} = ${this.#lowerIntrinsic(key, declaration.span)};`);
+          if (declaration.exported && declaration.binding.scheme.constraints.length > 0) {
+            // #370: a constrained row (§3.4) exports under the internal
+            // constrained name, exactly as a constrained `.hex` binding does —
+            // the ESM surface a Hexagon importer reaches, carrying trailing
+            // evidence and staying out of the `.d.ts` face. Nothing about the
+            // door changes here; this is the ordinary constrained-export shape,
+            // which is what "types as an ordinary constrained function" means at
+            // the boundary a module's output is.
+            this.#exports.push(
+              `export { ${local} as ${
+                internalConstrainedExportName(declaration.binding.symbol)
+              } };`,
+            );
+            continue;
+          }
           if (declaration.exported) {
             // Occasion 1 applies here as much as to a `.hex` function, and for
             // the sharper reason: an intrinsic's lowering is a compiler helper
@@ -1851,20 +1970,23 @@ class JavaScriptEmitter {
           : undefined;
         if (constructed !== undefined) {
           // A nominal record constructor is the identity, so the construction
-          // inlines to its argument — except for the two records whose
+          // inlines to its argument — except for the records whose
           // representation *includes* their JavaScript traversal method: `Seq`
-          // (FFI Part 3 §9.4) and `TrieVector`, which is what a `Vector(a)` is
-          // and what `Hex.Vector<a> extends Iterable<a>` promises about it.
+          // (FFI Part 3 §9.4), `TrieVector`, which is what a `Vector(a)` is and
+          // what `Hex.Vector<a> extends Iterable<a>` promises about it, and
+          // since #370 `HashTrie`, which is what a `Map(k, v)` is and what
+          // `Hex.Map<k, v> extends Iterable<[k, v]>` promises about it.
           //
-          // The vector side needs no equivalent of `#isSequence`'s prelude
-          // lookup, and could not have one: `TrieVector` is declared in the
+          // The runtime side needs no equivalent of `#isSequence`'s prelude
+          // lookup, and could not have one: both records are declared in a
           // runtime module and exported from nowhere, so the only expression in
           // any program that can construct one is inside that module. Being
           // *in* it is therefore the whole test.
+          const runtimeIterate = this.#runtimeIterateHelper(expression.type);
           const face = this.#isSequence(expression.type)
             ? `[Symbol.iterator]: ${this.#useHelper("seqIterate")}`
-            : this.#isTrieVector(expression.type)
-            ? `[Symbol.iterator]: ${this.#useHelper("vectorIterate")}`
+            : runtimeIterate !== undefined
+            ? `[Symbol.iterator]: ${this.#useHelper(runtimeIterate)}`
             : undefined;
           if (face === undefined) {
             return this.#emitExpr(constructed, depth, evidenceNames);
@@ -4062,20 +4184,27 @@ class JavaScriptEmitter {
   }
 
   /**
-   * Whether `type` is the trie the emitted program's `Vector(a)` values are.
+   * The boundary traversal method a construction of `type` carries, or nothing.
    *
-   * Recognized by name inside the runtime module and nowhere else, which is not
-   * the weak version of an identity check but the exact one: `TrieVector` is
-   * private to that module — the checker refuses to export a binding exposing
-   * it — so no other module can hold a value of it, name it, or construct one.
+   * A runtime module's representation record is recognized **by name inside
+   * that module and nowhere else**, which is not the weak version of an
+   * identity check but the exact one: `TrieVector` and `HashTrie` are private to
+   * their own modules — the checker refuses to export a binding exposing either
+   * — so no other module can hold a value of one, name it, or construct one.
    * The `Bool`/`Seq` pins need a prelude lookup because those types *do* cross
-   * boundaries and a user declaration can occlude the name; this one cannot.
+   * boundaries and a user declaration can occlude the name; these cannot.
    */
-  #isTrieVector(type: Typed.Type): boolean {
-    if (this.#vectorRuntime !== "self" || type.kind !== "NominalRecord") return false;
-    return this.#module.records.some(
-      ({ id, name }) => id === type.record && name === "TrieVector",
-    );
+  #runtimeIterateHelper(type: Typed.Type): Helper | undefined {
+    if (type.kind !== "NominalRecord") return undefined;
+    for (const wiring of RUNTIME_WIRINGS) {
+      const iterable = wiring.iterable;
+      if (iterable === undefined || this.#locationOf(wiring) !== "self") continue;
+      const named = this.#module.records.some(
+        ({ id, name }) => id === type.record && name === iterable.record,
+      );
+      if (named) return iterable.helper;
+    }
+    return undefined;
   }
 
   /**
@@ -4515,38 +4644,62 @@ class JavaScriptEmitter {
    * locally emitted helper at a glance, and neither ever displaces the other.
    */
   #useVectorRuntime(operation: VectorRuntimeOperation): string {
-    if (this.#vectorRuntime === "self") return operation;
-    const existing = this.#vectorRuntimeUses.get(operation);
+    return this.#useRuntime(VECTOR_WIRING, operation);
+  }
+
+  #useHashTrieRuntime(operation: HashTrieRuntimeOperation): string {
+    return this.#useRuntime(HASH_TRIE_WIRING, operation);
+  }
+
+  #useRuntime(wiring: RuntimeModuleWiring, operation: string): string {
+    if (this.#locationOf(wiring) === "self") return operation;
+    let uses = this.#runtimeUses.get(wiring.basename);
+    if (uses === undefined) {
+      uses = new Map<string, string>();
+      this.#runtimeUses.set(wiring.basename, uses);
+    }
+    const existing = uses.get(operation);
     if (existing !== undefined) return existing;
     const name = this.#generatedNames.fixed(
-      `trie${operation[0]!.toUpperCase()}${operation.slice(1)}`,
+      `${wiring.localStem}${operation[0]!.toUpperCase()}${operation.slice(1)}`,
     );
-    this.#vectorRuntimeUses.set(operation, name);
+    uses.set(operation, name);
     return name;
   }
 
+  /** Where this module finds `wiring`'s runtime module. */
+  #locationOf(wiring: RuntimeModuleWiring): RuntimeLocation {
+    return this.#runtimes.get(wiring.basename) ??
+      { specifier: wiring.defaultSpecifier };
+  }
+
   /**
-   * The single `import` line the reached trie operations owe, or nothing when
-   * none were reached — the whole of "a program with no vectors carries no trie
-   * runtime". The specifier rides along because reachability must emit the
-   * module this points at, and no `Import` item records the edge
-   * (`Emitted.JavaScript.vectorRuntimeImports`).
+   * One `import` line per runtime module whose operations this module reached,
+   * and none for one it did not — the whole of "a program with no vectors
+   * carries no trie runtime", and now of "a program with no maps carries no
+   * hash trie". The specifiers ride along because reachability must emit the
+   * modules these point at, and no `Import` item records the edges
+   * (`Emitted.JavaScript.runtimeImports`).
    *
-   * Named in `VECTOR_RUNTIME_OPERATIONS` order rather than first-use order, so
+   * Named in each wiring's own operation order rather than first-use order, so
    * the emitted text is a function of what the module uses and not of where in
    * the module it happens to use it.
    */
-  #vectorRuntimeImport(): { readonly line: string; readonly specifier: string } | undefined {
-    if (this.#vectorRuntime === "self" || this.#vectorRuntimeUses.size === 0) return undefined;
-    const items = VECTOR_RUNTIME_OPERATIONS.flatMap((operation) => {
-      const local = this.#vectorRuntimeUses.get(operation);
-      return local === undefined ? [] : [`${operation} as ${local}`];
+  #runtimeImports(): readonly { readonly line: string; readonly specifier: string }[] {
+    return RUNTIME_WIRINGS.flatMap((wiring) => {
+      const location = this.#locationOf(wiring);
+      const uses = this.#runtimeUses.get(wiring.basename);
+      if (location === "self" || uses === undefined || uses.size === 0) return [];
+      const items = wiring.operations.flatMap((operation) => {
+        const local = uses.get(operation);
+        return local === undefined ? [] : [`${operation} as ${local}`];
+      });
+      return [{
+        line: `import { ${items.join(", ")} } from ` +
+          `${JSON.stringify(emittedModuleSpecifier(location.specifier))};`,
+        specifier: location.specifier,
+      }];
     });
-    return {
-      line: `import { ${items.join(", ")} } from ` +
-        `${JSON.stringify(emittedModuleSpecifier(this.#vectorRuntime.specifier))};`,
-      specifier: this.#vectorRuntime.specifier,
-    };
   }
 
   /**
@@ -4566,8 +4719,7 @@ class JavaScriptEmitter {
    * the result is a `SyntaxError` in generated JavaScript with no diagnostic
    * anywhere, which is the worst way to learn it.
    */
-  #vectorRuntimeExports(): readonly string[] {
-    if (this.#vectorRuntime !== "self") return [];
+  #runtimeExports(): readonly string[] {
     // The module's *own* top-level bindings, never `module.symbols`: that also
     // carries the prelude's, so a file declaring none of these would still look
     // as though it had `empty` and `prepend` — `Seq.hex` exports both — and the
@@ -4577,17 +4729,20 @@ class JavaScriptEmitter {
         item.kind === "Let" || item.kind === "Fun" ? [item.binding.name] : []
       ),
     );
-    const missing = VECTOR_RUNTIME_OPERATIONS.filter((operation) => !declared.has(operation));
-    if (missing.length > 0) {
-      this.#diagnostics.add({
-        severity: "error",
-        message: "this file sits at the vector runtime's injection path but declares " +
-          `no ${missing.map((operation) => `\`${operation}\``).join(", ")}`,
-        primary: this.#module.span,
-      });
-    }
-    const present = VECTOR_RUNTIME_OPERATIONS.filter((operation) => declared.has(operation));
-    return present.length === 0 ? [] : [`export { ${present.join(", ")} };`];
+    return RUNTIME_WIRINGS.flatMap((wiring) => {
+      if (this.#locationOf(wiring) !== "self") return [];
+      const missing = wiring.operations.filter((operation) => !declared.has(operation));
+      if (missing.length > 0) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `this file sits at \`${wiring.basename}\`'s injection path but declares ` +
+            `no ${missing.map((operation) => `\`${operation}\``).join(", ")}`,
+          primary: this.#module.span,
+        });
+      }
+      const present = wiring.operations.filter((operation) => declared.has(operation));
+      return present.length === 0 ? [] : [`export { ${present.join(", ")} };`];
+    });
   }
 }
 
@@ -5480,6 +5635,8 @@ type Helper =
   | "vectorAt"
   | "vectorIndex"
   | "vectorIterate"
+  | "hashTrieIterate"
+  | "mapIndex"
   | "vectorOf"
   | "vectorSet"
   | "vectorSlice"
@@ -5517,6 +5674,10 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   vectorAt: [],
   vectorIndex: [],
   vectorIterate: [],
+  // The hash trie's face drives the module's own lazy `entries` walk through
+  // the `Seq` driver, so it owes that helper (#370).
+  hashTrieIterate: ["seqToIterable"],
+  mapIndex: [],
   vectorOf: [],
   vectorSet: [],
   vectorSlice: [],
@@ -5643,8 +5804,10 @@ function renderHelper(
   helper: Helper,
   name: string,
   dependencyName: (helper: Helper) => string,
-  /** The trie runtime, for the helpers that are bounds checks around it. */
+  /** The vector trie runtime, for the helpers that are bounds checks around it. */
   runtimeName: (operation: VectorRuntimeOperation) => string,
+  /** The hash trie runtime, for the map bracket and the iteration face (#370). */
+  hashTrieName: (operation: HashTrieRuntimeOperation) => string,
 ): string[] {
   switch (helper) {
     case "persistentCollections":
@@ -5891,6 +6054,47 @@ function renderHelper(
         "    for (let __hex_step = 0; __hex_step < __hex_run; __hex_step += 1) yield __hex_values[__hex_offset + __hex_step];",
         "    __hex_index += __hex_run;",
         "  }",
+        "}",
+      ];
+    case "hashTrieIterate":
+      // The boundary traversal method every `HashTrie` carries (#370), and the
+      // whole of what makes `Hex.Map<k, v> extends Iterable<[k, v]>` true:
+      // `for (k, v) in m`, spread, `show`, `hash`, and the derived `Eq`'s left
+      // walk all reach a map through this and nothing else. Emitted only into
+      // the runtime module, which is the only place a `HashTrie` is constructed.
+      //
+      // Unlike the vector's, this one delegates: `entries` is the module's own
+      // lazy depth-first walk with an explicit frame stack, so re-deriving the
+      // traversal here would mean a second implementation of the same walk with
+      // the same suspension problem, and the `Seq` driver already exists to turn
+      // one into an iterator. It is O(n) over the whole traversal, which is what
+      // Collections Part 4 §2.2's iteration row asks for.
+      return [
+        `function* ${name}() {`,
+        `  yield* ${dependencyName("seqToIterable")}(${hashTrieName("entries")}(this));`,
+        "}",
+      ];
+    case "mapIndex":
+      // The bracket, `m[k]` (Collections Part 4 §4.1): assert presence, throw
+      // `KeyError` on absence. A helper for `vectorIndex`'s reason — a check
+      // followed by a return is *statements* — and it builds §4.3's payload
+      // directly rather than constructing `stdlib/Map.hex`'s exception, exactly
+      // as the vector family builds `IndexError`'s.
+      //
+      // `KeyError` is **nullary** by ruling: a polymorphic key cannot be a
+      // payload slot (Exceptions §2), so no field is set beyond the two every
+      // Hexagon exception carries. The key does reach the *message*, which §4.3
+      // licenses as a non-normative best-effort rendering — programs must not
+      // parse it — and `String(key)` is what a rendering with no `Show`
+      // evidence in hand can honestly do.
+      return [
+        `function ${name}(__hex_get, __hex_map, __hex_key) {`,
+        "  const __hex_entry = __hex_get(__hex_map, __hex_key);",
+        '  if (__hex_entry.tag === "Some") return __hex_entry.value;',
+        "  const __hex_error = new Error(`no value for key ${String(__hex_key)}`);",
+        '  __hex_error.name = "KeyError";',
+        "  __hex_error.$hex = true;",
+        "  throw __hex_error;",
         "}",
       ];
     case "nodeSet":

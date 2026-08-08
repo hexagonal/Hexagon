@@ -1299,6 +1299,47 @@ class Checker {
           // rather than minting a second, unrelated set.
           const typeParameters = new Map<string, Mono>();
           this.#intrinsicTypeParameters.set(declaration, typeParameters);
+          // #370, §3.4's constraint grant: a written binder is seeded *before*
+          // the annotations are interned, so the annotation's `k` finds this
+          // variable rather than minting a second, unbounded one — and the
+          // requirement registered here is what `#publicScheme` reads back as
+          // the row's residual constraint. From that point the binding is an
+          // ordinary constrained function: ordinary discharge at every call,
+          // ordinary trailing evidence in the emitted call, which is precisely
+          // what the lowering (a compiled `<k: Hash>` runtime operation) expects.
+          for (const parameter of declaration.typeParameters ?? []) {
+            const bounds = parameter.constraints.filter((constraint) =>
+              this.#constraintNames.has(constraint) && !this.#bearsProjection(constraint)
+            );
+            const variable = this.#fresh(0, false, parameter.name, bounds);
+            // Quantified besides being rigid, exactly as an `honor` binder is:
+            // the scheme below quantifies it, so it is never an unresolved
+            // variable for the defaulting step to settle. Without this, `<k:
+            // Hash>` on a declaration with no call sites at all defaults `k` to
+            // `Int` and then reports the row as requiring `Int` — a true
+            // sentence about a state defaulting had just created.
+            this.#quantified.add(variable.id);
+            typeParameters.set(parameter.name, variable);
+            for (const constraint of parameter.constraints) {
+              if (!this.#constraintNames.has(constraint)) {
+                this.#diagnostics.add({
+                  severity: "error",
+                  message: `unknown constraint \`${constraint}\``,
+                  primary: parameter.span,
+                });
+                continue;
+              }
+              if (this.#bearsProjection(constraint)) {
+                this.#diagnostics.add({
+                  severity: "error",
+                  message: impliedTypeBinderMessage(constraint),
+                  primary: parameter.span,
+                });
+                continue;
+              }
+              this.#require(constraint, variable, parameter.span, "annotation");
+            }
+          }
           const parameters = declaration.parameters.map((parameter) => {
             const type = parameter.annotation === undefined
               ? ERROR

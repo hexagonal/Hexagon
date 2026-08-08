@@ -37,18 +37,18 @@ export interface JavaScript extends Output {
    */
   readonly preludeTermImports: readonly string[];
   /**
-   * The specifier of the vector trie runtime module this file imports trie
-   * operations from, in source form — empty when it imports none, which is
-   * every file that touches no `Vector(a)`.
+   * The specifiers of the runtime modules this file imports operations from, in
+   * source form — empty when it imports none, which is every file that touches
+   * neither a `Vector(a)` nor a `Map(k, v)`.
    *
    * The fourth channel decided during emission rather than declared as an
    * `Import` item, after `preludeInstanceImports`, `preludeTermImports`, and
-   * `Declarations.preludeTypeImports`, and carried for the same reason.
-   * `runtime/VectorTrie.hex` exports nothing at the Hexagon level, so there is
-   * no `Import` item anywhere in the program to read the edge from — this is
-   * the only record that the module has to be written at all.
+   * `Declarations.preludeTypeImports`, and carried for the same reason. A
+   * runtime module exports nothing at the Hexagon level, so there is no `Import`
+   * item anywhere in the program to read the edge from — this is the only record
+   * that the module has to be written at all.
    */
-  readonly vectorRuntimeImports: readonly string[];
+  readonly runtimeImports: readonly string[];
 }
 
 /** A generated body that an interactive host may present separately. */
