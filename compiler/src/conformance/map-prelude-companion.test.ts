@@ -56,8 +56,14 @@ describe("§16 (a) construction, generalization, and the absent `Hash`", () => {
   });
 
   test("the call spelling is refused like any other non-function call", () => {
-    expect(projectDiagnostics("export let e: Map(Int, Int) = Map.empty()\n"))
-      .not.toEqual([]);
+    // No bespoke message is owed and none is written: `Map.empty` is a value, so
+    // calling it is the ordinary mismatch between a `Map` and a function. The
+    // variable numbers in the rendered type are not asserted — they move with
+    // every unrelated change to the prelude.
+    const messages = projectDiagnostics("export let e: Map(Int, Int) = Map.empty()\n");
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain("type mismatch: expected Map(");
+    expect(messages[0]).toContain("found () ->");
   });
 
   /**
