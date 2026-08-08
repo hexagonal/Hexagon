@@ -427,7 +427,7 @@ Semantics live in Statements/Blocks/Mutability (`var`-only target, `Unit`-typed,
 
 | Rejection | Reasoning |
 |---|---|
-| `&&`, `||`, `!` | Words-only logic (§1.2). One spelling, no Ruby-style dual-precedence trap. Bare `!` is a lex error with fixit. |
+| `&&`, `||`, `!` | Words-only logic (§1.2). One spelling, no Ruby-style dual-precedence trap. `&&`/`||` are lex errors with fixits; `!` as *negation* gets the same `not` redirect, parser-selected since #355 made `!` the call-mark token (§1.2). |
 | `not` above comparisons (early-draft position) | §3.1. `not a == b` must mean `not (a == b)`; Python/Lean position adopted. |
 | `iff` as desugared double implication | §4.3. Under single-evaluation it never short-circuited anyway; Boolean equality is the same truth table with simpler everything. |
 | Symbolic implication `==>` | Words-only rule; visual collision with `=>`. |
@@ -498,7 +498,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | Decision | Where |
 |---|---|
 | Operators are fixed sugar for constraint members; no user operators, no overloading, permanently | §1.1 |
-| Words-only logic; `!`/`&&`/`\|\|` are lex errors with fixits | §1.2 |
+| Words-only logic; `&&`/`\|\|` are lex errors with fixits; prefix-position `!` keeps the `not` redirect, parser-selected (#355 — `!` is the call-mark token) | §1.2 |
 | Math-first precedence; small unnumbered-gap table, 1 = tightest, numbers non-load-bearing | §1.3, §3 |
 | `not` below comparisons, above `and` (Python/Lean position; draft position rejected) | §3.1 |
 | `=>`/`if`/`match` eat to the right; legal bare as final operand, parse error elsewhere | §3.2 |

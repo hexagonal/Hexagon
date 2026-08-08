@@ -39,7 +39,7 @@ fold : (Seq(a), b, (b, a) => b) -> b
 
 `fold`'s callback arrow and — if the signature had more `=>` positions — every other `=>` in it share one colour. Instantiated with a pure `combine`, the whole call is pure; instantiated impure, the call is impure. The signature never says "impure"; it says "as impure as you make it". (`fold`'s own outer arrow is `->`: running `fold` performs nothing the callback doesn't — see §3.3 for why the outer arrow is the one a call mark reads.)
 
-**The else-constant rule.** A `=>` with no signature to link to is the impure constant. Two positions trigger it: a data-declaration field (§2.5, where it is load-bearing), and a signature whose only `=>` is a single occurrence nothing links against — where "linked" and "constant" coincide, since a variable observed nowhere else defaults away (§3.4). In everyday code the rule almost never decides anything: the common source of constant impurity is a user extern, and those are impure by the ownership split (§6.1), not by this rule. The weight is carried by §6.1; the else-constant rule's one indispensable client is the data field.
+**The else-constant rule.** A `=>` with nothing to link through is the impure constant. The linked reading requires **at least one `=>` in a parameter position** — a slot through which a caller's instantiation can flow. Two positions therefore take the constant: a data-declaration field (§2.5, where the rule is load-bearing), and a signature whose `=>` occurrences stand only in result or outer position — `(): String` faced with a result-only `=>` has no inlet for a caller to choose its colour through, so it is constantly impure. A `=>` in *parameter* position is always linked, even when it is the signature's only one: `store(callback: () => String): Int` is polymorphic in `callback`'s colour and accepts pure and impure arguments alike — the variable, if nothing ever observes it, simply generalizes unconstrained (§3.4); it is never rounded up to the constant, which is §2.4's own rationale applied. In everyday code the rule rarely decides anything: the common source of constant impurity is a user extern, and those are impure by the ownership split (§6.1), not by this rule. The weight is carried by §6.1; the else-constant rule's indispensable clients are the data field and the result-only face.
 
 ### 2.3 `=>!` — the impure constant, spelled
 
@@ -54,7 +54,7 @@ A body that both performs its own unconditional effects and forwards a callback'
 **The join governs the function's *own* colour only.** The callback arrows it forwards **keep their linked variable**:
 
 ```text
-withTransaction : ((String => String) =>! String)
+withTransaction : (String => String) =>! String
 ```
 
 The outer arrow is `=>!` — `withTransaction` writes to the world on its own account, so every call to it wears `!` (§3.3). The callback's arrow stays `=>` — a *pure* callback is accepted, and stays pure in the caller's accounting. Rounding the callback's arrow up to `=>!` would refuse pure callbacks outright: purity-as-polymorphism works through variables, and `=>!` is not one.
@@ -126,7 +126,7 @@ The effect component rides the ordinary machinery — unification, levels, gener
 
 - **Monomorphic in the knot.** Within a `fun` group's strongly-connected component, a signature's effect variable is a not-yet-generalized monotype like every other variable (Functions §7.4); recursive calls share it. It generalizes per member, when that member's binding generalizes.
 - **Settled at body close.** A declaration's own colour and its calls' mark obligations are resolved when its body closes, not at module end. This is required, not latitude: under end-of-module settling, a module-internal call to a not-yet-generalized neighbour would see a still-linked variable, and the pure corpus would read as conductors — every bare call in `Seq.hex` would demand `?`.
-- **The defaulting clause.** An effect variable still unconstrained when its signature settles defaults to **pure**. Harmless by construction: nothing observed the variable, so nothing distinguishes the choice — and it is what makes an unlinked single `=>` coincide with the constant (§2.2) rather than leak a phantom variable.
+- **The defaulting clause.** An effect colour still unconstrained when its owner settles defaults to **pure**. Its subjects are a body's own colour and a call's colour that nothing constrained — harmless by construction, since nothing observed the variable and nothing distinguishes the choice. A **signature parameter's** effect variable is not a subject: it generalizes with the binding like any type variable, which is exactly what keeps `store(callback: () => String)` polymorphic (§2.2) rather than quietly pure-pinned.
 
 ## 4. Enforcement is symmetric, and error-grade
 
@@ -144,6 +144,7 @@ The required mark at a call is computed from the callee's outermost arrow colour
 
 A written arrow that contradicts the body's solved colour is an error **in both directions**:
 
+- `->` over a body that performs effects: reported at the offending call — *"this call performs effects, and the enclosing function's face is the pure arrow `->` — a pure face cannot run effects"* — the span that names which call broke the promise.
 - `=>` over a body solved to the impure constant: *"this signature's `=>` promises a colour the caller chooses, but the body solves it to the impure constant — a function that performs its own unconditional effects rounds up, and its face is `=>!`"* — fixit `=>!` (§2.4's join, surfaced).
 - `=>` over a body solved pure: *"…but the body solves it to the pure constant — the honest face is `->`"* — fixit `->`. This is the **lie of generality**, mechanized: a pure function wearing `=>` would force `!`-or-`?` ceremony onto every caller for effects that cannot occur.
 - `=>!` over a body that performs no unconditional effect: *"this face is the impure constant `=>!`, but the body performs no unconditional effect — it is effect-polymorphic, and its face is `=>`"* — fixit `=>`.
@@ -218,7 +219,8 @@ Messages are normative in shape; the mark table's six rows share one sentence fr
 | `?` written, `!` required | "this call runs effects, so `save` wants `!`, not `?`" |
 | `!` written, call pure | "this call is pure, so `next` wants no mark, not `!`" + fixit: remove the mark |
 | `?` written, call pure | "this call is pure, so `next` wants no mark, not `?`" |
-| Non-identifier callee | the frame's subject degrades to "this call": "this call runs effects, so this call wants `!`, not no mark" |
+| Non-identifier callee | the frame's subject adapts: a dot call is named by its member — "…so `.next` wants `!`…" — and any other compound callee degrades to "this call": "this call runs effects, so this call wants `!`, not no mark" |
+| `->` face, body performs effects | "this call performs effects, and the enclosing function's face is the pure arrow `->` — a pure face cannot run effects" — at the offending call (§4.2) |
 | `=>` face, body impure-constant | "this signature's `=>` promises a colour the caller chooses, but the body solves it to the impure constant — a function that performs its own unconditional effects rounds up, and its face is `=>!`" + fixit `=>!` (§4.2) |
 | `=>` face, body pure | "…solves it to the pure constant — the honest face is `->`" + fixit `->` (§4.2) |
 | `=>!` face, body effect-polymorphic | "this face is the impure constant `=>!`, but the body performs no unconditional effect — it is effect-polymorphic, and its face is `=>`" + fixit `=>` (§4.2) |
@@ -237,6 +239,7 @@ The shipped checker implements this ruling behind a project flag; flag-off compi
 - **The return-annotation report should lead with its fixit** — it currently fires amid consequential type errors.
 - **The deferred dot-call goal path** (Method Syntax §3) must be exercised against marks — a goal resolved at the deadline anchors its mark to the same argument list.
 - **Declaration-site variance analysis** must include effect slots (it currently skips them — over-restriction, not unsoundness).
+- **The glued-mark rule must be enforced** — Lexer §8.1 says a mark is written glued immediately before `(` (or at a stage's end), and the prototype accepts `readLine ! ()` with interior whitespace.
 
 ## 11. Rejected alternatives (do not re-litigate without new information)
 

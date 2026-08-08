@@ -421,8 +421,8 @@ compound assignments, increment/decrement, and every user-invented punctuation r
 *(Corrected for #355 — this list previously included `->`, bare `!`, and `?`,
 all three now §8.1 tokens: `->` had already shipped, and `!`/`?` are the call
 marks. `??` and `?.` remain absent — maximal munch does not combine two marks or
-a mark and a dot into an unlisted token, and each such run is a parse error at
-the second character's position.)*
+a mark and a dot into an unlisted token; the leading mark of such a run falls
+outside a mark's grammatical seats and is refused there by the parser.)*
 
 Where every character of a run is independently valid (`+=`, `->`, `--`), the lexer
 may emit those valid component tokens and let the parser issue the form-specific
