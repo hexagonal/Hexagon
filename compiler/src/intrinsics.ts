@@ -99,6 +99,29 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   way `Signed<Int>`'s `fromInt` went. `stringCompare` is at the other
  *   extreme: its codepoint walk has no strictly simpler Hexagon to be written
  *   in, because the language has no codepoint API.
+ *
+ * The `hashTrie*` family is the door's first **runtime-module** customer (§5.2's
+ * runtime bullet, #365): `runtime/HashTrie.hex` declares all ten, unexported,
+ * and the trie is otherwise ordinary Hexagon. Three groups, each a single
+ * JavaScript expression, and each there because Hexagon has no spelling for it
+ * rather than because the trie wanted a shortcut.
+ *
+ * - **The placement mix.** `hashTrieMix` is the one row with state behind it: a
+ *   per-process seed read at most once, which is `spec/effects.md` §6.2 species
+ *   (b) and Collections Part 2 §2.4's seeded placement. A trie navigating by the
+ *   public hash would put every small `Int` key in the root's first slots,
+ *   `Hash<Int>` being the identity.
+ * - **Bit algebra** — `hashTrieDigit`, `hashTrieBitTest`, `hashTrieBitSet`,
+ *   `hashTrieBitClear`, `hashTrieBitCount`, `hashTrieBitCountBelow`. Hexagon has
+ *   no bitwise operators (`runtime/VectorTrie.hex` needed none, and divides
+ *   instead; a bitmap-compressed trie needs six bits' worth), and a popcount
+ *   written over `div`/`rem` would be a loop where the host has a SWAR word.
+ * - **Packed storage** — `hashTrieNodeSingleton`, `hashTrieNodeInsertAt`,
+ *   `hashTrieNodeRemoveAt`. The `Node` fallback family (§3.3) builds and reads
+ *   *fixed-32* arrays; a bitmap-compressed branch stores exactly its popcount,
+ *   so it needs the three length-changing operations that family has no member
+ *   for. `Node.get`/`Node.set` are length-agnostic and serve both shapes, which
+ *   is why no keyed twin of either appears here.
  */
 export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["seqMemoize", 1],
@@ -162,6 +185,16 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["stringEquals", 2],
   ["stringCompare", 2],
   ["stringHash", 1],
+  ["hashTrieMix", 1],
+  ["hashTrieDigit", 2],
+  ["hashTrieBitTest", 2],
+  ["hashTrieBitSet", 2],
+  ["hashTrieBitClear", 2],
+  ["hashTrieBitCount", 1],
+  ["hashTrieBitCountBelow", 2],
+  ["hashTrieNodeSingleton", 1],
+  ["hashTrieNodeInsertAt", 3],
+  ["hashTrieNodeRemoveAt", 2],
 ]);
 
 /**

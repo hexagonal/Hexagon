@@ -172,7 +172,10 @@ describe("verification replaces trust (§4.2)", () => {
       "`floatAdd`, `floatMultiply`, `floatSubtract`, `floatNegate`, " +
       "`floatFromInt`, `floatDivide`, `floatEquals`, `floatCompare`, " +
       "`floatShow`, `floatPow`, `floatHash`, `floatRem`, `stringConcat`, " +
-      "`stringEquals`, `stringCompare`, `stringHash`",
+      "`stringEquals`, `stringCompare`, `stringHash`, `hashTrieMix`, " +
+      "`hashTrieDigit`, `hashTrieBitTest`, `hashTrieBitSet`, `hashTrieBitClear`, " +
+      "`hashTrieBitCount`, `hashTrieBitCountBelow`, `hashTrieNodeSingleton`, " +
+      "`hashTrieNodeInsertAt`, `hashTrieNodeRemoveAt`",
     ]);
   });
 

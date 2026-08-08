@@ -10,10 +10,13 @@
  *   none. It exports nothing at the Hexagon level and could not — every
  *   operation's type names a private record — so no `import` can reach it
  *   either. The emitter writes the emitted module's JavaScript export list.
- * - **It is privileged the way `resolve`'s `runtime` flag means** (`Node(a)` is
- *   spellable), not the way prelude membership means (`spec/intrinsics.md` §5.2's
- *   intrinsic door). The two privileges are separate and this takes only the one
- *   it needs.
+ * - **It holds both compilation privileges** — `resolve`'s `runtime` flag, which
+ *   makes `Node(a)` spellable, and `privileged`, which opens `spec/intrinsics.md`
+ *   §5.2's intrinsic door. The second joined the first in #365, under §5.2's own
+ *   trust model: privilege attaches to how the module is compiled. They stay two
+ *   flags, because they do two different things — one puts a name in scope, the
+ *   other admits a declaration form — and a prelude member holds the door
+ *   without the `Node` fallback.
  * - **Only the emitter reaches it.** A program that uses no vectors emits no
  *   `VectorTrie.js`, exactly as a program that names no `Option` emits no
  *   `Option.js`: reachability is read back from what emission reported.
@@ -60,10 +63,13 @@ export interface RuntimeModule {
  * is `PRELUDE_MODULES`' law applied to one list rather than two.
  *
  * `VectorTrie.hex` is the persistent trie deque `Vector(a)` is (Collections
- * Part 3 §4).
+ * Part 3 §4). `HashTrie.hex` is the persistent hash array mapped trie `Map(k, v)`
+ * and `Set(a)` are (Part 4 §2.1); it needs `Option`, `Hash`, `Int` and `Seq`,
+ * all seated well before `Vector.hex`, and must never reach `Vector` itself.
  */
 export const RUNTIME_MODULES: readonly RuntimeModule[] = [
   { basename: "VectorTrie.hex", precedes: "Vector.hex" },
+  { basename: "HashTrie.hex", precedes: "Vector.hex" },
 ].map(({ basename, precedes }) => ({
   basename,
   precedes,
