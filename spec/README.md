@@ -40,6 +40,8 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Control | `loops-ranges-iteration.md` | `for`/`while`, `Range`, `Seq` semantics, `Iterable` machinery |
 | Control | `method-syntax.md` | dot calls, `CompanionOf`, DotCall goals, Deferred-Goals Doctrine (interim host) |
 | Control | `division-remainder.md` | division/remainder/modulo semantics |
+| Effects | `effects.md` | the effect discipline (#355): the two-point lattice, the arrow trio, call marks, enforcement, trusted purity claims, the `Seq`/`Stream` posture |
+| Effects | `stream.md` | `Stream(a)`, the impure sequence: type, protocol, v1 module surface |
 | Collections | `collections-part1-decisions.md` | foundational decisions: `Vector` choice, naming doctrine, accessor pair |
 | Collections | `collections-part2-hash-and-type-members.md` | `Hash`, constraint `type` members |
 | Collections | `collections-part3-vector.md` | `Vector(a)` full spec |
@@ -79,7 +81,7 @@ Load the set for the task; add files only when a cited section demands it. `ffi.
 | Task | Read |
 |---|---|
 | **Parser** | Base: `lexer.md`, `lexer-layout.md`, `comments.md`, `doc-comments.md` (attachment), `declarations-preamble.md`, `functions.md` §3–§5, `operators-logic-precedence.md`, `pattern-matching.md` (grammar), `statements-blocks-mutability.md`; add the ownership-map file for the feature syntax being changed (FFI syntax routes through `ffi.md`) |
-| **Resolver / checker** | `declarations-preamble.md`, `functions.md`, `statements-blocks-mutability.md`, `modules.md`, `intrinsics.md` (gate §5; self-declaration fallback §7), `products.md`, `unions.md`, `constraints.md`, `integral-constraint.md`, `method-syntax.md`, `pattern-matching.md`, `numeric-literals.md` (defaulting), closure docs (rules not yet hosted) |
+| **Resolver / checker** | `declarations-preamble.md`, `functions.md`, `statements-blocks-mutability.md`, `modules.md`, `intrinsics.md` (gate §5; self-declaration fallback §7), `products.md`, `unions.md`, `constraints.md`, `integral-constraint.md`, `method-syntax.md`, `pattern-matching.md`, `numeric-literals.md` (defaulting), `effects.md` (colours, marks, enforcement), closure docs (rules not yet hosted) |
 | **Emitter** | `functions.md` §9, `unions.md` §6, `products.md` (representation), `exceptions.md` §7, `modules.md` §11, `loops-ranges-iteration.md`, `collections-part3-vector.md` / `collections-part4-map-set.md` (emission notes), `doc-comments.md` §7 (JSDoc), `ffi.md` + owning parts per feature (especially Parts 7–9) |
 | **Modules work** | `modules.md`, `declarations-preamble.md`, `constraints.md` §5 (coherence/orphans), `ffi-part4-extern-bindings.md`, `intrinsics.md`, `ffi-part7-exports.md` |
 | **Collections work** | `collections-part1-decisions.md` through `collections-part5-iterable.md`, `loops-ranges-iteration.md`; for the JS boundary add `ffi-part10-js-map-set.md` |

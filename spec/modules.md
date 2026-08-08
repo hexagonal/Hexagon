@@ -111,6 +111,16 @@ This rule applies only to exports. The boundary-first convention for private
 module-level functions remains a style rule: annotate parameters, infer the
 result and constraints. Local functions and lambdas remain inference-friendly.
 
+*(#355.)* The export's **own effect colour is outside this rule's remit**: a
+declaration header has no outer-arrow seat, so the outer colour is inferred
+from the body for exports and private bindings alike (Functions §4.1; Effects
+§2). What the completeness rule already covers keeps covering it — a
+function-typed parameter's written annotation carries its arrow, and that
+arrow is part of the signature (`transform: a => b` links, `step: a -> b`
+demands). Tooling renders the inferred face (Effects §10's display
+obligation); the face itself is checked against the body in both directions
+(Effects §4.2).
+
 ### 4.2 `export opaque`
 
 ```

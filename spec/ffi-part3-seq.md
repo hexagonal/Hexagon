@@ -86,6 +86,8 @@ This is the **uniform inbound rule** — there is no fast path for "obviously re
 
 A single-shot generator works without receiving weaker semantics; a replayable iterable is deliberately treated the same way. Memoization is what makes the foreign iterator's mutability invisible behind `Seq`'s persistence.
 
+*(#355.)* Under the effects ruling this rule has a name: the adapter is a **species (b) trusted-purity claim** — an owned, memoized, at-most-once world-read (Effects §6.2). The launder is why an effectful foreign iterable may honestly stand behind `Seq`'s pure face: each position is read from the world at most once, and from then on it is a value the world can no longer vary. The adapter and `Seq.memoize` are the species' two charter members; the effectful source that should *not* be laundered crosses as a `Stream` instead (§14).
+
 ---
 
 ## 5. Retention: reachability governs reclamation
@@ -359,3 +361,36 @@ Everything else the roadmap assigns to this part is closed by the decision recor
 | *(2026-08-02)* Conformance: `for x in` still lowers through the outbound driver; a `Seq` argument to a foreign callable passes unwrapped (extern wrappers exist for inbound `Seq` positions only) | §9.4 |
 | *(2026-08-02)* Two recorded costs of the emission shape, neither ruled on: the adapter-recognition latitude is declined (adapter-built values double-buffer under foreign traversal; compounds with #131), and occasion 1's wrapper exposes its generated `name` to JavaScript (`__hex_mapBoundary0` in `.name` and stack frames) | §9.4 |
 | *(2026-08-02)* `Seq.hex`'s own `.d.ts` face conformed to `Iterable<a>` — the `Seq`-shaped member of §9.5 item 5's emitted-face debt family, discharged; the rest stays filed. Residue: the Part 7 §5 brand type remains declared in `Seq.d.ts`, referenced by nothing — legal, but dead importable surface, recorded | §9.5 |
+
+---
+
+## 14. `Stream(a)`: the raw crossing *(#355)*
+
+`Stream(a)` is `Seq`'s impure nominal sibling (`stream.md`), and its boundary story is this part's mirror image: **position is the declaration of intent.** A foreign iterator-shaped source at a `Seq(a)` position takes the launder — adaptation plus at-most-once memoization, the species (b) claim of §4 — and becomes replayable pure data. The same source at a `Stream(a)` position crosses **raw**: impurity is declared in the type, so nothing is manufactured, memoized, or strengthened.
+
+### 14.1 Inbound: the shim, not the adapter
+
+An inbound crossing at a declared `Stream(a)` position accepts a foreign `Iterable<a>` or a bare `Iterator<a>` — single-pass is the semantics, so the bare iterator is exactly the shape (`Seq`'s §9.2 iterable-only rule is grounded in replay obligations `Stream` does not have). The crossing installs a per-crossing **shim**, which is everything the adapter is not:
+
+- It holds the one foreign iterator (requesting it from an iterable once, at the crossing) and translates one step per pull — `IteratorResult` to `Option`, reading `done` then `value` in native order, with §7.2's minimum protocol check and no other validation.
+- **No memoization spine, no failure memo, no latch, no history.** A foreign throw propagates out of that pull through the ordinary `JsError` path and nothing is remembered; what the next pull observes is whatever the foreign cursor does next. §2.1's posture verbatim: the boundary preserves the foreign source's behavior rather than strengthening it — a source that misbehaves after exhaustion is Part 1 §3.1 territory, exactly as it would be to a JavaScript consumer.
+- Repeated crossings of one foreign object share its cursor state, as two foreign consumers would. There is no identity cache, for §2.1's reasons.
+
+§10's first deferral is thereby partially discharged: the explicitly single-pass type exists and is not named `Seq`, and bare-iterator acceptance lands here. The resource-aware home (deferral 4) remains open — `Stream` inherits §8's no-deterministic-disposal posture, and the shim never calls `return()`.
+
+### 14.2 Outbound: the JS-native face
+
+An exported `Stream(a)` crosses as a per-crossing shim in the other direction: an object satisfying **`IterableIterator<a>`** — `next()` translating `Option` to `IteratorResult`, `[Symbol.iterator]()` returning itself — so `for...of` and the generator idioms work, with honest single-pass semantics (a second loop continues where the first stopped, as with any generator). The `.d.ts` face is `IterableIterator<a>`.
+
+**No identity promise.** A `Stream` that crosses out and back is a working stream, not the same object: the outbound shim satisfies the iterator protocol, so the inbound door receives it as any foreign iterator and shims again — a composition that preserves semantics, not identity. This is a recorded departure from Part 7 §5's identity clause, forced by representation: the record's field and the protocol's method share the name `next` with incompatible result shapes (`Option(a)` versus `IteratorResult`), so no single value can carry both faces the way `Seq` §9.4 rides its iterable face on the record. Whether a future emitted representation dissolves the collision is this section's one open item; until then, raw means raw both ways.
+
+### 14.3 Restrictions inherited
+
+Top-level positions only (§9.3's rule, same ground); no callback positions (Part 6's v1 callback rule); async sources refused — an `AsyncIterator` at a `Stream(a)` position is the async deferral (Part 1 §4.3), not a slower stream (`stream.md` §1).
+
+| Decision | Where |
+|---|---|
+| Position declares intent: `Seq` position launders (species (b)), `Stream` position crosses raw | §14 |
+| Inbound shim: iterable or bare iterator; one translation per pull; no memo, no latch, no strengthening; misbehavior is Part 1 §3.1's | §14.1 |
+| Outbound face `IterableIterator<a>`; single-pass honest; no identity round-trip (the `next` collision recorded, one open item) | §14.2 |
+| Top-level only; no callbacks; async refused | §14.3 |
