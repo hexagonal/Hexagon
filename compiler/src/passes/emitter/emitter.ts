@@ -4861,6 +4861,10 @@ class DeclarationEmitter {
             declarations.push(...doc);
             declarations.push(`export type ${declaration.localName} = { readonly [${brand}]: never };`);
           } else if (declaration.kind === "ExternFun") {
+            // #370: a constrained row has no face; see the other extern-block
+            // arm below for why publishing one would be worse than publishing
+            // nothing.
+            if (declaration.binding.scheme.constraints.length > 0) continue;
             declarations.push(...doc);
             declarations.push(...renderExternFunctionDeclaration(declaration, true, this.#faces));
           } else {
@@ -5126,6 +5130,17 @@ class TypeScriptPreviewEmitter {
             declarations.push(...doc);
             declarations.push(`${prefix}type ${declaration.localName} = { readonly [${brand}]: never };`);
           } else if (declaration.kind === "ExternFun") {
+            // #370: a **constrained** row has no `.d.ts` face, exactly as a
+            // constrained `.hex` binding has none. Its ESM export is the
+            // internal constrained name and its real arity carries the trailing
+            // evidence, so rendering the declared signature here would publish
+            // an export the module does not have under that name *and* promise
+            // it one argument short — a clean compile that fails at the first
+            // JavaScript call. The face is the specializations (Constraints
+            // §6.4), and `Hash` has none, so the rows are simply absent from the
+            // face: correct, and no worse than the surface they replaced, which
+            // had no face either.
+            if (declaration.binding.scheme.constraints.length > 0) continue;
             declarations.push(...doc);
             declarations.push(...renderExternFunctionDeclaration(declaration, declaration.exported, this.#faces));
           } else {

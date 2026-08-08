@@ -521,6 +521,53 @@ describe("the companion's surface", () => {
   });
 
   /**
+   * The `.d.ts` face publishes the **unconstrained** surface and nothing else,
+   * which is the ordinary rule for a constrained binding (Constraints §6.4: the
+   * face is the specializations) applied to a constrained *intrinsic row* for
+   * the first time.
+   *
+   * The rule is load-bearing rather than tidy here. A constrained row's ESM
+   * export is the internal constrained name and its real arity carries the
+   * trailing evidence, so a face rendered from the declared signature would
+   * publish an export the module does not have under that name *and* promise it
+   * one argument short — a clean compile that fails at the first JavaScript
+   * call. `Hash` has no fundamental specializations, so the keyed rows are
+   * simply absent, which is no worse than the surface they replaced: the
+   * transitional core had no face for them either.
+   */
+  test("the `.d.ts` face carries the unconstrained surface only", () => {
+    const project = compileFiles([[
+      "/main.hex",
+      "export let n: Int = Map.size(Map.singleton(1, 2))\n",
+    ]]);
+    expect(project.diagnostics).toEqual([]);
+    const map = project.modules.find(({ source }) => source.path === "/Map.hex");
+    const face = map!.declarations.text;
+    const unconstrained = [
+      "singleton",
+      "size",
+      "entries",
+      "empty",
+      "isEmpty",
+      "keys",
+      "values",
+      "toSeq",
+    ];
+    for (const name of unconstrained) {
+      expect(face).toMatch(new RegExp(`export declare (const|function) ${name}\\b`, "u"));
+    }
+    for (const name of ["get", "set", "remove", "containsKey", "fromEntries", "fromSeq", "fromVector"]) {
+      expect(face).not.toMatch(new RegExp(`export declare (const|function) ${name}\\b`, "u"));
+    }
+    // The face is a face of the *emitted module*, so every name it publishes
+    // must be an export the JavaScript actually has under that spelling.
+    const javascript = map!.javascript.text;
+    for (const name of unconstrained) {
+      expect(javascript).toMatch(new RegExp(`export \\{[^}]*\\b${name}\\b[^}]*\\}`, "u"));
+    }
+  });
+
+  /**
    * `KeyError` is the module's ordinary exported exception (§4.3), so a consumer
    * can name and throw it with no import — the owed prelude declaration, which
    * before this milestone existed only inside the emitter's bracket lowering.
