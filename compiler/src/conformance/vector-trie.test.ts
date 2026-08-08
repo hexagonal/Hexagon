@@ -94,11 +94,11 @@ const WALK =
   "    var index = 0\n" +
   "    for step in 1..size(v)\n" +
   "        if index < size(v) then\n" +
-  "            let (values, offset, run) = nodeRun(v, index)\n" +
+  "            let (leafValues, offset, run) = nodeRun(v, index)\n" +
   "            calls := calls + 1\n" +
   "            var seen = 0\n" +
   "            for inner in 1..run\n" +
-  "                total := total + Node.get(values, offset + seen)\n" +
+  "                total := total + Node.get(leafValues, offset + seen)\n" +
   "                seen := seen + 1\n" +
   "            index := index + run\n" +
   "    (calls, total)\n";

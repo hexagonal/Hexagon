@@ -246,8 +246,8 @@ describe("direct structural use sites run the same walk", () => {
         "    equals(left, right) = False\n" +
         "honor Show<Val> =\n" +
         "    show(value) = \"VAL\"\n" +
-        "let one: Map(String, Val) = Map.set(Map.empty(), \"a\", Val({n = 1}))\n" +
-        "let other: Map(String, Val) = Map.set(Map.empty(), \"a\", Val({n = 1}))\n" +
+        "let one: Map(String, Val) = Map.set(Map.empty, \"a\", Val({n = 1}))\n" +
+        "let other: Map(String, Val) = Map.set(Map.empty, \"a\", Val({n = 1}))\n" +
         "export let sameMap: Bool = one == other\n" +
         "export let shownMap: String = \"${one}\"\n",
     );

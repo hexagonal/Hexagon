@@ -709,7 +709,7 @@ class Resolver {
    * and no spare claim on a module-level name, which is what would otherwise
    * push `#preludeImport` into renaming a local it never needed to rename. The
    * collection cores and `Seq.hex` share vocabulary on purpose (`isEmpty`,
-   * `empty` — Collections Part 1 §3.1's naming doctrine), so `Map.isEmpty(m)`
+   * `empty` — Collections Part 1 §3.1's naming doctrine), so `Set.isEmpty(s)`
    * is an ordinary spelling and not a rarity.
    *
    * The guards mirror the `Access` case below, and must keep mirroring it: a
@@ -724,7 +724,12 @@ class Resolver {
     const name = receiver.name.text;
     if (scope.lookup(name) !== undefined) return false;
     if (this.#namedModule(name) !== undefined) return false;
-    if (["Map", "Set"].includes(name)) return true;
+    // `Set` alone since #370 retired `Map`'s guard entry (`spec/intrinsics.md`
+    // §9.2's Map milestone). The entry is gone because the schedule says so:
+    // `stdlib/Map.hex` is a prelude member now, so `#namedModule` above already
+    // declines every `Map.` receiver, and leaving the name here would be a claim
+    // about a route that no longer exists.
+    if (name === "Set") return true;
     return this.#runtime && name === "Node" &&
       ["empty", "get", "set", "copy"].includes(field);
   }
@@ -1546,6 +1551,18 @@ class Resolver {
           return {
             kind: "ExternFun",
             ...common,
+            // #370: an intrinsic row's constraint brackets ride the §3.4 grant.
+            // The parser records them only inside the reserved boundary, so
+            // nothing here has to re-derive the gate's answer.
+            ...(declaration.typeParameters === undefined
+              ? {}
+              : {
+                typeParameters: declaration.typeParameters.map((parameter) => ({
+                  name: parameter.name.text,
+                  constraints: parameter.constraints.map(({ text }) => text),
+                  span: parameter.span,
+                })),
+              }),
             parameters,
             returnAnnotation: this.#resolveTypeAnnotation(declaration.returnAnnotation),
           };
@@ -2165,13 +2182,13 @@ class Resolver {
           // order Modules §5.5 forbids — and it is what kept `Seq.map` bound to
           // the intrinsic family after `Seq.hex` joined the set.
           if (
-            ["Map", "Set"].includes(expression.receiver.name.text) &&
-            scope.lookup(expression.receiver.name.text) === undefined &&
-            this.#namedModule(expression.receiver.name.text) === undefined
+            expression.receiver.name.text === "Set" &&
+            scope.lookup("Set") === undefined &&
+            this.#namedModule("Set") === undefined
           ) {
             return {
               kind: "CollectionOperation",
-              collection: expression.receiver.name.text as "Map" | "Set",
+              collection: "Set",
               operation: expression.field.text,
               span: expression.span,
             };

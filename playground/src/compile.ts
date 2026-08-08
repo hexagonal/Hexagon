@@ -45,12 +45,12 @@ function compileWorkspace(
     javascript: emitJavaScript(module.core, {
       previewPrivateSpecializations: true,
       exportInstanceEvidence: module.source.path !== entryPath,
-      // Re-emitting has to keep the trie runtime's placement, which only
-      // `compileProject` knows: guessing it would give the runtime module
-      // itself an importer's emission — no export list — and give every
+      // Re-emitting has to keep the runtime modules' placement, which only
+      // `compileProject` knows: guessing it would give a runtime module
+      // an importer's emission — no export list — and give every
       // consumer an import of a path that is not there. Both compile clean and
       // fail at load, which is the failure mode this pane exists to catch.
-      vectorRuntime: module.vectorRuntime,
+      runtimes: module.runtimes,
     }),
   }));
   const main = outputs.find(({ module }) => module.source.path === entryPath);

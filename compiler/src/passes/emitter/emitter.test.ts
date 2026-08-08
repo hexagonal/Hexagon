@@ -157,9 +157,21 @@ describe("emitJavaScript", () => {
     );
   });
 
-  test("emits persistent Map and Set core operations with structural key equality", () => {
+  /**
+   * The transitional helper, now **`Set`'s alone** (#370). `Map`'s half retired
+   * at its milestone with the checker rows that typed it, so a module using only
+   * maps carries no `persistentCollections` at all — which is the negative half
+   * of this test and the thing most worth pinning, since the helper's remaining
+   * internals (`insert`, `find`, `discard`, the structural key equality) look
+   * unchanged and would keep passing if the Map arm had merely stopped being
+   * *reached* rather than stopped existing.
+   *
+   * The `.d.ts` faces are unmoved by any of it: `Hex.Map<k, v>` and
+   * `Hex.Set<a>` are what a crossed value faces either way.
+   */
+  test("emits persistent Set core operations with structural key equality", () => {
     const module = coreSource(
-      "let emptyMap: Map((Int, Int), String) = Map.empty()\n" +
+      "let emptyMap: Map((Int, Int), String) = Map.empty\n" +
         "export let names: Map((Int, Int), String) = Map.set(emptyMap, (1, 2), \"first\")\n" +
         "export let replaced: Map((Int, Int), String) = Map.set(names, (1, 2), \"second\")\n" +
         "export let hasPair: Bool = Map.containsKey(replaced, (1, 2))\n" +
@@ -173,8 +185,23 @@ describe("emitJavaScript", () => {
     expect(output.text).toContain("const __hex_persistentCollections");
     expect(output.text).toContain("__hex_hash.eq.equals");
     expect(output.text).toContain("const insert =");
+    // Nothing map-shaped survives inside it.
+    expect(output.text).not.toContain("emptyMap: ");
+    expect(output.text).not.toContain("const mapSet =");
+    expect(output.text).not.toContain("const mapEntry =");
     expect(emitDeclarations(module).text).toContain("Hex.Map<[number, number], string>");
     expect(emitDeclarations(module).text).toContain("Hex.Set<[number, number]>");
+  });
+
+  /** A map-only module never reaches the helper at all. */
+  test("the transitional helper is absent from a module that uses only maps", () => {
+    const module = coreSource(
+      "let m: Map(Int, String) = Map.set(Map.empty, 1, \"one\")\n" +
+        "export let held: Bool = Map.containsKey(m, 1)\n" +
+        "export let looked: String = m[1]\n",
+    );
+    expect(module.diagnostics).toEqual([]);
+    expect(emitJavaScript(module).text).not.toContain("__hex_persistentCollections");
   });
 
   test("executes persistent Map and Set updates, lookup, and bracket failure", async () => {
@@ -184,7 +211,7 @@ describe("emitJavaScript", () => {
     // hashes its keys with is `stdlib/Int.hex`'s exported dictionary, which the
     // running code does read.
     const files = [["/main.hex",
-      "let m0: Map(Int, String) = Map.empty()\n" +
+      "let m0: Map(Int, String) = Map.empty\n" +
         "let m1 = Map.set(m0, 1, \"one\")\n" +
         "let m2 = Map.set(m1, 33, \"thirty-three\")\n" +
         "export let m3: Map(Int, String) = Map.set(m2, 1, \"replaced\")\n" +
@@ -205,7 +232,7 @@ describe("emitJavaScript", () => {
     expect(exports["unchanged"]).toBe(exports["m3"]);
 
     const missing = await runProject([["/main.hex",
-      "let values: Map(Int, String) = Map.empty()\n" +
+      "let values: Map(Int, String) = Map.empty\n" +
         "export let missing(): String = values[99]\n",
     ]]);
     expect(missing["missing"] as () => unknown).toThrowError(
@@ -239,16 +266,28 @@ describe("emitJavaScript", () => {
     // `Map.keys` yields the prelude `Seq` record, so the test converts through
     // `Vector.fromSeq` rather than spreading it — a `Seq` is not itself a JS
     // iterable (see the exported-face note in `seq-unification.test.ts`).
-    expect([...(result[6] as Iterable<number>)]).toEqual([1, 2]);
-    expect([...result.slice(0, 6), ...result.slice(7)]).toEqual([
+    //
+    // **Sorted, and it has to be.** Since #370 a `Map` is the real HAMT, so its
+    // traversal order is placement order under a per-process seed (Collections
+    // Part 4 §7.1) — deterministic for one value within one run and promised for
+    // nothing else. An assertion on the literal order would be a snapshot of one
+    // process's seed, which is exactly the test §7.1 forbids; the *contents* are
+    // what the correspondence claim is about.
+    expect([...(result[6] as Iterable<number>)].sort()).toEqual([1, 2]);
+    // The two `show` renderings, for the same reason: the format is normative
+    // (§8.3) and the order inside the brackets is not.
+    expect(shownElements(result[7] as string, "Set.fromVector(")).toEqual(["1", "2", "3"]);
+    expect(shownElements(result[8] as string, "Map.fromVector(")).toEqual([
+      "(1, one)",
+      "(2, two)",
+    ]);
+    expect([...result.slice(0, 6), ...result.slice(9)]).toEqual([
       true,
       true,
       4,
       1,
       2,
       true,
-      "Set.fromVector([1, 2, 3])",
-      "Map.fromVector([(1, one), (2, two)])",
       [true, true],
       [true, true],
     ]);
@@ -268,7 +307,7 @@ describe("emitJavaScript", () => {
         "    console.log(value)\n" +
         "for value in [1, 2]\n" +
         "    console.log(value)\n" +
-        "let pairs: Map(Int, String) = Map.set(Map.empty(), 1, \"one\")\n" +
+        "let pairs: Map(Int, String) = Map.set(Map.empty, 1, \"one\")\n" +
         "for (key, value) in pairs\n" +
         "    console.log(key, value)",
     );
@@ -2278,4 +2317,23 @@ function preludeSource(text: string): Core.Module {
   const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", text)]);
   expect(project.diagnostics).toEqual([]);
   return project.modules.find((module) => module.source.path === "/main.hex")!.core;
+}
+
+/**
+ * The elements of a constructor-shaped `show` rendering, sorted.
+ *
+ * `Show<Map>`/`Show<Set>` render entries in the value's own iteration order
+ * (Collections Part 4 §8.3), which is deterministic within one execution and
+ * unspecified beyond it — so a test may assert the *format* and the *contents*
+ * and never the sequence. An element is a parenthesized tuple or a bare token —
+ * enough for the specimens here, and nothing more general is wanted, because a
+ * real parser would start agreeing with the emitter about the format.
+ */
+function shownElements(rendering: string, prefix: string): readonly string[] {
+  expect(rendering.startsWith(`${prefix}[`)).toBe(true);
+  expect(rendering.endsWith("])")).toBe(true);
+  const inner = rendering.slice(prefix.length + 1, -2);
+  return [...inner.matchAll(/\([^)]*\)|[^,\s][^,]*/gu)]
+    .map((match) => match[0].trim())
+    .sort();
 }

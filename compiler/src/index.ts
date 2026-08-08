@@ -22,7 +22,7 @@ export { check } from "./passes/checker/checker.js";
 export { elaborate } from "./passes/elaborator/elaborator.js";
 export { compileProject, isInjectedModule } from "./project.js";
 export type { CompiledModule, CompiledProject } from "./project.js";
-export type { VectorRuntime } from "./passes/emitter/emitter.js";
+export type { RuntimeLocation, RuntimeLocations } from "./passes/emitter/emitter.js";
 export {
   collectTypeOccurrences,
   type TypeOccurrence,

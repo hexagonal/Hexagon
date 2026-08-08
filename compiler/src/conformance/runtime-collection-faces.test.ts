@@ -58,7 +58,7 @@ function preview(source: string): string {
 
 /** A program exercising all four faces, in every position §8.3 obligation 5 names. */
 const ALL_FOUR_FACES =
-  "let emptyMap: Map(String, Int) = Map.empty()\n" +
+  "let emptyMap: Map(String, Int) = Map.empty\n" +
   "let emptySet: Set(Int) = Set.empty()\n" +
   "export let rows: Vector(Int) = [1, 2, 3]\n" +
   "export let span: Range = 0..3\n" +
@@ -77,7 +77,7 @@ describe("the four faces are the branded `Hex.*` interfaces (obligation 1)", () 
 
   test("`Map(k, v)` and `Set(a)` face as `Hex.Map<k, v>` / `Hex.Set<a>`", () => {
     const text = declarations(
-      "let emptyMap: Map(String, Int) = Map.empty()\n" +
+      "let emptyMap: Map(String, Int) = Map.empty\n" +
         "let emptySet: Set(Int) = Set.empty()\n" +
         "export let counts: Map(String, Int) = Map.set(emptyMap, \"a\", 1)\n" +
         "export let seen: Set(Int) = Set.add(emptySet, 1)\n",
@@ -114,7 +114,7 @@ describe("the four faces are the branded `Hex.*` interfaces (obligation 1)", () 
   test("a generic function's binders survive beside the faces", () => {
     expect(
       declarations("export fun pair<a>(left: Vector(a), right: Set(a)): Map(Int, a) =\n" +
-        "    Map.empty()\n"),
+        "    Map.empty\n"),
     ).toContain(
       "export declare function pair<a>(left: Hex.Vector<a>, right: Hex.Set<a>): Hex.Map<number, a>;",
     );
@@ -357,7 +357,7 @@ describe("tsc accepts the emitted program (obligation 5)", () => {
   test("a multi-directory program resolves its path-adjusted specifiers", async () => {
     const compiled = project({
       "/src/main.hex": "export let rows: Vector(Int) = [1]\n",
-      "/src/deep/inner.hex": "export let more: Map(String, Int) = Map.empty()\n",
+      "/src/deep/inner.hex": "export let more: Map(String, Int) = Map.empty\n",
       "/src/deep/deeper/most.hex": "export let most: Set(Int) = Set.empty()\n",
     });
     expect(

@@ -689,10 +689,12 @@ describe("`runtime/VectorTrie.hex`'s index arithmetic, re-routed", () => {
   test("a vector deep enough to descend still reads back what it wrote", async () => {
     const exports = await runMain([
       "let build(count: Int): Vector(Int) =",
-      "    var values: Vector(Int) = []",
+      // `built` rather than `values`: `stdlib/Map.hex` exports a bare `values`
+      // since #370, and a `let`/`var` may not rebind a prelude name.
+      "    var built: Vector(Int) = []",
       "    for index in 1 .. count",
-      "        values := values ++ [index * 3]",
-      "    values",
+      "        built := built ++ [index * 3]",
+      "    built",
       "let wide = build(1200)",
       "export let size: Int = Vector.length(wide)",
       "export let sampled: Vector(Int) = [wide[1], wide[40], wide[41], wide[1200]]",

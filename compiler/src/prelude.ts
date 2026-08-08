@@ -89,8 +89,15 @@ export interface PreludeModule {
  * a `Float` instance or interpolates a string, which is what lets the numerics
  * stay contiguous rather than being split around them.
  *
- * `Vector.hex` is last because it needs the most: `first`/`last`/`get` answer with
- * `Option`, and `toSeq`/`fromSeq` name `Seq`.
+ * `Vector.hex` needs a great deal: `first`/`last`/`get` answer with `Option`,
+ * and `toSeq`/`fromSeq` name `Seq`.
+ *
+ * `Map.hex` is last, and it displaces `Vector.hex` from that seat (#370). It
+ * needs the most of anything here — `Hash` for its keyed trio, `Option` for
+ * `get`, `Seq` for `entries` and the two projections over it, and `Vector`
+ * itself for `fromVector`, which is Collections Part 4 §3.2's definitional
+ * equivalence and the one edge that fixes the order rather than merely
+ * permitting it. Nothing after it exists to name a `Map`.
  */
 export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Show.hex",
@@ -114,6 +121,7 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Seq.hex",
   "Result.hex",
   "Vector.hex",
+  "Map.hex",
 ].map((basename) => ({ basename, source: PRELUDE_SOURCES[basename]! }));
 
 /**
