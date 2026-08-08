@@ -83,6 +83,8 @@ let plus = (x: Int, y: Int): Int => x + y
 
 - Parameter annotations: `name: Type` inside the parameter list.
 - Return annotation: **colon after the parameter list** — TypeScript/C#/Scala/Kotlin style. There is no `->` in definition headers; arrow notation is the canonical displayed type form (§5.1).
+- *(#355.)* **A definition's own effect colour is inferred from its body**, never written in the header — the header has no outer-arrow seat, which is the previous bullet working as designed. Function-typed *parameter* annotations carry their own arrows (`transform: a => b`), and those are part of this signature: a parameter's `=>` links to the signature's one effect variable (Effects §2.2). A written arrow that contradicts the body's solved colour is the face error, both directions (Effects §4.2).
+- *(#355.)* **A lambda return annotation gives an unparenthesized `=>` to the body.** In `(x): A => …` the annotation is `A` and the body starts at the arrow — always, so the legal curried lambda `(x): a => y => x` keeps its meaning. A function type in this one slot is therefore written parenthesized, whatever its arrow: `(x): (A => B) => body`, `(x): (A =>! B) => body`. (The parenthesis is not only for the ambiguous `=>` case — the annotation grammar is right-associative and greedy, so an unparenthesized arrow type would also swallow the body's own `=>` as a further result arrow.) The required report and fixit when the writer plainly meant a type are Effects §9's.
 - Any subset of annotations may be given on private functions; inference fills
   the rest. An exported function is the module-boundary exception: Modules
   §4.1.1 requires every parameter and the result to be annotated.
@@ -243,7 +245,16 @@ apply   : (String -> String) -> String
   `(A, B) -> C` is the distinct type of a two-parameter function.
 - A function with two or more parameters uses a parenthesized, comma-separated parameter list: `(A, B) -> C`.
 - `->` associates to the right. Parentheses around a function type are therefore grouping, as in `(A -> B) -> C`; they are not retained merely because a function has one parameter.
-- This notation describes Hexagon types. TypeScript declaration output separately follows TypeScript grammar and therefore retains `(name: A) => B`.
+- *(#355.)* **Every arrow carries its effect colour**, and the display renders the trio: `->` pure, `=>` this signature's linked effect variable, `=>!` the impure constant (Effects §2, the owner of the readings). The three are the same zero/one/many grammar with a different arrow head:
+
+  ```text
+  fold            : (Seq(a), b, (b, a) => b) => b
+  withTransaction : (String => String) =>! String
+  Stream.next     : Stream(a) =>! Option(a)
+  ```
+
+  All three arrows associate and group identically; a display never omits a colour, since silence is the pure claim (Effects §1). The same arrows are legal in source annotation positions under the same grammar.
+- This notation describes Hexagon types. TypeScript declaration output separately follows TypeScript grammar and therefore retains `(name: A) => B`; how it renders the colour is an obligation recorded at Effects §10.
 
 The internal representation remains genuinely n-ary: `TFun([], R)`, `TFun([A], R)`, and `TFun([A, B], R)`. This display rule does not encode unary functions as a special semantic form.
 

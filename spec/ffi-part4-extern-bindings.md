@@ -145,6 +145,22 @@ An extern `let` asserts a foreign **value** binding. ESM bindings are live: Java
 
 This is the reviewed reading of the trusted-boundary doctrine (§12.2), not an ESM live-read guarantee.
 
+### 4.5 Effect faces and the `pure` claim *(#355)*
+
+**A user-written extern is effectful by default.** Foreign code is trust territory (Part 1 §3.1), and the honest default for the unknown is the impure constant: an unannotated `extern fun`'s outer arrow is `=>!`, so every call to it wears `!` (Effects §6.1). Function-typed slots inside its declared signature carry whatever arrows the author writes, believed like the rest of the declaration.
+
+**The trusted purity claim is the contextual modifier `pure`**, written between the export/default modifiers and the declaration keyword:
+
+```hexagon
+extern from "./text.js"
+    export pure fun trim(document: String): String
+```
+
+- `pure` makes the declaration's own face pure (`->` arrows). It is a **trusted-row obligation of exactly the Intrinsics §4.2 species**: believed, never checked, and the module author answers for it — the same currency as every extern type in this part.
+- A sound claim is one of Effects §6.2's two species — an unobservable world-write (the debug probe) or an owned, at-most-once world-read — or, the common case, a function that genuinely computes: `trim` touches nothing. A claim outside those shapes is a lie with the same standing as a wrong extern type (Part 1 §3.1).
+- `pure` is legal on `fun` declarations only — the callable is the thing with a face. On an extern `let` or `type` it is an error (a value reference is colourless — Effects §2.6 — so the claim would assert nothing). It is **refused on intrinsic rows** — "intrinsic rows are verified rather than trusted; `pure` is for user-written externs" — because the intrinsic door's purity comes from verification (Intrinsics §4.2), not trust. It is contextual vocabulary (Lexer §4.2's family): `pure` remains an ordinary name everywhere else.
+- The claim does not propagate: it faces this declaration only, and callbacks or fields inside the signature keep their written arrows.
+
 ---
 
 ## 5. Type-only declarations

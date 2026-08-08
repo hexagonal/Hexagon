@@ -31,7 +31,7 @@ Consequence for the implementer: after elaboration, the type checker sees only o
 
 ### 1.2 Words for logic, symbols for algebra
 
-Logical operators are **English words only**: `not`, `and`, `or`, `implies`, `iff`. The symbolic forms `!`, `&&`, `||` do not exist and are not tokens (`!` survives only inside `!=`; a bare `!` is a lex error with the fixit "Hexagon spells logical negation `not`"). Arithmetic and comparison stay symbolic, matching mathematics.
+Logical operators are **English words only**: `not`, `and`, `or`, `implies`, `iff`. The symbolic forms `!`, `&&`, `||` do not exist as operators — `&&` and `||` are not tokens, and `!` is not negation *(amended for #355: `!` is now a token, the impure call mark — Effects §3, Lexer §8.1; a `!` in prefix-expression position still gets the fixit "Hexagon spells logical negation `not`", selected by the parser)*. Arithmetic and comparison stay symbolic, matching mathematics.
 
 Lineage: Python and Lua spell logic with words as their *only* form; Pascal, Ada, and SQL established the tradition. Ruby is the cautionary precedent — it offers both `&&` and `and` *with different precedences*, a well-known bug factory. Hexagon avoids the trap by having exactly one spelling.
 
@@ -306,6 +306,7 @@ xs |> map(x => x + 1) |> filter(p) |> take(3)
 
 - Left-associative, level 13 (loosest infix — §3.3 covers the two `=>` interaction cases).
 - **Desugar shape:** if the right operand is syntactically a call `E(args…)`, rewrite to `E(a, args…)`; otherwise treat the whole right operand as a callee and rewrite to `RHS(a)` (this is what makes the bare form and `a |> (x => x + 1)` work). Because the rewrite precedes inference, the type checker, constraint resolution, and dictionary insertion never know pipes exist.
+- *(#355.)* **A pipe stage is a call, so it takes a call mark** (Effects §3). A stage with its own argument list marks that list as any call does: `x |> take!(3)` rewrites to `take!(x, 3)`. The bare form's mark stands at the end of the stage — `x |> save!` — and the rewrite carries it onto the call it builds: `save!(x)`. The stage end is one of the mark's two grammatical seats (Effects §3.2; Lexer §8.1); the checker still never knows pipes exist — it sees the rewritten, marked call.
 - **Evaluation-order footnote:** the rewrite moves `a` into argument position, so JS evaluation order runs the callee expression before `a`. Observable only when the callee expression itself has effects; accepted, not worth a temporary.
 - The pipe is why the stdlib convention exists: **the first parameter of every stdlib function is the subject being operated on** (ReScript/OCaml order). One data-last straggler breaks every chain it appears in. This convention is normative for the prelude and stdlib specs.
 - Emission: pipes have vanished before codegen; the emitted JS is the plain nested calls. When nesting gets deep the emitter may lift intermediates to `const` locals for readability — its call.
@@ -426,7 +427,7 @@ Semantics live in Statements/Blocks/Mutability (`var`-only target, `Unit`-typed,
 
 | Rejection | Reasoning |
 |---|---|
-| `&&`, `||`, `!` | Words-only logic (§1.2). One spelling, no Ruby-style dual-precedence trap. Bare `!` is a lex error with fixit. |
+| `&&`, `||`, `!` | Words-only logic (§1.2). One spelling, no Ruby-style dual-precedence trap. `&&`/`||` are lex errors with fixits; `!` as *negation* gets the same `not` redirect, parser-selected since #355 made `!` the call-mark token (§1.2). |
 | `not` above comparisons (early-draft position) | §3.1. `not a == b` must mean `not (a == b)`; Python/Lean position adopted. |
 | `iff` as desugared double implication | §4.3. Under single-evaluation it never short-circuited anyway; Boolean equality is the same truth table with simpler everything. |
 | Symbolic implication `==>` | Words-only rule; visual collision with `=>`. |
@@ -474,7 +475,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 
 | Situation | Error / fixit |
 |---|---|
-| Bare `!` | lex error: "Hexagon spells logical negation `not`" |
+| `!` in prefix-expression position | "Hexagon spells logical negation `not`" — parser-selected since #355 made `!` the call-mark token (Lexer §8.2/§10; a mark outside its grammatical seats gets Effects §9's mark-position error) |
 | `&&` / `\|\|` | lex error: "use `and` / `or`" |
 | Non-`Bool` operand to logic ops or `if`/`while` condition | ordinary type error; **never** suggest truthiness or coercion |
 | `a < b > c` | "comparison chains cannot mix `<` and `>`; split into `a < b and b > c`" |
@@ -497,7 +498,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | Decision | Where |
 |---|---|
 | Operators are fixed sugar for constraint members; no user operators, no overloading, permanently | §1.1 |
-| Words-only logic; `!`/`&&`/`\|\|` are lex errors with fixits | §1.2 |
+| Words-only logic; `&&`/`\|\|` are lex errors with fixits; prefix-position `!` keeps the `not` redirect, parser-selected (#355 — `!` is the call-mark token) | §1.2 |
 | Math-first precedence; small unnumbered-gap table, 1 = tightest, numbers non-load-bearing | §1.3, §3 |
 | `not` below comparisons, above `and` (Python/Lean position; draft position rejected) | §3.1 |
 | `=>`/`if`/`match` eat to the right; legal bare as final operand, parse error elsewhere | §3.2 |

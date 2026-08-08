@@ -221,6 +221,7 @@ listed positions:
 | `new` | foreign class constructor description; syntax completed by the FFI spec |
 | `static` | foreign static-member modifier; syntax completed by the FFI spec |
 | `default` | foreign default-import position; syntax completed by the FFI spec |
+| `pure` | the trusted purity claim on an extern `fun` declaration (FFI Part 4 §4.5, #355) |
 
 Contextual status is observable: `let when = True` is legal, while the same spelling
 after an arm pattern introduces its guard. Likewise `{with = 3}` is a field and `{with}`
@@ -362,6 +363,8 @@ The Comments spec is authoritative; this section fixes token interaction.
 | Separators and labels | `,` `:` `;` |
 | Access and spread | `.` `...` |
 | Declaration/arm punctuation | `=` `=>` |
+| Type arrows | `->` `=>!` *(with `=>` above; roles: Effects §2 — `->` pure, `=>` linked/constant, `=>!` the impure constant. `->` is corrected into this inventory for #355: the token shipped with explicit function-type annotations and the inventory had not caught up)* |
+| Call marks | `!` `?` *(the effects ruling's marks, #355; grammar — glued immediately before an argument list's `(`, or ending a `\|>` stage — is the parser's, Effects §3.2)* |
 | Arithmetic and concatenation | `+` `-` `*` `/` `**` `++` |
 | Comparison | `==` `!=` `<` `>` `<=` `>=` |
 | Range | `..` |
@@ -384,6 +387,9 @@ longest valid token. Important cases:
 **   before  *
 +++  means ++ then +
 |>   before  |
+=>!  before  =>
+->   before  -
+!=   before  !
 <= >= == != := =>  before their one-character prefixes
 //     is handled before /
 (* *)  are handled before ( and *
@@ -391,20 +397,32 @@ longest valid token. Important cases:
 ```
 
 Maximal munch does not combine adjacent valid tokens into an unlisted one. `--` is
-two minus tokens, making `x --1` parse as `x - (-1)` rather than a comment. `->` is
-`-` then `>`; source type arrows do not exist, and the parser can give the targeted
-annotation diagnostic.
+two minus tokens, making `x --1` parse as `x - (-1)` rather than a comment.
+*(Corrected for #355 — this paragraph previously said `->` is `-` then `>` and
+that source type arrows do not exist; the token had in fact shipped with explicit
+function-type annotations, and Effects §2 now gives it its role.)* `->` in
+expression position receives the parser's targeted diagnostic; it is one token
+everywhere. `!=>` is not a token and cannot become one: `!=` wins the munch, and
+the bang of `=>!` trails the arrow it condemns (Effects §2.3).
 
 The lexer special-cases well-known forbidden symbolic logic runs so the user gets one
-useful error: bare `!`, `&&`, and `||` point to `not`, `and`, and `or`. `||` must not
-be accepted as two pattern bars. The JavaScript comment spellings `/*` and `*/` join
-this family with Comments §3.1's redirects *(#171)*.
+useful error: `&&` and `||` point to `and` and `or`; a `!` in prefix-expression
+position points to `not` *(position-selected by the parser since #355 made `!` a
+call-mark token — the same lexer/parser division as §4.1's reserved words; a mark
+anywhere other than its two grammatical seats gets Effects §9's mark-position
+error)*. `||` must not be accepted as two pattern bars. The JavaScript comment
+spellings `/*` and `*/` join this family with Comments §3.1's redirects *(#171)*.
 
 ### 8.3 Not tokens
 
-The following are deliberately absent: `%`, `^`, `&`, bare `!`, `?`, `@`, `#`,
-backtick, backslash outside a string, `&&`, `||`, `->`, `::`, `??`, `?.`, `..<`,
+The following are deliberately absent: `%`, `^`, `&`, `@`, `#`,
+backtick, backslash outside a string, `&&`, `||`, `::`, `??`, `?.`, `..<`,
 compound assignments, increment/decrement, and every user-invented punctuation run.
+*(Corrected for #355 — this list previously included `->`, bare `!`, and `?`,
+all three now §8.1 tokens: `->` had already shipped, and `!`/`?` are the call
+marks. `??` and `?.` remain absent — maximal munch does not combine two marks or
+a mark and a dot into an unlisted token; the leading mark of such a run falls
+outside a mark's grammatical seats and is refused there by the parser.)*
 
 Where every character of a run is independently valid (`+=`, `->`, `--`), the lexer
 may emit those valid component tokens and let the parser issue the form-specific
@@ -465,7 +483,8 @@ token inventory and the lexer must not report the same source code unit twice.
 | Unterminated string/interpolation | point at the opener; recover at EOF |
 | Unterminated/unmatched block comment | Comments §5 messages verbatim |
 | JavaScript comment spelling `/*` / `*/` | Comments §5 redirect messages verbatim *(#171)* |
-| Bare `!`, `&&`, `||` | suggest `not`, `and`, `or` respectively |
+| `&&`, `||` | suggest `and`, `or` respectively |
+| `!` in prefix-expression position | suggest `not` — the parser selects the message now that `!` is a token *(#355; §8.2)*; a mark outside its two grammatical seats gets Effects §9's mark-position error instead |
 | Any other invalid character | name the character and codepoint; consume it once |
 
 There is no warning tier. Every row is either accepted source or a hard error.
@@ -519,5 +538,6 @@ a && b              -- write `a and b`
 | Complete escape set; source newlines normalize to semantic LF | §6.2 |
 | Comments are trivia; nested forms and diagnostics inherited unchanged | §7 |
 | Closed punctuation/operator inventory and maximal-munch rules | §8 |
+| `->` corrected into the inventory (shipped with function-type annotations; Effects §2 names its role); `=>!` and the call marks `!`/`?` added for #355; `!=>` impossible by munch; prefix-`!` keeps the `not` redirect, parser-selected | §8.1–§8.3, §10 (#355) |
 | Exact physical token families; virtual layout tokens excluded | §9 |
 | No warning tier; malformed tokens advance and recover | §10 |

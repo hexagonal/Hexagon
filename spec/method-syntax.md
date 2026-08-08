@@ -43,6 +43,7 @@ e.name               -- bare dot: field access (Products §3.2) / itemN (Product
 - `e.name` bound and called later (`let f = e.name` … `f()`) is likewise plain field access; the goal machinery never sees it.
 - Uppercase after the dot is not this feature: `Alias.Name(args…)` is module-qualified access (Modules §5.1), resolved positionally as today. The `.` token remains the single token of Operators §14, resolved by what the left side names; nothing changes there.
 - Dot calls interleave freely with the other level-1 postfix forms: `v.slice(1..3)[2].show()` parses as postfix chains always have. (Whether each link *resolves* is §3's business.)
+- *(#355.)* **A call mark anchors the argument list, whatever the callee expression** (Effects §3.2). A dot call marks its own list — `stream.next!()` — and the parenthesized opt-out marks its ordinary call the same way: `(source.step)!()`. In a postfix chain each argument list is marked for the arrow *it* discharges (Effects §3.3); the bare dot `e.name` remains field access and remains colourless — no argument list, no mark. A goal deferred to the deadline (§3.3) resolves with its mark obligation intact: the mark was anchored to the list at parse time and dispatch does not move it.
 - In a multiline chain, a leading dot is a postfix continuation. The canonical layout aligns each leading dot with the receiver, just as a leading `|>` aligns with the value in a multiline pipe:
 
   ```hexagon
