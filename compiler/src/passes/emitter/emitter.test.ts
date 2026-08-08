@@ -157,7 +157,19 @@ describe("emitJavaScript", () => {
     );
   });
 
-  test("emits persistent Map and Set core operations with structural key equality", () => {
+  /**
+   * The transitional helper, now **`Set`'s alone** (#370). `Map`'s half retired
+   * at its milestone with the checker rows that typed it, so a module using only
+   * maps carries no `persistentCollections` at all — which is the negative half
+   * of this test and the thing most worth pinning, since the helper's remaining
+   * internals (`insert`, `find`, `discard`, the structural key equality) look
+   * unchanged and would keep passing if the Map arm had merely stopped being
+   * *reached* rather than stopped existing.
+   *
+   * The `.d.ts` faces are unmoved by any of it: `Hex.Map<k, v>` and
+   * `Hex.Set<a>` are what a crossed value faces either way.
+   */
+  test("emits persistent Set core operations with structural key equality", () => {
     const module = coreSource(
       "let emptyMap: Map((Int, Int), String) = Map.empty\n" +
         "export let names: Map((Int, Int), String) = Map.set(emptyMap, (1, 2), \"first\")\n" +
@@ -173,8 +185,23 @@ describe("emitJavaScript", () => {
     expect(output.text).toContain("const __hex_persistentCollections");
     expect(output.text).toContain("__hex_hash.eq.equals");
     expect(output.text).toContain("const insert =");
+    // Nothing map-shaped survives inside it.
+    expect(output.text).not.toContain("emptyMap: ");
+    expect(output.text).not.toContain("const mapSet =");
+    expect(output.text).not.toContain("const mapEntry =");
     expect(emitDeclarations(module).text).toContain("Hex.Map<[number, number], string>");
     expect(emitDeclarations(module).text).toContain("Hex.Set<[number, number]>");
+  });
+
+  /** A map-only module never reaches the helper at all. */
+  test("the transitional helper is absent from a module that uses only maps", () => {
+    const module = coreSource(
+      "let m: Map(Int, String) = Map.set(Map.empty, 1, \"one\")\n" +
+        "export let held: Bool = Map.containsKey(m, 1)\n" +
+        "export let looked: String = m[1]\n",
+    );
+    expect(module.diagnostics).toEqual([]);
+    expect(emitJavaScript(module).text).not.toContain("__hex_persistentCollections");
   });
 
   test("executes persistent Map and Set updates, lookup, and bracket failure", async () => {

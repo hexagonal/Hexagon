@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { compileProject, Source } from "../index";
+import type { ProjectOptions } from "../project.js";
 
 /**
  * Conformance for the intrinsic door itself (`spec/intrinsics.md`): the gate
@@ -17,9 +18,11 @@ import { compileProject, Source } from "../index";
 
 function diagnostics(
   files: readonly (readonly [string, string])[],
+  options: ProjectOptions = {},
 ): readonly string[] {
   return compileProject(
     files.map(([path, text], index) => new Source.File(Source.fileId(index), path, text)),
+    options,
   ).diagnostics.map((diagnostic) => diagnostic.message);
 }
 
@@ -272,11 +275,51 @@ describe("genericity is granted inside the boundary only (§3.4)", () => {
     )).toContain("generic extern declarations are not part of Hexagon v1");
   });
 
+  /**
+   * *(#370.)* The amendment rides the same argument one member deeper: at a
+   * foreign boundary a constrained contract would hand an untrusted implementer
+   * a dictionary whose shape is the compiler's private business — Part 4 §12.4's
+   * representation question again. So foreign externs stay monomorphic **and
+   * unconstrained**, which the existing refusal already delivers: a bound
+   * introduces a type variable, so the monomorphism diagnostic is what a
+   * constrained foreign row meets first, and the brackets are dropped rather
+   * than recorded, so nothing behind the diagnostic acquires a scheme.
+   */
+  test("a foreign extern is still unconstrained", () => {
+    expect(main(
+      'extern from "elsewhere"\n' +
+      "    fun place<k: Hash>(key: k): Int\n",
+    )).toContain("generic extern declarations are not part of Hexagon v1");
+  });
+
   test("an intrinsic declaration may be generic", () => {
     expect(diagnostics([
       ["/main.hex", "export let ok: Int = 1\n"],
       ["/Result.hex", DOOR],
     ])).toEqual([]);
+  });
+
+  /**
+   * *(#370.)* And a constrained intrinsic row is an ordinary constrained
+   * function from the declaration onward: discharge happens at every call, and
+   * a key type with no instance is refused there rather than at the door.
+   * `stdlib/Map.hex`'s keyed trio is the grant's concrete demand and its live
+   * customer; this is the mechanism in miniature, at a runtime module's door so
+   * the specimen owns its own key.
+   */
+  test("an intrinsic declaration may carry constraint brackets, and they bind", () => {
+    const constrained = 'extern from "hex:intrinsic"\n' +
+      "    fun hashTrieNodeSingleton as one<a: Hash>(value: a): Node(a)\n";
+    expect(diagnostics(
+      [["/Runtime.hex", `${constrained}export let ok: Int = Node.get(one(1), 0)\n`]],
+      { runtimePaths: ["/Runtime.hex"] },
+    )).toEqual([]);
+    expect(diagnostics(
+      [["/Runtime.hex",
+        "record Weird = {s: String}\n" +
+        `${constrained}export let bad: Int = Node.get(one(Weird({s = "K"})), 0).s\n`]],
+      { runtimePaths: ["/Runtime.hex"] },
+    ).join("\n")).toContain("type `Weird` has no `Hash` instance");
   });
 
   /**
