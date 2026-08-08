@@ -237,7 +237,8 @@ Messages are normative in shape; the mark table's six rows share one sentence fr
 
 The shipped checker implements this ruling behind a project flag; flag-off compilation is token-for-token the pre-ruling language. Obligations before the flag defaults on, recorded here because each is normative surface, not polish:
 
-- **LSP hover and `.d.ts` faces must render the trio.** A signature a reader cannot see is not a face; display is part of the contract (Functions §5.1 owns the grammar).
+- **LSP hover and `.d.ts` faces must render the trio.** A signature a reader cannot see is not a face; display is part of the contract (Functions §5.1 owns the grammar). One display question rides this obligation: the renderer spells *every* variable colour `=>`, so a displayed outer `=>` is not necessarily the parameter arrows' linked variable (§3.4's third arm keeps an unconstrained own colour separate) — yet writing that displayed face back as an annotation links every `=>` into one variable (§2.2) and can change call-mark obligations. Before the flag defaults on, display must distinguish or normalize the two.
+- **The reverse-direction mismatch report needs its own sentence.** A *pure* function refused where an impure constant is demanded — a `=>` data field, a result-only face — currently receives the §4.3 `->`-demand message, whose every clause is about a `->` that does not exist in that program.
 - **The prefix-`!` `not` redirect** (§9) — the prototype reports the mark-position error instead.
 - **The return-annotation report should lead with its fixit** — it currently fires amid consequential type errors.
 - **The deferred dot-call goal path** (Method Syntax §3) must be exercised against marks — a goal resolved at the deadline anchors its mark to the same argument list.

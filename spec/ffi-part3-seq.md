@@ -298,7 +298,7 @@ The §5.1 row is updated by edit note to record this discharge; nothing of the o
 
 Excluded from v1 and reserved for later work; nothing here pre-commits their design:
 
-1. **Single-pass `Iterator<a>` acceptance** — a future explicitly single-pass or resource-aware type (not named `Seq`; §9.2).
+1. **Single-pass `Iterator<a>` acceptance** — a future explicitly single-pass or resource-aware type (not named `Seq`; §9.2). *(Partially discharged for #355: the single-pass type is `Stream(a)` — `stream.md` — and bare-iterator acceptance lands at `Stream` positions, §14.1. The resource-aware half stays with deferral 4.)*
 2. **Async iteration** — `AsyncIterable`, `AsyncSeq`, and rejection semantics await the async specification (Part 1 §4.3).
 3. **Callback-position adapters** — `Seq` in callback signatures, with the wrapper-identity, retention, and lifetime questions they entail (Part 6 owns the rejection and its revisit bar).
 4. **A separate resource-managed stream type** — the home for prompt-closure semantics that §8 deliberately refuses to give `Seq`.
