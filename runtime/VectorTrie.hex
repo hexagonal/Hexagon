@@ -473,9 +473,15 @@ fun concat(left: TrieVector(a), right: TrieVector(a)): TrieVector(a) =
     var result: TrieVector(a) = left
     var index = 0
     while index < count
-        let (values, offset, run) = nodeRun(right, index)
+        // `leafValues` rather than `values`: this module is seated before
+        // `stdlib/Map.hex`, so its `values` projection is out of scope here —
+        // but the conformance probe compiles this same text at an ordinary path,
+        // where the whole prelude is in scope and a `let` may not rebind a name
+        // the prelude binds. The rename costs nothing and keeps the probe
+        // compiling the module rather than a variant of it.
+        let (leafValues, offset, run) = nodeRun(right, index)
         // `run` is at least 1, so this range is never empty.
         for step in 0..(run - 1)
-            result := append(result, Node.get(values, offset + step))
+            result := append(result, Node.get(leafValues, offset + step))
         index := index + run
     result

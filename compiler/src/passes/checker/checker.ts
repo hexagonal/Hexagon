@@ -662,9 +662,11 @@ class Checker {
     /** The declared name the call dispatched on, before any local re-spelling. */
     readonly name: string;
     /**
-     * The evidence this call supplies, for a member-resolved dot call. A
-     * companion-resolved one carries none: its scheme's constraints are the
-     * callee's own business, exactly as they were before this spec.
+     * The evidence this call supplies. Both resolutions fill it: a
+     * member-resolved dot call always did, and a companion-resolved one joined
+     * at #370, when `stdlib/Map.hex`'s keyed trio became the first constrained
+     * companion operation in the language. Unconstrained operations — which is
+     * every other one — record an empty list.
      */
     readonly requirements: readonly Requirement[];
     readonly callee: Mono;
@@ -1852,7 +1854,17 @@ class Checker {
             : this.#noSuchOperation(actual, name, claimed)),
       );
     }
-    const calleeType = this.#instantiate(scheme, level, undefined, callee.field.span);
+    // The evidence a **companion-resolved** dot call supplies (#370). It used
+    // to collect none, on the reading that a companion operation's constraints
+    // are the callee's own business — which was true for as long as no
+    // companion operation had any. `stdlib/Map.hex`'s keyed trio is the first
+    // that does, and `m.set(k, v)` has to append exactly the suffix
+    // `Map.set(m, k, v)` appends, or the dot spelling silently calls the same
+    // function one argument short (Method Syntax §1: the two spellings are one
+    // call). An unconstrained operation collects an empty list, which is the
+    // behaviour this replaces, unchanged.
+    const requirements: Requirement[] = [];
+    const calleeType = this.#instantiate(scheme, level, requirements, callee.field.span);
     const arguments_ = [
       receiver,
       ...this.#dotCallArguments(expression, level, cachedArguments),
@@ -1875,7 +1887,7 @@ class Checker {
     this.#dotCalls.set(expression, {
       symbol: operation.id,
       name: operation.name,
-      requirements: [],
+      requirements,
       callee: calleeType,
       receiver: callee.receiver,
     });
@@ -3015,10 +3027,11 @@ class Checker {
    * Gives compiler-known persistent collection operations their ordinary function
    * types.
    *
-   * `Vector`'s rows are gone: `stdlib/Vector.hex` declares that surface itself,
-   * so the declaration owns the type (`spec/intrinsics.md` §4.2, §9.2). What is
-   * left is the two companions with no `.hex` module yet and the `Node` trie
-   * intrinsic, which by §3.3 never gets one.
+   * `Vector`'s rows are gone, and `Map`'s went with them (#370):
+   * `stdlib/Vector.hex` and `stdlib/Map.hex` declare those surfaces themselves,
+   * so each declaration owns its type (`spec/intrinsics.md` §4.2, §9.2). What is
+   * left is `Set`, the one companion with no `.hex` module yet, and the `Node`
+   * trie intrinsic, which by §3.3 never gets one.
    */
   #collectionOperationType(
     collection: Resolved.CollectionOperationExpr["collection"],
@@ -3030,26 +3043,7 @@ class Checker {
     const requireKey = (subject: Mono): void => {
       requirements.push(this.#require("Hash", subject, span));
     };
-    if (collection === "Map") {
-      const key = this.#fresh(level, false);
-      const value = this.#fresh(level, false);
-      const map: MapMono = { kind: "Map", key, value };
-      if (["set", "remove", "containsKey", "fromVector", "fromSeq", "fromEntries"].includes(operation)) {
-        requireKey(key);
-      }
-      if (operation === "empty") return { kind: "Function", parameters: [], result: map };
-      if (operation === "set") return { kind: "Function", parameters: [map, key, value], result: map };
-      if (operation === "remove") return { kind: "Function", parameters: [map, key], result: map };
-      if (operation === "containsKey") return { kind: "Function", parameters: [map, key], result: this.#boolType(span) };
-      if (operation === "size") return { kind: "Function", parameters: [map], result: primitive("Int") };
-      if (operation === "isEmpty") return { kind: "Function", parameters: [map], result: this.#boolType(span) };
-      const entry: Mono = { kind: "Tuple", elements: [key, value] };
-      if (operation === "keys") return { kind: "Function", parameters: [map], result: this.#sequence(key, span) };
-      if (operation === "values") return { kind: "Function", parameters: [map], result: this.#sequence(value, span) };
-      if (operation === "entries" || operation === "toSeq") return { kind: "Function", parameters: [map], result: this.#sequence(entry, span) };
-      if (operation === "fromVector") return { kind: "Function", parameters: [{ kind: "Vector", element: entry }], result: map };
-      if (operation === "fromSeq" || operation === "fromEntries") return { kind: "Function", parameters: [this.#sequence(entry, span)], result: map };
-    } else if (collection === "Set") {
+    if (collection === "Set") {
       const element = this.#fresh(level, false);
       const set: SetMono = { kind: "Set", element };
       if (["add", "remove", "contains", "union", "intersect", "difference", "isSubsetOf", "fromVector", "fromSeq"].includes(operation)) {

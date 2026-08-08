@@ -481,10 +481,16 @@ export const RUNTIME_SOURCES: Readonly<Record<string, string>> = {
     + "    var result: TrieVector(a) = left\n"
     + "    var index = 0\n"
     + "    while index < count\n"
-    + "        let (values, offset, run) = nodeRun(right, index)\n"
+    + "        // `leafValues` rather than `values`: this module is seated before\n"
+    + "        // `stdlib/Map.hex`, so its `values` projection is out of scope here —\n"
+    + "        // but the conformance probe compiles this same text at an ordinary path,\n"
+    + "        // where the whole prelude is in scope and a `let` may not rebind a name\n"
+    + "        // the prelude binds. The rename costs nothing and keeps the probe\n"
+    + "        // compiling the module rather than a variant of it.\n"
+    + "        let (leafValues, offset, run) = nodeRun(right, index)\n"
     + "        // `run` is at least 1, so this range is never empty.\n"
     + "        for step in 0..(run - 1)\n"
-    + "            result := append(result, Node.get(values, offset + step))\n"
+    + "            result := append(result, Node.get(leafValues, offset + step))\n"
     + "        index := index + run\n"
     + "    result\n",
   "HashTrie.hex":

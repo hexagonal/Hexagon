@@ -1826,11 +1826,12 @@ class JavaScriptEmitter {
         // effect-free source, memoizing and re-deriving are observationally
         // equivalent, so §6.4's re-derivation default for user-built sequences
         // is untouched by the boundary's memoization.
-        const produces = expression.operation === "toSeq" ||
-          (expression.collection === "Map" &&
-            ["keys", "values", "entries"].includes(expression.operation));
-        const consumes = expression.operation === "fromSeq" ||
-          expression.operation === "fromEntries";
+        // `Set`'s two rows since #370 retired `Map`'s: `Map.keys`/`values`/
+        // `entries` are `stdlib/Map.hex`'s ordinary Hexagon now, and its
+        // `entries` is a real lazy `Seq` from the trie rather than an adapted
+        // array, which is what makes Part 4 §7.3's correspondence free.
+        const produces = expression.operation === "toSeq";
+        const consumes = expression.operation === "fromSeq";
         return collectionOperation(
           expression.collection,
           expression.operation,
@@ -1903,7 +1904,13 @@ class JavaScriptEmitter {
             expression.span,
             evidenceNames,
           );
-          return `${this.#useHelper("persistentCollections")}.mapGet(${hash})(${receiver}, ${index})`;
+          // The bracket is an *expression form*, so it stays the emitter's own
+          // lowering after the Map step (#370) — `stdlib/Map.hex` owns the
+          // companion surface and never the bracket, which is why `KeyError` is
+          // an ordinary exported exception there rather than a door key. The
+          // helper reaches the same `get` the door does, and re-throws its
+          // absence as §4.3's payload.
+          return `${this.#useHelper("mapIndex")}(${receiver}, ${index}, ${hash})`;
         }
         const helper = expression.operation === "VectorElement"
           ? "vectorIndex"
@@ -3309,7 +3316,7 @@ class JavaScriptEmitter {
       const item = type.value.kind === "Variable"
         ? this.#dictionary(type.value.id, "Hash", this.#module.span, evidenceNames)
         : this.#emitEvidence({ kind: "Structural", type: type.value, components: [] }, "Hash", this.#module.span, evidenceNames);
-      return `${this.#useHelper("persistentCollections")}.mapHash(${key}, ${item}, ${this.#useHelper("mixHash")})(${value})`;
+      return `${this.#useHelper("mapHash")}(${key}, ${item}, ${value})`;
     }
     if (type.kind === "Record") {
       return combine([...type.fields].sort((a, b) => a.name.localeCompare(b.name)).map((field) =>
@@ -3660,7 +3667,7 @@ class JavaScriptEmitter {
             type.value,
             evidenceNames,
           );
-      return `${this.#useHelper("persistentCollections")}.mapEquals(${hash}, ${equals})(${left}, ${right})`;
+      return `${this.#useHelper("mapEquals")}(${hash}, ${equals}, ${left}, ${right})`;
     }
     if (type.kind === "Record") {
       return type.fields.map((field) =>
@@ -4594,6 +4601,37 @@ class JavaScriptEmitter {
         return "(__hex_a, __hex_b, __hex_c) => [...__hex_a.slice(0, __hex_b), __hex_c, ...__hex_a.slice(__hex_b)]";
       case "hashTrieNodeRemoveAt":
         return "(__hex_a, __hex_b) => [...__hex_a.slice(0, __hex_b), ...__hex_a.slice(__hex_b + 1)]";
+      // `stdlib/Map.hex`'s seven (#370), and the first family whose lowerings
+      // are **another Hexagon module's compiled operations**: each aliases the
+      // matching export of `runtime/HashTrie.hex`'s emitted module, which is the
+      // wiring that module's header promised. Nothing is adapted on the way
+      // through — a `Map(k, v)` *is* a `HashTrie(k, v)`, and the two faces agree
+      // because the same compiler wrote both.
+      //
+      // The keyed trio needs no mention of evidence here for the same reason:
+      // its declaration carries `<k: Hash>` (§3.4), so a call site appends the
+      // suffix the compiled `<k: Hash>` operation already takes. An alias is the
+      // whole lowering, and a wrapper would only add an arity to get wrong.
+      case "mapSingleton":
+        return this.#useHashTrieRuntime("singleton");
+      case "mapSize":
+        return this.#useHashTrieRuntime("size");
+      case "mapGet":
+        return this.#useHashTrieRuntime("get");
+      case "mapSet":
+        return this.#useHashTrieRuntime("set");
+      case "mapRemove":
+        return this.#useHashTrieRuntime("remove");
+      case "mapEntries":
+        return this.#useHashTrieRuntime("entries");
+      // The one that is not an alias, because the trie's `empty` is a *value*
+      // and the door admits `fun` only. The thunk is what bridges the two, and
+      // it is called exactly once per program: `Map.hex` binds `export let empty
+      // = emptyMap()`, so the emitted `Map.empty` is a module-level `const`
+      // holding the one shared trie — Collections Part 4 §11's shared runtime
+      // constant, arrived at through the door rather than beside it.
+      case "mapEmpty":
+        return `() => ${this.#useHashTrieRuntime("empty")}`;
       default:
         if (INTRINSIC_INVENTORY.has(key)) {
           this.#diagnostics.add({
@@ -5637,6 +5675,8 @@ type Helper =
   | "vectorIterate"
   | "hashTrieIterate"
   | "mapIndex"
+  | "mapEquals"
+  | "mapHash"
   | "vectorOf"
   | "vectorSet"
   | "vectorSlice"
@@ -5678,6 +5718,8 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   // the `Seq` driver, so it owes that helper (#370).
   hashTrieIterate: ["seqToIterable"],
   mapIndex: [],
+  mapEquals: [],
+  mapHash: ["mixHash"],
   vectorOf: [],
   vectorSet: [],
   vectorSlice: [],
@@ -5862,15 +5904,9 @@ function renderHelper(
         "    const __hex_children = __hex_node.children.slice(); __hex_children[__hex_slot] = __hex_updated ?? undefined;",
         "    return [{ kind: 1, children: __hex_children }, true];",
         "  };",
-        "  const mapValue = (__hex_root, __hex_size) => ({ root: __hex_root, size: __hex_size, [Symbol.iterator]: function () { return entries(__hex_root); } });",
         "  const setValue = (__hex_root, __hex_size) => ({ root: __hex_root, size: __hex_size, [Symbol.iterator]: function* () { for (const [__hex_key] of entries(__hex_root)) yield __hex_key; } });",
         "  const hashed = (__hex_dictionary, __hex_value) => __hex_dictionary.hash(__hex_value) | 0;",
-        "  const emptyMap = () => mapValue(null, 0), emptySet = () => setValue(null, 0);",
-        "  const mapSet = __hex_hash => (__hex_map, __hex_key, __hex_value) => { const [__hex_root, __hex_added] = insert(__hex_map.root, hashed(__hex_hash, __hex_key), __hex_key, __hex_value, __hex_hash.eq.equals); return __hex_root === __hex_map.root ? __hex_map : mapValue(__hex_root, __hex_map.size + Number(__hex_added)); };",
-        "  const mapRemove = __hex_hash => (__hex_map, __hex_key) => { const [__hex_root, __hex_removed] = discard(__hex_map.root, hashed(__hex_hash, __hex_key), __hex_key, __hex_hash.eq.equals); return __hex_removed ? mapValue(__hex_root, __hex_map.size - 1) : __hex_map; };",
-        "  const mapEntry = (__hex_hash, __hex_map, __hex_key) => find(__hex_map.root, hashed(__hex_hash, __hex_key), __hex_key, __hex_hash.eq.equals);",
-        "  const mapContainsKey = __hex_hash => (__hex_map, __hex_key) => mapEntry(__hex_hash, __hex_map, __hex_key) !== undefined;",
-        "  const mapGet = __hex_hash => (__hex_map, __hex_key) => { const __hex_entry = mapEntry(__hex_hash, __hex_map, __hex_key); if (__hex_entry !== undefined) return __hex_entry[1]; const __hex_error = new Error(\"key is absent\"); __hex_error.name = \"KeyError\"; throw __hex_error; };",
+        "  const emptySet = () => setValue(null, 0);",
         "  const setAdd = __hex_hash => (__hex_set, __hex_value) => { const [__hex_root, __hex_added] = insert(__hex_set.root, hashed(__hex_hash, __hex_value), __hex_value, undefined, __hex_hash.eq.equals); return __hex_added ? setValue(__hex_root, __hex_set.size + 1) : __hex_set; };",
         "  const setRemove = __hex_hash => (__hex_set, __hex_value) => { const [__hex_root, __hex_removed] = discard(__hex_set.root, hashed(__hex_hash, __hex_value), __hex_value, __hex_hash.eq.equals); return __hex_removed ? setValue(__hex_root, __hex_set.size - 1) : __hex_set; };",
         "  const setContains = __hex_hash => (__hex_set, __hex_value) => find(__hex_set.root, hashed(__hex_hash, __hex_value), __hex_value, __hex_hash.eq.equals) !== undefined;",
@@ -5878,13 +5914,10 @@ function renderHelper(
         "  const setIntersect = __hex_hash => (__hex_left, __hex_right) => { let __hex_result = emptySet(); const __hex_has = setContains(__hex_hash); for (const __hex_value of __hex_left) if (__hex_has(__hex_right, __hex_value)) __hex_result = setAdd(__hex_hash)(__hex_result, __hex_value); return __hex_result; };",
         "  const setDifference = __hex_hash => (__hex_left, __hex_right) => { let __hex_result = __hex_left; const __hex_remove = setRemove(__hex_hash); for (const __hex_value of __hex_right) __hex_result = __hex_remove(__hex_result, __hex_value); return __hex_result; };",
         "  const setIsSubsetOf = __hex_hash => (__hex_left, __hex_right) => { const __hex_has = setContains(__hex_hash); for (const __hex_value of __hex_left) if (!__hex_has(__hex_right, __hex_value)) return false; return true; };",
-        "  const mapFrom = __hex_hash => __hex_source => { let __hex_result = emptyMap(); const __hex_set = mapSet(__hex_hash); for (const [__hex_key, __hex_value] of __hex_source) __hex_result = __hex_set(__hex_result, __hex_key, __hex_value); return __hex_result; };",
         "  const setFrom = __hex_hash => __hex_source => { let __hex_result = emptySet(); const __hex_add = setAdd(__hex_hash); for (const __hex_value of __hex_source) __hex_result = __hex_add(__hex_result, __hex_value); return __hex_result; };",
         "  const setEquals = __hex_hash => (__hex_left, __hex_right) => __hex_left.size === __hex_right.size && (() => { const __hex_has = setContains(__hex_hash); for (const __hex_value of __hex_left) if (!__hex_has(__hex_right, __hex_value)) return false; return true; })();",
-        "  const mapEquals = (__hex_hash, __hex_valueEq) => (__hex_left, __hex_right) => __hex_left.size === __hex_right.size && (() => { for (const [__hex_key, __hex_value] of __hex_left) { const __hex_entry = mapEntry(__hex_hash, __hex_right, __hex_key); if (__hex_entry === undefined || !__hex_valueEq.equals(__hex_value, __hex_entry[1])) return false; } return true; })();",
         "  const setHash = (__hex_hash, __hex_mix) => __hex_set => { let __hex_result = __hex_set.size | 0; for (const __hex_value of __hex_set) __hex_result = (__hex_result + __hex_mix(0x51ed270b, __hex_hash.hash(__hex_value))) | 0; return __hex_result; };",
-        "  const mapHash = (__hex_keyHash, __hex_valueHash, __hex_mix) => __hex_map => { let __hex_result = __hex_map.size | 0; for (const [__hex_key, __hex_value] of __hex_map) __hex_result = (__hex_result + __hex_mix(__hex_keyHash.hash(__hex_key), __hex_valueHash.hash(__hex_value))) | 0; return __hex_result; };",
-        "  return { emptyMap, emptySet, mapSet, mapRemove, mapContainsKey, mapGet, mapFrom, setAdd, setRemove, setContains, setUnion, setIntersect, setDifference, setIsSubsetOf, setFrom, setEquals, mapEquals, setHash, mapHash, size: __hex_collection => __hex_collection.size, isEmpty: __hex_collection => __hex_collection.size === 0, mapKeys: __hex_map => [...__hex_map].map(__hex_entry => __hex_entry[0]), mapValues: __hex_map => [...__hex_map].map(__hex_entry => __hex_entry[1]), mapEntries: __hex_map => [...__hex_map] };",
+        "  return { emptySet, setAdd, setRemove, setContains, setUnion, setIntersect, setDifference, setIsSubsetOf, setFrom, setEquals, setHash, size: __hex_collection => __hex_collection.size, isEmpty: __hex_collection => __hex_collection.size === 0 };",
         "})();",
       ];
     // The HAMT's placement mix (#365). The seed is read **once**, when the
@@ -6079,7 +6112,9 @@ function renderHelper(
       // `KeyError` on absence. A helper for `vectorIndex`'s reason — a check
       // followed by a return is *statements* — and it builds §4.3's payload
       // directly rather than constructing `stdlib/Map.hex`'s exception, exactly
-      // as the vector family builds `IndexError`'s.
+      // as the vector family builds `IndexError`'s. The trailing parameter is
+      // the key's `Hash` evidence, which the trie's `get` takes because its
+      // declaration is `<k: Hash>`.
       //
       // `KeyError` is **nullary** by ruling: a polymorphic key cannot be a
       // payload slot (Exceptions §2), so no field is set beyond the two every
@@ -6088,13 +6123,53 @@ function renderHelper(
       // parse it — and `String(key)` is what a rendering with no `Show`
       // evidence in hand can honestly do.
       return [
-        `function ${name}(__hex_get, __hex_map, __hex_key) {`,
-        "  const __hex_entry = __hex_get(__hex_map, __hex_key);",
-        '  if (__hex_entry.tag === "Some") return __hex_entry.value;',
+        `function ${name}(__hex_map, __hex_key, __hex_hash) {`,
+        `  const __hex_found = ${hashTrieName("get")}(__hex_map, __hex_key, __hex_hash);`,
+        '  if (__hex_found.tag === "Some") return __hex_found.value;',
         "  const __hex_error = new Error(`no value for key ${String(__hex_key)}`);",
         '  __hex_error.name = "KeyError";',
         "  __hex_error.$hex = true;",
         "  throw __hex_error;",
+        "}",
+      ];
+    case "mapEquals":
+      // Collections Part 4 §8.1's extensional `Eq`, re-lowered over the trie
+      // (#370): equal sizes, and every entry of the left found in the right at
+      // an `equals`-equal value. The left walk is the iteration face and the
+      // right probe is the trie's own `get`, so nothing here knows the
+      // representation beyond `.size` and being iterable.
+      //
+      // Order-independence is not arranged, it is what the definition says
+      // (§8.1) — two maps with different construction histories may iterate
+      // differently and still be equal, which is exactly what a probe-the-other
+      // walk delivers and a positional one would not.
+      return [
+        `function ${name}(__hex_hash, __hex_valueEq, __hex_left, __hex_right) {`,
+        "  if (__hex_left.size !== __hex_right.size) return false;",
+        "  for (const [__hex_key, __hex_value] of __hex_left) {",
+        `    const __hex_found = ${hashTrieName("get")}(__hex_right, __hex_key, __hex_hash);`,
+        '    if (__hex_found.tag !== "Some") return false;',
+        "    if (!__hex_valueEq.equals(__hex_value, __hex_found.value)) return false;",
+        "  }",
+        "  return true;",
+        "}",
+      ];
+    case "mapHash":
+      // Collections Part 4 §8.4's `Hash`, re-lowered over the trie (#370). The
+      // combine is unchanged: each entry's key and value are mixed *order
+      // sensitively within the pair*, and the entry hashes are summed, which is
+      // invariant under every permutation of the entries. §8.4 forces that — the
+      // public `hash` member is deterministic and unseeded while iteration order
+      // is seeded, so an order-sensitive fold would make `hash(m)` a per-process
+      // value and break the member's own contract.
+      return [
+        `function ${name}(__hex_keyHash, __hex_valueHash, __hex_map) {`,
+        "  let __hex_result = __hex_map.size | 0;",
+        "  for (const [__hex_key, __hex_value] of __hex_map) {",
+        `    __hex_result = (__hex_result + ${dependencyName("mixHash")}(` +
+          "__hex_keyHash.hash(__hex_key), __hex_valueHash.hash(__hex_value))) | 0;",
+        "  }",
+        "  return __hex_result;",
         "}",
       ];
     case "nodeSet":
@@ -6482,7 +6557,14 @@ function renderHelper(
   }
 }
 
-/** Selects compiler-owned operations over persistent hash-array-mapped tries. */
+/**
+ * Selects compiler-owned operations over persistent hash-array-mapped tries.
+ *
+ * `Set`'s rows alone since #370: `Map`'s retired at its milestone with the
+ * checker rows that typed them (`spec/intrinsics.md` §9.2), because
+ * `stdlib/Map.hex` owns that surface now. This selector and the helper beneath
+ * it die entire at the Set step, which is the next row of the same table.
+ */
 function collectionOperation(
   collection: Core.CollectionOperationExpr["collection"],
   operation: string,
@@ -6494,18 +6576,6 @@ function collectionOperation(
   seqTo?: string,
 ): string {
   const dictionaries = `${hash}`;
-  if (collection === "Map") {
-    if (operation === "empty") return `${runtime}.emptyMap`;
-    if (["set", "remove", "containsKey", "get"].includes(operation)) {
-      return `${runtime}.map${operation[0]!.toUpperCase()}${operation.slice(1)}(${dictionaries})`;
-    }
-    if (operation === "size") return `${runtime}.size`;
-    if (operation === "isEmpty") return `${runtime}.isEmpty`;
-    if (["keys", "values", "entries"].includes(operation)) return `__hex_map => ${seqFrom}(${runtime}.map${operation[0]!.toUpperCase()}${operation.slice(1)}(__hex_map))`;
-    if (operation === "toSeq") return `__hex_map => ${seqFrom}(${runtime}.mapEntries(__hex_map))`;
-    if (operation === "fromVector") return `${runtime}.mapFrom(${dictionaries})`;
-    if (operation === "fromSeq" || operation === "fromEntries") return `__hex_entries => ${runtime}.mapFrom(${dictionaries})(${seqTo}(__hex_entries))`;
-  }
   if (collection === "Set") {
     if (operation === "empty") return `${runtime}.emptySet`;
     if (["add", "remove", "contains", "union", "intersect", "difference", "isSubsetOf"].includes(operation)) {

@@ -175,7 +175,8 @@ describe("verification replaces trust (§4.2)", () => {
       "`stringEquals`, `stringCompare`, `stringHash`, `hashTrieMix`, " +
       "`hashTrieDigit`, `hashTrieBitTest`, `hashTrieBitSet`, `hashTrieBitClear`, " +
       "`hashTrieBitCount`, `hashTrieBitCountBelow`, `hashTrieNodeSingleton`, " +
-      "`hashTrieNodeInsertAt`, `hashTrieNodeRemoveAt`",
+      "`hashTrieNodeInsertAt`, `hashTrieNodeRemoveAt`, `mapEmpty`, " +
+      "`mapSingleton`, `mapSize`, `mapGet`, `mapSet`, `mapRemove`, `mapEntries`",
     ]);
   });
 

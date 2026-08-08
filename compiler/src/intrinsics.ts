@@ -124,6 +124,28 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   so it needs the three length-changing operations that family has no member
  *   for. `Node.get`/`Node.set` are length-agnostic and serve both shapes, which
  *   is why no keyed twin of either appears here.
+ *
+ * The `map*` family is `stdlib/Map.hex`'s (§3.2, #370), and it is the first
+ * whose lowerings are *another Hexagon module's* compiled operations rather than
+ * emitter-written JavaScript: each of the seven aliases the corresponding export
+ * of `runtime/HashTrie.hex`'s emitted module. Three things about the shape are
+ * worth stating where the keys are.
+ *
+ * - **The keyed trio is constrained.** `mapGet`, `mapSet` and `mapRemove`
+ *   declare `<k: Hash>` (§3.4's amendment, the grant's concrete demand), so
+ *   their call sites append the evidence suffix — which is exactly what the
+ *   lowering expects, because the lowering *is* a compiled `<k: Hash>` function
+ *   and the same compiler emitted both faces.
+ * - **`mapSingleton` is unconstrained, permanently** (Collections Part 4
+ *   §12.4). The trie honors that with an unplaced root arm rather than by
+ *   hashing early, so there is nothing here for the key to defer to.
+ * - **`mapEmpty` takes no parameters and is unexported.** The block admits `fun`
+ *   only and `empty` is a value, so `Map.hex` writes `export let empty: Map(k,
+ *   v) = emptyMap()` above it; the wrapper is expansive and generalizes on the
+ *   relaxed rule over `Map`'s now-verified covariant claim rows. `isEmpty`,
+ *   `containsKey`, `keys`, `values`, the `toSeq`/`fromSeq` pair, `fromEntries`
+ *   and `fromVector` take no keys at all — every one of them is ordinary
+ *   Hexagon over these seven.
  */
 export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["seqMemoize", 1],
@@ -197,6 +219,13 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["hashTrieNodeSingleton", 1],
   ["hashTrieNodeInsertAt", 3],
   ["hashTrieNodeRemoveAt", 2],
+  ["mapEmpty", 0],
+  ["mapSingleton", 2],
+  ["mapSize", 1],
+  ["mapGet", 2],
+  ["mapSet", 3],
+  ["mapRemove", 2],
+  ["mapEntries", 1],
 ]);
 
 /**
