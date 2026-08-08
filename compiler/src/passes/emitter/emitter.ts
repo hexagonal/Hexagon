@@ -5734,8 +5734,10 @@ function renderHelper(
     //
     // The multiplier is the 32-bit golden-ratio constant `mixHash` already uses.
     // Nothing about the trie depends on which mixer this is, only on its being a
-    // function and its spreading the low bits — an unmixed `Hash<Int>` is the
-    // identity, so `0, 1, 2, ...` would land in the root's first slots.
+    // function of its argument and on its carrying the seed — the public member
+    // is deterministic and unseeded by design (Collections Part 2 §2.4), so a
+    // trie navigating by it directly would give the bucket function away and
+    // freeze traversal order across executions.
     case "hashTrieMix":
       return [
         `const ${name} = (() => {`,

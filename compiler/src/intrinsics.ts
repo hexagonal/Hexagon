@@ -108,9 +108,11 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *
  * - **The placement mix.** `hashTrieMix` is the one row with state behind it: a
  *   per-process seed read at most once, which is `spec/effects.md` §6.2 species
- *   (b) and Collections Part 2 §2.4's seeded placement. A trie navigating by the
- *   public hash would put every small `Int` key in the root's first slots,
- *   `Hash<Int>` being the identity.
+ *   (b) and Collections Part 2 §2.4's seeded placement. The public member is
+ *   deterministic and unseeded by §2.4's other half, so a trie navigating by it
+ *   directly would expose the bucket function to manufactured collisions and
+ *   freeze traversal order across executions — the two things §2.4's split
+ *   forbids.
  * - **Bit algebra** — `hashTrieDigit`, `hashTrieBitTest`, `hashTrieBitSet`,
  *   `hashTrieBitClear`, `hashTrieBitCount`, `hashTrieBitCountBelow`. Hexagon has
  *   no bitwise operators (`runtime/VectorTrie.hex` needed none, and divides

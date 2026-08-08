@@ -22,13 +22,15 @@
 //
 // **Placement is by the mixed hash, never the public one.** Every keyed
 // operation computes `mix(hash(key))` once and navigates by that (Collections
-// Part 2 §2.4): the public `Hash` member is a contract about *equality*, not
-// about distribution, and `Hash<Int>`'s lowering is the identity — an unmixed
-// `Int` key would put every small key in the root's first few slots. `mix` reads
-// a per-process seed at most once (`spec/effects.md` §6.2 species (b)), so
-// placement is deterministic within one execution and unpredictable across
-// them; nothing here, and nothing above here, may depend on the order two
-// traversals of *different* tries happen to produce.
+// Part 2 §2.4): the public `Hash` member is a contract about *equality*, and by
+// §2.4's other half it is deterministic and unseeded — so navigating by it
+// directly would expose the bucket function to manufactured collisions and
+// freeze traversal order across executions, the two things seeded placement
+// exists to prevent. `mix` reads a per-process seed at most once
+// (`spec/effects.md` §6.2 species (b)), so placement is deterministic within
+// one execution and unpredictable across them; nothing here, and nothing above
+// here, may depend on the order two traversals of *different* tries happen to
+// produce.
 //
 // **A `Branch`'s children are packed.** `bitmap` holds one bit per occupied
 // digit and `children`'s length is exactly that bitmap's popcount, in bit-index
