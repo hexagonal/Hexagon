@@ -130,8 +130,9 @@ let pairNode(first: a, second: a): Node(a) =
 // **Why the walkers take an `equal` parameter instead of a `Hash` constraint.**
 // The four operations below are recursive, and a *recursive* call from inside a
 // constrained function is emitted today without its evidence suffix — a compiler
-// defect (reproducible in nine lines of ordinary Hexagon, nothing to do with
-// this module), which at runtime reads a member off an undefined dictionary. So
+// defect (#368, reproducible in nine lines of ordinary Hexagon, nothing to do
+// with this module), which at runtime reads a member off an undefined
+// dictionary. So
 // the constraint stops at the public surface: `get`, `containsKey`, `set` and
 // `remove` carry `<k: Hash>`, and they hand the walkers the one thing the walk
 // needs from it. It is also the cheaper shape — the comparison is resolved once
@@ -400,8 +401,8 @@ union Frames(k, v) =
 // (The two arms' binders are spelled apart — `pairAt`/`slotAt` rather than
 // `index` twice — because two arms of one `match` that bind the same name emit
 // colliding `const`s into one JavaScript `switch` block. That is a compiler
-// defect and not a rule of the language; this file works around it rather than
-// waiting on it.)
+// defect (#367) and not a rule of the language; this file works around it
+// rather than waiting on it.)
 fun advance(frames: Frames(k, v)): Option(((k, v), Frames(k, v))) =
     match frames
         NoFrames => None
