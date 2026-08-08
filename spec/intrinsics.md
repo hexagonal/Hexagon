@@ -230,7 +230,7 @@ All hard errors, each with its named rewrite per the Rewrite Rule (Declarations 
 | Spelling: `extern from "hex:intrinsic"` block reusing Part 4 grammar; foreign-name-first `as` binds flat key to local name; `fun` only in v1 | §3.1–§3.3 |
 | Genericity granted inside the reserved boundary only; Part 4 §12.4 not reopened | §3.4 |
 | Keys are flat and compiler-global, mirroring the runtime helper family; key and arity verified at declaration site; declared types normative; lowering divergence is a compiler conformance defect | §4 |
-| Gate: `hex:` scheme reserved corpus-wide; block legal only in privileged stdlib source (v1: prelude members incl. injection-path override; the anticipated loader-designated tier is superseded by #344 — companions join the prelude set, prelude membership is the privilege, the gate widens for no one) | §5 |
+| Gate: `hex:` scheme reserved corpus-wide; block legal only in privileged stdlib source (v1: prelude members incl. injection-path override, and members of the injected runtime-module set incl. runtime-path grant, #365; the anticipated loader-designated tier is superseded by #344 — companions join the prelude set, prelude membership is their privilege) | §5 |
 | No new expression-position name exists; nothing to leak; reservation fails closed with a named rewrite | §5.3, §11 |
 | Doors type from their annotations in module scope; no compiler-side naming of the record is involved | §6 |
 | Self-declaration fallback: privilege-gated, identity-preserving (the declaration *is* the prelude record), occlusion untouched, generalizes per compiler-known record name | §7 |

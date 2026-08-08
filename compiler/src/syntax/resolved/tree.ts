@@ -443,9 +443,9 @@ export interface ExternBlockItem {
    * The gate's answer travels rather than being re-derived, because the
    * specifier alone cannot answer it: privilege is a property of the
    * compilation. A later pass asking `isIntrinsicScheme(specifier)` would be
-   * deciding the same question from strictly less information, and would go
-   * quietly wrong when §5.2's second bullet (loader-designated companion source)
-   * widens the gate.
+   * deciding the same question from strictly less information, and would have
+   * gone quietly wrong when §5.2 widened to the runtime-module set (#365) —
+   * exactly the drift this field exists to absorb.
    */
   readonly intrinsic: boolean;
   readonly declarations: readonly ExternDeclaration[];
