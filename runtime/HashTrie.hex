@@ -1,0 +1,436 @@
+// The persistent hash array mapped trie that `Map(k, v)` and `Set(a)` are built
+// on (Collections Part 4 §2.1), written over the hidden fixed-32 `Node`
+// intrinsic and the bit-algebra rows the intrinsic door supplies. This is a
+// runtime-internal module in `runtime/VectorTrie.hex`'s exact sense: it is
+// compiled only as a privileged runtime module, and `Tree`, `Node`, and
+// `HashTrie` never cross a module boundary — the public face is `Map(k, v)` and
+// `Set(a)`, and the emitter is what will wire the two together.
+//
+// Nothing here is `export`ed, and it could not be: every operation's type names
+// `HashTrie`, and exporting one is refused as exposing a private type. The
+// emitted JavaScript is what carries the operations out, under an export list
+// the emitter writes — so no Hexagon module can import this one, by name or by
+// accident, however the compiler happens to place the file.
+//
+// **This module must not reference `Vector`.** It sees the whole prelude, and a
+// vector literal, bracket, pattern, or `Vector.` call written here would make
+// the emitted `HashTrie.js` import `Vector.js` — coupling this trie to
+// `VectorTrie.js` for no reason at all, since nothing here wants a vector. The
+// seat (`RUNTIME_MODULES`' `precedes`) is what keeps the rule enforceable: this
+// module is seated before `Vector.hex`, so everything it can name is emitted
+// before it.
+//
+// **Placement is by the mixed hash, never the public one.** Every keyed
+// operation computes `mix(hash(key))` once and navigates by that (Collections
+// Part 2 §2.4): the public `Hash` member is a contract about *equality*, and by
+// §2.4's other half it is deterministic and unseeded — so navigating by it
+// directly would expose the bucket function to manufactured collisions and
+// freeze traversal order across executions, the two things seeded placement
+// exists to prevent. `mix` reads a per-process seed at most once
+// (`spec/effects.md` §6.2 species (b)), so placement is deterministic within
+// one execution and unpredictable across them; nothing here, and nothing above
+// here, may depend on the order two traversals of *different* tries happen to
+// produce.
+//
+// **A `Branch`'s children are packed.** `bitmap` holds one bit per occupied
+// digit and `children`'s length is exactly that bitmap's popcount, in bit-index
+// order — so a child's slot is `bitCountBelow(bitmap, digit)`, and `Node.empty()`
+// is never used here (it makes a 32-slot holey array, which is the
+// representation this trie exists not to pay for). Packed arrays are built and
+// resized by `nodeSingleton`/`nodeInsertAt`/`nodeRemoveAt`; `Node.get`/`Node.set`
+// are length-agnostic and serve either shape.
+
+// A trie node is one of three things. An `Entry` is a single key/value pair
+// held inline at whatever depth it became unambiguous. A `Branch` is a packed,
+// bitmap-indexed fan of up to 32 subtrees. A `Collision` holds every entry whose
+// full 32-bit *mixed* hash is `hash` — the tie the digit walk can never break —
+// with `count` its entry count, because a `Node` carries no length.
+//
+// `Entry.hash` and `Collision.hash` are mixed hashes, like every `hash` argument
+// below. The public hash appears in exactly one place in this file, inside
+// `placement`.
+union Tree(k, v) =
+    | Entry(hash: Int, key: k, value: v)
+    | Branch(bitmap: Int, children: Node(Tree(k, v)))
+    | Collision(hash: Int, count: Int, entries: Node((k, v)))
+
+// The trie representation, following Immutable.js's Map. `size` is maintained
+// incrementally — every insert path reports whether it grew the trie — so it is
+// a field read rather than a traversal. An empty trie has no root at all, which
+// is what lets `Branch` and `Collision` promise they are never empty.
+record HashTrie(k, v) = {
+    size: Int,
+    root: Option(Tree(k, v)),
+}
+
+// Signals a structurally malformed trie (a runtime bug, never a caller error).
+// Thrown only on paths a well-formed trie can never take.
+exception TrieCorruption(message: String)
+
+// The compiler-provided one-liners this trie is written over
+// (`spec/intrinsics.md` §5.2's runtime-module bullet). Hexagon has no bitwise
+// operators and no packed-array storage, and each of these is a single
+// JavaScript expression — exactly the shape §3.2's strictly-simpler doctrine
+// sends across the door rather than growing the non-declared guard family.
+//
+// Nothing here is exported: these are this module's internals, and the door's
+// `export` marker is for a companion publishing its own surface.
+extern from "hex:intrinsic"
+    fun hashTrieMix as mix(hash: Int): Int
+    fun hashTrieDigit as digit(hash: Int, shift: Int): Int
+    fun hashTrieBitTest as bitTest(bitmap: Int, index: Int): Bool
+    fun hashTrieBitSet as bitSet(bitmap: Int, index: Int): Int
+    fun hashTrieBitClear as bitClear(bitmap: Int, index: Int): Int
+    fun hashTrieBitCount as bitCount(bitmap: Int): Int
+    fun hashTrieBitCountBelow as bitCountBelow(bitmap: Int, index: Int): Int
+    fun hashTrieNodeSingleton as nodeSingleton(value: a): Node(a)
+    fun hashTrieNodeInsertAt as nodeInsertAt(node: Node(a), index: Int, value: a): Node(a)
+    fun hashTrieNodeRemoveAt as nodeRemoveAt(node: Node(a), index: Int): Node(a)
+
+// How many bits of the mixed hash one level consumes. A 32-slot fan is 5 bits.
+let step: Int = 5
+
+// The last shift a digit may be read at. A mixed hash is 32 bits, so the shifts
+// in play are 0, 5, 10, 15, 20, 25 and 30 — the last of them a 2-bit digit
+// selecting one of four slots. **No digit is ever read past this**, and that is
+// a correctness requirement rather than an efficiency one: JavaScript's shift
+// operators take their right operand modulo 32, so `digit(hash, 35)` would
+// silently answer `digit(hash, 3)` and route a key to the wrong subtree. Two
+// facts keep the walk inside the bound. A `Branch` exists at a shift only
+// because two differing hashes disagreed at some digit at or below it, and
+// hashes that agree on every digit through `lastShift` are equal — so a `Branch`
+// below `lastShift` cannot exist, and `splitEntry` throws rather than build one.
+// Equal mixed hashes are the tie `Collision` holds instead.
+let lastShift: Int = 30
+
+// The one empty trie. A `HashTrie` is immutable, so every empty map and set in a
+// program can be this same value.
+let empty: HashTrie(k, v) =
+    HashTrie({
+        size = 0,
+        root = None,
+    })
+
+// How many entries `trie` holds, read from the maintained field.
+let size(trie: HashTrie(k, v)): Int = trie.size
+
+// Whether `trie` holds no entries.
+let isEmpty(trie: HashTrie(k, v)): Bool = trie.size == 0
+
+// The placement hash of `key`: the public `Hash` member, mixed. Every keyed
+// operation computes this exactly once and threads it down the walk, so the
+// user's `hash` runs once per operation however deep the trie is.
+let placement<k: Hash>(key: k): Int = mix(key.hash())
+
+// The packed two-child `Node` holding `first` then `second`, which is the only
+// array shape a fresh `Branch` is ever built at.
+let pairNode(first: a, second: a): Node(a) =
+    nodeInsertAt(nodeSingleton(first), 1, second)
+
+// **Why the walkers take an `equal` parameter instead of a `Hash` constraint.**
+// The four operations below are recursive, and a *recursive* call from inside a
+// constrained function is emitted today without its evidence suffix — a compiler
+// defect (#368, reproducible in nine lines of ordinary Hexagon, nothing to do
+// with this module), which at runtime reads a member off an undefined
+// dictionary. So
+// the constraint stops at the public surface: `get`, `containsKey`, `set` and
+// `remove` carry `<k: Hash>`, and they hand the walkers the one thing the walk
+// needs from it. It is also the cheaper shape — the comparison is resolved once
+// per operation rather than re-dispatched at every level — and when the defect
+// is fixed nothing here has to change.
+
+// Whichever of `entries`' first `count` pairs has a key `equal` to `key`, as its
+// position. A `Collision`'s entries all share one mixed hash, so this is the
+// linear scan the tie forces — equality is the only thing left that can tell
+// them apart. Iterative rather than recursive: a collision run has no depth
+// bound, unlike the digit walk.
+let indexOfKey(entries: Node((k, v)), count: Int, key: k, equal: (k, k) -> Bool): Option(Int) =
+    var found: Option(Int) = None
+    var index = 0
+    while index < count
+        let (storedKey, _) = Node.get(entries, index)
+        if equal(storedKey, key) then
+            found := Some(index)
+            index := count
+        else
+            index := index + 1
+    found
+
+// The value `key` is bound to under `tree`, whose digits from `shift` down the
+// caller has already matched. Mixed hashes are compared first and `equal` runs
+// only on a full 32-bit match, so a lookup that misses usually costs no user
+// code at all. Recursion depth is bounded by the seven shifts, so this is
+// stack-safe.
+fun lookup(tree: Tree(k, v), hash: Int, key: k, shift: Int, equal: (k, k) -> Bool): Option(v) =
+    match tree
+        Entry(entryHash, entryKey, value) =>
+            if entryHash == hash and equal(entryKey, key) then
+                Some(value)
+            else
+                None
+        Collision(collisionHash, count, entries) =>
+            if collisionHash == hash then
+                match indexOfKey(entries, count, key, equal)
+                    None => None
+                    Some(at) =>
+                        let (_, value) = Node.get(entries, at)
+                        Some(value)
+            else
+                None
+        Branch(bitmap, children) =>
+            let index = digit(hash, shift)
+            if bitTest(bitmap, index) then
+                lookup(Node.get(children, bitCountBelow(bitmap, index)), hash, key, shift + step, equal)
+            else
+                None
+
+// The value `key` is bound to in `trie`, or `None`.
+let get<k: Hash>(trie: HashTrie(k, v), key: k): Option(v) =
+    match trie.root
+        None => None
+        Some(tree) => lookup(tree, placement(key), key, 0, (left, right) => left == right)
+
+// Whether `trie` binds `key`.
+let containsKey<k: Hash>(trie: HashTrie(k, v), key: k): Bool =
+    match get(trie, key)
+        None => False
+        Some(_) => True
+
+// The subtree holding both `existing` and `fresh`, whose mixed hashes the caller
+// guarantees **differ**. Branches are built from `shift` downward for as long as
+// the two agree, then one branch holds both in bit-index order. Depth is bounded
+// by `lastShift`, so this is stack-safe.
+fun splitEntry(
+    existing: Tree(k, v),
+    existingHash: Int,
+    fresh: Tree(k, v),
+    freshHash: Int,
+    shift: Int,
+): Tree(k, v) =
+    let here = digit(existingHash, shift)
+    let there = digit(freshHash, shift)
+    if here != there then
+        let bitmap = bitSet(bitSet(0, here), there)
+        if here < there then
+            Branch(bitmap, pairNode(existing, fresh))
+        else
+            Branch(bitmap, pairNode(fresh, existing))
+    else if shift >= lastShift then
+        // Unreachable: two hashes agreeing on every digit through `lastShift`
+        // agree on all 32 bits, and this function is never called with equal
+        // hashes — a tie is a `Collision`, which is where both callers send it.
+        throw(TrieCorruption("splitEntry: differing hashes agreed on every digit"))
+    else
+        Branch(
+            bitSet(0, here),
+            nodeSingleton(splitEntry(existing, existingHash, fresh, freshHash, shift + step)),
+        )
+
+// `tree` with `key` bound to `value`, and whether that was a genuine insertion
+// rather than a replacement — the flag is what keeps `size` a field read rather
+// than a traversal. Replacement **retains the stored key** and swaps only the
+// value (Collections Part 4 §5.4): two `equals`-equal keys are one key, and the
+// one the trie already holds is the representative every reader has been seeing.
+// Recursion depth is bounded by the seven shifts, so this is stack-safe.
+fun insert(
+    tree: Tree(k, v),
+    hash: Int,
+    key: k,
+    value: v,
+    shift: Int,
+    equal: (k, k) -> Bool,
+): (Tree(k, v), Bool) =
+    match tree
+        Entry(entryHash, entryKey, entryValue) =>
+            if entryHash != hash then
+                (splitEntry(tree, entryHash, Entry(hash, key, value), hash, shift), True)
+            else if equal(entryKey, key) then
+                (Entry(hash, entryKey, value), False)
+            else
+                // Equal mixed hashes, unequal keys: the digit walk has nothing
+                // left to split on. Both pairs carry their own value — the
+                // resident entry keeps `entryValue`, and only the fresh key gets
+                // `value`.
+                (Collision(hash, 2, pairNode((entryKey, entryValue), (key, value))), True)
+        Collision(collisionHash, count, entries) =>
+            if collisionHash != hash then
+                (splitEntry(tree, collisionHash, Entry(hash, key, value), hash, shift), True)
+            else
+                match indexOfKey(entries, count, key, equal)
+                    Some(at) =>
+                        let (storedKey, _) = Node.get(entries, at)
+                        (Collision(hash, count, Node.set(entries, at, (storedKey, value))), False)
+                    None =>
+                        (Collision(hash, count + 1, nodeInsertAt(entries, count, (key, value))), True)
+        Branch(bitmap, children) =>
+            let index = digit(hash, shift)
+            let slot = bitCountBelow(bitmap, index)
+            if bitTest(bitmap, index) then
+                let (child, inserted) = insert(Node.get(children, slot), hash, key, value, shift + step, equal)
+                (Branch(bitmap, Node.set(children, slot, child)), inserted)
+            else
+                (Branch(bitSet(bitmap, index), nodeInsertAt(children, slot, Entry(hash, key, value))), True)
+
+// `trie` with `key` bound to `value` — an upsert: an absent key is inserted and a
+// present one has its value replaced, with the stored key kept.
+// (`placed` rather than `hash`: the prelude's `Hash` member of that name is in
+// scope here, and a `let` may not rebind it.)
+let set<k: Hash>(trie: HashTrie(k, v), key: k, value: v): HashTrie(k, v) =
+    let placed = placement(key)
+    match trie.root
+        None =>
+            HashTrie({
+                size = 1,
+                root = Some(Entry(placed, key, value)),
+            })
+        Some(tree) =>
+            let (root, inserted) = insert(tree, placed, key, value, 0, (left, right) => left == right)
+            HashTrie({
+                size = if inserted then trie.size + 1 else trie.size,
+                root = Some(root),
+            })
+
+// A `Branch` over `bitmap` and its packed `children`, compacted. Deletion is
+// where the trie has to give height back, and it can do so at exactly two
+// shapes: a branch left with no children is gone, and a branch left with one
+// child that is an `Entry` or a `Collision` *is* that child, because an entry
+// and a collision are position-independent — neither carries any record of the
+// digits above it. A lone `Branch` child is **not** liftable: its own children's
+// positions are digits at its depth, and moving it up would misread every one
+// of them.
+let collapse(bitmap: Int, children: Node(Tree(k, v))): Option(Tree(k, v)) =
+    if bitmap == 0 then
+        None
+    else if bitCount(bitmap) != 1 then
+        Some(Branch(bitmap, children))
+    else
+        let lone = Node.get(children, 0)
+        match lone
+            Entry(_, _, _) => Some(lone)
+            Collision(_, _, _) => Some(lone)
+            Branch(_, _) => Some(Branch(bitmap, children))
+
+// `tree` with `key` gone, and whether it was there — `False` returns `tree`
+// itself rather than an equal rebuild, which is what lets `remove` of an absent
+// key hand back the very trie it was given. `None` for the tree means the
+// subtree is now empty; every branch on the way back up compacts through
+// `collapse`. Recursion depth is bounded by the seven shifts, so this is
+// stack-safe.
+fun discard(
+    tree: Tree(k, v),
+    hash: Int,
+    key: k,
+    shift: Int,
+    equal: (k, k) -> Bool,
+): (Option(Tree(k, v)), Bool) =
+    match tree
+        Entry(entryHash, entryKey, _) =>
+            if entryHash == hash and equal(entryKey, key) then
+                (None, True)
+            else
+                (Some(tree), False)
+        Collision(collisionHash, count, entries) =>
+            if collisionHash != hash then
+                (Some(tree), False)
+            else
+                match indexOfKey(entries, count, key, equal)
+                    None => (Some(tree), False)
+                    Some(at) =>
+                        if count > 2 then
+                            (Some(Collision(hash, count - 1, nodeRemoveAt(entries, at))), True)
+                        else
+                            // Down to one entry: a collision of one is an entry,
+                            // and keeping it as a `Collision` would leave the
+                            // representation carrying a tie that no longer exists.
+                            let (survivorKey, survivorValue) = Node.get(entries, if at == 0 then 1 else 0)
+                            (Some(Entry(hash, survivorKey, survivorValue)), True)
+        Branch(bitmap, children) =>
+            let index = digit(hash, shift)
+            if bitTest(bitmap, index) then
+                let slot = bitCountBelow(bitmap, index)
+                let (child, removed) = discard(Node.get(children, slot), hash, key, shift + step, equal)
+                if removed then
+                    match child
+                        Some(replacement) =>
+                            (collapse(bitmap, Node.set(children, slot, replacement)), True)
+                        None =>
+                            (collapse(bitClear(bitmap, index), nodeRemoveAt(children, slot)), True)
+                else
+                    (Some(tree), False)
+            else
+                (Some(tree), False)
+
+// `trie` with `key` unbound. Forgiving: a key that is not there yields the trie
+// unchanged — the same value, not a copy of it. Removing the last entry yields
+// the one shared `empty`.
+let remove<k: Hash>(trie: HashTrie(k, v), key: k): HashTrie(k, v) =
+    match trie.root
+        None => trie
+        Some(tree) =>
+            let (root, removed) = discard(tree, placement(key), key, 0, (left, right) => left == right)
+            if removed then
+                match root
+                    None => empty
+                    Some(replacement) =>
+                        HashTrie({
+                            size = trie.size - 1,
+                            root = Some(replacement),
+                        })
+            else
+                trie
+
+// A traversal's pending work, innermost first. `Slots` is a packed run of
+// subtrees together with how far it reaches (a `Node` carries no length, so the
+// count travels with it); `Pairs` is a `Collision`'s entries under the same
+// treatment. This is the explicit stack the depth-first walk would otherwise
+// keep in Hexagon's own — which it cannot, because the walk has to *suspend*
+// between elements and a call stack does not survive a `Seq` cell boundary.
+union Frames(k, v) =
+    | NoFrames
+    | Slots(trees: Node(Tree(k, v)), index: Int, count: Int, rest: Frames(k, v))
+    | Pairs(pairs: Node((k, v)), index: Int, count: Int, rest: Frames(k, v))
+
+// The next entry and the stack that follows it, or `None` at the end — the whole
+// traversal, one `Seq` cell's worth at a time. Only the path down to the entry
+// just yielded is ever resident, so a whole walk is O(n) in time and O(depth) in
+// live frames.
+//
+// The recursion here is not the walk's length: every recursive call either
+// descends one trie level or pops one exhausted frame, and both are bounded by
+// the depth, so this is stack-safe however many entries the trie holds.
+// (The two arms' binders are spelled apart — `pairAt`/`slotAt` rather than
+// `index` twice — because two arms of one `match` that bind the same name emit
+// colliding `const`s into one JavaScript `switch` block. That is a compiler
+// defect (#367) and not a rule of the language; this file works around it
+// rather than waiting on it.)
+fun advance(frames: Frames(k, v)): Option(((k, v), Frames(k, v))) =
+    match frames
+        NoFrames => None
+        Pairs(pairs, pairAt, pairCount, pairRest) =>
+            if pairAt >= pairCount then
+                advance(pairRest)
+            else
+                Some((Node.get(pairs, pairAt), Pairs(pairs, pairAt + 1, pairCount, pairRest)))
+        Slots(trees, slotAt, slotCount, slotRest) =>
+            if slotAt >= slotCount then
+                advance(slotRest)
+            else
+                let following = Slots(trees, slotAt + 1, slotCount, slotRest)
+                match Node.get(trees, slotAt)
+                    Entry(_, key, value) => Some(((key, value), following))
+                    Collision(_, entryCount, entries) => advance(Pairs(entries, 0, entryCount, following))
+                    Branch(bitmap, children) => advance(Slots(children, 0, bitCount(bitmap), following))
+
+// Every key/value pair in `trie`, lazily, depth first. The order is the trie's
+// own — placement order under a seed this process chose — so it is deterministic
+// for one trie value within one execution and is **not** a promise about
+// anything else: two tries that hold equal entries may enumerate them
+// differently, and the same program run twice may too.
+//
+// Nothing is forced to build the sequence: the root is wrapped in one frame and
+// the first descent happens when the first cell is pulled.
+let entries(trie: HashTrie(k, v)): Seq((k, v)) =
+    let start = match trie.root
+        None => NoFrames
+        Some(tree) => Slots(nodeSingleton(tree), 0, 1, NoFrames)
+    Seq.unfold(start, advance)

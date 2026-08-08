@@ -256,11 +256,25 @@ export function compileProject(
       unionBase: isInjected ? preludeUnionBase : unionBase,
       recordBase: isInjected ? preludeRecordBase : recordBase,
       externTypeBase: isInjected ? preludeExternTypeBase : externTypeBase,
-      // v1's standard-library privilege is prelude membership (`spec/intrinsics.md`
-      // §5.2). It follows the *path*, so a project supplying its own file at a
-      // prelude injection path is privileged in it — the stdlib-developing-itself
-      // path, carrying the same trust model as the `Node` runtime flag precedent.
-      privileged: isPrelude,
+      // Standard-library privilege — the intrinsic door's gate
+      // (`spec/intrinsics.md` §5.2). It follows the *path*, so a project
+      // supplying its own file at an injection path is privileged in it: the
+      // stdlib-developing-itself path, carrying the same trust model as the
+      // `Node` runtime flag precedent.
+      //
+      // Two seats hold it. Prelude membership is the first. The **runtime
+      // module set** is the second (§5.2's runtime bullet, #365) — by either
+      // route it arrives by, injection at the basename or the host's
+      // `runtimePaths` grant, which is the same disjunction the `runtime` flag
+      // below is computed from and for the same reason. A runtime module is
+      // already trusted enough to spell `Node`; the door lets its new operations
+      // arrive as declared, key-verified rows instead of as growth in the
+      // non-declared guard family.
+      //
+      // The two privileges stay **separate flags**, not one merged notion:
+      // `runtime` puts a name in scope and `privileged` opens a declaration
+      // form, and a prelude member holds the second without the first.
+      privileged: isPrelude || runtimePaths.has(path) || isRuntimeModule,
       // A primitive's home module is its fixed prelude companion (Constraints
       // §5.3), and nothing in the module's text can say so — a primitive has no
       // declaration. Like the privilege above, the fact follows the *path*.

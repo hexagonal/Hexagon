@@ -7219,8 +7219,16 @@ class Checker {
           });
         }
       }
-      // Extern is the foreign boundary; `Node` can never cross it, exported or not.
-      if (item.kind === "ExternBlock") {
+      // Extern is the foreign boundary; `Node` can never cross it, exported or
+      // not. The **intrinsic door is not that boundary** (#365): its implementer
+      // is the compiler, which owns `Node`'s representation because it emits it,
+      // so there is no unknown foreign consumer for the hidden type to leak to.
+      // That is `spec/intrinsics.md` §3.4's argument for genericity, applied to
+      // the same premise — and the door is reachable only from privileged
+      // source, which for `Node` means a runtime module: nowhere else can even
+      // spell the type. `runtime/HashTrie.hex`'s packed-storage rows are the
+      // first to take it.
+      if (item.kind === "ExternBlock" && !item.intrinsic) {
         for (const declaration of item.declarations) {
           const annotations: readonly Resolved.TypeAnnotation[] = declaration.kind === "ExternFun"
             ? [

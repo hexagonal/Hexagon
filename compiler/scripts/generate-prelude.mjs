@@ -50,7 +50,7 @@ const EMBEDDINGS = [
     destination: "runtime-sources.ts",
     binding: "RUNTIME_SOURCES",
     what: "runtime",
-    basenames: ["VectorTrie.hex"],
+    basenames: ["VectorTrie.hex", "HashTrie.hex"],
   },
 ];
 

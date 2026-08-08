@@ -213,10 +213,10 @@ export interface ResolveOptions {
   readonly runtime?: boolean;
   /**
    * Whether this module is compiled as **standard-library source**, the privilege
-   * the intrinsic door is gated on (`spec/intrinsics.md` §5.2). In v1 that is the
-   * prelude set — including a project-supplied file at a prelude injection path,
-   * which the loader already lets win over the embedded copy, and which is the
-   * stdlib-developing-itself path.
+   * the intrinsic door is gated on (`spec/intrinsics.md` §5.2). Two seats hold it
+   * in v1: the prelude set, and the injected runtime-module set (§5.2's runtime
+   * bullet, #365) — each including a project-supplied file at the corresponding
+   * injection path or grant, which is the stdlib-developing-itself path.
    *
    * The privilege attaches to *how the module is compiled*, never to its text, and
    * unlike `runtime` it puts no name into scope: the door is a declaration form,

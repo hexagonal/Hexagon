@@ -4430,6 +4430,41 @@ class JavaScriptEmitter {
       // Hexagon body for it would elaborate through the slot being defined.
       case "floatFromInt":
         return "__hex_a => __hex_a";
+      // `runtime/HashTrie.hex`'s three groups (#365). The placement mix and the
+      // popcount reach for helpers — one holds the per-process seed, the other a
+      // SWAR word whose four statements no arrow expression can hold; the rest
+      // are bare arrows, because each really is one JavaScript operator.
+      case "hashTrieMix":
+        return this.#useHelper("hashTrieMix");
+      // `>>>` is deliberate over `>>`: the digit is an unsigned 5-bit field, and
+      // an arithmetic shift of a negative mixed hash would sign-extend into it.
+      // The caller never asks past shift 30 (JavaScript takes the shift count
+      // modulo 32, so shift 35 would silently answer shift 3); the module's
+      // `lastShift` states that invariant and `splitEntry` throws rather than
+      // build a node below it.
+      case "hashTrieDigit":
+        return "(__hex_a, __hex_b) => (__hex_a >>> __hex_b) & 31";
+      case "hashTrieBitTest":
+        return "(__hex_a, __hex_b) => (__hex_a & (1 << __hex_b)) !== 0";
+      case "hashTrieBitSet":
+        return "(__hex_a, __hex_b) => __hex_a | (1 << __hex_b)";
+      case "hashTrieBitClear":
+        return "(__hex_a, __hex_b) => __hex_a & ~(1 << __hex_b)";
+      case "hashTrieBitCount":
+        return this.#useHelper("bitCount");
+      // The mask is every bit strictly below `index`. At index 31 `1 << 31` is
+      // `-2147483648` and the subtraction gives `0x7fffffff` — the 31 low bits,
+      // which is exactly right; at index 0 it is `0`, so nothing is counted.
+      // (The one index this expression could not serve is 32, which no caller
+      // reaches: a digit is 0..31.)
+      case "hashTrieBitCountBelow":
+        return `(__hex_a, __hex_b) => ${this.#useHelper("bitCount")}(__hex_a & ((1 << __hex_b) - 1))`;
+      case "hashTrieNodeSingleton":
+        return "__hex_a => [__hex_a]";
+      case "hashTrieNodeInsertAt":
+        return "(__hex_a, __hex_b, __hex_c) => [...__hex_a.slice(0, __hex_b), __hex_c, ...__hex_a.slice(__hex_b)]";
+      case "hashTrieNodeRemoveAt":
+        return "(__hex_a, __hex_b) => [...__hex_a.slice(0, __hex_b), ...__hex_a.slice(__hex_b + 1)]";
       default:
         if (INTRINSIC_INVENTORY.has(key)) {
           this.#diagnostics.add({
@@ -5452,6 +5487,8 @@ type Helper =
   | "stringSlice"
   | "stableHash"
   | "mixHash"
+  | "hashTrieMix"
+  | "bitCount"
   | "persistentCollections";
 
 /**
@@ -5492,6 +5529,8 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   stringSlice: [],
   stableHash: [],
   mixHash: [],
+  hashTrieMix: [],
+  bitCount: [],
   persistentCollections: [],
 };
 
@@ -5684,6 +5723,40 @@ function renderHelper(
         "  const mapHash = (__hex_keyHash, __hex_valueHash, __hex_mix) => __hex_map => { let __hex_result = __hex_map.size | 0; for (const [__hex_key, __hex_value] of __hex_map) __hex_result = (__hex_result + __hex_mix(__hex_keyHash.hash(__hex_key), __hex_valueHash.hash(__hex_value))) | 0; return __hex_result; };",
         "  return { emptyMap, emptySet, mapSet, mapRemove, mapContainsKey, mapGet, mapFrom, setAdd, setRemove, setContains, setUnion, setIntersect, setDifference, setIsSubsetOf, setFrom, setEquals, mapEquals, setHash, mapHash, size: __hex_collection => __hex_collection.size, isEmpty: __hex_collection => __hex_collection.size === 0, mapKeys: __hex_map => [...__hex_map].map(__hex_entry => __hex_entry[0]), mapValues: __hex_map => [...__hex_map].map(__hex_entry => __hex_entry[1]), mapEntries: __hex_map => [...__hex_map] };",
         "})();",
+      ];
+    // The HAMT's placement mix (#365). The seed is read **once**, when the
+    // emitted module is first evaluated, and never again — `spec/effects.md`
+    // §6.2 species (b), the same shape `seqMemoize`'s cache has: the world is
+    // touched at most once, by the owner, and no caller can observe when. Within
+    // one execution the function is therefore an ordinary pure function of its
+    // argument, which is exactly Collections Part 2 §2.4's promise; across
+    // executions the placement, and so a trie's traversal order, differs.
+    //
+    // The multiplier is the 32-bit golden-ratio constant `mixHash` already uses.
+    // Nothing about the trie depends on which mixer this is, only on its being a
+    // function of its argument and on its carrying the seed — the public member
+    // is deterministic and unseeded by design (Collections Part 2 §2.4), so a
+    // trie navigating by it directly would give the bucket function away and
+    // freeze traversal order across executions.
+    case "hashTrieMix":
+      return [
+        `const ${name} = (() => {`,
+        "  const __hex_seed = (Math.random() * 0x100000000) | 0;",
+        "  return __hex_value => Math.imul(__hex_value ^ __hex_seed, 0x9e3779b1) | 0;",
+        "})();",
+      ];
+    // Population count of a 32-bit word, the SWAR form: pairs, then nibbles,
+    // then bytes, then one multiply that sums the four byte counts into the top
+    // byte. Four statements, which is why this is a helper and not the bare
+    // arrow the rest of the bit family lowers to.
+    case "bitCount":
+      return [
+        `function ${name}(__hex_bitmap) {`,
+        "  let __hex_value = __hex_bitmap - ((__hex_bitmap >> 1) & 0x55555555);",
+        "  __hex_value = (__hex_value & 0x33333333) + ((__hex_value >> 2) & 0x33333333);",
+        "  __hex_value = (__hex_value + (__hex_value >> 4)) & 0x0f0f0f0f;",
+        "  return Math.imul(__hex_value, 0x01010101) >> 24;",
+        "}",
       ];
     case "mixHash":
       return [
