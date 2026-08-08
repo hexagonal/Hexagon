@@ -121,8 +121,17 @@ const endsExpression = new Set<TokenKind>([
   "True",
   "False",
 ]);
+export interface ParseOptions {
+  /**
+   * The #355 effects prototype's grammar: `=>` and `=>!` as type formers, and
+   * the `!`/`?` call marks. Off — the default — none of the three tokens can
+   * even be lexed, so every arm below is unreachable and the tree is today's.
+   */
+  readonly effects?: boolean;
+}
+
 /** Parses one layout-aware file and retains diagnostics from earlier passes. */
-export function parse(file: LaidOut.File): Parsed.Module {
+export function parse(file: LaidOut.File, options: ParseOptions = {}): Parsed.Module {
   const diagnostics = new Diagnostics.Bag();
   for (const diagnostic of file.diagnostics) {
     diagnostics.add(diagnostic);
@@ -132,6 +141,7 @@ export function parse(file: LaidOut.File): Parsed.Module {
     file.tokens,
     diagnostics,
     new DocBlocks(file.tokens, file.comments, diagnostics),
+    options.effects === true,
   ).parseModule(file.fileId, file.comments);
 }
 
@@ -154,14 +164,27 @@ class Parser {
    */
   readonly #pendingTypeParameterLambdas = new Map<Parsed.Expr, Source.Span>();
 
+  /** #355's flag; see `ParseOptions`. */
+  readonly #effects: boolean;
+  /**
+   * The mark a pipe stage wore with no argument list of its own — `x |> save!`
+   * (#355 ruling 1). The postfix loop parks it here and the `|>` arm collects
+   * it one step later, because the mark is consumed while the stage's own
+   * expression is still being parsed. Cleared on collection; a mark that
+   * reaches any other position is a parse error raised where it was found.
+   */
+  #stageMark: { readonly mark: Parsed.CallMark; readonly span: Source.Span } | undefined;
+
   constructor(
     tokens: readonly LaidOut.Token[],
     diagnostics: Diagnostics.Bag,
     docs: DocBlocks,
+    effects = false,
   ) {
     this.#tokens = tokens;
     this.#diagnostics = diagnostics;
     this.#docs = docs;
+    this.#effects = effects;
   }
 
   /** Consumes the module's implicit layout block and requires a final Eof. */
@@ -545,6 +568,21 @@ class Parser {
       if (intrinsic) this.#errorAt(this.#current().span, intrinsicFormError("default"));
       this.#advance();
     }
+    // #355 ruling 4's opt-out, in the shape `default` already established: a
+    // contextual modifier on one extern declaration. A user-written extern is
+    // effectful by default (trust territory); `pure` is the trusted purity
+    // claim. Compiler-owned intrinsic rows take their purity from intrinsics
+    // §4.2's verification instead, so the modifier is redundant there.
+    const pureClaim = this.#effects && this.#atContextual("pure");
+    if (pureClaim) {
+      if (intrinsic) {
+        this.#errorAt(
+          this.#current().span,
+          "intrinsic rows are verified rather than trusted; `pure` is for user-written externs",
+        );
+      }
+      this.#advance();
+    }
     const kind = this.#current().kind;
     if (intrinsic && kind !== "Fun") {
       const label = this.#current();
@@ -603,6 +641,7 @@ class Parser {
         kind: "ExternType",
         exported,
         default: false,
+        ...(pureClaim ? { pure: true as const } : {}),
         ...(foreignName === undefined ? {} : { foreignName }),
         localName,
         span: spanFrom(start.span, this.#previous().span),
@@ -650,6 +689,7 @@ class Parser {
         kind: "ExternFun",
         exported,
         default: defaultBinding,
+        ...(pureClaim ? { pure: true as const } : {}),
         ...(foreignName === undefined ? {} : { foreignName }),
         localName,
         parameters,
@@ -677,6 +717,7 @@ class Parser {
       kind: "ExternLet",
       exported,
       default: defaultBinding,
+      ...(pureClaim ? { pure: true as const } : {}),
       ...(foreignName === undefined ? {} : { foreignName }),
       localName,
       annotation,
@@ -1712,11 +1753,35 @@ class Parser {
   #parseExpression(
     minimumBindingPower = 0,
     stops: ReadonlySet<TokenKind> = itemEnds,
+    /**
+     * Whether a mark may end this expression with no argument list of its own.
+     * True for a `|>` stage and nowhere else (#355 ruling 1): the rewrite is
+     * what supplies that call's arguments, so the stage is a call-in-waiting.
+     */
+    stageMarkAllowed = false,
   ): Parsed.Expr {
     const effectiveStops = withStops(stops, ...structuralEnds);
     let left = this.#parsePrefix(effectiveStops);
 
     while (!effectiveStops.has(this.#current().kind)) {
+      if (this.#effects && (this.#at("Bang") || this.#at("Question"))) {
+        const mark = this.#at("Bang") ? "bang" : "question";
+        const token = this.#advance();
+        if (this.#at("LeftParen")) {
+          left = this.#parseCall(left, mark, token.span);
+          continue;
+        }
+        if (stageMarkAllowed && !this.#at("LeftParen")) {
+          this.#stageMark = { mark, span: token.span };
+          break;
+        }
+        this.#errorAt(
+          token.span,
+          "a call mark governs an argument list; write it immediately before `(`, " +
+            "or (in a `|>` stage) at the end of the stage — a reference carries no colour",
+        );
+        continue;
+      }
       if (minimumBindingPower <= 12) {
         if (this.#at("LeftParen")) {
           left = this.#parseCall(left);
@@ -1738,7 +1803,14 @@ class Parser {
       }
 
       const token = this.#advance();
-      const right = this.#parseExpression(operation.rightBindingPower, effectiveStops);
+      const pipeStage = this.#effects && operation.operator === "Pipe";
+      const right = this.#parseExpression(
+        operation.rightBindingPower,
+        effectiveStops,
+        pipeStage,
+      );
+      const stageMark = pipeStage ? this.#stageMark : undefined;
+      if (pipeStage) this.#stageMark = undefined;
       if (operation.assignment === true) {
         if (left.kind === "Assignment") {
           this.#errorAt(token.span, "`:=` does not chain; assignment produces `Unit`");
@@ -1777,7 +1849,10 @@ class Parser {
           operator,
           left,
           right,
-          span: spanFrom(left.span, right.span),
+          ...(stageMark === undefined
+            ? {}
+            : { mark: stageMark.mark, markSpan: stageMark.span }),
+          span: spanFrom(left.span, stageMark?.span ?? right.span),
         };
       }
     }
@@ -2149,7 +2224,11 @@ class Parser {
     return typeOperandStarts.has(this.#current().kind);
   }
 
-  #parseCall(callee: Parsed.Expr): Parsed.Expr {
+  #parseCall(
+    callee: Parsed.Expr,
+    mark?: Parsed.CallMark,
+    markSpan: Source.Span = callee.span,
+  ): Parsed.Expr {
     this.#advance();
     const args: Parsed.Expr[] = [];
     const stops = new Set<TokenKind>(["Comma", "RightParen", "Eof"]);
@@ -2167,6 +2246,7 @@ class Parser {
       kind: "Call",
       callee,
       arguments: args,
+      ...(mark === undefined ? {} : { mark, markSpan }),
       span: spanFrom(callee.span, closing?.span ?? args.at(-1)?.span ?? callee.span),
     };
   }
@@ -2655,7 +2735,10 @@ class Parser {
     let returnAnnotation: Parsed.TypeAnnotation | undefined;
     if (this.#at("Colon")) {
       this.#advance();
-      returnAnnotation = this.#parseTypeAnnotation();
+      // #355 ruling 8: in this one slot an unparenthesized `=>` always starts
+      // the body, so the annotation parser is told not to take it.
+      returnAnnotation = this.#parseTypeAnnotation(this.#effects);
+      this.#reportUnparenthesizedReturnArrow(returnAnnotation);
     }
     this.#expect("FatArrow", "expected `=>` after lambda parameters");
     const body = this.#parseBodyExpression(stops);
@@ -2668,6 +2751,46 @@ class Parser {
       body,
       span: spanFrom(from, body.span),
     };
+  }
+
+  /**
+   * The one report ruling 8 owes: a lambda return annotation that *meant* an
+   * impure function type and wrote it without parentheses.
+   *
+   * The parse itself is never in doubt — the body starts at the first `=>`. The
+   * question is only whether the writer wanted that, and the tell is that what
+   * follows the arrow is a well-formed type which is followed by a second
+   * arrow, and which *cannot be a lambda parameter list*: it starts with an
+   * uppercase name or a record type. `(x): a => y => x` is the legal curried
+   * lambda and says nothing here; `(x): a => Seq(b) => …` could only ever have
+   * been a type, and today it is a parse failure one step later with no
+   * explanation. The fixit is the parenthesization ruling 8 mandates.
+   */
+  #reportUnparenthesizedReturnArrow(annotation: Parsed.TypeAnnotation | undefined): void {
+    if (!this.#effects || annotation === undefined || !this.#at("FatArrow")) return;
+    const start = this.#index + 1;
+    const first = this.#tokens[start]?.kind;
+    if (first !== "UpperName" && first !== "LeftBrace") return;
+    const after = this.#skipType(start);
+    if (after < 0) return;
+    const trailing = this.#tokens[after]?.kind;
+    if (trailing !== "FatArrow" && trailing !== "FatArrowBang") return;
+    const end = this.#tokens[after - 1]!.span;
+    this.#diagnostics.add({
+      severity: "error",
+      message:
+        "a lambda's return annotation gives an unparenthesized `=>` to the body, so " +
+        "this reads as the body starting here; an impure function type in a return " +
+        "annotation must be parenthesized",
+      primary: spanFrom(annotation.span, end),
+      fixes: [{
+        message: "parenthesize the return type",
+        edits: [
+          { span: { ...annotation.span, end: annotation.span.start }, replacement: "(" },
+          { span: { ...end, start: end.end }, replacement: ")" },
+        ],
+      }],
+    });
   }
 
   /**
@@ -2759,9 +2882,17 @@ class Parser {
    */
   #skipType(index: number): number {
     let scan = this.#skipTypeOperand(index);
-    while (scan >= 0 && this.#tokens[scan]?.kind === "Arrow") {
+    while (
+      scan >= 0 &&
+      (this.#tokens[scan]?.kind === "Arrow" ||
+        (this.#effects && this.#tokens[scan]?.kind === "FatArrowBang"))
+    ) {
       scan = this.#skipTypeOperand(scan + 1);
     }
+    // A bare `=>` is deliberately not walked: this scan serves the lambda-head
+    // lookahead, and ruling 8 gives an unparenthesized `=>` in a return
+    // annotation to the body. A parenthesized impure type is stepped over as
+    // one bracket pair by `#skipTypeOperand`, so the legal spelling is reached.
     return scan;
   }
 
@@ -2798,9 +2929,38 @@ class Parser {
       : scan;
   }
 
-  #parseTypeAnnotation(): Parsed.TypeAnnotation | undefined {
+  /**
+   * The arrow kinds that may form a function type here (#355). `->` always
+   * can. `=>!` always can too: it cannot begin a lambda body, so it collides
+   * with nothing. A bare `=>` can everywhere *except* a lambda's return
+   * annotation, where ruling 8 gives it to the body — which is what
+   * `returnSlot` says.
+   */
+  #arrowAt(returnSlot: boolean): Parsed.ArrowEffect | "pure" | undefined {
+    if (this.#at("Arrow")) return "pure";
+    if (!this.#effects) return undefined;
+    if (this.#at("FatArrowBang")) return "constant";
+    if (!returnSlot && this.#at("FatArrow")) return "linked";
+    return undefined;
+  }
+
+  #parseTypeAnnotation(returnSlot = false): Parsed.TypeAnnotation | undefined {
     const left = this.#parseTypeOperand();
     if (left === undefined) return undefined;
+    const arrow = this.#arrowAt(returnSlot);
+    if (arrow !== undefined && arrow !== "pure") {
+      const arrowSpan = this.#advance().span;
+      const result = this.#parseTypeAnnotation();
+      if (result === undefined) return undefined;
+      return {
+        kind: "Function",
+        parameters: left.parameters ?? [left.annotation],
+        result,
+        effect: arrow,
+        arrowSpan,
+        span: spanFrom(left.annotation.span, result.span),
+      };
+    }
     if (!this.#at("Arrow")) {
       if (left.parameters?.length === 0) {
         // The Products §6 redirect (#159): `()` is not a type expression, so a

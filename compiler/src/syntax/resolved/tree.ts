@@ -117,6 +117,10 @@ export interface FunctionTypeAnnotation {
   readonly kind: "Function";
   readonly parameters: readonly TypeAnnotation[];
   readonly result: TypeAnnotation;
+  /** How the arrow was written (#355); absent is `->`. */
+  readonly effect?: "linked" | "constant";
+  /** The arrow token, so a face fixit replaces exactly it. */
+  readonly arrowSpan?: Source.Span;
   readonly span: Source.Span;
 }
 
@@ -462,6 +466,8 @@ export type ExternDeclaration =
 interface ExternDeclarationFields {
   readonly exported: boolean;
   readonly default: boolean;
+  /** The #355 trusted purity claim; see the parsed tree's field. */
+  readonly pure?: true;
   readonly foreignName?: string;
   readonly localName: string;
   readonly span: Source.Span;
@@ -1146,6 +1152,9 @@ export interface CallExpr {
   readonly kind: "Call";
   readonly callee: Expr;
   readonly arguments: readonly Expr[];
+  /** The written call mark (#355 ruling 2); absent is the bare call. */
+  readonly mark?: "bang" | "question";
+  readonly markSpan?: Source.Span;
   readonly span: Source.Span;
 }
 
@@ -1232,6 +1241,9 @@ export interface BinaryExpr {
   readonly operator: BinaryOperator;
   readonly left: Expr;
   readonly right: Expr;
+  /** A `|>` stage's own mark (#355 ruling 1); the rewrite carries it. */
+  readonly mark?: "bang" | "question";
+  readonly markSpan?: Source.Span;
   readonly span: Source.Span;
 }
 

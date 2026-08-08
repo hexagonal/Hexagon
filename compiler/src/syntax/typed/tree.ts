@@ -127,10 +127,20 @@ export interface ExternType {
   readonly name: string;
 }
 
+/**
+ * A function type's effect (#355), absent everywhere the effects flag is off —
+ * and absent, with the flag on, exactly where the arrow is the pure constant.
+ * `"impure"` is the constant `=>!` wears and the else-constant `=>` denotes; a
+ * variable is the implicitly quantified colour a linked `=>` shares, and it is
+ * quantified in the enclosing scheme like any other type variable (ruling 3).
+ */
+export type Effect = "impure" | { readonly variable: TypeVariableId };
+
 export interface FunctionType {
   readonly kind: "Function";
   readonly parameters: readonly Type[];
   readonly result: Type;
+  readonly effect?: Effect;
 }
 
 export interface ErrorType {
