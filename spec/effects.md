@@ -98,7 +98,7 @@ A mark governs **an argument list**, whatever the callee expression:
 
 ```text
 save!(document)          -- ordinary call
-(source.pull)!()         -- parenthesized field access, then a marked call
+(source.step)!()         -- parenthesized field access, then a marked call
 document.show()          -- a dot call marks its own argument list (bare here: show is pure)
 stream.next!()           -- dot call, marked
 maker("s")!(document)    -- each argument list marks its own call
