@@ -104,9 +104,10 @@ stream.next!()           -- dot call, marked
 maker("s")!(document)    -- each argument list marks its own call
 ```
 
-- The mark is written glued immediately before `(` (Lexer §8.1). Dot calls (Method Syntax §2.1) and the `(e.name)(…)` opt-out each anchor the mark to their own list; a chain marks each link for what that link's call is.
-- A **pipe stage** is a call, so it takes a mark: `x |> save!` — the bare-stage form's mark stands at the end of the stage, and the rewrite carries it onto the call it builds: `save!(x)`. Operators §8 owns the rewrite; a stage with its own argument list marks that list as usual (`x |> take!(3)` → `take!(x, 3)`).
+- The mark is written glued on both sides — against the callee expression it follows and against the `(` it governs (Lexer §8.1). A floating mark reads as an operator, and no such operator exists: `readLine ! ()`, `readLine! ()`, and `readLine !()` all take §9's mark-position error. Dot calls (Method Syntax §2.1) and the `(e.name)(…)` opt-out each anchor the mark to their own list; a chain marks each link for what that link's call is.
+- A **pipe stage** is a call, so it takes a mark: `x |> save!` — the bare-stage form's mark stands glued at the end of the stage, and the rewrite carries it onto the call it builds: `save!(x)`. Operators §8 owns the rewrite; a stage with its own argument list marks that list as usual (`x |> take!(3)` → `take!(x, 3)`).
 - A mark anywhere else — on a reference, mid-expression — is a parse error (§9): a reference carries no colour.
+- A dot call whose goal defers to its owner region's deadline (Method Syntax §3.1) anchors its mark to the same argument list, read off whatever colour the deadline produces. A goal that falls to the imposed row (Method Syntax §3.5) is a pure call: the imposed row's arrow is written `->` there, and a row is data (§2.5) — so a mark on such a call is refused like any other mark on a pure call, and the impure reading needs an annotation on the receiver.
 
 ### 3.3 The outermost arrow: a mark describes this call only
 
@@ -130,6 +131,7 @@ The effect component rides the ordinary machinery — unification, levels, gener
 - **Settled at body close.** A declaration's own colour and its calls' mark obligations are resolved when its body closes, not at module end. This is required, not latitude: under end-of-module settling, a module-internal call to a not-yet-generalized neighbour would see a still-linked variable, and the pure corpus would read as conductors — every bare call in `Seq.hex` would demand `?`.
 - **A body's own colour is solved by three arms, in order.** A body that absorbs an impure-constant call is a **source**: its own colour is the impure constant (and if its written face is `->`, that is §4.2's pure-face error, at the offending call). A body whose `?` call absorbs the signature's variable is a **conductor**: its own colour *unifies with* that variable — this is how one-variable-per-signature emerges rather than being imposed, and why `fold`'s outer arrow is linked (§2.2). A body that is neither keeps an **unconstrained** colour, and what happens next depends on the signature: with **no inlet** (no parameter-position `=>`), the colour defaults to **pure** — harmless, since nothing observed it; with an inlet, it is **not** defaulted — the face stays `=>`, effect-polymorphic, rather than being pure-pinned by omission.
 - **The defaulting clause, at calls.** A call's colour still undetermined when marks are checked defaults to **pure** (bare) in an inlet-less body; in an inlet-bearing body it is conservatively a **conductor** and the call wears `?` (§3.3's qualification — pinning it pure inside a linked body would weaken the enclosing face). A **signature parameter's** effect variable is never defaulted by either clause: it generalizes with the binding like any type variable, which is exactly what keeps `store(callback: () => String)` polymorphic (§2.2).
+- **Every occurrence walk counts the effect slot.** Analyses that walk a function type's components — declaration-site variance foremost — treat the effect slot as one more component, **at the arrow's own sign**: a colour is a fact about invoking the function, which is what the result position already means, so a parameter arrow's colour is contravariant with the parameter arrow. Skipping the slot makes every effect variable read as absent, and an absent variable's default (invariant) pins faces monomorphic that the arms above worked to keep polymorphic.
 
 ## 4. Enforcement is symmetric, and error-grade
 
@@ -161,6 +163,10 @@ An impure function meeting a `->` demand is an ordinary unification failure with
 > a `->` arrow promises purity, and this function performs effects — the demand is written `->`, the function's face `=>` or `=>!`
 
 This is the whole enforcement of `memoize`-class contracts and of `Seq`'s §7 posture; nothing beyond unification is involved.
+
+The failure has a reverse direction, and it needs its own sentence: a *pure* function refused where the impure constant is demanded — a `=>` data field (§2.5), a result-only face, a written `=>!`. The report above speaks of a written `->` *demand* in every clause, and in the reverse direction the demand wrote no `->` — each clause misdescribes the program. The reverse report says what is actually true:
+
+> this position's arrow is the impure constant — its colour is fixed where the type is declared, and this function's face is the pure `->`; the demand cannot weaken — change the position's declared arrow, or supply the effectful function the position promises
 
 ## 5. Calls with no mark seat
 
@@ -228,23 +234,20 @@ Messages are normative in shape; the mark table's six rows share one sentence fr
 | `=>` face, body pure | "…solves it to the pure constant — the honest face is `->`" + fixit `->` (§4.2) |
 | `=>!` face, body effect-polymorphic | "this face is the impure constant `=>!`, but the body performs no unconditional effect — it is effect-polymorphic, and its face is `=>`" + fixit `=>` (§4.2) |
 | Impure argument at a `->` demand | "a `->` arrow promises purity, and this function performs effects — the demand is written `->`, the function's face `=>` or `=>!`" (§4.3) |
-| Mark not before an argument list (and not a bare pipe stage's end) | parse error: "a call mark governs an argument list; write it immediately before `(`, or (in a `|>` stage) at the end of the stage — a reference carries no colour" (§3.2) |
-| Prefix `!` on an expression (negation intent) | the `not` redirect survives the token change: "Hexagon spells logical negation `not`" — position-selected by the parser now that `!` lexes (Lexer §10's row; a prototype deviation, §10 here) |
-| Unparenthesized `=>` type in a lambda return annotation | "a lambda's return annotation gives an unparenthesized `=>` to the body, so this reads as the body starting here; an impure function type in a return annotation must be parenthesized" + parenthesizing fixit (§2.6) |
+| Pure function at an impure-constant demand (a `=>` data field, a result-only face, a written `=>!` — any constant demand) | "this position's arrow is the impure constant — its colour is fixed where the type is declared, and this function's face is the pure `->`; the demand cannot weaken — change the position's declared arrow, or supply the effectful function the position promises" (§4.3) |
+| Mark not glued into its seat (not against both callee and `(`, and not glued at a bare pipe stage's end) | parse error: "a call mark governs an argument list; write it immediately before `(`, or (in a `|>` stage) at the end of the stage — a reference carries no colour" (§3.2) |
+| Prefix `!` on an expression (negation intent) | the `not` redirect survives the token change: "Hexagon spells logical negation `not`" — position-selected by the parser now that `!` lexes (Lexer §10's row) |
+| Prefix `?` on an expression | the mark-position row above — `?` never had a negation reading, so there is no redirect to give it |
+| Unparenthesized `=>` type in a lambda return annotation | "a lambda's return annotation gives an unparenthesized `=>` to the body, so this reads as the body starting here; an impure function type in a return annotation must be parenthesized" + parenthesizing fixit (§2.6). The report speaks for the lambda it describes: diagnostics whose spans fall inside that lambda describe a tree the writer did not write, and are dropped — the misparse is the defect, reported once |
 | `pure` on an intrinsic row | "intrinsic rows are verified rather than trusted; `pure` is for user-written externs" (§6.1) |
+| `pure` on an extern `let` | "`pure` claims a function's face, and a value reference carries no colour — the claim belongs on an extern `fun`" (FFI Part 4 §4.5) |
+| `pure` on an extern `type` | "`pure` claims a function's face, and a type has none — the claim belongs on an extern `fun`" (FFI Part 4 §4.5) |
 
 ## 10. Staging: before the flag defaults on
 
 The shipped checker implements this ruling behind a project flag; flag-off compilation is token-for-token the pre-ruling language. Obligations before the flag defaults on, recorded here because each is normative surface, not polish:
 
-- **LSP hover and `.d.ts` faces must render the trio.** A signature a reader cannot see is not a face; display is part of the contract (Functions §5.1 owns the grammar). One display question rides this obligation: the renderer spells *every* variable colour `=>`, so a displayed outer `=>` is not necessarily the parameter arrows' linked variable (§3.4's third arm keeps an unconstrained own colour separate) — yet writing that displayed face back as an annotation links every `=>` into one variable (§2.2) and can change call-mark obligations. Before the flag defaults on, display must distinguish or normalize the two.
-- **The reverse-direction mismatch report needs its own sentence.** A *pure* function refused where an impure constant is demanded — a `=>` data field, a result-only face — currently receives the §4.3 `->`-demand message, whose every clause is about a `->` that does not exist in that program.
-- **The prefix-`!` `not` redirect** (§9) — the prototype reports the mark-position error instead.
-- **The return-annotation report should lead with its fixit** — it currently fires amid consequential type errors.
-- **The deferred dot-call goal path** (Method Syntax §3) must be exercised against marks — a goal resolved at the deadline anchors its mark to the same argument list.
-- **Declaration-site variance analysis** must include effect slots (it currently skips them — over-restriction, not unsoundness).
-- **The glued-mark rule must be enforced** — Lexer §8.1 says a mark is written glued immediately before `(` (or at a stage's end), and the prototype accepts `readLine ! ()` with interior whitespace.
-- **`pure` must be refused off `fun`** — FFI Part 4 §4.5 confines the claim to extern `fun` declarations; the prototype's parser currently accepts it on extern `let` and `type` rows without complaint.
+- **LSP hover and `.d.ts` faces must render the trio.** A signature a reader cannot see is not a face; display is part of the contract (Functions §5.1 owns the grammar). One display question rides this obligation, and it is ruled **distinguish**: an undecorated `=>` is reserved for the faces whose write-back is meaning-preserving — exactly one distinct variable, with at least one inlet occurrence, so that §2.2's linked reading reproduces the displayed scheme. Every other variable-carrying face numbers its variables in order of first appearance, `=>¹`, `=>²` — more than one distinct variable (inference produces these; the written grammar cannot), and also a lone variable with no inlet occurrence, where an undecorated write-back would take §2.2's else-constant reading and silently mean `=>!`. Constants are never numbered: `->` and `=>!` mean what they say in every position and always round-trip. The numbering's unit is the one displayed type expression, nested function types included. The decoration is display-only, not grammar: pasted into source it fails at the lexer rather than silently relinking.
 
 ## 11. Rejected alternatives (do not re-litigate without new information)
 
@@ -274,4 +277,6 @@ The shipped checker implements this ruling behind a project flag; flag-off compi
 | Two trusted-purity species: unobservable world-writes; owned at-most-once world-reads; captured-sink caveat | §6.2 |
 | `Seq` pure by construction; effectful sequences are nominal siblings (`Stream`); FFI position choice | §7 |
 | Colours and marks erase at emission | §8 |
-| Flag staging and the un-flagging obligations | §10 |
+| Flag staging and the display obligation | §10 |
+| Display distinguishes: undecorated `=>` reserved for meaning-preserving write-back (one variable, an inlet occurrence); all other variable faces numbered, display-only | §10, Functions §5.1 |
+| Variance and every occurrence walk count the effect slot, at the arrow's own sign | §3.4 |
