@@ -724,12 +724,12 @@ class Resolver {
     const name = receiver.name.text;
     if (scope.lookup(name) !== undefined) return false;
     if (this.#namedModule(name) !== undefined) return false;
-    // `Set` alone since #370 retired `Map`'s guard entry (`spec/intrinsics.md`
-    // §9.2's Map milestone). The entry is gone because the schedule says so:
-    // `stdlib/Map.hex` is a prelude member now, so `#namedModule` above already
-    // declines every `Map.` receiver, and leaving the name here would be a claim
-    // about a route that no longer exists.
-    if (name === "Set") return true;
+    // `Node` alone since #373 retired `Set`'s guard entry, as #370 retired
+    // `Map`'s (`spec/intrinsics.md` §9.2's Map/Set milestones). Each entry went
+    // because the schedule says so: `stdlib/Map.hex` and `stdlib/Set.hex` are
+    // prelude members now, so `#namedModule` above already declines every `Map.`
+    // and `Set.` receiver, and leaving either name here would be a claim about a
+    // route that no longer exists.
     return this.#runtime && name === "Node" &&
       ["empty", "get", "set", "copy"].includes(field);
   }
@@ -2174,25 +2174,18 @@ class Resolver {
         };
       case "Access":
         if (expression.receiver.kind === "Name") {
-          // Each guard below asks whether a *declaration* claims the qualifier,
+          // The guard below asks whether a *declaration* claims the qualifier,
           // and a prelude module is one: `#namedModule` covers the explicit
           // `import * as` alias and the implicit prelude home alike (Modules
           // §6.4). Testing `#moduleAliases` alone would let the compiler's own
           // machinery outrank a prelude member, which is exactly the resolution
           // order Modules §5.5 forbids — and it is what kept `Seq.map` bound to
           // the intrinsic family after `Seq.hex` joined the set.
-          if (
-            expression.receiver.name.text === "Set" &&
-            scope.lookup("Set") === undefined &&
-            this.#namedModule("Set") === undefined
-          ) {
-            return {
-              kind: "CollectionOperation",
-              collection: "Set",
-              operation: expression.field.text,
-              span: expression.span,
-            };
-          }
+          //
+          // One guard, not three: `Vector`'s, `Map`'s and `Set`'s went at their
+          // self-declaration milestones (#370, #373), and `Node` is what the
+          // family has left (`spec/intrinsics.md` §3.3, §9.2; #223). It is
+          // `#runtime`-gated, so no user program can reach it at all.
           if (
             this.#runtime &&
             expression.receiver.name.text === "Node" &&

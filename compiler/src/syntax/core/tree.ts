@@ -518,11 +518,15 @@ export interface HashExpr extends ExpressionFields {
   readonly evidence: Evidence;
 }
 
+/**
+ * `Node` alone since the Map/Set arc closed (#373) — see the resolved tree's
+ * note. The `hashEvidence` field went with the companion rows: the four `Node`
+ * operations are unconstrained, so there was never anything left to carry.
+ */
 export interface CollectionOperationExpr extends ExpressionFields {
   readonly kind: "CollectionOperation";
-  readonly collection: "Map" | "Set" | "Node";
+  readonly collection: "Node";
   readonly operation: string;
-  readonly hashEvidence?: Evidence;
 }
 
 /** A non-representationally-trivial `Num.fromNat` application. */

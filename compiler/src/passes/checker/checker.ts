@@ -3025,50 +3025,35 @@ class Checker {
 
   /**
    * Gives compiler-known persistent collection operations their ordinary function
-   * types.
+   * types — **`Node`'s alone** since the Map/Set arc closed (#373).
    *
-   * `Vector`'s rows are gone, and `Map`'s went with them (#370):
-   * `stdlib/Vector.hex` and `stdlib/Map.hex` declare those surfaces themselves,
-   * so each declaration owns its type (`spec/intrinsics.md` §4.2, §9.2). What is
-   * left is `Set`, the one companion with no `.hex` module yet, and the `Node`
-   * trie intrinsic, which by §3.3 never gets one.
+   * `Vector`'s rows went at its intrinsic-door milestone, `Map`'s at the Map step
+   * (#370) and `Set`'s at the Set step: `stdlib/Vector.hex`, `stdlib/Map.hex` and
+   * `stdlib/Set.hex` declare those surfaces themselves, so each declaration owns
+   * its type (`spec/intrinsics.md` §4.2, §9.2). The `Set(a)` *type* is untouched
+   * by that — it remains a checker `Mono` with all its per-kind arms, and only
+   * the transitional typing of `Set.` operations died here.
+   *
+   * What is left is the `Node` trie intrinsic, which by §3.3 never gets a module
+   * of its own and is the family's terminus (#223). `requirements` is threaded
+   * for the checker's uniform plumbing and nothing pushes onto it: all four
+   * operations are unconstrained.
    */
   #collectionOperationType(
     collection: Resolved.CollectionOperationExpr["collection"],
     operation: string,
     level: number,
     span: Source.Span,
-    requirements: Requirement[],
+    _requirements: Requirement[],
   ): Mono {
-    const requireKey = (subject: Mono): void => {
-      requirements.push(this.#require("Hash", subject, span));
-    };
-    if (collection === "Set") {
-      const element = this.#fresh(level, false);
-      const set: SetMono = { kind: "Set", element };
-      if (["add", "remove", "contains", "union", "intersect", "difference", "isSubsetOf", "fromVector", "fromSeq"].includes(operation)) {
-        requireKey(element);
-      }
-      if (operation === "empty") return { kind: "Function", parameters: [], result: set };
-      if (operation === "add" || operation === "remove") return { kind: "Function", parameters: [set, element], result: set };
-      if (operation === "contains") return { kind: "Function", parameters: [set, element], result: this.#boolType(span) };
-      if (["union", "intersect", "difference"].includes(operation)) return { kind: "Function", parameters: [set, set], result: set };
-      if (operation === "isSubsetOf") return { kind: "Function", parameters: [set, set], result: this.#boolType(span) };
-      if (operation === "size") return { kind: "Function", parameters: [set], result: primitive("Int") };
-      if (operation === "isEmpty") return { kind: "Function", parameters: [set], result: this.#boolType(span) };
-      if (operation === "toSeq") return { kind: "Function", parameters: [set], result: this.#sequence(element, span) };
-      if (operation === "fromVector") return { kind: "Function", parameters: [{ kind: "Vector", element }], result: set };
-      if (operation === "fromSeq") return { kind: "Function", parameters: [this.#sequence(element, span)], result: set };
-    } else {
-      // The hidden fixed-32 trie node: 32 slots of `element`, addressed 0..31.
-      // `set`/`copy` are immutable (return a fresh node); see the design note §4.
-      const element = this.#fresh(level, false);
-      const node: NodeMono = { kind: "Node", element };
-      if (operation === "empty") return { kind: "Function", parameters: [], result: node };
-      if (operation === "get") return { kind: "Function", parameters: [node, primitive("Int")], result: element };
-      if (operation === "set") return { kind: "Function", parameters: [node, primitive("Int"), element], result: node };
-      if (operation === "copy") return { kind: "Function", parameters: [node], result: node };
-    }
+    // The hidden fixed-32 trie node: 32 slots of `element`, addressed 0..31.
+    // `set`/`copy` are immutable (return a fresh node); see the design note §4.
+    const element = this.#fresh(level, false);
+    const node: NodeMono = { kind: "Node", element };
+    if (operation === "empty") return { kind: "Function", parameters: [], result: node };
+    if (operation === "get") return { kind: "Function", parameters: [node, primitive("Int")], result: element };
+    if (operation === "set") return { kind: "Function", parameters: [node, primitive("Int"), element], result: node };
+    if (operation === "copy") return { kind: "Function", parameters: [node], result: node };
     return this.#unsupported(span, `the companion of \`${collection}\` has no core operation \`${operation}\``);
   }
 

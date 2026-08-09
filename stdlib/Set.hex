@@ -1,0 +1,98 @@
+// The public Set companion over the runtime's hash array mapped trie.
+
+// The whole boundary Collections Part 4 section 6.2 pins: construction, the
+// maintained size, the keyed trio, and the one traversal. Everything below is
+// ordinary Hexagon over these seven — the algebra included, which is what makes
+// section 5.4's left-representative retention fall out of which side is
+// traversed rather than being arranged.
+//
+// What these lower onto is one step further along than Map's. A `Set(a)` is not
+// the trie itself but a one-field wrapper record over it (#373): a trie value's
+// iterator yields key/value pairs, which is Map's published face, and a set's
+// published face is its elements. The wrapper also absorbs the unit value each
+// element is stored against, which no Hexagon source here ever has to mention.
+extern from "hex:intrinsic"
+    // Unexported, beneath `empty` below: the block admits `fun` only and an
+    // empty set is a value, so the door row is the thunk and the wrapper is what
+    // the language sees (`spec/intrinsics.md` section 3.2).
+    fun setEmpty as emptySet(): Set(a)
+
+    (** A set holding `element` and nothing else. Takes no `Hash`: a one-element
+        set holds its element unplaced, so nothing is hashed until the first
+        keyed operation. *)
+    export fun setSingleton as singleton(element: a): Set(a)
+
+    (** How many elements `s` holds, in constant time. *)
+    export fun setSize as size(s: Set(a)): Int
+
+    (** Whether `s` holds `element`. The only Boolean read a set has. *)
+    export fun setContains as contains<a: Hash>(s: Set(a), element: a): Bool
+
+    (** `s` with `element` in it. Idempotent, and never throws: adding an element
+        the set already holds returns the set unchanged, keeping the
+        representative already stored rather than the newcomer (Collections
+        Part 4 section 5.1, section 5.4). *)
+    export fun setAdd as add<a: Hash>(s: Set(a), element: a): Set(a)
+
+    (** `s` with `element` gone. Forgiving: an element that is not there yields
+        the set unchanged rather than an error. *)
+    export fun setRemove as remove<a: Hash>(s: Set(a), element: a): Set(a)
+
+    (** Every element of `s`, lazily. The order is the same for two traversals of
+        one set within one execution, and is promised for nothing else — not
+        insertion, not sorted, not stable across runs. *)
+    export fun setElements as toSeq(s: Set(a)): Seq(a)
+
+(** The empty set. *)
+export let empty: Set(a) = emptySet()
+
+(** Whether `s` holds no elements. *)
+export let isEmpty(s: Set(a)): Bool = size(s) == 0
+
+// The algebra, all four of it, as Collections Part 4 section 5.3's
+// iterate-one-side-and-modify. Left-representative retention (section 5.4) is
+// not arranged anywhere below: `union` folds the right side into the left with
+// `add`, which is insert-if-absent, so an element in both sides keeps the
+// left's stored representative; `intersect` and `difference` build from
+// `left`'s own traversal, so every element they retain came from the left by
+// construction.
+
+// **This function is spelled `unionOf` and Collections Part 4 section 6.2 calls
+// it `union`.** The mandated name cannot be declared: `union` is a hard keyword
+// (Lexer section 4.1) and a binder position refuses it — "`let` requires a
+// non-uppercase-start name". The gap is only at the declaration site; a hard
+// keyword after a dot lexes as an ordinary field, so `Set.union(a, b)` and
+// `a.union(b)` would both parse and resolve the day something could be declared
+// under that name. Two repairs exist and both are rulings above this file: make
+// `union` contextual, exactly as review finding F1 made `with` contextual
+// (Products section, "contextual costs nothing and forecloses nothing"), or
+// amend Part 4 to the name this file ships. Until one lands, `unionOf` is the
+// stand-in — it contains the mandated word, so nothing is lost to search, and
+// the repair is a rename.
+(** Every element of `left` together with every element of `right`. Elements in
+    both keep the representative `left` holds. *)
+export let unionOf<a: Hash>(left: Set(a), right: Set(a)): Set(a) =
+    Seq.fold(toSeq(right), left, add)
+
+(** The elements held by both `left` and `right`, as `left` holds them. *)
+export let intersect<a: Hash>(left: Set(a), right: Set(a)): Set(a) =
+    Seq.fold(Seq.filter(toSeq(left), (element) => contains(right, element)), empty, add)
+
+(** The elements of `left` that `right` does not hold. *)
+export let difference<a: Hash>(left: Set(a), right: Set(a)): Set(a) =
+    Seq.fold(Seq.filter(toSeq(left), (element) => not contains(right, element)), empty, add)
+
+(** Whether `right` holds every element of `left`. The empty set is a subset of
+    everything, and every set is a subset of itself. *)
+export let isSubsetOf<a: Hash>(left: Set(a), right: Set(a)): Bool =
+    Seq.all(toSeq(left), (element) => contains(right, element))
+
+(** The elements of `elements` collected into a set. A duplicated element keeps
+    the first representative it was inserted under. It forces the whole
+    sequence, so it does not terminate on an infinite one. *)
+export let fromSeq<a: Hash>(elements: Seq(a)): Set(a) =
+    Seq.fold(elements, empty, add)
+
+(** The elements of `values` collected into a set, left to right. *)
+export let fromVector<a: Hash>(values: Vector(a)): Set(a) =
+    fromSeq(Vector.toSeq(values))

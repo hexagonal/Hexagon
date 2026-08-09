@@ -110,13 +110,10 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
     case "Float":
     case "ErrorExpr":
       return expression;
-    case "CollectionOperation": {
-      const hashRequirement = expression.requirements.find(({ name }) => name === "Hash");
-      return {
-        ...expression,
-        ...(hashRequirement === undefined ? {} : { hashEvidence: evidence(hashRequirement) }),
-      };
-    }
+    // `Node` alone, and unconstrained (#373): the evidence this case used to
+    // resolve was the retired companion rows' `Hash`, and nothing replaces it.
+    case "CollectionOperation":
+      return expression;
     case "FromNat":
       return elaborateInteger(expression);
     case "WidenNat":

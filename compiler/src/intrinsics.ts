@@ -146,6 +146,22 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   `containsKey`, `keys`, `values`, the `toSeq`/`fromSeq` pair, `fromEntries`
  *   and `fromVector` take no keys at all — every one of them is ordinary
  *   Hexagon over these seven.
+ *
+ * The `set*` family is `stdlib/Set.hex`'s (§3.2, #373), and it is the `map*`
+ * paragraph at one type parameter: seven keys, the keyed trio
+ * (`setContains`/`setAdd`/`setRemove`) constrained `<a: Hash>`, `setSingleton`
+ * unconstrained and permanently so, and `setEmpty` the unexported thunk beneath
+ * `export let empty: Set(a)`. The one delta is what the lowerings target. A
+ * `Set(a)` is **not** the bare `HashTrie(a, Unit)` it sounds like: a trie value's
+ * emitted iterator yields `[key, value]` pairs, which is `Hex.Map`'s face, while
+ * `Hex.Set<a> extends Iterable<a>` promises elements, and one record carries one
+ * iterator. So `runtime/HashTrie.hex` holds a one-field wrapper record
+ * (`HashSet`) with thin set-facing operations over it, and these seven alias
+ * *those* (#373). The wrapper is also what keeps the aliases 1:1 — it absorbs the
+ * `Unit` argument that a bare-trie wiring would have needed adapters for.
+ * `isEmpty`, the whole algebra (`union`, `intersect`, `difference`,
+ * `isSubsetOf`), `fromSeq` and `fromVector` take no keys: every one of them is
+ * ordinary Hexagon over these seven.
  */
 export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["seqMemoize", 1],
@@ -226,6 +242,13 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["mapSet", 3],
   ["mapRemove", 2],
   ["mapEntries", 1],
+  ["setEmpty", 0],
+  ["setSingleton", 1],
+  ["setSize", 1],
+  ["setContains", 2],
+  ["setAdd", 2],
+  ["setRemove", 2],
+  ["setElements", 1],
 ]);
 
 /**
