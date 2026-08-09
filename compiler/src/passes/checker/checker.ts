@@ -6932,7 +6932,7 @@ class Checker {
    * and the ones the head itself introduces, both now minted before the subject
    * elaborates (#390). A name τ introduces beyond that scope is
    * outside Collections Part 2 §5.3's closed set ("in-scope type names and the
-   * instance's own `<...>` binders"): the binding stores `ERROR`, and the mint
+   * instance's own binders"): the binding stores `ERROR`, and the mint
    * is removed from the binder map so instantiation never mistakes it for an
    * instance parameter. `report` is true only in the declaring module — an
    * imported instance's bindings were checked at home, and re-reporting here
@@ -6956,7 +6956,7 @@ class Checker {
         if (report) {
           this.#diagnostics.add({
             severity: "error",
-            message: `\`${minted[0]!}\` is not one of this instance's \`<...>\` binders; ` +
+            message: `\`${minted[0]!}\` is not one of this instance's binders; ` +
               "an implied type binding may mention only in-scope type names and " +
               "the instance's own binders",
             primary: binding.span,

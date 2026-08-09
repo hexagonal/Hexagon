@@ -192,7 +192,7 @@ describe("an implied type binding sees the head's binders and nothing more", () 
       "honor Iterable<Bag(a)> =\n" +
       "    type Item = b\n" +
       "    toSeq(bag) = Vector.toSeq(bag.items)\n")).toContain(
-      "`b` is not one of this instance's `<...>` binders; an implied type " +
+      "`b` is not one of this instance's binders; an implied type " +
         "binding may mention only in-scope type names and the instance's own binders",
     );
   });
