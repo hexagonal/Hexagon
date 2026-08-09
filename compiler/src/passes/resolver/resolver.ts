@@ -232,6 +232,21 @@ export interface ResolveOptions {
    * no declaration for text to point at.
    */
   readonly companionPrimitive?: Resolved.PrimitiveName;
+  /**
+   * This module's project-root-normalized path — the same string
+   * `compileProject` keys its module map on.
+   *
+   * Two things are built from it and nothing else is: `Resolved.Module.path`,
+   * and the `declaringPath` stamped on every union and record *this* module
+   * declares. Both exist for Collections Part 5 §3.3's diagnostic, which names
+   * the file a missing `Iterable` instance belongs in; the path is normalized
+   * against the project root precisely so an importing module inherits it by
+   * plain copy and relativizes once, at the message, against its own path.
+   *
+   * Like `privileged` and `companionPrimitive`, it is settled by the caller and
+   * never by the module's text — a file does not know where it lives.
+   */
+  readonly path?: string;
 }
 
 export function resolve(
@@ -444,6 +459,8 @@ class Resolver {
   readonly #runtime: boolean;
   readonly #privileged: boolean;
   readonly #companionPrimitive: Resolved.PrimitiveName | undefined;
+  /** This module's own path; see `ResolveOptions.path`. */
+  readonly #path: string | undefined;
   readonly #preludeScope = new Scope();
   /** Every scope opened, in the order they were opened — see `Module.scopes`. */
   readonly #openScopes: Scope[] = [];
@@ -575,6 +592,7 @@ class Resolver {
     this.#runtime = options.runtime ?? false;
     this.#privileged = options.privileged ?? false;
     this.#companionPrimitive = options.companionPrimitive;
+    this.#path = options.path;
     this.#nextSymbol = options.symbolBase ?? 0;
     this.#nextUnion = options.unionBase ?? 0;
     this.#nextRecord = options.recordBase ?? 0;
@@ -939,6 +957,7 @@ class Resolver {
       ...(this.#companionPrimitive === undefined
         ? {}
         : { companionPrimitive: this.#companionPrimitive }),
+      ...(this.#path === undefined ? {} : { path: this.#path }),
       span: module.span,
       diagnostics: this.#diagnostics.toArray(),
     };
@@ -1854,6 +1873,11 @@ class Resolver {
           derives: item.derives.map(({ text }) => text),
           opaque: item.opaque,
           representationVisible: true,
+          // Stamped here and nowhere else: this is the *declaring* site, and
+          // every other registration of this object — explicit import, prelude
+          // seeding, `#includeNominals` — is a spread copy that carries the
+          // path onward untouched (`Resolved.Union.declaringPath`).
+          ...(this.#path === undefined ? {} : { declaringPath: this.#path }),
           span: item.name.span,
           constructors,
         };
@@ -1891,6 +1915,8 @@ class Resolver {
           derives: item.derives.map(({ text }) => text),
           opaque: item.opaque,
           representationVisible: true,
+          // The declaring site; see the union arm above.
+          ...(this.#path === undefined ? {} : { declaringPath: this.#path }),
           constructor,
           fields,
           span: item.span,

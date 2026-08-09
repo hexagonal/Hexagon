@@ -1,6 +1,7 @@
 /** Whole-project orchestration for Hexagon's acyclic relative module graph. */
 
 import * as Diagnostics from "./support/diagnostics.js";
+import { relativeSpecifier } from "./support/paths.js";
 import * as Source from "./support/source.js";
 import type * as Parsed from "./syntax/parsed/index.js";
 import type * as Resolved from "./syntax/resolved/index.js";
@@ -252,6 +253,11 @@ export function compileProject(
       }];
     });
     const resolved = resolve(parsedModule, {
+      // Where this module lives, project-root-normalized. It is the only source
+      // of `Resolved.Module.path` and of the `declaringPath` every nominal
+      // declared here is stamped with, which together let the checker name
+      // another module's *file* in Collections Part 5 §3.3's diagnostic.
+      path,
       imports,
       symbolBase: isInjected ? preludeSymbolBase : symbolBase,
       unionBase: isInjected ? preludeUnionBase : unionBase,
@@ -603,23 +609,6 @@ function commonRoot(paths: readonly string[]): string {
     common = common.slice(0, index);
   }
   return common.join("/");
-}
-
-/** A relative specifier `from` a module to the `to` path, inverse to resolveSpecifier. */
-function relativeSpecifier(from: string, to: string): string {
-  const fromDirectory = from.split("/").slice(0, -1).filter((part) => part !== "");
-  const toParts = to.replace(/\.hex$/, "").split("/").filter((part) => part !== "");
-  let index = 0;
-  while (
-    index < fromDirectory.length &&
-    index < toParts.length - 1 &&
-    fromDirectory[index] === toParts[index]
-  ) {
-    index += 1;
-  }
-  const up = fromDirectory.length - index;
-  const down = toParts.slice(index).join("/");
-  return up > 0 ? `${"../".repeat(up)}${down}` : `./${down}`;
 }
 
 /**

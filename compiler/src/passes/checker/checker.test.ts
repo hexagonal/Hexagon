@@ -1622,6 +1622,21 @@ describe("check", () => {
     );
   });
 
+  test("a for head with no module path keeps the generic requirement failure", () => {
+    // §3.3's report names a file, and a module assembled by calling the passes
+    // directly has no path to name one from — so it falls back rather than
+    // inventing a route (#395).
+    expect(
+      checkModule(
+        "record Bag = {size: Int}\n" +
+          "let bag: Bag = Bag({size = 1})\n" +
+          "fun run(): Unit =\n" +
+          "    for item in bag\n" +
+          "        ()\n",
+      ).diagnostics.map(({ message }) => message),
+    ).toContain("type `Bag` has no `Iterable` instance");
+  });
+
   // 250 full compiles: since #147 put `Bool` in the prelude, every run loads the
   // project rather than calling the passes directly. That is ~3s in the full suite
   // here and 5573ms on the runner that took the Pages deploy down with it (#160,

@@ -25,6 +25,7 @@ import {
   preRegisteredConstraintIdentity,
 } from "../../constraints.js";
 import { isIntrinsicScheme } from "../../intrinsics.js";
+import { relativeFilePath } from "../../support/paths.js";
 import type * as Source from "../../support/source.js";
 import { displayParameterName } from "../../support/synthetic.js";
 import * as Resolved from "../../syntax/resolved/index.js";
@@ -320,7 +321,20 @@ interface Requirement {
   readonly identity: string;
   readonly type: Mono;
   readonly span: Source.Span;
-  readonly origin: "annotation" | "literal" | "operation" | "interpolation";
+  /**
+   * What demanded this requirement, where the failure report needs to know.
+   *
+   * `"iteration"` is a `for p in e` head and nothing else (Collections Part 5
+   * §3.1 step 3). It is separated from the `"operation"` it would otherwise be
+   * because §3.3's two-legal-homes message is a *loop-side* diagnostic: it tells
+   * the user where to put an `Iterable` instance and what to do instead, which
+   * is the right thing to say about a loop head and the wrong thing to say
+   * about, for instance, a failing `toSeq(x)` call — that keeps the generic
+   * requirement failure. Everywhere else in this file the two origins behave
+   * identically, and deliberately so: nothing about *how* the constraint is
+   * discharged changes.
+   */
+  readonly origin: "annotation" | "literal" | "operation" | "interpolation" | "iteration";
   /** The literal's digits, so §6's blocked-defaulting report can name it. */
   literal?: string;
   /**
@@ -722,6 +736,25 @@ class Checker {
    */
   #seqRecord: Resolved.RecordId | undefined;
   /**
+   * This module's own path, when the compilation had one
+   * (`Resolved.Module.path`). Read by Collections Part 5 §3.3's diagnostic and
+   * nothing else: a message that names another module's file has to state the
+   * route from here, and "here" is not something `fileId` answers.
+   */
+  #modulePath: string | undefined;
+  /**
+   * Every union and record identity the *prelude* supplies, as sets.
+   *
+   * `module.preludeUnions`/`preludeRecords` are keyed by name, and a name is the
+   * one thing a module may occlude (Modules §5.4); the question §3.3 asks —
+   * "could the user open the file this declaration lives in?" — is about the
+   * identity, so the identities are what is kept. Both are empty in a
+   * prelude-free compilation, which is correct: nothing is prelude-supplied
+   * there.
+   */
+  #preludeUnionIds: ReadonlySet<Resolved.UnionId> = new Set();
+  #preludeRecordIds: ReadonlySet<Resolved.RecordId> = new Set();
+  /**
    * The prelude `Bool` union's identity (#147). `Bool` stopped being a primitive
    * and became `union Bool = False | True` declared in `stdlib/Bool.hex`, so every
    * condition, guard, logic operand, comparison result, and compiler-known
@@ -1007,6 +1040,9 @@ class Checker {
       this.#programNominals,
     );
     this.#seqRecord = module.preludeRecords.get("Seq");
+    this.#modulePath = module.path;
+    this.#preludeUnionIds = new Set(module.preludeUnions.values());
+    this.#preludeRecordIds = new Set(module.preludeRecords.values());
     // The fallback is deliberately guarded on the prelude being *absent
     // entirely*, not merely on `Bool` being missing from it. Reaching for a
     // locally declared `Bool` in any other circumstance would hand a user's own
@@ -3661,6 +3697,27 @@ class Checker {
           actual.kind === "Constructor" && actual.name === "String"
         ) {
           element = primitive("String");
+        } else if (actual.kind === "Variable" && actual.rigidName !== undefined) {
+          // Collections Part 5 §3.2's split. A *declared* type variable and an
+          // unsolved inference variable both stop step 2 of §3.1 — the outer
+          // constructor is unknown — but they stop it for opposite reasons, and
+          // the one message they used to share was a false trail for this half:
+          // an annotation fixes an inference variable and cannot fix a generic
+          // parameter, which is generic on purpose. The binder ban (Part 2 §9)
+          // is the actual fact, surfacing here at a use site, so the message is
+          // that ban's hint verbatim plus the one thing the user can do about
+          // it — take the sequence itself.
+          const iterable = expression.iterable;
+          this.#diagnostics.add({
+            severity: "error",
+            message: `${
+              // The spec spells the subject as the head's source name; a head
+              // that is not a bare reference has no name to spell, so it gets
+              // the neutral subject rather than a manufactured one.
+              iterable.kind === "Name" ? `\`${iterable.text}\`` : "this value"
+            } has the generic type \`${actual.rigidName}\`, and \`Iterable\` cannot constrain a type variable in v1; take a \`Seq(a)\` parameter instead`,
+            primary: iterable.span,
+          });
         } else if (actual.kind === "Variable") {
           this.#diagnostics.add({
             severity: "error",
@@ -3673,7 +3730,10 @@ class Checker {
             "Iterable",
             actual,
             expression.iterable.span,
-            "operation",
+            // Not `"operation"`: a loop head that finds no instance gets §3.3's
+            // two-legal-homes report, and only a loop head does. See
+            // `Requirement.origin`.
+            "iteration",
             new Map([["Item", element]]),
           );
           if (!requirement.reported) this.#iterations.set(expression, requirement);
@@ -6064,9 +6124,80 @@ class Checker {
           ? `integer literal cannot have type \`${type.name}\``
           : type.kind === "Function"
           ? `functions have no \`${requirement.name}\` instance`
-          : `type \`${this.#display(type)}\` has no \`${requirement.name}\` instance`,
+          : this.#userNominalIterableFailure(requirement, type) ??
+            `type \`${this.#display(type)}\` has no \`${requirement.name}\` instance`,
       primary: requirement.span,
     });
+  }
+
+  /**
+   * Collections Part 5 §3.3's report for a `for p in e` head whose type is a
+   * **user nominal** with no `Iterable` instance — or `undefined` where this
+   * failure is not that case and the generic requirement failure stands.
+   *
+   * The message exists because the compiler always knows both legal homes: the
+   * orphan rule (Modules §7.6) makes the search space exactly two — the module
+   * declaring the type, and the module declaring the constraint — so the report
+   * can hand the user a *closed* space rather than a hint. It leads with the
+   * actionable home, names the other to explain why no third module could
+   * supply the instance, and closes with the two ways out that need no instance
+   * at all.
+   *
+   * Four things gate it, and each one failing means the generic message is the
+   * honest answer:
+   *
+   * - **The origin is a loop head.** A `toSeq(x)` call that fails elsewhere is
+   *   not this diagnostic's subject (see `Requirement.origin`).
+   * - **The type is a nominal union or record.** An `ExternType` is declared by
+   *   a foreign block, not by a Hexagon declaration with parameters to spell,
+   *   and every structural type has no home module at all.
+   * - **The declaration is not prelude-supplied.** `Option`, `Result`, `Bool`,
+   *   `Ordering` and their kin sit outside §3's user-nominal arm precisely
+   *   because the fixit would name a file the user cannot edit. `preludeUnions`
+   *   /`preludeRecords` are the occlusion-proof channel for that question
+   *   (Modules §5.5), which is why they are consulted rather than the names.
+   * - **Both paths are known.** The declaring module's path and this module's
+   *   own path are what turn the fixit into a file the user can open; a bare
+   *   `check` in a test has neither.
+   *
+   * The fixit's subject is spelled **binder-less** — `honor Iterable<Bag(a)>`,
+   * never `honor<a> Iterable<Bag(a)>` — per Constraints §5.4 as amended by
+   * #390: a parameterized head introduces its own binders, and the `<...>`
+   * prefix exists to constrain them, not to name them. It spells the
+   * *declaration's* parameter names rather than the failing type's arguments,
+   * because §5.4's head is one constructor applied to distinct variables:
+   * `Bag(Int)` fails, and `honor Iterable<Bag(a)>` is what fixes it.
+   */
+  #userNominalIterableFailure(
+    requirement: Requirement,
+    type: Mono,
+  ): string | undefined {
+    if (requirement.origin !== "iteration") return undefined;
+    if (type.kind !== "Union" && type.kind !== "NominalRecord") return undefined;
+    // This module's own view first, then the whole program's. The second half
+    // is load-bearing rather than defensive: a nominal reached only through an
+    // imported function's *type* — `main` iterating what `a.hex` returns from
+    // `b.hex`, having never imported `b` — is registered nowhere in this
+    // module's tables, and the report would silently fall back to the generic
+    // form for exactly the case where the declaring file is hardest to guess.
+    const declaration: Resolved.Union | Resolved.RecordDeclaration | undefined =
+      type.kind === "Union"
+        ? this.#unions.get(type.union) ?? find(this.#programNominals.unions, type.union)
+        : this.#records.get(type.record) ?? find(this.#programNominals.records, type.record);
+    if (declaration === undefined) return undefined;
+    const preludeSupplied = type.kind === "Union"
+      ? this.#preludeUnionIds.has(type.union)
+      : this.#preludeRecordIds.has(type.record);
+    if (preludeSupplied) return undefined;
+    const declaringPath = declaration.declaringPath;
+    if (declaringPath === undefined || this.#modulePath === undefined) return undefined;
+    const subject = declaration.parameters.length === 0
+      ? declaration.name
+      : `${declaration.name}(${declaration.parameters.join(", ")})`;
+    return `\`${this.#display(type)}\` is not iterable. Define \`honor Iterable<${subject}>\` in ` +
+      `\`${relativeFilePath(this.#modulePath, declaringPath)}\`, which declares \`${declaration.name}\`. ` +
+      "The only other legal home is the prelude module declaring `Iterable`. " +
+      `Alternatively, convert with \`${declaration.name}.toSeq\`-style functions, or take a \`Seq(a)\` parameter.`;
   }
 
   /**
@@ -9810,6 +9941,23 @@ function isStructurallyIrrefutablePattern(pattern: Resolved.Pattern): boolean {
 
 function isConstraintName(name: string): name is Typed.ConstraintName {
   return PRE_REGISTERED_CONSTRAINTS.includes(name);
+}
+
+/**
+ * The declaration with the given identity in a nominal listing.
+ *
+ * A plain scan rather than a map because the one caller reaches for it after
+ * the module's own indexed views have already missed, on a path that is about
+ * to build a diagnostic and then stop.
+ */
+function find<T extends { readonly id: Id }, Id>(
+  declarations: Iterable<T>,
+  id: Id,
+): T | undefined {
+  for (const declaration of declarations) {
+    if (declaration.id === id) return declaration;
+  }
+  return undefined;
 }
 
 function inferredTypeVariableName(index: number): string {
