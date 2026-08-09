@@ -260,6 +260,211 @@ describe("occlusion (Modules §5.4, per Part 5 §2.3)", () => {
   });
 });
 
+/**
+ * §3.2's four-case taxonomy, and §3.3's two-legal-homes report (#395).
+ *
+ * Two of the four rows had no implementation before this file asserted them.
+ * Both are about *what the compiler already knows and was not saying*: it knows
+ * a declared type variable from an unsolved inference variable, and it knows —
+ * because the orphan rule makes the search space exactly two — every module
+ * that could legally supply a missing instance. The rows are grouped here
+ * rather than split across the passes because the taxonomy is one decision:
+ * each arm is defined by which other arms it is not.
+ *
+ * The §3.3 cases are whole *projects* rather than single modules by necessity.
+ * The message names a file, so it has a route to compute, and a route needs two
+ * positions — the module doing the iterating and the module holding the
+ * declaration.
+ */
+describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
+  const BAG = "export union Bag(a) = Empty | Full(item: a)\n";
+
+  /** The full §3.3 sentence, once, so the other cases can assert only what they vary. */
+  test("a user nominal names both legal homes, leading with the actionable one", () => {
+    expect(messagesOf([
+      ["/app/bag.hex", BAG],
+      ["/app/main.hex",
+        'import { Bag, Empty } from "./bag"\n' +
+          "let bag: Bag(Int) = Empty\n" +
+          "export fun run(): Unit =\n" +
+          "    for item in bag\n" +
+          "        ()\n",
+      ],
+    ])).toContain(
+      "`Bag(Int)` is not iterable. Define `honor Iterable<Bag(a)>` in `./bag.hex`, " +
+        "which declares `Bag`. The only other legal home is the prelude module declaring " +
+        "`Iterable`. Alternatively, convert with `Bag.toSeq`-style functions, or take a " +
+        "`Seq(a)` parameter.",
+    );
+  });
+
+  /**
+   * The route is computed at the message, from the reporting module's own
+   * position — which is why the declaration carries a project-root path rather
+   * than one relative to whoever imported it. A same-directory default would
+   * pass the case above and fail both of these.
+   */
+  test("the declaring file is named relative to the module doing the iterating", () => {
+    const iterate = (specifier: string): string =>
+      `import { Bag, Empty } from "${specifier}"\n` +
+      "let bag: Bag(Int) = Empty\n" +
+      "export fun run(): Unit =\n" +
+      "    for item in bag\n" +
+      "        ()\n";
+
+    expect(messagesOf([
+      ["/app/lib/bag.hex", BAG],
+      ["/app/main.hex", iterate("./lib/bag")],
+    ]).join("\n")).toContain("in `./lib/bag.hex`, which declares `Bag`");
+
+    expect(messagesOf([
+      ["/app/lib/bag.hex", BAG],
+      ["/app/src/main.hex", iterate("../lib/bag")],
+    ]).join("\n")).toContain("in `../lib/bag.hex`, which declares `Bag`");
+  });
+
+  /** The self-module case is not special-cased; it falls out as `./` plus the basename. */
+  test("a nominal declared where it is iterated names that same file", () => {
+    expect(messagesOf([
+      ["/app/bag.hex",
+        BAG +
+          "let bag: Bag(Int) = Empty\n" +
+          "export fun run(): Unit =\n" +
+          "    for item in bag\n" +
+          "        ()\n",
+      ],
+    ]).join("\n")).toContain(
+      "Define `honor Iterable<Bag(a)>` in `./bag.hex`, which declares `Bag`",
+    );
+  });
+
+  /**
+   * The fixit is a *head*, so Constraints §5.4 governs its spelling twice over:
+   * one constructor applied to distinct variables, which is why it says
+   * `Pair(left, right)` and not the `Pair(Int, String)` that failed; and
+   * **binder-less**, per §5.4 as amended by #390 — a parameterized head
+   * introduces its own binders, and the `<...>` prefix exists to constrain
+   * them, not to name them.
+   */
+  test("the honor fixit spells the declaration's own parameters, binder-less", () => {
+    const messages = messagesOf([
+      ["/app/pair.hex", "export record Pair(left, right) = {first: left, second: right}\n"],
+      ["/app/main.hex",
+        'import { Pair } from "./pair"\n' +
+          'let pair: Pair(Int, String) = Pair({first = 1, second = "a"})\n' +
+          "export fun run(): Unit =\n" +
+          "    for item in pair\n" +
+          "        ()\n",
+      ],
+    ]).join("\n");
+    expect(messages).toContain(
+      "`Pair(Int, String)` is not iterable. Define `honor Iterable<Pair(left, right)>` in " +
+        "`./pair.hex`, which declares `Pair`.",
+    );
+    expect(messages).not.toContain("honor<");
+  });
+
+  /** A zero-parameter nominal is applied to nothing, so the head is the bare name. */
+  test("a zero-parameter nominal gets an unapplied honor subject", () => {
+    expect(messagesOf([
+      ["/app/widget.hex", "export record Widget = {size: Int}\n"],
+      ["/app/main.hex",
+        'import { Widget } from "./widget"\n' +
+          "let widget: Widget = Widget({size = 1})\n" +
+          "export fun run(): Unit =\n" +
+          "    for item in widget\n" +
+          "        ()\n",
+      ],
+    ]).join("\n")).toContain(
+      "`Widget` is not iterable. Define `honor Iterable<Widget>` in `./widget.hex`, " +
+        "which declares `Widget`.",
+    );
+  });
+
+  /**
+   * `main` never imports the declaring module: the type arrives through
+   * `make`'s result, and a nominal reached only that way is in no table `main`
+   * built. The whole program's nominals are what answer, and the route is still
+   * computed from `main`'s position — which is the case the report is *most*
+   * worth having, since the file is exactly the one the user cannot see from
+   * the import list.
+   */
+  test("a nominal reached only through an imported function's type still names its file", () => {
+    expect(messagesOf([
+      ["/app/lib/bag.hex", BAG],
+      ["/app/middle.hex",
+        'import { Bag, Empty } from "./lib/bag"\n' +
+          "export fun make(): Bag(Int) = Empty\n",
+      ],
+      ["/app/src/main.hex",
+        'import { make } from "../middle"\n' +
+          "export fun run(): Unit =\n" +
+          "    for item in make()\n" +
+          "        ()\n",
+      ],
+    ]).join("\n")).toContain(
+      "`Bag(Int)` is not iterable. Define `honor Iterable<Bag(a)>` in `../lib/bag.hex`, " +
+        "which declares `Bag`.",
+    );
+  });
+
+  /**
+   * §4's closing note puts the prelude unions outside the user-nominal arm, and
+   * the reason is the fixit: it would name a file the user cannot edit. They
+   * take the concrete-non-iterable row's generic report instead.
+   */
+  test("a prelude union keeps the generic requirement failure", () => {
+    const messages = projectDiagnostics(
+      "let maybe: Option(Int) = Some(1)\n" +
+        "export fun run(): Unit =\n" +
+        "    for item in maybe\n" +
+        "        ()\n",
+    );
+    expect(messages).toContain("type `Option(Int)` has no `Iterable` instance");
+    expect(messages.join("\n")).not.toContain("is not iterable");
+  });
+
+  /**
+   * §3.2's other new arm. A declared type variable and an unsolved inference
+   * variable both stop step 2 of §3.1 with an unknown outer constructor, and
+   * the one message they used to share was a false trail for the first: an
+   * annotation fixes an inference variable and cannot fix a generic parameter,
+   * which is generic on purpose. The binder ban (Part 2 §9) is the actual fact,
+   * surfacing at a use site.
+   */
+  test("a rigid declared variable and an unsolved one get different messages", () => {
+    expect(projectDiagnostics(
+      "export fun visit(items: c): Unit =\n" +
+        "    for item in items\n" +
+        "        ()\n",
+    )).toContain(
+      "`items` has the generic type `c`, and `Iterable` cannot constrain a " +
+        "type variable in v1; take a `Seq(a)` parameter instead",
+    );
+
+    // Unchanged by the split, which is the point of splitting rather than rewording.
+    expect(projectDiagnostics(
+      "export let visit = (items) =>\n" +
+        "    for item in items\n" +
+        "        ()\n",
+    )).toContain(
+      "cannot determine how to iterate this value; add a `Range`, `String`, " +
+        "or `Seq(a)` type annotation",
+    );
+  });
+
+  /** The concrete non-nominal row, unchanged: no home to name, so no homes named. */
+  test("a concrete non-nominal type keeps its own report", () => {
+    const messages = projectDiagnostics(
+      "export fun run(): Unit =\n" +
+        "    for item in 42\n" +
+        "        ()\n",
+    );
+    expect(messages).toContain("type `Int` has no `Iterable` instance");
+    expect(messages.join("\n")).not.toContain("legal home");
+  });
+});
+
 describe("provided rows occupy real slots (Part 5 §7.3)", () => {
   /**
    * The slot being genuinely occupied is what this asserts, and the message is
