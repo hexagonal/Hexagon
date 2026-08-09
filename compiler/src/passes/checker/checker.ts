@@ -1994,11 +1994,26 @@ class Checker {
     );
     this.#recordAccesses.set(goal.callee, goal.callee.field.text);
     this.#expressionTypes.set(goal.callee, field);
+    // The imposed arrow is `->`, exactly as §3.5 writes it: a row is data, and a
+    // data field's arrow is pure or the constant, never linked (Effects §2.5) —
+    // and nothing here wrote the constant. So the call is pure, and a mark on it
+    // is refused with §9's dot-call sentence. The obligation is registered on
+    // *this* argument list (§3.2 ruling 2) and in the frame the call was written
+    // in, which the deadline no longer describes.
+    const effect = this.#effectsOn ? PURE : undefined;
     this.#unify(
       field,
-      { kind: "Function", parameters: goal.argumentTypes, result: goal.result },
+      {
+        kind: "Function",
+        parameters: goal.argumentTypes,
+        result: goal.result,
+        ...(effect === undefined ? {} : { effect }),
+      },
       goal.expression.span,
     );
+    if (effect !== undefined) {
+      this.#registerCall(goal.expression, effect, calleeLabel(goal.expression));
+    }
     this.#expressionTypes.set(goal.expression, this.#prune(goal.result));
   }
 

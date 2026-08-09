@@ -537,6 +537,87 @@ export let doubled: Int = pure(21) + pure(21)
   });
 });
 
+describe("#355 marks on the deferred dot-call goal path (Method Syntax §3)", () => {
+  // A dot call whose receiver is a flexible tyvar pends: the evidence arrives
+  // later in the owner region, and the goal settles at that region's deadline
+  // (§3.1). The mark still anchors to *this* argument list (Effects §3.2,
+  // ruling 2), and it is read off the colour the deadline finally produced.
+  const deferred = (mark: string) => `${world}
+let run(source): Seq(String) =
+    source.forEach${mark}((value) => save!(value))
+    let pinned: Seq(String) = source
+    pinned
+
+export let x: Int = 1
+`;
+
+  it("wants `!` on a goal that settles onto an impure instantiation", () => {
+    expect(withSeq(deferred("!"))).toEqual([]);
+  });
+
+  it("names the member in §9's frame when the mark is missing", () => {
+    expect(withSeq(deferred(""))).toEqual([
+      "this call runs effects, so `.forEach` wants `!`, not no mark",
+    ]);
+  });
+
+  it("carries the settled colour out to the enclosing body's callers", () => {
+    expect(
+      withSeq(`${world}
+let run(source): Seq(String) =
+    source.forEach!((value) => save!(value))
+    let pinned: Seq(String) = source
+    pinned
+
+let go(source: Seq(String)): Seq(String) = run(source)
+
+export let x: Int = 1
+`),
+    ).toEqual([
+      "this call runs effects, so `run` wants `!`, not no mark",
+    ]);
+  });
+
+  it("makes the row fallback's arrow the pure one, and enforces it", () => {
+    // A goal whose receiver never becomes head-known takes §3.5's fallback,
+    // which imposes `{next: () -> a, ...}` — a `->`, written so in the spec, and
+    // a row is data (Effects §2.5). So the call is pure and a mark on it is
+    // refused. The prototype registered no obligation at all here, and every
+    // mark on a fallback-resolved dot call was silently accepted.
+    for (const [mark, name] of [["!", "`!`"], ["?", "`?`"]] as const) {
+      expect(
+        effectDiagnostics([["/main.hex", `
+let drive(source): String = source.next${mark}()
+
+export let x: Int = 1
+`]]),
+      ).toEqual([`this call is pure, so \`.next\` wants no mark, not ${name}`]);
+    }
+    expect(
+      effectDiagnostics([["/main.hex", `
+let drive(source): String = source.next()
+
+export let x: Int = 1
+`]]),
+    ).toEqual([]);
+  });
+
+  it("refuses an impure field at the row the fallback imposed", () => {
+    // The other half of the same arrow: the row demands purity, so supplying an
+    // impure step is §4.3's refusal rather than a silent widening.
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+let drive(source): Unit = source.step()
+
+export let go(): Unit = drive({ step = () => save!("x") })
+`]]),
+    ).toEqual([
+      "a `->` arrow promises purity, and this function performs effects — the " +
+      "demand is written `->`, the function's face `=>` or `=>!`",
+    ]);
+  });
+});
+
 describe("#355 ruling 8 — the return-annotation slot", () => {
   it("gives an unparenthesized `=>` to the body", () => {
     // The annotation is the *result* type and the body starts at the arrow, so
