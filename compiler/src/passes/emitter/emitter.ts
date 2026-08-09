@@ -75,11 +75,15 @@ export type VectorRuntimeOperation = (typeof VECTOR_RUNTIME_OPERATIONS)[number];
  * it is fixed rather than derived; everything there applies here verbatim, with
  * one difference worth naming. The vector list is what the *emitter* reaches
  * for on its own account — a literal, a bracket, a pattern. This list is
- * `stdlib/Map.hex`'s and `stdlib/Set.hex`'s fourteen door keys
- * (`spec/intrinsics.md` §3.2), so almost every member is here because a `map*`
- * or `set*` intrinsic lowers to it, and the emitter itself reaches only three
- * directly: `get`, for the bracket's throwing read and the derived `Eq`;
- * `entries`, for the map's iteration face; and `members`, for the set's.
+ * `stdlib/Map.hex`'s and `stdlib/Set.hex`'s fifteen door keys — seven and eight
+ * (`spec/intrinsics.md` §3.2) — so almost every member is here because a `map*`
+ * or `set*` intrinsic lowers to it. Five the emitter reaches on its own account:
+ * `get`, for the bracket's throwing read and the derived `Eq`; `entries`, for
+ * the map's iteration face; `members`, for the set's; and `memberCount` and
+ * `containsMember`, which the set's derived instances need because a `HashSet`
+ * holds one field and the maintained count is inside it — so where `mapEquals`,
+ * `mapHash` and `#derivedShow`'s `Map` arm read `.size` off the value, their
+ * `Set` counterparts call.
  *
  * `containsKey` and `isEmpty` are declared in the runtime module and are
  * deliberately **not** here, and the Set step (#373) leaves both where they are.
@@ -89,7 +93,7 @@ export type VectorRuntimeOperation = (typeof VECTOR_RUNTIME_OPERATIONS)[number];
  * `containsMember`, which is on this list. An export list naming operations no
  * consumer imports is a claim the wiring has no reason to make.
  *
- * The set-facing seven are the wrapper record's, not the trie's (#373): a
+ * The set-facing eight are the wrapper record's, not the trie's (#373): a
  * `Set(a)` is a `HashSet(a)` holding one `HashTrie(a, Unit)`, because one record
  * carries one `[Symbol.iterator]` and the trie's yields pairs.
  */
@@ -4669,13 +4673,15 @@ class JavaScriptEmitter {
       // constant, arrived at through the door rather than beside it.
       case "mapEmpty":
         return `() => ${this.#useHashTrieRuntime("empty")}`;
-      // `stdlib/Set.hex`'s seven (#373), the same shape one type parameter
+      // `stdlib/Set.hex`'s eight (#373) — its seven-row §6.2 surface plus the
+      // unexported `setLookup` — in the `map*` block's shape one type parameter
       // narrower. What they alias is the trie module's **wrapper** operations,
       // not the trie's own: a `Set(a)` is a `HashSet(a)` holding a
       // `HashTrie(a, Unit)`, because one record carries one `[Symbol.iterator]`
       // and the trie's yields pairs. The wrapper also absorbs the `Unit`
-      // argument, which is what keeps six of these plain aliases instead of the
-      // arity-adjusting arrows a bare-trie wiring would have needed.
+      // argument, which is what keeps seven of the eight plain aliases instead
+      // of the arity-adjusting arrows a bare-trie wiring would have needed; the
+      // eighth is `setEmpty`, a thunk for the reason its own comment gives.
       case "setSingleton":
         return this.#useHashTrieRuntime("soleMember");
       case "setSize":

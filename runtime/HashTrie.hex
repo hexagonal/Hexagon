@@ -563,13 +563,19 @@ let entries(trie: HashTrie(k, v)): Seq((k, v)) =
 // `Hex.Set<a> extends Iterable<a>` promises elements. Both companions' values
 // are built by the same internal functions above, so the fork has to happen at
 // the representation: `HashSet` is a one-field wrapper whose own emitted
-// iterator yields keys only (`spec/intrinsics.md` §3.2, §8.3).
+// iterator yields keys only. That each collection's traversal yields its own
+// shape — elements for a set, `[k, v]` pairs for a map — is binding spec, and
+// it is stated over *observations* rather than over any attachment mechanism,
+// which is exactly why the fork lands in the representation
+// (`spec/ffi-part3-seq.md` §9.5 item 1; the door itself is `intrinsics.md` §3.2).
 //
 // The wrapper earns its keep twice over. It absorbs the `Unit` plumbing, so
-// every one of `stdlib/Set.hex`'s seven door keys is a clean 1:1 alias of an
-// operation below rather than an arity-adjusting arrow the emitter would have to
-// write; and the unplaced-singleton settlement stays in exactly one place — the
-// `Sole` root — instead of being re-derived for a sibling representation.
+// seven of `stdlib/Set.hex`'s eight door keys are clean 1:1 aliases of an
+// operation below rather than arity-adjusting arrows the emitter would have to
+// write — the eighth, `setEmpty`, is a thunk because `emptySet` is a value and
+// the door admits `fun` only; and the unplaced-singleton settlement stays in
+// exactly one place — the `Sole` root — instead of being re-derived for a
+// sibling representation.
 //
 // Everything here is thin by construction: no operation below re-implements a
 // walk, and none is recursive (so #368's dropped-evidence defect, which is why
@@ -582,8 +588,9 @@ let emptySet: HashSet(a) =
 
 // The one-element set holding `element`, **unconstrained** — `singleton`'s
 // unplaced `Sole` root serves `Set.singleton` on exactly the terms it serves
-// `Map.singleton` (Collections Part 4 §12.4), one field narrower because the
-// value is `()`.
+// `Map.singleton` (Collections Part 4 §12.4). The root arm is not narrower for
+// being a set's: it keeps both fields and its `value` is simply filled at
+// `Unit`, which is what lets one root serve both companions unchanged.
 let soleMember(element: a): HashSet(a) =
     HashSet({ trie = singleton(element, ()) })
 

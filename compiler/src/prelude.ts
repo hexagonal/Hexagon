@@ -99,13 +99,14 @@ export interface PreludeModule {
  * merely permitting it. It held the last seat from the Map step (#370), having
  * displaced `Vector.hex` from it.
  *
- * `Set.hex` is last now, and it displaces `Map.hex` in turn (#373). It needs the
- * same three as `Map.hex` bar `Option` — `Hash` for its keyed trio, `Seq` for
- * `toSeq` and the whole algebra folded over it, `Vector` for `fromVector` — and
- * it needs nothing from `Map.hex` at all: the two companions are siblings over
- * one runtime module, not layers. Being last is therefore a free choice among
- * the seats after `Vector.hex`, and it is the arc's own order made visible.
- * Nothing after it exists to name a `Set`.
+ * `Set.hex` is last now, and it displaces `Map.hex` in turn (#373). It needs
+ * exactly what `Map.hex` needs — `Hash` for its keyed trio, `Option` for the
+ * unexported `storedMember` row that `intersect` probes with, `Seq` for `toSeq`
+ * and the whole algebra folded over it, and `Vector` for `fromVector` — and it
+ * needs nothing from `Map.hex` at all: the two companions are siblings over one
+ * runtime module, not layers. Being last is therefore a free choice among the
+ * seats after `Vector.hex`, and it is the arc's own order made visible. Nothing
+ * after it exists to name a `Set`.
  */
 export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Show.hex",
