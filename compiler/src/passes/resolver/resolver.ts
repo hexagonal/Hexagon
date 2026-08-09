@@ -2220,7 +2220,12 @@ class Resolver {
                 importedModule,
                 expression.receiver.name.text,
                 expression.field,
-              );
+              ) ??
+                this.#providedRowMemberAccess(
+                  importedModule,
+                  expression.receiver.name.text,
+                  expression.field,
+                );
               if (honored !== undefined) return honored;
               this.#diagnostics.add({
                 severity: "error",
@@ -3545,6 +3550,102 @@ class Resolver {
    * takes §5.5's refusal posture, naming each honored type and the routes that
    * are not ambiguous.
    */
+  /**
+   * The same Modules §5.3 uniform-access read, for a **provided row** — an
+   * instance no module's text declares (Collections Part 5 §4).
+   *
+   * `#honoredMemberAccess` above answers from `iface.instances`, which is built
+   * from `honor` items, so it cannot answer here: the nine `Iterable` rows have
+   * no source form at all (#353's ruling 1 — `Seq`'s would be a seat cycle and
+   * `Vector`'s a structural head, both refused). What is *not* different is what
+   * the reader is owed. `Vector.toSeq(v)` is the honored-member read of the row
+   * at `Vector`, exactly as `Int.show(5)` is the read of `stdlib/Int.hex`'s
+   * `honor Show<Int>`, and it stays a correct spelling now that the companions
+   * no longer plain-export the name (Part 5 §2.3's sole-exporter bullet).
+   *
+   * Homed at the companion, never at `Iterable.hex`: `Iterable.toSeq` is the
+   * *declaration's* qualified spelling and already answers through
+   * `constraintMembers` one branch earlier, polymorphically. These pin the
+   * subject, which is what makes `Map.toSeq(v)` at a vector a type error rather
+   * than a synonym.
+   *
+   * `Range` has no row here because it has no companion module to home one at
+   * (Part 5 §14.3 leaves `Range.toSeq` to the stdlib listing); the bare member
+   * reaches a range perfectly well. `Array` is the same case one spec further
+   * out — FFI Part 2 §9 names `Array.toSeq`, but no `Array.hex` exists to hang
+   * it on yet.
+   */
+  #providedRowMemberAccess(
+    iface: ModuleInterface,
+    alias: string,
+    field: Parsed.Name,
+  ): Resolved.Expr | undefined {
+    if (field.text !== "toSeq") return undefined;
+    // Keyed on the *interface*, never on the spelling: a user's own
+    // `import * as Vector from "./mine"` shadows the prelude alias, and the row
+    // belongs to the prelude module or to nothing.
+    if (this.#preludeModuleAliases.get(alias) !== iface) return undefined;
+    const declaring = this.#preludeModuleAliases.get("Iterable");
+    const symbol = declaring?.constraintMembers.get("toSeq");
+    if (symbol === undefined) return undefined;
+    const local = this.#reachPreludeTerm(symbol.id);
+    if (local === undefined) return undefined;
+    const span = field.span;
+    const variable = (name: string): Resolved.TypeAnnotation => ({
+      kind: "TypeVariable",
+      name,
+      span,
+    });
+    const parameter = (name: string): Resolved.TypeParameter => ({
+      name,
+      constraints: [],
+      span,
+    });
+    const pin = (
+      annotation: Resolved.TypeAnnotation,
+      names: readonly string[],
+    ): Resolved.Expr => {
+      this.#importedSymbols.set(symbol.id, symbol);
+      return {
+        kind: "Name",
+        symbol: symbol.id,
+        text: local,
+        instanceSubject: { annotation, typeParameters: names.map(parameter) },
+        span,
+      };
+    };
+    if (alias === "Vector") {
+      return pin({ kind: "Vector", element: variable("a"), span }, ["a"]);
+    }
+    if (alias === "Set") {
+      return pin({ kind: "Set", element: variable("a"), span }, ["a"]);
+    }
+    if (alias === "Map") {
+      return pin(
+        { kind: "Map", key: variable("k"), value: variable("v"), span },
+        ["k", "v"],
+      );
+    }
+    if (alias === "String") {
+      return pin({ kind: "Primitive", name: "String", span }, []);
+    }
+    if (alias === "Seq") {
+      const record = iface.records.get("Seq");
+      if (record === undefined) return undefined;
+      return pin(
+        {
+          kind: "RecordDeclaration",
+          record: record.id,
+          name: "Seq",
+          arguments: [variable("a")],
+          span,
+        },
+        ["a"],
+      );
+    }
+    return undefined;
+  }
+
   #honoredMemberAccess(
     iface: ModuleInterface,
     alias: string,

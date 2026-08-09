@@ -3962,6 +3962,27 @@ class JavaScriptEmitter {
     if (constraint === "Show") {
       return `({ show: __hex_value => ${this.#derivedShow(type, "__hex_value", evidenceNames, components)} })`;
     }
+    if (constraint === "Iterable") {
+      // Collections Part 5 §4's provided rows, rendered rather than imported
+      // (#353). Every one of them is one slot, and every slot but `Seq`'s is
+      // the same expression: an emitted `Vector`, `Map`, `Set`, `Range`,
+      // `Array` and JavaScript `String` are all iterable values, and
+      // `seqFromIterable` is the compiler's one constructor of a `Seq` over
+      // one. The per-type meanings §4's table names are already carried by the
+      // emitted iterators — a map's yields its entries, a set's its elements
+      // (not the `Unit`s beneath them), a string's its codepoints, which is
+      // §5.1's semantics exactly. So `String.toSeq` is lazy, O(1) to create and
+      // O(n) to exhaust (§5.2) for the same reason `Vector.toSeq` is: the
+      // adapter acquires the iterator at the first pull, never at construction.
+      //
+      // `Seq`'s row is the **identity**, not the adapter: rebuilding a spine
+      // over a sequence that already has one would be a second memo for values
+      // it already memoizes, and the row exists precisely so that normalizing a
+      // `Seq` with `toSeq` costs nothing (§4's purity note).
+      return this.#isSequence(type)
+        ? "({ toSeq: __hex_source => __hex_source })"
+        : `({ toSeq: ${this.#useHelper("seqFromIterable")} })`;
+    }
     if (constraint === "Concat" && type.kind === "Vector") {
       // The Operators §7 instance, and the whole of it: `concat` is the trie
       // operation itself, so `++` at `Vector(a)` is documented-linear (Part 1
@@ -4636,6 +4657,16 @@ class JavaScriptEmitter {
       case "floatHash":
       case "stringHash":
         return `__hex_a => ${this.#useHelper("stableHash")}(__hex_a)`;
+      // Collections Part 5 §5.3, whose implementation note is **binding**:
+      // collect chunks and join. The spread materializes the sequence once and
+      // `join` walks it once, so the cost is linear in the total length; the
+      // fold of `++` the section describes is semantics, and writing it would
+      // be the quadratic repeated concatenation the same sentence forbids.
+      // Empty in, `""` out, for free — `[].join("")` is `""` (§5.3's first
+      // clause) — and nothing here inspects, folds, or canonicalizes content,
+      // which is the no-normalization clause holding by construction.
+      case "stringFromSeq":
+        return `__hex_values => [...${this.#useHelper("seqToIterable")}(__hex_values)].join("")`;
       case "stringConcat":
         return "(__hex_a, __hex_b) => __hex_a + __hex_b";
       case "stringEquals":

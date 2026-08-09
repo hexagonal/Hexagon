@@ -56,9 +56,13 @@ export interface PreludeModule {
  *   answers `Ordering`. `Ord` is also why `Eq` had to be seated by here.
  * - `Integral.hex` follows both of its bases, `Num` and `Ord`.
  *
- * `Iterable` has no file: it is pre-registered by name only, owned by the
- * collections arc (#283), and reachable in v1 solely through a user's own
- * source declaration.
+ * `Iterable.hex` is the eleventh, and the one declaration that cannot sit with
+ * the others: `toSeq(xs: c): Seq(Item)` names `Seq`, so the same
+ * signature-types rule that puts `Show.hex` first puts this one after
+ * `Seq.hex` — the latest seat any constraint declaration takes, and the reason
+ * Collections Part 5 §4's provided rows have no source form. `Seq.hex` cannot
+ * honor a constraint whose name is not yet in scope, and seating `Iterable.hex`
+ * earlier is a genuine cycle rather than a reordering.
  *
  * ## Then the data modules
  *
@@ -84,10 +88,18 @@ export interface PreludeModule {
  * them every primitive companion is source and no instance in the language is
  * compiler-wired. `Float.hex` sits after `Int.hex` because `Num<Float>`'s
  * `fromNat` composes through `Int.fromNat`, which is `Num<Int>`'s member at its
- * own companion. `String.hex` needs nothing later than `Ord.hex` and is seated
- * beside `Float.hex` because the two landed together. Nothing before them names
- * a `Float` instance or interpolates a string, which is what lets the numerics
- * stay contiguous rather than being split around them.
+ * own companion.
+ *
+ * `String.hex` is the one companion whose seat is *forced*, and it moved to
+ * earn it (#353). Its instances need nothing later than `Ord.hex`, and it sat
+ * beside `Float.hex` on that reading — a convenience the numerics' contiguity
+ * paid for. Collections Part 5 §5.3 then gave it `fromSeq : Seq(String) ->
+ * String`, the conversion suite's construction half, and a signature naming
+ * `Seq` cannot be written before `Seq.hex` seats. So `String.hex` follows
+ * `Seq.hex` now. The swap costs nothing in the other direction: `Seq.hex`
+ * names no string, interpolates none, and shows nothing, so it loses no
+ * instance it was using. `String.toSeq` needs no seat at all — it is the
+ * provided row's member (Part 5 §4), read through `Iterable.hex` below.
  *
  * `Vector.hex` needs a great deal: `first`/`last`/`get` answer with `Option`,
  * and `toSeq`/`fromSeq` name `Seq`.
@@ -130,8 +142,9 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Int.hex",
   "Nat.hex",
   "Float.hex",
-  "String.hex",
   "Seq.hex",
+  "String.hex",
+  "Iterable.hex",
   "Result.hex",
   "Vector.hex",
   "Map.hex",

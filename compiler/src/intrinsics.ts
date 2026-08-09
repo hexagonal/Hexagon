@@ -106,6 +106,18 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   way `Signed<Int>`'s `fromInt` went. `stringCompare` is at the other
  *   extreme: its codepoint walk has no strictly simpler Hexagon to be written
  *   in, because the language has no codepoint API.
+ * - **`stringFromSeq` is the family's one non-member row** (#353), and the only
+ *   one whose lowering the spec dictates rather than merely permits.
+ *   Collections Part 5 §5.3 defines `String.fromSeq` as concatenation and then
+ *   binds the implementation: *collect chunks and join*, with the fold-of-`++`
+ *   description marked semantic only and quadratic repeated concatenation ruled
+ *   out by name. A Hexagon body would be that fold, so the operation crosses
+ *   here to reach the host's `join` — not because the language cannot say what
+ *   it means, but because the language cannot say it at the required
+ *   complexity. Its twin `String.toSeq` takes no key at all: it is the provided
+ *   `Iterable<String>` row's member (§4, §5.2), rendered at its use sites out
+ *   of the same `Seq`-over-an-iterable adapter every other row uses, and JS
+ *   string iteration is codepoint-wise, which is §5.1's semantics exactly.
  *
  * The `hashTrie*` family is the door's first **runtime-module** customer (§5.2's
  * runtime bullet, #365): `runtime/HashTrie.hex` declares all ten, unexported,
@@ -243,6 +255,7 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["stringEquals", 2],
   ["stringCompare", 2],
   ["stringHash", 1],
+  ["stringFromSeq", 1],
   ["hashTrieMix", 1],
   ["hashTrieDigit", 2],
   ["hashTrieBitTest", 2],
