@@ -538,6 +538,40 @@ describe("AnalysisSession.hover documentation", () => {
       .toBe("Things with a size.");
   });
 
+  test("a `type` member and its implied-type binding are answered too", () => {
+    // §4.2's two newest documentable positions (#394), and both are the
+    // documentation-alone case: a constraint's `type` member and an `honor`
+    // block's implied-type binding are never published to the occurrence index
+    // (neither `collectOccurrences` nor the type-occurrence walk visits an
+    // implied type's *name*; the honor binding's annotation is all either sees),
+    // so `covering` is the whole of what hover can say about them.
+    const source = [
+      "export constraint Keyed<c> =",
+      "    (** The type of one key, chosen by each instance. *)",
+      "    type Key",
+      "    (** The key of `x`. *)",
+      "    keyOf(x: c): Key",
+      "",
+      "honor Keyed<Int> =",
+      "    (** An `Int` keys itself. *)",
+      "    type Key = Int",
+      "    keyOf(x) = x",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+
+    const member = session.hover("/main.hex", at(source, "type Key") + "type ".length);
+    expect(member?.name).toBe("Key");
+    expect(member?.target).toBeUndefined();
+    expect(member?.documentation).toBe("The type of one key, chosen by each instance.");
+
+    const binding = session.hover("/main.hex", at(source, "type Key", 2) + "type ".length);
+    expect(binding?.name).toBe("Key");
+    expect(binding?.target).toBeUndefined();
+    expect(binding?.documentation).toBe("An `Int` keys itself.");
+  });
+
   test("a constraint does not borrow a namesake's documentation from another module", () => {
     // A constraint *is* its name project-wide (`targetKey`), so two unrelated
     // modules declaring `Shown` share one target and `byTarget` returns both

@@ -787,14 +787,26 @@ class Parser {
     this.#skipSeparators();
     while (!this.#at("VClose") && !this.#at("Eof")) {
       if (this.#at("Type")) {
+        const memberStart = this.#current().span.start.offset;
         const type = this.#advance();
         const typeName = this.#takeName("UpperName", "implied types require an uppercase-start name");
-        if (typeName !== undefined) {
-          impliedTypes.push({
-            name: parsedName(typeName),
-            span: spanFrom(type.span, typeName.span),
-          });
+        if (typeName === undefined) {
+          // The member this block would document failed to parse (§5's error
+          // would be a second complaint about one typo).
+          this.#docs.discard(memberStart);
+          this.#skipSeparators();
+          continue;
         }
+        const impliedType = {
+          name: parsedName(typeName),
+          span: spanFrom(type.span, typeName.span),
+        };
+        impliedTypes.push(impliedType);
+        // §4.2: a `type` member is a constraint member and documentable like
+        // any other. Its seat is nowhere — an instance's choice is a type, and
+        // types are gone before the boundary (§7.1) — so the attachment is for
+        // tooling (§8), and for the §5 error not to fire.
+        this.#docs.attach(memberStart, impliedType.span, [impliedType.name.span]);
         this.#skipSeparators();
         continue;
       }
@@ -900,17 +912,26 @@ class Parser {
     this.#skipSeparators();
     while (!this.#at("VClose") && !this.#at("Eof")) {
       if (this.#at("Type")) {
+        const memberStart = this.#current().span.start.offset;
         const type = this.#advance();
         const typeName = this.#takeName("UpperName", "implied type bindings require an uppercase-start name");
         this.#expect("Equal", "expected `=` in implied type binding");
         const annotation = this.#parseTypeAnnotation();
-        if (typeName !== undefined && annotation !== undefined) {
-          impliedTypes.push({
-            name: parsedName(typeName),
-            annotation,
-            span: spanFrom(type.span, annotation.span),
-          });
+        if (typeName === undefined || annotation === undefined) {
+          this.#docs.discard(memberStart);
+          this.#skipSeparators();
+          continue;
         }
+        const binding = {
+          name: parsedName(typeName),
+          annotation,
+          span: spanFrom(type.span, annotation.span),
+        };
+        impliedTypes.push(binding);
+        // §7.1: like every other `honor` member, an implied-type binding has no
+        // seat in either emitted artifact. The attachment is for tooling (§8),
+        // and for the §5 error not to fire.
+        this.#docs.attach(memberStart, binding.span, [binding.name.span]);
         this.#skipSeparators();
         continue;
       }
