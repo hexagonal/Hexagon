@@ -5,10 +5,10 @@ The Collections chapter ended with one deliberately underexplained line:
 ```hexagon
 honor<a> Iterable<Bag(a)> =
     type Item = a
-    iterate(bag) = Vector.toSeq(bag.items)
+    toSeq(bag) = Vector.toSeq(bag.items)
 ```
 
-`iterate` is an ordinary constraint operation. `type Item = a` answers a different
+`toSeq` is an ordinary constraint operation. `type Item = a` answers a different
 kind of question: *what type does this collection produce when it is iterated?*
 
 The `Iterable` constraint asks that question by declaring a type of its own:
@@ -16,7 +16,7 @@ The `Iterable` constraint asks that question by declaring a type of its own:
 ```hexagon
 constraint Iterable<c> =
     type Item
-    iterate(xs: c): Seq(Item)
+    toSeq(xs: c): Seq(Item)
 ```
 
 `Item` is an **implied type**: a type uniquely determined by a constraint instance's
@@ -65,7 +65,7 @@ uppercase-start name:
 ```hexagon
 constraint Iterable<c> =
     type Item
-    iterate(xs: c): Seq(Item)
+    toSeq(xs: c): Seq(Item)
 ```
 
 There is no `=` on the declaration line because the constraint does not choose the
@@ -116,7 +116,7 @@ An instance binding may use its own type parameters:
 ```hexagon
 honor<a> Iterable<Bag(a)> =
     type Item = a
-    iterate(bag) = Vector.toSeq(bag.items)
+    toSeq(bag) = Vector.toSeq(bag.items)
 ```
 
 Within the `honor` body, `Item` means the chosen type `a`. Optional annotations on its
@@ -125,7 +125,7 @@ operations may use that name:
 ```hexagon
 honor<a> Iterable<Bag(a)> =
     type Item = a
-    iterate(bag: Bag(a)): Seq(Item) = Vector.toSeq(bag.items)
+    toSeq(bag: Bag(a)): Seq(Item) = Vector.toSeq(bag.items)
 ```
 
 The shorter inferred annotations are normally easier to read, but the explicit form
@@ -228,7 +228,7 @@ The restriction does not prevent the operations that motivated the feature:
 - `for` may use the statically known `Iterable` instance for its source.
 
 ```hexagon
-let next = iterate(bag)              // Seq(Int), when bag: Bag(Int)
+let next = toSeq(bag)                // Seq(Int), when bag: Bag(Int)
 let converted = convert(parser, "8080")
 ```
 
@@ -244,7 +244,7 @@ itself remains only a type choice.
 ## Type members erase before the boundary
 
 An implied type is compile-time information. `type Item = a` emits no JavaScript
-property, constructor, or reflection record. The concrete `iterate` operation emits as
+property, constructor, or reflection record. The concrete `toSeq` operation emits as
 the ordinary function selected by the instance.
 
 At a loop whose source type is known, instance selection is static:

@@ -156,7 +156,7 @@ The sanctioned v1 answer to "I need non-structural key equality" is a **wrapper 
 ```
 constraint Iterable<c> =
     type Item
-    iterate(xs: c): Seq(Item)
+    toSeq(xs: c): Seq(Item)
 ```
 
 - A **type member** line is the keyword `type` followed by an uppercase-start name, on its own layout line (VSEP/`;` per Lexer & Layout), among the ordinary function members. No `=`, no parameters, no obligations (`type Item: Show` is v2 — §11).
@@ -173,12 +173,12 @@ A type member's bare name (`Item`) is in scope **throughout the constraint body*
 ```
 honor<a> Iterable<Bag(a)> =
     type Item = a
-    iterate(xs) = Bag.toSeq(xs)
+    toSeq(xs) = ...
 ```
 
 - The binding line is `type Name = τ`. **τ may mention only in-scope type names** (primitives, nominal types, fully-applied aliases per Declarations Preamble §5, other constructors) **and the instance's own `<...>` binders.** τ may **not** mention any implied type name — its own or another constraint's (they are not referenceable in type expressions, §7.3) — which is why recursion through type members is unwritable: no SCC check is needed because the cycle cannot be written.
 - **Exactly-once discipline**, mirroring function members (Constraints §4.1): every type member declared by the constraint must be bound exactly once in the `honor` block; missing, extra, and duplicate bindings are each errors naming the member (§9).
-- Within the `honor` block, the bare name `Item` is in scope and denotes τ — usable in optional annotations on the block's own function members. Function-member checking proceeds with the substitution applied: `iterate`'s expected type above is `Bag(a) -> Seq(a)`.
+- Within the `honor` block, the bare name `Item` is in scope and denotes τ — usable in optional annotations on the block's own function members. Function-member checking proceeds with the substitution applied: `toSeq`'s expected type above is `Bag(a) -> Seq(a)`.
 - A bare `Item = a` line (no keyword) is not this form — it is shaped like a term-level binding of an uppercase-start name, which Functions §2 reserves for constructors; the `type` keyword is what makes the line self-announcing.
 
 ### 5.4 Coherence
@@ -223,7 +223,7 @@ What remains — and suffices for Part 1 §6.1's floor — is everything that ne
 
 - **Declaring** a projection-bearing constraint (user or prelude): legal. §5.1 grammar is fully general, not a prelude privilege (rejected alternative §10.4).
 - **Honoring** one at a lawful instance head: legal — `honor<a> Iterable<Bag(a)>` per §5.3.
-- **Calling its function members at concrete types**: legal — `iterate(myBag)` where `myBag : Bag(Int)` resolves by head-constructor lookup, the same monomorphic dispatch every constraint member already has. Zero inference changes.
+- **Calling its function members at concrete types**: legal — `toSeq(myBag)` where `myBag : Bag(Int)` resolves by head-constructor lookup, the same monomorphic dispatch every constraint member already has. Zero inference changes.
 - **The `for..in` judgment consuming its instance table**: Part 5's business.
 
 Functions generic over "any iterable" remain unwritable in v1; `Seq(a)` parameters remain the idiom (Loops §7.1 seam, unchanged), and the ban's diagnostic points there (§9).
@@ -244,12 +244,12 @@ Enforcement point: type-name resolution. Outside its owner's bodies the implied 
 ```
 constraint Iterable<c> =
     type Item
-    iterate(xs: c): Seq(Item)
+    toSeq(xs: c): Seq(Item)
 ```
 
 **The implied type is named `Item`.** Rationale, kept against re-litigation: `Item` is the ordinary full word; it is the exact Rust precedent for this exact slot (`Iterator`'s `type Item`); and the eventual v2 reference syntax `Item(c)` reads as plain English. Rejected: **`Elem`** (a truncation with Haskell-shelf lineage — `Foldable`/MonoTraversable's `Elem`; an abbreviation would be off-doctrine in the most prominent implied type in the language), **`Element`** (the Swift spelling — full-word virtue, but longer while buying nothing `Item` lacks). "Element type" remains the correct *prose* phrase for the concept (Loops §7.1's ε is untouched); `Item` is the member's name.
 
-- The compiler-known iterable table (Loops §5) **is defined as this constraint's instance table**: one row per instance, element column = the instance's `Item` binding, strategy column = its `iterate`. The definitive v1 table of provided instances — including the FFI-owned `Array(a)`, `JsMap(k, v)`, and `JsSet(a)` rows — is **Part 5 §4**; it is not repeated here.
+- The compiler-known iterable table (Loops §5) **is defined as this constraint's instance table**: one row per instance, element column = the instance's `Item` binding, strategy column = its `toSeq`. The definitive v1 table of provided instances — including the FFI-owned `Array(a)`, `JsMap(k, v)`, and `JsSet(a)` rows — is **Part 5 §4**; it is not repeated here.
 - `Iterable` is projection-bearing, so §7.2 applies: it cannot constrain a binder in v1. The Loops §7.1 discipline — `Iterable` never appearing in inferred signatures, hovers, or unsatisfied-constraint errors — is thereby preserved *by construction* rather than by suppression: no binder can introduce it, so inference can never surface it.
 - **Operational semantics are Part 5's**: `for x in e` resolution (head-constructor-known lookup, unsolved-tyvar annotation-required error, non-iterable error + hints), table-opening for user instances, orphan-rule application to those instances, and emission. This document owns the declaration and the grammar it exercises; nothing operational is decided here beyond what Part 1 §6.1 already fixed.
 
@@ -381,14 +381,14 @@ honor Signed<P> = derive                            -- ERROR: only Eq, Ord, Show
 
 -- (8) A user collection joins for..in (operational check in Part 5)
 union Bag(a) = MkBag(Vector(a))
-let toSeq(b: Bag(a)): Seq(a) = ...
+let elements(b: Bag(a)): Seq(a) = ...
 honor<a> Iterable<Bag(a)> =
     type Item = a
-    iterate(xs) = toSeq(xs)                        -- OK; instance row: Bag → Item = a
+    toSeq(xs) = elements(xs)                       -- OK; instance row: Bag → Item = a
 
 -- (9) Exactly-once on the instance side
 honor<a> Iterable<Box(a)> =
-    iterate(xs) = ...                              -- ERROR: instance is missing `type Item`
+    toSeq(xs) = ...                                -- ERROR: instance is missing `type Item`
 
 -- (10) Projection-bearing binder ban, all positions
 let f<c: Iterable>(xs: c): Int = ...             -- ERROR: `Iterable` declares an implied
@@ -403,7 +403,7 @@ let g(e: Item): Int = ...                        -- ERROR: `Item` is an implied 
                                                  --   expressions
 
 -- (12) Monomorphic member call: legal today
-let n = iterate(MkBag(v))                        -- OK : Seq(Int)   (head constructor known)
+let n = toSeq(MkBag(v))                          -- OK : Seq(Int)   (head constructor known)
 
 -- (13) Owner-scoped identity (two user constraints, one module)
 constraint Source<c> =

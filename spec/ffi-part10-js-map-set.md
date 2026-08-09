@@ -126,7 +126,7 @@ The rejected spellings, each with its specific defect:
 
 This part declares the compiler/runtime-provided instances, extending Collections Part 5 §4's table by two FFI-owned rows (edit note, §10):
 
-| Type | `type Item` | `iterate` |
+| Type | `type Item` | `toSeq` (the member) |
 |---|---|---|
 | `JsMap(k, v)` | `(k, v)` | `JsMap.toSeq` (≡ `entries`) |
 | `JsSet(a)` | `a` | `JsSet.toSeq` |

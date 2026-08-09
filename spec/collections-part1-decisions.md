@@ -151,7 +151,7 @@ The corpus already leans hash-shaped, decisively:
 
 **"You can write a real collection" is a v1 requirement, and `for x in myBag` is its floor.** v1 therefore ships user-implementable `Iterable` in the following restricted form:
 
-- `Iterable` is a real prelude constraint declaration with an implied `type Item` member and `iterate(xs: c): Seq(Item)`. The declaration is Part 2 §8; the `type`-member grammar is Part 2 §5.
+- `Iterable` is a real prelude constraint declaration with an implied `type Item` member and `toSeq(xs: c): Seq(Item)`. The declaration is Part 2 §8; the `type`-member grammar is Part 2 §5.
 - A user instance — `honor Iterable<Bag(a)>` with `type Item = a` — adds a row to the iterable table. The operational lookup for `for p in e`, the finalized provided-instance table, the failure taxonomy and diagnostics, and the table-opening rules are Collections Part 5 §§2–8.
 - Instances are global (Modules §7). Discoverability is owned by Modules §7.6 and Part 5 §7.2: for a home-module instance the import graph does the work by construction — no effect import is needed.
 - **v1 restrictions, stated plainly:** `Item(c)` is not referenceable in user type expressions, and `Iterable` cannot appear as a constraint binder on user functions (the projection-bearing restriction, Part 2 §7). Functions generic over "any iterable" remain unwritable in v1; `Seq(a)` parameters remain the idiom (Loops §7.1).

@@ -179,8 +179,8 @@ Four call forms have no position for a mark, by grammar:
 
 The consequence is a demand, not an accident: **everything these forms dispatch to must be pure.**
 
-- **Constraint members are `->`-demanded.** Every member of every constraint — `show`, `compare`, `hash`, `add`, `iterate`, all of them — has pure arrows throughout its declared header, and an `honor` instance's member bodies must check pure. Constraints §2 owns the rule. Derived instances are pure by construction (their generated bodies call members).
-- **`Iterable` can never have an effectful instance.** `iterate` is a member, so it is pure; a type whose traversal performs effects cannot honor `Iterable` and cannot stand in a `for` head. This lands exactly where it will matter next: `Map`/`Set` iteration is pure by this sentence.
+- **Constraint members are `->`-demanded.** Every member of every constraint — `show`, `compare`, `hash`, `add`, `toSeq`, all of them — has pure arrows throughout its declared header, and an `honor` instance's member bodies must check pure. Constraints §2 owns the rule. Derived instances are pure by construction (their generated bodies call members).
+- **`Iterable` can never have an effectful instance.** `toSeq` is a member, so it is pure; a type whose traversal performs effects cannot honor `Iterable` and cannot stand in a `for` head. This lands exactly where it will matter next: `Map`/`Set` iteration is pure by this sentence.
 - **`for` headers are never marked, and loop bodies may be impure.** The head is protocol (pure by the above); the body is a block, not a lambda, and its statements mark their own calls as usual (ruling: iteration protocol is pure; effects live in the body).
 
 ## 6. The world's doors

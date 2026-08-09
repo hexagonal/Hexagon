@@ -1,7 +1,7 @@
 # Hexagon Spec: Collections Part 5 — `Iterable` & Collections Closeout
 
 **Status:** Decided (July 2026); pre-landing corrections incorporated in place (§18). Fifth and final part of the Collections effort. The authoritative operational specification of v1 `Iterable`: the resolution and typing of `for p in e`, the finalized provided-instance table (nine rows: six collections-owned, three FFI-owned), table-opening for user instances, static-resolution emission, the collections/stdlib boundary, and the transients decision. Written against Collections Parts 1–4, Constraints, Loops/Ranges/Iteration, Pattern Matching, and Modules; none re-litigated.
-**Scope:** The `for p in e` resolution algorithm and four-way failure taxonomy (unsolved inference variable vs declared type variable; the two-legal-homes user-nominal message); the provided instance table (§4); `Iterable<String>` with `Item = String` and the `String.toSeq`/`String.fromSeq` conversion pair (`fromSeq` = concatenation, full contract §5.3); the collection-conversion-suite domain (finite collections; `Range` and `Seq` exempt with reasons); `iterate` as a real prelude term; user-instance mechanics, discoverability, and provided-instance collisions; the "writing your own collection" recipe, normative, with `Bag(a)`; static-resolution emission; the combinator-surface boundary; transients runtime-internal only.
+**Scope:** The `for p in e` resolution algorithm and four-way failure taxonomy (unsolved inference variable vs declared type variable; the two-legal-homes user-nominal message); the provided instance table (§4); `Iterable<String>` with `Item = String` and the `String.toSeq`/`String.fromSeq` conversion pair (`fromSeq` = concatenation, full contract §5.3); the collection-conversion-suite domain (finite collections; `Range` and `Seq` exempt with reasons); `toSeq` as a real prelude term (the `Iterable` member); user-instance mechanics, discoverability, and provided-instance collisions; the "writing your own collection" recipe, normative, with `Bag(a)`; static-resolution emission; the combinator-surface boundary; transients runtime-internal only.
 **Not in scope:** The `Iterable` declaration and type-member grammar (Part 2 §5–§8 — consumed, not restated); the v2 implied-types remainder (deferred `Item(α)` goals, `Item(c)` reference syntax, member obligations, `Iterable` binders, `derive via` — Part 2 §11, Part 1 §6.3); the combinator families themselves (`stdlib-roadmap.md` ledger, decided at the stdlib listing; boundary drawn in §10); `AsyncSeq` and any `for await` form (Loops §11.4); **everything normative about the borrowed foreign views `Array(a)`, `JsMap(k, v)`, `JsSet(a)`** — types, borrow contracts, observation semantics, conversions, emission, `.d.ts` faces (FFI Parts 2 and 10; §4 records their instance rows, §6 the discharged `Array` ownership); the foreign (`.d.ts`) representation of constraints on exported polymorphic functions (FFI spec; see §9.3); `String.join`-style conveniences (stdlib listing).
 **Companions:** Collections Part 1 (§6.1/§6.5 made normative here; §9.5/§9.6 closed); Collections Part 2 (§8 declaration; §7.2 binder ban; §9 diagnostics extended); Collections Part 3 (§8 `Iterable<Vector>` row; §9 linear idiom cashed by §5 here); Collections Part 4 (§7.2 rows; §13.1/§13.4 closed here); Loops/Ranges/Iteration (§2.3 desugaring; §5 table finalized as §4 here; §6 `Seq`; §7.1 judgment made normative as instance lookup); Pattern Matching (§5 five-positions gate); Modules (§7 instance globality and orphan rule; §7.6 discoverability); Constraints (§5.1 coherence; §2.2 members); FFI Part 2 (§§6, 8–9: the `Array(a)` obligation discharged); FFI Part 3 (`Seq(a)` boundary crossing); FFI Part 10 (§6 `JsMap`/`JsSet` rows); Primitive Types (§5.1 String indexing).
 
@@ -12,7 +12,7 @@
 - **The table is the constraint.** The Loops §5 iterable table *is* `Iterable`'s instance table (Part 2 §8); this document finalizes its v1 rows and opens it to users. There is no second mechanism, no registry beside the constraint system.
 - **"You can write a real collection" is a v1 requirement, and `for x in myBag` is its floor** (Part 1 §6.1, discharged here). The whole tax is one small `honor` block.
 - **v1 iteration is monomorphic.** The projection-bearing binder ban (Part 2 §7.2) means every `for..in` site knows its collection's outer constructor at compile time. Static instance resolution and dictionary-free loop emission are therefore *consequences*, not optimisations (§9.1).
-- **Iterable and "in the conversion suite" are different properties.** Every **finite collection type** provides `toSeq`/`fromSeq` under exactly those names — deliberately including `String` (§5). `Range` is iterable but is not a collection: it is exempt (`Range.fromSeq` has no natural meaning; a public `Range.toSeq` is at most a stdlib-listing candidate). `Seq` is the conversion **currency itself** and needs no identity wrappers to satisfy a slogan; it crosses the FFI boundary through FFI Part 3's explicit adapters. `Array(a)` is a suite member (decided by FFI Part 2 §8.3; §6 here). Third-party collections are expected to provide the pair as part of the recipe (§8.1).
+- **Iterable and "in the conversion suite" are different properties.** `toSeq` is the `Iterable` member itself (§2.3): every iterable type has it, supplied by its instance. The **conversion suite** is the stronger, finite-collection property of *also* providing `fromSeq` under exactly that name — deliberately including `String` (§5). `Range` is iterable but is not a collection: its instance supplies `toSeq` like any instance's, but `Range.fromSeq` has no natural meaning and does not exist. `Seq` is the conversion **currency itself** — its instance's `toSeq` is the identity — and it crosses the FFI boundary through FFI Part 3's explicit adapters. `Array(a)` is a suite member (decided by FFI Part 2 §8.3; §6 here). Third-party collections are expected to provide `fromSeq` as part of the recipe (§8.1); their `toSeq` is their instance's member.
 - **Structure here, combinators there.** The collections specs own what a collection *is*; the stdlib listing owns the combinator families over it (§10). The Part 1 §3 naming doctrine binds both.
 
 ---
@@ -24,7 +24,7 @@
 ```
 constraint Iterable<c> =
     type Item
-    iterate(xs: c): Seq(Item)
+    toSeq(xs: c): Seq(Item)
 ```
 
 Normative home: Part 2 §8 (declaration, `Item` naming, projection-bearing status, binder and reference bans). Nothing is redeclared here; this document is its operational half, exactly as Part 2's not-in-scope line promised.
@@ -33,13 +33,14 @@ Normative home: Part 2 §8 (declaration, `Item` naming, projection-bearing statu
 
 Loops §7.1's judgment **Iterable(τ) = ε** is hereby defined normatively as: *look up the unique global `Iterable` instance whose head constructor is τ's outer constructor; ε is that instance's `Item` binding under the substitution of τ's arguments.* Uniqueness is coherence (Constraints §5.1); globality is Modules §7.1; user rows enter per §7 here. The judgment's shape is unchanged from Loops — it was always a functional-dependency table; the table simply has a public door now.
 
-### 2.3 `iterate` is a real prelude term
+### 2.3 `toSeq` is a real prelude term
 
-With Part 2 §8's promotion, `iterate` is an ordinary constraint member: a module-scope term name (Constraints §2.2), callable at concrete types by head-constructor lookup (Part 2 §7.2) — `iterate("abc") : Seq(String)`, `iterate(myBag) : Seq(Int)`. Consequences, stated once:
+With Part 2 §8's promotion, `toSeq` is an ordinary constraint member: a module-scope term name (Constraints §2.2), callable at concrete types by head-constructor lookup (Part 2 §7.2) — `toSeq("abc") : Seq(String)`, `toSeq(myBag) : Seq(Int)`. Consequences, stated once:
 
-- **Loops §2.3's reference desugaring now names this member.** The `iterate(e)` in the desugaring, formerly described as compiler-internal, is the constraint member itself; the desugaring is otherwise character-for-character unchanged (edit note, §16).
-- **Qualified home:** per the Modules §6.4 invariant, the stdlib listing must give `iterate` a qualified home; `Iterable.iterate` is the presumed companion-module spelling. Ordinary prelude occlusion applies (Modules §5.4): a module-level user `iterate` occludes the bare name module-wide; the qualified form stays reachable.
-- **Sole exporter.** The bare spellings above exist only while this member is the *one* prelude export of the name: a second visible prelude member bare-exporting `iterate` would put the name under Modules §5.5's collided-name refusal, and every bare call in this section would be refused naming both homes. The stdlib therefore must not bare-export another `iterate` — in particular, `Seq`'s seed/step producer (the infinite sequence of successive `step` applications) is named `Seq.successors`, not `Seq.iterate`, precisely to keep this name single-exporter.
+- **Loops §2.3's reference desugaring now names this member.** The `toSeq(e)` in the desugaring, formerly described as compiler-internal, is the constraint member itself; the desugaring is otherwise character-for-character unchanged (edit note, §16).
+- **Qualified home:** per the Modules §6.4 invariant, the stdlib listing must give `toSeq` a qualified home; `Iterable.toSeq` is the presumed companion-module spelling. Ordinary prelude occlusion applies (Modules §5.4): a module-level user `toSeq` occludes the bare name module-wide; the qualified form stays reachable.
+- **Sole exporter.** The bare spellings above exist only while this member is the *one* prelude export of the name: a second visible prelude member bare-exporting `toSeq` would put the name under Modules §5.5's collided-name refusal, and every bare call in this section would be refused naming every home. The collection companions therefore do not *export* `toSeq` as a plain function — each supplies it as its instance's member, and the per-type qualified spellings (`Vector.toSeq`, `Map.toSeq`, `Set.toSeq`, `String.toSeq`) are the uniform-access honored-member read (Modules §5.3), qualifiable but never a bare export (Constraints §4.6). One member, one bare exporter, every per-type spelling intact.
+- **`iterate` is not this member's name.** `Seq.iterate(seed, step)` — the seed/step producer — is an ordinary `Seq` combinator, unrelated to iteration-as-conversion, and keeps its canonical name precisely because the member does not claim it.
 - `Seq.next` and the functional-cursor protocol are untouched (Loops §6.2).
 
 ---
@@ -86,22 +87,22 @@ The prelude home is not user-editable, but naming it makes the two-home rule acc
 
 All compiler/runtime-provided (Part 2 §4.4 wording — specified normatively, no source form). This is the complete v1 table: the first six rows are collections-owned; the final three are FFI-owned borrowed views.
 
-| Type | `type Item` | `iterate` | Fixed by |
+| Type | `type Item` | `toSeq` (the member) | Fixed by |
 |---|---|---|---|
 | `Range` | `Int` | the range's progression (ascending or descending per the value; Loops §3) | Loops §3/§5 |
-| `Vector(a)` | `a` | `Vector.toSeq` | Part 3 §8 |
+| `Vector(a)` | `a` | the Part 3 §8 lazy view | Part 3 §8 |
 | `Seq(a)` | `a` | identity | Loops §6 |
-| `Map(k, v)` | `(k, v)` | `Map.toSeq` (≡ `entries`) | Part 4 §7.2 |
-| `Set(a)` | `a` | `Set.toSeq` | Part 4 §7.2 |
-| `String` | `String` (one codepoint) | `String.toSeq` | **§5 here** |
-| `Array(a)` | `a` | `Array.toSeq` | FFI Part 2 §8 |
-| `JsMap(k, v)` | `(k, v)` | `JsMap.toSeq` (≡ `entries`) | FFI Part 10 §6 |
-| `JsSet(a)` | `a` | `JsSet.toSeq` | FFI Part 10 §6 |
+| `Map(k, v)` | `(k, v)` | ≡ `entries` | Part 4 §7.2 |
+| `Set(a)` | `a` | element traversal | Part 4 §7.2 |
+| `String` | `String` (one codepoint) | the codepoint sequence, §5.2 | **§5 here** |
+| `Array(a)` | `a` | ≡ `Array.toSeq` (FFI Part 2 §9's named conversion) | FFI Part 2 §8 |
+| `JsMap(k, v)` | `(k, v)` | ≡ `entries` | FFI Part 10 §6 |
+| `JsSet(a)` | `a` | ≡ `JsSet.toSeq` | FFI Part 10 §6 |
 
 Notes:
 
 - The final three rows inherit their observation and emission semantics from their owning FFI parts; this table records their coherent `Iterable` instances rather than restating those borrow contracts.
-- `Range` participates in iteration but not in the conversion suite (§1); its `iterate` is runtime-internal. `Seq`'s row is the identity — the currency needs no conversion into itself.
+- `Range` participates in iteration but not in the conversion suite (§1): its instance's `toSeq` exists like any member's, but there is no `Range.fromSeq`. `Seq`'s row is the identity — the currency needs no conversion into itself.
 - No other v1 type is iterable. In particular the prelude unions `Option`/`Result`/`Bool` are not (`match` is their consumption form — for `Bool`, joined by its condition/operator eliminators, Unions §1/§8; it keeps `Option`/`Result` company here since #147 reclassified it out of this note's primitive clause *(2026-07-29; record §18.3)*), and `Int`/`Float`/`Unit`/functions are the §3.2 concrete-non-iterable case.
 - This table closes Loops §11.6 and is the finalized Loops §5 inventory (Loops now defers here by reference).
 
@@ -142,7 +143,7 @@ This keeps the finite-collection conversion suite (§1) exception-free where it 
 
 ### 6.1 The obligation, discharged
 
-The *direction* — the foreign door is iterable — was decided here as a binding obligation on the v1 FFI spec (`Iterable<Array(a)>` with `type Item = a` and `iterate = Array.toSeq`) and was never FFI's to reopen. Everything that gives the row meaning was FFI's to define, and FFI Part 2 has discharged it in full; nothing about `Array` iteration remains open, and none of it is restated here:
+The *direction* — the foreign door is iterable — was decided here as a binding obligation on the v1 FFI spec (`Iterable<Array(a)>` with `type Item = a` and the member `toSeq` behaving as `Array.toSeq`) and was never FFI's to reopen. Everything that gives the row meaning was FFI's to define, and FFI Part 2 has discharged it in full; nothing about `Array` iteration remains open, and none of it is restated here:
 
 - **Stability and observation.** FFI Part 2 §6.2 fixes the borrowed stability contract; §6.5 resolves the observation question this section deliberately left to it — under the contract, live and snapshot iteration are observationally identical, so native `for...of` emission is licensed (§8.2 there).
 - **The instance.** FFI Part 2 §8 provides `Iterable<Array(a)>` under exactly the obligated shape; the row appears in §4 here. Suite membership is decided: `Array(a)` joins the finite-collection conversion suite (§8.3 there; doctrine §1 here).
@@ -161,10 +162,10 @@ Exactly the Part 2 §5.3 form — nothing loop-specific:
 ```
 honor<a> Iterable<Bag(a)> =
     type Item = a
-    iterate(bag) = toSeq(bag)
+    toSeq(bag) = ...            -- the conversion body; §8.2's worked example
 ```
 
-Exactly-once member binding, the (constraint, constructor) coherence slot, and the orphan rule (home of `Iterable` — the prelude — or home of `Bag`) all apply unchanged (Part 2 §5.3–§5.4, Modules §7.2). Writing the instance adds the row; §3's resolution needs nothing else. The instance is legal on `record` and `union` types alike, `opaque` or not — opacity hides structure, not capabilities (Modules §4.2).
+The member *is* the type's `toSeq`: the honoring module writes the conversion here rather than as a plain export — a module-level binding of a member's spelling alongside the instance would be the rebinding error (Constraints §4.6) — and `Bag.toSeq` remains a correct consumer spelling as the uniform-access honored-member read (Modules §5.3). Exactly-once member binding, the (constraint, constructor) coherence slot, and the orphan rule (home of `Iterable` — the prelude — or home of `Bag`) all apply unchanged (Part 2 §5.3–§5.4, Modules §7.2). Writing the instance adds the row; §3's resolution needs nothing else. The instance is legal on `record` and `union` types alike, `opaque` or not — opacity hides structure, not capabilities (Modules §4.2).
 
 ### 7.2 Globality and discoverability
 
@@ -182,8 +183,8 @@ Provided rows occupy ordinary coherence slots (Part 2 §4.4). A user `honor Iter
 
 A third-party collection in v1 is complete with:
 
-1. **`toSeq` / `fromSeq`** as ordinary exported functions (the finite-collection conversion suite, §1);
-2. **one `honor Iterable` instance** delegating to `toSeq` — this is `for..in`;
+1. **one `honor Iterable` instance** whose `toSeq` member is the conversion — this is `for..in` *and* the suite's `toSeq` half in one declaration (`Bag.toSeq` reads through it, Modules §5.3);
+2. **`fromSeq`** as an ordinary exported function (the suite's construction half, §1);
 3. element constraints (e.g. `<a: Hash>`) in its own signatures **only where an operation genuinely consults them**.
 
 The whole tax is one small instance. Anything more (combinators, instances like `Eq`) is ordinary library surface, not iteration machinery.
@@ -198,12 +199,12 @@ export fun fromSeq<a: Hash>(items: Seq(a)): Bag(a) = ...
 export fun add<a: Hash>(bag: Bag(a), x: a): Bag(a) = ...
 export fun count<a: Hash>(bag: Bag(a), x: a): Int = ...   -- 0 when absent
 export fun size(bag: Bag(a)): Int = ...                    -- total multiplicity
-export fun toSeq(bag: Bag(a)): Seq(a) = ...
-    -- each element repeated `count` times, elements grouped; see order note below
 
 honor<a> Iterable<Bag(a)> =
     type Item = a
-    iterate(bag) = toSeq(bag)
+    toSeq(bag) = ...
+        -- each element repeated `count` times, elements grouped; see order
+        -- note below. This member is Bag's `toSeq`: `Bag.toSeq` reads it.
 ```
 
 ```
@@ -227,7 +228,7 @@ sum(Bag.toSeq(bag))          -- 8
 
 What the example fixes, normatively:
 
-- **Constraint placement is honest:** `fromSeq`/`add`/`count` need `<a: Hash>` (they consult the backing `Map`'s keys); `toSeq`, `size`, and the `Iterable` instance need **nothing** — iteration never hashes. A user whose element type lacks `Hash` can still iterate a `Bag` handed to them; they simply cannot build one.
+- **Constraint placement is honest:** `fromSeq`/`add`/`count` need `<a: Hash>` (they consult the backing `Map`'s keys); `size` and the `Iterable` instance — `toSeq` included — need **nothing**: iteration never hashes. A user whose element type lacks `Hash` can still iterate a `Bag` handed to them; they simply cannot build one.
 - **The instance lives in the type's home module** (`bag.hex`) — the ordinary orphan-legal choice, and the one §3.3's diagnostic points at.
 - **Opacity and instances compose:** `Bag` is `export opaque`; consumers cannot see `counts`, but `for x in bag` works, because the instance was declared where nothing is hidden.
 - **The order contract is inherited and must be stated:** `Bag.toSeq`'s cross-element order is its backing `Map`'s iteration order — deterministic for a value within one execution, unspecified, unstable across runs (Part 4 §7.1). A user collection's docs inherit the obligation to say so; this one just did.
@@ -251,11 +252,11 @@ Loops §8 is restated **by reference and unchanged** — in particular the count
 | `Map` with tuple head | `for (const [k, v] of m.entries())`-shaped (Part 4 §11) |
 | `String` | `for (const c of s)` — native JS string iteration is codepoint-wise, which is exactly §5.1's semantics; zero helpers (strings are immutable, so no observation question arises) |
 | `Range` value through a variable | general path over the materialised range object (Loops §8, unchanged) |
-| **User instance** | statically resolved `iterate` call: `const s = Bag_toSeq(bag); for (const x of s)`-shaped — a fresh name for the once-evaluated source (Loops §2.3), then the general path over the emitted `Seq` |
+| **User instance** | statically resolved `toSeq` call: `const s = Bag_toSeq(bag); for (const x of s)`-shaped — a fresh name for the once-evaluated source (Loops §2.3), then the general path over the emitted `Seq` |
 
 (`Array(a)`, `JsMap`, and `JsSet` emission is owned by FFI Parts 2 and 10, which license native iteration under their borrow contracts — §6.)
 
-The user-instance call is the ordinary emitted module function (here `Bag_toSeq` via the instance's `iterate` body), never dictionary access. Where the instance's `iterate` is a trivial delegation, the emitter may inline through it; observable behaviour per Loops §2.3 either way.
+The user-instance call is the ordinary emitted module function (here `Bag_toSeq`, the instance's `toSeq` body), never dictionary access. Where the instance's `toSeq` is a trivial delegation, the emitter may inline through it; observable behaviour per Loops §2.3 either way.
 
 ### 9.3 Laziness and `.d.ts`
 
@@ -351,7 +352,7 @@ Rejected per §7.2: for a home-module instance the pattern is structurally unnec
 | # | Decision | § |
 |---|---|---|
 | 1 | Iterable(τ)=ε defined as global-instance lookup on τ's outer constructor; the Loops table is the instance table, operationally | §2.2 |
-| 2 | `iterate` is an ordinary prelude term; Loops §2.3's desugaring names the member; qualified home owed to the stdlib listing (`Iterable.iterate` presumed); the bare name stays single-exporter — `Seq`'s seed/step producer is `Seq.successors` | §2.3 |
+| 2 | `toSeq` is the member and an ordinary prelude term; Loops §2.3's desugaring names it; qualified home owed to the stdlib listing (`Iterable.toSeq` presumed); the bare name stays single-exporter — companions supply theirs as instance members, and `Seq.iterate` (the producer) is unrelated | §2.3 |
 | 3 | Normative 8-step algorithm for `for p in e`; pattern heads per Pattern Matching's five positions, irrefutability-gated; body `Unit`; source evaluated once | §3.1 |
 | 4 | **Inference-vs-declared diagnostic split**: unsolved inference variable → annotate; declared type variable → `Seq(a)` parameter hint | §3.2 |
 | 5 | User-nominal not-iterable error names **both legal homes** (the Modules §7.6 discoverability obligation's loop-side face), leading with the actionable one | §3.3 |
@@ -360,9 +361,9 @@ Rejected per §7.2: for a home-module instance the pattern is structurally unnec
 | 8 | `String.toSeq` lazy codepoint view; **no `codepoints` synonym** | §5.2, §13.1 |
 | 9 | **`String.fromSeq` ships: concatenation**, full contract — `""` on empty, traversal order, any-length elements, no normalization, eager, linear with join-not-fold implementation note, one-sided round-trip law | §5.3 |
 | 10 | **Conversion-suite domain fixed: finite collection types.** `String` joins; `Range` exempt (not a collection); `Seq` is the currency itself; `Array` membership → FFI; third parties via the recipe | §1, §5.3 |
-| 11 | **`Iterable<Array(a)>` decided as a binding v1 FFI obligation** (`Item = a`, `iterate = Array.toSeq`); row meaning, conversions, observation semantics, and emission owned by FFI — discharged in full by FFI Part 2 | §6, §13.5 |
+| 11 | **`Iterable<Array(a)>` decided as a binding v1 FFI obligation** (`Item = a`, member `toSeq` behaving as `Array.toSeq`); row meaning, conversions, observation semantics, and emission owned by FFI — discharged in full by FFI Part 2 | §6, §13.5 |
 | 12 | Provided-row `honor` collisions surface as orphan errors + "the prelude already provides…" hint; duplicate-proper unreachable for prelude pairs from user code | §7.3 |
-| 13 | Recipe normative (`toSeq`/`fromSeq` + one delegating instance + honest constraint placement); effect-import pattern deliberately untaught; user collections inherit and must state their order contract | §8 |
+| 13 | Recipe normative (the instance's `toSeq` member as the conversion + `fromSeq` exported + honest constraint placement); effect-import pattern deliberately untaught; user collections inherit and must state their order contract | §8 |
 | 14 | **Emission: static instance resolution is total** (consequence of the binder ban); Loops §8 erasure mandatory and untouched; `String` emits native `for..of`; no `Iterable`/`Item`/instance machinery in `.d.ts` — other constraints' foreign representation deferred to FFI | §9 |
 | 15 | Collections/stdlib boundary fixed: structure in Parts 1–5, combinator families (and their v1 ship-list) in the stdlib listing under the Part 1 §3 doctrine | §10 |
 | 16 | **Transients runtime-internal only; no public API in v1**; v2 revisit-bar = userland benchmarks | §11 |
@@ -445,7 +446,7 @@ for x in widget                             -- widget : Widget, user record, no 
 -- (g) Provided-row collision: orphan error with the prelude hint
 honor<a> Iterable<Vector(a)> =              -- in user code
     type Item = a
-    iterate(xs) = Vector.toSeq(xs)
+    toSeq(xs) = Vector.toSeq(xs)
 -- ERROR: orphan instance — this module declares neither `Iterable` nor `Vector`;
 --        the prelude already provides Iterable<Vector(a)>
 

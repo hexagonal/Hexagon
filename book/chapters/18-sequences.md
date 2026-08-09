@@ -6,13 +6,13 @@ collection.
 
 ```hexagon
 let visibleSquares =
-    Seq.successors(1, number => number + 1)
+    Seq.iterate(1, number => number + 1)
     |> Seq.map(number => number * number)
     |> Seq.filter(square => square < 50)
     |> Seq.take(5)
 ```
 
-This code describes work. `Seq.successors` produces the endless sequence of repeated
+This code describes work. `Seq.iterate` produces the endless sequence of repeated
 step applications — here `1`, `2`, `3`, and so on without end — and yet declaring
 `visibleSquares` calculates nothing: no squares, and no collection containing them.
 `Seq` transformations produce another lazy sequence, and elements are calculated when

@@ -48,7 +48,7 @@ Semantics are defined by this desugaring (the emitter is free to do better, §8,
 -- for p in e
 --   body
 
-var cur = iterate(e)            -- cur : Seq(ε), a compiler-fresh name
+var cur = toSeq(e)              -- cur : Seq(ε), a compiler-fresh name
 -- loop:
 --   match next(cur)
 --     Some((p, rest)) =>
@@ -57,8 +57,8 @@ var cur = iterate(e)            -- cur : Seq(ε), a compiler-fresh name
 --     None => ()                -- loop is done; value ()
 ```
 
-- `iterate` is the ordinary `Iterable` constraint member (Collections Part 5 §2.3) converting the iterable to its `Seq` (§7); for `e : Seq(ε)` it is the identity.
-- *(#355.)* **The head is pure and never marked.** `iterate` is a constraint member, and members are pure (Constraints §2; Effects §5) — a `for` head has no seat for a call mark and needs none. Effects live in the body, whose statements mark their own calls as any block's do. The effectful traversal type, `Stream`, has no `Iterable` instance and does not stand in a `for` head (`stream.md` §4.5).
+- `toSeq` is the ordinary `Iterable` constraint member (Collections Part 5 §2.3) converting the iterable to its `Seq` (§7); for `e : Seq(ε)` it is the identity.
+- *(#355.)* **The head is pure and never marked.** `toSeq` is a constraint member, and members are pure (Constraints §2; Effects §5) — a `for` head has no seat for a call mark and needs none. Effects live in the body, whose statements mark their own calls as any block's do. The effectful traversal type, `Stream`, has no `Iterable` instance and does not stand in a `for` head (`stream.md` §4.5).
 - The cursor `var` lives in the loop's own scope; `body` is a block, not a lambda, so `body` touching *user* `var`s is legal and the `cur :=` reassignment is legal — the design closes with Statements §6.2 rather than fighting it.
 - `e` is evaluated **once**, before iteration begins.
 
@@ -146,9 +146,9 @@ fun collatzSteps(n0) =
 
 ## 5. What comes after `in`
 
-Anything with an `Iterable` instance (§7). The definitive v1 instance table — element types, `iterate` strategies, and the borrowed-view notes — is owned by **Collections Part 5 §4**. By ownership, the provided families are:
+Anything with an `Iterable` instance (§7). The definitive v1 instance table — element types, `toSeq` strategies, and the borrowed-view notes — is owned by **Collections Part 5 §4**. By ownership, the provided families are:
 
-- **Collections/prelude-owned:** `Range` (element `Int`, §3), `Vector(a)`, `Seq(a)` (`iterate` is the identity, §6), `Map(k, v)` (element `(k, v)` — the canonical `for (k, v) in m` head, §2.1), `Set(a)`, and `String` (element: one-codepoint `String`, Collections Part 5 §5).
+- **Collections/prelude-owned:** `Range` (element `Int`, §3), `Vector(a)`, `Seq(a)` (`toSeq` is the identity, §6), `Map(k, v)` (element `(k, v)` — the canonical `for (k, v) in m` head, §2.1), `Set(a)`, and `String` (element: one-codepoint `String`, Collections Part 5 §5).
 - **FFI-owned borrowed views:** `Array(a)`, `JsMap(k, v)`, `JsSet(a)` (rows recorded in Collections Part 5 §4; semantics in their owning FFI parts).
 
 User nominal types may join the table with lawful `honor Iterable<T>` instances in v1 (Collections Part 5 §7). No other **provided instance row** ships in v1.
@@ -225,10 +225,10 @@ is normatively **lookup in the global `Iterable` instance table**: find the uniq
 ```
 constraint Iterable<c> =
     type Item
-    iterate(xs: c): Seq(Item)
+    toSeq(xs: c): Seq(Item)
 ```
 
-- `iterate` is an **ordinary constraint member** — a real prelude term, callable at concrete types (Collections Part 5 §2.3); the §2.3 desugaring names it.
+- `toSeq` is an **ordinary constraint member** — a real prelude term, callable at concrete types (Collections Part 5 §2.3); the §2.3 desugaring names it.
 - The table is **open to users in v1**: a user nominal type joins via a lawful `honor Iterable<T>` instance in one of its two legal homes (Collections Part 5 §7; orphan rule per Modules §7). The full resolution algorithm, failure taxonomy, table-opening rules, and finalized rows are owned by **Collections Part 5 §§2–4**.
 - The v1 restriction: `Iterable` is **projection-bearing** and therefore **cannot constrain a generic binder**, and `Item`/`Item(c)` cannot appear in source type expressions (Collections Part 2 §7.2–§7.3). Functions generic over "any iterable" are not writable in v1; the idiom is to **take a `Seq(a)` parameter** and let callers convert (`for x in xs` where `xs : Seq(a)` infers fine — `Seq`'s instance has a variable element).
 - Consequently `Iterable` never appears in inferred signatures, hovers, or unsatisfied-constraint errors in v1 — non-leakage holds **by construction** (no binder can introduce it), not by suppression (Collections Part 2 §8).
@@ -256,12 +256,12 @@ Readable-JS doctrine: the general mechanism exists; the common case erases.
 | `for x in lo..hi` (syntactic range, non-literal bounds) | `for (let x = lo; x <= hi; x++)` — with `hi` bound to a `const` first if it is a non-trivial expression (evaluate once, §2.3) |
 | `for x in rangeDown(hi, lo)` (syntactic) | `for (let x = hi; x >= lo; x--)` (same once-evaluation rule) |
 | `for p in e` over a directly iterable provided type | `for (const p of e)`-shaped — a destructuring head where `p` destructures, e.g. `for (const [k, v] of m.entries())` (Collections Part 4 §11) |
-| `for p in e` through a user `Iterable` instance | statically resolved `iterate` call producing a `Seq`, then `for (const p of s)`-shaped iteration (Collections Part 5 §9) |
+| `for p in e` through a user `Iterable` instance | statically resolved `toSeq` call producing a `Seq`, then `for (const p of s)`-shaped iteration (Collections Part 5 §9) |
 | `while cond` | `while (cond) { ... }` |
 | `Range` as a first-class value (escapes a loop head) | a small range object implementing the JS iterable protocol, materialised on demand (same on-demand doctrine as constructors, Unions §6.4) |
 
 - The counting-loop erasure is **mandatory**, not an optimisation option — it is the readable-JS goal at the language's most common loop, same status as `fromNat` erasure (Numeric Literals §5). "Syntactic range" means the loop head's expression is literally a `..` application / `range(...)` / `rangeDown(...)` call; a `Range` arriving through a variable takes the general `for..of` path.
-- Provided directly iterable representations take the native path (`Vector` per Collections Part 3, `Seq` per §6.5, materialised `Range` objects, plus the other rows enumerated by Collections Part 5 §9). A user instance instead emits its statically resolved `iterate` call once and traverses the resulting `Seq`; the user's value need not itself implement JavaScript's iterable protocol. Both paths preserve §2.3's once-evaluation rule.
+- Provided directly iterable representations take the native path (`Vector` per Collections Part 3, `Seq` per §6.5, materialised `Range` objects, plus the other rows enumerated by Collections Part 5 §9). A user instance instead emits its statically resolved `toSeq` call once and traverses the resulting `Seq`; the user's value need not itself implement JavaScript's iterable protocol. Both paths preserve §2.3's once-evaluation rule.
 - Loop bodies emit as ordinary JS blocks; `var`/`:=` inside them emit per Statements §8 (`let` / `=`), which is sound *because* bodies are blocks, not closures — the same coupling recorded in Statements §8 holds here.
 - `.d.ts` impact: `Seq(a)` ↔ `Iterable<a>`; `Range` faces as **`Hex.Range`** — a branded interface extending `Iterable<number>` (FFI Part 1 §8.1) — if it ever crosses the boundary; loops themselves are function-internal and never do. *(Corrected in place 2026-08-02, #128 ruling: this bullet read "opaque branded interface". In this corpus "opaque branded" names FFI Part 7 §5's non-exported `unique symbol`, which is **not** the mechanism — the `Hex.*` brand is FFI Part 1 §8.3's structural phantom marker, chosen so values from separately compiled Hexagon programs stay mutually assignable. §12's decisions-log row already said "branded" without the word; this bullet was the file's sole offender.)*
 
@@ -389,7 +389,7 @@ for (k, v) in m                -- m : Map(String, Int); k : String, v : Int
 |---|---|
 | `for p in e` + block; the loop head is one irrefutable pattern position (tuple/record/vector patterns ship; `for (k, v) in map` canonical); binders are head binders, immutable | §2.1 |
 | Body block checks against `Unit`, no carve-out; §3.2 discard error with loop provenance; loop expression is `Unit` | §2.2 |
-| Reference desugaring: `var` cursor + `Seq.next` pulls; `iterate` is the `Iterable` constraint member; iterated expression evaluated once | §2.3 |
+| Reference desugaring: `var` cursor + `Seq.next` pulls; `toSeq` is the `Iterable` constraint member; iterated expression evaluated once | §2.3 |
 | `x..y` operator → concrete lazy `Range`; `Int`-only; inclusive both ends; no half-open form | §3.1 |
 | Literals in `..` stay polymorphic but unify with `Int` at the operator; no defaulting; loop variable is always `Int`; an independently established `Float` accumulator contextually widens that value through `fromInt` | §3.1, §10.3(i) |
 | `range(lo, hi)` prelude twin; `rangeDown(hi, lo)` for descending; direction never inferred from operand order | §3.2–3.4 |
@@ -400,7 +400,7 @@ for (k, v) in m                -- m : Map(String, Int); k : String, v : Int
 | External iteration mandatory; fold-based desugaring forbidden (lambda boundary) | §6.3 |
 | `Seq` emits onto the JS iterable protocol; `.d.ts` face `Iterable<a>`; constant-stack traversal; boundary adaptation owned by FFI Part 3 | §6.5 |
 | *(2026-07-28, defect 12 ruling)* The iterable face is carried by the `Seq` value itself (FFI Part 3 §9.4); export-boundary memoization's mechanism specified there; internal traversal never uses the face | §6.4, §6.5 |
-| `Iterable` is the real constraint in v1: judgment = global-instance lookup; `iterate` an ordinary member; user `honor` instances lawful; projection-bearing, so no generic binders and no `Item(c)` in source; non-leakage by construction; operational spec owned by Collections Part 5 | §7 |
+| `Iterable` is the real constraint in v1: judgment = global-instance lookup; `toSeq` an ordinary member; user `honor` instances lawful; projection-bearing, so no generic binders and no `Item(c)` in source; non-leakage by construction; operational spec owned by Collections Part 5 | §7 |
 | v2 remainder re-scoped: deferred `Item(α)` goals, `Item(c)` syntax, member obligations, `derive via` — Collections Part 2 §11 owns | §7.2, §11.1 |
 | Emission: counting-loop erasure for syntactic ranges (mandatory), `for..of` general case (destructuring heads for patterns), `while` verbatim, on-demand `Range` objects; `Range` faces as branded `Hex.Range` extending `Iterable<number>` | §8 |
 | Rejections: C-`for`, `do..while`, `loop`, break/continue (deepdive owed, decision surface recorded), `Iterator` constraint (never), half-open/Float/`Ord` ranges; bare-name-only heads superseded | §9 |

@@ -257,7 +257,7 @@ record Bag(a) = {items: Vector(a)}
 
 honor<a> Iterable<Bag(a)> =
     type Item = a
-    iterate(bag) = Vector.toSeq(bag.items)
+    toSeq(bag) = Vector.toSeq(bag.items)
 ```
 
 Now ordinary loop syntax works:
@@ -269,7 +269,7 @@ for number in bag
     print(number)
 ```
 
-For now, read `type Item = a` as “iterating `Bag(a)` produces `a`.” The `iterate`
+For now, read `type Item = a` as “iterating `Bag(a)` produces `a`.” The `toSeq`
 operation supplies those values as a sequence. This is the whole extension needed for
 an ordinary collection.
 
