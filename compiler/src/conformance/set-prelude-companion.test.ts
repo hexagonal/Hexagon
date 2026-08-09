@@ -474,12 +474,22 @@ describe("§16 (i) the instances", () => {
         "export let hashesAgree: Bool = hash(left) == hash(right)\n" +
         "export let elementsMatter: Bool = left == different\n" +
         "export let sizesMatter: Bool = left == shorter\n" +
+        // **The size check's own row, and the operand order is the whole point.**
+        // `setEquals` compares sizes and then walks the *left* set probing the
+        // right, so with the bigger set on the left the walk fails on its own and
+        // the size comparison is never load-bearing. Put the strict subset on the
+        // left and the walk succeeds — only the size check can answer `False`.
+        // Deleting that comparison from the helper leaves every other assertion
+        // in this file green and turns this one red, which is what a mutation
+        // check asked for.
+        "export let subsetIsNotEqual: Bool = shorter == left\n" +
         "export let emptiesAgree: Bool = Set.remove(Set.singleton(1), 1) == Set.empty\n",
     );
     expect(main["equal"]).toBe(true);
     expect(main["hashesAgree"]).toBe(true);
     expect(main["elementsMatter"]).toBe(false);
     expect(main["sizesMatter"]).toBe(false);
+    expect(main["subsetIsNotEqual"]).toBe(false);
     expect(main["emptiesAgree"]).toBe(true);
   });
 
