@@ -196,10 +196,13 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
   });
 
   /**
-   * The `Item` bindings, pinned through uses that only typecheck at the row's
-   * own element type — the same discipline the rows above use. A `JsMap` whose
-   * row bound `Item = k` would not destructure; one that bound the pair the
-   * wrong way round would fail `++` on the key or `+` on the value.
+   * The element types at the loop head, pinned through uses that only
+   * typecheck at the row's own element type: a key that is not a `String`
+   * fails `++`, a value or element that is not an `Int` fails `+`. What a
+   * `for..in` head exercises is the structural `For` arm — the rows' *erasure*
+   * (#353, ruling 2) — so this is the erasure agreeing with Part 10 §6.1's
+   * table. The rows' own `Item` bindings are pinned where `toSeq` consults
+   * them: `js-map-set.test.ts`'s fold tests fail on a swapped pair.
    */
   test("the borrowed views' `Item` bindings are (k, v) and a", () => {
     expect(messagesOf([["/main.hex",
