@@ -154,7 +154,18 @@ export function planReturnAnnotation(
     };
   }
 
-  return { ...subject, annotation: spelled.text, edits: writeEdits(spelled.text) };
+  // A return annotation is written immediately before the token that introduces
+  // the body, and for a lambda that token is `=>` — so an unparenthesized `=>`
+  // inside the annotation reads as the body starting there (`spec/effects.md`
+  // §2.6, Functions §4.1), which is the very mistake ruling 8 reports. The
+  // parentheses go on for the header form too: they are legal there, and one
+  // rule is worth more than a spelling that depends on which form the caret is
+  // in. Only the impure constant can reach this — a variable colour is refused
+  // above — so no pure annotation gains a bracket it did not have.
+  const annotation = type.result.kind === "Function" && type.result.effect !== undefined
+    ? `(${spelled.text})`
+    : spelled.text;
+  return { ...subject, annotation, edits: writeEdits(annotation) };
 }
 
 /**

@@ -15,7 +15,9 @@
 
 import { describe, expect, it } from "vitest";
 import seqFixture from "./effects-fixtures/Seq.hex?raw";
+import { AnalysisSession } from "../analysis/session.js";
 import { compileFiles } from "../support/test-project.js";
+import type { ProjectOptions } from "../project.js";
 
 /** Diagnostics of a project compiled with the flag on. */
 function effectDiagnostics(
@@ -38,6 +40,24 @@ function effectFixes(
       fix.edits.map((edit) => `${fix.message}: ${JSON.stringify(edit.replacement)}`)
     )
   );
+}
+
+/** The `.d.ts` one file of a project emits. */
+function declarationsOf(
+  files: readonly (readonly [string, string])[],
+  options: ProjectOptions,
+  path = "/main.hex",
+): string {
+  const compiled = compileFiles(files, options);
+  return compiled.modules.find((module) => module.source.path === path)!.declarations.text;
+}
+
+/** What a hover where `needle` is written shows as the type there. */
+function hoveredType(source: string, needle: string, options: ProjectOptions): string | undefined {
+  const session = new AnalysisSession(options);
+  session.setFile("/world.js", "");
+  session.setFile("/main.hex", source);
+  return session.hover("/main.hex", source.indexOf(needle))?.displayedType;
 }
 
 /**
@@ -485,6 +505,239 @@ export let run(document: String): Unit = maker("s")!(document)
       'parenthesize the return type: "("',
       'parenthesize the return type: ")"',
     ]);
+  });
+});
+
+/**
+ * §10's first obligation, as ruled in #364: display **distinguishes** rather
+ * than normalizes. A face renders its arrows by colour, and the undecorated
+ * `=>` is reserved for the faces whose write-back preserves meaning — exactly
+ * one effect variable, with at least one inlet occurrence, so that §2.2's
+ * linked reading reproduces the displayed scheme. Every other face carrying
+ * variables is numbered by first appearance, the inlet-less lone variable
+ * included, because its undecorated spelling would come back as the impure
+ * constant.
+ */
+describe("#364 the arrow trio, displayed", () => {
+  const composeSource = `${world}
+export let save2(document: String): String =
+    save!(document)
+    document
+
+export let compose(first: String => String, second: String => String): (String => String) =
+    (document) => second?(first?(document))
+
+export let withTransaction: ((String => String) =>! String) = (run: String => String): String =>
+    save!("begin")
+    run?("body")
+
+export let clean(document: String): String = trim(document)
+`;
+
+  it("numbers the headline probe's distinct colours", () => {
+    // §10's own specimen. `compose`'s parameters share one variable and its own
+    // colour is a second, unconstrained one (§3.4's third arm) — so the face is
+    // *not* the one the written `(String => String, String => String) => …`
+    // would mean, and the numbers are what say so.
+    expect(hoveredType(composeSource, "compose", { effects: true })).toBe(
+      "(String =>¹ String, String =>¹ String) =>² String =>¹ String",
+    );
+  });
+
+  it("leaves a single-variable face undecorated, so it writes back unchanged", () => {
+    // One variable, one spelling: the annotation grammar links every written
+    // `=>` into one variable (§2.2), so this face round-trips exactly.
+    expect(hoveredType(composeSource, "withTransaction", { effects: true })).toBe(
+      "(String => String) =>! String",
+    );
+  });
+
+  it("displays a linked conductor's whole signature with the plain arrow", () => {
+    // `fold`'s shape is the designated specimen: the body conducts, so its own
+    // colour *unifies with* the callback's (§3.4) rather than standing apart,
+    // and one variable covers the whole face — which is why nothing is
+    // numbered and the face is exactly what a writer would write.
+    const source = `export let fold(values: Vector(a), initial: b, combine: (b, a) => b): b =
+    var total = initial
+    var index = 1
+    while index <= Vector.length(values)
+        total := combine?(total, Vector.at(values, index))
+        index := index + 1
+    total
+`;
+    expect(hoveredType(source, "fold", { effects: true })).toBe(
+      "(Vector(a), b, (b, a) => b) => b",
+    );
+  });
+
+  it("numbers a lone colour that offers no inlet, which is the ruling's cut", () => {
+    // The undecorated `=>` is reserved for faces that write back *unchanged*,
+    // and one variable is not enough for that: §2.2's else-constant rule reads
+    // a sole `=>` with no parameter-position occurrence as the impure constant.
+    // So `(() -> String) => Int` would come back a different type, and the
+    // index is what stops it being offered as the same one.
+    const source = `export let make(): String = "x"
+export let hold(f: (() -> String) => Int): Int = f?(make)
+`;
+    expect(hoveredType(source, "f:", { effects: true })).toBe("(() -> String) =>¹ Int");
+    // The very same variable, displayed as `hold`'s own face, is plain: there
+    // it *has* an inlet — the arrow inside the parameter `f` — so the linked
+    // reading of the written text reproduces this scheme exactly.
+    expect(hoveredType(source, "hold", { effects: true })).toBe(
+      "((() -> String) => Int) => Int",
+    );
+  });
+
+  it("numbers a callback parameter hovered on its own", () => {
+    // The everyday shape of the same cut: `first`'s colour is the enclosing
+    // signature's, but nothing in `String => String` is a slot, so as a face in
+    // its own right it does not write back.
+    expect(hoveredType(composeSource, "first:", { effects: true })).toBe("String =>¹ String");
+  });
+
+  it("never numbers a constant, at either end of the trio", () => {
+    expect(hoveredType(composeSource, "save", { effects: true })).toBe("String =>! Unit");
+    expect(hoveredType(composeSource, "trim", { effects: true })).toBe("String -> String");
+    expect(hoveredType(composeSource, "clean", { effects: true })).toBe("String -> String");
+  });
+
+  it("keeps a colour from taking a type variable's letter", () => {
+    // Effect variables generalize with the binding (§3.4), so they arrive in the
+    // scheme's quantifier list beside the ordinary ones. Naming them would have
+    // spent `a` on a colour that displays as an arrow, and the type variable
+    // that follows would print as `b` with no `a` anywhere in the face.
+    const source = `${world}
+export let hold(step: () => Int, value: a): a = value
+`;
+    expect(hoveredType(source, "hold", { effects: true })).toBe(
+      "(() =>¹ Int, a) =>² a",
+    );
+  });
+
+  it("says the same thing in the emitted `.d.ts`, where TypeScript cannot", () => {
+    // TypeScript has one function arrow, so the trio has no seat in the face
+    // itself; `spec/doc-comments.md` §7.3 provides the one channel that is left,
+    // and the author's own documentation shares the block.
+    const emitted = declarationsOf(
+      [["/world.js", ""], ["/main.hex", `${world}
+(** Runs both, in order. *)
+export let compose(first: String => String, second: String => String): (String => String) =
+    (document) => second?(first?(document))
+`]],
+      { effects: true },
+    );
+    expect(emitted).toContain(
+      " * Hexagon: `(String =>¹ String, String =>¹ String) =>² String =>¹ String`",
+    );
+    expect(emitted).toContain(" * Runs both, in order.");
+    // The colours erase (§8), so they take no TypeScript quantifier with them:
+    // `compose` is polymorphic in nothing and its face says so.
+    expect(emitted).toContain("export declare const compose: (first:");
+  });
+
+  it("gives an impure extern row its face and a pure one none", () => {
+    const emitted = declarationsOf(
+      [["/world.js", ""], ["/main.hex", world]],
+      { effects: true },
+    );
+    expect(emitted).toContain("/** Hexagon: `String =>! Unit` */\nexport declare function save(");
+    // Purity is the silent one (§1): a face with nothing but pure arrows says
+    // nothing the TypeScript type has not already said.
+    expect(emitted).toContain("\nexport declare function trim(");
+    expect(emitted).not.toContain("Hexagon: `String -> String`");
+  });
+
+  it("numbers the same way in a diagnostic", () => {
+    // The checker's renderer is a third printer over a third representation of
+    // the type, and an unnumbered face in a report would be the same ambiguity
+    // in the one place a reader is already confused.
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `${composeSource}
+export let wrong: Int = compose
+`]]),
+    ).toEqual([
+      "type mismatch: expected Int, found " +
+      "((String) =>¹ String, (String) =>¹ String) =>² (String) =>¹ String",
+    ]);
+  });
+
+  it("applies the inlet cut in a diagnostic too, in both directions", () => {
+    const holder = `export let make(): String = "x"
+export let hold(f: (() -> String) => Int): Int = f?(make)
+`;
+    // The face has one colour and an inlet — the arrow inside `f` — so it is
+    // plain, and a reader can copy it into an annotation.
+    expect(
+      effectDiagnostics([["/main.hex", `${holder}
+export let wrong: Int = hold
+`]]),
+    ).toEqual([
+      "type mismatch: expected Int, found ((() -> String) => Int) => Int",
+    ]);
+    // The same colour, displayed as `f`'s own type, has no inlet left in view.
+    expect(
+      effectDiagnostics([["/main.hex", `export let make(): String = "x"
+export let hold(f: (() -> String) => Int): Int =
+    let n: String = f
+    f?(make)
+`]]),
+    ).toEqual([
+      "type mismatch: expected String, found (() -> String) =>¹ Int",
+    ]);
+  });
+
+  it("refuses to write a variable colour back into source", () => {
+    // The decorated spelling is display-only — `=>¹` is not grammar — and the
+    // undecorated one would link this arrow into the signature's own colour,
+    // which is a claim about the *other* arrows that this type alone cannot
+    // know is true. So the repair says why rather than writing it.
+    const source = "export fun pick(step: String => String) = step\n";
+    const session = new AnalysisSession({ effects: true });
+    session.setFile("/main.hex", source);
+    const offset = source.indexOf("pick");
+    const actions = session.codeActions("/main.hex", { start: offset, end: offset });
+    expect(actions.map(({ title, disabled }) => `${title}: ${disabled ?? "offered"}`)).toEqual([
+      "Infer return type: the return type of `pick` cannot be written here: " +
+      "this function type's arrow is an effect variable, and writing `=>` here " +
+      "would link it to the rest of the signature's colour",
+    ]);
+  });
+
+  it("spells the impure constant, which means the same wherever it stands", () => {
+    const source = `${world}
+export fun maker(seed: String) = save
+`;
+    const session = new AnalysisSession({ effects: true });
+    session.setFile("/world.js", "");
+    session.setFile("/main.hex", source);
+    const offset = source.indexOf("maker");
+    const [action] = session.codeActions("/main.hex", { start: offset, end: offset });
+    const edit = action!.edits[0]!;
+    // Parenthesized: a return annotation is written immediately before the
+    // token introducing the body, and for a lambda that token is `=>` — so a
+    // bare `=>!` there would read as the body starting at the arrow (§2.6).
+    expect(edit.replacement).toBe(": (String =>! Unit)");
+    session.setFile(
+      "/main.hex",
+      source.slice(0, edit.span.start.offset) + edit.replacement +
+        source.slice(edit.span.end.offset),
+    );
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+  });
+
+  it("is byte-identical with the flag off, on a corpus both can read", () => {
+    // The pure corpus is where the two compilations meet, and it is the whole
+    // of what flag-off byte-identity can be asked about: `=>`, `!` and `?` do
+    // not lex with the flag off at all.
+    const pure = `export let twice(step: Int -> Int, value: Int): Int = step(step(value))
+export let pair(value: a): (a, a) = (value, value)
+`;
+    const files = [["/main.hex", pure]] as const;
+    expect(declarationsOf(files, { effects: true })).toBe(declarationsOf(files, {}));
+    expect(hoveredType(pure, "twice", { effects: true })).toBe(
+      hoveredType(pure, "twice", {}),
+    );
+    expect(hoveredType(pure, "twice", {})).toBe("(Int -> Int, Int) -> Int");
   });
 });
 
