@@ -45,6 +45,21 @@ export interface Diagnostic {
    * question than one repair needs answered.
    */
   readonly incompleteSignature?: true;
+  /**
+   * The region this report speaks for: every other diagnostic whose primary
+   * span falls inside it is a consequence of this one and is dropped.
+   *
+   * For the report that says the source was *parsed* differently than it was
+   * meant (#355 ruling 8's return-annotation slot, #364). There the later
+   * passes are not wrong — they are faithfully describing a tree the writer did
+   * not write, and their reports arrive before the one sentence that names the
+   * fix. Suppression is the honest cut: the misparse is the defect, and it is
+   * reported once.
+   *
+   * Never set by a pass reporting an ordinary defect. A diagnostic carrying
+   * this field is itself immune, so two of them cannot silence each other.
+   */
+  readonly supersedes?: Source.Span;
 }
 
 export class Bag {
@@ -64,7 +79,7 @@ export class Bag {
    * without requiring passes to coordinate how they discover failures.
    */
   toArray(): readonly Diagnostic[] {
-    return this.#diagnostics
+    const ordered = this.#diagnostics
       .map((diagnostic, insertionOrder) => ({ diagnostic, insertionOrder }))
       .sort((left, right) => {
         const sourceOrder = compareSpans(
@@ -77,7 +92,24 @@ export class Bag {
           : sourceOrder;
       })
       .map(({ diagnostic }) => diagnostic);
+    const regions = ordered.flatMap((diagnostic) =>
+      diagnostic.supersedes === undefined ? [] : [diagnostic.supersedes]
+    );
+    if (regions.length === 0) return ordered;
+    return ordered.filter((diagnostic) =>
+      diagnostic.supersedes !== undefined ||
+      !regions.some((region) => contains(region, diagnostic.primary))
+    );
   }
+}
+
+/** Whether `span` lies wholly inside `region`, in the same file. */
+function contains(region: Source.Span, span: Source.Span): boolean {
+  return (
+    region.fileId === span.fileId &&
+    span.start.offset >= region.start.offset &&
+    span.end.offset <= region.end.offset
+  );
 }
 
 function compareSpans(left: Source.Span, right: Source.Span): number {

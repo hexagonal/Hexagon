@@ -52,6 +52,11 @@ const world = `extern from "./world.js"
     export pure fun trim(document: String): String
 `;
 
+/** Effects §9's mark-position row, the one every misplaced mark takes. */
+const markSeat =
+  "a call mark governs an argument list; write it immediately before `(`, " +
+  "or (in a `|>` stage) at the end of the stage — a reference carries no colour";
+
 describe("#355 effects prototype — the flag itself", () => {
   it("compiles the whole prelude and runtime clean with the flag on", () => {
     expect(effectDiagnostics([["/main.hex", "export let x: Int = 1\n"]])).toEqual([]);
@@ -419,10 +424,7 @@ export let stamp(document: String): String = document.show()
       effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
 export let held: (String =>! Unit) = save!
 `]]),
-    ).toEqual([
-      "a call mark governs an argument list; write it immediately before `(`, " +
-      "or (in a `|>` stage) at the end of the stage — a reference carries no colour",
-    ]);
+    ).toEqual([markSeat]);
   });
 
   it("stores an impure function without a mark", () => {
@@ -434,6 +436,54 @@ export let run(document: String): Unit = held!(document)
     ).toEqual([]);
   });
 
+  it("keeps the `not` redirect for a prefix `!`", () => {
+    // §9's prefix row, and Lexer §8.2's division of labour: `!` lexes as a mark
+    // now, so the redirect is position-selected by the parser. The prototype
+    // reported the mark-position row here, which tells a reader writing `not`
+    // to go and find an argument list.
+    expect(
+      effectDiagnostics([["/main.hex", "export let f(flag: Bool): Bool = !flag\n"]]),
+    ).toEqual(["Hexagon spells logical negation `not`"]);
+    // Parenthesizing the operand does not make it a call: nothing precedes the
+    // mark, so there is no argument list for it to govern either way.
+    expect(
+      effectDiagnostics([["/main.hex", "export let f(flag: Bool): Bool = !(flag)\n"]]),
+    ).toEqual(["Hexagon spells logical negation `not`"]);
+  });
+
+  it("gives a prefix `?` the mark-position row instead", () => {
+    // `?` never had the negation reading, so the same seat takes the other row.
+    expect(
+      effectDiagnostics([["/main.hex", "export let f(flag: Bool): Bool = ?flag\n"]]),
+    ).toEqual([markSeat]);
+  });
+
+  it("requires the mark glued to the argument list it governs", () => {
+    // Lexer §8.1 spells the seat "glued immediately before `(`". The prototype
+    // accepted every spacing, which makes a mark look like an operator.
+    const spellings = ["readLine ! ()", "readLine! ()", "readLine !()"];
+    for (const spelling of spellings) {
+      expect(
+        effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+export let ask(): String = ${spelling}
+`]]),
+      ).toEqual([markSeat]);
+    }
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+export let ask(): String = readLine!()
+`]]),
+    ).toEqual([]);
+  });
+
+  it("requires a pipe stage's mark glued to the stage", () => {
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+export let run(document: String): Unit = document |> save !
+`]]),
+    ).toEqual([markSeat]);
+  });
+
   it("does not admit `!=>`, which `!=` would win", () => {
     // `!=` takes the maximal munch, so the type ends at `Int` and the `!` is
     // never an arrow. Pinned on the exact reports, because "it errors" is true
@@ -441,6 +491,49 @@ export let run(document: String): Unit = held!(document)
     expect(
       effectDiagnostics([["/main.hex", "export let f: (Int !=> Int) = (x) => x\n"]]),
     ).toEqual(["expected `)` after type", "expected `=` in `let` binding"]);
+  });
+});
+
+describe("#355 the `pure` claim — FFI Part 4 §4.5", () => {
+  it("honours it on an extern `fun`", () => {
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+export let clean(document: String): String = trim(document)
+`]]),
+    ).toEqual([]);
+  });
+
+  it("refuses it on an extern `let` — a value reference has no face", () => {
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+    export pure let seed: Int
+`]]),
+    ).toEqual([
+      "`pure` claims a function's face, and a value reference carries no colour " +
+      "— the claim belongs on an extern `fun`",
+    ]);
+  });
+
+  it("refuses it on an extern `type`", () => {
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+    export pure type Handle
+`]]),
+    ).toEqual([
+      "`pure` claims a function's face, and a type has none — the claim belongs " +
+      "on an extern `fun`",
+    ]);
+  });
+
+  it("keeps `pure` an ordinary name everywhere else", () => {
+    // Contextual vocabulary (Lexer §4.2's family): the refusals above must not
+    // have reserved the word.
+    expect(
+      effectDiagnostics([["/main.hex", `
+export let pure(value: Int): Int = value
+export let doubled: Int = pure(21) + pure(21)
+`]]),
+    ).toEqual([]);
   });
 });
 
@@ -476,14 +569,34 @@ export let run(document: String): Unit = maker("s")!(document)
 
   it("names the parenthesization when the writer plainly meant a type", () => {
     const source = `export let f = (x: Int): Int => Int => x\n`;
-    expect(effectDiagnostics([["/main.hex", source]])).toContain(
+    // The whole list, not `toContain` (#364, §10's ledger): the report has to
+    // *lead*, and it used to fire third — behind a type mismatch against the
+    // annotation it was telling the reader to rewrite, and an unknown
+    // constructor `Int` from reading the intended type as a pattern. Both
+    // describe a tree the writer did not write.
+    expect(effectDiagnostics([["/main.hex", source]])).toEqual([
       "a lambda's return annotation gives an unparenthesized `=>` to the body, so " +
       "this reads as the body starting here; an impure function type in a return " +
       "annotation must be parenthesized",
-    );
+    ]);
     expect(effectFixes([["/main.hex", source]])).toEqual([
       'parenthesize the return type: "("',
       'parenthesize the return type: ")"',
+    ]);
+  });
+
+  it("supersedes only the lambda it reports on", () => {
+    // The cut is a region, so it must not reach past the lambda: a sibling
+    // binding's own error is nobody's consequence.
+    expect(
+      effectDiagnostics([["/main.hex", `export let f = (x: Int): Int => Int => x
+export let g: Int = "text"
+`]]),
+    ).toEqual([
+      "a lambda's return annotation gives an unparenthesized `=>` to the body, so " +
+      "this reads as the body starting here; an impure function type in a return " +
+      "annotation must be parenthesized",
+      "type mismatch: expected Int, found String",
     ]);
   });
 });
