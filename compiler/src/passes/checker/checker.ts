@@ -2342,16 +2342,32 @@ class Checker {
    * rather than whatever the user wrote.
    */
   #providedRowNote(item: Resolved.HonorItem): string {
-    const subject = this.#instanceSubjects.get(item);
-    if (subject === undefined) return "";
-    const instance = this.#instances.get(
-      this.#instanceKey(item.constraintIdentity, subject),
-    );
-    if (instance === undefined || !this.#providedIterableRows.has(instance)) return "";
-    const head = this.#instanceSubjects.get(instance);
-    return `; the prelude already provides \`${item.constraint}<${
-      head === undefined ? this.#display(subject) : this.#display(head)
-    }>\``;
+    // Read off the **annotation**, not the elaborated subject: head checking
+    // runs before pass 1 stores the `Mono`, so `#instanceSubjects` is still
+    // empty here. The key below is the same one `#subjectKey` mints, which is
+    // what keeps this asking about the slot selection would actually use.
+    const subject = item.subject;
+    const key = subject.kind === "Vector"
+      ? "vector"
+      : subject.kind === "Map"
+      ? "map"
+      : subject.kind === "Set"
+      ? "set"
+      : subject.kind === "Array"
+      ? "array"
+      : subject.kind === "Range"
+      ? "range"
+      : subject.kind === "Primitive"
+      ? `primitive:${subject.name}`
+      : subject.kind === "RecordDeclaration"
+      ? `record:${Number(subject.record)}`
+      : undefined;
+    if (key === undefined) return "";
+    const row = this.#instances.get(`${item.constraintIdentity}:${key}`);
+    if (row === undefined || !this.#providedIterableRows.has(row)) return "";
+    const head = this.#instanceSubjects.get(row);
+    if (head === undefined) return "";
+    return `; the prelude already provides \`${item.constraint}<${this.#display(head)}>\``;
   }
 
   #inferItems(

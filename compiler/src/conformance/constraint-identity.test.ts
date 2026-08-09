@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 
+import { PRE_REGISTERED_CONSTRAINTS } from "../constraints.js";
 import { compileFiles, runProject } from "../support/test-project.js";
 
 /**
@@ -240,11 +241,14 @@ describe("pre-registered constraints have one identity, held by the compiler", (
   });
 
   test("every pre-registered name is refused alike", () => {
-    // `Iterable` and `Integral` are absent on purpose: the compiler
-    // pre-registers their *names* but holds no declaration for either, so their
-    // members are reachable in v1 only through a source declaration. See
-    // `NON_REDECLARABLE_CONSTRAINTS`.
-    for (const name of ["Num", "Signed", "Frac", "Pow", "Concat", "Eq", "Ord", "Show", "Hash"]) {
+    // All eleven, and the list is the whole inventory rather than a subset of
+    // it. `Integral` (#335) and `Iterable` (#353) were held out while the
+    // compiler pre-registered their *names* and held no declaration for
+    // either — banning a redeclaration then would not have refused a twin, it
+    // would have deleted the only spelling each feature had. Both have prelude
+    // declarations now, so both are ordinary. Read against
+    // `NON_REDECLARABLE_CONSTRAINTS`, which no longer filters anything out.
+    for (const name of PRE_REGISTERED_CONSTRAINTS) {
       const compiled = compileFiles([["/main.hex",
         `constraint ${name}<a> =\n    probe(subject: a): Int\n`,
       ]]);

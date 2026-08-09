@@ -3581,10 +3581,18 @@ class Resolver {
     field: Parsed.Name,
   ): Resolved.Expr | undefined {
     if (field.text !== "toSeq") return undefined;
-    // Keyed on the *interface*, never on the spelling: a user's own
+    // Keyed on the *module*, never on the spelling: a user's own
     // `import * as Vector from "./mine"` shadows the prelude alias, and the row
-    // belongs to the prelude module or to nothing.
-    if (this.#preludeModuleAliases.get(alias) !== iface) return undefined;
+    // belongs to the prelude companion or to nothing.
+    //
+    // Compared by `fileId` rather than by object identity, because reaching the
+    // same module two ways yields two interfaces. An explicit
+    // `import * as Vector from "./stdlib/Vector"` of the very file the prelude
+    // seated — what the Playground's hosted equipment does — resolves through
+    // `#moduleAliases`, and identity would reject the module it is *about*.
+    const companion = this.#preludeModuleAliases.get(alias);
+    if (companion === undefined) return undefined;
+    if (companion.module.fileId !== iface.module.fileId) return undefined;
     const declaring = this.#preludeModuleAliases.get("Iterable");
     const symbol = declaring?.constraintMembers.get("toSeq");
     if (symbol === undefined) return undefined;
