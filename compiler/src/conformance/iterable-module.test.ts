@@ -116,13 +116,69 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
    * sequence is re-traversable, so the sequence view of itself *is* itself. The
    * consumer this row exists for is the one normalizing a mixed bag of
    * iterables — it should pay nothing for the ones already in the currency.
+   *
+   * The behavioural half alone **cannot fail for that property**: a row that
+   * re-wrapped the sequence in a fresh adapter spine would sum to 3 just the
+   * same, and "pay nothing" is exactly what a sum cannot observe. So the
+   * emitted slot is read as well. `__hex_source => __hex_source` is the claim;
+   * `__hex_seqFromIterable` in that position would be the defect.
+   *
+   * The sequence is built from `Seq`'s own producers rather than with
+   * `Vector.toSeq`, and that is what makes the negative assertion mean
+   * anything: a `Vector` read in the same fixture emits the *vector* row, whose
+   * slot is legitimately `__hex_seqFromIterable`, and the two rows' dictionaries
+   * are indistinguishable by text.
    */
   test("Seq(a) is the identity, not a re-wrapping", async () => {
+    const source =
+      "export let main(): Int =\n" +
+      "    let sequence: Seq(Int) = Seq.prepend(Seq.prepend(Seq.empty, 2), 1)\n" +
+      "    Seq.fold(toSeq(sequence), 0, (acc, n) => acc + n)\n";
+    const project = compileFiles([["/main.hex", source]]);
+    expect(project.diagnostics).toEqual([]);
+    const javascript = project.modules
+      .find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
+    expect(javascript).toContain("({ toSeq: __hex_source => __hex_source })");
+    expect(javascript).not.toContain("({ toSeq: __hex_seqFromIterable })");
+    expect(await mainOf(source)).toBe(3);
+  });
+
+  /**
+   * The member's result is a `Seq`, and a `Seq` is **persistent** — traversing
+   * it does not consume it (Loops §6.2/§6.4). That is not free at a row whose
+   * subject is a single-shot JavaScript iterable: `seqFromIterable`'s memoizing
+   * spine is what makes the second traversal replay rather than find the source
+   * exhausted, and this is the assertion that would catch its loss. A
+   * non-memoizing adapter answers 3 + 0 here, not 3 + 6.
+   */
+  test("the member's `Seq` is re-traversable", async () => {
     expect(await mainOf(
       "export let main(): Int =\n" +
-        "    let source: Seq(Int) = Vector.toSeq([1, 2, 3])\n" +
-        "    Seq.fold(toSeq(source), 0, (acc, n) => acc + n)\n",
-    )).toBe(6);
+        "    let sequence: Seq(Int) = toSeq([1, 2, 3])\n" +
+        "    Seq.length(sequence) + Seq.fold(sequence, 0, (acc, n) => acc + n)\n",
+    )).toBe(9);
+  });
+
+  /**
+   * The one FFI-owned row that has a type to key a slot on. `Array(a)` is the
+   * borrowed foreign view (FFI Part 2 §§6, 8–9), and Part 5 §6 records the
+   * obligation as discharged there — so the row belongs in the table even
+   * though nothing about the borrow contract is this file's business.
+   * Typecheck only: executing it would need a real foreign module, and what is
+   * in doubt is whether the slot exists, not what JavaScript does with an array.
+   *
+   * Its two siblings, `JsMap(k, v)` and `JsSet(a)`, are deliberately absent:
+   * neither is representable in the type system yet — no `Mono`, no annotation
+   * kind — so there is no subject to key their slots on. They land with FFI
+   * Part 10's types.
+   */
+  test("Array(a) gives a", () => {
+    expect(messagesOf([["/main.hex",
+      'extern from "./rows.js"\n' +
+        "    fun rows(): Array(Int)\n" +
+        "\n" +
+        "export let main(): Int = Seq.length(toSeq(rows!()))\n",
+    ]])).toEqual([]);
   });
 
   /**
@@ -255,6 +311,43 @@ describe("provided rows occupy real slots (Part 5 §7.3)", () => {
         "        total := total + n\n" +
         "    total\n",
     )).toBe(6);
+  });
+
+  /**
+   * Part 5 §9.3: **no `Iterable`, `Item`, or `Iterable`-instance machinery
+   * appears in `.d.ts`.** The guarantee is by construction rather than by
+   * filtering — the constraint cannot leak, because no binder can carry it
+   * (Part 2 §8), instances are never exports (Modules §11.5), and the v1
+   * reference ban keeps `Item` out of every signature — which is precisely why
+   * it is worth an assertion: a by-construction property has no code to review
+   * when it stops holding.
+   *
+   * Asked of a *user* instance, since that is the only kind with a dictionary
+   * that could be exported at all. The scope is `Iterable` machinery
+   * specifically; other constraints' foreign representation is the FFI spec's
+   * business and is asserted neither way (§18.2).
+   *
+   * `Bag` holds a `Vector`, not a `Seq`, and the substitution is load-bearing:
+   * a `Seq(a)` *itself* faces as `Iterable<a>` (Loops §6.5), which §9.3 calls
+   * out as a statement about `Seq` rather than about the constraint. A fixture
+   * holding one would put the word in the face honestly and leave the
+   * assertion unable to tell that from a leak.
+   */
+  test("no `Iterable` machinery reaches the `.d.ts` face", () => {
+    const project = compileFiles([["/main.hex",
+      "export record Bag = {items: Vector(Int)}\n" +
+        "honor Iterable<Bag> =\n" +
+        "    type Item = Int\n" +
+        "    toSeq(bag) = Vector.toSeq(bag.items)\n" +
+        "export let count(bag: Bag): Int = Vector.length(bag.items)\n",
+    ]]);
+    expect(project.diagnostics).toEqual([]);
+    const face = project.modules
+      .find(({ source }) => source.path === "/main.hex")!.declarations.text;
+    expect(face).toContain("Bag");
+    expect(face).not.toContain("Iterable");
+    expect(face).not.toContain("Item");
+    expect(face).not.toContain("toSeq");
   });
 });
 

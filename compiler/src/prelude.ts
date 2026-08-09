@@ -29,15 +29,20 @@ export interface PreludeModule {
  * construction. Adding a member means placing it after everything it uses —
  * `Seq.hex` sits after `Option.hex` because a pull step returns an `Option`.
  *
- * ## The constraint declarations come first (#335)
+ * ## The constraint declarations come as early as their signatures allow (#335)
  *
- * A constraint member is an export of its declaring module, so the ten
+ * A constraint member is an export of its declaring module, so all **eleven**
  * declarations the compiler holds are `.hex` files here, and their seats are
- * what put `show`, `equals`, `compare`, `add`, `div` and the rest into bare
- * scope everywhere. The rule placing them is the same seats-before-uses rule as
- * for any other member, read through a declaration's *signature types*: **a
- * constraint declaration sits as early as the types its member headers name
+ * what put `show`, `equals`, `compare`, `add`, `div`, `toSeq` and the rest into
+ * bare scope everywhere. The rule placing them is the same seats-before-uses
+ * rule as for any other member, read through a declaration's *signature types*:
+ * **a constraint declaration sits as early as the types its member headers name
  * allow**, and no earlier.
+ *
+ * Ten of them cluster at the front, because their headers name primitives and
+ * the subject variable and little else. That is the rule's *consequence*, not a
+ * rule of its own — `Iterable.hex` obeys the same sentence and lands far down
+ * the list, after `Seq.hex`, because `toSeq(xs: c): Seq(Item)` names `Seq`.
  *
  * - `Show.hex` is first: its one signature names only the primitive `String`.
  * - `Num.hex`, `Signed.hex`, `Frac.hex`, `Pow.hex` and `Concat.hex` follow

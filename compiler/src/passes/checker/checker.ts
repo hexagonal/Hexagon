@@ -1204,6 +1204,25 @@ class Checker {
           // prelude pair from user code, because satisfying the orphan rule
           // would mean editing the prelude. The orphan report is the one that
           // fires, and `#providedRowNote` appends the fact the user needs.
+          //
+          // **The one silent path this opens, for whoever edits the prelude
+          // next.** From user code the suppression is unreachable twice over: a
+          // structural head (`Vector(a)`, `Map(k, v)`, `Set(a)`) is refused
+          // outright by `#checkInstanceHead` (Constraints §5.4), and a user file
+          // declares neither `Iterable` nor any provided row's subject, so it
+          // fails the orphan rule and gets the report either way. Inside
+          // `stdlib/Iterable.hex` both guards lift at once: it *declares* the
+          // constraint, so `ownsConstraint` holds and no orphan error fires, and
+          // a nominal head slips past the head check — so a hand-written
+          // `honor Iterable<Seq(a)>` there would collide with the seeded `Seq`
+          // row and be **dropped without a diagnostic**. Nothing writes one
+          // today, and nothing should: the rows have no source form by ruling
+          // (§4), which is what this whole branch is downstream of. If that ever
+          // changes, this suppression is where the silence lives.
+          //
+          // Deliberately not fixed by narrowing the condition. A report here
+          // would have to name a duplicate of an instance with no source span
+          // to point at, and inventing one is worse than the comment.
           if (!this.#providedIterableRows.has(occupant)) {
             this.#diagnostics.add({
               severity: "error",

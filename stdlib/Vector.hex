@@ -37,8 +37,15 @@ extern from "hex:intrinsic"
     // beside the instance is the Constraints section 4.6 rebinding error. The
     // consumer spellings are the bare member `toSeq(values)` and the
     // uniform-access read `Vector.toSeq(values)`; neither is an export of this
-    // file. The row is kept because the boundary crossing is still Collections
-    // Part 3 section 7's, and `fromSeq` below is written over it.
+    // file.
+    //
+    // The row is kept, and nothing in this file calls it: `fromSeq` below is a
+    // door row of its own, not something written over this one. It stays
+    // because the key is one of the seven the `vector*` family is — Collections
+    // Part 3 section 7's boundary crossing, which `spec/intrinsics.md`
+    // section 9.2 records as declared here — and a key the compiler provides
+    // with no declaration behind it would be an inventory entry no source
+    // proves. If that family is ever re-cut, this is the row to cut with it.
     fun vectorToSeq as elements(values: Vector(a)): Seq(a)
 
     (** The elements of `values` collected into a vector. It forces the whole
