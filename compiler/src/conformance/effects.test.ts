@@ -602,6 +602,13 @@ export let g: Int = "text"
 });
 
 describe("#355 the pure demand", () => {
+  /** The reverse direction's sentence (#364, §10's ledger). */
+  const reverseDemand =
+    "this position's arrow is the impure constant — its colour is fixed where " +
+    "the type is declared, and this function's face is the pure `->`; the " +
+    "demand cannot weaken — change the position's declared arrow, or supply " +
+    "the effectful function the position promises";
+
   it("refuses an impure function where `->` is demanded", () => {
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
@@ -612,6 +619,30 @@ export let go(document: String): Unit = strict(save, document)
       "a `->` arrow promises purity, and this function performs effects — the " +
       "demand is written `->`, the function's face `=>` or `=>!`",
     ]);
+  });
+
+  it("refuses a pure function where a `=>` data field is demanded", () => {
+    // The reverse direction, in the position §2.5 makes the constant on its own
+    // account: a record declaration has no signature, so the field's arrow is
+    // the impure constant and a pure function cannot weaken it. Under the §4.3
+    // message every clause named a `->` this program does not contain.
+    expect(
+      effectDiagnostics([["/main.hex", `
+export record Source = { step: () => String }
+export let hold(step: () -> String): Source = Source({ step = step })
+`]]),
+    ).toEqual([reverseDemand]);
+  });
+
+  it("refuses a pure function at a result-only face", () => {
+    // §2.2's else-constant rule supplies the other constant position: the
+    // annotation's only `=>` stands in result position, so it is the constant.
+    expect(
+      effectDiagnostics([["/main.hex", `
+export let pureStep(): String = "x"
+export let held: (() =>! String) = pureStep
+`]]),
+    ).toEqual([reverseDemand]);
   });
 
   it("keeps `Seq`'s producer pure by construction — branch (ii)", () => {

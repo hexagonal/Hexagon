@@ -8849,13 +8849,26 @@ function markFixMessage(required: "bang" | "question" | undefined): string {
 }
 
 /**
- * The two-point lattice's one unification failure: a pure demand meeting an
- * impure function, or the reverse. Said as a sentence about colour rather than
- * as a type mismatch, because the types on both sides are otherwise identical
- * and a structural report would print them the same way twice.
+ * The two-point lattice's one unification failure, in the two directions it has.
+ * Said as a sentence about colour rather than as a type mismatch, because the
+ * types on both sides are otherwise identical and a structural report would
+ * print them the same way twice.
+ *
+ * `left` is the demand and `right` the supply, the convention `#unify`'s own
+ * "expected … found …" fallback already keeps. The direction decides the
+ * sentence, and it has to: the §4.3 report names a `->` in every clause, and in
+ * the reverse direction — a pure function refused where a `=>` data field or a
+ * result-only face demands the impure constant — no `->` exists anywhere in the
+ * program to name.
  */
 function effectMismatchMessage(left: Mono, right: Mono): string {
   const impure = (side: Mono): boolean => side.kind === "Effect" && side.impure;
+  if (left.kind === "Effect" && right.kind === "Effect" && impure(left)) {
+    return "this position's arrow is the impure constant — its colour is fixed " +
+      "where the type is declared, and this function's face is the pure `->`; " +
+      "the demand cannot weaken — change the position's declared arrow, or " +
+      "supply the effectful function the position promises";
+  }
   return impure(left) || impure(right)
     ? "a `->` arrow promises purity, and this function performs effects — the " +
       "demand is written `->`, the function's face `=>` or `=>!`"
