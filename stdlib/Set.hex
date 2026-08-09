@@ -114,8 +114,10 @@ export let unionOf<a: Hash>(left: Set(a), right: Set(a)): Set(a) =
         Seq.fold(toSeq(left), right, replaceMember)
 
 // One element of the traversed side kept only if `source` holds an equal one,
-// and kept **as `source` holds it**. Named rather than inlined because the fold
-// below needs `source` bound and a lambda cannot take a third parameter.
+// and kept **as `source` holds it**. Named rather than written as the fold's
+// lambda because the body is a `match`, which wants a block — the same reason
+// `Map.hex`'s `entryKey` and `insertEntry` are named. The lambda that remains at
+// the call site is the one closing over `source`.
 let keptRepresentative<a: Hash>(source: Set(a), accumulated: Set(a), element: a): Set(a) =
     match storedMember(source, element)
         None => accumulated
