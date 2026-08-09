@@ -901,6 +901,20 @@ class Checker {
     ReadonlyMap<string, Variable>
   >();
   readonly #instanceSubjects = new WeakMap<Resolved.HonorItem, Mono>();
+  /**
+   * Each instance's `type Name = τ` bindings, elaborated once — against the
+   * same binder scope as the subject, which is what makes `type Item = a` and
+   * `Bag(a)` share one variable (Collections Part 2 §5.3: "checking proceeds
+   * with the substitution applied"). Filled beside `#instanceSubjects` for
+   * source instances and imported ones alike; member checking, requirement
+   * discharge, and the public surface all read this store rather than
+   * re-elaborating the annotation, because each re-elaboration chooses a scope
+   * again, and choosing differently is exactly #388.
+   */
+  readonly #instanceImpliedTypes = new WeakMap<
+    Resolved.HonorItem,
+    ReadonlyMap<string, Mono>
+  >();
   readonly #instanceBaseConstraints = new WeakMap<Resolved.HonorItem, readonly Requirement[]>();
   /**
    * The component demands a derived instance raised, kept rather than discarded
@@ -1114,6 +1128,7 @@ class Checker {
           typeParameters,
         );
         this.#instanceSubjects.set(item, subject);
+        this.#storeInstanceImpliedTypes(item, typeParameters, true);
         const key = this.#instanceKey(item.constraintIdentity, subject);
         if (this.#instances.has(key)) {
           // Both instances answer the *same* declaration — that is what a key
@@ -2414,6 +2429,7 @@ class Checker {
           item,
           this.#instanceBaseRequirements(item, instanceSubject),
         );
+        const stored = this.#instanceImpliedTypes.get(item);
         const impliedTypes = new Map<string, Mono>();
         for (const required of declaration.impliedTypes) {
           const bindings = item.impliedTypes.filter(({ name }) => name === required.name);
@@ -2425,10 +2441,7 @@ class Checker {
             });
             impliedTypes.set(required.name, ERROR);
           } else {
-            impliedTypes.set(
-              required.name,
-              this.#annotationType(bindings[0]!.annotation, level + 1),
-            );
+            impliedTypes.set(required.name, stored?.get(required.name) ?? ERROR);
             if (bindings.length > 1) {
               this.#diagnostics.add({
                 severity: "error",
@@ -2522,7 +2535,10 @@ class Checker {
                   parameter.annotation,
                   level + 1,
                   new Map(),
-                  new Map(),
+                  // A copy, not the live binder map: the annotation may name
+                  // the instance's binders, but a name it introduces must not
+                  // become an instance parameter.
+                  new Map(this.#instanceTypeParameters.get(item) ?? []),
                   impliedTypes,
                 ),
                 expectedParameter,
@@ -5840,19 +5856,14 @@ class Checker {
       requirement.dictionary = instance.dictionary;
       requirement.dictionaryArguments = this.#instanceArguments(instance, type);
       if (requirement.impliedTypes !== undefined) {
-        const parameters = this.#instanceTypeParameters.get(instance) ?? new Map();
+        const bindings = this.#instanceImpliedTypes.get(instance);
         const replacements = this.#matchInstanceSubject(instance, type);
         for (const [name, projection] of requirement.impliedTypes) {
-          const binding = instance.impliedTypes.find(
-            (impliedType) => impliedType.name === name,
-          );
+          const binding = bindings?.get(name);
           if (binding !== undefined) {
             this.#unify(
               projection,
-              this.#replaceVariables(
-                this.#annotationType(binding.annotation, 0, new Map(), parameters),
-                replacements,
-              ),
+              this.#replaceVariables(binding, replacements),
               requirement.span,
             );
           }
@@ -6848,6 +6859,49 @@ class Checker {
   }
 
   /**
+   * Elaborates an instance's `type Name = τ` bindings into
+   * `#instanceImpliedTypes`, in the scope the subject was elaborated in — after
+   * it, so a binder the head introduced (declared, or minted by the head's own
+   * elaboration) is visible to τ. A name τ introduces beyond that scope is
+   * outside Collections Part 2 §5.3's closed set ("in-scope type names and the
+   * instance's own `<...>` binders"): the binding stores `ERROR`, and the mint
+   * is removed from the binder map so instantiation never mistakes it for an
+   * instance parameter. `report` is true only in the declaring module — an
+   * imported instance's bindings were checked at home, and re-reporting here
+   * would blame the importer.
+   */
+  #storeInstanceImpliedTypes(
+    instance: Resolved.HonorItem,
+    typeParameters: Map<string, Variable>,
+    report: boolean,
+  ): void {
+    const impliedTypes = new Map<string, Mono>();
+    for (const binding of instance.impliedTypes) {
+      // First binding of each name wins here; the duplicate is diagnosed where
+      // the declaration's requirements are walked.
+      if (impliedTypes.has(binding.name)) continue;
+      const before = new Set(typeParameters.keys());
+      let type = this.#annotationType(binding.annotation, 0, new Map(), typeParameters);
+      const minted = [...typeParameters.keys()].filter((name) => !before.has(name));
+      if (minted.length > 0) {
+        for (const name of minted) typeParameters.delete(name);
+        if (report) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `\`${minted[0]!}\` is not one of this instance's \`<...>\` binders; ` +
+              "an implied type binding may mention only in-scope type names and " +
+              "the instance's own binders",
+            primary: binding.span,
+          });
+        }
+        type = ERROR;
+      }
+      impliedTypes.set(binding.name, type);
+    }
+    this.#instanceImpliedTypes.set(instance, impliedTypes);
+  }
+
+  /**
    * Admits one instance this module did not declare into the evidence universe.
    *
    * Shared by both channels that supply such evidence: the prelude's §5.5
@@ -6883,6 +6937,7 @@ class Checker {
       typeParameters,
     );
     this.#instanceSubjects.set(instance, subject);
+    this.#storeInstanceImpliedTypes(instance, typeParameters, false);
     const key = this.#instanceKey(imported.constraintIdentity, subject);
     const existingIdentity = this.#instanceIdentities.get(key);
     if (existingIdentity === imported.identity) return;
@@ -8057,7 +8112,9 @@ class Checker {
         components: this.#publicComponents(this.#instanceComponents.get(item) ?? []),
         impliedTypes: item.impliedTypes.map((impliedType) => ({
           name: impliedType.name,
-          type: this.#publicType(this.#annotationType(impliedType.annotation)),
+          type: this.#publicType(
+            this.#instanceImpliedTypes.get(item)?.get(impliedType.name) ?? ERROR,
+          ),
           span: impliedType.span,
         })),
         members: [
