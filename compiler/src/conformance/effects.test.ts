@@ -618,7 +618,7 @@ export let go(): Unit = drive({ step = () => save!("x") })
   });
 });
 
-describe("#355 §10 — declaration-site variance counts the effect slot", () => {
+describe("#355 declaration-site variance counts the effect slot (Effects §3.4, #364)", () => {
   // `#variablePositions` walked a function type's parameters and result and
   // skipped its colour, so every effect variable read as absent — and an absent
   // variable is invariant by default, which item 7's covariant-only clause
@@ -693,7 +693,7 @@ export let run(document: String): Unit = maker("s")!(document)
 
   it("names the parenthesization when the writer plainly meant a type", () => {
     const source = `export let f = (x: Int): Int => Int => x\n`;
-    // The whole list, not `toContain` (#364, §10's ledger): the report has to
+    // The whole list, not `toContain` (#364; Effects §9's return-annotation row): the report has to
     // *lead*, and it used to fire third — behind a type mismatch against the
     // annotation it was telling the reader to rewrite, and an unknown
     // constructor `Int` from reading the intended type as a pattern. Both
@@ -726,7 +726,7 @@ export let g: Int = "text"
 });
 
 describe("#355 the pure demand", () => {
-  /** The reverse direction's sentence (#364, §10's ledger). */
+  /** The reverse direction's sentence (#364; Effects §4.3/§9). */
   const reverseDemand =
     "this position's arrow is the impure constant — its colour is fixed where " +
     "the type is declared, and this function's face is the pure `->`; the " +

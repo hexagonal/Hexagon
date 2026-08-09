@@ -8879,10 +8879,10 @@ function markFixMessage(required: "bang" | "question" | undefined): string {
  *
  * `left` is the demand and `right` the supply, the convention `#unify`'s own
  * "expected … found …" fallback already keeps. The direction decides the
- * sentence, and it has to: the §4.3 report names a `->` in every clause, and in
- * the reverse direction — a pure function refused where a `=>` data field or a
- * result-only face demands the impure constant — no `->` exists anywhere in the
- * program to name.
+ * sentence, and it has to: the §4.3 report speaks of a written `->` *demand* in
+ * every clause, and in the reverse direction — a pure function refused where a
+ * `=>` data field, a result-only face, or a written `=>!` demands the impure
+ * constant — the demand wrote no `->`, so each clause misdescribes the program.
  */
 function effectMismatchMessage(left: Mono, right: Mono): string {
   const impure = (side: Mono): boolean => side.kind === "Effect" && side.impure;

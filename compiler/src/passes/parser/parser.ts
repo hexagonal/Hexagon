@@ -2880,7 +2880,7 @@ class Parser {
   /**
    * The report itself, once the lambda's extent is known.
    *
-   * It leads (#364, effects.md §10's ledger): the misparse is what went wrong,
+   * It leads (#364; Effects §9's return-annotation row): the misparse is what went wrong,
    * and the type errors the misparsed tree provokes are consequences of it —
    * the reader met those first and never reached the one sentence naming the
    * fix. `supersedes` is that cut, and the lambda is the region it speaks for.
