@@ -3611,10 +3611,24 @@ class Checker {
           actual = this.#prune(iterable);
         }
         let element: Mono = ERROR;
-        // `for x in` stays compiler-owned over a `Seq` (ruling R3): it is the
-        // emitter's constant-stack `next` loop, not an `Iterable` instance, so
-        // the prelude record is recognized here rather than falling through to
-        // the constraint path — which would report no instance for it.
+        // The arms below are the **erasure of Collections Part 5 §4's provided
+        // rows, not a mechanism beside them** (#353, ruling 2). Each row is a
+        // real coherence slot — registered by `#seedProvidedIterableRows`, and
+        // what `toSeq(xs)` and `Vector.toSeq(xs)` both discharge against — and
+        // reading the element type straight off the constructor here computes
+        // exactly what looking the row up and substituting would: `Vector(a)`
+        // implies `Item = a`, `Map(k, v)` implies `(k, v)`, `String` implies a
+        // one-codepoint `String`. The shortcut is licensed by the binder ban
+        // (Part 2 §7.2), which makes every `for..in` head monomorphic in its
+        // outer constructor, so static resolution is total (§9.1) and the
+        // lookup could never answer differently. A user nominal has no arm and
+        // falls to the constraint path below, which is the same table's public
+        // door.
+        //
+        // `for x in` over a `Seq` stays compiler-owned in *emission* (ruling
+        // R3): the emitter's constant-stack `next` loop, not a dictionary call.
+        // The `Seq` row exists all the same — it is the identity, and `toSeq`
+        // at a sequence resolves through it — but the loop never asks for it.
         const sequenceElement = this.#asSequence(actual);
         if (actual.kind === "Range") {
           element = primitive("Int");
