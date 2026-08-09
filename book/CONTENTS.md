@@ -29,16 +29,17 @@
 16. [Mutable Variables](chapters/16-mutable-variables.md)
 17. [Loops and Ranges](chapters/17-loops-and-ranges.md)
 18. [Sequences](chapters/18-sequences.md)
-19. [Exceptions](chapters/19-exceptions.md)
+19. [Streams](chapters/19-streams.md)
+20. [Exceptions](chapters/20-exceptions.md)
 
 ## Part V — Collections and Implied Types
 
-20. [Collections](chapters/20-collections.md)
-21. [Implied Types](chapters/21-implied-types.md)
+21. [Collections](chapters/21-collections.md)
+22. [Implied Types](chapters/22-implied-types.md)
 
 ## Part VI — JavaScript and TypeScript
 
-22. [JavaScript Output](chapters/22-javascript-output.md)
-23. [TypeScript Output](chapters/23-typescript-output.md)
-24. [JavaScript Input](chapters/24-javascript-input.md)
-25. [Constraints in JavaScript](chapters/25-constraints-in-javascript.md)
+23. [JavaScript Output](chapters/23-javascript-output.md)
+24. [TypeScript Output](chapters/24-typescript-output.md)
+25. [JavaScript Input](chapters/25-javascript-input.md)
+26. [Constraints in JavaScript](chapters/26-constraints-in-javascript.md)

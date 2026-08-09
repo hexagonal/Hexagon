@@ -26,13 +26,14 @@ chapters=(
   "16-mutable-variables.md"
   "17-loops-and-ranges.md"
   "18-sequences.md"
-  "19-exceptions.md"
-  "20-collections.md"
-  "21-implied-types.md"
-  "22-javascript-output.md"
-  "23-typescript-output.md"
-  "24-javascript-input.md"
-  "25-constraints-in-javascript.md"
+  "19-streams.md"
+  "20-exceptions.md"
+  "21-collections.md"
+  "22-implied-types.md"
+  "23-javascript-output.md"
+  "24-typescript-output.md"
+  "25-javascript-input.md"
+  "26-constraints-in-javascript.md"
 )
 
 chapter_titles=(
@@ -54,6 +55,7 @@ chapter_titles=(
   "Mutable Variables"
   "Loops and Ranges"
   "Sequences"
+  "Streams"
   "Exceptions"
   "Collections"
   "Implied Types"
@@ -69,8 +71,8 @@ part_for_chapter() {
     7) echo "Part II — Data" ;;
     12) echo "Part III — Capabilities and Modules" ;;
     16) echo "Part IV — State and Flow" ;;
-    20) echo "Part V — Collections and Implied Types" ;;
-    22) echo "Part VI — JavaScript and TypeScript" ;;
+    21) echo "Part V — Collections and Implied Types" ;;
+    23) echo "Part VI — JavaScript and TypeScript" ;;
   esac
 }
 
@@ -111,19 +113,20 @@ part_for_chapter() {
   echo '16. [Mutable Variables](#chapter-16)'
   echo '17. [Loops and Ranges](#chapter-17)'
   echo '18. [Sequences](#chapter-18)'
-  echo '19. [Exceptions](#chapter-19)'
+  echo '19. [Streams](#chapter-19)'
+  echo '20. [Exceptions](#chapter-20)'
   echo
   echo '## Part V — Collections and Implied Types'
   echo
-  echo '20. [Collections](#chapter-20)'
-  echo '21. [Implied Types](#chapter-21)'
+  echo '21. [Collections](#chapter-21)'
+  echo '22. [Implied Types](#chapter-22)'
   echo
   echo '## Part VI — JavaScript and TypeScript'
   echo
-  echo '22. [JavaScript Output](#chapter-22)'
-  echo '23. [TypeScript Output](#chapter-23)'
-  echo '24. [JavaScript Input](#chapter-24)'
-  echo '25. [Constraints in JavaScript](#chapter-25)'
+  echo '23. [JavaScript Output](#chapter-23)'
+  echo '24. [TypeScript Output](#chapter-24)'
+  echo '25. [JavaScript Input](#chapter-25)'
+  echo '26. [Constraints in JavaScript](#chapter-26)'
 
   for index in "${!chapters[@]}"; do
     number=$((index + 1))

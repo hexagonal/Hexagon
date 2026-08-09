@@ -55,7 +55,7 @@ its position and internal order are already defensible.
 - **Persistent collection** is defined before the first update example and explicitly
   distinguished from storage persistence.
 - `Vector`, `Map`, `Set`, `Hash`, and `Seq` retain their established meanings.
-- **Implied type** receives one direct definition at the start of Chapter 21.
+- **Implied type** receives one direct definition at the start of Chapter 22.
 - The prose uses ordinary insertion/replacement language instead of teaching
   **upsert**.
 - The principal implied-type and persistent-collection definitions are recorded in
