@@ -72,11 +72,23 @@ export interface Occurrence {
  *   conservative default here, not a mutability verdict. A claim for either
  *   needs its own ruling.
  *
- * `Map` and `Set` carry **explicit invariant rows**, which is what the absent
- * row would have meant anyway (`compilerClaim` defaults to `"inv"`). The point of
- * writing them is that §11.4 sequences their real claims after their own
- * milestones, and a row that has to be *edited* to change is a deliberate act,
- * where an absent one changes silently the day a `switch` gains a case.
+ * `Map`'s row is **verified** as of the Map step (#370), and it is `co, co`.
+ * §11.4 sequenced the real claim after the milestone, and the milestone has
+ * arrived: `runtime/HashTrie.hex` writes the representation and the emitter is
+ * wired to it, so there is something for §6.3 to check the claim *against* —
+ * `k` and `v` reach `HashTrie` through `root: Root(k, v)`, whose three arms hold
+ * them in `Sole(key: k, value: v)` and under `Tree(k, v)`'s `Node` slots, every
+ * position covariant. `hash-trie-wiring.test.ts` reads the checker's own
+ * computed variance for that record and asserts row equality here, with a
+ * sabotage control, which is all "verified" means; §11.1 (ix)'s recomputation
+ * clause is what obliges it to run on every edit to that file.
+ *
+ * `Set` keeps its **explicit invariant row**, which is what the absent row would
+ * have meant anyway (`compilerClaim` defaults to `"inv"`). The point of writing
+ * it is that §11.4 sequences its real claim after the Set step, and a row that
+ * has to be *edited* to change is a deliberate act, where an absent one changes
+ * silently the day a `switch` gains a case. It will upgrade to `co` off the same
+ * representation `Map`'s now reads, since a `Set(a)` is a `HashTrie(a, Unit)`.
  *
  * Constructors with no row and no need of one: `NullableCase`, `JsMap` and
  * `JsSet`. None is nameable in a type annotation, so no representation can put a
@@ -94,7 +106,7 @@ export const COMPILER_CLAIMS: ReadonlyMap<string, readonly Variance[]> = new Map
   ["Node", ["co"]],
   ["Array", ["inv"]],
   ["Nullable", ["inv"]],
-  ["Map", ["inv", "inv"]],
+  ["Map", ["co", "co"]],
   ["Set", ["inv"]],
 ]);
 

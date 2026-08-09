@@ -76,6 +76,17 @@ interface ExternDeclarationFields {
 
 export interface ExternFunDeclaration extends ExternDeclarationFields {
   readonly kind: "ExternFun";
+  /**
+   * The declared binders, present only inside the reserved boundary (#370,
+   * `spec/intrinsics.md` §3.4): an intrinsic row may carry constraint brackets,
+   * and the bounds are what make it an ordinary constrained function. A foreign
+   * extern is refused before this is recorded, so the field is a boundary fact
+   * as much as a syntactic one.
+   *
+   * Absent when the row wrote no brackets — the common case, and the only one
+   * before #370.
+   */
+  readonly typeParameters?: readonly TypeParameter[];
   readonly parameters: readonly Parameter[];
   readonly returnAnnotation: TypeAnnotation;
 }

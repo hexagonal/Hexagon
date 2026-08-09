@@ -133,8 +133,11 @@ describe("the runtime module's two-sided contract", () => {
       ["/main.hex", "export let v: Vector(Int) = [1]\n"],
       ["/VectorTrie.hex", "let unrelated: Int = 1\n"],
     ]);
+    // The message names the basename since #370 generalized the wiring: two
+    // runtime modules share this check, so "the vector runtime" no longer
+    // identifies which seat is wrong.
     expect(project.diagnostics.map(({ message }) => message)).toContain(
-      "this file sits at the vector runtime's injection path but declares " +
+      "this file sits at `VectorTrie.hex`'s injection path but declares " +
         "no `empty`, `size`, `get`, `set`, `append`, `prepend`, `slice`, " +
         "`window`, `concat`, `nodeRun`",
     );

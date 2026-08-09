@@ -1,0 +1,96 @@
+// The public Map companion over the runtime's hash array mapped trie.
+
+(** Raised when `map[key]` is read at a key the map does not bind. `Map.get` is
+    the total sibling that answers `None` instead. *)
+export exception KeyError
+
+// The whole boundary Collections Part 4 section 6.1 pins: construction, the
+// maintained size, the keyed trio, and the one traversal. Everything below is
+// ordinary Hexagon over these seven, which is what makes the keys/values/entries
+// correspondence (section 7.3) free rather than arranged.
+extern from "hex:intrinsic"
+    // Unexported, beneath `empty` below: the block admits `fun` only and an
+    // empty map is a value, so the door row is the thunk and the wrapper is what
+    // the language sees (`spec/intrinsics.md` section 3.2).
+    fun mapEmpty as emptyMap(): Map(k, v)
+
+    (** A map binding `key` to `value` and nothing else. Takes no `Hash`: a
+        one-entry map holds its pair unplaced, so nothing is hashed until the
+        first keyed operation. *)
+    export fun mapSingleton as singleton(key: k, value: v): Map(k, v)
+
+    (** How many entries `map` holds, in constant time. *)
+    export fun mapSize as size(map: Map(k, v)): Int
+
+    (** The value `map` binds `key` to, or `None` when it binds none. The total
+        accessor: an absent key is an answer, not a fault. *)
+    export fun mapGet as get<k: Hash>(map: Map(k, v), key: k): Option(v)
+
+    (** `map` with `key` bound to `value`, inserting or replacing. It never
+        throws, and a key already present keeps the representative the map
+        already holds while its value is replaced. *)
+    export fun mapSet as set<k: Hash>(map: Map(k, v), key: k, value: v): Map(k, v)
+
+    (** `map` with `key` unbound. Forgiving: a key that is not there yields the
+        map unchanged rather than an error. *)
+    export fun mapRemove as remove<k: Hash>(map: Map(k, v), key: k): Map(k, v)
+
+    (** Every key/value pair in `map`, lazily. The order is the same for two
+        traversals of one map within one execution, and is promised for nothing
+        else — not insertion, not sorted, not stable across runs. *)
+    export fun mapEntries as entries(map: Map(k, v)): Seq((k, v))
+
+(** The empty map. *)
+export let empty: Map(k, v) = emptyMap()
+
+(** Whether `map` holds no entries. *)
+export let isEmpty(map: Map(k, v)): Bool = size(map) == 0
+
+(** Whether `map` binds `key`. *)
+export let containsKey<k: Hash>(map: Map(k, v), key: k): Bool =
+    match get(map, key)
+        None => False
+        Some(_) => True
+
+// The two projections `keys` and `values` are each one `Seq.map` of. Named
+// rather than written as lambdas because a pair is taken apart with a `let`,
+// which wants a body.
+let entryKey(pair: (k, v)): k =
+    let (key, _) = pair
+    key
+
+let entryValue(pair: (k, v)): v =
+    let (_, value) = pair
+    value
+
+(** The keys of `map`, in the order `entries` yields their pairs. *)
+export let keys(map: Map(k, v)): Seq(k) = Seq.map(entries(map), entryKey)
+
+(** The values of `map`, positionally matching `keys`. *)
+export let values(map: Map(k, v)): Seq(v) = Seq.map(entries(map), entryValue)
+
+(** Every key/value pair in `map`, lazily — `entries` under the conversion
+    suite's name. *)
+export let toSeq(map: Map(k, v)): Seq((k, v)) = entries(map)
+
+// One insertion of a pair, which is the fold `fromEntries` is. `set` is where
+// both duplicate rules come from and neither is arranged here: the later value
+// replaces the earlier, and the key representative the map already holds
+// survives.
+let insertEntry<k: Hash>(map: Map(k, v), pair: (k, v)): Map(k, v) =
+    let (key, value) = pair
+    set(map, key, value)
+
+(** The pairs of `pairs` collected into a map. A duplicated key keeps the last
+    value and the first key it was inserted under. It forces the whole sequence,
+    so it does not terminate on an infinite one. *)
+export let fromEntries<k: Hash>(pairs: Seq((k, v))): Map(k, v) =
+    Seq.fold(pairs, empty, insertEntry)
+
+(** The pairs of `pairs` collected into a map — `fromEntries` under the
+    conversion suite's name. *)
+export let fromSeq<k: Hash>(pairs: Seq((k, v))): Map(k, v) = fromEntries(pairs)
+
+(** The pairs of `pairs` collected into a map, left to right. *)
+export let fromVector<k: Hash>(pairs: Vector((k, v))): Map(k, v) =
+    fromEntries(Vector.toSeq(pairs))

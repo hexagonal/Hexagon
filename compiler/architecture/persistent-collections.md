@@ -1,9 +1,33 @@
 # Persistent Collections & the Hidden Node Primitive
 
-**Status:** Design note (not yet implemented). Captures decisions from a design
-discussion about moving `Vector` (and later `Map`/`Set`) from TS runtime helpers
-into mostly-`.hex` code over a minimal, hidden intrinsic. Not binding until
-promoted; recorded so the reasoning is not lost.
+**Status:** Design note, **implemented for `Vector` and `Map`; `Set` remains**.
+Captures decisions from a design discussion about moving `Vector` (and later
+`Map`/`Set`) from TS runtime helpers into mostly-`.hex` code over a minimal,
+hidden intrinsic. It read "not yet implemented" through both landings and was
+stale by two arcs.
+
+What has landed, and where the shipped design differs from this note:
+
+- **`Vector(a)`** is `runtime/VectorTrie.hex` (#299/#303/#306), written over the
+  `Node` intrinsic exactly as §4 proposes, with `stdlib/Vector.hex` as its
+  prelude companion (#218). §6's sequencing was *not* followed: package imports
+  (§5.3) never landed and were not needed — the runtime module is injected by
+  basename and its text embedded by `npm run generate:prelude`, which is the
+  same mechanism the prelude uses.
+- **`Map(k, v)`** is `runtime/HashTrie.hex` (#365) — a bitmap-compressed HAMT
+  rather than a 32-way fixed fan, so it needs the three length-changing packed
+  operations and the bit algebra §4's `Node` family has no member for; those
+  cross the intrinsic door (`spec/intrinsics.md` §5.2's runtime bullet) rather
+  than growing the `Node` family. `stdlib/Map.hex` is its prelude companion
+  (#370), and the emitter's `persistentCollections` helper has lost its whole
+  Map half.
+- **`Set(a)`** is the one collection still living in `persistentCollections`.
+  Its milestone is the Map/Set arc's next step, and it inherits the HAMT: a
+  `Set(a)` is a `HashTrie(a, Unit)`.
+- §5.1's open decision is **settled the way it recommends**: `Node.set` is
+  immutable, and transients are ruled runtime-internal-only (Collections Part 5
+  §11). §5.2's visibility mechanism exists as the resolver's `runtime` flag plus
+  the intrinsic door's `privileged` flag.
 
 ## 1. Goal
 
@@ -55,7 +79,12 @@ index-addressable array for free (`new Array(32)`, `node[i] = x`, `arr.slice()`,
 plus bitwise index math). Hexagon *withholds* exactly that (`Vector` is the
 immutable workhorse we are defining; `Array(a)` is read-only borrowed; there are
 no bitwise operators). So the minimum viable intrinsic is a single hidden array
-node — the exact primitive Immutable.js gets from JS:
+node — the exact primitive Immutable.js gets from JS.
+
+*(As shipped: `Node.alloc()` is spelled `Node.empty()`, and the hash trie needs
+bit algebra and length-changing packed arrays besides. Those arrived through the
+intrinsic door rather than as new `Node` members, which is what keeps this
+family at the four operations below — see `spec/intrinsics.md` §3.3 and #223.)*
 
 ```
 Node.alloc()            -- fresh 32-slot mutable array

@@ -128,7 +128,8 @@ The current compiler-owned surface yields this migration inventory:
 | `String.hex` | **landed** (#344): the public instances (`Eq`, `Ord`, `Show`, `Concat`, `Hash`) as source `honor` blocks, `Show`'s identity body keyless in ordinary Hexagon; companion algorithms (`length`, `join`, `fromSeq`, the codepoint bridge) stay listing/collections items | the four-key primop inventory of intrinsics §3.2 (`stringConcat`, `stringEquals`, `stringCompare`, `stringHash`) — the codepoint-order walk among them, inexpressible without a codepoint API |
 | `Seq.hex` | **the `Seq(a)` declaration itself** (`export opaque record`, Loops §6.6) plus `next` and the combinator core (`iterate`, `map`, `filter`, `take`, `fold`, and the ship-list) | memoizing spine (`memoize`'s buffer + the FFI Part 3 inbound adapter) and the boundary traversal face (FFI Part 3 §9.4 — formerly listed as "the `toJsIterable` bridge"; see the 2026-07-28 edit note below) |
 | `Vector.hex` | companion API and combinators | persistent-vector representation core |
-| `Map.hex` / `Set.hex` | algebra, conversions, projections, and combinators | HAMT lookup/insertion/removal and representation core |
+| `Map.hex` | **landed** (#370): the Collections Part 4 §6.1 core in ordinary Hexagon above the seven-key inventory of intrinsics §3.2 (`empty`'s generalizing wrapper, `isEmpty`/`containsKey` over `size`/`get`, `keys`/`values` as projections of one `entries` traversal, the `toSeq`/`fromSeq` synonyms, `fromEntries`'s fold, `fromVector`), plus the `KeyError` prelude declaration; combinators stay a listing item | the seven-key inventory (`mapEmpty` … `mapEntries`) onto `runtime/HashTrie.hex`'s emitted module — six direct aliases of its operations, `mapEmpty` answering its one shared empty constant — the HAMT representation core the previous form of this row named |
+| `Set.hex` | algebra, conversions, projections, and combinators | HAMT membership/insertion/removal over the same `runtime/HashTrie.hex` core (the Map step's wiring, #370) |
 | `Range.hex` | public constructors and companion functions | iterator bridge; counting-loop erasure remains a compiler transformation |
 | `Option.hex` / `Result.hex` | declarations, instances, and ordinary combinators | only genuine foreign-boundary helpers, if any |
 | Prelude constraint sources | declarations and primitive `honor` blocks | derivation, evidence selection, and specialization |
@@ -157,7 +158,11 @@ separate obligation of the listing session.
 The persistent HAMT implementation currently embedded as an emitted TypeScript
 string is especially misplaced: its structural core may remain a tuned runtime
 component, but Map/Set public operations and derivable algebra should not live in the
-emitter. Likewise, compiler-known `Seq` algorithms and primitive-instance tables are
+emitter. *(Half discharged, #370: the structural core is `runtime/HashTrie.hex`
+(#365) and `Map`'s public operations are `stdlib/Map.hex` source — the embedded
+string's Map half retired at the Map milestone. Its Set half stands until the Set
+step, whose milestone retires the helper entire — intrinsics §9.2.)* Likewise,
+compiler-known `Seq` algorithms and primitive-instance tables are
 library source awaiting a sufficiently complete prelude loader, not language
 semantics.
 
@@ -221,7 +226,7 @@ After the BigInt worked example, the preferred order is:
 
 1. primitive constraint declarations and their canonical instances — the declarations half is discharged (#335): every pre-registered constraint with a compiler-held declaration has canonical prelude source (`Show.hex`, `Num.hex`, `Signed.hex`, `Frac.hex`, `Pow.hex`, `Concat.hex`, `Eq.hex`, `Hash.hex`, `Ord.hex`, `Integral.hex`; `Iterable` is name-only, collections-owned); the instances half is the companion arc (#344), landed per companion in the fixed order `BigInt`, `Int`+`Nat`, `Float`+`String` — **complete**; Constraints §5.3's wired-row-retirement law governed each landing and no wired instance remains;
 2. `Seq.hex`, retaining only the memoizing spine and iterator bridge — **advanced from preference to decided obligation (2026-07-26): `Seq.hex` declares the type itself and joins the prelude set, before and as the pilot for `Vector`/`Set`/`Map`; see the §2 obligation row and `spec/notes/seq-deintrinsification-plan.md`**;
-3. Map/Set algebra over a retained tuned HAMT core;
+3. Map/Set algebra over a retained tuned HAMT core — *the core landed as `runtime/HashTrie.hex` (#365) and the Map half as `stdlib/Map.hex` (#370, per the sequencing note below); the Set half remains*;
 4. `Option.hex` and `Result.hex`; and
 5. the remaining primitive and collection companions, one bounded slice at a time.
 

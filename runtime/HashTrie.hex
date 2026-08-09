@@ -54,13 +54,40 @@ union Tree(k, v) =
     | Branch(bitmap: Int, children: Node(Tree(k, v)))
     | Collision(hash: Int, count: Int, entries: Node((k, v)))
 
+// What sits at the top of a trie, in three arms rather than the `Option(Tree)`
+// this record carried before (#370).
+//
+// `NoRoot` is the empty trie, which is what lets `Branch` and `Collision`
+// promise they are never empty. `Rooted` is a placed tree — every entry under it
+// sits where its mixed hash put it.
+//
+// `Sole` is the odd one, and it is here for a signature: `Map.singleton` is
+// **unconstrained** and permanently so (Collections Part 4 §12.4), so a
+// one-entry trie has to exist without its key ever having been hashed. `Sole`
+// is that entry, held raw — no hash computed, none computable, because
+// `singleton` has no `Hash` evidence to compute one with.
+//
+// **`Sole` is confined to the root by construction.** No `Tree` constructor can
+// hold one and no walker below ever sees one: the three functions that take a
+// `Tree` (`lookup`, `insert`, `discard`) are reached only from the `Rooted` arm.
+// The unplaced entry is answered where it lives — `get` and `containsKey`
+// compare the stored key to the query key directly, `remove` compares and either
+// empties the trie or hands it back, and `entries` yields the pair — and it
+// **settles** at exactly one site: `set` with a second, differing key, which is
+// the first operation that both carries `Hash` evidence and needs two entries
+// to sit in different places. That call places both and builds an ordinary
+// `Rooted` tree, after which no `Sole` is ever seen again.
+union Root(k, v) =
+    | NoRoot
+    | Sole(key: k, value: v)
+    | Rooted(tree: Tree(k, v))
+
 // The trie representation, following Immutable.js's Map. `size` is maintained
 // incrementally — every insert path reports whether it grew the trie — so it is
-// a field read rather than a traversal. An empty trie has no root at all, which
-// is what lets `Branch` and `Collision` promise they are never empty.
+// a field read rather than a traversal.
 record HashTrie(k, v) = {
     size: Int,
-    root: Option(Tree(k, v)),
+    root: Root(k, v),
 }
 
 // Signals a structurally malformed trie (a runtime bug, never a caller error).
@@ -108,7 +135,20 @@ let lastShift: Int = 30
 let empty: HashTrie(k, v) =
     HashTrie({
         size = 0,
-        root = None,
+        root = NoRoot,
+    })
+
+// The one-entry trie binding `key` to `value`, **unconstrained**: no `Hash`
+// evidence is taken and none is needed, because the pair is held unplaced in a
+// `Sole` root and nothing has been hashed yet. This is Collections Part 4
+// §12.4's permanent signature — the reason `Root` has three arms rather than
+// two — and it serves `Set.singleton` on the same terms when the Set step
+// arrives. The first keyed operation carrying `Hash` is where placement
+// happens, and until then a singleton costs one allocation and no user code.
+let singleton(key: k, value: v): HashTrie(k, v) =
+    HashTrie({
+        size = 1,
+        root = Sole(key, value),
     })
 
 // How many entries `trie` holds, read from the maintained field.
@@ -184,11 +224,16 @@ fun lookup(tree: Tree(k, v), hash: Int, key: k, shift: Int, equal: (k, k) -> Boo
             else
                 None
 
-// The value `key` is bound to in `trie`, or `None`.
+// The value `key` is bound to in `trie`, or `None`. An unplaced `Sole` root is
+// answered by comparing the two keys and nothing else — placing it to look it up
+// would be work for an answer already in hand, and would fix a placement the
+// entry has so far managed without.
 let get<k: Hash>(trie: HashTrie(k, v), key: k): Option(v) =
     match trie.root
-        None => None
-        Some(tree) => lookup(tree, placement(key), key, 0, (left, right) => left == right)
+        NoRoot => None
+        Sole(soleKey, soleValue) =>
+            if soleKey == key then Some(soleValue) else None
+        Rooted(tree) => lookup(tree, placement(key), key, 0, (left, right) => left == right)
 
 // Whether `trie` binds `key`.
 let containsKey<k: Hash>(trie: HashTrie(k, v), key: k): Bool =
@@ -275,19 +320,44 @@ fun insert(
 // present one has its value replaced, with the stored key kept.
 // (`placed` rather than `hash`: the prelude's `Hash` member of that name is in
 // scope here, and a `let` may not rebind it.)
+// (The arms' binders are all spelled apart — #367 again: two arms of one `match`
+// that bind the same name emit colliding `const`s.)
 let set<k: Hash>(trie: HashTrie(k, v), key: k, value: v): HashTrie(k, v) =
-    let placed = placement(key)
     match trie.root
-        None =>
+        // A first entry into an empty trie is placed at once rather than left
+        // unplaced: this operation carries the `Hash` evidence `singleton` does
+        // not, so there is nothing to defer. `Sole` is `singleton`'s arm, not a
+        // general one-entry shape.
+        NoRoot =>
             HashTrie({
                 size = 1,
-                root = Some(Entry(placed, key, value)),
+                root = Rooted(Entry(placement(key), key, value)),
             })
-        Some(tree) =>
+        // The settling site, and the only one. An equal key replaces the value
+        // and **keeps the stored key** (Collections Part 4 §5.4), staying
+        // unplaced — nothing about a replacement needs a hash. A differing key
+        // needs the two to sit apart, which is placement, so both are placed
+        // here and the trie becomes an ordinary `Rooted` one for good.
+        Sole(soleKey, soleValue) =>
+            if soleKey == key then
+                HashTrie({
+                    size = 1,
+                    root = Sole(soleKey, value),
+                })
+            else
+                let settledRoot = Entry(placement(soleKey), soleKey, soleValue)
+                let (settled, grew) =
+                    insert(settledRoot, placement(key), key, value, 0, (left, right) => left == right)
+                HashTrie({
+                    size = if grew then 2 else 1,
+                    root = Rooted(settled),
+                })
+        Rooted(tree) =>
+            let placed = placement(key)
             let (root, inserted) = insert(tree, placed, key, value, 0, (left, right) => left == right)
             HashTrie({
                 size = if inserted then trie.size + 1 else trie.size,
-                root = Some(root),
+                root = Rooted(root),
             })
 
 // A `Branch` over `bitmap` and its packed `children`, compacted. Deletion is
@@ -365,8 +435,13 @@ fun discard(
 // the one shared `empty`.
 let remove<k: Hash>(trie: HashTrie(k, v), key: k): HashTrie(k, v) =
     match trie.root
-        None => trie
-        Some(tree) =>
+        NoRoot => trie
+        // Unplaced, so the question is one comparison: the sole entry either is
+        // the one being unbound — leaving the shared `empty` — or the removal
+        // requested nothing, and the forgiving answer is this very value.
+        Sole(soleKey, _) =>
+            if soleKey == key then empty else trie
+        Rooted(tree) =>
             let (root, removed) = discard(tree, placement(key), key, 0, (left, right) => left == right)
             if removed then
                 match root
@@ -374,7 +449,7 @@ let remove<k: Hash>(trie: HashTrie(k, v), key: k): HashTrie(k, v) =
                     Some(replacement) =>
                         HashTrie({
                             size = trie.size - 1,
-                            root = Some(replacement),
+                            root = Rooted(replacement),
                         })
             else
                 trie
@@ -428,9 +503,12 @@ fun advance(frames: Frames(k, v)): Option(((k, v), Frames(k, v))) =
 // differently, and the same program run twice may too.
 //
 // Nothing is forced to build the sequence: the root is wrapped in one frame and
-// the first descent happens when the first cell is pulled.
+// the first descent happens when the first cell is pulled. An unplaced `Sole`
+// root has no walk at all — it is one pair, yielded as one cell, and placing it
+// to enumerate it would be the only thing in the file that hashed a key without
+// being asked a keyed question.
 let entries(trie: HashTrie(k, v)): Seq((k, v)) =
-    let start = match trie.root
-        None => NoFrames
-        Some(tree) => Slots(nodeSingleton(tree), 0, 1, NoFrames)
-    Seq.unfold(start, advance)
+    match trie.root
+        NoRoot => Seq.empty
+        Sole(soleKey, soleValue) => Seq.singleton((soleKey, soleValue))
+        Rooted(tree) => Seq.unfold(Slots(nodeSingleton(tree), 0, 1, NoFrames), advance)

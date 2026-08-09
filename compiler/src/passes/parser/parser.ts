@@ -654,16 +654,25 @@ class Parser {
         `foreign term \`${foreignName?.text ?? localName.text}\` is not a legal Hexagon term name; bind it with an alias: \`${declaration} ${foreignName?.text ?? localName.text} as ${lowerInitial(localName.text)}\``,
       );
     }
+    let typeParameters: readonly Parsed.TypeParameter[] | undefined;
     if (this.#at("Less")) {
       // Genericity is granted inside the reserved boundary only (§3.4): the
       // implementer here is the compiler, which owns the representation of every
       // instantiation, so Part 4 §12.4's representation question does not arise.
-      // The list is declarative — the annotations carry the variables — so it is
-      // parsed for its scoping shape and not recorded.
+      //
+      // The list used to be parsed for its scoping shape alone — the annotations
+      // carry the variables, so an unbounded binder records nothing the checker
+      // needs. #370 widened §3.4 to *constraint* brackets, and a bound is not
+      // recoverable from an annotation, so the list is now recorded. Foreign
+      // externs stay monomorphic and unconstrained: the refusal below is the one
+      // that has always fired, and dropping the list on that path keeps a refused
+      // declaration from carrying a bound into the scheme behind the diagnostic.
       if (!intrinsic) {
         this.#errorAt(this.#current().span, "generic extern declarations are not part of Hexagon v1");
+        this.#parseTypeParameters();
+      } else {
+        typeParameters = this.#parseTypeParameters();
       }
-      this.#parseTypeParameters();
     }
     if (kind === "Fun") {
       if (!this.#at("LeftParen")) {
@@ -692,6 +701,9 @@ class Parser {
         ...(pureClaim ? { pure: true as const } : {}),
         ...(foreignName === undefined ? {} : { foreignName }),
         localName,
+        ...(typeParameters === undefined || typeParameters.length === 0
+          ? {}
+          : { typeParameters }),
         parameters,
         returnAnnotation,
         span: spanFrom(start.span, returnAnnotation.span),

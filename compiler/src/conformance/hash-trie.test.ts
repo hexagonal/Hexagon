@@ -561,6 +561,297 @@ describe("HashTrie representative retention (Part 4 §5.4)", () => {
   });
 });
 
+/**
+ * The unplaced singleton (#370): `Root`'s third arm, and the whole reason the
+ * root stopped being an `Option(Tree)`.
+ *
+ * Collections Part 4 §12.4 makes `Map.singleton` **permanently unconstrained**,
+ * so a one-entry trie has to exist at a key type that has no `Hash` at all. That
+ * is what `Sole` is: the pair held raw, no hash computed and none computable.
+ * Two properties are under test and they pull in opposite directions —
+ * *unplacedness*, which is what the signature buys, and *confinement*, which is
+ * what keeps the rest of the trie from having to know about it.
+ *
+ * ## Why a JavaScript probe appears here
+ *
+ * "No placement happened" is not a Hexagon-observable fact: every keyed
+ * operation answers the same whether the entry was placed or not, which is
+ * precisely the point. The only place the question can be asked is the emitted
+ * root's constructor tag, read through the same identity channel the
+ * forgiving-`remove` tests use. It pins the union's emitted shape, which is a
+ * price worth paying once: without it these tests pass against an
+ * implementation that hashes the key on the first opportunity and keeps every
+ * observable answer identical, which is the exact regression the arm exists to
+ * prevent.
+ */
+describe("HashTrie unplaced singleton (§12.4, #370)", () => {
+  /**
+   * The signature, tested by compiling it at a key type that has no `Hash`
+   * instance and could not be given one here. A `<k: Hash>` on `singleton`
+   * would make this a hard error, which is the whole assertion; `size` and
+   * `entries` join in because they are the two other unconstrained rows.
+   */
+  test("singleton takes a key type with no Hash instance at all", async () => {
+    const m = await runTrie(
+      "record Unhashable = {\n" +
+        "    label: String,\n" +
+        "}\n" +
+        "let odd: HashTrie(Unhashable, Int) = singleton(Unhashable({label = \"k\"}), 7)\n" +
+        "export let oddSize: Int = size(odd)\n" +
+        "export let oddIsEmpty: Bool = isEmpty(odd)\n" +
+        "export let oddEntries: Int = Seq.length(entries(odd))\n" +
+        "let onlyValue(total: Int, pair: (Unhashable, Int)): Int =\n" +
+        "    let (_, value) = pair\n" +
+        "    total + value\n" +
+        "export let oddValueSum: Int = Seq.fold(entries(odd), 0, onlyValue)\n",
+    );
+    expect(m.oddSize).toBe(1);
+    expect(m.oddIsEmpty).toBe(false);
+    expect(m.oddEntries).toBe(1);
+    expect(m.oddValueSum).toBe(7);
+  });
+
+  test("get and containsKey answer over an unplaced root, without placing it", async () => {
+    const m = await runTrieWithIdentity(
+      READERS +
+        "let one: HashTrie(Int, Int) = singleton(4, 40)\n" +
+        "export let oneSize: Int = size(one)\n" +
+        "export let hit: Int = intOr(get(one, 4), -1)\n" +
+        "export let miss: Bool = isPresent(get(one, 5))\n" +
+        "export let hasKey: Bool = containsKey(one, 4)\n" +
+        "export let lacksKey: Bool = containsKey(one, 5)\n" +
+        // Reading the key must not settle the root either: `get` answers by
+        // comparison, so the value it was handed is unchanged afterwards.
+        "let after: HashTrie(Int, Int) = one\n" +
+        "export let afterHit: Int = intOr(get(after, 4), -1)\n",
+      ["export const rootTag = one.root.tag;"],
+    );
+    expect(m.oneSize).toBe(1);
+    expect(m.hit).toBe(40);
+    expect(m.miss).toBe(false);
+    expect(m.hasKey).toBe(true);
+    expect(m.lacksKey).toBe(false);
+    expect(m.afterHit).toBe(40);
+    expect(m.rootTag).toBe("Sole");
+  });
+
+  test("entries yields the one pair, and the root is still unplaced after", async () => {
+    const m = await runTrieWithIdentity(
+      "let one: HashTrie(String, Int) = singleton(\"only\", 3)\n" +
+        "export let count: Int = Seq.length(entries(one))\n" +
+        "let sumValues(total: Int, pair: (String, Int)): Int =\n" +
+        "    let (_, value) = pair\n" +
+        "    total + value\n" +
+        "let namedOnly(total: Int, pair: (String, Int)): Int =\n" +
+        "    let (key, _) = pair\n" +
+        "    if key == \"only\" then total + 1 else total\n" +
+        "export let valueSum: Int = Seq.fold(entries(one), 0, sumValues)\n" +
+        "export let keysNamedOnly: Int = Seq.fold(entries(one), 0, namedOnly)\n",
+      ["export const rootTag = one.root.tag;"],
+    );
+    expect(m.count).toBe(1);
+    expect(m.valueSum).toBe(3);
+    expect(m.keysNamedOnly).toBe(1);
+    expect(m.rootTag).toBe("Sole");
+  });
+
+  /**
+   * §5.4's first-representative rule at the one place it can be tested without
+   * a `Float`: replacing an unplaced entry's value keeps the *stored* key and
+   * leaves the root unplaced, because nothing about a replacement needs a hash.
+   */
+  test("set at the same key replaces the value and stays unplaced", async () => {
+    const m = await runTrieWithIdentity(
+      READERS +
+        "let one: HashTrie(Int, Int) = singleton(4, 40)\n" +
+        "let replaced: HashTrie(Int, Int) = set(one, 4, 41)\n" +
+        "export let replacedSize: Int = size(replaced)\n" +
+        "export let replacedValue: Int = intOr(get(replaced, 4), -1)\n" +
+        "export let originalValue: Int = intOr(get(one, 4), -1)\n" +
+        "export let replacedEntries: Int = Seq.length(entries(replaced))\n",
+      [
+        "export const replacedTag = replaced.root.tag;",
+        // The slot is a named field of the emitted constructor, so this reads
+        // the singleton's own stored value — not the replacement's.
+        "export const originalUntouched = one.root.value === 40;",
+      ],
+    );
+    expect(m.replacedSize).toBe(1);
+    expect(m.replacedValue).toBe(41);
+    expect(m.replacedEntries).toBe(1);
+    // Persistent: the original still reads its own value.
+    expect(m.originalValue).toBe(40);
+    expect(m.originalUntouched).toBe(true);
+    expect(m.replacedTag).toBe("Sole");
+  });
+
+  /**
+   * The settle transition — the file's one placement site for an unplaced root,
+   * and the only operation that both carries `Hash` evidence and needs two
+   * entries to sit apart. Afterwards the trie is an ordinary placed one and
+   * every later operation runs the walkers, which is why the assertions below go
+   * past the second insert.
+   */
+  test("set at a differing key settles both entries into a placed tree", async () => {
+    const m = await runTrieWithIdentity(
+      READERS +
+        "let one: HashTrie(Int, Int) = singleton(4, 40)\n" +
+        "let two: HashTrie(Int, Int) = set(one, 9, 90)\n" +
+        "export let twoSize: Int = size(two)\n" +
+        "export let keptFirst: Int = intOr(get(two, 4), -1)\n" +
+        "export let keptSecond: Int = intOr(get(two, 9), -1)\n" +
+        "export let twoEntries: Int = Seq.length(entries(two))\n" +
+        // The settled trie behaves like any other from here: it grows, replaces,
+        // and shrinks through the ordinary walkers.
+        "let hundred(): HashTrie(Int, Int) =\n" +
+        "    var acc: HashTrie(Int, Int) = two\n" +
+        "    for i in 10..100\n" +
+        "        acc := set(acc, i, i * 10)\n" +
+        "    acc\n" +
+        "let big: HashTrie(Int, Int) = hundred()\n" +
+        "export let bigSize: Int = size(big)\n" +
+        "export let bigEntries: Int = Seq.length(entries(big))\n" +
+        "export let bigKeepsFirst: Int = intOr(get(big, 4), -1)\n" +
+        "export let shrunk: Int = size(remove(big, 50))\n" +
+        // And the singleton it grew out of is untouched.
+        "export let oneStillOne: Int = size(one)\n" +
+        "export let oneLacksNine: Bool = containsKey(one, 9)\n",
+      [
+        "export const oneTag = one.root.tag;",
+        "export const twoTag = two.root.tag;",
+      ],
+    );
+    expect(m.twoSize).toBe(2);
+    expect(m.keptFirst).toBe(40);
+    expect(m.keptSecond).toBe(90);
+    expect(m.twoEntries).toBe(2);
+    expect(m.bigSize).toBe(93);
+    expect(m.bigEntries).toBe(93);
+    expect(m.bigKeepsFirst).toBe(40);
+    expect(m.shrunk).toBe(92);
+    expect(m.oneStillOne).toBe(1);
+    expect(m.oneLacksNine).toBe(false);
+    // Persistence at the arm boundary: settling built a new root and left the
+    // singleton's own unplaced.
+    expect(m.oneTag).toBe("Sole");
+    expect(m.twoTag).toBe("Rooted");
+  });
+
+  /**
+   * The settle path has to survive a full-hash tie as much as the ordinary
+   * insert does: "AaAa" and "BBBB" share a mixed hash (pinned in the collisions
+   * describe above), so settling them builds a `Collision` rather than a split.
+   */
+  test("settling two keys that share a hash builds a collision, not a split", async () => {
+    const m = await runTrie(
+      READERS +
+        "let one: HashTrie(String, Int) = singleton(\"AaAa\", 1)\n" +
+        "let two: HashTrie(String, Int) = set(one, \"BBBB\", 2)\n" +
+        "export let twoSize: Int = size(two)\n" +
+        "export let firstValue: Int = intOr(get(two, \"AaAa\"), -1)\n" +
+        "export let secondValue: Int = intOr(get(two, \"BBBB\"), -1)\n" +
+        "export let twoEntries: Int = Seq.length(entries(two))\n" +
+        "export let afterRemoval: Int = size(remove(two, \"AaAa\"))\n" +
+        "export let survivorValue: Int = intOr(get(remove(two, \"AaAa\"), \"BBBB\"), -1)\n",
+    );
+    expect(m.twoSize).toBe(2);
+    expect(m.firstValue).toBe(1);
+    expect(m.secondValue).toBe(2);
+    expect(m.twoEntries).toBe(2);
+    expect(m.afterRemoval).toBe(1);
+    expect(m.survivorValue).toBe(2);
+  });
+
+  test("remove over an unplaced root: the key empties it, anything else is forgiving", async () => {
+    const m = await runTrieWithIdentity(
+      READERS +
+        "let one: HashTrie(Int, Int) = singleton(4, 40)\n" +
+        "let drained: HashTrie(Int, Int) = remove(one, 4)\n" +
+        "let untouched: HashTrie(Int, Int) = remove(one, 5)\n" +
+        "export let drainedSize: Int = size(drained)\n" +
+        "export let drainedIsEmpty: Bool = isEmpty(drained)\n" +
+        "export let drainedLookup: Bool = isPresent(get(drained, 4))\n" +
+        "export let drainedEntries: Int = Seq.length(entries(drained))\n" +
+        "export let untouchedSize: Int = size(untouched)\n" +
+        "export let untouchedValue: Int = intOr(get(untouched, 4), -1)\n",
+      [
+        "export const drainedIsTheSharedEmpty = drained === empty;",
+        "export const forgivingIsTheSameValue = untouched === one;",
+      ],
+    );
+    expect(m.drainedSize).toBe(0);
+    expect(m.drainedIsEmpty).toBe(true);
+    expect(m.drainedLookup).toBe(false);
+    expect(m.drainedEntries).toBe(0);
+    expect(m.untouchedSize).toBe(1);
+    expect(m.untouchedValue).toBe(40);
+    // Removing the only key yields the one shared `empty`, and removing an
+    // absent one yields the very trie it was handed — not an equal rebuild.
+    expect(m.drainedIsTheSharedEmpty).toBe(true);
+    expect(m.forgivingIsTheSameValue).toBe(true);
+  });
+
+  /**
+   * Size is a maintained field, so every arm transition is a place it can drift:
+   * unplaced → replaced (no growth), unplaced → settled (grows by one), settled
+   * → placed growth, and back down to the shared empty.
+   */
+  test("size is maintained across every root transition", async () => {
+    const m = await runTrie(
+      BUILD +
+        "let one: HashTrie(Int, Int) = singleton(1, 10)\n" +
+        "export let atOne: Int = size(one)\n" +
+        "export let afterReplace: Int = size(set(one, 1, 11))\n" +
+        "export let afterSettle: Int = size(set(one, 2, 20))\n" +
+        "export let afterThird: Int = size(set(set(one, 2, 20), 3, 30))\n" +
+        "export let afterSettleThenReplace: Int = size(set(set(one, 2, 20), 1, 11))\n" +
+        "export let afterDrop: Int = size(remove(set(one, 2, 20), 2))\n" +
+        "export let afterDropBoth: Int = size(dropRange(set(one, 2, 20), 1, 2))\n" +
+        // And `entries` agrees with the field at every one of them, which is the
+        // check that would catch a size maintained independently of the shape.
+        "export let settledEntries: Int = Seq.length(entries(set(one, 2, 20)))\n" +
+        "export let droppedEntries: Int = Seq.length(entries(remove(set(one, 2, 20), 2)))\n",
+    );
+    expect(m.atOne).toBe(1);
+    expect(m.afterReplace).toBe(1);
+    expect(m.afterSettle).toBe(2);
+    expect(m.afterThird).toBe(3);
+    expect(m.afterSettleThenReplace).toBe(2);
+    expect(m.afterDrop).toBe(1);
+    expect(m.afterDropBoth).toBe(0);
+    expect(m.settledEntries).toBe(2);
+    expect(m.droppedEntries).toBe(1);
+  });
+
+  /**
+   * Confinement, stated as the negative: no walker ever meets a `Sole`. The
+   * three functions that take a `Tree` are reached only from the `Rooted` arm,
+   * so a settled trie's root is a `Tree` constructor and never `Root`'s middle
+   * arm — including after the deletion path has compacted it back to one entry,
+   * which is the shape most likely to tempt a re-`Sole`.
+   */
+  test("a placed trie never returns to the unplaced arm, even at size one", async () => {
+    const m = await runTrieWithIdentity(
+      BUILD +
+        "let settled: HashTrie(Int, Int) = set(singleton(1, 10), 2, 20)\n" +
+        "let backToOne: HashTrie(Int, Int) = remove(settled, 2)\n" +
+        "export let backSize: Int = size(backToOne)\n" +
+        "export let backValue: Int = intOr(get(backToOne, 1), -1)\n" +
+        "let wideThenNarrow: HashTrie(Int, Int) = dropRange(buildTo(60), 2, 60)\n" +
+        "export let narrowSize: Int = size(wideThenNarrow)\n",
+      [
+        "export const backTag = backToOne.root.tag;",
+        "export const narrowTag = wideThenNarrow.root.tag;",
+      ],
+    );
+    expect(m.backSize).toBe(1);
+    expect(m.backValue).toBe(10);
+    expect(m.narrowSize).toBe(1);
+    expect(m.backTag).toBe("Rooted");
+    expect(m.narrowTag).toBe("Rooted");
+  });
+});
+
 describe("HashTrie entries", () => {
   test("§7.1 yields exactly the pairs that were inserted", async () => {
     const m = await runTrie(

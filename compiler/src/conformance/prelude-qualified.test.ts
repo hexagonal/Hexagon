@@ -316,16 +316,22 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
   });
 
   test("a collection core call registers no companion candidate", async () => {
-    // `Map.empty`/`Map.isEmpty` resolve to compiler core operations, but they
-    // share their spelling with real `Seq.hex` and `Vector.hex` exports —
-    // deliberately, per the Collections Part 1 §3.1 naming doctrine. Registering
-    // a candidate for them would put prelude terms the module never names into
-    // the used-prelude set, and with them a claim on the module-level names
-    // `empty` and `isEmpty` that `#preludeImport` would have to rename around.
+    // `Set.empty`/`Set.isEmpty` resolve to compiler core operations, but they
+    // share their spelling with real `Seq.hex`, `Vector.hex` and `Map.hex`
+    // exports — deliberately, per the Collections Part 1 §3.1 naming doctrine.
+    // Registering a candidate for them would put prelude terms the module never
+    // names into the used-prelude set, and with them a claim on the module-level
+    // names `empty` and `isEmpty` that `#preludeImport` would have to rename
+    // around.
+    //
+    // `Set` is the whole of the guard's remit since #370 retired `Map`'s entry:
+    // `Map.isEmpty(m)` is now an ordinary qualified call into a prelude member
+    // and *does* synthesize a real import, which is what a companion module
+    // arriving means. `Set` is the last collection without one.
     const project = compileProject([
       new Source.File(Source.fileId(0), "/main.hex",
-        "let m: Map(Int, Int) = Map.empty()\n" +
-        "export let blank: Bool = Map.isEmpty(m)\n"),
+        "let s: Set(Int) = Set.empty()\n" +
+        "export let blank: Bool = Set.isEmpty(s)\n"),
     ]);
     expect(project.diagnostics).toEqual([]);
     const main = project.modules.find((module) => module.source.path === "/main.hex")!;
@@ -368,8 +374,8 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     const module = await run([
       ["/main.hex",
         "let source: Seq(Int) = Vector.toSeq([1, 2, 3])\n" +
-        "let m: Map(Int, Int) = Map.empty()\n" +
-        "export let measured: Bool = Map.isEmpty(m)\n" +
+        "let s: Set(Int) = Set.empty()\n" +
+        "export let measured: Bool = Set.isEmpty(s)\n" +
         "export let dispatched: Int = source.length()\n"],
     ]);
     expect(module["measured"]).toBe(true);

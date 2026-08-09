@@ -415,8 +415,8 @@ describe("code actions: infer return type", () => {
       ["export fun m(x) = Some(x)\n", "union argument"],
       ["export fun m(x) = () => x\n", "function result"],
       ["export fun m(x) = {...x}\n", "record row"],
-      ["export fun m(x) = Map.set(Map.empty(), x, 1)\n", "map key"],
-      ["export fun m(x) = Map.set(Map.empty(), 1, x)\n", "map value"],
+      ["export fun m(x) = Map.set(Map.empty, x, 1)\n", "map key"],
+      ["export fun m(x) = Map.set(Map.empty, 1, x)\n", "map value"],
       // The variable is in the returned function's *parameter*, and nowhere in
       // its result: walking only what a function returns would miss it.
       ["export fun m(x) = (y) => x == y\n", "function parameter"],

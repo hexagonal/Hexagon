@@ -35,7 +35,7 @@ Fixed here, inherited from Part 1:
 
 The foreign module specifier is a string literal and **may be a bare package specifier** (`"tiny-json"`, `"node:url"`). This construct is explicitly outside Hexagon-to-Hexagon import resolution, so the Modules §2 ban on bare specifiers between `.hex` modules does not apply to it. Relative specifiers addressing foreign `.js`/`.ts` files are equally legal; what the specifier must not name is another Hexagon module — Hexagon-to-Hexagon linkage is `import`'s job, and the diagnostic for an extern specifier resolving to a `.hex` source says so.
 
-*(2026-07-28.)* The **`hex:` scheme is reserved** in every extern specifier position. `"hex:intrinsic"` designates the compiler's own intrinsic boundary — legal only in privileged standard-library source and owned by `spec/intrinsics.md`, which reuses this part's block grammar with its stated deltas. In unprivileged source any `hex:`-scheme specifier is a hard error with a named rewrite (`intrinsics.md` §11). Foreign extern semantics in this part are unchanged, including §12.4's monomorphism: genericity exists only inside the reserved boundary (`intrinsics.md` §3.4).
+*(2026-07-28.)* The **`hex:` scheme is reserved** in every extern specifier position. `"hex:intrinsic"` designates the compiler's own intrinsic boundary — legal only in privileged standard-library source and owned by `spec/intrinsics.md`, which reuses this part's block grammar with its stated deltas. In unprivileged source any `hex:`-scheme specifier is a hard error with a named rewrite (`intrinsics.md` §11). Foreign extern semantics in this part are unchanged, including §12.4's monomorphism: genericity — and, #370, constraint brackets — exists only inside the reserved boundary (`intrinsics.md` §3.4); foreign extern declarations remain monomorphic and unconstrained.
 
 ### 2.2 Block contents
 
@@ -308,7 +308,7 @@ Excluded from v1 and reserved; the directional preference is to defer each **unt
 4. **Rest/variadic externs** — deferred together with general rest parameters.
 5. **Arbitrary-string export names** (`export { x as "..." }`) — not representable by the v1 alias syntax (§3.2).
 6. **Opaque callable objects** — callable-and-property-bearing foreign values, noted in §4.2.
-7. **Generic extern declarations** — parameterized opaque foreign types, polymorphic extern functions, and parameterized extern classes. V1 extern declarations are monomorphic; revisit the family together on concrete library demand (§12.4). *(2026-07-28: unchanged for foreign externs. The reserved `"hex:intrinsic"` boundary grants genericity inside itself only — `spec/intrinsics.md` §3.4, and the §2.1 note.)*
+7. **Generic extern declarations** — parameterized opaque foreign types, polymorphic extern functions, and parameterized extern classes. V1 extern declarations are monomorphic; revisit the family together on concrete library demand (§12.4). *(2026-07-28: unchanged for foreign externs. The reserved `"hex:intrinsic"` boundary grants genericity inside itself only — `spec/intrinsics.md` §3.4, and the §2.1 note.)* *(#370: the boundary's grant now includes constraint brackets; still nothing changes on the foreign side — refusing type parameters already refuses the brackets that would quantify them.)*
 
 ---
 
@@ -332,7 +332,7 @@ The draft recorded these four questions rather than inventing rules. James/Sol r
 
 **Resolved: defer the whole family from v1.** Extern declarations are monomorphic: no parameterized opaque foreign type (`type Container(a)`), polymorphic extern `fun`, or parameterized extern class. These forms pose one representation and declaration-surface question and must be designed together if a concrete foundational library clears the revisit bar.
 
-*(2026-07-28.)* This resolution governs **foreign** extern declarations and is unchanged by the intrinsic door. Inside the reserved `"hex:intrinsic"` boundary, declarations may be generic — the implementer there is the compiler, which owns every Hexagon type's representation, so the representation question this section defers does not arise. `spec/intrinsics.md` §3.4 owns the carve-out.
+*(2026-07-28.)* This resolution governs **foreign** extern declarations and is unchanged by the intrinsic door. Inside the reserved `"hex:intrinsic"` boundary, declarations may be generic — and, #370, constrained — because the implementer there is the compiler, which owns every Hexagon type's representation and its own evidence convention, so neither the representation question this section defers nor a dictionary-shape question arises. `spec/intrinsics.md` §3.4 owns the carve-out.
 
 ---
 

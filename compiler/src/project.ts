@@ -14,17 +14,17 @@ import { moduleInterface, resolve } from "./passes/resolver/resolver.js";
 import { check } from "./passes/checker/checker.js";
 import { elaborate } from "./passes/elaborator/elaborator.js";
 import {
-  DEFAULT_VECTOR_RUNTIME_SPECIFIER,
   emitDeclarations,
   emitJavaScript,
   emittedModuleSpecifier,
   runtimeDeclarationsText,
   RUNTIME_DECLARATIONS_STEM,
+  RUNTIME_WIRINGS,
 } from "./passes/emitter/emitter.js";
 import type { PreludeImport } from "./passes/resolver/resolver.js";
-import type { VectorRuntime } from "./passes/emitter/emitter.js";
+import type { RuntimeLocations } from "./passes/emitter/emitter.js";
 import { PRELUDE_MODULES, PRIMITIVE_COMPANION_BASENAMES } from "./prelude.js";
-import { RUNTIME_MODULES, VECTOR_TRIE_BASENAME } from "./runtime-modules.js";
+import { RUNTIME_MODULES } from "./runtime-modules.js";
 
 export interface CompiledModule {
   readonly source: Source.File;
@@ -35,16 +35,16 @@ export interface CompiledModule {
   readonly javascript: Emitted.JavaScript;
   readonly declarations: Emitted.Declarations;
   /**
-   * Where this module's vector emission found the trie runtime, so a host that
+   * Where this module's emission found each runtime module, so a host that
    * re-emits it (the Playground, for its private-specialization preview) gets
    * the same answer rather than the same-directory default.
    *
    * Carried rather than recomputed because only `compileProject` knows where
-   * the runtime module was injected, and a host that guessed would emit a
+   * the runtime modules were injected, and a host that guessed would emit a
    * runtime module with no export list, or a consumer importing a path that
    * does not exist — both of which compile clean and fail at load.
    */
-  readonly vectorRuntime: VectorRuntime;
+  readonly runtimes: RuntimeLocations;
 }
 
 /**
@@ -115,8 +115,18 @@ export function compileProject(
   const runtimeModuleSet = new Set(runtimeModulePaths);
   /** Each injected path's seat, for the "sees only what precedes it" slice. */
   const injectedSeats = new Map(injectedPaths.map((path, index) => [path, index]));
-  const vectorTriePath = injectedPaths.find((path, index) =>
-    injectedModules[index]!.runtime && path.endsWith(`/${VECTOR_TRIE_BASENAME}`)
+  /**
+   * Where each wired runtime module was injected, by basename. A wiring whose
+   * module is absent from the project — which is only an empty project — has no
+   * entry, and emission falls back to the same-directory default.
+   */
+  const runtimeModulePathsByBasename = new Map(
+    RUNTIME_WIRINGS.flatMap(({ basename }) => {
+      const path = injectedPaths.find((candidate, index) =>
+        injectedModules[index]!.runtime && candidate.endsWith(`/${basename}`)
+      );
+      return path === undefined ? [] : [[basename, path] as const];
+    }),
   );
   // The runtime declaration module's basename, settled before any module is
   // emitted because every importer has to spell the same one (FFI Part 1 §8.3).
@@ -316,17 +326,17 @@ export function compileProject(
     programNominals.unions.push(...resolved.unions);
     programNominals.records.push(...resolved.records);
     const core = elaborate(typed);
-    const vectorRuntime = vectorRuntimeFor(path, vectorTriePath);
+    const runtimes = runtimesFor(path, runtimeModulePathsByBasename);
     const result: CompiledModule = {
       source,
       parsed: parsedModule,
       resolved,
       typed,
       core,
-      vectorRuntime,
+      runtimes,
       javascript: emitJavaScript(core, {
         exportInstanceEvidence: true,
-        vectorRuntime,
+        runtimes,
       }),
       declarations: emitDeclarations(core, {
         runtimeSpecifier: emittedModuleSpecifier(
@@ -397,13 +407,14 @@ export function compileProject(
         // nothing else. Its target must still be emitted, or the declarations
         // import from a file that was never written.
         ...(module?.declarations.preludeTypeImports ?? []),
-        // The trie runtime (Collections Part 3 §4) is the fourth such channel
-        // and the one with no `Import` item anywhere in the program to fall
-        // back on: `runtime/VectorTrie.hex` exports nothing at the Hexagon
-        // level, so emission's report is not merely the better answer, it is
-        // the only one. A program that touches no `Vector(a)` reports none and
-        // writes no `VectorTrie.js`.
-        ...(module?.javascript.vectorRuntimeImports ?? []),
+        // The runtime modules (Collections Part 3 §4, Part 4 §2.1) are the
+        // fourth such channel and the one with no `Import` item anywhere in the
+        // program to fall back on: a runtime module exports nothing at the
+        // Hexagon level, so emission's report is not merely the better answer,
+        // it is the only one. A program that touches no `Vector(a)` reports no
+        // `VectorTrie.js` and one that touches no `Map(k, v)` reports no
+        // `HashTrie.js`.
+        ...(module?.javascript.runtimeImports ?? []),
       ].map((specifier) => resolveSpecifier(path, specifier)),
     ];
   };
@@ -527,20 +538,26 @@ function weaveInjected(
 }
 
 /**
- * Where a module finds the vector trie runtime: it *is* the runtime module, or
- * the specifier that reaches it from here.
+ * Where a module finds each runtime module: it *is* one of them, or the
+ * specifier that reaches each from here.
  *
- * A project with no trie path is one with no sources at all, and its (empty)
- * module list needs no runtime; the same-directory default stands in so the
- * emitter never has to hold a fourth case.
+ * A project with no path for a runtime module is one with no sources at all,
+ * and its (empty) module list needs no runtime; the basename is simply left out
+ * and the emitter's same-directory default stands in, so neither side has to
+ * hold an extra case.
  */
-function vectorRuntimeFor(path: string, vectorTriePath: string | undefined): VectorRuntime {
-  if (vectorTriePath === undefined) {
-    return { specifier: DEFAULT_VECTOR_RUNTIME_SPECIFIER };
-  }
-  return path === vectorTriePath
-    ? "self"
-    : { specifier: relativeSpecifier(path, vectorTriePath) };
+function runtimesFor(
+  path: string,
+  pathsByBasename: ReadonlyMap<string, string>,
+): RuntimeLocations {
+  return new Map(
+    [...pathsByBasename].map(([basename, runtimePath]) => [
+      basename,
+      path === runtimePath
+        ? "self" as const
+        : { specifier: relativeSpecifier(path, runtimePath) },
+    ]),
+  );
 }
 
 /**

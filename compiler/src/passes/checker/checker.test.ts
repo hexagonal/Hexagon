@@ -227,7 +227,7 @@ describe("check", () => {
     const module = checkSource(
       "union Shape = Circle(radius: Float) | Rectangle(width: Float, height: Float) | Point\n" +
         "fun measure(shape: Shape): Float = match shape\n" +
-        "    Circle(size) | Rectangle(size, _) when size > 0.0 => size\n" +
+        "    Circle(extent) | Rectangle(extent, _) when extent > 0.0 => extent\n" +
         "    Circle(_) | Rectangle(_, _) => 0.0\n" +
         "    Point => 0.0\n" +
         "fun sign(value: Int): String = match value\n" +
@@ -236,9 +236,11 @@ describe("check", () => {
     );
 
     expect(module.diagnostics).toEqual([]);
-    const sizes = module.symbols.filter(({ name }) => name === "size");
-    expect(sizes).toHaveLength(1);
-    expect(sizes[0]?.scheme.type).toMatchObject({
+    // `extent` rather than `size`: `stdlib/Map.hex` exports a prelude `size`
+    // since #370, and this filter runs over every symbol the module can see.
+    const extents = module.symbols.filter(({ name }) => name === "extent");
+    expect(extents).toHaveLength(1);
+    expect(extents[0]?.scheme.type).toMatchObject({
       kind: "Primitive",
       name: "Float",
     });
