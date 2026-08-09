@@ -126,8 +126,22 @@ work not demanded is work not done.
 
 ## `Seq` is the common iteration currency
 
-A pipeline does not care where its elements come from. Collection companions therefore
-use a uniform pair of names for moving values into and out of the common type:
+A pipeline does not care where its elements come from. Any iterable value converts to
+a sequence with one bare call:
+
+```hexagon
+let letters: Seq(String) = toSeq("Hexagon")
+let numbers: Seq(Int) = toSeq(1..10)
+```
+
+`toSeq` is a member of the prelude's `Iterable` constraint, and each iterable type's
+instance supplies its own conversion. For a `String` it produces one-codepoint strings
+in order; for a range, the counted progression; for a `Seq` it is the identity — the
+currency needs no conversion into itself, so a consumer normalizing a mixed batch of
+iterables includes sequences at zero cost.
+
+The collection companions expose the same member under qualified names, together with
+its eager inverse:
 
 - `Type.toSeq(value)` exposes values for lazy iteration; and
 - `Type.fromSeq(sequence)` constructs a collection eagerly.
@@ -141,8 +155,10 @@ let doubled: Vector(Int) =
 
 The conversion into `Seq` costs nothing up front — the vector's elements are exposed
 for lazy iteration, not copied — while `fromSeq` at the far end is eager, and
-appropriate because the sequence it consumes is finite. Later collection examples will
-use the same naming without cataloguing every possible conversion.
+appropriate because the sequence it consumes is finite. For strings, `String.toSeq`
+yields codepoints and `String.fromSeq` concatenates sequence elements without Unicode
+normalization, so the round trip rebuilds the original string. Later collection
+examples will use the same naming without cataloguing every possible conversion.
 
 Because `Seq(a)` states its element type directly, it is also the idiomatic parameter
 for generic iteration:
@@ -188,7 +204,9 @@ an immutable model that can be reasoned about locally.
 - `Seq.next` returns `Some((value, rest))` or `None` without consuming the original
   sequence position;
 - loops pull elements through the same external-iteration model;
-- `toSeq` and `fromSeq` connect collections without requiring a library catalogue; and
+- bare `toSeq` converts any iterable value into the common currency, and the
+  companions' `toSeq`/`fromSeq` pairs connect collections without a library
+  catalogue; and
 - `Seq(a)` crosses the JavaScript boundary as `Iterable<a>` while retaining persistent
   Hexagon semantics.
 

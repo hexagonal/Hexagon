@@ -329,7 +329,8 @@ late pedagogy pass, not a commitment to the current order.
   subject-first companion operations.
 - Establishes `Seq(a)` as lazy, immutable, and possibly infinite; `Seq.next` as a
   persistent functional cursor; demand-driven effects; and `Seq` as the common
-  iteration and collection-conversion currency.
+  iteration and collection-conversion currency, reached from any iterable value by
+  the bare `toSeq` member.
 - Prepares persistent collections and the `Iterable` recipe while avoiding a library
   API catalogue.
 
@@ -788,14 +789,11 @@ late pedagogy pass, not a commitment to the current order.
 - `Seq.next : Seq(a) -> Option((a, Seq(a)))` does not consume the supplied position;
   traversal advances through the returned successor sequence.
 - Lazy callbacks and their effects run as elements are demanded.
-- Companion `toSeq`/`fromSeq` pairs connect collections without making the chapter an
-  API inventory. *(The `Iterable` member is named `toSeq` — the #386 ruling — so the
-  per-collection `toSeq` spellings taught here become the member's qualified reads
-  when #353 lands the declaring module; today they are the companions' interim plain
-  exports and compile as-is. The chapter does not teach the bare `toSeq(x)` universal
-  conversion: bare `toSeq` stays a prelude collision until #353's migration, and that
-  teaching returns with it. `Seq.iterate` keeps its canonical seed/step producer
-  name.)*
+- Bare `toSeq(x)` is the universal conversion — the member of the prelude's
+  `Iterable` constraint — and the per-collection `toSeq` spellings are its qualified
+  reads; companion `toSeq`/`fromSeq` pairs connect collections without making the
+  chapter an API inventory. `Seq.iterate` keeps its canonical seed/step producer
+  name.
 - `Seq(a)` faces JavaScript and TypeScript as `Iterable<a>`, with runtime adaptation
   preserving persistent sequence positions.
 
