@@ -22,8 +22,8 @@ happen, use `Seq.next`, and predict its JavaScript and TypeScript boundary face.
 2. Transformations such as `map`, `filter`, and `take` defer work.
 3. `Seq.next` returns `Option((a, Seq(a)))` and never consumes the original position.
 4. Loops pull on demand through the same protocol.
-5. Companion `toSeq`/`fromSeq` pairs are the conversion vocabulary; the bare `toSeq`
-   member conversion is deferred until the `Iterable` declaring module lands (#353).
+5. Bare `toSeq` is the universal conversion (the `Iterable` member); companion
+   `toSeq`/`fromSeq` pairs are its qualified reads and the construction vocabulary.
 6. Collection conversion uses `toSeq` and `fromSeq` without an API inventory.
 7. The JS/TS face is `Iterable<a>`, with adaptation preserving Hexagon persistence.
 

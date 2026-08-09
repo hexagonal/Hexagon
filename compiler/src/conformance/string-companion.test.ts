@@ -340,7 +340,7 @@ describe("`String.hex` is instances and nothing else", () => {
    * contents belong to the listing surfaces. This is the shape assertion that
    * would notice a helpful addition creeping in.
    */
-  test("the emitted module holds four natives, five dictionaries, and no guard", () => {
+  test("the emitted module holds five natives, five dictionaries, and no guard", () => {
     // A program that reaches every instance through a dictionary, so the whole
     // companion is compiled and none of its blocks can be dead.
     const text = companion([
@@ -359,11 +359,26 @@ describe("`String.hex` is instances and nothing else", () => {
         "__hex_ordering(__hex_compareString(__hex_a, __hex_b));",
     );
     expect(text).toContain("const nativeHash = __hex_a => __hex_stableHash(__hex_a);");
+    // The fifth native (#353): Collections Part 5 §5.3's `String.fromSeq`, and
+    // its binding implementation note — collect chunks and **join**, never the
+    // fold of `++` the section describes semantically, which would be quadratic.
+    expect(text).toContain(
+      'const fromSeq = __hex_values => [...__hex_seqToIterable(__hex_values)].join("");',
+    );
     for (const constraint of ["Eq", "Ord", "Show", "Concat", "Hash"]) {
       expect(text).toContain(`__hex_instance_${constraint}_String`);
     }
-    expect(text).not.toContain("throw");
-    expect(text).not.toContain("Error(");
+    // "No guard" is a claim about *this companion's* code, and it is asked of
+    // exactly that: the module's own bindings are the unindented `const` and
+    // `export` lines, while the runtime helper bodies above them are indented.
+    // The distinction became load-bearing when `fromSeq` pulled in the `Seq`
+    // driver, which throws `ReentrancyError` — a helper's guard, not
+    // `String`'s. A string still has no partial operation.
+    const own = text.split("\n")
+      .filter((line) => line.startsWith("const ") || line.startsWith("export "))
+      .join("\n");
+    expect(own).not.toContain("throw");
+    expect(own).not.toContain("Error(");
   });
 
   /**

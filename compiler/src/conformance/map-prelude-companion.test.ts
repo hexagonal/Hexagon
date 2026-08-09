@@ -515,7 +515,6 @@ describe("the companion's surface", () => {
       "set",
       "singleton",
       "size",
-      "toSeq",
       "values",
     ]);
     const javascript = map!.javascript.text;
@@ -557,7 +556,6 @@ describe("the companion's surface", () => {
       "isEmpty",
       "keys",
       "values",
-      "toSeq",
     ];
     for (const name of unconstrained) {
       expect(face).toMatch(new RegExp(`export declare (const|function) ${name}\\b`, "u"));

@@ -80,8 +80,18 @@ describe("the module", () => {
       "Int.hex",
       "Nat.hex",
       "Float.hex",
-      "String.hex",
+      // #353 swapped `String.hex` past `Seq.hex`. Its instances need nothing
+      // later than `Ord.hex` and its old seat here was a convenience, but
+      // Collections Part 5 §5.3's `String.fromSeq : Seq(String) -> String`
+      // cannot be written before `Seq.hex` seats. `Seq.hex` names no string, so
+      // the swap takes nothing from it.
       "Seq.hex",
+      "String.hex",
+      // #353 also seats the eleventh and last constraint declaration, and the
+      // only one that cannot sit with the other ten: `toSeq(xs: c): Seq(Item)`
+      // names `Seq`, and honoring the reverse order is a genuine cycle — which
+      // is why Collections Part 5 §4's rows have no source form.
+      "Iterable.hex",
       "Result.hex",
       "Vector.hex",
       // #370 displaced `Vector.hex` from the last seat: `Map.hex` needs `Hash`,
@@ -129,18 +139,22 @@ describe("the module", () => {
     expect(javascript).toContain(
       "const fromSeq = __hex_values => __hex_vectorOf(__hex_seqToIterable(__hex_values));",
     );
-    expect(javascript).toContain("const toSeq = __hex_seqFromIterable;");
+    // The eager/lazy bridge still crosses the door, but unexported and under a
+    // plain name since #353: `Iterable<Vector(a)>` is a provided row, so `toSeq`
+    // at a vector is the constraint member and Constraints §4.6 forbids a
+    // module-level binding of a member's spelling beside the instance.
+    expect(javascript).toContain("const elements = __hex_seqFromIterable;");
+    expect(javascript).not.toContain("const toSeq =");
+    expect(javascript).not.toContain("export { toSeq };");
     // The trie arrives as one import line, and `length`'s lowering being an
     // imported name rather than a body is the whole of what makes it O(1).
     expect(javascript).toContain('} from "./VectorTrie.js";');
     // `fromSeq` takes a top-level `Seq(a)` *parameter*, so its export site takes
     // FFI Part 7 §7 occasion 1's wrapper exactly as an exported `.hex` function
-    // of that signature would (`spec/intrinsics.md` §8.3's edit note). `toSeq`
-    // returns one and takes none, so it exports as itself.
+    // of that signature would (`spec/intrinsics.md` §8.3's edit note).
     expect(javascript).toContain(
       "const __hex_fromSeqBoundary0 = __hex_argument0 => fromSeq(__hex_seqInbound(__hex_argument0));",
     );
-    expect(javascript).toContain("export { toSeq };");
   });
 });
 
@@ -521,8 +535,11 @@ describe("two prelude members exporting one bare name", () => {
     ]], "/main.hex");
 
     expect(javascript).toContain('import { length } from "./Seq.js";');
+    // `Vector.toSeq` no longer comes from `Vector.js` (#353) — it is the
+    // provided row's member, so the companion contributes only the collided
+    // `length`, under its distinguished local.
     expect(javascript).toContain(
-      'import { toSeq, length as __hex_prelude_length } from "./Vector.js";',
+      'import { length as __hex_prelude_length } from "./Vector.js";',
     );
     expect(javascript).toContain("const lazy = length(source);");
     expect(javascript).toContain("const eager = __hex_prelude_length(__hex_vectorOf([1, 2]));");

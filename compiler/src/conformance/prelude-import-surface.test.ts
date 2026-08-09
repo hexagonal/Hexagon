@@ -81,8 +81,24 @@ function emittedPaths(files: readonly (readonly [string, string])[]): readonly s
   return project(files).modules.map(({ source }) => source.path);
 }
 
+/**
+ * The import line a constraint member's forwarder arrives on (#353).
+ *
+ * `Vector.toSeq` and friends stopped being companion exports when
+ * `stdlib/Iterable.hex` landed: `toSeq` is the `Iterable` member, so the name
+ * comes from the *declaring* module under Constraints §6.5's exported spelling.
+ * The symbol id in that spelling is not a fact worth pinning — it moves
+ * whenever anything ahead of `Iterable.hex` in the prelude gains a binding —
+ * so `importLines` normalizes it and the expectations name it by this
+ * constant.
+ */
+const ITERABLE_TO_SEQ_IMPORT =
+  'import { __hex_exportN as toSeq } from "./Iterable.js";';
+
 function importLines(javascript: string): readonly string[] {
-  return javascript.split("\n").filter((line) => line.startsWith("import "));
+  return javascript.split("\n")
+    .filter((line) => line.startsWith("import "))
+    .map((line) => line.replace(/__hex_export\d+/g, "__hex_exportN"));
 }
 
 function exportLines(javascript: string): readonly string[] {
@@ -130,8 +146,9 @@ describe("the synthesized prelude import is what Core references", () => {
       "export let out: Vector(Int) =\n" +
       "    Vector.fromSeq(Vector.toSeq([1, 2, 3]).map(x => x * 2))\n";
     expect(importLines(emitted([["/main.hex", source]], "/main.hex"))).toEqual([
-      'import { fromSeq, toSeq } from "./Vector.js";',
+      'import { fromSeq } from "./Vector.js";',
       'import { map } from "./Seq.js";',
+      ITERABLE_TO_SEQ_IMPORT,
       VECTOR_LITERAL_IMPORT,
     ]);
     const main = await runProject([["/main.hex", source]]);
@@ -156,7 +173,8 @@ describe("the synthesized prelude import is what Core references", () => {
     // specifier, in the order the module first reached that member.
     expect(importLines(javascript)).toEqual([
       'import { map } from "./Seq.js";',
-      'import { fromSeq, toSeq } from "./Vector.js";',
+      'import { fromSeq } from "./Vector.js";',
+      ITERABLE_TO_SEQ_IMPORT,
       VECTOR_LITERAL_IMPORT,
     ]);
     const main = await runProject([["/main.hex", source]]);
@@ -188,8 +206,9 @@ describe("the synthesized prelude import is what Core references", () => {
       "    Vector.fromSeq(Seq.prepend(Seq.map(Vector.toSeq([7, 8]), x => x + 1), 0))\n";
     const javascript = emitted([["/main.hex", source]], "/main.hex");
     expect(importLines(javascript)).toEqual([
-      'import { fromSeq, toSeq } from "./Vector.js";',
+      'import { fromSeq } from "./Vector.js";',
       'import { prepend, map as __hex_prelude_map } from "./Seq.js";',
+      ITERABLE_TO_SEQ_IMPORT,
       VECTOR_LITERAL_IMPORT,
     ]);
     const main = await runProject([["/main.hex", source]]);
@@ -214,8 +233,9 @@ describe("the synthesized prelude import is what Core references", () => {
       "    Vector.fromSeq(Vector.toSeq([9]).map(x => x * 2))\n",
     ]], "/main.hex");
     expect(importLines(javascript)).toEqual([
-      'import { fromSeq, toSeq } from "./Vector.js";',
+      'import { fromSeq } from "./Vector.js";',
       'import { map as __hex_prelude_map } from "./Seq.js";',
+      ITERABLE_TO_SEQ_IMPORT,
       VECTOR_LITERAL_IMPORT,
       'import { map } from "lib";',
     ]);

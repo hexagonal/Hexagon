@@ -31,10 +31,16 @@ const messagesOf = (files: readonly (readonly [string, string])[]): readonly str
 const HEAD_LAW =
   "a parameterized instance head must be a nominal constructor applied once to each distinct instance parameter";
 
-const iterable = "constraint Iterable<c> =\n" +
-  "    type Item\n" +
-  "    toSeq(xs: c): Seq(Item)\n" +
-  "\n";
+/**
+ * Nothing, since #353 — and the emptiness is the point rather than an
+ * economy. These fixtures declared their own `Iterable` because the compiler
+ * held none; `stdlib/Iterable.hex` is a prelude member now, so the name is
+ * simply in scope and a source redeclaration is refused (Constraints §5.1.1).
+ * Kept as a binding rather than deleted at each site so that what every test
+ * below pins — the *head's* binders, and nothing about where the declaration
+ * comes from — is visibly unchanged from when they were written.
+ */
+const iterable = "";
 
 /** The canonical spelling: no prefix, the head binds `a`. */
 const bag = "record Bag(a) = {items: Vector(a)}\n" +

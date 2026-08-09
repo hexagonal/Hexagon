@@ -43,10 +43,19 @@ extern from "hex:intrinsic"
         the set unchanged rather than an error. *)
     export fun setRemove as remove<a: Hash>(s: Set(a), element: a): Set(a)
 
-    (** Every element of `s`, lazily. The order is the same for two traversals of
-        one set within one execution, and is promised for nothing else — not
-        insertion, not sorted, not stable across runs. *)
-    export fun setElements as toSeq(s: Set(a)): Seq(a)
+    // Every element of `s`, lazily. The order is the same for two traversals of
+    // one set within one execution, and is promised for nothing else — not
+    // insertion, not sorted, not stable across runs.
+    //
+    // Unexported under this name, and unexported permanently:
+    // `Iterable<Set(a)>` is a provided row (Collections Part 5 section 4), so
+    // `toSeq` at a set is the constraint member, and a module-level binding of
+    // a member's spelling beside the instance is the Constraints section 4.6
+    // rebinding error. The Part 4 section 6.2 traversal is still published —
+    // as `toSeq(s)` bare and `Set.toSeq(s)` qualified, both reading the row.
+    // The algebra below calls this row directly rather than the member, which
+    // is the same walk one indirection shorter.
+    fun setElements as elements(s: Set(a)): Seq(a)
 
     // Unexported, and the one row here that is not Collections Part 4
     // section 6.2 surface. It answers the element `s` physically stores, not
@@ -102,13 +111,13 @@ export let union<a: Hash>(left: Set(a), right: Set(a)): Set(a) =
         // Right is the smaller side. Insert-if-absent into the left: an element
         // in both keeps the accumulator's, which is the left's, and section 5.4
         // is satisfied with nothing done about it.
-        Seq.fold(toSeq(right), left, add)
+        Seq.fold(elements(right), left, add)
     else
         // Left is the smaller side, so the accumulator has to be the right one —
         // and now every element in both must have the *right's* representative
         // thrown out and the left's put in its place. Insert-with-replace, the
         // other arm of section 5.4, and the reason `replaceMember` exists.
-        Seq.fold(toSeq(left), right, replaceMember)
+        Seq.fold(elements(left), right, replaceMember)
 
 // One element of the traversed side kept only if `source` holds an equal one,
 // and kept **as `source` holds it**. Named rather than written as the fold's
@@ -125,23 +134,23 @@ export let intersect<a: Hash>(left: Set(a), right: Set(a)): Set(a) =
     if size(left) <= size(right) then
         // Left is the smaller side: traverse it, probe the right, and every
         // element collected is the left's own by construction (section 5.4).
-        Seq.fold(Seq.filter(toSeq(left), (element) => contains(right, element)), empty, add)
+        Seq.fold(Seq.filter(elements(left), (element) => contains(right, element)), empty, add)
     else
         // Right is the smaller side, so the elements in hand are the right's and
         // section 5.4 wants the left's. Probing with `contains` would answer the
         // question and discard the answer needed, which is what the unexported
         // `storedMember` row is for.
-        Seq.fold(toSeq(right), empty, (accumulated, element) =>
+        Seq.fold(elements(right), empty, (accumulated, element) =>
             keptRepresentative(left, accumulated, element))
 
 (** The elements of `left` that `right` does not hold. *)
 export let difference<a: Hash>(left: Set(a), right: Set(a)): Set(a) =
-    Seq.fold(Seq.filter(toSeq(left), (element) => not contains(right, element)), empty, add)
+    Seq.fold(Seq.filter(elements(left), (element) => not contains(right, element)), empty, add)
 
 (** Whether `right` holds every element of `left`. The empty set is a subset of
     everything, and every set is a subset of itself. *)
 export let isSubsetOf<a: Hash>(left: Set(a), right: Set(a)): Bool =
-    Seq.all(toSeq(left), (element) => contains(right, element))
+    Seq.all(elements(left), (element) => contains(right, element))
 
 (** The elements of `elements` collected into a set. A duplicated element keeps
     the first representative it was inserted under. It forces the whole

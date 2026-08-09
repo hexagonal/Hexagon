@@ -1,0 +1,10 @@
+(** The iteration capability: `for..in` steps through the values of any type
+    honoring `Iterable`, and `toSeq` is that type's conversion to the common
+    `Seq` currency. *)
+export constraint Iterable<c> =
+    // The type of one element, implied by the subject: each instance binds it,
+    // so `Iterable<Vector(a)>` implies `Item = a`. An ordinary comment, not a
+    // doc comment: the parser admits no `(** *)` above a `type` member (#353).
+    type Item
+    (** The elements of `xs` as a sequence, in the type's traversal order. *)
+    toSeq(xs: c): Seq(Item)

@@ -49,25 +49,23 @@ export const PRE_REGISTERED_CONSTRAINTS: readonly string[] = [
  * The pre-registered names a module may not redeclare.
  *
  * §5.1.1 pins all eleven: "a module-level `constraint Eq<a> = ...` is an error
- * naming the pre-registered constraint, not a second `Eq`". Ten of them are
- * banned. The ban follows the declaration, and never precedes it: banning a
+ * naming the pre-registered constraint, not a second `Eq`". All eleven are
+ * banned, and the inventory is the ban — there is no longer a filter here,
+ * because there is no longer a name the compiler holds no declaration for.
+ *
+ * The ban follows the declaration, and never precedes it: banning a
  * redeclaration the compiler holds no declaration for would not refuse a twin,
- * it would delete the only spelling the feature has.
- *
- * `Integral` was held back for exactly that reason and is held back no longer.
- * Since #335 the compiler holds its declaration — `stdlib/Integral.hex` is a
- * prelude member, so `div`/`mod`/`quot`/`rem`/`gcd` are in bare scope and
- * `Integral.div` is qualified access to an export — and a module-level
- * `constraint Integral<a> = ...` is now the ordinary twin the ban exists for.
- *
- * `Iterable` is the one remaining name-only remnant. The compiler holds no
- * declaration for it: its members are reachable in v1 solely through a source
- * `constraint Iterable<c> = ...`, which is what `for value in bag` over a user
- * `honor Iterable<Bag>` needs. It is owed to the collections arc (#283), and
- * its ban lands with its declaration.
+ * it would delete the only spelling the feature has. `Integral` was held back
+ * for exactly that reason until #335 gave it `stdlib/Integral.hex`; `Iterable`
+ * was the last one held back, and #353 gave it `stdlib/Iterable.hex` — seated
+ * after `Seq.hex`, since `toSeq(xs: c): Seq(Item)` names `Seq`. With that file
+ * a prelude member, `toSeq` is in bare scope everywhere, `Iterable.toSeq` is
+ * qualified access to an export, and a module-level `constraint Iterable<c> =
+ * ...` is the ordinary twin the ban exists for. §5.1.1's name-only state was a
+ * compiler gap, not a spec freedom, and it is closed.
  */
 export const NON_REDECLARABLE_CONSTRAINTS: readonly string[] =
-  PRE_REGISTERED_CONSTRAINTS.filter((name) => name !== "Iterable");
+  PRE_REGISTERED_CONSTRAINTS;
 
 /**
  * The member names of the pre-registered constraints, for the one question that
@@ -88,9 +86,13 @@ export const NON_REDECLARABLE_CONSTRAINTS: readonly string[] =
  * `#checkPreludeHonor`, which is the other wired-in fallback of the same shape,
  * and a second copy of them here would be a second thing to keep true.
  *
- * `Iterable` is absent for the reason it is absent from the redeclaration ban:
- * the compiler holds no declaration for it, so a user's source declaration is
- * the only statement of its members, and the lookup above finds that.
+ * The table is total over the inventory since #353. `Iterable` was the one
+ * absence, and it was absent for the reason it was absent from the ban: no
+ * declaration existed to read. `stdlib/Iterable.hex` is that declaration now,
+ * so the name claims `toSeq` here exactly as the other ten claim theirs.
+ * `Iterable` is deliberately *not* given a `#checkPreludeHonor` signature arm:
+ * its provided rows have no source form (Collections Part 5 §4), and the real
+ * declaration is visible in every compile that has a prelude at all.
  */
 export const PRE_REGISTERED_CONSTRAINT_MEMBERS: Readonly<
   Record<string, readonly string[]>
@@ -104,6 +106,7 @@ export const PRE_REGISTERED_CONSTRAINT_MEMBERS: Readonly<
   Ord: ["compare"],
   Show: ["show"],
   Hash: ["hash"],
+  Iterable: ["toSeq"],
   Integral: ["div", "mod", "quot", "rem", "gcd"],
 };
 
