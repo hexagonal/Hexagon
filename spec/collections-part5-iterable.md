@@ -90,7 +90,7 @@ All compiler/runtime-provided (Part 2 §4.4 wording — specified normatively, n
 | Type | `type Item` | `toSeq` (the member) | Fixed by |
 |---|---|---|---|
 | `Range` | `Int` | the range's progression (ascending or descending per the value; Loops §3) | Loops §3/§5 |
-| `Vector(a)` | `a` | the Part 3 §8 lazy view | Part 3 §8 |
+| `Vector(a)` | `a` | the Part 3 §7.2 conversion | Part 3 §8 |
 | `Seq(a)` | `a` | identity | Loops §6 |
 | `Map(k, v)` | `(k, v)` | ≡ `entries` | Part 4 §7.2 |
 | `Set(a)` | `a` | element traversal | Part 4 §7.2 |

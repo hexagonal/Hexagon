@@ -227,8 +227,8 @@ Provided (Part 2 §4.4 wording; rows in the Loops §5 table):
 
 | Instance | Implied type | `toSeq` (the member) |
 |---|---|---|
-| `Iterable<Map(k, v)>` | `type Item = (k, v)` | `toSeq` |
-| `Iterable<Set(a)>` | `type Item = a` | `toSeq` |
+| `Iterable<Map(k, v)>` | `type Item = (k, v)` | ≡ `entries` |
+| `Iterable<Set(a)>` | `type Item = a` | element traversal |
 
 ```
 for (key, value) in m

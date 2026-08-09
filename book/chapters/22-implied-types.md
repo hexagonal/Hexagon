@@ -174,7 +174,8 @@ violating the ordinary coherence rule.
 
 The orphan rule is unchanged. An instance must live with either its constraint or the
 type it honors. A `Bag` library naturally places its `Iterable<Bag(a)>` instance in
-`Bag`'s home module, beside `Bag.toSeq`.
+`Bag`'s home module — and that instance's `toSeq` member is exactly what the
+spelling `Bag.toSeq` reads.
 
 Opacity also changes nothing. The home module can honor `Iterable` for an opaque
 collection because it can see the hidden representation. Consumers cannot see the
