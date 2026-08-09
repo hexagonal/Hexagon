@@ -788,8 +788,12 @@ late pedagogy pass, not a commitment to the current order.
 - `Seq.next : Seq(a) -> Option((a, Seq(a)))` does not consume the supplied position;
   traversal advances through the returned successor sequence.
 - Lazy callbacks and their effects run as elements are demanded.
-- `iterate` converts a statically known iterable to `Seq`; companion `toSeq`/`fromSeq`
-  pairs connect collections without making the chapter an API inventory.
+- Companion `toSeq`/`fromSeq` pairs connect collections without making the chapter an
+  API inventory. *(The chapter no longer teaches the bare `iterate` conversion: the
+  `Iterable` member is not yet a landed prelude term — #353 owns landing it, and the
+  currency section's conversion teaching returns with it. `Seq.successors` is the
+  seed/step producer, renamed from `Seq.iterate` so the bare name stays the member's,
+  #386.)*
 - `Seq(a)` faces JavaScript and TypeScript as `Iterable<a>`, with runtime adaptation
   preserving persistent sequence positions.
 

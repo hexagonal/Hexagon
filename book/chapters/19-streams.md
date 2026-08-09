@@ -64,11 +64,11 @@ a stream position is not a value.
 Streams normally enter a program from the world — the standard library's ambient
 sources and the JavaScript boundary both arrive in later contexts. But any pure
 sequence can be driven as a stream, and this is how stream code is exercised without
-touching the world at all — here over `Seq.iterate`, the standard library's
+touching the world at all — here over `Seq.successors`, the standard library's
 step-by-step producer (`1`, then `n * 2` of each element, without end):
 
 ```hexagon
-let script: Stream(Int) = Stream.fromSeq(Seq.iterate(1, n => n * 2))
+let script: Stream(Int) = Stream.fromSeq(Seq.successors(1, n => n * 2))
 ```
 
 `fromSeq` wraps the sequence with a cursor: each pull takes one step and remembers
@@ -78,7 +78,7 @@ the first one saw.
 
 This injection is more than a convenience. A function written against `Stream(a)`
 accepts a scripted stand-in as readily as a live source, which is how stream-consuming
-code is tested: replace the clock with `fromSeq(Seq.iterate(t0, tick))` and the test is
+code is tested: replace the clock with `fromSeq(Seq.successors(t0, tick))` and the test is
 deterministic.
 
 ## Consuming a stream

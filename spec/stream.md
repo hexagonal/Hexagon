@@ -74,7 +74,7 @@ extern from "hex:intrinsic"
     export fun streamFromSeq as fromSeq(source: Seq(a)): Stream(a)
 ```
 
-A pure sequence driven as a stream: each pull takes one step of the `Seq` and holds the successor — the cursor is the cross-call state, which is why this is an intrinsic-door declaration (§3) with the Intrinsics §4.2 obligations. The teaching point is **injection**: any consumer written against `Stream(a)` can be fed a pure, replayable script — `fromSeq(Seq.iterate(t0, tick))` stands in for a clock in a test, which is the pattern the ambient-source modules are designed around.
+A pure sequence driven as a stream: each pull takes one step of the `Seq` and holds the successor — the cursor is the cross-call state, which is why this is an intrinsic-door declaration (§3) with the Intrinsics §4.2 obligations. The teaching point is **injection**: any consumer written against `Stream(a)` can be fed a pure, replayable script — `fromSeq(Seq.successors(t0, tick))` stands in for a clock in a test, which is the pattern the ambient-source modules are designed around.
 
 ### 4.4 Consumers: `collect`, `fold`, `forEach`, `find`
 

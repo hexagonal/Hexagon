@@ -39,6 +39,7 @@ With Part 2 §8's promotion, `iterate` is an ordinary constraint member: a modul
 
 - **Loops §2.3's reference desugaring now names this member.** The `iterate(e)` in the desugaring, formerly described as compiler-internal, is the constraint member itself; the desugaring is otherwise character-for-character unchanged (edit note, §16).
 - **Qualified home:** per the Modules §6.4 invariant, the stdlib listing must give `iterate` a qualified home; `Iterable.iterate` is the presumed companion-module spelling. Ordinary prelude occlusion applies (Modules §5.4): a module-level user `iterate` occludes the bare name module-wide; the qualified form stays reachable.
+- **Sole exporter.** The bare spellings above exist only while this member is the *one* prelude export of the name: a second visible prelude member bare-exporting `iterate` would put the name under Modules §5.5's collided-name refusal, and every bare call in this section would be refused naming both homes. The stdlib therefore must not bare-export another `iterate` — in particular, `Seq`'s seed/step producer (the infinite sequence of successive `step` applications) is named `Seq.successors`, not `Seq.iterate`, precisely to keep this name single-exporter.
 - `Seq.next` and the functional-cursor protocol are untouched (Loops §6.2).
 
 ---
@@ -350,7 +351,7 @@ Rejected per §7.2: for a home-module instance the pattern is structurally unnec
 | # | Decision | § |
 |---|---|---|
 | 1 | Iterable(τ)=ε defined as global-instance lookup on τ's outer constructor; the Loops table is the instance table, operationally | §2.2 |
-| 2 | `iterate` is an ordinary prelude term; Loops §2.3's desugaring names the member; qualified home owed to the stdlib listing (`Iterable.iterate` presumed) | §2.3 |
+| 2 | `iterate` is an ordinary prelude term; Loops §2.3's desugaring names the member; qualified home owed to the stdlib listing (`Iterable.iterate` presumed); the bare name stays single-exporter — `Seq`'s seed/step producer is `Seq.successors` | §2.3 |
 | 3 | Normative 8-step algorithm for `for p in e`; pattern heads per Pattern Matching's five positions, irrefutability-gated; body `Unit`; source evaluated once | §3.1 |
 | 4 | **Inference-vs-declared diagnostic split**: unsolved inference variable → annotate; declared type variable → `Seq(a)` parameter hint | §3.2 |
 | 5 | User-nominal not-iterable error names **both legal homes** (the Modules §7.6 discoverability obligation's loop-side face), leading with the actionable one | §3.3 |
