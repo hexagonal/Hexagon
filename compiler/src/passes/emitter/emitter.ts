@@ -67,24 +67,35 @@ export const VECTOR_RUNTIME_OPERATIONS = [
 export type VectorRuntimeOperation = (typeof VECTOR_RUNTIME_OPERATIONS)[number];
 
 /**
- * Every operation the emitted program performs on a `Map(k, v)` by calling the
- * hash-trie runtime, and the name it is exported under from
- * `runtime/HashTrie.hex` (#370).
+ * Every operation the emitted program performs on a `Map(k, v)` or a `Set(a)` by
+ * calling the hash-trie runtime, and the name it is exported under from
+ * `runtime/HashTrie.hex` (#370, #373).
  *
  * Read `VECTOR_RUNTIME_OPERATIONS`' block for what a list like this is and why
  * it is fixed rather than derived; everything there applies here verbatim, with
  * one difference worth naming. The vector list is what the *emitter* reaches
  * for on its own account — a literal, a bracket, a pattern. This list is
- * `stdlib/Map.hex`'s seven door keys (`spec/intrinsics.md` §3.2), so almost
- * every member is here because a `map*` intrinsic lowers to it, and the emitter
- * itself reaches only two directly: `get`, for the bracket's throwing read and
- * the derived `Eq`, and `entries`, for the iteration face.
+ * `stdlib/Map.hex`'s and `stdlib/Set.hex`'s fifteen door keys — seven and eight
+ * (`spec/intrinsics.md` §3.2) — so almost every member is here because a `map*`
+ * or `set*` intrinsic lowers to it. Five the emitter reaches on its own account:
+ * `get`, for the bracket's throwing read and the derived `Eq`; `entries`, for
+ * the map's iteration face; `members`, for the set's; and `memberCount` and
+ * `containsMember`, which the set's derived instances need because a `HashSet`
+ * holds one field and the maintained count is inside it — so where `mapEquals`,
+ * `mapHash` and `#derivedShow`'s `Map` arm read `.size` off the value, their
+ * `Set` counterparts call.
  *
  * `containsKey` and `isEmpty` are declared in the runtime module and are
- * deliberately **not** here: `Map.hex` writes both in ordinary Hexagon over
- * `get` and `size`, so nothing outside the trie calls them, and an export list
- * naming operations no consumer imports is a claim the wiring has no reason to
- * make. The Set step will decide their fate on its own evidence.
+ * deliberately **not** here, and the Set step (#373) leaves both where they are.
+ * `Map.hex` writes both in ordinary Hexagon over `get` and `size`, and `Set.hex`
+ * writes its `isEmpty` over `size` the same way; the trie's own `containsKey` is
+ * still reached — but from *inside* the module, by the wrapper's
+ * `containsMember`, which is on this list. An export list naming operations no
+ * consumer imports is a claim the wiring has no reason to make.
+ *
+ * The set-facing eight are the wrapper record's, not the trie's (#373): a
+ * `Set(a)` is a `HashSet(a)` holding one `HashTrie(a, Unit)`, because one record
+ * carries one `[Symbol.iterator]` and the trie's yields pairs.
  */
 export const HASH_TRIE_RUNTIME_OPERATIONS = [
   /** The one shared empty trie (a value, not a function). */
@@ -101,6 +112,22 @@ export const HASH_TRIE_RUNTIME_OPERATIONS = [
   "remove",
   /** `entries(trie)` — the lazy depth-first walk, as a `Seq((k, v))`. */
   "entries",
+  /** The one shared empty set, wrapping `empty` (a value, not a function). */
+  "emptySet",
+  /** `soleMember(element)` — the unplaced one-element set (Part 4 §12.4). */
+  "soleMember",
+  /** `memberCount(s)` — the trie's maintained field through the wrapper, O(1). */
+  "memberCount",
+  /** `containsMember(s, element)` — `<a: Hash>`, the only Boolean read. */
+  "containsMember",
+  /** `memberIn(s, element)` — `<a: Hash>`, the stored representative (§5.4). */
+  "memberIn",
+  /** `addMember(s, element)` — `<a: Hash>`, insert-if-absent (Part 4 §5.1). */
+  "addMember",
+  /** `removeMember(s, element)` — `<a: Hash>`, forgiving. */
+  "removeMember",
+  /** `members(s)` — the trie walk projected to keys, as a `Seq(a)`. */
+  "members",
 ] as const;
 
 export type HashTrieRuntimeOperation = (typeof HASH_TRIE_RUNTIME_OPERATIONS)[number];
@@ -157,14 +184,20 @@ export interface RuntimeModuleWiring {
   /** What a module at the source common root spells for it. */
   readonly defaultSpecifier: string;
   /**
-   * The representation record whose construction carries the boundary traversal
-   * method, and the helper that method is. Present for a runtime module whose
-   * public type is `Iterable`; absent for one whose is not.
+   * Each representation record whose construction carries a boundary traversal
+   * method, and the helper that method is. Empty (or absent) for a runtime
+   * module no public `Iterable` type is built from.
+   *
+   * A *list* rather than the single pair this was, because one runtime module
+   * can back two public faces (#373): `runtime/HashTrie.hex` builds both
+   * `HashTrie`, which is what a `Map(k, v)` is and yields `[k, v]`, and
+   * `HashSet`, which is what a `Set(a)` is and yields elements. One record
+   * carries one iterator, so two faces need two records and two helpers.
    */
-  readonly iterable?: {
+  readonly iterables?: readonly {
     readonly record: string;
-    readonly helper: "vectorIterate" | "hashTrieIterate";
-  };
+    readonly helper: "vectorIterate" | "hashTrieIterate" | "hashSetIterate";
+  }[];
 }
 
 /** What a module at the source common root spells for the vector trie runtime. */
@@ -177,14 +210,17 @@ export const RUNTIME_WIRINGS: readonly RuntimeModuleWiring[] = [
     operations: VECTOR_RUNTIME_OPERATIONS,
     localStem: "trie",
     defaultSpecifier: DEFAULT_VECTOR_RUNTIME_SPECIFIER,
-    iterable: { record: "TrieVector", helper: "vectorIterate" },
+    iterables: [{ record: "TrieVector", helper: "vectorIterate" }],
   },
   {
     basename: "HashTrie.hex",
     operations: HASH_TRIE_RUNTIME_OPERATIONS,
     localStem: "hashTrie",
     defaultSpecifier: "./HashTrie",
-    iterable: { record: "HashTrie", helper: "hashTrieIterate" },
+    iterables: [
+      { record: "HashTrie", helper: "hashTrieIterate" },
+      { record: "HashSet", helper: "hashSetIterate" },
+    ],
   },
 ];
 
@@ -1819,30 +1855,17 @@ class JavaScriptEmitter {
           ? name
           : this.#emitConstrainedValue(expression, name, evidenceNames, bindingRhs);
       }
-      case "CollectionOperation": {
-        // The producing rows hand their traversal to the inbound adapter; the
-        // consuming rows drive their argument through the outbound one. HAMT
-        // traversal stays runtime-owned and composes with the pair: for an
-        // effect-free source, memoizing and re-deriving are observationally
-        // equivalent, so §6.4's re-derivation default for user-built sequences
-        // is untouched by the boundary's memoization.
-        // `Set`'s two rows since #370 retired `Map`'s: `Map.keys`/`values`/
-        // `entries` are `stdlib/Map.hex`'s ordinary Hexagon now, and its
-        // `entries` is a real lazy `Seq` from the trie rather than an adapted
-        // array, which is what makes Part 4 §7.3's correspondence free.
-        const produces = expression.operation === "toSeq";
-        const consumes = expression.operation === "fromSeq";
-        return collectionOperation(
-          expression.collection,
-          expression.operation,
-          this.#useHelper("persistentCollections"),
-          expression.hashEvidence === undefined
-            ? undefined
-            : this.#emitEvidence(expression.hashEvidence, "Hash", expression.span, evidenceNames),
-          produces ? this.#useHelper("seqFromIterable") : undefined,
-          consumes ? this.#useHelper("seqToIterable") : undefined,
-        );
-      }
+      case "CollectionOperation":
+        // `Node` alone since #373 closed the arc, and a *called* `Node.get` (the
+        // only shape any source writes) never arrives here: `#emitCall` reads
+        // the callee before this switch does and lowers the four operations to
+        // raw array expressions. What is left for this arm is the un-called
+        // reference — `let f = Node.get` inside a privileged runtime module —
+        // which has no value form to emit, because the operations are syntax the
+        // caller inlines and not functions that exist anywhere. `() => undefined`
+        // is what it has always answered there; the whole `Set` family that used
+        // to share this arm went to `stdlib/Set.hex`.
+        return "() => undefined";
       case "Unit":
       case "ErrorExpr":
         return "undefined";
@@ -1980,15 +2003,20 @@ class JavaScriptEmitter {
           // inlines to its argument — except for the records whose
           // representation *includes* their JavaScript traversal method: `Seq`
           // (FFI Part 3 §9.4), `TrieVector`, which is what a `Vector(a)` is and
-          // what `Hex.Vector<a> extends Iterable<a>` promises about it, and
-          // since #370 `HashTrie`, which is what a `Map(k, v)` is and what
-          // `Hex.Map<k, v> extends Iterable<[k, v]>` promises about it.
+          // what `Hex.Vector<a> extends Iterable<a>` promises about it, since
+          // #370 `HashTrie`, which is what a `Map(k, v)` is and what
+          // `Hex.Map<k, v> extends Iterable<[k, v]>` promises about it, and
+          // since #373 `HashSet`, which is what a `Set(a)` is and what
+          // `Hex.Set<a> extends Iterable<a>` promises about it — the second
+          // record on one runtime module, and the reason there is a second one
+          // at all, since a `HashSet` would otherwise have inherited the pair
+          // yielding face of the trie it wraps.
           //
           // The runtime side needs no equivalent of `#isSequence`'s prelude
-          // lookup, and could not have one: both records are declared in a
-          // runtime module and exported from nowhere, so the only expression in
-          // any program that can construct one is inside that module. Being
-          // *in* it is therefore the whole test.
+          // lookup, and could not have one: every one of these records is
+          // declared in a runtime module and exported from nowhere, so the only
+          // expression in any program that can construct one is inside that
+          // module. Being *in* it is therefore the whole test.
           const runtimeIterate = this.#runtimeIterateHelper(expression.type);
           const face = this.#isSequence(expression.type)
             ? `[Symbol.iterator]: ${this.#useHelper("seqIterate")}`
@@ -3307,7 +3335,7 @@ class JavaScriptEmitter {
       const dictionary = type.element.kind === "Variable"
         ? this.#dictionary(type.element.id, "Hash", this.#module.span, evidenceNames)
         : this.#emitEvidence({ kind: "Structural", type: type.element, components: [] }, "Hash", this.#module.span, evidenceNames);
-      return `${this.#useHelper("persistentCollections")}.setHash(${dictionary}, ${this.#useHelper("mixHash")})(${value})`;
+      return `${this.#useHelper("setHash")}(${dictionary}, ${value})`;
     }
     if (type.kind === "Map") {
       const key = type.key.kind === "Variable"
@@ -3543,8 +3571,10 @@ class JavaScriptEmitter {
   }
 
   /**
-   * A whole dictionary for one component, for the `Set`/`Map` runtime helpers,
-   * which take a dictionary rather than an inline expression.
+   * A whole dictionary for one component, for the `Set`/`Map` derived-instance
+   * helpers, which take a dictionary rather than an inline expression: each
+   * probes the *other* collection at a key the walk produces, so the comparison
+   * has to travel as a value rather than be spliced in around two names.
    *
    * The checker's selection when there is one (#278), so a `Map`'s values are
    * compared by their own `Eq` instance; otherwise the structural dictionary
@@ -3650,7 +3680,7 @@ class JavaScriptEmitter {
       const hash = type.element.kind === "Variable"
         ? this.#dictionary(type.element.id, "Hash", this.#module.span, evidenceNames)
         : this.#subDictionary(components, "element", "Hash", type.element, evidenceNames);
-      return `${this.#useHelper("persistentCollections")}.setEquals(${hash})(${left}, ${right})`;
+      return `${this.#useHelper("setEquals")}(${hash}, ${left}, ${right})`;
     }
     if (type.kind === "Map") {
       const hash = type.key.kind === "Variable"
@@ -3769,8 +3799,14 @@ class JavaScriptEmitter {
       return `"[" + [...${value}].map(__hex_element => ${shown}).join(", ") + "]"`;
     }
     if (type.kind === "Set") {
+      // §8: the constructor-shaped rendering, over the wrapper (#373). The
+      // emptiness test is `memberCount` rather than `Map`'s `.size` field read
+      // just below: a `HashSet` holds one field, `trie`, and the maintained
+      // count lives inside it. The spread is the representation contract, the
+      // same one `Vector` and `Map` read through.
       const shown = component("element", type.element, "__hex_element");
-      return `${value}.size === 0 ? "Set.empty" : "Set.fromVector([" + [...${value}].map(__hex_element => ${shown}).join(", ") + "])"`;
+      return `${this.#useHashTrieRuntime("memberCount")}(${value}) === 0 ? "Set.empty" : ` +
+        `"Set.fromVector([" + [...${value}].map(__hex_element => ${shown}).join(", ") + "])"`;
     }
     if (type.kind === "Map") {
       const key = component("key", type.key, "__hex_entry[0]");
@@ -4195,21 +4231,26 @@ class JavaScriptEmitter {
    *
    * A runtime module's representation record is recognized **by name inside
    * that module and nowhere else**, which is not the weak version of an
-   * identity check but the exact one: `TrieVector` and `HashTrie` are private to
-   * their own modules — the checker refuses to export a binding exposing either
-   * — so no other module can hold a value of one, name it, or construct one.
-   * The `Bool`/`Seq` pins need a prelude lookup because those types *do* cross
-   * boundaries and a user declaration can occlude the name; these cannot.
+   * identity check but the exact one: `TrieVector`, `HashTrie` and `HashSet` are
+   * private to their own modules — the checker refuses to export a binding
+   * exposing any of them — so no other module can hold a value of one, name it,
+   * or construct one. The `Bool`/`Seq` pins need a prelude lookup because those
+   * types *do* cross boundaries and a user declaration can occlude the name;
+   * these cannot.
+   *
+   * One module may offer several (#373): `runtime/HashTrie.hex` backs both
+   * public faces, and the record's own name is what picks the helper.
    */
   #runtimeIterateHelper(type: Typed.Type): Helper | undefined {
     if (type.kind !== "NominalRecord") return undefined;
     for (const wiring of RUNTIME_WIRINGS) {
-      const iterable = wiring.iterable;
-      if (iterable === undefined || this.#locationOf(wiring) !== "self") continue;
-      const named = this.#module.records.some(
-        ({ id, name }) => id === type.record && name === iterable.record,
-      );
-      if (named) return iterable.helper;
+      if (this.#locationOf(wiring) !== "self") continue;
+      for (const iterable of wiring.iterables ?? []) {
+        const named = this.#module.records.some(
+          ({ id, name }) => id === type.record && name === iterable.record,
+        );
+        if (named) return iterable.helper;
+      }
     }
     return undefined;
   }
@@ -4632,6 +4673,42 @@ class JavaScriptEmitter {
       // constant, arrived at through the door rather than beside it.
       case "mapEmpty":
         return `() => ${this.#useHashTrieRuntime("empty")}`;
+      // `stdlib/Set.hex`'s eight (#373) — its seven-row §6.2 surface plus the
+      // unexported `setLookup` — in the `map*` block's shape one type parameter
+      // narrower. What they alias is the trie module's **wrapper** operations,
+      // not the trie's own: a `Set(a)` is a `HashSet(a)` holding a
+      // `HashTrie(a, Unit)`, because one record carries one `[Symbol.iterator]`
+      // and the trie's yields pairs. The wrapper also absorbs the `Unit`
+      // argument, which is what keeps seven of the eight plain aliases instead
+      // of the arity-adjusting arrows a bare-trie wiring would have needed; the
+      // eighth is `setEmpty`, a thunk for the reason its own comment gives.
+      case "setSingleton":
+        return this.#useHashTrieRuntime("soleMember");
+      case "setSize":
+        return this.#useHashTrieRuntime("memberCount");
+      case "setContains":
+        return this.#useHashTrieRuntime("containsMember");
+      // The eighth key, and the one that is not Part 4 §6.2 surface: `Set.hex`
+      // declares it **unexported**, so no program can call it. `intersect` needs
+      // it when the smaller side is the right one — §2.2 pins the traversal to
+      // the smaller side and §5.4 pins the result's representatives to the left,
+      // and the only way to satisfy both at once is to look the left's
+      // representative *up*. `contains` remains the surface's only membership
+      // read (§4.4).
+      case "setLookup":
+        return this.#useHashTrieRuntime("memberIn");
+      case "setAdd":
+        return this.#useHashTrieRuntime("addMember");
+      case "setRemove":
+        return this.#useHashTrieRuntime("removeMember");
+      case "setElements":
+        return this.#useHashTrieRuntime("members");
+      // The thunk, for `mapEmpty`'s reason exactly: the wrapper's `emptySet` is
+      // a *value* and the door admits `fun` only. `Set.hex` binds `export let
+      // empty: Set(a) = emptySet()`, so the emitted `Set.empty` is a
+      // module-level `const` holding the one shared set.
+      case "setEmpty":
+        return `() => ${this.#useHashTrieRuntime("emptySet")}`;
       default:
         if (INTRINSIC_INVENTORY.has(key)) {
           this.#diagnostics.add({
@@ -5689,9 +5766,12 @@ type Helper =
   | "vectorIndex"
   | "vectorIterate"
   | "hashTrieIterate"
+  | "hashSetIterate"
   | "mapIndex"
   | "mapEquals"
   | "mapHash"
+  | "setEquals"
+  | "setHash"
   | "vectorOf"
   | "vectorSet"
   | "vectorSlice"
@@ -5700,8 +5780,7 @@ type Helper =
   | "stableHash"
   | "mixHash"
   | "hashTrieMix"
-  | "bitCount"
-  | "persistentCollections";
+  | "bitCount";
 
 /**
  * Which helpers a helper's own body names. `#useHelper` closes over this, so
@@ -5732,9 +5811,14 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   // The hash trie's face drives the module's own lazy `entries` walk through
   // the `Seq` driver, so it owes that helper (#370).
   hashTrieIterate: ["seqToIterable"],
+  // The set face drives the wrapper's own key-projected walk through the same
+  // driver, and owes the same helper (#373).
+  hashSetIterate: ["seqToIterable"],
   mapIndex: [],
   mapEquals: [],
   mapHash: ["mixHash"],
+  setEquals: [],
+  setHash: ["mixHash"],
   vectorOf: [],
   vectorSet: [],
   vectorSlice: [],
@@ -5749,7 +5833,6 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   mixHash: [],
   hashTrieMix: [],
   bitCount: [],
-  persistentCollections: [],
 };
 
 enum Precedence {
@@ -5863,78 +5946,13 @@ function renderHelper(
   dependencyName: (helper: Helper) => string,
   /** The vector trie runtime, for the helpers that are bounds checks around it. */
   runtimeName: (operation: VectorRuntimeOperation) => string,
-  /** The hash trie runtime, for the map bracket and the iteration face (#370). */
+  /**
+   * The hash trie runtime, for the map bracket, both iteration faces, and the
+   * derived instances of both companions (#370, #373).
+   */
   hashTrieName: (operation: HashTrieRuntimeOperation) => string,
 ): string[] {
   switch (helper) {
-    case "persistentCollections":
-      return [
-        `const ${name} = (() => {`,
-        "  const entries = function* (__hex_node) {",
-        "    if (__hex_node === null) return;",
-        "    if (__hex_node.kind === 0) { yield* __hex_node.entries; return; }",
-        "    for (const __hex_child of __hex_node.children) if (__hex_child !== undefined) yield* entries(__hex_child);",
-        "  };",
-        "  const find = (__hex_node, __hex_hash, __hex_key, __hex_equals, __hex_shift = 0) => {",
-        "    if (__hex_node === null) return undefined;",
-        "    if (__hex_node.kind === 0) return __hex_node.hash === __hex_hash ? __hex_node.entries.find(__hex_entry => __hex_equals(__hex_entry[0], __hex_key)) : undefined;",
-        "    return find(__hex_node.children[(__hex_hash >>> __hex_shift) & 31] ?? null, __hex_hash, __hex_key, __hex_equals, __hex_shift + 5);",
-        "  };",
-        "  const join = (__hex_left, __hex_right, __hex_shift) => {",
-        "    const __hex_leftIndex = (__hex_left.hash >>> __hex_shift) & 31, __hex_rightIndex = (__hex_right.hash >>> __hex_shift) & 31;",
-        "    const __hex_children = [];",
-        "    if (__hex_leftIndex === __hex_rightIndex) __hex_children[__hex_leftIndex] = join(__hex_left, __hex_right, __hex_shift + 5);",
-        "    else { __hex_children[__hex_leftIndex] = __hex_left; __hex_children[__hex_rightIndex] = __hex_right; }",
-        "    return { kind: 1, children: __hex_children };",
-        "  };",
-        "  const insert = (__hex_node, __hex_hash, __hex_key, __hex_value, __hex_equals, __hex_shift = 0) => {",
-        "    const __hex_leaf = { kind: 0, hash: __hex_hash, entries: [[__hex_key, __hex_value]] };",
-        "    if (__hex_node === null) return [__hex_leaf, true];",
-        "    if (__hex_node.kind === 0) {",
-        "      if (__hex_node.hash !== __hex_hash) return [join(__hex_node, __hex_leaf, __hex_shift), true];",
-        "      const __hex_index = __hex_node.entries.findIndex(__hex_entry => __hex_equals(__hex_entry[0], __hex_key));",
-        "      if (__hex_index < 0) return [{ ...__hex_node, entries: [...__hex_node.entries, [__hex_key, __hex_value]] }, true];",
-        "      if (__hex_node.entries[__hex_index][1] === __hex_value) return [__hex_node, false];",
-        "      const __hex_updated = __hex_node.entries.slice(); __hex_updated[__hex_index] = [__hex_node.entries[__hex_index][0], __hex_value];",
-        "      return [{ ...__hex_node, entries: __hex_updated }, false];",
-        "    }",
-        "    const __hex_slot = (__hex_hash >>> __hex_shift) & 31, __hex_child = __hex_node.children[__hex_slot] ?? null;",
-        "    const [__hex_updated, __hex_added] = insert(__hex_child, __hex_hash, __hex_key, __hex_value, __hex_equals, __hex_shift + 5);",
-        "    if (__hex_updated === __hex_child) return [__hex_node, __hex_added];",
-        "    const __hex_children = __hex_node.children.slice(); __hex_children[__hex_slot] = __hex_updated;",
-        "    return [{ kind: 1, children: __hex_children }, __hex_added];",
-        "  };",
-        "  const discard = (__hex_node, __hex_hash, __hex_key, __hex_equals, __hex_shift = 0) => {",
-        "    if (__hex_node === null) return [null, false];",
-        "    if (__hex_node.kind === 0) {",
-        "      if (__hex_node.hash !== __hex_hash) return [__hex_node, false];",
-        "      const __hex_index = __hex_node.entries.findIndex(__hex_entry => __hex_equals(__hex_entry[0], __hex_key));",
-        "      if (__hex_index < 0) return [__hex_node, false];",
-        "      const __hex_remaining = __hex_node.entries.filter((_, __hex_entryIndex) => __hex_entryIndex !== __hex_index);",
-        "      return [__hex_remaining.length === 0 ? null : { ...__hex_node, entries: __hex_remaining }, true];",
-        "    }",
-        "    const __hex_slot = (__hex_hash >>> __hex_shift) & 31, __hex_child = __hex_node.children[__hex_slot] ?? null;",
-        "    const [__hex_updated, __hex_removed] = discard(__hex_child, __hex_hash, __hex_key, __hex_equals, __hex_shift + 5);",
-        "    if (!__hex_removed) return [__hex_node, false];",
-        "    const __hex_children = __hex_node.children.slice(); __hex_children[__hex_slot] = __hex_updated ?? undefined;",
-        "    return [{ kind: 1, children: __hex_children }, true];",
-        "  };",
-        "  const setValue = (__hex_root, __hex_size) => ({ root: __hex_root, size: __hex_size, [Symbol.iterator]: function* () { for (const [__hex_key] of entries(__hex_root)) yield __hex_key; } });",
-        "  const hashed = (__hex_dictionary, __hex_value) => __hex_dictionary.hash(__hex_value) | 0;",
-        "  const emptySet = () => setValue(null, 0);",
-        "  const setAdd = __hex_hash => (__hex_set, __hex_value) => { const [__hex_root, __hex_added] = insert(__hex_set.root, hashed(__hex_hash, __hex_value), __hex_value, undefined, __hex_hash.eq.equals); return __hex_added ? setValue(__hex_root, __hex_set.size + 1) : __hex_set; };",
-        "  const setRemove = __hex_hash => (__hex_set, __hex_value) => { const [__hex_root, __hex_removed] = discard(__hex_set.root, hashed(__hex_hash, __hex_value), __hex_value, __hex_hash.eq.equals); return __hex_removed ? setValue(__hex_root, __hex_set.size - 1) : __hex_set; };",
-        "  const setContains = __hex_hash => (__hex_set, __hex_value) => find(__hex_set.root, hashed(__hex_hash, __hex_value), __hex_value, __hex_hash.eq.equals) !== undefined;",
-        "  const setUnion = __hex_hash => (__hex_left, __hex_right) => { let __hex_result = __hex_left; for (const __hex_value of __hex_right) __hex_result = setAdd(__hex_hash)(__hex_result, __hex_value); return __hex_result; };",
-        "  const setIntersect = __hex_hash => (__hex_left, __hex_right) => { let __hex_result = emptySet(); const __hex_has = setContains(__hex_hash); for (const __hex_value of __hex_left) if (__hex_has(__hex_right, __hex_value)) __hex_result = setAdd(__hex_hash)(__hex_result, __hex_value); return __hex_result; };",
-        "  const setDifference = __hex_hash => (__hex_left, __hex_right) => { let __hex_result = __hex_left; const __hex_remove = setRemove(__hex_hash); for (const __hex_value of __hex_right) __hex_result = __hex_remove(__hex_result, __hex_value); return __hex_result; };",
-        "  const setIsSubsetOf = __hex_hash => (__hex_left, __hex_right) => { const __hex_has = setContains(__hex_hash); for (const __hex_value of __hex_left) if (!__hex_has(__hex_right, __hex_value)) return false; return true; };",
-        "  const setFrom = __hex_hash => __hex_source => { let __hex_result = emptySet(); const __hex_add = setAdd(__hex_hash); for (const __hex_value of __hex_source) __hex_result = __hex_add(__hex_result, __hex_value); return __hex_result; };",
-        "  const setEquals = __hex_hash => (__hex_left, __hex_right) => __hex_left.size === __hex_right.size && (() => { const __hex_has = setContains(__hex_hash); for (const __hex_value of __hex_left) if (!__hex_has(__hex_right, __hex_value)) return false; return true; })();",
-        "  const setHash = (__hex_hash, __hex_mix) => __hex_set => { let __hex_result = __hex_set.size | 0; for (const __hex_value of __hex_set) __hex_result = (__hex_result + __hex_mix(0x51ed270b, __hex_hash.hash(__hex_value))) | 0; return __hex_result; };",
-        "  return { emptySet, setAdd, setRemove, setContains, setUnion, setIntersect, setDifference, setIsSubsetOf, setFrom, setEquals, setHash, size: __hex_collection => __hex_collection.size, isEmpty: __hex_collection => __hex_collection.size === 0 };",
-        "})();",
-      ];
     // The HAMT's placement mix (#365). The seed is read **once**, when the
     // emitted module is first evaluated, and never again — `spec/effects.md`
     // §6.2 species (b), the same shape `seqMemoize`'s cache has: the world is
@@ -6122,6 +6140,23 @@ function renderHelper(
         `  yield* ${dependencyName("seqToIterable")}(${hashTrieName("entries")}(this));`,
         "}",
       ];
+    case "hashSetIterate":
+      // The boundary traversal method every `HashSet` carries (#373), and the
+      // whole of what makes `Hex.Set<a> extends Iterable<a>` true: `for x in s`,
+      // spread, `show`, `hash`, and the derived `Eq`'s left walk all reach a set
+      // through this and nothing else. Emitted only into the runtime module,
+      // which is the only place a `HashSet` is constructed.
+      //
+      // **This is why the wrapper record exists.** It delegates to `members`,
+      // the wrapper's own key-projected walk, rather than to `entries`; a
+      // `Set(a)` that were literally its inner trie would have carried
+      // `hashTrieIterate` and yielded `[element, ()]` pairs across the boundary,
+      // which is `Hex.Map`'s contract and a lie about this type.
+      return [
+        `function* ${name}() {`,
+        `  yield* ${dependencyName("seqToIterable")}(${hashTrieName("members")}(this));`,
+        "}",
+      ];
     case "mapIndex":
       // The bracket, `m[k]` (Collections Part 4 §4.1): assert presence, throw
       // `KeyError` on absence. A helper for `vectorIndex`'s reason — a check
@@ -6183,6 +6218,49 @@ function renderHelper(
         "  for (const [__hex_key, __hex_value] of __hex_map) {",
         `    __hex_result = (__hex_result + ${dependencyName("mixHash")}(` +
           "__hex_keyHash.hash(__hex_key), __hex_valueHash.hash(__hex_value))) | 0;",
+        "  }",
+        "  return __hex_result;",
+        "}",
+      ];
+    case "setEquals":
+      // Collections Part 4 §8.1's extensional `Eq`, re-lowered over the wrapper
+      // (#373) — `mapEquals`' shape with the value comparison gone, because a
+      // set's elements are its keys and there is nothing else to agree about.
+      // Equal sizes, and every element of the left found in the right.
+      //
+      // The size read is `memberCount` rather than a `.size` field: a `HashSet`
+      // holds one field, `trie`, and the maintained count lives inside it. The
+      // membership probe is the wrapper's own `containsMember`, whose trailing
+      // argument is the element's `Hash` evidence because its declaration is
+      // `<a: Hash>`.
+      //
+      // Order-independence is not arranged, it is what the definition says
+      // (§8.1): two sets built in different orders may iterate differently and
+      // still be equal, which is what a probe-the-other walk delivers.
+      return [
+        `function ${name}(__hex_hash, __hex_left, __hex_right) {`,
+        `  if (${hashTrieName("memberCount")}(__hex_left) !== ` +
+          `${hashTrieName("memberCount")}(__hex_right)) return false;`,
+        "  for (const __hex_element of __hex_left) {",
+        `    if (!${hashTrieName("containsMember")}(__hex_right, __hex_element, __hex_hash)) return false;`,
+        "  }",
+        "  return true;",
+        "}",
+      ];
+    case "setHash":
+      // Collections Part 4 §8.4's `Hash`, re-lowered over the wrapper (#373).
+      // The combine is `mapHash`'s with one component instead of two: each
+      // element's hash is mixed with a fixed salt and the results are summed,
+      // which is invariant under every permutation of the elements. §8.4 forces
+      // that — the public `hash` member is deterministic and unseeded while
+      // iteration order is seeded, so an order-sensitive fold would make
+      // `hash(s)` a per-process value and break the member's own contract.
+      return [
+        `function ${name}(__hex_elementHash, __hex_set) {`,
+        `  let __hex_result = ${hashTrieName("memberCount")}(__hex_set) | 0;`,
+        "  for (const __hex_element of __hex_set) {",
+        `    __hex_result = (__hex_result + ${dependencyName("mixHash")}(` +
+          "0x51ed270b, __hex_elementHash.hash(__hex_element))) | 0;",
         "  }",
         "  return __hex_result;",
         "}",
@@ -6570,39 +6648,6 @@ function renderHelper(
         "}",
       ];
   }
-}
-
-/**
- * Selects compiler-owned operations over persistent hash-array-mapped tries.
- *
- * `Set`'s rows alone since #370: `Map`'s retired at its milestone with the
- * checker rows that typed them (`spec/intrinsics.md` §9.2), because
- * `stdlib/Map.hex` owns that surface now. This selector and the helper beneath
- * it die entire at the Set step, which is the next row of the same table.
- */
-function collectionOperation(
-  collection: Core.CollectionOperationExpr["collection"],
-  operation: string,
-  runtime: string,
-  hash?: string,
-  /** The inbound adapter, for the rows that produce a `Seq` (ruling R1). */
-  seqFrom?: string,
-  /** The outbound driver, for the rows that consume one. */
-  seqTo?: string,
-): string {
-  const dictionaries = `${hash}`;
-  if (collection === "Set") {
-    if (operation === "empty") return `${runtime}.emptySet`;
-    if (["add", "remove", "contains", "union", "intersect", "difference", "isSubsetOf"].includes(operation)) {
-      return `${runtime}.set${operation[0]!.toUpperCase()}${operation.slice(1)}(${dictionaries})`;
-    }
-    if (operation === "size") return `${runtime}.size`;
-    if (operation === "isEmpty") return `${runtime}.isEmpty`;
-    if (operation === "toSeq") return `__hex_set => ${seqFrom}(__hex_set)`;
-    if (operation === "fromVector") return `${runtime}.setFrom(${dictionaries})`;
-    if (operation === "fromSeq") return `__hex_values => ${runtime}.setFrom(${dictionaries})(${seqTo}(__hex_values))`;
-  }
-  return "() => undefined";
 }
 
 /**

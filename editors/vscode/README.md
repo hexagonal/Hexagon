@@ -130,9 +130,18 @@ nested uses such as `Result(a, Vector(b))`.
 is that `let when = True` is legal and `{with = 3}` is a field. Each contextual
 rule pins the position the spec lists for it — `from` only before a specifier
 string, `when` only before an arm's `=>`, `opaque` only before `record`/`union`,
-and the FFI vocabulary (`get`, `set`, `new`, `method`, `static`, `default`,
-`class`, `enum`) only inside an `extern from` block, where the block is delimited
-by the next line that starts in column zero.
+`union` only at a declaration head (where a type name follows it, optionally
+after `export`), and the FFI vocabulary (`get`, `set`, `new`, `method`,
+`static`, `default`, `class`, `enum`) only inside an `extern from` block, where
+the block is delimited by the next line that starts in column zero.
+
+`union` joined that list at the Set step (#373): Collections Part 4 §6.2 mandates
+`Set.union`, and a reserved word cannot be a member name. So `Set.union(a, b)`,
+`s.union(t)`, a bare `union(a, b)`, `let union = 1` and `{union = 1}` are all
+ordinary term roles here, and only `union Shape = …` is `storage.type`. The
+bail-out guard's declaration-start marker admits the word on the same terms —
+with a type name after it — because an indented continuation line may now
+legitimately begin `union(`.
 
 **Lexical errors are painted.** §10 has no warning tier: every row is either
 accepted source or a hard error. `__hex_` names, `0xFF`, `.5`, `1.`, `1__0`,

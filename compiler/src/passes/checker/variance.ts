@@ -83,12 +83,20 @@ export interface Occurrence {
  * sabotage control, which is all "verified" means; §11.1 (ix)'s recomputation
  * clause is what obliges it to run on every edit to that file.
  *
- * `Set` keeps its **explicit invariant row**, which is what the absent row would
- * have meant anyway (`compilerClaim` defaults to `"inv"`). The point of writing
- * it is that §11.4 sequences its real claim after the Set step, and a row that
- * has to be *edited* to change is a deliberate act, where an absent one changes
- * silently the day a `switch` gains a case. It will upgrade to `co` off the same
- * representation `Map`'s now reads, since a `Set(a)` is a `HashTrie(a, Unit)`.
+ * `Set`'s row is **verified** as of the Set step (#373), and it is `co`. It
+ * upgraded from the explicit invariant row it carried until then — a row written
+ * out rather than left absent precisely so that changing it would have to be a
+ * deliberate edit — and it reads the same representation `Map`'s does, one
+ * composition step further along. A `Set(a)` is not the bare `HashTrie(a, Unit)`
+ * the earlier note guessed: it is `HashSet(a)`, the one-field wrapper record the
+ * Set step ruled, holding a `HashTrie(a, Unit)`, because one record carries one
+ * `[Symbol.iterator]` and a map's yields pairs. The derivation is short given
+ * `Map`'s: `a` reaches the trie through its key slot, covariant above; `Unit`
+ * fills the value slot, so `a` has no occurrence there at all; and the wrapper's
+ * one field puts nothing under an arrow. `hash-trie-wiring.test.ts` reads the
+ * checker's own computed variance for `HashSet` and asserts row equality here,
+ * with a sabotage control, which is all "verified" means; §11.1 (ix)'s
+ * recomputation clause obliges it to run on every edit to that same file.
  *
  * Constructors with no row and no need of one: `NullableCase`, `JsMap` and
  * `JsSet`. None is nameable in a type annotation, so no representation can put a
@@ -107,7 +115,7 @@ export const COMPILER_CLAIMS: ReadonlyMap<string, readonly Variance[]> = new Map
   ["Array", ["inv"]],
   ["Nullable", ["inv"]],
   ["Map", ["co", "co"]],
-  ["Set", ["inv"]],
+  ["Set", ["co"]],
 ]);
 
 export function flip(variance: Variance): Variance {

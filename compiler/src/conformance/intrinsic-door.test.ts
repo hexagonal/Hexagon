@@ -179,7 +179,9 @@ describe("verification replaces trust (§4.2)", () => {
       "`hashTrieDigit`, `hashTrieBitTest`, `hashTrieBitSet`, `hashTrieBitClear`, " +
       "`hashTrieBitCount`, `hashTrieBitCountBelow`, `hashTrieNodeSingleton`, " +
       "`hashTrieNodeInsertAt`, `hashTrieNodeRemoveAt`, `mapEmpty`, " +
-      "`mapSingleton`, `mapSize`, `mapGet`, `mapSet`, `mapRemove`, `mapEntries`",
+      "`mapSingleton`, `mapSize`, `mapGet`, `mapSet`, `mapRemove`, " +
+      "`mapEntries`, `setEmpty`, `setSingleton`, `setSize`, `setContains`, " +
+      "`setAdd`, `setRemove`, `setElements`, `setLookup`",
     ]);
   });
 

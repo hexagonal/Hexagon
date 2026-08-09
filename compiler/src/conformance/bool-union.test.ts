@@ -213,7 +213,7 @@ describe("`Bool` inside a composite (#147, regression)", () => {
 
   test("`Bool` works as a `Set` element and a `Map` key", async () => {
     const module = await runMain(
-      "let flags: Set(Bool) = Set.add(Set.add(Set.empty(), True), False)\n" +
+      "let flags: Set(Bool) = Set.add(Set.add(Set.empty, True), False)\n" +
         "export let size: Int = Set.size(flags)\n" +
         "export let hasTrue: Bool = Set.contains(flags, True)\n" +
         "let byFlag: Map(Bool, String) = Map.set(Map.empty, True, \"yes\")\n" +

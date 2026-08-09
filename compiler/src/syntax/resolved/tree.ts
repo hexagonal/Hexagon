@@ -1204,15 +1204,20 @@ export interface HashExpr {
 
 /**
  * A compiler-known operation in a collection companion that has no `.hex` module
- * to own it. `Vector` left this family at its intrinsic-door milestone
+ * to own it — **`Node` alone** since the Map/Set arc closed (#373).
+ *
+ * `Vector` left this family at its intrinsic-door milestone
  * (`spec/intrinsics.md` §9.2): `stdlib/Vector.hex` is a prelude module and
  * declares its boundary operations through the door, so a `Vector.` spelling is
- * an ordinary qualified reference. `Map` and `Set` follow at their own arc;
- * `Node` stays out of the door by §3.3 and is the family's terminus (#223).
+ * an ordinary qualified reference. `Map` left at its own milestone (#370) and
+ * `Set` at the arc's last (#373), on the same terms. `Node` stays out of the
+ * door by §3.3 — a deliberate non-declared fallback under Modules §5.5, reached
+ * only from a privileged runtime module — so it is the family's terminus, and
+ * whether a one-member family is the intended one is #223.
  */
 export interface CollectionOperationExpr {
   readonly kind: "CollectionOperation";
-  readonly collection: "Map" | "Set" | "Node";
+  readonly collection: "Node";
   readonly operation: string;
   readonly span: Source.Span;
 }

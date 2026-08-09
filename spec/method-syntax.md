@@ -510,7 +510,7 @@ p.x                                -- ERROR: existing opacity error (Modules §4
 -- (n) Defaultable receiver + unknown name: the defaulting step reroutes the error
 --     [updated with #304 — was the row-vs-Num discharge error; the defaulting
 --      step now settles the receiver first, §3.5]
-fun m(x) = add(x, x.total(1))      -- x gets Num (from add); at the deadline the
+fun m(x) = multiply(x, x.total(1)) -- x gets Num (from multiply); at the deadline the
                                    --   defaulting step settles x := Int, the goal
                                    --   re-fires, and `total` is no field, companion
                                    --   operation, or honored member of Int —

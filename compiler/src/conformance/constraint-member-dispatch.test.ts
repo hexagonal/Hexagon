@@ -298,10 +298,16 @@ describe("the defaulting step precedes the row fallback (§3.3, §3.5)", () => {
    * `total` is no field, companion operation, or honored member of `Int`. Same
    * program, same refusal — now phrased against `Int` rather than against a row
    * that could never discharge `Num`.
+   *
+   * `Num.add` rather than the bare `add` Method Syntax §513's example writes:
+   * `stdlib/Set.hex` exports `add` too since #373, so the bare spelling is a
+   * collided prelude name (Modules §5.5) and the qualified home is the
+   * refusal's own named repair. The member is the same one and the inference
+   * this test is about is unchanged.
    */
   test("an unknown name on a defaultable receiver is the row-4 error, phrased against `Int`", () => {
     expect(projectDiagnostics(
-      "let m(x) = add(x, x.total(1))\nexport let n: Int = m(1)\n",
+      "let m(x) = Num.add(x, x.total(1))\nexport let n: Int = m(1)\n",
     )).toEqual([
       "`Int` has no field `total`, its companion exports no operation `total`, " +
       "and no constraint honored at `Int` has a subject-first member `total`; " +
@@ -662,7 +668,15 @@ describe("member bindings enter the module's order at their own line (§4.6)", (
       "    fromNat(n) = Span({lo = 0, hi = 0})",
       "",
       "honor Signed<Span> =",
-      "    subtract(left, right) = add(left, right)",
+      // The sibling called is `multiply`, not `add`. `add` would do just as well
+      // as a *test* and cannot be written here: since #373 `stdlib/Set.hex`
+      // exports `add`, so the bare spelling is a collided prelude name, and a
+      // member binding from an `honor` block does **not** occlude that layer the
+      // way an ordinary `let` does — a compiler defect against Modules §5.4 /
+      // Constraints §4.6 that predates this step and reproduces on `main` with
+      // `concat` (`Concat.hex` and `Seq.hex` both export it). `multiply` is a
+      // sibling of the same block and collides with nothing.
+      "    subtract(left, right) = multiply(left, right)",
       "    negate(value) = value",
       "    fromInt(n) = Span({lo = 0, hi = 0})",
       "",
@@ -671,8 +685,9 @@ describe("member bindings enter the module's order at their own line (§4.6)", (
     ].join("\n"));
 
     // A sibling member's bare spelling, below its line, means that binding —
-    // and `subtract` reaches it, so the dot call on the result reads `hi`.
-    expect(exports.joined).toBe(6);
+    // and `subtract` reaches it, so the dot call on the result reads `hi`:
+    // `multiply`'s, which is 2 * 4.
+    expect(exports.joined).toBe(8);
   });
 });
 

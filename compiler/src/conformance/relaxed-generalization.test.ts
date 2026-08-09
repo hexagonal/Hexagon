@@ -606,11 +606,13 @@ describe("§5.3 the compiler-side claim table", () => {
     // (`unknown generic type \`Node\``), which is what makes its row's warrant
     // `intrinsics.md` §4.2 rather than anything a user could write.
     expect(projectDiagnostics("export opaque record W(+a) = { v: Vector(a) }\n")).toEqual([]);
-    // `Map` moved sides at #370: its rows are verified `co, co` now, so it
-    // belongs with `Vector` above rather than in the invariant list below.
+    // `Map` moved sides at #370 and `Set` at #373: their rows are verified
+    // (`co, co` and `co`) now, so both belong with `Vector` above rather than in
+    // the invariant list below, which is down to the two borrowed foreign views.
     expect(projectDiagnostics("export opaque record W(+a) = { v: Map(String, a) }\n")).toEqual([]);
     expect(projectDiagnostics("export opaque record W(+a) = { v: Map(a, String) }\n")).toEqual([]);
-    for (const field of ["Set(a)", "Array(a)", "Nullable(a)"]) {
+    expect(projectDiagnostics("export opaque record W(+a) = { v: Set(a) }\n")).toEqual([]);
+    for (const field of ["Array(a)", "Nullable(a)"]) {
       expect(projectDiagnostics(`export opaque record W(+a) = { v: ${field} }\n`)).toContain(
         "`a` cannot be declared covariant in `W`: field `v` uses `a` in an " +
           "invariant position. Remove the `+`, or change the field",

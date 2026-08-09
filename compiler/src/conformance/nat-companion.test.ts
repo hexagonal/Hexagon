@@ -397,7 +397,7 @@ describe("the wired `Nat` row is gone, not dormant", () => {
       "let second = Page({number = 2, size = 50})",
       "export let same: Bool = first == alsoFirst",
       "export let agree: Bool = hash(first) == hash(alsoFirst)",
-      "let seen: Set(Page) = Set.add(Set.add(Set.add(Set.empty(), first), alsoFirst), second)",
+      "let seen: Set(Page) = Set.add(Set.add(Set.add(Set.empty, first), alsoFirst), second)",
       "export let collapsed: Int = Set.size(seen)",
       "",
     ].join("\n"));

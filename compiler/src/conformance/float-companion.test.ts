@@ -261,7 +261,7 @@ describe("Collections Part 2 §2.3's `Hash` row, executed", () => {
     const exports = await runMain([
       "export let zeroesEqual: Bool = 0.0 == -0.0",
       "export let hashesAgree: Bool = hash(0.0) == hash(-0.0)",
-      "let both: Set(Float) = Set.add(Set.add(Set.empty(), 0.0), -0.0)",
+      "let both: Set(Float) = Set.add(Set.add(Set.empty, 0.0), -0.0)",
       "export let collapsed: Int = Set.size(both)",
       "",
     ].join("\n"));

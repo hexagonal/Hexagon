@@ -92,12 +92,21 @@ export interface PreludeModule {
  * `Vector.hex` needs a great deal: `first`/`last`/`get` answer with `Option`,
  * and `toSeq`/`fromSeq` name `Seq`.
  *
- * `Map.hex` is last, and it displaces `Vector.hex` from that seat (#370). It
- * needs the most of anything here — `Hash` for its keyed trio, `Option` for
- * `get`, `Seq` for `entries` and the two projections over it, and `Vector`
- * itself for `fromVector`, which is Collections Part 4 §3.2's definitional
- * equivalence and the one edge that fixes the order rather than merely
- * permitting it. Nothing after it exists to name a `Map`.
+ * `Map.hex` needs the most of anything before it — `Hash` for its keyed trio,
+ * `Option` for `get`, `Seq` for `entries` and the two projections over it, and
+ * `Vector` itself for `fromVector`, which is Collections Part 4 §3.2's
+ * definitional equivalence and the one edge that fixes the order rather than
+ * merely permitting it. It held the last seat from the Map step (#370), having
+ * displaced `Vector.hex` from it.
+ *
+ * `Set.hex` is last now, and it displaces `Map.hex` in turn (#373). It needs
+ * exactly what `Map.hex` needs — `Hash` for its keyed trio, `Option` for the
+ * unexported `storedMember` row that `intersect` probes with, `Seq` for `toSeq`
+ * and the whole algebra folded over it, and `Vector` for `fromVector` — and it
+ * needs nothing from `Map.hex` at all: the two companions are siblings over one
+ * runtime module, not layers. Being last is therefore a free choice among the
+ * seats after `Vector.hex`, and it is the arc's own order made visible. Nothing
+ * after it exists to name a `Set`.
  */
 export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Show.hex",
@@ -122,6 +131,7 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Result.hex",
   "Vector.hex",
   "Map.hex",
+  "Set.hex",
 ].map((basename) => ({ basename, source: PRELUDE_SOURCES[basename]! }));
 
 /**

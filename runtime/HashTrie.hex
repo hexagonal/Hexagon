@@ -241,6 +241,48 @@ let containsKey<k: Hash>(trie: HashTrie(k, v), key: k): Bool =
         None => False
         Some(_) => True
 
+// The stored key `equal` to `key` under `tree` — `lookup`'s sibling, answering
+// the **representative** rather than the value. Same walk, same bounds, same
+// `equal` convention; only the three answering arms differ, and each hands back
+// the key it compared against rather than the value beside it.
+//
+// Collections Part 4 §5.4 is why this exists at all: `equals`-equal keys are one
+// key but need not be one value, so which concrete key a trie physically holds
+// is observable, and set intersection has to be able to name it.
+fun lookupKey(tree: Tree(k, v), hash: Int, key: k, shift: Int, equal: (k, k) -> Bool): Option(k) =
+    match tree
+        Entry(entryHash, entryKey, _) =>
+            if entryHash == hash and equal(entryKey, key) then
+                Some(entryKey)
+            else
+                None
+        Collision(collisionHash, count, entries) =>
+            if collisionHash == hash then
+                match indexOfKey(entries, count, key, equal)
+                    None => None
+                    Some(at) =>
+                        let (collidedKey, _) = Node.get(entries, at)
+                        Some(collidedKey)
+            else
+                None
+        Branch(bitmap, children) =>
+            let index = digit(hash, shift)
+            if bitTest(bitmap, index) then
+                lookupKey(Node.get(children, bitCountBelow(bitmap, index)), hash, key, shift + step, equal)
+            else
+                None
+
+// The key `trie` stores for `key`, or `None` — `get`'s sibling, and answered
+// from the unplaced `Sole` root the same way `get` answers there: by comparing
+// the two keys and nothing else, because placing an entry to read it back would
+// fix a placement it has so far managed without.
+let representative<k: Hash>(trie: HashTrie(k, v), key: k): Option(k) =
+    match trie.root
+        NoRoot => None
+        Sole(soleKey, _) =>
+            if soleKey == key then Some(soleKey) else None
+        Rooted(tree) => lookupKey(tree, placement(key), key, 0, (left, right) => left == right)
+
 // The subtree holding both `existing` and `fresh`, whose mixed hashes the caller
 // guarantees **differ**. Branches are built from `shift` downward for as long as
 // the two agree, then one branch holds both in bit-index order. Depth is bounded
@@ -512,3 +554,79 @@ let entries(trie: HashTrie(k, v)): Seq((k, v)) =
         NoRoot => Seq.empty
         Sole(soleKey, soleValue) => Seq.singleton((soleKey, soleValue))
         Rooted(tree) => Seq.unfold(Slots(nodeSingleton(tree), 0, 1, NoFrames), advance)
+
+// **The set side, and why it is a second record rather than a bare trie**
+// (#373). A `Set(a)` is a trie whose values are all `()`, and it would have been
+// tempting to make it literally `HashTrie(a, Unit)`. It cannot be: one record
+// carries one `[Symbol.iterator]`, the trie's yields `[key, value]` pairs
+// because that is `Hex.Map<k, v> extends Iterable<[k, v]>`'s promise, and
+// `Hex.Set<a> extends Iterable<a>` promises elements. Both companions' values
+// are built by the same internal functions above, so the fork has to happen at
+// the representation: `HashSet` is a one-field wrapper whose own emitted
+// iterator yields keys only. That each collection's traversal yields its own
+// shape — elements for a set, `[k, v]` pairs for a map — is binding spec, and
+// it is stated over *observations* rather than over any attachment mechanism,
+// which is exactly why the fork lands in the representation
+// (`spec/ffi-part3-seq.md` §9.5 item 1; the door itself is `intrinsics.md` §3.2).
+//
+// The wrapper earns its keep twice over. It absorbs the `Unit` plumbing, so
+// seven of `stdlib/Set.hex`'s eight door keys are clean 1:1 aliases of an
+// operation below rather than arity-adjusting arrows the emitter would have to
+// write — the eighth, `setEmpty`, is a thunk because `emptySet` is a value and
+// the door admits `fun` only; and the unplaced-singleton settlement stays in
+// exactly one place — the `Sole` root — instead of being re-derived for a
+// sibling representation.
+//
+// Everything here is thin by construction: no operation below re-implements a
+// walk, and none is recursive (so #368's dropped-evidence defect, which is why
+// the walkers above take an `equal` parameter, cannot arise on this side at all).
+record HashSet(a) = { trie: HashTrie(a, Unit) }
+
+// The one empty set, over the one empty trie.
+let emptySet: HashSet(a) =
+    HashSet({ trie = empty })
+
+// The one-element set holding `element`, **unconstrained** — `singleton`'s
+// unplaced `Sole` root serves `Set.singleton` on exactly the terms it serves
+// `Map.singleton` (Collections Part 4 §12.4). The root arm is not narrower for
+// being a set's: it keeps both fields and its `value` is simply filled at
+// `Unit`, which is what lets one root serve both companions unchanged.
+let soleMember(element: a): HashSet(a) =
+    HashSet({ trie = singleton(element, ()) })
+
+// How many elements `s` holds, read from the trie's maintained field.
+let memberCount(s: HashSet(a)): Int = size(s.trie)
+
+// Whether `s` holds `element`.
+let containsMember<a: Hash>(s: HashSet(a), element: a): Bool =
+    containsKey(s.trie, element)
+
+// The element `s` stores for `element`, or `None`. Not a membership test with a
+// souvenir: the answer is the **representative** `s` physically holds, which is
+// what set intersection needs when it traverses the right side and Collections
+// Part 4 §5.4 requires the left's representative in the result.
+let memberIn<a: Hash>(s: HashSet(a), element: a): Option(a) =
+    representative(s.trie, element)
+
+// `s` with `element` in it. Insert-if-absent falls out of the trie rather than
+// being arranged: `set` keeps the key representative it already holds
+// (Collections Part 4 §5.4) and the value it replaces is `()`, which nothing can
+// observe — so adding a present element yields a set equal to the one given, and
+// the stored representative survives (§5.1's idempotence).
+let addMember<a: Hash>(s: HashSet(a), element: a): HashSet(a) =
+    HashSet({ trie = set(s.trie, element, ()) })
+
+// `s` with `element` gone. Forgiving, like the trie's own `remove`: an element
+// that is not there yields a set over the very trie it was given.
+let removeMember<a: Hash>(s: HashSet(a), element: a): HashSet(a) =
+    HashSet({ trie = remove(s.trie, element) })
+
+// A pair's key. Named rather than written as a lambda because a pair is taken
+// apart with a `let`, which wants a body (`stdlib/Map.hex`'s `entryKey` shape).
+let pairKey(pair: (a, Unit)): a =
+    let (key, _) = pair
+    key
+
+// Every element of `s`, lazily — one `Seq.map` projection of the trie's own
+// walk, so the order caveats on `entries` above apply here unchanged.
+let members(s: HashSet(a)): Seq(a) = Seq.map(entries(s.trie), pairKey)

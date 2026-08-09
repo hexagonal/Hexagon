@@ -44,6 +44,7 @@ const EMBEDDINGS = [
       "Result.hex",
       "Vector.hex",
       "Map.hex",
+      "Set.hex",
     ],
   },
   {

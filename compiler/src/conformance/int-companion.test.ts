@@ -629,7 +629,7 @@ describe("Collections Part 2 §2.5's `Hash` row, now hand-written source", () =>
       "export let same: Bool = here == alsoHere",
       "export let agree: Bool = hash(here) == hash(alsoHere)",
       "export let distinct: Bool = here != elsewhere",
-      "let seen: Set(Point) = Set.add(Set.add(Set.add(Set.empty(), here), alsoHere), elsewhere)",
+      "let seen: Set(Point) = Set.add(Set.add(Set.add(Set.empty, here), alsoHere), elsewhere)",
       "export let collapsed: Int = Set.size(seen)",
       "",
     ].join("\n"));

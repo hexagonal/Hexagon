@@ -17,6 +17,17 @@ function resolveModulePath(importer: string, specifier: string): string | undefi
   return path.endsWith(".js") ? `${path.slice(0, -3)}.hex` : path;
 }
 
+/**
+ * Both tests below compile every curated example through the whole pipeline,
+ * prelude included, so their cost tracks the prelude's size — and the prelude
+ * gained a twenty-third member at the Set step (#373). Under a parallel suite
+ * run that took the first one past vitest's 5s default, while it passes
+ * comfortably in isolation, which is the signature of a budget rather than a
+ * regression. Stated once here and applied to both, since the second does
+ * strictly more work than the first.
+ */
+const PIPELINE_TIMEOUT = 30_000;
+
 describe("curated playground examples", () => {
   test("have stable unique ids and compile through the complete worker pipeline", () => {
     expect(new Set(playgroundExamples.map(({ id }) => id)).size).toBe(
@@ -27,7 +38,7 @@ describe("curated playground examples", () => {
       expect(exampleById(example.id)).toBe(example);
       expect(compileSource(version, example.source).kind).toBe("compile-success");
     }
-  });
+  }, PIPELINE_TIMEOUT);
 
   /**
    * Compiling is not the assertion that matters. During the `Seq`
@@ -74,5 +85,5 @@ describe("curated playground examples", () => {
     } finally {
       console.log = log;
     }
-  });
+  }, PIPELINE_TIMEOUT);
 });

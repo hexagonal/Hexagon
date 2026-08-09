@@ -380,14 +380,22 @@ describe("Rat after the fold-in", () => {
     );
   });
 
-  test("bare `add` at `Rat` reaches the honored member through the prelude export", async () => {
+  /**
+   * `Num.add`, not the bare `add` this test's name was written for: since #373
+   * `stdlib/Set.hex` exports `add`, so the bare spelling is a collided prelude
+   * name and Modules §5.5 refuses it in favour of the qualified home. What is
+   * being tested survives the change whole — the route from a *prelude export*
+   * of the member to the instance honored in another module — because the
+   * qualified spelling reaches the same export the bare one did.
+   */
+  test("`Num.add` at `Rat` reaches the honored member through the prelude export", async () => {
     const exports = await runProject([
       ["/main.hex", [
         "import * as Rat from \"./Rat\"",
         "",
         "export let bare: String =",
-        "    \"${add(Rat.create(1n, 2n), Rat.create(1n, 3n))}\"",
-        "export let generic<a: Num>(left: a, right: a): a = add(left, right)",
+        "    \"${Num.add(Rat.create(1n, 2n), Rat.create(1n, 3n))}\"",
+        "export let generic<a: Num>(left: a, right: a): a = Num.add(left, right)",
         "export let throughGeneric: String =",
         "    \"${generic(Rat.create(1n, 2n), Rat.create(1n, 3n))}\"",
         "",

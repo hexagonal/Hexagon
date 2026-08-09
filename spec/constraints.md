@@ -93,11 +93,11 @@ Constraint members are module-scope term names (like constructors, Unions §2). 
 Unchanged from Functions §4.2; recorded here because this spec is where a reader will look:
 
 ```
-let plus<a: Num>(x: a, y: a): a = add(x, y)
+let plus<a: Num>(x: a, y: a): a = multiply(x, y)
 let member<a: (Eq, Show)>(xs: Vector(a), x: a): Bool = ...
 ```
 
-Inference attaches constraints without annotation (`fun plus(x, y) = add(x, y)` infers the `Num` constraint from `add`'s type); the explicit `<...>` form attaches those constraints for documentation and restriction. It does not exist to name the variables — the lowercase spelling already does that, so an unconstrained binder is never written on a function (Functions §4.2.1). Generalisation of constrained type variables follows Functions §8 plus the Numeric Literals §4 defaulting rule, both unchanged by this spec.
+Inference attaches constraints without annotation (`fun plus(x, y) = multiply(x, y)` infers the `Num` constraint from `multiply`'s type); the explicit `<...>` form attaches those constraints for documentation and restriction. *(The member here was `add` until `Set.hex` joined the prelude — bare `add` has two exporters since then and is refused per Modules §5.5, which is that section's design working as stated; `multiply` carries the identical inference story with one exporter, #373.)* It does not exist to name the variables — the lowercase spelling already does that, so an unconstrained binder is never written on a function (Functions §4.2.1). Generalisation of constrained type variables follows Functions §8 plus the Numeric Literals §4 defaulting rule, both unchanged by this spec.
 
 ---
 

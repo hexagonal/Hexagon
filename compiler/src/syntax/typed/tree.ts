@@ -948,9 +948,16 @@ export interface HashExpr extends ExpressionFields {
   readonly requirement: Constraint;
 }
 
+/**
+ * `Node` alone since the Map/Set arc closed (#373) — see the resolved tree's
+ * note. `requirements` is accordingly always empty today: it existed for the
+ * companion rows' `<k: Hash>`/`<a: Hash>` obligations, and the four `Node`
+ * operations have none. It stays because the checker records requirements for
+ * every expression kind uniformly, not because this one can carry any.
+ */
 export interface CollectionOperationExpr extends ExpressionFields {
   readonly kind: "CollectionOperation";
-  readonly collection: "Map" | "Set" | "Node";
+  readonly collection: "Node";
   readonly operation: string;
   readonly requirements: readonly Constraint[];
 }

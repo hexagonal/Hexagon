@@ -48,7 +48,6 @@ const keywords: Readonly<Record<string, Lexed.KeywordKind>> = {
   true: "True",
   try: "Try",
   type: "Type",
-  union: "Union",
   var: "Var",
   while: "While",
 };

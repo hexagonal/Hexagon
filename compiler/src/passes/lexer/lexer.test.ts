@@ -37,6 +37,43 @@ describe("lex", () => {
     expect(result.newlines).toHaveLength(1);
   });
 
+  /**
+   * §4.1's hard-keyword table lost `union` at the Set step (#373). The lexer is
+   * where that is decided and where it is smallest to check: the word arrives
+   * as an ordinary `NonUpperName` in *every* position, declaration head
+   * included, and which of them opens a declaration is the parser's business
+   * (Products §3.3's division, the same one `with` and `when` follow).
+   */
+  test("`union` is contextual, so the lexer never gives it a keyword kind", () => {
+    const declaration = lexSource("union Colour = Red | Green");
+    expect(kinds(declaration.tokens)).toEqual([
+      "NonUpperName",
+      "UpperName",
+      "Equal",
+      "UpperName",
+      "Bar",
+      "UpperName",
+      "Eof",
+    ]);
+    expect(declaration.diagnostics).toEqual([]);
+
+    // A binder and a member reference, which a hard keyword made unspellable.
+    const term = lexSource("let union = Set.union");
+    expect(kinds(term.tokens)).toEqual([
+      "Let",
+      "NonUpperName",
+      "Equal",
+      "UpperName",
+      "Dot",
+      "NonUpperName",
+      "Eof",
+    ]);
+    expect(term.diagnostics).toEqual([]);
+
+    // The control: the words beside it in the table are untouched.
+    expect(kinds(lexSource("record type").tokens)).toEqual(["Record", "Type", "Eof"]);
+  });
+
   test("uses JavaScript-compatible Unicode identifiers and classifies only uppercase starts specially", () => {
     const result = lexSource(
       "let 用户 = 1\nlet $税率 = 2\nlet _折扣 = 3\nrecord T用户 = {名字: String}\nlet é = 4",

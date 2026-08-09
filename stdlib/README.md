@@ -19,8 +19,12 @@ not compiler intrinsics.
   would be the ordinary rebinding refusal.
 - `Option.hex` declares the canonical optional-value union used by total
   standard-library accessors.
-- `Vector.hex` owns the public Vector companion while delegating only
-  representation-sensitive operations to the compiler/runtime core.
+- `Vector.hex`, `Map.hex`, and `Set.hex` own the public collection companions,
+  each declaring its representation-sensitive operations through the intrinsic
+  door (`spec/intrinsics.md` §3.2) onto the injected runtime tries
+  (`runtime/VectorTrie.hex`, `runtime/HashTrie.hex`); everything above those
+  declarations is ordinary Hexagon. `Seq.hex` declares `Seq(a)` itself and its
+  combinator core.
 
 The complete package/prelude loader and the final boundary of the fundamental
 stdlib remain project-system and stdlib-listing work. The Playground begins that

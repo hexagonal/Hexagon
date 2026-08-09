@@ -315,31 +315,31 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     expect(topLevelBindings(javascript).filter((name) => name === "fold")).toHaveLength(1);
   });
 
-  test("a collection core call registers no companion candidate", async () => {
-    // `Set.empty`/`Set.isEmpty` resolve to compiler core operations, but they
-    // share their spelling with real `Seq.hex`, `Vector.hex` and `Map.hex`
-    // exports — deliberately, per the Collections Part 1 §3.1 naming doctrine.
-    // Registering a candidate for them would put prelude terms the module never
-    // names into the used-prelude set, and with them a claim on the module-level
-    // names `empty` and `isEmpty` that `#preludeImport` would have to rename
-    // around.
+  test("the collection-core guard has no user-reachable receiver left, and the machinery still fires", async () => {
+    // **This test used to assert the opposite, and the change is the
+    // milestone.** `Set.empty`/`Set.isEmpty` were compiler core operations that
+    // shared their spelling with real `Seq.hex`, `Vector.hex` and `Map.hex`
+    // exports, and registering a companion candidate for them would have put
+    // prelude terms the module never named into the used-prelude set. #370
+    // retired `Map`'s entry from the guard and #373 retired `Set`'s: both are
+    // prelude members now, so both spellings are ordinary qualified calls that
+    // synthesize real imports, which is exactly what a companion module arriving
+    // means.
     //
-    // `Set` is the whole of the guard's remit since #370 retired `Map`'s entry:
-    // `Map.isEmpty(m)` is now an ordinary qualified call into a prelude member
-    // and *does* synthesize a real import, which is what a companion module
-    // arriving means. `Set` is the last collection without one.
+    // What is left of `#routesToCollectionCore` is `Node`, and it is
+    // `#runtime`-gated — no user program can reach it, so no user program can
+    // exercise the suppression at all. Its terminal disposition is #223.
     const project = compileProject([
       new Source.File(Source.fileId(0), "/main.hex",
-        "let s: Set(Int) = Set.empty()\n" +
+        "let s: Set(Int) = Set.empty\n" +
         "export let blank: Bool = Set.isEmpty(s)\n"),
     ]);
     expect(project.diagnostics).toEqual([]);
     const main = project.modules.find((module) => module.source.path === "/main.hex")!;
     expect(main.javascript.text).not.toContain("Vector.js");
-    expect(topLevelBindings(main.javascript.text)).not.toContain("isEmpty");
-    expect(synthesizedImportNames(main)).toEqual([]);
-    // Not vacuous: with the guard's precondition absent the machinery still
-    // fires. This is a function-valued *field* call, not companion dispatch —
+    expect(synthesizedImportNames(main)).toEqual(["./Set:empty", "./Set:isEmpty"]);
+    // The machinery the guard used to hold back is unchanged, and this is where
+    // it is read. This is a function-valued *field* call, not companion dispatch —
     // it is the shape that cannot be decided without the checker, which is
     // exactly what `#noteCompanionCandidate` stays conservative for. Read off
     // the *resolved* tree, because that is where the candidate lives: since #263
@@ -374,7 +374,7 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     const module = await run([
       ["/main.hex",
         "let source: Seq(Int) = Vector.toSeq([1, 2, 3])\n" +
-        "let s: Set(Int) = Set.empty()\n" +
+        "let s: Set(Int) = Set.empty\n" +
         "export let measured: Bool = Set.isEmpty(s)\n" +
         "export let dispatched: Int = source.length()\n"],
     ]);
