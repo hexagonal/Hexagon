@@ -618,6 +618,49 @@ export let go(): Unit = drive({ step = () => save!("x") })
   });
 });
 
+describe("#355 §10 — declaration-site variance counts the effect slot", () => {
+  // `#variablePositions` walked a function type's parameters and result and
+  // skipped its colour, so every effect variable read as absent — and an absent
+  // variable is invariant by default, which item 7's covariant-only clause
+  // declines. A computed binding's own colour was therefore pinned monomorphic.
+  const inletFace = `
+let pick(value: a): a = value
+let store(callback: () => String): Int = 1
+let stored = pick(store)
+`;
+
+  it("generalizes a computed binding's own colour", () => {
+    // `stored`'s right-hand side is an application, so the value restriction
+    // applies and item 7 decides. Its own outer colour occurs only at the root —
+    // covariant-only — so the two faces below are two instantiations, not a
+    // contradiction.
+    expect(
+      effectDiagnostics([["/main.hex", `${inletFace}
+export let asPure: ((() -> String) -> Int) = stored
+export let asImpure: ((() -> String) =>! Int) = stored
+`]]),
+    ).toEqual([]);
+  });
+
+  it("still refuses to weaken the callback's colour, which is not covariant-only", () => {
+    // The inlet's variable occurs in argument position, so item 7 declines it
+    // exactly as it declines every other contravariant variable — the inclusion
+    // is an occurrence count, not an exemption. The first face pins the callback
+    // pure; the second demands the constant of the same, now monomorphic, slot.
+    expect(
+      effectDiagnostics([["/main.hex", `${inletFace}
+export let asPure: ((() -> String) -> Int) = stored
+export let asImpure: ((() =>! String) -> Int) = stored
+`]]),
+    ).toEqual([
+      "this position's arrow is the impure constant — its colour is fixed where " +
+      "the type is declared, and this function's face is the pure `->`; the " +
+      "demand cannot weaken — change the position's declared arrow, or supply " +
+      "the effectful function the position promises",
+    ]);
+  });
+});
+
 describe("#355 ruling 8 — the return-annotation slot", () => {
   it("gives an unparenthesized `=>` to the body", () => {
     // The annotation is the *result* type and the body starts at the arrow, so

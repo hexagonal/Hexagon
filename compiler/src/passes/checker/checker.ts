@@ -6263,6 +6263,14 @@ class Checker {
         case "Function":
           for (const parameter of actual.parameters) walk(parameter, flipVariance(sign));
           walk(actual.result, sign);
+          // The effect slot is one more component of the function type (#355
+          // §3.4), so it is one more occurrence here, at the arrow's own sign —
+          // a colour is a fact about invoking this function, which is what the
+          // result position already means. Skipping it made every effect
+          // variable read as absent, and an absent variable defaults to `inv`:
+          // item 7 declined it, and a computed binding's face was pinned
+          // monomorphic for no reason anyone had stated (#364).
+          if (actual.effect !== undefined) walk(actual.effect, sign);
           return;
         case "Tuple":
           for (const element of actual.elements) walk(element, sign);
