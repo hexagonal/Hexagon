@@ -52,6 +52,11 @@ const world = `extern from "./world.js"
     export pure fun trim(document: String): String
 `;
 
+/** Effects §9's mark-position row, the one every misplaced mark takes. */
+const markSeat =
+  "a call mark governs an argument list; write it immediately before `(`, " +
+  "or (in a `|>` stage) at the end of the stage — a reference carries no colour";
+
 describe("#355 effects prototype — the flag itself", () => {
   it("compiles the whole prelude and runtime clean with the flag on", () => {
     expect(effectDiagnostics([["/main.hex", "export let x: Int = 1\n"]])).toEqual([]);
@@ -419,10 +424,7 @@ export let stamp(document: String): String = document.show()
       effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
 export let held: (String =>! Unit) = save!
 `]]),
-    ).toEqual([
-      "a call mark governs an argument list; write it immediately before `(`, " +
-      "or (in a `|>` stage) at the end of the stage — a reference carries no colour",
-    ]);
+    ).toEqual([markSeat]);
   });
 
   it("stores an impure function without a mark", () => {
@@ -434,6 +436,54 @@ export let run(document: String): Unit = held!(document)
     ).toEqual([]);
   });
 
+  it("keeps the `not` redirect for a prefix `!`", () => {
+    // §9's prefix row, and Lexer §8.2's division of labour: `!` lexes as a mark
+    // now, so the redirect is position-selected by the parser. The prototype
+    // reported the mark-position row here, which tells a reader writing `not`
+    // to go and find an argument list.
+    expect(
+      effectDiagnostics([["/main.hex", "export let f(flag: Bool): Bool = !flag\n"]]),
+    ).toEqual(["Hexagon spells logical negation `not`"]);
+    // Parenthesizing the operand does not make it a call: nothing precedes the
+    // mark, so there is no argument list for it to govern either way.
+    expect(
+      effectDiagnostics([["/main.hex", "export let f(flag: Bool): Bool = !(flag)\n"]]),
+    ).toEqual(["Hexagon spells logical negation `not`"]);
+  });
+
+  it("gives a prefix `?` the mark-position row instead", () => {
+    // `?` never had the negation reading, so the same seat takes the other row.
+    expect(
+      effectDiagnostics([["/main.hex", "export let f(flag: Bool): Bool = ?flag\n"]]),
+    ).toEqual([markSeat]);
+  });
+
+  it("requires the mark glued to the argument list it governs", () => {
+    // Lexer §8.1 spells the seat "glued immediately before `(`". The prototype
+    // accepted every spacing, which makes a mark look like an operator.
+    const spellings = ["readLine ! ()", "readLine! ()", "readLine !()"];
+    for (const spelling of spellings) {
+      expect(
+        effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+export let ask(): String = ${spelling}
+`]]),
+      ).toEqual([markSeat]);
+    }
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+export let ask(): String = readLine!()
+`]]),
+    ).toEqual([]);
+  });
+
+  it("requires a pipe stage's mark glued to the stage", () => {
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+export let run(document: String): Unit = document |> save !
+`]]),
+    ).toEqual([markSeat]);
+  });
+
   it("does not admit `!=>`, which `!=` would win", () => {
     // `!=` takes the maximal munch, so the type ends at `Int` and the `!` is
     // never an arrow. Pinned on the exact reports, because "it errors" is true
@@ -441,6 +491,173 @@ export let run(document: String): Unit = held!(document)
     expect(
       effectDiagnostics([["/main.hex", "export let f: (Int !=> Int) = (x) => x\n"]]),
     ).toEqual(["expected `)` after type", "expected `=` in `let` binding"]);
+  });
+});
+
+describe("#355 the `pure` claim — FFI Part 4 §4.5", () => {
+  it("honours it on an extern `fun`", () => {
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+export let clean(document: String): String = trim(document)
+`]]),
+    ).toEqual([]);
+  });
+
+  it("refuses it on an extern `let` — a value reference has no face", () => {
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+    export pure let seed: Int
+`]]),
+    ).toEqual([
+      "`pure` claims a function's face, and a value reference carries no colour " +
+      "— the claim belongs on an extern `fun`",
+    ]);
+  });
+
+  it("refuses it on an extern `type`", () => {
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+    export pure type Handle
+`]]),
+    ).toEqual([
+      "`pure` claims a function's face, and a type has none — the claim belongs " +
+      "on an extern `fun`",
+    ]);
+  });
+
+  it("keeps `pure` an ordinary name everywhere else", () => {
+    // Contextual vocabulary (Lexer §4.2's family): the refusals above must not
+    // have reserved the word.
+    expect(
+      effectDiagnostics([["/main.hex", `
+export let pure(value: Int): Int = value
+export let doubled: Int = pure(21) + pure(21)
+`]]),
+    ).toEqual([]);
+  });
+});
+
+describe("#355 marks on the deferred dot-call goal path (Method Syntax §3)", () => {
+  // A dot call whose receiver is a flexible tyvar pends: the evidence arrives
+  // later in the owner region, and the goal settles at that region's deadline
+  // (§3.1). The mark still anchors to *this* argument list (Effects §3.2,
+  // ruling 2), and it is read off the colour the deadline finally produced.
+  const deferred = (mark: string) => `${world}
+let run(source): Seq(String) =
+    source.forEach${mark}((value) => save!(value))
+    let pinned: Seq(String) = source
+    pinned
+
+export let x: Int = 1
+`;
+
+  it("wants `!` on a goal that settles onto an impure instantiation", () => {
+    expect(withSeq(deferred("!"))).toEqual([]);
+  });
+
+  it("names the member in §9's frame when the mark is missing", () => {
+    expect(withSeq(deferred(""))).toEqual([
+      "this call runs effects, so `.forEach` wants `!`, not no mark",
+    ]);
+  });
+
+  it("carries the settled colour out to the enclosing body's callers", () => {
+    expect(
+      withSeq(`${world}
+let run(source): Seq(String) =
+    source.forEach!((value) => save!(value))
+    let pinned: Seq(String) = source
+    pinned
+
+let go(source: Seq(String)): Seq(String) = run(source)
+
+export let x: Int = 1
+`),
+    ).toEqual([
+      "this call runs effects, so `run` wants `!`, not no mark",
+    ]);
+  });
+
+  it("makes the row fallback's arrow the pure one, and enforces it", () => {
+    // A goal whose receiver never becomes head-known takes §3.5's fallback,
+    // which imposes `{next: () -> a, ...}` — a `->`, written so in the spec, and
+    // a row is data (Effects §2.5). So the call is pure and a mark on it is
+    // refused. The prototype registered no obligation at all here, and every
+    // mark on a fallback-resolved dot call was silently accepted.
+    for (const [mark, name] of [["!", "`!`"], ["?", "`?`"]] as const) {
+      expect(
+        effectDiagnostics([["/main.hex", `
+let drive(source): String = source.next${mark}()
+
+export let x: Int = 1
+`]]),
+      ).toEqual([`this call is pure, so \`.next\` wants no mark, not ${name}`]);
+    }
+    expect(
+      effectDiagnostics([["/main.hex", `
+let drive(source): String = source.next()
+
+export let x: Int = 1
+`]]),
+    ).toEqual([]);
+  });
+
+  it("refuses an impure field at the row the fallback imposed", () => {
+    // The other half of the same arrow: the row demands purity, so supplying an
+    // impure step is §4.3's refusal rather than a silent widening.
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+let drive(source): Unit = source.step()
+
+export let go(): Unit = drive({ step = () => save!("x") })
+`]]),
+    ).toEqual([
+      "a `->` arrow promises purity, and this function performs effects — the " +
+      "demand is written `->`, the function's face `=>` or `=>!`",
+    ]);
+  });
+});
+
+describe("#355 declaration-site variance counts the effect slot (Effects §3.4, #364)", () => {
+  // `#variablePositions` walked a function type's parameters and result and
+  // skipped its colour, so every effect variable read as absent — and an absent
+  // variable is invariant by default, which item 7's covariant-only clause
+  // declines. A computed binding's own colour was therefore pinned monomorphic.
+  const inletFace = `
+let pick(value: a): a = value
+let store(callback: () => String): Int = 1
+let stored = pick(store)
+`;
+
+  it("generalizes a computed binding's own colour", () => {
+    // `stored`'s right-hand side is an application, so the value restriction
+    // applies and item 7 decides. Its own outer colour occurs only at the root —
+    // covariant-only — so the two faces below are two instantiations, not a
+    // contradiction.
+    expect(
+      effectDiagnostics([["/main.hex", `${inletFace}
+export let asPure: ((() -> String) -> Int) = stored
+export let asImpure: ((() -> String) =>! Int) = stored
+`]]),
+    ).toEqual([]);
+  });
+
+  it("still refuses to weaken the callback's colour, which is not covariant-only", () => {
+    // The inlet's variable occurs in argument position, so item 7 declines it
+    // exactly as it declines every other contravariant variable — the inclusion
+    // is an occurrence count, not an exemption. The first face pins the callback
+    // pure; the second demands the constant of the same, now monomorphic, slot.
+    expect(
+      effectDiagnostics([["/main.hex", `${inletFace}
+export let asPure: ((() -> String) -> Int) = stored
+export let asImpure: ((() =>! String) -> Int) = stored
+`]]),
+    ).toEqual([
+      "this position's arrow is the impure constant — its colour is fixed where " +
+      "the type is declared, and this function's face is the pure `->`; the " +
+      "demand cannot weaken — change the position's declared arrow, or supply " +
+      "the effectful function the position promises",
+    ]);
   });
 });
 
@@ -476,19 +693,46 @@ export let run(document: String): Unit = maker("s")!(document)
 
   it("names the parenthesization when the writer plainly meant a type", () => {
     const source = `export let f = (x: Int): Int => Int => x\n`;
-    expect(effectDiagnostics([["/main.hex", source]])).toContain(
+    // The whole list, not `toContain` (#364; Effects §9's return-annotation row): the report has to
+    // *lead*, and it used to fire third — behind a type mismatch against the
+    // annotation it was telling the reader to rewrite, and an unknown
+    // constructor `Int` from reading the intended type as a pattern. Both
+    // describe a tree the writer did not write.
+    expect(effectDiagnostics([["/main.hex", source]])).toEqual([
       "a lambda's return annotation gives an unparenthesized `=>` to the body, so " +
       "this reads as the body starting here; an impure function type in a return " +
       "annotation must be parenthesized",
-    );
+    ]);
     expect(effectFixes([["/main.hex", source]])).toEqual([
       'parenthesize the return type: "("',
       'parenthesize the return type: ")"',
     ]);
   });
+
+  it("supersedes only the lambda it reports on", () => {
+    // The cut is a region, so it must not reach past the lambda: a sibling
+    // binding's own error is nobody's consequence.
+    expect(
+      effectDiagnostics([["/main.hex", `export let f = (x: Int): Int => Int => x
+export let g: Int = "text"
+`]]),
+    ).toEqual([
+      "a lambda's return annotation gives an unparenthesized `=>` to the body, so " +
+      "this reads as the body starting here; an impure function type in a return " +
+      "annotation must be parenthesized",
+      "type mismatch: expected Int, found String",
+    ]);
+  });
 });
 
 describe("#355 the pure demand", () => {
+  /** The reverse direction's sentence (#364; Effects §4.3/§9). */
+  const reverseDemand =
+    "this position's arrow is the impure constant — its colour is fixed where " +
+    "the type is declared, and this function's face is the pure `->`; the " +
+    "demand cannot weaken — change the position's declared arrow, or supply " +
+    "the effectful function the position promises";
+
   it("refuses an impure function where `->` is demanded", () => {
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
@@ -499,6 +743,30 @@ export let go(document: String): Unit = strict(save, document)
       "a `->` arrow promises purity, and this function performs effects — the " +
       "demand is written `->`, the function's face `=>` or `=>!`",
     ]);
+  });
+
+  it("refuses a pure function where a `=>` data field is demanded", () => {
+    // The reverse direction, in the position §2.5 makes the constant on its own
+    // account: a record declaration has no signature, so the field's arrow is
+    // the impure constant and a pure function cannot weaken it. Under the §4.3
+    // message every clause named a `->` this program does not contain.
+    expect(
+      effectDiagnostics([["/main.hex", `
+export record Source = { step: () => String }
+export let hold(step: () -> String): Source = Source({ step = step })
+`]]),
+    ).toEqual([reverseDemand]);
+  });
+
+  it("refuses a pure function at a result-only face", () => {
+    // §2.2's else-constant rule supplies the other constant position: the
+    // annotation's only `=>` stands in result position, so it is the constant.
+    expect(
+      effectDiagnostics([["/main.hex", `
+export let pureStep(): String = "x"
+export let held: (() =>! String) = pureStep
+`]]),
+    ).toEqual([reverseDemand]);
   });
 
   it("keeps `Seq`'s producer pure by construction — branch (ii)", () => {

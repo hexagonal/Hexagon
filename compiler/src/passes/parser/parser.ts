@@ -121,6 +121,23 @@ const endsExpression = new Set<TokenKind>([
   "True",
   "False",
 ]);
+
+/** Where a misparsed lambda return annotation stood, held until the lambda closes. */
+interface ReturnArrowMisparse {
+  readonly annotation: Source.Span;
+  readonly end: Source.Span;
+}
+
+/**
+ * Effects §9's mark-position row: the one report every mark outside its two
+ * grammatical seats takes. A mark before a `(` it is not glued to is in this
+ * family too — Lexer §8.1 spells the seat "glued immediately before `(`", so a
+ * spaced mark is a mark with no argument list it belongs to.
+ */
+const markSeatError =
+  "a call mark governs an argument list; write it immediately before `(`, " +
+  "or (in a `|>` stage) at the end of the stage — a reference carries no colour";
+
 export interface ParseOptions {
   /**
    * The #355 effects prototype's grammar: `=>` and `=>!` as type formers, and
@@ -599,6 +616,20 @@ class Parser {
       this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
       return undefined;
     }
+    // FFI Part 4 §4.5: the claim is a claim about a *face*, and only a callable
+    // has one. Refused here rather than believed and dropped, so the row does
+    // not read as carrying a purity the checker never asked about.
+    const pureOnFun = pureClaim && kind === "Fun";
+    if (pureClaim && kind !== "Fun") {
+      this.#errorAt(
+        start.span,
+        kind === "Type"
+          ? "`pure` claims a function's face, and a type has none — the claim " +
+            "belongs on an extern `fun`"
+          : "`pure` claims a function's face, and a value reference carries no " +
+            "colour — the claim belongs on an extern `fun`",
+      );
+    }
     this.#advance();
     if (kind === "Type" && defaultBinding) {
       this.#errorAt(start.span, "`default` applies to foreign functions and values, not types");
@@ -641,7 +672,6 @@ class Parser {
         kind: "ExternType",
         exported,
         default: false,
-        ...(pureClaim ? { pure: true as const } : {}),
         ...(foreignName === undefined ? {} : { foreignName }),
         localName,
         span: spanFrom(start.span, this.#previous().span),
@@ -698,7 +728,7 @@ class Parser {
         kind: "ExternFun",
         exported,
         default: defaultBinding,
-        ...(pureClaim ? { pure: true as const } : {}),
+        ...(pureOnFun ? { pure: true as const } : {}),
         ...(foreignName === undefined ? {} : { foreignName }),
         localName,
         ...(typeParameters === undefined || typeParameters.length === 0
@@ -729,7 +759,6 @@ class Parser {
       kind: "ExternLet",
       exported,
       default: defaultBinding,
-      ...(pureClaim ? { pure: true as const } : {}),
       ...(foreignName === undefined ? {} : { foreignName }),
       localName,
       annotation,
@@ -1808,19 +1837,31 @@ class Parser {
       if (this.#effects && (this.#at("Bang") || this.#at("Question"))) {
         const mark = this.#at("Bang") ? "bang" : "question";
         const token = this.#advance();
+        // Lexer §8.1: a mark is written *glued* — to the callee it marks, and to
+        // the `(` it governs. Whitespace on either side is the same defect the
+        // seat rule reports, because a floating mark is exactly a mark with no
+        // argument list it visibly belongs to.
+        const gluedToCallee = token.span.start.offset === left.span.end.offset;
         if (this.#at("LeftParen")) {
+          if (gluedToCallee && this.#current().span.start.offset === token.span.end.offset) {
+            left = this.#parseCall(left, mark, token.span);
+            continue;
+          }
+          this.#errorAt(token.span, markSeatError);
+          // Parsed as the call it plainly is, so one spacing slip reports once.
           left = this.#parseCall(left, mark, token.span);
           continue;
         }
-        if (stageMarkAllowed && !this.#at("LeftParen")) {
+        if (stageMarkAllowed) {
+          if (gluedToCallee) {
+            this.#stageMark = { mark, span: token.span };
+            break;
+          }
+          this.#errorAt(token.span, markSeatError);
           this.#stageMark = { mark, span: token.span };
           break;
         }
-        this.#errorAt(
-          token.span,
-          "a call mark governs an argument list; write it immediately before `(`, " +
-            "or (in a `|>` stage) at the end of the stage — a reference carries no colour",
-        );
+        this.#errorAt(token.span, markSeatError);
         continue;
       }
       if (minimumBindingPower <= 12) {
@@ -1938,6 +1979,23 @@ class Parser {
         operand,
         span: spanFrom(start.span, operand.span),
       };
+    }
+    if (this.#effects && (this.#at("Bang") || this.#at("Question"))) {
+      // #355 §9's two prefix rows, chosen by which mark it is. A mark governs an
+      // argument list and an argument list follows something, so a mark *here*
+      // has no call to speak for. A `!` in this seat is the negation the scanner
+      // used to redirect before the marks made it a token, and the redirect is
+      // the parser's now (Lexer §8.2); a `?` never had that reading and takes
+      // the mark-position row.
+      const token = this.#advance();
+      this.#errorAt(
+        token.span,
+        token.kind === "Bang" ? "Hexagon spells logical negation `not`" : markSeatError,
+      );
+      // Recovery keeps the operand: the writer's expression is what follows, and
+      // reporting it missing on top of the redirect would say the same mistake
+      // twice.
+      return this.#parseExpression(6, stops);
     }
     if (this.#at("If")) {
       return this.#parseIf(stops);
@@ -2766,16 +2824,17 @@ class Parser {
     const from = start ?? this.#current().span;
     const { parameters, destructurings } = this.#parseParameters();
     let returnAnnotation: Parsed.TypeAnnotation | undefined;
+    let misparse: ReturnArrowMisparse | undefined;
     if (this.#at("Colon")) {
       this.#advance();
       // #355 ruling 8: in this one slot an unparenthesized `=>` always starts
       // the body, so the annotation parser is told not to take it.
       returnAnnotation = this.#parseTypeAnnotation(this.#effects);
-      this.#reportUnparenthesizedReturnArrow(returnAnnotation);
+      misparse = this.#unparenthesizedReturnArrow(returnAnnotation);
     }
     this.#expect("FatArrow", "expected `=>` after lambda parameters");
     const body = this.#parseBodyExpression(stops);
-    return {
+    const lambda: Parsed.Expr = {
       kind: "Lambda",
       parameters,
       ...(typeParameters === undefined ? {} : { typeParameters }),
@@ -2784,6 +2843,11 @@ class Parser {
       body,
       span: spanFrom(from, body.span),
     };
+    // Reported once the lambda's extent is known, because the region this
+    // report speaks for is the whole lambda: everything the later passes will
+    // say about it describes a tree the writer did not write (#364).
+    if (misparse !== undefined) this.#reportReturnArrow(misparse, lambda.span);
+    return lambda;
   }
 
   /**
@@ -2799,27 +2863,42 @@ class Parser {
    * been a type, and today it is a parse failure one step later with no
    * explanation. The fixit is the parenthesization ruling 8 mandates.
    */
-  #reportUnparenthesizedReturnArrow(annotation: Parsed.TypeAnnotation | undefined): void {
-    if (!this.#effects || annotation === undefined || !this.#at("FatArrow")) return;
+  #unparenthesizedReturnArrow(
+    annotation: Parsed.TypeAnnotation | undefined,
+  ): ReturnArrowMisparse | undefined {
+    if (!this.#effects || annotation === undefined || !this.#at("FatArrow")) return undefined;
     const start = this.#index + 1;
     const first = this.#tokens[start]?.kind;
-    if (first !== "UpperName" && first !== "LeftBrace") return;
+    if (first !== "UpperName" && first !== "LeftBrace") return undefined;
     const after = this.#skipType(start);
-    if (after < 0) return;
+    if (after < 0) return undefined;
     const trailing = this.#tokens[after]?.kind;
-    if (trailing !== "FatArrow" && trailing !== "FatArrowBang") return;
-    const end = this.#tokens[after - 1]!.span;
+    if (trailing !== "FatArrow" && trailing !== "FatArrowBang") return undefined;
+    return { annotation: annotation.span, end: this.#tokens[after - 1]!.span };
+  }
+
+  /**
+   * The report itself, once the lambda's extent is known.
+   *
+   * It leads (#364; Effects §9's return-annotation row): the misparse is what went wrong,
+   * and the type errors the misparsed tree provokes are consequences of it —
+   * the reader met those first and never reached the one sentence naming the
+   * fix. `supersedes` is that cut, and the lambda is the region it speaks for.
+   */
+  #reportReturnArrow(misparse: ReturnArrowMisparse, lambda: Source.Span): void {
+    const { annotation, end } = misparse;
     this.#diagnostics.add({
       severity: "error",
       message:
         "a lambda's return annotation gives an unparenthesized `=>` to the body, so " +
         "this reads as the body starting here; an impure function type in a return " +
         "annotation must be parenthesized",
-      primary: spanFrom(annotation.span, end),
+      primary: spanFrom(annotation, end),
+      supersedes: lambda,
       fixes: [{
         message: "parenthesize the return type",
         edits: [
-          { span: { ...annotation.span, end: annotation.span.start }, replacement: "(" },
+          { span: { ...annotation, end: annotation.start }, replacement: "(" },
           { span: { ...end, start: end.end }, replacement: ")" },
         ],
       }],

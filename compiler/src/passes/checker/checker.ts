@@ -1994,11 +1994,26 @@ class Checker {
     );
     this.#recordAccesses.set(goal.callee, goal.callee.field.text);
     this.#expressionTypes.set(goal.callee, field);
+    // The imposed arrow is `->`, exactly as §3.5 writes it: a row is data, and a
+    // data field's arrow is pure or the constant, never linked (Effects §2.5) —
+    // and nothing here wrote the constant. So the call is pure, and a mark on it
+    // is refused with §9's dot-call sentence. The obligation is registered on
+    // *this* argument list (§3.2 ruling 2) and in the frame the call was written
+    // in, which the deadline no longer describes.
+    const effect = this.#effectsOn ? PURE : undefined;
     this.#unify(
       field,
-      { kind: "Function", parameters: goal.argumentTypes, result: goal.result },
+      {
+        kind: "Function",
+        parameters: goal.argumentTypes,
+        result: goal.result,
+        ...(effect === undefined ? {} : { effect }),
+      },
       goal.expression.span,
     );
+    if (effect !== undefined) {
+      this.#registerCall(goal.expression, effect, calleeLabel(goal.expression));
+    }
     this.#expressionTypes.set(goal.expression, this.#prune(goal.result));
   }
 
@@ -6248,6 +6263,14 @@ class Checker {
         case "Function":
           for (const parameter of actual.parameters) walk(parameter, flipVariance(sign));
           walk(actual.result, sign);
+          // The effect slot is one more component of the function type (#355
+          // §3.4), so it is one more occurrence here, at the arrow's own sign —
+          // a colour is a fact about invoking this function, which is what the
+          // result position already means. Skipping it made every effect
+          // variable read as absent, and an absent variable defaults to `inv`:
+          // item 7 declined it, and a computed binding's face was pinned
+          // monomorphic for no reason anyone had stated (#364).
+          if (actual.effect !== undefined) walk(actual.effect, sign);
           return;
         case "Tuple":
           for (const element of actual.elements) walk(element, sign);
@@ -8849,13 +8872,26 @@ function markFixMessage(required: "bang" | "question" | undefined): string {
 }
 
 /**
- * The two-point lattice's one unification failure: a pure demand meeting an
- * impure function, or the reverse. Said as a sentence about colour rather than
- * as a type mismatch, because the types on both sides are otherwise identical
- * and a structural report would print them the same way twice.
+ * The two-point lattice's one unification failure, in the two directions it has.
+ * Said as a sentence about colour rather than as a type mismatch, because the
+ * types on both sides are otherwise identical and a structural report would
+ * print them the same way twice.
+ *
+ * `left` is the demand and `right` the supply, the convention `#unify`'s own
+ * "expected … found …" fallback already keeps. The direction decides the
+ * sentence, and it has to: the §4.3 report speaks of a written `->` *demand* in
+ * every clause, and in the reverse direction — a pure function refused where a
+ * `=>` data field, a result-only face, or a written `=>!` demands the impure
+ * constant — the demand wrote no `->`, so each clause misdescribes the program.
  */
 function effectMismatchMessage(left: Mono, right: Mono): string {
   const impure = (side: Mono): boolean => side.kind === "Effect" && side.impure;
+  if (left.kind === "Effect" && right.kind === "Effect" && impure(left)) {
+    return "this position's arrow is the impure constant — its colour is fixed " +
+      "where the type is declared, and this function's face is the pure `->`; " +
+      "the demand cannot weaken — change the position's declared arrow, or " +
+      "supply the effectful function the position promises";
+  }
   return impure(left) || impure(right)
     ? "a `->` arrow promises purity, and this function performs effects — the " +
       "demand is written `->`, the function's face `=>` or `=>!`"
