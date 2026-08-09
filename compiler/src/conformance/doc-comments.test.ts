@@ -96,6 +96,50 @@ describe("§11: attachment", () => {
     expect(diagnostics(source)).toEqual([]);
   });
 
+  test("constraint members are documentable, `type` members among them", () => {
+    // §11's `Keyed` pair, verbatim: §4.2 puts a constraint's `type` member and
+    // an `honor` block's implied-type binding on the documentable inventory
+    // beside the function members they sit with (#394).
+    const source = "constraint Keyed<c> =\n" +
+      "    (** The type of one key, chosen by each instance. *)\n" +
+      "    type Key\n" +
+      "    (** The key of `x`. *)\n" +
+      "    keyOf(x: c): Key\n" +
+      "\n" +
+      "honor Keyed<Int> =\n" +
+      "    (** An `Int` keys itself. *)\n" +
+      "    type Key = Int\n" +
+      "    keyOf(x) = x\n";
+
+    expect(attachments(source)).toEqual([
+      'type Key :: "The type of one key, chosen by each instance."',
+      'keyOf(x: c): Key :: "The key of `x`."',
+      'type Key = Int :: "An `Int` keys itself."',
+    ]);
+    expect(diagnostics(source)).toEqual([]);
+  });
+
+  test("an `honor` block's function member documents beside its binding", () => {
+    // The two `honor` member forms in one block: §11's snippet documents only
+    // the binding, and nothing about the implied-type branch changes what the
+    // member branch beside it already did.
+    const source = "constraint Keyed<c> =\n" +
+      "    type Key\n" +
+      "    keyOf(x: c): Key\n" +
+      "\n" +
+      "honor Keyed<Int> =\n" +
+      "    (** An `Int` keys itself. *)\n" +
+      "    type Key = Int\n" +
+      "    (** Itself, again. *)\n" +
+      "    keyOf(x) = x\n";
+
+    expect(attachments(source)).toEqual([
+      'type Key = Int :: "An `Int` keys itself."',
+      'keyOf(x) = x :: "Itself, again."',
+    ]);
+    expect(diagnostics(source)).toEqual([]);
+  });
+
   test("a doc block above the first `let` of an indented block reaches it", () => {
     // The VOPEN layout interposes does not stand between them: attachment sees
     // physical tokens only (§4.1).
@@ -249,6 +293,35 @@ describe("§5: the hard errors", () => {
     const source = 'let s: String = "${(** inline *) 1}"\nfun f(): Unit = ()\n';
 
     expect(diagnostics(source)).toEqual([DANGLING]);
+    expect(attachments(source)).toEqual([]);
+  });
+
+  test("a malformed `type` member does not also report a dangling doc", () => {
+    // The block is claimed and dropped rather than left over: the member it
+    // would have documented failed to parse, and one syntax error is enough
+    // (the `discard` path every failed declaration takes).
+    const source = "constraint Keyed<c> =\n" +
+      "    (** The type of one key. *)\n" +
+      "    type key\n" +
+      "    keyOf(x: c): Int\n";
+
+    expect(diagnostics(source)).toContain("implied types require an uppercase-start name");
+    expect(diagnostics(source)).not.toContain(DANGLING);
+    expect(attachments(source)).toEqual([]);
+  });
+
+  test("a malformed implied-type binding does not either", () => {
+    const source = "constraint Keyed<c> =\n" +
+      "    type Key\n" +
+      "    keyOf(x: c): Key\n" +
+      "\n" +
+      "honor Keyed<Int> =\n" +
+      "    (** An `Int` keys itself. *)\n" +
+      "    type Key =\n" +
+      "    keyOf(x) = x\n";
+
+    expect(diagnostics(source)).toContain("expected a type annotation");
+    expect(diagnostics(source)).not.toContain(DANGLING);
     expect(attachments(source)).toEqual([]);
   });
 
@@ -451,6 +524,43 @@ describe("§7.1: seats that are not one-to-one", () => {
     );
 
     expect(main.javascript.text).toContain("/** How big it is. */\nconst size =");
+  });
+
+  test("a `type` member is the member with no seat, beside one that has", () => {
+    // §7.1's newest sentence (#394): a constraint's `type` member is the member
+    // with no property — an instance's choice is a type, and types are gone
+    // before the boundary — so its documentation crosses into neither artifact,
+    // while the function member beside it rides the forwarder emitted for it.
+    //
+    // The contrast is observable in the `.js` only, and that is a fact about
+    // today's emitter rather than about §7.1: the dictionary *type* an exported
+    // constraint owes the `.d.ts` is FFI Part 9's public-evidence surface, and
+    // it is unbuilt (`exported-constraints.test.ts` says so where it declines to
+    // assert its absence), so nothing about this constraint reaches the `.d.ts`
+    // yet — neither the documented member nor the undocumentable one.
+    const source = "export constraint Keyed<c> =\n" +
+      "    (** The type of one key, chosen by each instance. *)\n" +
+      "    type Key\n" +
+      "    (** The key of `x`. *)\n" +
+      "    keyOf(x: c): Key\n" +
+      "\n" +
+      "honor Keyed<Int> =\n" +
+      "    (** An `Int` keys itself. *)\n" +
+      "    type Key = Int\n" +
+      "    keyOf(x) = x\n" +
+      "\n" +
+      "export let one: Int = keyOf((3 : Int))\n";
+    const main = compiled(source);
+
+    expect(diagnostics(source)).toEqual([]);
+    expect(main.javascript.text).toContain("/** The key of `x`. */\nconst keyOf =");
+    // No seat is no seat in either artifact, and in neither is it invented.
+    for (const text of [main.javascript.text, main.declarations.text]) {
+      expect(text).not.toContain("The type of one key");
+      // The instance's binding is an `honor` member: tooling-only too (§7.1).
+      expect(text).not.toContain("keys itself");
+    }
+    expect(main.declarations.text).not.toContain("The key of");
   });
 
   test("an `honor` member attaches without erroring and emits nowhere (§7.1)", () => {

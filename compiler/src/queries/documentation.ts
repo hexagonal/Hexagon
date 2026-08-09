@@ -18,9 +18,11 @@
  *   module-level inventory, and every `extern from` item). Where they are the
  *   same the subject is recorded anyway, so that each attachment names its own
  *   subject rather than every reader inheriting that coincidence.
- * - **A position.** Three documentable positions have no identity at all in the
+ * - **A position.** Five documentable positions have no identity at all in the
  *   occurrence index — an `honor` member's name is a bare string in the resolved
- *   tree, a record field is not a symbol, a `type` alias is expanded away — so
+ *   tree, a record field is not a symbol, a `type` alias is expanded away, and
+ *   no occurrence walk visits an implied type's name, on the constraint side
+ *   (`type Item`) or the honor side (`type Item = a`) — so
  *   nothing there can be reached by name. `covering` answers for those, and it
  *   is the reason hover can honour §8's "every documentable position" without
  *   the occurrence index growing entries it has no identity to give.

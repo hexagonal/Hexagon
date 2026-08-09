@@ -70,7 +70,7 @@ One rule, no special cases, and it decides every edge by itself: a doc comment b
 
 - **Module-level declarations**: `let`, `var`, `fun`; the Declarations Preamble §7.1 inventory (`record`, `union`, `type`, `constraint`, `honor`, `exception`).
 - **`extern from` block items** — every item form the block admits (FFI Part 4 §2.2), because every one introduces a name: `fun` and `let` bindings, `default` bindings, `type` declarations, `enum` declarations, `class` declarations, and `method`/`get`/`set` items — the latter documentable **wherever they appear**, standalone in the block or grouped in an `extern class` (FFI Part 5 §5 governs both positions). An `extern enum`'s members are documentable like union constructors.
-- **Members**: a union constructor (the doc block precedes the constructor's alternative — its leading `|`, or the constructor name where no `|` precedes); a record field; a constraint member; a member implementation inside an `honor` block.
+- **Members**: a union constructor (the doc block precedes the constructor's alternative — its leading `|`, or the constructor name where no `|` precedes); a record field; a constraint member — the `type` members among them, which Collections Part 2 §5.1 places among the ordinary members; a member implementation inside an `honor` block — the implied-type bindings (`type Item = a`) among them, which are the type members' implementations (Part 2 §5.3).
 - **Block-local binders**: `let`, `var`, `fun` inside function bodies and blocks. Local docs never reach the `.d.ts` (locals are not exports); they exist for tooling (§8).
 
 Not documentable:
@@ -115,7 +115,7 @@ TypeScript's own compiler behaves exactly this way (comments persist into `.js`,
 - **Record fields**: the property in the emitted structural object type — JSDoc on object-type properties is where TS tooling reads field docs.
 - **Union constructors**: the materialized constructor when export materializes one (FFI Part 7 §12.2). The arm of the emitted union *type* has no reliable JSDoc seat in TS tooling; constructor docs ride the constructors.
 - **`type` aliases, `record`/`union` type declarations, exceptions**: the emitted type declaration in `.d.ts`.
-- **Constraints and their members**: the dictionary type and its properties (FFI Part 9), when exported.
+- **Constraints and their members**: the dictionary type and its properties (FFI Part 9), when exported. A `type` member is the member with no property — an instance's choice is a type, and types are gone before the boundary — so its documentation does not cross; tooling-only (§8).
 - **No seat**: `honor` blocks and their member implementations (instances are anonymous at the boundary); block-local binders (function bodies; interior comment emission is quality-of-implementation, Comments §6). Their docs are tooling-only (§8).
 
 ### 7.2 The JSDoc block
@@ -196,6 +196,17 @@ union Shape =
   (** An axis-aligned box. *)
   | Box(w: Float, h: Float)              -- constructor docs; ride materialized constructors on export
 
+constraint Keyed<c> =
+    (** The type of one key, chosen by each instance. *)
+    type Key
+    (** The key of `x`. *)
+    keyOf(x: c): Key                     -- constraint-member docs: type members and function members alike (§4.2)
+
+honor Keyed<Int> =
+    (** An `Int` keys itself. *)
+    type Key = Int
+    keyOf(x) = x                         -- implied-type-binding docs; honor seats are tooling-only (§7.1)
+
 /// not documentation
 fun plain(): Unit = ()                   -- OK; `plain` carries NO docs — `///` is an ordinary `//` comment (§2.3)
 (**********)                             -- ordinary comment (`(***` rule)
@@ -226,7 +237,7 @@ export (** misplaced *) fun m(): Unit = ()  -- ERROR: mid-declaration; `fun` doe
 | Content extraction: ordered procedure; dedent by longest common literal prefix, opener-line fragment exempt only when it exists | §3.1 |
 | Doc blocks merge across runs; blanks and ordinary comments invisible; empty docs legal | §3.2 |
 | Attachment: next-code-token-begins-declaration, one rule over physical tokens (virtual tokens invisible); leading-only; syntactic | §4 |
-| Documentable: module-level inventory + every `extern from` item form (`fun`/`let`/`default`/`type`/`enum`/`class` and members; enum members like constructors) + union constructors + record fields + constraint members + honor members + local binders; not `import`/`extern import`, not the `extern from` header, not module-level effects | §4.2 |
+| Documentable: module-level inventory + every `extern from` item form (`fun`/`let`/`default`/`type`/`enum`/`class` and members; enum members like constructors) + union constructors + record fields + constraint members (`type` members among them) + honor members (implied-type bindings among them) + local binders; not `import`/`extern import`, not the `extern from` header, not module-level effects | §4.2 |
 | Dangling and trailing doc comments are hard errors with Rewrite-Rule redirects; the `extern from` header gets its own message | §5 |
 | Content is CommonMark, carried opaque; bare fences default to Hexagon; no tags, no link resolution in v1 | §6 |
 | Emission: JSDoc in both `.js` and `.d.ts` at every corresponding seat; `*/` → `*\/`; no seat → tooling-only | §7 |
@@ -261,6 +272,6 @@ Owed (README rule 4 — applied on next touch of the target):
 - **hexc emitter**: JSDoc emission per §7 into both artifacts; the `*/` escape; the §7.3 merge with the cliff warning.
 - **TextMate grammar**: the block-doc scope already exists and is themed (`comment.block.documentation.hexagon`, `hexagon.tmLanguage.json`; coloured in both themes and Playground's map) — established at the cold review. The work is bringing the grammar to §2, and it is now **three** conformance fixes, all needing `grammar.test.ts` pins: tighten the block-doc opener to exclude a following `*` (today `(*** banner ***)` paints as documentation); **delete the line-doc rule entirely** — the grammar has a `comment.line.documentation.hexagon` rule for `///`, which under §2.3 must paint as an ordinary `//` comment (the scope's theme entries go with it); and refresh the grammar's inline annotation asserting the reservation-era predicate. The `(?!\*)` guard family from #171's notes keys on `(*` and is unaffected. *(Done 2026-08-01, issue #194: the opener is `\(\*\*(?![)*])`, the line-doc rule and its three theme entries are gone, and §2's predicate and §2.3's revocation are pinned in `grammar.test.ts`.)*
 - **VS Code configuration**: `onEnterRules` already treat `(**` as the doc opener with `(**)` excluded (#171 §11); verify the continuation behaviour against §2.2's `(***` carve-out. *(Done with the grammar, #194: the openers carry the same tightened predicate — a banner no longer continues as a doc comment — and the `///` continuation rule went with the revocation.)*
-- **LSP**: hover carries attached doc content as Markdown (slice 1's hover path). *(Done 2026-08-01, issue #195: hover and completion both carry it, keyed off the name a declaration introduces — recorded by the attachment alongside the target span, since an editor holds a name and §4's key is the declaration's first token. Two facts the work turned up, neither of them a change to this ruling. **Completion carries the content in the protocol's `documentation` field, not `detail`**: `detail` is a plain string beside the label, and §8's "rendered as Markdown" is only true of the other one — `detail` goes on carrying the type. And **three documentable positions have no identity in the compiler's occurrence index at all** — an `honor` member (its name is a bare string in the resolved tree), a record field (not a symbol), a `type` alias (expanded away) — so hover answers those from the documentation alone, which is the only way §8's "every documentable position" holds. Two forms introduce no single name to file a block under: a destructuring `let` is filed under *every* binder it introduces (they are ordinary symbols, but only the attachment knows which names one block covers), and an `honor` block under the constraint in its head, which is the only name it writes — so hovering that name shows the instance's documentation, and the constraint's own shows everywhere else it is written. A pattern that binds nothing at all — `let (_, _) = …` — is the one documentable position whose content reaches no reader; it names nothing to point at.)*
+- **LSP**: hover carries attached doc content as Markdown (slice 1's hover path). *(Done 2026-08-01, issue #195: hover and completion both carry it, keyed off the name a declaration introduces — recorded by the attachment alongside the target span, since an editor holds a name and §4's key is the declaration's first token. Two facts the work turned up, neither of them a change to this ruling. **Completion carries the content in the protocol's `documentation` field, not `detail`**: `detail` is a plain string beside the label, and §8's "rendered as Markdown" is only true of the other one — `detail` goes on carrying the type. And **five documentable positions have no identity in the compiler's occurrence index at all** — an `honor` member (its name is a bare string in the resolved tree), a record field (not a symbol), a `type` alias (expanded away), a constraint's `type` member and an `honor` block's implied-type binding (no occurrence walk visits an implied type's name) — so hover answers those from the documentation alone, which is the only way §8's "every documentable position" holds. Two forms introduce no single name to file a block under: a destructuring `let` is filed under *every* binder it introduces (they are ordinary symbols, but only the attachment knows which names one block covers), and an `honor` block under the constraint in its head, which is the only name it writes — so hovering that name shows the instance's documentation, and the constraint's own shows everywhere else it is written. A pattern that binds nothing at all — `let (_, _) = …` — is the one documentable position whose content reaches no reader; it names nothing to point at.)*
 - **Stdlib sweep**: a follow-up issue — upgrade Comments-§12-compliant manual-facing comments to `(** *)` where the comment documents the following declaration. Not mechanical-only (each upgrade asserts "this is manual prose"); a fresh-session task after the compiler work lands.
 - **Conformance**: §11's snippets as attachment/diagnostic/emission goldens, including the `///`-is-nothing pin.
