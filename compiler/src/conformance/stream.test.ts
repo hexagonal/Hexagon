@@ -24,7 +24,7 @@ import { compileFiles, projectDiagnostics, runMain } from "../support/test-proje
 
 /** A script `Stream` over the first `count` positive integers. */
 const script = (count: number): string =>
-  `Stream.fromSeq(Seq.take(Seq.iterate(1, x => x + 1), ${count}))`;
+  `Stream.fromSeq(Seq.take(Seq.successors(1, x => x + 1), ${count}))`;
 
 /** What a hover where `needle` is written shows as the type there. */
 function hoveredType(source: string, needle: string): string | undefined {

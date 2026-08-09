@@ -148,7 +148,7 @@ describe("every module-level binder form may occlude, not just `let`/`fun`", () 
    * first fix did not reach.
    *
    * Reachable only once a prelude module exports lowercase operation names,
-   * which `Seq.hex` is the first to do: `iterate`, `map`, `filter`, `fold`.
+   * which `Seq.hex` is the first to do: `successors`, `map`, `filter`, `fold`.
    */
   test("a constraint member may occlude a prelude value", () => {
     expect(diagnostics(

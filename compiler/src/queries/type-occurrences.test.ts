@@ -18,7 +18,7 @@ describe("collectTypeOccurrences", () => {
       "let identity(value) = value\n" +
       "let ada = Person({name = \"Ada\", age = 36})\n" +
       "let answer = identity(ada).age\n" +
-      "let numbers: Seq(Int) = Seq.iterate(1, number => number + 1)\n" +
+      "let numbers: Seq(Int) = Seq.successors(1, number => number + 1)\n" +
       "let selected = numbers.map(number => number + 1)\n" +
       "for item in selected\n" +
       "    console.log(item)\n";

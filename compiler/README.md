@@ -109,7 +109,7 @@ and recursive `fun` bindings as hoisted function declarations, generic nominal d
 branded real-`Error` exceptions with nested guarded handlers and implicit rethrow,
 constraint dictionaries, imported ESM graphs, local mutation as
 JavaScript `let`/assignment, replayable iterable ranges and memoized lazy sequences,
-generator-backed `Seq.iterate`/`map`/`filter`/`take`, `while`, and native
+generator-backed `Seq.successors`/`map`/`filter`/`take`, `while`, and native
 `for..of` loops for Range/String/Seq iteration. Module-level foreign bindings emit direct
 ESM imports; `Seq` results and values receive one stable boundary adapter, while `Unit`
 results discard the foreign return value. Implied type bindings are checked and

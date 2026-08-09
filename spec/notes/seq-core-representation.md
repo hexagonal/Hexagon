@@ -96,8 +96,8 @@ let empty: Seq(a) = Seq({ pull = () => None })
 
 let singleton(value: a): Seq(a) = Seq({ pull = () => Some((value, empty)) })
 
-fun iterate(seed: a, step: a -> a): Seq(a) =
-    Seq({ pull = () => Some((seed, iterate(step(seed), step))) })
+fun successors(seed: a, step: a -> a): Seq(a) =
+    Seq({ pull = () => Some((seed, successors(step(seed), step))) })
 
 fun map(source: Seq(a), transform: a -> b): Seq(b) =
     Seq({ pull = () => match next(source)

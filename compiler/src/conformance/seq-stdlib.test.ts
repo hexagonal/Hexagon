@@ -51,10 +51,10 @@ describe("stdlib/Seq.hex compiles and serves its own surface", () => {
   test("the protocol and the combinator core typecheck through a consumer", () => {
     expect(diagnostics(
       IMPORT +
-      "export let counted: Int = Seq.length(Seq.take(Seq.iterate(1, x => x + 1), 3))\n" +
-      "export let summed: Int = Seq.fold(Seq.take(Seq.iterate(1, x => x + 1), 4), 0, (a, b) => a + b)\n" +
+      "export let counted: Int = Seq.length(Seq.take(Seq.successors(1, x => x + 1), 3))\n" +
+      "export let summed: Int = Seq.fold(Seq.take(Seq.successors(1, x => x + 1), 4), 0, (a, b) => a + b)\n" +
       "export let mapped: Seq.Seq(Int) = Seq.map(Seq.singleton(1), x => x * 2)\n" +
-      "export let kept: Seq.Seq(Int) = Seq.filter(Seq.iterate(1, x => x + 1), x => x > 2)\n" +
+      "export let kept: Seq.Seq(Int) = Seq.filter(Seq.successors(1, x => x + 1), x => x > 2)\n" +
       "export let joined: Seq.Seq(Int) = Seq.concat(Seq.singleton(1), Seq.empty)\n" +
       "export let flat: Seq.Seq(Int) = Seq.flatMap(Seq.singleton(1), x => Seq.singleton(x))\n",
     )).toEqual([]);

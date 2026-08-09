@@ -28,10 +28,10 @@ export let singleton(value: a): Seq(a) = Seq({ pull = () => Some((value, empty))
 (** The sequence that yields `value`, then everything in `rest`. *)
 export let prepend(rest: Seq(a), value: a): Seq(a) = Seq({ pull = () => Some((value, rest)) })
 
-(** The infinite sequence `seed`, `step(seed)`, `step(step(seed))`, and so on.
-    Bound it with `take` or `takeWhile` before consuming it. *)
-export fun iterate(seed: a, step: a -> a): Seq(a) =
-    Seq({ pull = () => Some((seed, iterate(step(seed), step))) })
+(** The infinite sequence of successors `seed`, `step(seed)`, `step(step(seed))`,
+    and so on. Bound it with `take` or `takeWhile` before consuming it. *)
+export fun successors(seed: a, step: a -> a): Seq(a) =
+    Seq({ pull = () => Some((seed, successors(step(seed), step))) })
 
 (** Applies `transform` to each element as that element is pulled. A traversal
     calls `transform` once per element, so two traversals call it twice —

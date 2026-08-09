@@ -80,7 +80,7 @@ async function run(
 // fold in v1 and recursion is avoided (stack). The counting loop `for i in 1..n` is
 // constant-stack (Loops §8), so these are safe at 32K.
 const BUILDERS =
-  "fun appendBuild(n: Int): Vector(Int) = Vector.fromSeq(Seq.iterate(1, x => x + 1).take(n))\n" +
+  "fun appendBuild(n: Int): Vector(Int) = Vector.fromSeq(Seq.successors(1, x => x + 1).take(n))\n" +
   "fun prependBuild(n: Int): Vector(Int) =\n" +
   "    var acc: Vector(Int) = []\n" +
   "    for i in 1..n\n" +
@@ -124,8 +124,8 @@ describe("Vector specification conformance", () => {
         // loop) so a deterministically-wrong interleave can't pass by self-consistency:
         // weave prepends odds (=> descending front) then appends evens.
         "export let weaveIndep: Bool = weaveBuild(200) == " +
-        "(Vector.fromSeq(Seq.iterate(199, x => x - 2).take(100)) ++ " +
-        "Vector.fromSeq(Seq.iterate(2, x => x + 2).take(100)))\n" +
+        "(Vector.fromSeq(Seq.successors(199, x => x - 2).take(100)) ++ " +
+        "Vector.fromSeq(Seq.successors(2, x => x + 2).take(100)))\n" +
         "export let diffFirst: Bool = [1, 2, 3] != [9, 2, 3]\n" +
         "export let diffMid: Bool = [1, 2, 3] != [1, 9, 3]\n" +
         "export let diffLast: Bool = [1, 2, 3] != [1, 2, 9]\n" +
