@@ -61,7 +61,7 @@ describe("the module", () => {
    * could drift arbitrarily from the language it is written in. Membership is
    * the coverage: every project in this suite now compiles it.
    */
-  test("`Set.hex` is the last prelude member, `Map.hex` the one before it", () => {
+  test("`Stream.hex` is the last prelude member, `Set.hex` the one before it", () => {
     expect(PRELUDE_MODULES.map(({ basename }) => basename)).toEqual([
       "Show.hex",
       "Num.hex",
@@ -87,11 +87,15 @@ describe("the module", () => {
       // #370 displaced `Vector.hex` from the last seat: `Map.hex` needs `Hash`,
       // `Option`, `Seq` and `Vector` itself, and nothing after it names a `Map`.
       "Map.hex",
-      // #373 displaced `Map.hex` in turn, and closes the list: `Set.hex` needs
-      // `Hash`, `Seq` and `Vector`, needs nothing from `Map.hex` — the two are
-      // siblings over one runtime module, not layers — and nothing after it
-      // exists to name a `Set`.
+      // #373 displaced `Map.hex` in turn: `Set.hex` needs `Hash`, `Seq` and
+      // `Vector`, needs nothing from `Map.hex` — the two are siblings over one
+      // runtime module, not layers.
       "Set.hex",
+      // #364 closes the list: `Stream.hex` names `Seq` at `fromSeq`, `Option`
+      // at every pull, and `Vector` at `collect`, so it sits after all three —
+      // and nothing after it can name a `Stream`, because no pure module has
+      // business with the impure sibling.
+      "Stream.hex",
     ]);
   });
 
@@ -333,18 +337,20 @@ describe("two prelude members exporting one bare name", () => {
   });
 
   /**
-   * Every collided name reported, and only those: `map` is `Seq.hex`'s alone
-   * and `last` is `Vector.hex`'s alone, so both stay bare-legal in the same
-   * module that five refusals are reported against. One diagnostic per
-   * reference, and nothing downstream — the refused reference resolves to an
-   * error the checker treats as poisoned, so no type error piles on behind it.
+   * Every collided name reported, and only those: `last` is `Vector.hex`'s
+   * alone, so it stays bare-legal in the same module that six refusals are
+   * reported against. One diagnostic per reference, and nothing downstream —
+   * the refused reference resolves to an error the checker treats as poisoned,
+   * so no type error piles on behind it.
    *
-   * `isEmpty` moved sides at #370: it was `Vector.hex`'s alone and became shared
-   * with `Map.hex`, which is the rule doing exactly what it exists to do — a
-   * name stops being bare-legal the moment a second member exports it, rather
-   * than silently changing which module it meant. #373 moved nothing further;
-   * it lengthened three of these enumerations, which is the same rule taking
-   * one more exporter in its stride.
+   * Two names have moved sides as members joined, which is the rule doing
+   * exactly what it exists to do — a name stops being bare-legal the moment a
+   * second member exports it, rather than silently changing which module it
+   * meant. `isEmpty` moved at #370, from `Vector.hex`'s alone to shared with
+   * `Map.hex`. `map` moved at #364: it was `Seq.hex`'s alone until
+   * `Stream.hex` joined, and this test's own fixture is where that shows,
+   * because the line was written to demonstrate a name staying bare. #373
+   * moved nothing and only lengthened three enumerations.
    */
   test("every collided name is refused, and only those", () => {
     expect(projectDiagnostics(
@@ -368,6 +374,8 @@ describe("two prelude members exporting one bare name", () => {
       "write `Seq.length` or `Vector.length`",
       "the prelude name `isEmpty` is ambiguous: exported by `Vector`, `Map`, " +
       "and `Set`; write `Vector.isEmpty`, `Map.isEmpty`, or `Set.isEmpty`",
+      "the prelude name `map` is ambiguous: exported by `Seq` and `Stream`; " +
+      "write `Seq.map` or `Stream.map`",
     ]);
   });
 

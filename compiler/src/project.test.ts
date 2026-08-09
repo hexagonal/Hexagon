@@ -59,7 +59,7 @@ test("re-exports extern bindings and opaque types through Hexagon modules", () =
       Source.fileId(1),
       "/main.hex",
       'import * as Json from "./tiny-json"\n' +
-        "export let document: Json.JsonValue = Json.parse(\"{}\")",
+        "export let document: Json.JsonValue = Json.parse!(\"{}\")",
     ),
   ]);
 

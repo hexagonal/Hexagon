@@ -138,17 +138,8 @@ const markSeatError =
   "a call mark governs an argument list; write it immediately before `(`, " +
   "or (in a `|>` stage) at the end of the stage — a reference carries no colour";
 
-export interface ParseOptions {
-  /**
-   * The #355 effects prototype's grammar: `=>` and `=>!` as type formers, and
-   * the `!`/`?` call marks. Off — the default — none of the three tokens can
-   * even be lexed, so every arm below is unreachable and the tree is today's.
-   */
-  readonly effects?: boolean;
-}
-
 /** Parses one layout-aware file and retains diagnostics from earlier passes. */
-export function parse(file: LaidOut.File, options: ParseOptions = {}): Parsed.Module {
+export function parse(file: LaidOut.File): Parsed.Module {
   const diagnostics = new Diagnostics.Bag();
   for (const diagnostic of file.diagnostics) {
     diagnostics.add(diagnostic);
@@ -158,7 +149,6 @@ export function parse(file: LaidOut.File, options: ParseOptions = {}): Parsed.Mo
     file.tokens,
     diagnostics,
     new DocBlocks(file.tokens, file.comments, diagnostics),
-    options.effects === true,
   ).parseModule(file.fileId, file.comments);
 }
 
@@ -181,11 +171,9 @@ class Parser {
    */
   readonly #pendingTypeParameterLambdas = new Map<Parsed.Expr, Source.Span>();
 
-  /** #355's flag; see `ParseOptions`. */
-  readonly #effects: boolean;
   /**
    * The mark a pipe stage wore with no argument list of its own — `x |> save!`
-   * (#355 ruling 1). The postfix loop parks it here and the `|>` arm collects
+   * (Effects §3.2). The postfix loop parks it here and the `|>` arm collects
    * it one step later, because the mark is consumed while the stage's own
    * expression is still being parsed. Cleared on collection; a mark that
    * reaches any other position is a parse error raised where it was found.
@@ -196,12 +184,10 @@ class Parser {
     tokens: readonly LaidOut.Token[],
     diagnostics: Diagnostics.Bag,
     docs: DocBlocks,
-    effects = false,
   ) {
     this.#tokens = tokens;
     this.#diagnostics = diagnostics;
     this.#docs = docs;
-    this.#effects = effects;
   }
 
   /** Consumes the module's implicit layout block and requires a final Eof. */
@@ -585,12 +571,12 @@ class Parser {
       if (intrinsic) this.#errorAt(this.#current().span, intrinsicFormError("default"));
       this.#advance();
     }
-    // #355 ruling 4's opt-out, in the shape `default` already established: a
+    // Effects §6.1's opt-out, in the shape `default` already established: a
     // contextual modifier on one extern declaration. A user-written extern is
     // effectful by default (trust territory); `pure` is the trusted purity
     // claim. Compiler-owned intrinsic rows take their purity from intrinsics
     // §4.2's verification instead, so the modifier is redundant there.
-    const pureClaim = this.#effects && this.#atContextual("pure");
+    const pureClaim = this.#atContextual("pure");
     if (pureClaim) {
       if (intrinsic) {
         this.#errorAt(
@@ -1834,7 +1820,7 @@ class Parser {
     let left = this.#parsePrefix(effectiveStops);
 
     while (!effectiveStops.has(this.#current().kind)) {
-      if (this.#effects && (this.#at("Bang") || this.#at("Question"))) {
+      if (this.#at("Bang") || this.#at("Question")) {
         const mark = this.#at("Bang") ? "bang" : "question";
         const token = this.#advance();
         // Lexer §8.1: a mark is written *glued* — to the callee it marks, and to
@@ -1885,7 +1871,7 @@ class Parser {
       }
 
       const token = this.#advance();
-      const pipeStage = this.#effects && operation.operator === "Pipe";
+      const pipeStage = operation.operator === "Pipe";
       const right = this.#parseExpression(
         operation.rightBindingPower,
         effectiveStops,
@@ -1980,8 +1966,8 @@ class Parser {
         span: spanFrom(start.span, operand.span),
       };
     }
-    if (this.#effects && (this.#at("Bang") || this.#at("Question"))) {
-      // #355 §9's two prefix rows, chosen by which mark it is. A mark governs an
+    if (this.#at("Bang") || this.#at("Question")) {
+      // Effects §9's two prefix rows, chosen by which mark it is. A mark governs an
       // argument list and an argument list follows something, so a mark *here*
       // has no call to speak for. A `!` in this seat is the negation the scanner
       // used to redirect before the marks made it a token, and the redirect is
@@ -2827,9 +2813,9 @@ class Parser {
     let misparse: ReturnArrowMisparse | undefined;
     if (this.#at("Colon")) {
       this.#advance();
-      // #355 ruling 8: in this one slot an unparenthesized `=>` always starts
+      // Effects §2.6: in this one slot an unparenthesized `=>` always starts
       // the body, so the annotation parser is told not to take it.
-      returnAnnotation = this.#parseTypeAnnotation(this.#effects);
+      returnAnnotation = this.#parseTypeAnnotation(true);
       misparse = this.#unparenthesizedReturnArrow(returnAnnotation);
     }
     this.#expect("FatArrow", "expected `=>` after lambda parameters");
@@ -2866,7 +2852,7 @@ class Parser {
   #unparenthesizedReturnArrow(
     annotation: Parsed.TypeAnnotation | undefined,
   ): ReturnArrowMisparse | undefined {
-    if (!this.#effects || annotation === undefined || !this.#at("FatArrow")) return undefined;
+    if (annotation === undefined || !this.#at("FatArrow")) return undefined;
     const start = this.#index + 1;
     const first = this.#tokens[start]?.kind;
     if (first !== "UpperName" && first !== "LeftBrace") return undefined;
@@ -2997,7 +2983,7 @@ class Parser {
     while (
       scan >= 0 &&
       (this.#tokens[scan]?.kind === "Arrow" ||
-        (this.#effects && this.#tokens[scan]?.kind === "FatArrowBang"))
+        this.#tokens[scan]?.kind === "FatArrowBang")
     ) {
       scan = this.#skipTypeOperand(scan + 1);
     }
@@ -3042,27 +3028,39 @@ class Parser {
   }
 
   /**
-   * The arrow kinds that may form a function type here (#355). `->` always
-   * can. `=>!` always can too: it cannot begin a lambda body, so it collides
-   * with nothing. A bare `=>` can everywhere *except* a lambda's return
-   * annotation, where ruling 8 gives it to the body — which is what
+   * The arrow kinds that may form a function type here (Effects §2). `->`
+   * always can. `=>!` always can too: it cannot begin a lambda body, so it
+   * collides with nothing. A bare `=>` can everywhere *except* a lambda's
+   * return annotation, where §2.6 gives it to the body — which is what
    * `returnSlot` says.
    */
   #arrowAt(returnSlot: boolean): Parsed.ArrowEffect | "pure" | undefined {
     if (this.#at("Arrow")) return "pure";
-    if (!this.#effects) return undefined;
     if (this.#at("FatArrowBang")) return "constant";
     if (!returnSlot && this.#at("FatArrow")) return "linked";
     return undefined;
   }
 
+  /**
+   * `returnSlot` rides the **result spine**, not only the outermost arrow.
+   *
+   * Function types are right-associative, so the body's `=>` follows whatever
+   * the annotation's last result is: in `(x): Int -> String => body` the arrow
+   * the writer means as the lambda's own stands after `String`, one level down
+   * the recursion. Dropping the flag there would read `String => body` as the
+   * result type and then find no arrow left for the lambda — which is the
+   * parse this restriction exists to prevent (Effects §2.6). A parenthesized
+   * impure type is reached through `#parseTypeOperand`, whose own recursion
+   * starts a fresh, unrestricted annotation, so the legal spelling is
+   * unaffected.
+   */
   #parseTypeAnnotation(returnSlot = false): Parsed.TypeAnnotation | undefined {
     const left = this.#parseTypeOperand();
     if (left === undefined) return undefined;
     const arrow = this.#arrowAt(returnSlot);
     if (arrow !== undefined && arrow !== "pure") {
       const arrowSpan = this.#advance().span;
-      const result = this.#parseTypeAnnotation();
+      const result = this.#parseTypeAnnotation(returnSlot);
       if (result === undefined) return undefined;
       return {
         kind: "Function",
@@ -3088,7 +3086,7 @@ class Parser {
       return left.annotation;
     }
     this.#advance();
-    const result = this.#parseTypeAnnotation();
+    const result = this.#parseTypeAnnotation(returnSlot);
     if (result === undefined) return undefined;
     return {
       kind: "Function",

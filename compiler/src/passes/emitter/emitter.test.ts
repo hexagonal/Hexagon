@@ -29,7 +29,7 @@ describe("emitJavaScript", () => {
         "    let values: Seq(Int)\n" +
         "    fun report(message: String): Unit\n" +
         "extern import \"telemetry/register\"\n" +
-        "export let document: JsonValue = parse(version)",
+        "export let document: JsonValue = parse!(version)",
     );
 
     expect(module.diagnostics).toEqual([]);

@@ -384,8 +384,12 @@ describe("§7: emission into both artifacts", () => {
     expect(main.javascript.text).toContain(
       '/** Reads a file. */\nimport { readFileSync } from "node:fs";',
     );
+    // §7.3's channel carries the Hexagon face beside the author's own sentence:
+    // an unannotated user extern is the impure constant (Effects §6.1), and
+    // TypeScript's one arrow cannot say so.
     expect(main.declarations.text).toContain(
-      "/** Reads a file. */\nexport declare function readFileSync(path: string): string;",
+      "/**\n * Reads a file.\n *\n * Hexagon: `String =>! String`\n */\n" +
+        "export declare function readFileSync(path: string): string;",
     );
   });
 

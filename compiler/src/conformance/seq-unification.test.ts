@@ -473,8 +473,8 @@ describe("the boundary face (FFI Part 3)", () => {
         "export let one: Seq(Int) = Seq.singleton(1)\n" +
         "export let many: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n" +
         "export let none: Seq(Int) = Seq.empty\n" +
-        "export let adapted: Seq(Int) = counter()\n" +
-        "export let alsoAdapted: Seq(Int) = other()\n"]],
+        "export let adapted: Seq(Int) = counter!()\n" +
+        "export let alsoAdapted: Seq(Int) = other!()\n"]],
       {
         numbers: "export function counter() { return [1, 2, 3]; }\n" +
           "export function other() { return [4, 5]; }",
@@ -510,7 +510,7 @@ describe("the boundary face (FFI Part 3)", () => {
         "    export fun counter(): Seq(Int)\n" +
         "\n" +
         "export let first: Option(Int) =\n" +
-        "    match Seq.next(counter())\n" +
+        "    match Seq.next(counter!())\n" +
         "        None => None\n" +
         "        Some((value, _)) => Some(value)\n",
       ),
@@ -537,7 +537,7 @@ describe("the boundary face (FFI Part 3)", () => {
         "extern from \"./numbers.js\"\n" +
         "    fun consume(values: Seq(Int)): Int\n" +
         "\n" +
-        "export let out: Int = consume(Seq.singleton(1))\n",
+        "export let out: Int = consume!(Seq.singleton(1))\n",
       ),
     ]);
     expect(project.diagnostics).toEqual([]);
@@ -554,7 +554,7 @@ describe("the boundary face (FFI Part 3)", () => {
         "extern from \"numbers\"\n" +
         "    fun consume(values: Seq(Int)): Int\n" +
         "\n" +
-        "export let out: Int = consume(Seq.take(Seq.iterate(1, x => x + 1), 4))\n"]],
+        "export let out: Int = consume!(Seq.take(Seq.iterate(1, x => x + 1), 4))\n"]],
       {
         numbers: [
           "export function consume(values) {",
@@ -578,9 +578,9 @@ describe("the boundary face (FFI Part 3)", () => {
         "    fun echo(values: Seq(Int)): Seq(Int)\n" +
         "\n" +
         "let sent: Seq(Int) = Seq.singleton(1)\n" +
-        "export let same(ignored: Int): Bool = Seq.length(echo(sent)) == Seq.length(sent)\n" +
+        "export let same(ignored: Int): Bool = Seq.length(echo!(sent)) == Seq.length(sent)\n" +
         "export let sentOut: Seq(Int) = sent\n" +
-        "export let returned: Seq(Int) = echo(sent)\n"]],
+        "export let returned: Seq(Int) = echo!(sent)\n"]],
       { numbers: "export function echo(values) { return values; }" },
     );
     expect(exports["returned"]).toBe(exports["sentOut"]);
@@ -595,8 +595,8 @@ describe("the boundary face (FFI Part 3)", () => {
         "extern from \"numbers\"\n" +
         "    fun counter(): Seq(Int)\n" +
         "\n" +
-        "export let firstPass: Vector(Int) = Vector.fromSeq(counter())\n" +
-        "export let secondPass: Vector(Int) = Vector.fromSeq(counter())\n"]],
+        "export let firstPass: Vector(Int) = Vector.fromSeq(counter!())\n" +
+        "export let secondPass: Vector(Int) = Vector.fromSeq(counter!())\n"]],
       {
         numbers: "export function counter() { return [1, 2, 3]; }",
       },
@@ -624,7 +624,7 @@ describe("the inbound adapter's protocol access order (FFI Part 3 §7.2)", () =>
         "extern from \"numbers\"\n" +
         "    fun counter(): Seq(Int)\n" +
         "\n" +
-        "export let collected: Vector(Int) = Vector.fromSeq(counter())\n"]],
+        "export let collected: Vector(Int) = Vector.fromSeq(counter!())\n"]],
       {
         numbers: [
           "export function counter() {",
@@ -649,8 +649,8 @@ describe("the inbound adapter's protocol access order (FFI Part 3 §7.2)", () =>
         "    fun counter(): Seq(Int)\n" +
         "    fun valueReads(): Int\n" +
         "\n" +
-        "export let collected: Vector(Int) = Vector.fromSeq(counter())\n" +
-        "export let reads: Int = valueReads()\n"]],
+        "export let collected: Vector(Int) = Vector.fromSeq(counter!())\n" +
+        "export let reads: Int = valueReads!()\n"]],
       {
         numbers: [
           "let reads = 0;",
@@ -679,7 +679,7 @@ describe("the inbound adapter's protocol access order (FFI Part 3 §7.2)", () =>
         "extern from \"numbers\"\n" +
         "    fun counter(): Seq(Int)\n" +
         "\n" +
-        "export let collected: Vector(Int) = Vector.fromSeq(counter())\n"]],
+        "export let collected: Vector(Int) = Vector.fromSeq(counter!())\n"]],
       {
         numbers: [
           "export function counter() {",
@@ -699,8 +699,8 @@ describe("the inbound adapter's protocol access order (FFI Part 3 §7.2)", () =>
         "    fun counter(): Seq(Int)\n" +
         "    fun acquisitions(): Int\n" +
         "\n" +
-        "let unused: Seq(Int) = counter()\n" +
-        "export let before: Int = acquisitions()\n"]],
+        "let unused: Seq(Int) = counter!()\n" +
+        "export let before: Int = acquisitions!()\n"]],
       {
         numbers: [
           "let acquired = 0;",
@@ -745,14 +745,14 @@ describe("the inbound adapter memoizes a forcing failure (FFI Part 3 §7.1)", ()
         "    fun counter(): Seq(Int)\n" +
         "    fun touches(): Int\n" +
         "\n" +
-        "let shared: Seq(Int) = counter()\n" +
+        "let shared: Seq(Int) = counter!()\n" +
         "\n" +
         "export let force(ignored: Int): Int =\n" +
         "    match Seq.next(shared)\n" +
         "        None => 0\n" +
         "        Some((value, _)) => value\n" +
         "\n" +
-        "export let touched(ignored: Int): Int = touches()\n"]],
+        "export let touched(ignored: Int): Int = touches!()\n"]],
       { numbers: foreign },
     );
     const force = exports["force"] as (ignored: number) => number;
@@ -892,7 +892,7 @@ describe("the inbound adapter memoizes a forcing failure (FFI Part 3 §7.1)", ()
         "    fun counter(): Seq(Int)\n" +
         "    fun touches(): Int\n" +
         "\n" +
-        "let shared: Seq(Int) = counter()\n" +
+        "let shared: Seq(Int) = counter!()\n" +
         "\n" +
         "let tailOf(source: Seq(Int)): Seq(Int) =\n" +
         "    match Seq.next(source)\n" +
@@ -911,7 +911,7 @@ describe("the inbound adapter memoizes a forcing failure (FFI Part 3 §7.1)", ()
         "        None => 0\n" +
         "        Some((value, _)) => value\n" +
         "\n" +
-        "export let touched(ignored: Int): Int = touches()\n"]],
+        "export let touched(ignored: Int): Int = touches!()\n"]],
       {
         numbers: [
           "let calls = 0;",
@@ -1104,7 +1104,7 @@ describe("the memoizing spine reclaims an unreachable prefix (FFI Part 3 §5)", 
         "extern from \"boxes\"\n" +
         "    fun boxes(count: Int): Seq((Int, Int))\n" +
         "\n" +
-        "export let build(count: Int): Seq((Int, Int)) = boxes(count)\n" +
+        "export let build(count: Int): Seq((Int, Int)) = boxes!(count)\n" +
         "\n" + cursorHelpers]],
       {
         boxes: [
@@ -1183,12 +1183,12 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
     "    fun setSeq(held: Seq(Int)): Unit\n" +
     "    fun outcome(): String\n" +
     "\n" +
-    "let shared: Seq(Int) = source()\n" +
+    "let shared: Seq(Int) = source!()\n" +
     "\n" +
-    "export let armIt(ignored: Int): Unit = setSeq(shared)\n" +
+    "export let armIt(ignored: Int): Unit = setSeq!(shared)\n" +
     "export let drained(ignored: Int): Vector(Int) = Vector.fromSeq(shared)\n" +
     "export let handOut(ignored: Int): Seq(Int) = shared\n" +
-    "export let reentry(ignored: Int): String = outcome()\n";
+    "export let reentry(ignored: Int): String = outcome!()\n";
 
   /**
    * The foreign side. `reenter` is spliced in per test: it runs inside `next()`

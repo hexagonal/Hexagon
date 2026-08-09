@@ -254,7 +254,7 @@ apply   : (String -> String) -> String
   ```
 
   All three arrows associate and group identically; a display never omits a colour, since silence is the pure claim (Effects §1). The same arrows are legal in source annotation positions under the same grammar. One caveat rides `=>`: an inferred face can carry effect variables the written grammar cannot spell apart, and the display distinguishes them with a display-only numbering — Effects §10 owns that rule, including when the undecorated `=>` is permitted.
-- This notation describes Hexagon types. TypeScript declaration output separately follows TypeScript grammar and therefore retains `(name: A) => B`; how it renders the colour is an obligation recorded at Effects §10.
+- This notation describes Hexagon types. TypeScript declaration output separately follows TypeScript grammar and therefore retains `(name: A) => B`; the colour crosses as a generated documentation line carrying the Hexagon face (Effects §10).
 
 The internal representation remains genuinely n-ary: `TFun([], R)`, `TFun([A], R)`, and `TFun([A, B], R)`. This display rule does not encode unary functions as a special semantic form.
 

@@ -59,11 +59,15 @@ describe("§16 (a) construction, generalization, and the absent `Hash`", () => {
     // No bespoke message is owed and none is written: `Map.empty` is a value, so
     // calling it is the ordinary mismatch between a `Map` and a function. The
     // variable numbers in the rendered type are not asserted — they move with
-    // every unrelated change to the prelude.
+    // every unrelated change to the prelude. The arrow is a *variable* colour
+    // rather than `->`: the shape the call demanded has an undetermined colour
+    // at the moment the unification fails, which is before §3.4's defaulting
+    // clause runs, and a lone variable with no inlet occurrence is numbered
+    // (Effects §10).
     const messages = projectDiagnostics("export let e: Map(Int, Int) = Map.empty()\n");
     expect(messages).toHaveLength(1);
     expect(messages[0]).toContain("type mismatch: expected Map(");
-    expect(messages[0]).toContain("found () ->");
+    expect(messages[0]).toContain("found () =>");
   });
 
   /**

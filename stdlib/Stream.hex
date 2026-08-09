@@ -1,0 +1,99 @@
+(** An effectful pull sequence: every pull asks the world for the next element,
+    and a pull is spent. It is `Seq`'s impure nominal sibling — no tail, no
+    persistence, and no replay of any kind. *)
+export opaque record Stream(+a) = { next: () => Option(a) }
+
+extern from "hex:intrinsic"
+    (** A pure sequence driven as a stream: each pull takes one step of `source`
+        and holds the successor. Feeding a script to a consumer written against
+        `Stream` is how an ambient source is stood in for. *)
+    export fun streamFromSeq as fromSeq(source: Seq(a)): Stream(a)
+
+(** Pulls the next element, or `None` once the stream is exhausted. Pulling an
+    exhausted stream yields `None` again. *)
+export let next(source: Stream(a)): Option(a) = (source.next)!()
+
+// Derived streams: new streams over an existing one, owning no state of their
+// own. Building one touches nothing, so the wiring call is silent.
+
+(** A stream of `transform` applied to each element of `source` as it is pulled.
+    The derived stream shares `source`'s cursor: pulling it advances `source`. *)
+export let map(source: Stream(a), transform: a => b): Stream(b) =
+    Stream({ next = () =>
+        match next!(source)
+            None => None
+            Some(value) => Some(transform?(value))
+    })
+
+(** A stream of the elements of `source` that satisfy `keep`, discarding the
+    rest. The derived stream shares `source`'s cursor. *)
+export let filter(source: Stream(a), keep: a => Bool): Stream(a) =
+    Stream({ next = () =>
+        var found = None
+        var searching = True
+        while searching
+            match next!(source)
+                None => searching := False
+                Some(value) =>
+                    if keep?(value) then
+                        found := Some(value)
+                        searching := False
+        found
+    })
+
+// Consumers: drive a `Stream` to a value. Every one of them pulls, so every
+// call to them is spelled `!`.
+
+(** At most `count` elements pulled into a vector, fewer if the stream ends
+    first — the frozen sample, and the one bridge back to pure data. A `count`
+    of zero or less collects nothing. *)
+export let collect(source: Stream(a), count: Int): Vector(a) =
+    var collected = Vector.empty
+    var remaining = count
+    var pulling = True
+    while pulling
+        if remaining <= 0 then
+            pulling := False
+        else
+            match next!(source)
+                None => pulling := False
+                Some(value) =>
+                    collected := Vector.append(collected, value)
+                    remaining := remaining - 1
+    collected
+
+(** Reduces the whole stream to one value, left to right, starting from
+    `initial`. It pulls to exhaustion, so it does not return on an ambient
+    source. *)
+export let fold(source: Stream(a), initial: b, combine: (b, a) => b): b =
+    var accumulator = initial
+    var pulling = True
+    while pulling
+        match next!(source)
+            None => pulling := False
+            Some(value) => accumulator := combine?(accumulator, value)
+    accumulator
+
+(** Runs `action` on each element in order, for its effect. It pulls to
+    exhaustion, so it does not return on an ambient source. *)
+export let forEach(source: Stream(a), action: a => Unit): Unit =
+    var pulling = True
+    while pulling
+        match next!(source)
+            None => pulling := False
+            Some(value) => action?(value)
+
+(** The first element satisfying `matches`, or `None` if the stream ends first.
+    It stops at that element, so it is safe on an ambient source containing
+    one. *)
+export let find(source: Stream(a), matches: a => Bool): Option(a) =
+    var result = None
+    var searching = True
+    while searching
+        match next!(source)
+            None => searching := False
+            Some(value) =>
+                if matches?(value) then
+                    result := Some(value)
+                    searching := False
+    result

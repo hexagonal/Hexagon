@@ -98,25 +98,26 @@ functions.
 16. **Mutable Variables**
 17. **Loops and Ranges**
 18. **Sequences**
-19. **Exceptions**
+19. **Streams**
+20. **Exceptions**
 
 This part introduces Hexagon's bounded forms of changing state, repetition, lazy
-incremental work, and exceptional control flow.
+incremental work, elements drawn from the world, and exceptional control flow.
 
 ## Part V — Collections and Implied Types
 
-20. **Collections**
-21. **Implied Types**
+21. **Collections**
+22. **Implied Types**
 
 The practical persistent collections chapter leads directly into the advanced
 constraint feature used to connect a collection with its iteration item type.
 
 ## Part VI — JavaScript and TypeScript
 
-22. **JavaScript Output**
-23. **TypeScript Output**
-24. **JavaScript Input**
-25. **Constraints in JavaScript**
+23. **JavaScript Output**
+24. **TypeScript Output**
+25. **JavaScript Input**
+26. **Constraints in JavaScript**
 
 The final part gathers the runtime story, public typed surface, trusted foreign-input
 model, and the special JavaScript API generated for constrained polymorphic exports.

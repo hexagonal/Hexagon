@@ -65,7 +65,7 @@ function diagnose(source: string): readonly string[] {
 const BORROWED = 'extern from "./rows.js"\n' +
   "    fun rows(): Array(Int)\n" +
   "\n" +
-  "export let first: Array(Int) = rows()\n" +
+  "export let first: Array(Int) = rows!()\n" +
   "export let head(xs: Array(Int)): Array(Int) = xs\n" +
   "export fun pass(xs: Array(a)): Array(a) = xs\n";
 
@@ -101,7 +101,7 @@ describe("the face is `ReadonlyArray<a>` in every position", () => {
         'extern from "./rows.js"\n' +
           "    fun grid(): Array(Array(Int))\n" +
           "\n" +
-          "export let cells: Array(Array(Int)) = grid()\n",
+          "export let cells: Array(Array(Int)) = grid!()\n",
       ),
     ).toContain("export declare const cells: ReadonlyArray<ReadonlyArray<number>>;");
   });

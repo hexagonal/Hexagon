@@ -40,20 +40,29 @@ indefinitely, one element at a time.
 Callbacks in a lazy pipeline do not run merely because the pipeline was declared:
 
 ```hexagon
-let announce(name) =
-    print("Preparing ${name}")
-    name
+let squared(number: Int): Int = number * number
 
-let announced = names |> Seq.map(announce)
+let squares = numbers |> Seq.map(squared)
 ```
 
-The printing occurs as `announced` is consumed. If nobody asks for an element, the
-callback does not run. If a consumer asks for only two elements, only the work needed
-to produce those two is performed.
+Declaring `squares` computes nothing. The multiplication occurs as `squares` is
+consumed. If nobody asks for an element, the callback does not run; if a consumer asks
+for only two elements, only two multiplications happen — and if the sequence is
+traversed twice, they happen twice. `Seq.memoize` trades memory for computing each
+element at most once.
 
-This timing is part of the meaning of `Seq`, not an optimization detail. Keep effects
-inside lazy transformations deliberate and small; a direct `for` loop is often clearer
-when the effects themselves are the purpose of the computation.
+That accounting never involves the outside world, because a lazy transformation's
+callback is **pure by construction**: `Seq.map` demands a pure function, and the type
+checker enforces the demand. (The strict consumers — `fold`, `forEach` and their kin —
+run their callback once per element, eagerly, so they are the one place an effectful
+callback is honest; such a call wears a mark, which the next chapter introduces.) A
+callback that printed, or read input, would make "how many times does this
+run?" a question about observable behaviour, and the honest answers — on demand, per
+traversal, at most once under `memoize` — are the accounting of a calculator, not of an
+action. Hexagon keeps `Seq` a calculator. When the elements themselves must come from
+the world, or per-element effects are the point, that is the next chapter's type; when
+effects around a traversal are the point, a direct `for` loop keeps them in a block,
+in order, exactly once.
 
 The book uses representative operations such as `map`, `filter`, and `take` to explain
 the idea. Their complete family belongs in library reference documentation, not in a
@@ -86,13 +95,13 @@ sequence position observes the same next value. Continue traversal with the retu
 `rest` value:
 
 ```hexagon
-match Seq.next(numbers)
-    Some((first, rest)) =>
-        print("First: ${first}")
-        match Seq.next(rest)
-            Some((second, _)) => print("Second: ${second}")
-            None => ()
-    None => ()
+let firstTwo(numbers: Seq(Int)): (Int, Int) =
+    match Seq.next(numbers)
+        Some((first, rest)) =>
+            match Seq.next(rest)
+                Some((second, _)) => (first, second)
+                None => (first, first)
+        None => (0, 0)
 ```
 
 There is no public mutable iterator with separate `moveNext` and `current` operations.
@@ -110,7 +119,8 @@ direct loop keeps its body as a block and supports both functional traversal and
 small local accumulators introduced in the Mutable Variables chapter.
 
 The source expression is still evaluated once. Elements are then pulled on demand,
-which matters when the sequence is lazy or contains effects.
+which matters when producing an element is expensive or the sequence is long:
+work not demanded is work not done.
 
 ## `Seq` is the common iteration currency
 
@@ -174,7 +184,8 @@ an immutable model that can be reasoned about locally.
 
 - `Seq(a)` is a concrete lazy, immutable sequence that may be infinite;
 - transformations calculate values only when a consumer demands them;
-- effects inside a lazy transformation occur during consumption;
+- transformation callbacks are pure by construction — the world never sees how many
+  times one runs;
 - `Seq.next` returns `Some((value, rest))` or `None` without consuming the original
   sequence position;
 - loops pull elements through the same external-iteration model;
@@ -183,6 +194,8 @@ an immutable model that can be reasoned about locally.
 - `Seq(a)` crosses the JavaScript boundary as `Iterable<a>` while retaining persistent
   Hexagon semantics.
 
-Sequences make effects incremental and explicit, but they do not represent failure.
-The next chapter separates predictable failure, which belongs in `Result`, from
-exceptional control flow that may cross module and JavaScript boundaries.
+A `Seq` computes its elements. Some element producers cannot promise that — a random
+draw, a keystroke, a clock reading is drawn from the world, not computed — and for
+those Hexagon has a sibling type with different rules. The next chapter introduces
+`Stream`, and with it the effect spellings that keep the difference visible in the
+types.

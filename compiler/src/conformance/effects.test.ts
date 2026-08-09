@@ -1,41 +1,44 @@
 /**
- * Conformance for the #355 effects prototype, behind `ProjectOptions.effects`.
+ * Conformance for the effects discipline (`spec/effects.md`), which is
+ * unconditional since #364 removed the flag it shipped behind.
  *
- * The acceptance test the issue names is the `Seq` migration — the five strict
+ * The acceptance test the ruling names is the `Seq` migration — the five strict
  * consumers' signatures flipped to a linked `=>` and their bodies wearing one
  * `?` each — with `fold`'s body as the designated specimen: each of its calls
  * must demand exactly its one correct mark, and mutating a mark must be an
  * error naming the fixit, in all six directions.
  *
- * Everything else here is one scratch module per ruling. Nothing in `stdlib/`
- * is touched: the `Seq.hex` these tests compile is the fixture copy, which
- * `compileProject` seats as the prelude member because a project file with that
- * basename wins over the injected one.
+ * Everything else here is one scratch module per section. The `Seq` these tests
+ * read is `stdlib/Seq.hex` itself — the migrated prelude member, one source of
+ * truth, since the discipline's removal from behind the flag is what let the
+ * stdlib copy carry the marks at all.
  */
 
 import { describe, expect, it } from "vitest";
-import seqFixture from "./effects-fixtures/Seq.hex?raw";
+import seqSource from "../../../stdlib/Seq.hex?raw";
 import { AnalysisSession } from "../analysis/session.js";
 import { compileFiles } from "../support/test-project.js";
-import type { ProjectOptions } from "../project.js";
 
-/** Diagnostics of a project compiled with the flag on. */
+/** Diagnostics of a compiled project. */
 function effectDiagnostics(
   files: readonly (readonly [string, string])[],
 ): readonly string[] {
-  return compileFiles(files, { effects: true }).diagnostics.map(({ message }) => message);
+  return compileFiles(files).diagnostics.map(({ message }) => message);
 }
 
-/** The same, plus the fixture `Seq` seated as the prelude member. */
+/**
+ * The same, with `Seq` reachable. The prelude's own `Seq.hex` is injected, so
+ * this is only a name for the one-file shape the `Seq` probes below share.
+ */
 function withSeq(main: string): readonly string[] {
-  return effectDiagnostics([["/Seq.hex", seqFixture], ["/main.hex", main]]);
+  return effectDiagnostics([["/main.hex", main]]);
 }
 
 /** Every fix replacement a project offered, so a test can pin the fixit text. */
 function effectFixes(
   files: readonly (readonly [string, string])[],
 ): readonly string[] {
-  return compileFiles(files, { effects: true }).diagnostics.flatMap((diagnostic) =>
+  return compileFiles(files).diagnostics.flatMap((diagnostic) =>
     (diagnostic.fixes ?? []).flatMap((fix) =>
       fix.edits.map((edit) => `${fix.message}: ${JSON.stringify(edit.replacement)}`)
     )
@@ -45,16 +48,15 @@ function effectFixes(
 /** The `.d.ts` one file of a project emits. */
 function declarationsOf(
   files: readonly (readonly [string, string])[],
-  options: ProjectOptions,
   path = "/main.hex",
 ): string {
-  const compiled = compileFiles(files, options);
+  const compiled = compileFiles(files);
   return compiled.modules.find((module) => module.source.path === path)!.declarations.text;
 }
 
 /** What a hover where `needle` is written shows as the type there. */
-function hoveredType(source: string, needle: string, options: ProjectOptions): string | undefined {
-  const session = new AnalysisSession(options);
+function hoveredType(source: string, needle: string): string | undefined {
+  const session = new AnalysisSession();
   session.setFile("/world.js", "");
   session.setFile("/main.hex", source);
   return session.hover("/main.hex", source.indexOf(needle))?.displayedType;
@@ -77,34 +79,31 @@ const markSeat =
   "a call mark governs an argument list; write it immediately before `(`, " +
   "or (in a `|>` stage) at the end of the stage — a reference carries no colour";
 
-describe("#355 effects prototype — the flag itself", () => {
-  it("compiles the whole prelude and runtime clean with the flag on", () => {
+describe("the discipline, unconditional", () => {
+  it("compiles the whole prelude and runtime clean", () => {
     expect(effectDiagnostics([["/main.hex", "export let x: Int = 1\n"]])).toEqual([]);
   });
 
   it("compiles the migrated Seq clean — the acceptance test", () => {
     expect(withSeq("export let x: Int = 1\n")).toEqual([]);
   });
-
-  it("leaves `!` and `?` unlexable with the flag off", () => {
-    const off = compileFiles([["/main.hex", "export let x: Int = readLine!()\n"]]);
-    expect(off.diagnostics.map(({ message }) => message)).toContain(
-      "Hexagon spells logical negation `not`",
-    );
-  });
 });
 
 describe("#355 fold's body — the designated specimen, six directions", () => {
-  /** `fold`'s body with one mark mutated, as the fixture would carry it. */
+  /**
+   * `stdlib/Seq.hex` with one mark in `fold`'s body mutated, seated as the
+   * prelude member: a project file with a prelude basename wins over the
+   * injected copy, which is how the migrated source itself is put under test.
+   */
   function foldWith(next: string, combine: string): readonly string[] {
-    const foldBody = seqFixture.slice(seqFixture.indexOf("export let fold("));
+    const foldBody = seqSource.slice(seqSource.indexOf("export let fold("));
     const mutatedBody = foldBody
       .replace("match next(current)", `match next${next}(current)`)
       .replace("combine?(accumulator, value)", `combine${combine}(accumulator, value)`);
     // Guard against a replacement that silently matched nothing: only the
     // no-mutation case may leave the body untouched.
     expect(mutatedBody === foldBody).toBe(next === "" && combine === "?");
-    const mutated = seqFixture.slice(0, seqFixture.indexOf("export let fold(")) + mutatedBody;
+    const mutated = seqSource.slice(0, seqSource.indexOf("export let fold(")) + mutatedBody;
     return effectDiagnostics([["/Seq.hex", mutated], ["/main.hex", "export let x: Int = 1\n"]]);
   }
 
@@ -160,7 +159,7 @@ export let run(document: String): Unit = save?(document)
   });
 
   it("offers exactly one token as the fix, in each direction", () => {
-    const mutated = seqFixture.replace("combine?(accumulator, value)", "combine!(accumulator, value)");
+    const mutated = seqSource.replace("combine?(accumulator, value)", "combine!(accumulator, value)");
     expect(
       effectFixes([["/Seq.hex", mutated], ["/main.hex", "export let x: Int = 1\n"]]),
     ).toEqual(['mark the call `?`: "?"']);
@@ -776,7 +775,7 @@ export let clean(document: String): String = trim(document)
     // colour is a second, unconstrained one (§3.4's third arm) — so the face is
     // *not* the one the written `(String => String, String => String) => …`
     // would mean, and the numbers are what say so.
-    expect(hoveredType(composeSource, "compose", { effects: true })).toBe(
+    expect(hoveredType(composeSource, "compose")).toBe(
       "(String =>¹ String, String =>¹ String) =>² String =>¹ String",
     );
   });
@@ -784,7 +783,7 @@ export let clean(document: String): String = trim(document)
   it("leaves a single-variable face undecorated, so it writes back unchanged", () => {
     // One variable, one spelling: the annotation grammar links every written
     // `=>` into one variable (§2.2), so this face round-trips exactly.
-    expect(hoveredType(composeSource, "withTransaction", { effects: true })).toBe(
+    expect(hoveredType(composeSource, "withTransaction")).toBe(
       "(String => String) =>! String",
     );
   });
@@ -802,7 +801,7 @@ export let clean(document: String): String = trim(document)
         index := index + 1
     total
 `;
-    expect(hoveredType(source, "fold", { effects: true })).toBe(
+    expect(hoveredType(source, "fold")).toBe(
       "(Vector(a), b, (b, a) => b) => b",
     );
   });
@@ -816,11 +815,11 @@ export let clean(document: String): String = trim(document)
     const source = `export let make(): String = "x"
 export let hold(f: (() -> String) => Int): Int = f?(make)
 `;
-    expect(hoveredType(source, "f:", { effects: true })).toBe("(() -> String) =>¹ Int");
+    expect(hoveredType(source, "f:")).toBe("(() -> String) =>¹ Int");
     // The very same variable, displayed as `hold`'s own face, is plain: there
     // it *has* an inlet — the arrow inside the parameter `f` — so the linked
     // reading of the written text reproduces this scheme exactly.
-    expect(hoveredType(source, "hold", { effects: true })).toBe(
+    expect(hoveredType(source, "hold")).toBe(
       "((() -> String) => Int) => Int",
     );
   });
@@ -829,13 +828,13 @@ export let hold(f: (() -> String) => Int): Int = f?(make)
     // The everyday shape of the same cut: `first`'s colour is the enclosing
     // signature's, but nothing in `String => String` is a slot, so as a face in
     // its own right it does not write back.
-    expect(hoveredType(composeSource, "first:", { effects: true })).toBe("String =>¹ String");
+    expect(hoveredType(composeSource, "first:")).toBe("String =>¹ String");
   });
 
   it("never numbers a constant, at either end of the trio", () => {
-    expect(hoveredType(composeSource, "save", { effects: true })).toBe("String =>! Unit");
-    expect(hoveredType(composeSource, "trim", { effects: true })).toBe("String -> String");
-    expect(hoveredType(composeSource, "clean", { effects: true })).toBe("String -> String");
+    expect(hoveredType(composeSource, "save")).toBe("String =>! Unit");
+    expect(hoveredType(composeSource, "trim")).toBe("String -> String");
+    expect(hoveredType(composeSource, "clean")).toBe("String -> String");
   });
 
   it("keeps a colour from taking a type variable's letter", () => {
@@ -846,7 +845,7 @@ export let hold(f: (() -> String) => Int): Int = f?(make)
     const source = `${world}
 export let hold(step: () => Int, value: a): a = value
 `;
-    expect(hoveredType(source, "hold", { effects: true })).toBe(
+    expect(hoveredType(source, "hold")).toBe(
       "(() =>¹ Int, a) =>² a",
     );
   });
@@ -861,7 +860,6 @@ export let hold(step: () => Int, value: a): a = value
 export let compose(first: String => String, second: String => String): (String => String) =
     (document) => second?(first?(document))
 `]],
-      { effects: true },
     );
     expect(emitted).toContain(
       " * Hexagon: `(String =>¹ String, String =>¹ String) =>² String =>¹ String`",
@@ -875,7 +873,6 @@ export let compose(first: String => String, second: String => String): (String =
   it("gives an impure extern row its face and a pure one none", () => {
     const emitted = declarationsOf(
       [["/world.js", ""], ["/main.hex", world]],
-      { effects: true },
     );
     expect(emitted).toContain("/** Hexagon: `String =>! Unit` */\nexport declare function save(");
     // Purity is the silent one (§1): a face with nothing but pure arrows says
@@ -929,7 +926,7 @@ export let hold(f: (() -> String) => Int): Int =
     // which is a claim about the *other* arrows that this type alone cannot
     // know is true. So the repair says why rather than writing it.
     const source = "export fun pick(step: String => String) = step\n";
-    const session = new AnalysisSession({ effects: true });
+    const session = new AnalysisSession();
     session.setFile("/main.hex", source);
     const offset = source.indexOf("pick");
     const actions = session.codeActions("/main.hex", { start: offset, end: offset });
@@ -944,7 +941,7 @@ export let hold(f: (() -> String) => Int): Int =
     const source = `${world}
 export fun maker(seed: String) = save
 `;
-    const session = new AnalysisSession({ effects: true });
+    const session = new AnalysisSession();
     session.setFile("/world.js", "");
     session.setFile("/main.hex", source);
     const offset = source.indexOf("maker");
@@ -962,19 +959,13 @@ export fun maker(seed: String) = save
     expect(session.diagnostics("/main.hex")).toEqual([]);
   });
 
-  it("is byte-identical with the flag off, on a corpus both can read", () => {
-    // The pure corpus is where the two compilations meet, and it is the whole
-    // of what flag-off byte-identity can be asked about: `=>`, `!` and `?` do
-    // not lex with the flag off at all.
+  it("leaves a wholly pure face saying nothing about colour", () => {
+    // Purity is the silent one (§1): a corpus that writes only `->` displays
+    // only `->`, with no variable anywhere to number.
     const pure = `export let twice(step: Int -> Int, value: Int): Int = step(step(value))
 export let pair(value: a): (a, a) = (value, value)
 `;
-    const files = [["/main.hex", pure]] as const;
-    expect(declarationsOf(files, { effects: true })).toBe(declarationsOf(files, {}));
-    expect(hoveredType(pure, "twice", { effects: true })).toBe(
-      hoveredType(pure, "twice", {}),
-    );
-    expect(hoveredType(pure, "twice", {})).toBe("(Int -> Int, Int) -> Int");
+    expect(hoveredType(pure, "twice")).toBe("(Int -> Int, Int) -> Int");
   });
 });
 

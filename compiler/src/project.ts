@@ -85,14 +85,6 @@ export interface ProjectOptions {
    * declaration rather than a primitive.
    */
   readonly runtimePaths?: readonly string[];
-  /**
-   * The #355 effects prototype: `=>`/`=>!` arrow types, the `!`/`?` call marks,
-   * and the effect dimension in the checker. **Off by default, and off is
-   * byte-identical to a compilation without the option** — the lexer produces
-   * the same tokens, the parser the same tree, and the checker builds no effect
-   * slot on any type. Flag-gated pending the ruling.
-   */
-  readonly effects?: boolean;
 }
 
 /** Compiles every supplied file in dependency-first order without filesystem access. */
@@ -132,9 +124,8 @@ export function compileProject(
   // emitted because every importer has to spell the same one (FFI Part 1 §8.3).
   const runtimeBasename = runtimeDeclarationsBasename(sources.keys(), root);
   const parsed = new Map<string, Parsed.Module>();
-  const passOptions = options.effects === true ? { effects: true } : {};
   for (const [path, file] of sources) {
-    parsed.set(path, parse(applyLayout(lex(file, passOptions)), passOptions));
+    parsed.set(path, parse(applyLayout(lex(file))));
   }
 
   const ordered: string[] = [];
@@ -322,7 +313,7 @@ export function compileProject(
         externTypeBase,
       );
     }
-    const typed = check(resolved, { importedSchemes, programNominals, ...passOptions });
+    const typed = check(resolved, { importedSchemes, programNominals });
     programNominals.unions.push(...resolved.unions);
     programNominals.records.push(...resolved.records);
     const core = elaborate(typed);

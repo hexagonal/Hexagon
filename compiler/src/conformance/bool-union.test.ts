@@ -180,7 +180,7 @@ describe("the representation pin (#147 §3)", () => {
       "extern from \"host\"\n" +
         "    export fun isReady(): Bool\n" +
         "export let describe(): String =\n" +
-        "    match isReady()\n" +
+        "    match isReady!()\n" +
         "        True => \"ready\"\n" +
         "        False => \"waiting\"\n",
     );

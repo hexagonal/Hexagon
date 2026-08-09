@@ -17,7 +17,7 @@ describe("check", () => {
         "    export type JsonValue\n" +
         "    export fun parse(text: String): JsonValue\n" +
         "    let VERSION as version: String\n" +
-        "let document = parse(version)",
+        "let document = parse!(version)",
     );
 
     expect(letSymbol(module, "document").scheme.type).toMatchObject({

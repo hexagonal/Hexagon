@@ -99,14 +99,18 @@ export interface PreludeModule {
  * merely permitting it. It held the last seat from the Map step (#370), having
  * displaced `Vector.hex` from it.
  *
- * `Set.hex` is last now, and it displaces `Map.hex` in turn (#373). It needs
+ * `Set.hex` displaces `Map.hex` from the last seat in turn (#373). It needs
  * exactly what `Map.hex` needs — `Hash` for its keyed trio, `Option` for the
  * unexported `storedMember` row that `intersect` probes with, `Seq` for `toSeq`
  * and the whole algebra folded over it, and `Vector` for `fromVector` — and it
  * needs nothing from `Map.hex` at all: the two companions are siblings over one
- * runtime module, not layers. Being last is therefore a free choice among the
- * seats after `Vector.hex`, and it is the arc's own order made visible. Nothing
- * after it exists to name a `Set`.
+ * runtime module, not layers.
+ *
+ * `Stream.hex` is last (#364). Its seat is genuinely constrained rather than
+ * conventional: `fromSeq` names `Seq`, every pull answers an `Option`, and
+ * `collect` builds a `Vector`, so it sits after all three. Nothing needs a
+ * `Stream`, and nothing can — the type is `Seq`'s impure sibling and no pure
+ * module has business with one — so being last is also where it stays.
  */
 export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Show.hex",
@@ -132,6 +136,7 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Vector.hex",
   "Map.hex",
   "Set.hex",
+  "Stream.hex",
 ].map((basename) => ({ basename, source: PRELUDE_SOURCES[basename]! }));
 
 /**
