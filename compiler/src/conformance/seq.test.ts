@@ -123,7 +123,7 @@ const CORE: readonly (readonly [string, string])[] = [];
 const IMPORT = "";
 
 /** `1, 2, 3, ...` — infinite, so any test using it also proves laziness. */
-const NATURALS = "let naturals = Seq.successors(1, x => x + 1)\n";
+const NATURALS = "let naturals = Seq.iterate(1, x => x + 1)\n";
 
 describe("Seq construction and the §6.2 protocol", () => {
   test("empty pulls None; singleton and prepend pull one element then empty", async () => {
@@ -151,7 +151,7 @@ describe("Seq construction and the §6.2 protocol", () => {
   });
 
   test("an infinite Seq is a finite value: constructing runs nothing", async () => {
-    // If `successors`/`map`/`filter` were eager, merely naming these would not
+    // If `iterate`/`map`/`filter` were eager, merely naming these would not
     // terminate. Nothing is driven until `take` + `length` ask for elements.
     const m = await run(
       IMPORT +
@@ -242,8 +242,8 @@ describe("Seq while-pull combinators", () => {
         "export let dropWhileSmall: Int = sum(Seq.take(Seq.dropWhile(naturals, x => x < 5), 2))\n" +
         "export let dropWhileAll: Int = Seq.length(Seq.dropWhile(Seq.take(naturals, 5), x => True))\n" +
         // each element expands to that many copies of itself: 1, 2, 2, 3, 3, 3
-        "export let flat: Int = sum(Seq.flatMap(Seq.take(naturals, 3), x => Seq.take(Seq.successors(x, y => y), x)))\n" +
-        "export let flatLength: Int = Seq.length(Seq.flatMap(Seq.take(naturals, 3), x => Seq.take(Seq.successors(x, y => y), x)))\n" +
+        "export let flat: Int = sum(Seq.flatMap(Seq.take(naturals, 3), x => Seq.take(Seq.iterate(x, y => y), x)))\n" +
+        "export let flatLength: Int = Seq.length(Seq.flatMap(Seq.take(naturals, 3), x => Seq.take(Seq.iterate(x, y => y), x)))\n" +
         // every inner sequence empty: flatMap must drain them all and report empty
         "export let flatAllEmpty: Int = Seq.length(Seq.flatMap(Seq.take(naturals, 20), x => Seq.empty))\n" +
         // leading empties must be skipped to reach a later non-empty inner

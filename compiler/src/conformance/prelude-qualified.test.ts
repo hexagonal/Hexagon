@@ -261,7 +261,7 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
       ["/lib.hex", "export let take(value: Int): Int = value + 1\n"],
       ["/main.hex",
         "import { take } from \"./lib\"\n" +
-        "let source: Seq(Int) = Seq.successors(1, x => x + 1)\n" +
+        "let source: Seq(Int) = Seq.iterate(1, x => x + 1)\n" +
         "export let mine: Int = take(1)\n" +
         "export let theirs: Vector(Int) = Vector.fromSeq(Seq.take(source, 2))\n"],
     ]);
@@ -291,7 +291,7 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     const module = await run([
       ["/main.hex",
         "let (take, keep) = (10, 2)\n" +
-        "let source: Seq(Int) = Seq.successors(1, x => x + 1)\n" +
+        "let source: Seq(Int) = Seq.iterate(1, x => x + 1)\n" +
         "export let mine: Int = take + keep\n" +
         "export let theirs: Vector(Int) = Vector.fromSeq(Seq.take(source, 2))\n"],
     ]);

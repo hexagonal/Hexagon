@@ -170,7 +170,7 @@ describe("Loops §6.4: re-derivation is the default, `memoize` the opt-in", () =
         TICKER_HEADER +
         // Infinite, so this terminates only if `memoize` forces nothing eagerly
         // and forces exactly what the consumer demands.
-        "let naturals: Seq(Int) = Seq.successors(1, x => x + 1)\n" +
+        "let naturals: Seq(Int) = Seq.iterate(1, x => x + 1)\n" +
         "let memoized: Seq(Int) = Seq.memoize(Seq.map(naturals, tick))\n" +
         "\n" +
         "export let firstThree(ignored: Int): Int =\n" +
@@ -264,7 +264,7 @@ describe("Loops §6.4: re-derivation is the default, `memoize` the opt-in", () =
   test("a long memoized run drives in constant stack", async () => {
     const exports = await run(
       [["/main.hex",
-        "let memoized: Seq(Int) = Seq.memoize(Seq.take(Seq.successors(1, x => x + 1), 50000))\n" +
+        "let memoized: Seq(Int) = Seq.memoize(Seq.take(Seq.iterate(1, x => x + 1), 50000))\n" +
         "export let total: Int = Seq.fold(memoized, 0, (running, value) => running + value)\n" +
         "export let again: Int = Seq.fold(memoized, 0, (running, value) => running + value)\n"]],
     );
@@ -390,7 +390,7 @@ describe("the door's emission (spec/intrinsics.md §8)", () => {
   test("consumers reach it qualified and by dot-call", async () => {
     const exports = await run(
       [["/main.hex",
-        "let base: Seq(Int) = Seq.take(Seq.successors(1, x => x + 1), 3)\n" +
+        "let base: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n" +
         "export let qualified: Int = Seq.length(Seq.memoize(base))\n" +
         "export let dotCalled: Int = Seq.length(base.memoize())\n"]],
     );

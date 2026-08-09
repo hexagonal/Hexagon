@@ -5,8 +5,8 @@ export const sequences: PlaygroundExample = {
   title: "Infinite Sequences",
   description:
     "Build an interruptible Seq(Int), then map, filter, and take from its JavaScript generator.",
-  source: `// Seq.successors is infinite unless a consumer such as Seq.take stops it.
-let numbers = Seq.successors(1, number => number + 1)
+  source: `// Seq.iterate is infinite unless a consumer such as Seq.take stops it.
+let numbers = Seq.iterate(1, number => number + 1)
 
 // Method syntax reads naturally for subject-first Seq companion functions.
 let selected =

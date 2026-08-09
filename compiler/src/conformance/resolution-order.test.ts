@@ -271,7 +271,7 @@ describe("still-intrinsic names keep working — this phase changes order, not m
 
   test("`Seq`, through the compiler-known operation family", () => {
     expect(diagnostics(
-      "export fun firstFew(): Vector(Int) = Vector.fromSeq(Seq.successors(1, x => x + 1).take(3))\n",
+      "export fun firstFew(): Vector(Int) = Vector.fromSeq(Seq.iterate(1, x => x + 1).take(3))\n",
     )).toEqual([]);
   });
 
@@ -292,11 +292,11 @@ describe("the term-level yield stays pinned", () => {
   // (resolver.ts's `SeqOperation`/`CollectionOperation` special cases each test
   // `scope.lookup` and the module aliases first). That is the behaviour the type
   // namespace has now been brought into line with; pin it against drift.
-  test("a module alias named `Seq` takes `Seq.successors`", () => {
+  test("a module alias named `Seq` takes `Seq.iterate`", () => {
     expect(diagnostics(
       "import * as Seq from \"./myseq\"\n" +
-      "export fun use(): Int = Seq.successors(1, x => x + 1)\n",
-      [["/myseq.hex", "export fun successors(seed: Int, step: (Int) -> Int): Int = step(seed)\n"]],
+      "export fun use(): Int = Seq.iterate(1, x => x + 1)\n",
+      [["/myseq.hex", "export fun iterate(seed: Int, step: (Int) -> Int): Int = step(seed)\n"]],
     )).toEqual([]);
   });
 

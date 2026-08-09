@@ -367,7 +367,7 @@ describe("collectOccurrences", () => {
       [
         'import {map} from "./Seq"',
         "",
-        "let doubled = map(Seq.successors(1, (n) => n + 1), (n) => n * 2)",
+        "let doubled = map(Seq.iterate(1, (n) => n + 1), (n) => n * 2)",
         "let maybe: Option(Int) = Some(1)",
         "",
       ].join("\n"),

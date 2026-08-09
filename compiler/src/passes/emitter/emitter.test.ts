@@ -315,7 +315,7 @@ describe("emitJavaScript", () => {
         "honor Iterable<Bag> =\n" +
         "    type Item = Int\n" +
         "    iterate(bag) = bag.items\n" +
-        "let bag = Bag({items = Seq.take(Seq.successors(1, x => x + 1), 2)})\n" +
+        "let bag = Bag({items = Seq.take(Seq.iterate(1, x => x + 1), 2)})\n" +
         "for value in bag\n" +
         "    console.log(value)\n" +
         "for value in [1, 2]\n" +
@@ -416,7 +416,7 @@ describe("emitJavaScript", () => {
     // companion dispatch against prelude `Seq.hex` — dot call, qualified call,
     // and pipeline all reaching the *same* imported functions.
     const module = preludeSource(
-      "let numbers: Seq(Int) = Seq.successors(1, number => number + 1)\n" +
+      "let numbers: Seq(Int) = Seq.iterate(1, number => number + 1)\n" +
         "export let selected: Seq(Int) =\n" +
         "    numbers\n" +
         "    .filter(number => number > 3)\n" +
@@ -432,10 +432,10 @@ describe("emitJavaScript", () => {
     // each one it names: emitting a call to a name that was never imported is
     // the silent failure this whole suite exists to catch.
     const imported = output.text.match(/^import \{([^}]*)\} from "\.\/Seq\.js";$/mu)?.[1] ?? "";
-    for (const operation of ["successors", "filter", "map", "take"]) {
+    for (const operation of ["iterate", "filter", "map", "take"]) {
       expect(imported.split(/[,\s]+/u)).toContain(operation);
     }
-    expect(output.text).toContain("const numbers = successors(1, number => number + 1);");
+    expect(output.text).toContain("const numbers = iterate(1, number => number + 1);");
     expect(output.text).toContain("take(map(filter(numbers,");
     expect(output.text.match(/take\(map\(filter\(numbers,/gu)).toHaveLength(2);
     // No compiler-owned generator remains for these; the only Seq machinery in

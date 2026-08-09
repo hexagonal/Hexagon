@@ -307,7 +307,7 @@ describe("an explicit import of a prelude module carries no evidence", () => {
     const main = await runProject([[
       "/main.hex",
       "export let out: Vector(Int) =\n" +
-      "    Vector.fromSeq(Seq.take(Seq.successors(30, x => x + 1), 3))\n",
+      "    Vector.fromSeq(Seq.take(Seq.iterate(30, x => x + 1), 3))\n",
     ]]);
     expect(elements(main["out"])).toEqual([30, 31, 32]);
   });

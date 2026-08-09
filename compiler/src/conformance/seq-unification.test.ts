@@ -115,7 +115,7 @@ describe("Seq is one type", () => {
    */
   test("a prelude-built Seq and a compiler-produced Seq unify", () => {
     expect(diagnostics(
-      "export let joined: Seq(Int) = Seq.concat(Seq.take(Seq.successors(1, x => x + 1), 2), Vector.toSeq([7, 8]))\n",
+      "export let joined: Seq(Int) = Seq.concat(Seq.take(Seq.iterate(1, x => x + 1), 2), Vector.toSeq([7, 8]))\n",
     )).toEqual([]);
   });
 
@@ -131,7 +131,7 @@ describe("Seq is one type", () => {
 
   test("a prelude-built Seq is accepted where a compiler-known consumer wants one", async () => {
     const exports = await main(
-      "export let rebuilt: Vector(Int) = Vector.fromSeq(Seq.take(Seq.successors(1, x => x * 2), 4))\n",
+      "export let rebuilt: Vector(Int) = Vector.fromSeq(Seq.take(Seq.iterate(1, x => x * 2), 4))\n",
     );
     expect(elements(exports["rebuilt"])).toEqual([1, 2, 4, 8]);
   });
@@ -141,7 +141,7 @@ describe("the bare compiler-known rows (R4)", () => {
   /**
    * The blind spot that 473 compiler tests missed and the shipped `vectors`
    * playground example caught: no test mixed a bare `Vector.fromSeq` with a
-   * `Seq.successors`. Both spellings survive this arc retyped and re-emitted
+   * `Seq.iterate`. Both spellings survive this arc retyped and re-emitted
    * through the R1 pair; they die in `Vector`'s own arc.
    */
   test("Vector.toSeq / Vector.fromSeq round-trip", async () => {
@@ -153,7 +153,7 @@ describe("the bare compiler-known rows (R4)", () => {
 
   test("Vector.fromSeq consumes a lazily built infinite Seq", async () => {
     const exports = await main(
-      "export let firstFive: Vector(Int) = Vector.fromSeq(Seq.take(Seq.successors(0, x => x + 3), 5))\n",
+      "export let firstFive: Vector(Int) = Vector.fromSeq(Seq.take(Seq.iterate(0, x => x + 3), 5))\n",
     );
     expect(elements(exports["firstFive"])).toEqual([0, 3, 6, 9, 12]);
   });
@@ -207,7 +207,7 @@ describe("`for x in` over a Seq (R3)", () => {
       "        sum := sum + value\n" +
       "    sum\n" +
       "\n" +
-      "export let total: Int = sumOf(Seq.take(Seq.successors(1, x => x + 1), 5))\n",
+      "export let total: Int = sumOf(Seq.take(Seq.iterate(1, x => x + 1), 5))\n",
     );
     expect(exports["total"]).toBe(15);
   });
@@ -220,7 +220,7 @@ describe("`for x in` over a Seq (R3)", () => {
       "        sum := sum + value\n" +
       "    sum\n" +
       "\n" +
-      "export let total: Int = sumOf(Seq.take(Seq.successors(1, x => x + 1), 50000))\n",
+      "export let total: Int = sumOf(Seq.take(Seq.iterate(1, x => x + 1), 50000))\n",
     );
     expect(exports["total"]).toBe(1_250_025_000);
   });
@@ -232,17 +232,17 @@ describe("compiler-known operation spellings keep working (step 8 item 1)", () =
    * spellings must keep compiling with identical types through ordinary
    * qualified reference against prelude `Seq.hex`.
    */
-  test("Seq.successors / map / filter / take", async () => {
+  test("Seq.iterate / map / filter / take", async () => {
     const exports = await main(
       "export let values: Vector(Int) =\n" +
-      "    Vector.fromSeq(Seq.take(Seq.filter(Seq.map(Seq.successors(1, x => x + 1), x => x * 3), x => x > 4), 3))\n",
+      "    Vector.fromSeq(Seq.take(Seq.filter(Seq.map(Seq.iterate(1, x => x + 1), x => x * 3), x => x > 4), 3))\n",
     );
     expect(elements(exports["values"])).toEqual([6, 9, 12]);
   });
 
   test("subject-first dot calls dispatch to the prelude companion", async () => {
     const exports = await main(
-      "let source: Seq(Int) = Seq.successors(1, x => x + 1)\n" +
+      "let source: Seq(Int) = Seq.iterate(1, x => x + 1)\n" +
       "export let values: Vector(Int) = Vector.fromSeq(source.map(x => x * 2).filter(x => x > 4).take(3))\n",
     );
     expect(elements(exports["values"])).toEqual([6, 8, 10]);
@@ -270,7 +270,7 @@ describe("laziness survives the unification", () => {
   test("a compiler-produced Seq is not driven past what is demanded", async () => {
     const exports = await main(
       "export let firstTwo: Vector(Int) =\n" +
-      "    Vector.fromSeq(Seq.take(Seq.map(Seq.successors(1, x => x + 1), x => x * 10), 2))\n",
+      "    Vector.fromSeq(Seq.take(Seq.map(Seq.iterate(1, x => x + 1), x => x * 10), 2))\n",
     );
     // An infinite source: reaching this value at all proves `take` bounded the
     // drive rather than the producer running to exhaustion.
@@ -279,7 +279,7 @@ describe("laziness survives the unification", () => {
 
   test("a Seq is persistent — driving it twice does not consume it", async () => {
     const exports = await main(
-      "let shared: Seq(Int) = Seq.take(Seq.successors(1, x => x + 1), 3)\n" +
+      "let shared: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n" +
       "export let first: Vector(Int) = Vector.fromSeq(shared)\n" +
       "export let second: Vector(Int) = Vector.fromSeq(shared)\n",
     );
@@ -304,7 +304,7 @@ describe("the boundary face (FFI Part 3)", () => {
       new Source.File(
         Source.fileId(0),
         "/main.hex",
-        "export let counted: Seq(Int) = Seq.take(Seq.successors(1, x => x + 1), 3)\n",
+        "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n",
       ),
     ]);
     expect(project.diagnostics).toEqual([]);
@@ -334,7 +334,7 @@ describe("the boundary face (FFI Part 3)", () => {
         Source.fileId(0),
         "/main.hex",
         "export let total(values: Seq(Int)): Int = Seq.fold(values, 0, (a, b) => a + b)\n" +
-        "export let upTo(count: Int): Seq(Int) = Seq.take(Seq.successors(1, x => x + 1), count)\n",
+        "export let upTo(count: Int): Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), count)\n",
       ),
     ]);
     expect(project.diagnostics).toEqual([]);
@@ -367,8 +367,8 @@ describe("the boundary face (FFI Part 3)", () => {
     // by `WeakMap`. §9.4 properties 1 and 2 have their own tests and survive
     // that, each traversing a single value.
     const exports = await main(
-      "export let counted: Seq(Int) = Seq.take(Seq.successors(1, x => x + 1), 4)\n" +
-      "export let upTo(count: Int): Seq(Int) = Seq.take(Seq.successors(1, x => x + 1), count)\n" +
+      "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 4)\n" +
+      "export let upTo(count: Int): Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), count)\n" +
       "export let itself(ignored: Int): Seq(Int) = counted\n",
     );
     const upTo = exports["upTo"] as (count: number) => Iterable<number> & { pull: unknown };
@@ -420,7 +420,7 @@ describe("the boundary face (FFI Part 3)", () => {
     // `Seq.hex`'s helpers and recognized by this module's own copy of the door,
     // which is why §2.2 tests `pull` rather than the method's identity.
     const exports = await main(
-      "export let counted: Seq(Int) = Seq.take(Seq.successors(1, x => x + 1), 3)\n" +
+      "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n" +
       "export let same(values: Seq(Int)): Seq(Int) = values\n",
     );
     const counted = exports["counted"] as Iterable<number>;
@@ -438,7 +438,7 @@ describe("the boundary face (FFI Part 3)", () => {
 
   test("an exported Seq faces JavaScript as an Iterable, by representation", async () => {
     const exports = await main(
-      "export let counted: Seq(Int) = Seq.take(Seq.successors(1, x => x + 1), 3)\n",
+      "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n",
     );
     const counted = exports["counted"] as Iterable<number> & { pull: unknown };
     // The record is unchanged — `pull` is still the §6.2 protocol — and the
@@ -451,7 +451,7 @@ describe("the boundary face (FFI Part 3)", () => {
       new Source.File(
         Source.fileId(0),
         "/main.hex",
-        "export let counted: Seq(Int) = Seq.take(Seq.successors(1, x => x + 1), 3)\n",
+        "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n",
       ),
     ]);
     const compiled = project.modules.find((module) => module.source.path === "/main.hex")!;
@@ -471,7 +471,7 @@ describe("the boundary face (FFI Part 3)", () => {
         "    fun other(): Seq(Int)\n" +
         "\n" +
         "export let one: Seq(Int) = Seq.singleton(1)\n" +
-        "export let many: Seq(Int) = Seq.take(Seq.successors(1, x => x + 1), 3)\n" +
+        "export let many: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n" +
         "export let none: Seq(Int) = Seq.empty\n" +
         "export let adapted: Seq(Int) = counter!()\n" +
         "export let alsoAdapted: Seq(Int) = other!()\n"]],
@@ -554,7 +554,7 @@ describe("the boundary face (FFI Part 3)", () => {
         "extern from \"numbers\"\n" +
         "    fun consume(values: Seq(Int)): Int\n" +
         "\n" +
-        "export let out: Int = consume!(Seq.take(Seq.successors(1, x => x + 1), 4))\n"]],
+        "export let out: Int = consume!(Seq.take(Seq.iterate(1, x => x + 1), 4))\n"]],
       {
         numbers: [
           "export function consume(values) {",
@@ -1133,7 +1133,7 @@ describe("the memoizing spine reclaims an unreachable prefix (FFI Part 3 §5)", 
     // elements — see the block comment on why that qualifier is here.
     const exports = await main(
       "export let build(count: Int): Seq((Int, Int)) =\n" +
-      "    Seq.memoize(Seq.map(Seq.take(Seq.successors(1, i => i + 1), count), i => (i, i)))\n" +
+      "    Seq.memoize(Seq.map(Seq.take(Seq.iterate(1, i => i + 1), count), i => (i, i)))\n" +
       "\n" + cursorHelpers,
     );
     const { elements, cursor } = walk(exports, 150);

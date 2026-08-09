@@ -158,7 +158,7 @@ describe("the face is representation, at every construction site (§9.4)", () =>
    */
   test("a combinator-built Seq is iterable", async () => {
     const exports = await main(
-      "export let built: Seq(Int) = Seq.map(Seq.take(Seq.successors(1, x => x + 1), 3), x => x * 2)\n",
+      "export let built: Seq(Int) = Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), x => x * 2)\n",
     );
     expect([...exports["built"] as Iterable<number>]).toEqual([2, 4, 6]);
   });
@@ -198,7 +198,7 @@ describe("the face is representation, at every construction site (§9.4)", () =>
 describe("§9.4 property 1: each call opens an independent cursor", () => {
   test("two cursors advance separately over one value", async () => {
     const exports = await main(
-      "export let counted: Seq(Int) = Seq.take(Seq.successors(1, x => x + 1), 4)\n",
+      "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 4)\n",
     );
     const counted = exports["counted"] as Iterable<number>;
     const first = counted[Symbol.iterator]();
@@ -213,7 +213,7 @@ describe("§9.4 property 1: each call opens an independent cursor", () => {
 
   test("a full traversal can be repeated", async () => {
     const exports = await main(
-      "export let counted: Seq(Int) = Seq.take(Seq.successors(1, x => x + 1), 3)\n",
+      "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n",
     );
     const counted = exports["counted"] as Iterable<number>;
     expect([...counted]).toEqual([1, 2, 3]);
@@ -243,7 +243,7 @@ describe("§9.4 property 2: all cursors share one memoized view", () => {
         "    fun steps(): Int\n" +
         "\n" +
         "export let counted: Seq(Int) =\n" +
-        "    Seq.map(Seq.take(Seq.successors(1, x => x + 1), 3), note)\n" +
+        "    Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), note)\n" +
         "export let observed(ignored: Int): Int = steps!()\n"]],
       {
         probe: [
@@ -306,7 +306,7 @@ describe("§9.4 property 3: the view is created lazily", () => {
         "    fun steps(): Int\n" +
         "\n" +
         "export let counted: Seq(Int) =\n" +
-        "    Seq.map(Seq.take(Seq.successors(1, x => x + 1), 3), note)\n" +
+        "    Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), note)\n" +
         "export let observed(ignored: Int): Int = steps!()\n"]],
       {
         probe: [
@@ -329,7 +329,7 @@ describe("§9.4 property 3: the view is created lazily", () => {
         "    fun steps(): Int\n" +
         "\n" +
         "export let counted: Seq(Int) =\n" +
-        "    Seq.map(Seq.take(Seq.successors(1, x => x + 1), 3), note)\n" +
+        "    Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), note)\n" +
         "export let observed(ignored: Int): Int = steps!()\n"]],
       {
         probe: [
@@ -359,7 +359,7 @@ describe("§9.4 property 4: failure is memoized per position", () => {
         "    fun attempts(): Int\n" +
         "\n" +
         "export let counted: Seq(Int) =\n" +
-        "    Seq.map(Seq.take(Seq.successors(1, x => x + 1), 3), risky)\n" +
+        "    Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), risky)\n" +
         "export let tried(ignored: Int): Int = attempts!()\n"]],
       {
         probe: [
@@ -394,7 +394,7 @@ describe("§9.4 property 4: failure is memoized per position", () => {
 describe("§9.4 property 5: laziness survives the view", () => {
   test("an infinite Seq forces only what a cursor reaches", async () => {
     const exports = await main(
-      "export let naturals: Seq(Int) = Seq.successors(1, x => x + 1)\n",
+      "export let naturals: Seq(Int) = Seq.iterate(1, x => x + 1)\n",
     );
     const naturals = exports["naturals"] as Iterable<number>;
     const taken: number[] = [];
@@ -409,7 +409,7 @@ describe("§9.4 property 5: laziness survives the view", () => {
 describe("§9.4 property 6: an early return() ends that cursor only", () => {
   test("the value and the view stay valid after one cursor is abandoned", async () => {
     const exports = await main(
-      "export let counted: Seq(Int) = Seq.take(Seq.successors(1, x => x + 1), 5)\n",
+      "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 5)\n",
     );
     const counted = exports["counted"] as Iterable<number>;
     const abandoned = counted[Symbol.iterator]();
@@ -480,7 +480,7 @@ describe("§9.4 property 7: the view lives and dies with the value", () => {
   test("the traversed value is collected once the program drops it", async () => {
     const exports = await main(
       "export let countedTo(limit: Int): Seq(Int) =\n" +
-      "    Seq.take(Seq.successors(1, x => x + 1), limit)\n",
+      "    Seq.take(Seq.iterate(1, x => x + 1), limit)\n",
     );
     const countedTo = exports["countedTo"] as (limit: number) => Iterable<number>;
     // Built by a call, not exported as a value: a module-level export is
@@ -508,7 +508,7 @@ describe("§9.4 property 7: the view lives and dies with the value", () => {
     // the view is never a slot on the record, so a traversed `Seq` is the same
     // shape as an untraversed one — nothing on the value can outlive it.
     const exports = await main(
-      "export let counted: Seq(Int) = Seq.take(Seq.successors(1, x => x + 1), 3)\n",
+      "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n",
     );
     const counted = exports["counted"] as Iterable<number> & object;
     const before = [
@@ -545,7 +545,7 @@ describe("§9.4 channel separation: internal traversal never uses the face", () 
         "    pure fun note(value: Int): Int\n" +
         "    fun steps(): Int\n" +
         "\n" +
-        "let shared: Seq(Int) = Seq.map(Seq.take(Seq.successors(1, x => x + 1), 3), note)\n" +
+        "let shared: Seq(Int) = Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), note)\n" +
         "\n" +
         "export let internally(ignored: Int): Int = Seq.length(shared)\n" +
         "export let observed(ignored: Int): Int = steps!()\n" +
@@ -591,7 +591,7 @@ describe("§9.4 channel separation: internal traversal never uses the face", () 
         "    pure fun note(value: Int): Int\n" +
         "    fun steps(): Int\n" +
         "\n" +
-        "let counted: Seq(Int) = Seq.map(Seq.take(Seq.successors(1, x => x + 1), 3), note)\n" +
+        "let counted: Seq(Int) = Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), note)\n" +
         "\n" +
         "export let sumTwice(ignored: Int): Int =\n" +
         "    var sum = 0\n" +
@@ -671,7 +671,7 @@ describe("occasion 1's wrapper is transparent to Hexagon importers (§9.4)", () 
       ["/main.hex",
         "import { firstOf, identical } from \"./lib.hex\"\n" +
         "\n" +
-        "let shared: Seq(Int) = Seq.take(Seq.successors(1, x => x + 1), 3)\n" +
+        "let shared: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n" +
         "\n" +
         "export let head: Option(Int) = firstOf(shared)\n" +
         "export let same: Bool = identical(shared, shared)\n"],
@@ -696,7 +696,7 @@ describe("occasion 1's wrapper is transparent to Hexagon importers (§9.4)", () 
           "    pure fun note(value: Int): Int\n" +
           "    fun steps(): Int\n" +
           "\n" +
-          "let counted: Seq(Int) = Seq.map(Seq.take(Seq.successors(1, x => x + 1), 3), note)\n" +
+          "let counted: Seq(Int) = Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), note)\n" +
           "\n" +
           "export let total: Int = twice(counted)\n" +
           "export let observed(ignored: Int): Int = steps!()\n"],
@@ -792,7 +792,7 @@ describe("§9.4 R1: the representation family is four, and nothing else knows", 
       new Source.File(
         Source.fileId(0),
         "/main.hex",
-        "export let counted: Seq(Int) = Seq.take(Seq.successors(1, x => x + 1), 3)\n" +
+        "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n" +
         "export let total(source: Seq(Int)): Int = Seq.fold(source, 0, (a, b) => a + b)\n",
       ),
     ]);
