@@ -477,11 +477,11 @@ describe("type variables are nominal-coloured in type positions", () => {
       [
         "honor<a> Iterable<Bag(a)> =",
         "    type Item = a",
-        "    iterate(xs) = Bag.toSeq(xs)",
+        "    toSeq(xs) = Bag.contents(xs)",
         "    other(ys) = length(ys)",
       ].join("\n"),
     );
-    expect(pairs.find(([text]) => text === "iterate")?.[1]).toBe("entity.name.function.hexagon");
+    expect(pairs.find(([text]) => text === "toSeq")?.[1]).toBe("entity.name.function.hexagon");
     expect(pairs.find(([text]) => text === "other")?.[1]).toBe("entity.name.function.hexagon");
     expect(pairs.filter(([text]) => text === "ys").map(([, s]) => s)).toEqual([
       "variable.other.hexagon",

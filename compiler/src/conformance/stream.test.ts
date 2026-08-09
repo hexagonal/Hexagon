@@ -251,7 +251,7 @@ describe("§4 the faces: wiring is silent, consumption is spelled", () => {
 
 describe("§4.5 what the surface refuses", () => {
   it("gives `for x in stream` the ordinary no-instance failure", () => {
-    // `iterate` is a constraint member and members are pure (Effects §5), so a
+    // `toSeq` is a constraint member and members are pure (Effects §5), so a
     // `Stream` cannot honor `Iterable` — and the refusal is the ordinary one,
     // not a bespoke report.
     expect(projectDiagnostics(

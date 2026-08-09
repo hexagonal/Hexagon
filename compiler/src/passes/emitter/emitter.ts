@@ -2325,7 +2325,7 @@ class JavaScriptEmitter {
       ? `${this.#useHelper("seqToIterable")}(${source})`
       : expression.iteration === undefined
       ? source
-      : `${this.#emitEvidence(expression.iteration, "Iterable", expression.span, evidenceNames)}.iterate(${source})`;
+      : `${this.#emitEvidence(expression.iteration, "Iterable", expression.span, evidenceNames)}.toSeq(${source})`;
     if (expression.pattern.kind === "Binding") {
       const name = this.#identifier(
         expression.pattern.binding.symbol,
