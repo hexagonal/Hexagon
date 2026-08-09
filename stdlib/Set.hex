@@ -43,6 +43,16 @@ extern from "hex:intrinsic"
         insertion, not sorted, not stable across runs. *)
     export fun setElements as toSeq(s: Set(a)): Seq(a)
 
+    // Unexported, and the one row here that is not Collections Part 4
+    // section 6.2 surface. It answers the element `s` physically stores, not
+    // whether it stores one — `contains` remains the only membership read a set
+    // publishes (section 4.4). `intersect` below is the only caller, and it
+    // needs this because section 2.2 pins the traversal to the smaller side
+    // while section 5.4 pins the result's representatives to the left side: when
+    // the smaller side is the right one, the left's representative has to be
+    // looked up rather than taken from the element in hand.
+    fun setLookup as storedMember<a: Hash>(s: Set(a), element: a): Option(a)
+
 (** The empty set. *)
 export let empty: Set(a) = emptySet()
 
@@ -50,12 +60,31 @@ export let empty: Set(a) = emptySet()
 export let isEmpty(s: Set(a)): Bool = size(s) == 0
 
 // The algebra, all four of it, as Collections Part 4 section 5.3's
-// iterate-one-side-and-modify. Left-representative retention (section 5.4) is
-// not arranged anywhere below: `union` folds the right side into the left with
-// `add`, which is insert-if-absent, so an element in both sides keeps the
-// left's stored representative; `intersect` and `difference` build from
-// `left`'s own traversal, so every element they retain came from the left by
-// construction.
+// iterate-one-side-and-modify. Two pins govern every line of it and they pull
+// against each other, so it is worth saying where each one lands.
+//
+// Section 2.2 fixes **which side is traversed**, and for `union` and `intersect`
+// that is the *smaller* side, whichever operand it happens to be — the bounds
+// are expected O(min(m, n) · log of the other), and a fixed-side implementation
+// would breach them whenever the caller passed the big set first. So both of
+// those operations dispatch on `size`, which section 2.2 itself makes O(1).
+//
+// Section 5.4 fixes **whose representative survives**: the left operand's, for
+// elements present in both. That is free in the direction that traverses the
+// right side into the left — `add` is insert-if-absent, so the accumulator's
+// element wins and the accumulator is the left. In the mirrored direction it
+// costs something, and each site below says what it pays.
+//
+// `difference` and `isSubsetOf` do not dispatch: section 2.2 pins both to the
+// left side, which is also the only side their definitions could traverse.
+
+// One element inserted so that it **displaces** any equal element already there
+// — section 5.4's insert-with-replace direction, spelled from the public surface
+// because a set has no replacing insert of its own (and needs none: `add` is
+// idempotent precisely so that the common direction is the cheap one). The
+// removal is what evicts the resident representative; the add installs this one.
+let replaceMember<a: Hash>(s: Set(a), element: a): Set(a) =
+    add(remove(s, element), element)
 
 // **This function is spelled `unionOf` and Collections Part 4 section 6.2 calls
 // it `union`.** The mandated name cannot be declared: `union` is a hard keyword
@@ -72,11 +101,39 @@ export let isEmpty(s: Set(a)): Bool = size(s) == 0
 (** Every element of `left` together with every element of `right`. Elements in
     both keep the representative `left` holds. *)
 export let unionOf<a: Hash>(left: Set(a), right: Set(a)): Set(a) =
-    Seq.fold(toSeq(right), left, add)
+    if size(right) <= size(left) then
+        // Right is the smaller side. Insert-if-absent into the left: an element
+        // in both keeps the accumulator's, which is the left's, and section 5.4
+        // is satisfied with nothing done about it.
+        Seq.fold(toSeq(right), left, add)
+    else
+        // Left is the smaller side, so the accumulator has to be the right one —
+        // and now every element in both must have the *right's* representative
+        // thrown out and the left's put in its place. Insert-with-replace, the
+        // other arm of section 5.4, and the reason `replaceMember` exists.
+        Seq.fold(toSeq(left), right, replaceMember)
+
+// One element of the traversed side kept only if `source` holds an equal one,
+// and kept **as `source` holds it**. Named rather than inlined because the fold
+// below needs `source` bound and a lambda cannot take a third parameter.
+let keptRepresentative<a: Hash>(source: Set(a), accumulated: Set(a), element: a): Set(a) =
+    match storedMember(source, element)
+        None => accumulated
+        Some(stored) => add(accumulated, stored)
 
 (** The elements held by both `left` and `right`, as `left` holds them. *)
 export let intersect<a: Hash>(left: Set(a), right: Set(a)): Set(a) =
-    Seq.fold(Seq.filter(toSeq(left), (element) => contains(right, element)), empty, add)
+    if size(left) <= size(right) then
+        // Left is the smaller side: traverse it, probe the right, and every
+        // element collected is the left's own by construction (section 5.4).
+        Seq.fold(Seq.filter(toSeq(left), (element) => contains(right, element)), empty, add)
+    else
+        // Right is the smaller side, so the elements in hand are the right's and
+        // section 5.4 wants the left's. Probing with `contains` would answer the
+        // question and discard the answer needed, which is what the unexported
+        // `storedMember` row is for.
+        Seq.fold(toSeq(right), empty, (accumulated, element) =>
+            keptRepresentative(left, accumulated, element))
 
 (** The elements of `left` that `right` does not hold. *)
 export let difference<a: Hash>(left: Set(a), right: Set(a)): Set(a) =

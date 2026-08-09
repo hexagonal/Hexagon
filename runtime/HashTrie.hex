@@ -241,6 +241,48 @@ let containsKey<k: Hash>(trie: HashTrie(k, v), key: k): Bool =
         None => False
         Some(_) => True
 
+// The stored key `equal` to `key` under `tree` — `lookup`'s sibling, answering
+// the **representative** rather than the value. Same walk, same bounds, same
+// `equal` convention; only the three answering arms differ, and each hands back
+// the key it compared against rather than the value beside it.
+//
+// Collections Part 4 §5.4 is why this exists at all: `equals`-equal keys are one
+// key but need not be one value, so which concrete key a trie physically holds
+// is observable, and set intersection has to be able to name it.
+fun lookupKey(tree: Tree(k, v), hash: Int, key: k, shift: Int, equal: (k, k) -> Bool): Option(k) =
+    match tree
+        Entry(entryHash, entryKey, _) =>
+            if entryHash == hash and equal(entryKey, key) then
+                Some(entryKey)
+            else
+                None
+        Collision(collisionHash, count, entries) =>
+            if collisionHash == hash then
+                match indexOfKey(entries, count, key, equal)
+                    None => None
+                    Some(at) =>
+                        let (collidedKey, _) = Node.get(entries, at)
+                        Some(collidedKey)
+            else
+                None
+        Branch(bitmap, children) =>
+            let index = digit(hash, shift)
+            if bitTest(bitmap, index) then
+                lookupKey(Node.get(children, bitCountBelow(bitmap, index)), hash, key, shift + step, equal)
+            else
+                None
+
+// The key `trie` stores for `key`, or `None` — `get`'s sibling, and answered
+// from the unplaced `Sole` root the same way `get` answers there: by comparing
+// the two keys and nothing else, because placing an entry to read it back would
+// fix a placement it has so far managed without.
+let representative<k: Hash>(trie: HashTrie(k, v), key: k): Option(k) =
+    match trie.root
+        NoRoot => None
+        Sole(soleKey, _) =>
+            if soleKey == key then Some(soleKey) else None
+        Rooted(tree) => lookupKey(tree, placement(key), key, 0, (left, right) => left == right)
+
 // The subtree holding both `existing` and `fresh`, whose mixed hashes the caller
 // guarantees **differ**. Branches are built from `shift` downward for as long as
 // the two agree, then one branch holds both in bit-index order. Depth is bounded
@@ -551,6 +593,13 @@ let memberCount(s: HashSet(a)): Int = size(s.trie)
 // Whether `s` holds `element`.
 let containsMember<a: Hash>(s: HashSet(a), element: a): Bool =
     containsKey(s.trie, element)
+
+// The element `s` stores for `element`, or `None`. Not a membership test with a
+// souvenir: the answer is the **representative** `s` physically holds, which is
+// what set intersection needs when it traverses the right side and Collections
+// Part 4 §5.4 requires the left's representative in the result.
+let memberIn<a: Hash>(s: HashSet(a), element: a): Option(a) =
+    representative(s.trie, element)
 
 // `s` with `element` in it. Insert-if-absent falls out of the trie rather than
 // being arranged: `set` keeps the key representative it already holds

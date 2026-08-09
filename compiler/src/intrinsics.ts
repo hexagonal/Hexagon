@@ -162,6 +162,16 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * `isEmpty`, the whole algebra (`union`, `intersect`, `difference`,
  * `isSubsetOf`), `fromSeq` and `fromVector` take no keys: every one of them is
  * ordinary Hexagon over these seven.
+ *
+ * There is an **eighth** key, `setLookup`, and it is not §6.2 surface: `Set.hex`
+ * declares it unexported, the way `Map.hex` and `Set.hex` declare their `empty`
+ * thunks. It answers the stored *representative* — `Option(a)`, not `Bool` — and
+ * exists because Part 4 pins two things that pull opposite ways: §2.2 requires
+ * `intersect` to traverse the smaller side, and §5.4 requires the result to hold
+ * the **left** side's representatives. When the smaller side is the right one,
+ * satisfying both means looking the left's representative up rather than
+ * reusing the element in hand. `contains` stays the surface's only membership
+ * read (§4.4).
  */
 export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["seqMemoize", 1],
@@ -249,6 +259,7 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["setAdd", 2],
   ["setRemove", 2],
   ["setElements", 1],
+  ["setLookup", 2],
 ]);
 
 /**

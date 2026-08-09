@@ -116,6 +116,8 @@ export const HASH_TRIE_RUNTIME_OPERATIONS = [
   "memberCount",
   /** `containsMember(s, element)` — `<a: Hash>`, the only Boolean read. */
   "containsMember",
+  /** `memberIn(s, element)` — `<a: Hash>`, the stored representative (§5.4). */
+  "memberIn",
   /** `addMember(s, element)` — `<a: Hash>`, insert-if-absent (Part 4 §5.1). */
   "addMember",
   /** `removeMember(s, element)` — `<a: Hash>`, forgiving. */
@@ -4680,6 +4682,15 @@ class JavaScriptEmitter {
         return this.#useHashTrieRuntime("memberCount");
       case "setContains":
         return this.#useHashTrieRuntime("containsMember");
+      // The eighth key, and the one that is not Part 4 §6.2 surface: `Set.hex`
+      // declares it **unexported**, so no program can call it. `intersect` needs
+      // it when the smaller side is the right one — §2.2 pins the traversal to
+      // the smaller side and §5.4 pins the result's representatives to the left,
+      // and the only way to satisfy both at once is to look the left's
+      // representative *up*. `contains` remains the surface's only membership
+      // read (§4.4).
+      case "setLookup":
+        return this.#useHashTrieRuntime("memberIn");
       case "setAdd":
         return this.#useHashTrieRuntime("addMember");
       case "setRemove":
