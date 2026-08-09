@@ -171,12 +171,12 @@ A type member's bare name (`Item`) is in scope **throughout the constraint body*
 ### 5.3 Instance side
 
 ```
-honor<a> Iterable<Bag(a)> =
+honor Iterable<Bag(a)> =
     type Item = a
     toSeq(xs) = ...
 ```
 
-- The binding line is `type Name = τ`. **τ may mention only in-scope type names** (primitives, nominal types, fully-applied aliases per Declarations Preamble §5, other constructors) **and the instance's own `<...>` binders.** τ may **not** mention any implied type name — its own or another constraint's (they are not referenceable in type expressions, §7.3) — which is why recursion through type members is unwritable: no SCC check is needed because the cycle cannot be written.
+- The binding line is `type Name = τ`. **τ may mention only in-scope type names** (primitives, nominal types, fully-applied aliases per Declarations Preamble §5, other constructors) **and the instance's own binders** (the head's type variables, declared in the `<...>` prefix or introduced by the head — Constraints §5.4). τ may **not** mention any implied type name — its own or another constraint's (they are not referenceable in type expressions, §7.3) — which is why recursion through type members is unwritable: no SCC check is needed because the cycle cannot be written.
 - **Exactly-once discipline**, mirroring function members (Constraints §4.1): every type member declared by the constraint must be bound exactly once in the `honor` block; missing, extra, and duplicate bindings are each errors naming the member (§9).
 - Within the `honor` block, the bare name `Item` is in scope and denotes τ — usable in optional annotations on the block's own function members. Function-member checking proceeds with the substitution applied: `toSeq`'s expected type above is `Bag(a) -> Seq(a)`.
 - A bare `Item = a` line (no keyword) is not this form — it is shaped like a term-level binding of an uppercase-start name, which Functions §2 reserves for constructors; the `type` keyword is what makes the line self-announcing.
@@ -222,7 +222,7 @@ This is uniform over every binder position: function type parameters (`let f<c: 
 What remains — and suffices for Part 1 §6.1's floor — is everything that never projects from a variable:
 
 - **Declaring** a projection-bearing constraint (user or prelude): legal. §5.1 grammar is fully general, not a prelude privilege (rejected alternative §10.4).
-- **Honoring** one at a lawful instance head: legal — `honor<a> Iterable<Bag(a)>` per §5.3.
+- **Honoring** one at a lawful instance head: legal — `honor Iterable<Bag(a)>` per §5.3.
 - **Calling its function members at concrete types**: legal — `toSeq(myBag)` where `myBag : Bag(Int)` resolves by head-constructor lookup, the same monomorphic dispatch every constraint member already has. Zero inference changes.
 - **The `for..in` judgment consuming its instance table**: Part 5's business.
 
@@ -382,12 +382,12 @@ honor Signed<P> = derive                            -- ERROR: only Eq, Ord, Show
 -- (8) A user collection joins for..in (operational check in Part 5)
 union Bag(a) = MkBag(Vector(a))
 let elements(b: Bag(a)): Seq(a) = ...
-honor<a> Iterable<Bag(a)> =
+honor Iterable<Bag(a)> =
     type Item = a
     toSeq(xs) = elements(xs)                       -- OK; instance row: Bag → Item = a
 
 -- (9) Exactly-once on the instance side
-honor<a> Iterable<Box(a)> =
+honor Iterable<Box(a)> =
     toSeq(xs) = ...                                -- ERROR: instance is missing `type Item`
 
 -- (10) Projection-bearing binder ban, all positions

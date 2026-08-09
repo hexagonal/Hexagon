@@ -77,7 +77,7 @@ The single Loops §7.1 unsolved-case message is hereby **split**: an annotation 
 
 For a user nominal `T` with no instance, the message is the loop-side face of the instance-discoverability obligation (Modules §7.6). The compiler always knows both legal homes — the orphan rule's search space of size two — and the message names **both**, leading with the actionable one:
 
-> `Bag(Int)` is not iterable. Define `honor<a> Iterable<Bag(a)>` in `./bag.hex`, which declares `Bag`. The only other legal home is the prelude module declaring `Iterable`. Alternatively, convert with `Bag.toSeq`-style functions, or take a `Seq(a)` parameter.
+> `Bag(Int)` is not iterable. Define `honor Iterable<Bag(a)>` in `./bag.hex`, which declares `Bag`. The only other legal home is the prelude module declaring `Iterable`. Alternatively, convert with `Bag.toSeq`-style functions, or take a `Seq(a)` parameter.
 
 The prelude home is not user-editable, but naming it makes the two-home rule accurate and explains *why no third module can provide the instance* — the orphan rule handed to the user as a closed search space, not a hint. This subsumes Part 1 §6.4's earlier hint amendment, upgraded to name the files.
 
@@ -160,7 +160,7 @@ The resolution algorithm (§3), the recipe (§8), and the domestic emission rule
 Exactly the Part 2 §5.3 form — nothing loop-specific:
 
 ```
-honor<a> Iterable<Bag(a)> =
+honor Iterable<Bag(a)> =
     type Item = a
     toSeq(bag) = ...            -- the conversion body; §8.2's worked example
 ```
@@ -200,7 +200,7 @@ export fun add<a: Hash>(bag: Bag(a), x: a): Bag(a) = ...
 export fun count<a: Hash>(bag: Bag(a), x: a): Int = ...   -- 0 when absent
 export fun size(bag: Bag(a)): Int = ...                    -- total multiplicity
 
-honor<a> Iterable<Bag(a)> =
+honor Iterable<Bag(a)> =
     type Item = a
     toSeq(bag) = ...
         -- each element repeated `count` times, elements grouped; see order
@@ -444,14 +444,14 @@ for x in widget                             -- widget : Widget, user record, no 
                                             --   convert or take a Seq(a) parameter.
 
 -- (g) Provided-row collision: orphan error with the prelude hint
-honor<a> Iterable<Vector(a)> =              -- in user code
+honor Iterable<Vector(a)> =                 -- in user code
     type Item = a
     toSeq(xs) = Vector.toSeq(xs)
 -- ERROR: orphan instance — this module declares neither `Iterable` nor `Vector`;
 --        the prelude already provides Iterable<Vector(a)>
 
 -- (h) User-vs-user duplicate (same module)
-honor<a> Iterable<Bag(a)> = ...             -- second declaration in bag.hex
+honor Iterable<Bag(a)> = ...                -- second declaration in bag.hex
 -- ERROR at the second declaration: duplicate instance of Iterable<Bag>
 
 -- (i) Once-evaluation of the source

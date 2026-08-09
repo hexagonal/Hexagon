@@ -3,7 +3,7 @@
 The Collections chapter ended with one deliberately underexplained line:
 
 ```hexagon
-honor<a> Iterable<Bag(a)> =
+honor Iterable<Bag(a)> =
     type Item = a
     toSeq(bag) = Vector.toSeq(bag.items)
 ```
@@ -114,7 +114,7 @@ or adding an undeclared `Error` type is a compile error that names the offending
 An instance binding may use its own type parameters:
 
 ```hexagon
-honor<a> Iterable<Bag(a)> =
+honor Iterable<Bag(a)> =
     type Item = a
     toSeq(bag) = Vector.toSeq(bag.items)
 ```
@@ -123,7 +123,7 @@ Within the `honor` body, `Item` means the chosen type `a`. Optional annotations 
 operations may use that name:
 
 ```hexagon
-honor<a> Iterable<Bag(a)> =
+honor Iterable<Bag(a)> =
     type Item = a
     toSeq(bag: Bag(a)): Seq(Item) = Vector.toSeq(bag.items)
 ```
