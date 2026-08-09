@@ -70,7 +70,7 @@ One rule, no special cases, and it decides every edge by itself: a doc comment b
 
 - **Module-level declarations**: `let`, `var`, `fun`; the Declarations Preamble §7.1 inventory (`record`, `union`, `type`, `constraint`, `honor`, `exception`).
 - **`extern from` block items** — every item form the block admits (FFI Part 4 §2.2), because every one introduces a name: `fun` and `let` bindings, `default` bindings, `type` declarations, `enum` declarations, `class` declarations, and `method`/`get`/`set` items — the latter documentable **wherever they appear**, standalone in the block or grouped in an `extern class` (FFI Part 5 §5 governs both positions). An `extern enum`'s members are documentable like union constructors.
-- **Members**: a union constructor (the doc block precedes the constructor's alternative — its leading `|`, or the constructor name where no `|` precedes); a record field; a constraint member; a member implementation inside an `honor` block.
+- **Members**: a union constructor (the doc block precedes the constructor's alternative — its leading `|`, or the constructor name where no `|` precedes); a record field; a constraint member — the `type` members among them, which Collections Part 2 §5.1 places among the ordinary members; a member implementation inside an `honor` block — the implied-type bindings (`type Item = a`) among them, which are the type members' implementations (Part 2 §5.3).
 - **Block-local binders**: `let`, `var`, `fun` inside function bodies and blocks. Local docs never reach the `.d.ts` (locals are not exports); they exist for tooling (§8).
 
 Not documentable:
@@ -115,7 +115,7 @@ TypeScript's own compiler behaves exactly this way (comments persist into `.js`,
 - **Record fields**: the property in the emitted structural object type — JSDoc on object-type properties is where TS tooling reads field docs.
 - **Union constructors**: the materialized constructor when export materializes one (FFI Part 7 §12.2). The arm of the emitted union *type* has no reliable JSDoc seat in TS tooling; constructor docs ride the constructors.
 - **`type` aliases, `record`/`union` type declarations, exceptions**: the emitted type declaration in `.d.ts`.
-- **Constraints and their members**: the dictionary type and its properties (FFI Part 9), when exported.
+- **Constraints and their members**: the dictionary type and its properties (FFI Part 9), when exported. A `type` member is the member with no property — an instance's choice is a type, and types are gone before the boundary — so its documentation does not cross; tooling-only (§8).
 - **No seat**: `honor` blocks and their member implementations (instances are anonymous at the boundary); block-local binders (function bodies; interior comment emission is quality-of-implementation, Comments §6). Their docs are tooling-only (§8).
 
 ### 7.2 The JSDoc block
@@ -196,6 +196,17 @@ union Shape =
   (** An axis-aligned box. *)
   | Box(w: Float, h: Float)              -- constructor docs; ride materialized constructors on export
 
+constraint Keyed<c> =
+    (** The type of one key, chosen by each instance. *)
+    type Key
+    (** The key of `x`. *)
+    keyOf(x: c): Key                     -- constraint-member docs: type members and function members alike (§4.2)
+
+honor Keyed<Int> =
+    (** An `Int` keys itself. *)
+    type Key = Int
+    keyOf(x) = x                         -- implied-type-binding docs; honor seats are tooling-only (§7.1)
+
 /// not documentation
 fun plain(): Unit = ()                   -- OK; `plain` carries NO docs — `///` is an ordinary `//` comment (§2.3)
 (**********)                             -- ordinary comment (`(***` rule)
@@ -226,7 +237,7 @@ export (** misplaced *) fun m(): Unit = ()  -- ERROR: mid-declaration; `fun` doe
 | Content extraction: ordered procedure; dedent by longest common literal prefix, opener-line fragment exempt only when it exists | §3.1 |
 | Doc blocks merge across runs; blanks and ordinary comments invisible; empty docs legal | §3.2 |
 | Attachment: next-code-token-begins-declaration, one rule over physical tokens (virtual tokens invisible); leading-only; syntactic | §4 |
-| Documentable: module-level inventory + every `extern from` item form (`fun`/`let`/`default`/`type`/`enum`/`class` and members; enum members like constructors) + union constructors + record fields + constraint members + honor members + local binders; not `import`/`extern import`, not the `extern from` header, not module-level effects | §4.2 |
+| Documentable: module-level inventory + every `extern from` item form (`fun`/`let`/`default`/`type`/`enum`/`class` and members; enum members like constructors) + union constructors + record fields + constraint members (`type` members among them) + honor members (implied-type bindings among them) + local binders; not `import`/`extern import`, not the `extern from` header, not module-level effects | §4.2 |
 | Dangling and trailing doc comments are hard errors with Rewrite-Rule redirects; the `extern from` header gets its own message | §5 |
 | Content is CommonMark, carried opaque; bare fences default to Hexagon; no tags, no link resolution in v1 | §6 |
 | Emission: JSDoc in both `.js` and `.d.ts` at every corresponding seat; `*/` → `*\/`; no seat → tooling-only | §7 |
