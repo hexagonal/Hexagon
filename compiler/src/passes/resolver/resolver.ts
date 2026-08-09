@@ -2980,8 +2980,13 @@ class Resolver {
       }
       // `Seq` is gone from this list: it is a prelude *declaration* now (Loops
       // §6.6), reached through the record table above. The names left are the
-      // boundary intrinsics that no `.hex` module declares.
-      if (name === "Vector" || name === "Set" || name === "Array" || name === "Nullable") {
+      // boundary intrinsics that no `.hex` module declares — `JsMap` and
+      // `JsSet` (FFI Part 10 §1) among them, reached here for the same reason
+      // `Array` is: a borrowed foreign view has no Hexagon declaration site.
+      if (
+        name === "Vector" || name === "Set" || name === "Array" ||
+        name === "Nullable" || name === "JsSet"
+      ) {
         if (annotation.arguments.length !== 1) {
           this.#diagnostics.add({
             severity: "error",
@@ -2995,26 +3000,25 @@ class Resolver {
         if (name === "Nullable") return { kind: "Nullable", value: argument, span: annotation.span };
         if (name === "Vector") return { kind: "Vector", element: argument, span: annotation.span };
         if (name === "Set") return { kind: "Set", element: argument, span: annotation.span };
+        if (name === "JsSet") return { kind: "JsSet", element: argument, span: annotation.span };
         return { kind: "Array", element: argument, span: annotation.span };
       }
-      if (name === "Map") {
+      if (name === "Map" || name === "JsMap") {
         if (annotation.arguments.length !== 2) {
           this.#diagnostics.add({
             severity: "error",
-            message: `type \`Map\` expects 2 arguments, but ${annotation.arguments.length} were provided`,
+            message: `type \`${name}\` expects 2 arguments, but ${annotation.arguments.length} were provided`,
             primary: annotation.span,
           });
         }
-        return {
-          kind: "Map",
-          key: annotation.arguments[0] === undefined
-            ? { kind: "ErrorType", span: annotation.span }
-            : this.#resolveTypeAnnotation(annotation.arguments[0], typeParameters, impliedContext, substitutions),
-          value: annotation.arguments[1] === undefined
-            ? { kind: "ErrorType", span: annotation.span }
-            : this.#resolveTypeAnnotation(annotation.arguments[1], typeParameters, impliedContext, substitutions),
-          span: annotation.span,
-        };
+        const key = annotation.arguments[0] === undefined
+          ? { kind: "ErrorType" as const, span: annotation.span }
+          : this.#resolveTypeAnnotation(annotation.arguments[0], typeParameters, impliedContext, substitutions);
+        const value = annotation.arguments[1] === undefined
+          ? { kind: "ErrorType" as const, span: annotation.span }
+          : this.#resolveTypeAnnotation(annotation.arguments[1], typeParameters, impliedContext, substitutions);
+        if (name === "JsMap") return { kind: "JsMap", key, value, span: annotation.span };
+        return { kind: "Map", key, value, span: annotation.span };
       }
       this.#diagnostics.add({
         severity: "error",
@@ -3918,6 +3922,8 @@ function annotationHeadName(annotation: Resolved.TypeAnnotation): string {
     case "Map": return "Map";
     case "Set": return "Set";
     case "Array": return "Array";
+    case "JsMap": return "JsMap";
+    case "JsSet": return "JsSet";
     case "Node": return "Node";
     case "Nullable": return "Nullable";
     case "Function": return "Function";
@@ -3939,9 +3945,11 @@ function annotationTypeVariables(annotation: Resolved.TypeAnnotation): readonly 
     case "Vector": return annotationTypeVariables(annotation.element);
     case "Set": return annotationTypeVariables(annotation.element);
     case "Array": return annotationTypeVariables(annotation.element);
+    case "JsSet": return annotationTypeVariables(annotation.element);
     case "Node": return annotationTypeVariables(annotation.element);
     case "Nullable": return annotationTypeVariables(annotation.value);
-    case "Map": return [
+    case "Map":
+    case "JsMap": return [
       ...annotationTypeVariables(annotation.key),
       ...annotationTypeVariables(annotation.value),
     ];
@@ -4006,11 +4014,11 @@ function substituteResolvedType(
     fields: type.fields.map((field) => ({ ...field, annotation: substituteResolvedType(field.annotation, replacements) })),
     span,
   };
-  if (type.kind === "Vector" || type.kind === "Set" || type.kind === "Array") {
+  if (type.kind === "Vector" || type.kind === "Set" || type.kind === "Array" || type.kind === "JsSet") {
     return { ...type, element: substituteResolvedType(type.element, replacements), span };
   }
   if (type.kind === "Nullable") return { ...type, value: substituteResolvedType(type.value, replacements), span };
-  if (type.kind === "Map") return {
+  if (type.kind === "Map" || type.kind === "JsMap") return {
     ...type,
     key: substituteResolvedType(type.key, replacements),
     value: substituteResolvedType(type.value, replacements),

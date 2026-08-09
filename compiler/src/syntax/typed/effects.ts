@@ -33,11 +33,13 @@ export function collectEffectVariables(
     case "Vector":
     case "Set":
     case "Array":
+    case "JsSet":
     case "Node":
       return collectEffectVariables(type.element, found);
     case "Nullable":
       return collectEffectVariables(type.value, found);
     case "Map":
+    case "JsMap":
       collectEffectVariables(type.key, found);
       return collectEffectVariables(type.value, found);
     case "Tuple":
@@ -81,11 +83,13 @@ export function collectInletVariables(
     case "Vector":
     case "Set":
     case "Array":
+    case "JsSet":
     case "Node":
       return collectInletVariables(type.element, found);
     case "Nullable":
       return collectInletVariables(type.value, found);
     case "Map":
+    case "JsMap":
       collectInletVariables(type.key, found);
       return collectInletVariables(type.value, found);
     case "Tuple":
@@ -119,11 +123,13 @@ export function carriesEffect(type: Typed.Type): boolean {
     case "Vector":
     case "Set":
     case "Array":
+    case "JsSet":
     case "Node":
       return carriesEffect(type.element);
     case "Nullable":
       return carriesEffect(type.value);
     case "Map":
+    case "JsMap":
       return carriesEffect(type.key) || carriesEffect(type.value);
     case "Tuple":
       return type.elements.some(carriesEffect);
@@ -155,11 +161,13 @@ export function collectTypeVariables(
     case "Vector":
     case "Set":
     case "Array":
+    case "JsSet":
     case "Node":
       return collectTypeVariables(type.element, found);
     case "Nullable":
       return collectTypeVariables(type.value, found);
     case "Map":
+    case "JsMap":
       collectTypeVariables(type.key, found);
       return collectTypeVariables(type.value, found);
     case "Tuple":

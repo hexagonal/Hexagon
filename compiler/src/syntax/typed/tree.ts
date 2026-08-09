@@ -35,6 +35,8 @@ export type Type =
   | MapType
   | SetType
   | ArrayType
+  | JsMapType
+  | JsSetType
   | NodeType
   | NullableType
   | VariableType
@@ -73,6 +75,23 @@ export interface SetType {
 
 export interface ArrayType {
   readonly kind: "Array";
+  readonly element: Type;
+}
+
+/**
+ * The borrowed view of a native JS `Map` (FFI Part 10 §1): zero-copy, read-only,
+ * and faced as `ReadonlyMap<k, v>`. Distinct from `MapType`, the persistent
+ * collection — the separation is permanent (Part 10 §1).
+ */
+export interface JsMapType {
+  readonly kind: "JsMap";
+  readonly key: Type;
+  readonly value: Type;
+}
+
+/** The borrowed view of a native JS `Set` (FFI Part 10 §1); faced `ReadonlySet<a>`. */
+export interface JsSetType {
+  readonly kind: "JsSet";
   readonly element: Type;
 }
 

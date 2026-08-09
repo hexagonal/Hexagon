@@ -3966,14 +3966,19 @@ class JavaScriptEmitter {
       // Collections Part 5 §4's provided rows, rendered rather than imported
       // (#353). Every one of them is one slot, and every slot but `Seq`'s is
       // the same expression: an emitted `Vector`, `Map`, `Set`, `Range`,
-      // `Array` and JavaScript `String` are all iterable values, and
-      // `seqFromIterable` is the compiler's one constructor of a `Seq` over
-      // one. The per-type meanings §4's table names are already carried by the
-      // emitted iterators — a map's yields its entries, a set's its elements
-      // (not the `Unit`s beneath them), a string's its codepoints, which is
-      // §5.1's semantics exactly. So `String.toSeq` is lazy, O(1) to create and
-      // O(n) to exhaust (§5.2) for the same reason `Vector.toSeq` is: the
-      // adapter acquires the iterator at the first pull, never at construction.
+      // `Array`, `JsMap`, `JsSet` and JavaScript `String` are all iterable
+      // values, and `seqFromIterable` is the compiler's one constructor of a
+      // `Seq` over one. The per-type meanings §4's table names are already
+      // carried by the emitted iterators — a map's yields its entries, a set's
+      // its elements (not the `Unit`s beneath them), a string's its codepoints,
+      // which is §5.1's semantics exactly. The two borrowed views need no arm of
+      // their own for the same reason they need no adaptation: a native `Map`'s
+      // entries are two-element arrays, which *is* the tuple representation, and
+      // a native `Set` yields its elements (FFI Part 10 §6.3), in the insertion
+      // order the foreign object itself contracts for (§6.2). So `String.toSeq`
+      // is lazy, O(1) to create and O(n) to exhaust (§5.2) for the same reason
+      // `Vector.toSeq` is: the adapter acquires the iterator at the first pull,
+      // never at construction.
       //
       // `Seq`'s row is the **identity**, not the adapter: rebuilding a spine
       // over a sequence that already has one would be a second memo for values
@@ -7273,6 +7278,18 @@ function renderType(
       // immutable spelling. Structural, not branded: the value is an ordinary
       // foreign JS array, not one of the runtime collections above.
       return `ReadonlyArray<${renderType(type.element, variables, faces, false)}>`;
+    case "JsMap":
+    case "JsSet":
+      // The borrowed views of native `Map`/`Set` (FFI Part 10 §1). Structural
+      // like `Array` and for the same reason twice over: the value *is* the
+      // caller's own `Map`/`Set`, so a brand would be a lie, and Hexagon exposes
+      // no mutation on it, so the readonly spelling is the whole of what the
+      // face has to say (§1's table).
+      return type.kind === "JsSet"
+        ? `ReadonlySet<${renderType(type.element, variables, faces, false)}>`
+        : `ReadonlyMap<${renderType(type.key, variables, faces, false)}, ${
+          renderType(type.value, variables, faces, false)
+        }>`;
     case "Node":
       // The hidden trie node never appears in a public `.d.ts`; its honest JS
       // shape is a fixed-length mutable array of the slot type.

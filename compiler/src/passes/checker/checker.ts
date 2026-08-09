@@ -63,6 +63,8 @@ type Mono =
   | MapMono
   | SetMono
   | ArrayMono
+  | JsMapMono
+  | JsSetMono
   | NodeMono
   | NullableMono
   | UnionMono
@@ -268,6 +270,19 @@ interface SetMono {
 
 interface ArrayMono {
   readonly kind: "Array";
+  readonly element: Mono;
+}
+
+/** The borrowed view of a native JS `Map` (FFI Part 10 §1). */
+interface JsMapMono {
+  readonly kind: "JsMap";
+  readonly key: Mono;
+  readonly value: Mono;
+}
+
+/** The borrowed view of a native JS `Set` (FFI Part 10 §1). */
+interface JsSetMono {
+  readonly kind: "JsSet";
   readonly element: Mono;
 }
 
@@ -2410,6 +2425,10 @@ class Checker {
       ? "set"
       : subject.kind === "Array"
       ? "array"
+      : subject.kind === "JsMap"
+      ? "jsmap"
+      : subject.kind === "JsSet"
+      ? "jsset"
       : subject.kind === "Range"
       ? "range"
       : subject.kind === "Primitive"
@@ -3689,9 +3708,16 @@ class Checker {
           element = primitive("Int");
         } else if (sequenceElement !== undefined) {
           element = sequenceElement;
-        } else if (actual.kind === "Vector" || actual.kind === "Set" || actual.kind === "Array") {
+        } else if (
+          actual.kind === "Vector" || actual.kind === "Set" || actual.kind === "Array" ||
+          actual.kind === "JsSet"
+        ) {
           element = actual.element;
-        } else if (actual.kind === "Map") {
+        } else if (actual.kind === "Map" || actual.kind === "JsMap") {
+          // `JsMap(k, v)` yields `(k, v)` exactly as the persistent `Map` does
+          // (FFI Part 10 §6.1), and needs no adaptation to: a native `Map`'s
+          // entries *are* two-element arrays, which is the tuple representation
+          // (Part 10 §6.3).
           element = { kind: "Tuple", elements: [actual.key, actual.value] };
         } else if (
           actual.kind === "Constructor" && actual.name === "String"
@@ -5316,6 +5342,13 @@ class Checker {
     } else if (actualLeft.kind === "Array" && actualRight.kind === "Array") {
       this.#unify(actualLeft.element, actualRight.element, span);
       return;
+    } else if (actualLeft.kind === "JsSet" && actualRight.kind === "JsSet") {
+      this.#unify(actualLeft.element, actualRight.element, span);
+      return;
+    } else if (actualLeft.kind === "JsMap" && actualRight.kind === "JsMap") {
+      this.#unify(actualLeft.key, actualRight.key, span);
+      this.#unify(actualLeft.value, actualRight.value, span);
+      return;
     } else if (actualLeft.kind === "Node" && actualRight.kind === "Node") {
       this.#unify(actualLeft.element, actualRight.element, span);
       return;
@@ -5571,6 +5604,7 @@ class Checker {
       case "Vector":
       case "Set":
       case "Array":
+      case "JsSet":
       case "Node":
         this.#lowerLevels(actual.element, level);
         return;
@@ -5578,6 +5612,7 @@ class Checker {
         this.#lowerLevels(actual.value, level);
         return;
       case "Map":
+      case "JsMap":
         this.#lowerLevels(actual.key, level);
         this.#lowerLevels(actual.value, level);
         return;
@@ -5612,9 +5647,12 @@ class Checker {
     if (actual.kind === "Vector") return this.#occurs(variable, actual.element);
     if (actual.kind === "Set") return this.#occurs(variable, actual.element);
     if (actual.kind === "Array") return this.#occurs(variable, actual.element);
+    if (actual.kind === "JsSet") return this.#occurs(variable, actual.element);
     if (actual.kind === "Node") return this.#occurs(variable, actual.element);
     if (actual.kind === "Nullable") return this.#occurs(variable, actual.value);
-    if (actual.kind === "Map") return this.#occurs(variable, actual.key) || this.#occurs(variable, actual.value);
+    if (actual.kind === "Map" || actual.kind === "JsMap") {
+      return this.#occurs(variable, actual.key) || this.#occurs(variable, actual.value);
+    }
     return false;
   }
 
@@ -6297,6 +6335,13 @@ class Checker {
         match(formal.key, actual.key);
         match(formal.value, actual.value);
       }
+      if (formal.kind === "JsSet" && actual.kind === "JsSet") {
+        match(formal.element, actual.element);
+      }
+      if (formal.kind === "JsMap" && actual.kind === "JsMap") {
+        match(formal.key, actual.key);
+        match(formal.value, actual.value);
+      }
     };
     match(this.#instanceSubjects.get(instance) ?? ERROR, subject);
     return replacements;
@@ -6335,11 +6380,12 @@ class Checker {
       return { kind: "Set", element: this.#replaceVariables(actual.element, replacements) };
     }
     if (actual.kind === "Array") return { kind: "Array", element: this.#replaceVariables(actual.element, replacements) };
+    if (actual.kind === "JsSet") return { kind: "JsSet", element: this.#replaceVariables(actual.element, replacements) };
     if (actual.kind === "Node") return { kind: "Node", element: this.#replaceVariables(actual.element, replacements) };
     if (actual.kind === "Nullable") return { kind: "Nullable", value: this.#replaceVariables(actual.value, replacements) };
-    if (actual.kind === "Map") {
+    if (actual.kind === "Map" || actual.kind === "JsMap") {
       return {
-        kind: "Map",
+        kind: actual.kind,
         key: this.#replaceVariables(actual.key, replacements),
         value: this.#replaceVariables(actual.value, replacements),
       };
@@ -6624,6 +6670,7 @@ class Checker {
         case "Vector":
         case "Set":
         case "Array":
+        case "JsSet":
         case "Node":
           walk(actual.element, multiplyVariance(sign, compilerClaim(actual.kind, 0)));
           return;
@@ -6631,8 +6678,9 @@ class Checker {
           walk(actual.value, multiplyVariance(sign, compilerClaim("Nullable", 0)));
           return;
         case "Map":
-          walk(actual.key, multiplyVariance(sign, compilerClaim("Map", 0)));
-          walk(actual.value, multiplyVariance(sign, compilerClaim("Map", 1)));
+        case "JsMap":
+          walk(actual.key, multiplyVariance(sign, compilerClaim(actual.kind, 0)));
+          walk(actual.value, multiplyVariance(sign, compilerClaim(actual.kind, 1)));
           return;
         default:
           return;
@@ -6864,9 +6912,10 @@ class Checker {
     if (actual.kind === "Vector") this.#collectVariables(actual.element, found);
     if (actual.kind === "Set") this.#collectVariables(actual.element, found);
     if (actual.kind === "Array") this.#collectVariables(actual.element, found);
+    if (actual.kind === "JsSet") this.#collectVariables(actual.element, found);
     if (actual.kind === "Node") this.#collectVariables(actual.element, found);
     if (actual.kind === "Nullable") this.#collectVariables(actual.value, found);
-    if (actual.kind === "Map") {
+    if (actual.kind === "Map" || actual.kind === "JsMap") {
       this.#collectVariables(actual.key, found);
       this.#collectVariables(actual.value, found);
     }
@@ -6952,9 +7001,12 @@ class Checker {
       if (actual.kind === "Vector") return { kind: "Vector", element: copy(actual.element) };
       if (actual.kind === "Set") return { kind: "Set", element: copy(actual.element) };
       if (actual.kind === "Array") return { kind: "Array", element: copy(actual.element) };
+      if (actual.kind === "JsSet") return { kind: "JsSet", element: copy(actual.element) };
       if (actual.kind === "Node") return { kind: "Node", element: copy(actual.element) };
       if (actual.kind === "Nullable") return { kind: "Nullable", value: copy(actual.value) };
-      if (actual.kind === "Map") return { kind: "Map", key: copy(actual.key), value: copy(actual.value) };
+      if (actual.kind === "Map" || actual.kind === "JsMap") {
+        return { kind: actual.kind, key: copy(actual.key), value: copy(actual.value) };
+      }
       if (actual.kind === "Record") {
         const record = this.#normalizeRecord(actual);
         return {
@@ -7014,11 +7066,12 @@ class Checker {
       return { kind: "Set", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes) };
     }
     if (annotation.kind === "Array") return { kind: "Array", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes) };
+    if (annotation.kind === "JsSet") return { kind: "JsSet", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes) };
     if (annotation.kind === "Node") return { kind: "Node", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes) };
     if (annotation.kind === "Nullable") return { kind: "Nullable", value: this.#annotationType(annotation.value, level, namedTails, typeParameters, impliedTypes, holes) };
-    if (annotation.kind === "Map") {
+    if (annotation.kind === "Map" || annotation.kind === "JsMap") {
       return {
-        kind: "Map",
+        kind: annotation.kind,
         key: this.#annotationType(annotation.key, level, namedTails, typeParameters, impliedTypes, holes),
         value: this.#annotationType(annotation.value, level, namedTails, typeParameters, impliedTypes, holes),
       };
@@ -7331,11 +7384,13 @@ class Checker {
    * itself — which is #388's lesson applied ahead of the defect rather than
    * after it.
    *
-   * Two rows in §4's table are absent, and their absence is a compiler gap
-   * rather than a decision: `JsMap(k, v)` and `JsSet(a)` have no representation
-   * in the type system at all (no `Mono`, no annotation kind — see
-   * `variance.ts`'s "no row and no need of one" note), so there is no subject to
-   * key a slot on. They land with FFI Part 10's types.
+   * All nine rows are seeded. The last two to arrive were FFI Part 10's borrowed
+   * views, `JsMap(k, v)` and `JsSet(a)`, which waited on the types having a
+   * representation to key a slot on at all (#396); their `Item` bindings are
+   * Part 10 §6.1's, `(k, v)` and `a`. They are FFI-owned rows in the table
+   * (Part 10 §10) but ordinary rows here: nothing about the seeding distinguishes
+   * a borrowed view from a persistent collection, because the coherence slot does
+   * not care where the value's storage lives.
    */
   #seedProvidedIterableRows(module: Resolved.Module): void {
     const declaration = this.#constraintsByIdentity.get(
@@ -7435,6 +7490,33 @@ class Checker {
       (parameters) => parameters.get("a")!,
       { kind: "Array", element: annotation("a"), span },
     );
+    // The two FFI-owned rows (FFI Part 10 §6.1). `JsMap` yields `(k, v)` and
+    // needs no adaptation to: a native `Map`'s entries are two-element arrays,
+    // which *is* the tuple representation (§6.3). Native insertion order is the
+    // foreign object's own contract, inherited (§6.2) — stronger than the
+    // persistent collections' arbitrary-but-stable order, and nothing here has
+    // to arrange it.
+    seed(
+      "JsMap",
+      ["k", "v"],
+      (parameters) => ({
+        kind: "JsMap",
+        key: parameters.get("k")!,
+        value: parameters.get("v")!,
+      }),
+      (parameters) => ({
+        kind: "Tuple",
+        elements: [parameters.get("k")!, parameters.get("v")!],
+      }),
+      { kind: "JsMap", key: annotation("k"), value: annotation("v"), span },
+    );
+    seed(
+      "JsSet",
+      ["a"],
+      (parameters) => ({ kind: "JsSet", element: parameters.get("a")! }),
+      (parameters) => parameters.get("a")!,
+      { kind: "JsSet", element: annotation("a"), span },
+    );
     // `Item = String`, one codepoint per item (§5.1). Hexagon has no `Char`, and
     // a one-codepoint `String` is what `s[i]` already answers.
     seed("String", [], () => primitive("String"), () => primitive("String"), {
@@ -7518,6 +7600,8 @@ class Checker {
     if (type.kind === "Map") return "map";
     if (type.kind === "Set") return "set";
     if (type.kind === "Array") return "array";
+    if (type.kind === "JsMap") return "jsmap";
+    if (type.kind === "JsSet") return "jsset";
     return this.#display(type);
   }
 
@@ -7571,9 +7655,11 @@ class Checker {
         case "Vector": return { kind: "Vector", element: copy(type.element) };
         case "Set": return { kind: "Set", element: copy(type.element) };
         case "Array": return { kind: "Array", element: copy(type.element) };
+        case "JsSet": return { kind: "JsSet", element: copy(type.element) };
         case "Node": return { kind: "Node", element: copy(type.element) };
         case "Nullable": return { kind: "Nullable", value: copy(type.value) };
         case "Map": return { kind: "Map", key: copy(type.key), value: copy(type.value) };
+        case "JsMap": return { kind: "JsMap", key: copy(type.key), value: copy(type.value) };
         case "Variable": {
           const existing = variables.get(type.id);
           if (existing !== undefined) return existing;
@@ -7669,9 +7755,12 @@ class Checker {
       if (actual.kind === "Vector") return { kind: "Vector", element: copy(actual.element) };
       if (actual.kind === "Set") return { kind: "Set", element: copy(actual.element) };
       if (actual.kind === "Array") return { kind: "Array", element: copy(actual.element) };
+      if (actual.kind === "JsSet") return { kind: "JsSet", element: copy(actual.element) };
       if (actual.kind === "Node") return { kind: "Node", element: copy(actual.element) };
       if (actual.kind === "Nullable") return { kind: "Nullable", value: copy(actual.value) };
-      if (actual.kind === "Map") return { kind: "Map", key: copy(actual.key), value: copy(actual.value) };
+      if (actual.kind === "Map" || actual.kind === "JsMap") {
+        return { kind: actual.kind, key: copy(actual.key), value: copy(actual.value) };
+      }
       if (actual.kind === "Function") {
         return {
           kind: "Function",
@@ -7725,9 +7814,12 @@ class Checker {
       case "Vector":
       case "Set":
       case "Array":
+      case "JsSet":
         return this.#mentionsNode(actual.element);
       case "Nullable": return this.#mentionsNode(actual.value);
-      case "Map": return this.#mentionsNode(actual.key) || this.#mentionsNode(actual.value);
+      case "Map":
+      case "JsMap":
+        return this.#mentionsNode(actual.key) || this.#mentionsNode(actual.value);
       case "Union":
       case "NominalRecord":
         return actual.arguments.some((argument) => this.#mentionsNode(argument));
@@ -7758,9 +7850,12 @@ class Checker {
         visit(actual.result, found);
       } else if (actual.kind === "Tuple") actual.elements.forEach((element) => visit(element, found));
       else if (actual.kind === "Record") actual.fields.forEach((field) => visit(field, found));
-      else if (actual.kind === "Vector" || actual.kind === "Set" || actual.kind === "Array" || actual.kind === "Node") visit(actual.element, found);
+      else if (
+        actual.kind === "Vector" || actual.kind === "Set" || actual.kind === "Array" ||
+        actual.kind === "JsSet" || actual.kind === "Node"
+      ) visit(actual.element, found);
       else if (actual.kind === "Nullable") visit(actual.value, found);
-      else if (actual.kind === "Map") { visit(actual.key, found); visit(actual.value, found); }
+      else if (actual.kind === "Map" || actual.kind === "JsMap") { visit(actual.key, found); visit(actual.value, found); }
       return found;
     };
     for (const item of items) {
@@ -8288,10 +8383,14 @@ class Checker {
     }
     if (actual.kind === "Set") return { kind: "Set", element: this.#publicType(actual.element, seen) };
     if (actual.kind === "Array") return { kind: "Array", element: this.#publicType(actual.element, seen) };
+    if (actual.kind === "JsSet") return { kind: "JsSet", element: this.#publicType(actual.element, seen) };
     if (actual.kind === "Node") return { kind: "Node", element: this.#publicType(actual.element, seen) };
     if (actual.kind === "Nullable") return { kind: "Nullable", value: this.#publicType(actual.value, seen) };
     if (actual.kind === "Map") {
       return { kind: "Map", key: this.#publicType(actual.key, seen), value: this.#publicType(actual.value, seen) };
+    }
+    if (actual.kind === "JsMap") {
+      return { kind: "JsMap", key: this.#publicType(actual.key, seen), value: this.#publicType(actual.value, seen) };
     }
     // An effect constant is reached only through a function's effect slot,
     // which the `Function` arm renders itself; it is never a type in its own
@@ -9398,12 +9497,12 @@ class Checker {
     }
     if (
       actual.kind === "Vector" || actual.kind === "Set" || actual.kind === "Array" ||
-      actual.kind === "Node"
+      actual.kind === "JsSet" || actual.kind === "Node"
     ) {
       this.#inletVariables(actual.element, found);
     }
     if (actual.kind === "Nullable") this.#inletVariables(actual.value, found);
-    if (actual.kind === "Map") {
+    if (actual.kind === "Map" || actual.kind === "JsMap") {
       this.#inletVariables(actual.key, found);
       this.#inletVariables(actual.value, found);
     }
@@ -9445,10 +9544,11 @@ class Checker {
     if (actual.kind === "Vector") return `Vector(${this.#render(actual.element, numbering)})`;
     if (actual.kind === "Set") return `Set(${this.#render(actual.element, numbering)})`;
     if (actual.kind === "Array") return `Array(${this.#render(actual.element, numbering)})`;
+    if (actual.kind === "JsSet") return `JsSet(${this.#render(actual.element, numbering)})`;
     if (actual.kind === "Node") return `Node(${this.#render(actual.element, numbering)})`;
     if (actual.kind === "Nullable") return `Nullable(${this.#render(actual.value, numbering)})`;
-    if (actual.kind === "Map") {
-      return `Map(${this.#render(actual.key, numbering)}, ${
+    if (actual.kind === "Map" || actual.kind === "JsMap") {
+      return `${actual.kind}(${this.#render(actual.key, numbering)}, ${
         this.#render(actual.value, numbering)
       })`;
     }
@@ -9495,12 +9595,12 @@ class Checker {
     }
     if (
       actual.kind === "Vector" || actual.kind === "Set" || actual.kind === "Array" ||
-      actual.kind === "Node"
+      actual.kind === "JsSet" || actual.kind === "Node"
     ) {
       this.#effectVariables(actual.element, found);
     }
     if (actual.kind === "Nullable") this.#effectVariables(actual.value, found);
-    if (actual.kind === "Map") {
+    if (actual.kind === "Map" || actual.kind === "JsMap") {
       this.#effectVariables(actual.key, found);
       this.#effectVariables(actual.value, found);
     }
@@ -9709,11 +9809,13 @@ function typeAnnotationHoleNodes(
     case "Vector":
     case "Set":
     case "Array":
+    case "JsSet":
     case "Node":
       return typeAnnotationHoleNodes(annotation.element);
     case "Nullable":
       return typeAnnotationHoleNodes(annotation.value);
     case "Map":
+    case "JsMap":
       return [
         ...typeAnnotationHoleNodes(annotation.key),
         ...typeAnnotationHoleNodes(annotation.value),
@@ -9747,11 +9849,13 @@ function annotationHasTypeVariable(
     case "Vector":
     case "Set":
     case "Array":
+    case "JsSet":
     case "Node":
       return annotationHasTypeVariable(annotation.element);
     case "Nullable":
       return annotationHasTypeVariable(annotation.value);
     case "Map":
+    case "JsMap":
       return annotationHasTypeVariable(annotation.key) ||
         annotationHasTypeVariable(annotation.value);
     case "Tuple":
@@ -9792,10 +9896,12 @@ function annotationMentionsNode(annotation: Resolved.TypeAnnotation): boolean {
     case "Vector":
     case "Set":
     case "Array":
+    case "JsSet":
       return annotationMentionsNode(annotation.element);
     case "Nullable":
       return annotationMentionsNode(annotation.value);
     case "Map":
+    case "JsMap":
       return annotationMentionsNode(annotation.key) || annotationMentionsNode(annotation.value);
     case "Function":
       return annotation.parameters.some(annotationMentionsNode) ||
@@ -9863,12 +9969,16 @@ function nestedAdapterType(
     annotation.kind === "Vector" ||
     annotation.kind === "Set" ||
     annotation.kind === "Array" ||
+    // The borrowed views nest like every other container: `JsMap(String,
+    // Seq(Int))` is FFI Part 1 §5.3's hard error at the declaration site, cited
+    // by Part 10 §8, not extended by it.
+    annotation.kind === "JsSet" ||
     annotation.kind === "Node"
   ) {
     return recurse(annotation.element);
   } else if (annotation.kind === "Nullable") {
     return recurse(annotation.value);
-  } else if (annotation.kind === "Map") {
+  } else if (annotation.kind === "Map" || annotation.kind === "JsMap") {
     return recurse(annotation.key) ?? recurse(annotation.value);
   } else if (annotation.kind === "Union" || annotation.kind === "RecordDeclaration") {
     for (const argument of annotation.arguments) {

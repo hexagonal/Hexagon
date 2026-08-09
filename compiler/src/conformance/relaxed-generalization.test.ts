@@ -593,6 +593,11 @@ describe("§5.3 the compiler-side claim table", () => {
   test("the borrowed foreign views are invariant in v1", () => {
     expect(COMPILER_CLAIMS.get("Array")).toEqual(["inv"]);
     expect(COMPILER_CLAIMS.get("Nullable")).toEqual(["inv"]);
+    // FFI Part 10's two views take `Array`'s row on `Array`'s grounds: the
+    // entries, elements and size of a native `Map`/`Set` are stable only by the
+    // borrow contract (Part 10 §2), and a claim may not rest on a contract.
+    expect(COMPILER_CLAIMS.get("JsMap")).toEqual(["inv", "inv"]);
+    expect(COMPILER_CLAIMS.get("JsSet")).toEqual(["inv"]);
   });
 
   test("every row is consulted, and says what the table says", () => {
@@ -612,7 +617,15 @@ describe("§5.3 the compiler-side claim table", () => {
     expect(projectDiagnostics("export opaque record W(+a) = { v: Map(String, a) }\n")).toEqual([]);
     expect(projectDiagnostics("export opaque record W(+a) = { v: Map(a, String) }\n")).toEqual([]);
     expect(projectDiagnostics("export opaque record W(+a) = { v: Set(a) }\n")).toEqual([]);
-    for (const field of ["Array(a)", "Nullable(a)"]) {
+    for (
+      const field of [
+        "Array(a)",
+        "Nullable(a)",
+        "JsSet(a)",
+        "JsMap(String, a)",
+        "JsMap(a, String)",
+      ]
+    ) {
       expect(projectDiagnostics(`export opaque record W(+a) = { v: ${field} }\n`)).toContain(
         "`a` cannot be declared covariant in `W`: field `v` uses `a` in an " +
           "invariant position. Remove the `+`, or change the field",

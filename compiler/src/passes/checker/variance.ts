@@ -67,10 +67,13 @@ export interface Occurrence {
  * - **Invariant, because a claim may not rest on a contract** — the borrowed
  *   foreign views. `Array` is a view of a genuinely mutable foreign object whose
  *   stability is a boundary contract (FFI Part 1 §3.1, Part 2 §6.2), not a
- *   language guarantee. `Nullable` is representation-direct and holds nothing
- *   mutable, but has no declaration site and no ruling: invariant is the
- *   conservative default here, not a mutability verdict. A claim for either
- *   needs its own ruling.
+ *   language guarantee. `JsMap` and `JsSet` are the same case one part further
+ *   on: views of native JS `Map`/`Set` whose entries, elements and size are
+ *   stable only by the borrow contract (FFI Part 10 §2), so the closure doc
+ *   §5.3 table gives them `Array`'s row on `Array`'s grounds. `Nullable` is
+ *   representation-direct and holds nothing mutable, but has no declaration site
+ *   and no ruling: invariant is the conservative default here, not a mutability
+ *   verdict. A claim for any of them needs its own ruling.
  *
  * `Map`'s row is **verified** as of the Map step (#370), and it is `co, co`.
  * §11.4 sequenced the real claim after the milestone, and the milestone has
@@ -98,10 +101,12 @@ export interface Occurrence {
  * with a sabotage control, which is all "verified" means; §11.1 (ix)'s
  * recomputation clause obliges it to run on every edit to that same file.
  *
- * Constructors with no row and no need of one: `NullableCase`, `JsMap` and
- * `JsSet`. None is nameable in a type annotation, so no representation can put a
- * parameter under them and `#classify` never reaches them — the default they
- * would fall to is not load-bearing, it is unreachable.
+ * The constructor with no row and no need of one is now `NullableCase` alone. It
+ * is not nameable in a type annotation, so no representation can put a parameter
+ * under it and `#classify` never reaches it — the default it would fall to is
+ * not load-bearing, it is unreachable. `JsMap` and `JsSet` stood in that
+ * category only while they had no representation at all (#396); they are
+ * annotation syntax now, so they carry their §5.3 rows above.
  *
  * `Seq` is **not** here. It has a declaration site, and the ruling's transitional
  * `Seq(+a)` row was retired by writing the sigil into `stdlib/Seq.hex` — a
@@ -116,6 +121,8 @@ export const COMPILER_CLAIMS: ReadonlyMap<string, readonly Variance[]> = new Map
   ["Nullable", ["inv"]],
   ["Map", ["co", "co"]],
   ["Set", ["co"]],
+  ["JsMap", ["inv", "inv"]],
+  ["JsSet", ["inv"]],
 ]);
 
 export function flip(variance: Variance): Variance {
@@ -372,12 +379,14 @@ export class VarianceTable {
         case "Set":
         case "Node":
         case "Array":
+        case "JsSet":
           walk(annotation.element);
           return;
         case "Nullable":
           walk(annotation.value);
           return;
         case "Map":
+        case "JsMap":
           walk(annotation.key);
           walk(annotation.value);
           return;
@@ -472,10 +481,11 @@ export class VarianceTable {
         );
         return;
       case "Array":
+      case "JsSet":
         this.#classify(
           entry,
           annotation.element,
-          multiply(sign, COMPILER_CLAIMS.get("Array")?.[0] ?? "inv"),
+          multiply(sign, COMPILER_CLAIMS.get(annotation.kind)?.[0] ?? "inv"),
           into,
           field,
         );
@@ -490,17 +500,18 @@ export class VarianceTable {
         );
         return;
       case "Map":
+      case "JsMap":
         this.#classify(
           entry,
           annotation.key,
-          multiply(sign, COMPILER_CLAIMS.get("Map")?.[0] ?? "inv"),
+          multiply(sign, COMPILER_CLAIMS.get(annotation.kind)?.[0] ?? "inv"),
           into,
           field,
         );
         this.#classify(
           entry,
           annotation.value,
-          multiply(sign, COMPILER_CLAIMS.get("Map")?.[1] ?? "inv"),
+          multiply(sign, COMPILER_CLAIMS.get(annotation.kind)?.[1] ?? "inv"),
           into,
           field,
         );

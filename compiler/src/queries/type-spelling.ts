@@ -256,6 +256,15 @@ export class VariableNames {
       case "Array":
         if (type.kind === "Array") this.learn(annotation.element, type.element);
         return;
+      case "JsSet":
+        if (type.kind === "JsSet") this.learn(annotation.element, type.element);
+        return;
+      case "JsMap":
+        if (type.kind === "JsMap") {
+          this.learn(annotation.key, type.key);
+          this.learn(annotation.value, type.value);
+        }
+        return;
       case "Node":
         if (type.kind === "Node") this.learn(annotation.element, type.element);
         return;
@@ -392,6 +401,7 @@ export function spellType(
     case "Vector":
     case "Set":
     case "Array":
+    case "JsSet":
     // `Node(a)` is the hidden fixed-32 trie node, which only a privileged
     // runtime module may name. It is written rather than refused here: a module
     // that may not name it is one the type could not have come from.
@@ -401,6 +411,8 @@ export function spellType(
       return builtIn("Nullable", [type.value]);
     case "Map":
       return builtIn("Map", [type.key, type.value]);
+    case "JsMap":
+      return builtIn("JsMap", [type.key, type.value]);
     case "Tuple": {
       // The empty tuple is `Unit`, which is the type's one name; `()` in type
       // notation is only a zero-parameter domain (Products §2.7, #159).
