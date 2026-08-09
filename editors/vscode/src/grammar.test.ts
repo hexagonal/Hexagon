@@ -144,6 +144,38 @@ describe("contextual keywords are positional (spec/lexer.md §4.2)", () => {
     expect(await scope("let opaque = 1", "opaque")).toBe("variable.other.definition.hexagon");
   });
 
+  /**
+   * `union` joined the contextual words at the Set step (#373): Collections
+   * Part 4 §6.2 mandates `Set.union`, and a reserved word cannot be a member
+   * name. The grammar has to follow the parser, or the Playground and the
+   * extension render the member as a keyword and mis-scope the binder.
+   *
+   * Every row can fail on its own: the first two would fail if `union` were
+   * dropped from the grammar entirely, the rest if it were left in the bare
+   * keyword alternation.
+   */
+  it("recognizes `union` only at a declaration head", async () => {
+    // Keyword where the parser says keyword: a head, bare and after `export`.
+    expect(await scope("union Shape = Circle | Rect", "union")).toBe("storage.type.hexagon");
+    expect(await scope("export union Shape = Circle | Rect", "union")).toBe(
+      "storage.type.hexagon",
+    );
+    expect(await scope("export opaque union Box(a) = Wrap(v: a)", "union")).toBe(
+      "storage.type.hexagon",
+    );
+    // An ordinary name everywhere else, in whichever term role the position
+    // gives it — the three call spellings are call heads, and none is a keyword.
+    expect(await scope("let u = Set.union(a, b)", "union")).toBe(
+      "entity.name.function.hexagon",
+    );
+    expect(await scope("let u = s.union(t)", "union")).toBe("entity.name.function.hexagon");
+    expect(await scope("let u = union(a, b)", "union")).toBe("entity.name.function.hexagon");
+    expect(await scope("let union = 1", "union")).toBe("variable.other.definition.hexagon");
+    expect(await scope("let f(union: Int): Int = 1", "union")).toBe("variable.parameter.hexagon");
+    expect(await scope("let r = { union = 1 }", "union")).toBe("variable.other.hexagon");
+    expect(await scope("let x = union", "union")).toBe("variable.other.hexagon");
+  });
+
   it("recognizes `derives` in a declaration header", async () => {
     expect(await scope("union Ordering derives (Eq, Show) =\n    | Less", "derives")).toBe(
       "keyword.other.derives.hexagon",
@@ -738,6 +770,32 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
     // the JavaScript-comment region, which is a half-typed `/*` away from the same leak.
     expect(guards).toHaveLength(15);
     expect(new Set(guards).size).toBe(1);
+  });
+
+  /**
+   * `union` is in the guard, but **only with a type name after it** (#373).
+   *
+   * A bare `union` was a safe declaration-start marker while the word was
+   * reserved, because no other line could begin with it. It is not safe now: an
+   * indented continuation may legitimately start `union(a, b)`, and a guard that
+   * bailed there would end the enclosing bracket or comment at a line that never
+   * left it. The arm is asserted separately from the alternation above because
+   * the word-list test cannot see it — `union` is deliberately *outside* the
+   * first alternation, so deleting this arm entirely would leave that test green.
+   *
+   * The scope assertions cannot stand in for this either: a bail changes region
+   * nesting, and the innermost scope of every token in the affected line is the
+   * same on both sides of it. Structure is the only observation that moves.
+   */
+  it("admits `union` to the guard only ahead of a type name", async () => {
+    const guards = endPatterns(JSON.parse(await readFile(grammarPath, "utf8")))
+      .filter((end) => end.includes("(?=^\\S"));
+    expect(guards).toHaveLength(15);
+    for (const guard of guards) {
+      expect(guard, guard).toContain(
+        "|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}])",
+      );
+    }
   });
 
   it("bails on every hard keyword that can open a declaration", async () => {

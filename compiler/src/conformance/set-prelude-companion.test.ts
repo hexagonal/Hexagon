@@ -30,13 +30,6 @@ import { compileFiles, projectDiagnostics, runMain } from "../support/test-proje
  * §2.2 pins to the smaller side take both directions: `union` and `intersect`
  * dispatch on `size`, so each operand order runs different code, and an
  * assertion made in one order alone would leave the other path untested.
- *
- * ## One spelling deviates from the spec
- *
- * §6.2 names the first algebra operation `union`. That name is a hard keyword
- * (Lexer §4.1) and no binder position accepts it, so `stdlib/Set.hex` ships
- * `unionOf` and says so at its declaration. Every `unionOf` below is a `union`
- * the compiler cannot yet be told about.
  */
 
 /** Sorted elements of a constructor-shaped `show` rendering; see §8.3. */
@@ -220,11 +213,11 @@ describe("§16 (f) / §5.3 the algebra, in both directions", () => {
       "let small: Set(Int) = Set.fromVector([1, 2])\n" +
         "let large: Set(Int) = Set.fromVector([2, 3, 4, 5])\n" +
         "let blank: Set(Int) = Set.empty\n" +
-        "let sorted(s: Set(Int)): Vector(Int) = Vector.fromSeq(Set.toSeq(s))\n" +
+        "let collected(s: Set(Int)): Vector(Int) = Vector.fromSeq(Set.toSeq(s))\n" +
         // Smaller side on the right, then on the left.
-        "export let unionA: Int = Set.size(Set.unionOf(large, small))\n" +
-        "export let unionB: Int = Set.size(Set.unionOf(small, large))\n" +
-        "export let unionAgrees: Bool = Set.unionOf(large, small) == Set.unionOf(small, large)\n" +
+        "export let unionA: Int = Set.size(Set.union(large, small))\n" +
+        "export let unionB: Int = Set.size(Set.union(small, large))\n" +
+        "export let unionAgrees: Bool = Set.union(large, small) == Set.union(small, large)\n" +
         "export let interA: Bool = Set.intersect(large, small) == Set.singleton(2)\n" +
         "export let interB: Bool = Set.intersect(small, large) == Set.singleton(2)\n" +
         // `difference` and `isSubsetOf` do not dispatch — §2.2 pins both to the
@@ -234,8 +227,8 @@ describe("§16 (f) / §5.3 the algebra, in both directions", () => {
         "export let subsetA: Bool = Set.isSubsetOf(Set.singleton(2), large)\n" +
         "export let subsetB: Bool = Set.isSubsetOf(large, Set.singleton(2))\n" +
         // The empty-set edges, on both sides of each operation.
-        "export let unionEmptyLeft: Bool = Set.unionOf(blank, small) == small\n" +
-        "export let unionEmptyRight: Bool = Set.unionOf(small, blank) == small\n" +
+        "export let unionEmptyLeft: Bool = Set.union(blank, small) == small\n" +
+        "export let unionEmptyRight: Bool = Set.union(small, blank) == small\n" +
         "export let interEmptyLeft: Bool = Set.isEmpty(Set.intersect(blank, small))\n" +
         "export let interEmptyRight: Bool = Set.isEmpty(Set.intersect(small, blank))\n" +
         "export let diffEmptyLeft: Bool = Set.isEmpty(Set.difference(blank, small))\n" +
@@ -243,8 +236,8 @@ describe("§16 (f) / §5.3 the algebra, in both directions", () => {
         // §5.3's two named facts about `isSubsetOf`.
         "export let emptyIsSubset: Bool = Set.isSubsetOf(blank, large)\n" +
         "export let selfIsSubset: Bool = Set.isSubsetOf(large, large)\n" +
-        "export let disjoint: Int = Set.size(Set.unionOf(Set.singleton(7), Set.singleton(8)))\n" +
-        "export let contents: Vector(Int) = sorted(Set.unionOf(small, large))\n",
+        "export let disjoint: Int = Set.size(Set.union(Set.singleton(7), Set.singleton(8)))\n" +
+        "export let contents: Vector(Int) = collected(Set.union(small, large))\n",
     );
     expect(main["unionA"]).toBe(5);
     expect(main["unionB"]).toBe(5);
@@ -340,9 +333,9 @@ describe("§16 (j) / §5.4 representative retention", () => {
         "let negative: Set(Float) = Set.singleton(-0.0)\n" +
         "let positive: Set(Float) = Set.singleton(0.0)\n" +
         "export let unionNegativeLeft: (Int, Int) =\n" +
-        "    (Set.size(Set.unionOf(negative, positive)), signs(Set.unionOf(negative, positive)))\n" +
+        "    (Set.size(Set.union(negative, positive)), signs(Set.union(negative, positive)))\n" +
         "export let unionPositiveLeft: (Int, Int) =\n" +
-        "    (Set.size(Set.unionOf(positive, negative)), signs(Set.unionOf(positive, negative)))\n" +
+        "    (Set.size(Set.union(positive, negative)), signs(Set.union(positive, negative)))\n" +
         "export let interNegativeLeft: (Int, Int) =\n" +
         "    (Set.size(Set.intersect(negative, positive)), signs(Set.intersect(negative, positive)))\n" +
         "export let interPositiveLeft: (Int, Int) =\n" +
@@ -382,9 +375,9 @@ describe("§16 (j) / §5.4 representative retention", () => {
         // size(left) 1 < size(right) 2, so `union` folds left into right and
         // `intersect` traverses the right and looks the left's element up.
         "export let unionSizes: (Int, Int) =\n" +
-        "    (Set.size(Set.unionOf(negative, placed)), Set.size(Set.unionOf(placed, negative)))\n" +
+        "    (Set.size(Set.union(negative, placed)), Set.size(Set.union(placed, negative)))\n" +
         "export let unionSigns: (Int, Int) =\n" +
-        "    (signs(Set.unionOf(negative, placed)), signs(Set.unionOf(placed, negative)))\n" +
+        "    (signs(Set.union(negative, placed)), signs(Set.union(placed, negative)))\n" +
         "export let interSizes: (Int, Int) =\n" +
         "    (Set.size(Set.intersect(negative, placed)), Set.size(Set.intersect(placed, negative)))\n" +
         "export let interSigns: (Int, Int) =\n" +
@@ -602,7 +595,7 @@ describe("the companion's surface", () => {
         "export let dottedHas: Bool = s.contains(1)\n" +
         "export let dottedRemove: Int = Set.size(s.remove(1))\n" +
         "export let dottedEmpty: Bool = s.isEmpty()\n" +
-        "export let dottedUnion: Int = Set.size(s.unionOf(other))\n" +
+        "export let dottedUnion: Int = Set.size(s.union(other))\n" +
         "export let dottedSubset: Bool = s.isSubsetOf(s)\n" +
         "export let dottedSeq: Int = Seq.length(s.toSeq())\n",
     );
@@ -654,6 +647,42 @@ describe("the companion's surface", () => {
   });
 
   /**
+   * **`union` is bare-legal, and that is new.** The name was a hard keyword
+   * until this step asked for it (#373), so no binder anywhere could carry it;
+   * it is contextual now, and `Set.hex` is the prelude's only exporter of the
+   * spelling, so Modules §5.5 has nothing to refuse and the bare call resolves.
+   * Its three spellings are one call, as Method Syntax §1 requires — and the
+   * declaration form is unharmed, which is the half a contextual keyword can
+   * break.
+   */
+  test("`union` resolves bare, qualified, and after a dot, and still declares", async () => {
+    const main = await runMain(
+      "union Colour = Red | Green\n" +
+        "let left: Set(Int) = Set.fromVector([1, 2])\n" +
+        "let right: Set(Int) = Set.fromVector([2, 3])\n" +
+        "export let bare: Int = Set.size(union(left, right))\n" +
+        "export let qualified: Int = Set.size(Set.union(left, right))\n" +
+        "export let dotted: Int = Set.size(left.union(right))\n" +
+        "export let agree: Bool = union(left, right) == Set.union(left, right)\n" +
+        // The word still declares, and the declaration is still usable.
+        "let describe(colour: Colour): Int =\n" +
+        "    match colour\n" +
+        "        Red => 1\n" +
+        "        Green => 2\n" +
+        "export let declared: Int = describe(Green)\n" +
+        // And it still binds, which is the other half a reserved word forbade.
+        "let bound(union: Int): Int = union + 1\n" +
+        "export let asBinder: Int = bound(41)\n",
+    );
+    expect(main["bare"]).toBe(3);
+    expect(main["qualified"]).toBe(3);
+    expect(main["dotted"]).toBe(3);
+    expect(main["agree"]).toBe(true);
+    expect(main["declared"]).toBe(2);
+    expect(main["asBinder"]).toBe(42);
+  });
+
+  /**
    * Every export carries a manual-voice doc comment, and the doc travels into
    * the emitted JavaScript as it does for every other prelude member. Read off
    * the compiled module rather than the file, so a comment that failed to attach
@@ -697,9 +726,7 @@ describe("the companion's surface", () => {
       "singleton",
       "size",
       "toSeq",
-      // §6.2 calls this `union`; the name is a hard keyword (Lexer §4.1) and no
-      // binder position accepts it, so the file ships the stand-in.
-      "unionOf",
+      "union",
     ]);
     for (const hidden of ["storedMember", "replaceMember", "keptRepresentative", "emptySet"]) {
       expect(exported).not.toContain(hidden);
@@ -739,7 +766,7 @@ describe("the companion's surface", () => {
       "contains",
       "add",
       "remove",
-      "unionOf",
+      "union",
       "intersect",
       "difference",
       "isSubsetOf",

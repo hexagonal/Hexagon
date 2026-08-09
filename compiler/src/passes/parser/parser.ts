@@ -361,7 +361,7 @@ class Parser {
           span: spanFrom(exportToken.span, this.#previous().span),
         };
       }
-      if (!this.#at("Let") && !this.#at("Fun") && !this.#at("Type") && !this.#at("Union") && !this.#at("Record") && !this.#at("Exception") && !this.#at("Constraint")) {
+      if (!this.#at("Let") && !this.#at("Fun") && !this.#at("Type") && !this.#atUnionHead() && !this.#at("Record") && !this.#at("Exception") && !this.#at("Constraint")) {
         this.#errorAt(
           exportToken.span,
           "`export` must be followed by a declaration",
@@ -372,12 +372,12 @@ class Parser {
           span: spanFrom(exportToken.span, this.#previous().span),
         };
       }
-      if (opaque && !this.#at("Union") && !this.#at("Record")) {
+      if (opaque && !this.#atUnionHead() && !this.#at("Record")) {
         this.#errorAt(exportToken.span, "`opaque` applies to `record` and `union` declarations");
       }
       if (this.#at("Constraint")) return this.#parseConstraint(true, exportToken.span);
       if (this.#at("Type")) return this.#parseTypeAlias(true, exportToken.span);
-      if (this.#at("Union")) return this.#parseUnion(true, exportToken.span, opaque);
+      if (this.#atUnionHead()) return this.#parseUnion(true, exportToken.span, opaque);
       if (this.#at("Record")) return this.#parseRecordDeclaration(true, exportToken.span, opaque);
       if (this.#at("Exception")) return this.#parseException(true, exportToken.span);
       return this.#at("Let")
@@ -417,7 +417,7 @@ class Parser {
     if (this.#at("Var")) {
       return this.#parseVar();
     }
-    if (this.#at("Union")) {
+    if (this.#atUnionHead()) {
       if (!moduleItems) {
         const start = this.#advance();
         this.#errorAt(start.span, "`union` is only allowed at module top level");
@@ -959,6 +959,35 @@ class Parser {
   #atContextual(text: string): boolean {
     const token = this.#current();
     return token.kind === "NonUpperName" && token.text === text;
+  }
+
+  /**
+   * Whether a union **declaration** starts here — the `union` contextual
+   * keyword (#373), recognized by Products §3.3's mechanism.
+   *
+   * `union` was a hard keyword until the Set step needed `Set.union` and could
+   * not have it: Collections Part 4 §6.2 mandates that name, and a reserved word
+   * is unspellable in every binder position. The `with` precedent settled the
+   * shape — a contextual word costs one predicate and forecloses nothing — and
+   * `when` and `opaque` are the same mechanism.
+   *
+   * **One token of lookahead is the whole test, and it is exact.** A declaration
+   * head is always `union` followed by the type's *name*; nothing else in the
+   * grammar puts a name immediately after a bare `union`, because Hexagon has no
+   * juxtaposition — an application is `union(a, b)`, whose next token is
+   * `LeftParen`, and a reference is `union` followed by an operator, a newline,
+   * or nothing. So a name here means a declaration and anything else means a
+   * term, at module level and inside a block alike.
+   *
+   * A *non-uppercase* name counts, and deliberately: `union foo = A | B` is a
+   * declaration with the wrong name, and admitting it here is what keeps
+   * `#parseUnion`'s "requires an uppercase type name" pointed at the real fault
+   * instead of letting the line fall out of the item grammar entirely.
+   */
+  #atUnionHead(): boolean {
+    if (!this.#atContextual("union")) return false;
+    const next = this.#peek(1).kind;
+    return next === "UpperName" || next === "NonUpperName";
   }
 
   #expectContextual(text: string, message: string): void {
@@ -2265,20 +2294,12 @@ class Parser {
 
   #parseAccess(receiver: Parsed.Expr): Parsed.Expr {
     this.#advance();
-    if (this.#at("Union")) {
-      const token = this.#advance();
-      const field: Parsed.Name = {
-        text: "union",
-        startClass: "non-upper",
-        span: token.span,
-      };
-      return {
-        kind: "Access",
-        receiver,
-        field,
-        span: spanFrom(receiver.span, token.span),
-      };
-    }
+    // No `union` special case here any more (#373). While `union` was a hard
+    // keyword this arm existed so `Vector.union` could at least *parse* as a
+    // field — the one position a reserved word was let through. The word is
+    // contextual now, so it arrives as an ordinary `NonUpperName` and the
+    // general path below takes it, which is why `Set.union(a, b)` needs nothing
+    // written for it.
     const field = this.#takeAnyName("expected a field name after `.`");
     if (field === undefined) {
       return { kind: "ErrorExpr", span: receiver.span };
@@ -3495,7 +3516,7 @@ function isKeyword(kind: TokenKind): kind is Lexed.KeywordKind {
     "And", "Catch", "Constraint", "Derive", "Else", "Exception", "Export",
     "Extern", "False", "Finally", "For", "Fun", "Honor", "Iff", "If",
     "Implies", "Import", "In", "Let", "Match", "Not", "Or", "Record",
-    "Then", "True", "Try", "Type", "Union", "Var", "While",
+    "Then", "True", "Try", "Type", "Var", "While",
   ].includes(kind);
 }
 

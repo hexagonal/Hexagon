@@ -261,9 +261,7 @@ describe("emitJavaScript", () => {
         "fun setFacts<a: Hash>(a: Set(a), b: Set(a)) = (a == b, hash(a) == hash(b))\n" +
         "let first = Set.fromVector([1, 2, 3])\n" +
         "let second = Set.fromVector([3, 4])\n" +
-        // `unionOf`, not `union`: the mandated name is a hard keyword no binder
-        // position accepts, so `stdlib/Set.hex` ships the stand-in (#373).
-        "let combined = Set.unionOf(first, second)\n" +
+        "let combined = Set.union(first, second)\n" +
         "let common = Set.intersect(first, second)\n" +
         "let rest = Set.difference(first, second)\n" +
         "let subset = Set.isSubsetOf(common, first)\n" +

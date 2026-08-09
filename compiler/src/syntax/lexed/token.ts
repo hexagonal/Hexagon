@@ -37,7 +37,6 @@ export const keywordKinds = [
   "True",
   "Try",
   "Type",
-  "Union",
   "Var",
   "While",
 ] as const;

@@ -276,7 +276,14 @@ function expectsBlock(item: readonly Lexed.Token[]): boolean {
   if (first?.kind === "Constraint" || first?.kind === "Honor") {
     return true;
   }
-  if (first?.kind === "Record" || first?.kind === "Union" || first?.kind === "Type") {
+  // A union declaration head is recognized contextually here for the same
+  // reason the parser recognizes it contextually (#373): `union` is an ordinary
+  // `NonUpperName` since the Set step, and the test is the token after it. A
+  // *name* follows only in a declaration; a member binding spelled `union(l, r)`
+  // has a `LeftParen` there and must keep opening its block like any other.
+  const unionHead = first?.kind === "NonUpperName" && first.text === "union" &&
+    ["UpperName", "NonUpperName"].includes(item[item[0]?.kind === "Export" ? 2 : 1]?.kind ?? "");
+  if (first?.kind === "Record" || unionHead || first?.kind === "Type") {
     return false;
   }
   // Every term binding opens a block: `let x =`, `var x =`, and `fun f(...) =`

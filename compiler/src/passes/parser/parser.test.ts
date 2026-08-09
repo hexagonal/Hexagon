@@ -1405,6 +1405,84 @@ describe("parse", () => {
       );
     });
   });
+
+  /**
+   * `union` is a **contextual** keyword since the Set step (#373). Collections
+   * Part 4 §6.2 mandates `Set.union`, and a reserved word is unspellable in
+   * every binder position, so the word joined `with`, `when` and `opaque`:
+   * Products §3.3's mechanism, one token of lookahead, keyword only where a
+   * type name follows.
+   *
+   * Every case below can fail on its own. The declaration rows would fail if the
+   * lookahead were dropped; the term rows would fail if the word were still
+   * reserved; and the two diagnostics would fail if the predicate were narrowed
+   * to `UpperName` alone or widened past the item grammar.
+   */
+  describe("`union` is contextual (#373)", () => {
+    const messages = (text: string): readonly string[] =>
+      parseSource(text).diagnostics.map(({ message }) => message);
+
+    const itemKinds = (text: string): readonly string[] =>
+      parseSource(text).items.map(({ kind }) => kind);
+
+    test("a declaration head still declares, bare and exported", () => {
+      expect(itemKinds("union Colour = Red | Green")).toEqual(["Union"]);
+      expect(messages("union Colour = Red | Green")).toEqual([]);
+      expect(itemKinds("export union Colour = Red | Green")).toEqual(["Union"]);
+      expect(messages("export union Colour = Red | Green")).toEqual([]);
+      expect(itemKinds("export opaque union Box(a) = Wrap(v: a)")).toEqual(["Union"]);
+      expect(messages("export opaque union Box(a) = Wrap(v: a)")).toEqual([]);
+    });
+
+    /**
+     * The layout half, which is a separate failure mode from the parse: a union
+     * head must not open a block, or its indented alternatives get a VOPEN and
+     * the `|` lines stop belonging to the declaration. `expectsBlock` used to
+     * read the keyword token kind and now reads the same contextual shape.
+     */
+    test("an indented alternative list still belongs to its declaration", () => {
+      const module = parseSource("union Tree(a) =\n    | Leaf\n    | Node(v: a)\n");
+      expect(module.diagnostics.map(({ message }) => message)).toEqual([]);
+      expect(module.items.map(({ kind }) => kind)).toEqual(["Union"]);
+    });
+
+    test("the word binds, names a field, and names a parameter", () => {
+      expect(messages("let union = 3")).toEqual([]);
+      expect(itemKinds("let union = 3")).toEqual(["Let"]);
+      expect(messages("let r = { union = 1 }")).toEqual([]);
+      expect(messages("let f(union: Int): Int = union")).toEqual([]);
+      expect(messages("var union = 1")).toEqual([]);
+    });
+
+    /**
+     * The three call spellings, and the reason the ruling was asked for. The
+     * bare one is a **new capability**: `Set.hex` is the only prelude member
+     * exporting `union`, so the name is uncollided and resolves bare — which a
+     * reserved word made impossible to write at all.
+     */
+    test("qualified, dotted, and bare calls all parse", () => {
+      expect(messages("let u = Set.union(a, b)")).toEqual([]);
+      expect(messages("let u = s.union(t)")).toEqual([]);
+      expect(messages("let u = union(a, b)")).toEqual([]);
+    });
+
+    /**
+     * The lookahead is a name, not an uppercase name, so a mis-cased type name
+     * stays a union declaration with the wrong name rather than falling out of
+     * the item grammar into a much worse message.
+     */
+    test("a lower-cased type name keeps the targeted diagnostic", () => {
+      expect(messages("union colour = Red")).toContain(
+        "`union` requires an uppercase type name",
+      );
+    });
+
+    test("a declaration below module level keeps its own diagnostic", () => {
+      expect(messages("fun f(): Int =\n    union Bad = A\n    1\n")).toContain(
+        "`union` is only allowed at module top level",
+      );
+    });
+  });
 });
 
 function parseSource(text: string): Parsed.Module {
