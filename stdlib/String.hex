@@ -16,11 +16,27 @@
 // (`spec/intrinsics.md` §3.2). Everything a string's *contents* can be asked —
 // length, slicing, joining — belongs to the listing and collections surfaces,
 // not here.
+//
+// `fromSeq` is the one row here that is not a member's core, and it is here for
+// a different reason than the natives above. Collections Part 5 section 5.3
+// defines it as concatenation and then binds the implementation — collect
+// chunks and join — marking the fold of `++` semantic only and ruling out
+// repeated immutable concatenation by name. The fold is exactly what a Hexagon
+// body would be, so the operation crosses the door to reach a linear join. Its
+// twin `toSeq` is not declared here at all: `Iterable<String>` is a provided
+// row (Part 5 section 4), so `toSeq("ab")` is the constraint member and
+// `String.toSeq` is that row's uniform-access read.
 extern from "hex:intrinsic"
     fun stringConcat as nativeConcat(left: String, right: String): String
     fun stringEquals as nativeEquals(left: String, right: String): Bool
     fun stringCompare as nativeCompare(left: String, right: String): Ordering
     fun stringHash as nativeHash(value: String): Int
+
+    (** The elements of `values` joined end to end. The empty sequence gives
+        `""`; elements may be strings of any length and are concatenated in
+        traversal order, with no Unicode normalization. It forces the whole
+        sequence, so it does not terminate on an infinite one. *)
+    export fun stringFromSeq as fromSeq(values: Seq(String)): String
 
 honor Eq<String> =
     (** Whether `left` and `right` are the same text. *)

@@ -69,9 +69,13 @@ export let keys(map: Map(k, v)): Seq(k) = Seq.map(entries(map), entryKey)
 (** The values of `map`, positionally matching `keys`. *)
 export let values(map: Map(k, v)): Seq(v) = Seq.map(entries(map), entryValue)
 
-(** Every key/value pair in `map`, lazily — `entries` under the conversion
-    suite's name. *)
-export let toSeq(map: Map(k, v)): Seq((k, v)) = entries(map)
+// `toSeq` is not bound here, and cannot be: `Iterable<Map(k, v)>` is a provided
+// row (Collections Part 5 section 4) whose member *is* `entries`, and a
+// module-level binding of a member's spelling beside the instance is the
+// Constraints section 4.6 rebinding error. `entries` keeps its own name — it is
+// entrenched domain vocabulary with `keys`/`values` siblings (Part 5
+// section 13.1) — and the suite spelling reaches the same walk through the
+// member, bare as `toSeq(map)` or qualified as `Map.toSeq(map)`.
 
 // One insertion of a pair, which is the fold `fromEntries` is. `set` is where
 // both duplicate rules come from and neither is arranged here: the later value

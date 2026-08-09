@@ -31,8 +31,15 @@ extern from "hex:intrinsic"
         `IndexError` when `index` is out of range; it never extends the vector. *)
     export fun vectorSet as set(values: Vector(a), index: Int, value: a): Vector(a)
 
-    (** The elements of `values` as a sequence, in order. *)
-    export fun vectorToSeq as toSeq(values: Vector(a)): Seq(a)
+    // Unexported, and unexported *permanently*: `Iterable<Vector(a)>` is a
+    // provided row (Collections Part 5 section 4), so `toSeq` at a vector is
+    // the constraint member, and a module-level binding of a member's spelling
+    // beside the instance is the Constraints section 4.6 rebinding error. The
+    // consumer spellings are the bare member `toSeq(values)` and the
+    // uniform-access read `Vector.toSeq(values)`; neither is an export of this
+    // file. The row is kept because the boundary crossing is still Collections
+    // Part 3 section 7's, and `fromSeq` below is written over it.
+    fun vectorToSeq as elements(values: Vector(a)): Seq(a)
 
     (** The elements of `values` collected into a vector. It forces the whole
         sequence, so it does not terminate on an infinite one. *)
