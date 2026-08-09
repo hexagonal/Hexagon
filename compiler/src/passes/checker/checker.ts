@@ -557,6 +557,28 @@ function companionHeadName(type: Mono): string | undefined {
   return undefined;
 }
 
+/**
+ * The type variables a parameterized instance head introduces, in head order
+ * and without duplicates (#390).
+ *
+ * The head is the declaration of these binders: `honor Iterable<Bag(a)>` binds
+ * `a` exactly as `honor<a>` does, and the `<...>` prefix only adds constraints
+ * to some of them. Non-nominal subjects yield nothing — a head that is not a
+ * nominal constructor is refused by `#checkInstanceHead` on its own grounds,
+ * and a non-variable argument is refused there too, so both channels that mint
+ * from this list mint only what the head lawfully binds.
+ */
+function headBinderNames(subject: Resolved.TypeAnnotation): readonly string[] {
+  if (subject.kind !== "Union" && subject.kind !== "RecordDeclaration") return [];
+  return [
+    ...new Set(
+      subject.arguments.flatMap((argument) =>
+        argument.kind === "TypeVariable" ? [argument.name] : []
+      ),
+    ),
+  ];
+}
+
 function constraintMemberCandidates(
   declaration: Resolved.ConstraintItem,
 ): readonly MemberCandidate[] {
@@ -1087,6 +1109,30 @@ class Checker {
             ),
           ] as const),
         );
+        // A parameterized head introduces its own binders (#390). The head's
+        // free type variables ARE this instance's binders whether or not the
+        // `<...>` prefix declares them — the prefix exists to *constrain* them,
+        // so `honor Iterable<Bag(a)>` is the canonical unconstrained spelling
+        // and `honor<a: Eq> Eq<Pair(a, b)>` a lawful partial one.
+        //
+        // Minting them here — after the declared ones, before the registration
+        // below, and before the subject elaborates — is what makes them real
+        // binders rather than an artifact. `#annotationType`'s TypeVariable arm
+        // writes an unknown lowercase name into a mutable binder map, so a
+        // binder-less head used to acquire its variables *behind* this loop:
+        // rigid by accident, but in neither `#quantified` nor
+        // `#honorBinderVariables`, so defaulting could settle one and the
+        // header fixit could never name it. Declared first, then head order, so
+        // the map's order is the header's reading order.
+        for (const name of headBinderNames(item.subject)) {
+          if (typeParameters.has(name)) continue;
+          // `[]` and not `undefined` for `declaredConstraints`: an undeclared
+          // head binder is exactly `honor<a>`'s `a` — declared without
+          // constraints — and it is that empty list which turns a member body's
+          // requirement into §4.1's refusal with the `honor` header's rewrite
+          // instead of leaving the requirement to accumulate.
+          typeParameters.set(name, this.#fresh(0, false, name, []));
+        }
         // Quantified besides being rigid: `honor<a: Render>` binds `a`, so it
         // is never an unresolved variable for defaulting to settle — nor one
         // for §4's blocked-defaulting report to name.
@@ -2174,22 +2220,43 @@ class Checker {
   ): void {
     const subject = item.subject;
     const nominal = subject.kind === "Union" || subject.kind === "RecordDeclaration";
-    if (item.typeParameters.length > 0) {
+    // A head is parameterized when it is *applied*, whether or not a `<...>`
+    // prefix declares the binders (#390): the prefix attaches constraints, it
+    // does not decide that the head has arguments. Reading the prefix alone let
+    // `honor Eq<Pair(a, a)>` and `honor Show<Box(Int)>` past the law entirely,
+    // the first honoring one constraint at two unrelated argument positions
+    // through a single variable, the second keying a ground head on a
+    // constructor the coherence table cannot tell apart from the generic one.
+    if (item.typeParameters.length > 0 || (nominal && subject.arguments.length > 0)) {
       const arguments_ = nominal ? subject.arguments : [];
       const names = arguments_.flatMap((argument) =>
         argument.kind === "TypeVariable" ? [argument.name] : []
       );
-      const declared = item.typeParameters.map(({ name }) => name);
+      // Shape first: nominal, and applied once to each *distinct* variable. The
+      // count against the prefix is gone with the prefix's new meaning — a
+      // partial prefix declares fewer names than the head binds, which is the
+      // point of allowing it.
       const lawful = nominal && names.length === arguments_.length &&
-        new Set(names).size === names.length &&
-        names.length === declared.length &&
-        declared.every((name) => names.includes(name));
+        new Set(names).size === names.length;
       if (!lawful) {
         this.#diagnostics.add({
           severity: "error",
           message: "a parameterized instance head must be a nominal constructor applied once to each distinct instance parameter",
           primary: item.subject.span,
         });
+      } else {
+        // Gated on the shape being lawful, so an unreadable head reports once
+        // rather than once per binder it failed to mention.
+        for (const parameter of item.typeParameters) {
+          if (names.includes(parameter.name)) continue;
+          this.#diagnostics.add({
+            severity: "error",
+            message: `instance binder \`${parameter.name}\` does not appear in the head; ` +
+              "a binder exists to constrain one of the head's type variables — " +
+              `remove it, or spell the head with \`${parameter.name}\``,
+            primary: parameter.span,
+          });
+        }
       }
     } else if (subject.kind === "Primitive" && subject.name === "Unit") {
       // `Unit` is the empty tuple (#159), and structural types are user-closed
@@ -6861,8 +6928,9 @@ class Checker {
   /**
    * Elaborates an instance's `type Name = τ` bindings into
    * `#instanceImpliedTypes`, in the scope the subject was elaborated in — after
-   * it, so a binder the head introduced (declared, or minted by the head's own
-   * elaboration) is visible to τ. A name τ introduces beyond that scope is
+   * it, so every binder of the instance is visible to τ: the `<...>` prefix's,
+   * and the ones the head itself introduces, both now minted before the subject
+   * elaborates (#390). A name τ introduces beyond that scope is
    * outside Collections Part 2 §5.3's closed set ("in-scope type names and the
    * instance's own `<...>` binders"): the binding stores `ERROR`, and the mint
    * is removed from the binder map so instantiation never mistakes it for an
@@ -6929,6 +6997,27 @@ class Checker {
         this.#fresh(0, false),
       ] as const),
     );
+    // The head's own binders, minted before the subject elaborates, exactly as
+    // pass 1 mints them (#390). A fix applied only where instances are declared
+    // silently skips every imported discharge — #388's lesson — because this is
+    // the whole of what an importing module knows about the instance.
+    //
+    // Rigid and `#quantified`, matching pass 1; `declaredConstraints` stays
+    // absent, unlike pass 1's `[]`. That is the one deliberate difference: the
+    // empty list exists to turn a member body's requirement into a refusal
+    // naming the `honor` header, and here there are no member bodies (`members`
+    // is empty above) and no home-module span to blame — the declaring module
+    // reported it, which is why `#storeInstanceImpliedTypes` is called with
+    // `report` false as well. The declared binders above are older and plainer
+    // still; they are left as they are because nothing on this path reads their
+    // rigidity, and every use freshens them through `#pinInstanceSubject`.
+    for (const name of headBinderNames(instance.subject)) {
+      if (typeParameters.has(name)) continue;
+      const variable = this.#fresh(0, false, name);
+      this.#quantified.add(variable.id);
+      this.#honorBinderVariables.add(variable.id);
+      typeParameters.set(name, variable);
+    }
     this.#instanceTypeParameters.set(instance, typeParameters);
     const subject = this.#annotationType(
       instance.subject,
