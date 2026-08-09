@@ -448,10 +448,12 @@ class Collector {
       case "Vector":
       case "Set":
       case "Array":
+      case "JsSet":
       case "Node":
         this.#visitAnnotation(annotation.element);
         return;
       case "Map":
+      case "JsMap":
         this.#visitAnnotation(annotation.key);
         this.#visitAnnotation(annotation.value);
         return;

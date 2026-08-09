@@ -160,17 +160,13 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
   });
 
   /**
-   * The one FFI-owned row that has a type to key a slot on. `Array(a)` is the
-   * borrowed foreign view (FFI Part 2 §§6, 8–9), and Part 5 §6 records the
-   * obligation as discharged there — so the row belongs in the table even
-   * though nothing about the borrow contract is this file's business.
-   * Typecheck only: executing it would need a real foreign module, and what is
-   * in doubt is whether the slot exists, not what JavaScript does with an array.
-   *
-   * Its two siblings, `JsMap(k, v)` and `JsSet(a)`, are deliberately absent:
-   * neither is representable in the type system yet — no `Mono`, no annotation
-   * kind — so there is no subject to key their slots on. They land with FFI
-   * Part 10's types.
+   * The three FFI-owned rows. `Array(a)` is FFI Part 2's borrowed foreign view
+   * (§§6, 8–9) and Part 5 §6 records the obligation as discharged there;
+   * `JsMap(k, v)` and `JsSet(a)` are Part 10 §6.1's, and they landed last
+   * because the rows waited on the types having a representation to key a slot
+   * on at all (#396). All three are typecheck-only here: executing them needs a
+   * real foreign module, and what is in doubt is whether the slot exists.
+   * `js-map-set.test.ts` runs the two views against genuine native values.
    */
   test("Array(a) gives a", () => {
     expect(messagesOf([["/main.hex",
@@ -179,6 +175,62 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
         "\n" +
         "export let main(): Int = Seq.length(toSeq(rows!()))\n",
     ]])).toEqual([]);
+  });
+
+  test("JsMap(k, v) gives the pair (k, v)", () => {
+    expect(messagesOf([["/main.hex",
+      'extern from "./rows.js"\n' +
+        "    fun table(): JsMap(String, Int)\n" +
+        "\n" +
+        "export let main(): Int = Seq.length(toSeq(table!()))\n",
+    ]])).toEqual([]);
+  });
+
+  test("JsSet(a) gives a", () => {
+    expect(messagesOf([["/main.hex",
+      'extern from "./rows.js"\n' +
+        "    fun flags(): JsSet(Int)\n" +
+        "\n" +
+        "export let main(): Int = Seq.length(toSeq(flags!()))\n",
+    ]])).toEqual([]);
+  });
+
+  /**
+   * The `Item` bindings, pinned through uses that only typecheck at the row's
+   * own element type — the same discipline the rows above use. A `JsMap` whose
+   * row bound `Item = k` would not destructure; one that bound the pair the
+   * wrong way round would fail `++` on the key or `+` on the value.
+   */
+  test("the borrowed views' `Item` bindings are (k, v) and a", () => {
+    expect(messagesOf([["/main.hex",
+      'extern from "./rows.js"\n' +
+        "    fun table(): JsMap(String, Int)\n" +
+        "    fun flags(): JsSet(Int)\n" +
+        "\n" +
+        "export fun main(): Int =\n" +
+        '    var text = ""\n' +
+        "    var total = 0\n" +
+        "    for (key, value) in table!()\n" +
+        "        text := text ++ key\n" +
+        "        total := total + value\n" +
+        "    for flag in flags!()\n" +
+        "        total := total + flag\n" +
+        "    total + Seq.length(String.toSeq(text))\n",
+    ]])).toEqual([]);
+  });
+
+  /** The pair is a pair: a single binder cannot stand for a `JsMap` item. */
+  test("a `JsMap` item does not bind at the key's type", () => {
+    expect(messagesOf([["/main.hex",
+      'extern from "./rows.js"\n' +
+        "    fun table(): JsMap(String, Int)\n" +
+        "\n" +
+        "export fun main(): String =\n" +
+        '    var text = ""\n' +
+        "    for key in table!()\n" +
+        "        text := text ++ key\n" +
+        "    text\n",
+    ]]).join("\n")).toContain("type mismatch");
   });
 
   /**
@@ -488,6 +540,32 @@ describe("provided rows occupy real slots (Part 5 §7.3)", () => {
         "subject; the prelude already provides `Iterable<Vector(a)>`",
     );
     expect(messages.some((message) => message.startsWith("duplicate instance"))).toBe(false);
+  });
+
+  /**
+   * The same fact at the two FFI Part 10 rows (#396). Worth its own case rather
+   * than folded into the `Vector` one: the appendix reads the row back out of
+   * the instance table through `#subjectKey`, so a row seeded under a key
+   * selection does not mint would leave the sentence silent — and silence is
+   * what the `Vector` assertion above cannot distinguish from a missing row.
+   */
+  test("the borrowed views' rows are found by the same orphan appendix", () => {
+    expect(projectDiagnostics(
+      "honor Iterable<JsMap(k, v)> =\n" +
+        "    type Item = (k, v)\n" +
+        "    toSeq(xs) = Seq.empty\n",
+    )).toContain(
+      "orphan instance: this module declares neither `Iterable` nor the instance " +
+        "subject; the prelude already provides `Iterable<JsMap(k, v)>`",
+    );
+    expect(projectDiagnostics(
+      "honor Iterable<JsSet(a)> =\n" +
+        "    type Item = a\n" +
+        "    toSeq(xs) = Seq.empty\n",
+    )).toContain(
+      "orphan instance: this module declares neither `Iterable` nor the instance " +
+        "subject; the prelude already provides `Iterable<JsSet(a)>`",
+    );
   });
 
   /** No source form, from the other side: a structural head is not a legal subject. */

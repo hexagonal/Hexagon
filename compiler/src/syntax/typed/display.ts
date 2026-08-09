@@ -62,6 +62,10 @@ function displayType(
       return `Map(${displayType(type.key, variables, numbering)}, ${displayType(type.value, variables, numbering)})`;
     case "Array":
       return `Array(${displayType(type.element, variables, numbering)})`;
+    case "JsMap":
+      return `JsMap(${displayType(type.key, variables, numbering)}, ${displayType(type.value, variables, numbering)})`;
+    case "JsSet":
+      return `JsSet(${displayType(type.element, variables, numbering)})`;
     case "Node":
       return `Node(${displayType(type.element, variables, numbering)})`;
     case "Nullable":

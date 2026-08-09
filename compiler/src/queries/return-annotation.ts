@@ -291,11 +291,13 @@ function variablesOf(
     case "Vector":
     case "Set":
     case "Array":
+    case "JsSet":
     case "Node":
       return variablesOf(type.element, found);
     case "Nullable":
       return variablesOf(type.value, found);
     case "Map":
+    case "JsMap":
       return variablesOf(type.value, variablesOf(type.key, found));
     case "Tuple":
       for (const element of type.elements) variablesOf(element, found);

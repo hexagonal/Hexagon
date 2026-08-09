@@ -52,6 +52,8 @@ export type TypeAnnotation =
   | MapTypeAnnotation
   | SetTypeAnnotation
   | ArrayTypeAnnotation
+  | JsMapTypeAnnotation
+  | JsSetTypeAnnotation
   | NodeTypeAnnotation
   | NullableTypeAnnotation
   | FunctionTypeAnnotation
@@ -92,6 +94,25 @@ export interface SetTypeAnnotation {
 
 export interface ArrayTypeAnnotation {
   readonly kind: "Array";
+  readonly element: TypeAnnotation;
+  readonly span: Source.Span;
+}
+
+/**
+ * `JsMap(k, v)` — the borrowed view of a native JS `Map` (FFI Part 10 §1). A
+ * boundary intrinsic like `Array(a)`: no `.hex` module declares it, and the
+ * value crossing is the foreign object itself, zero-copy.
+ */
+export interface JsMapTypeAnnotation {
+  readonly kind: "JsMap";
+  readonly key: TypeAnnotation;
+  readonly value: TypeAnnotation;
+  readonly span: Source.Span;
+}
+
+/** `JsSet(a)` — the borrowed view of a native JS `Set` (FFI Part 10 §1). */
+export interface JsSetTypeAnnotation {
+  readonly kind: "JsSet";
   readonly element: TypeAnnotation;
   readonly span: Source.Span;
 }

@@ -238,7 +238,14 @@ function substituteType(
         value: substituteType(type.value, substitutions, bool),
       };
     case "Array":
+    case "JsSet":
       return { ...type, element: substituteType(type.element, substitutions, bool) };
+    case "JsMap":
+      return {
+        ...type,
+        key: substituteType(type.key, substitutions, bool),
+        value: substituteType(type.value, substitutions, bool),
+      };
     case "Node":
       return { ...type, element: substituteType(type.element, substitutions, bool) };
     case "Nullable":
