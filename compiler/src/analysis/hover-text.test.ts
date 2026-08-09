@@ -74,6 +74,20 @@ describe("hoverMarkdown", () => {
     expect(rendered).not.toContain("---");
   });
 
+  test("carries a numbered arrow face through unchanged", () => {
+    // The one sentence every host draws (#364): the arrow trio and its
+    // display-only indices are ordinary characters in the code span, so nothing
+    // here may normalize, escape or transliterate them on the way out.
+    const rendered = hoverMarkdown(hover({
+      name: "compose",
+      target: targets.value,
+      displayedType: "(String =>¹ String, String =>¹ String) =>² String =>¹ String",
+    }));
+    expect(rendered).toBe(
+      "value `compose: (String =>¹ String, String =>¹ String) =>² String =>¹ String`",
+    );
+  });
+
   test("passes documentation through as Markdown, unfenced and unescaped", () => {
     // §6 makes the content Markdown and §8 asks for it rendered as Markdown, so
     // fencing or escaping it here would show the user the syntax instead.

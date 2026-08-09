@@ -12,8 +12,18 @@
  * The two must nonetheless agree on shape — `Vector(a)`, `(A, B) -> C`, `Unit`
  * for the empty tuple (Products §2.7, #159) — because a user who reads a type in
  * a hover and then asks for it to be written expects the same notation twice.
+ *
+ * The arrow trio is where the same principle makes them diverge, deliberately
+ * (#364): both write `->` and `=>!`, which mean what they say wherever they
+ * stand, and where the display shows a variable colour — `=>` when the whole
+ * face writes back unchanged, `=>¹` when it does not — this refuses either way.
+ * It refuses even the round-trippable spelling because round-tripping is a
+ * property of the *whole* signature, and what is spelled here is one type torn
+ * out of it: whether a written `=>` links to the arrows around it, or takes
+ * §2.2's else-constant reading, is not a question this type can answer.
  */
 
+import { IMPURE_ARROW, PURE_ARROW } from "../support/arrows.js";
 import type * as Resolved from "../syntax/resolved/index.js";
 import type * as Source from "../support/source.js";
 import type * as Typed from "../syntax/typed/index.js";
@@ -415,6 +425,24 @@ export function spellType(
     case "ExternType":
       return nominal(names.externTypes.get(type.externType), type.name, []);
     case "Function": {
+      // The arrow's colour is part of the text, so it decides spellability
+      // before anything else does (`spec/effects.md` §2, #364). Both constants
+      // mean the same thing wherever they are written and go straight in. A
+      // *variable* colour does not: the annotation grammar links every written
+      // `=>` in a signature into one variable (§2.2), so writing this arrow
+      // would say something about the signature's other arrows that this type
+      // alone cannot know is true — or, with no inlet among them, would take
+      // the else-constant reading and mean the impure constant instead. Either
+      // way the call marks every caller owes can change. The display renderer
+      // marks such colours with an index; an index does not lex, so this
+      // refuses rather than writing text that would say something else.
+      if (type.effect !== undefined && type.effect !== "impure") {
+        return {
+          unspellable:
+            "this function type's arrow is an effect variable, and writing `=>` here " +
+            "would link it to the rest of the signature's colour",
+        };
+      }
       const failed = write(type.parameters);
       if (failed !== undefined) return failed;
       const result = spellType(type.result, names, variables);
@@ -431,7 +459,8 @@ export function spellType(
             !(sole?.kind === "Tuple" && sole.elements.length > 0)
           ? parts[0]!
           : `(${parts.join(", ")})`;
-      return { text: `${domain} -> ${result.text}` };
+      const arrow = type.effect === undefined ? PURE_ARROW : IMPURE_ARROW;
+      return { text: `${domain} ${arrow} ${result.text}` };
     }
   }
 }

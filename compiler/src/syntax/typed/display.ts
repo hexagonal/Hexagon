@@ -1,22 +1,53 @@
+import { IMPURE_ARROW, linkedArrow, PURE_ARROW } from "../../support/arrows.js";
+import { collectEffectVariables, collectInletVariables } from "./effects.js";
 import type * as Typed from "./tree.js";
+
+/**
+ * How each effect variable in one displayed signature is numbered, empty when
+ * nothing is numbered (`support/arrows.ts`, #364).
+ */
+type EffectNumbering = ReadonlyMap<Typed.TypeVariableId, number>;
+
+const NOTHING_NUMBERED: EffectNumbering = new Map();
 
 /** Renders an inferred binding scheme in Hexagon's user-facing type notation. */
 export function displayScheme(scheme: Typed.Scheme): string {
-  const variables = variableNames(scheme);
+  // One scheme is one displayed signature, so the whole of it — constraints
+  // included — is what the effect variables are numbered across.
+  const colours = effectVariables(scheme);
+  const variables = variableNames(scheme, colours);
+  const numbering: EffectNumbering = writesBackUnchanged(scheme, colours)
+    ? NOTHING_NUMBERED
+    : new Map(colours.map((colour, index) => [colour, index + 1]));
   const constraints = scheme.constraints.map(
     (constraint) =>
-      `${constraint.name} ${displayType(constraint.type, variables)}`,
+      `${constraint.name} ${displayType(constraint.type, variables, numbering)}`,
   );
-  const type = displayType(scheme.type, variables);
+  const type = displayType(scheme.type, variables, numbering);
 
   return constraints.length === 0
     ? type
     : `${constraints.join(", ")} => ${type}`;
 }
 
+/**
+ * A function type's arrow (`spec/effects.md` §2). An absent slot is the pure
+ * constant, which is what every arrow means with the effects flag off — so a
+ * flag-off signature displays exactly the `->` it always has.
+ */
+function displayArrow(
+  effect: Typed.Effect | undefined,
+  numbering: EffectNumbering,
+): string {
+  if (effect === undefined) return PURE_ARROW;
+  if (effect === "impure") return IMPURE_ARROW;
+  return linkedArrow(numbering.get(effect.variable));
+}
+
 function displayType(
   type: Typed.Type,
   variables: ReadonlyMap<Typed.TypeVariableId, string>,
+  numbering: EffectNumbering,
 ): string {
   switch (type.kind) {
     case "Primitive":
@@ -24,17 +55,17 @@ function displayType(
     case "Range":
       return "Range";
     case "Vector":
-      return `Vector(${displayType(type.element, variables)})`;
+      return `Vector(${displayType(type.element, variables, numbering)})`;
     case "Set":
-      return `Set(${displayType(type.element, variables)})`;
+      return `Set(${displayType(type.element, variables, numbering)})`;
     case "Map":
-      return `Map(${displayType(type.key, variables)}, ${displayType(type.value, variables)})`;
+      return `Map(${displayType(type.key, variables, numbering)}, ${displayType(type.value, variables, numbering)})`;
     case "Array":
-      return `Array(${displayType(type.element, variables)})`;
+      return `Array(${displayType(type.element, variables, numbering)})`;
     case "Node":
-      return `Node(${displayType(type.element, variables)})`;
+      return `Node(${displayType(type.element, variables, numbering)})`;
     case "Nullable":
-      return `Nullable(${displayType(type.value, variables)})`;
+      return `Nullable(${displayType(type.value, variables, numbering)})`;
     case "Variable":
       return variables.get(type.id) ?? `t${Number(type.id)}`;
     case "Error":
@@ -45,11 +76,11 @@ function displayType(
       // domain below.
       if (type.elements.length === 0) return "Unit";
       return `(${type.elements.map((element) =>
-        displayType(element, variables)
+        displayType(element, variables, numbering)
       ).join(", ")})`;
     case "Record": {
       const fields = type.fields.map(({ name, type: field }) =>
-        `${name}: ${displayType(field, variables)}`
+        `${name}: ${displayType(field, variables, numbering)}`
       );
       if (type.tail !== undefined) {
         fields.push(`...${variables.get(type.tail) ?? `t${Number(type.tail)}`}`);
@@ -60,19 +91,19 @@ function displayType(
       return type.arguments.length === 0
         ? type.name
         : `${type.name}(${type.arguments.map((argument) =>
-          displayType(argument, variables)
+          displayType(argument, variables, numbering)
         ).join(", ")})`;
     case "NominalRecord":
       return type.arguments.length === 0
         ? type.name
         : `${type.name}(${type.arguments.map((argument) =>
-          displayType(argument, variables)
+          displayType(argument, variables, numbering)
         ).join(", ")})`;
     case "ExternType":
       return type.name;
     case "Function": {
       const parameters = type.parameters.map((parameter) =>
-        displayType(parameter, variables),
+        displayType(parameter, variables, numbering),
       );
       const soleParameter = type.parameters[0];
       const domain =
@@ -88,17 +119,65 @@ function displayType(
               : parameters[0]!
             : `(${parameters.join(", ")})`;
       return (
-        `${domain} -> ` +
-        displayType(type.result, variables)
+        `${domain} ${displayArrow(type.effect, numbering)} ` +
+        displayType(type.result, variables, numbering)
       );
     }
   }
 }
 
+/**
+ * Whether the undecorated arrows say exactly what this scheme says (#364).
+ *
+ * Two conditions, and the second is the one that is easy to miss. **One**
+ * distinct effect variable, because the annotation grammar links every written
+ * `=>` into a single variable (§2.2) and two would come back as one. And **an
+ * inlet** — at least one occurrence of it in a parameter position — because
+ * §2.2's else-constant rule reads an inlet-less `=>` as the impure constant: a
+ * face like `(() -> String) => Int` would be *written back* as a different
+ * type, so its arrow is numbered even though it is alone.
+ *
+ * A face with no variable at all is trivially unchanged: constants round-trip.
+ */
+function writesBackUnchanged(
+  scheme: Typed.Scheme,
+  colours: readonly Typed.TypeVariableId[],
+): boolean {
+  if (colours.length === 0) return true;
+  if (colours.length > 1) return false;
+  const inlets = collectInletVariables(scheme.type);
+  for (const constraint of scheme.constraints) collectInletVariables(constraint.type, inlets);
+  return inlets.has(colours[0]!);
+}
+
+/**
+ * The scheme's effect variables, in the order the rendered text first reaches
+ * them (#364). Constraints come first because they are printed first.
+ */
+function effectVariables(scheme: Typed.Scheme): readonly Typed.TypeVariableId[] {
+  const found = new Set<Typed.TypeVariableId>();
+  for (const constraint of scheme.constraints) collectEffectVariables(constraint.type, found);
+  collectEffectVariables(scheme.type, found);
+  return [...found];
+}
+
+/**
+ * A letter for every type variable the signature can show — and for no effect
+ * variable, which wears an arrow rather than a name.
+ *
+ * A quantified scheme carries its effect variables in `variables` beside the
+ * ordinary ones (they *are* type variables, `spec/effects.md` §3.4), so without
+ * the exclusion a colour would take `a` from the type variable that goes on to
+ * display as `b`, and `(() => Int, a) -> a` would print as `(() => Int, b) -> b`
+ * with no `a` anywhere. A variable that is somehow both — none is built today —
+ * keeps its letter, because `collectVariables` puts it back.
+ */
 function variableNames(
   scheme: Typed.Scheme,
+  colours: readonly Typed.TypeVariableId[],
 ): ReadonlyMap<Typed.TypeVariableId, string> {
-  const variables = new Set(scheme.variables);
+  const effects = new Set(colours);
+  const variables = new Set(scheme.variables.filter((variable) => !effects.has(variable)));
   collectVariables(scheme.type, variables);
   for (const constraint of scheme.constraints) {
     collectVariables(constraint.type, variables);

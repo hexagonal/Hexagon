@@ -12,7 +12,7 @@ import { isSyntheticParameterName } from "../../support/synthetic.js";
 import type * as Core from "../../syntax/core/index.js";
 import type * as Emitted from "../../emission/index.js";
 import type * as Resolved from "../../syntax/resolved/index.js";
-import type * as Typed from "../../syntax/typed/index.js";
+import * as Typed from "../../syntax/typed/index.js";
 import { idContinue, idStart } from "../lexer/unicode-17.js";
 import {
   planFundamentalSpecializations,
@@ -333,12 +333,19 @@ class DocIndex {
    * An empty doc block contributes empty documentation, which tooling treats as
    * absent (§3.2) — so it emits nothing rather than an empty block. It still
    * counts as seated: the seat existed, and the comment has been spoken for.
+   *
+   * `generated` is the emitter's own documentation for this declaration —
+   * today, the Hexagon face a TypeScript type cannot spell (#364). It joins the
+   * user's content in **one** block, user content first and generated content
+   * after a blank line, because TS tooling attaches only the immediately
+   * preceding block and two blocks would silently drop one (§7.3).
    */
-  lines(span: Source.Span, indent = ""): string[] {
+  lines(span: Source.Span, indent = "", generated: readonly string[] = []): string[] {
     const doc = this.#byTarget.get(span.start.offset);
-    if (doc === undefined) return [];
-    this.#seated.add(doc);
-    return doc.content === "" ? [] : jsDocBlock(doc.content, indent);
+    if (doc !== undefined) this.#seated.add(doc);
+    const written = doc === undefined ? "" : doc.content;
+    const content = [written, ...generated].filter((part) => part !== "").join("\n\n");
+    return content === "" ? [] : jsDocBlock(content, indent);
   }
 
   /**
@@ -4942,7 +4949,13 @@ class DeclarationEmitter {
             // arm below for why publishing one would be worse than publishing
             // nothing.
             if (declaration.binding.scheme.constraints.length > 0) continue;
-            declarations.push(...doc);
+            declarations.push(
+              ...this.#docs.lines(
+                declaration.span,
+                "",
+                hexagonFaceDoc(declaration.binding.scheme),
+              ),
+            );
             declarations.push(...renderExternFunctionDeclaration(declaration, true, this.#faces));
           } else {
             declarations.push(...doc);
@@ -5054,8 +5067,11 @@ class DeclarationEmitter {
           if (item.value.kind !== "Lambda") continue;
           const specialized = specializeItem(item as SpecializableItem, specialization);
           // A constrained binding has no single `.d.ts` declaration — its face
-          // is one per specialization — so its documentation rides each.
-          declarations.push(...this.#docs.lines(item.span));
+          // is one per specialization — so its documentation rides each, and so
+          // does the Hexagon face, which is the specialization's own.
+          declarations.push(
+            ...this.#docs.lines(item.span, "", hexagonFaceDoc(specialized.binding.scheme)),
+          );
           declarations.push(
             renderFunctionDeclaration(
               specialization.name,
@@ -5071,7 +5087,7 @@ class DeclarationEmitter {
       }
       isExternalModule = true;
 
-      declarations.push(...this.#docs.lines(item.span));
+      declarations.push(...this.#docs.lines(item.span, "", hexagonFaceDoc(item.binding.scheme)));
       const safeName = isSafeIdentifier(item.binding.name);
       const local = safeName
         ? item.binding.name
@@ -6915,6 +6931,31 @@ function comparisonOperator(
   }
 }
 
+/**
+ * The generated documentation an exported value's `.d.ts` face carries: its
+ * Hexagon signature, when a TypeScript type cannot say what that signature says
+ * (`spec/effects.md` §10, #364).
+ *
+ * The obligation is that a `.d.ts` face render the arrow trio, and the
+ * TypeScript face cannot: `=>` is TypeScript's *only* function arrow, so
+ * `(document: string) => void` is what a pure `->`, a linked `=>` and the
+ * impure constant `=>!` all come out as. The colours erase at emission (§8) and
+ * nothing is proposed to change that; what is added is the one channel a
+ * `.d.ts` has for saying something TypeScript's notation cannot — the JSDoc
+ * block, where §7.3 of `spec/doc-comments.md` already provides for generated
+ * content riding beside the author's.
+ *
+ * A face whose every arrow is pure gets nothing, and that is the doctrine
+ * rather than a saving: purity is the silent one (§1), so on a flag-off
+ * compilation — where no arrow carries a colour at all — this is empty
+ * everywhere and the emitted declarations are byte-for-byte what they were.
+ */
+function hexagonFaceDoc(scheme: Typed.Scheme): readonly string[] {
+  return Typed.carriesEffect(scheme.type)
+    ? [`Hexagon: \`${Typed.displayScheme(scheme)}\``]
+    : [];
+}
+
 function renderScheme(
   scheme: Typed.Scheme,
   faces: DeclarationFaces,
@@ -6929,10 +6970,11 @@ function renderScheme(
   if (type.kind !== "Function") {
     return renderType(type, neverInstantiation(scheme.variables), faces, false);
   }
-  const variables = typeVariableNames(scheme.variables);
+  const quantified = Typed.quantifiedTypeVariables(scheme);
+  const variables = typeVariableNames(quantified);
   const lambda = value?.kind === "Lambda" ? value : undefined;
 
-  const genericNames = scheme.variables.map((variable) => variables.get(variable)!);
+  const genericNames = quantified.map((variable) => variables.get(variable)!);
   const generics = genericNames.length === 0
     ? ""
     : `<${genericNames.join(", ")}>`;
@@ -6958,10 +7000,9 @@ function renderExternFunctionDeclaration(
   // Foreign externs are monomorphic (FFI Part 4 §12.4) and quantify nothing, so
   // this is empty for them. Intrinsic declarations may be generic (§3.4), and
   // their face has to quantify what their scheme does.
-  const variables = typeVariableNames(declaration.binding.scheme.variables);
-  const genericNames = declaration.binding.scheme.variables.map((variable) =>
-    variables.get(variable)!
-  );
+  const quantified = Typed.quantifiedTypeVariables(declaration.binding.scheme);
+  const variables = typeVariableNames(quantified);
+  const genericNames = quantified.map((variable) => variables.get(variable)!);
   const generics = genericNames.length === 0 ? "" : `<${genericNames.join(", ")}>`;
   const parameters = declaration.parameters.map((parameter, index) =>
     `${names[index]}: ${renderType(parameter.scheme.type, variables, faces, false)}`
@@ -6995,8 +7036,9 @@ function renderFunctionDeclaration(
     return `${prefix}declare const ${name}: ${renderScheme(scheme, faces, value)};`;
   }
 
-  const variables = typeVariableNames(scheme.variables);
-  const genericNames = scheme.variables.map((variable) => variables.get(variable)!);
+  const quantified = Typed.quantifiedTypeVariables(scheme);
+  const variables = typeVariableNames(quantified);
+  const genericNames = quantified.map((variable) => variables.get(variable)!);
   const generics = genericNames.length === 0
     ? ""
     : `<${genericNames.join(", ")}>`;

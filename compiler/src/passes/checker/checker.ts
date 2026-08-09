@@ -7,6 +7,7 @@
  * rejects projection-bearing constraints on type-variable binders.
  */
 
+import { IMPURE_ARROW, linkedArrow, PURE_ARROW } from "../../support/arrows.js";
 import * as Diagnostics from "../../support/diagnostics.js";
 import { stronglyConnectedComponents } from "../../support/graph.js";
 import {
@@ -8773,7 +8774,66 @@ class Checker {
     };
   }
 
+  /**
+   * One type as a diagnostic reads it.
+   *
+   * The entry point is separate from the recursion because the arrow numbering
+   * (#364) is a property of the **whole** displayed type: which colours are
+   * numbered, and in what order, cannot be known part-way down. One `#display`
+   * call is one displayed type expression, so a two-type report numbers each
+   * side on its own.
+   *
+   * Undecorated arrows are reserved for the face that writes back unchanged:
+   * one distinct effect variable, with at least one *inlet* occurrence, so that
+   * §2.2's linked reading reproduces this type rather than the else-constant
+   * one. Anything else with a variable in it is numbered.
+   */
   #display(type: Mono): string {
+    const colours = this.#effectVariables(type);
+    const plain = colours.length === 0 ||
+      (colours.length === 1 && this.#inletVariables(type).has(colours[0]!));
+    return this.#render(
+      type,
+      plain ? new Map() : new Map(colours.map((id, index) => [id, index + 1])),
+    );
+  }
+
+  /**
+   * Every effect variable this type offers a caller a slot for: one occurring
+   * on an arrow in a parameter position, at any depth (§2.2's inlet).
+   */
+  #inletVariables(type: Mono, found = new Set<number>()): Set<number> {
+    const actual = this.#prune(type);
+    if (actual.kind === "Function") {
+      for (const parameter of actual.parameters) {
+        for (const id of this.#effectVariables(parameter)) found.add(id);
+      }
+      this.#inletVariables(actual.result, found);
+    }
+    if (actual.kind === "Tuple") {
+      for (const element of actual.elements) this.#inletVariables(element, found);
+    }
+    if (actual.kind === "Record") {
+      for (const field of actual.fields.values()) this.#inletVariables(field, found);
+    }
+    if (actual.kind === "Union" || actual.kind === "NominalRecord") {
+      for (const argument of actual.arguments) this.#inletVariables(argument, found);
+    }
+    if (
+      actual.kind === "Vector" || actual.kind === "Set" || actual.kind === "Array" ||
+      actual.kind === "Node"
+    ) {
+      this.#inletVariables(actual.element, found);
+    }
+    if (actual.kind === "Nullable") this.#inletVariables(actual.value, found);
+    if (actual.kind === "Map") {
+      this.#inletVariables(actual.key, found);
+      this.#inletVariables(actual.value, found);
+    }
+    return found;
+  }
+
+  #render(type: Mono, numbering: ReadonlyMap<number, number>): string {
     const actual = this.#prune(type);
     if (actual.kind === "Error") return "<error>";
     if (actual.kind === "Constructor") return actual.name;
@@ -8787,48 +8847,101 @@ class Checker {
       // The arity-0 tuple displays as `Unit`, never `()` — diagnostics and the
       // pretty-printer say the type's one name (Products §2.7, #159).
       if (actual.elements.length === 0) return "Unit";
-      return `(${actual.elements.map((element) => this.#display(element)).join(", ")})`;
+      return `(${actual.elements.map((element) => this.#render(element, numbering)).join(", ")})`;
     }
     if (actual.kind === "Union") {
       return actual.arguments.length === 0
         ? actual.name
-        : `${actual.name}(${actual.arguments.map((argument) => this.#display(argument)).join(", ")})`;
+        : `${actual.name}(${
+          actual.arguments.map((argument) => this.#render(argument, numbering)).join(", ")
+        })`;
     }
     if (actual.kind === "NominalRecord") {
       return actual.arguments.length === 0
         ? actual.name
-        : `${actual.name}(${actual.arguments.map((argument) => this.#display(argument)).join(", ")})`;
+        : `${actual.name}(${
+          actual.arguments.map((argument) => this.#render(argument, numbering)).join(", ")
+        })`;
     }
     if (actual.kind === "ExternType") return actual.name;
     if (actual.kind === "Range") return "Range";
-    if (actual.kind === "Vector") return `Vector(${this.#display(actual.element)})`;
-    if (actual.kind === "Set") return `Set(${this.#display(actual.element)})`;
-    if (actual.kind === "Array") return `Array(${this.#display(actual.element)})`;
-    if (actual.kind === "Node") return `Node(${this.#display(actual.element)})`;
-    if (actual.kind === "Nullable") return `Nullable(${this.#display(actual.value)})`;
-    if (actual.kind === "Map") return `Map(${this.#display(actual.key)}, ${this.#display(actual.value)})`;
+    if (actual.kind === "Vector") return `Vector(${this.#render(actual.element, numbering)})`;
+    if (actual.kind === "Set") return `Set(${this.#render(actual.element, numbering)})`;
+    if (actual.kind === "Array") return `Array(${this.#render(actual.element, numbering)})`;
+    if (actual.kind === "Node") return `Node(${this.#render(actual.element, numbering)})`;
+    if (actual.kind === "Nullable") return `Nullable(${this.#render(actual.value, numbering)})`;
+    if (actual.kind === "Map") {
+      return `Map(${this.#render(actual.key, numbering)}, ${
+        this.#render(actual.value, numbering)
+      })`;
+    }
     if (actual.kind === "Record") {
-      const fields = [...actual.fields].map(([name, field]) => `${name}: ${this.#display(field)}`);
+      const fields = [...actual.fields].map(([name, field]) =>
+        `${name}: ${this.#render(field, numbering)}`
+      );
       if (actual.tail !== undefined) fields.push("...");
       return `{${fields.join(", ")}}`;
     }
     if (actual.kind === "Effect") return actual.impure ? "impure" : "pure";
     return (
-      `(${actual.parameters.map((parameter) => this.#display(parameter)).join(", ")})` +
-      ` ${this.#arrow(actual)} ${this.#display(actual.result)}`
+      `(${actual.parameters.map((parameter) => this.#render(parameter, numbering)).join(", ")})` +
+      ` ${this.#arrow(actual, numbering)} ${this.#render(actual.result, numbering)}`
     );
   }
 
   /**
-   * How a function type's arrow prints (#355). A pure arrow is `->`, the
-   * constant is `=>!`, and a variable — solved or not — is `=>`, because that
-   * is the one spelling a linked colour has.
+   * Every effect variable one displayed type reaches, in the order the rendered
+   * text first reaches it (#364).
+   *
+   * The walk follows the text, not the tree: a function prints its domain, then
+   * its own arrow, then its result, so the effect slot is visited between the
+   * parameters and the result.
    */
-  #arrow(type: FunctionMono): string {
-    if (type.effect === undefined) return "->";
+  #effectVariables(type: Mono, found = new Set<number>()): readonly number[] {
+    const actual = this.#prune(type);
+    if (actual.kind === "Function") {
+      for (const parameter of actual.parameters) this.#effectVariables(parameter, found);
+      if (actual.effect !== undefined) {
+        const effect = this.#prune(actual.effect);
+        if (effect.kind === "Variable") found.add(effect.id);
+      }
+      this.#effectVariables(actual.result, found);
+    }
+    if (actual.kind === "Tuple") {
+      for (const element of actual.elements) this.#effectVariables(element, found);
+    }
+    if (actual.kind === "Record") {
+      for (const field of actual.fields.values()) this.#effectVariables(field, found);
+    }
+    if (actual.kind === "Union" || actual.kind === "NominalRecord") {
+      for (const argument of actual.arguments) this.#effectVariables(argument, found);
+    }
+    if (
+      actual.kind === "Vector" || actual.kind === "Set" || actual.kind === "Array" ||
+      actual.kind === "Node"
+    ) {
+      this.#effectVariables(actual.element, found);
+    }
+    if (actual.kind === "Nullable") this.#effectVariables(actual.value, found);
+    if (actual.kind === "Map") {
+      this.#effectVariables(actual.key, found);
+      this.#effectVariables(actual.value, found);
+    }
+    return [...found];
+  }
+
+  /**
+   * How a function type's arrow prints (#355). A pure arrow is `->`, the
+   * constant is `=>!`, and a variable colour is `=>` — carrying its index
+   * (#364) whenever the displayed face would not write back unchanged, so a
+   * diagnostic never spells a colour as something a reader could copy out and
+   * get a different type from.
+   */
+  #arrow(type: FunctionMono, numbering: ReadonlyMap<number, number>): string {
+    if (type.effect === undefined) return PURE_ARROW;
     const effect = this.#prune(type.effect);
-    if (effect.kind === "Effect") return effect.impure ? "=>!" : "->";
-    return "=>";
+    if (effect.kind === "Effect") return effect.impure ? IMPURE_ARROW : PURE_ARROW;
+    return linkedArrow(effect.kind === "Variable" ? numbering.get(effect.id) : undefined);
   }
 }
 
