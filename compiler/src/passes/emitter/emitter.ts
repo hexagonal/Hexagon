@@ -430,6 +430,7 @@ function jsDocBlock(content: string, indent: string): string[] {
  */
 interface PreludeIds {
   readonly seq: Resolved.RecordId | undefined;
+  readonly stream: Resolved.RecordId | undefined;
   readonly bool: Resolved.UnionId | undefined;
 }
 
@@ -469,6 +470,12 @@ function preludeIds(module: Core.Module): PreludeIds {
     // what the prelude cannot yet supply to it. Everywhere else the prelude
     // entry wins, so a user's own `union Bool` occludes the name (Modules §5.4)
     // without acquiring the pin.
+    // `Stream` needs no self-blindness fallback the way `seq` and `bool` do.
+    // Those two are read *inside the module that declares them*, where
+    // `preludeRecords` is still empty; this one is read only at an extern
+    // boundary, and `stdlib/Stream.hex` declares no externs. If that ever
+    // changes, the fallback is the one above, verbatim.
+    stream: module.preludeRecords.get("Stream"),
     bool: module.preludeUnions.get("Bool")
       ?? (module.preludeUnions.size === 0
         ? module.unions.find(({ name }) => name === "Bool")?.id
@@ -1204,9 +1211,21 @@ class JavaScriptEmitter {
         // (§2.2) — what arrives may be any iterable — so a foreign result or
         // value declared `Seq(a)` is wrapped, and a genuine `Seq` coming home
         // that way returns by identity rather than acquiring a second spine.
+        //
+        // `Stream` is the mirror image and rides the same seam (§14). A foreign
+        // result or value declared `Stream(a)` gets the §14.1 **shim** rather
+        // than the adapter: position is the declaration of intent, so what the
+        // `Seq` position launders the `Stream` position takes raw. Only these
+        // two inbound positions are bridged here — a `Stream` *argument* handed
+        // out to foreign code is the §14.2 outbound face, which is withheld.
+        const inbound = (type: Typed.Type): "seq" | "stream" | undefined =>
+          this.#isSequence(type) ? "seq" : this.#isStream(type) ? "stream" : undefined;
+        const inboundResult = declaration.kind === "ExternFun"
+          ? inbound(declaration.result)
+          : inbound(declaration.type);
         const wrapper = declaration.kind === "ExternFun"
-          ? this.#isSequence(declaration.result) || isUnit(declaration.result)
-          : this.#isSequence(declaration.type);
+          ? inboundResult !== undefined || isUnit(declaration.result)
+          : inboundResult !== undefined;
         if (!wrapper) {
           if (declaration.default) {
             lines.push(`${prefix}import ${local} from ${specifier};`);
@@ -1224,17 +1243,18 @@ class JavaScriptEmitter {
               ? `${prefix}import ${imported} from ${specifier};`
               : `${prefix}import { ${foreign} as ${imported} } from ${specifier};`,
           );
+          const door = inboundResult === "stream" ? "streamInbound" : "seqInbound";
           if (declaration.kind === "ExternLet") {
             lines.push(
-              `${prefix}const ${local} = ${this.#useHelper("seqInbound")}(${imported});`,
+              `${prefix}const ${local} = ${this.#useHelper(door)}(${imported});`,
             );
           } else {
             const parameters = declaration.parameters.map((parameter) =>
               this.#identifier(parameter.symbol, parameter.name)
             );
             const call = `${imported}(${parameters.join(", ")})`;
-            const value = this.#isSequence(declaration.result)
-              ? `${this.#useHelper("seqInbound")}(${call})`
+            const value = inboundResult !== undefined
+              ? `${this.#useHelper(door)}(${call})`
               : isUnit(declaration.result)
               ? `{ ${call}; }`
               : call;
@@ -4234,6 +4254,17 @@ class JavaScriptEmitter {
   }
 
   /**
+   * Whether this is the prelude `Stream` — `Seq`'s sibling at the boundary, and
+   * bridged for the mirror-image reason (FFI Part 3 §14). Identity, never the
+   * spelling, exactly as for `Seq`.
+   */
+  #isStream(type: Typed.Type): boolean {
+    return this.#prelude.stream !== undefined &&
+      type.kind === "NominalRecord" &&
+      type.record === this.#prelude.stream;
+  }
+
+  /**
    * The boundary traversal method a construction of `type` carries, or nothing.
    *
    * A runtime module's representation record is recognized **by name inside
@@ -5780,6 +5811,7 @@ type Helper =
   | "seqMemoize"
   | "seqToIterable"
   | "streamFromSeq"
+  | "streamInbound"
   | "nodeSet"
   | "vectorAt"
   | "vectorIndex"
@@ -5826,6 +5858,9 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   // Drives `pull` directly rather than through `seqToIterable`: a stream is
   // single-pass, so it wants a cursor it can hold, not a fresh generator.
   streamFromSeq: [],
+  // Owes nothing. The whole of §14.1 is that the shim composes with no spine:
+  // no adapter, no memo, no driver — one foreign step per pull.
+  streamInbound: [],
   nodeSet: [],
   vectorAt: [],
   vectorIndex: [],
@@ -6640,6 +6675,56 @@ function renderHelper(
         '  return __hex_value != null && typeof __hex_value.pull === "function"',
         "    ? __hex_value",
         `    : ${dependencyName("seqFromIterable")}(__hex_value);`,
+        "}",
+      ];
+    case "streamInbound":
+      // **The raw crossing** (FFI Part 3 §14.1) — the shim, and everything the
+      // §2 adapter is not. Position declares intent: the same foreign object at
+      // a `Seq(a)` position is laundered into replayable pure data, and here it
+      // is left exactly as impure as it is.
+      //
+      // **Iterable or bare iterator.** `Seq`'s iterable-only rule (§9.2) is
+      // grounded in replay obligations a `Stream` does not have, so a
+      // single-pass cursor is admitted as the shape it already is. The iterator
+      // is requested from an iterable **once, at the crossing** rather than
+      // deferred to the first pull as §3 defers the adapter's — §14.1 says at
+      // the crossing, and a per-crossing shim has a crossing to say it at.
+      //
+      // **No memoization spine, no failure memo, no latch, no history.** One
+      // foreign step per pull, and nothing carried between them. In particular
+      // an exhausted stream is *not* latched to `None`: what the next pull
+      // observes is whatever the foreign cursor does next, which is §2.1's
+      // posture verbatim — the boundary preserves the source's behavior rather
+      // than strengthening it. A source that misbehaves after exhaustion is
+      // Part 1 §3.1 territory, exactly as it would be to a JavaScript consumer.
+      // A foreign throw propagates out of that pull through the ordinary
+      // `JsError` path and nothing is remembered.
+      //
+      // **`return()` is never called** (§14.1's last line; §8's posture
+      // inherited). And there is no recognition check for a Hexagon `Stream`
+      // arriving home: §14.2 rules the round trip a composition that preserves
+      // semantics rather than identity, so the door shims whatever it is given.
+      //
+      // The protocol check and its access order are §7.2's, at their minimum
+      // and shared verbatim with the adapter: `next()` once, an object result
+      // or a `TypeError`, `done` read once and boolean-coerced, and `value`
+      // read only when `done` was false.
+      return [
+        `function ${name}(__hex_source) {`,
+        "  const __hex_iterator =",
+        '    __hex_source != null && typeof __hex_source[Symbol.iterator] === "function"',
+        "      ? __hex_source[Symbol.iterator]()",
+        "      : __hex_source;",
+        "  return {",
+        "    next: () => {",
+        "      const __hex_step = __hex_iterator.next();",
+        '      if (__hex_step === null || (typeof __hex_step !== "object" && typeof __hex_step !== "function")) {',
+        '        throw new TypeError("Iterator result " + String(__hex_step) + " is not an object");',
+        "      }",
+        '      if (Boolean(__hex_step.done)) return { tag: "None" };',
+        '      return { tag: "Some", value: __hex_step.value };',
+        "    },",
+        "  };",
         "}",
       ];
     case "seqToIterable":
