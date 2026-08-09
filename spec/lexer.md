@@ -163,13 +163,14 @@ and         catch       constraint  derive      else       exception
 export      extern      false       finally     for        fun
 honor       iff         if          implies     import      in
 let         match       not         or          record      then
-true        try         type        union       var         while
+true        try         type        var         while
 ```
 
 The groups are:
 
 - declarations and modules: `constraint`, `exception`, `export`, `extern`, `fun`,
-  `honor`, `import`, `let`, `record`, `type`, `union`, `var`;
+  `honor`, `import`, `let`, `record`, `type`, `var` — and `union`, formerly of
+  this group, is contextual since the Set milestone (#373; §4.2);
 - expression and control forms: `catch`, `else`, `for`, `if`, `in`, `match`,
   `then`, `try`, `while`;
 - word operators: `and`, `iff`, `implies`, `not`, `or`;
@@ -222,10 +223,15 @@ listed positions:
 | `static` | foreign static-member modifier; syntax completed by the FFI spec |
 | `default` | foreign default-import position; syntax completed by the FFI spec |
 | `pure` | the trusted purity claim on an extern `fun` declaration (FFI Part 4 §4.5, #355) |
+| `union` | the union-declaration introducer at declaration head — module top level, optionally after `export` and `opaque`, always followed by the declared type's name (#373: Collections Part 4 §6.2 mandates `Set.union`, and a reserved word is unspellable in every binder position; the `with`/`when` precedent) |
 
 Contextual status is observable: `let when = True` is legal, while the same spelling
 after an arm pattern introduces its guard. Likewise `{with = 3}` is a field and `{with}`
-a pun, while `{p with x = 3}` is an update. A parser must test both spelling and
+a pun, while `{p with x = 3}` is an update. And `let union = 3` binds, `Set.union(a, b)`
+and the bare `union(a, b)` are ordinary calls, while `union Suit = Hearts | Spades` at
+declaration head declares the type — the follower disambiguates, since Hexagon has no
+juxtaposition: a declaration head puts a name there, and a term puts `(`, an operator,
+or nothing (#373). A parser must test both spelling and
 position; the lexer does not emit contextual-keyword token kinds.
 
 ### 4.3 Words that are not keywords

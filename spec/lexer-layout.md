@@ -82,7 +82,11 @@ parentheses or on the next line alike.
 
 Type declarations are *not* term bindings:
 `record`, `union`, and `type` after `=` remain continuations, which is what keeps
-indented union alternatives free of VOPEN. `finally` is reserved but is not a v1
+indented union alternatives free of VOPEN. A union *declaration head* is
+recognized contextually since the Set milestone — `union` followed by the
+declared type's name (lexer spec §4.2, #373) — so a term binding named `union`
+(`let union = …`) opens its block like any other term binding, while the
+declaration form's layout is unchanged. `finally` is reserved but is not a v1
 block head.
 
 ### 2.3 Expression-continuation tokens
