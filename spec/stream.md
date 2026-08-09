@@ -1,6 +1,6 @@
 # Hexagon Spec: `Stream(a)` — the impure sequence
 
-**Status:** Decided (#355). Ships in v1, behind the effects flag it depends on (`effects.md` §10): its declaration and surface spell arrows and marks the pre-flag language does not lex, so `stdlib/Stream.hex` lands at the un-flagging milestone (`stdlib-roadmap.md`).
+**Status:** Decided (#355). Shipped: `stdlib/Stream.hex` implements this surface, and this spec is its contract (`stdlib-roadmap.md` records the row).
 **Scope:** The `Stream(a)` type, its protocol, the v1 module surface, what is structurally absent, and the division of labour with `Seq`.
 **Not in scope:** The effects discipline itself (`effects.md`, assumed throughout); the boundary crossing (FFI Part 3's `Stream` section owns it); `Random`/`Clock` module designs (future specs — they are this type's first customers, not its content); push sequences and async (out of scope per `effects.md` §1).
 **Companions:** `effects.md` (§2.5 data-field arrows, §7 the posture), Loops §6 (`Seq`, the pure sibling), FFI Part 3 (launder vs raw crossing), Statements §6.2 (why construction is external), `stdlib-roadmap.md`.

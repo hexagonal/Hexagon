@@ -1,6 +1,6 @@
 # Hexagon Spec: Effects
 
-**Status:** Decided (#355). The two-point effect discipline ships in v1. The checker ships flag-gated; §10 lists what must land before the flag defaults on. Nothing here has a warning tier.
+**Status:** Decided (#355). The two-point effect discipline ships in v1, unconditionally — colours are part of the language, not an option. Nothing here has a warning tier.
 **Scope:** What an effect is; the three arrows (`->`, `=>`, `=>!`) and their readings; the call-mark trichotomy (bare, `!`, `?`); effect variables in inference; symmetric enforcement at calls and faces; the extern ownership split and trusted purity claims; the `Seq`/`Stream` posture.
 **Not in scope:** Exceptions — deliberately outside the effect (§1); `Stream`'s module surface (`stream.md`); token shapes (Lexer §8); the pipe rewrite (Operators §8); the dot-call form (Method Syntax §2); display grammar for arrows (Functions §5.1).
 **Companions:** Functions (§4.1 annotations, §5.1 displayed types, §7.4 the monomorphic knot, §8 generalization), Statements, Blocks & Mutability (§6.2 — the coupling §7's last bullet names), Constraints (§2 — members are pure), Intrinsics (§4.2 verification), FFI Part 4 (extern bindings; the `pure` claim), FFI Part 3 (the `Seq` launder; the `Stream` crossing), Loops (§6 `Seq`, §7 `Iterable`), `stream.md`.
@@ -243,11 +243,13 @@ Messages are normative in shape; the mark table's six rows share one sentence fr
 | `pure` on an extern `let` | "`pure` claims a function's face, and a value reference carries no colour — the claim belongs on an extern `fun`" (FFI Part 4 §4.5) |
 | `pure` on an extern `type` | "`pure` claims a function's face, and a type has none — the claim belongs on an extern `fun`" (FFI Part 4 §4.5) |
 
-## 10. Staging: before the flag defaults on
+## 10. Display
 
-The shipped checker implements this ruling behind a project flag; flag-off compilation is token-for-token the pre-ruling language. Obligations before the flag defaults on, recorded here because each is normative surface, not polish:
+Display is part of the contract: a signature a reader cannot see is not a face. Functions §5.1 owns the display grammar; this section owns what is specific to colour.
 
-- **LSP hover and `.d.ts` faces must render the trio.** A signature a reader cannot see is not a face; display is part of the contract (Functions §5.1 owns the grammar). One display question rides this obligation, and it is ruled **distinguish**: an undecorated `=>` is reserved for the faces whose write-back is meaning-preserving — exactly one distinct variable, with at least one inlet occurrence, so that §2.2's linked reading reproduces the displayed scheme. Every other variable-carrying face numbers its variables in order of first appearance, `=>¹`, `=>²` — more than one distinct variable (inference produces these; the written grammar cannot), and also a lone variable with no inlet occurrence, where an undecorated write-back would take §2.2's else-constant reading and silently mean `=>!`. Constants are never numbered: `->` and `=>!` mean what they say in every position and always round-trip. The numbering's unit is the one displayed type expression, nested function types included. The decoration is display-only, not grammar: pasted into source it fails at the lexer rather than silently relinking.
+- **The trio renders everywhere a face does** — hover, diagnostics, completion detail, and the generated `.d.ts`. A TypeScript face has one function arrow, so the declaration file carries the Hexagon signature as a generated documentation line (`` Hexagon: `face` ``), merged into the author's block per Doc Comments §7.3 and emitted only where the face carries a colour — purity is the silent one (§1).
+- **Distinguish.** An undecorated `=>` is reserved for the faces whose write-back is meaning-preserving — exactly one distinct variable, with at least one inlet occurrence, so that §2.2's linked reading reproduces the displayed scheme. Every other variable-carrying face numbers its variables in order of first appearance, `=>¹`, `=>²` — more than one distinct variable (inference produces these; the written grammar cannot), and also a lone variable with no inlet occurrence, where an undecorated write-back would take §2.2's else-constant reading and silently mean `=>!`. Constants are never numbered: `->` and `=>!` mean what they say in every position and always round-trip. The numbering's unit is the one displayed type expression, nested function types included. The decoration is display-only, not grammar: pasted into source it fails at the lexer rather than silently relinking.
+- **A machine-written annotation never spells a variable colour.** What an annotation writer spells is one type torn out of its signature, and whether a written `=>` would link to the arrows around it, or take the else-constant reading, is not a question the fragment answers. Both constants write freely; a machine-written `=>`-typed return annotation is parenthesized (§2.6).
 
 ## 11. Rejected alternatives (do not re-litigate without new information)
 
@@ -277,6 +279,6 @@ The shipped checker implements this ruling behind a project flag; flag-off compi
 | Two trusted-purity species: unobservable world-writes; owned at-most-once world-reads; captured-sink caveat | §6.2 |
 | `Seq` pure by construction; effectful sequences are nominal siblings (`Stream`); FFI position choice | §7 |
 | Colours and marks erase at emission | §8 |
-| Flag staging and the display obligation | §10 |
+| Display: the trio everywhere a face renders; the `.d.ts` documentation channel; machine-written annotations refuse variable colours | §10 |
 | Display distinguishes: undecorated `=>` reserved for meaning-preserving write-back (one variable, an inlet occurrence); all other variable faces numbered, display-only | §10, Functions §5.1 |
 | Variance and every occurrence walk count the effect slot, at the arrow's own sign | §3.4 |

@@ -114,7 +114,7 @@ open specification work does not make the book outline provisional.
     static.
 
 18. **Sequences** — `Seq(a)` is Hexagon's lazy, immutable sequence and the common
-    currency between collections. Its functional cursor supports effects and external
+    currency between collections. Its functional cursor is pure by construction and supports external
     iteration without exposing mutable JavaScript iterators as the language model.
 
 19. **Streams** — `Stream(a)` is `Seq`'s impure nominal sibling: a tailless pull
