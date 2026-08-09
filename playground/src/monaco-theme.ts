@@ -112,6 +112,8 @@ export const hexagonFamilies: Readonly<Record<string, HexagonFamily>> = {
       "keyword.operator.spread.hexagon",
       "keyword.operator.bar.hexagon",
       "keyword.operator.arrow.hexagon",
+      "keyword.operator.arrow.impure.hexagon",
+      "keyword.operator.mark.hexagon",
       "keyword.operator.type.arrow.hexagon",
     ],
   },

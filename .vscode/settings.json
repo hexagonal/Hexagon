@@ -84,6 +84,8 @@
             "keyword.operator.spread.hexagon",
             "keyword.operator.bar.hexagon",
             "keyword.operator.arrow.hexagon",
+            "keyword.operator.arrow.impure.hexagon",
+            "keyword.operator.mark.hexagon",
             "keyword.operator.type.arrow.hexagon"
           ],
           "settings": {
@@ -218,6 +220,8 @@
             "keyword.operator.spread.hexagon",
             "keyword.operator.bar.hexagon",
             "keyword.operator.arrow.hexagon",
+            "keyword.operator.arrow.impure.hexagon",
+            "keyword.operator.mark.hexagon",
             "keyword.operator.type.arrow.hexagon"
           ],
           "settings": {

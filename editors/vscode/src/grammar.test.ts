@@ -209,6 +209,32 @@ describe("contextual keywords are positional (spec/lexer.md §4.2)", () => {
     expect(pairs).toContainEqual(["get", "entity.name.function.hexagon"]);
   });
 
+  it("paints `pure` as a modifier on an extern `fun`, and nowhere else", async () => {
+    // spec/effects.md §6.1's trusted purity claim. It is contextual, so the
+    // rule keys on the `fun` that must follow: the rows FFI Part 4 §4.5 refuses
+    // it on get nothing, and a binding called `pure` outside the block is an
+    // ordinary name.
+    const source = [
+      'extern from "./trim.js"',
+      "    export pure fun trim(document: String): String",
+      "    export fun save(document: String): Unit",
+      "    export pure",
+      "let pure = 1",
+    ].join("\n");
+    const pairs = await scopePairs(source);
+
+    expect(pairs).toContainEqual(["pure", "storage.modifier.hexagon"]);
+    expect(pairs).toContainEqual(["pure", "variable.other.definition.hexagon"]);
+    // The claimed row and the unclaimed one both keep their own name scope.
+    expect(pairs).toContainEqual(["trim", "entity.name.function.hexagon"]);
+    expect(pairs).toContainEqual(["save", "entity.name.function.hexagon"]);
+    // `export pure` with no `fun` behind it is not the claim, so `pure` there is
+    // an ordinary term rather than a modifier.
+    expect(pairs.filter(([text, scope]) =>
+      text === "pure" && scope === "storage.modifier.hexagon"
+    )).toHaveLength(1);
+  });
+
   it("closes the extern block at the next top-level line", async () => {
     const source = ['extern from "m"', "    export type T", "let get = 1"].join("\n");
     // Were the block still open, `get` would read as FFI vocabulary.
@@ -1082,6 +1108,8 @@ describe("operators and forbidden runs (spec/lexer.md §8)", () => {
       ["let x = a <= b", "<=", "keyword.operator.comparison.hexagon"],
       ["x := 1", ":=", "keyword.operator.assignment.hexagon"],
       ["let f = x => x", "=>", "keyword.operator.arrow.hexagon"],
+      // `=>!` stands ahead of `=>`, which is the munch (spec/effects.md §2.3).
+      ["let h: (() =>! Int) = f", "=>!", "keyword.operator.arrow.impure.hexagon"],
     ];
     for (const [source, text, expected] of cases) {
       expect(await scope(source, text), text).toBe(expected);
@@ -1115,7 +1143,10 @@ describe("operators and forbidden runs (spec/lexer.md §8)", () => {
   });
 
   it("rejects characters §8.3 gives no token", async () => {
-    for (const char of ["%", "^", "&", "?", "@", "#", "`", "\\"]) {
+    // `?` left this list when the call marks landed (spec/effects.md §3.1): it
+    // lexes now, and a floating one is a mark in the wrong seat rather than a
+    // character with no token — see the mark cases below.
+    for (const char of ["%", "^", "&", "@", "#", "`", "\\"]) {
       expect(await scope(`let x = a ${char} b`, char), char).toBe(
         "invalid.illegal.character.hexagon",
       );
@@ -1124,6 +1155,39 @@ describe("operators and forbidden runs (spec/lexer.md §8)", () => {
 
   it("keeps a union bar distinct from the forbidden `||`", async () => {
     expect(await scope("union S = A | B", "|")).toBe("keyword.operator.bar.hexagon");
+  });
+
+  /**
+   * The call marks (spec/effects.md §3.1; Lexer §8.1). The grammar keys on the
+   * *left* glue, because that is what distinguishes a mark from the two things
+   * the same characters used to be: a `!` standing before an expression is the
+   * negation the language spells `not`, and a `?` standing alone had no reading
+   * at all. Both stay painted as errors, which is what a reader needs — neither
+   * is an operator, and no such operator exists.
+   */
+  it("paints a mark glued to its callee, in every seat a mark has", async () => {
+    for (const [source, text] of [
+      ["let x = save!(document)", "!"],
+      ["let x = check?(value)", "?"],
+      ["let x = stream.next!()", "!"],
+      ["let x = (source.next)!()", "!"],
+      ["let x = document |> save!", "!"],
+    ] as const) {
+      expect(await scope(source, text), source).toBe("keyword.operator.mark.hexagon");
+    }
+  });
+
+  it("leaves a floating mark painted as the error it is", async () => {
+    // The `not` redirect survives the token change (§9's own row), and a mark
+    // with no argument list to govern is a parse error either way.
+    expect(await scope("let x = !a", "!")).toBe("invalid.illegal.operator.hexagon");
+    expect(await scope("let x = ?a", "?")).toBe("invalid.illegal.operator.hexagon");
+    expect(await scope("let x = readLine !()", "!")).toBe(
+      "invalid.illegal.operator.hexagon",
+    );
+    // `!=` still wins the munch over the mark, which is why the mark rule sits
+    // after the comparison row rather than before it.
+    expect(await scope("let x = a != b", "!=")).toBe("keyword.operator.comparison.hexagon");
   });
 });
 

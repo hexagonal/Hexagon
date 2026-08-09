@@ -5011,9 +5011,9 @@ class Checker {
       });
       this.#unify(actualLeft.result, actualRight.result, span);
       if (actualLeft.effect !== undefined || actualRight.effect !== undefined) {
-        // An absent slot is the pure constant, so a flag-on function type meets
-        // a compiler-synthesized one without either side needing a slot it was
-        // never given.
+        // An absent slot is the pure constant, so an inferred function type
+        // meets a compiler-synthesized one without either side needing a slot
+        // it was never given.
         this.#unify(actualLeft.effect ?? PURE, actualRight.effect ?? PURE, span);
       }
       return;

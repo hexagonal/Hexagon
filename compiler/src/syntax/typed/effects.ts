@@ -106,10 +106,9 @@ export function collectInletVariables(
 /**
  * Whether any arrow in this type carries a colour other than the pure constant.
  *
- * An absent slot is the pure constant, which is what every arrow means with the
- * flag off — so this is `false` for every type the flag-off compiler builds, and
- * that is what keeps the generated `.d.ts` documentation from appearing on a
- * corpus where it would say nothing. Purity is the silent one (§1).
+ * An absent slot is the pure constant, so this is `false` for a wholly pure
+ * type — which is what keeps the generated `.d.ts` documentation from appearing
+ * on a corpus where it would say nothing. Purity is the silent one (§1).
  */
 export function carriesEffect(type: Typed.Type): boolean {
   switch (type.kind) {

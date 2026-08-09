@@ -240,6 +240,14 @@
           }
         },
         {
+          "//": "spec/effects.md §6.1's trusted purity claim. `pure` is a contextual modifier on a user-written extern `fun` and an ordinary name everywhere else, so the lookahead requires the `fun` — which also keeps it off the extern `let` and `type` rows, where FFI Part 4 §4.5 refuses the claim outright.",
+          "match": "^[ \\t]*(?:(export)[ \\t]+)?(pure)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?=[ \\t]+fun(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))",
+          "captures": {
+            "1": { "name": "keyword.control.import.hexagon" },
+            "2": { "name": "storage.modifier.hexagon" }
+          }
+        },
+        {
           "//": "`export new(...)` constructor description, and the `default` import position.",
           "match": "^[ \\t]*(?:(export)[ \\t]+)?(?:(static)[ \\t]+)?(new|default)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])",
           "captures": {
@@ -1009,9 +1017,11 @@
         { "name": "keyword.operator.range.hexagon", "match": "\\.\\." },
         { "name": "keyword.operator.pipe.hexagon", "match": "\\|>" },
         { "name": "keyword.operator.assignment.hexagon", "match": ":=" },
+        { "//": "spec/effects.md §2.3: `=>!` is one token, and it stands ahead of `=>` so maximal munch reaches it. `!=>` is not a token and gets no rule — `!=` wins the munch.", "name": "keyword.operator.arrow.impure.hexagon", "match": "=>!" },
         { "name": "keyword.operator.arrow.hexagon", "match": "=>" },
         { "name": "keyword.operator.type.arrow.hexagon", "match": "->" },
         { "name": "keyword.operator.comparison.hexagon", "match": "==|!=|<=|>=" },
+        { "//": "The call marks (spec/effects.md §3.1), written glued on both sides (Lexer §8.1). The left glue is what this rule keys on — a mark follows the callee it marks — so the lookbehind is an identifier character or a closing bracket, which covers `save!(x)`, `stream.next!()`, the parenthesized `(source.next)!()`, and a `|>` stage's trailing `x |> save!`. A floating mark is deliberately left unpainted: it is a parse error (§9's mark-position row), and colouring it as an operator would tell the reader it is one when no such operator exists. This rule must stay *after* the comparison row: at the `!` of `a != b` both start at the same offset, and order is what decides.", "name": "keyword.operator.mark.hexagon", "match": "(?<=[\\p{ID_Continue}$_)\\]])[!?]" },
         { "name": "keyword.operator.arithmetic.hexagon", "match": "\\*\\*" },
         { "name": "keyword.operator.concat.hexagon", "match": "\\+\\+" },
         { "name": "keyword.operator.arithmetic.hexagon", "match": "[+\\-*/]" },
@@ -1040,9 +1050,9 @@
       "//": "spec/lexer.md §8.3 and §10: characters and runs with no token at all. §10's last row requires *any* invalid character to be one diagnostic, so the final rule is a negated class over the whole legal repertoire rather than a list of the forbidden characters someone thought of.",
       "patterns": [
         {
-          "//": "§8.2 special-cases these so the user is pointed at `not`, `and`, `or`.",
+          "//": "§8.2 special-cases these so the user is pointed at `not`, `and`, `or`. The `!` and `?` arms carry a lookbehind because both now lex as call marks (spec/effects.md §3.1): a mark *glued* to the callee it marks is a real token and #operators paints it, while one standing on its own is what stays wrong — a prefix `!` takes the `not` redirect the scanner used to give, and a floating `?` takes §9's mark-position error. `?` reaches this rule at all only because it left the catch-all's negated class below.",
           "name": "invalid.illegal.operator.hexagon",
-          "match": "&&|\\|\\||!(?!=)"
+          "match": "&&|\\|\\||(?<![\\p{ID_Continue}$_)\\]])(?:!(?!=)|\\?)"
         },
         { "include": "#bidirectional-control" },
         {
@@ -1051,9 +1061,9 @@
           "match": "[\\x{000B}\\x{000C}\\x{00A0}\\x{1680}\\x{2000}-\\x{200B}\\x{202F}\\x{205F}\\x{3000}\\x{FEFF}]"
         },
         {
-          "//": "Every character outside the identifier repertoire (§3.1) and the closed punctuation inventory (§8.1). Catches `~`, `'` (§3.2: ML-style `a'` names do not exist), `%`, `^`, a lone `&`, `?`, `@`, `#`, backtick, backslash, and §11's own rejected `let 😀 = 1`. `!` is excluded here because `!=` is a real token; the rule above already claims a bare `!`.",
+          "//": "Every character outside the identifier repertoire (§3.1) and the closed punctuation inventory (§8.1). Catches `~`, `'` (§3.2: ML-style `a'` names do not exist), `%`, `^`, a lone `&`, `@`, `#`, backtick, backslash, and §11's own rejected `let 😀 = 1`. `!` and `?` are both excluded here because both lex — `!=`, and the two call marks — and the operator rule above already claims whichever of them stands in the wrong place.",
           "name": "invalid.illegal.character.hexagon",
-          "match": "[^\\p{ID_Continue}$_\\x{200C}\\x{200D} \\t()\\[\\]{},:;.=+\\-*/<>|\"!]"
+          "match": "[^\\p{ID_Continue}$_\\x{200C}\\x{200D} \\t()\\[\\]{},:;.=+\\-*/<>|\"!?]"
         }
       ]
     },

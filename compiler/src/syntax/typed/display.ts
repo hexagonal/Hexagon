@@ -32,8 +32,8 @@ export function displayScheme(scheme: Typed.Scheme): string {
 
 /**
  * A function type's arrow (`spec/effects.md` §2). An absent slot is the pure
- * constant, which is what every arrow means with the effects flag off — so a
- * flag-off signature displays exactly the `->` it always has.
+ * constant, so a signature that never wrote a colour displays exactly the `->`
+ * it always has — purity is the silent one (§1).
  */
 function displayArrow(
   effect: Typed.Effect | undefined,

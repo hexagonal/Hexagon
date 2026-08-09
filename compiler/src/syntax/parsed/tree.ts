@@ -64,9 +64,10 @@ interface ExternDeclarationFields {
   readonly exported: boolean;
   readonly default: boolean;
   /**
-   * The #355 trusted purity claim (`pure fun …`), on a user-written extern.
-   * Absent everywhere the effects flag is off, and meaningless on an intrinsic
-   * row, whose purity comes from intrinsics §4.2's verification.
+   * The trusted purity claim (`pure fun …`), on a user-written extern
+   * (Effects §6.1). Absent is the honest default for the unknown — the impure
+   * constant — and the claim is meaningless on an intrinsic row, whose purity
+   * comes from intrinsics §4.2's verification instead.
    */
   readonly pure?: true;
   readonly foreignName?: Name;
@@ -420,9 +421,8 @@ export interface RecordTypeField {
 }
 
 /**
- * How a function type's arrow was written, under #355's effects prototype.
- * Absent means `->`, which is every arrow this repository can write with the
- * flag off — the pure constant, and the pure *demand*.
+ * How a function type's arrow was written (Effects §2). Absent means `->` —
+ * the pure constant, and the pure *demand*.
  *
  * `linked` is `=>`: one implicitly quantified effect variable shared across the
  * whole signature, or the impure constant when the signature has no

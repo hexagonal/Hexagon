@@ -6982,9 +6982,8 @@ function comparisonOperator(
  * content riding beside the author's.
  *
  * A face whose every arrow is pure gets nothing, and that is the doctrine
- * rather than a saving: purity is the silent one (§1), so on a flag-off
- * compilation — where no arrow carries a colour at all — this is empty
- * everywhere and the emitted declarations are byte-for-byte what they were.
+ * rather than a saving: purity is the silent one (§1), so a wholly pure corpus
+ * emits declarations with no block of this kind anywhere in them.
  */
 function hexagonFaceDoc(scheme: Typed.Scheme): readonly string[] {
   return Typed.carriesEffect(scheme.type)
