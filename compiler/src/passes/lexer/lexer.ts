@@ -63,6 +63,10 @@ const punctuation: readonly (readonly [string, Lexed.PunctuationKind])[] = [
   ["..", "Range"],
   ["|>", "Pipe"],
   [":=", "Assign"],
+  // `=>!` stands ahead of `=>` so maximal munch reaches it (Lexer §8.1): the
+  // bang trails the arrow it condemns, and `!=>` is not a token because `!=`
+  // would win the munch (Effects §2.3).
+  ["=>!", "FatArrowBang"],
   ["=>", "FatArrow"],
   ["->", "Arrow"],
   ["(", "LeftParen"],
@@ -86,28 +90,10 @@ const punctuation: readonly (readonly [string, Lexed.PunctuationKind])[] = [
   ["_", "Wildcard"],
 ];
 
-/**
- * The `=>!` row, spliced in ahead of `=>` so maximal munch reaches it. Only the
- * effects prototype's table carries it.
- */
-const effectsPunctuation: readonly (readonly [string, Lexed.PunctuationKind])[] =
-  punctuation.flatMap((row) =>
-    row[0] === "=>" ? [["=>!", "FatArrowBang"] as const, row] : [row]
-  );
-
-export interface LexOptions {
-  /**
-   * The #355 effects prototype's token inventory: `=>!`, and the bare `!` and
-   * `?` call marks. Off — the default, and every caller that does not opt in —
-   * the scanner is the one this repository shipped.
-   */
-  readonly effects?: boolean;
-}
-
-export function lex(source: Source.File, options: LexOptions = {}): Lexed.File {
+export function lex(source: Source.File): Lexed.File {
   const diagnostics = new Diagnostics.Bag();
   validateSourceCharacters(source, diagnostics);
-  const scanner = new Scanner(source, diagnostics, options.effects === true);
+  const scanner = new Scanner(source, diagnostics);
   const { tokens } = scanner.scanSequence(false);
 
   return {
@@ -130,16 +116,14 @@ class Scanner {
 
   readonly #source: Source.File;
   readonly #diagnostics: Diagnostics.Bag;
-  readonly #effects: boolean;
 
   #offset = 0;
   #atLineStart = true;
   #suppressNewlines = 0;
 
-  constructor(source: Source.File, diagnostics: Diagnostics.Bag, effects = false) {
+  constructor(source: Source.File, diagnostics: Diagnostics.Bag) {
     this.#source = source;
     this.#diagnostics = diagnostics;
-    this.#effects = effects;
   }
 
   /** Scans either a complete file or one interpolation's balanced token stream. */
@@ -435,22 +419,17 @@ class Scanner {
     }
 
     if (codeUnit === 0x21 && !this.#startsWith("!=")) {
-      // Under the effects prototype a lone `!` is the impure call mark. The
-      // parser, not the scanner, decides where it is grammatical — a mark
-      // governs an argument list (#355 ruling 2) or carries a pipe stage
-      // (ruling 1), and anywhere else it is a parse error. The bang of `=>!` is
-      // never seen here: that token is scanned from its `=`, by the punctuation
-      // table, which lists `=>!` ahead of `=>`.
-      if (this.#effects) {
-        this.#offset += 1;
-        return { kind: "Bang", span: this.#source.span(start, this.#offset) };
-      }
+      // A lone `!` is the impure call mark. The parser, not the scanner,
+      // decides where it is grammatical — a mark governs an argument list
+      // (Effects §3.2) or carries a pipe stage, and anywhere else it is a parse
+      // error, which is also where the `not` redirect now lives (Effects §9).
+      // The bang of `=>!` is never seen here: that token is scanned from its
+      // `=`, by the punctuation table, which lists `=>!` ahead of `=>`.
       this.#offset += 1;
-      this.#error(start, this.#offset, "Hexagon spells logical negation `not`");
-      return undefined;
+      return { kind: "Bang", span: this.#source.span(start, this.#offset) };
     }
 
-    if (this.#effects && codeUnit === 0x3f) {
+    if (codeUnit === 0x3f) {
       this.#offset += 1;
       return { kind: "Question", span: this.#source.span(start, this.#offset) };
     }
@@ -499,7 +478,7 @@ class Scanner {
       return undefined;
     }
 
-    for (const [spelling, kind] of this.#effects ? effectsPunctuation : punctuation) {
+    for (const [spelling, kind] of punctuation) {
       if (this.#startsWith(spelling)) {
         this.#offset += spelling.length;
         return { kind, span: this.#source.span(start, this.#offset) };

@@ -1434,13 +1434,11 @@ function diagnosticTally(
  */
 function sameOptions(left: SessionOptions, right: SessionOptions): boolean {
   const compared = (
-    { runtimePaths, effects, ...rest }: SessionOptions,
+    { runtimePaths, ...rest }: SessionOptions,
   ): readonly string[] => {
     const exhaustive: Record<string, never> = rest;
     void exhaustive;
-    // #355's flag decides the grammar, so a session that toggles it must
-    // recompile: it rides the compared list rather than sitting beside it.
-    return [`effects:${effects === true}`, ...[...(runtimePaths ?? [])].sort()];
+    return [...[...(runtimePaths ?? [])].sort()];
   };
   const [before, after] = [compared(left), compared(right)];
   return before.length === after.length && before.every((path, at) => path === after[at]);

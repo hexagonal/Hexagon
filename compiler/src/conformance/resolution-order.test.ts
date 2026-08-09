@@ -242,7 +242,7 @@ describe("the boundary intrinsics are a fallback in both directions", () => {
     expect(diagnostics(
       "export record Array(a) = { item: a }\n" +
       "extern from \"host\"\n    fun sink(values: Array(Int)): Unit\n" +
-      "export fun use(item: Int): Unit = sink(Array({ item = item }))\n",
+      "export fun use(item: Int): Unit = sink!(Array({ item = item }))\n",
     )).toEqual([]);
   });
 });

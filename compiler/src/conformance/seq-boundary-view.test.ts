@@ -169,7 +169,7 @@ describe("the face is representation, at every construction site (§9.4)", () =>
         "extern from \"numbers\"\n" +
         "    fun counter(): Seq(Int)\n" +
         "\n" +
-        "export let adapted: Seq(Int) = counter()\n"]],
+        "export let adapted: Seq(Int) = counter!()\n"]],
       { numbers: "export function counter() { return [7, 8, 9]; }" },
     );
     expect([...exports["adapted"] as Iterable<number>]).toEqual([7, 8, 9]);
@@ -239,12 +239,12 @@ describe("§9.4 property 2: all cursors share one memoized view", () => {
     const exports = await run(
       [["/main.hex",
         "extern from \"probe\"\n" +
-        "    fun note(value: Int): Int\n" +
+        "    pure fun note(value: Int): Int\n" +
         "    fun steps(): Int\n" +
         "\n" +
         "export let counted: Seq(Int) =\n" +
         "    Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), note)\n" +
-        "export let observed(ignored: Int): Int = steps()\n"]],
+        "export let observed(ignored: Int): Int = steps!()\n"]],
       {
         probe: [
           "let count = 0;",
@@ -302,12 +302,12 @@ describe("§9.4 property 3: the view is created lazily", () => {
     const exports = await run(
       [["/main.hex",
         "extern from \"probe\"\n" +
-        "    fun note(value: Int): Int\n" +
+        "    pure fun note(value: Int): Int\n" +
         "    fun steps(): Int\n" +
         "\n" +
         "export let counted: Seq(Int) =\n" +
         "    Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), note)\n" +
-        "export let observed(ignored: Int): Int = steps()\n"]],
+        "export let observed(ignored: Int): Int = steps!()\n"]],
       {
         probe: [
           "let count = 0;",
@@ -325,12 +325,12 @@ describe("§9.4 property 3: the view is created lazily", () => {
     const exports = await run(
       [["/main.hex",
         "extern from \"probe\"\n" +
-        "    fun note(value: Int): Int\n" +
+        "    pure fun note(value: Int): Int\n" +
         "    fun steps(): Int\n" +
         "\n" +
         "export let counted: Seq(Int) =\n" +
         "    Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), note)\n" +
-        "export let observed(ignored: Int): Int = steps()\n"]],
+        "export let observed(ignored: Int): Int = steps!()\n"]],
       {
         probe: [
           "let count = 0;",
@@ -355,12 +355,12 @@ describe("§9.4 property 4: failure is memoized per position", () => {
     const exports = await run(
       [["/main.hex",
         "extern from \"probe\"\n" +
-        "    fun risky(value: Int): Int\n" +
+        "    pure fun risky(value: Int): Int\n" +
         "    fun attempts(): Int\n" +
         "\n" +
         "export let counted: Seq(Int) =\n" +
         "    Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), risky)\n" +
-        "export let tried(ignored: Int): Int = attempts()\n"]],
+        "export let tried(ignored: Int): Int = attempts!()\n"]],
       {
         probe: [
           "let calls = 0;",
@@ -436,8 +436,8 @@ describe("§9.4 property 6: an early return() ends that cursor only", () => {
         "    fun counter(): Seq(Int)\n" +
         "    fun closes(): Int\n" +
         "\n" +
-        "export let adapted: Seq(Int) = counter()\n" +
-        "export let closed(ignored: Int): Int = closes()\n"]],
+        "export let adapted: Seq(Int) = counter!()\n" +
+        "export let closed(ignored: Int): Int = closes!()\n"]],
       {
         numbers: [
           "let closures = 0;",
@@ -542,13 +542,13 @@ describe("§9.4 channel separation: internal traversal never uses the face", () 
     const exports = await run(
       [["/main.hex",
         "extern from \"probe\"\n" +
-        "    fun note(value: Int): Int\n" +
+        "    pure fun note(value: Int): Int\n" +
         "    fun steps(): Int\n" +
         "\n" +
         "let shared: Seq(Int) = Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), note)\n" +
         "\n" +
         "export let internally(ignored: Int): Int = Seq.length(shared)\n" +
-        "export let observed(ignored: Int): Int = steps()\n" +
+        "export let observed(ignored: Int): Int = steps!()\n" +
         "export let exported: Seq(Int) = shared\n"]],
       {
         probe: [
@@ -588,7 +588,7 @@ describe("§9.4 channel separation: internal traversal never uses the face", () 
     const exports = await run(
       [["/main.hex",
         "extern from \"probe\"\n" +
-        "    fun note(value: Int): Int\n" +
+        "    pure fun note(value: Int): Int\n" +
         "    fun steps(): Int\n" +
         "\n" +
         "let counted: Seq(Int) = Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), note)\n" +
@@ -601,7 +601,7 @@ describe("§9.4 channel separation: internal traversal never uses the face", () 
         "        sum := sum + value\n" +
         "    sum\n" +
         "\n" +
-        "export let observed(ignored: Int): Int = steps()\n"]],
+        "export let observed(ignored: Int): Int = steps!()\n"]],
       {
         probe: [
           "let count = 0;",
@@ -693,13 +693,13 @@ describe("occasion 1's wrapper is transparent to Hexagon importers (§9.4)", () 
         ["/main.hex",
           "import { twice } from \"./lib.hex\"\n" +
           "extern from \"probe\"\n" +
-          "    fun note(value: Int): Int\n" +
+          "    pure fun note(value: Int): Int\n" +
           "    fun steps(): Int\n" +
           "\n" +
           "let counted: Seq(Int) = Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), note)\n" +
           "\n" +
           "export let total: Int = twice(counted)\n" +
-          "export let observed(ignored: Int): Int = steps()\n"],
+          "export let observed(ignored: Int): Int = steps!()\n"],
       ],
       {
         probe: [

@@ -111,7 +111,7 @@ function ticker(label: string): string {
 
 const TICKER_HEADER =
   'extern from "ticker"\n' +
-  "    fun tick(value: Int): Int\n" +
+  "    pure fun tick(value: Int): Int\n" +
   "    fun ticks(): Int\n" +
   "\n";
 
@@ -135,7 +135,7 @@ describe("Loops §6.4: re-derivation is the default, `memoize` the opt-in", () =
         "export let driveMemoized(ignored: Int): Int =\n" +
         "    Seq.fold(memoized, 0, (total, value) => total + value)\n" +
         "\n" +
-        "export let ticked(ignored: Int): Int = ticks()\n"]],
+        "export let ticked(ignored: Int): Int = ticks!()\n"]],
       { ticker: ticker("default-vs-optin") },
     );
     const driveDerived = exports["driveDerived"] as (ignored: number) => number;
@@ -176,7 +176,7 @@ describe("Loops §6.4: re-derivation is the default, `memoize` the opt-in", () =
         "export let firstThree(ignored: Int): Int =\n" +
         "    Seq.fold(Seq.take(memoized, 3), 0, (total, value) => total + value)\n" +
         "\n" +
-        "export let ticked(ignored: Int): Int = ticks()\n"]],
+        "export let ticked(ignored: Int): Int = ticks!()\n"]],
       { ticker: ticker("laziness") },
     );
     const firstThree = exports["firstThree"] as (ignored: number) => number;
@@ -204,7 +204,7 @@ describe("Loops §6.4: re-derivation is the default, `memoize` the opt-in", () =
         "\n" +
         "export let driveSource(ignored: Int): Int = Seq.length(source)\n" +
         "export let driveMemoized(ignored: Int): Int = Seq.length(memoized)\n" +
-        "export let ticked(ignored: Int): Int = ticks()\n"]],
+        "export let ticked(ignored: Int): Int = ticks!()\n"]],
       { ticker: ticker("source-unconsumed") },
     );
     const driveSource = exports["driveSource"] as (ignored: number) => number;
@@ -243,7 +243,7 @@ describe("Loops §6.4: re-derivation is the default, `memoize` the opt-in", () =
         "        None => 0\n" +
         "        Some((value, rest)) => value + Seq.length(rest)\n" +
         "\n" +
-        "export let ticked(ignored: Int): Int = ticks()\n"]],
+        "export let ticked(ignored: Int): Int = ticks!()\n"]],
       { ticker: ticker("shared-prefix") },
     );
     const headThenLength = exports["headThenLength"] as (ignored: number) => number;
@@ -288,7 +288,7 @@ describe("failure is memoized per position (FFI Part 3 §7.1, inherited)", () =>
     const exports = await run(
       [["/main.hex",
         'extern from "boom"\n' +
-        "    fun explode(value: Int): Int\n" +
+        "    pure fun explode(value: Int): Int\n" +
         "    fun attempts(): Int\n" +
         "\n" +
         "let memoized: Seq(Int) = Seq.memoize(Seq.map(Vector.toSeq([1, 2, 3]), explode))\n" +
@@ -298,7 +298,7 @@ describe("failure is memoized per position (FFI Part 3 §7.1, inherited)", () =>
         "        None => 0\n" +
         "        Some((value, _)) => value\n" +
         "\n" +
-        "export let attempted(ignored: Int): Int = attempts()\n"]],
+        "export let attempted(ignored: Int): Int = attempts!()\n"]],
       {
         boom:
           "let calls = 0;\n" +

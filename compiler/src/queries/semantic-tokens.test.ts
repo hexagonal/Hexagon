@@ -180,7 +180,7 @@ describe("semantic tokens", () => {
       "    fun compute(value: Int): Int",
       "    let version: String",
       "",
-      "let answer: Int = compute(1)",
+      "let answer: Int = compute!(1)",
       "let label: String = version",
       "",
     ].join("\n");
@@ -204,7 +204,7 @@ describe("semantic tokens", () => {
     const main = [
       'import {compute, version} from "./helper"',
       "",
-      "let answer: Int = compute(1)",
+      "let answer: Int = compute!(1)",
       "let label: String = version",
       "",
     ].join("\n");
