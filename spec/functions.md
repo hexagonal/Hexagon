@@ -174,7 +174,9 @@ generalized by inference (§8); a bare `<a>` header adds nothing. Bare `<a>`
 remains grammatically legal on functions (Constraints §1) but is never
 canonical there — its one load-bearing position is a `constraint` head
 (Constraints §2), where no annotation precedes the binder to introduce the
-subject.
+subject. An `honor` header is the function case, not the `constraint` case:
+a parameterized head's variables are binders in themselves, and the prefix
+earns its place only to constrain one (Constraints §5.4).
 
 The decision procedure, in full:
 

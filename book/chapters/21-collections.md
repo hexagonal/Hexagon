@@ -255,7 +255,7 @@ possible collection representation.
 ```hexagon
 record Bag(a) = {items: Vector(a)}
 
-honor<a> Iterable<Bag(a)> =
+honor Iterable<Bag(a)> =
     type Item = a
     toSeq(bag) = Vector.toSeq(bag.items)
 ```

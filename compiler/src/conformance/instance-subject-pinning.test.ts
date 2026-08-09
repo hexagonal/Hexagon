@@ -19,7 +19,19 @@ import { projectDiagnostics } from "../support/test-project.js";
  *
  * Both specimens below were verified against `main`, where each produces no
  * diagnostic at all.
+ *
+ * #390 then made the ground head itself unlawful: a parameterized head must be
+ * applied to distinct type variables, prefix or no prefix, so `honor
+ * Sh<Box(Int)>` now draws the head-lawfulness refusal at its declaration. The
+ * specimens are kept, refusal and all, because the refusal does not stop the
+ * checker: what they assert about `#pinInstanceSubject` is still what the
+ * compiler does, and the file is the record of *why* it does it. What no longer
+ * exists is a lawful program that reaches the ground-head case — under #390 the
+ * pin imposes nothing on any head a module may write, and is defence in depth.
  */
+
+const HEAD_LAW =
+  "a parameterized instance head must be a nominal constructor applied once to each distinct instance parameter";
 
 const SH = "export record Box(a) = { value: a }\n" +
   "constraint Sh<a> =\n" +
@@ -35,7 +47,7 @@ describe("a ground instance head imposes its arguments", () => {
     // for `Int`.
     expect(
       projectDiagnostics(SH + 'export let g: String = sh(Box({value = "x"}))\n'),
-    ).toEqual(["type mismatch: expected Int, found String"]);
+    ).toEqual(["type mismatch: expected Int, found String", HEAD_LAW]);
   });
 
   test("a declared type variable cannot satisfy a ground head", () => {
@@ -46,6 +58,7 @@ describe("a ground instance head imposes its arguments", () => {
     ).toEqual([
       "`a` is a declared type variable, but the body requires `Int`; " +
         "change the annotation to `Int`, or remove it to let the type be inferred",
+      HEAD_LAW,
     ]);
   });
 

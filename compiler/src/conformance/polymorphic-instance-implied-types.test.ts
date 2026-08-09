@@ -58,7 +58,7 @@ describe("the binding's variable is the header's (§5.3)", () => {
       "honor<a> Iterable<Bag(a)> =\n" +
       "    type Item = b\n" +
       "    toSeq(bag) = Vector.toSeq(bag.items)\n")).toContain(
-      "`b` is not one of this instance's `<...>` binders; an implied type " +
+      "`b` is not one of this instance's binders; an implied type " +
         "binding may mention only in-scope type names and the instance's own binders",
     );
   });
