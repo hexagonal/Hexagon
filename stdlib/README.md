@@ -5,13 +5,13 @@ executable conformance clients of the compiler. They are ordinary source modules
 not compiler intrinsics.
 
 - `Show.hex`, `Num.hex`, `Signed.hex`, `Frac.hex`, `Pow.hex`, `Concat.hex`,
-  `Eq.hex`, `Hash.hex`, `Ord.hex`, and `Integral.hex` are the **declaring
-  modules** of the constraints the compiler pre-registers. A constraint member
-  is an export of its declaring module (#335), so these files are what put
-  `show`, `add`, `equals`, `compare`, `div` and the rest into bare scope
-  everywhere; all ten are prelude members, in the seats-before-uses order
-  `compiler/src/prelude.ts` records. `Iterable` has no file: it is
-  pre-registered by name only, owned by the collections arc.
+  `Eq.hex`, `Hash.hex`, `Ord.hex`, `Integral.hex`, and `Iterable.hex` are the
+  **declaring modules** of the eleven constraints the compiler pre-registers. A
+  constraint member is an export of its declaring module (#335), so these files
+  are what put `show`, `add`, `equals`, `compare`, `div`, `toSeq` and the rest
+  into bare scope everywhere; all eleven are prelude members, in the
+  seats-before-uses order `compiler/src/prelude.ts` records. `Iterable.hex`
+  seats after `Seq.hex`, whose type its member signature names.
 - `Rat.hex` implements exact rational arithmetic over `BigInt`. Its constructor
   normalizes through Euclidean `BigInt.gcd` and exact quotient operations, and
   its arithmetic lives in its `honor` blocks — a member definition is a
