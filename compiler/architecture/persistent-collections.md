@@ -1,6 +1,6 @@
 # Persistent Collections & the Hidden Node Primitive
 
-**Status:** Design note, **implemented for `Vector` and `Map`; `Set` remains**.
+**Status:** Design note, **implemented in full — `Vector`, `Map`, and `Set` (#373)**.
 Captures decisions from a design discussion about moving `Vector` (and later
 `Map`/`Set`) from TS runtime helpers into mostly-`.hex` code over a minimal,
 hidden intrinsic. It read "not yet implemented" through both landings and was
@@ -21,9 +21,12 @@ What has landed, and where the shipped design differs from this note:
   than growing the `Node` family. `stdlib/Map.hex` is its prelude companion
   (#370), and the emitter's `persistentCollections` helper has lost its whole
   Map half.
-- **`Set(a)`** is the one collection still living in `persistentCollections`.
-  Its milestone is the Map/Set arc's next step, and it inherits the HAMT: a
-  `Set(a)` is a `HashTrie(a, Unit)`.
+- **`Set(a)`** landed at the arc's last step (#373) and inherits the HAMT one
+  record over: a `Set(a)` is `runtime/HashTrie.hex`'s `HashSet(a)` — a one-field
+  wrapper holding a `HashTrie(a, Unit)`, which exists so the emitted set value
+  carries element-only iteration where the trie's own iterator yields pairs.
+  `stdlib/Set.hex` is its prelude companion, and the `persistentCollections`
+  helper is gone entirely.
 - §5.1's open decision is **settled the way it recommends**: `Node.set` is
   immutable, and transients are ruled runtime-internal-only (Collections Part 5
   §11). §5.2's visibility mechanism exists as the resolver's `runtime` flag plus
@@ -34,10 +37,12 @@ What has landed, and where the shipped design differs from this note:
 The spec pins `Vector(a)` as "the persistent 32-way bit-partitioned trie deque
 from `@hexagon/runtime`" (Collections Part 3 §4/§11.5; RRB is an explicit Part 1
 rejection, and `concat` is documented-linear — so no relaxed/variable nodes are
-needed, ever). Today that trie lives **entirely in a TS runtime helper**
-(`persistentCollections`), and `stdlib/Vector.hex` is a thin set of wrappers over
-it. We want the inverse: **most of the logic in `.hex`, with only a small,
-necessary intrinsic in TS.** The same applies later to `Map` and `Set`.
+needed, ever). When this note was written, the persistent structures lived
+**entirely in a TS runtime helper** (`persistentCollections` — which in fact
+served `Map`/`Set` only; `Vector` was a native array), and the companions were
+thin wrappers. We wanted the inverse: **most of the logic in `.hex`, with only a
+small, necessary intrinsic in TS.** That is now the shipped shape for all three
+collections (see the status list above).
 
 ## 2. The three-array taxonomy
 
