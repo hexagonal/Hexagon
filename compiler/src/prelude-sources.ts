@@ -994,9 +994,8 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "    honoring `Iterable`, and `toSeq` is that type's conversion to the common\n"
     + "    `Seq` currency. *)\n"
     + "export constraint Iterable<c> =\n"
-    + "    // The type of one element, implied by the subject: each instance binds it,\n"
-    + "    // so `Iterable<Vector(a)>` implies `Item = a`. An ordinary comment, not a\n"
-    + "    // doc comment: the parser admits no `(** *)` above a `type` member (#353).\n"
+    + "    (** The type of one element, implied by the subject: each instance binds it,\n"
+    + "        so `Iterable<Vector(a)>` implies `Item = a`. *)\n"
     + "    type Item\n"
     + "    (** The elements of `xs` as a sequence, in the type's traversal order. *)\n"
     + "    toSeq(xs: c): Seq(Item)\n",
