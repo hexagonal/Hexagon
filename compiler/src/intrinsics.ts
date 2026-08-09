@@ -38,6 +38,13 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * by `stdlib/Seq.hex` per `spec/intrinsics.md` §3.2; lowered by the emitter's
  * helper of the same name.
  *
+ * `streamFromSeq` — `stream.md` §4.3's one door: a pure sequence driven as a
+ * stream. The cursor that holds the successor between pulls is cross-call state,
+ * which §3 of that spec makes inexpressible in Hexagon — a lambda cannot touch
+ * an outer `var` (Statements §6.2) — so the runtime owns it and the row is the
+ * declaration. Its declared face is pure: building the cursor touches nothing,
+ * and the impurity is the record field's arrow, which is the constant.
+ *
  * The `vector*` family is exactly Collections Part 3 §7's boundary crossing —
  * representation-sensitive length and end updates, signed indexed access,
  * persistent indexed update, and the eager/lazy bridge. Everything else in that
@@ -175,6 +182,7 @@ export function isIntrinsicScheme(specifier: string): boolean {
  */
 export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["seqMemoize", 1],
+  ["streamFromSeq", 1],
   ["vectorLength", 1],
   ["vectorAppend", 2],
   ["vectorPrepend", 2],

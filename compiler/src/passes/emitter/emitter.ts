@@ -4453,6 +4453,8 @@ class JavaScriptEmitter {
     switch (key) {
       case "seqMemoize":
         return this.#useHelper("seqMemoize");
+      case "streamFromSeq":
+        return this.#useHelper("streamFromSeq");
       // Collections Part 3 §7's boundary. Four of the seven *are* a trie
       // operation and lower to the imported name itself; `at` and `set` reach
       // for helpers because a bounds check followed by a return is statements,
@@ -5777,6 +5779,7 @@ type Helper =
   | "seqIterate"
   | "seqMemoize"
   | "seqToIterable"
+  | "streamFromSeq"
   | "nodeSet"
   | "vectorAt"
   | "vectorIndex"
@@ -5820,6 +5823,9 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   seqIterate: ["seqFromIterable", "seqToIterable"],
   seqMemoize: ["seqFromIterable", "seqToIterable"],
   seqToIterable: [],
+  // Drives `pull` directly rather than through `seqToIterable`: a stream is
+  // single-pass, so it wants a cursor it can hold, not a fresh generator.
+  streamFromSeq: [],
   nodeSet: [],
   vectorAt: [],
   vectorIndex: [],
@@ -6659,6 +6665,36 @@ function renderHelper(
         "        yield __hex_step.value[0];",
         "        __hex_current = __hex_step.value[1];",
         "      }",
+        "    },",
+        "  };",
+        "}",
+      ];
+    case "streamFromSeq":
+      // `stream.md` §4.3's door: the cursor is the cross-call state a Hexagon
+      // lambda cannot hold (Statements §6.2), so it lives here, in the one
+      // closure the record's field reads.
+      //
+      // Two properties the module's contract rests on. **A pull is one step**:
+      // the successor is stored and the head returned, so the derived stream
+      // advances exactly as `stream.md` §1 says a stream does — there is no
+      // tail to hand out. And **an exhausted stream keeps answering `None`**
+      // (§2): the cursor is left standing at the position that ended, and
+      // re-deriving a pure `Seq` position gives the same answer, so every later
+      // pull ends again rather than restarting or throwing.
+      //
+      // No memoization and no view: the source is a `Seq` and already owns
+      // whatever persistence it has. Driving `pull` rather than composing
+      // `seqToIterable` is deliberate — a generator would be a second traversal
+      // to hold, where the whole shape here is one position at a time.
+      return [
+        `function ${name}(__hex_sequence) {`,
+        "  let __hex_current = __hex_sequence;",
+        "  return {",
+        "    next: () => {",
+        "      const __hex_step = (__hex_current.pull)();",
+        '      if (__hex_step.tag !== "Some") return { tag: "None" };',
+        "      __hex_current = __hex_step.value[1];",
+        '      return { tag: "Some", value: __hex_step.value[0] };',
         "    },",
         "  };",
         "}",

@@ -163,7 +163,7 @@ describe("verification replaces trust (§4.2)", () => {
       "    export fun mapInsert as insert<a>(values: Seq(a), index: Int): a\n",
     )).toEqual([
       "the compiler provides no intrinsic `mapInsert`; the keys it provides are " +
-      "`seqMemoize`, `vectorLength`, `vectorAppend`, `vectorPrepend`, `vectorAt`, " +
+      "`seqMemoize`, `streamFromSeq`, `vectorLength`, `vectorAppend`, `vectorPrepend`, `vectorAt`, " +
       "`vectorSet`, `vectorToSeq`, `vectorFromSeq`, `bigIntAdd`, `bigIntMultiply`, " +
       "`bigIntFromNat`, `bigIntSubtract`, `bigIntNegate`, `bigIntFromInt`, " +
       "`bigIntEquals`, `bigIntCompare`, `bigIntShow`, `bigIntPow`, `bigIntHash`, " +
