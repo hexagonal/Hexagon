@@ -110,11 +110,27 @@ describe("emitJavaScript", () => {
 
     expect(text("/main.hex")).not.toContain("const __hex_persistentCollections");
     expect(text("/Vector.hex")).not.toContain("const __hex_persistentCollections");
+    // No `toSeq` in the import list since #353: `Vector.toSeq` is the provided
+    // row's member, not an export of the companion, and a provided row is
+    // rendered inline rather than imported (Collections Part 5 §4).
     expect(text("/main.hex")).toContain(
-      'import { set, fromSeq, toSeq, at } from "./Vector.js";',
+      'import { set, fromSeq, at } from "./Vector.js";',
     );
-    // `toSeq` lowers to the inbound adapter and `fromSeq` to the outbound
-    // driver, in the module whose door declares them.
+    // The member reaches its row through the Constraints §6.5 forwarder, with
+    // the row's dictionary rendered inline as the trailing evidence argument —
+    // no import, because no module exports it.
+    // The symbol id in the exported spelling is not pinned: it moves whenever
+    // anything ahead of `Iterable.hex` in the prelude gains a binding, and this
+    // test is about where the name comes from, not what it is numbered.
+    expect(text("/main.hex")).toMatch(
+      /import \{ __hex_export\d+ as toSeq \} from "\.\/Iterable\.js";/,
+    );
+    expect(text("/main.hex")).toContain(
+      "toSeq(updated, ({ toSeq: __hex_seqFromIterable }))",
+    );
+    // `fromSeq` lowers to the outbound driver in the module whose door declares
+    // it; the inbound adapter is there too, because the unexported `elements`
+    // row still crosses the same boundary.
     expect(text("/Vector.hex")).toContain("function __hex_seqFromIterable");
     expect(text("/Vector.hex")).toContain("function __hex_seqToIterable");
     expect(text("/Vector.hex")).toContain(
@@ -308,10 +324,10 @@ describe("emitJavaScript", () => {
 
   test("iterates provided collections and concrete user Iterable instances", () => {
     const module = preludeSource(
-      "constraint Iterable<c> =\n" +
-        "    type Item\n" +
-        "    toSeq(value: c): Seq(Item)\n" +
-        "record Bag = {items: Seq(Int)}\n" +
+      // No local `constraint Iterable` since #353: the prelude declares it, and
+      // redeclaring it is refused. The instance below is unchanged, which is
+      // what this test is about.
+      "record Bag = {items: Seq(Int)}\n" +
         "honor Iterable<Bag> =\n" +
         "    type Item = Int\n" +
         "    toSeq(bag) = bag.items\n" +

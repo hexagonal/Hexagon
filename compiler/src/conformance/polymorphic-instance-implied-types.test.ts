@@ -25,10 +25,14 @@ import { compileFiles, projectDiagnostics, runMain, runProject } from "../suppor
 const messagesOf = (files: readonly (readonly [string, string])[]): readonly string[] =>
   compileFiles(files).diagnostics.map(({ message }) => message);
 
-const iterable = "constraint Iterable<c> =\n" +
-  "    type Item\n" +
-  "    toSeq(xs: c): Seq(Item)\n" +
-  "\n";
+/**
+ * Nothing, since #353: `stdlib/Iterable.hex` is a prelude member, so the name
+ * is in scope and a source redeclaration is refused (Constraints §5.1.1). Kept
+ * as a binding rather than deleted at each site so that what every test below
+ * pins — the instance header's binders reaching its `type Item` binding — is
+ * visibly unchanged from when they were written.
+ */
+const iterable = "";
 
 const bag = "record Bag(a) = {items: Vector(a)}\n" +
   "\n" +

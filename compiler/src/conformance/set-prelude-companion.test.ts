@@ -729,7 +729,6 @@ describe("the companion's surface", () => {
       "remove",
       "singleton",
       "size",
-      "toSeq",
       "union",
     ]);
     for (const hidden of ["storedMember", "replaceMember", "keptRepresentative", "emptySet"]) {
@@ -762,7 +761,7 @@ describe("the companion's surface", () => {
     expect(project.diagnostics).toEqual([]);
     const set = project.modules.find(({ source }) => source.path === "/Set.hex");
     const face = set!.declarations.text;
-    const unconstrained = ["singleton", "size", "empty", "isEmpty", "toSeq"];
+    const unconstrained = ["singleton", "size", "empty", "isEmpty"];
     for (const name of unconstrained) {
       expect(face).toMatch(new RegExp(`export declare (const|function) ${name}\\b`, "u"));
     }
