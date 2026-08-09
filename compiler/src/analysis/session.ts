@@ -94,7 +94,8 @@ export interface Hover {
   readonly name: string;
   /**
    * What the name denotes, absent for a name the occurrence index has no
-   * identity for — an `honor` member, a record field, a `type` alias. Those are
+   * identity for — an `honor` member, a record field, a `type` alias, a
+   * constraint's `type` member, an implied-type binding. Those are
    * documentable positions (`spec/doc-comments.md` §4.2) whose documentation is
    * the whole of what there is to say about them; see `hover`.
    */
@@ -353,7 +354,8 @@ export class AnalysisSession {
    *
    * A documented name the index has no identity for is still answered, with the
    * documentation alone. That is the only way §8's "every documentable
-   * position" holds: an `honor` member, a record field, and a `type` alias all
+   * position" holds: an `honor` member, a record field, a `type` alias, and an
+   * implied type's name on either side of `honor` all
    * resolve to nothing the index can name, so hover would otherwise be silent
    * exactly where the `.d.ts` is silent too and documentation is all there is.
    */
