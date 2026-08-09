@@ -64,7 +64,8 @@ a stream position is not a value.
 Streams normally enter a program from the world — the standard library's ambient
 sources and the JavaScript boundary both arrive in later contexts. But any pure
 sequence can be driven as a stream, and this is how stream code is exercised without
-touching the world at all:
+touching the world at all — here over `Seq.iterate`, the standard library's
+step-by-step producer (`1`, then `n * 2` of each element, without end):
 
 ```hexagon
 let script: Stream(Int) = Stream.fromSeq(Seq.iterate(1, n => n * 2))
@@ -133,7 +134,7 @@ let sumFirstNegative(readings: Stream(Int)): Int =
 ```
 
 The loop body is a block, so it marks its own calls — the `!` on `next` is the loop's
-honest record that every test of the condition costs a pull.
+honest record that each iteration spends a pull.
 
 There is no `for value in stream`. A `for` head promises pure iteration, and a stream
 cannot keep that promise; consumption is the consumers above or the `while` idiom.
@@ -173,7 +174,7 @@ pure data into the stream world, and `collect!` carries a bounded sample back ou
 | Where do elements come from? | computed | drawn from the world |
 | Does observing change anything? | never | always — a pull is spent |
 | Can a position be revisited? | yes, positions are values | no |
-| Effect spelling | none — bare calls | `!` at every consumption |
+| Effect spelling | marks only when an effectful callback reaches a strict consumer | `!` at every consumption |
 
 The choice shows up concretely with randomness: a seeded generator is deterministic
 computation, so it is a `Seq` — same seed, same elements, replayable. Entropy is a
@@ -182,7 +183,7 @@ computation, so it is a `Seq` — same seed, same elements, replayable. Entropy 
 At the JavaScript boundary the same choice appears as a declared position: a foreign
 iterator crossing as `Stream(a)` crosses raw — JavaScript's stateful `next()` protocol
 *is* the tailless pull — while crossing as `Seq(a)` makes Hexagon manufacture purity by
-remembering. The boundary chapters return to this.
+remembering. That choice belongs to the boundary chapters.
 
 ## Summary
 

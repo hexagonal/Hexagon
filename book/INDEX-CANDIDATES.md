@@ -76,6 +76,10 @@ Related forms and likely lookup terms should point to one another.
 | row polymorphism | Chapter 9, “A function can require only the fields it uses” | Chapter 15, unknown-receiver dot calls |
 | root module | Chapter 14, “A root module runs without a special `main`” | Module initialization and top-level effects |
 | Seq | Chapter 18, opening and “A sequence is lazy and immutable” | Functional cursor, iteration, and collection conversions |
+| Stream | Chapter 19, opening and “The protocol: no tail” | Consumers, derived streams, `fromSeq`; see **Seq** and **effect** |
+| effect | Chapter 19, “Effects are part of a function's type” | Arrows `->`/`=>`/`=>!`; the `!` call mark; silence means pure |
+| call mark (`!`) | Chapter 19, “Effects are part of a function's type” | Consumption spelling; see **effect** |
+| frozen sample | Chapter 19, “Consuming a stream” | `Stream.collect!` as the bridge back to pure data |
 | base constraint | Chapter 12, “A constraint may require another constraint” | — |
 | subject-first | Chapter 3, “Put the subject first” | Chapter 15 throughout; see also **dot call** |
 | tuple | Chapter 7, opening definition | Chapter 7, access, destructuring, and tuples versus argument lists |

@@ -51,9 +51,11 @@ for only two elements, only two multiplications happen — and if the sequence i
 traversed twice, they happen twice. `Seq.memoize` trades memory for computing each
 element at most once.
 
-That accounting never involves the outside world, because a `Seq` callback is **pure by
-construction**: `Seq.map` demands a pure function, and the type checker enforces the
-demand. A callback that printed, or read input, would make "how many times does this
+That accounting never involves the outside world, because a lazy transformation's
+callback is **pure by construction**: `Seq.map` demands a pure function, and the type
+checker enforces the demand. (The strict consumers — `fold`, `forEach` and their kin —
+run their callback once per element, eagerly, so they are the one place an effectful
+callback is honest; such a call wears a mark, which the next chapter introduces.) A callback that printed, or read input, would make "how many times does this
 run?" a question about observable behaviour, and the honest answers — on demand, per
 traversal, at most once under `memoize` — are the accounting of a calculator, not of an
 action. Hexagon keeps `Seq` a calculator. When the elements themselves must come from
