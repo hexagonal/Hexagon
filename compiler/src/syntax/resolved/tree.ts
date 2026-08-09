@@ -294,6 +294,16 @@ export interface ModuleAlias {
 export interface Module {
   readonly kind: "Module";
   readonly fileId: Source.FileId;
+  /**
+   * This module's own project-root-normalized path, when the compilation had
+   * one. `fileId` identifies the file to the diagnostic machinery but says
+   * nothing about *where* it sits, and a message that names another module's
+   * file has to state the route from here (Collections Part 5 §3.3).
+   *
+   * Absent for a lone `resolve` in a test, which is why every consumer treats a
+   * missing path as "no file to name" rather than as an error.
+   */
+  readonly path?: string;
   readonly items: readonly Item[];
   readonly symbols: readonly Symbol[];
   /**
@@ -797,6 +807,25 @@ export interface Union {
   readonly derives: readonly string[];
   readonly opaque: boolean;
   readonly representationVisible: boolean;
+  /**
+   * The project-root-normalized path of the module this union was **declared**
+   * in — `/app/bag.hex`, the same string `compileProject` keys its module map
+   * on.
+   *
+   * Carried on the declaration for the reason `DeclaredTypeParameter` above is:
+   * an imported declaration must bring the fact with it. Every re-registration
+   * of an imported, prelude-seeded, or transitively included declaration is a
+   * spread copy, so the path travels the whole module graph unchanged — and
+   * because it is normalized against the project root rather than against
+   * whichever module copied it, no consumer has to re-relativize a path it did
+   * not write.
+   *
+   * The consumer is Collections Part 5 §3.3's two-legal-homes diagnostic, which
+   * names the file the missing `honor` belongs in. Absent when the compilation
+   * supplied no path at all (a lone `resolve` in a test), which is exactly when
+   * there is no file to name and the diagnostic falls back to its generic form.
+   */
+  readonly declaringPath?: string;
   readonly span: Source.Span;
   readonly constructors: readonly Constructor[];
 }
@@ -834,6 +863,8 @@ export interface RecordDeclaration {
   readonly derives: readonly string[];
   readonly opaque: boolean;
   readonly representationVisible: boolean;
+  /** The declaring module's path; see `Union.declaringPath`. */
+  readonly declaringPath?: string;
   readonly constructor: Binding;
   readonly fields: readonly RecordTypeField[];
   readonly span: Source.Span;
