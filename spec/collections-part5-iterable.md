@@ -352,7 +352,7 @@ Rejected per §7.2: for a home-module instance the pattern is structurally unnec
 | # | Decision | § |
 |---|---|---|
 | 1 | Iterable(τ)=ε defined as global-instance lookup on τ's outer constructor; the Loops table is the instance table, operationally | §2.2 |
-| 2 | `toSeq` is the member and an ordinary prelude term; Loops §2.3's desugaring names it; qualified home owed to the stdlib listing (`Iterable.toSeq` presumed); the bare name stays single-exporter — companions supply theirs as instance members, and `Seq.iterate` (the producer) is unrelated | §2.3 |
+| 2 | `toSeq` is the member and an ordinary prelude term; Loops §2.3's desugaring names it; qualified home `Iterable.toSeq`, an export of the declaring module; the bare name stays single-exporter — companions supply theirs as instance members, and `Seq.iterate` (the producer) is unrelated | §2.3 |
 | 3 | Normative 8-step algorithm for `for p in e`; pattern heads per Pattern Matching's five positions, irrefutability-gated; body `Unit`; source evaluated once | §3.1 |
 | 4 | **Inference-vs-declared diagnostic split**: unsolved inference variable → annotate; declared type variable → `Seq(a)` parameter hint | §3.2 |
 | 5 | User-nominal not-iterable error names **both legal homes** (the Modules §7.6 discoverability obligation's loop-side face), leading with the actionable one | §3.3 |
