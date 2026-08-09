@@ -92,7 +92,7 @@ export let find(source: Stream(a), matches: a => Bool): Option(a)
 
 ### 4.5 What the surface refuses
 
-- **No `Iterable` instance, ever**: `iterate` is a constraint member, members are pure (`effects.md` §5), and a `Stream`'s traversal is not. Consequently **`for x in stream` does not exist**; consumption is the consumers or the `while`/`next!` idiom. The diagnostic for the attempt is the ordinary no-instance failure; a targeted hint may name `forEach!`.
+- **No `Iterable` instance, ever**: `toSeq` is a constraint member, members are pure (`effects.md` §5), and a `Stream`'s traversal is not. Consequently **`for x in stream` does not exist**; consumption is the consumers or the `while`/`next!` idiom. The diagnostic for the attempt is the ordinary no-instance failure; a targeted hint may name `forEach!`.
 - **No `any`/`all`/`length`** in v1 — each is one `find`/`fold` away, and a minimal first surface is easier to grow than to shrink. `stdlib-roadmap.md` owns additions.
 
 ## 5. Structurally absent: replay

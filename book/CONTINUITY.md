@@ -788,8 +788,14 @@ late pedagogy pass, not a commitment to the current order.
 - `Seq.next : Seq(a) -> Option((a, Seq(a)))` does not consume the supplied position;
   traversal advances through the returned successor sequence.
 - Lazy callbacks and their effects run as elements are demanded.
-- `iterate` converts a statically known iterable to `Seq`; companion `toSeq`/`fromSeq`
-  pairs connect collections without making the chapter an API inventory.
+- Companion `toSeq`/`fromSeq` pairs connect collections without making the chapter an
+  API inventory. *(The `Iterable` member is named `toSeq` — the #386 ruling — so the
+  per-collection `toSeq` spellings taught here become the member's qualified reads
+  when #353 lands the declaring module; today they are the companions' interim plain
+  exports and compile as-is. The chapter does not teach the bare `toSeq(x)` universal
+  conversion: bare `toSeq` stays a prelude collision until #353's migration, and that
+  teaching returns with it. `Seq.iterate` keeps its canonical seed/step producer
+  name.)*
 - `Seq(a)` faces JavaScript and TypeScript as `Iterable<a>`, with runtime adaptation
   preserving persistent sequence positions.
 
@@ -829,8 +835,9 @@ late pedagogy pass, not a commitment to the current order.
 - `Hash` is an explicit base constraint of `Eq`; nominal keys derive `(Eq, Hash)` so
   user hashing cannot disagree with equality.
 - `Seq` is the collection conversion currency; every `fromSeq` is eager.
-- `Bag(a)` briefly shows `type Item = a` and delegates `iterate` to `Vector.toSeq`; the
-  line is intentionally left for the immediately following chapter to explain.
+- `Bag(a)` briefly shows `type Item = a` and its member `toSeq` delegating to
+  `Vector.toSeq`; the line is intentionally left for the immediately following
+  chapter to explain.
 - Persistent collection `.d.ts` faces are `Hex.Vector`, `Hex.Map`, and `Hex.Set`, not
   native mutable collection types.
 

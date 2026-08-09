@@ -310,11 +310,11 @@ describe("emitJavaScript", () => {
     const module = preludeSource(
       "constraint Iterable<c> =\n" +
         "    type Item\n" +
-        "    iterate(value: c): Seq(Item)\n" +
+        "    toSeq(value: c): Seq(Item)\n" +
         "record Bag = {items: Seq(Int)}\n" +
         "honor Iterable<Bag> =\n" +
         "    type Item = Int\n" +
-        "    iterate(bag) = bag.items\n" +
+        "    toSeq(bag) = bag.items\n" +
         "let bag = Bag({items = Seq.take(Seq.iterate(1, x => x + 1), 2)})\n" +
         "for value in bag\n" +
         "    console.log(value)\n" +
@@ -327,7 +327,7 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
-    expect(output.text).toContain("__hex_instance_Iterable_Bag.iterate(bag)");
+    expect(output.text).toContain("__hex_instance_Iterable_Bag.toSeq(bag)");
     // `for x in` over a vector asks for no `Iterable` evidence and never did:
     // it is a native `for…of`, and it keeps working over the trie because every
     // vector value carries `[Symbol.iterator]` as part of its representation.

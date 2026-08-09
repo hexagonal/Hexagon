@@ -196,10 +196,10 @@ describe("a type context never outlives what encloses it", () => {
     const source = [
       "honor<a> Iterable<Bag(a)> =",
       "    type Item = a",
-      "    iterate(xs) = Bag.toSeq(xs)",
+      "    toSeq(xs) = Bag.contents(xs)",
       "    other(ys) = length(ys)",
     ].join("\n");
-    expect(await tokenOf(source, "iterate")).toBe(callable);
+    expect(await tokenOf(source, "toSeq")).toBe(callable);
     expect(await tokenOf(source, "xs")).toBe(term);
     expect(await tokenOf(source, "other")).toBe(callable);
     expect(await tokenOf(source, "ys")).toBe(term);

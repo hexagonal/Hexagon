@@ -6,16 +6,17 @@ collection.
 
 ```hexagon
 let visibleSquares =
-    1..100
-    |> iterate
+    Seq.iterate(1, number => number + 1)
     |> Seq.map(number => number * number)
     |> Seq.filter(square => square < 50)
     |> Seq.take(5)
 ```
 
-This code describes work. It does not immediately calculate one hundred squares or
-allocate a collection containing them. `Seq` transformations produce another lazy
-sequence, and elements are calculated when a consumer asks for them.
+This code describes work. `Seq.iterate` produces the endless sequence of repeated
+step applications — here `1`, `2`, `3`, and so on without end — and yet declaring
+`visibleSquares` calculates nothing: no squares, and no collection containing them.
+`Seq` transformations produce another lazy sequence, and elements are calculated when
+a consumer asks for them.
 
 ## A sequence is lazy and immutable
 
@@ -28,7 +29,8 @@ has three important properties:
 
 Laziness lets a pipeline perform only the work its consumer needs. Iterating
 `visibleSquares` pulls values through `take`, `filter`, and `map` as required. Once five
-results have survived the filter, later source values need not be examined.
+results have survived the filter, later source values need not be examined — which is
+what lets this pipeline stand on a source that never ends.
 
 An operation that consumes an entire sequence cannot finish on an infinite one.
 Converting a sequence into a persistent collection is therefore eager and appropriate
@@ -124,26 +126,23 @@ work not demanded is work not done.
 
 ## `Seq` is the common iteration currency
 
-The `iterate` operation converts a value known to support iteration into a sequence:
-
-```hexagon
-let letters: Seq(String) = iterate("Hexagon")
-let numbers: Seq(Int) = iterate(1..10)
-```
-
-For a `Seq`, `iterate` is the identity. For a `String`, it produces one-codepoint
-strings in order. Ranges and later persistent collections provide their own static
-conversions.
-
-Collection companions use a uniform pair of names:
+A pipeline does not care where its elements come from. Collection companions therefore
+use a uniform pair of names for moving values into and out of the common type:
 
 - `Type.toSeq(value)` exposes values for lazy iteration; and
 - `Type.fromSeq(sequence)` constructs a collection eagerly.
 
-For strings, `String.toSeq` yields codepoints and `String.fromSeq` concatenates sequence
-elements without Unicode normalization. The round trip preserves the original string.
-Later collection examples will use the same naming without cataloguing every possible
-conversion.
+```hexagon
+let doubled: Vector(Int) =
+    Vector.toSeq([1, 2, 3])
+    |> Seq.map(number => number * 2)
+    |> Vector.fromSeq
+```
+
+The conversion into `Seq` costs nothing up front — the vector's elements are exposed
+for lazy iteration, not copied — while `fromSeq` at the far end is eager, and
+appropriate because the sequence it consumes is finite. Later collection examples will
+use the same naming without cataloguing every possible conversion.
 
 Because `Seq(a)` states its element type directly, it is also the idiomatic parameter
 for generic iteration:
@@ -189,7 +188,6 @@ an immutable model that can be reasoned about locally.
 - `Seq.next` returns `Some((value, rest))` or `None` without consuming the original
   sequence position;
 - loops pull elements through the same external-iteration model;
-- `iterate` converts a statically known iterable source to `Seq`;
 - `toSeq` and `fromSeq` connect collections without requiring a library catalogue; and
 - `Seq(a)` crosses the JavaScript boundary as `Iterable<a>` while retaining persistent
   Hexagon semantics.

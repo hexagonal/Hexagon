@@ -257,7 +257,7 @@ All compiler/runtime-provided (Part 2 §4.4 wording — specified normatively he
 
 | Instance | Given | Semantics |
 |---|---|---|
-| `Iterable<Vector(a)>` | — | `type Item = a`; `iterate` = `toSeq`. The Loops §5 table row. |
+| `Iterable<Vector(a)>` | — | `type Item = a`; the member `toSeq` is the §7.2 conversion. The Loops §5 table row. |
 | `Concat<Vector(a)>` | — | `concat` = trie concatenation, **documented linear** (Part 1 §2.2). The Operators §7 instance for `Vector`. The fusion note (`a ++ b ++ c` → one multi-arg runtime concat) is an *emitter freedom*, not a semantic promise. |
 | `Eq<Vector(a)>` | `Eq a` | size check, then elementwise `equals`, left to right. |
 | `Ord<Vector(a)>` | `Ord a` | **lexicographic**: first unequal element decides; a proper prefix is less (`[1,2] < [1,2,0] < [1,3]`). Rust/Haskell/OCaml-unanimous semantics; total given total `Ord a` (which Hexagon's always is — `Ord<Float>` is a total order, Constraints §7). Makes vectors sortable and future-`SortedMap`-keyable. |
