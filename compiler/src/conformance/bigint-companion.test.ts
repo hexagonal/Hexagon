@@ -103,7 +103,11 @@ describe("the four spellings are one implementation", () => {
     const exports = await runMain([
       "export let qualified: BigInt = BigInt.add(20n, 22n)",
       "export let dotted: BigInt = 20n.add(22n)",
-      "export let bound<a: Num>(left: a, right: a): a = add(left, right)",
+      // `Num.add` rather than bare `add`: `stdlib/Set.hex` exports `add` too
+      // since #373, so the bare spelling is a collided prelude name and the
+      // qualified home is the refusal's own named repair (Modules §5.5). The
+      // shape being tested is the *bound*, which is unaffected.
+      "export let bound<a: Num>(left: a, right: a): a = Num.add(left, right)",
       "export let generic: BigInt = bound(20n, 22n)",
       "export let operator: BigInt = 20n + 22n",
       "",

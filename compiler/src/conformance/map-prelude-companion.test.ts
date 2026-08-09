@@ -461,8 +461,10 @@ describe("the companion's surface", () => {
    */
   test("the bare collided names are refused, and the qualified ones answer", async () => {
     expect(projectDiagnostics("export let e: Map(Int, Int) = empty\n")).toEqual([
-      "the prelude name `empty` is ambiguous: exported by `Seq`, `Vector`, and " +
-      "`Map`; write `Seq.empty`, `Vector.empty`, or `Map.empty`",
+      // Four homes since #373 seated `Set.hex`, which exports `empty` too.
+      "the prelude name `empty` is ambiguous: exported by `Seq`, `Vector`, " +
+      "`Map`, and `Set`; write `Seq.empty`, `Vector.empty`, `Map.empty`, or " +
+      "`Set.empty`",
     ]);
     const main = await runMain(
       "export let n: Int = Map.size(Map.singleton(1, 2))\n" +

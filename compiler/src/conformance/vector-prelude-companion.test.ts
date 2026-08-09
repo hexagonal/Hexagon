@@ -61,7 +61,7 @@ describe("the module", () => {
    * could drift arbitrarily from the language it is written in. Membership is
    * the coverage: every project in this suite now compiles it.
    */
-  test("`Map.hex` is the last prelude member, `Vector.hex` the one before it", () => {
+  test("`Set.hex` is the last prelude member, `Map.hex` the one before it", () => {
     expect(PRELUDE_MODULES.map(({ basename }) => basename)).toEqual([
       "Show.hex",
       "Num.hex",
@@ -87,6 +87,11 @@ describe("the module", () => {
       // #370 displaced `Vector.hex` from the last seat: `Map.hex` needs `Hash`,
       // `Option`, `Seq` and `Vector` itself, and nothing after it names a `Map`.
       "Map.hex",
+      // #373 displaced `Map.hex` in turn, and closes the list: `Set.hex` needs
+      // `Hash`, `Seq` and `Vector`, needs nothing from `Map.hex` — the two are
+      // siblings over one runtime module, not layers — and nothing after it
+      // exists to name a `Set`.
+      "Set.hex",
     ]);
   });
 
@@ -302,10 +307,12 @@ describe("membership drags nothing in", () => {
 describe("two prelude members exporting one bare name", () => {
   /**
    * **The rule: a collided bare prelude name is refused.** `empty` and
-   * `singleton` are exported by `Seq.hex`, `Vector.hex` and (since #370)
-   * `Map.hex`; `prepend` and `length` by the first two; `isEmpty`, `get`, `set`,
-   * `toSeq`, `fromSeq` and `fromVector` by `Vector.hex` and `Map.hex`. No member
-   * owns any of those bare spellings: a reference to one
+   * `singleton` are exported by `Seq.hex`, `Vector.hex`, `Map.hex` (#370) and
+   * `Set.hex` (#373) — four homes each; `prepend` and `length` by the first two;
+   * `isEmpty`, `toSeq`, `fromSeq` and `fromVector` by the last three; `get` and
+   * `set` by `Vector.hex` and `Map.hex`; `contains` and `add` by `Set.hex`
+   * alone, and `remove` by `Map.hex` and `Set.hex`. No member owns any of the
+   * collided bare spellings: a reference to one
    * is an error, and the diagnostic names every qualified home so the rewrite is
    * local and obvious (the house Rewrite Rule). This is the F#/ML answer to the
    * same collision — `List.map` and `Seq.map` coexist and you qualify — and it
@@ -319,8 +326,9 @@ describe("two prelude members exporting one bare name", () => {
    */
   test("the bare name is refused, and the diagnostic names every home", () => {
     expect(projectDiagnostics("export let e: Vector(Int) = empty\n")).toEqual([
-      "the prelude name `empty` is ambiguous: exported by `Seq`, `Vector`, and " +
-      "`Map`; write `Seq.empty`, `Vector.empty`, or `Map.empty`",
+      "the prelude name `empty` is ambiguous: exported by `Seq`, `Vector`, " +
+      "`Map`, and `Set`; write `Seq.empty`, `Vector.empty`, `Map.empty`, or " +
+      "`Set.empty`",
     ]);
   });
 
@@ -331,10 +339,12 @@ describe("two prelude members exporting one bare name", () => {
    * reference, and nothing downstream — the refused reference resolves to an
    * error the checker treats as poisoned, so no type error piles on behind it.
    *
-   * `isEmpty` moved sides at #370: it was `Vector.hex`'s alone and is now shared
+   * `isEmpty` moved sides at #370: it was `Vector.hex`'s alone and became shared
    * with `Map.hex`, which is the rule doing exactly what it exists to do — a
    * name stops being bare-legal the moment a second member exports it, rather
-   * than silently changing which module it meant.
+   * than silently changing which module it meant. #373 moved nothing further;
+   * it lengthened three of these enumerations, which is the same rule taking
+   * one more exporter in its stride.
    */
   test("every collided name is refused, and only those", () => {
     expect(projectDiagnostics(
@@ -346,16 +356,18 @@ describe("two prelude members exporting one bare name", () => {
       "export let f: Seq(Int) = map(Seq.empty, (x: Int): Int => x)\n" +
       "export let g: Option(Int) = last(b)\n",
     )).toEqual([
-      "the prelude name `empty` is ambiguous: exported by `Seq`, `Vector`, and " +
-      "`Map`; write `Seq.empty`, `Vector.empty`, or `Map.empty`",
+      "the prelude name `empty` is ambiguous: exported by `Seq`, `Vector`, " +
+      "`Map`, and `Set`; write `Seq.empty`, `Vector.empty`, `Map.empty`, or " +
+      "`Set.empty`",
       "the prelude name `singleton` is ambiguous: exported by `Seq`, `Vector`, " +
-      "and `Map`; write `Seq.singleton`, `Vector.singleton`, or `Map.singleton`",
+      "`Map`, and `Set`; write `Seq.singleton`, `Vector.singleton`, " +
+      "`Map.singleton`, or `Set.singleton`",
       "the prelude name `prepend` is ambiguous: exported by `Seq` and `Vector`; " +
       "write `Seq.prepend` or `Vector.prepend`",
       "the prelude name `length` is ambiguous: exported by `Seq` and `Vector`; " +
       "write `Seq.length` or `Vector.length`",
-      "the prelude name `isEmpty` is ambiguous: exported by `Vector` and `Map`; " +
-      "write `Vector.isEmpty` or `Map.isEmpty`",
+      "the prelude name `isEmpty` is ambiguous: exported by `Vector`, `Map`, " +
+      "and `Set`; write `Vector.isEmpty`, `Map.isEmpty`, or `Set.isEmpty`",
     ]);
   });
 
@@ -416,13 +428,14 @@ describe("two prelude members exporting one bare name", () => {
     ]);
 
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
-      "the prelude name `empty` is ambiguous: exported by `Seq`, `Vector`, and " +
-      "`Map`; write `Seq.empty`, `Vector.empty`, or `Map.empty`",
+      "the prelude name `empty` is ambiguous: exported by `Seq`, `Vector`, " +
+      "`Map`, and `Set`; write `Seq.empty`, `Vector.empty`, `Map.empty`, or " +
+      "`Set.empty`",
     ]);
   });
 
   /**
-   * **Every home, in prelude order.** A *fourth* exporter is reachable only
+   * **Every home, in prelude order.** A *fifth* exporter is reachable only
    * through a supplied member, and it is worth reaching: a rule that only ever
    * printed the homes the prelude happens to have would be indistinguishable
    * from one naming a winner and its runners-up. The extra home shows the
@@ -442,8 +455,8 @@ describe("two prelude members exporting one bare name", () => {
 
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
       "the prelude name `empty` is ambiguous: exported by `Seq`, `Result`, " +
-      "`Vector`, and `Map`; write `Seq.empty`, `Result.empty`, `Vector.empty`, " +
-      "or `Map.empty`",
+      "`Vector`, `Map`, and `Set`; write `Seq.empty`, `Result.empty`, " +
+      "`Vector.empty`, `Map.empty`, or `Set.empty`",
     ]);
   });
 

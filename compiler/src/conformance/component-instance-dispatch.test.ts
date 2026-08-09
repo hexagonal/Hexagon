@@ -466,7 +466,7 @@ describe("`Hash` keeps its structural walk, and the law with it", () => {
         "let first = Row({cell = Cell({value = 1}), tag = \"a\"})\n" +
         "let second = Row({cell = Cell({value = 1}), tag = \"a\"})\n" +
         "let third = Row({cell = Cell({value = 2}), tag = \"a\"})\n" +
-        "let rows: Set(Row) = Set.add(Set.add(Set.add(Set.empty(), first), second), third)\n" +
+        "let rows: Set(Row) = Set.add(Set.add(Set.add(Set.empty, first), second), third)\n" +
         "export let equalRows: Bool = first == second\n" +
         "export let size: Int = Set.size(rows)\n" +
         "export let member: Bool = Set.contains(rows, Row({cell = Cell({value = 2}), tag = \"a\"}))\n",

@@ -7,11 +7,16 @@ import type * as Typed from "../syntax/typed/index.js";
 import trieSource from "../../../runtime/HashTrie.hex?raw";
 
 /**
- * Conformance for the wiring that makes a `Map(k, v)` the Collections Part 4
- * §2.1 hash array mapped trie (#370): the two-sided export contract, the import
- * surface the runtime module is reached through, the emitted shapes of the seven
- * door lowerings, and the `Map(+k, +v)` variance claim the wiring makes
- * checkable.
+ * Conformance for the wiring that makes a `Map(k, v)` — and, since #373, a
+ * `Set(a)` — the Collections Part 4 §2.1 hash array mapped trie (#370): the
+ * two-sided export contract, the import surface the runtime module is reached
+ * through, the emitted shapes of the door lowerings, and the `Map(+k, +v)` and
+ * `Set(+a)` variance claims the wiring makes checkable.
+ *
+ * One runtime module now backs two public types, and the fork is a second
+ * record: `HashSet(a)` wraps a `HashTrie(a, Unit)` in one field, because one
+ * record carries one `[Symbol.iterator]` and the trie's yields `[k, v]` pairs.
+ * Both records' claims are read out of the same injected module.
  *
  * This is `vector-trie-wiring.test.ts`'s sibling and is deliberately not a
  * second `map-prelude-companion.test.ts`. That file asserts on the *results* of
@@ -54,6 +59,9 @@ function emittedPaths(files: readonly (readonly [string, string])[]): readonly s
 /** A program that reaches a `Map`, minimally. */
 const ONE_MAP = "export let n: Int = Map.size(Map.singleton(1, 2))\n";
 
+/** The same for a `Set`, which since #373 is the trie's other public face. */
+const ONE_SET = "export let k: Int = Set.size(Set.singleton(1))\n";
+
 describe("the runtime module's two-sided contract", () => {
   /**
    * `runtime/HashTrie.hex` exports nothing at the Hexagon level — every
@@ -70,21 +78,30 @@ describe("the runtime module's two-sided contract", () => {
 
   /**
    * The other half of the export list's contract, and the reason it is a fixed
-   * list rather than "everything the module declares": `containsKey` and
-   * `isEmpty` *are* declared in the trie and are deliberately absent from the
-   * inventory, because `stdlib/Map.hex` writes both in ordinary Hexagon over
-   * `get` and `size`. An export list naming operations no consumer imports is a
-   * claim the wiring has no reason to make.
+   * list rather than "everything the module declares": `containsKey`, `isEmpty`
+   * and `representative` *are* declared in the trie and are deliberately absent
+   * from the inventory. `stdlib/Map.hex` writes the first two in ordinary
+   * Hexagon over `get` and `size`, and `Set.hex` writes its `isEmpty` the same
+   * way; `containsKey` and `representative` are reached only from *inside* the
+   * module, by the wrapper's `containsMember` and `memberIn` (#373). An export
+   * list naming operations no consumer imports is a claim the wiring has no
+   * reason to make.
+   *
+   * The list is also the whole inventory rather than one companion's half: the
+   * export renderer keys off `"self"`, so the module publishes in one list
+   * everything either companion could reach.
    */
   test("the module declares more than the inventory, and only the inventory is exported", () => {
     expect(trieSource).toMatch(/^let containsKey\b/mu);
     expect(trieSource).toMatch(/^let isEmpty\b/mu);
-    const javascript = emitted([["/main.hex", ONE_MAP]], "/HashTrie.hex");
+    expect(trieSource).toMatch(/^let representative<k: Hash>/mu);
+    const javascript = emitted([["/main.hex", `${ONE_MAP}${ONE_SET}`]], "/HashTrie.hex");
     expect(javascript).toContain(
       `export { ${HASH_TRIE_RUNTIME_OPERATIONS.join(", ")} };`,
     );
     expect(javascript).not.toContain("containsKey,");
     expect(javascript).not.toContain(", isEmpty");
+    expect(javascript).not.toContain("representative,");
   });
 
   /**
@@ -162,19 +179,43 @@ describe("the import surface", () => {
    * The import names only what the module reached, in inventory order — the
    * same discipline the vector runtime's import line follows, and the reason it
    * is a function of what the module uses rather than of where it uses it.
-   * `Map.hex` reaches all seven, because it declares all seven.
+   *
+   * Since #373 the inventory has two halves and each companion takes its own:
+   * `Map.hex` declares the map-facing seven and imports exactly those, and
+   * `Set.hex` declares the set-facing eight and imports exactly those. Neither
+   * reaches the other's, which is what "a function of what the module uses"
+   * means when one runtime module backs two public types. Both lists are read
+   * out of `HASH_TRIE_RUNTIME_OPERATIONS` by position rather than transcribed,
+   * so a reordering there moves both assertions with it.
    */
-  test("the companion imports the whole inventory, in inventory order", () => {
-    const javascript = emitted([["/main.hex", ONE_MAP]], "/Map.hex");
-    expect(javascript).toContain(
+  test("each companion imports its own half of the inventory, in inventory order", () => {
+    const importLine = (operations: readonly string[]): string =>
       `import { ${
-        HASH_TRIE_RUNTIME_OPERATIONS
+        operations
           .map((operation) =>
             `${operation} as __hex_hashTrie${operation[0]!.toUpperCase()}${operation.slice(1)}`
           )
           .join(", ")
-      } } from "./HashTrie.js";`,
-    );
+      } } from "./HashTrie.js";`;
+
+    const mapOperations = HASH_TRIE_RUNTIME_OPERATIONS.slice(0, 7);
+    const setOperations = HASH_TRIE_RUNTIME_OPERATIONS.slice(7);
+    expect(mapOperations).toEqual(["empty", "singleton", "size", "get", "set", "remove", "entries"]);
+    expect(setOperations).toEqual([
+      "emptySet",
+      "soleMember",
+      "memberCount",
+      "containsMember",
+      "memberIn",
+      "addMember",
+      "removeMember",
+      "members",
+    ]);
+
+    expect(emitted([["/main.hex", ONE_MAP]], "/Map.hex"))
+      .toContain(importLine(mapOperations));
+    expect(emitted([["/main.hex", ONE_SET]], "/Set.hex"))
+      .toContain(importLine(setOperations));
   });
 
   /**
@@ -409,6 +450,106 @@ describe("§5.3 the `Map(k, v)` claim, verified against the representation", () 
     expect(positions(broken.hashTrie)).toEqual([["k", "co"], ["v", "inv"]]);
     expect(broken.hashTrie.map(({ computed }) => computed))
       .not.toEqual(COMPILER_CLAIMS.get("Map"));
+    expect(broken.diagnostics.join("\n")).toContain("occurs in an invariant position");
+  });
+});
+
+/**
+ * The `Set(a)` claim, verified against the representation — the generalization
+ * closure doc's §5.3 row, upgraded from **written-invariant** to verified at
+ * this milestone (#373) and recomputed here on every edit to
+ * `runtime/HashTrie.hex`, which is the same file `Map`'s row reads (its §11.1
+ * item (ix), as extended by the Set step).
+ *
+ * The block above this one is the template and its reasoning carries over
+ * whole; only the record read differs. `HashSet(a)` is the one-field wrapper the
+ * Set step ruled, so the derivation is one composition step past `Map`'s: `a`
+ * reaches the trie through the key slot, verified covariant above; `Unit` fills
+ * the value slot, so `a` has no occurrence there at all; and the wrapper adds no
+ * field that puts `a` under an arrow.
+ */
+describe("§5.3 the `Set(a)` claim, verified against the representation", () => {
+  const PROBE_PATH = "/SetProbe.hex";
+
+  /** `HashSet`'s parameter variance in the module at `path`. */
+  function wrapperVarianceIn(
+    files: readonly (readonly [string, string])[],
+    path: string,
+    runtimePaths?: readonly string[],
+  ): { readonly diagnostics: readonly string[]; readonly hashSet: readonly Typed.ParameterVariance[] } {
+    const project = compileFiles(
+      files,
+      runtimePaths === undefined ? {} : { runtimePaths },
+    );
+    const module = project.modules.find(({ source }) => source.path === path);
+    if (module === undefined) throw new Error(`${path} was not compiled`);
+    const record = module.typed.records.find(({ name }) => name === "HashSet");
+    if (record === undefined) throw new Error(`${path} declares no HashSet`);
+    return {
+      diagnostics: project.diagnostics.map(({ message }) => message),
+      hashSet: record.variance,
+    };
+  }
+
+  const positions = (variance: readonly Typed.ParameterVariance[]) =>
+    variance.map(({ name, computed }) => [name, computed]);
+
+  test("the wrapper every set is built on is covariant in its one parameter", () => {
+    const shipped = wrapperVarianceIn([["/main.hex", ONE_SET]], "/HashTrie.hex");
+    expect(shipped.diagnostics).toEqual([]);
+    expect(positions(shipped.hashSet)).toEqual([["a", "co"]]);
+    // Transparent and unsigilled, so this *is* what every consumer reads.
+    expect(shipped.hashSet[0]?.declared).toBeUndefined();
+  });
+
+  /** The row and the representation, side by side — all "verified" means. */
+  test("the claim table's `Set` row is what the representation computes", () => {
+    const shipped = wrapperVarianceIn([["/main.hex", ONE_SET]], "/HashTrie.hex");
+    expect(COMPILER_CLAIMS.get("Set")).toEqual(["co"]);
+    expect(shipped.hashSet.map(({ computed }) => computed))
+      .toEqual(COMPILER_CLAIMS.get("Set"));
+  });
+
+  /**
+   * The control. An edit to the *wrapper* that puts `a` in argument position
+   * must turn the two tests above red, and it must do so through the wrapper
+   * alone: the trie beneath is untouched here, so this is the second record's
+   * own reading being checked rather than the first's leaking into it.
+   *
+   * The expansive binding is here for the reason the `Map` block records —
+   * `emptySet` is a bare record literal, a syntactic value, so it generalizes
+   * under the classic restriction with no variance test at all, and Step 2 needs
+   * something expansive to run on. The annotation is what makes a declined
+   * variable say so (§4.1's report).
+   */
+  const EXPANSIVE_SET = "\nfun makeEmptySet<a>(): HashSet(a) = emptySet\n" +
+    "let widenedSet: HashSet(a) = makeEmptySet()\n";
+
+  test("an `a` in argument position on the wrapper turns the row red", () => {
+    const baseline = wrapperVarianceIn(
+      [[PROBE_PATH, `${trieSource}${EXPANSIVE_SET}`]],
+      PROBE_PATH,
+      [PROBE_PATH],
+    );
+    expect(baseline.diagnostics).toEqual([]);
+    expect(positions(baseline.hashSet)).toEqual([["a", "co"]]);
+
+    // One added field on the wrapper, `a` under a function arrow, plus the value
+    // every construction site now has to supply.
+    const sabotaged = "fun drain<a>(value: a): Int = 0\n\n" +
+      trieSource
+        .replace(
+          "record HashSet(a) = { trie: HashTrie(a, Unit) }",
+          "record HashSet(a) = { trie: HashTrie(a, Unit), consume: a -> Int }",
+        )
+        .replaceAll("HashSet({", "HashSet({ consume = drain,") +
+      EXPANSIVE_SET;
+    expect(sabotaged).not.toBe(trieSource);
+
+    const broken = wrapperVarianceIn([[PROBE_PATH, sabotaged]], PROBE_PATH, [PROBE_PATH]);
+    expect(positions(broken.hashSet)).toEqual([["a", "inv"]]);
+    expect(broken.hashSet.map(({ computed }) => computed))
+      .not.toEqual(COMPILER_CLAIMS.get("Set"));
     expect(broken.diagnostics.join("\n")).toContain("occurs in an invariant position");
   });
 });

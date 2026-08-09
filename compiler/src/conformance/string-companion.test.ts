@@ -149,7 +149,7 @@ describe("Primitive Types §5's codepoint order, executed", () => {
       'export let same: Bool = built == "abc"',
       'export let hashesAgree: Bool = hash(built) == hash("abc")',
       'export let differs: Bool = "abc" != "abd"',
-      'let keys: Set(String) = Set.add(Set.add(Set.empty(), built), "abc")',
+      'let keys: Set(String) = Set.add(Set.add(Set.empty, built), "abc")',
       "export let collapsed: Int = Set.size(keys)",
       "",
     ].join("\n"));

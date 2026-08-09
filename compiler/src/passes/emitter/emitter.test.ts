@@ -158,50 +158,63 @@ describe("emitJavaScript", () => {
   });
 
   /**
-   * The transitional helper, now **`Set`'s alone** (#370). `Map`'s half retired
-   * at its milestone with the checker rows that typed it, so a module using only
-   * maps carries no `persistentCollections` at all — which is the negative half
-   * of this test and the thing most worth pinning, since the helper's remaining
-   * internals (`insert`, `find`, `discard`, the structural key equality) look
-   * unchanged and would keep passing if the Map arm had merely stopped being
-   * *reached* rather than stopped existing.
+   * **The transitional helper is gone, entire** (#373). It was `Map`'s and
+   * `Set`'s hand-written JavaScript HAMT; `Map`'s half retired at its milestone
+   * (#370) and `Set`'s at this one, and the helper, its selector, and the
+   * checker rows that typed both went with them. Both companions are Hexagon
+   * source over `runtime/HashTrie.hex` now.
    *
-   * The `.d.ts` faces are unmoved by any of it: `Hex.Map<k, v>` and
-   * `Hex.Set<a>` are what a crossed value faces either way.
+   * Pinned as an absence *and* as a presence, because an absence alone would
+   * pass if the operations had merely stopped being reached: the same module
+   * that carries no helper must carry the calls into the companions, and must
+   * still answer the same `.d.ts` faces. The faces are the part this milestone
+   * deliberately does not move — `Hex.Map<k, v>` and `Hex.Set<a>` are what a
+   * crossed value faced before the arc and what it faces after it.
    */
-  test("emits persistent Set core operations with structural key equality", () => {
+  test("the transitional helper is gone, and both companions are reached by call", () => {
     const module = coreSource(
       "let emptyMap: Map((Int, Int), String) = Map.empty\n" +
         "export let names: Map((Int, Int), String) = Map.set(emptyMap, (1, 2), \"first\")\n" +
         "export let replaced: Map((Int, Int), String) = Map.set(names, (1, 2), \"second\")\n" +
         "export let hasPair: Bool = Map.containsKey(replaced, (1, 2))\n" +
-        "let emptySet: Set((Int, Int)) = Set.empty()\n" +
-        "export let pairs: Set((Int, Int)) = Set.add(emptySet, (3, 4))\n" +
+        "let blank: Set((Int, Int)) = Set.empty\n" +
+        "export let pairs: Set((Int, Int)) = Set.add(blank, (3, 4))\n" +
         "export let hasPair2: Bool = Set.contains(pairs, (3, 4))",
     );
 
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
-    expect(output.text).toContain("const __hex_persistentCollections");
-    expect(output.text).toContain("__hex_hash.eq.equals");
-    expect(output.text).toContain("const insert =");
-    // Nothing map-shaped survives inside it.
-    expect(output.text).not.toContain("emptyMap: ");
-    expect(output.text).not.toContain("const mapSet =");
-    expect(output.text).not.toContain("const mapEntry =");
+    // The helper, by every name it went under.
+    expect(output.text).not.toContain("__hex_persistentCollections");
+    expect(output.text).not.toContain("const emptySet =");
+    expect(output.text).not.toContain("const setAdd =");
+    expect(output.text).not.toContain("const setContains =");
+    expect(output.text).not.toContain("const insert =");
+    expect(output.text).not.toContain("__hex_hash.eq.equals");
+    // What stands in its place: imported companion bindings, called.
+    expect(output.text).toContain('from "./Map.js";');
+    expect(output.text).toContain('from "./Set.js";');
     expect(emitDeclarations(module).text).toContain("Hex.Map<[number, number], string>");
     expect(emitDeclarations(module).text).toContain("Hex.Set<[number, number]>");
   });
 
-  /** A map-only module never reaches the helper at all. */
-  test("the transitional helper is absent from a module that uses only maps", () => {
-    const module = coreSource(
+  /** And it is absent from a module of each kind on its own, not just from both. */
+  test("the transitional helper is absent from map-only and set-only modules alike", () => {
+    const mapOnly = coreSource(
       "let m: Map(Int, String) = Map.set(Map.empty, 1, \"one\")\n" +
         "export let held: Bool = Map.containsKey(m, 1)\n" +
         "export let looked: String = m[1]\n",
     );
-    expect(module.diagnostics).toEqual([]);
-    expect(emitJavaScript(module).text).not.toContain("__hex_persistentCollections");
+    expect(mapOnly.diagnostics).toEqual([]);
+    expect(emitJavaScript(mapOnly).text).not.toContain("__hex_persistentCollections");
+
+    const setOnly = coreSource(
+      "let s: Set(Int) = Set.add(Set.empty, 1)\n" +
+        "export let held: Bool = Set.contains(s, 1)\n" +
+        "export let counted: Int = Set.size(s)\n",
+    );
+    expect(setOnly.diagnostics).toEqual([]);
+    expect(emitJavaScript(setOnly).text).not.toContain("__hex_persistentCollections");
   });
 
   test("executes persistent Map and Set updates, lookup, and bracket failure", async () => {
@@ -216,7 +229,7 @@ describe("emitJavaScript", () => {
         "let m2 = Map.set(m1, 33, \"thirty-three\")\n" +
         "export let m3: Map(Int, String) = Map.set(m2, 1, \"replaced\")\n" +
         "export let unchanged: Map(Int, String) = Map.remove(m3, 99)\n" +
-        "let s0: Set(Int) = Set.empty()\n" +
+        "let s0: Set(Int) = Set.empty\n" +
         "let s1 = Set.add(Set.add(s0, 1), 33)\n" +
         "let s2 = Set.add(s1, 1)\n" +
         "export let looked: (String, String) = (m3[1], m3[33])\n" +
@@ -248,7 +261,9 @@ describe("emitJavaScript", () => {
         "fun setFacts<a: Hash>(a: Set(a), b: Set(a)) = (a == b, hash(a) == hash(b))\n" +
         "let first = Set.fromVector([1, 2, 3])\n" +
         "let second = Set.fromVector([3, 4])\n" +
-        "let combined = Set.union(first, second)\n" +
+        // `unionOf`, not `union`: the mandated name is a hard keyword no binder
+        // position accepts, so `stdlib/Set.hex` ships the stand-in (#373).
+        "let combined = Set.unionOf(first, second)\n" +
         "let common = Set.intersect(first, second)\n" +
         "let rest = Set.difference(first, second)\n" +
         "let subset = Set.isSubsetOf(common, first)\n" +
@@ -438,25 +453,32 @@ describe("emitJavaScript", () => {
   });
 
   /**
-   * A `Set` round trip, because the helpers have to be emitted *into this
-   * module* for a local name to collide with them: `Vector`'s door is
-   * `stdlib/Vector.hex`'s now, so a consumer imports its bindings and names no
-   * bridge helper at all.
+   * A helper the emitter writes *into this module*, because a local name can
+   * only collide with one that is emitted here. Which helper that is has moved
+   * twice as the doors moved: the `Set` round trip below used to inline the two
+   * `Seq` bridge adapters, and since #373 `stdlib/Set.hex` owns that surface, so
+   * the consumer imports `fromSeq`/`toSeq`/`fromVector` and names no bridge
+   * adapter at all. What it does still emit is `vectorOf`, the vector literal's
+   * own lowering, which is the emitter's to write wherever a literal appears.
+   *
+   * The renaming rule under test is unchanged and is the point: a user symbol
+   * spelled like a helper does not move, and the generated name does — Lexer §3
+   * owns `__hex_`, and only the compiler's side of it is free to shift.
    */
-  test("keeps bridge helper names clear of a user-name collision", () => {
+  test("keeps helper names clear of a user-name collision", () => {
     const module = preludeSource(
       "let values: Set(Int) = Set.fromSeq(Set.toSeq(Set.fromVector([1, 2])))\n",
     );
     const seeded: Core.Module = {
       ...module,
       symbols: module.symbols.map((symbol, index) =>
-        index === 0 ? { ...symbol, name: "__hex_seqFromIterable" } : symbol
+        index === 0 ? { ...symbol, name: "__hex_vectorOf" } : symbol
       ),
     };
 
     const javascript = emitJavaScript(seeded).text;
-    expect(javascript).toContain("function __hex_seqFromIterable1(__hex_source)");
-    expect(javascript).toContain("__hex_set => __hex_seqFromIterable1(__hex_set)");
+    expect(javascript).toContain("function __hex_vectorOf1(__hex_source)");
+    expect(javascript).toContain("__hex_vectorOf1([1, 2])");
   });
 
   test("expands nested or-patterns and emits exhaustive or-pattern bindings", () => {
