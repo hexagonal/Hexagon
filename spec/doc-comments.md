@@ -257,7 +257,7 @@ Applied in this ruling's PR (direct edits):
 | `lexer.md` | §7 gains the doc-trivia bullet (`(**` doc comments are distinguished trivia whose content and position are retained and delivered to the parser; recognition predicate owned here; `///` nothing); "Not in scope" line's doc-comment deferral now points at this spec. |
 | `README.md` | Ownership row for `doc-comments.md`; Parser and Emitter reading sets gain it. |
 | `decisions-ml-dialect-comments-2026-07.md` | §5 annotated: block reservation activated by #191, `///` reservation revoked by the same ruling; predicate tightened here. |
-| Book: `chapters/05-layout.md` (+ `DRAFT-3.md` rebuild), `FEATURES.md`, `plans/05-layout.md`, `CONTINUITY.md` | Every reservation-era passage re-taught: `(** *)` docs active; `///` not mentioned as anything but an ordinary comment *(the plans and continuity files were the cold review's finding 6)*. |
+| Book: `chapters/05-layout.md`, `FEATURES.md`, `plans/05-layout.md`, `CONTINUITY.md` | Every reservation-era passage re-taught: `(** *)` docs active; `///` not mentioned as anything but an ordinary comment *(the plans and continuity files were the cold review's finding 6)*. |
 
 Owed (README rule 4 — applied on next touch of the target):
 
