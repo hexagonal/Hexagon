@@ -6,7 +6,8 @@ The normative language specification remains in `spec/`.
 
 The draft title page is [`FRONTMATTER.md`](FRONTMATTER.md).
 The reader-facing chapter list is [`CONTENTS.md`](CONTENTS.md).
-The generated single-file review copy is `DRAFT-3.md`. Rebuild it after chapter edits
+The generated single-file review copy is `DRAFT.md`; the draft number lives on the title
+page in `FRONTMATTER.md`. Rebuild it after chapter edits
 with `./build-draft.sh`; generated Markdown and PDF drafts are intentionally ignored,
 and the individual chapter files remain the manuscript source of truth.
 

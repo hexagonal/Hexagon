@@ -41,9 +41,7 @@ stale count in a note whose subject is stale claims — §2d — is worth naming
 than quietly fixing.)*
 
 The book has been read and approved by James, twice, including two prose
-corrections he made directly. `book/DRAFT-3.md` is a **gitignored build artifact**
-— run `bash book/build-draft.sh` after any chapter edit, or the reviewer reads a
-stale file. That mistake cost a round trip in this session.
+corrections he made directly.
 
 ---
 
