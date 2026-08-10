@@ -464,12 +464,11 @@ describe("HashTrie collisions", () => {
  * construction. So the ±0 pair is not a convenient illustration of retention —
  * it is the whole of what retention is observable through.
  *
- * And that pair is currently broken by **#356** (below), so the observable half
- * is what these tests assert: replacement never grows the trie, the last value
- * wins, and the key stays findable afterwards — through the `Entry` path and
- * through the `Collision` path. Retaining the *first* representative rather than
- * the last is the half no probe can see today; the ±0 test is the standing
- * reminder of what will make it visible.
+ * So these tests assert the half every key type shows — replacement never grows
+ * the trie, the last value wins, and the key stays findable afterwards, through
+ * the `Entry` path and through the `Collision` path — and then the ±0 test
+ * asserts the half only `Float` can show: that the representative kept is the
+ * *first*, not the last.
  */
 describe("HashTrie representative retention (Part 4 §5.4)", () => {
   test("replacement is idempotent in size and last-value-wins, on the Entry path", async () => {
@@ -520,23 +519,16 @@ describe("HashTrie representative retention (Part 4 §5.4)", () => {
   });
 
   /**
-   * The `Float` ±0 case Part 4 §5.4 is usually stated with, pinned at what the
-   * compiler actually does today rather than at what it should.
+   * The `Float` ±0 case Part 4 §5.4 is usually stated with, and the one probe
+   * that can see *which* representative was kept.
    *
-   * `0.0 == -0.0` is `True`, so the two are one key — but **#356** is open:
-   * `stableHash` special-cases `-0` to `0` while `+0` falls through the string
-   * fold to 48, so `Hash<Float>` violates its own law at exactly this pair. The
-   * trie navigates by the hash, so it stores *two* entries, and no amount of
-   * care inside `HashTrie.hex` can prevent that — a trie cannot repair a hash
-   * that disagrees with its own equality.
-   *
-   * When #356 lands this test fails, and the fix is to flip it to the retention
-   * shape above: one entry, value 2, and `1.0 / key < 0.0` true for the retained
-   * `-0.0` representative (`show` renders `-0` as "0", so the sign has to be
-   * read arithmetically). That failure is the point — it is how the Map/Set arc
-   * learns the law was repaired.
+   * `0.0 == -0.0` is `True` and the two now hash alike, so they are one key:
+   * inserting `-0.0` and then `0.0` leaves one entry carrying the later value,
+   * while the key stays the `-0.0` that arrived first. `show` renders `-0` as
+   * "0", so the retained key's sign has to be read arithmetically — hence the
+   * `1.0 / key < 0.0` probe.
    */
-  test("±0 Float keys are two entries today, because Hash<Float> breaks its law (#356)", async () => {
+  test("±0 Float keys are one key: the first representative is kept, the last value wins", async () => {
     const m = await runTrie(
       "let zeroes: HashTrie(Float, Int) = set(set(empty, -0.0, 1), 0.0, 2)\n" +
         "export let zeroesSize: Int = size(zeroes)\n" +
@@ -550,13 +542,12 @@ describe("HashTrie representative retention (Part 4 §5.4)", () => {
         "    if 1.0 / key < 0.0 then total + 1 else total\n" +
         "export let negativeZeroesSeen: Int = Seq.fold(entries(zeroes), 0, signSum)\n",
     );
-    // The equality the law is stated over does hold.
+    // The equality the law is stated over holds, and so now does the hash.
     expect(m.equatedAsFloats).toBe(true);
-    // The hash does not, so the trie holds both. #356.
-    expect(m.zeroesSize).toBe(2);
-    expect(m.negativeZeroValue).toBe(1);
-    // Exactly one of the two stored keys is the negative zero, which is also the
-    // probe that would distinguish the retained representative once #356 lands.
+    expect(m.zeroesSize).toBe(1);
+    expect(m.negativeZeroValue).toBe(2);
+    // The single stored key is the negative zero — the representative that was
+    // already held, not the one that replaced its value.
     expect(m.negativeZeroesSeen).toBe(1);
   });
 });

@@ -278,22 +278,14 @@ describe("§16 (j) / §5.4 representative retention", () => {
    * precisely for this key model) while `1.0 / x` still tells them apart. Every
    * test below reads the sign that way, because `show` renders `-0` as `"0"`.
    *
-   * ## The seam this section runs along, and why some rows are pinned red-side
-   *
-   * **#356 is open**: `Hash<Float>` normalizes `-0` on one path and lets `+0`
-   * fall through on another, so it violates its own law at exactly this pair. A
-   * *placed* trie navigates by that hash, so it stores the two separately, and
-   * no care inside `HashTrie.hex` can repair a hash that disagrees with its own
-   * equality.
+   * ## The two seams the section runs along
    *
    * An **unplaced** set does not navigate by anything: `singleton` holds its
    * element raw (§12.4) and every operation on a one-element set answers by
-   * comparing directly. So retention *is* observable there today, and those rows
-   * assert the spec outcome. Rows that need a set of two or more assert what the
-   * compiler does today, marked, and **when #356 lands they fail — which is the
-   * point.** A missing test would let the repair land unnoticed, and a test
-   * asserted at the spec outcome would be red for a reason that is not this
-   * milestone's.
+   * comparing directly, so retention is read straight off the comparison. A
+   * **placed** set navigates by `Hash<Float>`, which normalizes the two zeros to
+   * a single hash — so the trie arrives at the resident element and retention is
+   * the trie's to keep. Both seams are exercised, and both answer §5.4 alike.
    */
   const NEGATIVES =
     "let negatives(total: Int, x: Float): Int = if 1.0 / x < 0.0 then total + 1 else total\n" +
@@ -329,7 +321,7 @@ describe("§16 (j) / §5.4 representative retention", () => {
    * left: equal sizes send both operand orders down the insert-if-absent
    * direction, and the left's representative survives in each.
    *
-   * Both operands are unplaced singletons, which is what keeps #356 out of it.
+   * Both operands are unplaced singletons, so no hash is consulted at all.
    */
   test("union and intersect keep the left's representative, unplaced", async () => {
     const main = await runMain(
@@ -359,19 +351,13 @@ describe("§16 (j) / §5.4 representative retention", () => {
    * the left into the right with insert-with-replace, and `intersect` looks the
    * left's representative up through the unexported `setLookup` row.
    *
-   * **Pinned at today's outcome, and red-side.** Reaching this branch needs
-   * operands of different sizes, so one of them is placed, so #356 decides the
-   * result: the two zeros hash apart, `union` inserts a third element rather
-   * than displacing one, and `intersect` finds nothing at all. What survives
-   * #356 and is asserted at the spec outcome is the *sign*, which is the claim
-   * §5.4 actually makes — `union`'s result holds exactly one negative zero
-   * either way.
-   *
-   * When #356 lands: `unionSizes` becomes `[2, 2]` and `interSizes` becomes
-   * `[1, 1]` with `interSigns` `[1, 1]` — the left's representative in both
-   * directions. Flip these three and delete this paragraph.
+   * Reaching this branch needs operands of different sizes, so one of them is
+   * placed and the hash does the navigating: the two zeros hash alike, so
+   * `union` displaces rather than inserting a third element and `intersect`
+   * finds the left's element through the resident one. The sign is the claim
+   * §5.4 actually makes, and it is the left's representative in both directions.
    */
-  test("the mirrored branch is exercised; #356 decides today's answer", async () => {
+  test("the mirrored branch keeps the left's representative, placed", async () => {
     const main = await runMain(
       NEGATIVES +
         "let negative: Set(Float) = Set.singleton(-0.0)\n" +
@@ -387,32 +373,30 @@ describe("§16 (j) / §5.4 representative retention", () => {
         "export let interSigns: (Int, Int) =\n" +
         "    (signs(Set.intersect(negative, placed)), signs(Set.intersect(placed, negative)))\n",
     );
-    // Spec: [2, 2] — the zeros are one element. Today: three, because they hash
-    // apart (#356).
-    expect(main["unionSizes"]).toEqual([3, 3]);
-    // The sign claim holds regardless: exactly one negative zero is present.
-    expect(main["unionSigns"]).toEqual([1, 1]);
-    // Spec: [1, 1] holding the left's representative. Today: empty, because the
-    // probe navigates by the broken hash and misses (#356).
-    expect(main["interSizes"]).toEqual([0, 0]);
-    expect(main["interSigns"]).toEqual([0, 0]);
+    // The zeros are one element, so the union is two wide either way.
+    expect(main["unionSizes"]).toEqual([2, 2]);
+    // And the surviving zero is the left operand's, exactly as in the unplaced
+    // pair above: negative on the left, negative kept; positive on the left,
+    // positive kept.
+    expect(main["unionSigns"]).toEqual([1, 0]);
+    expect(main["interSizes"]).toEqual([1, 1]);
+    expect(main["interSigns"]).toEqual([1, 0]);
   });
 
   /**
-   * §16 (j)'s own opening line, pinned red-side for the same reason: a two-zero
-   * `fromVector` is one element by SameValueZero and is two today.
+   * §16 (j)'s own opening line: a two-zero `fromVector` is one element by
+   * SameValueZero, and the element kept is the one that arrived first.
    */
-  test("±0 Floats are two placed elements today, because Hash<Float> breaks its law (#356)", async () => {
+  test("±0 Floats are one placed element, and the first arrival is kept", async () => {
     const main = await runMain(
       NEGATIVES +
         "let z: Set(Float) = Set.fromVector([-0.0, 0.0])\n" +
         "export let counted: Int = Set.size(z)\n" +
         "export let negativeCount: Int = signs(z)\n",
     );
-    // Spec: 1. Today: 2.
-    expect(main["counted"]).toBe(2);
-    // Exactly one of the two stored elements is the negative zero, which is also
-    // the probe that distinguishes the retained representative once #356 lands.
+    expect(main["counted"]).toBe(1);
+    // The single stored element is the negative zero: the resident, not the
+    // `equals`-equal newcomer.
     expect(main["negativeCount"]).toBe(1);
   });
 });

@@ -392,38 +392,31 @@ describe("§16 (j) representative retention (§5.4)", () => {
   });
 
   /**
-   * The **placed** ±0 case, pinned at what the compiler does today rather than
-   * at what §5.4 says.
+   * The **placed** ±0 case, which §5.4 answers the same way as the unplaced one
+   * above.
    *
-   * `0.0 == -0.0` is `True`, so the two are one key — but **#356** is open:
-   * `Hash<Float>` normalizes `-0` to `0` on one path and lets `+0` fall through
-   * to a different value on another, so it violates its own law at exactly this
-   * pair. A placed map navigates by that hash, so it stores *two* entries, and
-   * no care inside `HashTrie.hex` can prevent it — a trie cannot repair a hash
-   * that disagrees with its own equality.
-   *
-   * **When #356 lands this test fails, and that failure is the point.** The fix
-   * is to flip it to the shape above: one entry, value "b", and one negative-zero
-   * key representative. It is pinned this way rather than left out because a
-   * missing test would let the repair land unnoticed, and asserted at the spec
-   * outcome it would be red for a reason that is not this milestone's.
+   * `0.0 == -0.0` is `True` and the two hash alike, so they are one key however
+   * the map stores it: a placed map navigating by the hash still arrives at the
+   * resident entry, replaces its value, and keeps the `-0.0` representative it
+   * already held.
    */
-  test("±0 Float keys are two placed entries today, because Hash<Float> breaks its law (#356)", async () => {
+  test("±0 Float keys are one placed entry, and the first representative is kept", async () => {
     const main = await runMain(
       "let m0: Map(Float, String) = Map.set(Map.empty, -0.0, \"a\")\n" +
         "let m1: Map(Float, String) = Map.set(m0, 0.0, \"b\")\n" +
         "export let equated: Bool = -0.0 == 0.0\n" +
         "export let counted: Int = Map.size(m1)\n" +
+        "export let latest: String = m1[0.0]\n" +
         "let negative(total: Int, key: Float): Int =\n" +
         "    if 1.0 / key < 0.0 then total + 1 else total\n" +
         "export let negativeKeys: Int = Seq.fold(Map.keys(m1), 0, negative)\n",
     );
-    // The equality the law is stated over does hold.
+    // The equality the law is stated over holds, and so does the hash.
     expect(main["equated"]).toBe(true);
-    // The hash does not, so the map holds both. #356.
-    expect(main["counted"]).toBe(2);
-    // Exactly one of the two stored keys is the negative zero, which is also the
-    // probe that distinguishes the retained representative once #356 lands.
+    expect(main["counted"]).toBe(1);
+    // Value: last wins.
+    expect(main["latest"]).toBe("b");
+    // Key representative: first wins.
     expect(main["negativeKeys"]).toBe(1);
   });
 });
