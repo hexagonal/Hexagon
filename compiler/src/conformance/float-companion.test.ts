@@ -241,23 +241,12 @@ describe("Collections Part 2 §2.3's `Hash` row, executed", () => {
   });
 
   /**
-   * The half that does not, written to **fail** today. Collections Part 2 §2.3
-   * says the `Float` hash is SameValueZero-consistent, and `Eq<Float>` says
-   * `0.0 == -0.0` — so the two must hash alike, and they do not:
-   * `__hex_stableHash`'s `-0` arm answers `0` while `0.0` answers the string
-   * hash of `"0"`, which is 48. A `Set(Float)` therefore holds both zeroes at
-   * once, which is the law failing where a user can see it.
-   *
-   * Measured identically on `main` (the wired `Hash<Float>` row called the same
-   * helper), so this is pre-existing rather than this landing's doing — but the
-   * landing is what makes the instance source, and the law is the companion's
-   * to keep now.
-   *
-   * `test.fails` and not `skip`: when the helper's `-0` arm is repaired this
-   * goes red, which is the signal to delete this comment and flip it to an
-   * ordinary `test`.
+   * The other half: the `Float` hash is SameValueZero-consistent, so the pair
+   * `Eq<Float>` equates must hash alike. `0.0 == -0.0`, the two hashes agree,
+   * and a `Set(Float)` handed both zeroes collapses to a single entry — which
+   * is the law holding where a user can see it.
    */
-  test.fails("`-0.0` and `0.0` hash equally — the SameValueZero law, unmet", async () => {
+  test("`-0.0` and `0.0` hash equally — the SameValueZero law", async () => {
     const exports = await runMain([
       "export let zeroesEqual: Bool = 0.0 == -0.0",
       "export let hashesAgree: Bool = hash(0.0) == hash(-0.0)",

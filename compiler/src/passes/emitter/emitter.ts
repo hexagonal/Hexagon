@@ -6086,12 +6086,35 @@ function renderHelper(
         "  return Math.imul(__hex_seed ^ __hex_value, 0x9e3779b1) | 0;",
         "}",
       ];
+    // The public `hash` member (#356). Collections Part 2 §2.3 binds it to one
+    // law — `equals(x, y)` implies `hash(x) == hash(y)` — and §2.5's
+    // `Hash<Float>` row names the two places `Eq<Float>` is neither the host's
+    // `===` nor its `Object.is`: every `NaN` is one value, and `-0` is `+0`.
+    // They diverge in opposite directions — `===` already agrees about the
+    // zeroes, `Object.is` already agrees about `NaN` — which is why both halves
+    // are discharged inside the number arm, and by different means.
+    //
+    // The NaN half is explicit: `Number.isNaN` catches every production of it
+    // and answers one constant. The fold would deliver a single value on its own
+    // too — every `NaN` stringifies to `"NaN"` — so the guard is not what makes
+    // the law hold; it is cheaper than stringifying, and it makes the sameness
+    // legible rather than an accident. (Which constant is nobody's business:
+    // §2.2 promises the codomain and §2.3's law, no particular number.) The ±0
+    // half has no such guard, and is the one that is easy to lose: it holds only
+    // because `String(-0)` is `"0"` in JavaScript, so the two zeroes reach the
+    // fold as the same text and come out the same number. There is nothing to
+    // read here — the normalization *is* the stringification.
+    //
+    // So a numeric fast path added below (a bitwise mix, an integer shortcut)
+    // must re-establish the ±0 half by hand, or it silently reopens #356. And
+    // this is not `Float`'s obligation alone: `intHash` and `natHash` lower to
+    // this same helper, and `Int` reaches `-0` at runtime through `0 * -1`.
     case "stableHash":
       return [
         `function ${name}(__hex_value) {`,
         "  if (__hex_value === undefined) return 0;",
         "  if (typeof __hex_value === \"boolean\") return __hex_value ? 1 : 2;",
-        "  if (typeof __hex_value === \"number\") { if (Number.isNaN(__hex_value)) return 0x7fc00000; if (Object.is(__hex_value, -0)) return 0; const __hex_text = String(__hex_value); let __hex_hash = 0; for (let __hex_index = 0; __hex_index < __hex_text.length; __hex_index += 1) __hex_hash = Math.imul(__hex_hash, 31) + __hex_text.charCodeAt(__hex_index) | 0; return __hex_hash; }",
+        "  if (typeof __hex_value === \"number\") { if (Number.isNaN(__hex_value)) return 0x7fc00000; const __hex_text = String(__hex_value); let __hex_hash = 0; for (let __hex_index = 0; __hex_index < __hex_text.length; __hex_index += 1) __hex_hash = Math.imul(__hex_hash, 31) + __hex_text.charCodeAt(__hex_index) | 0; return __hex_hash; }",
         "  const __hex_text = String(__hex_value); let __hex_hash = 0; for (let __hex_index = 0; __hex_index < __hex_text.length; __hex_index += 1) __hex_hash = Math.imul(__hex_hash, 31) + __hex_text.charCodeAt(__hex_index) | 0; return __hex_hash;",
         "}",
       ];
