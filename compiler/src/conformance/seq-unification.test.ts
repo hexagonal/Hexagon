@@ -323,7 +323,7 @@ describe("the boundary face (FFI Part 3)", () => {
    * The face is **representation**, not plumbing: every `Seq` value carries the
    * boundary traversal method from construction, which is what lets a value
    * export be direct (a wrapper there would hand Hexagon importers a non-`Seq`)
-   * and what makes Part 7 §6's identity crossing true rather than traded away.
+   * and what makes Part 7 §5's identity crossing true rather than traded away.
    */
   test("an exported function's Seq parameter goes through occasion 1's wrapper", async () => {
     // Part 7 §7 occasion 1, specified by §9.4: the parameter position is the one

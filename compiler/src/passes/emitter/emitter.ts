@@ -6668,7 +6668,7 @@ function renderHelper(
     case "seqIterate":
       // **The face.** FFI Part 3 §9.4: the JavaScript iterable protocol is part
       // of a `Seq`'s representation, not plumbing bolted on at a crossing, which
-      // is exactly what lets Part 7 §6's identity clause hold — the value crosses
+      // is exactly what lets Part 7 §5's identity clause hold — the value crosses
       // out and back unmodified, and what JavaScript finds on it was always
       // there. One shared method for every `Seq` value in the module, never a
       // per-value closure, so carrying the face costs a property slot.
@@ -6718,7 +6718,7 @@ function renderHelper(
     case "seqInbound":
       // **The door** (FFI Part 3 §2.2). A genuine `Seq` handed back at a `Seq(a)`
       // position is not adapted — it crosses by identity, same spine, same
-      // persistence regime (Part 7 §6). Anything else iterable gets a fresh
+      // persistence regime (Part 7 §5). Anything else iterable gets a fresh
       // adapter, which is §2.1 unchanged and whose subject that case is.
       //
       // Recognition is by the representation's own mark. `[Symbol.iterator]`
