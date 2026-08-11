@@ -210,8 +210,8 @@ an immutable model that can be reasoned about locally.
 - `Seq(a)` crosses the JavaScript boundary as `Iterable<a>` while retaining persistent
   Hexagon semantics.
 
-A `Seq` computes its elements. Some element producers cannot promise that — a random
-draw, a keystroke, a clock reading is drawn from the world, not computed — and for
-those Hexagon has a sibling type with different rules. The next chapter introduces
-`Stream`, and with it the effect spellings that keep the difference visible in the
-types.
+Every callback in this chapter has been pure, and that is not a coincidence — it is what
+lets a lazy pipeline run one any number of times without anyone being able to count. The
+next chapter says what "pure" means precisely, how Hexagon tracks it in the types, and
+what the spelling is for the functions that do touch the world. The chapter after that
+introduces `Stream`, `Seq`'s sibling for elements that are drawn rather than computed.

@@ -9,36 +9,11 @@ arrive one at a time, and asking for one is an action in the world, not a calcul
 `Seq` and `Stream` are siblings, not modes of one type. Choosing between them is
 declaring whether the elements are computed or drawn.
 
-## Effects are part of a function's type
-
-`Stream` is the first standard-library type whose use requires effect spellings, so this
-chapter introduces them. Hexagon's type checker tracks whether calling a function
-interacts with the world — writes output, reads input, draws randomness — and the
-tracking has one governing convention: **silence means pure**.
-
-A pure function's type uses the arrow this book has written all along:
-
-```text
-firstOrZero : Seq(Int) -> Int
-```
-
-A function that performs effects whenever it is called wears the impure arrow `=>!`,
-and — this is the visible half of the discipline — **every call to it wears `!`**,
-written glued between the function and its argument list:
-
-```hexagon
-let sample = Stream.collect!(readings, 10)
-```
-
-The mark is not decoration. Omitting it is a type error, and writing it on a pure call
-is also a type error: the marks in a body are a checked, exact record of where the
-world is touched. Reading a function you have never seen, the bare calls are the ones
-that cannot matter to the outside world.
-
-One more arrow appears in signatures in this chapter: `=>` without the bang. It marks a
-position whose effect colour is chosen by the caller — a callback slot that accepts a
-pure function or an impure one, linked to the rest of its signature. The details live in
-the specification; this chapter shows the three arrows doing their jobs.
+`Stream` is the standard library's first type whose every use is spelled with the
+effect marks of the previous chapter, and it is where those marks earn their keep. All
+three arrows appear in this chapter doing their jobs: `->` on the pure operations that
+build a stream, `->!` on every consumer that pulls, and `->?` on the callback slots that
+let the caller decide.
 
 ## The protocol: no tail
 
@@ -47,7 +22,7 @@ type:
 
 ```text
 Seq.next    : Seq(a)    ->  Option((a, Seq(a)))
-Stream.next : Stream(a) =>! Option(a)
+Stream.next : Stream(a) ->! Option(a)
 ```
 
 `Seq.next` returns the element *and the rest of the sequence*, because a pure sequence
@@ -83,7 +58,7 @@ deterministic.
 
 ## Consuming a stream
 
-Consumption is where pulls happen, so every consumer wears `=>!` and every consumption
+Consumption is where pulls happen, so every consumer wears `->!` and every consumption
 is spelled with `!`:
 
 ```hexagon
@@ -98,12 +73,14 @@ back into the pure world. Everything downstream of a `collect!` is ordinary Hexa
 appear in it:
 
 ```text
-Stream.fold : (Stream(a), b, (b, a) => b) =>! b
+Stream.fold : (Stream(a), b, (b, a) ->? b) ->! b
 ```
 
-The outer arrow is `=>!`: folding pulls, unconditionally. The callback's arrow is `=>`:
+The outer arrow is `->!`: folding pulls, unconditionally. The callback's arrow is `->?`:
 pass a pure combiner or an impure one — the fold is exactly as effectful as its pulls
-plus whatever the callback adds. A pure combiner is the common case:
+plus whatever the callback adds. That callback is also the inlet that makes the `->?`
+legal here, which is the shape the previous chapter described. A pure combiner is the
+common case:
 
 ```hexagon
 let total = Stream.fold!(script, 0, (sum, value) => sum + value)
@@ -194,7 +171,7 @@ remembering. That choice belongs to the boundary chapters.
   not values;
 - `fromSeq` drives pure data as a stream, which is also the testing idiom for
   stream-consuming code;
-- consumers — `collect`, `fold`, `forEach`, `find`, `next` — wear `=>!` and their
+- consumers — `collect`, `fold`, `forEach`, `find`, `next` — wear `->!` and their
   calls wear `!`; `collect!` produces the frozen sample that re-enters the pure world;
 - `map` and `filter` build derived streams without pulling, sharing the source's
   cursor; and

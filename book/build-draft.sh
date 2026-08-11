@@ -26,14 +26,15 @@ chapters=(
   "16-mutable-variables.md"
   "17-loops-and-ranges.md"
   "18-sequences.md"
-  "19-streams.md"
-  "20-exceptions.md"
-  "21-collections.md"
-  "22-implied-types.md"
-  "23-javascript-output.md"
-  "24-typescript-output.md"
-  "25-javascript-input.md"
-  "26-constraints-in-javascript.md"
+  "19-effects.md"
+  "20-streams.md"
+  "21-exceptions.md"
+  "22-collections.md"
+  "23-implied-types.md"
+  "24-javascript-output.md"
+  "25-typescript-output.md"
+  "26-javascript-input.md"
+  "27-constraints-in-javascript.md"
 )
 
 chapter_titles=(
@@ -55,6 +56,7 @@ chapter_titles=(
   "Mutable Variables"
   "Loops and Ranges"
   "Sequences"
+  "Effects"
   "Streams"
   "Exceptions"
   "Collections"
@@ -71,8 +73,8 @@ part_for_chapter() {
     7) echo "Part II — Data" ;;
     12) echo "Part III — Capabilities and Modules" ;;
     16) echo "Part IV — State and Flow" ;;
-    21) echo "Part V — Collections and Implied Types" ;;
-    23) echo "Part VI — JavaScript and TypeScript" ;;
+    22) echo "Part V — Collections and Implied Types" ;;
+    24) echo "Part VI — JavaScript and TypeScript" ;;
   esac
 }
 
@@ -113,20 +115,21 @@ part_for_chapter() {
   echo '16. [Mutable Variables](#chapter-16)'
   echo '17. [Loops and Ranges](#chapter-17)'
   echo '18. [Sequences](#chapter-18)'
-  echo '19. [Streams](#chapter-19)'
-  echo '20. [Exceptions](#chapter-20)'
+  echo '19. [Effects](#chapter-19)'
+  echo '20. [Streams](#chapter-20)'
+  echo '21. [Exceptions](#chapter-21)'
   echo
   echo '## Part V — Collections and Implied Types'
   echo
-  echo '21. [Collections](#chapter-21)'
-  echo '22. [Implied Types](#chapter-22)'
+  echo '22. [Collections](#chapter-22)'
+  echo '23. [Implied Types](#chapter-23)'
   echo
   echo '## Part VI — JavaScript and TypeScript'
   echo
-  echo '23. [JavaScript Output](#chapter-23)'
-  echo '24. [TypeScript Output](#chapter-24)'
-  echo '25. [JavaScript Input](#chapter-25)'
-  echo '26. [Constraints in JavaScript](#chapter-26)'
+  echo '24. [JavaScript Output](#chapter-24)'
+  echo '25. [TypeScript Output](#chapter-25)'
+  echo '26. [JavaScript Input](#chapter-26)'
+  echo '27. [Constraints in JavaScript](#chapter-27)'
 
   for index in "${!chapters[@]}"; do
     number=$((index + 1))

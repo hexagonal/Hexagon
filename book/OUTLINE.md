@@ -1,6 +1,6 @@
 # Book Outline
 
-**Status:** Draft 3 structure. All 25 feature chapters exist. Front matter and a
+**Status:** Draft 3 structure. All 26 feature chapters exist. Front matter and a
 possible new **Getting Started** chapter remain to be written, followed by the
 whole-book pedagogy and liveliness passes.
 
@@ -98,26 +98,28 @@ functions.
 16. **Mutable Variables**
 17. **Loops and Ranges**
 18. **Sequences**
-19. **Streams**
-20. **Exceptions**
+19. **Effects**
+20. **Streams**
+21. **Exceptions**
 
 This part introduces Hexagon's bounded forms of changing state, repetition, lazy
-incremental work, elements drawn from the world, and exceptional control flow.
+incremental work, the effect discipline that says which functions touch the world,
+elements drawn from that world, and exceptional control flow.
 
 ## Part V — Collections and Implied Types
 
-21. **Collections**
-22. **Implied Types**
+22. **Collections**
+23. **Implied Types**
 
 The practical persistent collections chapter leads directly into the advanced
 constraint feature used to connect a collection with its iteration item type.
 
 ## Part VI — JavaScript and TypeScript
 
-23. **JavaScript Output**
-24. **TypeScript Output**
-25. **JavaScript Input**
-26. **Constraints in JavaScript**
+24. **JavaScript Output**
+25. **TypeScript Output**
+26. **JavaScript Input**
+27. **Constraints in JavaScript**
 
 The final part gathers the runtime story, public typed surface, trusted foreign-input
 model, and the special JavaScript API generated for constrained polymorphic exports.
