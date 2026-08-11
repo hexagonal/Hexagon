@@ -117,22 +117,33 @@ open specification work does not make the book outline provisional.
     currency between collections. Its functional cursor is pure by construction and supports external
     iteration without exposing mutable JavaScript iterators as the language model.
 
-19. **Streams** — `Stream(a)` is `Seq`'s impure nominal sibling: a tailless pull
-    whose elements are drawn from the world rather than computed. The chapter carries
-    the reader's first effect spellings — the arrow trio `->`/`=>`/`=>!` and the glued
-    `!` call mark — because consumption is where pulls happen and the type says so.
-    `fromSeq` drives pure data as a stream, which is also the testing idiom;
-    `collect!` freezes a bounded sample back into pure data. There is no `for` over a
-    stream, no `take`/`drop`, and no replay of any kind.
+19. **Effects** — Hexagon tracks observable interaction with the world in the type
+    system, on a two-point lattice: pure or impure, never *which* effect. One arrow
+    carries three marks — `->` pure, `->?` the caller's choice, `->!` unconditionally
+    impure — and calls wear the same marks, glued to the argument list. Silence means
+    pure, and enforcement is symmetric: a missing mark and a spurious one are both
+    errors. `->?` denotes one effect variable per signature and is legal only where a
+    parameter offers the caller a slot to choose it. Operators, indexing, `for` heads,
+    and interpolation have no seat for a mark, so everything they dispatch to is pure —
+    constraint members included. Effects enter through user-written externs, impure by
+    default, with `pure` as a trusted unchecked claim. Allocation, a local `var`, and
+    throwing are deliberately not effects.
 
-20. **Exceptions** — `exception`, `throw`, and pattern-based
+20. **Streams** — `Stream(a)` is `Seq`'s impure nominal sibling: a tailless pull
+    whose elements are drawn from the world rather than computed. It is where the
+    previous chapter's marks earn their keep, because consumption is where pulls happen
+    and the type says so. `fromSeq` drives pure data as a stream, which is also the
+    testing idiom; `collect!` freezes a bounded sample back into pure data. There is no
+    `for` over a stream, no `take`/`drop`, and no replay of any kind.
+
+21. **Exceptions** — `exception`, `throw`, and pattern-based
     `try`/`catch` handle exceptional control flow. Unmatched catches rethrow, Hexagon
     exceptions use branded JavaScript `Error` values, and foreign thrown values appear
     through `JsError`; `Result.attempt` provides a value-oriented alternative.
 
 ## Collections
 
-21. **Collections** — A compact, example-led introduction to
+22. **Collections** — A compact, example-led introduction to
     `Vector(a)`, `Map(k, v)`, and `Set(a)`. The chapter teaches the ideas that matter to
     ordinary Hexagon programs: persistent updates, iteration through `Seq`, partial
     bracket access versus total `get`, one-based sequence indexing and slicing, and the
@@ -141,7 +152,7 @@ open specification work does not make the book outline provisional.
     complexity row, or conversion; that belongs in generated API documentation or a
     future library manual.
 
-22. **Implied types** — A constraint may declare types uniquely determined by each
+23. **Implied types** — A constraint may declare types uniquely determined by each
     instance's subject type; each `honor` binds them exactly once. Implied-type names
     belong to their constraint, may be used inside its declaration and instances, and
     participate in ordinary coherence.
@@ -150,21 +161,21 @@ open specification work does not make the book outline provisional.
 
 ## JavaScript and TypeScript integration
 
-23. **JavaScript output** — Hexagon emits ESM intended for people as well as
+24. **JavaScript output** — Hexagon emits ESM intended for people as well as
     engines: native values and operations stay native, records stay plain objects,
     types erase where possible, and generated helpers remain explicit. Source, emitted
     JavaScript, and runtime representation should be compared throughout the book.
 
-24. **TypeScript output** — Public Hexagon APIs produce accurate `.d.ts`
+25. **TypeScript output** — Public Hexagon APIs produce accurate `.d.ts`
     declarations with idiomatic primitive, function, product, union, and opaque-type
     faces. The generated declaration is part of the language boundary, not incidental
     compiler metadata.
 
-25. **JavaScript input** — Foreign declarations, boundary-only types such as
+26. **JavaScript input** — Foreign declarations, boundary-only types such as
     `Nullable(a)` and `Array(a)`, foreign-backed enums, conversions, JavaScript calls,
     and imported values define how Hexagon enters an existing JS/TS application.
 
-26. **Constraints in JavaScript** — Constrained polymorphic exports provide
+27. **Constraints in JavaScript** — Constrained polymorphic exports provide
     named, dictionary-free functions for lawful fundamental types and, when all needed
     public dictionaries exist, a generic dictionary-taking JavaScript function. This
     preserves

@@ -810,7 +810,7 @@ late pedagogy pass, not a commitment to the current order.
 - `Result.attempt` bridges exceptional computation back to `Result(a, Exn)`.
 - Runtime values are branded JavaScript `Error` objects; nullary exceptions construct
   fresh values for useful stacks; exported faces are branded `Error` intersections.
-- Chapter 20 (Exceptions) closes the fifth four-chapter drafting group. Its review is
+- Chapter 21 (Exceptions) closes the fifth drafting group. Its review is
   recorded in `reviews/05-state-iteration-and-failure.md`. *(It was chapter 19 when
   that group was drafted; Streams took the number at the un-flagging milestone, #364.
   The chapter is named here because the group is a fact about the drafting order, not

@@ -75,15 +75,17 @@ export const punctuationKinds = [
   "Assign",
   "Bar",
   "Wildcard",
-  // The effects discipline's three tokens (Lexer §8.1; Effects §2.3), lexed
+  // The effects discipline's tokens (Lexer §8.1; Effects §2.3), lexed
   // unconditionally since #364 removed the flag they shipped behind. A lone `!`
   // is the impure call mark, and the `not` redirect it displaced is the
   // parser's now, position-selected.
   //
-  // `=>!` is one glued token rather than `=>` followed by `!` because the bang
-  // trails the arrow it condemns; `!=>` is not admitted at all, since `!=`
-  // would win maximal munch.
-  "FatArrowBang",
+  // The marked type arrows are glued single tokens rather than `->` followed by
+  // a mark, because the mark trails the arrow it colours exactly as it trails
+  // the callee it marks (#405). `!->` and `?->` are not admitted at all: a mark
+  // never begins a token. `Arrow` above is the pure member of the same trio.
+  "ArrowQuestion",
+  "ArrowBang",
   "Bang",
   "Question",
 ] as const;

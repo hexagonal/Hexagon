@@ -122,12 +122,6 @@ const endsExpression = new Set<TokenKind>([
   "False",
 ]);
 
-/** Where a misparsed lambda return annotation stood, held until the lambda closes. */
-interface ReturnArrowMisparse {
-  readonly annotation: Source.Span;
-  readonly end: Source.Span;
-}
-
 /**
  * Effects §9's mark-position row: the one report every mark outside its two
  * grammatical seats takes. A mark before a `(` it is not glued to is in this
@@ -2831,13 +2825,13 @@ class Parser {
     const from = start ?? this.#current().span;
     const { parameters, destructurings } = this.#parseParameters();
     let returnAnnotation: Parsed.TypeAnnotation | undefined;
-    let misparse: ReturnArrowMisparse | undefined;
     if (this.#at("Colon")) {
       this.#advance();
-      // Effects §2.6: in this one slot an unparenthesized `=>` always starts
-      // the body, so the annotation parser is told not to take it.
-      returnAnnotation = this.#parseTypeAnnotation(true);
-      misparse = this.#unparenthesizedReturnArrow(returnAnnotation);
+      // No restriction rides this slot since #405: the type arrows are `->`,
+      // `->?`, `->!` and the lambda's own arrow is `=>`, so a greedy annotation
+      // parse cannot reach the body. `(x): A ->! B => body` and the curried
+      // `(x): a => y => x` both parse as written (Effects §2.6).
+      returnAnnotation = this.#parseTypeAnnotation();
     }
     this.#expect("FatArrow", "expected `=>` after lambda parameters");
     const body = this.#parseBodyExpression(stops);
@@ -2850,66 +2844,7 @@ class Parser {
       body,
       span: spanFrom(from, body.span),
     };
-    // Reported once the lambda's extent is known, because the region this
-    // report speaks for is the whole lambda: everything the later passes will
-    // say about it describes a tree the writer did not write (#364).
-    if (misparse !== undefined) this.#reportReturnArrow(misparse, lambda.span);
     return lambda;
-  }
-
-  /**
-   * The one report ruling 8 owes: a lambda return annotation that *meant* an
-   * impure function type and wrote it without parentheses.
-   *
-   * The parse itself is never in doubt — the body starts at the first `=>`. The
-   * question is only whether the writer wanted that, and the tell is that what
-   * follows the arrow is a well-formed type which is followed by a second
-   * arrow, and which *cannot be a lambda parameter list*: it starts with an
-   * uppercase name or a record type. `(x): a => y => x` is the legal curried
-   * lambda and says nothing here; `(x): a => Seq(b) => …` could only ever have
-   * been a type, and today it is a parse failure one step later with no
-   * explanation. The fixit is the parenthesization ruling 8 mandates.
-   */
-  #unparenthesizedReturnArrow(
-    annotation: Parsed.TypeAnnotation | undefined,
-  ): ReturnArrowMisparse | undefined {
-    if (annotation === undefined || !this.#at("FatArrow")) return undefined;
-    const start = this.#index + 1;
-    const first = this.#tokens[start]?.kind;
-    if (first !== "UpperName" && first !== "LeftBrace") return undefined;
-    const after = this.#skipType(start);
-    if (after < 0) return undefined;
-    const trailing = this.#tokens[after]?.kind;
-    if (trailing !== "FatArrow" && trailing !== "FatArrowBang") return undefined;
-    return { annotation: annotation.span, end: this.#tokens[after - 1]!.span };
-  }
-
-  /**
-   * The report itself, once the lambda's extent is known.
-   *
-   * It leads (#364; Effects §9's return-annotation row): the misparse is what went wrong,
-   * and the type errors the misparsed tree provokes are consequences of it —
-   * the reader met those first and never reached the one sentence naming the
-   * fix. `supersedes` is that cut, and the lambda is the region it speaks for.
-   */
-  #reportReturnArrow(misparse: ReturnArrowMisparse, lambda: Source.Span): void {
-    const { annotation, end } = misparse;
-    this.#diagnostics.add({
-      severity: "error",
-      message:
-        "a lambda's return annotation gives an unparenthesized `=>` to the body, so " +
-        "this reads as the body starting here; an impure function type in a return " +
-        "annotation must be parenthesized",
-      primary: spanFrom(annotation, end),
-      supersedes: lambda,
-      fixes: [{
-        message: "parenthesize the return type",
-        edits: [
-          { span: { ...annotation, end: annotation.start }, replacement: "(" },
-          { span: { ...end, start: end.end }, replacement: ")" },
-        ],
-      }],
-    });
   }
 
   /**
@@ -3001,17 +2936,18 @@ class Parser {
    */
   #skipType(index: number): number {
     let scan = this.#skipTypeOperand(index);
+    // All three type arrows are walked (#405). None of them can begin a lambda
+    // body, so there is no arrow this scan must decline in order to leave the
+    // body reachable — the exception the predecessor carried for a bare `=>`
+    // went with `=>` leaving the type grammar.
     while (
       scan >= 0 &&
       (this.#tokens[scan]?.kind === "Arrow" ||
-        this.#tokens[scan]?.kind === "FatArrowBang")
+        this.#tokens[scan]?.kind === "ArrowQuestion" ||
+        this.#tokens[scan]?.kind === "ArrowBang")
     ) {
       scan = this.#skipTypeOperand(scan + 1);
     }
-    // A bare `=>` is deliberately not walked: this scan serves the lambda-head
-    // lookahead, and ruling 8 gives an unparenthesized `=>` in a return
-    // annotation to the body. A parenthesized impure type is stepped over as
-    // one bracket pair by `#skipTypeOperand`, so the legal spelling is reached.
     return scan;
   }
 
@@ -3049,39 +2985,28 @@ class Parser {
   }
 
   /**
-   * The arrow kinds that may form a function type here (Effects §2). `->`
-   * always can. `=>!` always can too: it cannot begin a lambda body, so it
-   * collides with nothing. A bare `=>` can everywhere *except* a lambda's
-   * return annotation, where §2.6 gives it to the body — which is what
-   * `returnSlot` says.
+   * The arrow kinds that may form a function type here (Effects §2).
+   *
+   * All three always can, in every type position — there is no slot that
+   * withholds one. That is the point of #405's respelling: the type arrows are
+   * `->`, `->?`, `->!` and the lambda's arrow is `=>`, so no type arrow can be
+   * mistaken for the start of a body and the return-annotation restriction this
+   * method used to carry is gone.
    */
-  #arrowAt(returnSlot: boolean): Parsed.ArrowEffect | "pure" | undefined {
+  #arrowAt(): Parsed.ArrowEffect | "pure" | undefined {
     if (this.#at("Arrow")) return "pure";
-    if (this.#at("FatArrowBang")) return "constant";
-    if (!returnSlot && this.#at("FatArrow")) return "linked";
+    if (this.#at("ArrowBang")) return "constant";
+    if (this.#at("ArrowQuestion")) return "linked";
     return undefined;
   }
 
-  /**
-   * `returnSlot` rides the **result spine**, not only the outermost arrow.
-   *
-   * Function types are right-associative, so the body's `=>` follows whatever
-   * the annotation's last result is: in `(x): Int -> String => body` the arrow
-   * the writer means as the lambda's own stands after `String`, one level down
-   * the recursion. Dropping the flag there would read `String => body` as the
-   * result type and then find no arrow left for the lambda — which is the
-   * parse this restriction exists to prevent (Effects §2.6). A parenthesized
-   * impure type is reached through `#parseTypeOperand`, whose own recursion
-   * starts a fresh, unrestricted annotation, so the legal spelling is
-   * unaffected.
-   */
-  #parseTypeAnnotation(returnSlot = false): Parsed.TypeAnnotation | undefined {
+  #parseTypeAnnotation(): Parsed.TypeAnnotation | undefined {
     const left = this.#parseTypeOperand();
     if (left === undefined) return undefined;
-    const arrow = this.#arrowAt(returnSlot);
+    const arrow = this.#arrowAt();
     if (arrow !== undefined && arrow !== "pure") {
       const arrowSpan = this.#advance().span;
-      const result = this.#parseTypeAnnotation(returnSlot);
+      const result = this.#parseTypeAnnotation();
       if (result === undefined) return undefined;
       return {
         kind: "Function",
@@ -3107,7 +3032,7 @@ class Parser {
       return left.annotation;
     }
     this.#advance();
-    const result = this.#parseTypeAnnotation(returnSlot);
+    const result = this.#parseTypeAnnotation();
     if (result === undefined) return undefined;
     return {
       kind: "Function",
@@ -3569,6 +3494,8 @@ function describe(kind: TokenKind): string {
     Equal: "=",
     FatArrow: "=>",
     Arrow: "->",
+    ArrowQuestion: "->?",
+    ArrowBang: "->!",
     Plus: "+",
     Minus: "-",
     Star: "*",

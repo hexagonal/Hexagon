@@ -7,6 +7,13 @@
  * emitter deciding whether a face has anything an arrow could say, and the same
  * emitter keeping an effect variable out of a TypeScript quantifier it can
  * never name.
+ *
+ * There was a fourth — an inlet walk the display consulted to decide whether an
+ * undecorated arrow would write back unchanged. #405 withdrew the else-constant
+ * rule that made an inlet-less arrow read as a different type, so the display
+ * numbers on variable count alone and the walk went with it. The inlet test the
+ * language still has (Effects §2.2.1) is a question about a written signature's
+ * parameter annotations, and the checker asks it there.
  */
 
 import type * as Typed from "./tree.js";
@@ -51,56 +58,6 @@ export function collectEffectVariables(
     case "Union":
     case "NominalRecord":
       for (const argument of type.arguments) collectEffectVariables(argument, found);
-      return found;
-    default:
-      return found;
-  }
-}
-
-/**
- * Every effect variable with at least one **inlet** occurrence in this type —
- * an occurrence on an arrow standing in a parameter position (§2.2).
- *
- * The inlet is what makes a written `=>` link rather than take the
- * else-constant reading: it is "a slot through which a caller's instantiation
- * can flow". A variable whose every occurrence is in result or outer position
- * has no such slot, so writing its face back would read as the impure constant
- * and say something the displayed type does not — which is why #364 numbers it
- * even when it is the face's only colour.
- *
- * Parameter position is read structurally, at every depth: each function type's
- * own parameters contribute, so a callback arrow nested inside a returned
- * function is an inlet exactly as a top-level one is.
- */
-export function collectInletVariables(
-  type: Typed.Type,
-  found = new Set<Typed.TypeVariableId>(),
-): Set<Typed.TypeVariableId> {
-  switch (type.kind) {
-    case "Function":
-      for (const parameter of type.parameters) collectEffectVariables(parameter, found);
-      return collectInletVariables(type.result, found);
-    case "Vector":
-    case "Set":
-    case "Array":
-    case "JsSet":
-    case "Node":
-      return collectInletVariables(type.element, found);
-    case "Nullable":
-      return collectInletVariables(type.value, found);
-    case "Map":
-    case "JsMap":
-      collectInletVariables(type.key, found);
-      return collectInletVariables(type.value, found);
-    case "Tuple":
-      for (const element of type.elements) collectInletVariables(element, found);
-      return found;
-    case "Record":
-      for (const field of type.fields) collectInletVariables(field.type, found);
-      return found;
-    case "Union":
-    case "NominalRecord":
-      for (const argument of type.arguments) collectInletVariables(argument, found);
       return found;
     default:
       return found;

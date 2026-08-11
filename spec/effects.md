@@ -1,7 +1,7 @@
 # Hexagon Spec: Effects
 
-**Status:** Decided (#355). The two-point effect discipline ships in v1, unconditionally — colours are part of the language, not an option. Nothing here has a warning tier.
-**Scope:** What an effect is; the three arrows (`->`, `=>`, `=>!`) and their readings; the call-mark trichotomy (bare, `!`, `?`); effect variables in inference; symmetric enforcement at calls and faces; the extern ownership split and trusted purity claims; the `Seq`/`Stream` posture.
+**Status:** Decided (#355; arrows respelled and the else-constant rule withdrawn, #405). The two-point effect discipline ships in v1, unconditionally — colours are part of the language, not an option. Nothing here has a warning tier.
+**Scope:** What an effect is; the three arrows (`->`, `->?`, `->!`) and their readings; where `->?` is legal; the call-mark trichotomy (bare, `!`, `?`); effect variables in inference; symmetric enforcement at calls and faces; the extern ownership split and trusted purity claims; the `Seq`/`Stream` posture.
 **Not in scope:** Exceptions — deliberately outside the effect (§1); `Stream`'s module surface (`stream.md`); token shapes (Lexer §8); the pipe rewrite (Operators §8); the dot-call form (Method Syntax §2); display grammar for arrows (Functions §5.1).
 **Companions:** Functions (§4.1 annotations, §5.1 displayed types, §7.4 the monomorphic knot, §8 generalization), Statements, Blocks & Mutability (§6.2 — the coupling §7's last bullet names), Constraints (§2 — members are pure), Intrinsics (§4.2 verification), FFI Part 4 (extern bindings; the `pure` claim), FFI Part 3 (the `Seq` launder; the `Stream` crossing), Loops (§6 `Seq`, §7 `Iterable`), `stream.md`.
 
@@ -11,7 +11,7 @@
 
 - **The tracked effect is observable interaction with the world.** Reading input, writing output, consulting a clock or an entropy source, mutating foreign state. Nothing else is an effect: allocation is not, `var` inside a function body is not (it cannot escape — Statements §6.2), and **throwing is not**. Exceptions are the partiality/defect channel (Exceptions spec), the Rust cut: `Int.div` throwing `DivideByZeroError` does not make division effectful, and `Result` is untouched. Without this cut the doctrine of throwing companions would make the whole prelude impure.
 - **The lattice has two points: pure and impure.** There are no effect rows, no effect families, no user-declared effect kinds. A design that wants "which effect" is a different language; Hexagon asks only "does the world notice".
-- **Purity is the silent one.** A bare call, an unmarked body, a `->` arrow — silence is the strongest claim. Effects are what get spelled: `!` on calls, `=>`/`=>!` on arrows. A reader who sees nothing may assume the world is untouched.
+- **Purity is the silent one.** A bare call, an unmarked body, a `->` arrow — silence is the strongest claim. Effects are what get spelled, and **one alphabet spells them in both places**: the marks `!` and `?` ride the call they describe and the arrow they colour alike. A reader who sees nothing may assume the world is untouched.
 - **The system is Hindley–Milner all the way down.** The effect is one more unifiable component of every function type, ranging over the two-point lattice; effect variables are ordinary type variables (§3.4). This is the effects system reached by *refusing to leave* HM — the same commitment that fixed the rest of the type system. There is no subeffecting, no row polymorphism, no effect subsumption: colours unify or they do not.
 - **Asynchrony is out of scope, permanently for this ruling.** `async` is a separate axis, not a point on this lattice; v1 is synchronous, and the async question files its own issue when it arises. Nothing here pre-decides it.
 
@@ -21,58 +21,98 @@ Function types carry a colour on every arrow. The display grammar (zero/one/many
 
 ```text
 ->     pure: this function touches nothing the world can observe
-=>     linked: this signature's one effect variable — the caller's instantiation decides
-=>!    the impure constant: this function performs effects, unconditionally
+->?    linked: this signature's one effect variable — the caller's instantiation decides
+->!    the impure constant: this function performs effects, unconditionally
 ```
+
+**There is one arrow, and the colour is a mark on it.** The three spellings differ only in the mark they carry, and the marks are the call trichotomy's own (§3.1) — `f(x)` / `f?(x)` / `f!(x)` against `->` / `->?` / `->!`, the same three symbols answering the same three-valued question. §3.3 makes the correspondence exact: a call's mark reports the colour of the outermost arrow of the callee's type at that instantiation, so `save!(document)` asserts precisely that `save`'s outer arrow is `->!` here. A reader learns the alphabet once.
+
+The consequence for the *type* grammar is that the fat arrow `=>` is not one of its tokens. `=>` is a term-level arrow only — the lambda's and the `match`/`catch` arm's (Lexer §8.1) — and Functions §4.1's return-annotation slot needs no parenthesization rule as a result (§2.6).
+
+It also settles a collision inside the display itself. A displayed scheme separates its constraints from its type with `=>` (§10, Functions §5.1), so under the predecessor spelling a constrained higher-order face used one symbol for two unrelated jobs in a single line:
+
+```text
+Show a => (Seq(a), (a) => Unit) => Unit     -- predecessor: three `=>`, two meanings
+Show a => (Seq(a), (a) ->? Unit) ->? Unit   -- now: the separator is the only `=>`
+```
+
+The constraint separator keeps `=>` because that is the one thing it has always meant; the arrows give it up because they never needed it.
 
 ### 2.1 `->` — the pure arrow
 
 A `->` function performs no observable effect at any instantiation. As a demand — a `->` arrow in a parameter annotation — it refuses impure arguments by ordinary unification (§4.3): `memoize`-shaped functions get their purity guarantee from the type, with no new mechanism.
 
-### 2.2 `=>` — the linked arrow
+### 2.2 `->?` — the linked arrow
 
-Every `=>` written in one signature denotes **the same, single, implicitly quantified effect variable** — the signature's colour. One variable per signature, never two (§2.4). The linked reading is what makes higher-order functions effect-polymorphic for free:
+Every `->?` written in one signature denotes **the same, single, implicitly quantified effect variable** — the signature's colour. One variable per signature, never two (§2.4). The linked reading is what makes higher-order functions effect-polymorphic for free:
 
 ```text
-fold : (Seq(a), b, (b, a) => b) => b
+fold : (Seq(a), b, (b, a) ->? b) ->? b
 ```
 
-`fold`'s callback arrow and every other `=>` in its signature — here, its own outer arrow — share one colour. The outer arrow is linked because `fold`'s body is a conductor: its `?` call on the callback (§3.1) joins the body's own colour to the signature's variable, so running `fold` is exactly as effectful as the callback makes it. Instantiated with a pure `combine`, the whole call is pure and bare; instantiated impure, the call is impure and wears `!` (§3.3, §4.1). The signature never says "impure"; it says "as impure as you make it".
+`fold`'s callback arrow and every other `->?` in its signature — here, its own outer arrow — share one colour. The outer arrow is linked because `fold`'s body is a conductor: its `?` call on the callback (§3.1) joins the body's own colour to the signature's variable, so running `fold` is exactly as effectful as the callback makes it. Instantiated with a pure `combine`, the whole call is pure and bare; instantiated impure, the call is impure and wears `!` (§3.3, §4.1). The signature never says "impure"; it says "as impure as you make it".
 
-**The else-constant rule.** A `=>` with nothing to link through is the impure constant. The linked reading requires **an inlet: at least one `=>` in a parameter position** — a slot through which a caller's instantiation can flow. Two positions therefore take the constant: a data-declaration field (§2.5, where the rule is load-bearing), and a written type whose `=>` occurrences stand only in result or outer position — in `(seed: String): (String => String) => …`, the return annotation's arrow is the annotation's only `=>` and no parameter offers an inlet, so that face is constantly impure. A `=>` in *parameter* position is always linked, even when it is the signature's only one: `store(callback: () => String): Int` is polymorphic in `callback`'s colour and accepts pure and impure arguments alike — the variable, if nothing ever observes it, simply generalizes unconstrained (§3.4); it is never rounded up to the constant, which is §2.4's own rationale applied. In everyday code the rule rarely decides anything: the common source of constant impurity is a user extern, and those are impure by the ownership split (§6.1), not by this rule. The weight is carried by §6.1; the else-constant rule's indispensable clients are the data field and the result-only face.
+The mark is the call mark, and it reads as the call mark reads: *this arrow defers to my caller.* One `?` inside a body and one `?` on an arrow name the same variable — in `fold`, both signature arrows and the body's `combine?(accumulator, value)` are three occurrences of one colour.
 
-### 2.3 `=>!` — the impure constant, spelled
+#### 2.2.1 Where `->?` is legal — the inlet rule
 
-`=>!` is one token (Lexer §8.1); the bang trails the arrow it condemns, matching the call mark's postfix position. `!=>` is not a token and cannot become one — `!=` wins maximal munch (Lexer §8.2).
+`->?` is legal **only within a function signature, and only when that signature has at least one `->?` occurrence within a parameter type.** Anywhere else it is an error (§4.4); it is never given a second reading.
 
-`=>!` names the impure constant explicitly. It is **mandatory** where a bare `=>` would link — that is, in a signature carrying linked arrows, a function whose own colour is constant-impure must write `=>!`, because `=>` there would claim polymorphism the body refutes (§4.2). It is **legal** anywhere the colour truly is the impure constant, including positions where an unlinked `=>` would already mean that; the two spellings coincide there and neither is canonicalized away. (`Stream`'s field is written `=>` — `stream.md`; a face that wants to shout writes `=>!`.)
+An **inlet** is an occurrence of the signature's colour inside one of its parameter types, **at any nesting depth and at any polarity**. Depth and polarity are both irrelevant because the caller supplies the whole argument value and therefore pins every colour inside it: `(step: () ->? String) -> Int`, `(pair: (Int ->? Int, Int)) -> Int`, and `(f: (Int ->? Int) -> Int) -> Int` all have an inlet, and so does a `->?` inside a record *type* standing in a parameter annotation — `(handler: { step: () ->? String }) -> Int`. The occurrence walk is §3.4's, which already counts the effect slot as a component at the arrow's own sign; the inlet test reads that walk and asks only whether a parameter type contains the variable, never where or with what sign.
+
+A signature with no inlet has nothing for the caller to choose, so the variable it would quantify is one the callee must satisfy at *every* instantiation — a rank-2 obligation the system does not have (§1: HM all the way down). That is why "inside a signature" is insufficient on its own and the inlet condition is load-bearing rather than decorative. Three shapes therefore take the error:
+
+- a **result-only face** — `(seed: String): (String ->? String) -> …`, where the annotation's only `->?` stands in a result, and no parameter offers one;
+- a **data-declaration field** (§2.5) — a `record` or `union` has no signature at all, so there is no variable to link to;
+- a **`type` alias body** (Declarations Preamble §4) — likewise a fragment with no enclosing quantifier.
+
+A `->?` in *parameter* position is always linked, even when it is the signature's only one: `store(callback: () ->? String): Int` is polymorphic in `callback`'s colour and accepts pure and impure arguments alike — the variable, if nothing ever observes it, simply generalizes unconstrained (§3.4). It is never rounded up to the constant, which is §2.4's own rationale applied.
+
+The rule's shape is deliberately the call side's. A `?` at a call with nothing to conduct is an error (§4.1) rather than a call quietly re-read as `!`; a `->?` on an arrow with nothing to link is an error for the same reason and with the same sentence behind it. **One spelling, one meaning, everywhere it is legal** — and where the meaning is unavailable, a diagnostic rather than a substitute.
+
+### 2.3 `->!` — the impure constant
+
+`->!` is one token (Lexer §8.1); the bang trails the arrow it condemns, matching the call mark's postfix position. `!->` is not a token and cannot become one — the mark trails, on arrows as at calls (Lexer §8.2).
+
+`->!` names the impure constant, and it is the **only** spelling of it. Every position whose colour is constantly impure writes it: a function that performs its own unconditional effects (§2.4's join), a data field that pulls the world (§2.5), a result-only face, an unannotated user extern's arrows (§6.1). There is no position where the constant may be left implicit and no second spelling that coincides with it — the abolition of the else-constant rule (§2.2.1) is exactly the removal of that coincidence.
 
 ### 2.4 The conservative join — one variable, ever
 
-A body that both performs its own unconditional effects and forwards a callback's colour does **not** get a second effect variable. Its own colour is the conservative join: constant-impure — counting impure is fine, and the join is what `=>!` spells.
+A body that both performs its own unconditional effects and forwards a callback's colour does **not** get a second effect variable. Its own colour is the conservative join: constant-impure — counting impure is fine, and the join is what `->!` spells.
 
 **The join governs the function's *own* colour only.** The callback arrows it forwards **keep their linked variable**:
 
 ```text
-withTransaction : (String => String) =>! String
+withTransaction : (String ->? String) ->! String
 ```
 
-The outer arrow is `=>!` — `withTransaction` writes to the world on its own account, so every call to it wears `!` (§3.3). The callback's arrow stays `=>` — a *pure* callback is accepted, and stays pure in the caller's accounting. Rounding the callback's arrow up to `=>!` would refuse pure callbacks outright: purity-as-polymorphism works through variables, and `=>!` is not one.
+The outer arrow is `->!` — `withTransaction` writes to the world on its own account, so every call to it wears `!` (§3.3). The callback's arrow stays `->?` — a *pure* callback is accepted, and stays pure in the caller's accounting. Rounding the callback's arrow up to `->!` would refuse pure callbacks outright: purity-as-polymorphism works through variables, and `->!` is not one.
 
-### 2.5 Data-field arrows: the constant, never linked
+The callback's `->?` is also this signature's inlet (§2.2.1), which is what keeps the face legal: a signature may carry a linked arrow while its own outer arrow is a constant, and `withTransaction` is the everyday shape that does.
 
-A function-typed field of a `record` or `union` declaration carries `->` (a pure field) or `=>` (the impure constant). **A data declaration has no signature, so its arrows have no variable to link to** — `=>` in a data field *is* the constant, always; `=>!` is legal there and means the same thing.
+### 2.5 Data-field arrows: the constants only
 
-The divergence must be said out loud, because the same written shape reads differently by position: `{ step: () => String }` **in a parameter annotation** is part of that function's signature, so its arrow links — the enclosing function is polymorphic in the field's colour. The identical text **in a `record` declaration** is data, and the arrow is the constant. A record type is a set of values with no enclosing quantifier; a signature is a quantified contract. The two readings are both pinned in the conformance suite.
+A function-typed field of a `record` or `union` declaration carries `->` (a pure field) or `->!` (an impure one). **A data declaration has no signature, so its arrows have no variable to link to** — and `->?` there is therefore the §2.2.1 error, with the fixit `->!`.
 
-This is the sentence `Stream` stands on: `Stream(a)`'s field `next: () => Option(a)` is pull-impure by declaration (`stream.md`), and `Seq(a)`'s field `pull: () -> Option((a, Seq(a)))` is pure by declaration — the two-type split of §7.
+The position still matters, but it now selects between *legal* and *rejected* rather than between two meanings. `{ step: () ->? String }` **in a parameter annotation** is part of that function's signature, so its arrow links and supplies an inlet — the enclosing function is polymorphic in the field's colour. The identical text **in a `record` declaration** is data, and is refused. A record type is a set of values with no enclosing quantifier; a signature is a quantified contract. Both outcomes are pinned in the conformance suite.
+
+That is the whole of the old divergence: no written shape reads two ways any more, and the reader who learns "`->?` means my caller chooses" never meets a position that quietly means something else.
+
+This is the sentence `Stream` stands on: `Stream(a)`'s field `next: () ->! Option(a)` is pull-impure by declaration (`stream.md`), and `Seq(a)`'s field `pull: () -> Option((a, Seq(a)))` is pure by declaration — the two-type split of §7.
 
 ### 2.6 Values wear no colours
 
 - **Lambdas are always written with the term arrow `=>`**, pure ones included. The term-level `=>` is the lambda syntax (Functions §3.1) and says nothing about colour; a lambda's colour is **inferred from its body's marks**. There is no pure-asserting term arrow.
 - **References are colourless.** A name, a field access, a stored function — none carries a mark (§3.2's corollary: no argument list, no mark). Storing an impure function is not an effect; calling it is.
 - A **term-level purity demand** is the existing ascription: `(f : a -> b)` — rigid, per the Ascription spec. A **signature demand** (`->` in a parameter annotation) refuses impure arguments by unification. No new demand form exists.
-- A lambda **return annotation** gives an unparenthesized `=>` to the body: `(x): A => B => body` cannot be written meaning "returns `A => B`". An impure function type in a lambda's return annotation must be parenthesized: `(x): (A => B) => body`. Functions §4.1 owns the rule; the required report and fixit are §9's.
+- **The two levels no longer share a token, and a lambda return annotation therefore needs no parenthesization rule.** `=>` is a term arrow and the `->` family is a type arrow; the annotation grammar can be right-associative and greedy without hazard, because the token that ends it cannot be one of its own:
+
+  ```text
+  (x): A ->! B => body      -- annotation `A ->! B`, body `body`
+  (x): a => y => x          -- annotation `a`, body `y => x` — the curried lambda, unchanged
+  ```
+
+  Both parse unambiguously and mean what they read as. The predecessor of this bullet gave an unparenthesized `=>` in that slot to the body and required `(x): (A => B) => body`; that rule, its diagnostic, and the diagnostic-suppression machinery it needed are all withdrawn — the ambiguity they managed was token overloading and no longer exists. Functions §4.1 owns the annotation grammar.
 
 ## 3. The call trichotomy
 
@@ -88,7 +128,11 @@ f?(x)     conducting — this call is as effectful as the enclosing instantiatio
 
 The teaching model: **every call is a pipe.** A pipe is clean, dirty, or conducting. The developer's question at each call: *is this a source, or just a conductor?* A function that reads the world is a source — its calls wear `!`. A function that merely runs what it was handed conducts — its call on the handed-in value wears `?`, and the conductor is only live when the far end is: `combine?(accumulator, value)` inside `fold` runs effects exactly when the caller instantiated `combine` impure. References are colourless as a corollary, not a fence: no pipe, no mark.
 
-The trichotomy is exhaustive *because* of one-variable-per-signature (§2.2): inside a body, the only possible non-constant colour is the enclosing signature's variable, so pure / impure / the-variable covers every call. The one apparent exception — a body storing a lambda into a function-typed field — is resolved by §2.5: the field's arrow is a constant, so no second variable ever enters scope.
+**The marks are the arrows' marks** (§2). A call's mark and the callee's arrow mark are the same symbol reporting the same colour, and §3.3 is what makes that identity exact rather than mnemonic. The three questions a reader ever asks — of an arrow, of a call — have one alphabet of answers.
+
+The trichotomy is exhaustive *because* of one-variable-per-signature (§2.2): inside a body, the only possible non-constant colour is the enclosing signature's variable, so pure / impure / the-variable covers every call. The one apparent exception — a body storing a lambda into a function-typed field — is resolved by §2.5: a data field's arrow is a constant (and `->?` there is refused outright), so no second variable ever enters scope.
+
+A `?` call is legal on the same condition its arrow is: only inside a body whose signature has an inlet (§2.2.1). A body with no inlet has no variable for a `?` to name, and §4.1's table is what refuses it there.
 
 `?` is the deliberate pun on Rust's trained gesture: this line defers to my caller.
 
@@ -121,7 +165,7 @@ compose(save2, audit2)!(document)     -- both in one expression: outer call bare
 
 Evaluating `compose` allocates a closure and touches nothing — its body is neither a source nor a conductor, so its own colour is unconstrained and, at call sites like these, resolves pure (§3.4's defaulting) — the call is bare even when the composite it returns is impure. The effect surfaces where the composite is *invoked*, and the mark surfaces with it. Read it as order of operations for marks: each argument list is marked for the arrow it discharges.
 
-One conservatism qualifies the example: **inside an inlet-bearing body** (a signature with a linked `=>` parameter, §2.2), a call whose colour is still undetermined is treated as a conductor and wears `?` rather than defaulting pure (§3.4) — pinning it pure there would quietly weaken the enclosing face. `compose(save2, audit2)` is bare in the plain bodies shown; the same call inside `fold`'s body would conduct.
+One conservatism qualifies the example: **inside an inlet-bearing body** (a signature with an inlet, §2.2.1), a call whose colour is still undetermined is treated as a conductor and wears `?` rather than defaulting pure (§3.4) — pinning it pure there would quietly weaken the enclosing face. `compose(save2, audit2)` is bare in the plain bodies shown; the same call inside `fold`'s body would conduct.
 
 ### 3.4 Effect variables are type variables
 
@@ -129,9 +173,9 @@ The effect component rides the ordinary machinery — unification, levels, gener
 
 - **Monomorphic in the knot.** Within a `fun` group's strongly-connected component, a signature's effect variable is a not-yet-generalized monotype like every other variable (Functions §7.4); recursive calls share it. It generalizes per member, when that member's binding generalizes.
 - **Settled at body close.** A declaration's own colour and its calls' mark obligations are resolved when its body closes, not at module end. This is required, not latitude: under end-of-module settling, a module-internal call to a not-yet-generalized neighbour would see a still-linked variable, and the pure corpus would read as conductors — every bare call in `Seq.hex` would demand `?`.
-- **A body's own colour is solved by three arms, in order.** A body that absorbs an impure-constant call is a **source**: its own colour is the impure constant (and if its written face is `->`, that is §4.2's pure-face error, at the offending call). A body whose `?` call absorbs the signature's variable is a **conductor**: its own colour *unifies with* that variable — this is how one-variable-per-signature emerges rather than being imposed, and why `fold`'s outer arrow is linked (§2.2). A body that is neither keeps an **unconstrained** colour, and what happens next depends on the signature: with **no inlet** (no parameter-position `=>`), the colour defaults to **pure** — harmless, since nothing observed it; with an inlet, it is **not** defaulted — the face stays `=>`, effect-polymorphic, rather than being pure-pinned by omission.
-- **The defaulting clause, at calls.** A call's colour still undetermined when marks are checked defaults to **pure** (bare) in an inlet-less body; in an inlet-bearing body it is conservatively a **conductor** and the call wears `?` (§3.3's qualification — pinning it pure inside a linked body would weaken the enclosing face). A **signature parameter's** effect variable is never defaulted by either clause: it generalizes with the binding like any type variable, which is exactly what keeps `store(callback: () => String)` polymorphic (§2.2).
-- **Every occurrence walk counts the effect slot.** Analyses that walk a function type's components — declaration-site variance foremost — treat the effect slot as one more component, **at the arrow's own sign**: a colour is a fact about invoking the function, which is what the result position already means, so a parameter arrow's colour is contravariant with the parameter arrow. Skipping the slot makes every effect variable read as absent, and an absent variable's default (invariant) pins faces monomorphic that the arms above worked to keep polymorphic.
+- **A body's own colour is solved by three arms, in order.** A body that absorbs an impure-constant call is a **source**: its own colour is the impure constant (and if its written face is `->`, that is §4.2's pure-face error, at the offending call). A body whose `?` call absorbs the signature's variable is a **conductor**: its own colour *unifies with* that variable — this is how one-variable-per-signature emerges rather than being imposed, and why `fold`'s outer arrow is linked (§2.2). A body that is neither keeps an **unconstrained** colour, and what happens next depends on the signature: with **no inlet** (§2.2.1), the colour defaults to **pure** — harmless, since nothing observed it; with an inlet, it is **not** defaulted — the face stays `->?`, effect-polymorphic, rather than being pure-pinned by omission.
+- **The defaulting clause, at calls.** A call's colour still undetermined when marks are checked defaults to **pure** (bare) in an inlet-less body; in an inlet-bearing body it is conservatively a **conductor** and the call wears `?` (§3.3's qualification — pinning it pure inside a linked body would weaken the enclosing face). A **signature parameter's** effect variable is never defaulted by either clause: it generalizes with the binding like any type variable, which is exactly what keeps `store(callback: () ->? String)` polymorphic (§2.2).
+- **Every occurrence walk counts the effect slot.** Analyses that walk a function type's components — declaration-site variance foremost — treat the effect slot as one more component, **at the arrow's own sign**: a colour is a fact about invoking the function, which is what the result position already means, so a parameter arrow's colour is contravariant with the parameter arrow. Skipping the slot makes every effect variable read as absent, and an absent variable's default (invariant) pins faces monomorphic that the arms above worked to keep polymorphic. §2.2.1's inlet test is a second client of this walk, and reads it at its coarsest: *does any parameter type contain the variable* — sign and depth discarded, because a supplied argument pins what it contains however deeply and in whatever position.
 
 ## 4. Enforcement is symmetric, and error-grade
 
@@ -150,9 +194,9 @@ The required mark at a call is computed from the callee's outermost arrow colour
 A written arrow that contradicts the body's solved colour is an error **in both directions**:
 
 - `->` over a body that performs effects: reported at the offending call — *"this call performs effects, and the enclosing function's face is the pure arrow `->` — a pure face cannot run effects"* — the span that names which call broke the promise.
-- `=>` over a body solved to the impure constant: *"this signature's `=>` promises a colour the caller chooses, but the body solves it to the impure constant — a function that performs its own unconditional effects rounds up, and its face is `=>!`"* — fixit `=>!` (§2.4's join, surfaced).
-- `=>` over a body solved pure: *"…but the body solves it to the pure constant — the honest face is `->`"* — fixit `->`. This is the **lie of generality**, mechanized: a pure function wearing `=>` would force `!`-or-`?` ceremony onto every caller for effects that cannot occur.
-- `=>!` over a body that performs no unconditional effect: *"this face is the impure constant `=>!`, but the body performs no unconditional effect — it is effect-polymorphic, and its face is `=>`"* — fixit `=>`.
+- `->?` over a body solved to the impure constant: *"this signature's `->?` promises a colour the caller chooses, but the body solves it to the impure constant — a function that performs its own unconditional effects rounds up, and its face is `->!`"* — fixit `->!` (§2.4's join, surfaced).
+- `->?` over a body solved pure: *"…but the body solves it to the pure constant — the honest face is `->`"* — fixit `->`. This is the **lie of generality**, mechanized: a pure function wearing `->?` would force `!`-or-`?` ceremony onto every caller for effects that cannot occur.
+- `->!` over a body that performs no unconditional effect: *"this face is the impure constant `->!`, but the body performs no unconditional effect — it is effect-polymorphic, and its face is `->?`"* — fixit `->?`.
 
 The pure direction matters as much as the impure one: over-claiming and under-claiming both break the reader's contract, and neither is a style matter.
 
@@ -160,13 +204,21 @@ The pure direction matters as much as the impure one: over-claiming and under-cl
 
 An impure function meeting a `->` demand is an ordinary unification failure with a dedicated report:
 
-> a `->` arrow promises purity, and this function performs effects — the demand is written `->`, the function's face `=>` or `=>!`
+> a `->` arrow promises purity, and this function performs effects — the demand is written `->`, the function's face `->?` or `->!`
 
 This is the whole enforcement of `memoize`-class contracts and of `Seq`'s §7 posture; nothing beyond unification is involved.
 
-The failure has a reverse direction, and it needs its own sentence: a *pure* function refused where the impure constant is demanded — a `=>` data field (§2.5), a result-only face, a written `=>!`. The report above speaks of a written `->` *demand* in every clause, and in the reverse direction the demand wrote no `->` — each clause misdescribes the program. The reverse report says what is actually true:
+The failure has a reverse direction, and it needs its own sentence: a *pure* function refused where the impure constant is demanded — a `->!` data field (§2.5), a result-only face, any written `->!`. The report above speaks of a written `->` *demand* in every clause, and in the reverse direction the demand wrote no `->` — each clause misdescribes the program. The reverse report says what is actually true:
 
 > this position's arrow is the impure constant — its colour is fixed where the type is declared, and this function's face is the pure `->`; the demand cannot weaken — change the position's declared arrow, or supply the effectful function the position promises
+
+### 4.4 At `->?`: the inlet rule, enforced
+
+A `->?` written where §2.2.1 does not admit one is an error at the arrow, never a re-reading of it. The report names the position's reason and offers the constant, because the constant is what the writer of a data field or a result-only face almost always meant:
+
+> `->?` is the caller's colour, and this position has no caller to choose it — a `record` field is data, not a signature; write `->!` for a function that pulls the world, or `->` for one that does not
+
+The three admitting positions each get their own middle clause — a `union` field says `union`, a `type` alias says *"an alias is a type fragment, not a signature"*, and a result-only face says *"no parameter of this signature carries `->?`, so nothing instantiates it"*. §9 tabulates all four. The fixit is `->!` in every case; a writer who wanted purity reaches for `->` without prompting, and a writer who wanted polymorphism has to add the parameter that would supply it — which is the design conversation the error exists to start.
 
 ## 5. Calls with no mark seat
 
@@ -190,7 +242,7 @@ The consequence is a demand, not an accident: **everything these forms dispatch 
 Purity at a boundary declaration splits by **who owns the implementation**:
 
 - **Compiler-owned intrinsic rows** (`extern from "hex:intrinsic"`) take their purity from Intrinsics §4.2's verification — the compiler is the implementer and is held to the declared scheme, parametricity obligation included. No purity annotation is written on an intrinsic row, and one is refused: *"intrinsic rows are verified rather than trusted; `pure` is for user-written externs"*. The prelude's intrinsics are pure-faced with zero annotation churn.
-- **User-written externs are effectful by default.** A foreign function is trust territory (FFI Part 1 §3.1), and the honest default for the unknown is the impure constant: an unannotated `extern fun` has `=>!`-coloured arrows. The **trusted purity claim** is the contextual modifier `pure` on the declaration — `export pure fun trim(document: String): String` — a trusted-row obligation of exactly the Intrinsics §4.2 species: believed, not checked, and the module author answers for it. FFI Part 4 owns the form.
+- **User-written externs are effectful by default.** A foreign function is trust territory (FFI Part 1 §3.1), and the honest default for the unknown is the impure constant: an unannotated `extern fun` has `->!`-coloured arrows. The **trusted purity claim** is the contextual modifier `pure` on the declaration — `export pure fun trim(document: String): String` — a trusted-row obligation of exactly the Intrinsics §4.2 species: believed, not checked, and the module author answers for it. FFI Part 4 owns the form.
 
 ### 6.2 The two trusted-purity species
 
@@ -207,8 +259,8 @@ A trusted claim is per-module-author accountability, the same currency as every 
 
 ## 7. The sequence posture
 
-- **`Seq` is pure by construction.** Its field is `pull: () -> Option((a, Seq(a)))` — a pure thunk, by §2.5. Every producer and combinator is pure; building a pipeline is pure; *the five strict consumers* — `fold`, `forEach`, `find`, `any`, `all` — are the only doors effects enter through, each with a linked-`=>` callback and a `?`-marked body call. An effectful step function can no longer be smuggled into a lazy pipeline at all: `Seq.unfold` with an impure producer is §4.3's unification refusal. The `memoize` landmine — memoization observably changing how many times effects run, with no type-level story — is dissolved rather than patched: the producer position demands purity, and what remains for `memoize` to claim is species (b).
-- **Effectful sequences are nominal siblings, never effect parameters.** The two-point lattice degenerates "a type parameterized by effect" into "two types" — so Hexagon ships two types, on the Kotlin `Sequence`/`Flow` and F# `Seq`/`AsyncSeq` precedent, and no effect variable ever appears in a type constructor's arguments. `Stream(a)` is the pull-impure sibling: no tail, field arrow the impure constant, consumers `=>!` (`stream.md`, the owning spec). A push sibling (`Observable`) is future work; async is out of scope (§1).
+- **`Seq` is pure by construction.** Its field is `pull: () -> Option((a, Seq(a)))` — a pure thunk, by §2.5. Every producer and combinator is pure; building a pipeline is pure; *the five strict consumers* — `fold`, `forEach`, `find`, `any`, `all` — are the only doors effects enter through, each with a linked-`->?` callback and a `?`-marked body call. An effectful step function can no longer be smuggled into a lazy pipeline at all: `Seq.unfold` with an impure producer is §4.3's unification refusal. The `memoize` landmine — memoization observably changing how many times effects run, with no type-level story — is dissolved rather than patched: the producer position demands purity, and what remains for `memoize` to claim is species (b).
+- **Effectful sequences are nominal siblings, never effect parameters.** The two-point lattice degenerates "a type parameterized by effect" into "two types" — so Hexagon ships two types, on the Kotlin `Sequence`/`Flow` and F# `Seq`/`AsyncSeq` precedent, and no effect variable ever appears in a type constructor's arguments. `Stream(a)` is the pull-impure sibling: no tail, field arrow the impure constant, consumers `->!` (`stream.md`, the owning spec). A push sibling (`Observable`) is future work; async is out of scope (§1).
 - **The FFI gains a declared choice at the boundary.** A foreign iterable at a `Seq(a)` position takes Part 3's launder — adaptation plus at-most-once memoization, species (b), purity manufactured honestly. The same object at a `Stream(a)` position crosses raw, protocol to protocol, no adapter and no memoization — impurity declared instead (FFI Part 3's `Stream` section). Nothing about the v1 `Seq` boundary changes.
 - **The coupling that makes purity true.** Statements §6.2 (a lambda cannot touch an outer `var`) and §6.4 (no ref cells, no mutable fields) are what make a `->` face a *fact* rather than a convention — there is no mutable capture for a pure-faced closure to smuggle. That same fence is why a compiler may treat pure instantiations as free for fusion and reordering within the semantics those sections fix. The effects discipline leans on those sections; weakening them re-opens this ruling.
 
@@ -230,15 +282,18 @@ Messages are normative in shape; the mark table's six rows share one sentence fr
 | `?` written, call pure | "this call is pure, so `next` wants no mark, not `?`" |
 | Non-identifier callee | the frame's subject adapts: a dot call is named by its member — "…so `.next` wants `!`…" — and any other compound callee degrades to "this call": "this call runs effects, so this call wants `!`, not no mark" |
 | `->` face, body performs effects | "this call performs effects, and the enclosing function's face is the pure arrow `->` — a pure face cannot run effects" — at the offending call (§4.2) |
-| `=>` face, body impure-constant | "this signature's `=>` promises a colour the caller chooses, but the body solves it to the impure constant — a function that performs its own unconditional effects rounds up, and its face is `=>!`" + fixit `=>!` (§4.2) |
-| `=>` face, body pure | "…solves it to the pure constant — the honest face is `->`" + fixit `->` (§4.2) |
-| `=>!` face, body effect-polymorphic | "this face is the impure constant `=>!`, but the body performs no unconditional effect — it is effect-polymorphic, and its face is `=>`" + fixit `=>` (§4.2) |
-| Impure argument at a `->` demand | "a `->` arrow promises purity, and this function performs effects — the demand is written `->`, the function's face `=>` or `=>!`" (§4.3) |
-| Pure function at an impure-constant demand (a `=>` data field, a result-only face, a written `=>!` — any constant demand) | "this position's arrow is the impure constant — its colour is fixed where the type is declared, and this function's face is the pure `->`; the demand cannot weaken — change the position's declared arrow, or supply the effectful function the position promises" (§4.3) |
+| `->?` face, body impure-constant | "this signature's `->?` promises a colour the caller chooses, but the body solves it to the impure constant — a function that performs its own unconditional effects rounds up, and its face is `->!`" + fixit `->!` (§4.2) |
+| `->?` face, body pure | "…solves it to the pure constant — the honest face is `->`" + fixit `->` (§4.2) |
+| `->!` face, body effect-polymorphic | "this face is the impure constant `->!`, but the body performs no unconditional effect — it is effect-polymorphic, and its face is `->?`" + fixit `->?` (§4.2) |
+| Impure argument at a `->` demand | "a `->` arrow promises purity, and this function performs effects — the demand is written `->`, the function's face `->?` or `->!`" (§4.3) |
+| Pure function at an impure-constant demand (a `->!` data field, a result-only face, any written `->!`) | "this position's arrow is the impure constant — its colour is fixed where the type is declared, and this function's face is the pure `->`; the demand cannot weaken — change the position's declared arrow, or supply the effectful function the position promises" (§4.3) |
+| `->?` in a `record` field | "`->?` is the caller's colour, and this position has no caller to choose it — a `record` field is data, not a signature; write `->!` for a function that pulls the world, or `->` for one that does not" + fixit `->!` (§4.4) |
+| `->?` in a `union` field | same frame, "a `union` field is data, not a signature" + fixit `->!` (§4.4) |
+| `->?` in a `type` alias body | same frame, "an alias is a type fragment, not a signature" + fixit `->!` (§4.4) |
+| `->?` in a signature with no inlet (result-only face; an annotation whose only `->?` stands outside every parameter) | same frame, "no parameter of this signature carries `->?`, so nothing instantiates it" + fixit `->!` (§4.4) |
 | Mark not glued into its seat (not against both callee and `(`, and not glued at a bare pipe stage's end) | parse error: "a call mark governs an argument list; write it immediately before `(`, or (in a `|>` stage) at the end of the stage — a reference carries no colour" (§3.2) |
 | Prefix `!` on an expression (negation intent) | the `not` redirect survives the token change: "Hexagon spells logical negation `not`" — position-selected by the parser now that `!` lexes (Lexer §10's row) |
 | Prefix `?` on an expression | the mark-position row above — `?` never had a negation reading, so there is no redirect to give it |
-| Unparenthesized `=>` type in a lambda return annotation | "a lambda's return annotation gives an unparenthesized `=>` to the body, so this reads as the body starting here; an impure function type in a return annotation must be parenthesized" + parenthesizing fixit (§2.6). The report speaks for the lambda it describes: diagnostics whose spans fall inside that lambda describe a tree the writer did not write, and are dropped — the misparse is the defect, reported once |
 | `pure` on an intrinsic row | "intrinsic rows are verified rather than trusted; `pure` is for user-written externs" (§6.1) |
 | `pure` on an extern `let` | "`pure` claims a function's face, and a value reference carries no colour — the claim belongs on an extern `fun`" (FFI Part 4 §4.5) |
 | `pure` on an extern `type` | "`pure` claims a function's face, and a type has none — the claim belongs on an extern `fun`" (FFI Part 4 §4.5) |
@@ -248,8 +303,11 @@ Messages are normative in shape; the mark table's six rows share one sentence fr
 Display is part of the contract: a signature a reader cannot see is not a face. Functions §5.1 owns the display grammar; this section owns what is specific to colour.
 
 - **The trio renders everywhere a face does** — hover, diagnostics, completion detail, and the generated `.d.ts`. A TypeScript face has one function arrow, so the declaration file carries the Hexagon signature as a generated documentation line (`` Hexagon: `face` ``), merged into the author's block per Doc Comments §7.3 and emitted only where the face carries a colour — purity is the silent one (§1).
-- **Distinguish.** An undecorated `=>` is reserved for the faces whose write-back is meaning-preserving — exactly one distinct variable, with at least one inlet occurrence, so that §2.2's linked reading reproduces the displayed scheme. Every other variable-carrying face numbers its variables in order of first appearance, `=>¹`, `=>²` — more than one distinct variable (inference produces these; the written grammar cannot), and also a lone variable with no inlet occurrence, where an undecorated write-back would take §2.2's else-constant reading and silently mean `=>!`. Constants are never numbered: `->` and `=>!` mean what they say in every position and always round-trip. The numbering's unit is the one displayed type expression, nested function types included. The decoration is display-only, not grammar: pasted into source it fails at the lexer rather than silently relinking.
-- **A machine-written annotation never spells a variable colour.** What an annotation writer spells is one type torn out of its signature, and whether a written `=>` would link to the arrows around it, or take the else-constant reading, is not a question the fragment answers. Both constants write freely; a machine-written impure return annotation — spelled `=>!` — is parenthesized (§2.6).
+- **Distinguish, and only where the grammar cannot spell it.** A face carrying **exactly one** distinct effect variable displays it undecorated, `->?`, wherever that variable stands. A face carrying **more than one** — inference produces these; the written grammar, which links every `->?` in a signature into one colour, cannot — numbers them in order of first appearance, `->?¹`, `->?²`. Constants are never numbered: `->` and `->!` mean what they say in every position. The numbering's unit is the one displayed type expression, nested function types included. The decoration is display-only, not grammar: pasted into source it fails at the lexer.
+
+  The predecessor rule also numbered a *lone* variable with no inlet occurrence, because an undecorated write-back would there have taken the else-constant reading and silently meant `=>!`. With that reading abolished (§2.2.1) the case is no longer a silent one: the undecorated spelling is exactly right about the colour — one variable — and a paste into a position that cannot host it is caught by §4.4, which explains why in a sentence. **Numbering marks what the grammar cannot express, not what the checker will refuse**; a legality error with a teaching message is a better outcome than a token failure, so the lone-variable case now displays plainly.
+
+- **A machine-written annotation never spells a variable colour.** What an annotation writer spells is one type torn out of its signature, and whether the fragment's new home offers an inlet is not a question the fragment answers. Both constants write freely; a machine-written impure return annotation is spelled `->!` and needs no parentheses (§2.6).
 
 ## 11. Rejected alternatives (do not re-litigate without new information)
 
@@ -258,7 +316,10 @@ Display is part of the contract: a signature a reader cannot see is not a face. 
 - **A second effect variable for const ⊔ var bodies**: never — §2.4's join.
 - **Marks on references** ("effectful values"): values wear no colours (§2.6); the effect happens at the call.
 - **`^` or `~` as the conducting mark**: `?` won on the trained gesture — "this line defers to my caller."
-- **`!=>`**: not a token; `!=` wins the munch, and the bang trails what it condemns (§2.3).
+- **`!->`**: not a token; the mark trails what it condemns, on arrows exactly as at calls (§2.3).
+- **The `->` / `=>` / `=>!` spelling**: superseded. It distinguished constant-from-variable by the arrow *head* and variable-from-constant by the *tail* — two axes for three spellings — and the head grouping paired `=>` with `=>!` when the semantic pairing is `->` with `=>!`, both being constants. It also left `=>` serving four roles at once — lambda arrow, `match`/`catch` arm arrow, effect arrow, and the displayed scheme's constraint separator. The third role is the sole cause of the withdrawn return-annotation parenthesization rule (§2.6), and the third against the fourth put two meanings of one symbol in a single displayed line (§2). One arrow with the call trichotomy's own marks fixes all of it.
+- **The else-constant rule**: withdrawn. It read a `=>` with nothing to link to as the impure constant, which gave one spelling two meanings selected by position — the divergence §2.5 had to say out loud — and put the arrow side out of step with the call side, where a `?` with nothing to conduct has always been an error rather than a re-reading. Its two clients, the data field and the result-only face, are better served by writing `->!`, which is what they meant. Do not restore it to spare a writer three keystrokes: the keystrokes are the point.
+- **Numbering a lone inlet-less variable in the display** (§10): dropped with the else-constant rule, whose silent re-reading was its only justification. A face the grammar *can* spell displays plainly even when this position will refuse it; §4.4 explains the refusal better than a lexer failure does.
 - **A pure-asserting term lambda arrow** (`x -> body`): dropped — inference from the body plus the ascription demand covers it with zero new syntax.
 
 ## 12. Decisions log
@@ -266,10 +327,11 @@ Display is part of the contract: a signature a reader cannot see is not a face. 
 | Decision | Where |
 |---|---|
 | Two-point lattice; effect = observable world interaction; exceptions and `Result` outside; async out of scope | §1 |
-| Arrow trio `->` / `=>` / `=>!`; one linked variable per signature; else-constant rule (weight carried by the extern default) | §2.1–§2.3 |
-| Conservative join governs the function's own colour only; forwarded callback arrows keep their variable; `=>!` spells the join | §2.4 |
-| Data-field arrows: `->` or the impure constant, never linked; the annotation/data divergence stated | §2.5 |
-| Lambdas always the term `=>`; colour inferred; references colourless; demands via ascription/unification; return-annotation parens | §2.6 |
+| Arrow trio `->` / `->?` / `->!` — one arrow, the call trichotomy's marks; one linked variable per signature; `=>` is a term arrow only | §2, §2.1–§2.3 |
+| The inlet rule: `->?` is legal only in a signature with a `->?` inside some parameter type, at any depth and any polarity; elsewhere an error, never a second reading | §2.2.1, §4.4 |
+| Conservative join governs the function's own colour only; forwarded callback arrows keep their variable; `->!` spells the join | §2.4 |
+| Data-field arrows: `->` or `->!`, never linked; `->?` in a data declaration is refused, not re-read | §2.5 |
+| Lambdas always the term `=>`; colour inferred; references colourless; demands via ascription/unification; **no return-annotation parenthesization rule** — the levels no longer share a token | §2.6 |
 | Call trichotomy bare/`!`/`?`; pipe teaching model; mark anchors the argument list; pipe stages are calls | §3.1–§3.2 |
 | The outermost-arrow sentence: a mark describes this call only | §3.3 |
 | Effect variables are tyvars: monomorphic in the SCC knot, settled at body close; source/conductor/unconstrained arms; defaulting is pure only where no inlet exists — inlet-bearing bodies stay polymorphic and their undetermined calls conduct | §3.4 |
@@ -280,5 +342,5 @@ Display is part of the contract: a signature a reader cannot see is not a face. 
 | `Seq` pure by construction; effectful sequences are nominal siblings (`Stream`); FFI position choice | §7 |
 | Colours and marks erase at emission | §8 |
 | Display: the trio everywhere a face renders; the `.d.ts` documentation channel; machine-written annotations refuse variable colours | §10 |
-| Display distinguishes: undecorated `=>` reserved for meaning-preserving write-back (one variable, an inlet occurrence); all other variable faces numbered, display-only | §10, Functions §5.1 |
+| Display distinguishes only what the grammar cannot spell: one variable displays undecorated `->?`, multi-variable faces are numbered `->?¹`/`->?²`, display-only | §10, Functions §5.1 |
 | Variance and every occurrence walk count the effect slot, at the arrow's own sign | §3.4 |

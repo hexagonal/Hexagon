@@ -1774,9 +1774,23 @@ class Resolver {
             });
           }
         }
+        // Effects §2.2.1 / Declarations Preamble §5.1.1: an alias body has no
+        // enclosing signature, so `->?` there denotes nothing. The check has to
+        // stand *here*, before `#instantiateResolvedAlias` inlines the body
+        // into a use site: inlined into a signature that happens to have an
+        // inlet, the arrow would silently link — and transparency means one
+        // alias would then name two colours across two mentions, which is not a
+        // type. Refusing at the declaration is what keeps the alias one type.
+        const orphaned = this.#refuseLinkedArrows(item.annotation);
         this.#resolvingAliases.push(item.name.text);
-        const annotation = this.#resolveTypeAnnotation(item.annotation, parameters);
+        const resolvedBody = this.#resolveTypeAnnotation(item.annotation, parameters);
         this.#resolvingAliases.pop();
+        // Recovery: a refused `->?` becomes the impure constant in the stored
+        // body, so the alias inlines as `->!` at every use site. Without this
+        // the linked arrow would reach a use site whose signature happens to
+        // have an inlet, link there, and make every call through the alias owe
+        // `?` — a cascade of consequences from one already-reported defect.
+        const annotation = orphaned ? constantifyLinkedArrows(resolvedBody) : resolvedBody;
         const resolvedAlias: Resolved.TypeAliasItem = {
           kind: "TypeAlias",
           exported: item.exported,
@@ -3113,6 +3127,53 @@ class Resolver {
     return withTypeSpan(result, span);
   }
 
+  /**
+   * Effects §4.4's report, for every `->?` written in an alias body.
+   *
+   * Every occurrence is reported, not just the first: they are independent
+   * mistakes and a writer fixing one arrow should not have to recompile to
+   * discover the next.
+   */
+  #refuseLinkedArrows(annotation: Parsed.TypeAnnotation): boolean {
+    let found = false;
+    const walk = (node: unknown): void => {
+      if (node === null || typeof node !== "object") return;
+      if (Array.isArray(node)) {
+        for (const child of node) walk(child);
+        return;
+      }
+      const record = node as {
+        kind?: unknown;
+        effect?: unknown;
+        arrowSpan?: Source.Span;
+      };
+      if (record.kind === "Function" && record.effect === "linked") {
+        found = true;
+        const arrowSpan = record.arrowSpan;
+        if (arrowSpan !== undefined) {
+          this.#diagnostics.add({
+            severity: "error",
+            message:
+              "`->?` is the caller's colour, and this position has no caller to " +
+              "choose it — an alias is a type fragment, not a signature; write " +
+              "`->!` for a function that pulls the world, or `->` for one that does not",
+            primary: arrowSpan,
+            fixes: [{
+              message: "write `->!`",
+              edits: [{ span: arrowSpan, replacement: "->!" }],
+            }],
+          });
+        }
+      }
+      for (const [key, child] of Object.entries(record)) {
+        if (key === "span" || key === "arrowSpan") continue;
+        walk(child);
+      }
+    };
+    walk(annotation);
+    return found;
+  }
+
   #instantiateResolvedAlias(
     alias: Resolved.TypeAliasItem,
     arguments_: readonly Resolved.TypeAnnotation[],
@@ -4036,4 +4097,27 @@ function substituteResolvedType(
     return { ...type, arguments: type.arguments.map((argument) => substituteResolvedType(argument, replacements)), span };
   }
   return { ...type, span };
+}
+
+/**
+ * A resolved type with every linked arrow turned into the impure constant.
+ *
+ * Error recovery for an alias body §5.1.1 has already refused (Effects §4.4).
+ * The arrow denotes nothing, and leaving it `"linked"` would let it acquire a
+ * meaning at a use site that happens to offer an inlet — so it takes the
+ * constant, which is what the writer is being told to write.
+ */
+function constantifyLinkedArrows(annotation: Resolved.TypeAnnotation): Resolved.TypeAnnotation {
+  const rebuild = (node: unknown): unknown => {
+    if (node === null || typeof node !== "object") return node;
+    if (Array.isArray(node)) return node.map(rebuild);
+    const record = node as Record<string, unknown>;
+    const copy: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(record)) {
+      copy[key] = key === "span" || key === "arrowSpan" ? child : rebuild(child);
+    }
+    if (copy.kind === "Function" && copy.effect === "linked") copy.effect = "constant";
+    return copy;
+  };
+  return rebuild(annotation) as Resolved.TypeAnnotation;
 }

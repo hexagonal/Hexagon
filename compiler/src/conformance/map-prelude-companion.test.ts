@@ -67,7 +67,7 @@ describe("§16 (a) construction, generalization, and the absent `Hash`", () => {
     const messages = projectDiagnostics("export let e: Map(Int, Int) = Map.empty()\n");
     expect(messages).toHaveLength(1);
     expect(messages[0]).toContain("type mismatch: expected Map(");
-    expect(messages[0]).toContain("found () =>");
+    expect(messages[0]).toContain("found () ->?");
   });
 
   /**

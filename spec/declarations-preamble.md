@@ -131,7 +131,7 @@ type Lookup(k, v) = k -> Option(v)
 ```
 
 - **Fully transparent.** The alias and its expansion are *the same type*: the checker expands aliases away before (or during) unification; `UserName` and `String` unify, interconvert with no ceremony, and are indistinguishable to every semantic judgment. No nominal wall, no runtime representation, no constructor.
-- The RHS is any type expression: primitives, tuples, records (structural rows, including `...` forms), function types, applied nominal constructors, other aliases (acyclically — §5.4).
+- The RHS is any type expression: primitives, tuples, records (structural rows, including `...` forms), function types, applied nominal constructors, other aliases (acyclically — §5.4). Function types in an alias body carry the **constant** arrows only, `->` or `->!`; `->?` is refused there (§5.1.1).
 - **Aliases carry no instances.** `honor Show<UserName>` is `honor Show<String>` after expansion — and therefore collides with the prelude instance under coherence. The error must teach the model: "`UserName` is an alias of `String`; aliases cannot carry their own instances — for a distinct type with its own instances, use a `record` or a single-constructor `union`." Likewise a `derives` clause on a `type` declaration is a hard error with the same redirect ("aliases are transparent and share their expansion's instances; `derives` belongs on `record` and `union`"). This pair of diagnostics is the newtype signpost and half the reason the alias/nominal pairing is teachable.
 
 ---
@@ -141,6 +141,14 @@ type Lookup(k, v) = k -> Option(v)
 ### 5.1 Fully applied, always
 
 A parameterized alias must be applied to exactly its declared arity at every use. `Handler` bare — as a type argument, in an annotation, anywhere — is a hard error: "`Handler` takes 1 type parameter; aliases must be fully applied." Partial application of aliases is higher-kinded programming through the back door and wrecks inference; the restriction is standard (Haskell imposes the same) and permanent for v1.
+
+### 5.1.1 No linked arrow in an alias body
+
+`->?` is the *enclosing signature's* effect variable (Effects §2.2), and an alias body has no enclosing signature — it is a type fragment, expanded into whatever signature later mentions it. A `->?` written in an alias body is therefore a hard error, with Effects §4.4's frame and this position's middle clause:
+
+> `->?` is the caller's colour, and this position has no caller to choose it — an alias is a type fragment, not a signature; write `->!` for a function that pulls the world, or `->` for one that does not
+
+Transparency is why the error cannot be softened into a link-at-expansion rule: an alias mentioned in two signatures would have to denote two different variables, and mentioned twice in one signature would have to denote the same one — the alias is *the same type* at every mention, and an effect variable that varies by mention is not a type. Effect abstraction over aliases is a coherent future feature and this refusal is what keeps the spelling free for it (Effects §11).
 
 ### 5.2 (Nominal constructors, for contrast)
 

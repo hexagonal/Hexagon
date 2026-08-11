@@ -83,8 +83,8 @@ let plus = (x: Int, y: Int): Int => x + y
 
 - Parameter annotations: `name: Type` inside the parameter list.
 - Return annotation: **colon after the parameter list** — TypeScript/C#/Scala/Kotlin style. There is no `->` in definition headers; arrow notation is the canonical displayed type form (§5.1).
-- *(#355.)* **A definition's own effect colour is inferred from its body**, never written in the header — the header has no outer-arrow seat, which is the previous bullet working as designed. Function-typed *parameter* annotations carry their own arrows (`transform: a => b`), and those are part of this signature: a parameter's `=>` links to the signature's one effect variable (Effects §2.2). A written arrow that contradicts the body's solved colour is the face error, both directions (Effects §4.2).
-- *(#355.)* **A lambda return annotation gives an unparenthesized `=>` to the body.** In `(x): A => …` the annotation is `A` and the body starts at the arrow — always, so the legal curried lambda `(x): a => y => x` keeps its meaning. A function type in this one slot is therefore written parenthesized, whatever its arrow: `(x): (A => B) => body`, `(x): (A =>! B) => body`. (The parenthesis is not only for the ambiguous `=>` case — the annotation grammar is right-associative and greedy, so an unparenthesized arrow type would also swallow the body's own `=>` as a further result arrow.) The required report and fixit when the writer plainly meant a type are Effects §9's.
+- *(#355.)* **A definition's own effect colour is inferred from its body**, never written in the header — the header has no outer-arrow seat, which is the previous bullet working as designed. Function-typed *parameter* annotations carry their own arrows (`transform: a ->? b`), and those are part of this signature: a parameter's `->?` links to the signature's one effect variable (Effects §2.2) and is what makes the signature's other `->?` occurrences legal (Effects §2.2.1). A written arrow that contradicts the body's solved colour is the face error, both directions (Effects §4.2).
+- *(#405.)* **A return annotation needs no parentheses around a function type.** The type arrows are `->`, `->?`, `->!`, and the lambda's own arrow is `=>` — different tokens, so the annotation grammar may be right-associative and greedy without ever swallowing the body: in `(x): A ->! B => body` the annotation is `A ->! B` and the body is `body`, and the legal curried lambda `(x): a => y => x` still annotates `a` and takes `y => x` as its body. Parentheses remain available for grouping and mean what they always meant. *(This replaces #355's rule, which gave an unparenthesized `=>` in this slot to the body and required `(x): (A => B) => body`; both of that rule's causes were the type and term levels sharing the `=>` token, and Effects §2 no longer lets them.)*
 - Any subset of annotations may be given on private functions; inference fills
   the rest. An exported function is the module-boundary exception: Modules
   §4.1.1 requires every parameter and the result to be annotated.
@@ -247,15 +247,15 @@ apply   : (String -> String) -> String
   `(A, B) -> C` is the distinct type of a two-parameter function.
 - A function with two or more parameters uses a parenthesized, comma-separated parameter list: `(A, B) -> C`.
 - `->` associates to the right. Parentheses around a function type are therefore grouping, as in `(A -> B) -> C`; they are not retained merely because a function has one parameter.
-- *(#355.)* **Every arrow carries its effect colour**, and the display renders the trio: `->` pure, `=>` this signature's linked effect variable, `=>!` the impure constant (Effects §2, the owner of the readings). The three are the same zero/one/many grammar with a different arrow head:
+- *(#355; respelled #405.)* **Every arrow carries its effect colour**, and the display renders the trio: `->` pure, `->?` this signature's linked effect variable, `->!` the impure constant (Effects §2, the owner of the readings). The three are one arrow under the same zero/one/many grammar, differing only in the mark they carry — the call trichotomy's own marks:
 
   ```text
-  fold            : (Seq(a), b, (b, a) => b) => b
-  withTransaction : (String => String) =>! String
-  Stream.next     : Stream(a) =>! Option(a)
+  fold            : (Seq(a), b, (b, a) ->? b) ->? b
+  withTransaction : (String ->? String) ->! String
+  Stream.next     : Stream(a) ->! Option(a)
   ```
 
-  All three arrows associate and group identically; a display never omits a colour, since silence is the pure claim (Effects §1). The same arrows are legal in source annotation positions under the same grammar. One caveat rides `=>`: an inferred face can carry effect variables the written grammar cannot spell apart, and the display distinguishes them with a display-only numbering — Effects §10 owns that rule, including when the undecorated `=>` is permitted.
+  All three arrows associate and group identically; a display never omits a colour, since silence is the pure claim (Effects §1). The same arrows are legal in source annotation positions under the same grammar, subject to Effects §2.2.1 — `->?` needs a signature with an inlet. One caveat rides `->?`: an inferred face can carry more effect variables than the written grammar can spell apart, and the display numbers those — Effects §10 owns the rule.
 - This notation describes Hexagon types. TypeScript declaration output separately follows TypeScript grammar and therefore retains `(name: A) => B`; the colour crosses as a generated documentation line carrying the Hexagon face (Effects §10).
 
 The internal representation remains genuinely n-ary: `TFun([], R)`, `TFun([A], R)`, and `TFun([A, B], R)`. This display rule does not encode unary functions as a special semantic form.
@@ -492,7 +492,7 @@ Notes:
 - The same lambda AST node emits differently depending on its binding (`function` under `fun`, `const` + arrow under `let`); the emitter dispatches on the binding form, not the RHS shape.
 - Arrow emission preserves the zero/one/many visual model: `() =>` for no parameters, `x =>` for one, `(x, y) =>` for several. A grouped unary source lambda, `(x) =>`, and unary header sugar, `f(x)`, therefore emit the canonical `x =>` form; the redundant grouping is not preserved. TypeScript function types still use their grammatically required parenthesized parameter list in `.d.ts`.
 - Names pass through unchanged when legal as JavaScript bindings. JavaScript reserved-word collisions use deterministic `__hex_` locals; Lexer §3 owns that reserved prefix.
-- *(Added 2026-08-01, #205/#207.)* A binding whose RHS is a bare reference to a **constrained** function emits the bare reference — `let twice = double`, with `double : Num a => (a) -> a`, emits `const twice = double;` — whenever the binding discharges none of the reference's constraints; every consumer appends the same trailing evidence suffix it would have appended to the original. Constraints §6.1 owns the rule and its boundary with the evidence-in-scope case, which still eta-expands.
+- *(Added, #205/#207.)* A binding whose RHS is a bare reference to a **constrained** function emits the bare reference — `let twice = double`, with `double : Num a => (a) -> a`, emits `const twice = double;` — whenever the binding discharges none of the reference's constraints; every consumer appends the same trailing evidence suffix it would have appended to the original. Constraints §6.1 owns the rule and its boundary with the evidence-in-scope case, which still eta-expands.
 
 ---
 

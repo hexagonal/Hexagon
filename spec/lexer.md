@@ -368,8 +368,8 @@ The Comments spec is authoritative; this section fixes token interaction.
 | Delimiters | `(` `)` `[` `]` `{` `}` |
 | Separators and labels | `,` `:` `;` |
 | Access and spread | `.` `...` |
-| Declaration/arm punctuation | `=` `=>` |
-| Type arrows | `->` `=>!` *(with `=>` above; roles: Effects §2 — `->` pure, `=>` linked/constant, `=>!` the impure constant. `->` is corrected into this inventory for #355: the token shipped with explicit function-type annotations and the inventory had not caught up)* |
+| Declaration/arm punctuation | `=` `=>` *(the term-level arrow: a lambda's and a `match`/`catch` arm's. It is not a type token — Effects §2)* |
+| Type arrows | `->` `->?` `->!` *(roles: Effects §2 — `->` pure, `->?` this signature's linked effect variable, `->!` the impure constant. One arrow carrying the call trichotomy's own marks; `->` is corrected into this inventory for #355, and `->?`/`->!` replace `=>`/`=>!` in type position for #405)* |
 | Call marks | `!` `?` *(the effects ruling's marks, #355; grammar — glued on both sides, against the callee and against the argument list's `(`, or glued at a `\|>` stage's end — is the parser's, Effects §3.2)* |
 | Arithmetic and concatenation | `+` `-` `*` `/` `**` `++` |
 | Comparison | `==` `!=` `<` `>` `<=` `>=` |
@@ -393,8 +393,7 @@ longest valid token. Important cases:
 **   before  *
 +++  means ++ then +
 |>   before  |
-=>!  before  =>
-->   before  -
+->? ->!  before  ->  before  -
 !=   before  !
 <= >= == != := =>  before their one-character prefixes
 //     is handled before /
@@ -408,8 +407,10 @@ two minus tokens, making `x --1` parse as `x - (-1)` rather than a comment.
 that source type arrows do not exist; the token had in fact shipped with explicit
 function-type annotations, and Effects §2 now gives it its role.)* `->` in
 expression position receives the parser's targeted diagnostic; it is one token
-everywhere. `!=>` is not a token and cannot become one: `!=` wins the munch, and
-the bang of `=>!` trails the arrow it condemns (Effects §2.3).
+everywhere. `!->` and `?->` are not tokens and cannot become ones: the mark
+trails the arrow it colours, on arrows exactly as at calls (Effects §2.3). The
+munch that matters for the marked arrows is `->?`/`->!` before `->`; nothing
+else shares their prefix, since a mark never begins a token.
 
 The lexer special-cases well-known forbidden symbolic logic runs so the user gets one
 useful error: `&&` and `||` point to `and` and `or`; a `!` in prefix-expression
@@ -428,7 +429,10 @@ compound assignments, increment/decrement, and every user-invented punctuation r
 all three now §8.1 tokens: `->` had already shipped, and `!`/`?` are the call
 marks. `??` and `?.` remain absent — maximal munch does not combine two marks or
 a mark and a dot into an unlisted token; the leading mark of such a run falls
-outside a mark's grammatical seats and is refused there by the parser.)*
+outside a mark's grammatical seats and is refused there by the parser. For #405
+the marked type arrows `->?` and `->!` join §8.1 and `=>!` leaves it; a mark
+following `->` is part of that one token and never a mark token in its own
+right, so `->!` is not an arrow beside a stray bang.)*
 
 Where every character of a run is independently valid (`+=`, `->`, `--`), the lexer
 may emit those valid component tokens and let the parser issue the form-specific
@@ -544,6 +548,6 @@ a && b              -- write `a and b`
 | Complete escape set; source newlines normalize to semantic LF | §6.2 |
 | Comments are trivia; nested forms and diagnostics inherited unchanged | §7 |
 | Closed punctuation/operator inventory and maximal-munch rules | §8 |
-| `->` corrected into the inventory (shipped with function-type annotations; Effects §2 names its role); `=>!` and the call marks `!`/`?` added for #355; `!=>` impossible by munch; prefix-`!` keeps the `not` redirect, parser-selected | §8.1–§8.3, §10 (#355) |
+| `->` corrected into the inventory (shipped with function-type annotations; Effects §2 names its role); the call marks `!`/`?` added for #355; the marked type arrows `->?`/`->!` replace `=>`/`=>!` for #405, leaving `=>` a term-level token only; a mark never begins a token, so `!->` is impossible by munch; prefix-`!` keeps the `not` redirect, parser-selected | §8.1–§8.3, §10 (#355, #405) |
 | Exact physical token families; virtual layout tokens excluded | §9 |
 | No warning tier; malformed tokens advance and recover | §10 |
