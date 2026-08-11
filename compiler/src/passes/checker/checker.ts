@@ -1542,6 +1542,22 @@ class Checker {
           });
           continue;
         }
+        // An extern row is a signature like any other (Effects §2.2.1): a
+        // `->?` written in one of its parameters is that signature's colour,
+        // and FFI Part 4 §4.5's promise that "function-typed slots inside its
+        // declared signature carry whatever arrows the author writes" is only
+        // true if this scope is open. Without it every such arrow took §4.4's
+        // orphan branch and was refused by a report that denied the parameter
+        // in front of it.
+        const externLinked = linkedSignature(
+          declaration.parameters.map((parameter) => parameter.annotation),
+        );
+        const enclosingSignature = this.#openSignature(
+          externLinked ? "open" : "clear",
+          0,
+          declaration.span,
+        );
+        const externFace = this.#signatureFace;
         const parameters = declaration.parameters.map((parameter) => {
           const type = parameter.annotation === undefined
             ? ERROR
@@ -1549,20 +1565,28 @@ class Checker {
           this.#schemes.set(parameter.symbol, { variables: [], type });
           return type;
         });
+        const externResult = this.#annotationType(declaration.returnAnnotation);
+        this.#closeSignature(enclosingSignature);
         // Effects §6.1: a user-written extern is trust territory, so it is
         // effectful by default; `pure fun …` is the trusted claim that opts
         // out. Compiler-owned intrinsic rows never reach here — they take the
         // branch above and keep their pure faces, because intrinsics §4.2
         // *verifies* them rather than trusting them, which is the whole reason
         // the default splits by ownership.
+        //
+        // The row's *own* colour is that default; the signature's variable
+        // belongs to the callback slots it declares, and is quantified so each
+        // caller instantiates it afresh. Left unquantified it would be one
+        // module-global variable that the first call site pinned for every
+        // other — the same trap the intrinsic branch's snapshot comment names.
         const externEffect = declaration.pure !== true ? IMPURE : undefined;
         this.#schemes.set(declaration.binding.symbol, {
-          variables: [],
+          variables: externLinked && externFace !== undefined ? [externFace.effect] : [],
           type: {
             kind: "Function",
             ...(externEffect === undefined ? {} : { effect: externEffect }),
             parameters,
-            result: this.#annotationType(declaration.returnAnnotation),
+            result: externResult,
           },
         });
       }
@@ -4965,8 +4989,11 @@ class Checker {
     // this position is only re-elaborating it to publish the type.
     if (this.#linkedArrowPosition === "alias") return;
     // One arrow, one report: a record's fields are elaborated for checking and
-    // again for publication, and the writer owes the defect one reading.
-    const key = `${arrowSpan.fileId}:${arrowSpan.start}`;
+    // again for publication, and the writer owes the defect one reading. The
+    // key spans **offsets**, not the `Position` objects — stringifying those
+    // gives every arrow in a file the same `[object Object]` key, which turns
+    // the dedupe into a per-file latch and hides every offence after the first.
+    const key = `${Number(arrowSpan.fileId)}:${arrowSpan.start.offset}:${arrowSpan.end.offset}`;
     if (this.#reportedLinkedArrows.has(key)) return;
     this.#reportedLinkedArrows.add(key);
     const because = {
@@ -9548,7 +9575,7 @@ class Checker {
     );
   }
 
-#render(type: Mono, numbering: ReadonlyMap<number, number>): string {
+  #render(type: Mono, numbering: ReadonlyMap<number, number>): string {
     const actual = this.#prune(type);
     if (actual.kind === "Error") return "<error>";
     if (actual.kind === "Constructor") return actual.name;

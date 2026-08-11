@@ -216,7 +216,7 @@ The failure has a reverse direction, and it needs its own sentence: a *pure* fun
 
 A `->?` written where §2.2.1 does not admit one is an error at the arrow, never a re-reading of it. The report names the position's reason and offers the constant, because the constant is what the writer of a data field or a result-only face almost always meant:
 
-> `->?` is the caller's colour, and this position has no caller to choose it — a `record` field is data, not a signature; write `->!` for a field that pulls the world, or `->` for one that does not
+> `->?` is the caller's colour, and this position has no caller to choose it — a `record` field is data, not a signature; write `->!` for a function that pulls the world, or `->` for one that does not
 
 The three admitting positions each get their own middle clause — a `union` field says `union`, a `type` alias says *"an alias is a type fragment, not a signature"*, and a result-only face says *"no parameter of this signature carries `->?`, so nothing instantiates it"*. §9 tabulates all four. The fixit is `->!` in every case; a writer who wanted purity reaches for `->` without prompting, and a writer who wanted polymorphism has to add the parameter that would supply it — which is the design conversation the error exists to start.
 
@@ -287,7 +287,7 @@ Messages are normative in shape; the mark table's six rows share one sentence fr
 | `->!` face, body effect-polymorphic | "this face is the impure constant `->!`, but the body performs no unconditional effect — it is effect-polymorphic, and its face is `->?`" + fixit `->?` (§4.2) |
 | Impure argument at a `->` demand | "a `->` arrow promises purity, and this function performs effects — the demand is written `->`, the function's face `->?` or `->!`" (§4.3) |
 | Pure function at an impure-constant demand (a `->!` data field, a result-only face, any written `->!`) | "this position's arrow is the impure constant — its colour is fixed where the type is declared, and this function's face is the pure `->`; the demand cannot weaken — change the position's declared arrow, or supply the effectful function the position promises" (§4.3) |
-| `->?` in a `record` field | "`->?` is the caller's colour, and this position has no caller to choose it — a `record` field is data, not a signature; write `->!` for a field that pulls the world, or `->` for one that does not" + fixit `->!` (§4.4) |
+| `->?` in a `record` field | "`->?` is the caller's colour, and this position has no caller to choose it — a `record` field is data, not a signature; write `->!` for a function that pulls the world, or `->` for one that does not" + fixit `->!` (§4.4) |
 | `->?` in a `union` field | same frame, "a `union` field is data, not a signature" + fixit `->!` (§4.4) |
 | `->?` in a `type` alias body | same frame, "an alias is a type fragment, not a signature" + fixit `->!` (§4.4) |
 | `->?` in a signature with no inlet (result-only face; an annotation whose only `->?` stands outside every parameter) | same frame, "no parameter of this signature carries `->?`, so nothing instantiates it" + fixit `->!` (§4.4) |

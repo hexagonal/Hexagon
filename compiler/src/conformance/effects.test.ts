@@ -303,6 +303,62 @@ export let run(h: Handler): String = h!()
     ]);
   });
 
+  it("reports every offending arrow, not just the first in a file", () => {
+    // The dedupe that keeps one arrow from being reported twice keys on source
+    // *offsets*. Keying on the `Position` objects instead gave every arrow in a
+    // file one `[object Object]` key, which silently turned the dedupe into a
+    // per-file latch: a writer fixed one arrow, recompiled, and discovered the
+    // next. Three independent offences owe three reports.
+    expect(
+      effectDiagnostics([["/main.hex", `
+export record R = { step: () ->? String }
+export record S = { other: (Int) ->? Int }
+export union U = A(() ->? Int) | B
+`]]).length,
+    ).toBe(3);
+  });
+
+  it("admits a `->?` in an extern row's parameter — the row is a signature", () => {
+    // An extern declares a signature like any other, so FFI Part 4 §4.5's
+    // "function-typed slots carry whatever arrows the author writes" covers
+    // `->?` too. The parameter is its own inlet (§2.2.1).
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+    export fun run(k: () ->? String): String
+`]]),
+    ).toEqual([]);
+  });
+
+  it("quantifies that row's colour, so two call sites may instantiate it apart", () => {
+    // The row's own colour is the §6.1 default; the signature's variable belongs
+    // to its callback slot. Left unquantified it would be one module-global
+    // variable that the first call site pinned for every other — so a pure
+    // callback and an impure one in the same module is the test that matters.
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+    export fun run(k: () ->? String): String
+    export fun save(document: String): Unit
+
+export let pureUse(): String = run!(() => "x")
+export let impureUse(): String = run!(() =>
+    save!("a")
+    "x")
+`]]),
+    ).toEqual([]);
+  });
+
+  it("still refuses a result-only `->?` in an extern row", () => {
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+    export fun mk(seed: String): (String ->? String)
+`]]),
+    ).toEqual([
+      "`->?` is the caller's colour, and this position has no caller to choose it — " +
+      "no parameter of this signature carries `->?`, so nothing instantiates it; " +
+      "write `->!` for a function that pulls the world, or `->` for one that does not",
+    ]);
+  });
+
   it("takes the impure constant in a data field, spelled", () => {
     expect(
       effectDiagnostics([["/main.hex", `
