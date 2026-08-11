@@ -62,7 +62,7 @@ callback that printed, or read input, would make "how many times does this
 run?" a question about observable behaviour, and the honest answers — on demand, per
 traversal, at most once under `memoize` — are the accounting of a calculator, not of an
 action. Hexagon keeps `Seq` a calculator. When the elements themselves must come from
-the world, or per-element effects are the point, that is the next chapter's type; when
+the world, or per-element effects are the point, that is `Stream`, two chapters on; when
 effects around a traversal are the point, a direct `for` loop keeps them in a block,
 in order, exactly once.
 

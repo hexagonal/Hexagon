@@ -57,9 +57,8 @@ Several things that look like effects are deliberately not:
   lambda cannot touch an outer `var` (Chapter 16). Local mutation is private
   bookkeeping, and privacy is exactly what makes it invisible.
 - **Throwing is not an effect.** An exception is failure, not interaction — Hexagon
-  keeps the two channels separate, and the next chapter is about the other one. If
-  throwing were an effect, `Int.div` would be impure and the whole prelude would go
-  with it.
+  keeps the two channels separate, and Chapter 21 is about the other one. If throwing
+  were an effect, `Int.div` would be impure and the whole prelude would go with it.
 
 What *is* an effect: reading input, writing output, consulting a clock or an entropy
 source, mutating foreign state. The rule of thumb is a question about observation —
