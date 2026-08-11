@@ -196,7 +196,7 @@ export let flatMap(source: Seq(a), transform: a -> Seq(b)): Seq(b) =
 (** Reduces the whole sequence to one value, left to right, starting from
     `initial`. It pulls every element, so it does not return on an infinite
     sequence. *)
-export let fold(source: Seq(a), initial: b, combine: (b, a) => b): b =
+export let fold(source: Seq(a), initial: b, combine: (b, a) ->? b): b =
     var accumulator = initial
     var current = source
     var running = True
@@ -224,7 +224,7 @@ export let length(source: Seq(a)): Int =
 
 (** Runs `action` on each element in order, for its effect. It pulls the whole
     sequence, so it does not return on an infinite one. *)
-export let forEach(source: Seq(a), action: a => Unit): Unit =
+export let forEach(source: Seq(a), action: a ->? Unit): Unit =
     var current = source
     var running = True
     while running
@@ -236,7 +236,7 @@ export let forEach(source: Seq(a), action: a => Unit): Unit =
 
 (** The first element satisfying `matches`, or `None` if none does. It stops at
     that element, so it is safe on an infinite sequence that contains one. *)
-export let find(source: Seq(a), matches: a => Bool): Option(a) =
+export let find(source: Seq(a), matches: a ->? Bool): Option(a) =
     var current = source
     var result = None
     var searching = True
@@ -252,12 +252,12 @@ export let find(source: Seq(a), matches: a => Bool): Option(a) =
     result
 
 (** Whether any element satisfies `matches`, stopping at the first that does. *)
-export let any(source: Seq(a), matches: a => Bool): Bool =
+export let any(source: Seq(a), matches: a ->? Bool): Bool =
     match find?(source, matches)
         None => False
         Some(_) => True
 
 (** Whether every element satisfies `matches`, stopping at the first that does
     not. *)
-export let all(source: Seq(a), matches: a => Bool): Bool =
+export let all(source: Seq(a), matches: a ->? Bool): Bool =
     not any?(source, value => not matches?(value))

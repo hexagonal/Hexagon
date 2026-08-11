@@ -169,14 +169,13 @@ describe("displayScheme: the arrow trio", () => {
           effect: "impure",
         },
       }),
-    ).toBe("(String =>! String) =>! String");
+    ).toBe("(String ->! String) ->! String");
   });
 
   test("one variable with an inlet displays plain, so the face writes back", () => {
-    // The annotation grammar links every written `=>` in a signature into one
-    // variable (§2.2), and the parameter's arrow is the slot that makes the
-    // linked reading — rather than the else-constant one — the right one. So
-    // this text is exactly what this type means.
+    // The annotation grammar links every written `->?` in a signature into one
+    // variable (§2.2), so this text is exactly what this type means — and the
+    // parameter's arrow is the inlet that makes it legal to write (§2.2.1).
     expect(
       displayScheme({
         variables: [typeVariableId(1)],
@@ -188,14 +187,19 @@ describe("displayScheme: the arrow trio", () => {
           effect: colour(1),
         },
       }),
-    ).toBe("(String => String) => String");
+    ).toBe("(String ->? String) ->? String");
   });
 
-  test("one variable with no inlet is numbered even though it is alone", () => {
-    // Every parameter arrow here is the pure constant, so the sole `=>` has no
-    // slot for a caller's instantiation and §2.2's else-constant rule would
-    // read the written form as the impure constant. Undecorated, this face
-    // would advertise a write-back that means something else.
+  test("one variable with no inlet still displays plain — #405 dropped that case", () => {
+    // Every parameter arrow here is the pure constant, so the sole `->?` has no
+    // slot for a caller's instantiation. The predecessor numbered it, because
+    // the else-constant rule read an inlet-less written arrow back as the
+    // impure constant and the plain spelling would have meant something else.
+    // With that rule withdrawn (§2.2.1) the plain spelling is exactly right
+    // about the colour — one variable — and pasting it into a position that
+    // cannot host it is Effects §4.4's error, which says why in a sentence.
+    // Numbering marks what the grammar cannot express, not what the checker
+    // will refuse (§10).
     expect(
       displayScheme({
         variables: [typeVariableId(1)],
@@ -207,7 +211,7 @@ describe("displayScheme: the arrow trio", () => {
           effect: colour(1),
         },
       }),
-    ).toBe("(() -> String) =>¹ Int");
+    ).toBe("(() -> String) ->? Int");
   });
 
   test("an inlet is a parameter position at any depth", () => {
@@ -228,7 +232,7 @@ describe("displayScheme: the arrow trio", () => {
           result: string,
         },
       }),
-    ).toBe("((String => String) -> String) -> String");
+    ).toBe("((String ->? String) -> String) -> String");
   });
 
   test("two distinct variables are numbered by first appearance, left to right", () => {
@@ -245,7 +249,7 @@ describe("displayScheme: the arrow trio", () => {
           effect: colour(2),
         },
       }),
-    ).toBe("(String =>¹ String) =>² String =>² String");
+    ).toBe("(String ->?¹ String) ->?² String ->?² String");
   });
 
   test("a constant beside two variables stays unnumbered", () => {
@@ -259,7 +263,7 @@ describe("displayScheme: the arrow trio", () => {
           result: string,
         },
       }),
-    ).toBe("(String =>¹ String, String =>! String, String =>² String) -> String");
+    ).toBe("(String ->?¹ String, String ->! String, String ->?² String) -> String");
   });
 
   test("numbers past nine keep going, a digit at a time", () => {
@@ -270,7 +274,7 @@ describe("displayScheme: the arrow trio", () => {
         parameters,
         result: string,
       } }),
-    ).toContain("String =>¹⁰ String, String =>¹¹ String) -> String");
+    ).toContain("String ->?¹⁰ String, String ->?¹¹ String) -> String");
   });
 
   test("a colour takes no letter from the type variables it sits beside", () => {
@@ -290,6 +294,6 @@ describe("displayScheme: the arrow trio", () => {
           result: { kind: "Variable", id: typeVariableId(8) },
         },
       }),
-    ).toBe("(() => String, a) -> a");
+    ).toBe("(() ->? String, a) -> a");
   });
 });

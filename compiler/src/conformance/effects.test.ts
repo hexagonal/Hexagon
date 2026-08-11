@@ -176,14 +176,14 @@ export let audit2(document: String): String =
     audit!(document)
     document
 
-export let compose(first: String => String, second: String => String): (String => String) =
+export let compose(first: String ->? String, second: String ->? String): (String ->? String) =
     (document) => second?(first?(document))
 `;
 
   it("a call that only wires impurity through is bare", () => {
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", `${compose}
-export let wired: (String =>! String) = compose(save2, audit2)
+export let wired: (String ->! String) = compose(save2, audit2)
 `]]),
     ).toEqual([]);
   });
@@ -199,8 +199,17 @@ export let run(document: String): String = compose(save2, audit2)(document)
   });
 });
 
-describe("#355 the else-constant rule", () => {
-  it("makes a result-only `=>` the impure constant", () => {
+describe("#405 the inlet rule — `->?` is refused where nothing can link it", () => {
+  /**
+   * The predecessor of this block pinned the *else-constant rule*: a `=>` with
+   * nothing to link to was read as the impure constant. #405 withdrew that
+   * reading, so each of those probes is now a refusal, and the two that were
+   * only ever about the extern default survive unchanged.
+   */
+
+  it("keeps the extern default doing the work it always did", () => {
+    // Never the else-constant rule's client: a user extern is impure by the
+    // ownership split (§6.1), and always was.
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
 export let ask(): String = readLine!()
@@ -229,14 +238,75 @@ export let twice(): String = ask() ++ ask!()
     ]);
   });
 
-  it("makes a data-position `=>` the impure constant, never linked", () => {
-    // A record declaration has no signature to quantify over, so its arrow has
-    // nothing to link to and the rule fires with nothing else in play — the one
-    // place in this prototype where the else-constant rule is load-bearing on
-    // its own, since a user extern is already impure by ruling 4.
+  it("refuses `->?` in a `record` field, naming the field as data", () => {
+    // The predecessor read this as the impure constant. It is now §4.4's error:
+    // a record declaration has no signature to quantify over, so the arrow has
+    // nothing to denote — and a rejection is not a second meaning.
     expect(
       effectDiagnostics([["/main.hex", `
-export record Source = { step: () => String }
+export record Source = { step: () ->? String }
+export let drive(source: Source): String = (source.step)!()
+`]]),
+    ).toEqual([
+      "`->?` is the caller's colour, and this position has no caller to choose it — " +
+      "a `record` field is data, not a signature; write `->!` for a function that " +
+      "pulls the world, or `->` for one that does not",
+    ]);
+  });
+
+  it("offers `->!` as the fix, which is what the writer meant", () => {
+    expect(
+      effectFixes([["/main.hex", `
+export record Source = { step: () ->? String }
+`]]),
+    ).toEqual(['write `->!`: "->!"']);
+  });
+
+  it("refuses `->?` in a `union` field for the same reason", () => {
+    expect(
+      effectDiagnostics([["/main.hex", `
+export union Step = Ready(() ->? String) | Done
+`]]),
+    ).toEqual([
+      "`->?` is the caller's colour, and this position has no caller to choose it — " +
+      "a `union` field is data, not a signature; write `->!` for a function that " +
+      "pulls the world, or `->` for one that does not",
+    ]);
+  });
+
+  it("refuses `->?` in a `type` alias body, before the body can be inlined", () => {
+    // Reported by the resolver, at the declaration: transparency means an alias
+    // inlined into a signature that happens to have an inlet would otherwise
+    // silently link, and one alias would name two colours across two mentions
+    // (Declarations Preamble §5.1.1).
+    expect(
+      effectDiagnostics([["/main.hex", `
+type Handler = () ->? String
+`]]),
+    ).toEqual([
+      "`->?` is the caller's colour, and this position has no caller to choose it — " +
+      "an alias is a type fragment, not a signature; write `->!` for a function that " +
+      "pulls the world, or `->` for one that does not",
+    ]);
+  });
+
+  it("refuses it once, not twice, when the alias is also used", () => {
+    expect(
+      effectDiagnostics([["/main.hex", `
+type Handler = () ->? String
+export let run(h: Handler): String = h!()
+`]]),
+    ).toEqual([
+      "`->?` is the caller's colour, and this position has no caller to choose it — " +
+      "an alias is a type fragment, not a signature; write `->!` for a function that " +
+      "pulls the world, or `->` for one that does not",
+    ]);
+  });
+
+  it("takes the impure constant in a data field, spelled", () => {
+    expect(
+      effectDiagnostics([["/main.hex", `
+export record Source = { step: () ->! String }
 export let drive(source: Source): String = (source.step)!()
 `]]),
     ).toEqual([]);
@@ -245,7 +315,7 @@ export let drive(source: Source): String = (source.step)!()
   it("refuses the bare call through that field", () => {
     expect(
       effectDiagnostics([["/main.hex", `
-export record Source = { step: () => String }
+export record Source = { step: () ->! String }
 export let drive(source: Source): String = (source.step)()
 `]]),
     ).toEqual([
@@ -254,13 +324,13 @@ export let drive(source: Source): String = (source.step)()
   });
 
   it("reads the same record shape as linked when it stands in a signature", () => {
-    // Pinned because it is a *divergence*, not an obvious consequence: the
-    // arrow is in a parameter annotation, so it is part of this signature and
-    // links; the identical shape in a `record` declaration is data and takes
-    // the constant. The ruling should say which reading it wants.
+    // The position still decides, but it now decides legal-vs-rejected rather
+    // than between two meanings (§2.5): here the arrow is in a parameter
+    // annotation, so it is part of this signature, links, and *is* the inlet
+    // that makes itself legal.
     expect(
       effectDiagnostics([["/main.hex", `
-export let drive(source: { step: () => String }): String = (source.step)?()
+export let drive(source: { step: () ->? String }): String = (source.step)?()
 `]]),
     ).toEqual([]);
   });
@@ -283,9 +353,9 @@ export let clean(document: String): String = trim(document)
   });
 });
 
-describe("#355 ruling 9 — `=>!`, the const ⊔ var face", () => {
+describe("#355 ruling 9 — `->!`, the const ⊔ var face", () => {
   const shape = (arrow: string) => `${world}
-export let withTransaction: ((String => String) ${arrow} String) = (run: String => String): String =>
+export let withTransaction: ((String ->? String) ${arrow} String) = (run: String ->? String): String =>
     save!("begin")
     let result = run?("body")
     audit!("commit")
@@ -293,34 +363,34 @@ export let withTransaction: ((String => String) ${arrow} String) = (run: String 
 `;
 
   it("checks with the banged arrow", () => {
-    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", shape("=>!")]])).toEqual([]);
+    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", shape("->!")]])).toEqual([]);
   });
 
-  it("refuses the `=>` face, naming `=>!`", () => {
-    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", shape("=>")]])).toEqual([
-      "this signature's `=>` promises a colour the caller chooses, but the body " +
+  it("refuses the `->?` face, naming `->!`", () => {
+    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", shape("->?")]])).toEqual([
+      "this signature's `->?` promises a colour the caller chooses, but the body " +
       "solves it to the impure constant — a function that performs its own " +
-      "unconditional effects rounds up, and its face is `=>!`",
+      "unconditional effects rounds up, and its face is `->!`",
     ]);
-    expect(effectFixes([["/world.js", ""], ["/main.hex", shape("=>")]])).toEqual([
-      'write `=>!`: "=>!"',
+    expect(effectFixes([["/world.js", ""], ["/main.hex", shape("->?")]])).toEqual([
+      'write `->!`: "->!"',
     ]);
   });
 
-  it("refuses a `=>!` face over a body that performs no unconditional effect", () => {
+  it("refuses a `->!` face over a body that performs no unconditional effect", () => {
     const source = `${world}
-export let apply: ((String => String) =>! String) = (run: String => String): String => run?("body")
+export let apply: ((String ->? String) ->! String) = (run: String ->? String): String => run?("body")
 `;
     expect(effectDiagnostics([["/world.js", ""], ["/main.hex", source]])).toEqual([
-      "this face is the impure constant `=>!`, but the body performs no " +
-      "unconditional effect — it is effect-polymorphic, and its face is `=>`",
+      "this face is the impure constant `->!`, but the body performs no " +
+      "unconditional effect — it is effect-polymorphic, and its face is `->?`",
     ]);
-    expect(effectFixes([["/world.js", ""], ["/main.hex", source]])).toEqual(['write `=>`: "=>"']);
+    expect(effectFixes([["/world.js", ""], ["/main.hex", source]])).toEqual(['write `->?`: "->?"']);
   });
 
   it("demands `!` at every call site, pure callback or not", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${shape("=>!")}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `${shape("->!")}
 export let go(): String = withTransaction((document) => document)
 `]]),
     ).toEqual([
@@ -330,7 +400,7 @@ export let go(): String = withTransaction((document) => document)
 
   it("keeps a pure callback pure through the banged face", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${shape("=>!")}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `${shape("->!")}
 export let go(): String = withTransaction!((document) => document)
 `]]),
     ).toEqual([]);
@@ -339,7 +409,7 @@ export let go(): String = withTransaction!((document) => document)
 
 describe("#355 eager combinators — the shape Map/Set will imitate", () => {
   const eager = `${world}
-export let map(values: Vector(a), transform: a => b): Vector(b) =
+export let map(values: Vector(a), transform: a ->? b): Vector(b) =
     var out: Vector(b) = []
     var index = 1
     while index <= Vector.length(values)
@@ -347,7 +417,7 @@ export let map(values: Vector(a), transform: a => b): Vector(b) =
         index := index + 1
     out
 
-export let fold(values: Vector(a), initial: b, combine: (b, a) => b): b =
+export let fold(values: Vector(a), initial: b, combine: (b, a) ->? b): b =
     var total = initial
     var index = 1
     while index <= Vector.length(values)
@@ -425,7 +495,7 @@ export let run(document: String): Unit = document |> save
   it("marks a call through a non-identifier callee", () => {
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
-export let pull(source: { step: (() =>! String) }): String = (source.step)!()
+export let pull(source: { step: (() ->! String) }): String = (source.step)!()
 `]]),
     ).toEqual([]);
   });
@@ -441,7 +511,7 @@ export let stamp(document: String): String = document.show()
   it("refuses a mark on a reference — references are colourless", () => {
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
-export let held: (String =>! Unit) = save!
+export let held: (String ->! Unit) = save!
 `]]),
     ).toEqual([markSeat]);
   });
@@ -449,7 +519,7 @@ export let held: (String =>! Unit) = save!
   it("stores an impure function without a mark", () => {
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
-export let held: (String =>! Unit) = save
+export let held: (String ->! Unit) = save
 export let run(document: String): Unit = held!(document)
 `]]),
     ).toEqual([]);
@@ -632,7 +702,7 @@ export let go(): Unit = drive({ step = () => save!("x") })
 `]]),
     ).toEqual([
       "a `->` arrow promises purity, and this function performs effects — the " +
-      "demand is written `->`, the function's face `=>` or `=>!`",
+      "demand is written `->`, the function's face `->?` or `->!`",
     ]);
   });
 });
@@ -644,7 +714,7 @@ describe("#355 declaration-site variance counts the effect slot (Effects §3.4, 
   // declines. A computed binding's own colour was therefore pinned monomorphic.
   const inletFace = `
 let pick(value: a): a = value
-let store(callback: () => String): Int = 1
+let store(callback: () ->? String): Int = 1
 let stored = pick(store)
 `;
 
@@ -656,7 +726,7 @@ let stored = pick(store)
     expect(
       effectDiagnostics([["/main.hex", `${inletFace}
 export let asPure: ((() -> String) -> Int) = stored
-export let asImpure: ((() -> String) =>! Int) = stored
+export let asImpure: ((() -> String) ->! Int) = stored
 `]]),
     ).toEqual([]);
   });
@@ -669,7 +739,7 @@ export let asImpure: ((() -> String) =>! Int) = stored
     expect(
       effectDiagnostics([["/main.hex", `${inletFace}
 export let asPure: ((() -> String) -> Int) = stored
-export let asImpure: ((() =>! String) -> Int) = stored
+export let asImpure: ((() ->! String) -> Int) = stored
 `]]),
     ).toEqual([
       "this position's arrow is the impure constant — its colour is fixed where " +
@@ -680,79 +750,93 @@ export let asImpure: ((() =>! String) -> Int) = stored
   });
 });
 
-describe("#355 ruling 8 — the return-annotation slot", () => {
-  it("gives an unparenthesized `=>` to the body", () => {
-    // The annotation is the *result* type and the body starts at the arrow, so
-    // this promises `Int` and produces a lambda.
+describe("#405 the return-annotation slot needs no parentheses", () => {
+  /**
+   * The predecessor of this block pinned #355's ruling 8: an unparenthesized
+   * `=>` in a lambda's return annotation went to the body, so a function type
+   * there had to be parenthesized, and a writer who plainly meant a type got a
+   * dedicated report whose region superseded the misparse's consequences.
+   *
+   * All of it is withdrawn. Both of that rule's causes were the type and term
+   * levels sharing the `=>` token; the type arrows are now `->`, `->?`, `->!`
+   * and the lambda's is `=>`, so a greedy annotation parse cannot reach the
+   * body and there is nothing left to disambiguate.
+   */
+
+  it("takes an unparenthesized function type as the return type", () => {
+    expect(
+      effectDiagnostics([["/main.hex", `
+export let curried(seed: Int): Int =
+    let make = (x: Int): Int -> Int => (y: Int) => x
+    make(seed)(seed)
+`]]),
+    ).toEqual([]);
+  });
+
+  it("takes an unparenthesized impure function type too", () => {
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+export let maker = (seed: String): String ->! Unit => save
+export let run(document: String): Unit = maker("s")!(document)
+`]]),
+    ).toEqual([]);
+  });
+
+  it("still reads the parenthesized form the same way", () => {
+    // Parentheses did not stop meaning grouping; they merely stopped being
+    // mandatory.
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+export let maker = (seed: String): (String ->! Unit) => save
+export let run(document: String): Unit = maker("s")!(document)
+`]]),
+    ).toEqual([]);
+  });
+
+  it("keeps the curried lambda meaning what it always meant", () => {
+    // The one shape ruling 8 existed to protect. `Int` is the annotation and
+    // `(y: Int) => x` is the body, so this claims a result it does not produce
+    // — exactly as it did before #405, because `=>` is still the lambda's arrow
+    // and still starts the body. What changed is that nothing had to be ruled
+    // to make it so.
     expect(
       effectDiagnostics([["/main.hex", `
 export let curried(seed: Int): Int =
     let make = (x: Int): Int => (y: Int) => x
     make(seed)(seed)
 `]]),
-    ).not.toEqual([]);
-    // Parenthesized, the same tokens are the function return type they read as.
-    expect(
-      effectDiagnostics([["/main.hex", `
-export let curried(seed: Int): Int =
-    let make = (x: Int): (Int -> Int) => (y: Int) => x
-    make(seed)(seed)
-`]]),
-    ).toEqual([]);
+    ).toEqual(["type mismatch: expected Int, found (Int) -> Int"]);
   });
 
-  it("reads the parenthesized form as the impure function return type", () => {
+  it("leaves a sibling binding's own error to itself", () => {
+    // The predecessor needed a `supersedes` region here, because the misparse
+    // provoked type errors that described a tree the writer did not write. With
+    // no misparse there is nothing to supersede, and the sibling reports alone.
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
-export let maker = (seed: String): (String =>! Unit) => save
-export let run(document: String): Unit = maker("s")!(document)
-`]]),
-    ).toEqual([]);
-  });
-
-  it("names the parenthesization when the writer plainly meant a type", () => {
-    const source = `export let f = (x: Int): Int => Int => x\n`;
-    // The whole list, not `toContain` (#364; Effects §9's return-annotation row): the report has to
-    // *lead*, and it used to fire third — behind a type mismatch against the
-    // annotation it was telling the reader to rewrite, and an unknown
-    // constructor `Int` from reading the intended type as a pattern. Both
-    // describe a tree the writer did not write.
-    expect(effectDiagnostics([["/main.hex", source]])).toEqual([
-      "a lambda's return annotation gives an unparenthesized `=>` to the body, so " +
-      "this reads as the body starting here; an impure function type in a return " +
-      "annotation must be parenthesized",
-    ]);
-    expect(effectFixes([["/main.hex", source]])).toEqual([
-      'parenthesize the return type: "("',
-      'parenthesize the return type: ")"',
-    ]);
-  });
-
-  it("supersedes only the lambda it reports on", () => {
-    // The cut is a region, so it must not reach past the lambda: a sibling
-    // binding's own error is nobody's consequence.
-    expect(
-      effectDiagnostics([["/main.hex", `export let f = (x: Int): Int => Int => x
+      effectDiagnostics([["/main.hex", `export let f = (x: Int): Int -> Int => x
 export let g: Int = "text"
 `]]),
     ).toEqual([
-      "a lambda's return annotation gives an unparenthesized `=>` to the body, so " +
-      "this reads as the body starting here; an impure function type in a return " +
-      "annotation must be parenthesized",
+      "type mismatch: expected (Int) -> Int, found Int",
       "type mismatch: expected Int, found String",
     ]);
   });
 });
 
 /**
- * §10's first obligation, as ruled in #364: display **distinguishes** rather
- * than normalizes. A face renders its arrows by colour, and the undecorated
- * `=>` is reserved for the faces whose write-back preserves meaning — exactly
- * one effect variable, with at least one inlet occurrence, so that §2.2's
- * linked reading reproduces the displayed scheme. Every other face carrying
- * variables is numbered by first appearance, the inlet-less lone variable
- * included, because its undecorated spelling would come back as the impure
- * constant.
+ * §10's first obligation, as ruled in #364 and narrowed by #405: display
+ * **distinguishes** rather than normalizes. A face renders its arrows by
+ * colour, and the undecorated `->?` covers every face with exactly one effect
+ * variable — which is what a written signature spells, since the grammar links
+ * every `->?` into one colour. Only a face with *more than one* is numbered,
+ * by first appearance, because only that is inexpressible.
+ *
+ * The predecessor also numbered a lone variable with no inlet occurrence: the
+ * else-constant rule read an inlet-less written arrow back as the impure
+ * constant, so the plain spelling would have meant something else. That rule is
+ * withdrawn, and with it the case — a plain `->?` is exactly right about the
+ * colour, and pasting it somewhere that cannot host it is §4.4's error, which
+ * explains itself where a lexer failure would not.
  */
 describe("#364 the arrow trio, displayed", () => {
   const composeSource = `${world}
@@ -760,10 +844,10 @@ export let save2(document: String): String =
     save!(document)
     document
 
-export let compose(first: String => String, second: String => String): (String => String) =
+export let compose(first: String ->? String, second: String ->? String): (String ->? String) =
     (document) => second?(first?(document))
 
-export let withTransaction: ((String => String) =>! String) = (run: String => String): String =>
+export let withTransaction: ((String ->? String) ->! String) = (run: String ->? String): String =>
     save!("begin")
     run?("body")
 
@@ -773,10 +857,10 @@ export let clean(document: String): String = trim(document)
   it("numbers the headline probe's distinct colours", () => {
     // §10's own specimen. `compose`'s parameters share one variable and its own
     // colour is a second, unconstrained one (§3.4's third arm) — so the face is
-    // *not* the one the written `(String => String, String => String) => …`
+    // *not* the one the written `(String ->? String, String ->? String) => …`
     // would mean, and the numbers are what say so.
     expect(hoveredType(composeSource, "compose")).toBe(
-      "(String =>¹ String, String =>¹ String) =>² String =>¹ String",
+      "(String ->?¹ String, String ->?¹ String) ->?² String ->?¹ String",
     );
   });
 
@@ -784,7 +868,7 @@ export let clean(document: String): String = trim(document)
     // One variable, one spelling: the annotation grammar links every written
     // `=>` into one variable (§2.2), so this face round-trips exactly.
     expect(hoveredType(composeSource, "withTransaction")).toBe(
-      "(String => String) =>! String",
+      "(String ->? String) ->! String",
     );
   });
 
@@ -793,7 +877,7 @@ export let clean(document: String): String = trim(document)
     // colour *unifies with* the callback's (§3.4) rather than standing apart,
     // and one variable covers the whole face — which is why nothing is
     // numbered and the face is exactly what a writer would write.
-    const source = `export let fold(values: Vector(a), initial: b, combine: (b, a) => b): b =
+    const source = `export let fold(values: Vector(a), initial: b, combine: (b, a) ->? b): b =
     var total = initial
     var index = 1
     while index <= Vector.length(values)
@@ -802,37 +886,35 @@ export let clean(document: String): String = trim(document)
     total
 `;
     expect(hoveredType(source, "fold")).toBe(
-      "(Vector(a), b, (b, a) => b) => b",
+      "(Vector(a), b, (b, a) ->? b) ->? b",
     );
   });
 
-  it("numbers a lone colour that offers no inlet, which is the ruling's cut", () => {
-    // The undecorated `=>` is reserved for faces that write back *unchanged*,
-    // and one variable is not enough for that: §2.2's else-constant rule reads
-    // a sole `=>` with no parameter-position occurrence as the impure constant.
-    // So `(() -> String) => Int` would come back a different type, and the
-    // index is what stops it being offered as the same one.
+  it("leaves a lone colour plain even where it offers no inlet (#405)", () => {
+    // The predecessor numbered this: with the else-constant rule in force, a
+    // sole `=>` and no parameter-position occurrence read back as the impure
+    // constant, so `(() -> String) => Int` would come back a different type.
+    // With the rule withdrawn there is one colour and one spelling for it, and
+    // a paste into a position with no inlet is §4.4's error rather than a
+    // silent change of meaning.
     const source = `export let make(): String = "x"
-export let hold(f: (() -> String) => Int): Int = f?(make)
+export let hold(f: (() -> String) ->? Int): Int = f?(make)
 `;
-    expect(hoveredType(source, "f:")).toBe("(() -> String) =>¹ Int");
-    // The very same variable, displayed as `hold`'s own face, is plain: there
-    // it *has* an inlet — the arrow inside the parameter `f` — so the linked
-    // reading of the written text reproduces this scheme exactly.
+    expect(hoveredType(source, "f:")).toBe("(() -> String) ->? Int");
     expect(hoveredType(source, "hold")).toBe(
-      "((() -> String) => Int) => Int",
+      "((() -> String) ->? Int) ->? Int",
     );
   });
 
-  it("numbers a callback parameter hovered on its own", () => {
-    // The everyday shape of the same cut: `first`'s colour is the enclosing
-    // signature's, but nothing in `String => String` is a slot, so as a face in
-    // its own right it does not write back.
-    expect(hoveredType(composeSource, "first:")).toBe("String =>¹ String");
+  it("leaves a callback parameter plain when hovered on its own", () => {
+    // The everyday shape of the same change: `first`'s colour is the enclosing
+    // signature's, and as a face in its own right it is still one colour, so it
+    // is still spelled `->?`.
+    expect(hoveredType(composeSource, "first:")).toBe("String ->? String");
   });
 
   it("never numbers a constant, at either end of the trio", () => {
-    expect(hoveredType(composeSource, "save")).toBe("String =>! Unit");
+    expect(hoveredType(composeSource, "save")).toBe("String ->! Unit");
     expect(hoveredType(composeSource, "trim")).toBe("String -> String");
     expect(hoveredType(composeSource, "clean")).toBe("String -> String");
   });
@@ -843,10 +925,10 @@ export let hold(f: (() -> String) => Int): Int = f?(make)
     // spent `a` on a colour that displays as an arrow, and the type variable
     // that follows would print as `b` with no `a` anywhere in the face.
     const source = `${world}
-export let hold(step: () => Int, value: a): a = value
+export let hold(step: () ->? Int, value: a): a = value
 `;
     expect(hoveredType(source, "hold")).toBe(
-      "(() =>¹ Int, a) =>² a",
+      "(() ->?¹ Int, a) ->?² a",
     );
   });
 
@@ -857,12 +939,12 @@ export let hold(step: () => Int, value: a): a = value
     const emitted = declarationsOf(
       [["/world.js", ""], ["/main.hex", `${world}
 (** Runs both, in order. *)
-export let compose(first: String => String, second: String => String): (String => String) =
+export let compose(first: String ->? String, second: String ->? String): (String ->? String) =
     (document) => second?(first?(document))
 `]],
     );
     expect(emitted).toContain(
-      " * Hexagon: `(String =>¹ String, String =>¹ String) =>² String =>¹ String`",
+      " * Hexagon: `(String ->?¹ String, String ->?¹ String) ->?² String ->?¹ String`",
     );
     expect(emitted).toContain(" * Runs both, in order.");
     // The colours erase (§8), so they take no TypeScript quantifier with them:
@@ -874,7 +956,7 @@ export let compose(first: String => String, second: String => String): (String =
     const emitted = declarationsOf(
       [["/world.js", ""], ["/main.hex", world]],
     );
-    expect(emitted).toContain("/** Hexagon: `String =>! Unit` */\nexport declare function save(");
+    expect(emitted).toContain("/** Hexagon: `String ->! Unit` */\nexport declare function save(");
     // Purity is the silent one (§1): a face with nothing but pure arrows says
     // nothing the TypeScript type has not already said.
     expect(emitted).toContain("\nexport declare function trim(");
@@ -891,48 +973,47 @@ export let wrong: Int = compose
 `]]),
     ).toEqual([
       "type mismatch: expected Int, found " +
-      "((String) =>¹ String, (String) =>¹ String) =>² (String) =>¹ String",
+      "((String) ->?¹ String, (String) ->?¹ String) ->?² (String) ->?¹ String",
     ]);
   });
 
-  it("applies the inlet cut in a diagnostic too, in both directions", () => {
+  it("spells one colour plainly in a diagnostic, inlet or not (#405)", () => {
     const holder = `export let make(): String = "x"
-export let hold(f: (() -> String) => Int): Int = f?(make)
+export let hold(f: (() -> String) ->? Int): Int = f?(make)
 `;
-    // The face has one colour and an inlet — the arrow inside `f` — so it is
-    // plain, and a reader can copy it into an annotation.
     expect(
       effectDiagnostics([["/main.hex", `${holder}
 export let wrong: Int = hold
 `]]),
     ).toEqual([
-      "type mismatch: expected Int, found ((() -> String) => Int) => Int",
+      "type mismatch: expected Int, found ((() -> String) ->? Int) ->? Int",
     ]);
-    // The same colour, displayed as `f`'s own type, has no inlet left in view.
+    // The same colour, displayed as `f`'s own type — no inlet in view, and
+    // still the plain spelling, because it is still one colour.
     expect(
       effectDiagnostics([["/main.hex", `export let make(): String = "x"
-export let hold(f: (() -> String) => Int): Int =
+export let hold(f: (() -> String) ->? Int): Int =
     let n: String = f
     f?(make)
 `]]),
     ).toEqual([
-      "type mismatch: expected String, found (() -> String) =>¹ Int",
+      "type mismatch: expected String, found (() -> String) ->? Int",
     ]);
   });
 
   it("refuses to write a variable colour back into source", () => {
-    // The decorated spelling is display-only — `=>¹` is not grammar — and the
+    // The decorated spelling is display-only — `->?¹` is not grammar — and the
     // undecorated one would link this arrow into the signature's own colour,
     // which is a claim about the *other* arrows that this type alone cannot
     // know is true. So the repair says why rather than writing it.
-    const source = "export fun pick(step: String => String) = step\n";
+    const source = "export fun pick(step: String ->? String) = step\n";
     const session = new AnalysisSession();
     session.setFile("/main.hex", source);
     const offset = source.indexOf("pick");
     const actions = session.codeActions("/main.hex", { start: offset, end: offset });
     expect(actions.map(({ title, disabled }) => `${title}: ${disabled ?? "offered"}`)).toEqual([
       "Infer return type: the return type of `pick` cannot be written here: " +
-      "this function type's arrow is an effect variable, and writing `=>` here " +
+      "this function type's arrow is an effect variable, and writing `->?` here " +
       "would link it to the rest of the signature's colour",
     ]);
   });
@@ -947,10 +1028,10 @@ export fun maker(seed: String) = save
     const offset = source.indexOf("maker");
     const [action] = session.codeActions("/main.hex", { start: offset, end: offset });
     const edit = action!.edits[0]!;
-    // Parenthesized: a return annotation is written immediately before the
-    // token introducing the body, and for a lambda that token is `=>` — so a
-    // bare `=>!` there would read as the body starting at the arrow (§2.6).
-    expect(edit.replacement).toBe(": (String =>! Unit)");
+    // Unparenthesized since #405: the type arrows and the lambda's arrow are
+    // different tokens, so the annotation cannot run into the body and the
+    // written text is what a writer would have written (§2.6).
+    expect(edit.replacement).toBe(": String ->! Unit");
     session.setFile(
       "/main.hex",
       source.slice(0, edit.span.start.offset) + edit.replacement +
@@ -985,18 +1066,18 @@ export let go(document: String): Unit = strict(save, document)
 `]]),
     ).toEqual([
       "a `->` arrow promises purity, and this function performs effects — the " +
-      "demand is written `->`, the function's face `=>` or `=>!`",
+      "demand is written `->`, the function's face `->?` or `->!`",
     ]);
   });
 
-  it("refuses a pure function where a `=>` data field is demanded", () => {
-    // The reverse direction, in the position §2.5 makes the constant on its own
-    // account: a record declaration has no signature, so the field's arrow is
-    // the impure constant and a pure function cannot weaken it. Under the §4.3
+  it("refuses a pure function where a `->!` data field is demanded", () => {
+    // The reverse direction, in the position §2.5 keeps constant on its own
+    // account: a record declaration has no signature, so the field's arrow can
+    // only be a constant and a pure function cannot weaken it. Under the §4.3
     // message every clause named a `->` this program does not contain.
     expect(
       effectDiagnostics([["/main.hex", `
-export record Source = { step: () => String }
+export record Source = { step: () ->! String }
 export let hold(step: () -> String): Source = Source({ step = step })
 `]]),
     ).toEqual([reverseDemand]);
@@ -1008,7 +1089,7 @@ export let hold(step: () -> String): Source = Source({ step = step })
     expect(
       effectDiagnostics([["/main.hex", `
 export let pureStep(): String = "x"
-export let held: (() =>! String) = pureStep
+export let held: (() ->! String) = pureStep
 `]]),
     ).toEqual([reverseDemand]);
   });
@@ -1022,7 +1103,7 @@ export let bad: Seq(String) = Seq.unfold("x", (seed) =>
 `),
     ).toEqual([
       "a `->` arrow promises purity, and this function performs effects — the " +
-      "demand is written `->`, the function's face `=>` or `=>!`",
+      "demand is written `->`, the function's face `->?` or `->!`",
     ]);
   });
 });

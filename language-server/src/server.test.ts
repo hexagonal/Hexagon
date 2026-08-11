@@ -1017,14 +1017,14 @@ describe("the Hexagon language server", () => {
  * grammar, and the server never set it, so a file spelling `=>` or `?` did not
  * lex here at all.
  *
- * `Stream.fold` is the specimen the ruling names for `=>!`, and it is reached
+ * `Stream.fold` is the specimen the ruling names for `->!`, and it is reached
  * as an ordinary prelude member from a file that declares no stream of its own.
  */
 describe("hover renders the arrow trio", () => {
   const TRIO = [
     "export let held: Int = Stream.fold",
     "",
-    "export let compose(first: String => String, second: String => String): (String => String) =",
+    "export let compose(first: String ->? String, second: String ->? String): (String ->? String) =",
     "    (document) => second?(first?(document))",
     "",
     "export let twice(step: Int -> Int, value: Int): Int = step(step(value))",
@@ -1054,16 +1054,16 @@ describe("hover renders the arrow trio", () => {
     return (hover!.contents as { value: string }).value;
   }
 
-  test("`=>!` reaches the editor, on the face the ruling names", async () => {
+  test("`->!` reaches the editor, on the face the ruling names", async () => {
     // `stream.md` §4.4's canonical worked example: a linked callback beside a
-    // constant-impure self. Nothing here is numbered — the callback is one
-    // variable with an inlet occurrence, so the face writes back unchanged.
+    // constant-impure self. Nothing here is numbered — one variable is what a
+    // written signature spells, so the face writes back unchanged.
     //
     // The module's own doc comment rides along, which is the second half of
     // what a reader needs: the face says the callback decides nothing about
     // termination, and the sentence says what does.
     expect(await hovered("fold")).toBe(
-      "value `fold: (Stream(a), b, (b, a) => b) =>! b`\n\n" +
+      "value `fold: (Stream(a), b, (b, a) ->? b) ->! b`\n\n" +
       "Reduces the whole stream to one value, left to right, starting from\n" +
       "`initial`. It pulls to exhaustion, so it does not return on an ambient\n" +
       "source.",
@@ -1071,13 +1071,15 @@ describe("hover renders the arrow trio", () => {
   });
 
   test("a face with two colours arrives numbered", async () => {
-    // Effects §10's own specimen. `compose`'s parameters share one variable and
-    // its own colour is a second, unconstrained one, so the undecorated
-    // spelling would be a different type — and the numbers are what say so.
-    // They are display-only: pasted back into source they fail at the lexer,
-    // which is the point of numbering rather than normalizing.
+    // Effects §10's own specimen, and the one case that is still numbered
+    // after #405: `compose`'s parameters share one variable and its own colour
+    // is a second, unconstrained one. Two distinct colours is what the written
+    // grammar cannot spell — it links every `->?` in a signature into one — so
+    // the numbers are what say so. They are display-only: pasted back into
+    // source they fail at the lexer, which is the point of numbering rather
+    // than normalizing.
     expect(await hovered("compose")).toBe(
-      "value `compose: (String =>¹ String, String =>¹ String) =>² String =>¹ String`",
+      "value `compose: (String ->?¹ String, String ->?¹ String) ->?² String ->?¹ String`",
     );
   });
 

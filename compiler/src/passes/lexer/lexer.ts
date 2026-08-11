@@ -63,11 +63,12 @@ const punctuation: readonly (readonly [string, Lexed.PunctuationKind])[] = [
   ["..", "Range"],
   ["|>", "Pipe"],
   [":=", "Assign"],
-  // `=>!` stands ahead of `=>` so maximal munch reaches it (Lexer §8.1): the
-  // bang trails the arrow it condemns, and `!=>` is not a token because `!=`
-  // would win the munch (Effects §2.3).
-  ["=>!", "FatArrowBang"],
   ["=>", "FatArrow"],
+  // The marked type arrows stand ahead of `->` so maximal munch reaches them
+  // (Lexer §8.1): the mark trails the arrow it colours, and `!->`/`?->` are not
+  // tokens because a mark never begins one (Effects §2.3).
+  ["->?", "ArrowQuestion"],
+  ["->!", "ArrowBang"],
   ["->", "Arrow"],
   ["(", "LeftParen"],
   [")", "RightParen"],

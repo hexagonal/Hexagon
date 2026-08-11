@@ -145,7 +145,7 @@ const PURE: EffectConstant = { kind: "Effect", impure: false };
 const IMPURE: EffectConstant = { kind: "Effect", impure: true };
 
 /**
- * One signature's shared effect variable and every `=>` written for it
+ * One signature's shared effect variable and every `->?` written for it
  * (#355: "one implicitly quantified effect variable per signature, all
  * occurrences, no exceptions").
  *
@@ -172,7 +172,7 @@ interface EffectFrame {
   /** The lambda's own arrow colour — the same variable as the signature's when linked. */
   readonly own: Mono;
   /**
-   * Whether this body has an inlet: a `=>` in parameter position, here or in
+   * Whether this body has an inlet: a `->?` in parameter position, here or in
    * an enclosing signature. Without one there is no colour for a `?` to
    * conduct, so an unsolved colour in this body defaults pure instead.
    */
@@ -198,8 +198,9 @@ interface MarkObligation {
 }
 
 /**
- * Whether an annotation writes a linked `=>` anywhere inside it. `=>!` does not
- * count: it is the constant, so it links nothing and offers no inlet.
+ * Whether an annotation writes a linked `->?` anywhere inside it, at any depth
+ * and any polarity (§2.2.1). `->!` does not count: it is the constant, so it
+ * links nothing and offers no inlet.
  */
 function annotationWritesLinkedArrow(annotation: Resolved.TypeAnnotation): boolean {
   let found = false;
@@ -224,11 +225,16 @@ function annotationWritesLinkedArrow(annotation: Resolved.TypeAnnotation): boole
 }
 
 /**
- * The else-constant rule's premise, asked of one signature: is there a `=>` in
- * a parameter position for the signature's other arrows to link to?
+ * §2.2.1's inlet test, asked of one signature: is there a `->?` in a parameter
+ * position for the signature's other arrows to link to?
+ *
+ * Depth and polarity are both irrelevant — the walk finds an occurrence
+ * anywhere inside a parameter annotation — because the caller supplies the
+ * whole argument value and therefore pins every colour inside it.
  *
  * `parameters` is the declaration's parameter annotations for a header-form
- * function, or the parameter subtrees of a written function type.
+ * function, or the parameter subtrees of a written function type. A signature
+ * this returns `false` for cannot host a `->?` at all: §4.4 refuses it.
  */
 function linkedSignature(parameters: readonly (Resolved.TypeAnnotation | undefined)[]): boolean {
   return parameters.some((parameter) =>
@@ -649,15 +655,27 @@ class Checker {
 
   /**
    * The signature currently being elaborated, when it is **linked** — when at
-   * least one `=>` stands in a parameter position for the others to share.
-   * `undefined` is the else-constant rule in force: a `=>` with nothing to link
-   * to denotes the impure constant, and so does every `=>` in a data
-   * declaration, which has no signature to quantify over.
+   * least one `->?` stands in a parameter position for the others to share
+   * (§2.2.1's inlet). `undefined` means a written `->?` has nothing to denote,
+   * which since #405 is §4.4's error: a signature with no inlet, a data
+   * declaration, or an alias body, each named by `#linkedArrowPosition`.
    */
   #signatureFace: SignatureFace | undefined;
   /**
+   * Which kind of position is being elaborated, for §4.4's middle clause.
+   *
+   * `->?` is refused wherever there is no signature to link it to, and the
+   * report names *why* this position has none — a `record` field and a `type`
+   * alias are wrong for different reasons and the writer is owed the right one.
+   * `"signature"` is the default and covers the remaining shape: a real
+   * signature whose parameters offer no inlet (§2.2.1).
+   */
+  #linkedArrowPosition: "signature" | "record" | "union" | "alias" = "signature";
+  /** Arrow spans §4.4 has already condemned, keyed `fileId:start`. */
+  readonly #reportedLinkedArrows = new Set<string>();
+  /**
    * An inlet a *binding annotation* supplies to the lambda that is its
-   * right-hand side. `let f: (Tx => a) =>! a = (run) => …` writes the callback
+   * right-hand side. `let f: (Tx ->? a) ->! a = (run) => …` writes the callback
    * arrow on the binding, not on the lambda's own parameters, so without this
    * the body would have no inlet to join and its `?` would be refused.
    * Read-and-cleared by the next lambda pushed.
@@ -667,7 +685,7 @@ class Checker {
   /**
    * The outer colour a *binding annotation* fixes for the lambda that is its
    * right-hand side, read syntactically so it is in hand before the body is
-   * inferred. This is what lets `=>!` mean what ruling 9 says: the outer arrow
+   * inferred. This is what lets `->!` mean what ruling 9 says: the outer arrow
    * is the impure constant from the start, so the body's own effects are
    * absorbed by a colour that is already constant and the callback's colour is
    * left free — the round-up applies to the function, not to what it forwards.
@@ -685,7 +703,7 @@ class Checker {
   readonly #callFrames = new WeakMap<Resolved.CallExpr, EffectFrame | undefined>();
   readonly #markObligations: MarkObligation[] = [];
   readonly #signatureFaces: SignatureFace[] = [];
-  /** Written `=>!` faces awaiting ruling 9's symmetric half. */
+  /** Written `->!` faces awaiting ruling 9's symmetric half. */
   readonly #constantFaces: {
     readonly lambda: Resolved.LambdaExpr;
     readonly arrowSpan: Source.Span;
@@ -1556,10 +1574,11 @@ class Checker {
         record.parameters.map((name) => [name, this.#fresh(0, false)] as const),
       );
       this.#recordParameters.set(record.id, typeParameters);
-      const fields = new Map(record.fields.map((field) => [
-        field.name,
-        this.#annotationType(field.annotation, 0, new Map(), typeParameters),
-      ]));
+      const fields = this.#inPosition("record", () =>
+        new Map(record.fields.map((field) => [
+          field.name,
+          this.#annotationType(field.annotation, 0, new Map(), typeParameters),
+        ])));
       this.#recordFields.set(record.id, fields);
       const result: NominalRecordMono = {
         kind: "NominalRecord",
@@ -1590,9 +1609,10 @@ class Checker {
       };
       for (const constructor of union.constructors) {
         this.#constructorUnions.set(constructor.binding.symbol, union.id);
-        const slotParameters = constructor.slots.map((slot) =>
-          this.#annotationType(slot.annotation, 0, new Map(), typeParameters)
-        );
+        const slotParameters = this.#inPosition("union", () =>
+          constructor.slots.map((slot) =>
+            this.#annotationType(slot.annotation, 0, new Map(), typeParameters)
+          ));
         this.#schemes.set(constructor.binding.symbol, {
           variables: [...typeParameters.values()],
           type: slotParameters.length === 0
@@ -2480,7 +2500,7 @@ class Checker {
 
       if (item.kind === "Let") {
         // A written face is the other place a signature lives (Effects §2.2).
-        // The declaration form has no outer arrow, so `(Tx => a) =>! a` — the
+        // The declaration form has no outer arrow, so `(Tx ->? a) ->! a` — the
         // const ⊔ var shape §2.4 settles — can only be written here, and
         // the scope has to be open before the body is inferred so that the
         // body's `?` has an inlet to join.
@@ -2497,8 +2517,8 @@ class Checker {
         }
         this.#pendingInlet = linked;
         // The outer arrow, read from the face rather than inferred. A `->` face
-        // is a pure demand on the body; `=>!` is the impure constant; a linked
-        // `=>` is the signature's own variable, which is the one-variable rule.
+        // is a pure demand on the body; `->!` is the impure constant; a linked
+        // `->?` is the signature's own variable, which is the one-variable rule.
         this.#pendingOwnEffect = annotation?.kind === "Function"
           ? (annotation.effect === "constant"
             ? IMPURE
@@ -3481,10 +3501,10 @@ class Checker {
         break;
       case "Lambda": {
         // #355: one signature, one effect variable, all occurrences. A lambda
-        // whose own parameter annotations write a `=>` opens a fresh signature
+        // whose own parameter annotations write a `->?` opens a fresh signature
         // scope and *is* that variable — its outer arrow and its callbacks'
         // arrows are the same colour, which is what makes `fold` polymorphic
-        // rather than merely tolerant. A lambda with no `=>` of its own keeps
+        // rather than merely tolerant. A lambda with no `->?` of its own keeps
         // the enclosing scope (nothing in it can read the variable anyway) and
         // takes a fresh colour of its own, which the body then decides.
         const writtenOwn = this.#pendingOwnEffect;
@@ -3492,9 +3512,9 @@ class Checker {
         const ownLinked =
           linkedSignature(expression.parameters.map((parameter) => parameter.annotation));
         // A lambda whose colour a binding annotation already wrote *is* that
-        // signature — `let f: (Tx => a) =>! a = (run: Tx => a): a => …` writes
+        // signature — `let f: (Tx ->? a) ->! a = (run: Tx ->? a): a => …` writes
         // one signature twice, and opening a second scope here would give the
-        // same defect two reports and the same `=>` two variables.
+        // same defect two reports and the same `->?` two variables.
         const enclosingSignature = this.#openSignature(
           writtenOwn !== undefined ? "inherit" : ownLinked ? "open" : "clear",
           level + 1,
@@ -3505,7 +3525,7 @@ class Checker {
         const enclosingFrame = this.#effectFrames.at(-1);
         const effectFrame: EffectFrame = {
           // Never the signature's variable outright: a function whose body
-          // performs no call at that colour is *pure*, however many `=>`s its
+          // performs no call at that colour is *pure*, however many `->?`s its
           // parameters wear. Effects §3.3's `compose` is exactly that shape —
           // two impure functions move through, a closure comes out, the world
           // untouched — and taking the signature's variable here would make
@@ -4895,9 +4915,9 @@ class Checker {
 
   /**
    * What a written arrow denotes. `->` is the pure constant and needs no slot;
-   * `=>!` is the impure constant; `=>` is this signature's shared variable, or
-   * the impure constant when there is no signature to share (the else-constant
-   * rule, and every arrow in a data declaration).
+   * `->!` is the impure constant; `->?` is this signature's shared variable —
+   * and where there is no signature to share, it is an **error** rather than a
+   * second reading (§2.2.1, §4.4; #405 withdrew the else-constant rule).
    */
   /**
    * The colour a call applies, read off the callee when the callee is already
@@ -4924,20 +4944,70 @@ class Checker {
     if (written === undefined) return undefined;
     if (written === "constant") return IMPURE;
     const face = this.#signatureFace;
-    if (face === undefined) return IMPURE;
+    if (face === undefined) {
+      this.#reportOrphanedLinkedArrow(arrowSpan);
+      // Recovery is the impure constant — the colour the writer of a data field
+      // or a result-only face nearly always meant, and the one that keeps the
+      // rest of the body checkable. It is recovery, not a reading: the
+      // diagnostic above is the ruling.
+      return IMPURE;
+    }
     if (arrowSpan !== undefined) face.arrows.push(arrowSpan);
     return face.effect;
+  }
+
+  /** Effects §4.4: a `->?` in a position with no caller to choose its colour. */
+  #reportOrphanedLinkedArrow(arrowSpan: Source.Span | undefined): void {
+    if (arrowSpan === undefined) return;
+    // The alias arm is the resolver's, reported at the declaration before the
+    // body is inlined into any use site (Declarations Preamble §5.1.1). By the
+    // time an alias body reaches here it has already been condemned once, and
+    // this position is only re-elaborating it to publish the type.
+    if (this.#linkedArrowPosition === "alias") return;
+    // One arrow, one report: a record's fields are elaborated for checking and
+    // again for publication, and the writer owes the defect one reading.
+    const key = `${arrowSpan.fileId}:${arrowSpan.start}`;
+    if (this.#reportedLinkedArrows.has(key)) return;
+    this.#reportedLinkedArrows.add(key);
+    const because = {
+      record: "a `record` field is data, not a signature",
+      union: "a `union` field is data, not a signature",
+      signature: "no parameter of this signature carries `->?`, so nothing instantiates it",
+    }[this.#linkedArrowPosition];
+    this.#diagnostics.add({
+      severity: "error",
+      message:
+        "`->?` is the caller's colour, and this position has no caller to choose it — " +
+        because +
+        "; write `->!` for a function that pulls the world, or `->` for one that does not",
+      primary: arrowSpan,
+      fixes: [{
+        message: "write `->!`",
+        edits: [{ span: arrowSpan, replacement: "->!" }],
+      }],
+    });
+  }
+
+  /** Runs `body` with §4.4's position set, restoring whatever was in force. */
+  #inPosition<T>(position: "record" | "union" | "alias", body: () => T): T {
+    const previous = this.#linkedArrowPosition;
+    this.#linkedArrowPosition = position;
+    try {
+      return body();
+    } finally {
+      this.#linkedArrowPosition = previous;
+    }
   }
 
   /**
    * Enters a signature scope, returning what `#closeSignature` must restore.
    *
-   * `"open"` mints this signature's shared colour. `"clear"` is the
-   * else-constant rule in force — a signature of its own with nothing in
-   * parameter position to link to, so its `=>`s are the constant. `"inherit"`
+   * `"open"` mints this signature's shared colour. `"clear"` is a signature of
+   * its own with nothing in parameter position to link to, so a `->?` written
+   * inside it is §4.4's error rather than a constant. `"inherit"`
    * is for a form that is *not* a second signature: a lambda whose colour a
    * binding annotation already wrote is that annotation's signature, and giving
-   * it a scope of its own would mint a second variable for one `=>` and report
+   * it a scope of its own would mint a second variable for one `->?` and report
    * one defect twice.
    */
   #openSignature(
@@ -4999,7 +5069,7 @@ class Checker {
   #settleFrame(frame: EffectFrame): void {
     // Constants first: they are the only thing that can *force* a colour, and a
     // forced `own` then satisfies every remaining `⊒` outright — which is what
-    // keeps a `=>!` face from constantifying the callback it forwards.
+    // keeps a `->!` face from constantifying the callback it forwards.
     for (const { effect, span } of frame.absorbed) {
       if (this.#prune(effect) !== IMPURE) continue;
       frame.sourced = true;
@@ -5103,7 +5173,7 @@ class Checker {
 
   /**
    * Ruling 9's first half, and ruling 7 lifted to the face: a signature that
-   * spells `=>` promises a colour its caller chooses, and a body that solves it
+   * spells `->?` promises a colour its caller chooses, and a body that solves it
    * to a constant has falsified that promise.
    */
   #checkSignatureFaces(): void {
@@ -5116,18 +5186,18 @@ class Checker {
       this.#diagnostics.add({
         severity: "error",
         message: colour.impure
-          ? "this signature's `=>` promises a colour the caller chooses, but the body " +
+          ? "this signature's `->?` promises a colour the caller chooses, but the body " +
             "solves it to the impure constant — a function that performs its own " +
-            "unconditional effects rounds up, and its face is `=>!`" +
-            (rewritable ? "" : "; give the binding an explicit `(…) =>! …` face")
-          : "this signature's `=>` promises a colour the caller chooses, but the body " +
+            "unconditional effects rounds up, and its face is `->!`" +
+            (rewritable ? "" : "; give the binding an explicit `(…) ->! …` face")
+          : "this signature's `->?` promises a colour the caller chooses, but the body " +
             "solves it to the pure constant — the honest face is `->`",
         primary: target,
         ...(rewritable
           ? {
             fixes: [{
-              message: colour.impure ? "write `=>!`" : "write `->`",
-              edits: [{ span: target, replacement: colour.impure ? "=>!" : "->" }],
+              message: colour.impure ? "write `->!`" : "write `->`",
+              edits: [{ span: target, replacement: colour.impure ? "->!" : "->" }],
             }],
           }
           : {}),
@@ -5135,7 +5205,7 @@ class Checker {
     }
   }
 
-  /** Ruling 9's symmetric half: `=>!` claimed where nothing is unconditionally done. */
+  /** Ruling 9's symmetric half: `->!` claimed where nothing is unconditionally done. */
   #checkConstantFaces(): void {
     for (const { lambda, arrowSpan } of this.#constantFaces) {
       const frame = this.#frameByLambda.get(lambda);
@@ -5143,12 +5213,12 @@ class Checker {
       this.#diagnostics.add({
         severity: "error",
         message:
-          "this face is the impure constant `=>!`, but the body performs no " +
-          "unconditional effect — it is effect-polymorphic, and its face is `=>`",
+          "this face is the impure constant `->!`, but the body performs no " +
+          "unconditional effect — it is effect-polymorphic, and its face is `->?`",
         primary: arrowSpan,
         fixes: [{
-          message: "write `=>`",
-          edits: [{ span: arrowSpan, replacement: "=>" }],
+          message: "write `->?`",
+          edits: [{ span: arrowSpan, replacement: "->?" }],
         }],
       });
     }
@@ -7769,7 +7839,7 @@ class Checker {
           // A declared field's arrow keeps the colour it was written with. A
           // record has no signature to quantify over, so that colour is always
           // a constant (#355's data-position posture) — but dropping it here
-          // silently reads every `=>` field as `->`.
+          // silently reads every `->?` field as `->`.
           ...(actual.effect === undefined ? {} : { effect: copy(actual.effect) }),
         };
       }
@@ -8326,7 +8396,7 @@ class Checker {
         ),
         result: this.#publicType(actual.result, seen),
         // Modules §4.1.1: the exported signature is the contract, so the colour
-        // has to cross the border with it — a linked `=>` as its variable, the
+        // has to cross the border with it — a linked `->?` as its variable, the
         // constant as `"impure"`, and the pure constant as nothing at all.
         ...(effect === undefined || (effect.kind === "Effect" && !effect.impure)
           ? {}
@@ -8822,7 +8892,10 @@ class Checker {
         exported: item.exported,
         name: item.name,
         parameters: [...parameters.values()].map(({ id }) => Typed.typeVariableId(id)),
-        type: this.#publicType(this.#annotationType(item.annotation, 0, new Map(), parameters)),
+        type: this.#inPosition(
+          "alias",
+          () => this.#publicType(this.#annotationType(item.annotation, 0, new Map(), parameters)),
+        ),
         span: item.span,
       };
     }
@@ -9459,57 +9532,23 @@ class Checker {
    * call is one displayed type expression, so a two-type report numbers each
    * side on its own.
    *
-   * Undecorated arrows are reserved for the face that writes back unchanged:
-   * one distinct effect variable, with at least one *inlet* occurrence, so that
-   * §2.2's linked reading reproduces this type rather than the else-constant
-   * one. Anything else with a variable in it is numbered.
+   * Undecorated arrows spell what the grammar can spell: **one** distinct
+   * effect variable, which a written signature links into one colour (§2.2).
+   * Only a face with more than one is numbered, because only that is
+   * inexpressible. #405 dropped the second condition this used to carry — a
+   * lone variable needed an *inlet* occurrence, or the else-constant rule would
+   * read the undecorated spelling back as the impure constant — along with the
+   * rule itself (§10, and Effects §11's note).
    */
   #display(type: Mono): string {
     const colours = this.#effectVariables(type);
-    const plain = colours.length === 0 ||
-      (colours.length === 1 && this.#inletVariables(type).has(colours[0]!));
     return this.#render(
       type,
-      plain ? new Map() : new Map(colours.map((id, index) => [id, index + 1])),
+      colours.length <= 1 ? new Map() : new Map(colours.map((id, index) => [id, index + 1])),
     );
   }
 
-  /**
-   * Every effect variable this type offers a caller a slot for: one occurring
-   * on an arrow in a parameter position, at any depth (§2.2's inlet).
-   */
-  #inletVariables(type: Mono, found = new Set<number>()): Set<number> {
-    const actual = this.#prune(type);
-    if (actual.kind === "Function") {
-      for (const parameter of actual.parameters) {
-        for (const id of this.#effectVariables(parameter)) found.add(id);
-      }
-      this.#inletVariables(actual.result, found);
-    }
-    if (actual.kind === "Tuple") {
-      for (const element of actual.elements) this.#inletVariables(element, found);
-    }
-    if (actual.kind === "Record") {
-      for (const field of actual.fields.values()) this.#inletVariables(field, found);
-    }
-    if (actual.kind === "Union" || actual.kind === "NominalRecord") {
-      for (const argument of actual.arguments) this.#inletVariables(argument, found);
-    }
-    if (
-      actual.kind === "Vector" || actual.kind === "Set" || actual.kind === "Array" ||
-      actual.kind === "JsSet" || actual.kind === "Node"
-    ) {
-      this.#inletVariables(actual.element, found);
-    }
-    if (actual.kind === "Nullable") this.#inletVariables(actual.value, found);
-    if (actual.kind === "Map" || actual.kind === "JsMap") {
-      this.#inletVariables(actual.key, found);
-      this.#inletVariables(actual.value, found);
-    }
-    return found;
-  }
-
-  #render(type: Mono, numbering: ReadonlyMap<number, number>): string {
+#render(type: Mono, numbering: ReadonlyMap<number, number>): string {
     const actual = this.#prune(type);
     if (actual.kind === "Error") return "<error>";
     if (actual.kind === "Constructor") return actual.name;
@@ -9608,11 +9647,10 @@ class Checker {
   }
 
   /**
-   * How a function type's arrow prints (#355). A pure arrow is `->`, the
-   * constant is `=>!`, and a variable colour is `=>` — carrying its index
-   * (#364) whenever the displayed face would not write back unchanged, so a
-   * diagnostic never spells a colour as something a reader could copy out and
-   * get a different type from.
+   * How a function type's arrow prints (#355, respelled #405). A pure arrow is
+   * `->`, the constant is `->!`, and a variable colour is `->?` — carrying its
+   * index (#364) only where the face holds more than one colour, which is the
+   * one thing the written grammar cannot spell apart.
    */
   #arrow(type: FunctionMono, numbering: ReadonlyMap<number, number>): string {
     if (type.effect === undefined) return PURE_ARROW;
@@ -9671,7 +9709,7 @@ function markFixMessage(required: "bang" | "question" | undefined): string {
  * "expected … found …" fallback already keeps. The direction decides the
  * sentence, and it has to: the §4.3 report speaks of a written `->` *demand* in
  * every clause, and in the reverse direction — a pure function refused where a
- * `=>` data field, a result-only face, or a written `=>!` demands the impure
+ * `->?` data field, a result-only face, or a written `->!` demands the impure
  * constant — the demand wrote no `->`, so each clause misdescribes the program.
  */
 function effectMismatchMessage(left: Mono, right: Mono): string {
@@ -9684,7 +9722,7 @@ function effectMismatchMessage(left: Mono, right: Mono): string {
   }
   return impure(left) || impure(right)
     ? "a `->` arrow promises purity, and this function performs effects — the " +
-      "demand is written `->`, the function's face `=>` or `=>!`"
+      "demand is written `->`, the function's face `->?` or `->!`"
     : "effect mismatch between these arrows";
 }
 

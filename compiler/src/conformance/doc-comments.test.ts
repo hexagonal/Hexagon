@@ -461,7 +461,7 @@ describe("§7: emission into both artifacts", () => {
     // an unannotated user extern is the impure constant (Effects §6.1), and
     // TypeScript's one arrow cannot say so.
     expect(main.declarations.text).toContain(
-      "/**\n * Reads a file.\n *\n * Hexagon: `String =>! String`\n */\n" +
+      "/**\n * Reads a file.\n *\n * Hexagon: `String ->! String`\n */\n" +
         "export declare function readFileSync(path: string): string;",
     );
   });

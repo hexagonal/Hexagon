@@ -1108,8 +1108,11 @@ describe("operators and forbidden runs (spec/lexer.md §8)", () => {
       ["let x = a <= b", "<=", "keyword.operator.comparison.hexagon"],
       ["x := 1", ":=", "keyword.operator.assignment.hexagon"],
       ["let f = x => x", "=>", "keyword.operator.arrow.hexagon"],
-      // `=>!` stands ahead of `=>`, which is the munch (spec/effects.md §2.3).
-      ["let h: (() =>! Int) = f", "=>!", "keyword.operator.arrow.impure.hexagon"],
+      // The marked type arrows stand ahead of `->`, which is the munch
+      // (spec/effects.md §2.3).
+      ["let h: () ->! Int = f", "->!", "keyword.operator.arrow.impure.hexagon"],
+      ["let k(s: () ->? Int): Int = s?()", "->?", "keyword.operator.arrow.linked.hexagon"],
+      ["let p: Int -> Int = f", "->", "keyword.operator.type.arrow.hexagon"],
     ];
     for (const [source, text, expected] of cases) {
       expect(await scope(source, text), text).toBe(expected);

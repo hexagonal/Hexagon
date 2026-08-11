@@ -1,5 +1,6 @@
 /**
- * How a function type's arrow is *displayed* (`spec/effects.md` §10, #364).
+ * How a function type's arrow is *displayed* (`spec/effects.md` §10, #364;
+ * respelled #405).
  *
  * Three renderers answer this question — the hover/`.d.ts` type printer, the
  * source writer, and the checker's diagnostic printer — over three different
@@ -8,31 +9,35 @@
  *
  * The ruling display obeys:
  *
- * - a pure constant arrow is `->`, an impure constant `=>!`, a variable colour
- *   `=>` (§2.1–§2.3). Both constants always round-trip and are never numbered;
- * - the **undecorated `=>` is reserved for the faces whose write-back preserves
- *   meaning**, and that is a narrower set than "one variable". It takes exactly
- *   one distinct effect variable *and* at least one **inlet** occurrence of it —
- *   a parameter-position arrow — because those are the two things §2.2's linked
- *   reading needs to reproduce the displayed scheme: the grammar links every
- *   written `=>` into one variable, and the else-constant rule turns an
- *   inlet-less one into the impure constant;
- * - **everything else carrying variables is numbered** by first appearance,
- *   left to right: `=>¹`, `=>²`. That is every multi-variable face, and also a
- *   *lone* variable with no inlet — `(() -> String) =>¹ Int`, whose undecorated
- *   spelling would be read back as the impure constant and silently mean
- *   something else.
+ * - one arrow, three marks: `->` pure, `->?` a variable colour, `->!` the
+ *   impure constant (§2.1–§2.3) — the call trichotomy's own marks. Both
+ *   constants always round-trip and are never numbered;
+ * - a face with **exactly one** distinct effect variable displays it
+ *   undecorated, `->?`, wherever it stands. That is what the grammar spells,
+ *   since a written signature links every `->?` into one variable (§2.2);
+ * - a face with **more than one** — which inference produces and the grammar
+ *   cannot express — numbers them by first appearance, left to right: `->?¹`,
+ *   `->?²`.
+ *
+ * #405 dropped a third case. The predecessor also numbered a *lone* variable
+ * with no inlet occurrence, because the else-constant rule read an inlet-less
+ * `=>` back as the impure constant and the undecorated spelling would have
+ * silently meant something else. With that rule withdrawn the spelling is
+ * exactly right about the colour, and a paste into a position that cannot host
+ * it is Effects §4.4's error — which explains the problem in a sentence, where
+ * a lexer failure only reports one. Numbering marks what the grammar cannot
+ * express, not what the checker will refuse.
  *
  * The decorated spelling is **display-only**. It is not grammar and does not
- * lex — a pasted `=>¹` fails in the lexer, which is the point: a face that
- * cannot be written back fails loudly instead of silently relinking.
+ * lex — a pasted `->?¹` fails in the lexer, which is the point: a face that
+ * cannot be written back fails loudly.
  */
 
 /** The pure constant. */
 export const PURE_ARROW = "->";
 
 /** The impure constant (`spec/effects.md` §2.3). */
-export const IMPURE_ARROW = "=>!";
+export const IMPURE_ARROW = "->!";
 
 /**
  * A variable colour's arrow: plain when the face writes back unchanged, and
@@ -42,7 +47,7 @@ export const IMPURE_ARROW = "=>!";
  * appearance across the whole displayed type expression.
  */
 export function linkedArrow(index?: number): string {
-  return index === undefined ? "=>" : `=>${superscript(index)}`;
+  return index === undefined ? "->?" : `->?${superscript(index)}`;
 }
 
 const SUPERSCRIPT_DIGITS = "⁰¹²³⁴⁵⁶⁷⁸⁹";

@@ -1,5 +1,5 @@
 import { IMPURE_ARROW, linkedArrow, PURE_ARROW } from "../../support/arrows.js";
-import { collectEffectVariables, collectInletVariables } from "./effects.js";
+import { collectEffectVariables } from "./effects.js";
 import type * as Typed from "./tree.js";
 
 /**
@@ -131,27 +131,28 @@ function displayType(
 }
 
 /**
- * Whether the undecorated arrows say exactly what this scheme says (#364).
+ * Whether the undecorated arrows say exactly what this scheme says (#364;
+ * narrowed to one condition by #405).
  *
- * Two conditions, and the second is the one that is easy to miss. **One**
- * distinct effect variable, because the annotation grammar links every written
- * `=>` into a single variable (§2.2) and two would come back as one. And **an
- * inlet** — at least one occurrence of it in a parameter position — because
- * §2.2's else-constant rule reads an inlet-less `=>` as the impure constant: a
- * face like `(() -> String) => Int` would be *written back* as a different
- * type, so its arrow is numbered even though it is alone.
+ * **One** distinct effect variable, because a written signature links every
+ * `->?` into a single variable (§2.2) and two would come back as one. That is
+ * now the whole test.
+ *
+ * The predecessor carried a second condition — at least one **inlet**
+ * occurrence — because the else-constant rule read an inlet-less `=>` back as
+ * the impure constant, so `(() -> String) => Int` would have written back as a
+ * different *type*. With that rule withdrawn (§2.2.1) the undecorated spelling
+ * no longer changes meaning; it is refused outright by §4.4, with a sentence
+ * saying why. Numbering is for what the grammar cannot express, not for what
+ * the checker will reject, so the lone inlet-less variable displays plainly.
  *
  * A face with no variable at all is trivially unchanged: constants round-trip.
  */
 function writesBackUnchanged(
-  scheme: Typed.Scheme,
+  _scheme: Typed.Scheme,
   colours: readonly Typed.TypeVariableId[],
 ): boolean {
-  if (colours.length === 0) return true;
-  if (colours.length > 1) return false;
-  const inlets = collectInletVariables(scheme.type);
-  for (const constraint of scheme.constraints) collectInletVariables(constraint.type, inlets);
-  return inlets.has(colours[0]!);
+  return colours.length <= 1;
 }
 
 /**

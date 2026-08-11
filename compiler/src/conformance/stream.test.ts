@@ -7,7 +7,7 @@
  * module: a stream's whole content is that a pull is spent and the cursor
  * advances, which no amount of read text demonstrates. The **effects** half
  * pins the faces and the marks, because `Stream` is the ruling's first real
- * customer — `Stream.fold` is `=>!`'s corpus debut (§4.4), and the split
+ * customer — `Stream.fold` is `->!`'s corpus debut (§4.4), and the split
  * between silent wiring and marked consumption (§4) is the module's whole
  * teaching point.
  *
@@ -195,16 +195,16 @@ describe("§4.4 consumers", () => {
 
 describe("§4 the faces: wiring is silent, consumption is spelled", () => {
   it("displays `Stream.fold` as the arrow trio's worked example", () => {
-    // §4.4's own sentence, and `=>!`'s first corpus use: a linked callback
+    // §4.4's own sentence: a linked callback
     // beside a constant-impure self, in one face.
     expect(hoveredType("export let held: Int = Stream.fold\n", "fold"))
-      .toBe("(Stream(a), b, (b, a) => b) =>! b");
+      .toBe("(Stream(a), b, (b, a) ->? b) ->! b");
   });
 
-  it("displays the protocol function as `Stream(a) =>! Option(a)`", () => {
+  it("displays the protocol function as `Stream(a) ->! Option(a)`", () => {
     // §2: the first pull is unconditional, so every call to `next` wears `!`.
     expect(hoveredType("export let held: Int = Stream.next\n", "next"))
-      .toBe("Stream(a) =>! Option(a)");
+      .toBe("Stream(a) ->! Option(a)");
   });
 
   it("takes a bare `Stream.map` in an ordinary body", () => {
@@ -218,7 +218,7 @@ describe("§4 the faces: wiring is silent, consumption is spelled", () => {
     // signature offers an inlet, so a call whose colour is still undetermined
     // is a conductor rather than pure-pinned.
     const body = (mark: string): string =>
-      "export let wire(source: Stream(Int), step: Int => Int): Stream(Int) =\n" +
+      "export let wire(source: Stream(Int), step: Int ->? Int): Stream(Int) =\n" +
       `    Stream.map${mark}(source, step)\n`;
     expect(projectDiagnostics(body(""))).toEqual([
       "this call is as effectful as the enclosing instantiation makes it, so " +
@@ -285,7 +285,7 @@ describe("§2.5 the field's arrow is the impure constant", () => {
     // The demand wrote no `->` anywhere, so §4.3's forward report — whose every
     // clause names one — would misdescribe the program. This is the sentence
     // #364 added for exactly this direction.
-    const declaration = "export let map(source: Stream(a), transform: a => b): Stream(b) =";
+    const declaration = "export let map(source: Stream(a), transform: a ->? b): Stream(b) =";
     const mutated = streamSource.replace(
       declaration,
       "export let empty: Stream(a) = Stream({ next = () => None })\n\n" + declaration,
