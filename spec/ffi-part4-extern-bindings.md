@@ -147,7 +147,7 @@ This is the reviewed reading of the trusted-boundary doctrine (§12.2), not an E
 
 ### 4.5 Effect faces and the `pure` claim *(#355)*
 
-**A user-written extern is effectful by default.** Foreign code is trust territory (Part 1 §3.1), and the honest default for the unknown is the impure constant: an unannotated `extern fun`'s outer arrow is `=>!`, so every call to it wears `!` (Effects §6.1). Function-typed slots inside its declared signature carry whatever arrows the author writes, believed like the rest of the declaration.
+**A user-written extern is effectful by default.** Foreign code is trust territory (Part 1 §3.1), and the honest default for the unknown is the impure constant: an unannotated `extern fun`'s outer arrow is `->!`, so every call to it wears `!` (Effects §6.1). Function-typed slots inside its declared signature carry whatever arrows the author writes, believed like the rest of the declaration.
 
 **The trusted purity claim is the contextual modifier `pure`**, written between the export/default modifiers and the declaration keyword:
 
