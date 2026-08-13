@@ -148,10 +148,10 @@ export interface ExternType {
 
 /**
  * A function type's effect (`spec/effects.md` §2), absent exactly where the
- * arrow is the pure constant. `"impure"` is what `=>!` wears and what the
- * else-constant `=>` denotes; a variable is the implicitly quantified colour a
- * linked `=>` shares, and it is quantified in the enclosing scheme like any
- * other type variable (§3.4).
+ * arrow is the pure constant. `"impure"` is what `->!` wears, and what §4.4's
+ * recovery leaves behind where a `->?` was refused; a variable is the implicitly
+ * quantified colour a linked `->?` shares, and it is quantified in the enclosing
+ * scheme like any other type variable (§3.4).
  */
 export type Effect = "impure" | { readonly variable: TypeVariableId };
 

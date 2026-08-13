@@ -424,8 +424,8 @@ class Scanner {
       // decides where it is grammatical — a mark governs an argument list
       // (Effects §3.2) or carries a pipe stage, and anywhere else it is a parse
       // error, which is also where the `not` redirect now lives (Effects §9).
-      // The bang of `=>!` is never seen here: that token is scanned from its
-      // `=`, by the punctuation table, which lists `=>!` ahead of `=>`.
+      // The bang of `->!` is never seen here: that token is scanned from its
+      // `-`, by the punctuation table, which lists `->!` ahead of `->`.
       this.#offset += 1;
       return { kind: "Bang", span: this.#source.span(start, this.#offset) };
     }

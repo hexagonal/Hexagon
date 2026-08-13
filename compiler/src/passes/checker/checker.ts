@@ -139,22 +139,48 @@ interface FunctionMono {
 interface EffectConstant {
   readonly kind: "Effect";
   readonly impure: boolean;
+  /**
+   * Set only on §4.4's recovery constant. A refused `->?` still recovers as the
+   * impure constant so the rest of the body stays checkable, and the recovery
+   * carries this tell so the obligations it feeds can be suppressed: the one
+   * §4.4 report is the ruling, and the constant is scaffolding rather than a
+   * claim to re-litigate downstream.
+   */
+  readonly recovered?: boolean;
 }
 
 const PURE: EffectConstant = { kind: "Effect", impure: false };
 const IMPURE: EffectConstant = { kind: "Effect", impure: true };
+/** §4.4's marked recovery — the impure constant, and known to be one. */
+const RECOVERED: EffectConstant = { kind: "Effect", impure: true, recovered: true };
+
+/**
+ * Whether a colour is the impure constant, by value rather than by identity:
+ * §4.4's recovery is a second impure constant object, and every arm that asks
+ * "is this impure?" means both of them.
+ */
+function isImpure(colour: Mono): boolean {
+  return colour.kind === "Effect" && colour.impure;
+}
+
+/** Whether a colour is §4.4's recovery, so what it feeds is already reported. */
+function isRecovered(colour: Mono): boolean {
+  return colour.kind === "Effect" && colour.recovered === true;
+}
 
 /**
  * One signature's shared effect variable and every `->?` written for it
  * (#355: "one implicitly quantified effect variable per signature, all
  * occurrences, no exceptions").
  *
- * The arrow spans are kept for ruling 9's face report, which needs a token to
- * put a fixit on. `outer` is present only where the signature's outermost arrow
- * was written — a binding annotation or an extern face. Hexagon's declaration
- * form has no outer arrow at all (`let f(x: A): B = …` ends at `=`), so a
- * declaration-form function's colour is inferred and there is nothing to
- * rewrite; the report says so in words instead.
+ * The arrow spans are kept for ruling 9's face report, which needs tokens to put
+ * a fixit on: every written occurrence spells this one variable, so §4.2's fixit
+ * rewrites all of them. `outer` is present only where the signature's outermost
+ * arrow was written — a binding annotation or an extern face. Hexagon's
+ * declaration form has no outer arrow at all (`let f(x: A): B = …` ends at `=`),
+ * so a declaration-form function's colour is inferred; the report then stands at
+ * the first arrow that *was* written, and only a signature with none at all
+ * falls back to `declaration` and to advice in words.
  */
 interface SignatureFace {
   readonly effect: Variable;
@@ -198,9 +224,16 @@ interface MarkObligation {
 }
 
 /**
- * Whether an annotation writes a linked `->?` anywhere inside it, at any depth
- * and any polarity (§2.2.1). `->!` does not count: it is the constant, so it
- * links nothing and offers no inlet.
+ * Whether an annotation writes a linked `->?` **anywhere** inside it, at any
+ * depth and any polarity. `->!` does not count: it is the constant, so it links
+ * nothing and offers no inlet.
+ *
+ * This is the position-*blind* walk. §2.2.1's inlet test asks it of one
+ * parameter type at a time — where depth and polarity really are irrelevant,
+ * because the caller supplies the whole argument value — and `signatureInlet`
+ * below is what chooses those parameter types. Asking it of a whole signature
+ * would count a spine arrow's own colour and a terminal result's, which are
+ * exactly the two occurrences no caller can pin.
  */
 function annotationWritesLinkedArrow(annotation: Resolved.TypeAnnotation): boolean {
   let found = false;
@@ -225,21 +258,44 @@ function annotationWritesLinkedArrow(annotation: Resolved.TypeAnnotation): boole
 }
 
 /**
- * §2.2.1's inlet test, asked of one signature: is there a `->?` in a parameter
- * position for the signature's other arrows to link to?
+ * §2.2.1's inlet test, asked of one signature: is there a `->?` in something a
+ * caller *supplies*, for the signature's other arrows to link to?
  *
- * Depth and polarity are both irrelevant — the walk finds an occurrence
- * anywhere inside a parameter annotation — because the caller supplies the
- * whole argument value and therefore pins every colour inside it.
+ * An inlet is an occurrence inside a **parameter type of any arrow on the
+ * application spine** — the chain reached from the root by descending through
+ * results — at any depth and polarity within that parameter type. A curried
+ * signature is applied step by step and each step's arguments come from a
+ * caller, so `() -> ((Int ->? Int) ->? Int)` has an inlet: the caller reaches it
+ * at the second application (#408). Two occurrences are *not* inlets, and they
+ * are the two the caller never supplies: a spine arrow's own colour (the
+ * outer-only face) and one standing only in a terminal result (the
+ * received-only face). A signature this returns `false` for cannot host a `->?`
+ * at all: §4.4 refuses it.
  *
- * `parameters` is the declaration's parameter annotations for a header-form
- * function, or the parameter subtrees of a written function type. A signature
- * this returns `false` for cannot host a `->?` at all: §4.4 refuses it.
+ * `parameters` and `result` are the declaration's parameter annotations and
+ * return annotation for a header-form function, or a written function type's
+ * own parameter subtrees and result.
  */
-function linkedSignature(parameters: readonly (Resolved.TypeAnnotation | undefined)[]): boolean {
-  return parameters.some((parameter) =>
-    parameter !== undefined && annotationWritesLinkedArrow(parameter)
-  );
+function signatureInlet(
+  parameters: readonly (Resolved.TypeAnnotation | undefined)[],
+  result: Resolved.TypeAnnotation | undefined,
+): boolean {
+  const supplied = (
+    types: readonly (Resolved.TypeAnnotation | undefined)[],
+  ): boolean =>
+    types.some((type) => type !== undefined && annotationWritesLinkedArrow(type));
+  if (supplied(parameters)) return true;
+  // Descending through results only: each arrow reached this way is one the
+  // caller applies, so its parameters are supplied too. The arrow's own effect
+  // slot is skipped by construction — nothing here reads `node.effect`.
+  for (
+    let node = result;
+    node !== undefined && node.kind === "Function";
+    node = node.result
+  ) {
+    if (supplied(node.parameters)) return true;
+  }
+  return false;
 }
 
 
@@ -655,10 +711,16 @@ class Checker {
 
   /**
    * The signature currently being elaborated, when it is **linked** — when at
-   * least one `->?` stands in a parameter position for the others to share
-   * (§2.2.1's inlet). `undefined` means a written `->?` has nothing to denote,
-   * which since #405 is §4.4's error: a signature with no inlet, a data
-   * declaration, or an alias body, each named by `#linkedArrowPosition`.
+   * least one `->?` stands in something a caller supplies (§2.2.1's inlet).
+   * `undefined` means a written `->?` has nothing to denote, which since #405 is
+   * §4.4's error: a signature with no inlet, a data declaration, an alias body,
+   * or a type position outside every signature, each named by
+   * `#linkedArrowPosition`.
+   *
+   * It stays in force through the body it heads, which is what makes §2.2.2's
+   * local positions work: a binding annotation or an ascription with no inlet of
+   * its own reads this face rather than clearing it, so its `->?` is the
+   * enclosing signature's one colour.
    */
   #signatureFace: SignatureFace | undefined;
   /**
@@ -667,10 +729,18 @@ class Checker {
    * `->?` is refused wherever there is no signature to link it to, and the
    * report names *why* this position has none — a `record` field and a `type`
    * alias are wrong for different reasons and the writer is owed the right one.
-   * `"signature"` is the default and covers the remaining shape: a real
-   * signature whose parameters offer no inlet (§2.2.1).
+   * `"signature"` is the default and covers a real signature whose spine offers
+   * no inlet (§2.2.1's outer-only and received-only faces, and any `->?` written
+   * inside an inlet-less body). `"no-signature"` is the module level, where a
+   * binding annotation, an `extern let`, or a `var` sits outside every signature
+   * and so has none to borrow either (§2.2.2).
    */
-  #linkedArrowPosition: "signature" | "record" | "union" | "alias" = "signature";
+  #linkedArrowPosition:
+    | "signature"
+    | "record"
+    | "union"
+    | "alias"
+    | "no-signature" = "signature";
   /** Arrow spans §4.4 has already condemned, keyed `fileId:start`. */
   readonly #reportedLinkedArrows = new Set<string>();
   /**
@@ -1536,9 +1606,17 @@ class Checker {
           continue;
         }
         if (declaration.kind === "ExternLet") {
+          // An extern `let` is a value reference, and a value reference carries
+          // no colour (FFI Part 4 §4.5 — the same sentence that refuses `pure`
+          // here). So it is not a signature, and a `->?` written in its
+          // annotation takes §4.4's no-signature clause rather than being told
+          // that a signature it does not have has no inlet (§2.2.2).
           this.#schemes.set(declaration.binding.symbol, {
             variables: [],
-            type: this.#annotationType(declaration.annotation),
+            type: this.#inPosition(
+              "no-signature",
+              () => this.#annotationType(declaration.annotation),
+            ),
           });
           continue;
         }
@@ -1549,8 +1627,9 @@ class Checker {
         // true if this scope is open. Without it every such arrow took §4.4's
         // orphan branch and was refused by a report that denied the parameter
         // in front of it.
-        const externLinked = linkedSignature(
+        const externLinked = signatureInlet(
           declaration.parameters.map((parameter) => parameter.annotation),
+          declaration.returnAnnotation,
         );
         const enclosingSignature = this.#openSignature(
           externLinked ? "open" : "clear",
@@ -2501,6 +2580,15 @@ class Checker {
     // bindings that both write `a` would share one rigid variable, and the
     // second would meet one the first had already quantified.
     const enclosingVariableScope = this.#annotationVariableScope;
+    // §2.2.2's second boundary: module level is outside every function
+    // signature, so a `->?` written in a binding annotation, a `var`, or an
+    // ascription here has neither an inlet of its own nor an enclosing colour to
+    // borrow, and §4.4 says so in its own words. Every lambda inside restores
+    // `"signature"` as it opens, so only the module's own type positions are
+    // covered. A block's items are a body's, and keep whatever position the
+    // enclosing lambda set.
+    const enclosingPosition = this.#linkedArrowPosition;
+    if (moduleItems) this.#linkedArrowPosition = "no-signature";
     for (let index = 0; index < items.length; index += 1) {
       const item = items[index];
       if (item === undefined) continue;
@@ -2529,10 +2617,17 @@ class Checker {
         // the scope has to be open before the body is inferred so that the
         // body's `?` has an inlet to join.
         const annotation = item.annotation;
+        // §2.2.2: a written function type is a signature of its own exactly
+        // when it carries its own inlet. Without one it is a *local type
+        // position*, and its `->?` names the enclosing signature's variable —
+        // which is what `"inherit"` keeps in scope. At module level there is
+        // nothing to inherit, so the enclosing face is `undefined` and a `->?`
+        // written here takes §4.4's no-signature clause.
         const linked = annotation !== undefined &&
-          annotation.kind === "Function" && linkedSignature(annotation.parameters);
+          annotation.kind === "Function" &&
+          signatureInlet(annotation.parameters, annotation.result);
         const enclosingSignature = this.#openSignature(
-          linked ? "open" : annotation === undefined ? "inherit" : "clear",
+          linked ? "open" : "inherit",
           level + 1,
           item.span,
         );
@@ -2542,12 +2637,15 @@ class Checker {
         this.#pendingInlet = linked;
         // The outer arrow, read from the face rather than inferred. A `->` face
         // is a pure demand on the body; `->!` is the impure constant; a linked
-        // `->?` is the signature's own variable, which is the one-variable rule.
+        // `->?` is the signature's own variable when this annotation is a
+        // signature, and the *enclosing* signature's when it is a local
+        // position borrowing one (§2.2.2). With neither, the arrow is refused
+        // where the annotation is elaborated and this is §4.4's recovery.
         this.#pendingOwnEffect = annotation?.kind === "Function"
           ? (annotation.effect === "constant"
             ? IMPURE
-            : annotation.effect === "linked" && linked
-              ? this.#signatureFace!.effect
+            : annotation.effect === "linked"
+              ? (this.#signatureFace?.effect ?? RECOVERED)
               : annotation.effect === undefined
                 ? PURE
                 : IMPURE)
@@ -2873,6 +2971,7 @@ class Checker {
       if (item.kind === "TypeAlias") continue;
       if (item.kind === "Exception") continue;
     }
+    this.#linkedArrowPosition = enclosingPosition;
     this.#annotationVariableScope = enclosingVariableScope;
 
     if (moduleItems) return UNIT;
@@ -3501,6 +3600,12 @@ class Checker {
         const inferred = this.#inferExpr(expression.expression, level);
         const enclosingAscribedType = this.#ascribedTypeSpan;
         this.#ascribedTypeSpan = expression.annotation.span;
+        // No signature scope is opened or cleared here, which is §2.2.2 ratified
+        // rather than implemented: an ascription is a *local type position*, so
+        // a `->?` written in it names the enclosing signature's variable —
+        // whatever `#signatureFace` already holds — and is legal exactly where
+        // that signature admits one. Outside every signature the face is absent
+        // and the arrow takes §4.4's no-signature clause.
         const annotationType = this.#annotationType(
           expression.annotation,
           level,
@@ -3525,16 +3630,26 @@ class Checker {
         break;
       case "Lambda": {
         // #355: one signature, one effect variable, all occurrences. A lambda
-        // whose own parameter annotations write a `->?` opens a fresh signature
-        // scope and *is* that variable — its outer arrow and its callbacks'
-        // arrows are the same colour, which is what makes `fold` polymorphic
-        // rather than merely tolerant. A lambda with no `->?` of its own keeps
-        // the enclosing scope (nothing in it can read the variable anyway) and
-        // takes a fresh colour of its own, which the body then decides.
+        // with an inlet of its own — a `->?` in a parameter type of any arrow
+        // on its application spine, its return annotation's included (#408) —
+        // opens a fresh signature scope and *is* that variable: its outer arrow
+        // and its callbacks' arrows are the same colour, which is what makes
+        // `fold` polymorphic rather than merely tolerant. A lambda with no inlet
+        // of its own keeps the enclosing scope (nothing in it can read the
+        // variable anyway) and takes a fresh colour of its own, which the body
+        // then decides.
         const writtenOwn = this.#pendingOwnEffect;
         this.#pendingOwnEffect = undefined;
-        const ownLinked =
-          linkedSignature(expression.parameters.map((parameter) => parameter.annotation));
+        // A lambda is a signature, wherever it stands: a `->?` refused inside
+        // one is refused for want of an *inlet*, not for want of a signature,
+        // and §4.4's clause has to say so even when the lambda sits in a
+        // module-level binding whose own position is `"no-signature"`.
+        const enclosingPosition = this.#linkedArrowPosition;
+        this.#linkedArrowPosition = "signature";
+        const ownLinked = signatureInlet(
+          expression.parameters.map((parameter) => parameter.annotation),
+          expression.returnAnnotation,
+        );
         // A lambda whose colour a binding annotation already wrote *is* that
         // signature — `let f: (Tx ->? a) ->! a = (run: Tx ->? a): a => …` writes
         // one signature twice, and opening a second scope here would give the
@@ -3650,6 +3765,7 @@ class Checker {
         // colour is always known by the time a caller absorbs it.
         this.#settleFrame(effectFrame);
         this.#closeSignature(enclosingSignature);
+        this.#linkedArrowPosition = enclosingPosition;
         type = {
           kind: "Function",
           parameters,
@@ -4971,10 +5087,11 @@ class Checker {
     if (face === undefined) {
       this.#reportOrphanedLinkedArrow(arrowSpan);
       // Recovery is the impure constant — the colour the writer of a data field
-      // or a result-only face nearly always meant, and the one that keeps the
+      // or an inlet-less face nearly always meant, and the one that keeps the
       // rest of the body checkable. It is recovery, not a reading: the
-      // diagnostic above is the ruling.
-      return IMPURE;
+      // diagnostic above is the ruling, and `RECOVERED` is how the obligations
+      // this colour goes on to feed know not to re-litigate it (§4.4).
+      return RECOVERED;
     }
     if (arrowSpan !== undefined) face.arrows.push(arrowSpan);
     return face.effect;
@@ -4999,7 +5116,9 @@ class Checker {
     const because = {
       record: "a `record` field is data, not a signature",
       union: "a `union` field is data, not a signature",
-      signature: "no parameter of this signature carries `->?`, so nothing instantiates it",
+      signature:
+        "nothing a caller of this signature supplies carries `->?`, so nothing instantiates it",
+      "no-signature": "this annotation is not part of a function signature",
     }[this.#linkedArrowPosition];
     this.#diagnostics.add({
       severity: "error",
@@ -5016,7 +5135,10 @@ class Checker {
   }
 
   /** Runs `body` with §4.4's position set, restoring whatever was in force. */
-  #inPosition<T>(position: "record" | "union" | "alias", body: () => T): T {
+  #inPosition<T>(
+    position: "record" | "union" | "alias" | "signature" | "no-signature",
+    body: () => T,
+  ): T {
     const previous = this.#linkedArrowPosition;
     this.#linkedArrowPosition = position;
     try {
@@ -5098,21 +5220,27 @@ class Checker {
     // forced `own` then satisfies every remaining `⊒` outright — which is what
     // keeps a `->!` face from constantifying the callback it forwards.
     for (const { effect, span } of frame.absorbed) {
-      if (this.#prune(effect) !== IMPURE) continue;
+      const absorbed = this.#prune(effect);
+      if (!isImpure(absorbed)) continue;
       frame.sourced = true;
       const own = this.#prune(frame.own);
-      if (own === IMPURE) continue;
+      if (isImpure(own)) continue;
       if (own.kind === "Effect") {
-        this.#diagnostics.add({
-          severity: "error",
-          message:
-            "this call performs effects, and the enclosing function's face is the " +
-            "pure arrow `->` — a pure face cannot run effects",
-          primary: span,
-        });
+        // §4.4's recovery is scaffolding, not a claim: a call impure only
+        // because a refused `->?` recovered as the constant has already been
+        // ruled on, and this face report would be the same defect told twice.
+        if (!isRecovered(absorbed)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message:
+              "this call performs effects, and the enclosing function's face is the " +
+              "pure arrow `->` — a pure face cannot run effects",
+            primary: span,
+          });
+        }
         continue;
       }
-      this.#unify(frame.own, IMPURE, span);
+      this.#unify(frame.own, absorbed, span);
     }
     // Then the conductors. A body is at least as effectful as anything it
     // calls, and with two points and no subtyping the join is unification —
@@ -5121,7 +5249,7 @@ class Checker {
     for (const { effect, span } of frame.absorbed) {
       const colour = this.#prune(effect);
       if (colour.kind === "Effect") continue;
-      if (this.#prune(frame.own) === IMPURE) continue;
+      if (isImpure(this.#prune(frame.own))) continue;
       this.#unify(frame.own, colour, span);
     }
     // The defaulting clause. A colour this body owns, with no inlet to make it
@@ -5166,6 +5294,12 @@ class Checker {
   #checkMarks(): void {
     for (const obligation of this.#markObligations) {
       const colour = this.#prune(obligation.effect);
+      // §4.4: a call whose colour is only impure because a refused `->?`
+      // recovered as the constant owes no mark report — the recovery is
+      // scaffolding, and the mark it would demand is a consequence of the
+      // ruling already made, not a second defect. Left in, this is the report
+      // that is affirmatively false about the program the writer wrote.
+      if (isRecovered(colour)) continue;
       let required: "bang" | "question" | undefined;
       if (colour.kind === "Effect") {
         required = colour.impure ? "bang" : undefined;
@@ -5207,9 +5341,20 @@ class Checker {
     for (const face of this.#signatureFaces) {
       const colour = this.#prune(face.effect);
       if (colour.kind !== "Effect") continue;
+      // §4.4's recovery again: a face constantified by scaffolding has already
+      // been reported at the arrow that was refused.
+      if (isRecovered(colour)) continue;
       this.#reportedFaces.add(face.effect);
-      const target = face.outer ?? face.arrows[0] ?? face.declaration;
-      const rewritable = face.outer !== undefined;
+      // §4.2: the report stands at a written `->?`, not presumptively at the
+      // outer arrow — the constantified variable may be spelled only on a
+      // nested one, while the outer arrow is honestly `->` or `->!`. Every
+      // written occurrence spells the one variable, so the fixit rewrites each
+      // of them; a signature with nothing written to rewrite (a declaration
+      // form, whose outer arrow has no seat) gets the advice in words instead.
+      const written = this.#writtenArrows(face);
+      const target = face.outer ?? written[0] ?? face.declaration;
+      const rewritable = written.length > 0;
+      const replacement = colour.impure ? "->!" : "->";
       this.#diagnostics.add({
         severity: "error",
         message: colour.impure
@@ -5224,12 +5369,32 @@ class Checker {
           ? {
             fixes: [{
               message: colour.impure ? "write `->!`" : "write `->`",
-              edits: [{ span: target, replacement: colour.impure ? "->!" : "->" }],
+              edits: written.map((span) => ({ span, replacement })),
             }],
           }
           : {}),
       });
     }
+  }
+
+  /**
+   * Every written `->?` that spells one signature's colour, in source order and
+   * once each (§4.2's "the fixit rewrites each of them").
+   *
+   * One arrow can be collected twice — a binding annotation and the lambda under
+   * it write the same signature, and a record type is elaborated for checking
+   * and again for publication — so the key is the span's own offsets, exactly as
+   * §4.4's dedupe keys it. Two arrows in one file never share a start.
+   */
+  #writtenArrows(face: SignatureFace): readonly Source.Span[] {
+    const bySpan = new Map<string, Source.Span>();
+    for (const span of [...(face.outer === undefined ? [] : [face.outer]), ...face.arrows]) {
+      bySpan.set(`${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`, span);
+    }
+    return [...bySpan.values()].sort((left, right) =>
+      Number(left.fileId) - Number(right.fileId) ||
+      left.start.offset - right.start.offset
+    );
   }
 
   /** Ruling 9's symmetric half: `->!` claimed where nothing is unconditionally done. */
@@ -5346,6 +5511,11 @@ class Checker {
       ) {
         return;
       }
+      // §4.4: neither direction is owed where one side is the recovery a
+      // refused `->?` left behind. The arrow was ruled on at the arrow; the
+      // constant standing in for it is scaffolding, and a demand report here
+      // would describe a colour the writer never wrote.
+      if (isRecovered(actualLeft) || isRecovered(actualRight)) return;
       // The one report the two-point lattice owes. It fires where a `->`
       // demand meets an impure function — `Seq.memoize`'s producer, a pure
       // constraint member, a callback stored in a `->` field — and nowhere
