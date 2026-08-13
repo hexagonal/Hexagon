@@ -489,7 +489,7 @@ token inventory and the lexer must not report the same source code unit twice.
 | Unpaired surrogate / invalid UTF-8 | "Hexagon source must be valid Unicode" |
 | BOM away from offset zero | "a byte-order mark is only allowed at the start of a file" |
 | Continuation-only or otherwise invalid name initial | state that the character cannot begin an identifier |
-| Reserved `__` prefix | "names beginning `__` are reserved for compiler-generated code" + rename fix-it *(position-dependent: the foreign side of an FFI `as` alias is exempt, FFI Part 4 §3.2 — the lexer emits the token, the parser selects the message, §4.1/§4.2's division)* |
+| Reserved `__` prefix | "names beginning `__` are reserved for compiler-generated code" + rename fix-it *(position-dependent: the foreign side of an FFI `as` alias is exempt, and an extern declaration's unaliased name seat takes FFI Part 4 §3.2's alias rewrite instead of the rename — the lexer emits the token, the parser selects the message, §4.1/§4.2's division)* |
 | Literal bidirectional control | reject it; in a string suggest an explicit Unicode escape |
 | Hard keyword in name position | "`WORD` is reserved and cannot be used as a name" — including `true`/`false`; **no constructor fixit in this position** (`let True = ...` would be a refutable pattern, a second error) *(#147; position-dependent rows: the lexer emits the token, the **parser** selects the message — §4.1/§4.2's division)* |
 | `true`/`false` in value position | "`true` is reserved; Bool's constructors are `True` and `False` — write `True`" (resp. `False`); one-token fixit *(#147, §4.1; selection is parser work, same note as above)* |
@@ -533,7 +533,7 @@ match value
 Rejected lexically:
 
 ```text
-let __temp = 1      -- compiler prefix is reserved
+let __temp = 1      -- compiler prefix is reserved (parser-selected, §10)
 let 😀 = 1           -- emoji is not an ECMAScript identifier start
 let x = .5          -- write 0.5
 let x = 1.          -- write 1.0
