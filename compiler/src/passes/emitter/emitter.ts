@@ -7118,8 +7118,8 @@ function comparisonOperator(
  *
  * The obligation is that a `.d.ts` face render the arrow trio, and the
  * TypeScript face cannot: `=>` is TypeScript's *only* function arrow, so
- * `(document: string) => void` is what a pure `->`, a linked `=>` and the
- * impure constant `=>!` all come out as. The colours erase at emission (§8) and
+ * `(document: string) => void` is what a pure `->`, a linked `->?` and the
+ * impure constant `->!` all come out as. The colours erase at emission (§8) and
  * nothing is proposed to change that; what is added is the one channel a
  * `.d.ts` has for saying something TypeScript's notation cannot — the JSDoc
  * block, where §7.3 of `spec/doc-comments.md` already provides for generated

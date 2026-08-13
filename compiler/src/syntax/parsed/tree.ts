@@ -424,10 +424,11 @@ export interface RecordTypeField {
  * How a function type's arrow was written (Effects §2). Absent means `->` —
  * the pure constant, and the pure *demand*.
  *
- * `linked` is `=>`: one implicitly quantified effect variable shared across the
- * whole signature, or the impure constant when the signature has no
- * parameter-position occurrence for it to link to (the else-constant rule).
- * `constant` is `=>!`: the impure constant, always.
+ * `linked` is `->?`: one implicitly quantified effect variable shared across the
+ * whole signature. Where the signature has no inlet for it to link to it is not
+ * re-read as anything — the else-constant rule is withdrawn (#405) — but
+ * refused, at the arrow (§4.4). `constant` is `->!`: the impure constant,
+ * always.
  */
 export type ArrowEffect = "linked" | "constant";
 

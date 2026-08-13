@@ -45,6 +45,23 @@ function effectFixes(
   );
 }
 
+/**
+ * Every diagnostic's primary span and its fixit's edits, as source offsets, so
+ * a test can pin *where* a report stands rather than only what it says. §4.2's
+ * placement is a claim about spans and nothing else: the same sentence at the
+ * wrong arrow is the defect #408 filed.
+ */
+function effectSpans(
+  files: readonly (readonly [string, string])[],
+): readonly { readonly primary: number; readonly edits: readonly number[] }[] {
+  return compileFiles(files).diagnostics.map((diagnostic) => ({
+    primary: diagnostic.primary.start.offset,
+    edits: (diagnostic.fixes ?? []).flatMap((fix) =>
+      fix.edits.map((edit) => edit.span.start.offset)
+    ),
+  }));
+}
+
 /** The `.d.ts` one file of a project emits. */
 function declarationsOf(
   files: readonly (readonly [string, string])[],
@@ -347,14 +364,19 @@ export let impureUse(): String = run!(() =>
     ).toEqual([]);
   });
 
-  it("still refuses a result-only `->?` in an extern row", () => {
+  it("still refuses a received-only `->?` in an extern row", () => {
+    // #408's second refused shape: the arrow stands in what every application
+    // hands *back*, so no argument the caller supplies contains it. The spine
+    // walk reaches this result and finds the colour only on the arrow's own
+    // slot, which is not an inlet.
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
     export fun mk(seed: String): (String ->? String)
 `]]),
     ).toEqual([
       "`->?` is the caller's colour, and this position has no caller to choose it — " +
-      "no parameter of this signature carries `->?`, so nothing instantiates it; " +
+      "nothing a caller of this signature supplies carries `->?`, so nothing " +
+      "instantiates it; " +
       "write `->!` for a function that pulls the world, or `->` for one that does not",
     ]);
   });
@@ -409,6 +431,412 @@ export let clean(document: String): String = trim(document)
   });
 });
 
+describe("#408 the inlet reaches the whole application spine", () => {
+  /**
+   * The counterexample the issue was filed on. `mk` is definable, usable and
+   * hoverable, and its face was un-writable: the inlet test read the written
+   * *parameter* annotations only, so a colour the caller pins at the second
+   * application looked like one nobody could pin. The spine walk is what closes
+   * the gap — a curried signature is applied step by step, and each step's
+   * arguments come from a caller.
+   */
+  const mk = `export let mk(): ((Int) ->? Int) ->? Int = (g: (Int) ->? Int): Int => g?(1)
+`;
+
+  it("admits the inferred face, unchanged", () => {
+    const inferred = `let mk() = (g: (Int) ->? Int): Int => g?(1)
+export let z: Int = mk()((n) => n)
+`;
+    expect(effectDiagnostics([["/main.hex", inferred]])).toEqual([]);
+    // §10's premise, restored: the display shows one variable undecorated, and
+    // the grammar can now spell what it shows. Nothing about the inferred form
+    // moved — the widening changes which *written* faces are legal.
+    expect(hoveredType(inferred, "mk()")).toBe("() -> (Int ->? Int) ->? Int");
+  });
+
+  it("now admits that face written down, and exported", () => {
+    expect(effectDiagnostics([["/main.hex", mk]])).toEqual([]);
+  });
+
+  it("admits a three-step spine, whose inlet arrives at the third application", () => {
+    expect(
+      effectDiagnostics([["/main.hex", `export let mk3(): (Int) -> (((Int) ->? Int) ->? Int) =
+    (a: Int): (((Int) ->? Int) ->? Int) => (g: (Int) ->? Int): Int => g?(a)
+`]]),
+    ).toEqual([]);
+  });
+
+  it("admits a record type standing in a spine arrow's parameter", () => {
+    // Depth and polarity stay irrelevant *within* the supplied argument (§2.2.1):
+    // the caller hands over the whole record, so it pins the field's colour too.
+    expect(
+      effectDiagnostics([["/main.hex", `export let mkr(): ({ step: () ->? String }) ->? String =
+    (source: { step: () ->? String }): String => (source.step)?()
+`]]),
+    ).toEqual([]);
+  });
+
+  it("carries the face across the module boundary, at both colours", () => {
+    // The export obligation the issue named: "un-exportable in principle" is
+    // what the refusal made it. A second module instantiates the one variable
+    // pure at one call and impure at the next, which is what a caller-pinned
+    // colour means.
+    expect(
+      effectDiagnostics([
+        ["/world.js", ""],
+        ["/maker.hex", mk],
+        ["/main.hex", `extern from "./world.js"
+    export fun save(document: String): Unit
+
+import { mk } from "./maker"
+
+export let pureUse(): Int = mk()((n) => n)
+export let impureUse(): Int = mk()!((n) =>
+    save!("x")
+    n)
+`],
+      ]),
+    ).toEqual([]);
+  });
+
+  it("emits the face into the declaration file", () => {
+    // Two variables, numbered: the signature's own (the spine's) and `mk`'s
+    // outer colour, which the header form does not spell and which an
+    // inlet-bearing body does not default (§3.4). The same shape `store`'s face
+    // has displayed since #364.
+    expect(declarationsOf([["/main.hex", mk]])).toContain(
+      "Hexagon: `() ->?¹ (Int ->?² Int) ->?² Int`",
+    );
+  });
+
+  it("still refuses the outer-only face — a spine arrow's colour is not an inlet", () => {
+    expect(
+      effectDiagnostics([["/main.hex", `export let f(x: Int): Int =
+    let g: (String) ->? Int = (s: String): Int => 1
+    x
+`]]),
+    ).toEqual([
+      "`->?` is the caller's colour, and this position has no caller to choose it — " +
+      "nothing a caller of this signature supplies carries `->?`, so nothing " +
+      "instantiates it; " +
+      "write `->!` for a function that pulls the world, or `->` for one that does not",
+    ]);
+  });
+
+  it("still refuses the received-only face, at a declaration's return annotation", () => {
+    // The spine walk reaches this arrow and asks the right question of it: the
+    // colour stands on the arrow the caller *receives*, and in no parameter of
+    // any step, so nothing instantiates it.
+    expect(
+      effectDiagnostics([["/main.hex", `export let f(x: Int): (String) ->? Int = (s: String): Int => 1
+`]]),
+    ).toEqual([
+      "`->?` is the caller's colour, and this position has no caller to choose it — " +
+      "nothing a caller of this signature supplies carries `->?`, so nothing " +
+      "instantiates it; " +
+      "write `->!` for a function that pulls the world, or `->` for one that does not",
+    ]);
+  });
+
+  it("offers `->!` at both refusals, the fixit §4.4 gives every position", () => {
+    expect(
+      effectFixes([["/main.hex", `export let f(x: Int): (String) ->? Int = (s: String): Int => 1
+`]]),
+    ).toEqual(['write `->!`: "->!"']);
+  });
+});
+
+describe("#408 §2.2.2 — a local type position names the enclosing colour", () => {
+  /** `f`, with its one local position written the two ways that mean it. */
+  const annotated = `export let f(g: () ->? String): String =
+    let h: () ->? String = g
+    h?()
+`;
+  const ascribed = `export let f(g: () ->? String): String =
+    let h = (g : () ->? String)
+    h?()
+`;
+
+  it("accepts the binding annotation, which the ascription always accepted", () => {
+    // The divergence the issue found: same intent, same position, opposite
+    // outcomes, and no rule distinguishing them. Both now link.
+    expect(effectDiagnostics([["/main.hex", annotated]])).toEqual([]);
+    expect(effectDiagnostics([["/main.hex", ascribed]])).toEqual([]);
+  });
+
+  it("names the *enclosing* variable, not a fresh one — one colour in the face", () => {
+    // The discriminator: a fresh signature for the local annotation would leave
+    // `f` conducting a colour of its own, and the face would display two
+    // numbered variables. One undecorated `->?` everywhere is the claim.
+    expect(hoveredType(annotated, "f(g")).toBe("(() ->? String) ->? String");
+    expect(hoveredType(ascribed, "f(g")).toBe("(() ->? String) ->? String");
+    expect(hoveredType("export let f(g: () ->? String): String = g?()\n", "f(g"))
+      .toBe("(() ->? String) ->? String");
+  });
+
+  it("does not generalize the borrowed colour at the local `let`", () => {
+    // A local `let` generalizes what its own level owns; the borrowed variable
+    // belongs to the enclosing signature, so `h` is one colour and not a scheme
+    // a second use may instantiate afresh. A bare call is refused for exactly
+    // that reason.
+    expect(
+      effectDiagnostics([["/main.hex", `export let f(g: () ->? String): String =
+    let h: () ->? String = g
+    h()
+`]]),
+    ).toEqual([
+      "this call is as effectful as the enclosing instantiation makes it, so " +
+      "`h` wants `?`, not no mark",
+    ]);
+  });
+
+  it("keeps a local function type with its own inlet a signature of its own", () => {
+    // §2.2.2's first boundary. `k` carries an inlet, so it quantifies its own
+    // colour: pinning that colour impure at a call says nothing about `f`'s
+    // face, which stays effect-polymorphic. Were the two one variable, this
+    // program would take §4.2's constantified-face report.
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+export let f(g: () ->? String): String =
+    let k(q: () ->? String): String = q?()
+    k!(readLine) ++ g?()
+`]]),
+    ).toEqual([]);
+  });
+
+  it("refuses both spellings in an inlet-less body — there is nothing to lend", () => {
+    // The legality condition is the enclosing signature's own: a local `->?` is
+    // legal exactly where that signature admits one, and it never supplies the
+    // inlet it needs.
+    const clause = "`->?` is the caller's colour, and this position has no caller to " +
+      "choose it — nothing a caller of this signature supplies carries `->?`, so " +
+      "nothing instantiates it; write `->!` for a function that pulls the world, " +
+      "or `->` for one that does not";
+    expect(
+      effectDiagnostics([["/main.hex", `export let f(x: Int): Int =
+    let h: () ->? String = () => "s"
+    x
+`]]),
+    ).toEqual([clause]);
+    expect(
+      effectDiagnostics([["/main.hex", `export let f(x: Int): Int =
+    let h = ((): String => "s" : () ->? String)
+    x
+`]]),
+    ).toEqual([clause]);
+  });
+
+  it("names the missing signature where there is no signature to lack an inlet", () => {
+    // §2.2.2's second boundary, and §4.4's fifth row. The split is shape and
+    // doctrine rather than position: a record type in a module-level binding has
+    // no signature at all to be missing an inlet, and an `extern let` declares a
+    // foreign *value* whatever its annotation's shape — the callable form with a
+    // signature of its own is `extern fun` (FFI Part 4 §4.5).
+    const clause = "`->?` is the caller's colour, and this position has no caller to " +
+      "choose it — this annotation is not part of a function signature; write " +
+      "`->!` for a function that pulls the world, or `->` for one that does not";
+    expect(
+      effectDiagnostics([["/main.hex", `let h: { step: () ->? String } = { step = () => "x" }
+export let z: Int = 1
+`]]),
+    ).toEqual([clause]);
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+    export let handler: () ->? String
+`]]),
+    ).toEqual([
+      "extern callable declarations use `fun`; write `fun handler(...)` with explicit parameters",
+      clause,
+    ]);
+  });
+
+  it("keeps the signature clause for a record type *inside* a body", () => {
+    // Shape selects the clause only where there is no enclosing signature. In an
+    // inlet-less body there is one — it is the thing without the inlet — so a
+    // `->?` in a record-type annotation is told what it actually lacks.
+    expect(
+      effectDiagnostics([["/main.hex", `export let f(x: Int): Int =
+    let h: { step: () ->? String } = { step = () => "s" }
+    x
+`]]),
+    ).toEqual([
+      "`->?` is the caller's colour, and this position has no caller to choose it — " +
+      "nothing a caller of this signature supplies carries `->?`, so nothing " +
+      "instantiates it; " +
+      "write `->!` for a function that pulls the world, or `->` for one that does not",
+    ]);
+  });
+
+  it("calls a module-level function-type annotation a signature, and names its want", () => {
+    // A binding annotation that is itself a function type is a signature
+    // *wherever it stands*, so the inlet-less one is an outer-only face and owes
+    // §2.2.1's sentence: it is not that there is no signature here, it is that
+    // nothing a caller supplies carries the colour. The `var` goes the same way
+    // — shape decides for it as for a `let` — under its own module-level refusal.
+    const clause = "`->?` is the caller's colour, and this position has no caller to " +
+      "choose it — nothing a caller of this signature supplies carries `->?`, so " +
+      "nothing instantiates it; write `->!` for a function that pulls the world, " +
+      "or `->` for one that does not";
+    expect(
+      effectDiagnostics([["/main.hex", `let h: () ->? String = () => "x"
+export let z: Int = 1
+`]]),
+    ).toEqual([clause]);
+    expect(
+      effectDiagnostics([["/main.hex", `var h: () ->? String = () => "x"
+export let z: Int = 1
+`]]),
+    ).toEqual(["`var` is only allowed inside a function", clause]);
+    // And the module-level function type *with* an inlet is a signature that has
+    // one, so it opens and stays legal.
+    expect(
+      effectDiagnostics([["/main.hex", `let h: (() ->? String) ->? String = (k: () ->? String): String => k?()
+export let z: Int = 1
+`]]),
+    ).toEqual([]);
+    expect(
+      effectFixes([["/main.hex", `let h: () ->? String = () => "x"
+export let z: Int = 1
+`]]),
+    ).toEqual(['write `->!`: "->!"']);
+  });
+});
+
+describe("#408 §4.2 — the face report stands at the written arrow", () => {
+  const nested = `${world}
+export let step(n: Int): Int =
+    save!("x")
+    n
+
+export let f(h: ((Int) ->? Int) -> Int): Int = h(step)
+`;
+
+  it("reports at `h`'s nested arrow, and rewrites that arrow", () => {
+    // `f`'s own outer arrow is `->`, returning `Int`, and it is honest: the
+    // arrow that constantified is `h`'s parameter's. The advice to give the
+    // *binding* an explicit face would have fixed nothing here.
+    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", nested]])).toEqual([
+      "this signature's `->?` promises a colour the caller chooses, but the body " +
+      "solves it to the impure constant — a function that performs its own " +
+      "unconditional effects rounds up, and its face is `->!`",
+    ]);
+    const [report] = effectSpans([["/world.js", ""], ["/main.hex", nested]]);
+    expect(report).toEqual({
+      primary: nested.indexOf("->?"),
+      edits: [nested.indexOf("->?")],
+    });
+  });
+
+  it("rewrites every nested occurrence when the outer arrow is not one of them", () => {
+    // The other half of the join rule: with no written outer arrow there is no
+    // join to preserve, and the nested spelling is the whole of the condemned
+    // colour — both parameters carry it, and both are repaired.
+    const two = `${world}
+export let step(n: Int): Int =
+    save!("x")
+    n
+
+export let f(h: ((Int) ->? Int) -> Int, k: ((Int) ->? Int) -> Int): Int = h(step) + k(step)
+`;
+    const [report] = effectSpans([["/world.js", ""], ["/main.hex", two]]);
+    expect(report?.edits).toEqual([
+      two.indexOf("->?"),
+      two.indexOf("->?", two.indexOf("->?") + 1),
+    ]);
+  });
+
+  it("rewrites every occurrence in the pure direction — there is no join to keep", () => {
+    // §4.2's last sentence. The callback meets a `->` demand, so the signature's
+    // one colour solves *pure*, and every arrow that spells it — the annotation's
+    // two and the lambda parameter's — is over-claiming.
+    const pureFace = `export let strict(step: String -> String, d: String): String = step(d)
+export let f: ((String ->? String) ->? String) = (run: String ->? String): String =>
+    strict(run, "body")
+`;
+    expect(effectDiagnostics([["/main.hex", pureFace]])).toEqual([
+      "this signature's `->?` promises a colour the caller chooses, but the body " +
+      "solves it to the pure constant — the honest face is `->`",
+    ]);
+    expect(effectFixes([["/main.hex", pureFace]])).toEqual([
+      'write `->`: "->"',
+      'write `->`: "->"',
+      'write `->`: "->"',
+    ]);
+    // And the rewrite is a repair: the same program with `->` throughout checks.
+    expect(
+      effectDiagnostics([["/main.hex", `export let strict(step: String -> String, d: String): String = step(d)
+export let f: ((String -> String) -> String) = (run: String -> String): String =>
+    strict(run, "body")
+`]]),
+    ).toEqual([]);
+  });
+});
+
+describe("#408 §4.4 — the recovery is scaffolding, not a second claim", () => {
+  it("collapses the reverse-demand cascade at a module-level record type", () => {
+    // Measured before the ruling: the *first* report a writer saw here was the
+    // §4.3 reverse demand — a sentence about a declared impure constant the
+    // program never wrote, produced by the recovery itself.
+    expect(
+      effectDiagnostics([["/main.hex", `let h: { step: () ->? String } = { step = () => "x" }
+export let z: Int = 1
+`]]).length,
+    ).toBe(1);
+  });
+
+  it("collapses the mark cascade in a body that goes on to call the binding", () => {
+    // The affirmatively false one: "this call runs effects, so `h` wants `!`" —
+    // when what made the call impure was the recovery standing in for the
+    // refused arrow.
+    expect(
+      effectDiagnostics([["/main.hex", `export let f(x: Int): Int =
+    let h: () ->? String = () => "s"
+    let y = h?()
+    x
+`]]).length,
+    ).toBe(1);
+  });
+
+  it("suppresses the pure-face report under a written `->` face", () => {
+    // The third downstream client: the body's own colour is the pure constant
+    // because the binding annotation says so, and the only call that would
+    // contradict it is impure by recovery. Un-suppressed this adds "a pure face
+    // cannot run effects" — about effects the program does not perform.
+    expect(
+      effectDiagnostics([["/main.hex", `export let f: ((Int) -> Int) = (x: Int): Int =>
+    let h: () ->? String = () => "s"
+    let y = h?()
+    x
+`]]),
+    ).toEqual([
+      "`->?` is the caller's colour, and this position has no caller to choose it — " +
+      "nothing a caller of this signature supplies carries `->?`, so nothing " +
+      "instantiates it; " +
+      "write `->!` for a function that pulls the world, or `->` for one that does not",
+    ]);
+  });
+
+  it("suppresses the constantified-face report when a recovery pins the colour", () => {
+    // The fourth: a recovered arrow travelling into a linked parameter unifies
+    // the *signature's* variable with the recovery, and §4.2 would then condemn
+    // a face for a colour the writer never wrote. (The `?` on `mkBad` is an
+    // ordinary conservative mark, §3.4's, and stands on its own.)
+    expect(
+      effectDiagnostics([["/main.hex", `export let f(g: (() ->? String) -> String): String =
+    let mkBad = (): (() ->? String) => (): String => "x"
+    g(mkBad())
+`]]),
+    ).toEqual([
+      "`->?` is the caller's colour, and this position has no caller to choose it — " +
+      "nothing a caller of this signature supplies carries `->?`, so nothing " +
+      "instantiates it; " +
+      "write `->!` for a function that pulls the world, or `->` for one that does not",
+      "this call is as effectful as the enclosing instantiation makes it, so " +
+      "`mkBad` wants `?`, not no mark",
+    ]);
+  });
+});
+
 describe("#355 ruling 9 — `->!`, the const ⊔ var face", () => {
   const shape = (arrow: string) => `${world}
 export let withTransaction: ((String ->? String) ${arrow} String) = (run: String ->? String): String =>
@@ -428,9 +856,23 @@ export let withTransaction: ((String ->? String) ${arrow} String) = (run: String
       "solves it to the impure constant — a function that performs its own " +
       "unconditional effects rounds up, and its face is `->!`",
     ]);
+    // §4.2 (#408): the impure direction's fixit is the join. Three arrows write
+    // this one colour — the binding annotation's two and the lambda parameter's
+    // — and the repair is the *outer* one alone: `(String ->? String) ->! String`
+    // is the face, and rewriting the callback's arrow with it would refuse the
+    // pure callbacks §2.4 keeps.
     expect(effectFixes([["/world.js", ""], ["/main.hex", shape("->?")]])).toEqual([
       'write `->!`: "->!"',
     ]);
+    // The one edit lands on the outer arrow, and the repaired source compiles.
+    const source = shape("->?");
+    const [report] = effectSpans([["/world.js", ""], ["/main.hex", source]]);
+    // `((String ->? String) ->? String)`: the arrow after the callback's closing
+    // paren is the outer one, and it is the only span the fixit touches.
+    expect(report?.edits).toEqual([source.indexOf(") ->? String) =") + 2]);
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", shape("->!")]]),
+    ).toEqual([]);
   });
 
   it("refuses a `->!` face over a body that performs no unconditional effect", () => {
@@ -1139,9 +1581,10 @@ export let hold(step: () -> String): Source = Source({ step = step })
     ).toEqual([reverseDemand]);
   });
 
-  it("refuses a pure function at a result-only face", () => {
-    // §2.2's else-constant rule supplies the other constant position: the
-    // annotation's only `=>` stands in result position, so it is the constant.
+  it("refuses a pure function at a written `->!` face", () => {
+    // The other constant position, written: since #405 there is no rule that
+    // re-reads an arrow as the constant, so a binding that means the constant
+    // spells it (§2.3).
     expect(
       effectDiagnostics([["/main.hex", `
 export let pureStep(): String = "x"

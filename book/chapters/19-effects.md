@@ -144,8 +144,9 @@ polymorphism works through variables, and `->!` is not one.
 ### `->?` needs something to link to
 
 `->?` means *my caller chooses*, so it is only legal where there is a caller who can:
-inside a function signature that has at least one `->?` in a parameter. That parameter
-is the slot the choice arrives through.
+inside a function signature, where at least one `->?` sits in something a caller
+supplies — a parameter, at any depth, including a parameter of a function the
+signature returns. That occurrence is the slot the choice arrives through.
 
 Where there is no such slot, `->?` is not quietly re-read as something else — it is
 refused:
