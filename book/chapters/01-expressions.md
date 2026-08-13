@@ -159,7 +159,7 @@ Some expressions are useful because of what they do rather than the value they
 calculate. Printing a message is the standard small example:
 
 ```hexagon
-print("Preparing order")
+log("Preparing order")
 ```
 
 The call is still an expression, but its result type is `Unit`. `Unit` has one ordinary
@@ -171,7 +171,7 @@ A `Unit`-producing expression can appear before the final expression of a block:
 
 ```hexagon
 let prepareOrder(order: Order): Order =
-    print("Preparing order")
+    log("Preparing order")
     order
 ```
 
@@ -194,7 +194,7 @@ Suppose `auditOrder` examines an order and returns a report:
 ```hexagon
 let prepareOrder(order: Order): Order =
     auditOrder(order)
-    print("Preparing order")
+    log("Preparing order")
     order
 ```
 
@@ -217,7 +217,7 @@ If evaluating the expression matters but its result genuinely does not, say so w
 ```hexagon
 let prepareOrder(order: Order): Order =
     ignore(auditOrder(order))
-    print("Preparing order")
+    log("Preparing order")
     order
 ```
 

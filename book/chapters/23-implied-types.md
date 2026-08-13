@@ -51,7 +51,7 @@ This is why a map loop receives tuples without another annotation:
 
 ```hexagon
 for (key, value) in scores
-    print("${key}: ${value}")
+    log("${key}: ${value}")
 ```
 
 The compiler finds `Iterable<Map(String, Int)>`, whose `Item` is `(String, Int)`, and
@@ -252,7 +252,7 @@ At a loop whose source type is known, instance selection is static:
 
 ```hexagon
 for value in bag
-    print(value)
+    log("${value}")
 ```
 
 has the same general output shape as calling `Bag.toSeq(bag)` and iterating the
