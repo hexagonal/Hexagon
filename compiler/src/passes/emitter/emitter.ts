@@ -299,6 +299,361 @@ function componentEvidence(
 }
 
 /**
+ * One slot of a dictionary literal **this emitter builds** — structural
+ * evidence and the planner's `Bool` editions (`#derivedSlots`).
+ *
+ * The slot is described rather than only rendered so that a use site which
+ * immediately selects and applies it can take the body directly, per Dictionary
+ * Sharing §9.1's literal-member rule (#425). `rendered` is what stands in the
+ * literal when it is not reduced, so the two faces cannot drift: the literal is
+ * built *from* these slots and from nothing else.
+ *
+ * `arrow` is absent for a slot whose value is not an arrow this emitter wrote —
+ * a helper reference (`toSeq: __seqFromIterable`), a nested record (`Hash`'s
+ * `eq`). There is nothing to beta-reduce there.
+ */
+type DerivedSlot = {
+  readonly name: string;
+  readonly rendered: string;
+  readonly arrow?: {
+    readonly parameters: readonly string[];
+    readonly body: string;
+  };
+};
+
+/** A dictionary slot holding an arrow this emitter wrote. */
+function derivedArrow(
+  name: string,
+  parameters: readonly string[],
+  body: string,
+): DerivedSlot {
+  const head = parameters.length === 1
+    ? parameters[0]!
+    : `(${parameters.join(", ")})`;
+  return { name, rendered: `${head} => ${body}`, arrow: { parameters, body } };
+}
+
+/** The literal a set of slots stands for, in the one place it is spelled. */
+function dictionaryLiteral(slots: readonly DerivedSlot[]): string {
+  return slots.length === 0
+    ? "({})"
+    : `({ ${slots.map(({ name, rendered }) => `${name}: ${rendered}`).join(", ")} })`;
+}
+
+const IDENTIFIER_CHARACTER = /[A-Za-z0-9_$]/;
+
+/** The index just past the string literal opening at `start`. */
+function skipStringLiteral(text: string, start: number): number {
+  const quote = text[start];
+  let index = start + 1;
+  while (index < text.length) {
+    const character = text[index]!;
+    if (character === "\\") {
+      index += 2;
+      continue;
+    }
+    if (character === quote) return index + 1;
+    index += 1;
+  }
+  return text.length;
+}
+
+/**
+ * Where `name` occurs as an identifier in emitted JavaScript — not inside a
+ * string literal, and not as a property name after a dot.
+ *
+ * Emitted text, not source, so the scanner only has to be right about what this
+ * emitter writes: quoted strings (always `JSON.stringify`d), identifiers, and
+ * punctuation. Template literals are excluded by the caller rather than
+ * scanned.
+ */
+function identifierOccurrences(text: string, name: string): readonly number[] {
+  const positions: number[] = [];
+  let index = 0;
+  while (index < text.length) {
+    const character = text[index]!;
+    if (character === '"' || character === "'") {
+      index = skipStringLiteral(text, index);
+      continue;
+    }
+    if (IDENTIFIER_CHARACTER.test(character)) {
+      let end = index;
+      while (end < text.length && IDENTIFIER_CHARACTER.test(text[end]!)) {
+        end += 1;
+      }
+      // A leading dot is a property name — unless it is the last of a spread's
+      // three, which is what `[...__value]` is made of. Reading that as a
+      // property was one occurrence short of the truth, and short is the
+      // dangerous direction: the count guard would have licensed a reduction
+      // that duplicates its argument.
+      const member = text[index - 1] === "." && text[index - 2] !== ".";
+      if (text.slice(index, end) === name && !member) positions.push(index);
+      index = end;
+      continue;
+    }
+    index += 1;
+  }
+  return positions;
+}
+
+/**
+ * The index of the bracket closing the one that opens at `start`, or
+ * `undefined` when the text does not close it.
+ */
+function matchingBracket(text: string, start: number): number | undefined {
+  let depth = 0;
+  let index = start;
+  while (index < text.length) {
+    const character = text[index]!;
+    if (character === '"' || character === "'") {
+      index = skipStringLiteral(text, index);
+      continue;
+    }
+    if (character === "(" || character === "[" || character === "{") depth += 1;
+    if (character === ")" || character === "]" || character === "}") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+    index += 1;
+  }
+  return undefined;
+}
+
+/**
+ * Whether the text binds tighter than every operator a derived body can place
+ * around it — an identifier, a literal, a postfix chain over one, or an already
+ * parenthesized expression.
+ *
+ * A member call's arguments sit in argument position, where nothing binds; the
+ * body positions they land in after §9.1's reduction are not so forgiving
+ * (`__value.field`, `[...__value]`, `__left === __right`). Anything this
+ * refuses gets parentheses, so a wrong answer here can only cost a redundant
+ * pair, never a precedence bug.
+ */
+function atomicOperand(text: string): boolean {
+  let index = 0;
+  let value = false;
+  while (index < text.length) {
+    const character = text[index]!;
+    if (character === "(" || character === "[") {
+      const end = matchingBracket(text, index);
+      if (end === undefined) return false;
+      index = end + 1;
+      value = true;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      if (value) return false;
+      index = skipStringLiteral(text, index);
+      value = true;
+      continue;
+    }
+    if (character === ".") {
+      if (!value) return false;
+      index += 1;
+      value = false;
+      continue;
+    }
+    if (IDENTIFIER_CHARACTER.test(character)) {
+      if (value) return false;
+      let end = index;
+      while (end < text.length && IDENTIFIER_CHARACTER.test(text[end]!)) {
+        end += 1;
+      }
+      index = end;
+      value = true;
+      continue;
+    }
+    return false;
+  }
+  return value;
+}
+
+/** Keywords after which a derived body's text is a loop or branch, not a step. */
+const CONTROL_KEYWORDS = new Set([
+  "if",
+  "else",
+  "for",
+  "while",
+  "do",
+  "switch",
+  "case",
+  "default",
+  "catch",
+  "finally",
+  "return",
+  "throw",
+  "yield",
+  "await",
+  "new",
+]);
+
+/** The keyword heads whose parenthesized part is itself evaluated on the spot. */
+const EVALUATED_HEADS = new Set(["for", "switch"]);
+
+/**
+ * Whether the text between `start` and `position` is evaluated on the spot,
+ * exactly once, left to right, with nothing effectful in it — §9.1's position
+ * half of the guard, which the count half cannot see.
+ *
+ * The scanner reads only the shapes this emitter writes into a derived body and
+ * refuses everything else, so a construct it does not model costs a missed
+ * reduction and never a wrong one. What it accepts ahead of the occurrence:
+ * identifiers, property reads, indexing, string and number literals, spreads,
+ * arithmetic and comparison operators, local `let`/`const` steps inside an
+ * immediately-invoked arrow, and bracket groups the occurrence is *inside* (an
+ * argument list, a `for … of` head, a `switch` discriminant — none of which has
+ * run its call yet). What it refuses: a call that **completes** before the
+ * occurrence (its effects would then precede the argument's, which ran first in
+ * the unreduced shape), a `?`/`:`/`&&`/`||` ahead of it (the occurrence is in a
+ * branch), an `=>` ahead of it (the occurrence is under a deferred lambda), and
+ * any control keyword whose body it would sit in.
+ */
+function evaluatedInPlace(
+  text: string,
+  start: number,
+  end: number,
+  position: number,
+): boolean {
+  let index = start;
+  while (index < position) {
+    const character = text[index]!;
+    if (character === '"' || character === "'") {
+      index = skipStringLiteral(text, index);
+      continue;
+    }
+    if (character === "(" || character === "[" || character === "{") {
+      const close = matchingBracket(text, index);
+      if (close === undefined || close >= end) return false;
+      if (position < close) {
+        // The immediately-invoked arrow — `hash`'s `Vector` arm and the tagged
+        // walks — is a region evaluated on the spot, so its block is live.
+        // Every other brace is an object literal or a statement block this
+        // scanner does not model.
+        if (text.startsWith("(() => {", index) && text[close + 1] === "(") {
+          const body = index + "(() => {".length;
+          return position >= body && evaluatedInPlace(text, body, close - 1, position);
+        }
+        if (character === "{") return false;
+        return evaluatedInPlace(text, index + 1, close, position);
+      }
+      // The whole group is evaluated before the occurrence. A call there has
+      // already run by the time the argument would be evaluated.
+      if (
+        character === "(" && index > start &&
+        /[A-Za-z0-9_$)\]]/.test(text[index - 1]!)
+      ) {
+        return false;
+      }
+      index = close + 1;
+      continue;
+    }
+    if (IDENTIFIER_CHARACTER.test(character)) {
+      let wordEnd = index;
+      while (wordEnd < text.length && IDENTIFIER_CHARACTER.test(text[wordEnd]!)) {
+        wordEnd += 1;
+      }
+      const word = text.slice(index, wordEnd);
+      if (CONTROL_KEYWORDS.has(word) && text[index - 1] !== ".") {
+        // `for (const x of E)` and `switch (E)` evaluate their head on the
+        // spot; anything after the head, and anything after any other control
+        // keyword, is a loop or branch body.
+        if (!EVALUATED_HEADS.has(word)) return false;
+        const head = text.indexOf("(", wordEnd);
+        if (head === -1) return false;
+        const close = matchingBracket(text, head);
+        if (close === undefined || close >= end || position >= close) return false;
+        return evaluatedInPlace(text, head + 1, close, position);
+      }
+      index = wordEnd;
+      continue;
+    }
+    if (character === "=" && text[index + 1] === ">") return false;
+    if (
+      character === "?" || character === ":" || character === "&" ||
+      character === "|" || character === "`" || character === "^" ||
+      character === "%"
+    ) {
+      return false;
+    }
+    index += 1;
+  }
+  return true;
+}
+
+/**
+ * Dictionary Sharing §9.1's reduction (#425): the member's body with the
+ * arguments substituted, or `undefined` when the guard refuses and the literal
+ * shape has to stand.
+ *
+ * The guard is the one the ruling states, and it is what makes the rewrite an
+ * *identity* on evaluation rather than a plausible-looking rearrangement: each
+ * parameter occurs exactly once in the body, the occurrences read in parameter
+ * order, and each sits where the body evaluates it exactly once and
+ * unconditionally — so no argument expression is duplicated, dropped,
+ * reordered, deferred, or made conditional. `Unit`'s `compare` — a constant
+ * body naming neither operand — is refused by the dropping clause; a `Vector`'s
+ * `equals` and a `Set`'s `show`, which read their operand twice, by the
+ * duplication clause; and a `Vector`'s `compare`, which takes the right
+ * operand's iterator before it walks the left, by the order and position
+ * clauses together.
+ *
+ * A slot that is not an arrow at all takes the **selection** alone, which is
+ * sound for the same reason the whole peephole is: building the literal
+ * evaluates nothing (Constraints §6.3), and the slot is a plain reference to a
+ * helper that reads no `this`.
+ *
+ * Counting *every* occurrence, not just free ones, is also what keeps the
+ * textual substitution safe: a body carrying a nested dictionary literal binds
+ * `__left`/`__value` again inside itself, and that second occurrence takes the
+ * count past one, so no substitution can ever cross a binder of the same name.
+ */
+function reduceDerivedMember(
+  slot: DerivedSlot,
+  arguments_: readonly string[],
+): string | undefined {
+  const arrow = slot.arrow;
+  if (arrow === undefined) {
+    return atomicOperand(slot.rendered) && !slot.rendered.includes("(")
+      ? `${slot.rendered}(${arguments_.join(", ")})`
+      : undefined;
+  }
+  if (arrow.parameters.length !== arguments_.length) return undefined;
+  // No derived body contains one, and the scanners above do not read the
+  // substitutions inside one. Refusing is the safe half of the guess.
+  if (arrow.body.includes("`")) return undefined;
+  const positions: number[] = [];
+  for (const parameter of arrow.parameters) {
+    const occurrences = identifierOccurrences(arrow.body, parameter);
+    if (occurrences.length !== 1) return undefined;
+    const position = occurrences[0]!;
+    if (positions.length > 0 && position <= positions[positions.length - 1]!) {
+      return undefined;
+    }
+    if (!evaluatedInPlace(arrow.body, 0, arrow.body.length, position)) {
+      return undefined;
+    }
+    positions.push(position);
+  }
+  let reduced = arrow.body;
+  // Right to left, so the recorded offsets stay valid as the text grows.
+  for (let index = positions.length - 1; index >= 0; index -= 1) {
+    const argument = arguments_[index]!;
+    const operand = atomicOperand(argument) ? argument : `(${argument})`;
+    reduced = reduced.slice(0, positions[index]!) + operand +
+      reduced.slice(positions[index]! + arrow.parameters[index]!.length);
+  }
+  // Parenthesized, because the shape it replaces was a *call* — a primary,
+  // which binds tighter than anything a body can end up being. A bare ternary
+  // dropped into `+`-concatenation reads the string prefix as its condition,
+  // the hazard `#derivedShow`'s `Bool` arm memorializes. The condition is what
+  // "parenthesized" is for and no more: a body that is already a primary (the
+  // `Bool` arm's own parenthesized ternary, a helper call) is left alone rather
+  // than given a second, meaningless pair.
+  return atomicOperand(reduced) ? reduced : `(${reduced})`;
+}
+
+/**
  * Documentation, indexed the way emission asks for it: by the span of the
  * declaration a JSDoc block would precede (spec/doc-comments.md §7.1). A seat
  * that finds nothing here emits nothing — documentation is never invented, and
@@ -2067,8 +2422,14 @@ class JavaScriptEmitter {
         return `${this.#useHelper(helper)}(${receiver}, ${index})`;
       }
       case "Hash": {
-        const dictionary = this.#emitEvidence(expression.evidence, "Hash", expression.span, evidenceNames);
-        return `${dictionary}.hash(${this.#emitExpr(expression.value, depth, evidenceNames)})`;
+        return this.#emitMemberCall(
+          expression.evidence,
+          "Hash",
+          "hash",
+          [this.#emitExpr(expression.value, depth, evidenceNames)],
+          expression.span,
+          evidenceNames,
+        );
       }
       case "Block": {
         const only = expression.items.length === 1
@@ -2461,7 +2822,14 @@ class JavaScriptEmitter {
       ? `${this.#useHelper("seqToIterable")}(${source})`
       : expression.iteration === undefined
       ? source
-      : `${this.#emitEvidence(expression.iteration, "Iterable", expression.span, evidenceNames)}.toSeq(${source})`;
+      : this.#emitMemberCall(
+        expression.iteration,
+        "Iterable",
+        "toSeq",
+        [source],
+        expression.span,
+        evidenceNames,
+      );
     if (expression.pattern.kind === "Binding") {
       const name = this.#identifier(
         expression.pattern.binding.symbol,
@@ -2948,13 +3316,14 @@ class JavaScriptEmitter {
       return literal;
     }
     if (expression.evidence.kind === "Instance" || expression.evidence.kind === "Structural") {
-      const dictionary = this.#emitEvidence(
+      return this.#emitMemberCall(
         expression.evidence,
         "Num",
+        "fromNat",
+        [cleanNumber(expression.decimal)],
         expression.span,
         evidenceNames,
       );
-      return `${dictionary}.fromNat(${cleanNumber(expression.decimal)})`;
     }
     if (expression.evidence.kind !== "Dictionary") return "undefined";
     const dictionary = this.#dictionary(
@@ -2988,13 +3357,14 @@ class JavaScriptEmitter {
       return `${dictionary}.fromNat(${value})`;
     }
     if (expression.evidence.kind === "Instance" || expression.evidence.kind === "Structural") {
-      const dictionary = this.#emitEvidence(
+      return this.#emitMemberCall(
         expression.evidence,
         "Num",
+        "fromNat",
+        [value],
         expression.span,
         evidenceNames,
       );
-      return `${dictionary}.fromNat(${value})`;
     }
     return "undefined";
   }
@@ -3020,13 +3390,14 @@ class JavaScriptEmitter {
       return `${dictionary}.fromInt(${value})`;
     }
     if (expression.evidence.kind === "Instance" || expression.evidence.kind === "Structural") {
-      const dictionary = this.#emitEvidence(
+      return this.#emitMemberCall(
         expression.evidence,
         "Signed",
+        "fromInt",
+        [value],
         expression.span,
         evidenceNames,
       );
-      return `${dictionary}.fromInt(${value})`;
     }
     return "undefined";
   }
@@ -3065,13 +3436,14 @@ class JavaScriptEmitter {
         return `String(${value})`;
       }
       if (part.evidence.kind === "Instance" || part.evidence.kind === "Structural") {
-        const dictionary = this.#emitEvidence(
+        return this.#emitMemberCall(
           part.evidence,
           "Show",
+          "show",
+          [value],
           part.span,
           evidenceNames,
         );
-        return `${dictionary}.show(${value})`;
       }
       return `(${value}, undefined)`;
     });
@@ -3124,13 +3496,14 @@ class JavaScriptEmitter {
       // `Dictionary` and `Error` returned above, so what is left is an instance
       // — nominal, structural, or a primitive companion's source one, which
       // `#emitEvidence` resolves to the dictionary that module exports.
-      const dictionary = this.#emitEvidence(
+      return this.#emitMemberCall(
         expression.evidence,
         expression.constraint,
+        expression.member,
+        arguments_,
         expression.span,
         evidenceNames,
       );
-      return `${dictionary}.${expression.member}(${arguments_.join(", ")})`;
     }
     const [leftExpression, rightExpression] = expression.arguments;
     const operand = (
@@ -3298,15 +3671,18 @@ class JavaScriptEmitter {
     const instance = primitiveInstance(step.evidence);
     if (instance === undefined) {
       if (step.evidence.kind === "Instance" || step.evidence.kind === "Structural") {
-        const dictionary = this.#emitEvidence(
-          step.evidence,
-          constraint,
-          step.span,
-          evidenceNames,
-        );
-        if (step.test === "Equal") return `${dictionary}.equals(${left}, ${right})`;
-        if (step.test === "NotEqual") return `${dictionary}.notEquals(${left}, ${right})`;
-        return comparisonFromOrdering(step.test, `${dictionary}.compare(${left}, ${right})`);
+        const member = (name: string): string =>
+          this.#emitMemberCall(
+            step.evidence,
+            constraint,
+            name,
+            [left, right],
+            step.span,
+            evidenceNames,
+          );
+        if (step.test === "Equal") return member("equals");
+        if (step.test === "NotEqual") return member("notEquals");
+        return comparisonFromOrdering(step.test, member("compare"));
       }
       return "false";
     }
@@ -4098,19 +4474,58 @@ class JavaScriptEmitter {
     components: ComponentEvidence,
     evidenceNames: EvidenceNames,
   ): string {
+    return dictionaryLiteral(
+      this.#derivedSlots(constraint, type, components, evidenceNames),
+    );
+  }
+
+  /**
+   * The same dictionary, slot by slot (#425).
+   *
+   * The literal above is built from this and from nothing else, so a use site
+   * that immediately selects and applies one member — §9.1's peephole, which
+   * reads the slot's arrow and reduces it — and a use site that needs the whole
+   * record cannot disagree about what the dictionary contains. Every derived
+   * body is rendered here exactly once whichever face the caller takes: the
+   * walks mint fresh binder names as they go, so a second rendering would move
+   * every later name in the module.
+   */
+  #derivedSlots(
+    constraint: Typed.ConstraintName,
+    type: Typed.Type,
+    components: ComponentEvidence,
+    evidenceNames: EvidenceNames,
+  ): readonly DerivedSlot[] {
     if (constraint === "Hash") {
       const equals = this.#derivedEquals(type, "__left", "__right", evidenceNames, true);
-      return `({ eq: { equals: (__left, __right) => ${equals}, notEquals: (__left, __right) => !(${equals}) }, hash: __value => ${this.#derivedHash(type, "__value", evidenceNames)} })`;
+      return [
+        {
+          name: "eq",
+          rendered: `{ equals: (__left, __right) => ${equals}, notEquals: (__left, __right) => !(${equals}) }`,
+        },
+        derivedArrow("hash", ["__value"], this.#derivedHash(type, "__value", evidenceNames)),
+      ];
     }
     if (constraint === "Eq") {
       const equals = this.#derivedEquals(type, "__left", "__right", evidenceNames, false, components);
-      return `({ equals: (__left, __right) => ${equals}, notEquals: (__left, __right) => !(${equals}) })`;
+      return [
+        derivedArrow("equals", ["__left", "__right"], equals),
+        derivedArrow("notEquals", ["__left", "__right"], `!(${equals})`),
+      ];
     }
     if (constraint === "Ord") {
-      return `({ compare: (__left, __right) => ${this.#derivedCompare(type, "__left", "__right", evidenceNames, components)} })`;
+      return [derivedArrow(
+        "compare",
+        ["__left", "__right"],
+        this.#derivedCompare(type, "__left", "__right", evidenceNames, components),
+      )];
     }
     if (constraint === "Show") {
-      return `({ show: __value => ${this.#derivedShow(type, "__value", evidenceNames, components)} })`;
+      return [derivedArrow(
+        "show",
+        ["__value"],
+        this.#derivedShow(type, "__value", evidenceNames, components),
+      )];
     }
     if (constraint === "Iterable") {
       // Collections Part 5 §4's provided rows, rendered rather than imported
@@ -4135,17 +4550,92 @@ class JavaScriptEmitter {
       // it already memoizes, and the row exists precisely so that normalizing a
       // `Seq` with `toSeq` costs nothing (§4's purity note).
       return this.#isSequence(type)
-        ? "({ toSeq: __source => __source })"
-        : `({ toSeq: ${this.#useHelper("seqFromIterable")} })`;
+        ? [derivedArrow("toSeq", ["__source"], "__source")]
+        : [{ name: "toSeq", rendered: this.#useHelper("seqFromIterable") }];
     }
     if (constraint === "Concat" && type.kind === "Vector") {
       // The Operators §7 instance, and the whole of it: `concat` is the trie
       // operation itself, so `++` at `Vector(a)` is documented-linear (Part 1
       // §2.2) and the result grows out of the left operand's trie rather than
       // copying it.
-      return `({ concat: ${this.#useVectorRuntime("concat")} })`;
+      return [{ name: "concat", rendered: this.#useVectorRuntime("concat") }];
     }
-    return "({})";
+    return [];
+  }
+
+  /**
+   * The subject a compiler-built dictionary literal would be derived over, or
+   * `undefined` when this evidence is not one of those (#425).
+   *
+   * The two kinds `#emitEvidence` renders as a literal, and read in the same
+   * order it reads them: structural evidence, and the specialization planner's
+   * `Bool` editions, which arrive as `Primitive` evidence at a name no module
+   * exports a dictionary for.
+   */
+  #derivedSubject(
+    evidence: Core.Evidence,
+    constraint: Typed.ConstraintName,
+  ): { readonly type: Typed.Type; readonly components: ComponentEvidence } | undefined {
+    if (evidence.kind === "Structural") {
+      return {
+        type: evidence.type,
+        components: componentEvidence(evidence.components),
+      };
+    }
+    if (
+      evidence.kind === "Primitive" &&
+      (evidence.instance as string) === "Bool" &&
+      this.#prelude.bool !== undefined &&
+      this.#sourceInstanceDictionary(constraint, evidence.instance) === undefined
+    ) {
+      return {
+        type: { kind: "Union", union: this.#prelude.bool, name: "Bool", arguments: [] },
+        components: undefined,
+      };
+    }
+    return undefined;
+  }
+
+  /**
+   * One constraint member, selected out of this evidence and applied.
+   *
+   * The seat of Dictionary Sharing §9.1's literal-member rule (#425): where the
+   * dictionary is a literal **this emitter builds**, the member is taken out of
+   * it and its arrow beta-reduced, so `({ show: __value => (__value ? "True" :
+   * "False") }).show(e)` emits as `(e ? "True" : "False")`. Every other
+   * dictionary — a named instance, a factory application, an evidence parameter
+   * — is already the reduced form and takes the ordinary slot call, and the
+   * whole-record uses (trailing evidence, a helper's dictionary argument) never
+   * come through here at all.
+   *
+   * The literal is built from the *same* slots the reduction reads, so the
+   * refusal path emits exactly what this site emitted before the rule.
+   */
+  #emitMemberCall(
+    evidence: Core.Evidence,
+    constraint: Typed.ConstraintName,
+    member: string,
+    arguments_: readonly string[],
+    span: Core.Expr["span"],
+    evidenceNames: EvidenceNames,
+  ): string {
+    const applied = `${member}(${arguments_.join(", ")})`;
+    const subject = this.#derivedSubject(evidence, constraint);
+    if (subject === undefined) {
+      const dictionary = this.#emitEvidence(evidence, constraint, span, evidenceNames);
+      return `${dictionary}.${applied}`;
+    }
+    const slots = this.#derivedSlots(
+      constraint,
+      subject.type,
+      subject.components,
+      evidenceNames,
+    );
+    const slot = slots.find((candidate) => candidate.name === member);
+    const reduced = slot === undefined
+      ? undefined
+      : reduceDerivedMember(slot, arguments_);
+    return reduced ?? `${dictionaryLiteral(slots)}.${applied}`;
   }
 
   #emitEvidence(
