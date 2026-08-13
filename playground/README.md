@@ -5,9 +5,9 @@ This folder will contain the browser-based Hexagon playground: an interactive pl
 The current slices compile live, run the latest successful compilation, and expose errors, emitted JavaScript, an
 inspection-only TypeScript preview, and inferred top-level types. Primitive
 parameter and result annotations, directly recursive `fun`, and first-argument
-pipes are accepted, including partially annotated parameter lists. The first host
-operation, `console.log(...)`, accepts any number of typed arguments, returns
-`Unit`, and writes to both the Output tab and the execution worker's browser console.
+pipes are accepted, including partially annotated parameter lists. The debugging
+probe, `log(...)`, takes one rendered `String`, returns `Unit`, and writes to both
+the Output tab and the execution worker's browser console.
 Supported desktop browsers load Monaco asynchronously for Hexagon editing and
 read-only generated-code models; the textarea remains live until Monaco succeeds.
 
@@ -29,7 +29,7 @@ npm run dev
 
 Open the local address printed by Vite. Edit `main.hex`, inspect **Errors**,
 **JS**, **.d.ts**, and **Types**, then choose **Run**. The **Output** tab receives
-`console.log(...)` output. Top-level bindings do not need `export`: the
+`log(...)` output. Top-level bindings do not need `export`: the
 `.d.ts` tab uses the compiler's inspection-only TypeScript preview while preserving
 ordinary Hexagon visibility. This path calls the compiler directly in a Web Worker;
 it does not use the language server or LSP.
@@ -47,7 +47,7 @@ module Mगणित
 export fun जोड़(left: Int, right: Int): Int = left + right
 end module Mगणित
 
-console.log(Mगणित.जोड़(20, 22))
+log("${Mगणित.जोड़(20, 22)}")
 ```
 
 The block becomes a real virtual `Mगणित.hex` file and the remaining source receives
@@ -110,7 +110,7 @@ On narrow screens the result panel moves below the source editor. The source alw
 
 ### Result tabs
 
-- **Output** shows captured `console.log(...)` lines plus execution completion,
+- **Output** shows captured `log(...)` lines plus execution completion,
   timeout, and runtime-failure status. Calls also retain the worker's native browser
   console behaviour for DevTools.
 - **Errors** shows structured compiler diagnostics. Selecting a diagnostic focuses
@@ -189,7 +189,7 @@ Editing compiles automatically after a short debounce. It never runs the program
 Execution occurs outside the compiler worker. Every Run creates a fresh execution
 worker, and completion, failure, or the two-second timeout terminates it without
 losing compiler state or editor contents. The current accepted language surface
-exposes only the compiler-defined console operation; the host-capability policy must
+exposes only the standard library's debugging probe; the host-capability policy must
 be revisited before broader FFI access can expose arbitrary browser facilities.
 
 ## Editor direction
@@ -235,7 +235,7 @@ Where practical, example source should be derived from or shared with conformanc
 
 The curated set contains the initial `hello-world` tour plus focused recursion,
 union/match, and exact `Rat` programs. Every example is compiler-tested and
-demonstrates a top-level `console.log(...)` effect without requiring public exports.
+demonstrates a top-level `log(...)` effect without requiring public exports.
 The `Rat` example exercises the canonical fundamental stdlib module through
 `half + third`, selecting its imported `Signed<Rat>` evidence.
 

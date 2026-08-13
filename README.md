@@ -16,7 +16,7 @@ Hexagon program and immediately inspect its readable JavaScript, inferred types,
 TypeScript declaration preview, and any diagnostics. The opening tour demonstrates
 the implemented language subset, including tuples, pattern bindings, nullary unions,
 exhaustive matching, annotations, and recursive functions. Run executes the latest
-successful compilation, with `console.log(...)` captured in the Output tab. Source
+successful compilation, with `log(...)` output captured in the Output tab. Source
 is persisted locally, and curated examples and fragment-based Share URLs are built in.
 Supported desktop browsers get Monaco editing, exact compiler markers, inferred-type
 hovers, and read-only generated JavaScript and declaration models. The Fundamental
