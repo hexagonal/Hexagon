@@ -84,16 +84,23 @@ the local side obeys ordinary Hexagon role rules: term bindings are
 non-uppercase-start and type bindings uppercase-start (Lexer §3; Modules §3.2).
 Duplicate local bindings collide under the ordinary module-level rules.
 
-A consequence worth stating: a foreign export whose name violates Hexagon's local start-class rules **requires an alias**. `let VERSION: String` alone would introduce an uppercase-start term and is rejected with the named rewrite:
+A consequence worth stating: a foreign export whose name violates Hexagon's local start-class rules **or Lexer §3.2's reserved `__` prefix** requires an alias. `let VERSION: String` alone would introduce an uppercase-start term and is rejected with the named rewrite:
 
 > foreign term `VERSION` is not a legal Hexagon term name; bind it with an alias: `let VERSION as version: String`
+
+The reservation case takes the same rewrite — `let __state: Int` is rejected with "bind it with an alias: `let __state as state: Int`" — never a rename of the foreign spelling, which would bind a different export.
 
 The same rule works in the other direction: a caseless foreign type name needs an
 uppercase-start local alias, for example `type 用户 as T用户`. These are Rewrite-Rule
 diagnostics; neither repair changes the foreign export spelling.
 
 The foreign side of `as` is exempt from Hexagon *role* classification, but not from
-ECMAScript identifier validity. Arbitrary-string export names, which ESM permits via
+ECMAScript identifier validity. It is likewise exempt from Lexer §3.2's reserved
+`__` prefix: a foreign export named `__foo` — the double-underscore convention is
+common in JavaScript library internals — stays bindable under an ordinary local
+alias, and the reservation error is selected only in Hexagon's own name seats
+(Lexer §10). The local side of `as` is such a seat, so it cannot spell `__` names.
+Arbitrary-string export names, which ESM permits via
 `export { x as "not an identifier" }`, are not representable in v1 (§11).
 
 ---
@@ -346,7 +353,7 @@ Hard errors introduced or relied on by this part, each with its named rewrite pe
 | extern callable declared with `let` (parameter list present) | "extern callable declarations use `fun`; write `fun parse(text: String): JsonValue`" | §4.2 |
 | extern `let` annotated with a function type | "extern callable declarations use `fun`; a binding of type `Int -> Int` is callable — write `fun f(x: Int): Int`" | §4.1; Part 6 §2.4 |
 | extern `fun` without a parameter list | "extern `fun` declares a callable and requires a parameter list; for a foreign value, write `let version: String`" | §4.2 |
-| unaliased foreign name violating Hexagon start-class rules | "bind it with an alias: `let VERSION as version: String`" | §3.2 |
+| unaliased foreign name violating Hexagon start-class rules or the reserved `__` prefix | "bind it with an alias: `let VERSION as version: String`" (resp. `let __state as state: Int`) | §3.2 |
 | `as` alias on a `default` declaration | "a `default` binding has no foreign export name; name the binding directly" | §6 |
 | extern declaration with a body | syntax error — extern declarations are bodyless typed assertions | §1 |
 | missing type annotation on an extern declaration | hard error — nothing to infer from; annotate fully | §1 |

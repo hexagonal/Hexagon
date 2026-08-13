@@ -31,7 +31,7 @@ let zs = [f(a), g(b)]       -- elements are arbitrary expressions
 - Elements are evaluated left to right (the uniform evaluation order).
 - **Trailing comma is permitted** in a literal with at least one element (`[1, 2, 3,]`); `[,]` is a parse error. The JS habit, at zero cost. Record and tuple literals state the same rule (Products §3.1).
 - **No spread in literal expressions.** `[x, ...ys]` as an *expression* is a parse error with a fixit: "spread is pattern syntax; write `prepend(ys, x)` or `[x] ++ ys`." Rejected alternative §11.3.
-- Emission: one runtime call over the elements in evaluation order — `__hex_vectorOf([1, 2, 3])`, a fold of appends into the trie (there is no public variadic `of`, §7); `[]` emits the one shared empty vector. Readable, allocation-honest.
+- Emission: one runtime call over the elements in evaluation order — `__vectorOf([1, 2, 3])`, a fold of appends into the trie (there is no public variadic `of`, §7); `[]` emits the one shared empty vector. Readable, allocation-honest.
 
 ---
 
@@ -90,14 +90,14 @@ Length test + indexed reads, readable:
 
 ```javascript
 // match xs with [a, b, ...rest] => …
-if (__hex_trieSize(xs) >= 2) {
-    const a = __hex_trieGet(xs, 0), b = __hex_trieGet(xs, 1);
-    const rest = __hex_trieSlice(xs, 2, __hex_trieSize(xs));
+if (__trieSize(xs) >= 2) {
+    const a = __trieGet(xs, 0), b = __trieGet(xs, 1);
+    const rest = __trieSlice(xs, 2, __trieSize(xs));
     …
 }
 ```
 
-Fixed-length patterns emit `size === n`; rest-carrying emit `size >= k`; anonymous rests emit no slice. (The operations are `runtime/VectorTrie.hex`'s, imported under the `__hex_trie*` stem — a vector value carries no methods beyond its iterator — and they are the 0-based internals; the 1-based↔0-based offset is an emission fact, invisible at the source level. The pinned content of this section is the structure — length test, indexed reads, rest slice — not the import spelling.)
+Fixed-length patterns emit `size === n`; rest-carrying emit `size >= k`; anonymous rests emit no slice. (The operations are `runtime/VectorTrie.hex`'s, imported under the `__trie*` stem — a vector value carries no methods beyond its iterator — and they are the 0-based internals; the 1-based↔0-based offset is an emission fact, invisible at the source level. The pinned content of this section is the structure — length test, indexed reads, rest slice — not the import spelling.)
 
 ---
 
@@ -226,7 +226,7 @@ The core surface, under the Part 1 §3 naming doctrine (subject-first, `Vector.`
 | `at` | `(Vector(a), Int) -> a` | §5.3, throws |
 | `set` | `(Vector(a), Int, a) -> Vector(a)` | §5.4, throws |
 | `toSeq` / `fromSeq` | `Vector(a) -> Seq(a)` / `Seq(a) -> Vector(a)` | §7.2 |
-| `of`-style construction | — | the literal is the constructor; no public variadic `of` (the emitted fold is `__hex_vectorOf`, §2) |
+| `of`-style construction | — | the literal is the constructor; no public variadic `of` (the emitted fold is `__vectorOf`, §2) |
 
 *(Amended 2026-08-02: the row now named `length` was `size`; renamed under Part 1 §10.1's `length`/`size` split — `length` for ordered, sequential structures. The `IndexError` payload slot `size` (§5.5) is deliberately unaffected.)*
 

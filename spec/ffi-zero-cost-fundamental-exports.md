@@ -392,7 +392,7 @@ export let plus<a: Num>(x: a, y: a): a = x + y
 export let same<a: Eq>(x: a, y: a): Bool = x == y
 --   sameInt emits:    x === y
 --   sameFloat emits:  x === y || (Number.isNaN(x) && Number.isNaN(y))
---                     (or the __hex_floatEquals helper — Decisions Batch §1.5)
+--                     (or the __floatEquals helper — Decisions Batch §1.5)
 -- The two bodies differ: proof the specializations are direct emissions, not
 -- one shared generic body behind two names.
 
