@@ -78,7 +78,19 @@ ignore(validateAll(items))
 validateAll(items) |> ignore
 ```
 
-Emission: an applied `ignore(e)` emits the bare expression statement `e;` — statement position in JS *is* discarding, so the call erases. Referenced as a value, the emitter materialises `const ignore = _x => undefined;` on demand (same on-demand doctrine as constructors, Unions §6.4).
+*(#313.)* **The declaring module is `stdlib/Prelude.hex`**, and the definition is ordinary source:
+
+```hexagon
+export let ignore(value: a): Unit = ()
+```
+
+`Prelude.ignore` is the qualified home Modules §6.4 requires of the bare name. No intrinsic-door key exists for `ignore` and none may be added: the door serves operations the language cannot express below themselves (Constraints §6.1's strictly-simpler law), and `ignore` is expressible in one line. What the compiler owns is the applied call's cost, under the same licence Constraints §6.1 gives the monomorphic operator tables — inlining of the source-backed slot, never a second definition.
+
+Emission, position by position (`|>` has already desugared by here — Operators §8 — so `e |> ignore` *is* the applied call `ignore(e)` below):
+
+- **Discarding position** — the applied call rendered as its own JS statement (a non-final block item is the canonical case): `ignore(e)` emits the bare expression statement `e;`. Statement position in JS *is* discarding, so the call erases. The erasure is mandatory, for the reason Operators §5.1's fast paths are: the language's one sanctioned discard idiom must cost nothing.
+- **Value position** — the call's `Unit` result is consumed (block-final `ignore(e)` whose block value flows onward, `let u = ignore(e)`): the erasure may not leak the operand — emission must evaluate `e` exactly once and yield `Unit`'s representation (`undefined`), never `e`'s value. `void e` is the inline spelling; a call to the prelude binding is equally valid where it reads better (Operators §5.1's helper latitude).
+- **Referenced as a value** (`map(xs, ignore)`, the bare pipe stage before desugaring): the ordinary ESM export of `Prelude.hex`, imported like any other prelude function. This retires the on-demand materialisation this section previously specified, which dated from before `Prelude.hex` had source to import.
 
 `let _ = e` is **not** a discard idiom in Hexagon — `_` is a pattern wildcard (Products §2.4), not a bindable name in `let name = ...` position, and blessing it would create a second discard spelling. One idiom: `ignore`.
 
