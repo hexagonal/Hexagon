@@ -4235,6 +4235,30 @@ class Checker {
           // which is why `compose(save, audit)` is a bare call.
           this.#registerCall(expression, knownCallee.effect ?? PURE, calleeLabel(expression));
           type = knownCallee.result;
+        } else if (knownCallee.kind !== "Variable" && knownCallee.kind !== "Error") {
+          // The callee is known, and it is not a function. Unification with a
+          // demanded arrow is guaranteed to fail here, and the mismatch it
+          // reports is the wrong sentence twice over (#385): its subject is a
+          // type disagreement rather than "this is not a function", and the
+          // arrow it prints carries a colour — `->?` — that nothing in the
+          // program asked for. Report the sentence directly instead, and
+          // register no mark obligation: a non-call owes no mark, and minting
+          // one buys a second report about an arrow that was never there.
+          //
+          // The branch below is a different thing wearing the same clothes — a
+          // callee not yet *known* to be a function, mutual recursion inside an
+          // SCC included — and keeps the unify. A callee that already failed
+          // keeps falling through it silently.
+          this.#diagnostics.add({
+            severity: "error",
+            message: notCallableMessage(
+              expression,
+              this.#display(knownCallee),
+              arguments_.length,
+            ),
+            primary: expression.span,
+          });
+          type = ERROR;
         } else {
           // The callee is not yet known to be a function, so the effect slot has
           // to be a variable the unification can solve — an absent slot would
@@ -9911,6 +9935,30 @@ function calleeLabel(expression: Resolved.CallExpr): string {
   if (callee.kind === "Name") return `\`${callee.text}\``;
   if (callee.kind === "Access") return `\`.${callee.field.text}\``;
   return "this call";
+}
+
+/**
+ * #385's not-callable sentence, for a callee whose type is known and is not a
+ * function. The subject is named the way the mark reports name it
+ * (`calleeLabel`) where there is a name to give; a compound callee has none, so
+ * the sentence says "the callee" rather than pointing the reader at a phrase to
+ * hunt for. No arrow appears anywhere in it — the report's subject is that
+ * there is no function here, and a demanded arrow's colour is a claim about a
+ * call that does not exist.
+ */
+function notCallableMessage(
+  expression: Resolved.CallExpr,
+  found: string,
+  argumentCount: number,
+): string {
+  const callee = expression.callee;
+  const subject = callee.kind === "Name" || callee.kind === "Access"
+    ? `${calleeLabel(expression)} is not a function — it has type \`${found}\``
+    : `this is not a function — the callee has type \`${found}\``;
+  const supplied = argumentCount === 0
+    ? "no arguments"
+    : `${argumentCount} argument${argumentCount === 1 ? "" : "s"}`;
+  return `${subject}, and this call supplies ${supplied}`;
 }
 
 /** The mark a colour requires, as source text. */

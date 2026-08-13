@@ -67,17 +67,17 @@ describe("§16 (a) construction, generalization, and the absent `Hash`", () => {
 
   test("the call spelling is refused like any other non-function call", () => {
     // No bespoke message is owed and none is written: `Set.empty` is a value, so
-    // calling it is the ordinary mismatch between a `Set` and a function. The
-    // variable numbers in the rendered type are not asserted — they move with
-    // every unrelated change to the prelude. The arrow is a *variable* colour
-    // rather than `->`: the shape the call demanded has an undetermined colour
-    // at the moment the unification fails, which is before §3.4's defaulting
-    // clause runs, and a lone variable with no inlet occurrence is numbered
-    // (Effects §10).
+    // calling it takes the ordinary not-callable report (#385), which names the
+    // callee, the type it does have, and how many arguments the call supplied.
+    // The variable numbers in the rendered type are not asserted — they move
+    // with every unrelated change to the prelude. No arrow appears: the report's
+    // subject is that there is no function here, so a demanded arrow's colour
+    // would be a claim about a call that does not exist.
     const messages = projectDiagnostics("export let e: Set(Int) = Set.empty()\n");
     expect(messages).toHaveLength(1);
-    expect(messages[0]).toContain("type mismatch: expected Set(");
-    expect(messages[0]).toContain("found () ->?");
+    expect(messages[0]).toContain("`empty` is not a function — it has type `Set(");
+    expect(messages[0]).toContain("and this call supplies no arguments");
+    expect(messages[0]).not.toContain("->");
   });
 
   /**
