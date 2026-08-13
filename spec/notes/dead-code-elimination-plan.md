@@ -74,9 +74,9 @@ which is the `Vector.length(v)` sting recorded in Collections Part 1 §10.
 
 **The residue is everything else with that shape.** Verified, on a module with
 zero diagnostics *(transcribed before #425: the `__hex_` spellings are now the
-`__` family, and the per-hop `__hex_imported_N_` compounding shown here is gone —
-transit re-binds the interface name, aliasing only on collision; the dead
-re-exports this section argues about are unchanged)*:
+`__` family; this block's own imports and re-exports were already removed by
+#263 — see the note below — and #425 separately ended the unconditional alias
+prefix in the channels that survive)*:
 
 ```hexagon
 export record Box = {map: (Int) -> Int}
@@ -188,7 +188,7 @@ anything downstream.
 > and that transit (including its re-export) is load-bearing
 > (Modules §7).
 
-> **Edit note (#425).** Non-prelude transit stays load-bearing, but its names
+> **Edit note (2026-08-14, #425).** Non-prelude transit stays load-bearing, but its names
 > stopped compounding: a hop re-binds the exporter's interface name, aliasing
 > only on collision (Dictionary Sharing §5).
 
