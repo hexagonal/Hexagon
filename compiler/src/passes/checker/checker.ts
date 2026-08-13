@@ -174,8 +174,10 @@ function isRecovered(colour: Mono): boolean {
  * occurrences, no exceptions").
  *
  * The arrow spans are kept for ruling 9's face report, which needs tokens to put
- * a fixit on: every written occurrence spells this one variable, so §4.2's fixit
- * rewrites all of them. `outer` is present only where the signature's outermost
+ * a fixit on: every written occurrence spells this one variable, and §4.2 has
+ * the fixit rewrite all of them except where the join decides otherwise — an
+ * impure solution with a written outer arrow repairs that arrow alone.
+ * `outer` is present only where the signature's outermost
  * arrow was written — a binding annotation or an extern face. Hexagon's
  * declaration form has no outer arrow at all (`let f(x: A): B = …` ends at `=`),
  * so a declaration-form function's colour is inferred; the report then stands at
@@ -2664,15 +2666,19 @@ class Checker {
         this.#pendingInlet = false;
         this.#pendingOwnEffect = undefined;
         let valueType = inferredValueType;
-        if (item.annotation !== undefined) {
-          const annotationType = this.#annotationType(
-            item.annotation, level + 1, new Map(), this.#annotationVariableScope ?? new Map(),
-          );
+        if (annotation !== undefined) {
+          const annotationType = this.#inAnnotationPosition(annotation, () =>
+            this.#annotationType(
+              annotation,
+              level + 1,
+              new Map(),
+              this.#annotationVariableScope ?? new Map(),
+            ));
           this.#unifyExpected(
             annotationType,
             inferredValueType,
             item.value,
-            item.annotation.span,
+            annotation.span,
             true,
           );
           if (this.#hasNumericWidening(item.value)) valueType = annotationType;
@@ -2905,15 +2911,20 @@ class Checker {
       if (item.kind === "Var") {
         const inferredValueType = this.#inferExpr(item.value, level + 1);
         let valueType = inferredValueType;
-        if (item.annotation !== undefined) {
-          const annotationType = this.#annotationType(
-            item.annotation, level + 1, new Map(), this.#annotationVariableScope ?? new Map(),
-          );
+        const annotation = item.annotation;
+        if (annotation !== undefined) {
+          const annotationType = this.#inAnnotationPosition(annotation, () =>
+            this.#annotationType(
+              annotation,
+              level + 1,
+              new Map(),
+              this.#annotationVariableScope ?? new Map(),
+            ));
           this.#unifyExpected(
             annotationType,
             inferredValueType,
             item.value,
-            item.annotation.span,
+            annotation.span,
             true,
           );
           if (this.#hasNumericWidening(item.value)) valueType = annotationType;
@@ -5134,6 +5145,34 @@ class Checker {
     });
   }
 
+  /**
+   * Elaborates one binding annotation under the §4.4 position its **shape**
+   * selects (§2.2.2's second boundary).
+   *
+   * The clause split is shape and doctrine rather than position: a binding
+   * annotation that is itself a **function type** is a signature wherever it
+   * stands, so an inlet-less one takes §2.2.1's signature clause even at module
+   * level — the writer wrote a signature, and what it lacks is an inlet. A `->?`
+   * inside a non-function-type annotation with no enclosing signature — a
+   * module-level record-type binding — has no signature to lack one, and takes
+   * the no-signature clause. Inside a body neither branch is reached for an
+   * inlet-less annotation: it borrows the enclosing colour and there is nothing
+   * to refuse.
+   *
+   * This selects the *clause*, not the scope: whether the annotation opens a
+   * signature is `signatureInlet`'s question, above, and a function-typed
+   * annotation with no inlet still borrows rather than quantifying.
+   *
+   * A non-function-type annotation changes nothing and says so by leaving the
+   * position in force: module level is already `"no-signature"`, and inside a
+   * body the enclosing signature is the one that lacks an inlet.
+   */
+  #inAnnotationPosition<T>(annotation: Resolved.TypeAnnotation, body: () => T): T {
+    return annotation.kind === "Function"
+      ? this.#inPosition("signature", body)
+      : body();
+  }
+
   /** Runs `body` with §4.4's position set, restoring whatever was in force. */
   #inPosition<T>(
     position: "record" | "union" | "alias" | "signature" | "no-signature",
@@ -5347,14 +5386,22 @@ class Checker {
       this.#reportedFaces.add(face.effect);
       // §4.2: the report stands at a written `->?`, not presumptively at the
       // outer arrow — the constantified variable may be spelled only on a
-      // nested one, while the outer arrow is honestly `->` or `->!`. Every
-      // written occurrence spells the one variable, so the fixit rewrites each
-      // of them; a signature with nothing written to rewrite (a declaration
-      // form, whose outer arrow has no seat) gets the advice in words instead.
+      // nested one, while the outer arrow is honestly `->` or `->!`. A
+      // signature with nothing written to rewrite (a declaration form, whose
+      // outer arrow has no seat) gets the advice in words instead.
       const written = this.#writtenArrows(face);
       const target = face.outer ?? written[0] ?? face.declaration;
       const rewritable = written.length > 0;
       const replacement = colour.impure ? "->!" : "->";
+      // **The impure direction's fixit is the join** (§2.4). Where the outer
+      // arrow is one of the written `->?`s, the honest repair is the outer arrow
+      // alone: the inlets keep their `->?` and re-link as the constant-outer
+      // signature's variable — `withTransaction`'s face exactly — and rewriting
+      // them too would refuse the pure callbacks the join exists to keep. Only
+      // where the outer arrow is not written is the nested spelling the whole of
+      // the condemned colour. The pure direction has no join to preserve, so it
+      // rewrites every occurrence.
+      const edits = colour.impure && face.outer !== undefined ? [face.outer] : written;
       this.#diagnostics.add({
         severity: "error",
         message: colour.impure
@@ -5369,7 +5416,7 @@ class Checker {
           ? {
             fixes: [{
               message: colour.impure ? "write `->!`" : "write `->`",
-              edits: written.map((span) => ({ span, replacement })),
+              edits: edits.map((span) => ({ span, replacement })),
             }],
           }
           : {}),
@@ -5379,7 +5426,8 @@ class Checker {
 
   /**
    * Every written `->?` that spells one signature's colour, in source order and
-   * once each (§4.2's "the fixit rewrites each of them").
+   * once each — the pure direction's fixit, and the impure direction's wherever
+   * the outer arrow is not among them (§4.2).
    *
    * One arrow can be collected twice — a binding annotation and the lambda under
    * it write the same signature, and a record type is elaborated for checking
