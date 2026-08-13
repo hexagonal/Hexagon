@@ -129,10 +129,11 @@ export interface PreludeModule {
  * `Stream`, and nothing can — the type is `Seq`'s impure sibling and no pure
  * module has business with one.
  *
- * `Debug.hex` is last (#407), and its seat is the opposite kind of fact: no
- * signature here forces it. `log` names only `String` and `Unit`, and `trace`
- * only `Show`, so it could sit almost anywhere. It sits last for what the seat
- * *denies* rather than for anything it needs. A member sees only the members
+ * `Debug.hex` is last (#407), and its seat is the opposite kind of fact: almost
+ * no signature here forces it. Both members name `Show` and nothing else — `log`
+ * since #419 widened it to `log<a: Show>(value: a)`, `trace` from the start — so
+ * anywhere after `Show.hex`, which is the first seat, would do. It sits last for
+ * what the seat *denies* rather than for anything it needs. A member sees only the members
  * before it, so from the last seat `log` and `trace` are visible to no prelude
  * module at all: nothing in the standard library can quietly acquire a probe,
  * and every print in it would have to be a deliberate import. The collision

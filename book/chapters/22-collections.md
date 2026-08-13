@@ -266,7 +266,7 @@ Now ordinary loop syntax works:
 let bag = Bag({items = [2, 3, 3]})
 
 for number in bag
-    log("${number}")
+    log(number)
 ```
 
 For now, read `type Item = a` as “iterating `Bag(a)` produces `a`.” The `toSeq`

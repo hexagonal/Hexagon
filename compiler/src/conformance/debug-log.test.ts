@@ -23,7 +23,7 @@
 
 import { describe, expect, test } from "vitest";
 
-import { compileMain, runProject } from "../support/test-project.js";
+import { compileMain, projectDiagnostics, runProject } from "../support/test-project.js";
 
 /** Makes a graph's modules byte-distinct, so the test gets its own instances. */
 function distinct(label: string): (path: string, javascript: string) => string {
@@ -70,29 +70,33 @@ describe("the probe writes", () => {
   });
 
   /**
-   * The declared face is `(message: String) -> Unit`, and `Unit` is `undefined`
-   * (Products §2.6). The sink's own answer is `undefined` too, so this pins the
-   * lowering's one parameter rather than the return: a bare alias of the host's
-   * variadic `console.log` would forward every argument a JavaScript consumer
-   * passed the exported binding, which the face does not promise.
+   * #419 inverted the module's shape: the door row is now unexported under the
+   * local name `writeLine`, and `log` is ordinary Hexagon above it. So the row's
+   * arity is no longer reachable from the module surface at all — nothing a
+   * JavaScript consumer can import *is* the lowering, and the old form of this
+   * test (calling the exported `log` with two arguments and watching the second
+   * vanish) has no subject left. What survives is the structural half, pinned
+   * here, and the lowering's own one-parameter arrow, pinned off the emitted
+   * text below.
    *
-   * **The entry is `/Debug.hex`, and it has to be.** Reaching `log` through a
-   * Hexagon wrapper proves nothing about the lowering: the wrapper declares one
-   * parameter, so the emitted arrow truncates the second argument before the
-   * lowering is ever called, and the assertion below would hold under any
-   * lowering at all. The module's own export is the only binding a JavaScript
-   * consumer would actually import, and the only one whose arity is the
-   * lowering's. `/main.hex` still names `log`, because reachability is what
-   * puts `/Debug.hex` in the emitted graph.
+   * **The entry is `/Debug.hex`, and it has to be** — this reads the module's
+   * own export table. `/main.hex` still names `log`, because reachability is
+   * what puts `/Debug.hex` in the emitted graph.
    */
-  test("the exported binding takes one argument, not the host's variadic", async () => {
+  test("the door row is unexported; nothing importable is the lowering", async () => {
     const lines = await written(async () => {
       const debug = await runProject(
         [["/main.hex", "export let probe(message: String): Unit = log(message)\n"]],
-        { entry: "/Debug.hex", transform: distinct("one argument") },
+        { entry: "/Debug.hex", transform: distinct("door row unexported") },
       );
-      const log = debug["log"] as (...values: unknown[]) => unknown;
-      expect(log("first", "second")).toBeUndefined();
+      // Neither the row's local name nor a bare `log` alias of it is published.
+      expect(debug["writeLine"]).toBeUndefined();
+      expect(debug["debugLog"]).toBeUndefined();
+      expect(debug["log"]).toBeUndefined();
+      // What a JavaScript consumer does get at `String` is Part 8's fundamental
+      // specialization, whose body is the wrapper's, not the row's.
+      const logString = debug["logString"] as (...values: unknown[]) => unknown;
+      expect(logString("first", "second")).toBeUndefined();
     });
     expect(lines).toEqual([["first"]]);
   });
@@ -102,13 +106,42 @@ describe("the probe writes", () => {
    * position (Products §2.6), so the face a JavaScript consumer imports says
    * the probe answers nothing — which is what the sink answers, and what the
    * species is: a call whose only result is off the language's books.
+   *
+   * #419 changed *which* faces those are. A constrained export publishes Part
+   * 8's fundamental specialization set rather than one monomorphic function, so
+   * `log` reaches the boundary as `logInt`, `logString`, and the rest — named,
+   * dictionary-free entry points, exactly as `trace` already did. No bare `log`
+   * is declared: the generic edition carries a trailing `Show` dictionary
+   * (FFI Part 9, asserted below off the emitted JavaScript) and is exported
+   * under its internal name, which the `.d.ts` does not surface.
    */
-  test("the declaration faces one string in and nothing out", () => {
+  test("the declaration faces the fundamental specializations, none generic", () => {
     const project = compileMain("export let ok(message: String): Unit = log(message)\n");
     const module = project.modules.find(({ source }) => source.path === "/Debug.hex");
-    expect(module!.declarations.text).toContain(
-      "export declare function log(message: string): void;",
+    const declarations = module!.declarations.text;
+    expect(declarations).toContain("export declare function logString(value: string): void;");
+    expect(declarations).toContain("export declare function logInt(value: number): void;");
+    expect(declarations).toContain("export declare function logBool(value: boolean): void;");
+    expect(declarations).not.toContain("export declare function log(");
+  });
+
+  /**
+   * The widening's promise at the boundary, read off the two ends the emitted
+   * module actually has. The generic edition takes the value and a trailing
+   * `Show` dictionary (FFI Part 9 §6) and renders through it; the `String`
+   * specialization renders through nothing at all, because `Show<String>` is the
+   * identity (Primitive Types §7) — so a `String` operand reaches the door row
+   * byte-identically to the pre-#419 direct call, which is what makes the
+   * widening a widening rather than a change.
+   */
+  test("the generic edition carries the evidence suffix; `String` renders through nothing", () => {
+    const project = compileMain("export let ok(message: String): Unit = log(message)\n");
+    const module = project.modules.find(({ source }) => source.path === "/Debug.hex");
+    const javascript = module!.javascript.text;
+    expect(javascript).toMatch(
+      /const log = \(value, (__hex_dictShow_\d+)\) => \{\n\s+return writeLine\(\1\.show\(value\)\);/,
     );
+    expect(javascript).toContain("function logString(value) {\n  return writeLine(value);\n}");
   });
 });
 
@@ -162,7 +195,147 @@ describe("§6.2's caveat: the sink is captured at initialization", () => {
       "  const __hex_sink = console.log.bind(console);",
     ]);
     expect(javascript).toContain("return __hex_message => { __hex_sink(__hex_message); };");
-    expect(javascript).toContain("const log = __hex_debugLog;");
+    // Since #419 the row's local name is `writeLine` and it is unexported; the
+    // one-parameter arrow above is the lowering's own arity, which no longer
+    // has an exported binding to be read off.
+    expect(javascript).toContain("const writeLine = __hex_debugLog;");
+  });
+});
+
+/**
+ * #419. The probe widened from `log(message: String)` to `log<a: Show>(value: a)`
+ * — Hexagon's version of `console.log`, not `console.log` precisely. The door row
+ * stays monomorphic and went unexported beneath the wrapper, so everything here
+ * is about the *surface*: which operands it takes, whose rendering they get, and
+ * which it refuses.
+ */
+describe("#419: the probe takes any showable value", () => {
+  test("a non-`String` operand writes that type's rendering", async () => {
+    const lines = await written(async () => {
+      await runProject(
+        [["/main.hex", "log(5)\nexport let ok: Int = 1\n"]],
+        { transform: distinct("widened to Int") },
+      );
+    });
+    expect(lines).toEqual([["5"]]);
+  });
+
+  /**
+   * The widening's compatibility claim, made executable: `Show<String>` is the
+   * identity (Primitive Types §7), so a `String` operand reaches the sink as
+   * itself — no quotes, no escaping, byte-identically to what the pre-#419
+   * `String`-only face wrote. Every existing call site is therefore untouched.
+   */
+  test("a `String` operand still writes itself, unquoted", async () => {
+    const lines = await written(async () => {
+      await runProject(
+        [["/main.hex", 'log("the probe reached the sink")\nexport let ok: Int = 1\n']],
+        { transform: distinct("String unchanged") },
+      );
+    });
+    expect(lines).toEqual([["the probe reached the sink"]]);
+  });
+
+  /**
+   * The rendering is the *instance's*, not a structural walk of the
+   * representation. A record whose `Show` deliberately renders nothing like its
+   * fields is the specimen that tells the two apart: a representation walk would
+   * write `{cents = 250}` and the honored instance writes `$2.50`.
+   */
+  test("a user type's own `Show` instance is what renders, not its representation", async () => {
+    const lines = await written(async () => {
+      await runProject(
+        [[
+          "/main.hex",
+          "record Money = {cents: Int}\n" +
+            "honor Show<Money> =\n" +
+            '    show(value) = "$2.50"\n' +
+            "log(Money({cents = 250}))\n" +
+            "export let ok: Int = 1\n",
+        ]],
+        { transform: distinct("record instance renders") },
+      );
+    });
+    expect(lines).toEqual([["$2.50"]]);
+  });
+
+  test("a union's honored `Show` renders through the same path", async () => {
+    const lines = await written(async () => {
+      await runProject(
+        [[
+          "/main.hex",
+          "union Light = Red | Green\n" +
+            "honor Show<Light> =\n" +
+            "    show(value) =\n" +
+            "        match value\n" +
+            '            Red => "stop"\n' +
+            '            Green => "go"\n' +
+            "log(Green)\n" +
+            "export let ok: Int = 1\n",
+        ]],
+        { transform: distinct("union instance renders") },
+      );
+    });
+    expect(lines).toEqual([["go"]]);
+  });
+
+  /**
+   * The refusal, and the point of asserting it: the widening introduced no new
+   * diagnostic. A value with no `Show` is turned away by the ordinary
+   * missing-instance report — the same words `show` itself produces on the same
+   * operand — so `log` is a constrained call like any other and not a probe with
+   * a special error of its own. That is the visible difference from
+   * `console.log`, which would have printed something.
+   */
+  test("a value with no `Show` is refused, in the ordinary words", () => {
+    const throughLog = projectDiagnostics(
+      "let step(n: Int): Int = n + 1\nexport let bad: Unit = log(step)\n",
+    );
+    expect(throughLog).toEqual(["functions have no `Show` instance"]);
+    // The same operand handed straight to `show`, for the identity claim above.
+    const throughShow = projectDiagnostics(
+      "let step(n: Int): Int = n + 1\nexport let bad: String = show(step)\n",
+    );
+    expect(throughShow).toEqual(throughLog);
+  });
+
+  /**
+   * The widened `log` is an ordinary constrained function, so a caller that is
+   * itself constrained threads its own dictionary through rather than resolving
+   * anything. Two instantiations of one such caller prove the dictionary is the
+   * call site's and not baked into the callee.
+   */
+  test("a `<a: Show>` caller threads its dictionary through", async () => {
+    const lines = await written(async () => {
+      const exports = await runProject(
+        [[
+          "/main.hex",
+          "record Money = {cents: Int}\n" +
+            "honor Show<Money> =\n" +
+            '    show(value) = "$2.50"\n' +
+            "let probe<a: Show>(value: a): a =\n" +
+            "    log(value)\n" +
+            "    value\n" +
+            "export let atInt(n: Int): Int = probe(n)\n" +
+            "export let atMoney(n: Int): Int = probe(Money({cents = n})).cents\n",
+        ]],
+        { transform: distinct("polymorphic pass-through") },
+      );
+      expect((exports["atInt"] as (n: number) => number)(7)).toBe(7);
+      expect((exports["atMoney"] as (n: number) => number)(250)).toBe(250);
+    });
+    expect(lines).toEqual([["7"], ["$2.50"]]);
+  });
+
+  /** The qualified home (`modules.md` §6.4) widened with the bare name. */
+  test("`Debug.log` qualified takes the widened operand too", async () => {
+    const lines = await written(async () => {
+      await runProject(
+        [["/main.hex", "Debug.log(5)\nexport let ok: Int = 1\n"]],
+        { transform: distinct("qualified widened") },
+      );
+    });
+    expect(lines).toEqual([["5"]]);
   });
 });
 

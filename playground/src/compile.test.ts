@@ -193,7 +193,10 @@ describe("compileSource", () => {
     // declare what it throws (`/Integral.hex`, `/Pow.hex`) are emitted with it.
     // `/Int.hex` joins at the second landing: `/VectorTrie.hex`'s index
     // arithmetic is `Integral<Int>`'s members at that companion now. `/Debug.hex`
-    // joins wherever a source writes a line, which since #407 is every sample.
+    // joins wherever a source writes a line, which since #407 is every sample —
+    // and `/String.hex` joins behind it since #419 widened the probe to
+    // `log<a: Show>`, because a line written at `String` now needs the companion
+    // that houses `Show<String>`.
     expect(response.executionModules.map(({ path }) => path)).toEqual([
       "/Pow.hex",
       "/Prelude.hex",
@@ -201,6 +204,7 @@ describe("compileSource", () => {
       "/stdlib/Option.hex",
       "/BigInt.hex",
       "/Int.hex",
+      "/String.hex",
       "/VectorTrie.hex",
       "/stdlib/Vector.hex",
       "/Debug.hex",
@@ -244,7 +248,11 @@ describe("compileSource", () => {
     expect(response.javascript).toContain("const plus =");
     expect(response.javascript).toContain("function factorial(n)");
     expect(response.javascript).toContain("const color =");
-    expect(response.javascript).toContain('log(greet("Hexagon"));');
+    // Since #419 the probe is `log<a: Show>`, so a call site hands it the
+    // resolved dictionary as a trailing argument (FFI Part 9 §6). The binding
+    // this line is really about is `greet`, so the evidence spelling is left
+    // out of the pin rather than nailed down.
+    expect(response.javascript).toMatch(/log\(greet\("Hexagon"\), \w+\);/);
     expect(response.javascript).not.toContain("export { greet }");
     expect(response.typeScriptPreview).toContain("declare const greet");
     expect(response.typeScriptPreview).toContain("declare function factorial");
@@ -337,9 +345,12 @@ describe("compileSource", () => {
     expect(response.kind).toBe("compile-success");
     if (response.kind !== "compile-success") return;
 
-    expect(response.javascript).toContain("log(String(plusInt(20, 22)));");
-    expect(response.javascript).toContain("log(String(plusFloat(20.0, 1.5)));");
-    expect(response.javascript).toContain("log(String(plusBigInt(10n, 20n)));");
+    // The claim is the routing — each concrete call reaches its own edition
+    // rather than the generic `plus` — so the trailing `Show` evidence #419's
+    // widened `log` now takes is matched loosely rather than spelled out.
+    expect(response.javascript).toMatch(/log\(String\(plusInt\(20, 22\)\), \w+\);/);
+    expect(response.javascript).toMatch(/log\(String\(plusFloat\(20\.0, 1\.5\)\), \w+\);/);
+    expect(response.javascript).toMatch(/log\(String\(plusBigInt\(10n, 20n\)\), \w+\);/);
     expect(response.javascript).not.toContain("log(String(plus(20, 22,");
     expect(response.javascript).toContain("const count = 3;");
     expect(response.javascript).toContain("const cost = 1.50;");

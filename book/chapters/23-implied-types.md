@@ -252,7 +252,7 @@ At a loop whose source type is known, instance selection is static:
 
 ```hexagon
 for value in bag
-    log("${value}")
+    log(value)
 ```
 
 has the same general output shape as calling `Bag.toSeq(bag)` and iterating the

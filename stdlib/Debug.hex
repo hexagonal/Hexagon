@@ -12,12 +12,25 @@
 // The sink is captured when this module is initialized, never read per call,
 // which is what keeps the claim true: a program that replaced `console.log`
 // afterwards would otherwise have a read path back through the probe.
+//
+// The door row is monomorphic and unexported; the public probe is the ordinary
+// Hexagon above it, which renders any showable value and hands the row the
+// `String` (#419). This is Hexagon's version of `console.log`, not `console.log`
+// precisely — a value with no `Show` is refused where the host would have
+// printed something.
 
 extern from "hex:intrinsic"
-    (** Writes `message` to the debugging console. The write is invisible to the
-        program, so a probe inside a pure producer may print once, many times,
-        or never. *)
-    export fun debugLog as log(message: String): Unit
+    // Unexported, beneath `log` below: the door row carries the write and
+    // nothing else, so it stays at the one type the sink takes. `Show<String>`
+    // is the identity (Primitive Types section 7), so a `String` operand of
+    // `log` reaches this row byte-identically to a direct call.
+    fun debugLog as writeLine(message: String): Unit
+
+(** Writes `value`'s rendering to the debugging console. The write is invisible
+    to the program, so a probe inside a pure producer may print once, many
+    times, or never. *)
+export let log<a: Show>(value: a): Unit =
+    writeLine("${value}")
 
 (** Renders `label: value` to the debugging console and answers `value`
     unchanged — the form that threads a probe through an expression without
