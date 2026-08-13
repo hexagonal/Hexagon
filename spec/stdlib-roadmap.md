@@ -26,7 +26,7 @@
 | Rewrite Rule applies to any listing-introduced diagnostics | `decisions-sol-review-2026-07.md` §E |
 | **No declared-but-throwing stubs.** A shipped Hexagon-owned operation exists when it works: one the listing cannot yet implement is *absent* — no declaration, no export, no `.d.ts` entry — and the owning spec is the forward contract that reserves its name. Governs **shipped Hexagon-owned surface** — the stdlib, prelude, and runtime modules the toolchain ships, and its compiler-provided operations. It does not reach user code or development-time scaffolding; the fence is the release artifact. **There is no exception clause** *(added 2026-08-02, #237 ruling; routed here for discoverability — the doctrine reaches shipped surface generally but is written in a document titled for `Nullable`/`Array`. This row first read "governs callable surface only", which paraphrased a carve-out the ruling's own round 2 withdrew unreplaced; since this table is the route by which most readers meet the rule, the withdrawn wording had to go from here too)* | `ffi-part2-nullable-array.md` §9.1 (rejected alternatives, with prices, §9.2) |
 
-## 2. V1 obligations (22)
+## 2. V1 obligations (23)
 
 | Surface / question | Origin | Fixed semantics | Revisit bar | Discharge |
 |---|---|---|---|---|

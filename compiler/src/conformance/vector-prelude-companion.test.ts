@@ -108,9 +108,10 @@ describe("the module", () => {
       "Stream.hex",
       // #407 closes the list, and is the one member no signature places:
       // `log` names `String` and `Unit`, `trace` names `Show`, all of which
-      // seat in the first dozen. It is last so that no prelude module can
-      // quietly acquire a probe, and so that its two bare names stand where the
-      // fewest others already do.
+      // seat in the first dozen. It is last for what the seat denies — from
+      // here the two names are visible to no prelude module, so nothing in the
+      // standard library can quietly acquire a probe, and no prelude module's
+      // own bare names are ever in scope where these two are.
       "Debug.hex",
     ]);
   });

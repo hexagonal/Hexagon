@@ -75,15 +75,24 @@ describe("the probe writes", () => {
    * lowering's one parameter rather than the return: a bare alias of the host's
    * variadic `console.log` would forward every argument a JavaScript consumer
    * passed the exported binding, which the face does not promise.
+   *
+   * **The entry is `/Debug.hex`, and it has to be.** Reaching `log` through a
+   * Hexagon wrapper proves nothing about the lowering: the wrapper declares one
+   * parameter, so the emitted arrow truncates the second argument before the
+   * lowering is ever called, and the assertion below would hold under any
+   * lowering at all. The module's own export is the only binding a JavaScript
+   * consumer would actually import, and the only one whose arity is the
+   * lowering's. `/main.hex` still names `log`, because reachability is what
+   * puts `/Debug.hex` in the emitted graph.
    */
   test("the exported binding takes one argument, not the host's variadic", async () => {
     const lines = await written(async () => {
-      const exports = await runProject(
+      const debug = await runProject(
         [["/main.hex", "export let probe(message: String): Unit = log(message)\n"]],
-        { transform: distinct("one argument") },
+        { entry: "/Debug.hex", transform: distinct("one argument") },
       );
-      const probe = exports["probe"] as (...values: unknown[]) => unknown;
-      expect(probe("first", "second")).toBeUndefined();
+      const log = debug["log"] as (...values: unknown[]) => unknown;
+      expect(log("first", "second")).toBeUndefined();
     });
     expect(lines).toEqual([["first"]]);
   });

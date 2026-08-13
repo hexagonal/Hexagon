@@ -131,12 +131,15 @@ export interface PreludeModule {
  *
  * `Debug.hex` is last (#407), and its seat is the opposite kind of fact: no
  * signature here forces it. `log` names only `String` and `Unit`, and `trace`
- * only `Show`, so it could sit almost anywhere. It sits last because nothing in
- * the prelude may quietly acquire a probe — a module before it cannot name
- * `log`, which keeps every print in the standard library a deliberate one — and
- * because its two names are the widest it has: `log` and `trace` enter bare
- * scope everywhere, so seating them where the fewest bindings are already
- * standing is what keeps the collision arithmetic (Modules §5.5) reading.
+ * only `Show`, so it could sit almost anywhere. It sits last for what the seat
+ * *denies* rather than for anything it needs. A member sees only the members
+ * before it, so from the last seat `log` and `trace` are visible to no prelude
+ * module at all: nothing in the standard library can quietly acquire a probe,
+ * and every print in it would have to be a deliberate import. The collision
+ * arithmetic (Modules §5.5) follows the same way round — no prelude module's
+ * own bare names ever stand against these two, because none of them is in
+ * scope where the other is — so the two names first have to be weighed in user
+ * code, where the whole prelude arrives at once regardless of seat order.
  */
 export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Show.hex",
