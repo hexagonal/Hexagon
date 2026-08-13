@@ -86,7 +86,7 @@ describe("a module-level binding never wins a dot call (#267)", () => {
     // The local kept its name, so the companion is reached under the
     // collision-cleared spelling (Modules §6.4) — the machinery #266 pinned,
     // now exercised by dispatch rather than by a qualified call.
-    expect(emitted([["/main.hex", source]], "/main.hex")).toContain("__hex_prelude_map(");
+    expect(emitted([["/main.hex", source]], "/main.hex")).toContain("__prelude_map(");
   });
 
   /**

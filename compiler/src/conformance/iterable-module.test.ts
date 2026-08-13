@@ -120,13 +120,13 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
    * The behavioural half alone **cannot fail for that property**: a row that
    * re-wrapped the sequence in a fresh adapter spine would sum to 3 just the
    * same, and "pay nothing" is exactly what a sum cannot observe. So the
-   * emitted slot is read as well. `__hex_source => __hex_source` is the claim;
-   * `__hex_seqFromIterable` in that position would be the defect.
+   * emitted slot is read as well. `__source => __source` is the claim;
+   * `__seqFromIterable` in that position would be the defect.
    *
    * The sequence is built from `Seq`'s own producers rather than with
    * `Vector.toSeq`, and that is what makes the negative assertion mean
    * anything: a `Vector` read in the same fixture emits the *vector* row, whose
-   * slot is legitimately `__hex_seqFromIterable`, and the two rows' dictionaries
+   * slot is legitimately `__seqFromIterable`, and the two rows' dictionaries
    * are indistinguishable by text.
    */
   test("Seq(a) is the identity, not a re-wrapping", async () => {
@@ -138,8 +138,8 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
     expect(project.diagnostics).toEqual([]);
     const javascript = project.modules
       .find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
-    expect(javascript).toContain("({ toSeq: __hex_source => __hex_source })");
-    expect(javascript).not.toContain("({ toSeq: __hex_seqFromIterable })");
+    expect(javascript).toContain("({ toSeq: __source => __source })");
+    expect(javascript).not.toContain("({ toSeq: __seqFromIterable })");
     expect(await mainOf(source)).toBe(3);
   });
 
@@ -254,7 +254,7 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
     expect(project.diagnostics).toEqual([]);
     const javascript = project.modules
       .find(({ source }) => source.path === "/main.hex")!.javascript.text;
-    expect(javascript).toContain("for (const n of __hex_vectorOf([1, 2, 3]))");
+    expect(javascript).toContain("for (const n of __vectorOf([1, 2, 3]))");
     expect(javascript).not.toContain("toSeq");
   });
 });

@@ -27,7 +27,7 @@ function elements(value: unknown): unknown[] {
  * rather than against a convenient subset of it.
  */
 const VECTOR_LITERAL_IMPORT =
-  'import { empty as __hex_trieEmpty, append as __hex_trieAppend } from "./VectorTrie.js";';
+  'import { empty as __trieEmpty, append as __trieAppend } from "./VectorTrie.js";';
 
 /**
  * Conformance for what a module's synthesized and explicit prelude imports put
@@ -51,7 +51,7 @@ const VECTOR_LITERAL_IMPORT =
  * Since #153 every module reaches prelude instances directly through
  * `Module.preludeInstances`, so a copy on an import item is a second identity
  * for the same instance: predicted by consumers, re-exported by intermediates,
- * and growing an `__hex_imported_N_` prefix at every hop. Non-prelude imports
+ * and growing a per-file alias prefix at every hop. Non-prelude imports
  * are untouched — an ordinary module's `honor` is reachable three hops away
  * *only* through the intermediates, so that transit is load-bearing.
  *
@@ -93,12 +93,12 @@ function emittedPaths(files: readonly (readonly [string, string])[]): readonly s
  * constant.
  */
 const ITERABLE_TO_SEQ_IMPORT =
-  'import { __hex_exportN as toSeq } from "./Iterable.js";';
+  'import { __exportN as toSeq } from "./Iterable.js";';
 
 function importLines(javascript: string): readonly string[] {
   return javascript.split("\n")
     .filter((line) => line.startsWith("import "))
-    .map((line) => line.replace(/__hex_export\d+/g, "__hex_exportN"));
+    .map((line) => line.replace(/__export\d+/g, "__exportN"));
 }
 
 function exportLines(javascript: string): readonly string[] {
@@ -185,7 +185,7 @@ describe("the synthesized prelude import is what Core references", () => {
 
   /**
    * The collision-cleared local (Modules §6.4). A module that binds `map` at top
-   * level reaches the prelude's under `__hex_prelude_map`, and the filter has to
+   * level reaches the prelude's under `__prelude_map`, and the filter has to
    * keep the *local*, not fall back to the imported name — falling back would
    * redeclare the module's own binding, a `SyntaxError` at load.
    *
@@ -195,7 +195,7 @@ describe("the synthesized prelude import is what Core references", () => {
    * table, which the local won — so the dispatch spelling could not reach a
    * renamed prelude local at all. #267 ended that: dispatch consults the
    * receiver's companion, so a `Seq` receiver reaches the prelude's `map` under
-   * `__hex_prelude_map` whatever the module binds at top level. Both dispatch
+   * `__prelude_map` whatever the module binds at top level. Both dispatch
    * flavours are below — the `extern` one here, the `fun` one in
    * `companion-dispatch.test.ts`.
    */
@@ -207,7 +207,7 @@ describe("the synthesized prelude import is what Core references", () => {
     const javascript = emitted([["/main.hex", source]], "/main.hex");
     expect(importLines(javascript)).toEqual([
       'import { fromSeq } from "./Vector.js";',
-      'import { prepend, map as __hex_prelude_map } from "./Seq.js";',
+      'import { prepend, map as __prelude_map } from "./Seq.js";',
       ITERABLE_TO_SEQ_IMPORT,
       VECTOR_LITERAL_IMPORT,
     ]);
@@ -234,12 +234,12 @@ describe("the synthesized prelude import is what Core references", () => {
     ]], "/main.hex");
     expect(importLines(javascript)).toEqual([
       'import { fromSeq } from "./Vector.js";',
-      'import { map as __hex_prelude_map } from "./Seq.js";',
+      'import { map as __prelude_map } from "./Seq.js";',
       ITERABLE_TO_SEQ_IMPORT,
       VECTOR_LITERAL_IMPORT,
       'import { map } from "lib";',
     ]);
-    expect(javascript).toContain("__hex_prelude_map(");
+    expect(javascript).toContain("__prelude_map(");
   });
 
   /**
@@ -282,7 +282,7 @@ describe("an explicit import of a prelude module carries no evidence", () => {
       'import * as Option from "./Option"\n' +
       "export fun mk(x: Int): Option(Int) = Option.Some(x)\n",
     ]], "/a.hex");
-    expect(javascript).not.toContain("__hex_instance_");
+    expect(javascript).not.toContain("__");
   });
 
   /**
@@ -304,8 +304,8 @@ describe("an explicit import of a prelude module carries no evidence", () => {
     // `stdlib/Int.hex`'s source. The point of the case is the `Option.js` pair:
     // one dictionary binding, not two.
     expect(importLines(javascript)).toEqual([
-      'import { __hex_instance_Eq_Option as __hex_imported_13___hex_instance_Eq_Option } from "./Option.js";',
-      'import { __hex_instance_Eq_Int as __hex_imported_15___hex_instance_Eq_Int } from "./Int.js";',
+      'import { __Eq_Option } from "./Option.js";',
+      'import { __Eq_Int } from "./Int.js";',
       'import { Some } from "./Option.js";',
     ]);
     expect(exportLines(javascript)).toEqual(["export { same };", "export { mk };"]);
@@ -385,14 +385,18 @@ describe("non-prelude instance evidence still transits", () => {
     const b = emitted(files, "/b.hex");
     expect(importLines(b)).toEqual([
       'import { Box } from "./a.js";',
-      'import { __hex_instance_Show_Box as __hex_imported_0___hex_instance_Show_Box } from "./a.js";',
+      'import { __Show_Box } from "./a.js";',
     ]);
     expect(exportLines(b)).toEqual([
-      "export { __hex_imported_0___hex_instance_Show_Box };",
+      "export { __Show_Box };",
       "export { mk };",
     ]);
-    expect(emitted(files, "/c.hex")).toContain(
-      "__hex_imported_1___hex_imported_0___hex_instance_Show_Box",
+    // The hop that used to compound. `c.hex` reaches the dictionary through
+    // `b.hex`, and binds it under the same interface name `a.hex` published —
+    // where the per-file alias prefix used to wrap `b.hex`'s already-prefixed
+    // local in a second prefix (#425).
+    expect(importLines(emitted(files, "/c.hex"))).toContain(
+      'import { __Show_Box } from "./b.js";',
     );
 
     const main = await runProject([

@@ -205,7 +205,7 @@ describe("`Show<String>` is the identity, and takes no key for it", () => {
   test("`String.js` holds `show` as the plain binding", () => {
     const text = companion('export let rendered: String = String.show("x")\n');
 
-    expect(text).toContain("const __hex_instance_Show_String = { show: value => value };");
+    expect(text).toContain("const __Show_String = { show: value => value };");
     expect(text).not.toContain("show: value => String(value)");
   });
 });
@@ -226,10 +226,10 @@ describe("the wired rows are gone, not dormant", () => {
       "",
     ].join("\n"));
 
-    expect(text).not.toContain("concat: (__hex_a, __hex_b) => __hex_a + __hex_b");
-    expect(text).not.toContain("show: __hex_a => __hex_a");
-    expect(text).toContain('__hex_instance_Concat_String } from "./String.js"');
-    expect(text).toContain('__hex_instance_Ord_String } from "./String.js"');
+    expect(text).not.toContain("concat: (__a, __b) => __a + __b");
+    expect(text).not.toContain("show: __a => __a");
+    expect(text).toContain('__Concat_String } from "./String.js"');
+    expect(text).toContain('__Ord_String } from "./String.js"');
   });
 
   /**
@@ -281,7 +281,7 @@ describe("Constraints §6.1's inlining survives the move", () => {
     // `!=` is `Eq`'s defaulted `notEquals`, which is the negation of `equals` —
     // so the inlining shows through it rather than around it.
     expect(text).toContain('const different = !("left" === "right");');
-    expect(text).toContain('const ordered = __hex_compareString("left", "right") < 0;');
+    expect(text).toContain('const ordered = __compareString("left", "right") < 0;');
   });
 
   /**
@@ -307,10 +307,10 @@ describe("Constraints §6.1's inlining survives the move", () => {
     expect(exports["same"]).toBe(true);
     expect(exports["shown"]).toBe("{text = north}");
     expect(exports["hashed"]).toBe(true);
-    expect(text).toContain("__hex_left.text === __hex_right.text");
-    expect(text).toContain("__hex_ordering(__hex_compareString(__hex_left.text, __hex_right.text))");
+    expect(text).toContain("__left.text === __right.text");
+    expect(text).toContain("__ordering(__compareString(__left.text, __right.text))");
     // `Show<String>`'s identity, in a derived body: the field is spliced.
-    expect(text).toContain('"text = " + __hex_value.text');
+    expect(text).toContain('"text = " + __value.text');
   });
 
   /**
@@ -352,21 +352,21 @@ describe("`String.hex` is instances and nothing else", () => {
       "",
     ].join("\n"));
 
-    expect(text).toContain("const nativeConcat = (__hex_a, __hex_b) => __hex_a + __hex_b;");
-    expect(text).toContain("const nativeEquals = (__hex_a, __hex_b) => __hex_a === __hex_b;");
+    expect(text).toContain("const nativeConcat = (__a, __b) => __a + __b;");
+    expect(text).toContain("const nativeEquals = (__a, __b) => __a === __b;");
     expect(text).toContain(
-      "const nativeCompare = (__hex_a, __hex_b) => " +
-        "__hex_ordering(__hex_compareString(__hex_a, __hex_b));",
+      "const nativeCompare = (__a, __b) => " +
+        "__ordering(__compareString(__a, __b));",
     );
-    expect(text).toContain("const nativeHash = __hex_a => __hex_stableHash(__hex_a);");
+    expect(text).toContain("const nativeHash = __a => __stableHash(__a);");
     // The fifth native (#353): Collections Part 5 §5.3's `String.fromSeq`, and
     // its binding implementation note — collect chunks and **join**, never the
     // fold of `++` the section describes semantically, which would be quadratic.
     expect(text).toContain(
-      'const fromSeq = __hex_values => [...__hex_seqToIterable(__hex_values)].join("");',
+      'const fromSeq = __values => [...__seqToIterable(__values)].join("");',
     );
     for (const constraint of ["Eq", "Ord", "Show", "Concat", "Hash"]) {
-      expect(text).toContain(`__hex_instance_${constraint}_String`);
+      expect(text).toContain(`__${constraint}_String`);
     }
     // "No guard" is a claim about *this companion's* code, and it is asked of
     // exactly that: the module's own bindings are the unindented `const` and

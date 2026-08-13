@@ -320,8 +320,8 @@ describe("one representation, observable from JS (FFI Part 9)", () => {
         "export let anchorFeet: Feet = Feet({step = 1})\n",
     );
 
-    const written = module["__hex_instance_Ord_Yards"] as OrdDictionary;
-    const derived = module["__hex_instance_Ord_Feet"] as OrdDictionary;
+    const written = module["__Ord_Yards"] as OrdDictionary;
+    const derived = module["__Ord_Feet"] as OrdDictionary;
 
     expect(written.compare({ run: 1 }, { run: 2 })).toBe("Less");
     expect(written.compare({ run: 2 }, { run: 1 })).toBe("Greater");
@@ -349,9 +349,9 @@ describe("one representation, observable from JS (FFI Part 9)", () => {
         "Hand({flags = [True], label = \"n\", score = 1.0, seat = 1})\n",
     );
 
-    const suit = module["__hex_instance_Ord_Suit"] as OrdDictionary;
-    const card = module["__hex_instance_Ord_Card"] as OrdDictionary;
-    const hand = module["__hex_instance_Ord_Hand"] as OrdDictionary;
+    const suit = module["__Ord_Suit"] as OrdDictionary;
+    const card = module["__Ord_Card"] as OrdDictionary;
+    const hand = module["__Ord_Hand"] as OrdDictionary;
     const left = { flags: [false], label: "a", score: 1.0, seat: 1 };
 
     expect(suit.compare("Clubs", "Spades")).toBe("Less");
@@ -383,7 +383,7 @@ describe("one representation, observable from JS (FFI Part 9)", () => {
     expect(module.unitOrder).toBe(true);
     expect(module.unitStrict).toBe(false);
     expect(javascript(source)).toContain(
-      'const unitOrder = ({ compare: (__hex_left, __hex_right) => "Equal" })' +
+      'const unitOrder = ({ compare: (__left, __right) => "Equal" })' +
         '.compare(undefined, undefined) !== "Greater";',
     );
   });
@@ -411,28 +411,28 @@ describe("one representation, observable from JS (FFI Part 9)", () => {
     // None of the three arguments is a literal built here any more: since #344
     // each is its companion's exported dictionary, imported. The shapes they
     // hold are the same comparators, pinned at their new homes below.
-    expect(text).toContain("__hex_instance_Ord_Cell(__hex_imported_");
-    expect(text).toContain('__hex_instance_Ord_Int } from "./Int.js"');
-    expect(text).toContain('__hex_instance_Ord_Float } from "./Float.js"');
-    expect(text).toContain('__hex_instance_Ord_String } from "./String.js"');
+    expect(text).toMatch(/__Ord_Cell\(__Ord_(Int|Float|String)\)/u);
+    expect(text).toContain('__Ord_Int } from "./Int.js"');
+    expect(text).toContain('__Ord_Float } from "./Float.js"');
+    expect(text).toContain('__Ord_String } from "./String.js"');
     expect(companionText(source, "Int.hex")).toContain(
-      '(__hex_a, __hex_b) => __hex_a < __hex_b ? "Less" : __hex_a > __hex_b ? "Greater" : "Equal"',
+      '(__a, __b) => __a < __b ? "Less" : __a > __b ? "Greater" : "Equal"',
     );
     expect(companionText(source, "Float.hex")).toContain(
-      "(__hex_a, __hex_b) => __hex_ordering(__hex_compareFloat(__hex_a, __hex_b))",
+      "(__a, __b) => __ordering(__compareFloat(__a, __b))",
     );
     expect(companionText(source, "String.hex")).toContain(
-      "(__hex_a, __hex_b) => __hex_ordering(__hex_compareString(__hex_a, __hex_b))",
+      "(__a, __b) => __ordering(__compareString(__a, __b))",
     );
     // And `ordering` and the comparators travelled with them, bodies and all,
     // into the companions that call them.
     expect(companionText(source, "Float.hex")).toContain(
-      'function __hex_ordering(__hex_sign) {\n' +
-        '  return __hex_sign < 0 ? "Less" : __hex_sign > 0 ? "Greater" : "Equal";\n' +
+      'function __ordering(__sign) {\n' +
+        '  return __sign < 0 ? "Less" : __sign > 0 ? "Greater" : "Equal";\n' +
         "}",
     );
     expect(companionText(source, "Float.hex"))
-      .toContain("  if (Number.isNaN(__hex_left)) return Number.isNaN(__hex_right) ? 0 : 1;");
+      .toContain("  if (Number.isNaN(__left)) return Number.isNaN(__right) ? 0 : 1;");
   });
 });
 
@@ -531,8 +531,8 @@ describe("what the change does not touch", () => {
     );
 
     expect(text).toContain("const cheap = 1 < 2;");
-    expect(text).toContain("const cheapFloat = __hex_compareFloat(1.0, 2.0) < 0;");
-    expect(text).toContain('const cheapText = __hex_compareString("a", "b") < 0;');
+    expect(text).toContain("const cheapFloat = __compareFloat(1.0, 2.0) < 0;");
+    expect(text).toContain('const cheapText = __compareString("a", "b") < 0;');
     expect(text).toContain("const cheapBool = false < true;");
     // No dictionary was built for any of them.
     expect(text).not.toContain(".compare(");

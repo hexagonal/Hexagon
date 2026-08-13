@@ -1213,11 +1213,17 @@ interface SubjectOfRename extends RenameSubject {
  * the one it replaces — decided by lexing both rather than by restating
  * `spec/lexer.md` §3 here.
  *
- * The lexer is where a keyword, the reserved `__hex_` prefix, and the
- * capitalized/uncapitalized split are actually decided. A copy of those rules in
- * this file would be one more thing to keep in step, and the copy is the one
- * that would silently fall behind — which is how `TRésultat` came to truncate to
- * `TR` in the first slice's index.
+ * The lexer is where a keyword and the capitalized/uncapitalized split are
+ * actually decided. A copy of those rules in this file would be one more thing
+ * to keep in step, and the copy is the one that would silently fall behind —
+ * which is how `TRésultat` came to truncate to `TR` in the first slice's index.
+ *
+ * Lexer §3.2's reserved `__` prefix is the one rule that cannot be borrowed that
+ * way. It is position-dependent — the foreign side of an FFI `as` alias is
+ * exempt — so the lexer emits the token and a *parser* selects the message
+ * (#425), and a bare name in isolation has no position to read. A rename target
+ * is unambiguously a Hexagon name seat, so the answer here is a flat refusal
+ * with its own sentence.
  */
 function checkNewName(current: string, proposed: string): RenameRefusal | undefined {
   const token = soleNameToken(proposed);
@@ -1226,6 +1232,13 @@ function checkNewName(current: string, proposed: string): RenameRefusal | undefi
       refused:
         `\`${proposed}\` is not a name Hexagon can read: it has to be one identifier, ` +
         "and not a keyword",
+    };
+  }
+  if (token.text.startsWith("__")) {
+    return {
+      refused:
+        `\`${proposed}\` begins with \`__\`, which is reserved for compiler-generated ` +
+        "names — a binding spelled that way could collide with one the compiler writes",
     };
   }
   const existing = soleNameToken(current);

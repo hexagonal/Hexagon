@@ -706,7 +706,12 @@ describe("AnalysisSession.rename", () => {
     expect(refusal(session.rename("/main.hex", start, "two words"))).toContain("one identifier");
     expect(refusal(session.rename("/main.hex", start, "a.b"))).toContain("one identifier");
     expect(refusal(session.rename("/main.hex", start, ""))).toContain("one identifier");
-    expect(refusal(session.rename("/main.hex", start, "__hex_x"))).toContain("one identifier");
+    // …except the reserved `__` prefix, which the lexer no longer refuses: it is
+    // position-dependent, so the parser selects it (#425) and a bare spelling
+    // has no position. A rename target is always a Hexagon name seat, and the
+    // refusal says so in its own words.
+    expect(refusal(session.rename("/main.hex", start, "__x")))
+      .toContain("reserved for compiler-generated names");
     expect(refusal(session.rename("/main.hex", start, "value "))).toContain("one identifier");
   });
 

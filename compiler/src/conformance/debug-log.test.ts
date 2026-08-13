@@ -139,7 +139,7 @@ describe("the probe writes", () => {
     const module = project.modules.find(({ source }) => source.path === "/Debug.hex");
     const javascript = module!.javascript.text;
     expect(javascript).toMatch(
-      /const log = \(value, (__hex_dictShow_\d+)\) => \{\n\s+return writeLine\(\1\.show\(value\)\);/,
+      /const log = \(value, (__Show_a)\) => \{\n\s+return writeLine\(\1\.show\(value\)\);/,
     );
     expect(javascript).toContain("function logString(value) {\n  return writeLine(value);\n}");
   });
@@ -192,13 +192,13 @@ describe("§6.2's caveat: the sink is captured at initialization", () => {
       return !trimmed.startsWith("//") && !trimmed.startsWith("*") && !trimmed.startsWith("/*");
     });
     expect(code.filter((line) => line.includes("console.log"))).toEqual([
-      "  const __hex_sink = console.log.bind(console);",
+      "  const __sink = console.log.bind(console);",
     ]);
-    expect(javascript).toContain("return __hex_message => { __hex_sink(__hex_message); };");
+    expect(javascript).toContain("return __message => { __sink(__message); };");
     // Since #419 the row's local name is `writeLine` and it is unexported; the
     // one-parameter arrow above is the lowering's own arity, which no longer
     // has an exported binding to be read off.
-    expect(javascript).toContain("const writeLine = __hex_debugLog;");
+    expect(javascript).toContain("const writeLine = __debugLog;");
   });
 });
 

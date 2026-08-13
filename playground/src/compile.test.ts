@@ -23,7 +23,7 @@ describe("compileSource", () => {
       path === "/stdlib/Vector.hex"
     );
     expect(vectorModule?.javascript).not.toContain(
-      "const __hex_persistentCollections",
+      "const __persistentCollections",
     );
     // `Option`/`Some`/`None` are implicit via the prelude; Vector imports only
     // the constructors it uses, ordered by first reference.
@@ -173,10 +173,10 @@ describe("compileSource", () => {
 
     expect(response.diagnostics).toEqual([]);
     expect(response.javascript).toContain(
-      "const Tउपयोगकर्ता = __hex_record => __hex_record;",
+      "const Tउपयोगकर्ता = __record => __record;",
     );
     expect(response.javascript).toContain(
-      "const __hex_instance_C可显示_Tउपयोगकर्ता",
+      "const __C可显示_Tउपयोगकर्ता",
     );
     expect(response.javascript).toContain("const 用户 = { नाम: \"अनाया\", 城市: \"上海\" };");
     expect(response.javascript).toContain("const $税率 = 0.10;");
@@ -375,10 +375,10 @@ describe("compileSource", () => {
     expect(response.diagnostics).toEqual([]);
     expect(response.javascript).toContain('import * as Rat from "./stdlib/Rat.js";');
     expect(response.javascript).toContain(
-      "const fiveSixths = __hex_imported_2___hex_instance_Num_Rat.add(half, third);",
+      "const fiveSixths = __Num_Rat.add(half, third);",
     );
     expect(response.javascript).toContain(
-      "const threeHalves = __hex_imported_2___hex_instance_Frac_Rat.divide(half, third);",
+      "const threeHalves = __Frac_Rat.divide(half, third);",
     );
     expect(response.javascript).toContain("const half = Rat.create(1n, 2n);");
     expect(response.javascript).toContain("const tenTwelfths = Rat.create(10n, 12n);");
@@ -399,9 +399,9 @@ describe("compileSource", () => {
     expect(ratModule?.javascript).toContain("DivideByZeroError(\"Rat.create: bottom is zero\")");
     expect(ratModule?.javascript).toContain('from "../Integral.js"');
     expect(ratModule?.javascript).toContain(
-      "const __hex_instance_Frac_Rat = { signed: __hex_instance_Signed_Rat, divide:",
+      "const __Frac_Rat = { signed: __Signed_Rat, divide:",
     );
-    expect(ratModule?.javascript).toContain("export { __hex_instance_Frac_Rat };");
+    expect(ratModule?.javascript).toContain("export { __Frac_Rat };");
     expect(response.types).toContainEqual(expect.objectContaining({
       name: "fiveSixths",
       displayedType: "Rat",
@@ -453,7 +453,7 @@ describe("compileSource", () => {
     expect(response.kind).toBe("compile-success");
     if (response.kind !== "compile-success") return;
     expect(response.javascript).toContain(
-      "__hex_imported_2___hex_instance_Frac_Rat.divide(half, zero)",
+      "__Frac_Rat.divide(half, zero)",
     );
     const moduleUrls = new Map<string, string>();
     for (const module of response.executionModules) {

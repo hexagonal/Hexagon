@@ -636,7 +636,7 @@ describe("§9.4 channel separation: internal traversal never uses the face", () 
     const javascript = project.modules
       .find((module) => module.source.path === "/main.hex")!
       .javascript.text;
-    expect(javascript).toContain("__hex_seqToIterable(source)");
+    expect(javascript).toContain("__seqToIterable(source)");
   });
 });
 
@@ -734,16 +734,16 @@ describe("occasion 1's wrapper is transparent to Hexagon importers (§9.4)", () 
       expect(compiled.declarations.text).toContain(`export declare function ${instance}(`);
       expect(javascript).toMatch(
         new RegExp(
-          `const (\\w+) = \\(__hex_argument0, __hex_argument1\\) => ` +
-            `${instance}\\(__hex_seqInbound\\(__hex_argument0\\), __hex_argument1\\);\\n` +
+          `const (\\w+) = \\(__argument0, __argument1\\) => ` +
+            `${instance}\\(__seqInbound\\(__argument0\\), __argument1\\);\\n` +
             `export \\{ \\1 as ${instance} \\};`,
           "u",
         ),
       );
     }
     // The internal edition is exported raw, and is absent from the face.
-    expect(javascript).toMatch(/^export \{ total as __hex_export\d+ \};$/mu);
-    expect(compiled.declarations.text).not.toContain("__hex_export");
+    expect(javascript).toMatch(/^export \{ total as __export\d+ \};$/mu);
+    expect(compiled.declarations.text).not.toContain("__export");
     // And a specialization really accepts what its face invites.
     const exports = await main(source);
     const totalInt = exports["totalInt"] as (source: Iterable<number>, start: number) => number;
@@ -768,7 +768,7 @@ describe("occasion 1's wrapper is transparent to Hexagon importers (§9.4)", () 
     const javascript = project.modules
       .find((module) => module.source.path === "/main.hex")!
       .javascript.text;
-    const declarations = [...javascript.matchAll(/^const (\w+Boundary\d+) = /gmu)];
+    const declarations = [...javascript.matchAll(/^const (\w+Boundary(?:_\d+)?) = /gmu)];
     // Two exported functions with a `Seq` parameter, and `alsoTotal`'s call to
     // `total` binds the internal name — so exactly two wrappers, not three.
     expect(declarations).toHaveLength(2);

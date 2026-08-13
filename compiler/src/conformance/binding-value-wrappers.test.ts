@@ -248,7 +248,7 @@ describe("a right-hand side means the same wherever it sits on the page", () => 
       "    (x, y) => x + y\n" +
       "export let whole: Int = plus(1, 2)\n",
     );
-    expect(emitted).toMatch(/^const plus = \(x, y, __hex_dict\w+\) =>/mu);
+    expect(emitted).toMatch(/^const plus = \(x, y, __Num_a\) =>/mu);
   });
 });
 

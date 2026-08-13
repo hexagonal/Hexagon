@@ -7,8 +7,8 @@ import { compileFiles, compileMain, projectDiagnostics, runMain, runProject } fr
  * primitive's home module (Constraints §5.3), its eight instances are ordinary
  * `honor` blocks, the checked family of Primitive Types §2.1 are its plain
  * exports, and the compiler's wired `Int` rows — the instance table, the
- * `PrimitiveOperation` door, the `__hex_int*` helper family, and
- * `__hex_checkedPower` — all retired in the same change.
+ * `PrimitiveOperation` door, the `__int*` helper family, and
+ * `__checkedPower` — all retired in the same change.
  *
  * `Int` is the workhorse: every bare integer literal defaults to it, so almost
  * nothing in the language is untouched by this move. **Everything that can run,
@@ -385,8 +385,8 @@ describe("`pow` and its guard", () => {
   test("`**` at `Int` emits as the member call, not as the operator", () => {
     const text = emitted("export let raised: Int = 2 ** 5\n");
 
-    expect(text).toContain("__hex_instance_Pow_Int.pow(2, 5)");
-    expect(text).not.toContain("__hex_checkedPower");
+    expect(text).toContain("__Pow_Int.pow(2, 5)");
+    expect(text).not.toContain("__checkedPower");
     expect(text).not.toContain("2 ** 5");
   });
 });
@@ -399,7 +399,7 @@ describe("the wired rows are gone, not dormant", () => {
    * A row that merely stopped being *selected* would still be emitted the
    * moment something reached it.
    */
-  test("no `__hex_int*` helper and no `__hex_checkedPower` survive", () => {
+  test("no `__int*` helper and no `__checkedPower` survive", () => {
     const text = emitted([
       "export let a: Int = Int.div(9, 4)",
       "export let b: Int = Int.gcd(9, 6)",
@@ -408,8 +408,8 @@ describe("the wired rows are gone, not dormant", () => {
       "",
     ].join("\n"));
 
-    expect(text).not.toContain("__hex_int");
-    expect(text).not.toContain("__hex_checkedPower");
+    expect(text).not.toContain("__int");
+    expect(text).not.toContain("__checkedPower");
     expect(text).toContain('from "./Int.js"');
   });
 
@@ -426,8 +426,8 @@ describe("the wired rows are gone, not dormant", () => {
       "",
     ].join("\n"));
 
-    expect(text).not.toContain("__hex_floatMod");
-    expect(text).not.toContain("__hex_floatRem");
+    expect(text).not.toContain("__floatMod");
+    expect(text).not.toContain("__floatRem");
     expect(text).toContain('from "./Float.js"');
   });
 
@@ -720,9 +720,9 @@ describe("the companion's own emitted shape", () => {
   test("`Int.js` holds the natives as operators and the guards as source", () => {
     const text = companion("export let n: Int = Int.div(8, 3)\n");
 
-    expect(text).toContain("(__hex_a, __hex_b) => Math.trunc(__hex_a / __hex_b)");
-    expect(text).toContain("(__hex_a, __hex_b) => __hex_a % __hex_b");
-    expect(text).toContain("(__hex_a, __hex_b) => __hex_a ** __hex_b");
+    expect(text).toContain("(__a, __b) => Math.trunc(__a / __b)");
+    expect(text).toContain("(__a, __b) => __a % __b");
+    expect(text).toContain("(__a, __b) => __a ** __b");
     expect(text).toContain('"Int.div: divisor is zero"');
     expect(text).toContain('"an integer exponent cannot be negative"');
     // The self-identity is the plain binding, with no host call behind it.

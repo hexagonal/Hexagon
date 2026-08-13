@@ -153,9 +153,14 @@ A refusal is a result rather than an error: a name the project does not own, a
 spelling Hexagon will not read as the same kind of name, an edit that would change
 what the code means. Each reaches the user as a failed request, which is the only
 channel a rename has for saying why. Spelling is checked by *lexing* the proposed
-name and comparing the token to the old one's, so keywords, the reserved `__hex_`
-prefix, and the capitalized/uncapitalized split are all decided by the lexer that
-owns them rather than by a copy that would fall behind.
+name and comparing the token to the old one's, so keywords and the
+capitalized/uncapitalized split are decided by the lexer that owns them rather
+than by a copy that would fall behind. The reserved `__` prefix is the one rule
+that cannot be borrowed that way: it is position-dependent — the foreign side of
+an FFI `as` alias is exempt — so the lexer emits the token and a *parser* selects
+the message, and a proposed spelling in isolation has no position to read. A
+rename target is unambiguously a Hexagon name seat, so the refusal for it is
+written out here, in its own sentence, rather than inherited.
 
 An alias is the case that makes the rule visible. `import {Shade as Other}` gives
 one identity two spellings, and renaming `Shade` must rewrite the clause's

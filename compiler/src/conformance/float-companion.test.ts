@@ -323,7 +323,7 @@ describe("the wired rows are gone, not dormant", () => {
    * the output rather than agreement in the answers — reinstating the retired
    * `supports` table or the `primitiveDictionary` builder has to fail here.
    */
-  test("no `__hex_float*` helper survives, and the dictionaries are imported", () => {
+  test("no `__float*` helper survives, and the dictionaries are imported", () => {
     const text = emitted([
       "export let a: Float = Float.mod(-9.0, 4.0)",
       "export let b: Float = Float.rem(-9.0, 4.0)",
@@ -332,14 +332,14 @@ describe("the wired rows are gone, not dormant", () => {
       "",
     ].join("\n"));
 
-    expect(text).not.toContain("__hex_float");
+    expect(text).not.toContain("__float");
     expect(text).toContain('from "./Float.js"');
-    expect(text).toContain("__hex_instance_Ord_Float");
+    expect(text).toContain("__Ord_Float");
   });
 
   /**
    * And no dictionary is built at the use site. The retired table's `Signed`
-   * arm wrote `fromInt: __hex_a => __hex_a` inline; the companion's export is
+   * arm wrote `fromInt: __a => __a` inline; the companion's export is
    * the only definition of that slot now, so a literal like it appearing here
    * is the wired row rebuilt under another name.
    */
@@ -350,9 +350,9 @@ describe("the wired rows are gone, not dormant", () => {
       "",
     ].join("\n"));
 
-    expect(text).not.toContain("fromInt: __hex_a => __hex_a");
-    expect(text).not.toContain("divide: (__hex_a, __hex_b) => __hex_a / __hex_b");
-    expect(text).toContain('__hex_instance_Signed_Float } from "./Float.js"');
+    expect(text).not.toContain("fromInt: __a => __a");
+    expect(text).not.toContain("divide: (__a, __b) => __a / __b");
+    expect(text).toContain('__Signed_Float } from "./Float.js"');
   });
 
   /**
@@ -415,8 +415,8 @@ describe("Constraints §6.1's inlining survives the move", () => {
     expect(text).toContain("const difference = 9.5 - 0.5;");
     expect(text).toContain("const opposite = -3.25;");
     expect(text).toContain("const quotient = 9.0 / 4.0;");
-    expect(text).toContain("const ordered = __hex_compareFloat(1.25, 2.75) < 0;");
-    expect(text).toContain("const identical = __hex_floatEquals(1.25, 1.25);");
+    expect(text).toContain("const ordered = __compareFloat(1.25, 2.75) < 0;");
+    expect(text).toContain("const identical = __floatEquals(1.25, 1.25);");
     expect(text).toContain("const rendered = String(6.25);");
   });
 
@@ -442,9 +442,9 @@ describe("Constraints §6.1's inlining survives the move", () => {
     expect(exports["same"]).toBe(true);
     expect(exports["shown"]).toBe("{value = 0.5}");
     expect(exports["hashed"]).toBe(true);
-    expect(text).toContain("__hex_floatEquals(__hex_left.value, __hex_right.value)");
-    expect(text).toContain("__hex_ordering(__hex_compareFloat(__hex_left.value, __hex_right.value))");
-    expect(text).toContain('String(__hex_value.value)');
+    expect(text).toContain("__floatEquals(__left.value, __right.value)");
+    expect(text).toContain("__ordering(__compareFloat(__left.value, __right.value))");
+    expect(text).toContain('String(__value.value)');
   });
 });
 
@@ -473,7 +473,7 @@ describe("the composed `fromNat`, which takes no key", () => {
     expect(exports["zero"]).toBe(0);
     // The slot is really selected: the call goes through `Num.hex`'s member with
     // the companion's dictionary, rather than being erased at the call site.
-    expect(emitted(source)).toContain('__hex_instance_Num_Float } from "./Float.js"');
+    expect(emitted(source)).toContain('__Num_Float } from "./Float.js"');
   });
 
   /**
@@ -585,18 +585,18 @@ describe("the companion's own emitted shape", () => {
   test("`Float.js` holds the natives as operators and `mod` as source", () => {
     const text = companion("export let n: Float = Float.mod(8.0, 3.0)\n");
 
-    expect(text).toContain("const nativeAdd = (__hex_a, __hex_b) => __hex_a + __hex_b;");
-    expect(text).toContain("const nativeDivide = (__hex_a, __hex_b) => __hex_a / __hex_b;");
-    expect(text).toContain("const nativePow = (__hex_a, __hex_b) => __hex_a ** __hex_b;");
-    expect(text).toContain("const rem = (__hex_a, __hex_b) => __hex_a % __hex_b;");
-    expect(text).toContain("const nativeFromInt = __hex_a => __hex_a;");
+    expect(text).toContain("const nativeAdd = (__a, __b) => __a + __b;");
+    expect(text).toContain("const nativeDivide = (__a, __b) => __a / __b;");
+    expect(text).toContain("const nativePow = (__a, __b) => __a ** __b;");
+    expect(text).toContain("const rem = (__a, __b) => __a % __b;");
+    expect(text).toContain("const nativeFromInt = __a => __a;");
     expect(text).toContain(
-      "const nativeEquals = (__hex_a, __hex_b) => __hex_a === __hex_b || " +
-        "(__hex_a !== __hex_a && __hex_b !== __hex_b);",
+      "const nativeEquals = (__a, __b) => __a === __b || " +
+        "(__a !== __a && __b !== __b);",
     );
     expect(text).toContain(
-      "const nativeCompare = (__hex_a, __hex_b) => " +
-        "__hex_ordering(__hex_compareFloat(__hex_a, __hex_b));",
+      "const nativeCompare = (__a, __b) => " +
+        "__ordering(__compareFloat(__a, __b));",
     );
     // The Euclidean adjustment is Hexagon here, not a helper anywhere else.
     expect(text).toContain("const remainder = rem(left, right);");

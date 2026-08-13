@@ -968,7 +968,19 @@ export interface HonorItem {
   readonly typeParameters: readonly TypeParameter[];
   readonly subject: TypeAnnotation;
   readonly derived: boolean;
+  /**
+   * The name of the `const` this instance's dictionary is bound to in the
+   * emitted module — its preferred `__<Constraint>_<Subject>` spelling, or a
+   * `_n`-suffixed one where the module contests it (Dictionary Sharing §5).
+   */
   readonly dictionary: string;
+  /**
+   * The spelling this module's *interface* publishes, present only where a
+   * collision moved `dictionary` off the bare name (Dictionary Sharing §8). The
+   * export re-binds — `export { __Eq_Rat_1 as __Eq_Rat }` — so consumers see an
+   * uncontested interface name and never predict a local one.
+   */
+  readonly exportedDictionary?: string;
   readonly impliedTypes: readonly HonorImpliedType[];
   readonly members: readonly HonorMember[];
   readonly span: Source.Span;

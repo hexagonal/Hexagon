@@ -54,7 +54,7 @@ export function renderGeneratedCodeView(
     );
   }
   sourceShaped = sourceShaped.replace(
-    /^export \{ [$_\p{ID_Start}][\p{ID_Continue}$\u200c\u200d]* as __hex_export\d+ \};\n?/gmu,
+    /^export \{ [$_\p{ID_Start}][\p{ID_Continue}$\u200c\u200d]* as __export\d+ \};\n?/gmu,
     "",
   );
   return sourceShaped;

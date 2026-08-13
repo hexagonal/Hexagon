@@ -138,19 +138,19 @@ describe("the module", () => {
    */
   test("each declaration binds its lowering", () => {
     const javascript = emitted([["/main.hex", "export let n: Int = Vector.length([1])\n"]], "/Vector.hex");
-    expect(javascript).toContain("const length = __hex_trieSize;");
-    expect(javascript).toContain("const append = __hex_trieAppend;");
-    expect(javascript).toContain("const prepend = __hex_triePrepend;");
-    expect(javascript).toContain("const at = __hex_vectorAt;");
-    expect(javascript).toContain("const set = __hex_vectorSet;");
+    expect(javascript).toContain("const length = __trieSize;");
+    expect(javascript).toContain("const append = __trieAppend;");
+    expect(javascript).toContain("const prepend = __triePrepend;");
+    expect(javascript).toContain("const at = __vectorAt;");
+    expect(javascript).toContain("const set = __vectorSet;");
     expect(javascript).toContain(
-      "const fromSeq = __hex_values => __hex_vectorOf(__hex_seqToIterable(__hex_values));",
+      "const fromSeq = __values => __vectorOf(__seqToIterable(__values));",
     );
     // The eager/lazy bridge still crosses the door, but unexported and under a
     // plain name since #353: `Iterable<Vector(a)>` is a provided row, so `toSeq`
     // at a vector is the constraint member and Constraints §4.6 forbids a
     // module-level binding of a member's spelling beside the instance.
-    expect(javascript).toContain("const elements = __hex_seqFromIterable;");
+    expect(javascript).toContain("const elements = __seqFromIterable;");
     expect(javascript).not.toContain("const toSeq =");
     expect(javascript).not.toContain("export { toSeq };");
     // The trie arrives as one import line, and `length`'s lowering being an
@@ -160,7 +160,7 @@ describe("the module", () => {
     // FFI Part 7 §7 occasion 1's wrapper exactly as an exported `.hex` function
     // of that signature would (`spec/intrinsics.md` §8.3's edit note).
     expect(javascript).toContain(
-      "const __hex_fromSeqBoundary0 = __hex_argument0 => fromSeq(__hex_seqInbound(__hex_argument0));",
+      "const __fromSeqBoundary = __argument0 => fromSeq(__seqInbound(__argument0));",
     );
   });
 });
@@ -546,10 +546,10 @@ describe("two prelude members exporting one bare name", () => {
     // provided row's member, so the companion contributes only the collided
     // `length`, under its distinguished local.
     expect(javascript).toContain(
-      'import { length as __hex_prelude_length } from "./Vector.js";',
+      'import { length as __prelude_length } from "./Vector.js";',
     );
     expect(javascript).toContain("const lazy = length(source);");
-    expect(javascript).toContain("const eager = __hex_prelude_length(__hex_vectorOf([1, 2]));");
+    expect(javascript).toContain("const eager = __prelude_length(__vectorOf([1, 2]));");
   });
 });
 

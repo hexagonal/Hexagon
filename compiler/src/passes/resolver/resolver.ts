@@ -275,6 +275,165 @@ function externBindingKind(specifier: string): "fun" | "extern" {
   return isIntrinsicScheme(specifier) ? "fun" : "extern";
 }
 
+/**
+ * A dictionary's preferred spelling: Dictionary Sharing §5's family
+ * `__<Constraint>_<Subject>`, sitting directly under Lexer §3.2's reserved `__`
+ * prefix like every other generated name (#425).
+ *
+ * Read `__Eq_Rat` as "honor `Eq<Rat>`". The flattening is not injective —
+ * underscores are legal in constraint and type-constructor names — which is one
+ * of the two reasons `nameDictionaries` exists.
+ */
+export function dictionaryName(constraint: string, subject: string): string {
+  return `__${constraint}_${subject}`;
+}
+
+/**
+ * Dictionary Sharing §5's naming and collision rules, applied once per module
+ * over every dictionary that will hold a module-level seat (#425).
+ *
+ * Two things are decided here, and nothing else is:
+ *
+ * - **Imported names are unaliased by default.** A consumer binds an imported
+ *   dictionary under the exporter's interface name, read from the resolved
+ *   interface, whenever that spelling is uncontested. The unconditional
+ *   per-file alias prefix this replaced meant a re-export chain grew a prefix
+ *   per hop; re-binding the interface name at each hop is what stops the
+ *   compounding.
+ * - **A contested spelling suffixes every contestant.** When more than one
+ *   dictionary wants one spelling, all of them take `_1`-upward suffixes and
+ *   none keeps the bare name — so a bare dictionary name certifies that its
+ *   spelling is uncontested in the module it appears in. Suffixes are assigned
+ *   in the canonical order §5 fixes: declared instances in declaration order,
+ *   then hoisted bindings in emission order (there are none yet — hoisting is
+ *   still inline), then imports in specifier order, with the prelude channel
+ *   last. Same module, same names, every compile.
+ *
+ * Two arrivals of the *same* dictionary are not a contest: the same identity
+ * reaching a module by two routes (a diamond of re-exports, or an import beside
+ * a direct one) is one dictionary and takes one seat, under one name. Emission
+ * binds it once — see the emitter's import rendering.
+ *
+ * §8's export rule is decided here too, because it is the same assignment read
+ * from the other side, and it turns on **declared**, not on exported: the
+ * plumbing sweep re-exports every imported dictionary in transit, so "exported"
+ * would name almost everything and decide nothing. A declared instance keeps the
+ * bare spelling at the interface unless another *declared* instance of the same
+ * module contests it — nothing arriving from outside can rename a module's own
+ * instance out from under its consumers. A transit copy is the other side of
+ * that: it carries its §5 suffix at the interface whenever a declared instance
+ * or another transit copy contests the spelling, and re-binds its incoming
+ * interface name when the only contest is with an internal name — which no
+ * module can exhibit yet, hoisting being still inline.
+ */
+export function nameDictionaries(
+  items: readonly Resolved.Item[],
+  preludeInstances: readonly Resolved.PreludeInstance[],
+): {
+  readonly items: readonly Resolved.Item[];
+  readonly preludeInstances: readonly Resolved.PreludeInstance[];
+} {
+  interface Seat {
+    readonly preferred: string;
+    /** Declared here, rather than arriving through an import. */
+    readonly declared: boolean;
+    local: string;
+  }
+  const byIdentity = new Map<string, Seat>();
+  const groups = new Map<string, Seat[]>();
+  const seat = (preferred: string, declared: boolean): Seat => {
+    const entry: Seat = { preferred, declared, local: preferred };
+    const group = groups.get(preferred);
+    if (group === undefined) groups.set(preferred, [entry]);
+    else group.push(entry);
+    return entry;
+  };
+  const importedSeat = (identity: string, preferred: string): Seat => {
+    const existing = byIdentity.get(identity);
+    if (existing !== undefined) return existing;
+    const entry = seat(preferred, false);
+    byIdentity.set(identity, entry);
+    return entry;
+  };
+
+  const declaredSeats = new Map<Resolved.HonorItem, Seat>();
+  for (const item of items) {
+    if (item.kind === "Honor") declaredSeats.set(item, seat(item.dictionary, true));
+  }
+  const importedSeats = new Map<Resolved.InstanceImport | Resolved.PreludeInstance, Seat>();
+  for (const item of items) {
+    if (item.kind !== "Import") continue;
+    for (const instance of item.instances) {
+      importedSeats.set(
+        instance,
+        importedSeat(instance.identity, instance.importedDictionary),
+      );
+    }
+  }
+  for (const instance of preludeInstances) {
+    importedSeats.set(
+      instance,
+      importedSeat(instance.identity, instance.importedDictionary),
+    );
+  }
+
+  // Nothing contested, nothing to rewrite — the overwhelmingly common shape.
+  if ([...groups.values()].every((group) => group.length === 1)) {
+    return { items, preludeInstances };
+  }
+
+  const taken = new Set(groups.keys());
+  for (const group of groups.values()) {
+    if (group.length === 1) continue;
+    let suffix = 1;
+    for (const entry of group) {
+      let candidate = `${entry.preferred}_${suffix}`;
+      // A suffixed spelling can itself be some other dictionary's preferred one
+      // (`__Eq_Rat_1` is what `honor Eq_Rat_1<...>` would want). Keep probing —
+      // §5's rule is "rename everything renameable", and the numbering stays
+      // deterministic because the candidate order is.
+      while (taken.has(candidate)) candidate = `${entry.preferred}_${++suffix}`;
+      taken.add(candidate);
+      entry.local = candidate;
+      suffix += 1;
+    }
+  }
+
+  /** §8: the spelling this module's *interface* publishes for a declared seat. */
+  const exportedName = (entry: Seat): string => {
+    const group = groups.get(entry.preferred) ?? [];
+    return group.filter(({ declared }) => declared).length > 1
+      ? entry.local
+      : entry.preferred;
+  };
+
+  return {
+    items: items.map((item): Resolved.Item => {
+      if (item.kind === "Honor") {
+        const entry = declaredSeats.get(item)!;
+        const exported = exportedName(entry);
+        return {
+          ...item,
+          dictionary: entry.local,
+          ...(exported === entry.local ? {} : { exportedDictionary: exported }),
+        };
+      }
+      if (item.kind !== "Import") return item;
+      return {
+        ...item,
+        instances: item.instances.map((instance) => ({
+          ...instance,
+          localDictionary: importedSeats.get(instance)!.local,
+        })),
+      };
+    }),
+    preludeInstances: preludeInstances.map((instance) => ({
+      ...instance,
+      localDictionary: importedSeats.get(instance)!.local,
+    })),
+  };
+}
+
 export function moduleInterface(module: Resolved.Module): ModuleInterface {
   const symbols = new Map(module.symbols.map((symbol) => [symbol.id, symbol]));
   const terms = new Map<string, Resolved.Symbol>();
@@ -291,7 +450,12 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
         typeParameters: item.typeParameters,
         subject: item.subject,
         impliedTypes: item.impliedTypes,
-        dictionary: item.dictionary,
+        // §8: the interface publishes the bare spelling even when a local
+        // collision suffixed the binding behind it. Only a *declared*-versus-
+        // declared contest pushes a suffix this far — an import or a hoisted
+        // binding never outranks the module's own instance for its interface
+        // name — and then `exportedDictionary` is the suffixed name itself.
+        dictionary: item.exportedDictionary ?? item.dictionary,
         span: item.span,
       }];
     }
@@ -918,7 +1082,14 @@ class Resolver {
     // After resolution, never before: the synthesized import's local names have
     // to dodge every name the emitted module binds, and that set is only closed
     // once every declaration has been through `#declare` (PR #91 finding F1).
-    const items = [...this.#preludeImport(module.span, resolvedItems), ...resolvedItems];
+    const preludeChannel = this.#preludeInstanceChannel(module.span);
+    // Dictionary Sharing §5's naming pass, last of all: it needs every declared
+    // instance and every imported one in one place, and both channels are only
+    // complete here.
+    const { items, preludeInstances } = nameDictionaries(
+      [...this.#preludeImport(module.span, resolvedItems), ...resolvedItems],
+      preludeChannel,
+    );
 
     return {
       kind: "Module",
@@ -945,7 +1116,7 @@ class Resolver {
       records: this.#records,
       preludeRecords: this.#preludeRecords,
       preludeUnions: this.#preludeUnions,
-      preludeInstances: this.#preludeInstanceChannel(module.span),
+      preludeInstances,
       // Read after resolution, never during: `explicitLocal` records that a
       // source-written import took an entry over (§2.4), and the import items
       // are only all resolved by now.
@@ -1238,7 +1409,7 @@ class Resolver {
       })),
       subject,
       derived: true,
-      dictionary: `__hex_instance_${constraint}_${item.name}`,
+      dictionary: dictionaryName(constraint, item.name),
       impliedTypes: [],
       members: [],
       span: item.span,
@@ -1499,8 +1670,9 @@ class Resolver {
             subject: instance.subject,
             impliedTypes: instance.impliedTypes,
             importedDictionary: instance.dictionary,
-            localDictionary:
-              `__hex_imported_${Number(importedModule!.module.fileId)}_${instance.dictionary}`,
+            // The exporter's interface name, unaliased. `nameDictionaries`
+            // suffixes it later if this module contests the spelling (§5).
+            localDictionary: instance.dictionary,
             span: item.span,
           })),
           constraints: boundConstraints,
@@ -1695,9 +1867,10 @@ class Resolver {
           // alias or an `Alias.Name` qualification is this module's word for
           // someone else's declaration, and the second is not even a legal
           // JavaScript identifier.
-          dictionary: `__hex_instance_${
-            this.#namedConstraint(item.constraint.text)?.name ?? item.constraint.text
-          }_${annotationHeadName(subject)}`,
+          dictionary: dictionaryName(
+            this.#namedConstraint(item.constraint.text)?.name ?? item.constraint.text,
+            annotationHeadName(subject),
+          ),
           impliedTypes: item.impliedTypes.map((impliedType) => ({
             name: impliedType.name.text,
             annotation: this.#resolveTypeAnnotation(
@@ -3355,9 +3528,14 @@ class Resolver {
       // exactly what §6.4 exists for, so importing it *as* `tally` would collide
       // with the binding it is there to see past — and a redeclared identifier
       // is a `SyntaxError` at load, after a clean compile.
+      //
+      // The dodging local is a generated name like any other, so it probes the
+      // way they all do since #425: the preferred spelling first, then
+      // underscored numeric suffixes from 1 — `__prelude_map`, then
+      // `__prelude_map_1`. The digits used to be glued straight on.
       let local = term.name;
       for (let attempt = 0; taken.has(local); attempt += 1) {
-        local = `__hex_prelude_${term.name}${attempt === 0 ? "" : attempt}`;
+        local = `__prelude_${term.name}${attempt === 0 ? "" : `_${attempt}`}`;
       }
       taken.add(local);
       names.push({ imported: term.name, local, symbol, span });
@@ -3443,8 +3621,8 @@ class Resolver {
           subject: instance.subject,
           impliedTypes: instance.impliedTypes,
           importedDictionary: instance.dictionary,
-          localDictionary:
-            `__hex_imported_${Number(iface.module.fileId)}_${instance.dictionary}`,
+          // Unaliased, as in the explicit channel; `nameDictionaries` decides.
+          localDictionary: instance.dictionary,
           specifier,
           span,
         });

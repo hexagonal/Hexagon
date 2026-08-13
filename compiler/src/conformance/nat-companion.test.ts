@@ -209,7 +209,7 @@ describe("`Pow<Nat>` is the raw native, guard and all absent", () => {
     expect(exports["big"]).toBe(243);
     expect(text).toContain("const eight = 2 ** 3;");
     expect(text).toContain("const big = 3 ** 5;");
-    expect(text).not.toContain("__hex_checkedPower");
+    expect(text).not.toContain("__checkedPower");
     expect(text).not.toContain("Pow_Nat");
   });
 
@@ -221,7 +221,7 @@ describe("`Pow<Nat>` is the raw native, guard and all absent", () => {
       "",
     ].join("\n"));
 
-    expect(text).toContain("__hex_instance_Pow_Int.pow(4, 2)");
+    expect(text).toContain("__Pow_Int.pow(4, 2)");
     expect(text).toContain("const bare = 5 ** 2;");
   });
 });
@@ -316,8 +316,8 @@ describe("Primitive Types §1's checked boundary conversion", () => {
   test("the unchecked core is the identity, in the companion's own output", () => {
     const text = companion("export let n: Option(Nat) = Nat.fromInt(3)\n");
 
-    expect(text).toContain("__hex_a => __hex_a");
-    expect(text).toContain("(__hex_a, __hex_b) => __hex_a ** __hex_b");
+    expect(text).toContain("__a => __a");
+    expect(text).toContain("(__a, __b) => __a ** __b");
     expect(text).toContain('"Nat.mod: divisor is zero"');
     // No guard above `pow`, which is the absence this type is about.
     expect(text).not.toContain("NegativeExponentError");
@@ -379,9 +379,9 @@ describe("the wired `Nat` row is gone, not dormant", () => {
       "",
     ].join("\n"));
 
-    expect(text).not.toContain("__hex_int");
-    expect(text).not.toContain("__hex_nat");
-    expect(text).not.toContain("__hex_checkedPower");
+    expect(text).not.toContain("__int");
+    expect(text).not.toContain("__nat");
+    expect(text).not.toContain("__checkedPower");
     expect(text).toContain('from "./Nat.js"');
   });
 

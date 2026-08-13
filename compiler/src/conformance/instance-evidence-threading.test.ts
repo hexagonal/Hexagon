@@ -14,7 +14,7 @@ import { runMain } from "../support/test-project.js";
  *
  * Both specimens were verified against `main` before the fix: each compiled
  * with zero diagnostics, and the first threw
- * `TypeError: __hex_dictDescribe_140.describe is not a function` at import.
+ * `TypeError: __dictDescribe_140.describe is not a function` at import.
  */
 
 describe("instance evidence threads at runtime", () => {

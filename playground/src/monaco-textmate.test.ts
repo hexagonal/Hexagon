@@ -344,7 +344,7 @@ describe("what Playground gains by inheriting the grammar (#145)", () => {
     expect(await tokenOf("let true = 1", "true")).toBe(
       "invalid.illegal.reserved-redirect-word.hexagon",
     );
-    expect(await tokenOf("let __hex_t = 1", "__hex_t")).toBe(
+    expect(await tokenOf("let __t = 1", "__t")).toBe(
       "invalid.illegal.reserved-identifier.hexagon",
     );
   });

@@ -415,7 +415,7 @@ describe("§7: emission into both artifacts", () => {
     );
     // The record's own documentation reaches its `.js` binding.
     expect(main.javascript.text).toContain(
-      "/** A point. */\nconst Point = __hex_record => __hex_record;",
+      "/** A point. */\nconst Point = __record => __record;",
     );
   });
 
