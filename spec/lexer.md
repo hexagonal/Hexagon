@@ -131,11 +131,19 @@ I元素      E无效年龄  M数据库           -- cultural role prefixes, ordi
 ### 3.2 Deliberate exclusions
 
 - Bare `_` is its own wildcard token. `_name` and every other longer valid
-  underscore-start spelling are ordinary non-uppercase-start names.
-- The exact prefix `__hex_` is reserved for compiler-generated JavaScript and
-  declaration-file identifiers. Other underscore-start names, including `__name`,
-  are source names. Generated names probe numeric suffixes deterministically when a
-  foreign or already-emitted name occupies their preferred spelling.
+  underscore-start spelling outside the next bullet's reserved `__` prefix is
+  an ordinary non-uppercase-start name.
+- Names beginning `__` (two underscores) are reserved for compiler-generated
+  JavaScript and declaration-file identifiers *(widened from the exact prefix
+  `__hex_`; #425)*. The width is what buys the convention its one-sentence
+  reading — a double leading underscore means the compiler wrote the name — so
+  generated names spell themselves directly under the prefix with no further
+  marker: `__Eq_Rat` (a dictionary, Dictionary Sharing §5), `__Show_a` (an
+  evidence parameter), `__value` (a helper binder). Single-underscore
+  spellings such as `_name` remain ordinary source names. When a foreign or
+  already-emitted name occupies a generated name's preferred spelling, the
+  name probes numeric suffixes deterministically, starting at 1: `__Eq_Rat_1`,
+  then `__Eq_Rat_2`.
 - `$` and dollar-start names are ordinary non-uppercase-start identifiers.
 - Identifier escapes do not exist. `\u{...}` is a string escape only; a backslash
   in a name is an error.
@@ -477,7 +485,7 @@ token inventory and the lexer must not report the same source code unit twice.
 | Unpaired surrogate / invalid UTF-8 | "Hexagon source must be valid Unicode" |
 | BOM away from offset zero | "a byte-order mark is only allowed at the start of a file" |
 | Continuation-only or otherwise invalid name initial | state that the character cannot begin an identifier |
-| Reserved `__hex_` prefix | "`__hex_` is reserved for compiler-generated names" + rename fix-it |
+| Reserved `__` prefix | "names beginning `__` are reserved for compiler-generated code" + rename fix-it |
 | Literal bidirectional control | reject it; in a string suggest an explicit Unicode escape |
 | Hard keyword in name position | "`WORD` is reserved and cannot be used as a name" — including `true`/`false`; **no constructor fixit in this position** (`let True = ...` would be a refutable pattern, a second error) *(#147; position-dependent rows: the lexer emits the token, the **parser** selects the message — §4.1/§4.2's division)* |
 | `true`/`false` in value position | "`true` is reserved; Bool's constructors are `True` and `False` — write `True`" (resp. `False`); one-token fixit *(#147, §4.1; selection is parser work, same note as above)* |
@@ -521,7 +529,7 @@ match value
 Rejected lexically:
 
 ```text
-let __hex_temp = 1  -- compiler prefix is reserved
+let __temp = 1      -- compiler prefix is reserved
 let 😀 = 1           -- emoji is not an ECMAScript identifier start
 let x = .5          -- write 0.5
 let x = 1.          -- write 1.0
@@ -540,7 +548,7 @@ a && b              -- write `a and b`
 | Only space/tab horizontal whitespace; leading tabs error, interior tabs legal | §2.2 |
 | ECMAScript 2024 identifier repertoire with pinned Unicode 17 tables | §3 |
 | Uppercase-start/non-uppercase-start classification; exact spelling equality | §3.1 |
-| Bare `_` wildcard; `__hex_` reserved; escapes/apostrophes excluded; bidi controls rejected | §3.2 |
+| Bare `_` wildcard; leading `__` reserved *(widened from `__hex_`, #425)*; escapes/apostrophes excluded; bidi controls rejected | §3.2 |
 | Complete hard/contextual/not-keyword tables; `finally` reserved | §4 |
 | `true`/`false`: hard keywords, redirect-only (no values); position-aware diagnostic — constructor fixit in value position, none in name position; `True`/`False` are ordinary `UpperName`s | §4.1, §10 (#147) |
 | Decimal numeric grammar, required digits around `.`, exact suffix rules | §5 |

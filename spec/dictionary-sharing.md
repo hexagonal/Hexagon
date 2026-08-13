@@ -11,7 +11,7 @@
 
 **Within one emitted module, semantically identical ground evidence is materialized at most once, as a named module-level constant.** A use site references the binding; it never rebuilds the value.
 
-This is a semantics-preserving change of *where* a dictionary is built, never *which* dictionary is chosen. It is pinned as a normative emitted shape for the same reason the trailing evidence suffix is (Constraints §6.1): the readable `.js` is the product surface, and `render(boxed, __hex_instance_Render_Box(__hex_instance_Render_Box(__hex_instance_Render_Int)))` — today's real shape at depth 2, duplicated verbatim at every use site — is the point at which generated output stops looking like something a person wrote.
+This is a semantics-preserving change of *where* a dictionary is built, never *which* dictionary is chosen. It is pinned as a normative emitted shape for the same reason the trailing evidence suffix is (Constraints §6.1): the readable `.js` is the product surface, and `render(boxed, __Render_Box(__Render_Box(__Render_Int)))` — the pre-ruling shape at depth 2, duplicated verbatim at every use site — is the point at which generated output stops looking like something a person wrote.
 
 There is no language-surface component: no syntax, no type-system change, no diagnostic, no `.d.ts` change. The observable differences are the emitted text and the number of objects allocated at runtime.
 
@@ -19,23 +19,23 @@ There is no language-surface component: no syntax, no type-system change, no dia
 
 The emitted shapes this ruling starts from:
 
-1. **Zero-argument instances are already named module-level constants** (`__hex_instance_Eq_Point`), including derived ones. Nothing changes for them; the rule restates their placement.
-2. **Parameterized instances are factories** applied at use sites: `__hex_instance_Render_Box(__hex_instance_Render_Int)`. Applications appear inline, duplicated per use site, at every depth.
-3. **A recursive instance re-applies its own factory per recursive call**: `Show<Tree(a)>`'s body emits `show(left, __hex_instance_Show_Tree(__hex_dictShow_N))` — one dictionary allocation per node visited, per traversal.
+1. **Zero-argument instances are already named module-level constants** (`__Eq_Point`), including derived ones. Nothing changes for them; the rule restates their placement.
+2. **Parameterized instances are factories** applied at use sites: `__Render_Box(__Render_Int)`. Applications appear inline, duplicated per use site, at every depth.
+3. **A recursive instance re-applies its own factory per recursive call**: `Show<Tree(a)>`'s body emits `show(left, __Show_Tree(__Show_a))` — one dictionary allocation per node visited, per traversal.
 4. **Mutually recursive instances construct each other's evidence per call**, inside factory bodies, from their own parameters. Correct, allocating.
 
 ## 3. The rule, in three parts
 
 ### 3.1 Ground applications hoist to module level
 
-Every distinct ground evidence tree — an instance application whose leaves are named instances or primitive dictionaries, with **no free evidence parameter** — becomes one module-level `const` in the `__hex_instance_*` family, emitted once, referenced by name at every use site:
+Every distinct ground evidence tree — an instance application whose leaves are named instances or primitive dictionaries, with **no free evidence parameter** — becomes one module-level `const` in the dictionary family (§5), emitted once, referenced by name at every use site:
 
 ```js
-const __hex_instance_Render_Box_Int = __hex_instance_Render_Box(__hex_instance_Render_Int);
-const __hex_instance_Render_Box_Box_Int = __hex_instance_Render_Box(__hex_instance_Render_Box_Int);
+const __Render_Box_Int = __Render_Box(__Render_Int);
+const __Render_Box_Box_Int = __Render_Box(__Render_Box_Int);
 // ...
-const one = render(boxed, __hex_instance_Render_Box_Box_Int);
-const two = render(boxed, __hex_instance_Render_Box_Box_Int);
+const one = render(boxed, __Render_Box_Box_Int);
+const two = render(boxed, __Render_Box_Box_Int);
 ```
 
 A nested application's argument subtrees are themselves hoisted bindings (as above), so every hoisted initializer is a single application of a factory to names.
@@ -45,15 +45,15 @@ A nested application's argument subtrees are themselves hoisted bindings (as abo
 Inside a parameterized instance's factory body, evidence for **this same instance at the factory's own parameters** is the local instance record being defined — not a fresh application:
 
 ```js
-const __hex_instance_Show_Tree = __hex_dictShow_N => {
-  const __hex_instance0 = { show: tree => {
-    /* ... */ show(left, __hex_instance0) /* ... */
+const __Show_Tree = __Show_a => {
+  const __instance0 = { show: tree => {
+    /* ... */ show(left, __instance0) /* ... */
   } };
-  return __hex_instance0;
+  return __instance0;
 };
 ```
 
-This is the ruling's letrec: a self-reference that is legal precisely because it sits **inside a member's closure body** and is therefore never evaluated during the factory's application. It is strictly better than sharing a hoisted application: a recursive traversal allocates **zero** additional dictionaries, not one shared one, and the shape is available even when the instantiation is not ground (any caller's `__hex_dictShow_N`).
+This is the ruling's letrec: a self-reference that is legal precisely because it sits **inside a member's closure body** and is therefore never evaluated during the factory's application. It is strictly better than sharing a hoisted application: a recursive traversal allocates **zero** additional dictionaries, not one shared one, and the shape is available even when the instantiation is not ground (any caller's `__Show_a`).
 
 The replacement covers exactly the demands whose evidence is the factory's **identity arrangement** — this instance's dictionary applied to the factory's own parameters, in order. For a regular recursive type, that is every self-demand. It is not total in general: a non-regular union (`union Weird(a) = End | W(inner: Weird(Box(a)))` — legal, Unions §2 places no regularity restriction on payload recursion) yields a body whose self-demand is at `Weird(Box(a))`; that evidence applies this factory to constructed argument evidence, is not ground, and remains a call-time application (§3.3). The polymorphic-recursion ban (§6.2) does not reach it: the demand rides the generalized constraint member, which every call instantiates fresh, not a recursive function occurrence. Issue #274's fix (recursive parameterized `derives` currently overflows the emitter) wants exactly the identity-arrangement shape and should cite this section.
 
@@ -71,7 +71,7 @@ Evidence containing a free dictionary parameter (`Core`'s `Dictionary` kind) is 
 
 ## 5. Naming and emission order
 
-**Naming.** A hoisted binding's name is derived deterministically from its evidence tree, in the `__hex_instance_*` family — representative scheme: the factory's name followed by the flattened spelling of its argument instances (`__hex_instance_Render_Box_Int`), disambiguated by the emitter's existing fresh-name discipline on collision. The determinism is normative (same module, same names, every compile); the exact spelling is representative, per the Part 9 precedent (specifier layout representative, qualification pattern normative). The families themselves are pinned: no new prefix is introduced (planning-note non-goal, kept).
+**Naming.** A hoisted binding's name is derived deterministically from its evidence tree, in the dictionary family `__<Constraint>_<Subject>` — representative scheme: the factory's name followed by the flattened spelling of its argument instances (`__Render_Box_Int`), disambiguated on collision by Lexer §3.2's numeric probe (`__Render_Box_Int_1`, starting at 1). Evidence parameters spell the constraint and the source type variable (`__Show_a`). The determinism is normative (same module, same names, every compile); the exact spelling is representative, per the Part 9 precedent (specifier layout representative, qualification pattern normative). The family sits directly under Lexer §3.2's reserved `__` prefix, like every generated name — one prefix, no second family (#425; §9.2 records the reversal of the planning note's renaming non-goal).
 
 **Order.** Hoisted bindings are emitted in dependency order after the factories and zero-argument instances they reference. Dependency order always exists and is acyclic **by construction**: a hoisted binding's initializer references only factory names and its own proper evidence subtrees, and a tree is strictly larger than its subterms — so the ground layer is a DAG regardless of how instances recurse. The letrec never appears at module level (this corrects the planning note's §4.3 sketch, which imagined a module-level self-referential binding; §12). Consequently the temporal-dead-zone hazard the note's §4.4 called the hardest part of the change does not exist in the decomposition ruled here: every module-level initializer evaluates references to bindings already initialized, and the only self-reference in the system sits under a closure body (§3.2).
 
@@ -97,7 +97,7 @@ Each module materializes its own hoisted bindings. Two modules demanding `Show<T
 
 ## 8. The exported surface does not grow
 
-Hoisted bindings are internal. They join the module's top-level `const` set but not its export set: FFI Part 9's public evidence closure (handles, factories, `Dictionary<a>` faces, home-module placement per its §13) is computed from the same inputs as before and is unchanged by this ruling. (The emitter presently exports the `__hex_instance_*` declarations unconditionally as cross-module evidence plumbing, keyed on instance declarations; hoisted applications join neither that sweep nor Part 9's closure.) A hoisted application is reachable from an export only in the sense that any internal binding is — through the functions that close over it. Emitted-only-when-needed is preserved: a hoisted binding exists only because a use site demanded its tree (Constraints §6.1's materialization condition, inherited).
+Hoisted bindings are internal. They join the module's top-level `const` set but not its export set: FFI Part 9's public evidence closure (handles, factories, `Dictionary<a>` faces, home-module placement per its §13) is computed from the same inputs as before and is unchanged by this ruling. (The emitter presently exports the declared-instance dictionaries unconditionally as cross-module evidence plumbing, keyed on instance declarations; hoisted applications join neither that sweep nor Part 9's closure.) A hoisted application is reachable from an export only in the sense that any internal binding is — through the functions that close over it. Emitted-only-when-needed is preserved: a hoisted binding exists only because a use site demanded its tree (Constraints §6.1's materialization condition, inherited).
 
 ## 9. Deferrals and non-goals
 
@@ -110,7 +110,7 @@ Derived dictionaries for **declared** types are already named module constants (
 - Removing the evidence parameter from a genuinely polymorphic exported function — irreducible.
 - Extending the specialization set beyond the enumerated fundamentals — owned by `ffi-zero-cost-fundamental-exports.md` §2.1, not to be widened as an emitter side effect.
 - Any change to instance selection, coherence, or which dictionary is chosen.
-- Renaming the `__hex_dict*` / `__hex_instance_*` families.
+- Renaming the dictionary families *(kept from the planning note; since reversed by #425, which widened Lexer §3.2's reservation to leading `__` and respelled every generated name under it — `__hex_instance_Eq_Point` → `__Eq_Point`, `__hex_dictShow_N` → `__Show_a`. The non-goal's substance stands: one prefix, no structural change to the families; the spelling is §5's business)*.
 
 ## 10. Rejected alternatives (do not re-litigate)
 
@@ -132,7 +132,7 @@ The note's §4.3 sketched the recursive case as a module-level binding whose ini
 
 ## 11. Conformance obligations
 
-1. **Sharing:** a module demanding the same ground tree at two use sites emits one binding and two references; the inline-application shape (`render(x, __hex_instance_Render_Box(…))`) does not appear. Depth ≥ 2 covered explicitly.
+1. **Sharing:** a module demanding the same ground tree at two use sites emits one binding and two references; the inline-application shape (`render(x, __Render_Box(…))`) does not appear. Depth ≥ 2 covered explicitly.
 2. **Fixpoint:** a recursive instance's emitted factory contains the self-reference of §3.2 and no application of its own factory name **as self-evidence at the factory's own parameters** (textual pin — this is what makes a regular traversal allocation-free); an N-node traversal still runs correctly (behavioral, `runMain`).
 3. **Residue:** the §3.3 shapes — mutual recursion and the non-identity self-demands (deeper: `Weird`; permuted: `Swap`) — compile and run (the existing baseline behavior, now pinned so the fixpoint rewrite cannot misfire on a self-demand that is not the identity arrangement).
 4. **Determinism:** two compiles of one module yield identical hoisted names and order.

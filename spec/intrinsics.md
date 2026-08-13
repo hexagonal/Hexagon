@@ -102,7 +102,7 @@ The binding types as an ordinary constrained function — ordinary constraint di
 
 ### 4.1 Keys are flat and compiler-global
 
-The intrinsic key (the left side of `as`, or the sole name) names an entry in the compiler's **intrinsic inventory** — a flat, compiler-global identifier space, deliberately mirroring the runtime helper family (`seqMemoize` ↔ the memoizing spine, `vectorAt` ↔ `__hex_vectorAt`). Convention: `<companion><Operation>`, lowerCamel. Flat keys survive module and operation renames — the local name is the module's business; the key is the compiler's.
+The intrinsic key (the left side of `as`, or the sole name) names an entry in the compiler's **intrinsic inventory** — a flat, compiler-global identifier space, deliberately mirroring the runtime helper family (`seqMemoize` ↔ the memoizing spine, `vectorAt` ↔ `__vectorAt`). Convention: `<companion><Operation>`, lowerCamel. Flat keys survive module and operation renames — the local name is the module's business; the key is the compiler's.
 
 ### 4.2 Verification replaces trust
 
