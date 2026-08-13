@@ -71,9 +71,9 @@ of three states, and the mark is written **glued** between the callee and its ar
 list:
 
 ```hexagon
-firstOrZero(readings)          -- bare: this call is pure
-save!(document)                -- this call performs effects
-combine?(total, value)         -- as effectful as my caller makes it
+firstOrZero(readings)          // bare: this call is pure
+save!(document)                // this call performs effects
+combine?(total, value)         // as effectful as my caller makes it
 ```
 
 The marks answer the same question the arrows do, about the same thing: `save!(…)` says
@@ -175,14 +175,15 @@ never what it means.
 ## Where marks cannot go
 
 Four call forms have no room for a mark, by grammar: operators (`x + y`), indexing
-(`xs[i]`), `for` heads, and string interpolation. Each of them dispatches to a constraint
-member.
+(`xs[i]`), `for` heads, and string interpolation. Operators, `for` heads, and
+interpolation each dispatch to a constraint member; `xs[i]` is the companion operation
+`at`, definitionally.
 
 The consequence is a rule worth remembering: **everything those forms reach must be
 pure.** Every member of every constraint — `show`, `compare`, `hash`, `add`, `toSeq` —
-has pure arrows, and an `honor` instance's bodies must check pure. A type whose traversal
-performs effects therefore cannot honor `Iterable`, and cannot stand in a `for` head at
-all.
+has pure arrows, and an `honor` instance's bodies must check pure; `at` wears a pure
+face the same way. A type whose traversal performs effects therefore cannot honor
+`Iterable`, and cannot stand in a `for` head at all.
 
 Loop *bodies* are a different matter. A `for` head is protocol and is pure; the body is
 an ordinary block, and its statements mark their own calls as usual.
@@ -205,7 +206,7 @@ call wears `!`. Foreign code is trust territory, and the honest default for the 
 is that the world notices.
 
 `pure` is the trusted claim that says otherwise. It is believed, not checked, and the
-module author answers for it. Claiming `pure` on something that reads the world is
+module author answers for it. Claiming `pure` on something that touches the world is
 simply a lie, with two narrow exceptions the specification names: a write-only channel
 the program cannot read back (a debug probe), and a read the runtime performs at most
 once and then owns.

@@ -328,11 +328,39 @@ late pedagogy pass, not a commitment to the current order.
 - Assumes loops, ranges, `Option`, tuples, pattern matching, lambdas, pipes, and
   subject-first companion operations.
 - Establishes `Seq(a)` as lazy, immutable, and possibly infinite; `Seq.next` as a
-  persistent functional cursor; demand-driven effects; and `Seq` as the common
-  iteration and collection-conversion currency, reached from any iterable value by
-  the bare `toSeq` member.
+  persistent functional cursor; transformation callbacks as pure by construction;
+  and `Seq` as the common iteration and collection-conversion currency, reached from
+  any iterable value by the bare `toSeq` member.
 - Prepares persistent collections and the `Iterable` recipe while avoiding a library
-  API catalogue.
+  API catalogue. Opens the purity seam the Effects chapter closes: the strict
+  consumers are named as the one honest seat for an effectful callback, marks
+  deferred one chapter.
+
+### Effects
+
+- Assumes sequences (`fold` is the linked-arrow specimen), lambdas, blocks,
+  subject-first companion operations, and Mutable Variables' rule that a lambda
+  cannot capture an outer `var`.
+- Establishes the two-point effect doctrine (observable world interaction; throwing
+  excluded), the arrow trio `->` / `->?` / `->!` and the call trichotomy bare / `!` /
+  `?` as one alphabet, glued marks, the linked signature and its inlet, face
+  enforcement in both directions, the four unmarkable call forms and the purity they
+  demand, the extern door with `pure` as the trusted claim, and erasure — colours
+  never reach the emitted JavaScript.
+- Introduces `extern from` blocks ahead of the JavaScript chapters, deliberately and
+  lightly: effects need the world's door on stage, and the full boundary treatment
+  stays deferred.
+
+### Streams
+
+- Assumes the effects discipline (arrows and marks), `Seq` and its purity posture,
+  `Option`, and `Vector` as pure data.
+- Establishes `Stream(a)` as `Seq`'s impure nominal sibling: no tail, a pull is
+  spent, `next` wears `!`; wiring (`map`, `filter`, `fromSeq`) stays bare while
+  consumption (`next`, `collect`, `fold`, `forEach`, `find`) is marked; `collect!`
+  freezes a bounded sample into a `Vector` — the one bridge back to pure data.
+- Establishes that `Stream` has no `memoize` and no `toSeq`, on purpose: replay is a
+  purity privilege.
 
 ### Exceptions
 
@@ -788,7 +816,10 @@ late pedagogy pass, not a commitment to the current order.
 - `Seq(a)` is the concrete lazy, immutable, possibly infinite iteration currency.
 - `Seq.next : Seq(a) -> Option((a, Seq(a)))` does not consume the supplied position;
   traversal advances through the returned successor sequence.
-- Lazy callbacks and their effects run as elements are demanded.
+- Transformation callbacks are pure by construction — `Seq.map` demands a pure
+  function — so laziness never changes what the world observes. The strict consumers
+  (`fold`, `forEach`, `find`, `any`, `all`) are the one seat for an effectful
+  callback; their marks are deferred to the Effects chapter.
 - Bare `toSeq(x)` is the universal conversion — the member of the prelude's
   `Iterable` constraint — and the per-collection `toSeq` spellings are its qualified
   reads; companion `toSeq`/`fromSeq` pairs connect collections without making the
@@ -796,6 +827,39 @@ late pedagogy pass, not a commitment to the current order.
   name.
 - `Seq(a)` faces JavaScript and TypeScript as `Iterable<a>`, with runtime adaptation
   preserving persistent sequence positions.
+
+### Effects
+
+- The tracked effect is observable interaction with the world; allocation, local
+  `var`, and throwing are not effects. The lattice has two points, pure and impure,
+  and purity is the silent claim.
+- The arrow trio is `->` / `->?` / `->!` and the call trichotomy is bare / `!` / `?`
+  — one alphabet: a call's mark reports the colour of the callee's outermost arrow
+  at that call. Marks are written glued.
+- Every `->?` in one signature is one linked effect variable; a `->?` needs an inlet
+  and is an error where nothing can link to it — never a silent re-reading.
+- Enforcement is symmetric and error-grade: wrong or missing marks at calls, and
+  faces contradicting bodies, in both directions.
+- Operators, indexing, `for` heads, and interpolation have no mark seat, so
+  everything they reach is pure; constraint members and `honor` bodies check pure.
+- A user-written `extern fun` is effectful by default; `pure` is the trusted,
+  believed-not-checked claim, with the specification's two narrow species. `extern
+  from` appears here ahead of the JavaScript chapters, deliberately and lightly.
+- Colours and marks erase; emitted JavaScript is identical with and without them.
+  The purity guarantee leans on Mutable Variables' no-capture rule.
+
+### Streams
+
+- `Stream(a)` is `Seq`'s impure nominal sibling: `next: () ->! Option(a)` by
+  declaration, no tail, a pull is spent, and pulling an exhausted stream yields
+  `None` again.
+- Consumers (`next`, `collect`, `fold`, `forEach`, `find`) wear `->!` and their
+  calls wear `!`; wiring (`map`, `filter`, `fromSeq`) builds without pulling and
+  stays bare in ordinary bodies.
+- `collect!` freezes a bounded sample into a `Vector(a)` — the one bridge back to
+  pure data; `fromSeq` drives pure data in.
+- There is no `Stream.memoize` and no `Stream.toSeq`, on purpose: replay is a purity
+  privilege, and a sample exists only where the program collected it into data.
 
 ### Exceptions
 
