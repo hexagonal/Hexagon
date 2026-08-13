@@ -130,9 +130,9 @@ I元素      E无效年龄  M数据库           -- cultural role prefixes, ordi
 
 ### 3.2 Deliberate exclusions
 
-- Bare `_` is its own wildcard token. `_name` and every other longer valid
-  underscore-start spelling outside the next bullet's reserved `__` prefix is
-  an ordinary non-uppercase-start name.
+- Bare `_` is its own wildcard token. `_name` and other longer valid
+  underscore-start spellings outside the next bullet's reserved `__` prefix
+  are ordinary non-uppercase-start names.
 - Names beginning `__` (two underscores) are reserved for compiler-generated
   JavaScript and declaration-file identifiers *(widened from the exact prefix
   `__hex_`; #425)*. The width is what buys the convention its one-sentence
@@ -142,8 +142,7 @@ I元素      E无效年龄  M数据库           -- cultural role prefixes, ordi
   evidence parameter), `__value` (a helper binder). Public-surface spellings a
   generator also chooses — a `.d.ts` brand identifier (FFI Part 7 §5), FFI
   Part 9's documentation parameter names — are faces, not hygiene names, and
-  stay outside the prefix. Single-underscore
-  spellings such as `_name` remain ordinary source names. The reservation
+  stay outside the prefix (Part 7 §5's collision clause keeps them there). The reservation
   governs Hexagon's own name seats; the foreign side of an FFI `as` alias
   (FFI Part 4 §3.2) is outside them, so a `__`-named foreign export stays
   bindable under an ordinary local alias — the lexer emits the token and the
