@@ -1,6 +1,6 @@
 # Book Outline
 
-**Status:** Draft 3 structure. All 26 feature chapters exist. Front matter and a
+**Status:** Draft 3 structure. All 27 feature chapters exist. Front matter and a
 possible new **Getting Started** chapter remain to be written, followed by the
 whole-book pedagogy and liveliness passes.
 
