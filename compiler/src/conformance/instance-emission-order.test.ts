@@ -95,8 +95,8 @@ describe("evidence is emitted before the module's term bindings", () => {
       "    size(b) = b.v\n",
     ]], "/main.hex");
 
-    expect(offsetOf(javascript, "const __hex_instance_Small_Box"))
-      .toBeLessThan(offsetOf(javascript, "const __hex_instance_Big_Box"));
+    expect(offsetOf(javascript, "const __Small_Box"))
+      .toBeLessThan(offsetOf(javascript, "const __Big_Box"));
   });
 
   test("a derived instance rides the same channel", () => {
@@ -109,7 +109,7 @@ describe("evidence is emitted before the module's term bindings", () => {
       "export let same: Bool = Box({v = 1}) == Box({v = 1})\n",
     ]], "/main.hex");
 
-    expect(offsetOf(javascript, "const __hex_instance_Eq_Box"))
+    expect(offsetOf(javascript, "const __Eq_Box"))
       .toBeLessThan(offsetOf(javascript, "const Box ="));
   });
 
@@ -119,8 +119,8 @@ describe("evidence is emitted before the module's term bindings", () => {
       "export let boxed: Box(Int) = Box({v = 1})\n",
     ]], "/main.hex");
 
-    expect(javascript).toMatch(/const __hex_instance_Eq_Box = \S+ => \{/u);
-    expect(offsetOf(javascript, "const __hex_instance_Eq_Box"))
+    expect(javascript).toMatch(/const __Eq_Box = \S+ => \{/u);
+    expect(offsetOf(javascript, "const __Eq_Box"))
       .toBeLessThan(offsetOf(javascript, "const Box ="));
   });
 });

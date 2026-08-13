@@ -86,11 +86,11 @@ describe("the issue specimen: a container agrees with its field's own instance",
         "export record Leg2 derives (Eq, Ord) = {distance: Metres2}\n",
     );
 
-    expect(emitted).toContain("__hex_instance_Ord_Metres2.compare(__hex_left.distance, __hex_right.distance)");
-    expect(emitted).toContain("__hex_instance_Eq_Metres2.equals(__hex_left.distance, __hex_right.distance)");
+    expect(emitted).toContain("__Ord_Metres2.compare(__left.distance, __right.distance)");
+    expect(emitted).toContain("__Eq_Metres2.equals(__left.distance, __right.distance)");
     // The defect itself, as a shape: the container never reads the field's
     // representation. `.span` appears only inside `Metres2`'s own instances.
-    expect(emitted).not.toContain("__hex_left.distance.span");
+    expect(emitted).not.toContain("__left.distance.span");
   });
 });
 
@@ -289,9 +289,9 @@ describe("across module boundaries and through `export opaque`", () => {
 
     // The import was already there before the fix — and dead (#278). It is now
     // the thing the derived bodies call.
-    expect(emitted).toMatch(/__hex_instance_Ord_Metre\b/u);
-    expect(emitted).toMatch(/__hex_instance_Eq_Metre\b/u);
-    expect(emitted).toMatch(/__hex_instance_Show_Metre\b/u);
+    expect(emitted).toMatch(/__Ord_Metre\b/u);
+    expect(emitted).toMatch(/__Eq_Metre\b/u);
+    expect(emitted).toMatch(/__Show_Metre\b/u);
     // `span` is `Metre`'s private representation. A container in another module
     // must not be able to name it, and now does not.
     expect(emitted).not.toContain(".span");
@@ -311,7 +311,7 @@ describe("the shape of a composed dictionary", () => {
     const module = await runMain(source);
 
     // The factory, applied — not re-derived, and not passed unapplied.
-    expect(emitted).toContain("__hex_instance_Ord_Box(__hex_instance_Ord_Span).compare(__hex_left.boxed, __hex_right.boxed)");
+    expect(emitted).toContain("__Ord_Box(__Ord_Span).compare(__left.boxed, __right.boxed)");
     // And behaviourally: the reversal survives two levels of composition.
     expect(module.crateLt).toBe(false);
   });
@@ -326,8 +326,8 @@ describe("the shape of a composed dictionary", () => {
 
     // The dictionary is a value the FFI boundary can hold, so the composition
     // is observable without any Hexagon expression standing in front of it.
-    const ord = module.__hex_instance_Ord_Parcel as OrdDictionary;
-    const eq = module.__hex_instance_Eq_Parcel as EqDictionary;
+    const ord = module.__Ord_Parcel as OrdDictionary;
+    const eq = module.__Eq_Parcel as EqDictionary;
     expect(ord.compare({ mass: { grams: 1 } }, { mass: { grams: 2 } })).toBe("Greater");
     expect(ord.compare({ mass: { grams: 2 } }, { mass: { grams: 1 } })).toBe("Less");
     expect(ord.compare({ mass: { grams: 1 } }, { mass: { grams: 1 } })).toBe("Equal");
@@ -395,7 +395,7 @@ describe("recursive subjects", () => {
 
     // Legal at module level: the reference is inside a function body, so it is
     // resolved at call time, not at initialization.
-    expect(emitted).toContain("__hex_instance_Eq_Node2.equals(");
+    expect(emitted).toContain("__Eq_Node2.equals(");
     expect(module.sameLeaf).toBe(true);
     expect(module.leafBeforeBranch).toBe(true);
     expect(module.shownBranch).toBe("{kids = [{kids = [], label = 1}], label = 1}");
@@ -428,12 +428,12 @@ describe("the licensed shortcuts stay inline", () => {
     // #147's pin: the value *is* the JavaScript boolean, and `False < True`
     // falls out of it. A dictionary here would drag `Bool`'s four instances
     // into the emitted JavaScript of nearly every module.
-    expect(emitted).toContain("__hex_left.on === __hex_right.on");
-    expect(emitted).toContain('__hex_left.on === __hex_right.on ? "Equal" : __hex_right.on ? "Less" : "Greater"');
-    expect(emitted).toContain('(__hex_value.on ? "True" : "False")');
-    expect(emitted).not.toContain("__hex_instance_Eq_Bool");
-    expect(emitted).not.toContain("__hex_instance_Ord_Bool");
-    expect(emitted).not.toContain("__hex_instance_Show_Bool");
+    expect(emitted).toContain("__left.on === __right.on");
+    expect(emitted).toContain('__left.on === __right.on ? "Equal" : __right.on ? "Less" : "Greater"');
+    expect(emitted).toContain('(__value.on ? "True" : "False")');
+    expect(emitted).not.toContain("__Eq_Bool");
+    expect(emitted).not.toContain("__Ord_Bool");
+    expect(emitted).not.toContain("__Show_Bool");
   });
 
   test("primitive components keep their inline leaf arms", () => {
@@ -441,11 +441,11 @@ describe("the licensed shortcuts stay inline", () => {
       "export record Sample derives (Eq, Ord, Show) = {count: Int, name: String, ratio: Float}\n",
     );
 
-    expect(emitted).toContain("__hex_left.count === __hex_right.count");
-    expect(emitted).toContain('__hex_left.count < __hex_right.count ? "Less"');
-    expect(emitted).toContain("__hex_compareString(__hex_left.name, __hex_right.name)");
-    expect(emitted).toContain("__hex_floatEquals(__hex_left.ratio, __hex_right.ratio)");
-    expect(emitted).toContain('"count = " + String(__hex_value.count)');
+    expect(emitted).toContain("__left.count === __right.count");
+    expect(emitted).toContain('__left.count < __right.count ? "Less"');
+    expect(emitted).toContain("__compareString(__left.name, __right.name)");
+    expect(emitted).toContain("__floatEquals(__left.ratio, __right.ratio)");
+    expect(emitted).toContain('"count = " + String(__value.count)');
   });
 
   test("a ground primitive comparison still takes the #275 fast path", () => {

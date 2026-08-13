@@ -161,7 +161,7 @@ describe("`Eq`'s defaulted `notEquals` (Constraints §2's first default)", () =>
    * two are separable, and running the program does not tell them apart.
    *
    * Constraints §6.5 gives an exported declaration's default a **hoisted
-   * helper**: the home module emits one `__hex_default<symbol>` function and
+   * helper**: the home module emits one `__default<symbol>` function and
    * every inheriting instance fills its slot by reference to it, importing the
    * helper through the constraint's import item. A prelude declaration has no
    * such item — the synthesized prelude import deliberately carries no
@@ -170,7 +170,7 @@ describe("`Eq`'s defaulted `notEquals` (Constraints §2's first default)", () =>
    * completion to answer them (`#reachableConstraintHelpers`).
    *
    * Without that gate the instance literal carries **both**: a `notEquals` key
-   * calling an unbound `__hex_default…`, and the wired-in `notEquals` key
+   * calling an unbound `__default…`, and the wired-in `notEquals` key
    * beside it. It is a duplicate JavaScript key, so which one survives is
    * decided by emission order — at this shape the wired one happens to come
    * last and win, leaving the broken reference dangling and harmless, and at
@@ -192,7 +192,7 @@ describe("`Eq`'s defaulted `notEquals` (Constraints §2's first default)", () =>
     const text = project.modules
       .find(({ source }) => source.path === "/main.hex")!.javascript.text;
 
-    expect(text).not.toContain("__hex_default");
+    expect(text).not.toContain("__default");
     // One key, not two: a duplicate is a silent shadow, not a syntax error.
     expect(text.match(/notEquals:/gu) ?? []).toHaveLength(1);
   });

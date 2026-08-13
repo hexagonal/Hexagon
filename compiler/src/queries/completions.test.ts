@@ -226,7 +226,7 @@ describe("completions", () => {
       ["fun swap((a, b): (Int, Int)): Int =", "    ‸a", ""].join("\n"),
     );
     expect(offered).toContain("a");
-    expect(offered.some((name) => name.startsWith("__hex_"))).toBe(false);
+    expect(offered.some((name) => name.startsWith("__"))).toBe(false);
   });
 
   test("says nothing inside a block comment, and answers again after it", () => {

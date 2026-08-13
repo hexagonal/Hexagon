@@ -270,13 +270,13 @@ describe("signature positions have no body to destructure into", () => {
 });
 
 describe("the synthetic binder never reaches the reader", () => {
-  // The lexer reserves `__hex_`, so a diagnostic naming a synthetic binder
-  // would tell the reader to write an identifier the lexer refuses — a Rewrite
+  // The lexer reserves `__`, so a diagnostic naming a synthetic binder
+  // would tell the reader to write an identifier every Hexagon name seat refuses — a Rewrite
   // Rule breach (Declarations Preamble §1.1).
   test("the incomplete-signature diagnostic names `_`, not the minted binder", () => {
     const messages = diagnostics("export let f(((a, b), c)) = a + b + c\n");
     expect(messages.some((m) => m.includes("add type for parameter `_`"))).toBe(true);
-    expect(messages.some((m) => m.includes("__hex_"))).toBe(false);
+    expect(messages.some((m) => m.includes("__"))).toBe(false);
   });
 
   test("emitted declarations do not publish the minted binder", () => {
@@ -284,12 +284,12 @@ describe("the synthetic binder never reaches the reader", () => {
       "export let f(_: Int): Int = 1\n" +
         "export let g(((a, b), c): ((Int, Int), Int)): Int = a + b + c\n",
     );
-    expect(text).not.toContain("__hex_");
+    expect(text).not.toContain("__");
   });
 
   test("an extern signature does not publish the minted binder", () => {
     const text = declarations('extern from "m"\n    export fun f(_: Int): Int\n');
-    expect(text).not.toContain("__hex_");
+    expect(text).not.toContain("__");
   });
 
   test("two synthetic parameters render distinctly, keeping the output valid", () => {

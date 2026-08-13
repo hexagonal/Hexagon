@@ -1126,10 +1126,10 @@ describe("HashTrie placement mix (Effects §6.2 species (b))", () => {
     const javascript = emitted!.javascript.text;
     // One seed, created once, at helper scope.
     expect(javascript.match(/Math\.random\(\)/gu)?.length).toBe(1);
-    const seed = javascript.match(/const (__hex_seed) = \(Math\.random\(\) \* 0x100000000\) \| 0;/u);
+    const seed = javascript.match(/const (__seed) = \(Math\.random\(\) \* 0x100000000\) \| 0;/u);
     expect(seed).not.toBeNull();
     // The mixing arrow reads that binding rather than the world.
-    expect(javascript).toMatch(/__hex_value \^ __hex_seed/u);
+    expect(javascript).toMatch(/__value \^ __seed/u);
     expect(javascript).toMatch(/Math\.imul/u);
     // And the SWAR popcount is there rather than a loop.
     expect(javascript).toMatch(/0x55555555/u);

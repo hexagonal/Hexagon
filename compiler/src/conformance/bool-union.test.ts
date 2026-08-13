@@ -187,7 +187,7 @@ describe("the representation pin (#147 §3)", () => {
 
     expect(project.diagnostics).toEqual([]);
     const main = project.modules.find(({ source }) => source.path === "/main.hex")!;
-    expect(main.javascript.text).not.toContain("__hex_toBool");
+    expect(main.javascript.text).not.toContain("__toBool");
     expect(main.declarations.text).toContain("boolean");
   });
 });

@@ -729,12 +729,18 @@ interface DeclarationFaces {
  * `.d.ts` that does not compile.
  *
  * The names the emitter *generates* are left out, and that is the one place
- * this is not a superset: `__hex_opaque_X` brand constants and `__hex_bindingN`
- * locals really do reach the file. Both are omitted because their `__hex_`
- * prefix is unconditional, so neither can spell `Hex` or `HexN` — though by two
- * separate mechanisms, which is why this says "prefix" and not "`GeneratedNames`":
- * the brands go through `GeneratedNames.#claim`, while `__hex_bindingN` is a
- * template literal spelled out afresh at each of its use sites.
+ * this is not a superset: `XBrand` brand constants and `__bindingN` locals
+ * really do reach the file. Both are omitted, but on two different grounds now
+ * that a brand is a face rather than a hygiene name (FFI Part 7 §5; #425):
+ *
+ * - A **brand** always ends `Brand`, or `Brand` and digits where its own probe
+ *   had to move it, so it cannot spell `Hex` or `HexN`. Its guarantee is the
+ *   suffix, not a prefix — brands sit deliberately outside Lexer §3.2's
+ *   reserved `__`, and a scheme that ever drops the `Brand` tail has to revisit
+ *   this.
+ * - A **`__bindingN` local** is under that reserved prefix, which no `Hex`
+ *   spelling can be.
+ *
  * Specialization editions are omitted on a weaker ground — they are
  * `${sourceName}${FundamentalType}`, hence always suffixed `Nat`/`Int`/`Float`/
  * `BigInt`/`Bool`/`String`/`Unit`, and no such name is `Hex` or `HexN` either.
@@ -835,6 +841,22 @@ class JavaScriptEmitter {
    */
   readonly #referencedDictionaries = new Set<string>();
   /**
+   * How each quantified type variable is spelled in the signature it comes from
+   * (#425), which is what an evidence parameter is named after: `<a: Show>` is
+   * answered by `__Show_a`, not by a counter, so a generic body reads as a
+   * transcription of its own signature.
+   *
+   * An instance head carries its binders' *written* spellings and uses them; a
+   * scheme does not carry them at all, so its variables take the same canonical
+   * `a`, `b`, … the `.d.ts` face and the LSP hover already print for them. Both
+   * are "the source type variable" as this compiler preserves it.
+   *
+   * Registered as declarations are reached and never overwritten: a variable
+   * belongs to exactly one binder, and the first registration is that binder's.
+   */
+  readonly #variableSpellings = new Map<Typed.TypeVariableId, string>();
+  #unnamedVariables = 0;
+  /**
    * What each unparameterized instance reads while its own `const` initializes:
    * the rendered base-constraint evidence, and nothing else. Instance
    * dictionaries are emitted ahead of every term binding (Constraints §6.3), and
@@ -875,6 +897,13 @@ class JavaScriptEmitter {
    * channel never binds one a second time (#153). See `#preludeInstanceImports`.
    */
   readonly #importedInstanceLocals = new Set<string>();
+  /**
+   * Local dictionary names an emitted `import` line has already bound, so two
+   * arrivals of one dictionary identity bind it once (#425). Filled during
+   * rendering, unlike `#importedInstanceLocals`, because it records what was
+   * *emitted* rather than what the resolver bound.
+   */
+  readonly #boundImportedDictionaries = new Set<string>();
   readonly #module: Core.Module;
   readonly #docs: DocIndex;
   readonly #exportInstanceEvidence: boolean;
@@ -898,7 +927,20 @@ class JavaScriptEmitter {
     this.#prelude = preludeIds(module);
     this.#exportInstanceEvidence = options.exportInstanceEvidence ?? false;
     this.#runtimes = options.runtimes ?? new Map();
-    this.#generatedNames = new GeneratedNames(module.symbols.map(({ name }) => name));
+    // Dictionary names are module-level `const`s and `import` bindings like any
+    // other, so the emitter's own fresh names must dodge them. They are not
+    // symbols, so nothing else puts them in the taken set (#425).
+    this.#generatedNames = new GeneratedNames([
+      ...module.symbols.map(({ name }) => name),
+      ...module.items.flatMap((item) =>
+        item.kind === "Honor"
+          ? [item.dictionary]
+          : item.kind === "Import"
+          ? item.instances.map(({ localDictionary }) => localDictionary)
+          : []
+      ),
+      ...module.preludeInstances.map(({ localDictionary }) => localDictionary),
+    ]);
     for (const item of module.items) {
       if (item.kind !== "Import") continue;
       for (const { localDictionary } of item.instances) {
@@ -1090,11 +1132,23 @@ class JavaScriptEmitter {
       }
       if (item.constraints.length > 0) this.#constraintImports.push(item);
       const specifier = JSON.stringify(emittedModuleSpecifier(item.specifier));
-      const instances = item.instances.map(({ importedDictionary, localDictionary }) =>
-        importedDictionary === localDictionary
-          ? importedDictionary
-          : `${importedDictionary} as ${localDictionary}`
-      );
+      // One binding per local name. The resolver gives every arrival of one
+      // dictionary identity the same local (§5's naming pass), so a diamond of
+      // re-exports — or an import beside a direct one — reaches here twice with
+      // one name, and emitting both `import` lines is `SyntaxError: Identifier
+      // has already been declared` at load, after a clean compile. The first
+      // specifier in source order owns the binding; the second names the same
+      // dictionary, so which one is a matter of which module the emitted graph
+      // must reach, and the earlier is as good an answer as the later.
+      const instances = item.instances.flatMap(({ importedDictionary, localDictionary }) => {
+        if (this.#boundImportedDictionaries.has(localDictionary)) return [];
+        this.#boundImportedDictionaries.add(localDictionary);
+        return [
+          importedDictionary === localDictionary
+            ? importedDictionary
+            : `${importedDictionary} as ${localDictionary}`,
+        ];
+      });
       const instanceImport = instances.length === 0
         ? []
         : [`${prefix}import { ${instances.join(", ")} } from ${specifier};`];
@@ -1317,15 +1371,17 @@ class JavaScriptEmitter {
         const sourceParameters = member.parameters.map((parameter) =>
           this.#identifier(parameter.symbol, parameter.name)
         );
-        const dictionaries = dictionaryEntries(member.binding.scheme).map(
-          ({ constraint, variable }) => dictionaryParameterName(constraint, variable),
+        this.#noteScheme(member.binding.scheme);
+        const { names: dictionaries } = this.#evidenceParameters(
+          dictionaryEntries(member.binding.scheme),
+          evidenceNames,
         );
         const dictionary = dictionaries[0] ?? "undefined";
         const parameters = [...sourceParameters, ...dictionaries];
         if (item.exported) {
           // §6.5: the forwarder gains an ESM export, which an importing module
           // that calls the member imports. Hexagon-to-Hexagon evidence plumbing
-          // in the `__hex_instance_*` class, so it takes the internal name and
+          // in the `__*` class, so it takes the internal name and
           // stays out of the `.d.ts` — §6.4 is untouched.
           this.#exports.push(
             `export { ${name} as ${internalConstrainedExportName(member.binding.symbol)} };`,
@@ -1341,13 +1397,15 @@ class JavaScriptEmitter {
       });
     }
     if (item.kind === "Honor") {
-      const localEvidence = new Map(evidenceNames);
-      const parameters = item.typeParameters.flatMap((parameter) =>
-        parameter.constraints.map((constraint) => {
-          const name = dictionaryParameterName(constraint, parameter.variable);
-          localEvidence.set(evidenceKey(parameter.variable, constraint), name);
-          return name;
-        })
+      this.#noteHonorParameters(item.typeParameters);
+      const { names: parameters, localEvidence } = this.#evidenceParameters(
+        item.typeParameters.flatMap((parameter) =>
+          parameter.constraints.map((constraint) => ({
+            constraint,
+            variable: parameter.variable,
+          }))
+        ),
+        evidenceNames,
       );
       const localDictionary = parameters.length === 0
         ? item.dictionary
@@ -1392,7 +1450,7 @@ class JavaScriptEmitter {
         this.#usedDefaultHelpers.add(inherited.member);
         const parameters_ = Array.from(
           { length: inherited.arity },
-          (_, index) => `__hex_arg${index}`,
+          (_, index) => `__arg${index}`,
         );
         return objectProperty(
           inherited.name,
@@ -1407,12 +1465,12 @@ class JavaScriptEmitter {
           ? [
               ...members,
               ...inheritedDefaults,
-              `notEquals: (__hex_left, __hex_right) => !${localDictionary}.equals(__hex_left, __hex_right)`,
+              `notEquals: (__left, __right) => !${localDictionary}.equals(__left, __right)`,
             ]
           : [...members, ...inheritedDefaults];
       const value = `{ ${[...baseConstraints, ...completedMembers].join(", ")} }`;
       if (this.#exportInstanceEvidence) {
-        this.#exportEvidence(item.dictionary);
+        this.#exportEvidence(item.dictionary, item.exportedDictionary ?? item.dictionary);
       }
       if (parameters.length === 0) {
         return [`${prefix}const ${item.dictionary} = ${value};`];
@@ -1438,7 +1496,7 @@ class JavaScriptEmitter {
       // generalizes. Passing `false` here — as this call did until review round 5
       // — made the emitter eta-expand a *generalized* constrained alias, building
       // a wrapper of the unsuffixed arity while every consumer appended the
-      // suffix: `const g = __hex_arg00 => describe(__hex_arg00, undefined)` with
+      // suffix: `const g = __arg00 => describe(__arg00, undefined)` with
       // `g("x", dict)` at the use. The dropped dictionary this file's §6.1 note
       // exists to prevent, on a program `main` compiles and runs.
       //
@@ -1549,11 +1607,11 @@ class JavaScriptEmitter {
       // defect this ruling closed. Deliberately unreachable, deliberately kept.
       if (this.#prelude.seq !== undefined && item.id === this.#prelude.seq) {
         return [
-          `${prefix}const ${name} = __hex_record => ` +
-          `({ ...__hex_record, [Symbol.iterator]: ${this.#useHelper("seqIterate")} });`,
+          `${prefix}const ${name} = __record => ` +
+          `({ ...__record, [Symbol.iterator]: ${this.#useHelper("seqIterate")} });`,
         ];
       }
-      return [`${prefix}const ${name} = __hex_record => __hex_record;`];
+      return [`${prefix}const ${name} = __record => __record;`];
     }
     if (item.kind === "Exception") {
       const exceptionHelper = this.#useHelper("exception");
@@ -1687,7 +1745,7 @@ class JavaScriptEmitter {
   ): string[] {
     if (!item.exported || member.defaultValue === undefined) return [];
     const name = defaultHelperName(member.binding.symbol);
-    const dictionary = `__hex_dict`;
+    const dictionary = `__dict`;
     const localEvidence = new Map(evidenceNames);
     localEvidence.set(evidenceKey(item.subject, item.name), dictionary);
     const parameters = [
@@ -1766,7 +1824,7 @@ class JavaScriptEmitter {
     const sequences = type.parameters.map((parameter) => this.#isSequence(parameter));
     if (!sequences.includes(true)) return name;
     const door = this.#useHelper("seqInbound");
-    const parameters = sequences.map((_, index) => `__hex_argument${index}`);
+    const parameters = sequences.map((_, index) => `__argument${index}`);
     const wrapper = this.#generatedNames.fresh(`${name}Boundary`);
     this.#exports.push(
       `const ${wrapper} = ${arrowParameters(parameters)} => ${name}(${
@@ -1785,13 +1843,10 @@ class JavaScriptEmitter {
     evidenceNames: EvidenceNames,
   ): string[] {
     if (item.value.kind !== "Lambda") return [];
-    const localEvidence = new Map(evidenceNames);
-    const dictionaryParameters = dictionaryEntries(item.binding.scheme).map(
-      ({ constraint, variable }) => {
-        const dictionary = dictionaryParameterName(constraint, variable);
-        localEvidence.set(evidenceKey(variable, constraint), dictionary);
-        return dictionary;
-      },
+    this.#noteScheme(item.binding.scheme);
+    const { names: dictionaryParameters, localEvidence } = this.#evidenceParameters(
+      dictionaryEntries(item.binding.scheme),
+      evidenceNames,
     );
     const parameters = [
       ...item.value.parameters.map((parameter) =>
@@ -1859,17 +1914,17 @@ class JavaScriptEmitter {
     depth: number,
     evidenceNames: EvidenceNames,
   ): string {
+    // Ahead of the non-lambda return: the bare-alias case below reads this
+    // binding's own scheme variables through `#emitConstrainedValue`'s residual
+    // arm, and their spellings have to be registered before it does (#425).
+    this.#noteScheme(item.binding.scheme);
     if (item.value.kind !== "Lambda") {
       return this.#emitExpr(item.value, depth, evidenceNames, true);
     }
 
-    const localEvidence = new Map(evidenceNames);
-    const dictionaryParameters = dictionaryEntries(item.binding.scheme).map(
-      ({ constraint, variable }) => {
-        const name = dictionaryParameterName(constraint, variable);
-        localEvidence.set(evidenceKey(variable, constraint), name);
-        return name;
-      },
+    const { names: dictionaryParameters, localEvidence } = this.#evidenceParameters(
+      dictionaryEntries(item.binding.scheme),
+      evidenceNames,
     );
     return this.#emitLambda(
       item.value,
@@ -3374,28 +3429,28 @@ class JavaScriptEmitter {
       this.#derivedEquals(subject, left, right, evidenceNames, false, components);
     if (item.constraint === "Eq") {
       return [
-        `equals: (__hex_left, __hex_right) => ${equals("__hex_left", "__hex_right")}`,
-        `notEquals: (__hex_left, __hex_right) => !(${equals("__hex_left", "__hex_right")})`,
+        `equals: (__left, __right) => ${equals("__left", "__right")}`,
+        `notEquals: (__left, __right) => !(${equals("__left", "__right")})`,
       ];
     }
     if (item.constraint === "Show") {
       return [
-        `show: __hex_value => ${this.#derivedShow(subject, "__hex_value", evidenceNames, components)}`,
+        `show: __value => ${this.#derivedShow(subject, "__value", evidenceNames, components)}`,
       ];
     }
     if (item.constraint === "Ord") {
       return [
-        `compare: (__hex_left, __hex_right) => ${this.#derivedCompare(
+        `compare: (__left, __right) => ${this.#derivedCompare(
           subject,
-          "__hex_left",
-          "__hex_right",
+          "__left",
+          "__right",
           evidenceNames,
           components,
         )}`,
       ];
     }
     return [
-      `hash: __hex_value => ${this.#derivedHash(subject, "__hex_value", evidenceNames)}`,
+      `hash: __value => ${this.#derivedHash(subject, "__value", evidenceNames)}`,
     ];
   }
 
@@ -3442,7 +3497,7 @@ class JavaScriptEmitter {
     if (type.kind === "Vector") {
       // Fresh binders per level. `for (const x of x)` is a TDZ
       // `ReferenceError` — the head's own scope holds the binding while the
-      // iterable expression is evaluated — so a fixed `__hex_element` faults on
+      // iterable expression is evaluated — so a fixed `__element` faults on
       // `hash` at `Vector(Vector(a))`, where the inner walk's source *is* the
       // outer walk's binder. Pre-dates the trie; the representation had nothing
       // to do with it.
@@ -3687,7 +3742,7 @@ class JavaScriptEmitter {
         ));
         return `case ${JSON.stringify(constructor.name)}: return ${comparison};`;
       }).join(" ");
-      return `(() => { const __hex_tagOrder = ${fromSign(`(${tag(`${left}.tag`)}) - (${tag(`${right}.tag`)})`)}; if (__hex_tagOrder !== "Equal") return __hex_tagOrder; switch (${left}.tag) { ${cases} default: return "Equal"; } })()`;
+      return `(() => { const __tagOrder = ${fromSign(`(${tag(`${left}.tag`)}) - (${tag(`${right}.tag`)})`)}; if (__tagOrder !== "Equal") return __tagOrder; switch (${left}.tag) { ${cases} default: return "Equal"; } })()`;
     }
     return '"Equal"';
   }
@@ -3917,8 +3972,8 @@ class JavaScriptEmitter {
       // free. Spread rather than `map`, because a trie is not an array; the
       // spread is the representation contract, the same one `Set` and `Map`
       // below already read through.
-      const shown = component("element", type.element, "__hex_element");
-      return `"[" + [...${value}].map(__hex_element => ${shown}).join(", ") + "]"`;
+      const shown = component("element", type.element, "__element");
+      return `"[" + [...${value}].map(__element => ${shown}).join(", ") + "]"`;
     }
     if (type.kind === "Set") {
       // §8: the constructor-shaped rendering, over the wrapper (#373). The
@@ -3926,14 +3981,14 @@ class JavaScriptEmitter {
       // just below: a `HashSet` holds one field, `trie`, and the maintained
       // count lives inside it. The spread is the representation contract, the
       // same one `Vector` and `Map` read through.
-      const shown = component("element", type.element, "__hex_element");
+      const shown = component("element", type.element, "__element");
       return `${this.#useHashTrieRuntime("memberCount")}(${value}) === 0 ? "Set.empty" : ` +
-        `"Set.fromVector([" + [...${value}].map(__hex_element => ${shown}).join(", ") + "])"`;
+        `"Set.fromVector([" + [...${value}].map(__element => ${shown}).join(", ") + "])"`;
     }
     if (type.kind === "Map") {
-      const key = component("key", type.key, "__hex_entry[0]");
-      const item = component("value", type.value, "__hex_entry[1]");
-      return `${value}.size === 0 ? "Map.empty" : "Map.fromVector([" + [...${value}].map(__hex_entry => "(" + ${key} + ", " + ${item} + ")").join(", ") + "])"`;
+      const key = component("key", type.key, "__entry[0]");
+      const item = component("value", type.value, "__entry[1]");
+      return `${value}.size === 0 ? "Map.empty" : "Map.fromVector([" + [...${value}].map(__entry => "(" + ${key} + ", " + ${item} + ")").join(", ") + "])"`;
     }
     if (type.kind === "Record") {
       const fields = [...type.fields].sort((a, b) => a.name.localeCompare(b.name)).map((field) =>
@@ -4044,18 +4099,18 @@ class JavaScriptEmitter {
     evidenceNames: EvidenceNames,
   ): string {
     if (constraint === "Hash") {
-      const equals = this.#derivedEquals(type, "__hex_left", "__hex_right", evidenceNames, true);
-      return `({ eq: { equals: (__hex_left, __hex_right) => ${equals}, notEquals: (__hex_left, __hex_right) => !(${equals}) }, hash: __hex_value => ${this.#derivedHash(type, "__hex_value", evidenceNames)} })`;
+      const equals = this.#derivedEquals(type, "__left", "__right", evidenceNames, true);
+      return `({ eq: { equals: (__left, __right) => ${equals}, notEquals: (__left, __right) => !(${equals}) }, hash: __value => ${this.#derivedHash(type, "__value", evidenceNames)} })`;
     }
     if (constraint === "Eq") {
-      const equals = this.#derivedEquals(type, "__hex_left", "__hex_right", evidenceNames, false, components);
-      return `({ equals: (__hex_left, __hex_right) => ${equals}, notEquals: (__hex_left, __hex_right) => !(${equals}) })`;
+      const equals = this.#derivedEquals(type, "__left", "__right", evidenceNames, false, components);
+      return `({ equals: (__left, __right) => ${equals}, notEquals: (__left, __right) => !(${equals}) })`;
     }
     if (constraint === "Ord") {
-      return `({ compare: (__hex_left, __hex_right) => ${this.#derivedCompare(type, "__hex_left", "__hex_right", evidenceNames, components)} })`;
+      return `({ compare: (__left, __right) => ${this.#derivedCompare(type, "__left", "__right", evidenceNames, components)} })`;
     }
     if (constraint === "Show") {
-      return `({ show: __hex_value => ${this.#derivedShow(type, "__hex_value", evidenceNames, components)} })`;
+      return `({ show: __value => ${this.#derivedShow(type, "__value", evidenceNames, components)} })`;
     }
     if (constraint === "Iterable") {
       // Collections Part 5 §4's provided rows, rendered rather than imported
@@ -4080,7 +4135,7 @@ class JavaScriptEmitter {
       // it already memoizes, and the row exists precisely so that normalizing a
       // `Seq` with `toSeq` costs nothing (§4's purity note).
       return this.#isSequence(type)
-        ? "({ toSeq: __hex_source => __hex_source })"
+        ? "({ toSeq: __source => __source })"
         : `({ toSeq: ${this.#useHelper("seqFromIterable")} })`;
     }
     if (constraint === "Concat" && type.kind === "Vector") {
@@ -4126,7 +4181,7 @@ class JavaScriptEmitter {
       // it arrives in this branch with no module to have exported it: its four
       // instances are `stdlib/Bool.hex`'s *derived* ones, rendered inline at
       // every use like any other derived leaf. Render them here the same way.
-      // The retired wired table answered `String(__hex_a)` for this, which is
+      // The retired wired table answered `String(__a)` for this, which is
       // the host's `"true"` rather than `Show<Bool>`'s `"True"` — a monomorphic
       // edition disagreeing with every other spelling of the same call.
       // The name is a `PrimitiveName` in the type, and `Bool` is not one — the
@@ -4191,7 +4246,7 @@ class JavaScriptEmitter {
   }
 
   #identifier(symbol: Resolved.SymbolId, sourceName: string): string {
-    return isSafeIdentifier(sourceName) ? sourceName : `__hex_binding${Number(symbol)}`;
+    return isSafeIdentifier(sourceName) ? sourceName : `__binding${Number(symbol)}`;
   }
 
   /**
@@ -4343,10 +4398,22 @@ class JavaScriptEmitter {
     });
   }
 
-  #exportEvidence(dictionary: string): void {
+  /**
+   * Publishes one dictionary as this module's cross-module evidence plumbing.
+   *
+   * `exported` is the spelling the *interface* carries, which is the bare
+   * flattened name even where a local collision suffixed the `const` behind it
+   * (Dictionary Sharing §8) — hence the aliasing form. Consumers read the
+   * exported spelling from the resolved interface and never predict a local one.
+   */
+  #exportEvidence(dictionary: string, exported = dictionary): void {
     if (this.#exportedEvidence.has(dictionary)) return;
     this.#exportedEvidence.add(dictionary);
-    this.#exports.push(`export { ${dictionary} };`);
+    this.#exports.push(
+      dictionary === exported
+        ? `export { ${dictionary} };`
+        : `export { ${dictionary} as ${exported} };`,
+    );
   }
 
   /**
@@ -4550,13 +4617,10 @@ class JavaScriptEmitter {
       Number(left.variable) - Number(right.variable) ||
       left.constraint.localeCompare(right.constraint)
     );
-    const residualParameters = residual.map(({ constraint, variable }) =>
-      dictionaryParameterName(constraint, variable)
+    const { names: residualParameters, localEvidence } = this.#evidenceParameters(
+      residual,
+      evidenceNames,
     );
-    const localEvidence = new Map(evidenceNames);
-    residual.forEach(({ constraint, variable }, index) => {
-      localEvidence.set(evidenceKey(variable, constraint), residualParameters[index]!);
-    });
     const dictionaries = this.#evidenceArguments(
       expression.evidence ?? [],
       expression.span,
@@ -4632,8 +4696,8 @@ class JavaScriptEmitter {
       case "vectorToSeq":
         return this.#useHelper("seqFromIterable");
       case "vectorFromSeq":
-        return `__hex_values => ${this.#useHelper("vectorOf")}(` +
-          `${this.#useHelper("seqToIterable")}(__hex_values))`;
+        return `__values => ${this.#useHelper("vectorOf")}(` +
+          `${this.#useHelper("seqToIterable")}(__values))`;
       // `stdlib/BigInt.hex`'s natives (#344), in the primop shape: every one is
       // a JavaScript operator or one-call conversion, so each lowers to a bare
       // arrow with no helper behind it. Nothing here guards, converts a sign, or
@@ -4643,36 +4707,36 @@ class JavaScriptEmitter {
       // an `Ordering` *is* (#275), and `bigIntPow` is the **raw** `**`, because
       // the negative-exponent guard sits above it in source.
       case "bigIntAdd":
-        return "(__hex_a, __hex_b) => __hex_a + __hex_b";
+        return "(__a, __b) => __a + __b";
       case "bigIntMultiply":
-        return "(__hex_a, __hex_b) => __hex_a * __hex_b";
+        return "(__a, __b) => __a * __b";
       case "bigIntSubtract":
-        return "(__hex_a, __hex_b) => __hex_a - __hex_b";
+        return "(__a, __b) => __a - __b";
       case "bigIntNegate":
-        return "__hex_a => -__hex_a";
+        return "__a => -__a";
       case "bigIntQuot":
-        return "(__hex_a, __hex_b) => __hex_a / __hex_b";
+        return "(__a, __b) => __a / __b";
       case "bigIntRem":
-        return "(__hex_a, __hex_b) => __hex_a % __hex_b";
+        return "(__a, __b) => __a % __b";
       case "bigIntPow":
-        return "(__hex_a, __hex_b) => __hex_a ** __hex_b";
+        return "(__a, __b) => __a ** __b";
       case "bigIntEquals":
-        return "(__hex_a, __hex_b) => __hex_a === __hex_b";
+        return "(__a, __b) => __a === __b";
       case "bigIntCompare":
-        return '(__hex_a, __hex_b) => __hex_a < __hex_b ? "Less" : __hex_a > __hex_b ? "Greater" : "Equal"';
+        return '(__a, __b) => __a < __b ? "Less" : __a > __b ? "Greater" : "Equal"';
       case "bigIntShow":
-        return "__hex_a => String(__hex_a)";
+        return "__a => String(__a)";
       case "bigIntHash":
-        return `__hex_a => ${this.#useHelper("stableHash")}(__hex_a)`;
+        return `__a => ${this.#useHelper("stableHash")}(__a)`;
       // The conversions (Primitive Types §6). `fromNat`/`fromInt` are exact and
       // total; `toIntUnchecked` is the unchecked core `toInt`'s range check
       // sits above, and `toFloat` is the documented lossy one.
       case "bigIntFromNat":
       case "bigIntFromInt":
-        return "__hex_a => BigInt(__hex_a)";
+        return "__a => BigInt(__a)";
       case "bigIntToIntUnchecked":
       case "bigIntToFloat":
-        return "__hex_a => Number(__hex_a)";
+        return "__a => Number(__a)";
       // `stdlib/Int.hex`'s and `stdlib/Nat.hex`'s natives (#344, the second
       // landing), in the same primop shape: a JavaScript operator or a one-call
       // conversion apiece, each a bare arrow with no helper behind it. Nothing
@@ -4683,44 +4747,44 @@ class JavaScriptEmitter {
       // is raw because at `Nat` there is no guard to write.
       case "intAdd":
       case "natAdd":
-        return "(__hex_a, __hex_b) => __hex_a + __hex_b";
+        return "(__a, __b) => __a + __b";
       case "intMultiply":
       case "natMultiply":
-        return "(__hex_a, __hex_b) => __hex_a * __hex_b";
+        return "(__a, __b) => __a * __b";
       case "intSubtract":
-        return "(__hex_a, __hex_b) => __hex_a - __hex_b";
+        return "(__a, __b) => __a - __b";
       case "intNegate":
-        return "__hex_a => -__hex_a";
+        return "__a => -__a";
       // The truncated quotient at a `number` is `Math.trunc` of the real one:
       // JS `/` is float division, so the rounding has to be asked for. The
       // remainder is `%`, which already truncates.
       case "intQuot":
       case "natQuot":
-        return "(__hex_a, __hex_b) => Math.trunc(__hex_a / __hex_b)";
+        return "(__a, __b) => Math.trunc(__a / __b)";
       case "intRem":
       case "natRem":
-        return "(__hex_a, __hex_b) => __hex_a % __hex_b";
+        return "(__a, __b) => __a % __b";
       case "intPow":
       case "natPow":
-        return "(__hex_a, __hex_b) => __hex_a ** __hex_b";
+        return "(__a, __b) => __a ** __b";
       case "intEquals":
       case "natEquals":
-        return "(__hex_a, __hex_b) => __hex_a === __hex_b";
+        return "(__a, __b) => __a === __b";
       case "intCompare":
       case "natCompare":
-        return '(__hex_a, __hex_b) => __hex_a < __hex_b ? "Less" : __hex_a > __hex_b ? "Greater" : "Equal"';
+        return '(__a, __b) => __a < __b ? "Less" : __a > __b ? "Greater" : "Equal"';
       case "intShow":
       case "natShow":
-        return "__hex_a => String(__hex_a)";
+        return "__a => String(__a)";
       case "intHash":
       case "natHash":
-        return `__hex_a => ${this.#useHelper("stableHash")}(__hex_a)`;
+        return `__a => ${this.#useHelper("stableHash")}(__a)`;
       // `Nat` and `Int` share one `number` representation, so both conversions
       // are the identity: the widening one is total, and the narrowing one is
       // the unchecked core `Nat.fromInt`'s sign check sits above.
       case "intFromNat":
       case "natFromIntUnchecked":
-        return "__hex_a => __hex_a";
+        return "__a => __a";
       // `stdlib/Float.hex`'s and `stdlib/String.hex`'s natives (#344, the third
       // landing and the last), in the same primop shape. Three rows are not
       // bare operators, and each is that way because the operator would be
@@ -4732,31 +4796,31 @@ class JavaScriptEmitter {
       // (#275). Nothing here guards, because nothing at either type can:
       // `Float`'s partiality is `NaN`, and `String` has no partial operation.
       case "floatAdd":
-        return "(__hex_a, __hex_b) => __hex_a + __hex_b";
+        return "(__a, __b) => __a + __b";
       case "floatMultiply":
-        return "(__hex_a, __hex_b) => __hex_a * __hex_b";
+        return "(__a, __b) => __a * __b";
       case "floatSubtract":
-        return "(__hex_a, __hex_b) => __hex_a - __hex_b";
+        return "(__a, __b) => __a - __b";
       case "floatNegate":
-        return "__hex_a => -__hex_a";
+        return "__a => -__a";
       case "floatDivide":
-        return "(__hex_a, __hex_b) => __hex_a / __hex_b";
+        return "(__a, __b) => __a / __b";
       case "floatPow":
-        return "(__hex_a, __hex_b) => __hex_a ** __hex_b";
+        return "(__a, __b) => __a ** __b";
       // The `rem` half of Division & Remainder §5, and the only half of it that
       // crosses: bare `%`, no guard and no helper, with `Float.mod` written
       // over it in the companion's own Hexagon.
       case "floatRem":
-        return "(__hex_a, __hex_b) => __hex_a % __hex_b";
+        return "(__a, __b) => __a % __b";
       case "floatEquals":
-        return "(__hex_a, __hex_b) => __hex_a === __hex_b || (__hex_a !== __hex_a && __hex_b !== __hex_b)";
+        return "(__a, __b) => __a === __b || (__a !== __a && __b !== __b)";
       case "floatCompare":
-        return `(__hex_a, __hex_b) => ${this.#useHelper("ordering")}(${this.#useHelper("compareFloat")}(__hex_a, __hex_b))`;
+        return `(__a, __b) => ${this.#useHelper("ordering")}(${this.#useHelper("compareFloat")}(__a, __b))`;
       case "floatShow":
-        return "__hex_a => String(__hex_a)";
+        return "__a => String(__a)";
       case "floatHash":
       case "stringHash":
-        return `__hex_a => ${this.#useHelper("stableHash")}(__hex_a)`;
+        return `__a => ${this.#useHelper("stableHash")}(__a)`;
       // Collections Part 5 §5.3, whose implementation note is **binding**:
       // collect chunks and join. The spread materializes the sequence once and
       // `join` walks it once, so the cost is linear in the total length; the
@@ -4766,18 +4830,18 @@ class JavaScriptEmitter {
       // clause) — and nothing here inspects, folds, or canonicalizes content,
       // which is the no-normalization clause holding by construction.
       case "stringFromSeq":
-        return `__hex_values => [...${this.#useHelper("seqToIterable")}(__hex_values)].join("")`;
+        return `__values => [...${this.#useHelper("seqToIterable")}(__values)].join("")`;
       case "stringConcat":
-        return "(__hex_a, __hex_b) => __hex_a + __hex_b";
+        return "(__a, __b) => __a + __b";
       case "stringEquals":
-        return "(__hex_a, __hex_b) => __hex_a === __hex_b";
+        return "(__a, __b) => __a === __b";
       case "stringCompare":
-        return `(__hex_a, __hex_b) => ${this.#useHelper("ordering")}(${this.#useHelper("compareString")}(__hex_a, __hex_b))`;
+        return `(__a, __b) => ${this.#useHelper("ordering")}(${this.#useHelper("compareString")}(__a, __b))`;
       // `floatFromInt` is the identity over the one shared `number`
       // representation, exactly as `intFromNat` is; it is keyed only because a
       // Hexagon body for it would elaborate through the slot being defined.
       case "floatFromInt":
-        return "__hex_a => __hex_a";
+        return "__a => __a";
       // `runtime/HashTrie.hex`'s three groups (#365). The placement mix and the
       // popcount reach for helpers — one holds the per-process seed, the other a
       // SWAR word whose four statements no arrow expression can hold; the rest
@@ -4791,13 +4855,13 @@ class JavaScriptEmitter {
       // `lastShift` states that invariant and `splitEntry` throws rather than
       // build a node below it.
       case "hashTrieDigit":
-        return "(__hex_a, __hex_b) => (__hex_a >>> __hex_b) & 31";
+        return "(__a, __b) => (__a >>> __b) & 31";
       case "hashTrieBitTest":
-        return "(__hex_a, __hex_b) => (__hex_a & (1 << __hex_b)) !== 0";
+        return "(__a, __b) => (__a & (1 << __b)) !== 0";
       case "hashTrieBitSet":
-        return "(__hex_a, __hex_b) => __hex_a | (1 << __hex_b)";
+        return "(__a, __b) => __a | (1 << __b)";
       case "hashTrieBitClear":
-        return "(__hex_a, __hex_b) => __hex_a & ~(1 << __hex_b)";
+        return "(__a, __b) => __a & ~(1 << __b)";
       case "hashTrieBitCount":
         return this.#useHelper("bitCount");
       // The mask is every bit strictly below `index`. At index 31 `1 << 31` is
@@ -4806,13 +4870,13 @@ class JavaScriptEmitter {
       // (The one index this expression could not serve is 32, which no caller
       // reaches: a digit is 0..31.)
       case "hashTrieBitCountBelow":
-        return `(__hex_a, __hex_b) => ${this.#useHelper("bitCount")}(__hex_a & ((1 << __hex_b) - 1))`;
+        return `(__a, __b) => ${this.#useHelper("bitCount")}(__a & ((1 << __b) - 1))`;
       case "hashTrieNodeSingleton":
-        return "__hex_a => [__hex_a]";
+        return "__a => [__a]";
       case "hashTrieNodeInsertAt":
-        return "(__hex_a, __hex_b, __hex_c) => [...__hex_a.slice(0, __hex_b), __hex_c, ...__hex_a.slice(__hex_b)]";
+        return "(__a, __b, __c) => [...__a.slice(0, __b), __c, ...__a.slice(__b)]";
       case "hashTrieNodeRemoveAt":
-        return "(__hex_a, __hex_b) => [...__hex_a.slice(0, __hex_b), ...__hex_a.slice(__hex_b + 1)]";
+        return "(__a, __b) => [...__a.slice(0, __b), ...__a.slice(__b + 1)]";
       // `stdlib/Map.hex`'s seven (#370), and the first family whose lowerings
       // are **another Hexagon module's compiled operations**: each aliases the
       // matching export of `runtime/HashTrie.hex`'s emitted module, which is the
@@ -4899,6 +4963,100 @@ class JavaScriptEmitter {
     }
   }
 
+  /**
+   * Records how a scheme's quantified variables are spelled, so the evidence
+   * parameters minted for its constraints can be named after them (#425).
+   *
+   * A scheme keeps no binder spellings — generalization mints variables, it does
+   * not remember what the author called them — so the canonical `a`, `b`, … is
+   * the spelling, and it is the same one `renderType` puts in the `.d.ts` and
+   * `Typed.display` puts in a hover. The transcription is therefore exact
+   * against the face the tools show, which is the readable property the naming
+   * is for.
+   */
+  #noteScheme(scheme: Typed.Scheme): void {
+    scheme.variables.forEach((variable, index) => {
+      if (this.#variableSpellings.has(variable)) return;
+      this.#variableSpellings.set(variable, typeVariableName(index));
+    });
+  }
+
+  /**
+   * The same, for an instance head, whose binders *are* written down (#390) and
+   * so name themselves: `honor Show<Box(elem)> for <elem: Show>` takes
+   * `__Show_elem`.
+   */
+  #noteHonorParameters(parameters: readonly Typed.HonorTypeParameter[]): void {
+    parameters.forEach((parameter, index) => {
+      if (this.#variableSpellings.has(parameter.variable)) return;
+      this.#variableSpellings.set(
+        parameter.variable,
+        isSafeIdentifier(parameter.name) ? parameter.name : typeVariableName(index),
+      );
+    });
+  }
+
+  #variableSpelling(variable: Typed.TypeVariableId): string {
+    const existing = this.#variableSpellings.get(variable);
+    if (existing !== undefined) return existing;
+    // Unreachable from a well-formed tree: every constraint an evidence
+    // parameter answers is quantified by a scheme or an instance head, and both
+    // are registered before their bodies render. Deterministic rather than
+    // thrown, because a name is needed to keep emitting and the alternative is
+    // an internal error thrown at the user.
+    const spelling = typeVariableName(this.#unnamedVariables++);
+    this.#variableSpellings.set(variable, spelling);
+    return spelling;
+  }
+
+  /**
+   * The evidence parameter one constraint on one type variable arrives in
+   * (Constraints §6.1's trailing-evidence position), named for the constraint
+   * and the variable's spelling: `__Show_a` (#425).
+   *
+   * `taken` is the evidence already in scope. Spelling from the signature means
+   * two parameters in one JavaScript scope can genuinely want one name — an
+   * inner generic binding under a generic function may re-use `a`, and shadowing
+   * the outer dictionary would leave the outer body's requirement answered by
+   * the wrong evidence. The same numbering discipline the dictionary family uses
+   * settles it: probe `_1` upward. Distinct constraints on one variable need no
+   * probe — `<a: (Num, Show)>` is `__Num_a` and `__Show_a` already.
+   */
+  #dictionaryParameterName(
+    constraint: Typed.ConstraintName,
+    variable: Typed.TypeVariableId,
+    taken: ReadonlySet<string>,
+  ): string {
+    const base = `__${constraint}_${this.#variableSpelling(variable)}`;
+    let name = base;
+    let suffix = 1;
+    while (taken.has(name)) name = `${base}_${suffix++}`;
+    return name;
+  }
+
+  /**
+   * Mints the evidence parameters for one binder list, threading them into a
+   * copy of the enclosing evidence map. One helper for the four sites that need
+   * it, so the shadowing probe cannot be applied at three of them.
+   */
+  #evidenceParameters(
+    entries: readonly {
+      readonly constraint: Typed.ConstraintName;
+      readonly variable: Typed.TypeVariableId;
+    }[],
+    evidenceNames: EvidenceNames,
+  ): { readonly names: readonly string[]; readonly localEvidence: Map<string, string> } {
+    const localEvidence = new Map(evidenceNames);
+    const taken = new Set(evidenceNames.values());
+    const names = entries.map(({ constraint, variable }) => {
+      const name = this.#dictionaryParameterName(constraint, variable, taken);
+      taken.add(name);
+      localEvidence.set(evidenceKey(variable, constraint), name);
+      return name;
+    });
+    return { names, localEvidence };
+  }
+
   #useHelper(helper: Helper): string {
     const pending = [helper];
     for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
@@ -4928,8 +5086,8 @@ class JavaScriptEmitter {
    * the generated spelling ever moves (FFI Part 1 §10's rule, applied to a term).
    *
    * The stem is `trie`, not `vector`, and the difference is readability rather
-   * than correctness. Several bracket helpers are already `__hex_vectorX`, and a
-   * shared stem made the probe hand out `__hex_vectorSlice1` to whichever of the
+   * than correctness. Several bracket helpers are already `__vectorX`, and a
+   * shared stem made the probe hand out `__vectorSlice1` to whichever of the
    * two asked second — a name that says nothing about which it is, and that
    * moves between modules with the order they happen to reach them. `trie`
    * names the runtime, so a reader can tell an imported trie operation from a
@@ -5261,7 +5419,7 @@ class DeclarationEmitter {
       const safeName = isSafeIdentifier(item.binding.name);
       const local = safeName
         ? item.binding.name
-        : `__hex_binding${Number(item.binding.symbol)}`;
+        : `__binding${Number(item.binding.symbol)}`;
       if (item.kind === "Fun") {
         declarations.push(
           renderFunctionDeclaration(local, item.binding.scheme, item.value, safeName, this.#faces),
@@ -5504,7 +5662,7 @@ class TypeScriptPreviewEmitter {
         for (const binding of patternBindings(item.pattern)) {
           const name = isSafeIdentifier(binding.name)
             ? binding.name
-            : `__hex_binding${Number(binding.symbol)}`;
+            : `__binding${Number(binding.symbol)}`;
           declarations.push(
             `declare const ${name}: ${renderScheme(binding.scheme, this.#faces)};`,
           );
@@ -5538,7 +5696,7 @@ class TypeScriptPreviewEmitter {
 
       const name = isSafeIdentifier(item.binding.name)
         ? item.binding.name
-        : `__hex_binding${Number(item.binding.symbol)}`;
+        : `__binding${Number(item.binding.symbol)}`;
       declarations.push(...this.#docs.lines(item.span));
       if (item.exported) {
         if (item.kind === "Fun") {
@@ -5633,17 +5791,27 @@ function opaqueBrandNames(module: Core.Module): ReadonlyMap<string, string> {
         )
       : []
   );
-  const names = new GeneratedNames([
-    ...module.symbols.map(({ name }) => name),
-    ...typeNames,
-  ]);
+  // A brand is a **face**, not a hygiene name: it is declared in the `.d.ts` a
+  // TypeScript reader looks at, so it stays outside Lexer §3.2's reserved `__`
+  // prefix, and so do its collision probes (FFI Part 7 §5, #425). `<name>Brand`
+  // is that part's own representative spelling; per-type uniqueness within the
+  // file is the contract, which is what the probe delivers.
+  const taken = new Set([...module.symbols.map(({ name }) => name), ...typeNames]);
+  const brand = (name: string): string => {
+    const base = `${name}Brand`;
+    let candidate = base;
+    let suffix = 1;
+    while (taken.has(candidate)) candidate = `${base}${suffix++}`;
+    taken.add(candidate);
+    return candidate;
+  };
   return new Map(module.items.flatMap((item) =>
     (item.kind === "Union" || item.kind === "RecordDeclaration") && item.opaque
-      ? [[item.name, names.fixed(`opaque_${item.name}`)] as const]
+      ? [[item.name, brand(item.name)] as const]
       : item.kind === "ExternBlock"
       ? item.declarations.flatMap((declaration) =>
           declaration.kind === "ExternType"
-            ? [[declaration.localName, names.fixed(`opaque_${declaration.localName}`)] as const]
+            ? [[declaration.localName, brand(declaration.localName)] as const]
             : []
         )
       : []
@@ -6165,8 +6333,8 @@ function renderHelper(
     case "hashTrieMix":
       return [
         `const ${name} = (() => {`,
-        "  const __hex_seed = (Math.random() * 0x100000000) | 0;",
-        "  return __hex_value => Math.imul(__hex_value ^ __hex_seed, 0x9e3779b1) | 0;",
+        "  const __seed = (Math.random() * 0x100000000) | 0;",
+        "  return __value => Math.imul(__value ^ __seed, 0x9e3779b1) | 0;",
         "})();",
       ];
     // The debug probe (#407), and the sibling of the mix above in the one
@@ -6187,8 +6355,8 @@ function renderHelper(
     case "debugLog":
       return [
         `const ${name} = (() => {`,
-        "  const __hex_sink = console.log.bind(console);",
-        "  return __hex_message => { __hex_sink(__hex_message); };",
+        "  const __sink = console.log.bind(console);",
+        "  return __message => { __sink(__message); };",
         "})();",
       ];
     // Population count of a 32-bit word, the SWAR form: pairs, then nibbles,
@@ -6197,17 +6365,17 @@ function renderHelper(
     // arrow the rest of the bit family lowers to.
     case "bitCount":
       return [
-        `function ${name}(__hex_bitmap) {`,
-        "  let __hex_value = __hex_bitmap - ((__hex_bitmap >> 1) & 0x55555555);",
-        "  __hex_value = (__hex_value & 0x33333333) + ((__hex_value >> 2) & 0x33333333);",
-        "  __hex_value = (__hex_value + (__hex_value >> 4)) & 0x0f0f0f0f;",
-        "  return Math.imul(__hex_value, 0x01010101) >> 24;",
+        `function ${name}(__bitmap) {`,
+        "  let __value = __bitmap - ((__bitmap >> 1) & 0x55555555);",
+        "  __value = (__value & 0x33333333) + ((__value >> 2) & 0x33333333);",
+        "  __value = (__value + (__value >> 4)) & 0x0f0f0f0f;",
+        "  return Math.imul(__value, 0x01010101) >> 24;",
         "}",
       ];
     case "mixHash":
       return [
-        `function ${name}(__hex_seed, __hex_value) {`,
-        "  return Math.imul(__hex_seed ^ __hex_value, 0x9e3779b1) | 0;",
+        `function ${name}(__seed, __value) {`,
+        "  return Math.imul(__seed ^ __value, 0x9e3779b1) | 0;",
         "}",
       ];
     // The public `hash` member (#356). Collections Part 2 §2.3 binds it to one
@@ -6235,31 +6403,31 @@ function renderHelper(
     // this same helper, and `Int` reaches `-0` at runtime through `0 * -1`.
     case "stableHash":
       return [
-        `function ${name}(__hex_value) {`,
-        "  if (__hex_value === undefined) return 0;",
-        "  if (typeof __hex_value === \"boolean\") return __hex_value ? 1 : 2;",
-        "  if (typeof __hex_value === \"number\") { if (Number.isNaN(__hex_value)) return 0x7fc00000; const __hex_text = String(__hex_value); let __hex_hash = 0; for (let __hex_index = 0; __hex_index < __hex_text.length; __hex_index += 1) __hex_hash = Math.imul(__hex_hash, 31) + __hex_text.charCodeAt(__hex_index) | 0; return __hex_hash; }",
-        "  const __hex_text = String(__hex_value); let __hex_hash = 0; for (let __hex_index = 0; __hex_index < __hex_text.length; __hex_index += 1) __hex_hash = Math.imul(__hex_hash, 31) + __hex_text.charCodeAt(__hex_index) | 0; return __hex_hash;",
+        `function ${name}(__value) {`,
+        "  if (__value === undefined) return 0;",
+        "  if (typeof __value === \"boolean\") return __value ? 1 : 2;",
+        "  if (typeof __value === \"number\") { if (Number.isNaN(__value)) return 0x7fc00000; const __text = String(__value); let __hash = 0; for (let __index = 0; __index < __text.length; __index += 1) __hash = Math.imul(__hash, 31) + __text.charCodeAt(__index) | 0; return __hash; }",
+        "  const __text = String(__value); let __hash = 0; for (let __index = 0; __index < __text.length; __index += 1) __hash = Math.imul(__hash, 31) + __text.charCodeAt(__index) | 0; return __hash;",
         "}",
       ];
     case "exception":
       return [
-        `function ${name}(__hex_name, __hex_message, __hex_fields) {`,
-        "  return Object.assign(new Error(__hex_message), { $hex: true, name: __hex_name }, __hex_fields);",
+        `function ${name}(__name, __message, __fields) {`,
+        "  return Object.assign(new Error(__message), { $hex: true, name: __name }, __fields);",
         "}",
       ];
     case "floatEquals":
       return [
-        `function ${name}(__hex_left, __hex_right) {`,
-        "  return __hex_left === __hex_right || (Number.isNaN(__hex_left) && Number.isNaN(__hex_right));",
+        `function ${name}(__left, __right) {`,
+        "  return __left === __right || (Number.isNaN(__left) && Number.isNaN(__right));",
         "}",
       ];
     case "compareFloat":
       return [
-        `function ${name}(__hex_left, __hex_right) {`,
-        "  if (Number.isNaN(__hex_left)) return Number.isNaN(__hex_right) ? 0 : 1;",
-        "  if (Number.isNaN(__hex_right)) return -1;",
-        "  return __hex_left < __hex_right ? -1 : __hex_left > __hex_right ? 1 : 0;",
+        `function ${name}(__left, __right) {`,
+        "  if (Number.isNaN(__left)) return Number.isNaN(__right) ? 0 : 1;",
+        "  if (Number.isNaN(__right)) return -1;",
+        "  return __left < __right ? -1 : __left > __right ? 1 : 0;",
         "}",
       ];
     case "ordering":
@@ -6268,31 +6436,31 @@ function renderHelper(
       // name-string. The numeric comparators above are fast-path internals, so
       // this is the single place their sign crosses into the dictionary.
       return [
-        `function ${name}(__hex_sign) {`,
-        '  return __hex_sign < 0 ? "Less" : __hex_sign > 0 ? "Greater" : "Equal";',
+        `function ${name}(__sign) {`,
+        '  return __sign < 0 ? "Less" : __sign > 0 ? "Greater" : "Equal";',
         "}",
       ];
     case "compareString":
       return [
-        `function ${name}(__hex_left, __hex_right) {`,
-        "  const __hex_leftPoints = Array.from(__hex_left);",
-        "  const __hex_rightPoints = Array.from(__hex_right);",
-        "  const __hex_length = Math.min(__hex_leftPoints.length, __hex_rightPoints.length);",
-        "  for (let __hex_index = 0; __hex_index < __hex_length; __hex_index += 1) {",
-        "    const __hex_leftPoint = __hex_leftPoints[__hex_index].codePointAt(0);",
-        "    const __hex_rightPoint = __hex_rightPoints[__hex_index].codePointAt(0);",
-        "    if (__hex_leftPoint < __hex_rightPoint) return -1;",
-        "    if (__hex_leftPoint > __hex_rightPoint) return 1;",
+        `function ${name}(__left, __right) {`,
+        "  const __leftPoints = Array.from(__left);",
+        "  const __rightPoints = Array.from(__right);",
+        "  const __length = Math.min(__leftPoints.length, __rightPoints.length);",
+        "  for (let __index = 0; __index < __length; __index += 1) {",
+        "    const __leftPoint = __leftPoints[__index].codePointAt(0);",
+        "    const __rightPoint = __rightPoints[__index].codePointAt(0);",
+        "    if (__leftPoint < __rightPoint) return -1;",
+        "    if (__leftPoint > __rightPoint) return 1;",
         "  }",
-        "  return __hex_leftPoints.length < __hex_rightPoints.length ? -1 : __hex_leftPoints.length > __hex_rightPoints.length ? 1 : 0;",
+        "  return __leftPoints.length < __rightPoints.length ? -1 : __leftPoints.length > __rightPoints.length ? 1 : 0;",
         "}",
       ];
     case "range":
       return [
-        `function ${name}(__hex_start, __hex_end) {`,
-        "  return { start: __hex_start, end: __hex_end, descending: false,",
+        `function ${name}(__start, __end) {`,
+        "  return { start: __start, end: __end, descending: false,",
         "    *[Symbol.iterator]() {",
-        "      for (let __hex_value = __hex_start; __hex_value <= __hex_end; __hex_value += 1) yield __hex_value;",
+        "      for (let __value = __start; __value <= __end; __value += 1) yield __value;",
         "    },",
         "  };",
         "}",
@@ -6313,19 +6481,19 @@ function renderHelper(
     // caller-checked.
     case "vectorIndex":
       return [
-        `function ${name}(__hex_values, __hex_index) {`,
-        `  const __hex_size = ${runtimeName("size")}(__hex_values);`,
-        "  if (__hex_index < 1 || __hex_index > __hex_size) { const __hex_error = new RangeError(`index ${__hex_index} out of bounds for size ${__hex_size}`); __hex_error.name = \"IndexError\"; __hex_error.$hex = true; __hex_error.index = __hex_index; __hex_error.size = __hex_size; throw __hex_error; }",
-        `  return ${runtimeName("get")}(__hex_values, __hex_index - 1);`,
+        `function ${name}(__values, __index) {`,
+        `  const __size = ${runtimeName("size")}(__values);`,
+        "  if (__index < 1 || __index > __size) { const __error = new RangeError(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = true; __error.index = __index; __error.size = __size; throw __error; }",
+        `  return ${runtimeName("get")}(__values, __index - 1);`,
         "}",
       ];
     case "vectorAt":
       return [
-        `function ${name}(__hex_values, __hex_index) {`,
-        `  const __hex_size = ${runtimeName("size")}(__hex_values);`,
-        "  const __hex_position = __hex_index < 0 ? __hex_size + __hex_index + 1 : __hex_index;",
-        "  if (__hex_position < 1 || __hex_position > __hex_size) { const __hex_error = new RangeError(`index ${__hex_index} out of bounds for size ${__hex_size}`); __hex_error.name = \"IndexError\"; __hex_error.$hex = true; __hex_error.index = __hex_index; __hex_error.size = __hex_size; throw __hex_error; }",
-        `  return ${runtimeName("get")}(__hex_values, __hex_position - 1);`,
+        `function ${name}(__values, __index) {`,
+        `  const __size = ${runtimeName("size")}(__values);`,
+        "  const __position = __index < 0 ? __size + __index + 1 : __index;",
+        "  if (__position < 1 || __position > __size) { const __error = new RangeError(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = true; __error.index = __index; __error.size = __size; throw __error; }",
+        `  return ${runtimeName("get")}(__values, __position - 1);`,
         "}",
       ];
     case "vectorOf":
@@ -6334,10 +6502,10 @@ function renderHelper(
       // are eager, and `fromSeq` on an infinite `Seq` diverges here, as §7.2
       // says it does.
       return [
-        `function ${name}(__hex_source) {`,
-        `  let __hex_result = ${runtimeName("empty")};`,
-        `  for (const __hex_value of __hex_source) __hex_result = ${runtimeName("append")}(__hex_result, __hex_value);`,
-        "  return __hex_result;",
+        `function ${name}(__source) {`,
+        `  let __result = ${runtimeName("empty")};`,
+        `  for (const __value of __source) __result = ${runtimeName("append")}(__result, __value);`,
+        "  return __result;",
         "}",
       ];
     case "vectorIterate":
@@ -6353,12 +6521,12 @@ function renderHelper(
       // correct, and quietly worse on every loop a program writes.
       return [
         `function* ${name}() {`,
-        `  const __hex_size = ${runtimeName("size")}(this);`,
-        "  let __hex_index = 0;",
-        "  while (__hex_index < __hex_size) {",
-        `    const [__hex_values, __hex_offset, __hex_run] = ${runtimeName("nodeRun")}(this, __hex_index);`,
-        "    for (let __hex_step = 0; __hex_step < __hex_run; __hex_step += 1) yield __hex_values[__hex_offset + __hex_step];",
-        "    __hex_index += __hex_run;",
+        `  const __size = ${runtimeName("size")}(this);`,
+        "  let __index = 0;",
+        "  while (__index < __size) {",
+        `    const [__values, __offset, __run] = ${runtimeName("nodeRun")}(this, __index);`,
+        "    for (let __step = 0; __step < __run; __step += 1) yield __values[__offset + __step];",
+        "    __index += __run;",
         "  }",
         "}",
       ];
@@ -6413,13 +6581,13 @@ function renderHelper(
       // parse it — and `String(key)` is what a rendering with no `Show`
       // evidence in hand can honestly do.
       return [
-        `function ${name}(__hex_map, __hex_key, __hex_hash) {`,
-        `  const __hex_found = ${hashTrieName("get")}(__hex_map, __hex_key, __hex_hash);`,
-        '  if (__hex_found.tag === "Some") return __hex_found.value;',
-        "  const __hex_error = new Error(`no value for key ${String(__hex_key)}`);",
-        '  __hex_error.name = "KeyError";',
-        "  __hex_error.$hex = true;",
-        "  throw __hex_error;",
+        `function ${name}(__map, __key, __hash) {`,
+        `  const __found = ${hashTrieName("get")}(__map, __key, __hash);`,
+        '  if (__found.tag === "Some") return __found.value;',
+        "  const __error = new Error(`no value for key ${String(__key)}`);",
+        '  __error.name = "KeyError";',
+        "  __error.$hex = true;",
+        "  throw __error;",
         "}",
       ];
     case "mapEquals":
@@ -6434,12 +6602,12 @@ function renderHelper(
       // differently and still be equal, which is exactly what a probe-the-other
       // walk delivers and a positional one would not.
       return [
-        `function ${name}(__hex_hash, __hex_valueEq, __hex_left, __hex_right) {`,
-        "  if (__hex_left.size !== __hex_right.size) return false;",
-        "  for (const [__hex_key, __hex_value] of __hex_left) {",
-        `    const __hex_found = ${hashTrieName("get")}(__hex_right, __hex_key, __hex_hash);`,
-        '    if (__hex_found.tag !== "Some") return false;',
-        "    if (!__hex_valueEq.equals(__hex_value, __hex_found.value)) return false;",
+        `function ${name}(__hash, __valueEq, __left, __right) {`,
+        "  if (__left.size !== __right.size) return false;",
+        "  for (const [__key, __value] of __left) {",
+        `    const __found = ${hashTrieName("get")}(__right, __key, __hash);`,
+        '    if (__found.tag !== "Some") return false;',
+        "    if (!__valueEq.equals(__value, __found.value)) return false;",
         "  }",
         "  return true;",
         "}",
@@ -6453,13 +6621,13 @@ function renderHelper(
       // is seeded, so an order-sensitive fold would make `hash(m)` a per-process
       // value and break the member's own contract.
       return [
-        `function ${name}(__hex_keyHash, __hex_valueHash, __hex_map) {`,
-        "  let __hex_result = __hex_map.size | 0;",
-        "  for (const [__hex_key, __hex_value] of __hex_map) {",
-        `    __hex_result = (__hex_result + ${dependencyName("mixHash")}(` +
-          "__hex_keyHash.hash(__hex_key), __hex_valueHash.hash(__hex_value))) | 0;",
+        `function ${name}(__keyHash, __valueHash, __map) {`,
+        "  let __result = __map.size | 0;",
+        "  for (const [__key, __value] of __map) {",
+        `    __result = (__result + ${dependencyName("mixHash")}(` +
+          "__keyHash.hash(__key), __valueHash.hash(__value))) | 0;",
         "  }",
-        "  return __hex_result;",
+        "  return __result;",
         "}",
       ];
     case "setEquals":
@@ -6478,11 +6646,11 @@ function renderHelper(
       // (§8.1): two sets built in different orders may iterate differently and
       // still be equal, which is what a probe-the-other walk delivers.
       return [
-        `function ${name}(__hex_hash, __hex_left, __hex_right) {`,
-        `  if (${hashTrieName("memberCount")}(__hex_left) !== ` +
-          `${hashTrieName("memberCount")}(__hex_right)) return false;`,
-        "  for (const __hex_element of __hex_left) {",
-        `    if (!${hashTrieName("containsMember")}(__hex_right, __hex_element, __hex_hash)) return false;`,
+        `function ${name}(__hash, __left, __right) {`,
+        `  if (${hashTrieName("memberCount")}(__left) !== ` +
+          `${hashTrieName("memberCount")}(__right)) return false;`,
+        "  for (const __element of __left) {",
+        `    if (!${hashTrieName("containsMember")}(__right, __element, __hash)) return false;`,
         "  }",
         "  return true;",
         "}",
@@ -6496,31 +6664,31 @@ function renderHelper(
       // iteration order is seeded, so an order-sensitive fold would make
       // `hash(s)` a per-process value and break the member's own contract.
       return [
-        `function ${name}(__hex_elementHash, __hex_set) {`,
-        `  let __hex_result = ${hashTrieName("memberCount")}(__hex_set) | 0;`,
-        "  for (const __hex_element of __hex_set) {",
-        `    __hex_result = (__hex_result + ${dependencyName("mixHash")}(` +
-          "0x51ed270b, __hex_elementHash.hash(__hex_element))) | 0;",
+        `function ${name}(__elementHash, __set) {`,
+        `  let __result = ${hashTrieName("memberCount")}(__set) | 0;`,
+        "  for (const __element of __set) {",
+        `    __result = (__result + ${dependencyName("mixHash")}(` +
+          "0x51ed270b, __elementHash.hash(__element))) | 0;",
         "  }",
-        "  return __hex_result;",
+        "  return __result;",
         "}",
       ];
     case "nodeSet":
       // Copy-on-write a fixed-32 trie node; slots are raw (0-based, no bounds
       // check) because only trusted runtime trie code ever emits this.
       return [
-        `function ${name}(__hex_node, __hex_index, __hex_value) {`,
-        "  const __hex_updated = __hex_node.slice();",
-        "  __hex_updated[__hex_index] = __hex_value;",
-        "  return __hex_updated;",
+        `function ${name}(__node, __index, __value) {`,
+        "  const __updated = __node.slice();",
+        "  __updated[__index] = __value;",
+        "  return __updated;",
         "}",
       ];
     case "vectorSet":
       return [
-        `function ${name}(__hex_values, __hex_index, __hex_value) {`,
-        `  const __hex_size = ${runtimeName("size")}(__hex_values);`,
-        "  if (__hex_index < 1 || __hex_index > __hex_size) { const __hex_error = new RangeError(`index ${__hex_index} out of bounds for size ${__hex_size}`); __hex_error.name = \"IndexError\"; __hex_error.$hex = true; __hex_error.index = __hex_index; __hex_error.size = __hex_size; throw __hex_error; }",
-        `  return ${runtimeName("set")}(__hex_values, __hex_index - 1, __hex_value);`,
+        `function ${name}(__values, __index, __value) {`,
+        `  const __size = ${runtimeName("size")}(__values);`,
+        "  if (__index < 1 || __index > __size) { const __error = new RangeError(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = true; __error.index = __index; __error.size = __size; throw __error; }",
+        `  return ${runtimeName("set")}(__values, __index - 1, __value);`,
         "}",
       ];
     case "vectorSlice":
@@ -6528,9 +6696,9 @@ function renderHelper(
       // `window`, so the 1-based-to-0-based shift is all this adds — the
       // "single call with zero guard code" the spec pins, modulo the offset.
       return [
-        `function ${name}(__hex_values, __hex_range) {`,
-        "  if (__hex_range.descending) { const __hex_error = new RangeError(\"a slice window cannot descend\"); __hex_error.name = \"SliceError\"; __hex_error.$hex = true; __hex_error.start = __hex_range.start; __hex_error.end = __hex_range.end; throw __hex_error; }",
-        `  return ${runtimeName("window")}(__hex_values, __hex_range.start - 1, __hex_range.end);`,
+        `function ${name}(__values, __range) {`,
+        "  if (__range.descending) { const __error = new RangeError(\"a slice window cannot descend\"); __error.name = \"SliceError\"; __error.$hex = true; __error.start = __range.start; __error.end = __range.end; throw __error; }",
+        `  return ${runtimeName("window")}(__values, __range.start - 1, __range.end);`,
         "}",
       ];
     // ---------------------------------------------------------------------
@@ -6544,17 +6712,17 @@ function renderHelper(
     // now, so nothing about them can drift when the trie changes.
     case "stringIndex":
       return [
-        `function ${name}(__hex_text, __hex_index) {`,
-        "  const __hex_points = Array.from(__hex_text);",
-        "  if (__hex_index < 1 || __hex_index > __hex_points.length) { const __hex_error = new RangeError(`index ${__hex_index} out of bounds for size ${__hex_points.length}`); __hex_error.name = \"IndexError\"; __hex_error.$hex = true; __hex_error.index = __hex_index; __hex_error.size = __hex_points.length; throw __hex_error; }",
-        "  return __hex_points[__hex_index - 1];",
+        `function ${name}(__text, __index) {`,
+        "  const __points = Array.from(__text);",
+        "  if (__index < 1 || __index > __points.length) { const __error = new RangeError(`index ${__index} out of bounds for size ${__points.length}`); __error.name = \"IndexError\"; __error.$hex = true; __error.index = __index; __error.size = __points.length; throw __error; }",
+        "  return __points[__index - 1];",
         "}",
       ];
     case "stringSlice":
       return [
-        `function ${name}(__hex_text, __hex_range) {`,
-        "  if (__hex_range.descending) { const __hex_error = new RangeError(\"a slice window cannot descend\"); __hex_error.name = \"SliceError\"; __hex_error.$hex = true; __hex_error.start = __hex_range.start; __hex_error.end = __hex_range.end; throw __hex_error; }",
-        "  return Array.from(__hex_text).slice(Math.max(0, __hex_range.start - 1), Math.max(0, __hex_range.end)).join(\"\");",
+        `function ${name}(__text, __range) {`,
+        "  if (__range.descending) { const __error = new RangeError(\"a slice window cannot descend\"); __error.name = \"SliceError\"; __error.$hex = true; __error.start = __range.start; __error.end = __range.end; throw __error; }",
+        "  return Array.from(__text).slice(Math.max(0, __range.start - 1), Math.max(0, __range.end)).join(\"\");",
         "}",
       ];
     // ---------------------------------------------------------------------
@@ -6590,7 +6758,7 @@ function renderHelper(
       // it (a `{ done: 1 }` result terminates native iteration and must
       // terminate this), read `value` once and only when not done. The `Boolean`
       // is written out because §7.2 names the coercion, not because the two
-      // readers of `__hex_ended` would do anything else with a truthy `done`;
+      // readers of `__ended` would do anything else with a truthy `done`;
       // what a `{ done: 1 }` source actually does is pinned by a test rather
       // than by that call.
       //
@@ -6611,7 +6779,7 @@ function renderHelper(
       // spine's** prefix.
       //
       // That last qualifier is load-bearing, and the claim is false without it.
-      // The adapter keeps `__hex_source` and the iterator it acquired from it,
+      // The adapter keeps `__source` and the iterator it acquired from it,
       // which is §5's permitted shared state — but when the source is itself a
       // `Seq` (both `seqMemoize` and `seqIterate` build the spine over
       // `seqToIterable(s)`, whose generator closes over `s`'s head), that pins
@@ -6715,42 +6883,42 @@ function renderHelper(
       // is as much a `Seq` as one `Seq.hex` builds — an adapted foreign iterable
       // handed straight back out to JavaScript must face it as an `Iterable`.
       return [
-        `function ${name}(__hex_source) {`,
-        "  let __hex_iterator = undefined;",
-        "  let __hex_forcing = false;",
-        "  const __hex_node = () => {",
-        "    let __hex_step = undefined;",
-        "    let __hex_failure = undefined;",
+        `function ${name}(__source) {`,
+        "  let __iterator = undefined;",
+        "  let __forcing = false;",
+        "  const __node = () => {",
+        "    let __step = undefined;",
+        "    let __failure = undefined;",
         "    return {",
         `      [Symbol.iterator]: ${dependencyName("seqIterate")},`,
         "      pull: () => {",
-        "        if (__hex_step === undefined && __hex_failure === undefined) {",
-        "          if (__hex_forcing) {",
+        "        if (__step === undefined && __failure === undefined) {",
+        "          if (__forcing) {",
         '            throw Object.assign(new Error("Seq position is already being forced: a sequence position cannot depend on its own value"), { $hex: true, name: "ReentrancyError" });',
         "          }",
-        "          __hex_forcing = true;",
+        "          __forcing = true;",
         "          try {",
-        "            if (__hex_iterator === undefined) __hex_iterator = __hex_source[Symbol.iterator]();",
-        "            const __hex_next = __hex_iterator.next();",
-        '            if (__hex_next === null || (typeof __hex_next !== "object" && typeof __hex_next !== "function")) {',
-        '              throw new TypeError("Iterator result " + String(__hex_next) + " is not an object");',
+        "            if (__iterator === undefined) __iterator = __source[Symbol.iterator]();",
+        "            const __next = __iterator.next();",
+        '            if (__next === null || (typeof __next !== "object" && typeof __next !== "function")) {',
+        '              throw new TypeError("Iterator result " + String(__next) + " is not an object");',
         "            }",
-        "            __hex_step = Boolean(__hex_next.done)",
+        "            __step = Boolean(__next.done)",
         '              ? { tag: "None" }',
-        '              : { tag: "Some", value: [__hex_next.value, __hex_node()] };',
-        "          } catch (__hex_error) {",
-        "            __hex_failure = { error: __hex_error };",
-        "            throw __hex_error;",
+        '              : { tag: "Some", value: [__next.value, __node()] };',
+        "          } catch (__error) {",
+        "            __failure = { error: __error };",
+        "            throw __error;",
         "          } finally {",
-        "            __hex_forcing = false;",
+        "            __forcing = false;",
         "          }",
         "        }",
-        "        if (__hex_failure !== undefined) throw __hex_failure.error;",
-        "        return __hex_step;",
+        "        if (__failure !== undefined) throw __failure.error;",
+        "        return __step;",
         "      },",
         "    };",
         "  };",
-        "  return __hex_node();",
+        "  return __node();",
         "}",
       ];
     case "seqMemoize":
@@ -6785,8 +6953,8 @@ function renderHelper(
       // a `Seq` does not consume it — the argument is left as it was, and
       // memoizing it does not change *it*, only the value returned.
       return [
-        `function ${name}(__hex_source) {`,
-        `  return ${dependencyName("seqFromIterable")}(${dependencyName("seqToIterable")}(__hex_source));`,
+        `function ${name}(__source) {`,
+        `  return ${dependencyName("seqFromIterable")}(${dependencyName("seqToIterable")}(__source));`,
         "}",
       ];
     case "seqIterate":
@@ -6828,14 +6996,14 @@ function renderHelper(
       // protocol calls it with the value as receiver.
       return [
         `const ${name} = (() => {`,
-        "  const __hex_views = new WeakMap();",
+        "  const __views = new WeakMap();",
         "  return function () {",
-        "    let __hex_view = __hex_views.get(this);",
-        "    if (__hex_view === undefined) {",
-        `      __hex_view = ${dependencyName("seqFromIterable")}(${dependencyName("seqToIterable")}(this));`,
-        "      __hex_views.set(this, __hex_view);",
+        "    let __view = __views.get(this);",
+        "    if (__view === undefined) {",
+        `      __view = ${dependencyName("seqFromIterable")}(${dependencyName("seqToIterable")}(this));`,
+        "      __views.set(this, __view);",
         "    }",
-        `    return ${dependencyName("seqToIterable")}(__hex_view)[Symbol.iterator]();`,
+        `    return ${dependencyName("seqToIterable")}(__view)[Symbol.iterator]();`,
         "  };",
         "})();",
       ];
@@ -6854,10 +7022,10 @@ function renderHelper(
       // look-alike a trusted-boundary contract violation (Part 1 §3.1), so no
       // validation is added beyond it.
       return [
-        `function ${name}(__hex_value) {`,
-        '  return __hex_value != null && typeof __hex_value.pull === "function"',
-        "    ? __hex_value",
-        `    : ${dependencyName("seqFromIterable")}(__hex_value);`,
+        `function ${name}(__value) {`,
+        '  return __value != null && typeof __value.pull === "function"',
+        "    ? __value",
+        `    : ${dependencyName("seqFromIterable")}(__value);`,
         "}",
       ];
     case "streamInbound":
@@ -6893,19 +7061,19 @@ function renderHelper(
       // or a `TypeError`, `done` read once and boolean-coerced, and `value`
       // read only when `done` was false.
       return [
-        `function ${name}(__hex_source) {`,
-        "  const __hex_iterator =",
-        '    __hex_source != null && typeof __hex_source[Symbol.iterator] === "function"',
-        "      ? __hex_source[Symbol.iterator]()",
-        "      : __hex_source;",
+        `function ${name}(__source) {`,
+        "  const __iterator =",
+        '    __source != null && typeof __source[Symbol.iterator] === "function"',
+        "      ? __source[Symbol.iterator]()",
+        "      : __source;",
         "  return {",
         "    next: () => {",
-        "      const __hex_step = __hex_iterator.next();",
-        '      if (__hex_step === null || (typeof __hex_step !== "object" && typeof __hex_step !== "function")) {',
-        '        throw new TypeError("Iterator result " + String(__hex_step) + " is not an object");',
+        "      const __step = __iterator.next();",
+        '      if (__step === null || (typeof __step !== "object" && typeof __step !== "function")) {',
+        '        throw new TypeError("Iterator result " + String(__step) + " is not an object");',
         "      }",
-        '      if (Boolean(__hex_step.done)) return { tag: "None" };',
-        '      return { tag: "Some", value: __hex_step.value };',
+        '      if (Boolean(__step.done)) return { tag: "None" };',
+        '      return { tag: "Some", value: __step.value };',
         "    },",
         "  };",
         "}",
@@ -6923,15 +7091,15 @@ function renderHelper(
       // native `for...of` over the record instead would silently import boundary
       // memoization, and its retention, into internal semantics.
       return [
-        `function ${name}(__hex_sequence) {`,
+        `function ${name}(__sequence) {`,
         "  return {",
         "    *[Symbol.iterator]() {",
-        "      let __hex_current = __hex_sequence;",
+        "      let __current = __sequence;",
         "      while (true) {",
-        "        const __hex_step = (__hex_current.pull)();",
-        '        if (__hex_step.tag !== "Some") return;',
-        "        yield __hex_step.value[0];",
-        "        __hex_current = __hex_step.value[1];",
+        "        const __step = (__current.pull)();",
+        '        if (__step.tag !== "Some") return;',
+        "        yield __step.value[0];",
+        "        __current = __step.value[1];",
         "      }",
         "    },",
         "  };",
@@ -6955,14 +7123,14 @@ function renderHelper(
       // `seqToIterable` is deliberate — a generator would be a second traversal
       // to hold, where the whole shape here is one position at a time.
       return [
-        `function ${name}(__hex_sequence) {`,
-        "  let __hex_current = __hex_sequence;",
+        `function ${name}(__sequence) {`,
+        "  let __current = __sequence;",
         "  return {",
         "    next: () => {",
-        "      const __hex_step = (__hex_current.pull)();",
-        '      if (__hex_step.tag !== "Some") return { tag: "None" };',
-        "      __hex_current = __hex_step.value[1];",
-        '      return { tag: "Some", value: __hex_step.value[0] };',
+        "      const __step = (__current.pull)();",
+        '      if (__step.tag !== "Some") return { tag: "None" };',
+        "      __current = __step.value[1];",
+        '      return { tag: "Some", value: __step.value[0] };',
         "    },",
         "  };",
         "}",
@@ -7041,30 +7209,40 @@ function componentInstance(
 
 class GeneratedNames {
   readonly #used: Set<string>;
-  readonly #next = new Map<string, number>();
 
   constructor(existing: Iterable<string>) {
     this.#used = new Set(existing);
   }
 
+  /**
+   * One name per stem, minted once and asked for by name afterwards — a helper
+   * function, a runtime import's local.
+   */
   fixed(stem: string): string {
     return this.#claim(stem);
   }
 
+  /**
+   * A new binder under this stem. The first one gets the bare spelling and the
+   * next takes the probe's `_1` — the *same* mechanism as `fixed`, since a
+   * second `fresh("match")` is exactly an occupied preferred spelling (#425).
+   * The counter this replaced started at 0 and glued its digit on, so the first
+   * `match` was `__match0` and the first `arg0` was `__arg00`.
+   */
   fresh(stem: string): string {
-    let index = this.#next.get(stem) ?? 0;
-    while (true) {
-      const name = this.#claim(`${stem}${index}`);
-      this.#next.set(stem, index + 1);
-      return name;
-    }
+    return this.#claim(stem);
   }
 
+  /**
+   * Lexer §3.2's reserved prefix, and the probe discipline under it: the
+   * preferred spelling is `__<stem>`, and an occupied one probes numeric
+   * suffixes from 1 — `__vectorSlice_1`, then `__vectorSlice_2` (#425).
+   */
   #claim(stem: string): string {
-    const base = `__hex_${stem}`;
+    const base = `__${stem}`;
     let name = base;
     let suffix = 1;
-    while (this.#used.has(name)) name = `${base}${suffix++}`;
+    while (this.#used.has(name)) name = `${base}_${suffix++}`;
     this.#used.add(name);
     return name;
   }
@@ -7137,17 +7315,11 @@ function substituteType(
 function lexicographicComparison(comparisons: readonly string[]): string {
   if (comparisons.length === 0) return '"Equal"';
   const statements = comparisons.map((comparison, index) =>
-    `const __hex_order${index} = ${comparison}; if (__hex_order${index} !== "Equal") return __hex_order${index};`
+    `const __order${index} = ${comparison}; if (__order${index} !== "Equal") return __order${index};`
   );
   return `(() => { ${statements.join(" ")} return "Equal"; })()`;
 }
 
-function dictionaryParameterName(
-  constraint: Typed.ConstraintName,
-  variable: Typed.TypeVariableId,
-): string {
-  return `__hex_dict${constraint}_${Number(variable)}`;
-}
 
 function evidenceKey(
   variable: Typed.TypeVariableId,
@@ -7157,7 +7329,7 @@ function evidenceKey(
 }
 
 function internalConstrainedExportName(symbol: Resolved.SymbolId): string {
-  return `__hex_export${Number(symbol)}`;
+  return `__export${Number(symbol)}`;
 }
 
 /**
@@ -7166,7 +7338,7 @@ function internalConstrainedExportName(symbol: Resolved.SymbolId): string {
  * instance — in any module — spells the same one.
  */
 function defaultHelperName(symbol: Resolved.SymbolId): string {
-  return `__hex_default${Number(symbol)}`;
+  return `__default${Number(symbol)}`;
 }
 
 /**
@@ -7314,7 +7486,7 @@ function renderExternFunctionDeclaration(
   const safe = isSafeIdentifier(declaration.localName);
   const local = safe
     ? declaration.localName
-    : `__hex_binding${Number(declaration.binding.symbol)}`;
+    : `__binding${Number(declaration.binding.symbol)}`;
   if (safe) {
     return [
       `${exported ? "export " : ""}declare function ${local}${generics}(${parameters.join(", ")}): ${result};`,
@@ -7539,7 +7711,7 @@ function declarationParameterNames(
     }
     const name = isSafeIdentifier(binding.name)
       ? binding.name
-      : `__hex_binding${Number(binding.symbol)}`;
+      : `__binding${Number(binding.symbol)}`;
     written.push(name);
     taken.add(name);
   }

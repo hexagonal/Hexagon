@@ -193,9 +193,9 @@
     },
 
     "reserved-identifier": {
-      "//": "spec/lexer.md §3.2: `__hex_` is reserved for compiler-generated names.",
+      "//": "spec/lexer.md §3.2: leading `__` is reserved for compiler-generated names (#425).",
       "name": "invalid.illegal.reserved-identifier.hexagon",
-      "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])__hex_[\\p{ID_Continue}$_\\x{200C}\\x{200D}]*"
+      "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])__[\\p{ID_Continue}$_\\x{200C}\\x{200D}]*"
     },
 
     "extern-from-block": {
@@ -231,7 +231,7 @@
         },
         {
           "//": "`export method get(...)`, `export get status(...)`, `export static method of(...)`.",
-          "match": "^[ \\t]*(?:(export)[ \\t]+)?(?:(static)[ \\t]+)?(method|get|set)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?:[ \\t]+((?![\\p{Uppercase}\\p{Lt}])(?!__hex_)[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*))?",
+          "match": "^[ \\t]*(?:(export)[ \\t]+)?(?:(static)[ \\t]+)?(method|get|set)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?:[ \\t]+((?![\\p{Uppercase}\\p{Lt}])(?!__)[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*))?",
           "captures": {
             "1": { "name": "keyword.control.import.hexagon" },
             "2": { "name": "storage.modifier.hexagon" },
@@ -266,7 +266,8 @@
         "(stdlib/Seq.hex leans on this distinction heavily).",
         "",
         "Each name alternative excludes the §4.1 hard keywords as well as uppercase",
-        "starts and `__hex_`. These rules are included ahead of #keywords, so without",
+        "starts and the reserved leading `__` (#425). These rules are included ahead of",
+        "#keywords, so without",
         "that guard they would claim the keyword first and paint `let true = 1` or",
         "`let if = 1` — both §10 hard errors — as ordinary, valid binders (#154). The",
         "guard's trailing boundary lookahead is what keeps `let iffy` and `let format`",
@@ -274,21 +275,21 @@
       ],
       "patterns": [
         {
-          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(fun)[ \\t]+((?![\\p{Uppercase}\\p{Lt}])(?!__hex_)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(fun)[ \\t]+((?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)",
           "captures": {
             "1": { "name": "storage.type.function.hexagon" },
             "2": { "name": "entity.name.function.hexagon" }
           }
         },
         {
-          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(let|var)[ \\t]+((?![\\p{Uppercase}\\p{Lt}])(?!__hex_)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)(?=[ \\t]*[(<])",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(let|var)[ \\t]+((?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)(?=[ \\t]*[(<])",
           "captures": {
             "1": { "name": "storage.type.hexagon" },
             "2": { "name": "entity.name.function.hexagon" }
           }
         },
         {
-          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(let|var)[ \\t]+((?![\\p{Uppercase}\\p{Lt}])(?!__hex_)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(let|var)[ \\t]+((?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)",
           "captures": {
             "1": { "name": "storage.type.hexagon" },
             "2": { "name": "variable.other.definition.hexagon" }

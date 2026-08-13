@@ -519,13 +519,12 @@ class Scanner {
     this.#consumeIdentifierRun();
     const text = this.#source.text.slice(start, this.#offset);
 
-    if (text.startsWith("__hex_")) {
-      this.#error(start, this.#offset, "`__hex_` is reserved for compiler-generated names", {
-        message: "rename this identifier",
-        replacement: `_hex_${text.slice("__hex_".length)}`,
-      });
-      return undefined;
-    }
+    // §3.2's reserved `__` prefix is **not** refused here. The token is emitted
+    // and the parser selects the message by position — §4.1/§4.2's division,
+    // the same one `true`/`false` take. Position is the whole reason: the
+    // foreign side of an FFI `as` alias is outside Hexagon's name seats and a
+    // `__`-named foreign export stays bindable there (FFI Part 4 §3.2), which
+    // is a fact about where the name sits, not about how it is spelled.
 
     if (!matches(uppercase, first) && !matches(titlecase, first)) {
       const keyword = keywords[text];

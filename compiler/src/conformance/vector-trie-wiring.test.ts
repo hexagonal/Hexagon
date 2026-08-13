@@ -169,7 +169,7 @@ describe("the import surface", () => {
     ]);
     const javascript = emitted(files, "/main.hex");
     expect(javascript).toContain(
-      'import { empty as __hex_trieEmpty, append as __hex_trieAppend } from "./VectorTrie.js";',
+      'import { empty as __trieEmpty, append as __trieAppend } from "./VectorTrie.js";',
     );
     expect(javascript).not.toContain('from "./Vector.js"');
   });
@@ -180,8 +180,8 @@ describe("the import surface", () => {
       "let v: Vector(Int) = [1, 2, 3]\nexport let head: Int = v[1]\n",
     );
     expect(javascript).toContain(
-      'import { empty as __hex_trieEmpty, size as __hex_trieSize, ' +
-        'get as __hex_trieGet, append as __hex_trieAppend } from "./VectorTrie.js";',
+      'import { empty as __trieEmpty, size as __trieSize, ' +
+        'get as __trieGet, append as __trieAppend } from "./VectorTrie.js";',
     );
   });
 });
@@ -207,10 +207,10 @@ describe("§3.6 pattern emission", () => {
         "    [a, b] => a + b\n" +
         "    _ => 0\n",
     );
-    expect(javascript).toMatch(/__hex_trieSize\(__hex_match0\) === 2/u);
-    expect(javascript).toContain("const a = __hex_trieGet(__hex_match0, 0);");
-    expect(javascript).toContain("const b = __hex_trieGet(__hex_match0, 1);");
-    expect(javascript).not.toContain("__hex_vectorSlice");
+    expect(javascript).toMatch(/__trieSize\(__match\) === 2/u);
+    expect(javascript).toContain("const a = __trieGet(__match, 0);");
+    expect(javascript).toContain("const b = __trieGet(__match, 1);");
+    expect(javascript).not.toContain("__vectorSlice");
   });
 
   test("a rest binder tests `>=` and slices the remainder", () => {
@@ -219,9 +219,9 @@ describe("§3.6 pattern emission", () => {
         "    [a, b, ...rest] => a + b\n" +
         "    _ => 0\n",
     );
-    expect(javascript).toMatch(/__hex_trieSize\(__hex_match0\) >= 2/u);
+    expect(javascript).toMatch(/__trieSize\(__match\) >= 2/u);
     expect(javascript).toContain(
-      "const rest = __hex_trieSlice(__hex_match0, 2, __hex_trieSize(__hex_match0));",
+      "const rest = __trieSlice(__match, 2, __trieSize(__match));",
     );
   });
 
@@ -232,8 +232,8 @@ describe("§3.6 pattern emission", () => {
         "    [a, ...] => a\n" +
         "    _ => 0\n",
     );
-    expect(javascript).toMatch(/__hex_trieSize\(__hex_match0\) >= 1/u);
-    expect(javascript).not.toContain("__hex_vectorSlice");
+    expect(javascript).toMatch(/__trieSize\(__match\) >= 1/u);
+    expect(javascript).not.toContain("__vectorSlice");
   });
 
   /** Slots after the rest count from the end — what makes `[...init, last]` mean it. */
@@ -244,10 +244,10 @@ describe("§3.6 pattern emission", () => {
         "    _ => 0\n",
     );
     expect(javascript).toContain(
-      "const last = __hex_trieGet(__hex_match0, __hex_trieSize(__hex_match0) - 1);",
+      "const last = __trieGet(__match, __trieSize(__match) - 1);",
     );
     expect(javascript).toContain(
-      "const init = __hex_trieSlice(__hex_match0, 0, __hex_trieSize(__hex_match0) - 1);",
+      "const init = __trieSlice(__match, 0, __trieSize(__match) - 1);",
     );
   });
 
@@ -479,9 +479,9 @@ describe("§4/§7 complexity", () => {
    */
   test("the emitted iterator descends per node rather than per element", () => {
     const javascript = emitted([["/main.hex", "export let v: Vector(Int) = [1]\n"]], "/VectorTrie.hex");
-    expect(javascript).toContain("function* __hex_vectorIterate() {");
-    expect(javascript).toContain("nodeRun(this, __hex_index)");
-    expect(javascript).toContain("__hex_index += __hex_run;");
+    expect(javascript).toContain("function* __vectorIterate() {");
+    expect(javascript).toContain("nodeRun(this, __index)");
+    expect(javascript).toContain("__index += __run;");
   });
 
   /**
@@ -820,12 +820,12 @@ describe("§6 slicing over the trie", () => {
     const javascript = mainJavaScript(
       "let v: Vector(Int) = [1, 2, 3]\nexport let w: Vector(Int) = v[2..3]\n",
     );
-    const helper = javascript.slice(javascript.indexOf("function __hex_vectorSlice"));
+    const helper = javascript.slice(javascript.indexOf("function __vectorSlice"));
     const body = helper.slice(0, helper.indexOf("\n}"));
-    expect(body).toContain('__hex_error.name = "SliceError"');
-    expect(body).toContain("__hex_error.start = __hex_range.start");
-    expect(body).toContain("__hex_error.end = __hex_range.end");
-    expect(body.indexOf("descending")).toBeLessThan(body.indexOf("__hex_trieWindow"));
+    expect(body).toContain('__error.name = "SliceError"');
+    expect(body).toContain("__error.start = __range.start");
+    expect(body).toContain("__error.end = __range.end");
+    expect(body.indexOf("descending")).toBeLessThan(body.indexOf("__trieWindow"));
   });
 
   /** §6.2's shape: one call, the runtime's own clamping, modulo the 0-based offset. */
@@ -833,8 +833,8 @@ describe("§6 slicing over the trie", () => {
     const javascript = mainJavaScript(
       "let v: Vector(Int) = [1, 2, 3]\nexport let w: Vector(Int) = v[2..3]\n",
     );
-    expect(javascript).toContain("__hex_vectorSlice(v, __hex_range(2, 3))");
-    expect(javascript).toContain("__hex_trieWindow(__hex_values, __hex_range.start - 1, __hex_range.end)");
+    expect(javascript).toContain("__vectorSlice(v, __range(2, 3))");
+    expect(javascript).toContain("__trieWindow(__values, __range.start - 1, __range.end)");
   });
 
   test("windows of a large trie clamp at both ends", async () => {
@@ -955,11 +955,11 @@ describe("§9 strings did not follow the vector", () => {
         'export let part: String = "héllo"[2..4]\n',
     );
     const helpers = javascript.slice(0, javascript.indexOf("\nexport"));
-    expect(helpers).toContain("function __hex_stringIndex");
-    expect(helpers).toContain("function __hex_stringSlice");
+    expect(helpers).toContain("function __stringIndex");
+    expect(helpers).toContain("function __stringSlice");
     expect(javascript).not.toContain("VectorTrie");
-    expect(javascript).not.toContain("__hex_vectorIndex");
-    expect(javascript).not.toContain("__hex_vectorSlice");
+    expect(javascript).not.toContain("__vectorIndex");
+    expect(javascript).not.toContain("__vectorSlice");
   });
 
   test("string indexing and slicing behave exactly as before", async () => {

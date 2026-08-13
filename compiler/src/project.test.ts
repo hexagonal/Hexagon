@@ -116,9 +116,9 @@ test("makes an imported module's coherent instances available to operators", () 
   const main = project.modules[1]!;
   expect(box.typed.diagnostics).toEqual([]);
   expect(main.typed.diagnostics).toEqual([]);
-  expect(box.javascript.text).toContain("export { __hex_instance_Num_Box };");
+  expect(box.javascript.text).toContain("export { __Num_Box };");
   expect(main.javascript.text).toContain(
-    "__hex_imported_0___hex_instance_Num_Box.add(Box.create(20), Box.create(22))",
+    "__Num_Box.add(Box.create(20), Box.create(22))",
   );
 });
 
@@ -157,11 +157,11 @@ test("propagates coherent instances through the complete import graph", () => {
   const facade = project.modules[1]!;
   const main = project.modules[2]!;
   expect(facade.javascript.text).toContain(
-    "export { __hex_imported_0___hex_instance_Num_Box };",
+    "export { __Num_Box };",
   );
   expect(main.typed.diagnostics).toEqual([]);
   expect(main.javascript.text).toContain(
-    "__hex_imported_1___hex_imported_0___hex_instance_Num_Box.add",
+    "__Num_Box.add",
   );
 });
 
@@ -258,20 +258,20 @@ test("links constrained Hexagon exports through private ESM plumbing", () => {
   )!;
   expect(main.typed.symbols.find(({ name }) => name === "plus")?.scheme.constraints)
     .toHaveLength(1);
-  expect(math.javascript.text).toMatch(/export \{ plus as __hex_export\d+ \};/u);
+  expect(math.javascript.text).toMatch(/export \{ plus as __export\d+ \};/u);
   expect(math.javascript.text).toContain("export { plusInt };");
   expect(main.javascript.text).toMatch(
-    /import \{ __hex_export\d+ as plus \} from "\.\/math\.js";/u,
+    /import \{ __export\d+ as plus \} from "\.\/math\.js";/u,
   );
   expect(main.javascript.text).toMatch(/log\(String\(plus\(20, 22,/u);
   expect(namespace.javascript.text).toContain(
     'import * as Math from "./math.js";',
   );
   expect(namespace.javascript.text).toMatch(
-    /import \{ __hex_export\d+ \} from "\.\/math\.js";/u,
+    /import \{ __export\d+ \} from "\.\/math\.js";/u,
   );
   expect(namespace.javascript.text).toMatch(
-    /log\(String\(__hex_export\d+\(20, 22,/u,
+    /log\(String\(__export\d+\(20, 22,/u,
   );
   expect(math.javascript.diagnostics).toEqual([]);
   expect(main.javascript.diagnostics).toEqual([]);
@@ -324,7 +324,7 @@ test("links exported aliases and enforces opaque module boundaries", () => {
   const vault = project.modules.find(({ source }) => source.path === "/vault.hex")!;
   expect(vault.javascript.text).not.toContain("export { Token }");
   expect(vault.declarations.text).toContain("export type Pair<a> = [a, a];");
-  expect(vault.declarations.text).toContain("declare const __hex_opaque_Token: unique symbol;");
+  expect(vault.declarations.text).toContain("declare const TokenBrand: unique symbol;");
 
   const violation = compileProject([
     project.modules[0]!.source,

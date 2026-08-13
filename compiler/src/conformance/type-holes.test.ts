@@ -598,7 +598,7 @@ describe("§8.14 seeding survives substitution as one obligation", () => {
     const compiled = compileMain(`${PAIR}let g(p: Pair(_ : Num)) = p\n${TAIL}`);
     expect(compiled.diagnostics).toEqual([]);
     const emitted = compiled.modules.find(({ source }) => source.path === "/main.hex")!.javascript;
-    expect(emitted.text.match(/__hex_dictNum_/g) ?? []).toHaveLength(1);
+    expect(emitted.text.match(/__Num_a\b/g) ?? []).toHaveLength(1);
   });
 
   test("§4.4 the shared seed is checked once, at whatever fixes the fill", () => {

@@ -338,7 +338,10 @@ export interface HonorItem {
   readonly typeParameters: readonly Typed.HonorTypeParameter[];
   readonly subject: Typed.Type;
   readonly derived: boolean;
+  /** The emitted `const`'s name (Dictionary Sharing §5). */
   readonly dictionary: string;
+  /** The interface spelling to re-export it under, where §8 moves them apart. */
+  readonly exportedDictionary?: string;
   readonly baseConstraints: readonly HonorBaseConstraint[];
   /**
    * For a derived instance, the evidence for each component of the subject —

@@ -149,7 +149,9 @@ I元素      E无效年龄  M数据库           -- cultural role prefixes, ordi
   parser selects the reservation error, §4.1/§4.2's division. When a foreign
   or already-emitted name occupies a generated name's preferred spelling, the
   name probes numeric suffixes deterministically, starting at 1: `__Eq_Rat_1`,
-  then `__Eq_Rat_2`.
+  then `__Eq_Rat_2`. Within the dictionary family the discipline is stricter —
+  a contested spelling suffixes *every* contestant, none keeps the bare name
+  (Dictionary Sharing §5) — but the numbering is the same, from 1.
 - `$` and dollar-start names are ordinary non-uppercase-start identifiers.
 - Identifier escapes do not exist. `\u{...}` is a string escape only; a backslash
   in a name is an error.

@@ -174,6 +174,18 @@ class Parser {
    */
   #stageMark: { readonly mark: Parsed.CallMark; readonly span: Source.Span } | undefined;
 
+  /**
+   * Token positions the reserved-`__` sweep must leave alone (Lexer §3.2, #425).
+   *
+   * The reservation governs *Hexagon's own name seats*, and only a parser knows
+   * which seats those are — so the lexer emits the token and this records the
+   * exceptions as they are parsed: the foreign side of an FFI `as` alias, which
+   * is outside the seats entirely (FFI Part 4 §3.2), and an unaliased extern
+   * name seat, which gets that part's alias rewrite instead of a rename and so
+   * has already been reported by the time the sweep runs.
+   */
+  readonly #reservedNameExemptions = new Set<number>();
+
   constructor(
     tokens: readonly LaidOut.Token[],
     diagnostics: Diagnostics.Bag,
@@ -194,6 +206,7 @@ class Parser {
     const closing = this.#expect("VClose", "expected the module layout block to close");
     const eof = this.#expect("Eof", "expected end of file");
     this.#reportMisplacedTypeParameterLambdas();
+    this.#reportReservedNames();
     const first = opening ?? items[0] ?? closing ?? eof ?? this.#current();
     const last = eof ?? closing ?? items.at(-1) ?? first;
 
@@ -220,6 +233,11 @@ class Parser {
       this.#synchronize(new Set(["Eof"]));
     }
     this.#expect("Eof", "expected the end of string interpolation");
+    // An interpolation has its own token stream, so it needs its own sweep: the
+    // module-level one never sees these tokens. Every seat inside one is an
+    // ordinary Hexagon seat — no extern declaration can appear here — so there
+    // is nothing to exempt.
+    this.#reportReservedNames();
     return expression;
   }
 
@@ -615,6 +633,7 @@ class Parser {
       this.#errorAt(start.span, "`default` applies to foreign functions and values, not types");
     }
     const expected = kind === "Type" || !defaultBinding ? undefined : "NonUpperName";
+    const nameIndex = this.#index;
     const nameToken = expected === undefined
       ? this.#takeAnyName("extern declarations require a name")
       : this.#takeName(expected, "default extern bindings require a non-uppercase-start local name");
@@ -625,6 +644,7 @@ class Parser {
     const firstName = parsedName(nameToken);
     let foreignName: Parsed.Name | undefined = defaultBinding ? undefined : firstName;
     let localName = firstName;
+    let aliased = false;
     if (this.#atContextual("as")) {
       const asToken = this.#advance();
       const aliasToken = this.#takeAnyName("expected a local name after `as`");
@@ -635,10 +655,35 @@ class Parser {
         );
       } else if (aliasToken !== undefined) {
         localName = parsedName(aliasToken);
+        aliased = true;
+      }
+    }
+    // FFI Part 4 §3.2, the reservation half. The foreign side of `as` is not a
+    // Hexagon name seat, so a foreign export named `__foo` — a common JavaScript
+    // internals convention — stays bindable and is exempted from the sweep. An
+    // *unaliased* seat is both sides at once, and the repair is the one that
+    // part names for every other illegal foreign spelling: an alias, never a
+    // rename of the foreign name, which would bind a different export. (The
+    // local side of `as` is an ordinary seat and takes the sweep's rename.)
+    let reservedForeignSeat = false;
+    if (!defaultBinding && firstName.text.startsWith("__")) {
+      this.#reservedNameExemptions.add(nameIndex);
+      if (!aliased) {
+        reservedForeignSeat = true;
+        const keyword = kind === "Type" ? "type" : kind === "Fun" ? "fun" : "let";
+        const alias = firstName.text.replace(/^_+/, "");
+        this.#errorAt(
+          firstName.span,
+          `foreign ${kind === "Type" ? "type" : "term"} \`${firstName.text}\` uses the reserved \`__\` ` +
+            `prefix; bind it with an alias: \`${keyword} ${firstName.text} as ` +
+            `${kind === "Type" ? upperInitial(alias) : lowerInitial(alias)}\``,
+        );
       }
     }
     if (kind === "Type") {
-      if (localName.startClass !== "upper") {
+      // One rewrite per seat: the reservation message above already names the
+      // alias this would ask for a second time, with the same repair.
+      if (localName.startClass !== "upper" && !reservedForeignSeat) {
         this.#errorAt(
           localName.span,
           `foreign type \`${foreignName?.text ?? localName.text}\` needs an uppercase-start local alias; write \`type ${foreignName?.text ?? localName.text} as T${localName.text}\``,
@@ -3288,6 +3333,33 @@ class Parser {
     return token;
   }
 
+  /**
+   * Lexer §3.2's reserved prefix, reported once the positions are known.
+   *
+   * Every name token in the module is a Hexagon name seat unless something
+   * parsed it as one of §3.2's exceptions and said so — the sweep is the default
+   * and the exemptions are the recorded cases, rather than the other way round,
+   * so a seat added later is covered without being remembered. The fix-it is a
+   * rename, per the §10 table: the double leading underscore means the compiler
+   * wrote the name, so a user's `__foo` becomes `_foo`.
+   */
+  #reportReservedNames(): void {
+    this.#tokens.forEach((token, index) => {
+      if (token.kind !== "NonUpperName" && token.kind !== "UpperName") return;
+      if (!token.text.startsWith("__")) return;
+      if (this.#reservedNameExemptions.has(index)) return;
+      this.#diagnostics.add({
+        severity: "error",
+        message: "names beginning `__` are reserved for compiler-generated code",
+        primary: token.span,
+        fixes: [{
+          message: "rename this identifier",
+          edits: [{ span: token.span, replacement: token.text.replace(/^__/, "_") }],
+        }],
+      });
+    });
+  }
+
   #skipSeparators(): void {
     while (this.#at("VSep") || this.#at("Semicolon")) {
       this.#advance();
@@ -3443,6 +3515,11 @@ function intrinsicFormError(form: string): string {
 function lowerInitial(name: string): string {
   const [first = "value", ...rest] = [...name];
   return `${first.toLocaleLowerCase()}${rest.join("")}`;
+}
+
+function upperInitial(name: string): string {
+  const [first = "T", ...rest] = [...name];
+  return `${first.toLocaleUpperCase()}${rest.join("")}`;
 }
 
 function requiredOperator(operation: Infix, token: LaidOut.Token): Parsed.BinaryOperator {

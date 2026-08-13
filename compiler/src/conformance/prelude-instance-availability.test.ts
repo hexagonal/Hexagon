@@ -36,8 +36,8 @@ import { compileFiles, runProject } from "../support/test-project.js";
  *    *intermittently* invisible — it cured `b.hex` by accident — so leaving it in
  *    place would leave the defect's mask in place.
  * 2. Consumers import from the module that **declares** the dictionary, so a
- *    two-hop chain no longer builds `__hex_imported_1___hex_imported_0___…`
- *    names, and a diamond no longer imports one dictionary twice.
+ *    two-hop chain reaches the declaring module directly, and a diamond no
+ *    longer imports one dictionary twice.
  * 3. The prelude channel never re-exports. Reaching prelude evidence never
  *    requires asking an intermediate for it.
  *
@@ -115,7 +115,7 @@ describe("a type-only prelude mention has its instances", () => {
     // Imported from `Prelude.js`, which declares it — not from an intermediate,
     // and not re-exported onward.
     expect(importLines(javascript)).toEqual([
-      'import { __hex_instance_Eq_Ordering as __hex_imported_10___hex_instance_Eq_Ordering } from "./Prelude.js";',
+      'import { __Eq_Ordering } from "./Prelude.js";',
     ]);
     expect(exportLines(javascript)).toEqual(["export { f };"]);
     expect(danglingImports([["/main.hex", source]])).toEqual([]);
@@ -136,10 +136,10 @@ describe("a type-only prelude mention has its instances", () => {
     const source = "export fun f(a: Option(Int), b: Option(Int)): Bool = a == b\n";
     expect(diagnostics([["/main.hex", source]])).toEqual([]);
     expect(importLines(emitted([["/main.hex", source]], "/main.hex"))).toEqual([
-      'import { __hex_instance_Eq_Option as __hex_imported_13___hex_instance_Eq_Option } from "./Option.js";',
+      'import { __Eq_Option } from "./Option.js";',
       // The component instance `Eq<Option(Int)>` selects (#278), an import
       // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
-      'import { __hex_instance_Eq_Int as __hex_imported_15___hex_instance_Eq_Int } from "./Int.js";',
+      'import { __Eq_Int } from "./Int.js";',
     ]);
     expect(danglingImports([["/main.hex", source]])).toEqual([]);
 
@@ -166,7 +166,7 @@ describe("a type-only prelude mention has its instances", () => {
     const source = 'export fun f(a: Ordering): String = "v: ${a}"\n';
     expect(diagnostics([["/main.hex", source]])).toEqual([]);
     expect(importLines(emitted([["/main.hex", source]], "/main.hex"))).toEqual([
-      'import { __hex_instance_Show_Ordering as __hex_imported_10___hex_instance_Show_Ordering } from "./Prelude.js";',
+      'import { __Show_Ordering } from "./Prelude.js";',
     ]);
   });
 
@@ -200,7 +200,7 @@ describe("a type-only prelude mention has its instances", () => {
     );
     expect(importLines(javascript)).toEqual([]);
     expect(javascript).toContain("return a === b;");
-    expect(javascript).not.toContain("__hex_instance_Eq_Bool");
+    expect(javascript).not.toContain("__Eq_Bool");
   });
 });
 
@@ -223,10 +223,10 @@ describe("transit shapes keep working and shrink", () => {
 
     const b = emitted(files, "/b.hex");
     expect(importLines(b)).toEqual([
-      'import { __hex_instance_Eq_Option as __hex_imported_14___hex_instance_Eq_Option } from "./Option.js";',
+      'import { __Eq_Option } from "./Option.js";',
       // The component instance `Eq<Option(Int)>` selects (#278), an import
       // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
-      'import { __hex_instance_Eq_Int as __hex_imported_16___hex_instance_Eq_Int } from "./Int.js";',
+      'import { __Eq_Int } from "./Int.js";',
       'import { mk } from "./a.js";',
     ]);
     // The point of the fix: no evidence re-export anywhere on the path.
@@ -251,10 +251,10 @@ describe("transit shapes keep working and shrink", () => {
     ] as const;
     expect(diagnostics(files)).toEqual([]);
     expect(importLines(emitted(files, "/b.hex"))).toEqual([
-      'import { __hex_instance_Eq_Option as __hex_imported_14___hex_instance_Eq_Option } from "./Option.js";',
+      'import { __Eq_Option } from "./Option.js";',
       // The component instance `Eq<Option(Int)>` selects (#278), an import
       // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
-      'import { __hex_instance_Eq_Int as __hex_imported_16___hex_instance_Eq_Int } from "./Int.js";',
+      'import { __Eq_Int } from "./Int.js";',
       'import "./a.js";',
     ]);
     expect(exportLines(emitted(files, "/a.hex"))).toEqual(["export { mk };"]);
@@ -262,7 +262,7 @@ describe("transit shapes keep working and shrink", () => {
 
   /**
    * Two hops. The old chain re-exported through every intermediate and named the
-   * dictionary `__hex_imported_1___hex_imported_0___hex_imported_15___…`; `c` now
+   * dictionary through every intermediate; `c` now
    * imports the declaring module directly and `b` carries nothing.
    */
   test("a two-hop chain reaches the declaring module in one hop", () => {
@@ -273,10 +273,10 @@ describe("transit shapes keep working and shrink", () => {
     ] as const;
     expect(diagnostics(files)).toEqual([]);
     expect(importLines(emitted(files, "/c.hex"))).toEqual([
-      'import { __hex_instance_Eq_Option as __hex_imported_15___hex_instance_Eq_Option } from "./Option.js";',
+      'import { __Eq_Option } from "./Option.js";',
       // The component instance `Eq<Option(Int)>` selects (#278), an import
       // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
-      'import { __hex_instance_Eq_Int as __hex_imported_17___hex_instance_Eq_Int } from "./Int.js";',
+      'import { __Eq_Int } from "./Int.js";',
       'import { h } from "./b.js";',
     ]);
     expect(exportLines(emitted(files, "/b.hex"))).toEqual(["export { h };"]);
@@ -301,10 +301,10 @@ describe("transit shapes keep working and shrink", () => {
     expect(diagnostics(files)).toEqual([]);
     const javascript = emitted(files, "/main.hex");
     expect(importLines(javascript)).toEqual([
-      'import { __hex_instance_Eq_Option as __hex_imported_13___hex_instance_Eq_Option } from "./Option.js";',
+      'import { __Eq_Option } from "./Option.js";',
       // The component instance `Eq<Option(Int)>` selects (#278), an import
       // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
-      'import { __hex_instance_Eq_Int as __hex_imported_15___hex_instance_Eq_Int } from "./Int.js";',
+      'import { __Eq_Int } from "./Int.js";',
     ]);
     expect(javascript).not.toContain("Seq.js");
     expect(exportLines(javascript)).toEqual([
@@ -333,10 +333,14 @@ describe("an explicit import of a prelude module coexists with the channel", () 
     expect(diagnostics([["/main.hex", source]])).toEqual([]);
 
     const javascript = emitted([["/main.hex", source]], "/main.hex");
+    // Unaliased since #425: the spelling is uncontested here, so the consumer
+    // binds the exporter's interface name as it stands.
     const binding = importLines(javascript).filter((line) =>
-      line.includes("as __hex_imported_10___hex_instance_Eq_Ordering")
+      line.includes("__Eq_Ordering")
     );
-    expect(binding.length).toBe(1);
+    expect(binding).toEqual([
+      'import { __Eq_Ordering } from "./Prelude.js";',
+    ]);
     // And nothing re-exports it: the channel never calls `#exportEvidence`, and
     // the import item has no evidence to export (#263).
     expect(exportLines(javascript)).toEqual(["export { f };", "export { first };"]);
@@ -351,9 +355,8 @@ describe("an explicit import of a prelude module coexists with the channel", () 
    * point: `a` imports `./Option` explicitly and still carries no `Eq<Option>`
    * (#263), so `b` meets the identity once, from the module that declares it.
    *
-   * Before #263 it met the identity twice — once from the channel, named
-   * `__hex_imported_14___…`, and once through `./a.js`, named
-   * `__hex_imported_0___hex_imported_14___…` — and which one survived was decided
+   * Before #263 it met the identity twice — once from the channel and once
+   * through `./a.js` — and which one survived was decided
    * purely by the channel being seeded first. Both halves are asserted because
    * either mechanism failing brings the transit copy back.
    */
@@ -366,11 +369,16 @@ describe("an explicit import of a prelude module coexists with the channel", () 
     expect(exportLines(emitted(files, "/a.hex"))).toEqual(["export { mk };"]);
     const b = emitted(files, "/b.hex");
     expect(b).toContain(
-      "return __hex_imported_14___hex_instance_Eq_Option(",
+      "return __Eq_Option(",
     );
-    expect(b).not.toContain(
-      "return __hex_imported_0___hex_imported_14___hex_instance_Eq_Option(",
-    );
+    // One arrival, so the name is bare. A second copy of the identity would be a
+    // second contestant for the spelling, and §5's collision rule would suffix
+    // *both* — so a suffixed spelling anywhere here is the transit copy coming
+    // back, under the naming this arc replaced the prefix with (#425).
+    expect(b).not.toMatch(/__Eq_Option_\d/u);
+    expect(
+      b.split("\n").filter((line) => line.includes("__Eq_Option")),
+    ).toHaveLength(2);
   });
 });
 

@@ -40,8 +40,8 @@ describe("emitJavaScript", () => {
     expect(output.text).toMatch(/import \{ stream as \w+ \} from "tiny-json";/u);
     // Inbound `Seq` positions go through FFI Part 3 §2.2's door, which adapts a
     // foreign iterable and lets a genuine `Seq` coming home pass by identity.
-    expect(output.text).toMatch(/const stream = \(\) => __hex_seqInbound\(\w+\(\)\);/u);
-    expect(output.text).toMatch(/const values = __hex_seqInbound\(\w+\);/u);
+    expect(output.text).toMatch(/const stream = \(\) => __seqInbound\(\w+\(\)\);/u);
+    expect(output.text).toMatch(/const values = __seqInbound\(\w+\);/u);
     expect(output.text).toMatch(/const report = message => \{ \w+\(message\); \};/u);
     expect(output.text).toContain('import "telemetry/register";');
     expect(output.text).toContain("export { parse };");
@@ -72,15 +72,15 @@ describe("emitJavaScript", () => {
     // Collections Part 3 §2's literal is one fold over `append`, and §3.6's
     // pattern is a length test against the trie's own `size`. The bracket and
     // slice helpers are unmoved — each is a bounds assertion around one trie
-    // operation — and `__hex_stringIndex` is unmoved for the opposite reason:
+    // operation — and `__stringIndex` is unmoved for the opposite reason:
     // a string is not a trie, so §9's codepoint reading stayed on arrays when
     // the vector one left them.
-    expect(output.text).toContain("const values = __hex_vectorOf([10, 20, 30]);");
-    expect(output.text).toContain("__hex_vectorIndex(values, 2)");
-    expect(output.text).toContain("__hex_vectorSlice(values, __hex_range(2, 99))");
-    expect(output.text).toContain('__hex_stringIndex("héllo", 2)');
-    expect(output.text).toContain("function __hex_stableHash");
-    expect(output.text).toContain("__hex_trieSize(__hex_match0) >= 1");
+    expect(output.text).toContain("const values = __vectorOf([10, 20, 30]);");
+    expect(output.text).toContain("__vectorIndex(values, 2)");
+    expect(output.text).toContain("__vectorSlice(values, __range(2, 99))");
+    expect(output.text).toContain('__stringIndex("héllo", 2)');
+    expect(output.text).toContain("function __stableHash");
+    expect(output.text).toContain("__trieSize(__match) >= 1");
     expect(emitDeclarations(module).text).toContain("Hex.Vector<number>");
     expect(output.diagnostics).toEqual([]);
   });
@@ -108,8 +108,8 @@ describe("emitJavaScript", () => {
     const text = (path: string): string =>
       project.modules.find((module) => module.source.path === path)!.javascript.text;
 
-    expect(text("/main.hex")).not.toContain("const __hex_persistentCollections");
-    expect(text("/Vector.hex")).not.toContain("const __hex_persistentCollections");
+    expect(text("/main.hex")).not.toContain("const __persistentCollections");
+    expect(text("/Vector.hex")).not.toContain("const __persistentCollections");
     // No `toSeq` in the import list since #353: `Vector.toSeq` is the provided
     // row's member, not an export of the companion, and a provided row is
     // rendered inline rather than imported (Collections Part 5 §4).
@@ -123,18 +123,18 @@ describe("emitJavaScript", () => {
     // anything ahead of `Iterable.hex` in the prelude gains a binding, and this
     // test is about where the name comes from, not what it is numbered.
     expect(text("/main.hex")).toMatch(
-      /import \{ __hex_export\d+ as toSeq \} from "\.\/Iterable\.js";/,
+      /import \{ __export\d+ as toSeq \} from "\.\/Iterable\.js";/,
     );
     expect(text("/main.hex")).toContain(
-      "toSeq(updated, ({ toSeq: __hex_seqFromIterable }))",
+      "toSeq(updated, ({ toSeq: __seqFromIterable }))",
     );
     // `fromSeq` lowers to the outbound driver in the module whose door declares
     // it; the inbound adapter is there too, because the unexported `elements`
     // row still crosses the same boundary.
-    expect(text("/Vector.hex")).toContain("function __hex_seqFromIterable");
-    expect(text("/Vector.hex")).toContain("function __hex_seqToIterable");
+    expect(text("/Vector.hex")).toContain("function __seqFromIterable");
+    expect(text("/Vector.hex")).toContain("function __seqToIterable");
     expect(text("/Vector.hex")).toContain(
-      "const fromSeq = __hex_values => __hex_vectorOf(__hex_seqToIterable(__hex_values));",
+      "const fromSeq = __values => __vectorOf(__seqToIterable(__values));",
     );
     // The trie is the third module in the graph, and only `Vector.hex` and the
     // literal-holding consumer import it.
@@ -201,12 +201,12 @@ describe("emitJavaScript", () => {
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
     // The helper, by every name it went under.
-    expect(output.text).not.toContain("__hex_persistentCollections");
+    expect(output.text).not.toContain("__persistentCollections");
     expect(output.text).not.toContain("const emptySet =");
     expect(output.text).not.toContain("const setAdd =");
     expect(output.text).not.toContain("const setContains =");
     expect(output.text).not.toContain("const insert =");
-    expect(output.text).not.toContain("__hex_hash.eq.equals");
+    expect(output.text).not.toContain("__hash.eq.equals");
     // What stands in its place: imported companion bindings, called.
     expect(output.text).toContain('from "./Map.js";');
     expect(output.text).toContain('from "./Set.js";');
@@ -222,7 +222,7 @@ describe("emitJavaScript", () => {
         "export let looked: String = m[1]\n",
     );
     expect(mapOnly.diagnostics).toEqual([]);
-    expect(emitJavaScript(mapOnly).text).not.toContain("__hex_persistentCollections");
+    expect(emitJavaScript(mapOnly).text).not.toContain("__persistentCollections");
 
     const setOnly = coreSource(
       "let s: Set(Int) = Set.add(Set.empty, 1)\n" +
@@ -230,7 +230,7 @@ describe("emitJavaScript", () => {
         "export let counted: Int = Set.size(s)\n",
     );
     expect(setOnly.diagnostics).toEqual([]);
-    expect(emitJavaScript(setOnly).text).not.toContain("__hex_persistentCollections");
+    expect(emitJavaScript(setOnly).text).not.toContain("__persistentCollections");
   });
 
   test("executes persistent Map and Set updates, lookup, and bracket failure", async () => {
@@ -343,12 +343,12 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
-    expect(output.text).toContain("__hex_instance_Iterable_Bag.toSeq(bag)");
+    expect(output.text).toContain("__Iterable_Bag.toSeq(bag)");
     // `for x in` over a vector asks for no `Iterable` evidence and never did:
     // it is a native `for…of`, and it keeps working over the trie because every
     // vector value carries `[Symbol.iterator]` as part of its representation.
-    expect(output.text).toContain("for (const value of __hex_vectorOf([1, 2]))");
-    expect(output.text).toContain("for (const __hex_item");
+    expect(output.text).toContain("for (const value of __vectorOf([1, 2]))");
+    expect(output.text).toContain("for (const __item");
   });
 
   test("preserves Array and Nullable boundary types in exported declarations", () => {
@@ -365,7 +365,7 @@ describe("emitJavaScript", () => {
     const declarations = emitDeclarations(module).text;
     expect(declarations).toContain("export declare const count: (xs: ReadonlyArray<number>) => number;");
     expect(declarations).toContain("export declare const keep: (value: string | null | undefined) => string | null | undefined;");
-    expect(emitJavaScript(module).text).toContain("for (const __hex_item");
+    expect(emitJavaScript(module).text).toContain("for (const __item");
   });
 
   test("emits var, assignment, inclusive Range values, and while readably", () => {
@@ -380,10 +380,10 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const javascript = emitJavaScript(module).text;
-    expect(javascript).toContain("function __hex_range(__hex_start, __hex_end)");
+    expect(javascript).toContain("function __range(__start, __end)");
     expect(javascript).toContain("*[Symbol.iterator]()");
     expect(javascript).toContain("let current = start;");
-    expect(javascript).toContain("const visited = __hex_range(1, current);");
+    expect(javascript).toContain("const visited = __range(1, current);");
     expect(javascript).toContain("while (current > 0) {");
     expect(javascript).toContain("current = current - 1;");
     expect(javascript).toContain("return visited;");
@@ -394,13 +394,16 @@ describe("emitJavaScript", () => {
     const seeded: Core.Module = {
       ...module,
       symbols: module.symbols.map((symbol, index) =>
-        index === 0 ? { ...symbol, name: "__hex_range" } : symbol
+        index === 0 ? { ...symbol, name: "__range" } : symbol
       ),
     };
 
+    // Lexer §3.2's probe: the preferred spelling is occupied by something the
+    // compiler cannot rename, so the generated name takes numeric suffixes from
+    // 1, separated by `_` like every other suffixed generated name (#425).
     const javascript = emitJavaScript(seeded).text;
-    expect(javascript).toContain("function __hex_range1(__hex_start, __hex_end)");
-    expect(javascript).toContain("const values = __hex_range1(1, 2);");
+    expect(javascript).toContain("function __range_1(__start, __end)");
+    expect(javascript).toContain("const values = __range_1(1, 2);");
   });
 
   test("preserves exact, non-normalized identifier spellings as distinct names", () => {
@@ -421,9 +424,9 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const javascript = emitJavaScript(module).text;
-    expect(javascript).toContain("for (const number of __hex_range(1, 3)) {");
+    expect(javascript).toContain("for (const number of __range(1, 3)) {");
     expect(javascript).toContain('for (const character of "ab") {');
-    expect(javascript).not.toContain("__hex_item");
+    expect(javascript).not.toContain("__item");
   });
 
   test("lowers Seq dot calls and pipelines through prelude companion dispatch", () => {
@@ -456,10 +459,10 @@ describe("emitJavaScript", () => {
     expect(output.text.match(/take\(map\(filter\(numbers,/gu)).toHaveLength(2);
     // No compiler-owned generator remains for these; the only Seq machinery in
     // the module is the outbound driver `for x in` needs (ruling R3).
-    expect(output.text).not.toContain("__hex_seqIterate");
-    expect(output.text).not.toContain("__hex_seqMap");
-    expect(output.text).toContain("for (const number of __hex_seqToIterable(selected)) {");
-    expect(output.text).not.toContain("__hex_item");
+    expect(output.text).not.toContain("__seqIterate");
+    expect(output.text).not.toContain("__seqMap");
+    expect(output.text).toContain("for (const number of __seqToIterable(selected)) {");
+    expect(output.text).not.toContain("__item");
     expect(emitDeclarations(module).text).toContain(
       "export declare const selected: Iterable<number>;",
     );
@@ -477,7 +480,7 @@ describe("emitJavaScript", () => {
    *
    * The renaming rule under test is unchanged and is the point: a user symbol
    * spelled like a helper does not move, and the generated name does — Lexer §3
-   * owns `__hex_`, and only the compiler's side of it is free to shift.
+   * owns `__`, and only the compiler's side of it is free to shift.
    */
   test("keeps helper names clear of a user-name collision", () => {
     const module = preludeSource(
@@ -486,13 +489,13 @@ describe("emitJavaScript", () => {
     const seeded: Core.Module = {
       ...module,
       symbols: module.symbols.map((symbol, index) =>
-        index === 0 ? { ...symbol, name: "__hex_vectorOf" } : symbol
+        index === 0 ? { ...symbol, name: "__vectorOf" } : symbol
       ),
     };
 
     const javascript = emitJavaScript(seeded).text;
-    expect(javascript).toContain("function __hex_vectorOf1(__hex_source)");
-    expect(javascript).toContain("__hex_vectorOf1([1, 2])");
+    expect(javascript).toContain("function __vectorOf_1(__source)");
+    expect(javascript).toContain("__vectorOf_1([1, 2])");
   });
 
   test("expands nested or-patterns and emits exhaustive or-pattern bindings", () => {
@@ -508,13 +511,13 @@ describe("emitJavaScript", () => {
     expect(module.diagnostics).toEqual([]);
     const javascript = emitJavaScript(module).text;
     expect(javascript).toContain(
-      '__hex_match0.side.tag === "Left"',
+      '__match.side.tag === "Left"',
     );
     expect(javascript).toContain(
-      'else if (__hex_match0.tag === "Box" && __hex_match0.side.tag === "Right")',
+      'else if (__match.tag === "Box" && __match.side.tag === "Right")',
     );
     expect(javascript).toContain("let amount;");
-    expect(javascript).toContain("amount = __hex_match1.value;");
+    expect(javascript).toContain("amount = __match_1.value;");
   });
 
   test("emits negative, or, and single-constructor binding patterns", () => {
@@ -533,9 +536,9 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const javascript = emitJavaScript(module).text;
-    expect(javascript).toContain('if (__hex_match0.tag === "Circle")');
-    expect(javascript).toContain('else if (__hex_match0.tag === "Rectangle")');
-    expect(javascript).toContain("if (__hex_match1 === -1)");
+    expect(javascript).toContain('if (__match.tag === "Circle")');
+    expect(javascript).toContain('else if (__match.tag === "Rectangle")');
+    expect(javascript).toContain("if (__match_1 === -1)");
     expect(javascript).toContain("const { value } = UserId(42);");
   });
 
@@ -543,7 +546,7 @@ describe("emitJavaScript", () => {
     const unit = emitJavaScript(coreSource(
       'fun describe(value: Unit): String = match value\n    () => "unit"',
     )).text;
-    expect(unit).toContain("if (__hex_match0 === undefined)");
+    expect(unit).toContain("if (__match === undefined)");
 
     const shape = emitJavaScript(coreSource(
       "union Shape = Circle(radius: Float) | Point\n" +
@@ -551,7 +554,7 @@ describe("emitJavaScript", () => {
         "    Circle(_) as whole => whole\n" +
         "    Point as whole => whole",
     )).text;
-    expect(shape).toContain("const whole = __hex_match0;");
+    expect(shape).toContain("const whole = __match;");
 
     const structural = emitJavaScript(coreSource(
       'fun tupleLabel(pair: (Bool, Int)): String = match pair\n' +
@@ -561,10 +564,10 @@ describe("emitJavaScript", () => {
         '    {active = True, name} => name\n' +
         '    {name} => name',
     )).text;
-    expect(structural).toContain("if (__hex_match0[0] === true)");
-    expect(structural).toContain("const count = __hex_match0[1];");
-    expect(structural).toContain("if (__hex_match1.active === true)");
-    expect(structural).toContain("const name = __hex_match1.name;");
+    expect(structural).toContain("if (__match[0] === true)");
+    expect(structural).toContain("const count = __match[1];");
+    expect(structural).toContain("if (__match_1.active === true)");
+    expect(structural).toContain("const name = __match_1.name;");
   });
 
   test("emits matching record fields as JavaScript shorthand", () => {
@@ -599,11 +602,11 @@ describe("emitJavaScript", () => {
     expect(guarded.diagnostics).toEqual([]);
     const guardedJavaScript = emitJavaScript(guarded).text;
     expect(guardedJavaScript).toContain(
-      'if (__hex_match0.tag === "Circle")',
+      'if (__match.tag === "Circle")',
     );
-    expect(guardedJavaScript).toContain("const radius = __hex_match0.radius;");
+    expect(guardedJavaScript).toContain("const radius = __match.radius;");
     expect(guardedJavaScript).toContain(
-      "if (__hex_compareFloat(radius, 0.0) > 0)",
+      "if (__compareFloat(radius, 0.0) > 0)",
     );
   });
 
@@ -618,9 +621,9 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const javascript = emitJavaScript(module).text;
-    expect(javascript).toContain("const [name, ] = __hex_match0.value;");
+    expect(javascript).toContain("const [name, ] = __match.value;");
     expect(javascript).toContain(
-      "const { context: { message: reason } } = __hex_match0.error;",
+      "const { context: { message: reason } } = __match.error;",
     );
   });
 
@@ -676,7 +679,7 @@ describe("emitJavaScript", () => {
       'const Circle = radius => ({ tag: "Circle", radius });',
     );
     expect(emitJavaScript(module).text).toContain("const point = { x: 3, y: 4 };");
-    expect(emitJavaScript(module).text).toContain("const value = __hex_match0.radius;");
+    expect(emitJavaScript(module).text).toContain("const value = __match.radius;");
     expect(emitDeclarations(module).text).toContain(
       'export type Shape = { tag: "Circle"; radius: number } | { tag: "Point" };',
     );
@@ -719,7 +722,7 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const javascript = emitJavaScript(module).text;
-    expect(javascript).toContain("const Box = __hex_record => __hex_record;");
+    expect(javascript).toContain("const Box = __record => __record;");
     expect(javascript).toContain("const answer = { value: 42 };");
     expect(javascript).toContain("const changed = { ...answer, value: 43 };");
     expect(emitDeclarations(module).text).toContain(
@@ -746,16 +749,16 @@ describe("emitJavaScript", () => {
     expect(module.diagnostics).toEqual([]);
     const javascript = emitJavaScript(module).text;
     expect(javascript).toContain(
-      "return Object.assign(new Error(__hex_message), { $hex: true, name: __hex_name }, __hex_fields);",
+      "return Object.assign(new Error(__message), { $hex: true, name: __name }, __fields);",
     );
     expect(javascript).toContain(
-      'const ParseError = (line, message) => __hex_exception("ParseError", message, { line, message });',
+      'const ParseError = (line, message) => __exception("ParseError", message, { line, message });',
     );
     expect(javascript).toContain(
-      'const Note = message => __hex_exception("Note", message, { message });',
+      'const Note = message => __exception("Note", message, { message });',
     );
     expect(javascript).toContain(
-      '$hex === true && __hex_error0.name === "ParseError"',
+      '$hex === true && __error.name === "ParseError"',
     );
     expect(javascript).toContain("throw Missing();");
     expect(emitDeclarations(module).text).toContain(
@@ -935,7 +938,7 @@ describe("emitJavaScript", () => {
     const output = emitJavaScript(module);
 
     expect(output.text).toContain("switch (suit) {");
-    expect(output.text).not.toContain("__hex_match");
+    expect(output.text).not.toContain("__match");
     expect(output.text.match(/default:/gu)).toHaveLength(1);
     expect(output.text).not.toContain("Unexpected pattern.");
     expect(output.diagnostics).toEqual([]);
@@ -950,9 +953,9 @@ describe("emitJavaScript", () => {
 
     const output = emitJavaScript(module);
 
-    expect(output.text).toContain("const __hex_match0 = suit;");
-    expect(output.text).toContain("switch (__hex_match0) {");
-    expect(output.text).toContain("const whole = __hex_match0;");
+    expect(output.text).toContain("const __match = suit;");
+    expect(output.text).toContain("switch (__match) {");
+    expect(output.text).toContain("const whole = __match;");
     expect(output.diagnostics).toEqual([]);
   });
 
@@ -1179,14 +1182,12 @@ describe("emitJavaScript", () => {
   test("passes dictionaries through constrained function bodies", () => {
     const output = emitJavaScript(coreSource("let addOne = x => x + 1"));
 
-    // The dictionary parameter is named after the type variable's id, and that
-    // counter starts wherever the prelude left it — so the shape is asserted and
-    // the number is not.
-    const dictionary = /__hex_dictNum_\d+/.exec(output.text)?.[0];
-    expect(dictionary).toBeDefined();
+    // The dictionary parameter is spelled from the signature, not from a
+    // counter (#425): the binding generalizes over one variable, the face prints
+    // it `a`, and `Num`'s evidence for it is `__Num_a`. The whole text is
+    // asserted because the name is now predictable.
     expect(output.text).toBe(
-      `const addOne = (x, ${dictionary}) => ` +
-        `${dictionary}.add(x, ${dictionary}.fromNat(1));\n`,
+      "const addOne = (x, __Num_a) => __Num_a.add(x, __Num_a.fromNat(1));\n",
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -1217,7 +1218,7 @@ describe("emitJavaScript", () => {
     expect(output.text).toContain("const total = count * cost;");
     expect(output.text).toContain("const doubled = (count + count) * cost;");
     expect(output.text).toContain(
-      "const affordable = __hex_compareFloat(count, cost) < 0;",
+      "const affordable = __compareFloat(count, cost) < 0;",
     );
     expect(output.text).toContain("const exact = count + count;");
     expect(output.text).toContain("const large = BigInt(count);");
@@ -1273,7 +1274,7 @@ describe("emitJavaScript", () => {
     );
 
     expect(output.text).toMatch(
-      /const scale = \(count, value, (__hex_dictSigned_\d+)\) => \1\.num\.multiply\(\1\.fromInt\(count\), value\);/u,
+      /const scale = \(count, value, (__Signed_a)\) => \1\.num\.multiply\(\1\.fromInt\(count\), value\);/u,
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -1291,11 +1292,11 @@ describe("emitJavaScript", () => {
 
     expect(project.diagnostics).toEqual([]);
     const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
-    expect(text).not.toContain("fromInt: __hex_a => BigInt(__hex_a)");
-    expect(text).toContain("__hex_instance_Signed_BigInt");
+    expect(text).not.toContain("fromInt: __a => BigInt(__a)");
+    expect(text).toContain("__Signed_BigInt");
     const companion = project.modules
       .find(({ source }) => source.path.endsWith("BigInt.hex"))!.javascript.text;
-    expect(companion).toContain("const nativeFromInt = __hex_a => BigInt(__hex_a);");
+    expect(companion).toContain("const nativeFromInt = __a => BigInt(__a);");
     expect((await runProject(files))["result"]).toBe(6n);
   });
 
@@ -1315,8 +1316,8 @@ describe("emitJavaScript", () => {
     expect(project.diagnostics).toEqual([]);
     const companion = (basename: string): string =>
       project.modules.find(({ source }) => source.path.endsWith(basename))!.javascript.text;
-    expect(companion("Float.hex")).toContain("function __hex_compareFloat(");
-    expect(companion("String.hex")).toContain("function __hex_compareString(");
+    expect(companion("Float.hex")).toContain("function __compareFloat(");
+    expect(companion("String.hex")).toContain("function __compareString(");
     const exports = await runProject(files);
     expect([exports["finiteBeforeNaN"], exports["bmpBeforeAstral"]]).toEqual([true, true]);
   });
@@ -1347,7 +1348,7 @@ describe("emitJavaScript", () => {
     // is `stdlib/Float.hex`'s door binding over the bare `%` and `Float.mod` is
     // the Euclidean adjustment written above it, both plain exports rather than
     // members — `Float` is not `Integral` (Integral §3), so there is no `div`,
-    // `quot`, or `gcd` here and never was. The `__hex_floatMod`/`__hex_floatRem`
+    // `quot`, or `gcd` here and never was. The `__floatMod`/`__floatRem`
     // helpers that used to carry them are gone with the whole family.
     const files = [["/main.hex",
       "export let result: (Float, Float) = (Float.mod(-7.0, 3.0), Float.rem(-7.0, 3.0))\n",
@@ -1356,9 +1357,9 @@ describe("emitJavaScript", () => {
 
     expect(project.diagnostics).toEqual([]);
     const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
-    expect(text).not.toContain("__hex_float");
-    expect(text).not.toContain("__hex_int");
-    expect(text).not.toContain("__hex_bigInt");
+    expect(text).not.toContain("__float");
+    expect(text).not.toContain("__int");
+    expect(text).not.toContain("__bigInt");
     expect(text).toContain('from "./Float.js"');
     expect((await runProject(files))["result"]).toEqual([2, -1]);
   });
@@ -1367,7 +1368,7 @@ describe("emitJavaScript", () => {
     // `Bool` is fundamental but not primitive (#147): the specialization
     // planner names its editions all the same, and with the wired table gone
     // (#344) an edition's dictionary comes from the derived walk. The retired
-    // table answered `String(__hex_a)` here — the host's `"true"` where
+    // table answered `String(__a)` here — the host's `"true"` where
     // `Show<Bool>` says `"True"` — so a monomorphic edition disagreed with
     // every other spelling of the same call. This run is the agreement,
     // measured through both spellings: the ground call and the edition itself.
@@ -1398,7 +1399,7 @@ describe("emitJavaScript", () => {
 
     expect(project.diagnostics).toEqual([]);
     const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
-    expect(text).not.toContain("__hex_bigInt");
+    expect(text).not.toContain("__bigInt");
     expect(text).toContain('from "./BigInt.js"');
     expect((await runProject(files))["result"]).toEqual([-2n, 1n, -2n, 1n, 6n, 12n]);
   });
@@ -1407,7 +1408,7 @@ describe("emitJavaScript", () => {
     // The row the `Int` half of the original case measured, at its new home
     // (#344): `stdlib/Int.hex`. The conventions are unchanged — Euclidean
     // `div`/`mod`, truncated `quot`/`rem`, non-negative `gcd` — and no
-    // `__hex_int*` helper survives to carry them.
+    // `__int*` helper survives to carry them.
     const files = [["/main.hex",
       "export let result: (Int, Int, Int, Int, Int) = (\n" +
         "    Int.div(-7, 3), Int.mod(-7, 3), Int.quot(-7, 3), Int.rem(-7, 3), Int.gcd(-12, 18))\n",
@@ -1416,7 +1417,7 @@ describe("emitJavaScript", () => {
 
     expect(project.diagnostics).toEqual([]);
     const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
-    expect(text).not.toContain("__hex_int");
+    expect(text).not.toContain("__int");
     expect(text).toContain('from "./Int.js"');
     expect((await runProject(files))["result"]).toEqual([-3, 2, -2, -1, 6]);
   });
@@ -1465,7 +1466,7 @@ describe("emitJavaScript", () => {
     // The dictionary is `stdlib/BigInt.hex`'s since #344, so what crosses into
     // this module is the import of it rather than a literal built here — which
     // is the whole of the wired row's retirement, seen from the consumer.
-    expect(text).toContain("__hex_instance_Integral_BigInt");
+    expect(text).toContain("__Integral_BigInt");
     expect(text).toContain('from "./BigInt.js"');
     const companion = project.modules
       .find(({ source }) => source.path.endsWith("BigInt.hex"))!.javascript.text;
@@ -1507,8 +1508,8 @@ describe("emitJavaScript", () => {
 
     expect(project.diagnostics).toEqual([]);
     const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
-    expect(text).not.toContain("__hex_bigInt");
-    expect(text).toContain("__hex_instance_Integral_BigInt");
+    expect(text).not.toContain("__bigInt");
+    expect(text).toContain("__Integral_BigInt");
     expect((await runProject(files))["result"]).toEqual([5n, 6n, true, 1n, -1n, 2n]);
   });
 
@@ -1526,8 +1527,8 @@ describe("emitJavaScript", () => {
 
     expect(project.diagnostics).toEqual([]);
     const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
-    expect(text).not.toContain("__hex_checkedPower");
-    expect(text).toContain("__hex_instance_Pow_Int");
+    expect(text).not.toContain("__checkedPower");
+    expect(text).toContain("__Pow_Int");
     const boom = (await runProject(files))["boom"] as () => unknown;
     let thrown: unknown;
     try {
@@ -1552,8 +1553,8 @@ describe("emitJavaScript", () => {
 
     expect(project.diagnostics).toEqual([]);
     const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
-    expect(text).not.toContain("__hex_checkedPower");
-    expect(text).toContain("__hex_instance_Pow_BigInt");
+    expect(text).not.toContain("__checkedPower");
+    expect(text).toContain("__Pow_BigInt");
     const boom = (await runProject(files))["boom"] as () => unknown;
     let thrown: unknown;
     try {
@@ -1589,7 +1590,7 @@ describe("emitJavaScript", () => {
     );
 
     expect(output.text).toMatch(
-      /const combined = (__hex_instance_Num_Box\d*)\.add\((__hex_instance_Signed_Box\d*)\.fromInt\(count\), box\);/u,
+      /const combined = (__Num_Box\d*)\.add\((__Signed_Box\d*)\.fromInt\(count\), box\);/u,
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -1606,7 +1607,7 @@ describe("emitJavaScript", () => {
 
     expect(output.text).toContain("const exactCall = plusInt(count, 1);");
     expect(output.text).toContain("const addCount = value => plusInt(count, value);");
-    expect(output.text).not.toMatch(/const addCount = \(value, __hex_dictSigned_/u);
+    expect(output.text).not.toMatch(/const addCount = \(value, __Signed_/u);
     expect(output.diagnostics).toEqual([]);
   });
 
@@ -1708,11 +1709,11 @@ describe("emitJavaScript", () => {
 
     expect(output.text).toBe(
       "const bounded = (() => {\n" +
-        "  const __hex_compare0 = 1;\n" +
-        "  const __hex_compare1 = 2;\n" +
-        "  if (!(__hex_compare0 < __hex_compare1)) return false;\n" +
-        "  const __hex_compare2 = 3;\n" +
-        "  return __hex_compare1 <= __hex_compare2;\n" +
+        "  const __compare = 1;\n" +
+        "  const __compare_1 = 2;\n" +
+        "  if (!(__compare < __compare_1)) return false;\n" +
+        "  const __compare_2 = 3;\n" +
+        "  return __compare_1 <= __compare_2;\n" +
         "})();\n",
     );
     expect(output.diagnostics).toEqual([]);
@@ -1723,13 +1724,13 @@ describe("emitJavaScript", () => {
       coreSource("let same = 0.0 == 0.0\nlet ordered = 0.0 < 1.0"),
     );
 
-    expect(output.text).toContain("function __hex_floatEquals(__hex_left, __hex_right)");
-    expect(output.text).toContain("function __hex_compareFloat(__hex_left, __hex_right)");
+    expect(output.text).toContain("function __floatEquals(__left, __right)");
+    expect(output.text).toContain("function __compareFloat(__left, __right)");
     expect(output.text).toContain(
-      "const same = __hex_floatEquals(0.0, 0.0);",
+      "const same = __floatEquals(0.0, 0.0);",
     );
     expect(output.text).toContain(
-      "const ordered = __hex_compareFloat(0.0, 1.0) < 0;",
+      "const ordered = __compareFloat(0.0, 1.0) < 0;",
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -1753,16 +1754,16 @@ describe("emitJavaScript", () => {
     // `**` at `BigInt` reaches `Pow<BigInt>`'s member now, whose body is the
     // negative-exponent guard over the raw native (#344) — the helper the row
     // used to name is `Int`'s alone.
-    expect(output.text).not.toContain("__hex_checkedPower");
-    expect(output.text).toContain("const powered = __hex_imported_14___hex_instance_Pow_BigInt.pow(2n, 3n);");
+    expect(output.text).not.toContain("__checkedPower");
+    expect(output.text).toContain("const powered = __Pow_BigInt.pow(2n, 3n);");
     expect(output.text).toContain(
       "const logic = !false && true || false;",
     );
     expect(output.text).toMatch(
-      /const display = \(x, __hex_dictShow_\d+\) => __hex_dictShow_\d+\.show\(x\);/u,
+      /const display = \(x, __Show_a\) => __Show_a\.show\(x\);/u,
     );
     expect(output.text).toMatch(
-      /const equal = \(x, __hex_dictEq_\d+\) => __hex_dictEq_\d+\.equals\(x, x\);/u,
+      /const equal = \(x, __Eq_a\) => __Eq_a\.equals\(x, x\);/u,
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -1777,9 +1778,9 @@ describe("emitJavaScript", () => {
     );
 
     expect(output.text).toContain("const different = !(1 === 2);");
-    expect(output.text).toContain("function __hex_compareString(__hex_left, __hex_right)");
+    expect(output.text).toContain("function __compareString(__left, __right)");
     expect(output.text).toContain(
-      'const textOrder = __hex_compareString("a", "b") < 0;',
+      'const textOrder = __compareString("a", "b") < 0;',
     );
     // `Unit` ordering is the structural tuple comparison at arity 0 (#159):
     // a constant compare over the `undefined` representation, with the
@@ -1788,7 +1789,7 @@ describe("emitJavaScript", () => {
     // is `!== "Greater"`, because a dictionary's `compare` slot answers with an
     // `Ordering` and `<=` is a constructor test on it (#275).
     expect(output.text).toContain(
-      'const unitOrder = ({ compare: (__hex_left, __hex_right) => "Equal" })' +
+      'const unitOrder = ({ compare: (__left, __right) => "Equal" })' +
         '.compare(undefined, undefined) !== "Greater";',
     );
     expect(output.diagnostics).toEqual([]);
@@ -1797,7 +1798,7 @@ describe("emitJavaScript", () => {
   test("renames JavaScript-reserved source identifiers deterministically", () => {
     const output = emitJavaScript(coreSource("let await = 1\nawait"));
 
-    expect(output.text).toBe("const __hex_binding0 = 1;\n__hex_binding0;\n");
+    expect(output.text).toBe("const __binding0 = 1;\n__binding0;\n");
     expect(output.diagnostics).toEqual([]);
   });
 
@@ -1820,7 +1821,7 @@ describe("emitJavaScript", () => {
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
     expect(output.text).toMatch(
-      /const plus = \(left, right, __hex_dictNum_\d+\) => __hex_dictNum_\d+\.add\(left, right\);/u,
+      /const plus = \(left, right, __Num_a\) => __Num_a\.add\(left, right\);/u,
     );
     expect(output.text).toContain("const answer = plusInt(20, 22);");
     expect(output.text).not.toContain("const answer = plus(20, 22, ({");
@@ -1850,7 +1851,7 @@ describe("emitJavaScript", () => {
     );
 
     expect(output.text).toMatch(
-      /const double = \(value, (__hex_dictNum_\d+)\) => plus\(value, value, \1\);/u,
+      /const double = \(value, (__Num_a)\) => plus\(value, value, \1\);/u,
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -1865,10 +1866,10 @@ describe("emitJavaScript", () => {
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
     expect(output.text).toMatch(
-      /const render = \(value, __hex_dictRender_\d+\) => __hex_dictRender_\d+\.render\(value\);/u,
+      /const render = \(value, __Render_a\) => __Render_a\.render\(value\);/u,
     );
     expect(output.text).toMatch(
-      /const display = \(value, __hex_dictRender_\d+\) => render\(value, __hex_dictRender_\d+\);/u,
+      /const display = \(value, __Render_a\) => render\(value, __Render_a\);/u,
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -1887,10 +1888,10 @@ describe("emitJavaScript", () => {
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
     expect(output.text).toContain(
-      'const __hex_instance_Render_Point = { render: point => "Point(" + String(point.x) + ")" };',
+      'const __Render_Point = { render: point => "Point(" + String(point.x) + ")" };',
     );
     expect(output.text).toContain(
-      "const text = display({ x: 3 }, __hex_instance_Render_Point);",
+      "const text = display({ x: 3 }, __Render_Point);",
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -1910,10 +1911,10 @@ describe("emitJavaScript", () => {
     const output = emitJavaScript(module);
     expect(output.diagnostics).toEqual([]);
     expect(output.text).toContain(
-      "different: (left, right) => !same(left, right, __hex_instance_Same_Token)",
+      "different: (left, right) => !same(left, right, __Same_Token)",
     );
     expect(output.text).toContain(
-      "different({ value: 1 }, { value: 2 }, __hex_instance_Same_Token)",
+      "different({ value: 1 }, { value: 2 }, __Same_Token)",
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -1937,9 +1938,9 @@ describe("emitJavaScript", () => {
     const output = emitJavaScript(module);
     expect(output.diagnostics).toEqual([]);
     expect(output.text).toContain(
-      "const __hex_instance_Labeled_Token = { same: __hex_instance_Same_Token, label: value => \"token\" };",
+      "const __Labeled_Token = { same: __Same_Token, label: value => \"token\" };",
     );
-    expect(output.text).toMatch(/same\(left, right, __hex_dictLabeled_\d+\.same\)/u);
+    expect(output.text).toMatch(/same\(left, right, __Labeled_a\.same\)/u);
     expect(output.diagnostics).toEqual([]);
   });
 
@@ -1967,10 +1968,10 @@ describe("emitJavaScript", () => {
     const output = emitJavaScript(module);
     expect(output.diagnostics).toEqual([]);
     expect(output.text).toMatch(
-      /const __hex_instance_Render_Box = __hex_dictRender_\d+ => \{/u,
+      /const __Render_Box = __Render_a => \{/u,
     );
     expect(output.text).toContain(
-      "__hex_instance_Render_Box(__hex_instance_Render_Int)",
+      "__Render_Box(__Render_Int)",
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -2005,17 +2006,17 @@ describe("emitJavaScript", () => {
     // own evidence parameter. Before the parameter was rigid, the first
     // concrete use bound it to `Int` and this evidence emitted as a primitive
     // fallback — `({})` — that threw at runtime after a clean compile.
-    expect(output.text).toMatch(/describe\(item, __hex_dictDescribe_\d+\)/u);
+    expect(output.text).toMatch(/describe\(item, __Describe_a\)/u);
     // The recursive occurrence re-applies the factory to that same parameter.
     expect(output.text).toMatch(
-      /describe\(left, __hex_instance_Describe_Tree\(__hex_dictDescribe_\d+\)\)/u,
+      /describe\(left, __Describe_Tree\(__Describe_a\)\)/u,
     );
     // A concrete use applies the factory to the selected element instance —
     // never passes the unapplied factory as the dictionary.
     expect(output.text).toContain(
-      "describe(tree, __hex_instance_Describe_Tree(__hex_instance_Describe_Int))",
+      "describe(tree, __Describe_Tree(__Describe_Int))",
     );
-    expect(output.text).not.toContain("describe(tree, __hex_instance_Describe_Tree)");
+    expect(output.text).not.toContain("describe(tree, __Describe_Tree)");
   });
 
   test("resolves copied default bodies against each instance's own dictionary", () => {
@@ -2040,10 +2041,10 @@ describe("emitJavaScript", () => {
     // Before the constraint's subject was rigid, the first use bound it to
     // `Int`; the String instance's copied default then baked in the Int
     // dictionary, and both use sites passed no evidence at all.
-    expect(output.text).toContain("pick(value, __hex_instance_Pick_Int)");
-    expect(output.text).toContain("pick(value, __hex_instance_Pick_String)");
-    expect(output.text).toContain("pickHeld(0, Held2(42), __hex_instance_Pick_Int)");
-    expect(output.text).toContain('pickHeld("x", Held2("y"), __hex_instance_Pick_String)');
+    expect(output.text).toContain("pick(value, __Pick_Int)");
+    expect(output.text).toContain("pick(value, __Pick_String)");
+    expect(output.text).toContain("pickHeld(0, Held2(42), __Pick_Int)");
+    expect(output.text).toContain('pickHeld("x", Held2("y"), __Pick_String)');
   });
 
   test("expands derives headers into structural dictionaries", () => {
@@ -2055,9 +2056,9 @@ describe("emitJavaScript", () => {
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
     expect(output.text).toContain(
-      "const __hex_instance_Eq_Point = { equals: (__hex_left, __hex_right) => __hex_left.x === __hex_right.x && __hex_left.y === __hex_right.y",
+      "const __Eq_Point = { equals: (__left, __right) => __left.x === __right.x && __left.y === __right.y",
     );
-    expect(output.text).toContain("__hex_instance_Eq_Point.equals(");
+    expect(output.text).toContain("__Eq_Point.equals(");
     expect(output.diagnostics).toEqual([]);
   });
 
@@ -2070,9 +2071,9 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
-    expect(output.text).toMatch(/const __hex_instance_Eq_Box = __hex_dictEq_\d+ => \{/u);
-    expect(output.text).toMatch(/const __hex_instance_Ord_Box = __hex_dictOrd_\d+ => \{/u);
-    expect(output.text).toContain("__hex_left.value");
+    expect(output.text).toMatch(/const __Eq_Box = __Eq_a => \{/u);
+    expect(output.text).toMatch(/const __Ord_Box = __Ord_a => \{/u);
+    expect(output.text).toContain("__left.value");
     expect(output.text).toContain('"{" + "value = " +');
     expect(output.diagnostics).toEqual([]);
   });
@@ -2092,10 +2093,10 @@ describe("emitJavaScript", () => {
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
     expect(output.text).toContain(
-      "const __hex_instance_Source_Box = { get: box => box.value };",
+      "const __Source_Box = { get: box => box.value };",
     );
     expect(output.text).toContain(
-      "const answer = get({ value: 42 }, __hex_instance_Source_Box);",
+      "const answer = get({ value: 42 }, __Source_Box);",
     );
     expect(output.text).not.toContain("Item");
     expect(output.diagnostics).toEqual([]);
@@ -2207,7 +2208,7 @@ describe("emitDeclarations", () => {
     const declarations = emitDeclarations(module);
 
     expect(javascript.text).toMatch(
-      /const plus = \(x, y, __hex_dictNum_\d+\) => __hex_dictNum_\d+\.add\(x, y\);/u,
+      /const plus = \(x, y, __Num_a\) => __Num_a\.add\(x, y\);/u,
     );
     expect(javascript.text).toContain(
       "function plusNat(x, y) {\n  return x + y;\n}",
@@ -2272,13 +2273,17 @@ describe("emitDeclarations", () => {
       "function equalInt(left, right) {\n  return left === right;\n}",
     );
     expect(equal.text).toContain("function equalFloat(left, right)");
-    expect(equal.text).toContain("__hex_floatEquals(left, right)");
+    expect(equal.text).toContain("__floatEquals(left, right)");
     for (const section of [...increment.generatedSections, ...equal.generatedSections]) {
       const body = (section.sourceName === "increment" ? increment : equal).text.slice(
         section.startOffset,
         section.endOffset,
       );
-      expect(body).not.toContain("__hex_dict");
+      // A monomorphic edition takes no evidence, so nothing in it is spelled
+      // from the `__<Constraint>_<variable>` family the generic body uses
+      // (#425). Lowercase-stemmed helpers like `__floatEquals` are not that
+      // family and are expected here.
+      expect(body).not.toMatch(/__[A-Z][A-Za-z0-9]*_/u);
     }
     expect(increment.diagnostics).toEqual([]);
     expect(equal.diagnostics).toEqual([]);

@@ -73,7 +73,10 @@ syntactically decidable — receivers spelled `Map`, `Set`, `Vector`, `Node` —
 which is the `Vector.length(v)` sting recorded in Collections Part 1 §10.
 
 **The residue is everything else with that shape.** Verified, on a module with
-zero diagnostics:
+zero diagnostics *(transcribed before #425: the `__hex_` spellings are now the
+`__` family; this block's own imports and re-exports were already removed by
+#263 — see the note below — and #425 separately ended the unconditional alias
+prefix in the channels that survive)*:
 
 ```hexagon
 export record Box = {map: (Int) -> Int}
@@ -184,6 +187,10 @@ anything downstream.
 > `honor` reaches a consumer three hops away only through the intermediates,
 > and that transit (including its re-export) is load-bearing
 > (Modules §7).
+
+> **Edit note (2026-08-14, #425).** Non-prelude transit stays load-bearing, but its names
+> stopped compounding: a hop re-binds the exporter's interface name, aliasing
+> only on collision (Dictionary Sharing §5).
 
 ### 3.3 Unreferenced private bindings are emitted
 

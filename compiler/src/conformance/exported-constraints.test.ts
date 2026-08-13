@@ -68,9 +68,9 @@ describe("importing a constraint brings its members (Modules §3.1)", () => {
   test("the importer reaches the member through the home module's forwarder", () => {
     // §6.5: the forwarder is exported under the internal plumbing name, and the
     // importer binds it back to the member's own spelling. Not in the `.d.ts`.
-    expect(emitted(files, "/labels.hex")).toContain("export { label as __hex_export");
+    expect(emitted(files, "/labels.hex")).toContain("export { label as __export");
     expect(emitted(files, "/main.hex")).toMatch(
-      /import \{ __hex_export\d+ as label \} from "\.\/labels\.js";/u,
+      /import \{ __export\d+ as label \} from "\.\/labels\.js";/u,
     );
   });
 
@@ -89,8 +89,8 @@ describe("importing a constraint brings its members (Modules §3.1)", () => {
     // §5's closure, so the owed (unbuilt) surface there — `Label.Dictionary`,
     // the `Label<Int>` handle — would lawfully carry it.
     for (const text of [labels.declarations.text, main.declarations.text]) {
-      expect(text).not.toContain("__hex_export");
-      expect(text).not.toContain("__hex_default");
+      expect(text).not.toContain("__export");
+      expect(text).not.toContain("__default");
     }
     // `/main.hex` declares only the private `Room`, so Part 9's closure fires
     // for nothing here: neither the member name nor the constraint may appear.
@@ -143,8 +143,8 @@ describe("an unexported constraint stays private", () => {
       "",
     ].join("\n")]], "/main.hex");
 
-    expect(text).not.toContain("__hex_default");
-    expect(text).not.toContain("__hex_export");
+    expect(text).not.toContain("__default");
+    expect(text).not.toContain("__export");
     expect(text).toContain("greetLoudly: ");
   });
 });
@@ -193,7 +193,7 @@ describe("base-constraint entailment through an imported constraint", () => {
     // walk found no bases, and the slot-less `Loud` dictionary went to the
     // `Describe` seat — a miscompile with no diagnostic.
     expect(emitted(files, "/main.hex")).toMatch(
-      /describe\(subject, __hex_dictLoud_\d+\.describe\)/u,
+      /describe\(subject, __Loud_a\.describe\)/u,
     );
   });
 
@@ -361,7 +361,7 @@ describe("a base chain whose middle link the importer cannot name", () => {
     // reading `Small`'s own bases, and `Small` is private to `./scales`, so no
     // import of this module can ever have named it.
     expect(emitted(files, "/main.hex")).toMatch(
-      /weigh\(subject, __hex_dictBig_\d+\.small\.tiny\)/u,
+      /weigh\(subject, __Big_a\.small\.tiny\)/u,
     );
   });
 
@@ -500,13 +500,13 @@ describe("defaults hoist once, at home (Constraints §6.5)", () => {
   test("the body emits once, in the module that wrote it", () => {
     const home = emitted(files, "/stamps.hex");
 
-    expect(home).toMatch(/const __hex_default\d+ = /u);
-    expect(home).toMatch(/export \{ __hex_default\d+ \};/u);
+    expect(home).toMatch(/const __default\d+ = /u);
+    expect(home).toMatch(/export \{ __default\d+ \};/u);
     // One call to the private helper, not one copy of the body per honoring
     // instance — and the sibling member reached through the dictionary the
     // helper was handed, so an override would win (§2, §6.3).
     expect(home).toMatch(
-      /const __hex_default\d+ = \(__hex_dict, subject\) => decorate\(mark\(subject, __hex_dict\)\);/u,
+      /const __default\d+ = \(__dict, subject\) => decorate\(mark\(subject, __dict\)\);/u,
     );
     expect(home.match(/=> decorate\(/gu)).toHaveLength(1);
     expect(home).not.toContain("stamped: subject =>");
@@ -525,11 +525,11 @@ describe("defaults hoist once, at home (Constraints §6.5)", () => {
     const away = emitted(files, "/main.hex");
 
     expect(away).toMatch(
-      /import \{[^}]*__hex_default\d+[^}]*\} from "\.\/stamps\.js";/u,
+      /import \{[^}]*__default\d+[^}]*\} from "\.\/stamps\.js";/u,
     );
     // Deferred, never eager: the dictionary const is not initialized while its
     // own literal is under construction (§6.3).
-    expect(away).toMatch(/stamped: __hex_arg0 => __hex_default\d+\(__hex_instance/u);
+    expect(away).toMatch(/stamped: __arg0 => __default\d+\(__Stamp_Ticket/u);
   });
 
   test("a default calling a sibling member dispatches through the completed instance", async () => {

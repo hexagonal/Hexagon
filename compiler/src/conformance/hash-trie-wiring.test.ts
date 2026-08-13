@@ -137,11 +137,11 @@ describe("the runtime module's two-sided contract", () => {
    */
   test("every constructed trie carries the pair iterator", () => {
     const javascript = emitted([["/main.hex", ONE_MAP]], "/HashTrie.hex");
-    expect(javascript).toContain("[Symbol.iterator]: __hex_hashTrieIterate");
-    expect(javascript).toContain("function* __hex_hashTrieIterate()");
-    expect(javascript).toContain("yield* __hex_seqToIterable(entries(this));");
+    expect(javascript).toContain("[Symbol.iterator]: __hashTrieIterate");
+    expect(javascript).toContain("function* __hashTrieIterate()");
+    expect(javascript).toContain("yield* __seqToIterable(entries(this));");
     // The face is the runtime module's alone: a consumer never splices one.
-    expect(mainJavaScript(ONE_MAP)).not.toContain("__hex_hashTrieIterate");
+    expect(mainJavaScript(ONE_MAP)).not.toContain("__hashTrieIterate");
   });
 });
 
@@ -193,7 +193,7 @@ describe("the import surface", () => {
       `import { ${
         operations
           .map((operation) =>
-            `${operation} as __hex_hashTrie${operation[0]!.toUpperCase()}${operation.slice(1)}`
+            `${operation} as __hashTrie${operation[0]!.toUpperCase()}${operation.slice(1)}`
           )
           .join(", ")
       } } from "./HashTrie.js";`;
@@ -229,7 +229,7 @@ describe("the import surface", () => {
         "export let head: String = m[1]\n",
     );
     expect(javascript).toContain(
-      'import { get as __hex_hashTrieGet } from "./HashTrie.js";',
+      'import { get as __hashTrieGet } from "./HashTrie.js";',
     );
   });
 
@@ -264,13 +264,13 @@ describe("the seven door lowerings", () => {
    */
   test("each declaration binds its lowering", () => {
     const javascript = emitted([["/main.hex", ONE_MAP]], "/Map.hex");
-    expect(javascript).toContain("const emptyMap = () => __hex_hashTrieEmpty;");
-    expect(javascript).toContain("const singleton = __hex_hashTrieSingleton;");
-    expect(javascript).toContain("const size = __hex_hashTrieSize;");
-    expect(javascript).toContain("const get = __hex_hashTrieGet;");
-    expect(javascript).toContain("const set = __hex_hashTrieSet;");
-    expect(javascript).toContain("const remove = __hex_hashTrieRemove;");
-    expect(javascript).toContain("const entries = __hex_hashTrieEntries;");
+    expect(javascript).toContain("const emptyMap = () => __hashTrieEmpty;");
+    expect(javascript).toContain("const singleton = __hashTrieSingleton;");
+    expect(javascript).toContain("const size = __hashTrieSize;");
+    expect(javascript).toContain("const get = __hashTrieGet;");
+    expect(javascript).toContain("const set = __hashTrieSet;");
+    expect(javascript).toContain("const remove = __hashTrieRemove;");
+    expect(javascript).toContain("const entries = __hashTrieEntries;");
     expect(javascript).toContain("const empty = emptyMap();");
   });
 
@@ -285,7 +285,7 @@ describe("the seven door lowerings", () => {
     const javascript = mainJavaScript(
       "export let n: Int = Map.size(Map.set(Map.empty, 1, 2))\n",
     );
-    expect(javascript).toMatch(/set\(empty, 1, 2, \w*__hex_instance_Hash_Int\)/u);
+    expect(javascript).toMatch(/set\(empty, 1, 2, \w*__Hash_Int\)/u);
   });
 
   /**
@@ -298,7 +298,7 @@ describe("the seven door lowerings", () => {
       "export let n: Int = Map.size(Map.singleton(1, 2))\n",
     );
     expect(javascript).toContain("singleton(1, 2)");
-    expect(javascript).not.toContain("__hex_instance_Hash_Int");
+    expect(javascript).not.toContain("__Hash_Int");
   });
 
   /**

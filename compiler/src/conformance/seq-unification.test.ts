@@ -349,7 +349,7 @@ describe("the boundary face (FFI Part 3)", () => {
     // The `Seq` parameter is routed through the door; the `Seq` result is not
     // wrapped at all, because the value already carries its face.
     expect(compiled.javascript.text).toMatch(
-      /const (\w+) = __hex_argument0 => total\(__hex_seqInbound\(__hex_argument0\)\);\nexport \{ \1 as total \};/u,
+      /const (\w+) = __argument0 => total\(__seqInbound\(__argument0\)\);\nexport \{ \1 as total \};/u,
     );
     expect(compiled.javascript.text).toContain("export { upTo };");
   });
@@ -523,7 +523,7 @@ describe("the boundary face (FFI Part 3)", () => {
     // rather than handed to `.hex` code that would try to read `pull` off it —
     // through §2.2's door, which is what makes a round-tripped `Seq` come home
     // by identity instead of acquiring a second spine (Part 4 §4.3).
-    expect(javascript).toMatch(/__hex_seqInbound\(__hex_counterForeign\d*\(\)\)/u);
+    expect(javascript).toMatch(/__seqInbound\(__counterForeign\d*\(\)\)/u);
   });
 
   test("a Seq argument to a foreign function crosses as itself, unwrapped", () => {
@@ -545,7 +545,7 @@ describe("the boundary face (FFI Part 3)", () => {
       .find((module) => module.source.path === "/main.hex")!
       .javascript.text;
     expect(javascript).toContain('import { consume } from "./numbers.js";');
-    expect(javascript).not.toContain("__hex_seqToIterable(values)");
+    expect(javascript).not.toContain("__seqToIterable(values)");
   });
 
   test("a foreign function receives a Hexagon Seq as a working iterable", async () => {

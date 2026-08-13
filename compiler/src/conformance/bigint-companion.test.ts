@@ -414,7 +414,7 @@ describe("`Eq` and `Hash` at BigInt", () => {
    * defaulted member of a prelude constraint, inherited by a prelude module's
    * instance, goes through Constraints §6.5's hoisted-default fork. An executed
    * pin cannot see a *second* `notEquals:` key shadowing the first, nor a
-   * reference to a `__hex_default…` helper that was never emitted — a duplicate
+   * reference to a `__default…` helper that was never emitted — a duplicate
    * key is legal JavaScript and the later one silently wins.
    */
   test("the Eq instance carries exactly one `notEquals:` and no dangling default", () => {
@@ -423,7 +423,7 @@ describe("`Eq` and `Hash` at BigInt", () => {
     // Naming the defaulted member is what puts the dictionary in the import.
     const text = companion("export let r: Bool = BigInt.notEquals(1n, 2n)\n");
     const instance = text.split("\n")
-      .find((line) => line.includes("__hex_instance_Eq_BigInt = {"));
+      .find((line) => line.includes("__Eq_BigInt = {"));
 
     expect(instance).toBeDefined();
     // One key each, so nothing shadows anything: a duplicate `notEquals:` is
@@ -431,7 +431,7 @@ describe("`Eq` and `Hash` at BigInt", () => {
     // could ever see.
     expect(instance!.match(/notEquals:/gu)).toHaveLength(1);
     expect(instance!.match(/(?<![A-Za-z])equals:/gu)).toHaveLength(1);
-    for (const reference of text.match(/__hex_default\d+/gu) ?? []) {
+    for (const reference of text.match(/__default\d+/gu) ?? []) {
       expect(text).toContain(`const ${reference} =`);
     }
   });
@@ -511,7 +511,7 @@ describe("the wired rows are gone, not dormant", () => {
    * imports. A row that merely stopped being *selected* would still be emitted
    * the moment something reached it.
    */
-  test("no `__hex_bigInt*` helper survives in a consumer's output", () => {
+  test("no `__bigInt*` helper survives in a consumer's output", () => {
     const text = emitted([
       "export let a: BigInt = BigInt.div(9n, 4n)",
       "export let b: BigInt = BigInt.gcd(9n, 6n)",
@@ -519,7 +519,7 @@ describe("the wired rows are gone, not dormant", () => {
       "",
     ].join("\n"));
 
-    expect(text).not.toContain("__hex_bigInt");
+    expect(text).not.toContain("__bigInt");
     expect(text).toContain('from "./BigInt.js"');
   });
 
@@ -540,9 +540,9 @@ describe("the wired rows are gone, not dormant", () => {
       "",
     ].join("\n"));
 
-    expect(text).not.toContain("__hex_int");
-    expect(text).not.toContain("__hex_float");
-    expect(text).not.toContain("__hex_bigInt");
+    expect(text).not.toContain("__int");
+    expect(text).not.toContain("__float");
+    expect(text).not.toContain("__bigInt");
     expect(text).toContain('from "./Int.js"');
     expect(text).toContain('from "./Float.js"');
   });

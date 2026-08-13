@@ -86,12 +86,17 @@ describe("lex", () => {
     expect(result.tokens.filter(({ kind }) => kind === "UpperName")).toHaveLength(2);
   });
 
-  test("reserves bare wildcard and compiler names, and rejects emoji and literal bidi controls", () => {
-    const result = lexSource("_ __hex_temp 😀 x\u202Ey");
+  test("reserves the bare wildcard, and rejects emoji and literal bidi controls", () => {
+    const result = lexSource("_ __temp 😀 x\u202Ey");
 
     expect(result.tokens[0]?.kind).toBe("Wildcard");
+    // §3.2's reserved `__` prefix is **not** a lexer refusal (#425): the token
+    // is emitted and the parser selects the message by position, because the
+    // foreign side of an FFI `as` alias is exempt from the reservation and only
+    // a parser knows a name is sitting there. `__temp` lexes as an ordinary
+    // name here, and is reported when a *parser* reads it in a Hexagon seat.
+    expect(nameTexts(result.tokens)).toContain("__temp");
     expect(result.diagnostics.map(({ message }) => message)).toEqual([
-      "`__hex_` is reserved for compiler-generated names",
       'invalid character "😀" (U+1F600)',
       "literal bidirectional controls are not allowed in Hexagon source; use a Unicode escape inside a string",
     ]);

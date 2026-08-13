@@ -250,7 +250,7 @@ describe("Step 1: the completed syntactic-value list", () => {
     // `{ f: describe }` — that is the *binding*-position shape (§13.3), and a
     // field typed one arity narrower cannot hold an evidence-taking function.
     expect(javascript).toContain("=> describe(");
-    expect(javascript).toContain("__hex_instance_Tag_String");
+    expect(javascript).toContain("__Tag_String");
     expect(javascript).not.toContain("{ f: describe }");
   });
 
@@ -334,7 +334,7 @@ describe("Step 1: the completed syntactic-value list", () => {
   // the type of a name a pattern projects from it. Read the component instead —
   // as the ruling's first wording permitted — and `g` in `let (g, n) =
   // (describe, 1)` is function-typed, passes the seat test, generalizes still
-  // carrying `Tag`, and emits `[__hex_arg00 => describe(__hex_arg00, undefined),
+  // carrying `Tag`, and emits `[__arg0 => describe(__arg0, undefined),
   // 1]` with `g("x", dict)` at the use: a wrapper one arity narrower than the
   // suffix its caller appends, the dictionary dropped, the exact shape
   // Constraints §6.1 records so it is not rebuilt. Every specimen below compiled
@@ -342,7 +342,7 @@ describe("Step 1: the completed syntactic-value list", () => {
   //
   // The emission is the assertion, not just the diagnostic count. A version that
   // merely silenced the message would still ship the dropped dictionary.
-  const ETA = "=> describe(__hex_arg00, __hex_instance_Tag_String)";
+  const ETA = "=> describe(__arg0, __Tag_String)";
 
   const destructures: readonly (readonly [string, string, string])[] = [
     ["x-a a tuple", "let (g, n) = (describe, 1)\n", 'export let s: String = g("x")\n'],
@@ -537,7 +537,7 @@ describe("Step 1: the completed syntactic-value list", () => {
     ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
     expect(javascript).not.toContain("undefined");
     // Three parameters, not two: two values and the residual dictionary.
-    expect(javascript).toMatch(/const g = \(__hex_arg00, __hex_arg10, __hex_dict\w+\) =>/);
+    expect(javascript).toMatch(/const g = \(__arg0, __arg1, __Tag_a\) =>/);
     expect((await runMain(one)).s).toBe("bool");
 
     // Two residuals, to pin the *order*: consumers append in

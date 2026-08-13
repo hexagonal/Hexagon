@@ -38,6 +38,67 @@ describe("parse", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  /**
+   * Lexer §3.2's reserved `__` prefix is selected **by position** (#425): the
+   * lexer emits the token, and the seat decides the message. Three seats, three
+   * answers, all in one module so their ordering is visible.
+   *
+   * The foreign side of an FFI `as` alias is not a Hexagon name seat at all
+   * (Part 4 §3.2) — `__internal` is a common JavaScript-library spelling and has
+   * to stay bindable, or the export is unreachable from Hexagon. An *unaliased*
+   * extern seat is both sides at once, and takes that part's alias rewrite: never
+   * a rename of the foreign name, which would bind a different export. Anywhere
+   * else the answer is §10's rename fix-it.
+   */
+  test("the reserved `__` prefix is decided by the seat the name sits in", () => {
+    const module = parseSource(
+      'extern from "vendor"\n' +
+        "    export fun __internal as internal(): String\n" +
+        "    export type __Handle as THandle\n" +
+        "    let __state: Int\n" +
+        "    export type __Raw\n" +
+        "let __mine = 1",
+    );
+
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      // The two aliased foreign names are silent, and bind.
+      "foreign term `__state` uses the reserved `__` prefix; " +
+        "bind it with an alias: `let __state as state`",
+      "foreign type `__Raw` uses the reserved `__` prefix; " +
+        "bind it with an alias: `type __Raw as Raw`",
+      "names beginning `__` are reserved for compiler-generated code",
+    ]);
+    expect(module.items[0]).toMatchObject({
+      kind: "ExternBlock",
+      declarations: [
+        { kind: "ExternFun", foreignName: { text: "__internal" }, localName: { text: "internal" } },
+        { kind: "ExternType", foreignName: { text: "__Handle" }, localName: { text: "THandle" } },
+        // The two refused seats still parse — the repair is named, not guessed.
+        { kind: "ExternLet", localName: { text: "__state" } },
+        { kind: "ExternType", localName: { text: "__Raw" } },
+      ],
+    });
+    // The rename fix-it strips one underscore, per §10's table row.
+    const reserved = module.diagnostics.at(-1)!;
+    expect(reserved.fixes?.[0]?.edits[0]?.replacement).toBe("_mine");
+  });
+
+  /**
+   * The local side of `as` is an ordinary seat, so it takes the rename rather
+   * than the exemption — the exemption is about where the *foreign* spelling
+   * sits, not about the declaration form.
+   */
+  test("an extern alias's local side is an ordinary name seat", () => {
+    const module = parseSource(
+      'extern from "vendor"\n' +
+        "    export fun ok as __shadow(): String",
+    );
+
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "names beginning `__` are reserved for compiler-generated code",
+    ]);
+  });
+
   test("uses extern-specific rewrites and rejects bodies", () => {
     const module = parseSource(
       "extern from \"broken\"\n" +
@@ -1168,9 +1229,9 @@ describe("parse", () => {
       const shape = {
         value: {
           kind: "Lambda",
-          parameters: [{ name: { text: "__hex_parameter0" } }],
+          parameters: [{ name: { text: "__parameter0" } }],
           destructurings: [
-            { name: { text: "__hex_parameter0" }, pattern: { kind: "Record" } },
+            { name: { text: "__parameter0" }, pattern: { kind: "Record" } },
           ],
           body: { kind: "Name" },
         },
@@ -1204,7 +1265,7 @@ describe("parse", () => {
 
       expect(module.items).toMatchObject([
         { value: { parameters: [{ name: { text: "x" } }] } },
-        { value: { parameters: [{ name: { text: "__hex_parameter0" } }] } },
+        { value: { parameters: [{ name: { text: "__parameter0" } }] } },
         { value: { parameters: [] } },
       ]);
       expect(module.diagnostics).toEqual([]);

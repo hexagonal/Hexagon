@@ -90,8 +90,8 @@ export function collectCompletions(input: CompletionInput): readonly Completion[
       // has no separate entry to offer.
       if (found.has(binding.name)) continue;
       // Compiler-minted binders are real symbols in a real scope — a `try` arm
-      // binds one — but the lexer refuses to read `__hex_` back, so offering one
-      // hands the user a name they cannot type.
+      // binds one — but `__` is refused in every Hexagon name seat (Lexer §3.2),
+      // so offering one hands the user a name they cannot type.
       if (isCompilerMinted(binding.name)) continue;
       found.set(binding.name, ofSymbol(binding.name, binding.symbol, input.facts));
     }

@@ -365,9 +365,9 @@ describe("the door's emission (spec/intrinsics.md §8)", () => {
    */
   test("the binding and its export are ordinary", () => {
     const { javascript } = seqModule();
-    expect(javascript).toContain("const memoize = __hex_seqMemoize;");
+    expect(javascript).toContain("const memoize = __seqMemoize;");
     expect(javascript).toMatch(
-      /const (\w+) = __hex_argument0 => memoize\(__hex_seqInbound\(__hex_argument0\)\);\nexport \{ \1 as memoize \};/u,
+      /const (\w+) = __argument0 => memoize\(__seqInbound\(__argument0\)\);\nexport \{ \1 as memoize \};/u,
     );
   });
 
@@ -375,8 +375,8 @@ describe("the door's emission (spec/intrinsics.md §8)", () => {
   test("the lowering is the composed R1 pair, not a second spine", () => {
     const { javascript } = seqModule();
     expect(javascript).toContain(
-      "function __hex_seqMemoize(__hex_source) {\n" +
-      "  return __hex_seqFromIterable(__hex_seqToIterable(__hex_source));\n" +
+      "function __seqMemoize(__source) {\n" +
+      "  return __seqFromIterable(__seqToIterable(__source));\n" +
       "}",
     );
   });

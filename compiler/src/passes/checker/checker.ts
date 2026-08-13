@@ -1050,7 +1050,7 @@ class Checker {
    *
    * Without this gate the two answers are emitted *both*, as duplicate keys of
    * one instance literal — a hoisted-fork `notEquals` calling an unbound
-   * `__hex_default…` beside the wired-in one. JavaScript takes the last key, so
+   * `__default…` beside the wired-in one. JavaScript takes the last key, so
    * the damage depends on emission order: usually the wired one wins and the
    * broken reference dangles unreachable, but where the order runs the other
    * way the call is a `ReferenceError` after a clean compile. Neither shape is
@@ -1168,7 +1168,7 @@ class Checker {
     }
     // Every import form, not just `import * as`: a companion dot call emits the
     // *local* spelling, and a named import — including the synthesized prelude
-    // one — may bind a symbol under a dodging local (`__hex_prelude_map`) to
+    // one — may bind a symbol under a dodging local (`__prelude_map`) to
     // clear a module-level binding of the same name. Reading only namespace
     // forms here emitted the source name and referenced nothing.
     for (const item of module.items) {
@@ -7765,9 +7765,9 @@ class Checker {
         // requirement structural, so elaboration renders the dictionary inline
         // (`#derivedDictionary`'s `Iterable` arm) instead of naming a const no
         // module exports. The name is here because the field is not optional,
-        // and it is `__hex_`-prefixed so a stray emission would be a loud
+        // and it is `__`-prefixed so a stray emission would be a loud
         // ReferenceError rather than a silent capture of a user identifier.
-        dictionary: `__hex_provided_Iterable_${head}`,
+        dictionary: `__provided_Iterable_${head}`,
         impliedTypes: [],
         members: [],
         span,
@@ -8824,7 +8824,7 @@ class Checker {
    *
    * Deliberately *not* the `evidenceConstraint` test `#publicScheme` uses. That
    * test cannot tell a redundant sibling from a **projection** — `Same` reached
-   * as `__hex_dictLabeled.same` from an enclosing dictionary also carries an
+   * as `__dictLabeled.same` from an enclosing dictionary also carries an
    * `evidenceConstraint` of another name, and it is the callee's one real
    * argument. Elimination has to be decided among siblings, not per requirement.
    */
@@ -9067,6 +9067,9 @@ class Checker {
         subject: this.#publicType(this.#instanceSubjects.get(item) ?? ERROR),
         derived: item.derived,
         dictionary: item.dictionary,
+        ...(item.exportedDictionary === undefined
+          ? {}
+          : { exportedDictionary: item.exportedDictionary }),
         baseConstraints: this.#publicRequirements(
           this.#instanceBaseConstraints.get(item) ?? [],
         ),

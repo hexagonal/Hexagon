@@ -67,8 +67,13 @@ describe("identifiers and start class (spec/lexer.md §3.1)", () => {
     expect(await scope("let _name = 1", "_name")).toBe("variable.other.definition.hexagon");
   });
 
-  it("rejects the reserved `__hex_` prefix (§3.2)", async () => {
-    expect(await scope("let __hex_temp = 1", "__hex_temp")).toBe(
+  it("rejects the reserved leading `__` prefix (§3.2)", async () => {
+    // Widened from the exact `__hex_` prefix at #425: a double leading
+    // underscore means the compiler wrote the name, whatever follows it.
+    expect(await scope("let __temp = 1", "__temp")).toBe(
+      "invalid.illegal.reserved-identifier.hexagon",
+    );
+    expect(await scope("let __Eq_Rat = 1", "__Eq_Rat")).toBe(
       "invalid.illegal.reserved-identifier.hexagon",
     );
   });
