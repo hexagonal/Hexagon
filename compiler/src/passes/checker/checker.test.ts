@@ -529,20 +529,35 @@ describe("check", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
-  test("types console.log arguments and returns Unit", () => {
+  test("adds nothing of its own to the retired console.log form", () => {
     const module = checkSource('console.log("answer", 42, True)');
-    const logged = expression(module);
 
-    expect(logged).toMatchObject({
-      kind: "ConsoleLog",
-      type: { kind: "Tuple", elements: [] },
-      arguments: [
-        { type: { kind: "Primitive", name: "String" } },
-        { type: { kind: "Primitive", name: "Int" } },
-        { type: { kind: "Union", name: "Bool" } },
-      ],
+    // The resolver's report is the whole of it (#417): the call keeps the shape
+    // any absent global recovers to, with only its receiver poisoned, so the
+    // checker reads a member access on the error type and says nothing further.
+    expect(expression(module)).toMatchObject({
+      kind: "Call",
+      callee: {
+        kind: "Access",
+        receiver: { kind: "ErrorExpr" },
+        field: { text: "log" },
+      },
     });
-    expect(module.diagnostics).toEqual([]);
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "`console.log` is not a Hexagon operation; the debugging probe is `log` (`Debug.log`)",
+    ]);
+  });
+
+  test("still reports what a refused console.log call's arguments say", () => {
+    const module = checkSource('console.log(nmae)');
+
+    // The arguments are received, so a defect written inside them is reported
+    // once and by its own name. Exactly two sentences: a recovery that swallowed
+    // the argument list would leave the typo for the writer to find at runtime.
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "`console.log` is not a Hexagon operation; the debugging probe is `log` (`Debug.log`)",
+      "unknown name `nmae`",
+    ]);
   });
 
   test("generalizes let-bound identity and instantiates each use", () => {
@@ -1600,10 +1615,10 @@ describe("check", () => {
         // compiler defect this test would otherwise trip over now that it
         // compiles with the prelude.
         "        let incremented: Int = number + 1\n" +
-        "        console.log(incremented)\n" +
+        "        log(\"${incremented}\")\n" +
         "    for character in \"ab\"\n" +
         "        let copy: String = character\n" +
-        "        console.log(copy)",
+        "        log(copy)",
     );
     expect(module.diagnostics).toEqual([]);
 
@@ -1612,7 +1627,7 @@ describe("check", () => {
         "    for True in 1..3\n" +
         "        ()\n" +
         "    for item in 42\n" +
-        "        console.log(item)",
+        "        ()",
     );
     expect(invalid.diagnostics.map(({ message }) => message)).toContain(
       "this loop pattern can fail; bind an irrefutable pattern and use `match` inside the loop",

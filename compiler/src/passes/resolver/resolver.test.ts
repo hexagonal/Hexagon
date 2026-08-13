@@ -81,20 +81,92 @@ describe("resolve", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
-  test("resolves the unshadowed host console operation explicitly", () => {
-    const module = resolveSource('console.log("hello", 42)');
+  test("refuses the retired host console operation and offers the probe", () => {
+    const source = 'console.log("hello")';
+    const module = resolveSource(source);
 
+    // The shape the ordinary recovery would have built for any absent global:
+    // the call and its arguments survive, and only the receiver is poisoned.
     expect(module.items[0]).toMatchObject({
       kind: "ExprItem",
       expression: {
-        kind: "ConsoleLog",
-        arguments: [
-          { kind: "String" },
-          { kind: "Integer", decimal: "42" },
-        ],
+        kind: "Call",
+        callee: {
+          kind: "Access",
+          receiver: { kind: "ErrorExpr" },
+          field: { text: "log" },
+        },
+        arguments: [{ kind: "String" }],
       },
     });
-    expect(module.symbols).toEqual([]);
+    expect(module.diagnostics).toMatchObject([{
+      severity: "error",
+      message: "`console.log` is not a Hexagon operation; the debugging probe " +
+        "is `log` (`Debug.log`)",
+      fixes: [{ message: "write `log`" }],
+    }]);
+    // The rewrite replaces exactly the callee, leaving the argument where the
+    // writer put it.
+    const edit = module.diagnostics[0]!.fixes![0]!.edits[0]!;
+    expect(
+      source.slice(0, edit.span.start.offset) + edit.replacement +
+        source.slice(edit.span.end.offset),
+    ).toBe('log("hello")');
+  });
+
+  test("offers no rewrite where no single argument makes one honest", () => {
+    for (const source of ['console.log("answer", 42)', "console.log()"]) {
+      const module = resolveSource(source);
+
+      expect(module.diagnostics).toMatchObject([{
+        severity: "error",
+        message: "`console.log` is not a Hexagon operation; the debugging probe " +
+          "is `log` (`Debug.log`)",
+      }]);
+      expect(module.diagnostics[0]!.fixes).toBeUndefined();
+    }
+  });
+
+  test("resolves a refused call's arguments exactly as an absent global does", () => {
+    const refused = resolveSource("let value = 1\nconsole.log(value, nmae)");
+    const absent = resolveSource("let value = 1\nconsole.warn(value, nmae)");
+
+    // A recovery that dropped the argument list would hide the typo in it, and
+    // would blank every editor query inside the parentheses. The signpost costs
+    // the writer nothing beyond the sentence it adds.
+    expect(refused.diagnostics.map(({ message }) => message)).toEqual([
+      "`console.log` is not a Hexagon operation; the debugging probe is " +
+        "`log` (`Debug.log`)",
+      "unknown name `nmae`",
+    ]);
+    expect(absent.diagnostics.map(({ message }) => message)).toEqual([
+      "unknown name `console`",
+      "unknown name `nmae`",
+    ]);
+    expect(refused.items[1]).toMatchObject({
+      expression: {
+        arguments: [{ kind: "Name", symbol: 0, text: "value" }, { kind: "ErrorExpr" }],
+      },
+    });
+  });
+
+  test("says nothing about a call on a `console` the program itself bound", () => {
+    const module = resolveSource(
+      "let console = {log = message => message}\n" +
+        'console.log("hello")',
+    );
+
+    expect(module.items[1]).toMatchObject({
+      kind: "ExprItem",
+      expression: {
+        kind: "Call",
+        callee: {
+          kind: "Access",
+          receiver: { kind: "Name", symbol: 0, text: "console" },
+          field: { text: "log" },
+        },
+      },
+    });
     expect(module.diagnostics).toEqual([]);
   });
 
@@ -102,7 +174,7 @@ describe("resolve", () => {
     const module = resolveSource(
       "let number = 99\n" +
         "for number in 1..3\n" +
-        "    console.log(number)\n" +
+        "    number\n" +
         "number",
     );
 
@@ -115,7 +187,7 @@ describe("resolve", () => {
         kind: "For",
         pattern: { binding: { symbol: 1 } },
         body: {
-          items: [{ expression: { arguments: [{ symbol: 1 }] } }],
+          items: [{ expression: { symbol: 1 } }],
         },
       },
     });
@@ -558,11 +630,6 @@ function visitExpr(
       return visitExpr(expression.body, symbols, sourceLength);
     case "Call":
       visitExpr(expression.callee, symbols, sourceLength);
-      for (const argument of expression.arguments) {
-        visitExpr(argument, symbols, sourceLength);
-      }
-      return;
-    case "ConsoleLog":
       for (const argument of expression.arguments) {
         visitExpr(argument, symbols, sourceLength);
       }

@@ -67,6 +67,21 @@ describe("code actions: the diagnostic's own fixes", () => {
     expect(action.disabled).toBeUndefined();
   });
 
+  test("the retired console form offers its rewrite for one argument only", () => {
+    const single = 'console.log("hello")\n';
+    const { session } = sessionOf({ "/main.hex": single });
+    const action = sole(actionsOn(session, "/main.hex", single, "console"));
+    expect(action.title).toBe("write `log`");
+    expect(applied(single, action)).toBe('log("hello")\n');
+
+    // Two arguments have no mechanical rewrite — `log` takes one rendered
+    // `String`, and the interpolation is the writer's — so the report stands
+    // alone.
+    const several = 'console.log("hello", 42)\n';
+    session.setFile("/main.hex", several);
+    expect(actionsOn(session, "/main.hex", several, "console")).toEqual([]);
+  });
+
   test("nothing is offered away from the diagnostic", () => {
     const source = ["/* a note */", "let value: Int = 1", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });

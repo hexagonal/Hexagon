@@ -586,9 +586,6 @@ class Collector {
         this.#visitExpr(expression.callee);
         for (const argument of expression.arguments) this.#visitExpr(argument);
         return;
-      case "ConsoleLog":
-        for (const argument of expression.arguments) this.#visitExpr(argument);
-        return;
       case "Access":
         this.#visitExpr(expression.receiver);
         return;

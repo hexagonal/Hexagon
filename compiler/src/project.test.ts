@@ -15,7 +15,7 @@ test("compiles relative named, aliased, namespace, and effect imports", () => {
     new Source.File(
       Source.fileId(1),
       "/app/telemetry.hex",
-      'console.log("loaded")',
+      'log("loaded")',
     ),
     new Source.File(
       Source.fileId(2),
@@ -29,7 +29,10 @@ test("compiles relative named, aliased, namespace, and effect imports", () => {
   ]);
 
   expect(project.diagnostics).toEqual([]);
+  // `Debug.hex` is here because `telemetry.hex` names `log`: a prelude module
+  // is injected beside the sources that use it, ahead of them.
   expect(project.modules.map(({ source }) => source.path)).toEqual([
+    "/app/Debug.hex",
     "/app/geometry.hex",
     "/app/telemetry.hex",
     "/app/main.hex",
@@ -233,12 +236,12 @@ test("links constrained Hexagon exports through private ESM plumbing", () => {
     new Source.File(
       Source.fileId(1),
       "/main.hex",
-      'import { plus } from "./math"\nconsole.log(plus(20, 22))',
+      'import { plus } from "./math"\nlog("${plus(20, 22)}")',
     ),
     new Source.File(
       Source.fileId(2),
       "/namespace.hex",
-      'import * as Math from "./math"\nconsole.log(Math.plus(20, 22))',
+      'import * as Math from "./math"\nlog("${Math.plus(20, 22)}")',
     ),
   ]);
 
@@ -255,7 +258,7 @@ test("links constrained Hexagon exports through private ESM plumbing", () => {
   expect(main.javascript.text).toMatch(
     /import \{ __hex_export\d+ as plus \} from "\.\/math\.js";/u,
   );
-  expect(main.javascript.text).toContain("console.log(plus(20, 22,");
+  expect(main.javascript.text).toMatch(/log\(String\(plus\(20, 22,/u);
   expect(namespace.javascript.text).toContain(
     'import * as Math from "./math.js";',
   );
@@ -263,7 +266,7 @@ test("links constrained Hexagon exports through private ESM plumbing", () => {
     /import \{ __hex_export\d+ \} from "\.\/math\.js";/u,
   );
   expect(namespace.javascript.text).toMatch(
-    /console\.log\(__hex_export\d+\(20, 22,/u,
+    /log\(String\(__hex_export\d+\(20, 22,/u,
   );
   expect(math.javascript.diagnostics).toEqual([]);
   expect(main.javascript.diagnostics).toEqual([]);

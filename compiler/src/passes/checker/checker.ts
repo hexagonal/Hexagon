@@ -4288,12 +4288,6 @@ class Checker {
         }
         break;
       }
-      case "ConsoleLog":
-        for (const argument of expression.arguments) {
-          this.#inferExpr(argument, level);
-        }
-        type = UNIT;
-        break;
       case "Unary": {
         const operand = this.#inferExpr(expression.operand, level);
         if (expression.operator === "Not") {
@@ -9584,14 +9578,6 @@ class Checker {
           arguments: expression.arguments.map((argument) => this.#materializeExpr(argument)),
           requirements: this.#evidenceRequirements(
             this.#callRequirements.get(expression) ?? [],
-          ),
-        };
-      case "ConsoleLog":
-        return {
-          ...expression,
-          type,
-          arguments: expression.arguments.map((argument) =>
-            this.#materializeExpr(argument)
           ),
         };
       case "Access": {

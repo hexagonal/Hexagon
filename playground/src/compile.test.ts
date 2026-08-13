@@ -32,16 +32,21 @@ describe("compileSource", () => {
     );
   });
 
-  // The one fixture that stays on the host form rather than moving to `log`
-  // (#407): the assertion below reads the crossed `Vector` values themselves off
-  // the sink, and `log` takes a rendered `String`. The thin-FFI `console.log`
-  // form is unaffected by that milestone and still compiles.
+  // The observation channel is an export, not a sink (#417): the assertions
+  // below read the crossed `Vector` values themselves, and `log` renders a
+  // `String`. An exported binding hands them over unrendered, which is what
+  // this test is about, and it is what a consumer of the emitted module reads.
+  // The written signature is the price of exporting (Modules §4.1.1) — and it
+  // is also what pins `Vector.empty`'s element, which nothing else here does.
   test("executes the complete canonical Vector core API", async () => {
     const response = compileSource(
       5,
       "let values = [10, 20, 30]\n" +
         "let updated = Vector.set(values, 2, 25)\n" +
-        "console.log((\n" +
+        "export let crossed: (Vector(Int), Vector(Int), Bool, Int, " +
+        "Vector(Int), Vector(Int), Option(Int), Option(Int), Vector(Int), " +
+        "Vector(Int), Option(Int), Option(Int), Int, Vector(Int), " +
+        "Vector(Int), Vector(Int)) = (\n" +
         "    Vector.empty,\n" +
         "    Vector.singleton(7),\n" +
         "    Vector.isEmpty([]),\n" +
@@ -58,66 +63,63 @@ describe("compileSource", () => {
         "    updated,\n" +
         "    values,\n" +
         "    Vector.fromSeq(Vector.toSeq(values))\n" +
-        "))\n",
+        ")\n",
     );
 
     expect(response.kind).toBe("compile-success");
     if (response.kind !== "compile-success") return;
     const moduleUrls = new Map<string, string>();
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    try {
-      for (const module of response.executionModules) {
-        const linked = linkModule(module.javascript, module.path, moduleUrls);
-        moduleUrls.set(
-          module.path,
-          `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
-        );
-      }
-      await import(/* @vite-ignore */ moduleUrls.get(response.entryPath)!);
-      // The tuple crosses as a JavaScript array, but each `Vector` in it is the
-      // Collections Part 3 §4 trie, so the vector-valued slots are read through
-      // the representation contract's `[Symbol.iterator]` — which is the same
-      // spread a user of the emitted program would write.
-      const logged = log.mock.calls[0]![0] as unknown[];
-      const vector = (index: number): unknown[] => [...(logged[index] as Iterable<unknown>)];
-      expect([
-        vector(0),
-        vector(1),
-        logged[2],
-        logged[3],
-        vector(4),
-        vector(5),
-        logged[6],
-        logged[7],
-        vector(8),
-        vector(9),
-        logged[10],
-        logged[11],
-        logged[12],
-        vector(13),
-        vector(14),
-        vector(15),
-      ]).toEqual([
-        [],
-        [7],
-        true,
-        3,
-        [10, 20, 30, 40],
-        [0, 10, 20, 30],
-        { tag: "Some", value: 10 },
-        { tag: "Some", value: 30 },
-        [20, 30],
-        [10, 20],
-        { tag: "Some", value: 20 },
-        { tag: "None" },
-        30,
-        [10, 25, 30],
-        [10, 20, 30],
-        [10, 20, 30],
-      ]);
-    } finally {
-      log.mockRestore();
+    for (const module of response.executionModules) {
+      const linked = linkModule(module.javascript, module.path, moduleUrls);
+      moduleUrls.set(
+        module.path,
+        `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
+      );
     }
+    const entry = await import(
+      /* @vite-ignore */ moduleUrls.get(response.entryPath)!
+    ) as { readonly crossed: unknown[] };
+    // The tuple crosses as a JavaScript array, but each `Vector` in it is the
+    // Collections Part 3 §4 trie, so the vector-valued slots are read through
+    // the representation contract's `[Symbol.iterator]` — which is the same
+    // spread a user of the emitted program would write.
+    const crossed = entry.crossed;
+    const vector = (index: number): unknown[] => [...(crossed[index] as Iterable<unknown>)];
+    expect([
+      vector(0),
+      vector(1),
+      crossed[2],
+      crossed[3],
+      vector(4),
+      vector(5),
+      crossed[6],
+      crossed[7],
+      vector(8),
+      vector(9),
+      crossed[10],
+      crossed[11],
+      crossed[12],
+      vector(13),
+      vector(14),
+      vector(15),
+    ]).toEqual([
+      [],
+      [7],
+      true,
+      3,
+      [10, 20, 30, 40],
+      [0, 10, 20, 30],
+      { tag: "Some", value: 10 },
+      { tag: "Some", value: 30 },
+      [20, 30],
+      [10, 20],
+      { tag: "Some", value: 20 },
+      { tag: "None" },
+      30,
+      [10, 25, 30],
+      [10, 20, 30],
+      [10, 20, 30],
+    ]);
   });
 
   test("preserves the original signed index in Vector.at failures", async () => {

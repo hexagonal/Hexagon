@@ -212,9 +212,6 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
         visitExpr(expression.callee);
         for (const argument of expression.arguments) visitExpr(argument);
         return;
-      case "ConsoleLog":
-        for (const argument of expression.arguments) visitExpr(argument);
-        return;
       case "Access":
         visitExpr(expression.receiver);
         publish(expression.field.text, schemeForType(expression.type), expression.field.span);

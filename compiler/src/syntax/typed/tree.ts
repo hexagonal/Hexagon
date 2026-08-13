@@ -740,7 +740,6 @@ export type Expr =
   | TryExpr
   | ThrowExpr
   | CallExpr
-  | ConsoleLogExpr
   | AccessExpr
   | IndexExpr
   | HashExpr
@@ -937,12 +936,6 @@ export interface CallExpr extends ExpressionFields {
   readonly callee: Expr;
   readonly arguments: readonly Expr[];
   readonly requirements: readonly Constraint[];
-}
-
-/** The host console operation accepts any inferred argument types and returns Unit. */
-export interface ConsoleLogExpr extends ExpressionFields {
-  readonly kind: "ConsoleLog";
-  readonly arguments: readonly Expr[];
 }
 
 export interface AccessExpr extends ExpressionFields {

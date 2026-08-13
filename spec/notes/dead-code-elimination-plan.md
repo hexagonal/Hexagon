@@ -116,15 +116,23 @@ function unusedHelper(x) { return x * x; }   // never referenced, never exported
 const table = 42;                            // likewise
 ```
 
-**An unreferenced private binding may still carry an effect.** Also verified,
+**An unreferenced private binding may still perform a write.** Also verified,
 and the reason §4.1 is a predicate rather than a sweep:
 
 ```hexagon
-let noise: Unit = console.log("hi")
+let noise: Unit = log("hi")
 ```
 ```js
-const noise = console.log("hi");
+const noise = log("hi");
 ```
+
+*(#407 landed while this note waited: the example is now the debug probe, which
+is pure-faced — and Effects §6.2's multiplicity forfeit means a conforming
+eliminator **may** delete a probe call it can prove unreferenced. The predicate
+below keeps it anyway, because a call is not a syntactic value; that is the
+predicate being conservative, not obligated. A binding whose deletion §6.2 does
+not license is a `!`-marked extern call, and the same predicate keeps it for the
+same reason.)*
 
 **Exported-but-never-imported bindings are emitted**, which is correct at the
 module tier and is only a question at all under §4.3.
@@ -207,7 +215,7 @@ Condition 2 is the whole subtlety, and Hexagon supplies it for free: the
 checker *already* computes "is this RHS a syntactic value" to decide
 generalization. A syntactic value is a variable, constant, lambda, or
 constructor applied to values — evaluating it is total and effect-free, so
-deleting it is unobservable. `let noise = console.log("hi")` fails condition 2
+deleting it is unobservable. `let noise = log("hi")` fails condition 2
 and stays. No new analysis is written; an existing predicate is read a second
 time.
 
@@ -385,7 +393,7 @@ survive, but they survive **by accident**:
 
 | Binding | Fate under §4.1 | Why |
 |---|---|---|
-| `greet`, `greet2` | survive | only because the file ends with `console.log(greet("Hexagon"))` |
+| `greet`, `greet2` | survive | only because the file ends with `log(greet("Hexagon"))` |
 | `card` | survives | `let (rank, suit) = card` reads it |
 | `rank`, `suit` | **dropped** | destructured, never read |
 | `plus` | **dropped** | private, unreferenced, a lambda → a syntactic value |
@@ -396,7 +404,7 @@ So the tour loses its `match` demonstration, its recursion demonstration, and
 its "private return types remain inferred" demonstration — three of the eight
 commented sections, each one a headline feature with an explanatory comment
 above it. And `greet`/`greet2` survive only because the author happened to end
-the file with two `console.log` lines. **Delete those two lines and half the
+the file with two `log` lines. **Delete those two lines and half the
 tour evaporates.** A teaching example should not depend on that.
 
 There is a second-order ugliness worth recording because it will be seen before
@@ -406,7 +414,7 @@ output above their code). Dropping `plus` and `color` leaves:
 ```js
 // Private return types remain inferred.
 // Match handles every union alternative.
-console.log(greet("Hexagon"));
+log(greet("Hexagon"));
 ```
 
 Orphaned explanatory prose with nothing underneath it.

@@ -410,7 +410,6 @@ export type Expr =
   | TryExpr
   | ThrowExpr
   | CallExpr
-  | ConsoleLogExpr
   | LogicalNotExpr
   | LogicalExpr
   | ConstraintCallExpr
@@ -633,12 +632,6 @@ export interface CallExpr extends ExpressionFields {
 export interface CallEvidence {
   readonly constraint: Typed.ConstraintName;
   readonly value: Evidence;
-}
-
-/** An explicit effectful call to the JavaScript host console. */
-export interface ConsoleLogExpr extends ExpressionFields {
-  readonly kind: "ConsoleLog";
-  readonly arguments: readonly Expr[];
 }
 
 export interface LogicalNotExpr extends ExpressionFields {

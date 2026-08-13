@@ -2184,13 +2184,25 @@ class Resolver {
             span: expression.span,
           };
         }
-        if (isUnshadowedConsoleLog(expression, scope)) {
+        const refusedConsole = this.#refusedHostConsoleLog(expression, scope);
+        if (refusedConsole !== undefined) {
           return {
-            kind: "ConsoleLog",
+            ...expression,
+            callee: {
+              ...refusedConsole,
+              // The receiver is minted rather than resolved: resolving the name
+              // would report the unknown `console` the refusal has already
+              // spoken for, and this recovery owes one sentence.
+              receiver: { kind: "ErrorExpr", span: refusedConsole.receiver.span },
+              field: {
+                text: refusedConsole.field.text,
+                startClass: refusedConsole.field.startClass,
+                span: refusedConsole.field.span,
+              },
+            },
             arguments: expression.arguments.map((argument) =>
               this.#resolveExpr(argument, scope),
             ),
-            span: expression.span,
           };
         }
         if (
@@ -2607,6 +2619,64 @@ class Resolver {
       primary: name.span,
     });
     return true;
+  }
+
+  /**
+   * The signpost standing where the host console operation used to be (#417),
+   * answering with the refused callee so its caller can rebuild the call.
+   *
+   * `console.log(...)` is not an operation of this language: there is no ambient
+   * `console`, and the debugging probe a writer reaching for it wants is
+   * `Debug.log` (Effects §6.2). The shape check that once admitted the form is
+   * kept only to say so, because the sentences it decays to — an unknown name,
+   * and a member access on it — name neither the mistake nor the replacement.
+   *
+   * Saying so is the whole of the difference. The caller keeps the *shape* the
+   * ordinary recovery would have built, resolved arguments and all, so
+   * `console.log(x, nmae)` reports the typo exactly as `console.warn(x, nmae)`
+   * does and the editor's queries still reach into the argument list. Arguments
+   * are resolved and retained, never resolved and dropped: a dropped reference
+   * would leave its prelude term in the used set with nothing referring to it.
+   *
+   * A `console` in scope takes the call back: the receiver is that binding, the
+   * access means whatever the binding means, and no report is owed.
+   *
+   * The rewrite is offered for a single argument and no other arity. This pass
+   * sees no types, and `log` takes one rendered `String` — so one argument is
+   * the shape a mechanical rewrite can produce honestly, and a wrongly-typed one
+   * meets `log`'s parameter at the checker, which is a better place to arrive
+   * than nowhere. Several arguments or none have no such rewrite: the
+   * interpolation is the writer's move.
+   */
+  #refusedHostConsoleLog(
+    expression: Parsed.CallExpr,
+    scope: Scope,
+  ): Parsed.AccessExpr | undefined {
+    const callee = expression.callee;
+    if (
+      callee.kind !== "Access" ||
+      callee.receiver.kind !== "Name" ||
+      callee.receiver.name.text !== "console" ||
+      callee.field.text !== "log" ||
+      scope.lookup("console") !== undefined
+    ) {
+      return undefined;
+    }
+    this.#diagnostics.add({
+      severity: "error",
+      message: "`console.log` is not a Hexagon operation; the debugging probe " +
+        "is `log` (`Debug.log`)",
+      primary: callee.span,
+      ...(expression.arguments.length === 1
+        ? {
+          fixes: [{
+            message: "write `log`",
+            edits: [{ span: callee.span, replacement: "log" }],
+          }],
+        }
+        : {}),
+    });
+    return callee;
   }
 
   #resolveName(expression: Parsed.NameExpr, scope: Scope): Resolved.Expr {
@@ -3915,19 +3985,6 @@ class Resolver {
     if (symbol === undefined) throw new Error(`unknown internal symbol ${id}`);
     return symbol;
   }
-}
-
-/** Recognizes the one host-global operation admitted by this thin FFI slice. */
-function isUnshadowedConsoleLog(
-  expression: Parsed.CallExpr,
-  scope: Scope,
-): boolean {
-  const callee = expression.callee;
-  return callee.kind === "Access" &&
-    callee.receiver.kind === "Name" &&
-    callee.receiver.name.text === "console" &&
-    callee.field.text === "log" &&
-    scope.lookup("console") === undefined;
 }
 
 function isPrimitiveName(name: string): name is Resolved.PrimitiveName {

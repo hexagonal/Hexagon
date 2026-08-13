@@ -253,11 +253,6 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
         type: expression.type,
         span: expression.span,
       };
-    case "ConsoleLog":
-      return {
-        ...expression,
-        arguments: expression.arguments.map(elaborateExpr),
-      };
     case "LogicalNot":
       return { ...expression, operand: elaborateExpr(expression.operand) };
     case "Logical":
