@@ -215,6 +215,45 @@ once and then owns.
 That is the whole story of how a pure corpus stays pure. Nothing in the standard library
 manufactures an effect; effects arrive through declared doors.
 
+### The debug probe
+
+The first of those two exceptions is a function you have been calling since Chapter 1.
+`log` is ordinary Hexagon, declared in the standard library's `Debug.hex`; like the rest
+of the prelude it needs no import, and `Debug.log` is its qualified spelling. It writes
+to the debugging console, which is a channel no Hexagon expression can read back — and
+that unreadability is the entire reason its face may be `->`, and the reason every
+`log(…)` call in this book has been bare.
+
+It takes any value that honors `Show`, rendering it exactly as interpolation would. Its
+companion `trace` writes `label: value` and then hands the value straight back, so a step
+can be watched without taking the surrounding expression apart:
+
+```hexagon
+log("Preparing order")            // a String is written as itself
+log(order.total)                  // any showable value, rendered by its own `Show`
+
+let scaled = 2 * trace("subtotal", subtotal)
+```
+
+With `subtotal` at 120, the last line writes `subtotal: 120` and computes 240. A value
+with no `Show` — a function, say — is refused at compile time, where the host would
+cheerfully have printed something: this is Hexagon's version of `console.log`, not
+`console.log` precisely.
+
+The pure face has a price, and the price is the accounting of Chapter 18. Because a probe
+is pure it may sit anywhere a calculation may, a lazy producer's step included, and there
+it writes when that step runs. Chapter 18 said that a callback which printed would turn
+*how many times does this run?* into a question about observable behaviour; a probe is
+admitted there anyway, because nothing in the program can observe its writing — but the
+question keeps a calculator's answers, and the writing follows them rather than
+overriding them.
+
+Fold a three-element probed sequence twice and the probe writes six lines; put
+`Seq.memoize` in front of it and the second traversal writes nothing; demand no elements
+and it writes nothing at all. That is fine for a probe and disqualifying for a log.
+Output that must appear a known number of times in a known order is the other job this
+chapter has already taught: an extern that wears `!`.
+
 ## Colours are a compile-time story
 
 Arrows and marks erase completely. The emitted JavaScript is identical with and without
@@ -242,7 +281,10 @@ loophole.
 - operators, indexing, `for` heads, and interpolation have no seat for a mark, so
   everything they dispatch to is pure — constraint members included; and
 - effects enter through user-written externs, which are impure by default and may claim
-  `pure` as a trusted, unchecked promise.
+  `pure` as a trusted, unchecked promise; and
+- the standard library's own exception is the debug probe — `log` and `trace`, from
+  `Debug.hex` — pure-faced because the console cannot be read back, and therefore
+  indifferent to how many times it runs; counted, ordered output belongs behind a `!`.
 
 Effects explain why `Seq` can promise so much: its producers and combinators are pure by
 construction, so a lazy pipeline can run a callback any number of times without anyone
