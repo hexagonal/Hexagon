@@ -87,7 +87,7 @@ let loadConfiguration(path: String): Configuration =
         readConfiguration(path)
     catch
         ParseError(line, message) =>
-            print("Line ${line}: ${message}")
+            log("Line ${line}: ${message}")
             defaultConfiguration
         NotFound => defaultConfiguration
 ```

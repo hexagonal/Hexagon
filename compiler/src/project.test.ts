@@ -30,8 +30,13 @@ test("compiles relative named, aliased, namespace, and effect imports", () => {
 
   expect(project.diagnostics).toEqual([]);
   // `Debug.hex` is here because `telemetry.hex` names `log`: a prelude module
-  // is injected beside the sources that use it, ahead of them.
+  // is injected beside the sources that use it, ahead of them. `String.hex`
+  // rides in behind it since #419 widened the probe to `log<a: Show>`: the call
+  // is at `String`, so the graph now needs the companion that houses
+  // `Show<String>`. A prelude module's own prelude dependencies are injected
+  // the same way, which is why it precedes `Debug.hex` rather than following.
   expect(project.modules.map(({ source }) => source.path)).toEqual([
+    "/app/String.hex",
     "/app/Debug.hex",
     "/app/geometry.hex",
     "/app/telemetry.hex",
