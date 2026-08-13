@@ -11,13 +11,13 @@
 
 **Within one emitted module, semantically identical ground evidence is materialized at most once, as a named module-level constant.** A use site references the binding; it never rebuilds the value.
 
-This is a semantics-preserving change of *where* a dictionary is built, never *which* dictionary is chosen. It is pinned as a normative emitted shape for the same reason the trailing evidence suffix is (Constraints §6.1): the readable `.js` is the product surface, and `render(boxed, __Render_Box(__Render_Box(__Render_Int)))` — the pre-ruling shape at depth 2, duplicated verbatim at every use site — is the point at which generated output stops looking like something a person wrote.
+This is a semantics-preserving change of *where* a dictionary is built, never *which* dictionary is chosen. It is pinned as a normative emitted shape for the same reason the trailing evidence suffix is (Constraints §6.1): the readable `.js` is the product surface, and `render(boxed, __Render_Box(__Render_Box(__Render_Int)))` — the unhoisted shape at depth 2 (§2's baseline, transcribed into #425's spellings), duplicated verbatim at every use site — is the point at which generated output stops looking like something a person wrote.
 
 There is no language-surface component: no syntax, no type-system change, no diagnostic, no `.d.ts` change. The observable differences are the emitted text and the number of objects allocated at runtime.
 
 ## 2. The baseline this rules on
 
-The emitted shapes this ruling starts from:
+The emitted shapes this ruling starts from — measured under the pre-#425 `__hex_` names and transcribed here into the current spellings (§5), the evidence-parameter scheme included:
 
 1. **Zero-argument instances are already named module-level constants** (`__Eq_Point`), including derived ones. Nothing changes for them; the rule restates their placement.
 2. **Parameterized instances are factories** applied at use sites: `__Render_Box(__Render_Int)`. Applications appear inline, duplicated per use site, at every depth.

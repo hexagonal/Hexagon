@@ -160,14 +160,15 @@ the role-specific consequences.
 Promotion fixed ECMAScript 2024 with compiler-pinned Unicode 17.0.0 `ID_Start` /
 `ID_Continue` tables; exact codepoint spelling equality with no normalization;
 literal bidi controls rejected; confusables left to optional tooling warnings;
-and `__hex_` as the reserved, deterministically probed emitted-name prefix.
+and `__hex_` as the reserved, deterministically probed emitted-name prefix
+*(since widened to leading `__`, #425; Lexer §3.2 authoritative)*.
 
 - Use the targeted ECMAScript edition's identifier-character repertoire rather than a Hexagon-specific ASCII or Unicode subset: JavaScript `ID_Start`/`ID_Continue` rules, including its allowances for `$` and `_`. Hexagon keywords remain unavailable as identifiers. Emoji such as `😊` remain invalid because JavaScript does not admit them as identifier starts.
 - Classify each valid identifier by its literal first Unicode code point: **uppercase-start** versus **non-uppercase-start**. Uppercase-start identifiers serve the existing uppercase roles (types, constructors, constraints, module aliases); every other valid start serves term/binder roles. This start-class vocabulary is the sole naming doctrine.
 - Caseless scripts therefore work naturally as terms (`用户`). An uppercase Latin prefix is the cultural convention, not compiler syntax, where an uppercase role is required (`T用户`, `C成功`, `M数据库`). `$name`, `_name`, and caseless-script names are non-uppercase-start.
 - Identifier spellings contain the actual characters. Do not add JavaScript's `\u...` identifier escapes: they conceal role classification and modern editors can enter the characters directly. String/character escapes are unaffected.
 - At an FFI declaration, the foreign JavaScript name and local Hexagon name are checked independently. A foreign name in the wrong local role requires `as` aliasing, with a Rewrite-Rule diagnostic (for example `VERSION as version` or `用户 as T用户`); the foreign export spelling is unchanged.
-- Reserve the narrow emitted-name prefix `__hex_` for compiler-generated identifiers rather than reserving all underscore-prefixed names. Generated names still probe deterministically on collision with foreign or emitted names.
+- Reserve the narrow emitted-name prefix `__hex_` for compiler-generated identifiers rather than reserving all underscore-prefixed names. Generated names still probe deterministically on collision with foreign or emitted names. *(Reversed by #425: the reservation is now leading `__`, with a foreign-alias exemption at FFI Part 4 §3.2; Lexer §3.2 authoritative.)*
 - The early promotion audited Lexer, declarations, pattern binder/constructor
   classification, Modules alias-case rules, FFI Part 4 alias diagnostics, emitter
   hygiene, `.d.ts` names, Monaco, and corpus-wide naming terminology. Later

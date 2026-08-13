@@ -93,7 +93,12 @@ uppercase-start local alias, for example `type 用户 as T用户`. These are Rew
 diagnostics; neither repair changes the foreign export spelling.
 
 The foreign side of `as` is exempt from Hexagon *role* classification, but not from
-ECMAScript identifier validity. Arbitrary-string export names, which ESM permits via
+ECMAScript identifier validity. It is likewise exempt from Lexer §3.2's reserved
+`__` prefix: a foreign export named `__foo` — the double-underscore convention is
+common in JavaScript library internals — stays bindable under an ordinary local
+alias, and the reservation error is selected only in Hexagon's own name seats
+(Lexer §10). The local side of `as` is such a seat, so it cannot spell `__` names.
+Arbitrary-string export names, which ESM permits via
 `export { x as "not an identifier" }`, are not representable in v1 (§11).
 
 ---

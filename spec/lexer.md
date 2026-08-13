@@ -140,8 +140,12 @@ I元素      E无效年龄  M数据库           -- cultural role prefixes, ordi
   generated names spell themselves directly under the prefix with no further
   marker: `__Eq_Rat` (a dictionary, Dictionary Sharing §5), `__Show_a` (an
   evidence parameter), `__value` (a helper binder). Single-underscore
-  spellings such as `_name` remain ordinary source names. When a foreign or
-  already-emitted name occupies a generated name's preferred spelling, the
+  spellings such as `_name` remain ordinary source names. The reservation
+  governs Hexagon's own name seats; the foreign side of an FFI `as` alias
+  (FFI Part 4 §3.2) is outside them, so a `__`-named foreign export stays
+  bindable under an ordinary local alias — the lexer emits the token and the
+  parser selects the reservation error, §4.1/§4.2's division. When a foreign
+  or already-emitted name occupies a generated name's preferred spelling, the
   name probes numeric suffixes deterministically, starting at 1: `__Eq_Rat_1`,
   then `__Eq_Rat_2`.
 - `$` and dollar-start names are ordinary non-uppercase-start identifiers.
@@ -485,7 +489,7 @@ token inventory and the lexer must not report the same source code unit twice.
 | Unpaired surrogate / invalid UTF-8 | "Hexagon source must be valid Unicode" |
 | BOM away from offset zero | "a byte-order mark is only allowed at the start of a file" |
 | Continuation-only or otherwise invalid name initial | state that the character cannot begin an identifier |
-| Reserved `__` prefix | "names beginning `__` are reserved for compiler-generated code" + rename fix-it |
+| Reserved `__` prefix | "names beginning `__` are reserved for compiler-generated code" + rename fix-it *(position-dependent: the foreign side of an FFI `as` alias is exempt, FFI Part 4 §3.2 — the lexer emits the token, the parser selects the message, §4.1/§4.2's division)* |
 | Literal bidirectional control | reject it; in a string suggest an explicit Unicode escape |
 | Hard keyword in name position | "`WORD` is reserved and cannot be used as a name" — including `true`/`false`; **no constructor fixit in this position** (`let True = ...` would be a refutable pattern, a second error) *(#147; position-dependent rows: the lexer emits the token, the **parser** selects the message — §4.1/§4.2's division)* |
 | `true`/`false` in value position | "`true` is reserved; Bool's constructors are `True` and `False` — write `True`" (resp. `False`); one-token fixit *(#147, §4.1; selection is parser work, same note as above)* |
