@@ -13,7 +13,7 @@
 - **Blocks are sequences of items; sequencing is `Unit`-typed.** Every non-final item in a block either is a binding or unifies with `Unit`. A computed value in non-final position is a **discarded value** and a hard error (§3.2) — the escape hatch is the prelude function `ignore` (§3.3). The final item must be an expression; the block's type is that expression's type. A block ending in a binding is a hard error (§3.1).
 - **Mutability exists in exactly one form: `var`, and it never escapes.** `var` is local, monomorphic rebinding in the `let mutable` lineage (F#; Roc's `var`). It is confined to function bodies, assignable only via `:=`, and — the load-bearing rule — **invisible across every lambda boundary**: a lambda may neither read nor assign a `var` declared outside itself (§6.2). Hexagon therefore has no ref cells, no mutable capture, no counter factories. Mutation that cannot be observed from outside a function is, from the outside, not mutation at all; the language's immutable identity survives intact.
 - **Shadowing is banned for sequential binders, permitted for head binders (the Head Binder Shadowing rule).** Every name bound by the LHS of a `let`/`var`/`fun` — destructuring patterns included — may never reuse a name that is in scope, at any nesting depth: that is where refactoring bugs live, and Hexagon's layout syntax offers no brace to visually fence a shadow. Function parameters, match-arm binders, catch-arm binders, and loop variables **may** shadow — their scope is visually adjacent to the binder itself, and short conventional names (`x`, `e`, `acc`) are the whole point of them. The rule in one line: *bindings accumulate down a function; binders govern a visible adjacent region.* The class is decided by scope shape, not by whether the binding form is a pattern: replacing `let x = ...` with `let (x, y) = ...` produces the identical scope and must not change whether shadowing is legal. (§5)
-- **Readable-JS emission stays trivial.** `var x = 5` emits `let x = 5;`, `x := 6` emits `x = 6;`, `ignore(e)` emits `e;`. The no-capture rule (§6.2) is what makes this honest: JS's capture-the-binding closure semantics can never be observed, because nothing captures a `var`.
+- **Readable-JS emission stays trivial.** `var x = 5` emits `let x = 5;`, `x := 6` emits `x = 6;`, a discarding-position `ignore(e)` emits `e;` (value position: `void e` — §3.3). The no-capture rule (§6.2) is what makes this honest: JS's capture-the-binding closure semantics can never be observed, because nothing captures a `var`.
 
 ---
 
@@ -78,7 +78,21 @@ ignore(validateAll(items))
 validateAll(items) |> ignore
 ```
 
-Emission: an applied `ignore(e)` emits the bare expression statement `e;` — statement position in JS *is* discarding, so the call erases. Referenced as a value, the emitter materialises `const ignore = _x => undefined;` on demand (same on-demand doctrine as constructors, Unions §6.4).
+*(#313.)* **The declaring module is `stdlib/Prelude.hex`**, and the definition is ordinary source:
+
+```hexagon
+export let ignore(value: a): Unit = ()
+```
+
+`Prelude.ignore` is the qualified home Modules §6.4 requires of the bare name. No intrinsic-door key exists for `ignore` and none may be added: the door serves operations the language cannot express below themselves (Constraints §6.1's strictly-simpler law — stated there for companion member bodies, extended here on the same rationale to a plain prelude function), and `ignore` is expressible in one line. What the compiler owns is the applied call's cost, under the same licence Constraints §6.1 gives the monomorphic operator tables — inlining of the source-backed slot, never a second definition.
+
+**Emission.** Everything below governs an applied call **that resolves to this binding** — the bare spelling or `Prelude.ignore`. A module's own occluding `ignore` (Modules §5.4) is an ordinary function, and its calls emit as the calls they are; erasing by spelling would drop a user's function body on the floor. `|>` has already desugared by here (Operators §8), so `e |> ignore` *is* the applied call `ignore(e)` below.
+
+The call's **position** is defined on source, inductively: a **non-final block item is discarding**, and so is every module top-level item (the module block has no value, §3.1; Modules §8.2 admits the expression items); a block's final item, and each branch or arm of a branching construct (`if`/`match` — and a `try`'s body block and each catch arm), stands in the position of the block or construct itself; a loop body is discarding regardless of the loop's own position (its value is discarded on every iteration, Loops §2.2); every other seat a call can occupy — a function body's own result, a binding's right-hand side, an argument, an operand — is **value position**.
+
+- **Discarding position**: `ignore(e)` erases — emission is `e` as its own statement, serialized grammatically (the operand inherits the position whole: an operand with a statement form of its own, an `if` or an assignment, takes that form; a brace-initial operand is parenthesized, since bare `{` opens a JavaScript block). The erasure is mandatory, for the reason Operators §5.1's fast paths are: the language's one sanctioned discard idiom must cost nothing.
+- **Value position**: the erasure may not leak the operand — emission must evaluate `e` exactly once and yield `Unit`'s representation (`undefined`, Primitive Types §9), never `e`'s value. `void e` is the inline spelling; a call to the prelude binding is equally valid where it reads better (Operators §5.1's helper latitude).
+- **Referenced as a value** (`map(xs, ignore)`): the ordinary ESM export of `Prelude.hex`, imported like any other prelude function. A bare pipe stage is *not* this case — it desugars to the applied call above and leaves no reference behind. This retires the on-demand materialisation this section previously specified, which dated from before `Prelude.hex` had source to import.
 
 `let _ = e` is **not** a discard idiom in Hexagon — `_` is a pattern wildcard (Products §2.4), not a bindable name in `let name = ...` position, and blessing it would create a second discard spelling. One idiom: `ignore`.
 
@@ -248,7 +262,8 @@ This spec imposed two requirements on loops, both now normative in `loops-ranges
 | `var x = 5` | `let x = 5;` |
 | `x := e` (statement position — the overwhelmingly common case) | `x = e;` |
 | block-final `x := e` in a function body | `x = e;` and the function returns nothing (`Unit` ↔ `undefined`, Primitive Types §9) |
-| `ignore(e)` in statement position | `e;` |
+| `ignore(e)` in discarding position | `e;` (mandatory erasure, §3.3) |
+| `ignore(e)` in a genuinely value position (`let u = ignore(e)`) | honest-`Unit` form, e.g. `void e` — the same obligation as the `:=` row below: the operand's value must not leak (§3.3) |
 | `x := e` in a genuinely value position (`let y = (x := 6)`) | honest-`Unit` form, e.g. `const y = void (x = 6);` — JS assignment yields the assigned value, so a bare `const y = (x = 6)` would lie; the emitter must not produce it |
 
 - `.d.ts` impact: none. `var` is function-internal; nothing mutable crosses the boundary.
@@ -406,5 +421,5 @@ fun h() =
 | No ref cells, no mutable fields, no compound assignment, no module-level `var` | §6.4 |
 | `fun` in blocks follows Functions §7.2/§7.3 (top-down law, contiguous groups); no capture analysis exists | §7.3 |
 | Loop constraint (discharged into `loops-ranges-iteration.md`): loop bodies are blocks, not lambdas; loop variable is a head binder | §7.4 |
-| Emission: `var`→`let`, `:=`→`=`, `ignore(e)`→`e;`; value-position `:=` must emit honest `Unit` (`void`); soundness of `var`→`let` is coupled to the no-capture rule | §8 |
+| Emission: `var`→`let`, `:=`→`=`, discarding-position `ignore(e)`→`e;`; value-position `:=` and `ignore(e)` must emit honest `Unit` (`void`); erasure keyed on the resolved binding, never the spelling; soundness of `var`→`let` is coupled to the no-capture rule | §8; §3.3 |
 | Hanging questions: four open (§10.1, §10.4–§10.6); §10.2 and §10.3 retained as resolved anchors (decided by Modules §5.4 and Operators §11) | §10 |

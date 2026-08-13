@@ -84,7 +84,10 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "export union Ordering derives (Eq, Show) =\n"
     + "    | Less\n"
     + "    | Equal\n"
-    + "    | Greater\n",
+    + "    | Greater\n"
+    + "\n"
+    + "(** Evaluates its argument and discards the result, returning `()`. *)\n"
+    + "export let ignore(value: a): Unit = ()\n",
   "Ord.hex":
     "(** The polymorphic face of ordering. Honoring `Ord` gives a type the `<`, `<=`,\n"
     + "    `>`, and `>=` operators. *)\n"
