@@ -15,6 +15,7 @@
     "src/diagnostics.test.ts",
     "src/execution.test.ts",
     "src/execution-worker.ts",
+    "src/execution-worker.test.ts",
     "src/examples/examples.test.ts",
     "src/language-services.test.ts",
     "src/persistence.test.ts",

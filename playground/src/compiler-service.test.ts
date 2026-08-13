@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { createCompilerService, type EditorAnalysis } from "./compiler-service";
 
-const source = "fun twice(n: Int): Int = n * 2\nconsole.log(twice(3))\n";
+const source = "fun twice(n: Int): Int = n * 2\nlog(\"${twice(3)}\")\n";
 const caret = source.indexOf("twice") + 1;
 
 describe("createCompilerService", () => {

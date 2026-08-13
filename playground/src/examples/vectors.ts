@@ -9,10 +9,10 @@ export const vectors: PlaygroundExample = {
 let extended = numbers.append(40)
 let updated = extended.set(2, 25)
 
-console.log("numbers = \${numbers}")
-console.log("updated = \${updated}")
-console.log("last = \${updated.at(-1)}")
-console.log("has a fifth value? \${updated.get(5) != None}")
+log("numbers = \${numbers}")
+log("updated = \${updated}")
+log("last = \${updated.at(-1)}")
+log("has a fifth value? \${updated.get(5) != None}")
 `,
   specificationReferences: [
     "spec/collections-part3-vector.md",

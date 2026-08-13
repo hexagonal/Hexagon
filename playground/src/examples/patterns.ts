@@ -4,7 +4,9 @@ export const patterns: PlaygroundExample = {
   id: "patterns",
   title: "Unions and Match",
   description: "A closed union handled by an exhaustive match expression.",
-  source: `union Direction =
+  source: `// derives (Show) asks the compiler for the display operation
+// interpolation needs, so a constructor can be printed by name.
+union Direction derives (Show) =
     | North
     | East
     | South
@@ -16,14 +18,14 @@ let opposite(direction: Direction) = match direction
     South => North
     West => East
 
-console.log("Opposite of North:", opposite(North))
+log("Opposite of North: \${opposite(North)}")
 
 fun attendanceLabel(count: Int) = match count
     0 => "none"
     1 => "one"
     _ => "many"
 
-console.log("Guests:", attendanceLabel(1))
+log("Guests: \${attendanceLabel(1)}")
 
 fun tupleLabel(pair: (Bool, Int)) = match pair
     (True, _) => "active"
@@ -32,7 +34,7 @@ fun tupleLabel(pair: (Bool, Int)) = match pair
 fun unitLabel(value: Unit) = match value
     () => "unit"
 
-console.log(tupleLabel((True, 3)), unitLabel(()))
+log("\${tupleLabel((True, 3))} \${unitLabel(())}")
 `,
   specificationReferences: ["spec/unions.md", "spec/pattern-matching.md"],
 };

@@ -47,6 +47,14 @@ describe("curated playground examples", () => {
    * whose modules do not link, which is the failure mode the conformance
    * defect log keeps recording (entries 8 and 10). The examples are the
    * product's front page, so they are executed here, not just typechecked.
+   *
+   * Every module is prefixed with the example's id before it becomes a `data:`
+   * URL, because the registry caches those by their full text and the emitted
+   * prelude is identical for every example. Sharing one instance of `Debug.js`
+   * across the loop would share the sink it captured at initialization, and
+   * every example after the first would print into the previous example's
+   * collector. The worker gets this for free — a fresh `Blob` URL per run is a
+   * fresh module graph — and the prefix is how the harness earns it.
    */
   test("run to completion through the worker's module linking", async () => {
     const log = console.log;
@@ -68,7 +76,9 @@ describe("curated playground examples", () => {
           );
           moduleUrls.set(
             module.path,
-            `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
+            `data:text/javascript;charset=utf-8,${
+              encodeURIComponent(`// ${example.id}\n${linked}`)
+            }`,
           );
         }
 

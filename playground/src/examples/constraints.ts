@@ -17,8 +17,8 @@ let describe(thing: a) =
 
 let ada = Person({name = "Ada", age = 36})
 
-console.log(describe(ada))
-console.log(describe(5))
+log(describe(ada))
+log(describe(5))
 `,
   specificationReferences: ["spec/constraints.md"],
 };

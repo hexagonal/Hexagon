@@ -8,7 +8,7 @@ describe("parseWorkspaceSource", () => {
       "module Mगणित\n" +
       "export let उत्तर = \"😀\"\n" +
       "end module Mगणित\n" +
-      "console.log(Mगणित.उत्तर)\n";
+      "log(Mगणित.उत्तर)\n";
     const workspace = parseWorkspaceSource(source);
 
     expect(workspace.diagnostics).toEqual([]);
@@ -23,8 +23,8 @@ describe("parseWorkspaceSource", () => {
     );
     const visibleMain = workspace.mainText.slice(workspace.mainPrefixLength);
     expect(visibleMain.length).toBe(source.length);
-    expect(visibleMain.slice(source.indexOf("console"))).toBe(
-      "console.log(Mगणित.उत्तर)\n",
+    expect(visibleMain.slice(source.indexOf("log("))).toBe(
+      "log(Mगणित.उत्तर)\n",
     );
   });
 

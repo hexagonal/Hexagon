@@ -31,7 +31,7 @@ let $税率 = 0.10
 let _折扣 = 5
 
 // M = module alias. The block above implicitly imports its virtual file.
-console.log(展示(用户), Mगणित.जोड़(20, 22), $税率, _折扣)
+log("\${展示(用户)} · \${Mगणित.जोड़(20, 22)} · \${$税率} · \${_折扣}")
 `,
   specificationReferences: [
     "spec/lexer.md §3",

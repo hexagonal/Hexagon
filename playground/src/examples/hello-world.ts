@@ -46,9 +46,9 @@ let color(suit: Suit) = match suit
     Hearts => "red"
     Spades => "black"
 
-// Host console calls are explicit effects and return Unit.
-console.log(greet("Hexagon"))
-console.log(greet2(5))
+// log writes to the debugging console; the call produces Unit.
+log(greet("Hexagon"))
+log(greet2(5))
 `,
   specificationReferences: [],
 };
