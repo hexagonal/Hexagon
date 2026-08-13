@@ -123,11 +123,20 @@ export interface PreludeModule {
  * needs nothing from `Map.hex` at all: the two companions are siblings over one
  * runtime module, not layers.
  *
- * `Stream.hex` is last (#364). Its seat is genuinely constrained rather than
+ * `Stream.hex` (#364). Its seat is genuinely constrained rather than
  * conventional: `fromSeq` names `Seq`, every pull answers an `Option`, and
  * `collect` builds a `Vector`, so it sits after all three. Nothing needs a
  * `Stream`, and nothing can — the type is `Seq`'s impure sibling and no pure
- * module has business with one — so being last is also where it stays.
+ * module has business with one.
+ *
+ * `Debug.hex` is last (#407), and its seat is the opposite kind of fact: no
+ * signature here forces it. `log` names only `String` and `Unit`, and `trace`
+ * only `Show`, so it could sit almost anywhere. It sits last because nothing in
+ * the prelude may quietly acquire a probe — a module before it cannot name
+ * `log`, which keeps every print in the standard library a deliberate one — and
+ * because its two names are the widest it has: `log` and `trace` enter bare
+ * scope everywhere, so seating them where the fewest bindings are already
+ * standing is what keeps the collision arithmetic (Modules §5.5) reading.
  */
 export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Show.hex",
@@ -155,6 +164,7 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Map.hex",
   "Set.hex",
   "Stream.hex",
+  "Debug.hex",
 ].map((basename) => ({ basename, source: PRELUDE_SOURCES[basename]! }));
 
 /**

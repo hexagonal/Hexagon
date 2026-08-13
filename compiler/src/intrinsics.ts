@@ -191,6 +191,15 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * satisfying both means looking the left's representative up rather than
  * reusing the element in hand. `contains` stays the surface's only membership
  * read (§4.4).
+ *
+ * `debugLog` is `stdlib/Debug.hex`'s one row (§3.2, #407), and the door's first
+ * **species (a)** customer (`spec/effects.md` §6.2): a write to a channel no
+ * Hexagon expression can read back, declared pure and honestly so. The lowering
+ * is where the species is earned rather than asserted — §6.2's caveat requires
+ * the sink captured when the emitted module initializes, because a `console.log`
+ * dereferenced per call is a global a program could replace and then read the
+ * probe back through. `trace` takes no key: it is ordinary Hexagon over this
+ * row, interpolating its label and value and answering the value.
  */
 export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["seqMemoize", 1],
@@ -281,6 +290,7 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["setRemove", 2],
   ["setElements", 1],
   ["setLookup", 2],
+  ["debugLog", 1],
 ]);
 
 /**

@@ -4785,6 +4785,12 @@ class JavaScriptEmitter {
       // module-level `const` holding the one shared set.
       case "setEmpty":
         return `() => ${this.#useHashTrieRuntime("emptySet")}`;
+      // `stdlib/Debug.hex`'s one row (#407), and the helper it reaches is the
+      // whole of the ruling: `spec/effects.md` §6.2 admits the probe as species
+      // (a) *on condition* that the sink is captured, which is a property of
+      // the emitted code and of nothing else.
+      case "debugLog":
+        return this.#useHelper("debugLog");
       default:
         if (INTRINSIC_INVENTORY.has(key)) {
           this.#diagnostics.add({
@@ -5848,6 +5854,7 @@ type Helper =
   | "seqToIterable"
   | "streamFromSeq"
   | "streamInbound"
+  | "debugLog"
   | "nodeSet"
   | "vectorAt"
   | "vectorIndex"
@@ -5897,6 +5904,7 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   // Owes nothing. The whole of §14.1 is that the shim composes with no spine:
   // no adapter, no memo, no driver — one foreign step per pull.
   streamInbound: [],
+  debugLog: [],
   nodeSet: [],
   vectorAt: [],
   vectorIndex: [],
@@ -6065,6 +6073,28 @@ function renderHelper(
         `const ${name} = (() => {`,
         "  const __hex_seed = (Math.random() * 0x100000000) | 0;",
         "  return __hex_value => Math.imul(__hex_value ^ __hex_seed, 0x9e3779b1) | 0;",
+        "})();",
+      ];
+    // The debug probe (#407), and the sibling of the mix above in the one
+    // respect that matters: the world is touched **once**, when the emitted
+    // module is evaluated, and the call path only uses what was taken then.
+    // `spec/effects.md` §6.2 admits a console write as species (a) — a channel
+    // no Hexagon expression can read back — and then makes the capture a
+    // condition of the admission, because `console.log` is a replaceable global
+    // and a lowering that dereferenced it per call would hand the program a way
+    // to read its own probe back. What is captured is the bound method, so a
+    // sink that expects its receiver still gets one.
+    //
+    // One parameter, not the host's variadic: the declared face is
+    // `(message: String) -> Unit`, and a JavaScript caller reaching the
+    // exported binding directly is held to it rather than to `console.log`'s
+    // signature. `Unit` is `undefined` (Products §2.6), which is what the sink
+    // answers anyway.
+    case "debugLog":
+      return [
+        `const ${name} = (() => {`,
+        "  const __hex_sink = console.log.bind(console);",
+        "  return __hex_message => { __hex_sink(__hex_message); };",
         "})();",
       ];
     // Population count of a 32-bit word, the SWAR form: pairs, then nibbles,

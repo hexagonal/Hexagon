@@ -47,6 +47,7 @@ const EMBEDDINGS = [
       "Map.hex",
       "Set.hex",
       "Stream.hex",
+      "Debug.hex",
     ],
   },
   {
