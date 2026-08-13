@@ -78,7 +78,7 @@ Inside a body, a `->?` written in a **local type position** — a binding annota
 Two boundaries keep this exact:
 
 - **A local function type that carries its own inlet is its own signature.** `let f: (Tx ->? a) ->! a = …` quantifies its own colour, exactly as before; only an inlet-less local `->?` reaches out to the enclosing signature. The variable a fragment names is the nearest enclosing signature that can own one.
-- **Where there is no enclosing signature** — a module-level binding annotation, an `extern let`, a module-level `var` — an inlet-less `->?` is §4.4's error with its own clause: the annotation is not part of any function signature.
+- **Where there is no signature at all**, §4.4's own clause says so: the annotation is not part of any function signature. The clause is about shape and doctrine, not merely position. A binding annotation that is itself a **function type** is a signature *wherever it stands* — a module-level `let f: (Tx ->? a) ->! a = …` quantifies its own colour exactly as a local one does, and an inlet-less module-level function-type annotation takes §2.2.1's *signature* clause, not this one. What takes the no-signature clause is a `->?` inside a **non-function-type** annotation with no enclosing signature (a module-level record-type binding, a module-level `var`), and any **`extern let`** annotation — an extern `let` declares a foreign *value*, not a callable row (FFI Part 4 §4.5's posture; the callable form with a signature of its own is `extern fun`).
 
 The ascription's rigid purity demand (§2.6, the Ascription spec) is unchanged: `(f : a -> b)` still demands the pure constant. What this section fixes is the linked spelling's meaning in that seat, which previously diverged between the ascribed and annotated forms of one intent.
 
@@ -212,7 +212,9 @@ A written arrow that contradicts the body's solved colour is an error **in both 
 
 The pure direction matters as much as the impure one: over-claiming and under-claiming both break the reader's contract, and neither is a style matter.
 
-The linked-face reports stand **at the signature's written `->?`**, not presumptively at the outer arrow: the constantified variable may be spelled only on a nested arrow — `(h: ((Int) ->? Int) -> Int)` over a body that pins `h`'s callback impure — while the outer arrow is honestly `->` or `->!`. Every written occurrence spells the one variable, so the fixit rewrites each of them, and the advice never tells the writer to change an arrow that is not there.
+The linked-face reports stand **at the signature's written `->?`**, not presumptively at the outer arrow: the constantified variable may be spelled only on a nested arrow — `(h: ((Int) ->? Int) -> Int)` over a body that pins `h`'s callback impure — while the outer arrow is honestly `->` or `->!`. The advice never tells the writer to change an arrow that is not there.
+
+**The impure direction's fixit repairs the arrow that lied, and the join decides which that is** (§2.4). When the *outer* arrow is among the written `->?` occurrences, the honest repair is the join itself: the outer arrow alone becomes `->!`, and the signature's inlets keep their `->?` — they re-link as the constant-outer signature's variable, which is exactly `withTransaction`'s face, and rewriting them too would refuse the pure callbacks §2.4 exists to keep. Only when the outer arrow is *not* a written `->?` are the nested occurrences the condemned colour's whole spelling, and the fixit then rewrites each of them. The pure direction has no join to preserve: every written `->?` becomes `->`.
 
 ### 4.3 The pure demand
 
@@ -348,7 +350,7 @@ Display is part of the contract: a signature a reader cannot see is not a face. 
 | The inlet rule: `->?` is legal only in a signature with an inlet — an occurrence of the colour inside a parameter type of any application-spine arrow, at any depth and any polarity; outer-only and received-only faces refused; elsewhere an error, never a second reading | §2.2.1, §4.4 |
 | Local type positions (binding annotations, ascriptions) name the enclosing signature's variable; a fragment with its own inlet is its own signature; no-signature positions take §4.4's own clause | §2.2.2 |
 | §4.4 recovery is marked; downstream obligations tracing to it are suppressed | §4.4 |
-| Linked-face reports stand at the written `->?`; fixits rewrite every occurrence | §4.2 |
+| Linked-face reports stand at the written `->?`; the impure fixit is join-shaped (outer alone when the outer is written `->?`, else every nested occurrence); the pure fixit rewrites all | §4.2 |
 | Conservative join governs the function's own colour only; forwarded callback arrows keep their variable; `->!` spells the join | §2.4 |
 | Data-field arrows: `->` or `->!`, never linked; `->?` in a data declaration is refused, not re-read | §2.5 |
 | Lambdas always the term `=>`; colour inferred; references colourless; demands via ascription/unification; **no return-annotation parenthesization rule** — the levels no longer share a token | §2.6 |
