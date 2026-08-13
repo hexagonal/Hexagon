@@ -532,13 +532,31 @@ describe("check", () => {
   test("adds nothing of its own to the retired console.log form", () => {
     const module = checkSource('console.log("answer", 42, True)');
 
-    // The resolver's report is the whole of it (#417): the call recovers as any
-    // unbound name does, so the checker sees the error type and says nothing —
-    // no second sentence about a missing `console`, and no cascade from the
-    // arguments it never receives.
-    expect(expression(module)).toMatchObject({ kind: "ErrorExpr" });
+    // The resolver's report is the whole of it (#417): the call keeps the shape
+    // any absent global recovers to, with only its receiver poisoned, so the
+    // checker reads a member access on the error type and says nothing further.
+    expect(expression(module)).toMatchObject({
+      kind: "Call",
+      callee: {
+        kind: "Access",
+        receiver: { kind: "ErrorExpr" },
+        field: { text: "log" },
+      },
+    });
     expect(module.diagnostics.map(({ message }) => message)).toEqual([
       "`console.log` is not a Hexagon operation; the debugging probe is `log` (`Debug.log`)",
+    ]);
+  });
+
+  test("still reports what a refused console.log call's arguments say", () => {
+    const module = checkSource('console.log(nmae)');
+
+    // The arguments are received, so a defect written inside them is reported
+    // once and by its own name. Exactly two sentences: a recovery that swallowed
+    // the argument list would leave the typo for the writer to find at runtime.
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "`console.log` is not a Hexagon operation; the debugging probe is `log` (`Debug.log`)",
+      "unknown name `nmae`",
     ]);
   });
 

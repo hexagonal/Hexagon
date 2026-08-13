@@ -838,14 +838,16 @@ describe("emitJavaScript", () => {
   });
 
   test("emits no host console call for the retired console.log form", () => {
-    const module = coreSource('console.log("answer")');
-
     // The form compiled once (#417). What replaces it is a report and the
-    // uniform unknown-name recovery, so the module a refused call leaves behind
-    // reaches JavaScript as `undefined` and nothing else: an emitter that still
-    // wrote the host spelling here would be running a path the language no
-    // longer has.
-    expect(emitJavaScript(module).text).toBe("undefined;\n");
+    // uniform unknown-name recovery, so a refused call reaches JavaScript as a
+    // member read on `undefined` — byte for byte what any other absent global
+    // emits, and not the host spelling the retired path used to write.
+    expect(emitJavaScript(coreSource('console.log("answer")')).text).toBe(
+      '(undefined.log)("answer");\n',
+    );
+    expect(emitJavaScript(coreSource('console.warn("answer")')).text).toBe(
+      '(undefined.warn)("answer");\n',
+    );
   });
 
   test("emits tuples as arrays, positional access, and TypeScript tuple types", () => {

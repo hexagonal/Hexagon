@@ -2184,8 +2184,26 @@ class Resolver {
             span: expression.span,
           };
         }
-        if (this.#refusedHostConsoleLog(expression, scope)) {
-          return { kind: "ErrorExpr", span: expression.span };
+        const refusedConsole = this.#refusedHostConsoleLog(expression, scope);
+        if (refusedConsole !== undefined) {
+          return {
+            ...expression,
+            callee: {
+              ...refusedConsole,
+              // The receiver is minted rather than resolved: resolving the name
+              // would report the unknown `console` the refusal has already
+              // spoken for, and this recovery owes one sentence.
+              receiver: { kind: "ErrorExpr", span: refusedConsole.receiver.span },
+              field: {
+                text: refusedConsole.field.text,
+                startClass: refusedConsole.field.startClass,
+                span: refusedConsole.field.span,
+              },
+            },
+            arguments: expression.arguments.map((argument) =>
+              this.#resolveExpr(argument, scope),
+            ),
+          };
         }
         if (
           expression.callee.kind === "Access" &&
@@ -2604,14 +2622,21 @@ class Resolver {
   }
 
   /**
-   * The signpost standing where the host console operation used to be (#417).
+   * The signpost standing where the host console operation used to be (#417),
+   * answering with the refused callee so its caller can rebuild the call.
    *
    * `console.log(...)` is not an operation of this language: there is no ambient
    * `console`, and the debugging probe a writer reaching for it wants is
    * `Debug.log` (Effects §6.2). The shape check that once admitted the form is
-   * kept only to say so, because what the call otherwise decays to — an unknown
-   * name, and a member access on it — names neither the mistake nor the
-   * replacement.
+   * kept only to say so, because the sentences it decays to — an unknown name,
+   * and a member access on it — name neither the mistake nor the replacement.
+   *
+   * Saying so is the whole of the difference. The caller keeps the *shape* the
+   * ordinary recovery would have built, resolved arguments and all, so
+   * `console.log(x, nmae)` reports the typo exactly as `console.warn(x, nmae)`
+   * does and the editor's queries still reach into the argument list. Arguments
+   * are resolved and retained, never resolved and dropped: a dropped reference
+   * would leave its prelude term in the used set with nothing referring to it.
    *
    * A `console` in scope takes the call back: the receiver is that binding, the
    * access means whatever the binding means, and no report is owed.
@@ -2623,7 +2648,10 @@ class Resolver {
    * than nowhere. Several arguments or none have no such rewrite: the
    * interpolation is the writer's move.
    */
-  #refusedHostConsoleLog(expression: Parsed.CallExpr, scope: Scope): boolean {
+  #refusedHostConsoleLog(
+    expression: Parsed.CallExpr,
+    scope: Scope,
+  ): Parsed.AccessExpr | undefined {
     const callee = expression.callee;
     if (
       callee.kind !== "Access" ||
@@ -2632,7 +2660,7 @@ class Resolver {
       callee.field.text !== "log" ||
       scope.lookup("console") !== undefined
     ) {
-      return false;
+      return undefined;
     }
     this.#diagnostics.add({
       severity: "error",
@@ -2648,7 +2676,7 @@ class Resolver {
         }
         : {}),
     });
-    return true;
+    return callee;
   }
 
   #resolveName(expression: Parsed.NameExpr, scope: Scope): Resolved.Expr {
