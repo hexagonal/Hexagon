@@ -411,10 +411,10 @@ function jsDocBlock(content: string, indent: string): string[] {
 }
 
 /**
- * The two prelude declarations emission is allowed to recognize by identity.
- * Everything else about a user's or the stdlib's types reaches the emitter as
- * ordinary Core, and that is deliberate — this is the whole list of places where
- * the back end knows a specific declaration.
+ * The prelude declarations emission is allowed to recognize by identity.
+ * Everything else about a user's or the stdlib's declarations reaches the
+ * emitter as ordinary Core, and that is deliberate — this is the whole list of
+ * places where the back end knows a specific declaration.
  *
  * - `seq` (Loops §6.6): known for the FFI Part 3 boundary in ruling R1's sense —
  *   wrap a foreign value entering as a `Seq`, drive a `Seq` leaving for
@@ -427,11 +427,50 @@ function jsDocBlock(content: string, indent: string): string[] {
  *   representation commitment, not a semantic one: no Hexagon program can tell
  *   the difference, because every eliminator of a `Bool` is representation-blind
  *   at the source level.
+ * - `ignore` (#313, Statements §3.3): the first **term** in this list, and the
+ *   only one. `stdlib/Prelude.hex` defines it as ordinary source — no door key,
+ *   by Constraints §6.1's strictly-simpler law — so what is known here is the
+ *   applied call's *cost*, not a second definition: `ignore(e)` in discarding
+ *   position emits the bare statement `e;`, and in value position `void e`.
+ *   Everything else about the binding is ordinary ESM, which is what makes
+ *   `map(xs, ignore)` need nothing from this file.
  */
 interface PreludeIds {
   readonly seq: Resolved.RecordId | undefined;
   readonly stream: Resolved.RecordId | undefined;
   readonly bool: Resolved.UnionId | undefined;
+  readonly ignore: Resolved.SymbolId | undefined;
+}
+
+/**
+ * `stdlib/Prelude.hex`'s `ignore` as this module sees it, or nothing when the
+ * module never reached the name (#313).
+ *
+ * **The resolved binding, never the spelling.** A module may declare its own
+ * `ignore` (Modules §5.4), and calls to *that* one must emit as ordinary calls —
+ * erasing them would drop a user's function body on the floor. The symbol is read
+ * off the synthesized prelude import, which is where the resolver records the
+ * identity a bare or `Prelude.`-qualified reference landed on: both spellings
+ * resolve to this one symbol (Modules §6.4), so one check covers both, and an
+ * occluding module's own binding has a different symbol and is never matched.
+ *
+ * Absent inside `stdlib/Prelude.hex` itself, which imports nothing and so has no
+ * entry to read — the self-blindness `preludeIds` documents for `seq` and `bool`,
+ * here with no fallback because none is owed: `Prelude.hex` is the first module
+ * of the prelude that could call `ignore` and it does not, and a missing entry
+ * costs an un-erased call rather than a wrong one.
+ */
+function preludeIgnoreSymbol(module: Core.Module): Resolved.SymbolId | undefined {
+  for (const item of module.items) {
+    if (item.kind !== "Import" || !item.synthesized) continue;
+    if (item.form.kind !== "Named") continue;
+    const basename = item.specifier.slice(item.specifier.lastIndexOf("/") + 1);
+    if (basename !== "Prelude") continue;
+    for (const name of item.form.names) {
+      if (name.imported === "ignore" && name.typeOnly !== true) return name.symbol;
+    }
+  }
+  return undefined;
 }
 
 function preludeIds(module: Core.Module): PreludeIds {
@@ -480,6 +519,7 @@ function preludeIds(module: Core.Module): PreludeIds {
       ?? (module.preludeUnions.size === 0
         ? module.unions.find(({ name }) => name === "Bool")?.id
         : undefined),
+    ignore: preludeIgnoreSymbol(module),
   };
 }
 
@@ -2106,7 +2146,14 @@ class JavaScriptEmitter {
     parenthesizeEqual = false,
   ): string {
     const emitted = this.#emitExpr(expression, depth, evidenceNames);
-    const precedence = expressionPrecedence(expression);
+    // An erased `ignore` call is a `void` expression, not a call (#313), so its
+    // precedence is the operator's and not `Precedence.Call`. `expressionPrecedence`
+    // reads the Core node alone and cannot know; asking here keeps the table
+    // honest instead of relying on "nothing binds tighter than a call around a
+    // `Unit`", which is true today and is not a rule anything states.
+    const precedence = this.#ignoreOperand(expression) === undefined
+      ? expressionPrecedence(expression)
+      : Precedence.Unary;
     return precedence < parentPrecedence ||
       (parenthesizeEqual && precedence === parentPrecedence)
       ? `(${emitted})`
@@ -2202,6 +2249,27 @@ class JavaScriptEmitter {
   }
 
   /**
+   * The operand of an applied call to the prelude's `ignore`, or nothing
+   * (Statements §3.3, #313).
+   *
+   * The single gate both emission positions ask, so the two can never disagree
+   * about which calls are the language's discard idiom. Everything it tests is a
+   * property of the *call*, not of the name: the callee resolves to the symbol
+   * `preludeIgnoreSymbol` pinned, so an occluding module's own `ignore` (Modules
+   * §5.4) fails here and emits as the ordinary call it is. The arity and evidence
+   * guards are belt-and-braces against a shape `ignore : a -> Unit` cannot take —
+   * a call the checker accepted has exactly one argument and no dictionary — and
+   * cost one comparison to keep a malformed tree from losing its operand.
+   */
+  #ignoreOperand(expression: Core.Expr): Core.Expr | undefined {
+    if (this.#prelude.ignore === undefined || expression.kind !== "Call") return undefined;
+    if (expression.callee.kind !== "Name") return undefined;
+    if (expression.callee.symbol !== this.#prelude.ignore) return undefined;
+    if (expression.arguments.length !== 1 || expression.evidence.length > 0) return undefined;
+    return expression.arguments[0];
+  }
+
+  /**
    * An expression in statement position — its value is discarded, so the forms
    * that read better as statements than as expressions emit that way.
    */
@@ -2210,6 +2278,16 @@ class JavaScriptEmitter {
     depth: number,
     evidenceNames: EvidenceNames,
   ): string[] {
+    // Statements §3.3's **discarding position**, and the erasure is mandatory
+    // there: statement position in JavaScript *is* discarding, so the call has
+    // nothing left to do and the one sanctioned discard idiom costs nothing.
+    // Recursing rather than emitting `${operand};` directly is what makes
+    // `ignore(while …)` and `ignore(if …)` lower to the statement forms they
+    // would have taken unwrapped — the operand inherits this position whole.
+    const discarded = this.#ignoreOperand(expression);
+    if (discarded !== undefined) {
+      return this.#emitStatement(discarded, depth, evidenceNames);
+    }
     switch (expression.kind) {
       case "While":
         return this.#emitWhile(expression, depth, evidenceNames);
@@ -2225,10 +2303,17 @@ class JavaScriptEmitter {
         const value = this.#emitExpr(expression.value, depth, evidenceNames);
         return [`${indent(depth)}${target} = ${value};`];
       }
-      default:
-        return [
-          `${indent(depth)}${this.#emitExpr(expression, depth, evidenceNames)};`,
-        ];
+      default: {
+        const emitted = this.#emitExpr(expression, depth, evidenceNames);
+        // A record literal is the one emission that starts with `{`, where a
+        // JavaScript statement begins a *block*: `{ name: value };` parses as a
+        // labelled statement and evaluates something else entirely, or fails to
+        // parse. Unreachable before #313 — nothing but `ignore` can put a
+        // non-`Unit` value in statement position — and the parenthesis is the
+        // whole fix.
+        const statement = emitted.startsWith("{") ? `(${emitted})` : emitted;
+        return [`${indent(depth)}${statement};`];
+      }
     }
   }
 
@@ -2358,6 +2443,20 @@ class JavaScriptEmitter {
     depth: number,
     evidenceNames: EvidenceNames,
   ): string {
+    // Statements §3.3's **value position** — everywhere `#emitStatement` did not
+    // claim the call, so the `Unit` result is consumed. The erasure may not leak
+    // the operand here: `void` evaluates it exactly once and answers `undefined`,
+    // which is `Unit`'s representation, where dropping the call would answer the
+    // operand's own value instead. `parenthesizeEqual` brackets an operand
+    // sitting at `void`'s own rung rather than above it — an assignment, whose
+    // expression form is itself a `void`, composes as `void (void (count = 1))`
+    // rather than running the two together.
+    const ignored = this.#ignoreOperand(expression);
+    if (ignored !== undefined) {
+      return `void ${
+        this.#emitOperand(ignored, Precedence.Unary, depth, evidenceNames, true)
+      }`;
+    }
     if (
       expression.callee.kind === "CollectionOperation" &&
       expression.callee.collection === "Node"
