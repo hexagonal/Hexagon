@@ -103,7 +103,7 @@ Drafting order is not final reading order.
 - Hold a separate **Getting Started** chapter as the likely new Chapter 1. It would
   provide the practical first contact and the minimal early module orientation needed
   by the existing feature chapters.
-- The current 25 chapter files retain their numbers until that structural revision is
+- The current 27 chapter files retain their numbers until that structural revision is
   undertaken deliberately; adopting Getting Started will shift them by one.
 
 ## Recurring examples and lively material
@@ -838,8 +838,10 @@ late pedagogy pass, not a commitment to the current order.
   at that call. Marks are written glued.
 - Every `->?` in one signature is one linked effect variable; a `->?` needs an inlet
   and is an error where nothing can link to it — never a silent re-reading.
-- Enforcement is symmetric and error-grade: wrong or missing marks at calls, and
-  faces contradicting bodies, in both directions.
+- Enforcement is symmetric and error-grade: wrong or missing marks at calls are
+  errors in every direction, and a pure face over a body that performs effects is
+  an error at the offending call. (The specification checks faces in both
+  directions; the chapter stages the pure-face direction.)
 - Operators, indexing, `for` heads, and interpolation have no mark seat, so
   everything they reach is pure; constraint members and `honor` bodies check pure.
 - A user-written `extern fun` is effectful by default; `pure` is the trusted,
@@ -850,9 +852,10 @@ late pedagogy pass, not a commitment to the current order.
 
 ### Streams
 
-- `Stream(a)` is `Seq`'s impure nominal sibling: `next: () ->! Option(a)` by
-  declaration, no tail, a pull is spent, and pulling an exhausted stream yields
-  `None` again.
+- `Stream(a)` is `Seq`'s impure nominal sibling: `Stream.next : Stream(a) ->! Option(a)`,
+  no tail, a pull is spent, and pulling an exhausted stream yields `None` again.
+  (The chapter shows the companion face; the field's declared arrow is the
+  specification's and the stdlib's.)
 - Consumers (`next`, `collect`, `fold`, `forEach`, `find`) wear `->!` and their
   calls wear `!`; wiring (`map`, `filter`, `fromSeq`) builds without pulling and
   stays bare in ordinary bodies.
@@ -876,9 +879,10 @@ late pedagogy pass, not a commitment to the current order.
   fresh values for useful stacks; exported faces are branded `Error` intersections.
 - Chapter 21 (Exceptions) closes the fifth drafting group. Its review is
   recorded in `reviews/05-state-iteration-and-failure.md`. *(It was chapter 19 when
-  that group was drafted; Streams took the number at the un-flagging milestone, #364.
-  The chapter is named here because the group is a fact about the drafting order, not
-  about the numbers the manuscript ended up with.)*
+  that group was drafted; Streams took the number at the un-flagging milestone, #364,
+  and the Effects insertion at #405 moved it again, to 21. The chapter is named here
+  because the group is a fact about the drafting order, not about the numbers the
+  manuscript ended up with.)*
 
 ### Collections
 
@@ -918,8 +922,9 @@ late pedagogy pass, not a commitment to the current order.
 - External `Item(T)`/`Constraint.Item(T)` forms and `<c: Iterable>` binders are rejected;
   concrete operations and loops remain legal, while reusable consumers take `Seq(a)`.
 - Implied types erase before JavaScript and TypeScript boundaries.
-- Chapters 20–21 form the sixth drafting group. Their review is recorded in
-  `reviews/06-collections-and-implied-types.md`.
+- Chapters 22–23 form the sixth drafting group. Their review is recorded in
+  `reviews/06-collections-and-implied-types.md`. *(They were 20–21 when drafted;
+  the Streams and Effects insertions moved them.)*
 
 ### JavaScript Output
 
@@ -991,8 +996,9 @@ late pedagogy pass, not a commitment to the current order.
   dictionaries are nested.
 - Public capability, never private implementation or internal calls, determines the
   JavaScript/TypeScript surface.
-- Chapters 22–25 form the final feature-chapter drafting group. Their review is
-  recorded in `reviews/07-javascript-boundaries.md`.
+- Chapters 24–27 form the final feature-chapter drafting group. Their review is
+  recorded in `reviews/07-javascript-boundaries.md`. *(They were 22–25 when drafted;
+  the Streams and Effects insertions moved them.)*
 
 ## Review history
 
@@ -1036,7 +1042,8 @@ late pedagogy pass, not a commitment to the current order.
 
 ### State, Iteration, and Failure
 
-- Chapters 16–19 reviewed together after their initial reader review.
+- Chapters 16–19 as then numbered (today 16–18 and 21) reviewed together after their
+  initial reader review.
 - Result: coherent enough to continue after making the lambda and loop-pattern examples
   self-contained, correcting the exported `Seq` declaration, simplifying chapter
   titles, and deferring implied types out of the ordinary loop narrative.
@@ -1045,7 +1052,8 @@ late pedagogy pass, not a commitment to the current order.
 
 ### Collections and Implied Types
 
-- Chapters 20–21 were reviewed together after reader review of both local drafts.
+- Chapters 20–21 as then numbered (today 22–23) were reviewed together after reader
+  review of both local drafts.
 - Result: coherent enough to continue after removing unnecessary **upsert**
   terminology and confirming the collection-to-implied-type hand-off against the
   governing specifications.
@@ -1065,7 +1073,8 @@ late pedagogy pass, not a commitment to the current order.
 
 ### Draft 1 Whole Book
 
-- All 25 feature chapters were read continuously after the seven group reviews.
+- All 25 feature chapters as the manuscript then stood — before the Streams and
+  Effects insertions — were read continuously after the seven group reviews.
 - Result: the feature order and global language story are coherent; no wholesale
   chapter reorder is recommended.
 - Clear drift corrections were integrated for transitions, title-based
