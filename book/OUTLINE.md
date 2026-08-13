@@ -40,10 +40,10 @@ language tour.
 ## Held proposal: 1. Getting Started
 
 Let the reader meet Hexagon as a language they can run. Begin with a root module and
-one top-level effect:
+one top-level line of output:
 
 ```hexagon
-print("Hello, Hexagon!")
+log("Hello, Hexagon!")
 ```
 
 Move quickly to a small transformation that shows values flowing through functions.
