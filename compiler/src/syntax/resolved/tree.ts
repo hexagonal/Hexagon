@@ -1018,7 +1018,6 @@ export type Expr =
   | TryExpr
   | ThrowExpr
   | CallExpr
-  | ConsoleLogExpr
   | AccessExpr
   | IndexExpr
   | HashExpr
@@ -1211,13 +1210,6 @@ export interface CallExpr {
   /** The written call mark (#355 ruling 2); absent is the bare call. */
   readonly mark?: "bang" | "question";
   readonly markSpan?: Source.Span;
-  readonly span: Source.Span;
-}
-
-/** A call to the browser/JavaScript host console's variadic log operation. */
-export interface ConsoleLogExpr {
-  readonly kind: "ConsoleLog";
-  readonly arguments: readonly Expr[];
   readonly span: Source.Span;
 }
 

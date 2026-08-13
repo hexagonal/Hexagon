@@ -2184,14 +2184,8 @@ class Resolver {
             span: expression.span,
           };
         }
-        if (isUnshadowedConsoleLog(expression, scope)) {
-          return {
-            kind: "ConsoleLog",
-            arguments: expression.arguments.map((argument) =>
-              this.#resolveExpr(argument, scope),
-            ),
-            span: expression.span,
-          };
+        if (this.#refusedHostConsoleLog(expression, scope)) {
+          return { kind: "ErrorExpr", span: expression.span };
         }
         if (
           expression.callee.kind === "Access" &&
@@ -2605,6 +2599,54 @@ class Resolver {
         `${conjoin(homes.map((home) => `\`${home}\``), "and")}; write ` +
         `${conjoin(homes.map((home) => `\`${home}.${name.text}\``), "or")}`,
       primary: name.span,
+    });
+    return true;
+  }
+
+  /**
+   * The signpost standing where the host console operation used to be (#417).
+   *
+   * `console.log(...)` is not an operation of this language: there is no ambient
+   * `console`, and the debugging probe a writer reaching for it wants is
+   * `Debug.log` (Effects §6.2). The shape check that once admitted the form is
+   * kept only to say so, because what the call otherwise decays to — an unknown
+   * name, and a member access on it — names neither the mistake nor the
+   * replacement.
+   *
+   * A `console` in scope takes the call back: the receiver is that binding, the
+   * access means whatever the binding means, and no report is owed.
+   *
+   * The rewrite is offered for a single argument and no other arity. This pass
+   * sees no types, and `log` takes one rendered `String` — so one argument is
+   * the shape a mechanical rewrite can produce honestly, and a wrongly-typed one
+   * meets `log`'s parameter at the checker, which is a better place to arrive
+   * than nowhere. Several arguments or none have no such rewrite: the
+   * interpolation is the writer's move.
+   */
+  #refusedHostConsoleLog(expression: Parsed.CallExpr, scope: Scope): boolean {
+    const callee = expression.callee;
+    if (
+      callee.kind !== "Access" ||
+      callee.receiver.kind !== "Name" ||
+      callee.receiver.name.text !== "console" ||
+      callee.field.text !== "log" ||
+      scope.lookup("console") !== undefined
+    ) {
+      return false;
+    }
+    this.#diagnostics.add({
+      severity: "error",
+      message: "`console.log` is not a Hexagon operation; the debugging probe " +
+        "is `log` (`Debug.log`)",
+      primary: callee.span,
+      ...(expression.arguments.length === 1
+        ? {
+          fixes: [{
+            message: "write `log`",
+            edits: [{ span: callee.span, replacement: "log" }],
+          }],
+        }
+        : {}),
     });
     return true;
   }
@@ -3915,19 +3957,6 @@ class Resolver {
     if (symbol === undefined) throw new Error(`unknown internal symbol ${id}`);
     return symbol;
   }
-}
-
-/** Recognizes the one host-global operation admitted by this thin FFI slice. */
-function isUnshadowedConsoleLog(
-  expression: Parsed.CallExpr,
-  scope: Scope,
-): boolean {
-  const callee = expression.callee;
-  return callee.kind === "Access" &&
-    callee.receiver.kind === "Name" &&
-    callee.receiver.name.text === "console" &&
-    callee.field.text === "log" &&
-    scope.lookup("console") === undefined;
 }
 
 function isPrimitiveName(name: string): name is Resolved.PrimitiveName {

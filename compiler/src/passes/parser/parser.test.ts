@@ -471,7 +471,7 @@ describe("parse", () => {
     // conditional is else-less.
     const module = parseSource(
       "let act(a: Bool, b: Bool) =\n" +
-        "    if a then console.log(\"x\") else if b then console.log(\"y\")",
+        "    if a then log(\"x\") else if b then log(\"y\")",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -595,9 +595,9 @@ describe("parse", () => {
     const module = parseSource(
       "fun visit(): Unit =\n" +
         "    for number in 1..3\n" +
-        "        console.log(number)\n" +
+        "        log(\"${number}\")\n" +
         "    for character in \"ab\"\n" +
-        "        console.log(character)",
+        "        log(character)",
     );
 
     expect(module.items[0]).toMatchObject({

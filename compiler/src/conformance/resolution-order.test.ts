@@ -282,7 +282,7 @@ describe("still-intrinsic names keep working — this phase changes order, not m
       "export record Seq(a) = { item: a }\n" +
       "export fun visit(values: Vector(Int)): Unit =\n" +
       "    for value in values\n" +
-      "        console.log(value)\n",
+      "        log(\"${value}\")\n",
     )).toEqual([]);
   });
 });

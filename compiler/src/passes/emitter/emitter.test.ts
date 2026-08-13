@@ -333,12 +333,12 @@ describe("emitJavaScript", () => {
         "    toSeq(bag) = bag.items\n" +
         "let bag = Bag({items = Seq.take(Seq.iterate(1, x => x + 1), 2)})\n" +
         "for value in bag\n" +
-        "    console.log(value)\n" +
+        "    log(\"${value}\")\n" +
         "for value in [1, 2]\n" +
-        "    console.log(value)\n" +
+        "    log(\"${value}\")\n" +
         "let pairs: Map(Int, String) = Map.set(Map.empty, 1, \"one\")\n" +
         "for (key, value) in pairs\n" +
-        "    console.log(key, value)",
+        "    log(\"${key} ${value}\")",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -414,9 +414,9 @@ describe("emitJavaScript", () => {
     const module = coreSource(
       "fun visit(): Unit =\n" +
         "    for number in 1..3\n" +
-        "        console.log(number)\n" +
+        "        log(\"${number}\")\n" +
         "    for character in \"ab\"\n" +
-        "        console.log(character)",
+        "        log(\"${character}\")",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -440,7 +440,7 @@ describe("emitJavaScript", () => {
         "    .take(5)\n" +
         "let selected2 = numbers |> Seq.filter(number => number > 3) |> Seq.map(number => number * 2) |> Seq.take(5)\n" +
         "for number in selected\n" +
-        "    console.log(number)",
+        "    log(\"${number}\")",
     );
 
     const output = emitJavaScript(module);
@@ -837,13 +837,15 @@ describe("emitJavaScript", () => {
     );
   });
 
-  test("emits the host console operation as ordinary readable JavaScript", () => {
-    const module = coreSource('console.log("answer", 42, True)');
+  test("emits no host console call for the retired console.log form", () => {
+    const module = coreSource('console.log("answer")');
 
-    expect(emitJavaScript(module)).toMatchObject({
-      text: 'console.log("answer", 42, true);\n',
-      diagnostics: [],
-    });
+    // The form compiled once (#417). What replaces it is a report and the
+    // uniform unknown-name recovery, so the module a refused call leaves behind
+    // reaches JavaScript as `undefined` and nothing else: an emitter that still
+    // wrote the host spelling here would be running a path the language no
+    // longer has.
+    expect(emitJavaScript(module).text).toBe("undefined;\n");
   });
 
   test("emits tuples as arrays, positional access, and TypeScript tuple types", () => {

@@ -2061,10 +2061,6 @@ class JavaScriptEmitter {
         }
         return this.#emitCall(expression, depth, evidenceNames);
       }
-      case "ConsoleLog":
-        return `console.log(${expression.arguments.map((argument) =>
-          this.#emitExpr(argument, depth, evidenceNames)
-        ).join(", ")})`;
       case "LogicalNot":
         return `!${this.#emitOperand(expression.operand, Precedence.Unary, depth, evidenceNames)}`;
       case "Logical": {
@@ -5968,7 +5964,6 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
     case "Index":
     case "Hash":
     case "Call":
-    case "ConsoleLog":
     case "While":
     case "For":
     case "Throw":
