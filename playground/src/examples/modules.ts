@@ -13,7 +13,7 @@ end module Numbers
 
 // The Playground makes the virtual file available through its module alias.
 // Contents stay at column one so moving code to or from a file needs no reindent.
-console.log(Numbers.double(Numbers.answer))
+log("\${Numbers.double(Numbers.answer)}")
 `,
   specificationReferences: ["spec/modules.md"],
 };

@@ -32,6 +32,10 @@ describe("compileSource", () => {
     );
   });
 
+  // The one fixture that stays on the host form rather than moving to `log`
+  // (#407): the assertion below reads the crossed `Vector` values themselves off
+  // the sink, and `log` takes a rendered `String`. The thin-FFI `console.log`
+  // form is unaffected by that milestone and still compiles.
   test("executes the complete canonical Vector core API", async () => {
     const response = compileSource(
       5,
@@ -176,7 +180,7 @@ describe("compileSource", () => {
     expect(response.javascript).toContain("const $税率 = 0.10;");
     expect(response.javascript).toContain("const _折扣 = 5;");
     expect(response.javascript).toContain('import * as Mगणित from "./Mगणित.js";');
-    expect(response.javascript).toContain("console.log(展示(用户,");
+    expect(response.javascript).toContain("log(展示(用户,");
     expect(response.javascript).toContain("Mगणित.जोड़(20, 22)");
     // `/Prelude.hex` is emitted because the always-supplied `Rat.hex` uses
     // `Ordering`, and `/VectorTrie.hex` because `Vector.hex` is built on it —
@@ -186,7 +190,8 @@ describe("compileSource", () => {
     // members, so the companion's dictionary and the constraint homes that
     // declare what it throws (`/Integral.hex`, `/Pow.hex`) are emitted with it.
     // `/Int.hex` joins at the second landing: `/VectorTrie.hex`'s index
-    // arithmetic is `Integral<Int>`'s members at that companion now.
+    // arithmetic is `Integral<Int>`'s members at that companion now. `/Debug.hex`
+    // joins wherever a source writes a line, which since #407 is every sample.
     expect(response.executionModules.map(({ path }) => path)).toEqual([
       "/Pow.hex",
       "/Prelude.hex",
@@ -196,6 +201,7 @@ describe("compileSource", () => {
       "/Int.hex",
       "/VectorTrie.hex",
       "/stdlib/Vector.hex",
+      "/Debug.hex",
       "/stdlib/Rat.hex",
       "/Mगणित.hex",
       "/main.hex",
@@ -207,7 +213,7 @@ describe("compileSource", () => {
       "module Repo\n" +
       "export let broken = missing\n" +
       "end module Repo\n" +
-      "console.log(Repo.broken)\n";
+      "log(Repo.broken)\n";
     const response = compileSource(7, source);
 
     expect(response.kind).toBe("compile-failure");
@@ -236,7 +242,7 @@ describe("compileSource", () => {
     expect(response.javascript).toContain("const plus =");
     expect(response.javascript).toContain("function factorial(n)");
     expect(response.javascript).toContain("const color =");
-    expect(response.javascript).toContain('console.log(greet("Hexagon"));');
+    expect(response.javascript).toContain('log(greet("Hexagon"));');
     expect(response.javascript).not.toContain("export { greet }");
     expect(response.typeScriptPreview).toContain("declare const greet");
     expect(response.typeScriptPreview).toContain("declare function factorial");
@@ -329,10 +335,10 @@ describe("compileSource", () => {
     expect(response.kind).toBe("compile-success");
     if (response.kind !== "compile-success") return;
 
-    expect(response.javascript).toContain("console.log(plusInt(20, 22));");
-    expect(response.javascript).toContain("console.log(plusFloat(20.0, 1.5));");
-    expect(response.javascript).toContain("console.log(plusBigInt(10n, 20n));");
-    expect(response.javascript).not.toContain("console.log(plus(20, 22,");
+    expect(response.javascript).toContain("log(String(plusInt(20, 22)));");
+    expect(response.javascript).toContain("log(String(plusFloat(20.0, 1.5)));");
+    expect(response.javascript).toContain("log(String(plusBigInt(10n, 20n)));");
+    expect(response.javascript).not.toContain("log(String(plus(20, 22,");
     expect(response.javascript).toContain("const count = 3;");
     expect(response.javascript).toContain("const cost = 1.50;");
     expect(response.javascript).toContain("const total = count * cost;");

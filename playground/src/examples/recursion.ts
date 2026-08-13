@@ -11,7 +11,7 @@ fun factorial(n: Int) =
     else
         n * factorial(n - 1)
 
-console.log("6! =", factorial(6))
+log("6! = \${factorial(6)}")
 `,
   specificationReferences: ["spec/functions.md"],
 };

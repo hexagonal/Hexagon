@@ -25,6 +25,12 @@ not compiler intrinsics.
   (`runtime/VectorTrie.hex`, `runtime/HashTrie.hex`); everything above those
   declarations is ordinary Hexagon. `Seq.hex` declares `Seq(a)` itself and its
   combinator core.
+- `Debug.hex` holds the debugging probe: `log` writes to the console through the
+  door's one **species (a)** row (`spec/effects.md` §6.2), pure-faced because
+  nothing in the language can read that channel back, and `trace` is the
+  expression-shaped form above it. It takes the last prelude seat, and its sink
+  is captured when its emitted module initializes — the condition §6.2 attaches
+  to the pure face.
 
 The complete package/prelude loader and the final boundary of the fundamental
 stdlib remain project-system and stdlib-listing work. The Playground begins that

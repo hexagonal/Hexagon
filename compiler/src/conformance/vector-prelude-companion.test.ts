@@ -61,7 +61,7 @@ describe("the module", () => {
    * could drift arbitrarily from the language it is written in. Membership is
    * the coverage: every project in this suite now compiles it.
    */
-  test("`Stream.hex` is the last prelude member, `Set.hex` the one before it", () => {
+  test("`Debug.hex` is the last prelude member, `Stream.hex` the one before it", () => {
     expect(PRELUDE_MODULES.map(({ basename }) => basename)).toEqual([
       "Show.hex",
       "Num.hex",
@@ -101,11 +101,18 @@ describe("the module", () => {
       // `Vector`, needs nothing from `Map.hex` — the two are siblings over one
       // runtime module, not layers.
       "Set.hex",
-      // #364 closes the list: `Stream.hex` names `Seq` at `fromSeq`, `Option`
-      // at every pull, and `Vector` at `collect`, so it sits after all three —
-      // and nothing after it can name a `Stream`, because no pure module has
-      // business with the impure sibling.
+      // #364: `Stream.hex` names `Seq` at `fromSeq`, `Option` at every pull,
+      // and `Vector` at `collect`, so it sits after all three — and nothing
+      // before it can name a `Stream`, because no pure module has business with
+      // the impure sibling.
       "Stream.hex",
+      // #407 closes the list, and is the one member no signature places:
+      // `log` names `String` and `Unit`, `trace` names `Show`, all of which
+      // seat in the first dozen. It is last for what the seat denies — from
+      // here the two names are visible to no prelude module, so nothing in the
+      // standard library can quietly acquire a probe, and no prelude module's
+      // own bare names are ever in scope where these two are.
+      "Debug.hex",
     ]);
   });
 

@@ -1,0 +1,27 @@
+// The debugging probe, and the one place in the standard library where a
+// pure-faced operation writes to the world.
+//
+// `spec/effects.md` section 6.2 species (a): the console is a channel no
+// Hexagon expression can read back, so a write to it changes nothing the
+// language can observe and the pure face is honest. What the face costs is
+// multiplicity and ordering — a probe under a lazy producer runs when that
+// producer runs, which may be once, many times, or never — and that is the
+// price of the species rather than a defect above it. Printing a known number
+// of lines in a known order is a banged extern's job, permanently.
+//
+// The sink is captured when this module is initialized, never read per call,
+// which is what keeps the claim true: a program that replaced `console.log`
+// afterwards would otherwise have a read path back through the probe.
+
+extern from "hex:intrinsic"
+    (** Writes `message` to the debugging console. The write is invisible to the
+        program, so a probe inside a pure producer may print once, many times,
+        or never. *)
+    export fun debugLog as log(message: String): Unit
+
+(** Renders `label: value` to the debugging console and answers `value`
+    unchanged — the form that threads a probe through an expression without
+    restructuring it. *)
+export let trace<a: Show>(label: String, value: a): a =
+    log("${label}: ${value}")
+    value

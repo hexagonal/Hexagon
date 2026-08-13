@@ -9,16 +9,16 @@ export const specializations: PlaygroundExample = {
 let plus(x: a, y: a) = x + y
 
 // Open the JS View menu to inspect each generated edition.
-console.log(plus(20, 22))
+log("\${plus(20, 22)}")
 // The integer literal 20 is instantiated as Float by the other argument.
-console.log(plus(20, 1.5))
-console.log(plus(10n, 20n))
+log("\${plus(20, 1.5)}")
+log("\${plus(10n, 20n)}")
 
 // Defaulting establishes Int; the decimal establishes Float.
 let count = 3
 let cost = 1.50
 let total = count * cost
-console.log(total)
+log("\${total}")
 `,
   specificationReferences: [
     "spec/ffi-zero-cost-fundamental-exports.md",

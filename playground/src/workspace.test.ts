@@ -23,7 +23,7 @@ describe("layOutWorkspace", () => {
     const source = "module Helper\n" +
       "    export fun twice(n: Int): Int = n * 2\n" +
       "end module Helper\n" +
-      "console.log(Helper.twice(3))\n";
+      "log(\"${Helper.twice(3)}\")\n";
     const { files } = layOutWorkspace(source);
 
     const helper = files.find(({ path }) => path === "/Helper.hex");
@@ -31,7 +31,7 @@ describe("layOutWorkspace", () => {
     // Masked rather than removed, so every offset after it is still the
     // buffer's own — which is the property the map relies on.
     const main = files.find(({ path }) => path === entryPath);
-    expect(main?.source).toContain("console.log(Helper.twice(3))");
+    expect(main?.source).toContain("log(\"${Helper.twice(3)}\")");
     expect(main?.source).not.toContain("export fun twice");
   });
 
@@ -44,7 +44,7 @@ describe("layOutWorkspace", () => {
 
 describe("WorkspaceMap", () => {
   test("round-trips every offset of a document with no module blocks", () => {
-    const source = "let one = 1\nconsole.log(one)\n";
+    const source = "let one = 1\nlog(\"${one}\")\n";
     const { map } = layOutWorkspace(source);
 
     for (let offset = 0; offset <= source.length; offset += 1) {
@@ -58,7 +58,7 @@ describe("WorkspaceMap", () => {
     const source = "module Helper\n" +
       "    export fun twice(n: Int): Int = n * 2\n" +
       "end module Helper\n" +
-      "console.log(Helper.twice(3))\n";
+      "log(\"${Helper.twice(3)}\")\n";
     const { map } = layOutWorkspace(source);
     const inside = source.indexOf("twice");
 
@@ -89,9 +89,9 @@ describe("WorkspaceMap", () => {
     const source = "module Helper\n" +
       "    export fun twice(n: Int): Int = n * 2\n" +
       "end module Helper\n" +
-      "console.log(Helper.twice(3))\n";
+      "log(\"${Helper.twice(3)}\")\n";
     const { map } = layOutWorkspace(source);
-    const after = source.indexOf("console");
+    const after = source.indexOf("log(");
 
     const at = map.locate(after);
 
