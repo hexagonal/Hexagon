@@ -139,7 +139,10 @@ I元素      E无效年龄  M数据库           -- cultural role prefixes, ordi
   reading — a double leading underscore means the compiler wrote the name — so
   generated names spell themselves directly under the prefix with no further
   marker: `__Eq_Rat` (a dictionary, Dictionary Sharing §5), `__Show_a` (an
-  evidence parameter), `__value` (a helper binder). Single-underscore
+  evidence parameter), `__value` (a helper binder). Public-surface spellings a
+  generator also chooses — a `.d.ts` brand identifier (FFI Part 7 §5), FFI
+  Part 9's documentation parameter names — are faces, not hygiene names, and
+  stay outside the prefix. Single-underscore
   spellings such as `_name` remain ordinary source names. The reservation
   governs Hexagon's own name seats; the foreign side of an FFI `as` alias
   (FFI Part 4 §3.2) is outside them, so a `__`-named foreign export stays
