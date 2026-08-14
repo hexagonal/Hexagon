@@ -378,6 +378,22 @@ export fun pong(n: Int): Unit =
     expect(mainSource.slice(edit.span.start.offset, edit.span.end.offset)).toBe("()");
   });
 
+  test("a piped call with a written `()` keeps the hint but earns no fixit", () => {
+    // The pipeline stage supplies the piped value as an argument, so the
+    // argument-count conjunct — not the two-character gap, which IS exactly
+    // `()` here — is what withholds the fixit: deleting the written parens
+    // would leave `1 |> None`, still an error. The one shape where the gate's
+    // two halves disagree, so the only pin the count conjunct has.
+    const [diagnostic, ...rest] = compileFiles([
+      ["/main.hex", "export let bad: Int = 1 |> None()\n"],
+    ]).diagnostics;
+    expect(rest).toEqual([]);
+    expect(diagnostic?.message).toBe(
+      "`None` is a value, not a function; write it without `()`",
+    );
+    expect(diagnostic?.fixes).toBeUndefined();
+  });
+
   test("an argument list that is not exactly `()` keeps the hint but earns no fixit", () => {
     // "delete the `()`" must delete exactly the two characters it names. A gap
     // holding anything more — whitespace, a comment, a glued effect mark — is
