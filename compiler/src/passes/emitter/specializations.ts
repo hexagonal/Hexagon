@@ -115,6 +115,7 @@ export function planFundamentalSpecializations(
 export function specializeItem(
   item: SpecializableItem,
   specialization: FundamentalSpecialization,
+  bool: Resolved.UnionId | undefined,
 ): SpecializableItem {
   const substitutions = new Map(
     specialization.assignment.map(({ variable, type }) => [variable, type] as const),
@@ -127,7 +128,7 @@ export function specializeItem(
       name: specialization.name,
       scheme: specialization.scheme,
     },
-    value: replaceDictionaryEvidence(item.value, substitutions),
+    value: replaceDictionaryEvidence(item.value, substitutions, bool),
   } as SpecializableItem;
 }
 
@@ -311,18 +312,33 @@ function substituteType(
 function replaceDictionaryEvidence<T>(
   value: T,
   substitutions: ReadonlyMap<Typed.TypeVariableId, FundamentalType>,
+  bool: Resolved.UnionId | undefined,
 ): T {
   if (Array.isArray(value)) {
-    return value.map((element) => replaceDictionaryEvidence(element, substitutions)) as T;
+    return value.map((element) => replaceDictionaryEvidence(element, substitutions, bool)) as T;
   }
   if (value === null || typeof value !== "object") return value;
   const candidate = value as Record<string, unknown>;
   if (candidate.kind === "Dictionary" && typeof candidate.variable === "number") {
     const replacement = substitutions.get(candidate.variable as Typed.TypeVariableId);
+    // The two enumeration-membered fundamentals name no primitive, so their
+    // editions carry the evidence a *ground* site at the same type carries —
+    // structural, over the type `substituteType` above wrote into the scheme.
+    // `Unit`'s is the automatic tuple instance at arity 0 (#159); `Bool`'s is
+    // `stdlib/Bool.hex`'s derived walk (#147), which is what makes an edition's
+    // rendering agree with every other spelling of the same call: `"True"`
+    // rather than the host's `String(x)`.
     if (replacement === "Unit") {
-      // `Unit` evidence is structural since #159 — the automatic tuple
-      // instances at arity 0 — because there is no primitive left to name.
       return { kind: "Structural", type: { kind: "Tuple", elements: [] }, components: [] } as T;
+    }
+    if (replacement === "Bool") {
+      return {
+        kind: "Structural",
+        type: bool === undefined
+          ? { kind: "Error" }
+          : { kind: "Union", union: bool, name: "Bool", arguments: [] },
+        components: [],
+      } as T;
     }
     if (replacement !== undefined) {
       return { kind: "Primitive", instance: replacement } as T;
@@ -331,7 +347,7 @@ function replaceDictionaryEvidence<T>(
   return Object.fromEntries(
     Object.entries(candidate).map(([key, nested]) => [
       key,
-      replaceDictionaryEvidence(nested, substitutions),
+      replaceDictionaryEvidence(nested, substitutions, bool),
     ]),
   ) as T;
 }
