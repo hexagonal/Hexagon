@@ -239,6 +239,7 @@ listed positions:
 | `static` | foreign static-member modifier; syntax completed by the FFI spec |
 | `default` | foreign default-import position; syntax completed by the FFI spec |
 | `pure` | the trusted purity claim on an extern `fun` declaration (FFI Part 4 §4.5, #355) |
+| `conduit` | the declared-conduit claim on an extern `fun` declaration, in `pure`'s own slot (FFI Part 4 §4.5, #409) |
 | `union` | the union-declaration introducer at declaration head — module top level, optionally after `export` and `opaque`, always followed by the declared type's name (#373: Collections Part 4 §6.2 mandates `Set.union`, and a reserved word is unspellable in every binder position; the `with`/`when` precedent) |
 
 Contextual status is observable: `let when = True` is legal, while the same spelling

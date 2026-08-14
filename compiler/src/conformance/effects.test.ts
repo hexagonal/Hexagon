@@ -146,7 +146,7 @@ export let run(document: String): Unit = save(document)
     ]);
   });
 
-  it("`!` -> `?`: a source claimed where there is only a conductor", () => {
+  it("`!` -> `?`: a source claimed where there is only a conduit", () => {
     expect(foldWith("", "!")).toEqual([
       "this call is as effectful as the enclosing instantiation makes it, so " +
       "`combine` wants `?`, not `!`",
@@ -159,13 +159,13 @@ export let run(document: String): Unit = save(document)
     ]);
   });
 
-  it("`?` -> bare: a conductor claimed where nothing conducts", () => {
+  it("`?` -> bare: a conduit claimed where nothing conducts", () => {
     expect(foldWith("?", "?")).toEqual([
       "this call is pure, so `next` wants no mark, not `?`",
     ]);
   });
 
-  it("`?` -> `!`: a conductor claimed where the colour is the impure constant", () => {
+  it("`?` -> `!`: a conduit claimed where the colour is the impure constant", () => {
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
 export let run(document: String): Unit = save?(document)
@@ -1124,6 +1124,237 @@ export let doubled: Int = pure(21) + pure(21)
   });
 });
 
+describe("#409 the `conduit` claim — FFI Part 4 §4.5", () => {
+  /**
+   * The ruling's own specimen. `conduit` seats one colour variable at the row's
+   * outer arrow *and* at every `->?` the signature writes, so the row is exactly
+   * as effectful as its callbacks, jointly.
+   */
+  const runner = `extern from "./world.js"
+    export conduit fun runner(step: () ->? String): Int
+    export fun readLine(): String
+`;
+
+  /** Two linked slots on one row — still one variable (Effects §2.2). */
+  const both = `extern from "./world.js"
+    export conduit fun both(first: () ->? String, second: () ->? String): Int
+    export fun readLine(): String
+`;
+
+  const unlinkedConduit =
+    "`conduit` claims this row is exactly as effectful as its callbacks, and " +
+    "this signature has no `->?` slot to take that colour from — write `->?` " +
+    "on the callback parameter this row runs, or drop the claim and take the " +
+    "impure default";
+
+  const oneClaim =
+    "one row, one claim: `pure` says this function never observably invokes " +
+    "what it is handed, and `conduit` says it is exactly as effectful as " +
+    "what it is handed — write one";
+
+  it("admits the row, and produces the ordinary linked face", () => {
+    // No new face vocabulary: what the keyword yields is a face the written
+    // grammar can already spell, displayed with the plain `->?` because it
+    // carries exactly one variable (§10's single-variable rule).
+    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", runner]])).toEqual([]);
+    expect(hoveredType(runner, "runner")).toBe("(() ->? String) ->? Int");
+  });
+
+  it("takes a bare call with a pure callback", () => {
+    // The whole point of the claim, and the thing the impure default could not
+    // express: a pure callback costs its caller no mark at all.
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `${runner}
+export let n: Int = runner(() => "x")
+`]]),
+    ).toEqual([]);
+  });
+
+  it("demands `!` with an impure callback, and refuses the bare call", () => {
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `${runner}
+export let n: Int = runner!(() => readLine!())
+`]]),
+    ).toEqual([]);
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `${runner}
+export let n: Int = runner(() => readLine!())
+`]]),
+    ).toEqual([
+      "this call runs effects, so `runner` wants `!`, not no mark",
+    ]);
+  });
+
+  it("conducts inside an inlet-bearing body, wearing `?`", () => {
+    // §3.3's third arm, reached with no FFI-specific rule: the enclosing
+    // signature's variable is what the row's outer arrow instantiates to.
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `${runner}
+export let use(k: () ->? String): Int = runner?(k)
+`]]),
+    ).toEqual([]);
+  });
+
+  it("joins every `->?` slot into one colour, exactly as a written signature does", () => {
+    // One variable per signature (§2.2) is not relaxed at the boundary: the two
+    // slots are one colour, so both callbacks are pure or both are impure, and
+    // the outer arrow follows them. The in-language twin below is the control —
+    // the keyword must add no behaviour of its own.
+    const twin = `extern from "./world.js"
+    export fun readLine(): String
+
+export let both(first: () ->? String, second: () ->? String): Int =
+    let a: String = first?()
+    let b: String = second?()
+    1
+`;
+    for (const source of [both, twin]) {
+      expect(
+        effectDiagnostics([["/world.js", ""], ["/main.hex", `${source}
+export let pureUse: Int = both(() => "a", () => "b")
+`]]),
+      ).toEqual([]);
+      expect(
+        effectDiagnostics([["/world.js", ""], ["/main.hex", `${source}
+export let impureUse: Int = both!(() => readLine!(), () => readLine!())
+`]]),
+      ).toEqual([]);
+      // Mixing the colours in one call is §4.3's pure demand, not a join: the
+      // pure lambda pins the shared variable, and the impure one then meets a
+      // `->`. Pinned on both spellings because "the extern behaves like the
+      // written signature" is the claim, and a difference here would be one.
+      expect(
+        effectDiagnostics([["/world.js", ""], ["/main.hex", `${source}
+export let mixed: Int = both!(() => "a", () => readLine!())
+`]]),
+      ).toEqual([
+        "a `->` arrow promises purity, and this function performs effects — " +
+        "the demand is written `->`, the function's face `->?` or `->!`",
+        "this call is pure, so `both` wants no mark, not `!`",
+      ]);
+    }
+  });
+
+  it("quantifies the colour, so two call sites instantiate it apart", () => {
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `${runner}
+export let pureUse: Int = runner(() => "x")
+export let impureUse: Int = runner!(() => readLine!())
+`]]),
+    ).toEqual([]);
+  });
+
+  it("refuses the claim on a row with no `->?` slot to link to", () => {
+    // §4.1's and §4.4's own sentence, at the claim: one spelling, one meaning,
+    // and where the meaning is unavailable, a diagnostic rather than a silent
+    // re-read as the impure default.
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+    export conduit fun runner(step: () -> String): Int
+`]]),
+    ).toEqual([unlinkedConduit]);
+    // A row with no function-typed parameter at all takes the same report.
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+    export conduit fun trim(document: String): String
+`]]),
+    ).toEqual([unlinkedConduit]);
+  });
+
+  it("stands that report on the claim word itself", () => {
+    const source = `extern from "./world.js"
+    export conduit fun trim(document: String): String
+`;
+    expect(effectSpans([["/world.js", ""], ["/main.hex", source]])).toEqual([
+      { primary: source.indexOf("conduit"), edits: [] },
+    ]);
+  });
+
+  it("refuses `pure conduit`, in either order — one row, one claim", () => {
+    for (const claims of ["pure conduit", "conduit pure"]) {
+      expect(
+        effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+    export ${claims} fun runner(step: () ->? String): Int
+`]]),
+      ).toEqual([oneClaim]);
+    }
+  });
+
+  it("believes neither claim behind that report, so the row takes the impure default", () => {
+    // The honest fallback for a row that claimed nothing — and the reason the
+    // conflict costs exactly one report rather than cascading through the body.
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+    export pure conduit fun runner(step: () ->? String): Int
+
+export let n: Int = runner!(() => "x")
+`]]),
+    ).toEqual([oneClaim]);
+  });
+
+  it("refuses it on an extern `let` and an extern `type`, as `pure` is refused", () => {
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+    export conduit let seed: Int
+`]]),
+    ).toEqual([
+      "`conduit` claims a function's face, and a value reference carries no colour " +
+      "— the claim belongs on an extern `fun`",
+    ]);
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+    export conduit type Handle
+`]]),
+    ).toEqual([
+      "`conduit` claims a function's face, and a type has none — the claim belongs " +
+      "on an extern `fun`",
+    ]);
+  });
+
+  it("refuses either claim on an intrinsic row, naming the word that was written", () => {
+    // Effects §6.1's ownership split, from the verified side: the intrinsic
+    // door's colours come from Intrinsics §4.2's verification, so neither
+    // trusted claim has anything to do there. The privilege gate speaks first
+    // — this is an ordinary user file — and the claim refusal rides beside it.
+    for (const claim of ["pure", "conduit"]) {
+      expect(
+        effectDiagnostics([["/main.hex", `extern from "hex:intrinsic"
+    ${claim} fun seqMemoize(source: Seq(a)): Seq(a)
+`]]),
+      ).toEqual([
+        "the `hex:` specifier scheme is reserved to standard-library source; to bind " +
+        "your own JavaScript implementation, use an ordinary `extern from` block " +
+        "naming your module",
+        `intrinsic rows are verified rather than trusted; \`${claim}\` is for user-written externs`,
+      ]);
+    }
+  });
+
+  it("keeps `conduit` an ordinary name everywhere else", () => {
+    // Contextual vocabulary (Lexer §4.2's family), exactly as `pure` is: the
+    // refusals above must not have reserved the word.
+    expect(
+      effectDiagnostics([["/main.hex", `
+export record Pipe = { conduit: Int }
+export let conduit(value: Int): Int = value
+export let total: Int = conduit(21) + Pipe({ conduit = 21 }).conduit
+`]]),
+    ).toEqual([]);
+    // And the foreign side of a row is not the claim slot either.
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+    export fun conduit(value: Int): Int
+`]]),
+    ).toEqual([]);
+  });
+
+  it("carries the linked face into the emitted `.d.ts`", () => {
+    expect(declarationsOf([["/world.js", ""], ["/main.hex", runner]])).toContain(
+      "/** Hexagon: `(() ->? String) ->? Int` */\nexport declare function runner(",
+    );
+  });
+});
+
 describe("#355 marks on the deferred dot-call goal path (Method Syntax §3)", () => {
   // A dot call whose receiver is a flexible tyvar pends: the evidence arrives
   // later in the owner region, and the goal settles at that region's deadline
@@ -1370,7 +1601,7 @@ export let clean(document: String): String = trim(document)
     );
   });
 
-  it("displays a linked conductor's whole signature with the plain arrow", () => {
+  it("displays a linked conduit's whole signature with the plain arrow", () => {
     // `fold`'s shape is the designated specimen: the body conducts, so its own
     // colour *unifies with* the callback's (§3.4) rather than standing apart,
     // and one variable covers the whole face — which is why nothing is

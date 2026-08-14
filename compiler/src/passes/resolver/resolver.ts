@@ -1760,6 +1760,7 @@ class Resolver {
             exported: declaration.exported,
             default: declaration.default,
             ...(declaration.pure === undefined ? {} : { pure: declaration.pure }),
+            ...(declaration.conduit === undefined ? {} : { conduit: declaration.conduit }),
             ...(declaration.foreignName === undefined ? {} : { foreignName: declaration.foreignName.text }),
             localName: declaration.localName.text,
             binding,

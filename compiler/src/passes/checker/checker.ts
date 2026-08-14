@@ -1660,7 +1660,21 @@ class Checker {
         // caller instantiates it afresh. Left unquantified it would be one
         // module-global variable that the first call site pinned for every
         // other — the same trap the intrinsic branch's snapshot comment names.
-        const externEffect = declaration.pure !== true ? IMPURE : undefined;
+        //
+        // #409's third arm: `conduit` seats that same variable at the row's
+        // *outer* arrow too, so the row is exactly as effectful as its
+        // callbacks, jointly. Nothing FFI-specific follows from it — the face
+        // is an ordinary linked face, and callers get §3.3's machinery
+        // unchanged. The claim needs a `->?` to link to, and a row that offers
+        // none is refused rather than quietly re-read (§4.4's own sentence).
+        const conduitClaim = declaration.conduit;
+        const conduitColour = conduitClaim === undefined
+          ? undefined
+          : externLinked && externFace !== undefined
+          ? externFace.effect
+          : (this.#reportUnlinkedConduit(conduitClaim), undefined);
+        const externEffect = conduitColour ??
+          (declaration.pure !== true ? IMPURE : undefined);
         this.#schemes.set(declaration.binding.symbol, {
           variables: externLinked && externFace !== undefined ? [externFace.effect] : [],
           type: {
@@ -3771,7 +3785,7 @@ class Checker {
         // Settled here rather than at the end of the module: a function's
         // colour has to be decided *before* it is generalized, or its callers
         // instantiate a fresh unsolved variable and every pure call in the
-        // corpus reads as a conductor. Bodies close innermost-first, and a
+        // corpus reads as a conduit. Bodies close innermost-first, and a
         // declaration closes before anything that can call it, so a callee's
         // colour is always known by the time a caller absorbs it.
         this.#settleFrame(effectFrame);
@@ -5164,6 +5178,31 @@ class Checker {
   }
 
   /**
+   * FFI Part 4 §4.5 (#409): a `conduit` claim on a row with no `->?` anywhere in
+   * its signature. The claim is that the row's colour *is* its callbacks', and a
+   * row declaring no linked slot has none to take — so it is a diagnostic rather
+   * than a silent re-read, on §4.1's and §4.4's own sentence: one spelling, one
+   * meaning, and where the meaning is unavailable, a report.
+   *
+   * The advice is in words rather than a fixit. The two repairs are dropping the
+   * claim and marking a callback parameter `->?`, and which one is right is the
+   * design conversation the report exists to start — the same reason §4.2's
+   * declaration-form branch gives its advice in words when there is no arrow to
+   * rewrite.
+   */
+  #reportUnlinkedConduit(claim: Source.Span): void {
+    this.#diagnostics.add({
+      severity: "error",
+      message:
+        "`conduit` claims this row is exactly as effectful as its callbacks, and " +
+        "this signature has no `->?` slot to take that colour from — write `->?` " +
+        "on the callback parameter this row runs, or drop the claim and take the " +
+        "impure default",
+      primary: claim,
+    });
+  }
+
+  /**
    * Elaborates one binding annotation under the §4.4 position its **shape**
    * selects (§2.2.2's second boundary).
    *
@@ -5299,7 +5338,7 @@ class Checker {
       }
       this.#unify(frame.own, absorbed, span);
     }
-    // Then the conductors. A body is at least as effectful as anything it
+    // Then the conduits. A body is at least as effectful as anything it
     // calls, and with two points and no subtyping the join is unification —
     // which is also how one variable per signature emerges rather than being
     // imposed.
@@ -5310,7 +5349,7 @@ class Checker {
       this.#unify(frame.own, colour, span);
     }
     // The defaulting clause. A colour this body owns, with no inlet to make it
-    // a conductor and nothing to make it a source, is unconstrained — and pure
+    // a conduit and nothing to make it a source, is unconstrained — and pure
     // instantiates anywhere, so pure is the harmless answer.
     const own = this.#prune(frame.own);
     if (own.kind === "Variable" && !frame.inlet && !this.#ownedByEnclosing(frame, own)) {

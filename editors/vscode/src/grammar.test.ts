@@ -240,6 +240,29 @@ describe("contextual keywords are positional (spec/lexer.md §4.2)", () => {
     )).toHaveLength(1);
   });
 
+  it("paints `conduit` the same way, and nowhere else", async () => {
+    // FFI Part 4 §4.5's declared-conduit claim (#409) sits in `pure`'s slot and
+    // takes `pure`'s rule, lookahead included. One row carries one claim, so
+    // `pure conduit` matches neither word and paints as ordinary terms.
+    const source = [
+      'extern from "./world.js"',
+      "    export conduit fun runner(step: () ->? String): Int",
+      "    export pure conduit fun both(step: () ->? String): Int",
+      "let conduit = 1",
+    ].join("\n");
+    const pairs = await scopePairs(source);
+
+    expect(pairs).toContainEqual(["conduit", "storage.modifier.hexagon"]);
+    expect(pairs).toContainEqual(["conduit", "variable.other.definition.hexagon"]);
+    expect(pairs).toContainEqual(["runner", "entity.name.function.hexagon"]);
+    expect(pairs.filter(([text, scope]) =>
+      text === "conduit" && scope === "storage.modifier.hexagon"
+    )).toHaveLength(1);
+    expect(pairs.filter(([text, scope]) =>
+      text === "pure" && scope === "storage.modifier.hexagon"
+    )).toHaveLength(0);
+  });
+
   it("closes the extern block at the next top-level line", async () => {
     const source = ['extern from "m"', "    export type T", "let get = 1"].join("\n");
     // Were the block still open, `get` would read as FFI vocabulary.
