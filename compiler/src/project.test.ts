@@ -31,12 +31,13 @@ test("compiles relative named, aliased, namespace, and effect imports", () => {
   expect(project.diagnostics).toEqual([]);
   // `Debug.hex` is here because `telemetry.hex` names `log`: a prelude module
   // is injected beside the sources that use it, ahead of them. `String.hex`
-  // rides in behind it since #419 widened the probe to `log<a: Show>`: the call
-  // is at `String`, so the graph now needs the companion that houses
-  // `Show<String>`. A prelude module's own prelude dependencies are injected
-  // the same way, which is why it precedes `Debug.hex` rather than following.
+  // rode in behind it while the call carried a dictionary — #419 had widened
+  // the probe to `log<a: Show>`, so the graph needed the companion housing
+  // `Show<String>` — and left again at #440: `log("loaded")` is a known-concrete
+  // call, so it reaches `logString` and asks for no evidence at all. The whole
+  // edge this pins is the one the emitted text now has, and dropping a module
+  // from a program that never needed its dictionary is the point of the change.
   expect(project.modules.map(({ source }) => source.path)).toEqual([
-    "/app/String.hex",
     "/app/Debug.hex",
     "/app/geometry.hex",
     "/app/telemetry.hex",
@@ -260,19 +261,28 @@ test("links constrained Hexagon exports through private ESM plumbing", () => {
     .toHaveLength(1);
   expect(math.javascript.text).toContain("export { plus as __plus };");
   expect(math.javascript.text).toContain("export { plusInt };");
+  // The generic edition's import survives both forms, in both cases because the
+  // source asked for it: an explicit import's names are emitted whether the body
+  // reaches them or not. What moved at #440 is the *call*, which is concrete at
+  // `Int` in both modules and so reaches the edition `math.js` exports for it —
+  // by its public name in the named form, through the same name in the namespace
+  // one, since a namespace alias never reaches an edition as `Math.plusInt`.
   expect(main.javascript.text).toContain(
     'import { __plus as plus } from "./math.js";',
   );
-  expect(main.javascript.text).toMatch(/log\(String\(plus\(20, 22,/u);
+  expect(main.javascript.text).toContain('import { plusInt } from "./math.js";');
+  expect(main.javascript.text).toMatch(/logString\(String\(plusInt\(20, 22\)\)\)/u);
+  expect(main.javascript.text).not.toContain("__Num_Int");
   expect(namespace.javascript.text).toContain(
     'import * as Math from "./math.js";',
   );
   expect(namespace.javascript.text).toContain(
     'import { __plus } from "./math.js";',
   );
-  expect(namespace.javascript.text).toMatch(
-    /log\(String\(__plus\(20, 22,/u,
+  expect(namespace.javascript.text).toContain(
+    'import { plusInt } from "./math.js";',
   );
+  expect(namespace.javascript.text).toMatch(/logString\(String\(plusInt\(20, 22\)\)\)/u);
   expect(math.javascript.diagnostics).toEqual([]);
   expect(main.javascript.diagnostics).toEqual([]);
   expect(namespace.javascript.diagnostics).toEqual([]);

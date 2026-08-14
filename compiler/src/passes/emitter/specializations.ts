@@ -131,23 +131,57 @@ export function specializeItem(
   } as SpecializableItem;
 }
 
+/**
+ * Algorithm N for a declaration reached **across a module boundary** (#440):
+ * the plan the exporter ran, recomputed here from the generalized scheme its
+ * interface carries.
+ *
+ * Sound on any program that compiles, in both directions. Nothing is missed
+ * because the scheme travels verbatim and the rule below is a function of it
+ * alone; nothing is invented because a collision that dropped a planned edition
+ * is an *error* at an exported source (`addSpecializationCollisionDiagnostics`),
+ * so a clean exporter published every name this plans. The one input the scheme
+ * cannot supply — whether the item's value is a lambda — arrives on the import
+ * as `specializableTerms`, which is the caller's gate rather than this one's.
+ */
+export function planImportedSpecializations(
+  symbol: Core.Symbol,
+  bool: Resolved.UnionId | undefined,
+): readonly FundamentalSpecialization[] {
+  return planScheme(symbol.id, symbol.name, symbol.scheme, true, bool);
+}
+
 function planItem(
   item: SpecializableItem,
   bool: Resolved.UnionId | undefined,
 ): readonly FundamentalSpecialization[] {
-  if (item.binding.scheme.constraints.length === 0) return [];
   if (item.kind === "Let" && item.value.kind !== "Lambda") return [];
+  return planScheme(
+    item.binding.symbol,
+    item.binding.name,
+    item.binding.scheme,
+    item.exported,
+    bool,
+  );
+}
+
+function planScheme(
+  symbol: Resolved.SymbolId,
+  name: string,
+  scheme: Typed.Scheme,
+  exported: boolean,
+  bool: Resolved.UnionId | undefined,
+): readonly FundamentalSpecialization[] {
+  if (scheme.constraints.length === 0) return [];
 
   const constraints = new Map<Typed.TypeVariableId, Set<Typed.ConstraintName>>();
-  for (const requirement of item.binding.scheme.constraints) {
+  for (const requirement of scheme.constraints) {
     if (requirement.type.kind !== "Variable") continue;
     const names = constraints.get(requirement.type.id) ?? new Set();
     names.add(requirement.name);
     constraints.set(requirement.type.id, names);
   }
-  const specializing = item.binding.scheme.variables.filter((variable) =>
-    constraints.has(variable)
-  );
+  const specializing = scheme.variables.filter((variable) => constraints.has(variable));
   if (specializing.length === 0) return [];
 
   const candidates = specializing.map((variable) =>
@@ -165,12 +199,12 @@ function planItem(
       type: types[index]!,
     }));
     return {
-      sourceSymbol: item.binding.symbol,
-      sourceName: item.binding.name,
-      sourceExported: item.exported,
-      name: `${item.binding.name}${types.join("")}`,
+      sourceSymbol: symbol,
+      sourceName: name,
+      sourceExported: exported,
+      name: `${name}${types.join("")}`,
       assignment,
-      scheme: specializeScheme(item.binding.scheme, new Map(
+      scheme: specializeScheme(scheme, new Map(
         assignment.map(({ variable, type }) => [variable, type] as const),
       ), bool),
     };

@@ -375,6 +375,7 @@ Exported constrained-polymorphic **non-function values**, should generalization 
 | 15 | Per-user-type export explosion rejected permanently; user types share the one generic edition | §11.4 |
 | 16 | Constraints §6.4 / Modules §11.5 wording contradictions recorded for the FFI consolidation, unresolved here | §13.2 |
 | 17 | `Bool` remains fundamental **by enumeration** after #147's prelude-union reclassification — membership is a language category, not type classification; Algorithms S/G/N unaffected; face `boolean` unchanged (now grounded in the Unions §6.2 pin) | §2.1, §2.3 |
+| 18 | **§8.2's known-concrete freedom is taken as the implementation's standing choice** (#440): an internal call to an exported constrained declaration whose constrained variables all instantiate at fundamental types emits the Algorithm N specialization by name — no evidence, no generic edition; every other internal site (any type variable in play, any non-fundamental concrete instantiation, any unexported callee) keeps trailing evidence. The direction is the permitted converse of §5's bar and §11.6's rejection: call sites here *consume* an unconditional export; the export surface still never depends on call sites | §5, §8.2, §11.6 |
 
 ---
 

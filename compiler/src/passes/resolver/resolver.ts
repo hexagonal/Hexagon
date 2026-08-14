@@ -579,6 +579,29 @@ function internalNameInputs(
   return { members, terms };
 }
 
+/**
+ * The exported terms whose value form admits Algorithm N editions, for
+ * `Resolved.ImportItem.specializableTerms` — see its documentation for why the
+ * fact travels instead of being predicted from the scheme.
+ *
+ * The predicate is `isSpecializable` in the emitter's `specializations.ts`,
+ * item kind for item kind, and the two must stay in step: an over-report is a
+ * call to an edition the exporter never wrote, an under-report is only a missed
+ * optimization. A foreign row mints no edition and is absent for that reason —
+ * `extern` declarations carry no Hexagon body to specialize.
+ */
+function specializableTerms(
+  imported: ModuleInterface | undefined,
+): readonly string[] {
+  if (imported === undefined) return [];
+  return imported.module.items.flatMap((item) =>
+    (item.kind === "Fun" || (item.kind === "Let" && item.value.kind === "Lambda")) &&
+      item.exported
+      ? [item.binding.name]
+      : []
+  );
+}
+
 class Scope {
   readonly #bindings = new Map<string, Resolved.SymbolId>();
   /**
@@ -1715,6 +1738,7 @@ class Resolver {
           })),
           constraints: boundConstraints,
           internalNames: internalNameInputs(importedModule),
+          specializableTerms: specializableTerms(importedModule),
           span: item.span,
         };
       }
@@ -3599,6 +3623,9 @@ class Resolver {
       // Not empty for that reason: these describe the exporting module's own
       // output, and a prelude module names its exports like any other.
       internalNames: internalNameInputs(
+        this.#preludeInterfaceBySpecifier.get(specifier),
+      ),
+      specializableTerms: specializableTerms(
         this.#preludeInterfaceBySpecifier.get(specifier),
       ),
       synthesized: true,
