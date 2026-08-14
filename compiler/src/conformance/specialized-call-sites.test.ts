@@ -65,6 +65,11 @@ function danglingImports(
   );
 }
 
+/** Import lines only — several claims here are about the module graph. */
+function importLines(javascript: string): readonly string[] {
+  return javascript.split("\n").filter((line) => line.startsWith("import "));
+}
+
 const SHOW_PAIR =
   "export let pair<a: Show, b: Show>(x: a, y: b): String = show(x) ++ show(y)\n";
 
@@ -155,11 +160,37 @@ describe("a concrete call across a source-written import", () => {
       ],
     ]);
 
-    // Emitted because the source asked for it, not because the body reaches it.
-    expect(javascript).toContain('import { __plus as plus } from "./math.js";');
-    expect(javascript).toContain('import { plusInt } from "./math.js";');
+    // One line per specifier: the generic edition's binding is emitted because
+    // the source asked for it, not because the body reaches it, and the edition
+    // joins it there rather than opening a second line over the same module.
+    expect(javascript).toContain(
+      'import { __plus as plus, plusInt } from "./math.js";',
+    );
     expect(javascript).toContain("const answer = plusInt(20, 22);");
     expect(javascript).not.toContain("__Num_Int");
+    expect(importLines(javascript).filter((line) => line.includes('"./math.js"')))
+      .toHaveLength(1);
+  });
+
+  /**
+   * The merge takes the line at its **source position**, not at the top of the
+   * file: `Import` items render last so the line can know its editions, but
+   * they keep their seats in the entries stream.
+   */
+  test("keeps the merged line where the source wrote the import", () => {
+    const javascript = emitted([
+      ["/math.hex", "export let plus<a: Num>(x: a, y: a): a = x + y\n"],
+      [
+        "/main.hex",
+        "let before: Int = 1\n" +
+          'import { plus } from "./math"\n' +
+          "export let answer: Int = plus(before, 41)\n",
+      ],
+    ]);
+
+    expect(javascript.indexOf("const before = 1;")).toBeLessThan(
+      javascript.indexOf('import { __plus as plus, plusInt } from "./math.js";'),
+    );
   });
 
   test("names each variable's assignment in declaration order", () => {
@@ -172,7 +203,9 @@ describe("a concrete call across a source-written import", () => {
       ],
     ]);
 
-    expect(javascript).toContain('import { pairIntString } from "./pair.js";');
+    expect(javascript).toContain(
+      'import { __pair as pair, pairIntString } from "./pair.js";',
+    );
     expect(javascript).toContain('const answer = pairIntString(1, "x");');
   });
 

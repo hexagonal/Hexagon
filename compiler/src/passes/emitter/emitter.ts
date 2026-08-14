@@ -1441,7 +1441,11 @@ class JavaScriptEmitter {
     // doc comments are already spoken for is exactly what rendering discovers:
     // a doc block with no seat here (a `type` alias, a `union`) is still an
     // item-boundary comment, and Comments §6 preserves it as one.
-    const rendered = this.#module.items.map((item) => {
+    const renderItem = (item: Core.Item): {
+      readonly item: Core.Item;
+      readonly lines: readonly string[];
+      readonly start: Source.Span;
+    } => {
       const lines = this.#emitItem(item, 0, new Map(), false);
       const comments = trailing.get(item) ?? [];
       if (comments.length > 0 && lines.length > 0) {
@@ -1460,7 +1464,42 @@ class JavaScriptEmitter {
         // A documented item starts, on the page, at its doc block.
         start: (doc.length > 0 ? this.#docs.span(item.span) : undefined) ?? item.span,
       };
-    });
+    };
+
+    // `Import` items render **last**, and only their own kind is held back
+    // (#440). A source-written import line has to name the fundamental editions
+    // this module's call sites chose, and only rendering the bodies discovers
+    // which — the same after-the-fact knowledge every deferred channel below is
+    // built on, except that this line has a *seat in the source order* and so
+    // cannot move into a channel.
+    //
+    // Reordering is safe because the two directions are not symmetric. A body
+    // never reads anything import rendering writes: the local every imported
+    // name is spelled by is seated in construction (`#constrainedImports`,
+    // `#importLocals`, `#namespaceConstrainedLocals`), not here, and the rest of
+    // what this arm writes — the held-back synthesized and constraint items, the
+    // bound-once dictionary and constrained-local sets — is read only by the
+    // deferred channels and by itself.
+    //
+    // `#exports` is the one exception, and it is settled rather than reasoned
+    // away: an import re-publishes its instances' evidence, so leaving that to
+    // the second pass would move those lines below every term's. The claim runs
+    // through `#exportEvidence`'s own idempotence — it is asked here, at the
+    // item's source position, and the second pass's identical request is then a
+    // no-op. Emitted export order is therefore unchanged by the split.
+    const renderedByItem = new Map<Core.Item, ReturnType<typeof renderItem>>();
+    for (const item of this.#module.items) {
+      if (item.kind === "Import" && this.#exportInstanceEvidence) {
+        for (const { localDictionary } of item.instances) {
+          this.#exportEvidence(localDictionary);
+        }
+      }
+      if (item.kind !== "Import") renderedByItem.set(item, renderItem(item));
+    }
+    for (const item of this.#module.items) {
+      if (item.kind === "Import") renderedByItem.set(item, renderItem(item));
+    }
+    const rendered = this.#module.items.map((item) => renderedByItem.get(item)!);
 
     // Before the import lines, because a helper body may itself call the trie
     // runtime — `vectorIndex` is a bounds check around `get` — and the import
@@ -1493,7 +1532,7 @@ class JavaScriptEmitter {
     const preludeTermImports = this.#preludeTermImports();
     body.push(...preludeTermImports.map(({ line }) => line));
     const specializationImports = this.#specializationImports();
-    body.push(...specializationImports.map(({ line }) => line));
+    body.push(...specializationImports.flatMap(({ line }) => line === undefined ? [] : [line]));
     const runtimeImports = this.#runtimeImports();
     body.push(...runtimeImports.map(({ line }) => line));
     body.push(...this.#constraintMemberImports());
@@ -1614,11 +1653,17 @@ class JavaScriptEmitter {
           const source = this.#importedInternalName(imported, item);
           return [source === local ? source : `${source} as ${local}`];
         });
+        // A namespace alias can never reach an edition as `Math.plusInt` — the
+        // editions are not on the exporter's Hexagon interface, so the resolver
+        // binds no member for them — which is exactly why this form already has
+        // a second, named line for the internal constrained exports. The
+        // editions join that line rather than opening a third.
+        const bindings = [...constrained, ...this.#specializationBindings(item)];
         return [
           `${prefix}import * as ${item.form.alias} from ${specifier};`,
-          ...(constrained.length === 0
+          ...(bindings.length === 0
             ? []
-            : [`${prefix}import { ${constrained.join(", ")} } from ${specifier};`]),
+            : [`${prefix}import { ${bindings.join(", ")} } from ${specifier};`]),
           ...instanceImport,
         ];
       }
@@ -1634,7 +1679,13 @@ class JavaScriptEmitter {
           ? this.#importedInternalName(imported, item)
           : imported;
         return source === local ? source : `${source} as ${local}`;
-      });
+      })
+        // The editions this module's call sites chose in the module this import
+        // names (#440), after the bindings the source wrote. One line per
+        // specifier: they are named imports of the same module, and the only
+        // reason they could not join it before was that the line was written
+        // before the call sites were rendered.
+        .concat(this.#specializationBindings(item));
       // A synthesized prelude import whose only names were `Bool` constructors
       // has nothing left to bind once the pin emits them as literals (#147), so
       // it must not fall through to the side-effect form: that would put a
@@ -5055,36 +5106,56 @@ class JavaScriptEmitter {
   }
 
   /**
-   * `import` lines for the fundamental editions this module *calls* in another
-   * module (#440) — one per import item whose callee a call site specialized.
+   * The `import` bindings for the fundamental editions this module *calls* in
+   * the module `item` names (#440), in edition-name order so the emitted text
+   * is a function of what the module calls rather than of where it calls it.
    *
-   * Decided after rendering, like every other channel emission owns, and for
-   * the strongest form of that reason: choosing an edition is what makes the
-   * generic edition's own import unnecessary, so a rule that read the tree
-   * would have to predict the choice. The specifiers ride along because the
-   * edge they create may be the module's only one — a synthesized prelude
-   * import whose every name went to an edition emits no term line at all, and
-   * without the report `Debug.js` is never written beside an emitted
-   * `import { logString } from "./Debug.js"` (defect 8's shape).
+   * Read by the two places an edition can be bound, and by both only after
+   * every body has been rendered: a source-written import's own line, which is
+   * why `Import` items render last, and the channel below for the synthesized
+   * prelude imports, which have no line of their own to join.
+   */
+  #specializationBindings(item: Core.ImportItem): readonly string[] {
+    const names = this.#usedSpecializations.get(item);
+    if (names === undefined) return [];
+    return [...names]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([source, local]) => source === local ? source : `${source} as ${local}`);
+  }
+
+  /**
+   * The edition imports that need a line of their own, and the module edges
+   * every edition import creates (#440).
    *
-   * Ordered by import item and then by edition name, so the emitted text is a
-   * function of what the module calls rather than of where it calls it.
+   * Only a **synthesized** prelude import needs the line. A source-written one
+   * has a line at its own seat in the source order and takes its editions
+   * there, so emitting them here as well would bind each identifier twice —
+   * `SyntaxError: Identifier has already been declared` at load, after a clean
+   * compile.
+   *
+   * The `specifier` is reported for **both**, which is the half that is not
+   * cosmetic. A synthesized import whose every name went to an edition emits no
+   * term line at all, so this is the only record that `Debug.js` has to be
+   * written beside an emitted `import { logString } from "./Debug.js"` — defect
+   * 8's shape. A source-written import's edge is already readable from the tree;
+   * reporting it too costs a duplicate in a set and keeps the channel's meaning
+   * "what this file imports editions from" rather than "what the other rule
+   * missed".
    */
   #specializationImports(): readonly {
-    readonly line: string;
+    readonly line: string | undefined;
     readonly specifier: string;
   }[] {
     return this.#module.items.flatMap((item) => {
       if (item.kind !== "Import") return [];
-      const names = this.#usedSpecializations.get(item);
-      if (names === undefined || names.size === 0) return [];
-      const bindings = [...names]
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([source, local]) => source === local ? source : `${source} as ${local}`);
+      const bindings = this.#specializationBindings(item);
+      if (bindings.length === 0) return [];
       return [{
-        line: `import { ${bindings.join(", ")} } from ${
-          JSON.stringify(emittedModuleSpecifier(item.specifier))
-        };`,
+        line: item.synthesized
+          ? `import { ${bindings.join(", ")} } from ${
+            JSON.stringify(emittedModuleSpecifier(item.specifier))
+          };`
+          : undefined,
         specifier: item.specifier,
       }];
     });

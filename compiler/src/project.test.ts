@@ -267,20 +267,20 @@ test("links constrained Hexagon exports through private ESM plumbing", () => {
   // `Int` in both modules and so reaches the edition `math.js` exports for it —
   // by its public name in the named form, through the same name in the namespace
   // one, since a namespace alias never reaches an edition as `Math.plusInt`.
+  //
+  // **One line per specifier.** The edition joins the bindings the source wrote,
+  // at the seat the source wrote them; in the namespace form it joins the second
+  // line that form already emits for the internal constrained exports.
   expect(main.javascript.text).toContain(
-    'import { __plus as plus } from "./math.js";',
+    'import { __plus as plus, plusInt } from "./math.js";',
   );
-  expect(main.javascript.text).toContain('import { plusInt } from "./math.js";');
   expect(main.javascript.text).toMatch(/logString\(String\(plusInt\(20, 22\)\)\)/u);
   expect(main.javascript.text).not.toContain("__Num_Int");
   expect(namespace.javascript.text).toContain(
     'import * as Math from "./math.js";',
   );
   expect(namespace.javascript.text).toContain(
-    'import { __plus } from "./math.js";',
-  );
-  expect(namespace.javascript.text).toContain(
-    'import { plusInt } from "./math.js";',
+    'import { __plus, plusInt } from "./math.js";',
   );
   expect(namespace.javascript.text).toMatch(/logString\(String\(plusInt\(20, 22\)\)\)/u);
   expect(math.javascript.diagnostics).toEqual([]);
