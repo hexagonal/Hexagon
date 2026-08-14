@@ -2,21 +2,70 @@ import { describe, expect, test } from "vitest";
 
 import { entryPath, layOutWorkspace } from "./workspace";
 
-/** What the auto-imported equipment adds in front of every buffer, unseen. */
-function prefixLength(): number {
-  const { files } = layOutWorkspace("");
+/**
+ * What the synthesized prefix adds in front of *this* buffer, unseen.
+ *
+ * Per buffer rather than once for all of them: the equipment prefix is gated on
+ * what the source names, so the buffers below that never say `Rat` have no
+ * prefix at all, and a fixed length taken from one of them would let the tests
+ * that turn on the prefix pass without one.
+ */
+function prefixLength(source: string): number {
+  const { files } = layOutWorkspace(source);
   const main = files.find(({ path }) => path === entryPath);
-  return main?.source.length ?? 0;
+  return (main?.source.length ?? 0) - source.length;
 }
+
+/** A buffer whose mention of `Rat` earns the equipment prefix. */
+const equipped = "let half = Rat.create(1, 2)\n";
 
 describe("layOutWorkspace", () => {
   test("puts the whole buffer in `/main.hex` behind a synthesized prefix", () => {
-    const source = "let one = 1\n";
-    const { files } = layOutWorkspace(source);
+    const { files } = layOutWorkspace(equipped);
 
     const main = files.find(({ path }) => path === entryPath);
-    expect(main?.source.endsWith(source)).toBe(true);
-    expect(main?.source.length).toBe(source.length + prefixLength());
+    expect(main?.source.endsWith(equipped)).toBe(true);
+    expect(prefixLength(equipped)).toBeGreaterThan(0);
+  });
+
+  test("prepends an equipment import only for a companion the buffer names", () => {
+    const equippedMain = layOutWorkspace(equipped).files.find(
+      ({ path }) => path === entryPath,
+    );
+    const bareMain = layOutWorkspace("log(\"hello\")\n").files.find(
+      ({ path }) => path === entryPath,
+    );
+
+    expect(equippedMain?.source).toContain(
+      'import * as Rat from "./stdlib/Rat"',
+    );
+    expect(bareMain?.source).toBe("log(\"hello\")\n");
+  });
+
+  test("reads a mention at identifier boundaries, not as a substring", () => {
+    // `Ratio` is not `Rat`, and neither is the `Rat` inside it. Over-approximate
+    // the other way — a comment counts — because a spare import is harmless and
+    // a missing one fails a compile against text the buffer does not show.
+    const spelled = (source: string): boolean =>
+      layOutWorkspace(source).files.find(({ path }) => path === entryPath)
+        ?.source.includes("./stdlib/Rat") ?? false;
+
+    expect(spelled("let Ratio = 1\nlet myRat2 = 2\n")).toBe(false);
+    expect(spelled("// a Rat is exact\nlet one = 1\n")).toBe(true);
+    expect(spelled("let one = 1 // Rat\n")).toBe(true);
+  });
+
+  test("hosts every library source whether or not it is auto-imported", () => {
+    // Hosting is availability: `Rat` stays a file the compiler can resolve an
+    // ordinary `import` against even when nothing prepends one.
+    const { files } = layOutWorkspace("log(\"hello\")\n");
+
+    expect(files.map(({ path }) => path)).toEqual([
+      "/stdlib/Option.hex",
+      "/stdlib/Vector.hex",
+      "/stdlib/Rat.hex",
+      entryPath,
+    ]);
   });
 
   test("makes a real file of each module block and blanks it out of `/main.hex`", () => {
@@ -100,15 +149,15 @@ describe("WorkspaceMap", () => {
   });
 
   test("refuses an offset inside the synthesized import prefix", () => {
-    const { map } = layOutWorkspace("let one = 1\n");
+    const { map } = layOutWorkspace(equipped);
 
     // The prefix is real text in `/main.hex` and no part of the buffer. An
     // edit landing there has no honest home, and answering with offset zero
     // would put it in front of the user's first line.
-    for (let offset = 0; offset < prefixLength(); offset += 1) {
+    for (let offset = 0; offset < prefixLength(equipped); offset += 1) {
       expect(map.toBuffer(entryPath, offset)).toBeUndefined();
     }
-    expect(map.toBuffer(entryPath, prefixLength())).toBe(0);
+    expect(map.toBuffer(entryPath, prefixLength(equipped))).toBe(0);
   });
 
   test("refuses a file the buffer does not contain", () => {
@@ -120,13 +169,14 @@ describe("WorkspaceMap", () => {
   });
 
   test("refuses a span with only one end in the buffer, whichever end that is", () => {
-    const source = "let one = 1\n";
+    const source = equipped;
+    const prefix = prefixLength(source);
     const { map } = layOutWorkspace(source);
-    const last = prefixLength() + source.length;
+    const last = prefix + source.length;
 
     // Starting in the synthesized prefix…
     expect(
-      map.toBufferRange(entryPath, { start: prefixLength() - 1, end: prefixLength() + 3 }),
+      map.toBufferRange(entryPath, { start: prefix - 1, end: prefix + 3 }),
     ).toBeUndefined();
     // …and running off the end, which is the half a clamp would silently keep.
     expect(map.toBufferRange(entryPath, { start: last - 3, end: last + 1 }))
@@ -145,12 +195,12 @@ describe("WorkspaceMap", () => {
   });
 
   test("anchors a diagnostic that refuses to map, rather than losing it", () => {
-    const source = "let one = 1\n";
+    const source = equipped;
     const { map } = layOutWorkspace(source);
 
     expect(map.anchor("/stdlib/Vector.hex", 400)).toBe(0);
     expect(map.anchor(entryPath, 0)).toBe(0);
-    expect(map.anchor(entryPath, prefixLength() + source.length + 99)).toBe(
+    expect(map.anchor(entryPath, prefixLength(source) + source.length + 99)).toBe(
       source.length,
     );
   });

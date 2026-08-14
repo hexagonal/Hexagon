@@ -15,10 +15,17 @@ describe("compileSource", () => {
 
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
-    expect(response.javascript).toContain("Vector.append(numbers, 40)");
-    expect(response.javascript).toContain("Vector.set(extended, 2, 25)");
-    expect(response.javascript).toContain("Vector.at(updated, -1)");
-    expect(response.javascript).toContain("Vector.get(updated, 5)");
+    // `Vector` is a prelude module, not Playground equipment, so nothing
+    // prepends `import * as Vector`: the members arrive named, through the same
+    // channel `Seq`'s `take`/`iterate` arrive on, and the calls are bare.
+    expect(response.javascript).toContain(
+      'import { fromSeq, append, set, at, get } from "./stdlib/Vector.js";',
+    );
+    expect(response.javascript).not.toContain("import * as Vector");
+    expect(response.javascript).toContain("append(numbers, 40)");
+    expect(response.javascript).toContain("set(extended, 2, 25)");
+    expect(response.javascript).toContain("at(updated, -1)");
+    expect(response.javascript).toContain("get(updated, 5)");
     const vectorModule = response.executionModules.find(({ path }) =>
       path === "/stdlib/Vector.hex"
     );
@@ -184,15 +191,15 @@ describe("compileSource", () => {
     expect(response.javascript).toContain('import * as Mगणित from "./Mगणित.js";');
     expect(response.javascript).toContain("log(展示(用户,");
     expect(response.javascript).toContain("Mगणित.जोड़(20, 22)");
-    // `/Prelude.hex` is emitted because the always-supplied `Rat.hex` uses
-    // `Ordering`, and `/VectorTrie.hex` because `Vector.hex` is built on it —
-    // the trie runtime is reached the way a prelude member is, by an emitted
-    // import rather than by a source one. `/BigInt.hex` joins for the same
-    // reason since #344: `Rat.hex` normalizes through `Integral<BigInt>`'s
-    // members, so the companion's dictionary and the constraint homes that
-    // declare what it throws (`/Integral.hex`, `/Pow.hex`) are emitted with it.
-    // `/Int.hex` joins at the second landing: `/VectorTrie.hex`'s index
-    // arithmetic is `Integral<Int>`'s members at that companion now. `/Debug.hex`
+    // This source names neither companion, so no equipment import is prepended
+    // — and `/stdlib/Vector.hex` drops out with it, because a prelude module is
+    // emitted only where something imports it. `/stdlib/Rat.hex` stays: hosting
+    // is unconditional, and Rat is no prelude member, so its file is compiled
+    // and emitted whether or not the buffer reaches it. `/Prelude.hex` is
+    // emitted because `Rat.hex` uses `Ordering`, and `/BigInt.hex` since #344
+    // because `Rat.hex` normalizes through `Integral<BigInt>`'s members — so
+    // the companion's dictionary and the constraint homes that declare what it
+    // throws (`/Integral.hex`, `/Pow.hex`) are emitted with it. `/Debug.hex`
     // joins wherever a source writes a line, which since #407 is every sample —
     // and `/String.hex` joins behind it since #419 widened the probe to
     // `log<a: Show>`, because a line written at `String` now needs the companion
@@ -203,10 +210,7 @@ describe("compileSource", () => {
       "/Integral.hex",
       "/stdlib/Option.hex",
       "/BigInt.hex",
-      "/Int.hex",
       "/String.hex",
-      "/VectorTrie.hex",
-      "/stdlib/Vector.hex",
       "/Debug.hex",
       "/stdlib/Rat.hex",
       "/Mगणित.hex",
@@ -477,6 +481,33 @@ describe("compileSource", () => {
     });
   });
 
+  test("leaves equipment out of a program that names no companion", () => {
+    const response = compileSource(16, "log(\"hello\")\n");
+
+    expect(response.kind).toBe("compile-success");
+    if (response.kind !== "compile-success") return;
+    // #429's complaint: a one-line program opened with three import lines it
+    // never asked for — a `Rat` namespace, the seven-instance inventory a
+    // non-prelude import carries, and a `Vector` namespace that did nothing.
+    expect(response.javascript).not.toContain("./stdlib/Rat.js");
+    expect(response.javascript).not.toContain("./stdlib/Vector.js");
+    expect(response.javascript).not.toContain("__Eq_Rat");
+  });
+
+  test("prepends the Rat equipment import for a program that does name it", () => {
+    const response = compileSource(
+      17,
+      "let third = Rat.create(1, 3)\nlog(\"\${Rat.reciprocal(third)}\")\n",
+    );
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.javascript).toContain(
+      'import * as Rat from "./stdlib/Rat.js";',
+    );
+    expect(response.javascript).toContain("Rat.reciprocal(third)");
+  });
+
   test("lets a workspace Rat module occlude the fundamental companion", () => {
     const source =
       "module Rat\n" +
@@ -487,16 +518,11 @@ describe("compileSource", () => {
 
     expect(response.kind).toBe("compile-success");
     if (response.kind !== "compile-success") return;
-    // `/Int.hex` and the constraint homes its guards throw from arrive with
-    // `/VectorTrie.hex`, whose index arithmetic reaches `Integral<Int>` at that
-    // companion since #344.
+    // The shadow is what keeps `/stdlib/Rat.hex` out — it is unhosted here, not
+    // merely un-imported, which is the one case where hosting is conditional.
+    // Nothing else survives: the buffer names no prelude module, and a prelude
+    // module with no importer is not emitted.
     expect(response.executionModules.map(({ path }) => path)).toEqual([
-      "/Pow.hex",
-      "/Integral.hex",
-      "/stdlib/Option.hex",
-      "/Int.hex",
-      "/VectorTrie.hex",
-      "/stdlib/Vector.hex",
       "/Rat.hex",
       "/main.hex",
     ]);
