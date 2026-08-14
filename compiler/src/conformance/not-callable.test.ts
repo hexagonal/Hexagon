@@ -333,9 +333,64 @@ export fun pong(n: Int): Unit =
 
   test("a nullary exception keeps its own targeted hint", () => {
     // The hint fires before the callee is inferred at all, so the new report
-    // can never displace it (Exceptions §7.3, Unions §2.2).
+    // can never displace it (Exceptions §2.1, Unions §2.2 — one sentence, the
+    // union rules restated for closure).
     expect(
       main("export exception Missing\nexport let bad: Exn = Missing()\n"),
-    ).toEqual(["`Missing` is a value; write it without `()`"]);
+    ).toEqual(["`Missing` is a value, not a function; write it without `()`"]);
+  });
+
+  test("an imported nullary exception must not take the constructor hint", () => {
+    // The exception short-circuit above reads `#exceptions`, which holds only
+    // local declarations, so an imported nullary exception reaches the
+    // not-callable arm — where the constructor hint's membership test
+    // (`#constructorUnions`) must exclude it, exception constructors sharing
+    // the resolver's `"constructor"` symbol kind notwithstanding. That it
+    // lands on the generic sentence rather than Exceptions §2.1's hint is the
+    // pre-existing import gap filed as #439; what this test pins is the
+    // boundary: no union-constructor hint, and no fixit deleting the `()`.
+    const compiled = compileFiles([
+      ["/lib.hex", "export exception Missing\n"],
+      ["/main.hex", 'import { Missing } from "./lib"\nexport let bad: Exn = Missing()\n'],
+    ]);
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      "`Missing` is not a function — it has type `Exn`, and this call supplies no arguments",
+    ]);
+    expect(compiled.diagnostics[0]?.fixes).toBeUndefined();
+  });
+
+  test("an imported nullary constructor is caught, with the fixit in the caller's file", () => {
+    // `#constructorUnions` carries imported unions because `module.unions`
+    // does; this is the only pin on that channel, and on the fixit landing in
+    // the file the call was written in — `AnalysisSession` drops a code action
+    // whose file does not resolve, silently.
+    const mainSource = 'import { Colour, Red } from "./lib"\nexport let bad: Colour = Red()\n';
+    const compiled = compileFiles([
+      ["/lib.hex", "export union Colour = Red | Mixed(Int)\n"],
+      ["/main.hex", mainSource],
+    ]);
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      "`Red` is a value, not a function; write it without `()`",
+    ]);
+    const diagnostic = compiled.diagnostics[0]!;
+    const edit = diagnostic.fixes![0]!.edits[0]!;
+    expect(edit.span.fileId).toBe(diagnostic.primary.fileId);
+    expect(mainSource.slice(edit.span.start.offset, edit.span.end.offset)).toBe("()");
+  });
+
+  test("an argument list that is not exactly `()` keeps the hint but earns no fixit", () => {
+    // "delete the `()`" must delete exactly the two characters it names. A gap
+    // holding anything more — whitespace, a comment, a glued effect mark — is
+    // the writer's text, so the sentence stands alone there.
+    for (const call of ["None ()", "None((* why *))", "None!()"]) {
+      const [diagnostic, ...rest] = compileFiles([
+        ["/main.hex", `export let bad: Option(Int) = ${call}\n`],
+      ]).diagnostics;
+      expect(rest).toEqual([]);
+      expect(diagnostic?.message).toBe(
+        "`None` is a value, not a function; write it without `()`",
+      );
+      expect(diagnostic?.fixes).toBeUndefined();
+    }
   });
 });

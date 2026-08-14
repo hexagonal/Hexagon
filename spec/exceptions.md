@@ -40,7 +40,7 @@ exception Timeout(millis: Int)
 Exactly the union rules (Unions §2.2), restated for closure:
 
 - A payload exception is a function: `ParseError : (line: Int, message: String) -> Exn`. Ordinary n-ary rules: parens required, arity checked, no partial application, no tuple splatting. First-class: `map(lines, l => ParseError(l, "bad"))` is legal.
-- A nullary exception is a **value** of type `Exn`, used bare: `NotFound`. `NotFound()` gets the standard "`NotFound` is a value; write it without `()`" hint. *(But note §7.3: unlike union nullaries, a nullary exception is not a shared constant — each mention constructs fresh, to capture a stack.)*
+- A nullary exception is a **value** of type `Exn`, used bare: `NotFound`. `NotFound()` gets the standard "`NotFound` is a value, not a function; write it without `()`" hint. *(But note §7.3: unlike union nullaries, a nullary exception is not a shared constant — each mention constructs fresh, to capture a stack.)*
 - Slot names are representation/documentation only; construction and catch patterns are positional, always (Unions §2.1 doctrine unchanged).
 - Value restriction: a constructor application of syntactic values is a syntactic value (Functions §8.2). Nothing generalises here anyway — every exception has type `Exn`, no variables in sight.
 
@@ -224,7 +224,7 @@ Runs the thunk; `Ok(value)` on normal return, `Err(exn)` on any throw — Hexago
 | Slot named `name`/`stack`/`$...` | reserved-name error, rename hint (§2) |
 | `message` slot at non-String type | hard error: `message` must be `String` (§2) |
 | Mixed named/unnamed slots | parse error, all-or-none (Unions §2.1) |
-| `NotFound()` construction or pattern | "`NotFound` is a value; write it without `()`" (Unions §2.2) |
+| `NotFound()` construction or pattern | "`NotFound` is a value, not a function; write it without `()`" (Unions §2.2) |
 | Constructor/pattern arity mismatch | standard arity errors + `Circle(_)`-style hints (Unions §4.2 family) |
 | Duplicate exception name (module / in-scope) | constructor-collision rule family (§2) |
 | Bare `try` without `catch` | "`try` requires a `catch`" (§5.1) |

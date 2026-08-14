@@ -4205,7 +4205,8 @@ class Checker {
             }
             this.#diagnostics.add({
               severity: "error",
-              message: `\`${expression.callee.text}\` is a value; write it without \`()\``,
+              message: `\`${expression.callee.text}\` is a value, not a function; ` +
+                "write it without `()`",
               primary: expression.span,
             });
             type = ERROR;
@@ -4267,31 +4268,44 @@ class Checker {
           // A *nullary union constructor* takes Unions §2.2's own sentence
           // instead. The writer named the value; a type display would print the
           // instantiation's fresh variable (`Option(?433)`) — noise about a
-          // value the writer already knows. The fixit is offered only for an
-          // empty argument list: deleting `(x)` deletes an expression, and
-          // where that expression belongs is the writer's decision.
+          // value the writer already knows. `#constructorUnions` alone decides
+          // membership: it holds every union constructor whose union this
+          // module can see, imported ones included (`module.unions` carries
+          // them), and never an exception constructor — which shares the
+          // resolver's `"constructor"` symbol kind but not the map. A *local*
+          // nullary exception never reaches this arm at all (the `#exceptions`
+          // short-circuit above), and an imported one arrives typed `Exn` and
+          // keeps the generic sentence — both pinned in conformance.
+          //
+          // The fixit is offered only where the deletion is exactly the two
+          // characters it names. A gap holding anything more — an argument
+          // expression, a comment (`None((* why *))`), a glued effect mark
+          // (`None!()`) — is the writer's text, and "delete the `()`" must not
+          // delete it.
           if (
-            expression.callee.kind === "Name" && knownCallee.kind === "Union" &&
-            this.#isConstructorSymbol(expression.callee.symbol)
+            expression.callee.kind === "Name" &&
+            this.#constructorUnions.has(expression.callee.symbol)
           ) {
+            const argumentList = {
+              fileId: expression.span.fileId,
+              start: expression.callee.span.end,
+              end: expression.span.end,
+            };
+            const deletesExactlyParens = expression.arguments.length === 0 &&
+              argumentList.end.offset - argumentList.start.offset === 2;
             this.#diagnostics.add({
               severity: "error",
               message: `\`${expression.callee.text}\` is a value, not a function; ` +
                 "write it without `()`",
               primary: expression.span,
-              ...expression.arguments.length === 0 && {
-                fixes: [{
-                  message: "delete the `()`",
-                  edits: [{
-                    span: {
-                      fileId: expression.span.fileId,
-                      start: expression.callee.span.end,
-                      end: expression.span.end,
-                    },
-                    replacement: "",
+              ...(deletesExactlyParens
+                ? {
+                  fixes: [{
+                    message: "delete the `()`",
+                    edits: [{ span: argumentList, replacement: "" }],
                   }],
-                }],
-              },
+                }
+                : {}),
             });
           } else {
             this.#diagnostics.add({
@@ -8694,22 +8708,6 @@ class Checker {
    *   term at all belongs to Constraints §2.2; the ruling neither opens nor
    *   closes that door (closure doc §2.5), so the status quo stands.
    */
-  /**
-   * Whether this symbol was declared as a constructor, local or imported. Local
-   * union constructors are in `#constructorUnions`; an imported one is not, but
-   * its `module.symbols` row carries the kind the defining module gave it — the
-   * same two channels `#isImmutableTermReference` reads, for the same reason.
-   *
-   * "Constructor", not "union constructor": the resolver declares *exception*
-   * constructors under the same kind, so a caller that means unions only must
-   * pair this with a test on the type — which side of the pair excludes what is
-   * why the nullary-constructor hint checks the pruned callee is a `Union`.
-   */
-  #isConstructorSymbol(symbol: Resolved.SymbolId): boolean {
-    return this.#symbolKinds.get(symbol) === "constructor" ||
-      this.#constructorUnions.has(symbol);
-  }
-
   #isImmutableTermReference(symbol: Resolved.SymbolId): boolean {
     switch (this.#symbolKinds.get(symbol)) {
       case "let":

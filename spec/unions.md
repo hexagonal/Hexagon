@@ -251,7 +251,7 @@ union Bool derives (Eq, Ord, Show, Hash) = False | True
 | Payload field named `tag` | hard error: reserved as the discriminant; rename (§2.1) |
 | Mixed named/unnamed slots in one constructor | parse error: all or none (§2.1) |
 | `C()` empty payload parens (declaration or pattern) | "nullary constructors take no argument list" (§2.1, §4.2) |
-| Calling a nullary constructor: `None()` | type error + "`None` is a value; write it without `()`" (§2.2) |
+| Calling a nullary constructor: `None()` | type error + "`None` is a value, not a function; write it without `()`" (§2.2) |
 | Constructor arity mismatch (call) | standard arity error (Functions §5) |
 | Pattern arity mismatch | arity error; bare payload constructor gets the `Circle(_)` hint (§4.2 — owned here, consumed by Pattern Matching §2.2) |
 | Duplicate binder in a whole pattern | error (Pattern Matching §2.1 owns the whole-pattern check) |
