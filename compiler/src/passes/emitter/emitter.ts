@@ -1334,6 +1334,37 @@ class JavaScriptEmitter {
     readonly specialization: FundamentalSpecialization;
     readonly text: string;
   }[] = [];
+  /**
+   * Dictionary Sharing §3.1: one module-level `const` per distinct ground
+   * evidence tree, keyed by that tree as it renders.
+   *
+   * The key is the application spelled out — `__Show_Option(__Show_Int)` — with
+   * every *argument* already replaced by the name its own hoisting minted. That
+   * is §4's canonical key with the leaves normalized: structurally equal trees
+   * render identically and so share a key, and the two leaf kinds that denote
+   * one dictionary (a migrated companion's `Primitive` evidence and the
+   * `Instance` evidence for the same source instance) do not split into two
+   * bindings for one value.
+   *
+   * Insertion order is dependency order and needs no sort: `#emitEvidence`
+   * renders arguments before the application they sit in, so a subtree is
+   * interned before its parent, and a tree is strictly larger than its subterms
+   * (§5's DAG-by-construction argument).
+   */
+  readonly #hoistedEvidence = new Map<
+    string,
+    { readonly name: string; readonly initializer: string }
+  >();
+  /**
+   * Nonzero while rendering evidence that is read **as the module loads**,
+   * above the hoisted block: an unparameterized instance's base-constraint
+   * slots (`#directEvidence`). §5 places hoisted bindings after the factories
+   * and zero-argument instances they reference, so a binding those instances
+   * read back would be in its temporal dead zone. Suppressing the rewrite there
+   * keeps the one direction of the edge §5 assumes, whatever the checker hands
+   * this position.
+   */
+  #eagerEvidenceDepth = 0;
 
   constructor(module: Core.Module, options: JavaScriptEmissionOptions) {
     this.#module = module;
@@ -1548,6 +1579,21 @@ class JavaScriptEmitter {
     );
     if (instances.length > 0) {
       body.push(...instances.flatMap(({ lines }) => lines), "");
+    }
+
+    // Dictionary Sharing §5: the hoisted ground applications, in dependency
+    // order, after the factories and zero-argument instances they reference and
+    // before the term bindings that demand them (Constraints §6.3's emission
+    // obligation). Insertion order *is* dependency order — see
+    // `#hoistedEvidence` — so nothing is sorted here, and §8 keeps them out of
+    // the export list by the simple fact that nothing adds them to it.
+    if (this.#hoistedEvidence.size > 0) {
+      body.push(
+        ...[...this.#hoistedEvidence.values()].map(
+          ({ name, initializer }) => `const ${name} = ${initializer};`,
+        ),
+        "",
+      );
     }
 
     const seated = this.#docs.seatedComments();
@@ -1918,13 +1964,37 @@ class JavaScriptEmitter {
           localDictionary,
         );
       }
+      // Dictionary Sharing §3.2: self-evidence at the factory's **identity
+      // arrangement** — this instance's dictionary applied to the factory's own
+      // parameters, in order — is the local record under construction, not a
+      // fresh application. Legal precisely because every reader sits inside a
+      // member's closure body and so is never evaluated during the factory's
+      // application; a recursive traversal therefore allocates zero additional
+      // dictionaries rather than one shared one, and the shape holds even when
+      // the instantiation is not ground.
+      //
+      // Registered as the arrangement's rendering, which is what makes "in
+      // order" load-bearing without a second comparison: a deeper (`Weird`) or
+      // permuted (`Swap`) self-demand, and a *different* instance over the same
+      // parameters (mutual recursion), all render to something else and fall
+      // through to §3.3 unchanged.
+      if (parameters.length > 0) {
+        localEvidence.set(
+          selfEvidenceKey(`${item.dictionary}(${parameters.join(", ")})`),
+          localDictionary,
+        );
+      }
       // The one part of a dictionary that is read while the `const` initializes:
       // members and inherited defaults are lambdas, so the dictionaries they
-      // name are read at call time and order nothing (Constraints §6.3).
+      // name are read at call time and order nothing (Constraints §6.3). That is
+      // also why it is the one position where a ground application must not
+      // hoist — see `#eagerEvidenceDepth`.
+      this.#eagerEvidenceDepth += 1;
       const baseEvidence = item.baseConstraints.map(({ name, evidence }) => ({
         name,
         rendered: this.#emitEvidence(evidence, name, item.span, localEvidence),
       }));
+      this.#eagerEvidenceDepth -= 1;
       if (parameters.length === 0) {
         this.#directEvidence.set(item, baseEvidence.map(({ rendered }) => rendered));
       }
@@ -4942,11 +5012,56 @@ class JavaScriptEmitter {
           evidenceNames,
         )
       );
-      return arguments_.length === 0
-        ? evidence.dictionary
-        : `${evidence.dictionary}(${arguments_.join(", ")})`;
+      if (arguments_.length === 0) return evidence.dictionary;
+      const rendering = `${evidence.dictionary}(${arguments_.join(", ")})`;
+      // §3.2, before §3.1 and before anything else: inside a parameterized
+      // instance's factory body, this instance at the factory's own parameters
+      // *is* the record under construction. Keyed on the rendering because the
+      // arrangement is exactly what distinguishes the replacement from §3.3's
+      // residue — `__Dsp_Swap(__Dsp_b, __Dsp_a)` is this factory permuted and
+      // renders differently, so it misses and stays a call-time application.
+      const self = evidenceNames.get(selfEvidenceKey(rendering));
+      if (self !== undefined) return self;
+      return this.#hoistGroundEvidence(evidence, rendering, arguments_);
     }
     return "undefined";
+  }
+
+  /**
+   * Dictionary Sharing §3.1: the name of the one module-level binding for this
+   * ground application, minting it on first demand.
+   *
+   * Returns the application unchanged when it must not hoist — a free evidence
+   * parameter anywhere in the tree (§3.3), evidence that failed to resolve (§4:
+   * error evidence never hoists), or an eagerly-read position (`#eagerEvidenceDepth`).
+   */
+  #hoistGroundEvidence(
+    evidence: Core.InstanceEvidence,
+    rendering: string,
+    argumentRenderings: readonly string[],
+  ): string {
+    if (this.#eagerEvidenceDepth > 0) return rendering;
+    if (!isGroundEvidence(evidence)) return rendering;
+    // The `Primitive` defect path returns this after reporting; a tree built
+    // over it is error evidence in §4's sense however it was spelled.
+    if (argumentRenderings.includes("undefined")) return rendering;
+    const existing = this.#hoistedEvidence.get(rendering);
+    if (existing !== undefined) return existing.name;
+    // §5's spelling, through the same probe every other generated name takes:
+    // the taken set is seeded with every declared, imported, and prelude
+    // dictionary local, so a hoisted binding never lands on a seat the resolver
+    // already assigned (`nameDictionaries`), and two hoisted bindings whose
+    // flattened spellings coincide separate by suffix.
+    const name = this.#generatedNames.fresh(
+      [
+        evidence.dictionary.startsWith("__")
+          ? evidence.dictionary.slice(2)
+          : evidence.dictionary,
+        ...argumentRenderings.map(flattenDictionarySpelling),
+      ].join("_"),
+    );
+    this.#hoistedEvidence.set(rendering, { name, initializer: rendering });
+    return name;
   }
 
   #identifier(symbol: Resolved.SymbolId, sourceName: string): string {
@@ -8016,6 +8131,51 @@ const MIGRATED_COMPANIONS: ReadonlySet<string> = new Set(
 function primitiveInstance(evidence: Core.Evidence): Typed.PrimitiveName | undefined {
   if (evidence.kind === "Primitive") return evidence.instance;
   return evidence.kind === "Instance" ? evidence.primitive : undefined;
+}
+
+/**
+ * Whether this evidence tree is **ground** — Dictionary Sharing §4's condition
+ * for hoisting: an instance application whose leaves are named instances or
+ * primitive dictionaries, with no free evidence parameter anywhere in it.
+ *
+ * `Dictionary` evidence is the free parameter itself and is what §3.3 keeps at
+ * the call. `Error` evidence never hoists, by the same section. `Structural`
+ * evidence is out of scope here (§9.1 defers it to its own ruling); it is
+ * rendered as a literal, and a literal is not an application to hoist.
+ */
+function isGroundEvidence(evidence: Core.Evidence): boolean {
+  if (evidence.kind === "Primitive") return true;
+  if (evidence.kind !== "Instance") return false;
+  return evidence.arguments.every(({ evidence: argument }) => isGroundEvidence(argument));
+}
+
+/**
+ * One argument dictionary's contribution to a hoisted binding's spelling
+ * (Dictionary Sharing §5): "the factory's name followed by the flattened
+ * spelling of its argument instances", so `__Render_Box(__Render_Int)` is
+ * `__Render_Box_Int`.
+ *
+ * The constraint segment is dropped because the factory already carries it —
+ * repeating it would spell `__Render_Box_Render_Int`. Dropping it is what makes
+ * the flattening non-injective, which is exactly the non-injectivity §5's
+ * collision rule exists to absorb, and `GeneratedNames` supplies the probe.
+ */
+function flattenDictionarySpelling(name: string): string {
+  const stripped = name.startsWith("__") ? name.slice(2) : name;
+  const separator = stripped.indexOf("_");
+  return separator < 0 ? stripped : stripped.slice(separator + 1);
+}
+
+/**
+ * The key under which a factory body's own identity arrangement is registered
+ * in `EvidenceNames`, so §3.2's replacement is a lookup rather than a re-walk.
+ *
+ * Held in the same map as the evidence *parameters* because it answers the same
+ * question — "what does this module already have a name for?" — and namespaced
+ * apart from `evidenceKey`, whose spellings all begin with a digit.
+ */
+function selfEvidenceKey(rendering: string): string {
+  return `self:${rendering}`;
 }
 
 /**
