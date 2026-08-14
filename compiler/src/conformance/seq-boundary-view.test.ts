@@ -742,8 +742,8 @@ describe("occasion 1's wrapper is transparent to Hexagon importers (§9.4)", () 
       );
     }
     // The internal edition is exported raw, and is absent from the face.
-    expect(javascript).toMatch(/^export \{ total as __export\d+ \};$/mu);
-    expect(compiled.declarations.text).not.toContain("__export");
+    expect(javascript).toMatch(/^export \{ total as __total \};$/mu);
+    expect(compiled.declarations.text).not.toContain("__total");
     // And a specialization really accepts what its face invites.
     const exports = await main(source);
     const totalInt = exports["totalInt"] as (source: Iterable<number>, start: number) => number;

@@ -44,6 +44,39 @@ describe("renderGeneratedCodeView", () => {
     expect(view).not.toContain("export { plusInt }");
   });
 
+  /**
+   * The internal constrained export is Hexagon-to-Hexagon plumbing the source
+   * never wrote (#430). Its neighbours in the same `export { … as … };` shape
+   * are not: an evidence dictionary is a real cross-module binding, and a
+   * boundary wrapper is the published face itself.
+   */
+  test("hides internal constrained exports and leaves the other aliased ones", () => {
+    const plumbing = "const plus = generic;\n" +
+      "function plusInt(x, y) { return x + y; }\n" +
+      "export { plus as __plus };\n" +
+      "export { total_1 as __total_1 };\n" +
+      "export { __default_stamped };\n" +
+      "export { __Eq_Rat_1 as __Eq_Rat };\n" +
+      "export { totalBoundary as totalInt };\n";
+    const start = plumbing.indexOf("function plusInt");
+    const end = start + "function plusInt(x, y) { return x + y; }".length;
+    const view = renderGeneratedCodeView(plumbing, [{
+      kind: "FundamentalSpecialization",
+      sourceName: "plus",
+      generatedName: "plusInt",
+      typeArguments: ["Int"],
+      startOffset: start,
+      endOffset: end,
+      bytes: end - start,
+    }], "source");
+
+    expect(view).not.toContain("__plus");
+    expect(view).not.toContain("__total_1");
+    expect(view).toContain("export { __default_stamped };");
+    expect(view).toContain("export { __Eq_Rat_1 as __Eq_Rat };");
+    expect(view).toContain("export { totalBoundary as totalInt };");
+  });
+
   test("returns the exact module or one annotated edition on request", () => {
     expect(renderGeneratedCodeView(javascript, sections, "complete")).toBe(javascript);
     expect(renderGeneratedCodeView(javascript, sections, "specialization:plusFloat")).toBe(

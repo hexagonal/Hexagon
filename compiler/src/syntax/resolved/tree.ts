@@ -536,6 +536,35 @@ export interface LetItem {
   readonly span: Source.Span;
 }
 
+/**
+ * Everything one module's internal export spellings (Lexer §3.2's reserved
+ * prefix) are a function of — carried on the import so an importer computes the
+ * exporter's names rather than predicting them.
+ *
+ * Three families share that namespace and can contest a spelling: a defaulted
+ * member's hoisted helper claims `__default_<member>`, a member's forwarder
+ * prefers `__<member>`, and a constrained term's export prefers `__<term>`
+ * (Constraints §6.5, FFI Part 7 §7). `default_log` is an ordinary term name, so
+ * the contests are real, and an importer cannot see them from what it imports:
+ * `import { default_log }` names the term and never the constraint whose member
+ * `log` claims the spelling.
+ *
+ * These are the *inputs* to the naming rule, not the names it produces, so the
+ * rule has exactly one implementation — the exporting module runs it over its
+ * own items, an importer over this, and neither predicts what the other
+ * computed. `members` is every member of every **exported** constraint the
+ * module declares, not only the constraints this import binds, and `terms` is
+ * every exported `let`, `fun`, and foreign row: an unconstrained one mints no
+ * spelling but still contests one, and both sides must count the same heads.
+ */
+export interface InternalNameInputs {
+  readonly members: readonly {
+    readonly name: string;
+    readonly defaulted: boolean;
+  }[];
+  readonly terms: readonly string[];
+}
+
 export interface ImportItem {
   readonly kind: "Import";
   readonly specifier: string;
@@ -544,6 +573,11 @@ export interface ImportItem {
   readonly instances: readonly InstanceImport[];
   /** Constraints this import binds by name (Modules §3.1/§3.2/§3.3). */
   readonly constraints: readonly ConstraintImport[];
+  /**
+   * What the imported module's internal export spellings are computed from; see
+   * `InternalNameInputs`.
+   */
+  readonly internalNames: InternalNameInputs;
   /**
    * Whether the resolver synthesized this import rather than the source writing
    * it — the used-names-only import of one prelude module (Modules §5.5, §6.4).

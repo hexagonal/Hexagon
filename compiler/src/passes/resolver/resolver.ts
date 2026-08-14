@@ -541,6 +541,44 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
   };
 }
 
+/**
+ * What a module's internal export spellings are computed from, for
+ * `Resolved.ImportItem.internalNames` — see its documentation for why an
+ * importer is given the inputs rather than the names.
+ *
+ * Both clauses are the emitter's own-module enumerations on the far side, item
+ * kind for item kind: `constraints` is what `moduleInterface` fills from this
+ * module's `export constraint` items and nothing else, and the term walk reads
+ * the declaration's own items rather than the interface's `terms` map, because
+ * that map also holds constructors and exception names — which mint no internal
+ * spelling and, being uppercase-start, can contest none either. Counting them
+ * on one side only is the way the two sides would drift.
+ */
+function internalNameInputs(
+  imported: ModuleInterface | undefined,
+): Resolved.InternalNameInputs {
+  if (imported === undefined) return { members: [], terms: [] };
+  const members = [...imported.constraints.values()].flatMap((declaration) =>
+    declaration.members.map(({ binding, defaultValue }) => ({
+      name: binding.name,
+      defaulted: defaultValue !== undefined,
+    }))
+  );
+  const terms = imported.module.items.flatMap((item) => {
+    if (item.kind === "ExternBlock") {
+      return item.declarations.flatMap((declaration) =>
+        declaration.exported && declaration.kind !== "ExternType"
+          ? [declaration.localName]
+          : []
+      );
+    }
+    return (item.kind === "Let" || item.kind === "Fun") && item.exported
+      ? [item.binding.name]
+      : [];
+  });
+  return { members, terms };
+}
+
 class Scope {
   readonly #bindings = new Map<string, Resolved.SymbolId>();
   /**
@@ -1676,6 +1714,7 @@ class Resolver {
             span: item.span,
           })),
           constraints: boundConstraints,
+          internalNames: internalNameInputs(importedModule),
           span: item.span,
         };
       }
@@ -3556,6 +3595,11 @@ class Resolver {
       // Empty for the same reason: the prelude's constraints are the
       // pre-registered ones, in scope by name in every module with no import.
       constraints: [],
+      // Not empty for that reason: these describe the exporting module's own
+      // output, and a prelude module names its exports like any other.
+      internalNames: internalNameInputs(
+        this.#preludeInterfaceBySpecifier.get(specifier),
+      ),
       synthesized: true,
       span,
     }));
