@@ -8912,23 +8912,25 @@ class Checker {
    * as `__dictLabeled.same` from an enclosing dictionary also carries an
    * `evidenceConstraint` of another name, and it is the callee's one real
    * argument. Elimination has to be decided among siblings, not per requirement.
+   *
+   * Both decisions — which requirements are siblings, and which of the survivors
+   * are the same argument — are made per ABI **slot** and never per resolved
+   * type; see `#evidenceSlot` for why the distinction is the whole of #443.
    */
   #evidenceRequirements(requirements: readonly Requirement[]): readonly Typed.Constraint[] {
     // Siblings are gathered by constraint *declaration*, so two same-named but
-    // unrelated constraints on one variable stay two arguments (§5.1.1).
-    const siblingsByType = new Map<string, Set<string>>();
-    const identify = (requirement: Requirement): string => {
-      const type = this.#prune(requirement.type);
-      return type.kind === "Variable" ? `v${type.id}` : this.#display(type);
-    };
+    // unrelated constraints on one variable stay two arguments (§5.1.1) — and by
+    // ABI *slot*, so two distinct variables that landed on one type stay two
+    // arguments as well (#443).
+    const siblingsBySlot = new Map<string, Set<string>>();
     for (const requirement of requirements) {
-      const key = identify(requirement);
-      const constraints = siblingsByType.get(key) ?? new Set<string>();
+      const key = this.#evidenceSlot(requirement);
+      const constraints = siblingsBySlot.get(key) ?? new Set<string>();
       constraints.add(requirement.identity);
-      siblingsByType.set(key, constraints);
+      siblingsBySlot.set(key, constraints);
     }
     return this.#publicRequirements(requirements.filter((requirement) => {
-      const siblings = siblingsByType.get(identify(requirement)) ?? new Set<string>();
+      const siblings = siblingsBySlot.get(this.#evidenceSlot(requirement)) ?? new Set<string>();
       for (const sibling of siblings) {
         if (sibling === requirement.identity) continue;
         if (this.#entailmentPath(sibling, requirement.identity) !== undefined) return false;
@@ -8937,15 +8939,37 @@ class Checker {
     }));
   }
 
+  /**
+   * Which of the callee's evidence slots a requirement answers: the scheme
+   * variable `#instantiate` copied it onto, named by the fresh variable that
+   * copy minted (#443).
+   *
+   * The slot is *not* the type the variable resolved to. `dictionaryEntries`
+   * gives the callee one parameter per constrained variable, so two variables
+   * that unify to one type — `pair<a: Show, b: Show>` called as `pair(2, 3)` —
+   * still have two slots, and keying on the resolved type merged them into one
+   * argument against a two-parameter callee: a clean compile that read `.show`
+   * off `undefined`. Sharing belongs to the *value* each slot references, which
+   * for a prelude instance is one named module constant, so the correct emission
+   * is that name written once per slot.
+   *
+   * Read unpruned deliberately. The fresh variable keeps its identity after
+   * unification, which is what makes `both<c: Show>(y: c) = pair(y, y)` — two
+   * slots, one dictionary — come out as two arguments naming one parameter.
+   * Requirements minted against an already-concrete type carry no slot of their
+   * own and fall back to the type, which is what the non-ABI readers of
+   * `#publicRequirements` want.
+   */
+  #evidenceSlot(requirement: Requirement): string {
+    if (requirement.type.kind === "Variable") return `v${requirement.type.id}`;
+    return this.#display(this.#prune(requirement.type));
+  }
+
   #publicRequirements(requirements: readonly Requirement[]): readonly Typed.Constraint[] {
     const unique = new Map<string, Typed.Constraint>();
     for (const requirement of requirements) {
       const constraint = this.#publicRequirement(requirement);
-      const type = this.#prune(requirement.type);
-      const identity = type.kind === "Variable"
-        ? `v${type.id}`
-        : this.#display(type);
-      unique.set(`${constraint.identity}:${identity}`, constraint);
+      unique.set(`${constraint.identity}:${this.#evidenceSlot(requirement)}`, constraint);
     }
     return [...unique.values()];
   }
